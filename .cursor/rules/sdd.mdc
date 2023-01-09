@@ -1,0 +1,14 @@
+---
+description: SDD is source of truth; do not copy ping-pong or add EnTT
+alwaysApply: true
+---
+
+# Spec
+
+Design of record: `docs/sdd.md`. Ping-pong is a prototype only.
+
+Do not introduce: EnTT, `Node` / `NodeEcs` / `NodeUI`, `EventBus` Subscribe/Emit, `CmdCustomDraw`, UI `onClick` lambdas, `Get("file.png")`, `Transform` parent, service locator (`Engine::GetAudio()`).
+
+Public headers may include glm. They must not include SDL, glad, NanoVG, spdlog, tinyxml2, or mixer.
+
+UI → game is `ICommand` on a `ViewModel`. Draw through `CommandBuffer` with `IMaterial` on meshes. Assets by `AssetId` only.
