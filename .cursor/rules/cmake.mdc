@@ -1,0 +1,13 @@
+---
+description: Engine CMake layout and test flags
+globs: CMakeLists.txt
+alwaysApply: false
+---
+
+# CMake
+
+Static `engine`. `PUBLIC` include = `include/`. `PRIVATE` = `src/`. glm is PUBLIC. spdlog, tinyxml2, tomlplusplus are PRIVATE.
+
+`ENGINE_BUILD_TESTS` ON when this repo is CMake root. `ENGINE_WITH_WINDOW` / `ENGINE_WITH_AUDIO` stay OFF until slices 8–9.
+
+Do not FetchContent. Do not add EnTT. Do not enable tinyxml2’s `xmltest`. New sources are picked up by `GLOB_RECURSE` under `src/` and `tests/*_test.cpp`.
