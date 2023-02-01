@@ -120,6 +120,28 @@ View<Ts...> World::view() {
 }
 
 template<typename T>
+T& World::ctx() {
+    const std::type_index key{typeid(T)};
+    auto it = resources_.find(key);
+    if (it == resources_.end()) {
+        auto resource = std::make_unique<Resource<T>>();
+        T* value = &resource->value;
+        resources_.emplace(key, std::move(resource));
+        if constexpr (IsEvents<T>::value) {
+            event_queues_.emplace_back([value]() { value->update(); });
+        }
+        return *value;
+    }
+    return static_cast<Resource<T>&>(*it->second).value;
+}
+
+template<typename T>
+EventWriter<T>::EventWriter(World& world) : events_(&world.ctx<Events<T>>()) {}
+
+template<typename T>
+EventReader<T>::EventReader(World& world) : events_(&world.ctx<Events<T>>()) {}
+
+template<typename T>
 World::Pool<T>& World::assure_pool() {
     const std::type_index key{typeid(T)};
     auto it = pools_.find(key);
