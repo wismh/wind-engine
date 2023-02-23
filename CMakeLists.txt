@@ -75,6 +75,9 @@ target_link_libraries(engine
         tinyxml2::tinyxml2
         tomlplusplus::tomlplusplus)
 
+add_executable(asset_codegen "${CMAKE_CURRENT_SOURCE_DIR}/tools/asset_codegen/main.cpp")
+target_link_libraries(asset_codegen PRIVATE engine)
+
 if(ENGINE_WITH_WINDOW)
     engine_require_submodule(SDL3)
     message(FATAL_ERROR "ENGINE_WITH_WINDOW is slice 8: add SDL3/glad/nanovg per external/README.md, then remove this FATAL_ERROR.")
