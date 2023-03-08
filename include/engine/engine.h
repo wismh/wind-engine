@@ -9,6 +9,12 @@
 #include <engine/resources/assets_db.h>
 #include <engine/resources/fatal_error.h>
 #include <engine/resources/meta.h>
+#include <engine/ui/bindable.h>
+#include <engine/ui/canvas.h>
+#include <engine/ui/command.h>
+#include <engine/ui/document.h>
+#include <engine/ui/stylesheet.h>
+#include <engine/ui/view_model.h>
 
 namespace engine {
 
