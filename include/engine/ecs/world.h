@@ -2,7 +2,9 @@
 
 #include <engine/ecs/entity.h>
 #include <engine/ecs/events.h>
+#include <engine/ecs/schedule.h>
 
+#include <array>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -89,6 +91,11 @@ public:
     template<typename T>
     T& ctx();
 
+    using SystemFn = std::function<void(World&)>;
+
+    void AddSystem(Schedule schedule, Phase phase, SystemFn fn);
+    void Run(Schedule schedule);
+
     void FlushEvents();
 
 private:
@@ -125,6 +132,7 @@ private:
     std::vector<std::function<void()>> event_queues_;
     std::vector<Entity> pending_destroy_;
     int view_depth_ = 0;
+    std::array<std::array<std::vector<SystemFn>, kPhaseCount>, kScheduleCount> systems_{};
 };
 
 template<typename... Ts>
