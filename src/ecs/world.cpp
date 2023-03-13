@@ -65,6 +65,28 @@ void World::flush_destroyed() {
     }
 }
 
+void World::AddSystem(Schedule schedule, Phase phase, SystemFn fn) {
+    systems_[schedule_index(schedule)][phase_index(phase)].push_back(std::move(fn));
+}
+
+void World::Run(Schedule schedule) {
+    const auto run_phases = [this, schedule](const auto& phases) {
+        auto& by_phase = systems_[schedule_index(schedule)];
+        for (const Phase phase : phases) {
+            auto& list = by_phase[phase_index(phase)];
+            for (std::size_t i = 0; i < list.size(); ++i) {
+                list[i](*this);
+            }
+        }
+    };
+
+    if (schedule == Schedule::Fixed) {
+        run_phases(kFixedPhases);
+    } else {
+        run_phases(kFramePhases);
+    }
+}
+
 void World::FlushEvents() {
     for (auto& update : event_queues_) {
         update();
