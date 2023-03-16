@@ -8,12 +8,15 @@
 #include <engine/ecs/systems.h>
 #include <engine/ecs/world.h>
 #include <engine/igame.h>
+#include <engine/render/backend.h>
 #include <engine/render/canvas.h>
 #include <engine/render/command_buffer.h>
 #include <engine/render/commands.h>
+#include <engine/render/graphic_factory.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
 #include <engine/render/renderable.h>
+#include <engine/builtin_ids.h>
 #include <engine/resources/asset_id.h>
 #include <engine/resources/assets_db.h>
 #include <engine/resources/fatal_error.h>
