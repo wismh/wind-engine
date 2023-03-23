@@ -1,3 +1,4 @@
+#include <engine/builtin_ids.h>
 #include <engine/resources/meta.h>
 
 #include <iostream>
@@ -9,7 +10,7 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    const auto result = engine::codegen_write(argv[1], argv[2]);
+    const auto result = engine::codegen_write(argv[1], argv[2], engine::builtin::reserved());
     if (!result) {
         std::cerr << result.error().message << '\n';
         return 1;
