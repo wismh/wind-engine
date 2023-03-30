@@ -1,13 +1,16 @@
 #include <engine/resources/meta.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <fstream>
 #include <iterator>
+#include <span>
 #include <sstream>
 #include <string>
 #include <system_error>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -20,7 +23,21 @@ bool is_meta_file(const std::filesystem::path& path) {
 
 bool is_skippable_file(const std::filesystem::path& path) {
     const std::string name = path.filename().string();
-    return name.empty() || name.front() == '.';
+    if (name.empty() || name.front() == '.') {
+        return true;
+    }
+
+    std::string lower = name;
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    if (lower == "readme.md" || lower == "license" || lower == "copying" || lower == "ofl.txt") {
+        return true;
+    }
+    if (lower.starts_with("license.")) {
+        return true;
+    }
+    return path.extension() == ".md";
 }
 
 std::string generic_relative(const std::filesystem::path& root, const std::filesystem::path& file) {
@@ -50,7 +67,8 @@ std::expected<void, CodegenError> emit_ids_header(const std::vector<std::pair<As
 
 }
 
-std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::path& assets_root) {
+std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::path& assets_root,
+        std::span<const AssetId> reserved) {
     std::error_code exists_ec;
     if (!std::filesystem::exists(assets_root, exists_ec) || !std::filesystem::is_directory(assets_root)) {
         return std::unexpected(CodegenError{CodegenErrorKind::Io, "assets root is not a directory"});
@@ -58,6 +76,11 @@ std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::p
 
     CodegenOutput output;
     std::unordered_map<std::string, std::string> guid_to_path;
+    std::unordered_set<std::string> reserved_hex;
+    reserved_hex.reserve(reserved.size());
+    for (const AssetId& id : reserved) {
+        reserved_hex.emplace(id.hex());
+    }
     std::vector<std::pair<AssetCppId, AssetId>> ids;
 
     std::error_code iter_ec;
@@ -95,6 +118,10 @@ std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::p
 
         const std::string relative = generic_relative(assets_root, file);
         const std::string guid_hex(parsed->guid.hex());
+        if (reserved_hex.contains(guid_hex)) {
+            return std::unexpected(CodegenError{CodegenErrorKind::Collision,
+                    "guid " + guid_hex + " is reserved by engine builtins (" + relative + ")"});
+        }
         if (const auto it = guid_to_path.find(guid_hex); it != guid_to_path.end()) {
             return std::unexpected(CodegenError{CodegenErrorKind::Collision,
                     "guid " + guid_hex + " used by " + it->second + " and " + relative});
@@ -118,8 +145,8 @@ std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::p
 }
 
 std::expected<void, CodegenError> codegen_write(const std::filesystem::path& assets_root,
-        const std::filesystem::path& output_dir) {
-    auto scanned = codegen_scan(assets_root);
+        const std::filesystem::path& output_dir, std::span<const AssetId> reserved) {
+    auto scanned = codegen_scan(assets_root, reserved);
     if (!scanned) {
         return std::unexpected(std::move(scanned.error()));
     }
