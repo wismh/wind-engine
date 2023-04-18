@@ -6,8 +6,11 @@
 #include <engine/core/fixed_step.h>
 #include <engine/core/host.h>
 #include <engine/core/time.h>
+#include <engine/ecs/camera.h>
+#include <engine/ecs/physics.h>
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/systems.h>
+#include <engine/ecs/transform.h>
 #include <engine/ecs/world.h>
 #include <engine/igame.h>
 #include <engine/render/backend.h>
