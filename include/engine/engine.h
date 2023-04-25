@@ -5,6 +5,7 @@
 #include <engine/core/application_state.h>
 #include <engine/core/fixed_step.h>
 #include <engine/core/host.h>
+#include <engine/core/input_system.h>
 #include <engine/core/time.h>
 #include <engine/ecs/camera.h>
 #include <engine/ecs/physics.h>
