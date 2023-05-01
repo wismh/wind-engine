@@ -1,5 +1,14 @@
 #pragma once
 
+#include <engine/core/application_state.h>
+#include <engine/core/fixed_step.h>
+#include <engine/core/host.h>
+#include <engine/core/time.h>
+#include <engine/ecs/schedule.h>
+#include <engine/ecs/systems.h>
+#include <engine/ecs/world.h>
+#include <engine/igame.h>
+#include <engine/render/canvas.h>
 #include <engine/render/command_buffer.h>
 #include <engine/render/commands.h>
 #include <engine/render/graphics.h>

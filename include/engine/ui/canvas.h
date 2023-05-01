@@ -33,6 +33,11 @@ struct WindowSize {
     int height = 0;
 };
 
+struct WindowResizeEvent {
+    int width = 0;
+    int height = 0;
+};
+
 [[nodiscard]] constexpr bool rect_contains(const render::Rect& rect, float x, float y) noexcept {
     return x >= rect.x && y >= rect.y && x < (rect.x + rect.w) && y < (rect.y + rect.h);
 }
