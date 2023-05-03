@@ -1,5 +1,6 @@
 #include <engine/core/host.h>
 
+#include <engine/audio/audio_system.h>
 #include <engine/ecs/events.h>
 #include <engine/ecs/systems.h>
 #include <engine/ui/canvas.h>
@@ -8,9 +9,10 @@
 
 namespace engine {
 
-Host::Host(IGame& game, render::ICanvas& canvas)
+Host::Host(IGame& game, render::ICanvas& canvas, IAudioSystem* audio)
     : game_(&game)
     , canvas_(&canvas)
+    , audio_(audio)
     , time_(&game.World().ctx<Time>())
     , app_state_(&game.World().ctx<ApplicationState>())
     , clock_(*time_, *app_state_) {
@@ -31,6 +33,9 @@ void Host::tick(float real_dt) {
     ui::begin_frame(world_ref);
 
     const int steps = clock_.advance(real_dt);
+    if (audio_ != nullptr) {
+        audio_->Update(time_->deltaTime);
+    }
     for (int i = 0; i < steps; ++i) {
         game_->OnFixedUpdate();
     }
