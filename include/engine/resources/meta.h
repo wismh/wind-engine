@@ -84,6 +84,7 @@ struct CatalogEntry {
     AssetId guid;
     std::string relative_path;
     ImporterKind importer = ImporterKind::Texture;
+    AudioImportSettings audio{};
 };
 
 class CookedCatalog {
