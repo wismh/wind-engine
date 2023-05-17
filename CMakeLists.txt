@@ -32,6 +32,16 @@ function(engine_require_submodule dir)
     endif()
 endfunction()
 
+function(engine_require_file rel)
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${rel}")
+        message(FATAL_ERROR
+            "Missing ${rel} (git submodule not cloned?). From the engine repo run:\n"
+            "  git submodule update --init --recursive\n"
+            "WINDOW deps: external/SDL3, external/glad, external/nanovg, external/boost_di.\n"
+            "See external/README.md")
+    endif()
+endfunction()
+
 engine_require_submodule(glm)
 engine_require_submodule(tomlplusplus)
 engine_require_submodule(tinyxml2)
@@ -56,6 +66,7 @@ add_subdirectory(external/spdlog)
 file(GLOB_RECURSE ENGINE_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c")
+list(FILTER ENGINE_SOURCES EXCLUDE REGEX "[/\\\\]render[/\\\\]opengl[/\\\\]")
 
 add_library(engine STATIC ${ENGINE_SOURCES})
 add_library(engine::engine ALIAS engine)
@@ -79,8 +90,52 @@ add_executable(asset_codegen "${CMAKE_CURRENT_SOURCE_DIR}/tools/asset_codegen/ma
 target_link_libraries(asset_codegen PRIVATE engine)
 
 if(ENGINE_WITH_WINDOW)
-    engine_require_submodule(SDL3)
-    message(FATAL_ERROR "ENGINE_WITH_WINDOW is slice 8: add SDL3/glad/nanovg per external/README.md, then remove this FATAL_ERROR.")
+    engine_require_file(external/SDL3/CMakeLists.txt)
+    engine_require_file(external/nanovg/src/nanovg.c)
+    engine_require_file(external/boost_di/include/boost/di.hpp)
+
+    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+    set(SDL_STATIC ON CACHE BOOL "" FORCE)
+    set(SDL_TEST OFF CACHE BOOL "" FORCE)
+    set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+    set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+    set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
+    add_subdirectory(external/SDL3)
+
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/glad/CMakeLists.txt")
+        add_subdirectory(external/glad)
+    elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/glad/src/glad.c")
+        add_library(glad STATIC "${CMAKE_CURRENT_SOURCE_DIR}/external/glad/src/glad.c")
+        target_include_directories(glad PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/external/glad/include")
+    elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/glad/src/gl.c")
+        add_library(glad STATIC "${CMAKE_CURRENT_SOURCE_DIR}/external/glad/src/gl.c")
+        target_include_directories(glad PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/external/glad/include")
+    else()
+        message(FATAL_ERROR
+            "Missing glad sources under external/glad.\n"
+            "Expected CMakeLists.txt, src/glad.c, or src/gl.c.\n"
+            "Add submodule https://github.com/wismh/glad.git (or dav1dde/glad generated output).\n"
+            "See external/README.md")
+    endif()
+
+    add_library(nanovg STATIC "${CMAKE_CURRENT_SOURCE_DIR}/external/nanovg/src/nanovg.c")
+    target_include_directories(nanovg PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/external/nanovg/src")
+    if(MSVC)
+        target_compile_definitions(nanovg PRIVATE _CRT_SECURE_NO_WARNINGS)
+    endif()
+
+    file(GLOB_RECURSE ENGINE_GL_SOURCES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/render/opengl/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/render/opengl/*.c")
+    target_sources(engine PRIVATE ${ENGINE_GL_SOURCES})
+    target_compile_definitions(engine PRIVATE ENGINE_WITH_WINDOW=1)
+    target_include_directories(engine PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/render/opengl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/external/boost_di/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/external/boost_di/extension/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/external/nanovg/src")
+    find_package(OpenGL REQUIRED)
+    target_link_libraries(engine PRIVATE SDL3::SDL3 glad nanovg OpenGL::GL)
 endif()
 
 if(ENGINE_WITH_AUDIO)
@@ -102,5 +157,12 @@ if(ENGINE_BUILD_TESTS)
 
     add_executable(engine_tests ${ENGINE_TEST_SOURCES})
     target_link_libraries(engine_tests PRIVATE engine GTest::gtest_main)
+    file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/builtin_assets" _engine_builtin_assets)
+    target_compile_definitions(engine_tests PRIVATE "ENGINE_BUILTIN_ASSETS_DIR=\"${_engine_builtin_assets}\"")
+    add_custom_command(TARGET engine_tests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/builtin_assets"
+            "$<TARGET_FILE_DIR:engine_tests>/assets/engine"
+        COMMENT "Copy builtin_assets to engine_tests output dir")
     gtest_discover_tests(engine_tests DISCOVERY_MODE PRE_TEST)
 endif()
