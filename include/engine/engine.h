@@ -36,6 +36,10 @@
 #include <engine/ui/stylesheet.h>
 #include <engine/ui/view_model.h>
 
+#if defined(ENGINE_WITH_WINDOW)
+#include <engine/core/engine.h>
+#endif
+
 namespace engine {
 
 inline constexpr int kApiEpoch = 1;
