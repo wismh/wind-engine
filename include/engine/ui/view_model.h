@@ -3,12 +3,14 @@
 #include <engine/ui/bindable.h>
 #include <engine/ui/command.h>
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace engine::ui {
 
@@ -25,6 +27,7 @@ public:
     [[nodiscard]] bool has_property(std::string_view name) const;
     [[nodiscard]] bool has_command(std::string_view name) const;
     [[nodiscard]] std::optional<std::string> read_property_string(std::string_view name) const;
+    [[nodiscard]] std::vector<ViewModel*> read_item_source(std::string_view name) const;
     [[nodiscard]] ICommand* find_command(std::string_view name);
     [[nodiscard]] const ICommand* find_command(std::string_view name) const;
 
@@ -32,12 +35,16 @@ protected:
     template<typename T>
     void Property(std::string_view name, Bindable<T>& bindable);
 
+    template<typename T>
+    void Property(std::string_view name, BindableList<std::shared_ptr<T>>& list);
+
     void Command(std::string_view name, ICommand& command);
 
 private:
     struct PropertyRef {
         void* bindable = nullptr;
         std::string (*to_string)(void*) = nullptr;
+        std::vector<ViewModel*> (*items)(void*) = nullptr;
     };
 
     std::unordered_map<std::string, PropertyRef> properties_;
@@ -57,6 +64,25 @@ void ViewModel::Property(std::string_view name, Bindable<T>& bindable) {
         } else {
             return {};
         }
+    };
+    properties_.insert_or_assign(std::string(name), ref);
+}
+
+template<typename T>
+void ViewModel::Property(std::string_view name, BindableList<std::shared_ptr<T>>& list) {
+    static_assert(std::is_base_of_v<ViewModel, T>, "ItemsSource items must be ViewModels");
+    PropertyRef ref;
+    ref.bindable = &list;
+    ref.items = [](void* ptr) -> std::vector<ViewModel*> {
+        auto& items = static_cast<BindableList<std::shared_ptr<T>>*>(ptr)->Get();
+        std::vector<ViewModel*> out;
+        out.reserve(items.size());
+        for (const std::shared_ptr<T>& item : items) {
+            if (item) {
+                out.push_back(item.get());
+            }
+        }
+        return out;
     };
     properties_.insert_or_assign(std::string(name), ref);
 }
