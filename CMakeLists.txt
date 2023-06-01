@@ -140,7 +140,8 @@ endif()
 
 if(ENGINE_WITH_AUDIO)
     engine_require_submodule(SDL_mixer)
-    message(FATAL_ERROR "ENGINE_WITH_AUDIO is slice 9: add SDL_mixer per external/README.md, then remove this FATAL_ERROR.")
+    # Real MIX_* sources are not compiled yet. IAudioSystem policy + FakeMixer live in src/audio
+    # and always link into engine (engine_tests has no audio device).
 endif()
 
 if(ENGINE_BUILD_TESTS)
