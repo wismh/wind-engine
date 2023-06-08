@@ -1,7 +1,10 @@
 #include "opengl_canvas.h"
 
 #include "gl_includes.h"
+#include "nanovg_painter.h"
 #include "opengl_runtime.h"
+
+#include <memory>
 
 namespace engine::render {
 namespace {
@@ -44,6 +47,16 @@ bool OpenGLCanvas::init() {
         destroy_context();
         return false;
     }
+
+    ui_painter_ = std::make_unique<NanoVgPainter>();
+    if (!ui_painter_->create()) {
+        ui_painter_.reset();
+        destroy_context();
+        return false;
+    }
+    if (auto* gl_backend = dynamic_cast<OpenGLRenderBackend*>(backend_)) {
+        gl_backend->set_ui_painter(ui_painter_.get());
+    }
     return true;
 }
 
@@ -55,9 +68,16 @@ void OpenGLCanvas::Draw() {
         }
     }
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
+    glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    if (ui_painter_ != nullptr && window_ != nullptr) {
+        const glm::ivec2 size = window_->drawable_size();
+        ui_painter_->begin_frame(static_cast<float>(size.x), static_cast<float>(size.y));
+    }
     if (backend_ != nullptr && commands_ != nullptr) {
         backend_->execute(*commands_);
+    }
+    if (ui_painter_ != nullptr) {
+        ui_painter_->end_frame();
     }
     if (window_ != nullptr) {
         window_->swap();
@@ -65,6 +85,10 @@ void OpenGLCanvas::Draw() {
 }
 
 void OpenGLCanvas::destroy_context() {
+    if (auto* gl_backend = dynamic_cast<OpenGLRenderBackend*>(backend_)) {
+        gl_backend->set_ui_painter(nullptr);
+    }
+    ui_painter_.reset();
     if (context_ == nullptr) {
         return;
     }
