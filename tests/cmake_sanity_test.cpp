@@ -13,3 +13,11 @@ TEST(Scaffold, DefaultTestsHaveNoWindowBackend) {
     GTEST_SKIP() << "window backend preset; Engine::Run is still not invoked";
 #endif
 }
+
+TEST(Scaffold, DefaultTestsHaveNoAudioBackend) {
+#ifndef ENGINE_WITH_AUDIO
+    SUCCEED();
+#else
+    GTEST_SKIP() << "audio backend preset; mixer device is still not opened in engine_tests";
+#endif
+}

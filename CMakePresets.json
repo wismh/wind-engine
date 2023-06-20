@@ -33,6 +33,17 @@
         "ENGINE_WITH_WINDOW": "ON",
         "ENGINE_WITH_AUDIO": "OFF"
       }
+    },
+    {
+      "name": "vs-audio",
+      "displayName": "Visual Studio + SDL3_mixer WAV backend",
+      "generator": "Visual Studio 18 2026",
+      "binaryDir": "${sourceDir}/build-audio",
+      "cacheVariables": {
+        "ENGINE_BUILD_TESTS": "OFF",
+        "ENGINE_WITH_WINDOW": "ON",
+        "ENGINE_WITH_AUDIO": "ON"
+      }
     }
   ],
   "buildPresets": [
