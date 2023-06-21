@@ -18,6 +18,7 @@ enum class MetaError {
     InvalidGuid,
     UnknownImporter,
     InvalidField,
+    Io,
 };
 
 enum class ImporterKind {
@@ -85,6 +86,8 @@ struct CatalogEntry {
     std::string relative_path;
     ImporterKind importer = ImporterKind::Texture;
     AudioImportSettings audio{};
+    TextureImportSettings texture{};
+    std::filesystem::path files_root{};
 };
 
 class CookedCatalog {
