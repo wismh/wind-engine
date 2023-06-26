@@ -55,9 +55,14 @@ std::optional<std::string> read_all(const std::filesystem::path& path) {
     return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 }
 
+std::filesystem::path lookup_path(const CatalogEntry& entry, const std::filesystem::path& fallback_root) {
+    const std::filesystem::path& root = entry.files_root.empty() ? fallback_root : entry.files_root;
+    return root / entry.relative_path;
+}
+
 std::expected<std::shared_ptr<void>, AssetError> load_cpu(
-        const CatalogEntry& entry, const std::type_info& type, const std::filesystem::path& root) {
-    const std::filesystem::path path = root / entry.relative_path;
+        const CatalogEntry& entry, const std::type_info& type, const std::filesystem::path& fallback_root) {
+    const std::filesystem::path path = lookup_path(entry, fallback_root);
     std::error_code ec;
     if (!std::filesystem::is_regular_file(path, ec)) {
         return std::unexpected(AssetError::Corrupt);
@@ -120,6 +125,30 @@ void AssetsDb::add_catalog(CookedCatalog catalog) {
         catalog_.add(entry);
     }
     cache_.clear();
+}
+
+std::expected<void, MetaError> AssetsDb::load_catalog(
+        const std::filesystem::path& catalog_file, const std::filesystem::path& files_root) {
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(catalog_file, ec)) {
+        return std::unexpected(MetaError::Io);
+    }
+    const auto bytes = read_all(catalog_file);
+    if (!bytes) {
+        return std::unexpected(MetaError::Io);
+    }
+    auto parsed = parse_cooked_catalog(*bytes);
+    if (!parsed) {
+        return std::unexpected(parsed.error());
+    }
+    CookedCatalog rooted;
+    for (const CatalogEntry& entry : parsed->entries()) {
+        CatalogEntry copy = entry;
+        copy.files_root = files_root;
+        rooted.add(std::move(copy));
+    }
+    add_catalog(std::move(rooted));
+    return {};
 }
 
 void AssetsDb::set_root(std::filesystem::path assets_root) {
