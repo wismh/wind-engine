@@ -133,6 +133,7 @@ std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::p
         catalog_entry.relative_path = relative;
         catalog_entry.importer = parsed->importer;
         catalog_entry.audio = parsed->audio;
+        catalog_entry.texture = parsed->texture;
         output.catalog.add(std::move(catalog_entry));
         ids.emplace_back(identifier_from_path(relative), parsed->guid);
     }
