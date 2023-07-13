@@ -2,6 +2,8 @@
 
 #include "ui/painter.h"
 
+#include <engine/resources/font.h>
+
 #include <memory>
 #include <string>
 #include <vector>
@@ -17,6 +19,7 @@ public:
     NanoVgPainter& operator=(const NanoVgPainter&) = delete;
 
     [[nodiscard]] bool create();
+    [[nodiscard]] bool load_ui_font(const Font& font);
     void destroy();
     void begin_frame(float width, float height, float pixel_ratio = 1.0f);
     void end_frame();
