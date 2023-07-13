@@ -5,6 +5,7 @@
 #endif
 
 #include <engine/audio/audio_system.h>
+#include <engine/builtin_ids.h>
 #include <engine/core/application_state.h>
 #include <engine/core/engine_runtime.h>
 #include <engine/core/input_system.h>
@@ -17,6 +18,8 @@
 #include <engine/render/graphic_factory.h>
 #include <engine/resources/assets_db.h>
 #include <engine/resources/fatal_error.h>
+#include <engine/resources/font.h>
+#include <engine/resources/meta.h>
 #include <engine/ui/canvas.h>
 
 #include <boost/di.hpp>
@@ -106,8 +109,29 @@ bool Engine<GameT>::Init() {
     }
 
     assets_->set_graphic_factory(&runtime_.factory());
-    if (const std::filesystem::path root = runtime_.assets_root(); !root.empty()) {
-        assets_->set_root(root);
+    const std::filesystem::path root = runtime_.assets_root();
+    if (root.empty()) {
+        fatal_->report("Assets root is missing");
+        runtime_.shutdown();
+        return false;
+    }
+    assets_->set_root(root);
+    if (!assets_->load_catalog(root / "engine" / "catalog.toml", root / "engine")) {
+        fatal_->report("Failed to load engine catalog");
+        runtime_.shutdown();
+        return false;
+    }
+    if (const auto loaded = assets_->load_catalog(root / "catalog.toml", root); !loaded) {
+        if (loaded.error() != MetaError::Io) {
+            fatal_->report("Failed to load game catalog");
+            runtime_.shutdown();
+            return false;
+        }
+    }
+    if (!runtime_.load_ui_font(*assets_->Get<Font>(builtin::font_ui))) {
+        fatal_->report("Failed to load UI font");
+        runtime_.shutdown();
+        return false;
     }
 
     runtime_.write_window_size(game_->World(), true);
