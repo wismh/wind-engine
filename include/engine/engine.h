@@ -1,6 +1,7 @@
 #pragma once
 
 #include <engine/audio/audio_system.h>
+#include <engine/audio/events.h>
 #include <engine/audio/sound.h>
 #include <engine/core/application_state.h>
 #include <engine/core/fixed_step.h>

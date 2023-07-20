@@ -9,9 +9,11 @@
 
 namespace engine {
 
+class IAudioSystem;
+
 class Host {
 public:
-    Host(IGame& game, render::ICanvas& canvas);
+    Host(IGame& game, render::ICanvas& canvas, IAudioSystem* audio = nullptr);
     ~Host();
 
     Host(const Host&) = delete;
@@ -29,6 +31,7 @@ private:
 
     IGame* game_ = nullptr;
     render::ICanvas* canvas_ = nullptr;
+    IAudioSystem* audio_ = nullptr;
     Time* time_ = nullptr;
     ApplicationState* app_state_ = nullptr;
     FixedStepClock clock_;
