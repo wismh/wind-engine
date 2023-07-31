@@ -20,7 +20,12 @@ else()
 endif()
 
 option(ENGINE_BUILD_TESTS "Build engine_tests (GoogleTest)" ${_engine_is_root})
-option(ENGINE_WITH_WINDOW "SDL3 + OpenGL + NanoVG backend" OFF)
+# Root builds stay headless (`engine_tests`). A game `add_subdirectory` turns the window on.
+if(_engine_is_root)
+    option(ENGINE_WITH_WINDOW "SDL3 + OpenGL + NanoVG backend" OFF)
+else()
+    option(ENGINE_WITH_WINDOW "SDL3 + OpenGL + NanoVG backend" ON)
+endif()
 option(ENGINE_WITH_AUDIO "SDL3_mixer audio backend" OFF)
 
 function(engine_require_submodule dir)
@@ -115,7 +120,7 @@ add_custom_command(
 add_custom_target(engine_builtin_catalog DEPENDS "${ENGINE_COOKED_CATALOG}")
 
 # Copy assets/engine (builtins + cooked catalog) and, when present, the consumer's assets/
-# beside a runtime target. Games call this after add_subdirectory(engine).
+# beside a runtime target. Games normally call `engine_add_game` instead of this directly.
 function(engine_prepare_runtime target)
     if(NOT TARGET ${target})
         message(FATAL_ERROR "engine_prepare_runtime: target '${target}' does not exist")
@@ -141,6 +146,72 @@ function(engine_prepare_runtime target)
             "$<TARGET_FILE_DIR:${target}>/assets/engine/catalog.toml"
         COMMENT "Copy engine assets and cooked catalog beside ${target}"
         VERBATIM)
+
+    get_property(_game_catalog TARGET ${target} PROPERTY ENGINE_GAME_CATALOG)
+    if(_game_catalog)
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${_game_catalog}"
+                "$<TARGET_FILE_DIR:${target}>/assets/catalog.toml"
+            COMMENT "Install cooked game catalog for ${target}"
+            VERBATIM)
+    endif()
+endfunction()
+
+# Windowed remake: executable + C++23 + asset_codegen + runtime asset copy.
+# Call after add_subdirectory(external/engine). Remaining args are sources.
+function(engine_add_game target)
+    if(NOT ARGN)
+        message(FATAL_ERROR "engine_add_game(${target}): pass at least one source file")
+    endif()
+    if(NOT TARGET engine)
+        message(FATAL_ERROR "engine_add_game: add_subdirectory the Wind engine first")
+    endif()
+    if(NOT ENGINE_WITH_WINDOW)
+        message(FATAL_ERROR
+            "engine_add_game(${target}): ENGINE_WITH_WINDOW is OFF. "
+            "It defaults ON when Wind is a subdirectory.")
+    endif()
+
+    add_executable(${target} ${ARGN})
+    set_target_properties(${target} PROPERTIES
+        CXX_STANDARD 23
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF)
+    if(NOT CMAKE_RUNTIME_OUTPUT_DIRECTORY)
+        set_target_properties(${target} PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+    endif()
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8)
+    endif()
+    target_link_libraries(${target} PRIVATE engine)
+
+    set(_include "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    if(EXISTS "${_include}")
+        target_include_directories(${target} PRIVATE "${_include}")
+    endif()
+
+    set(_assets "${CMAKE_CURRENT_SOURCE_DIR}/assets")
+    if(EXISTS "${_assets}")
+        set(_gen "${CMAKE_CURRENT_BINARY_DIR}/generated/${target}")
+        file(GLOB_RECURSE _asset_files CONFIGURE_DEPENDS "${_assets}/*")
+        add_custom_command(
+            OUTPUT "${_gen}/asset_ids.h" "${_gen}/catalog.toml"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${_gen}"
+            COMMAND asset_codegen "${_assets}" "${_gen}"
+            DEPENDS asset_codegen ${_asset_files}
+            COMMENT "Cook asset catalog for ${target}"
+            VERBATIM)
+        add_custom_target(${target}_assets DEPENDS
+            "${_gen}/asset_ids.h"
+            "${_gen}/catalog.toml")
+        add_dependencies(${target} ${target}_assets)
+        target_include_directories(${target} PRIVATE "${_gen}")
+        set_property(TARGET ${target} PROPERTY ENGINE_GAME_CATALOG "${_gen}/catalog.toml")
+    endif()
+
+    engine_prepare_runtime(${target})
 endfunction()
 
 function(engine_add_sdl3)
