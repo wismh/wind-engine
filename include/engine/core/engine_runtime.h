@@ -7,6 +7,7 @@
 #include <engine/render/canvas.h>
 #include <engine/render/command_buffer.h>
 #include <engine/render/graphic_factory.h>
+#include <engine/resources/asset_id.h>
 
 #include <filesystem>
 #include <memory>
@@ -30,6 +31,7 @@ public:
     [[nodiscard]] bool init_video();
     [[nodiscard]] bool create_window(std::string_view title, glm::ivec2 size);
     [[nodiscard]] bool load_ui_font(const Font& font);
+    [[nodiscard]] bool add_font(AssetId id, const Font& font);
     void shutdown();
 
     [[nodiscard]] int run(IGame& game, InputSystem& input, IAudioSystem* audio);
