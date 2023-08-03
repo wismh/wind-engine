@@ -78,6 +78,13 @@ bool EngineRuntime::load_ui_font(const Font& font) {
     return impl_->canvas->load_ui_font(font);
 }
 
+bool EngineRuntime::add_font(AssetId id, const Font& font) {
+    if (impl_->canvas == nullptr) {
+        return false;
+    }
+    return impl_->canvas->add_font(id, font);
+}
+
 void EngineRuntime::shutdown() {
     if (impl_ == nullptr) {
         return;
