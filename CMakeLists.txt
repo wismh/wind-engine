@@ -89,6 +89,9 @@ target_link_libraries(engine
 add_executable(asset_codegen "${CMAKE_CURRENT_SOURCE_DIR}/tools/asset_codegen/main.cpp")
 target_link_libraries(asset_codegen PRIVATE engine)
 
+add_executable(asset_guid "${CMAKE_CURRENT_SOURCE_DIR}/tools/asset_guid/main.cpp")
+target_link_libraries(asset_guid PRIVATE engine)
+
 if(ENGINE_WITH_WINDOW)
     engine_require_file(external/SDL3/CMakeLists.txt)
     engine_require_file(external/nanovg/src/nanovg.c)
