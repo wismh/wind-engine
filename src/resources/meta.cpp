@@ -108,6 +108,55 @@ std::optional<AudioBank> parse_bank(std::string_view value) {
     return std::nullopt;
 }
 
+std::expected<void, MetaError> apply_optional_audio(const toml::table& table, AudioImportSettings& audio) {
+    if (const auto bank = table["bank"].value<std::string>()) {
+        const auto parsed = parse_bank(*bank);
+        if (!parsed) {
+            return std::unexpected(MetaError::InvalidField);
+        }
+        audio.bank = *parsed;
+    }
+    if (const toml::node* volume_node = table.get("volume")) {
+        const auto volume = node_as_float(*volume_node);
+        if (!volume) {
+            return std::unexpected(MetaError::InvalidField);
+        }
+        audio.volume = *volume;
+    }
+    if (const toml::node* pitch_node = table.get("pitch_range")) {
+        const toml::array* const arr = pitch_node->as_array();
+        if (arr == nullptr || arr->size() != 2) {
+            return std::unexpected(MetaError::InvalidField);
+        }
+        const toml::node* const min_node = arr->get(0);
+        const toml::node* const max_node = arr->get(1);
+        if (min_node == nullptr || max_node == nullptr) {
+            return std::unexpected(MetaError::InvalidField);
+        }
+        const auto pitch_min = node_as_float(*min_node);
+        const auto pitch_max = node_as_float(*max_node);
+        if (!pitch_min || !pitch_max) {
+            return std::unexpected(MetaError::InvalidField);
+        }
+        audio.pitch_min = *pitch_min;
+        audio.pitch_max = *pitch_max;
+    }
+    if (const auto loop = table["loop"].value<bool>()) {
+        audio.loop = *loop;
+    }
+    return {};
+}
+
+std::string_view bank_to_string(AudioBank bank) noexcept {
+    switch (bank) {
+        case AudioBank::Sfx:
+            return "sfx";
+        case AudioBank::Music:
+            return "music";
+    }
+    return "sfx";
+}
+
 std::expected<AssetMeta, MetaError> parse_meta_table(const toml::table& table) {
     if (!table.contains("guid")) {
         return std::unexpected(MetaError::MissingGuid);
@@ -167,40 +216,8 @@ std::expected<AssetMeta, MetaError> parse_meta_table(const toml::table& table) {
         meta.texture.layout = *parsed;
     }
 
-    if (const auto bank = table["bank"].value<std::string>()) {
-        const auto parsed = parse_bank(*bank);
-        if (!parsed) {
-            return std::unexpected(MetaError::InvalidField);
-        }
-        meta.audio.bank = *parsed;
-    }
-    if (const toml::node* volume_node = table.get("volume")) {
-        const auto volume = node_as_float(*volume_node);
-        if (!volume) {
-            return std::unexpected(MetaError::InvalidField);
-        }
-        meta.audio.volume = *volume;
-    }
-    if (const toml::node* pitch_node = table.get("pitch_range")) {
-        const toml::array* const arr = pitch_node->as_array();
-        if (arr == nullptr || arr->size() != 2) {
-            return std::unexpected(MetaError::InvalidField);
-        }
-        const toml::node* const min_node = arr->get(0);
-        const toml::node* const max_node = arr->get(1);
-        if (min_node == nullptr || max_node == nullptr) {
-            return std::unexpected(MetaError::InvalidField);
-        }
-        const auto pitch_min = node_as_float(*min_node);
-        const auto pitch_max = node_as_float(*max_node);
-        if (!pitch_min || !pitch_max) {
-            return std::unexpected(MetaError::InvalidField);
-        }
-        meta.audio.pitch_min = *pitch_min;
-        meta.audio.pitch_max = *pitch_max;
-    }
-    if (const auto loop = table["loop"].value<bool>()) {
-        meta.audio.loop = *loop;
+    if (auto audio = apply_optional_audio(table, meta.audio); !audio) {
+        return std::unexpected(audio.error());
     }
 
     return meta;
@@ -280,7 +297,14 @@ std::string CookedCatalog::serialize() const {
         os << "[[assets]]\n";
         os << "guid = \"" << entry.guid.hex() << "\"\n";
         os << "path = \"" << entry.relative_path << "\"\n";
-        os << "importer = \"" << to_string(entry.importer) << "\"\n\n";
+        os << "importer = \"" << to_string(entry.importer) << "\"\n";
+        if (entry.importer == ImporterKind::Audio) {
+            os << "bank = \"" << bank_to_string(entry.audio.bank) << "\"\n";
+            os << "volume = " << entry.audio.volume << "\n";
+            os << "pitch_range = [" << entry.audio.pitch_min << ", " << entry.audio.pitch_max << "]\n";
+            os << "loop = " << (entry.audio.loop ? "true" : "false") << "\n";
+        }
+        os << '\n';
     }
     return os.str();
 }
@@ -317,7 +341,11 @@ std::expected<CookedCatalog, MetaError> parse_cooked_catalog(std::string_view to
             if (!importer) {
                 return std::unexpected(MetaError::UnknownImporter);
             }
-            catalog.add(CatalogEntry{*guid, *path, *importer});
+            CatalogEntry cooked{*guid, *path, *importer};
+            if (auto audio = apply_optional_audio(*entry_table, cooked.audio); !audio) {
+                return std::unexpected(audio.error());
+            }
+            catalog.add(std::move(cooked));
         }
         return catalog;
     } catch (const toml::parse_error&) {
