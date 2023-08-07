@@ -37,6 +37,7 @@ constexpr std::string_view kAudioGuid = "b1c2d3e4f567890123456789012345ab";
 constexpr std::string_view kUiGuid = "d1e2f3a4567890123456789012345abc";
 constexpr std::string_view kCssGuid = "e1f2a3b4567890123456789012345abc";
 constexpr std::string_view kUiImageGuid = "f1a2b3c4567890123456789012345abc";
+constexpr std::string_view kFontGuid = "c1a1c2d3e4f5678901234567890abc07";
 
 // 1x1 RGB red PNG; stb_image converts to RGBA when requested.
 constexpr std::uint8_t kPng1x1Red[] = {
@@ -228,6 +229,37 @@ TEST(Assets, CookedCatalog) {
     ASSERT_NE(again, nullptr);
     EXPECT_EQ(again->relative_path, "textures/player.png");
     EXPECT_EQ(again->importer, engine::ImporterKind::Texture);
+}
+
+TEST(Assets, CatalogListsFontAfterSetAndAdd) {
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+
+    engine::CookedCatalog first;
+    first.add({engine::builtin::font_ui, "fonts/ui.ttf", engine::ImporterKind::Font});
+    db.set_catalog(std::move(first));
+
+    engine::CookedCatalog extra;
+    extra.add({engine::AssetId{kFontGuid}, "fonts/hud.ttf", engine::ImporterKind::Font});
+    db.add_catalog(std::move(extra));
+
+    const engine::CatalogEntry* builtin = db.catalog().find(engine::builtin::font_ui);
+    ASSERT_NE(builtin, nullptr);
+    EXPECT_EQ(builtin->importer, engine::ImporterKind::Font);
+    EXPECT_EQ(builtin->relative_path, "fonts/ui.ttf");
+
+    const engine::CatalogEntry* game_font = db.catalog().find(engine::AssetId{kFontGuid});
+    ASSERT_NE(game_font, nullptr);
+    EXPECT_EQ(game_font->importer, engine::ImporterKind::Font);
+    EXPECT_EQ(game_font->relative_path, "fonts/hud.ttf");
+
+    int font_count = 0;
+    for (const engine::CatalogEntry& entry : db.catalog().entries()) {
+        if (entry.importer == engine::ImporterKind::Font) {
+            ++font_count;
+        }
+    }
+    EXPECT_EQ(font_count, 2);
 }
 
 TEST(Assets, TryGetNotFound) {
