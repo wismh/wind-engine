@@ -1,14 +1,19 @@
 #include <gtest/gtest.h>
 
+#include <engine/audio/sound.h>
 #include <engine/render/graphics.h>
+#include <engine/resources/asset_guid.h>
 #include <engine/resources/asset_id.h>
 #include <engine/resources/assets_db.h>
 #include <engine/resources/fatal_error.h>
 #include <engine/resources/meta.h>
+#include <engine/ui/document.h>
+#include <engine/ui/stylesheet.h>
 
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -18,6 +23,8 @@ namespace {
 
 constexpr std::string_view kTextureGuid = "a1b2c3d4e5f6789012345678901234ab";
 constexpr std::string_view kAudioGuid = "b1c2d3e4f567890123456789012345ab";
+constexpr std::string_view kUiGuid = "d1e2f3a4567890123456789012345abc";
+constexpr std::string_view kCssGuid = "e1f2a3b4567890123456789012345abc";
 constexpr std::string_view kTextureToml = R"(
 guid = "a1b2c3d4e5f6789012345678901234ab"
 importer = "texture"
@@ -78,6 +85,11 @@ void write_file(const std::filesystem::path& path, std::string_view text) {
     std::ofstream out(path, std::ios::trunc);
     ASSERT_TRUE(out.is_open());
     out << text;
+}
+
+std::string read_file(const std::filesystem::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 }
 
 }
@@ -173,8 +185,9 @@ TEST(Assets, GetCallsFatalHook) {
     catalog.add({engine::AssetId{kAudioGuid}, "sfx/step.wav", engine::ImporterKind::Audio});
     db.set_catalog(std::move(catalog));
 
-    const auto loaded = db.Get<engine::render::ITexture>(engine::AssetId{kTextureGuid});
-    ASSERT_NE(loaded, nullptr);
+    const auto not_ready = db.TryGet<engine::render::ITexture>(engine::AssetId{kTextureGuid});
+    ASSERT_FALSE(not_ready.has_value());
+    EXPECT_EQ(not_ready.error(), engine::AssetError::NotReady);
 
     bool missing_returned = false;
     try {
@@ -228,4 +241,100 @@ TEST(Assets, CollisionFails) {
     const auto result = engine::codegen_scan(tree.path);
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().kind, engine::CodegenErrorKind::Collision);
+}
+
+TEST(Assets, GuidWritesMissingMetaOnly) {
+    TempTree tree;
+    write_file(tree.path / "hud.xml", "<Canvas><Label Text=\"Hi\"/></Canvas>");
+
+    EXPECT_EQ(engine::write_missing_metas(tree.path), 1);
+    const std::filesystem::path meta_path = tree.path / "hud.xml.meta";
+    ASSERT_TRUE(std::filesystem::exists(meta_path));
+
+    const auto parsed = engine::parse_asset_meta(read_file(meta_path));
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_TRUE(engine::AssetId::is_valid(parsed->guid.hex()));
+    EXPECT_EQ(parsed->importer, engine::ImporterKind::Ui);
+    const std::string guid(parsed->guid.hex());
+
+    EXPECT_EQ(engine::write_missing_metas(tree.path), 0);
+    const auto again = engine::parse_asset_meta(read_file(meta_path));
+    ASSERT_TRUE(again.has_value());
+    EXPECT_EQ(again->guid.hex(), guid);
+    EXPECT_EQ(again->importer, engine::ImporterKind::Ui);
+}
+
+TEST(Assets, GetUiDocument) {
+    TempTree tree;
+    write_file(tree.path / "hud.xml", "<Canvas><Label Text=\"Hi\"/></Canvas>");
+
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+    db.set_root(tree.path);
+
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kUiGuid}, "hud.xml", engine::ImporterKind::Ui});
+    db.set_catalog(std::move(catalog));
+
+    const auto document = db.Get<engine::ui::UiDocument>(engine::AssetId{kUiGuid});
+    ASSERT_NE(document, nullptr);
+    EXPECT_EQ(document->root.kind, engine::ui::ElementKind::Canvas);
+    ASSERT_EQ(document->root.children.size(), 1u);
+    EXPECT_EQ(document->root.children[0].kind, engine::ui::ElementKind::Label);
+    EXPECT_EQ(document->root.children[0].text, "Hi");
+}
+
+TEST(Assets, GetStyleSheet) {
+    TempTree tree;
+    write_file(tree.path / "hud.css", ".hud { padding: 16; }\n");
+
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+    db.set_root(tree.path);
+
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kCssGuid}, "hud.css", engine::ImporterKind::Css});
+    db.set_catalog(std::move(catalog));
+
+    const auto sheet = db.Get<engine::ui::Stylesheet>(engine::AssetId{kCssGuid});
+    ASSERT_NE(sheet, nullptr);
+    ASSERT_FALSE(sheet->rules.empty());
+    EXPECT_EQ(sheet->rules[0].selector.class_name, "hud");
+}
+
+TEST(Assets, GetSoundFromCatalog) {
+    TempTree tree;
+    write_file(tree.path / "sfx" / "step.wav", "");
+
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+    db.set_root(tree.path);
+
+    engine::CatalogEntry entry;
+    entry.guid = engine::AssetId{kAudioGuid};
+    entry.relative_path = "sfx/step.wav";
+    entry.importer = engine::ImporterKind::Audio;
+    entry.audio.volume = 0.5f;
+
+    engine::CookedCatalog catalog;
+    catalog.add(std::move(entry));
+    db.set_catalog(std::move(catalog));
+
+    const auto sound = db.Get<engine::Sound>(engine::AssetId{kAudioGuid});
+    ASSERT_NE(sound, nullptr);
+    EXPECT_FLOAT_EQ(sound->volume, 0.5f);
+    ASSERT_NE(sound->clip, nullptr);
+}
+
+TEST(Assets, TextureNotReadyWithoutFactory) {
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kTextureGuid}, "textures/player.png", engine::ImporterKind::Texture});
+    db.set_catalog(std::move(catalog));
+
+    const auto result = db.TryGet<engine::render::ITexture>(engine::AssetId{kTextureGuid});
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), engine::AssetError::NotReady);
 }
