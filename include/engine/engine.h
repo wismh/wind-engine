@@ -24,6 +24,7 @@
 #include <engine/render/material.h>
 #include <engine/render/renderable.h>
 #include <engine/builtin_ids.h>
+#include <engine/resources/asset_guid.h>
 #include <engine/resources/asset_id.h>
 #include <engine/resources/assets_db.h>
 #include <engine/resources/fatal_error.h>
