@@ -10,6 +10,8 @@
 #include <engine/resources/font.h>
 
 #include <algorithm>
+#include <cstdint>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -25,7 +27,7 @@ NVGcolor to_nvg(glm::vec4 color) {
 
 struct NanoVgPainter::Impl {
     NVGcontext* vg = nullptr;
-    std::vector<std::uint8_t> font_bytes;
+    std::vector<std::vector<std::uint8_t>> font_blobs;
     std::unordered_map<std::string, int> fonts;
     int default_font = -1;
 };
@@ -42,18 +44,30 @@ bool NanoVgPainter::create() {
     return impl_->vg != nullptr;
 }
 
-bool NanoVgPainter::load_ui_font(const Font& font) {
+bool NanoVgPainter::add_font(AssetId id, const Font& font) {
     if (impl_->vg == nullptr || font.bytes.empty()) {
         return false;
     }
-    impl_->font_bytes = font.bytes;
-    impl_->default_font = nvgCreateFontMem(impl_->vg, "default", impl_->font_bytes.data(),
-            static_cast<int>(impl_->font_bytes.size()), 0);
-    if (impl_->default_font < 0) {
-        impl_->font_bytes.clear();
+    const std::string key(id.hex());
+    if (impl_->fonts.contains(key)) {
+        return true;
+    }
+    impl_->font_blobs.push_back(font.bytes);
+    auto& blob = impl_->font_blobs.back();
+    const int nvg_id = nvgCreateFontMem(impl_->vg, key.c_str(), blob.data(), static_cast<int>(blob.size()), 0);
+    if (nvg_id < 0) {
+        impl_->font_blobs.pop_back();
         return false;
     }
-    impl_->fonts.emplace(std::string(builtin::font_ui.hex()), impl_->default_font);
+    impl_->fonts.emplace(key, nvg_id);
+    return true;
+}
+
+bool NanoVgPainter::load_ui_font(const Font& font) {
+    if (!add_font(builtin::font_ui, font)) {
+        return false;
+    }
+    impl_->default_font = impl_->fonts[std::string(builtin::font_ui.hex())];
     return true;
 }
 
@@ -67,7 +81,7 @@ void NanoVgPainter::destroy() {
     }
     impl_->fonts.clear();
     impl_->default_font = -1;
-    impl_->font_bytes.clear();
+    impl_->font_blobs.clear();
 }
 
 void NanoVgPainter::begin_frame(float width, float height, float pixel_ratio) {

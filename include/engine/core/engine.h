@@ -135,6 +135,16 @@ bool Engine<GameT>::Init() {
         runtime_.shutdown();
         return false;
     }
+    for (const CatalogEntry& entry : assets_->catalog().entries()) {
+        if (entry.importer != ImporterKind::Font || entry.guid == builtin::font_ui) {
+            continue;
+        }
+        if (!runtime_.add_font(entry.guid, *assets_->Get<Font>(entry.guid))) {
+            fatal_->report("Failed to load UI font");
+            runtime_.shutdown();
+            return false;
+        }
+    }
 
     runtime_.write_window_size(game_->World(), true);
     RegisterEngineSystems(game_->World(), EngineSystemDeps{
