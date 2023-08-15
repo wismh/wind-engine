@@ -119,10 +119,12 @@ std::expected<std::shared_ptr<void>, AssetError> load_gpu(const CatalogEntry& en
     }
 
     if (type == typeid(render::ITexture)) {
-        const auto desc = decode_png_rgba(*bytes);
+        auto desc = decode_png_rgba(*bytes);
         if (!desc) {
             return std::unexpected(AssetError::Corrupt);
         }
+        desc->filter = entry.texture.filter;
+        desc->wrap = entry.texture.wrap;
         std::shared_ptr<render::ITexture> texture = factory.create_texture(*desc);
         if (!texture) {
             return std::unexpected(AssetError::Corrupt);
