@@ -37,6 +37,13 @@ enum class StackDirection {
     Horizontal,
 };
 
+struct BoxInsets {
+    float top = 0.0f;
+    float right = 0.0f;
+    float bottom = 0.0f;
+    float left = 0.0f;
+};
+
 struct Element {
     ElementKind kind = ElementKind::Canvas;
     std::string id;
@@ -53,6 +60,7 @@ struct Element {
 
     StackDirection direction = StackDirection::Vertical;
     float gap = 0.0f;
+    BoxInsets padding{};
 
     render::Rect layout_rect{};
     ICommand* command = nullptr;
