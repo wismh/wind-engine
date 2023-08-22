@@ -6,11 +6,18 @@ namespace engine {
 
 InputSystem::InputSystem(ecs::World& world) : world_(&world) {}
 
+void InputSystem::set_world(ecs::World& world) {
+    world_ = &world;
+}
+
 void InputSystem::bind(KeyCode key, std::string action) {
     bindings_[static_cast<std::uint32_t>(key)] = std::move(action);
 }
 
 void InputSystem::handle_key(KeyCode key, bool down) {
+    if (world_ == nullptr) {
+        return;
+    }
     const auto code = static_cast<std::uint32_t>(key);
     const auto binding = bindings_.find(code);
     if (binding == bindings_.end()) {
@@ -43,6 +50,9 @@ void InputSystem::handle_key(KeyCode key, bool down) {
 }
 
 void InputSystem::handle_mouse_button(MouseButton button, bool down, glm::vec2 position) {
+    if (world_ == nullptr) {
+        return;
+    }
     ecs::EventWriter<MouseEvent>{*world_}.send(MouseEvent{
             .kind = down ? MouseEvent::Kind::Down : MouseEvent::Kind::Up,
             .position = position,
@@ -51,6 +61,9 @@ void InputSystem::handle_mouse_button(MouseButton button, bool down, glm::vec2 p
 }
 
 void InputSystem::handle_mouse_move(glm::vec2 position, glm::vec2 relative) {
+    if (world_ == nullptr) {
+        return;
+    }
     ecs::EventWriter<MouseEvent>{*world_}.send(MouseEvent{
             .kind = MouseEvent::Kind::Move,
             .position = position,

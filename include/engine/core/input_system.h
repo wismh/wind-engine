@@ -30,7 +30,10 @@ struct MouseEvent {
 
 class InputSystem {
 public:
+    InputSystem() = default;
     explicit InputSystem(ecs::World& world);
+
+    void set_world(ecs::World& world);
 
     void bind(KeyCode key, std::string action);
     void handle_key(KeyCode key, bool down);

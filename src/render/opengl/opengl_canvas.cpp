@@ -48,6 +48,12 @@ bool OpenGLCanvas::init() {
 }
 
 void OpenGLCanvas::Draw() {
+    if (window_ != nullptr) {
+        const glm::ivec2 size = window_->drawable_size();
+        if (size.x > 0 && size.y > 0) {
+            glViewport(0, 0, size.x, size.y);
+        }
+    }
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
     if (backend_ != nullptr && commands_ != nullptr) {
