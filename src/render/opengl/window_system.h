@@ -26,6 +26,7 @@ public:
     }
 
     [[nodiscard]] glm::ivec2 size() const;
+    [[nodiscard]] glm::ivec2 drawable_size() const;
 
 private:
     SDL_Window* window_ = nullptr;
