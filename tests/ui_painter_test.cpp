@@ -32,6 +32,8 @@ struct PaintCall {
     engine::AssetId font{};
     std::string text;
     glm::vec2 position{};
+    engine::ui::UiAlign horizontal = engine::ui::UiAlign::Start;
+    engine::ui::UiAlign vertical = engine::ui::UiAlign::Start;
 };
 
 class FakePainter final : public engine::ui::IUiPainter {
@@ -62,8 +64,10 @@ public:
         calls.push_back(PaintCall{.op = "font", .font_size = size, .font = font});
     }
 
-    void fill_text(std::string_view text, glm::vec2 position, glm::vec4 color) override {
-        calls.push_back(PaintCall{.op = "text", .color = color, .text = std::string(text), .position = position});
+    void fill_text(std::string_view text, glm::vec2 position, glm::vec4 color, engine::ui::UiAlign horizontal,
+            engine::ui::UiAlign vertical) override {
+        calls.push_back(PaintCall{.op = "text", .color = color, .text = std::string(text), .position = position,
+                .horizontal = horizontal, .vertical = vertical});
     }
 
     void image(engine::AssetId texture, const engine::render::Rect& rect) override {
@@ -157,6 +161,10 @@ TEST(UiPainter, LabelTextFromXmlAndCssColor) {
     ASSERT_NE(font, nullptr);
     EXPECT_FLOAT_EQ(font->font_size, 24.0f);
     EXPECT_EQ(font->font, engine::builtin::font_ui);
+    EXPECT_FLOAT_EQ(text->position.x, 0.0f);
+    EXPECT_FLOAT_EQ(text->position.y, 0.0f);
+    EXPECT_EQ(text->horizontal, engine::ui::UiAlign::Start);
+    EXPECT_EQ(text->vertical, engine::ui::UiAlign::Start);
 }
 
 TEST(UiPainter, FontFamilyGuidFromCss) {
@@ -177,6 +185,80 @@ TEST(UiPainter, FontFamilyGuidFromCss) {
     EXPECT_FLOAT_EQ(font->font_size, 24.0f);
     EXPECT_EQ(font->font, hud_font);
     EXPECT_NE(font->font, engine::builtin::font_ui);
+}
+
+TEST(UiPainter, PaddingInsetsLabelText) {
+    TitleVm vm;
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="title" Text="{Binding Title}"/></Canvas>)", nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+
+    const engine::ui::Stylesheet sheet = must_parse_css(".title { padding: 8 12; }");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    const PaintCall* text = painter.find("text");
+    ASSERT_NE(text, nullptr);
+    EXPECT_FLOAT_EQ(text->position.x, 12.0f);
+    EXPECT_FLOAT_EQ(text->position.y, 8.0f);
+    EXPECT_EQ(text->horizontal, engine::ui::UiAlign::Start);
+    EXPECT_EQ(text->vertical, engine::ui::UiAlign::Start);
+}
+
+TEST(UiPainter, JustifyAndAlignCenterText) {
+    TitleVm vm;
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="title" Text="{Binding Title}"/></Canvas>)", nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+
+    const engine::ui::Stylesheet sheet =
+            must_parse_css(".title { justify-content: center; align-items: center; }");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    const PaintCall* text = painter.find("text");
+    ASSERT_NE(text, nullptr);
+    EXPECT_FLOAT_EQ(text->position.x, 100.0f);
+    EXPECT_FLOAT_EQ(text->position.y, 50.0f);
+    EXPECT_EQ(text->horizontal, engine::ui::UiAlign::Center);
+    EXPECT_EQ(text->vertical, engine::ui::UiAlign::Center);
+}
+
+TEST(UiPainter, StackPaddingInsetsEqualSplit) {
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Stack class="hud" direction="vertical">
+            <Label class="cell" Text="A"/>
+            <Label class="cell" Text="B"/>
+          </Stack>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .hud { padding: 10; }
+        .cell { background: #ffffff; }
+    )");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 100.f, 100.f}});
+
+    std::vector<engine::render::Rect> fills;
+    for (const PaintCall& call : painter.calls) {
+        if (call.op == "fill_rect") {
+            fills.push_back(call.rect);
+        }
+    }
+    ASSERT_EQ(fills.size(), 2u);
+    EXPECT_FLOAT_EQ(fills[0].x, 10.0f);
+    EXPECT_FLOAT_EQ(fills[0].y, 10.0f);
+    EXPECT_FLOAT_EQ(fills[0].w, 80.0f);
+    EXPECT_FLOAT_EQ(fills[0].h, 40.0f);
+    EXPECT_FLOAT_EQ(fills[1].x, 10.0f);
+    EXPECT_FLOAT_EQ(fills[1].y, 50.0f);
+    EXPECT_FLOAT_EQ(fills[1].w, 80.0f);
+    EXPECT_FLOAT_EQ(fills[1].h, 40.0f);
 }
 
 TEST(UiPainter, ButtonHoverUsesPseudoBackground) {
