@@ -32,7 +32,8 @@ public:
     void fill_rounded_rect(const Rect& rect, float radius, glm::vec4 color) override;
     void stroke_rounded_rect(const Rect& rect, float radius, float width, glm::vec4 color) override;
     void set_font(AssetId font, float size) override;
-    void fill_text(std::string_view text, glm::vec2 position, glm::vec4 color) override;
+    void fill_text(std::string_view text, glm::vec2 position, glm::vec4 color, ui::UiAlign horizontal,
+            ui::UiAlign vertical) override;
     void image(AssetId texture, const Rect& rect) override;
 
 private:
