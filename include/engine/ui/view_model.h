@@ -33,12 +33,12 @@ public:
 
 protected:
     template<typename T>
-    void Property(std::string_view name, Bindable<T>& bindable);
+    void property(std::string_view name, Bindable<T>& bindable);
 
     template<typename T>
-    void Property(std::string_view name, BindableList<std::shared_ptr<T>>& list);
+    void property(std::string_view name, BindableList<std::shared_ptr<T>>& list);
 
-    void Command(std::string_view name, ICommand& command);
+    void command(std::string_view name, ICommand& command);
 
 private:
     struct PropertyRef {
@@ -52,11 +52,11 @@ private:
 };
 
 template<typename T>
-void ViewModel::Property(std::string_view name, Bindable<T>& bindable) {
+void ViewModel::property(std::string_view name, Bindable<T>& bindable) {
     PropertyRef ref;
     ref.bindable = &bindable;
     ref.to_string = [](void* ptr) -> std::string {
-        const T& value = static_cast<Bindable<T>*>(ptr)->Get();
+        const T& value = static_cast<Bindable<T>*>(ptr)->get();
         if constexpr (std::is_same_v<T, std::string>) {
             return value;
         } else if constexpr (std::is_arithmetic_v<T>) {
@@ -69,12 +69,12 @@ void ViewModel::Property(std::string_view name, Bindable<T>& bindable) {
 }
 
 template<typename T>
-void ViewModel::Property(std::string_view name, BindableList<std::shared_ptr<T>>& list) {
-    static_assert(std::is_base_of_v<ViewModel, T>, "ItemsSource items must be ViewModels");
+void ViewModel::property(std::string_view name, BindableList<std::shared_ptr<T>>& list) {
+    static_assert(std::is_base_of_v<ViewModel, T>, "items_source items must be ViewModels");
     PropertyRef ref;
     ref.bindable = &list;
     ref.items = [](void* ptr) -> std::vector<ViewModel*> {
-        auto& items = static_cast<BindableList<std::shared_ptr<T>>*>(ptr)->Get();
+        auto& items = static_cast<BindableList<std::shared_ptr<T>>*>(ptr)->get();
         std::vector<ViewModel*> out;
         out.reserve(items.size());
         for (const std::shared_ptr<T>& item : items) {

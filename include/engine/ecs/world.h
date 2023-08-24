@@ -93,10 +93,10 @@ public:
 
     using SystemFn = std::function<void(World&)>;
 
-    void AddSystem(Schedule schedule, Phase phase, SystemFn fn);
-    void Run(Schedule schedule);
+    void add_system(Schedule schedule, Phase phase, SystemFn fn);
+    void run(Schedule schedule);
 
-    void FlushEvents();
+    void flush_events();
 
 private:
     class IResource {
