@@ -22,7 +22,7 @@ float clamp01(float value) {
 }
 
 float pitch_ratio(const Sound& sound) {
-    return sound.pitchRange.x;
+    return sound.pitch_range.x;
 }
 
 #ifdef ENGINE_WITH_AUDIO
@@ -232,11 +232,11 @@ AudioSystem::AudioSystem(AudioSystem&&) noexcept = default;
 AudioSystem& AudioSystem::operator=(AudioSystem&&) noexcept = default;
 
 AudioSystem::~AudioSystem() {
-    Dispose();
+    dispose();
 }
 
-bool AudioSystem::Init() {
-    Dispose();
+bool AudioSystem::init() {
+    dispose();
     impl_->mixer.reset();
     impl_->master = 1.f;
     impl_->music_bus = 1.f;
@@ -250,7 +250,7 @@ bool AudioSystem::Init() {
     return true;
 }
 
-void AudioSystem::Dispose() {
+void AudioSystem::dispose() {
     if (!impl_) {
         return;
     }
@@ -260,7 +260,7 @@ void AudioSystem::Dispose() {
 #endif
 }
 
-void AudioSystem::Update(float dt) {
+void AudioSystem::update(float dt) {
     if (dt < 0.f) {
         dt = 0.f;
     }
@@ -274,7 +274,7 @@ void AudioSystem::Update(float dt) {
 #endif
 }
 
-void AudioSystem::PlaySfx(const Sound& sound, float volume_scale) {
+void AudioSystem::play_sfx(const Sound& sound, float volume_scale) {
 #ifdef ENGINE_WITH_AUDIO
     impl_->sync_ended_sfx();
 #endif
@@ -294,7 +294,7 @@ void AudioSystem::PlaySfx(const Sound& sound, float volume_scale) {
 #endif
 }
 
-void AudioSystem::PlayMusic(const Sound& sound, bool loop, float fade_seconds) {
+void AudioSystem::play_music(const Sound& sound, bool loop, float fade_seconds) {
     auto& mixer = impl_->mixer;
     const float target = impl_->music_gain(sound.volume);
     const float ratio = pitch_ratio(sound);
@@ -333,7 +333,7 @@ void AudioSystem::PlayMusic(const Sound& sound, bool loop, float fade_seconds) {
 #endif
 }
 
-void AudioSystem::StopMusic(float fade_seconds) {
+void AudioSystem::stop_music(float fade_seconds) {
     for (audio::FakeTrack& track : impl_->mixer.music) {
         if (!track.playing) {
             continue;
@@ -345,11 +345,11 @@ void AudioSystem::StopMusic(float fade_seconds) {
 #endif
 }
 
-bool AudioSystem::IsMusicPlaying() const {
+bool AudioSystem::is_music_playing() const {
     return impl_->mixer.any_music_playing();
 }
 
-LoopingSfxHandle AudioSystem::CreateLoopingSfx() {
+LoopingSfxHandle AudioSystem::create_looping_sfx() {
     auto& mixer = impl_->mixer;
     if (mixer.next_looping_id == 0) {
         mixer.next_looping_id = 1;
@@ -371,7 +371,7 @@ LoopingSfxHandle AudioSystem::CreateLoopingSfx() {
     return handle;
 }
 
-void AudioSystem::PlayLoopingSfx(LoopingSfxHandle handle, const Sound& sound, float fade_in) {
+void AudioSystem::play_looping_sfx(LoopingSfxHandle handle, const Sound& sound, float fade_in) {
     audio::FakeTrack* const track = impl_->mixer.looping_track(handle);
     if (track == nullptr) {
         return;
@@ -390,7 +390,7 @@ void AudioSystem::PlayLoopingSfx(LoopingSfxHandle handle, const Sound& sound, fl
 #endif
 }
 
-void AudioSystem::StopLoopingSfx(LoopingSfxHandle handle, float fade_out) {
+void AudioSystem::stop_looping_sfx(LoopingSfxHandle handle, float fade_out) {
     audio::FakeTrack* const track = impl_->mixer.looping_track(handle);
     if (track == nullptr) {
         return;
@@ -401,7 +401,7 @@ void AudioSystem::StopLoopingSfx(LoopingSfxHandle handle, float fade_out) {
 #endif
 }
 
-void AudioSystem::ReleaseLoopingSfx(LoopingSfxHandle handle, float fade_out) {
+void AudioSystem::release_looping_sfx(LoopingSfxHandle handle, float fade_out) {
     audio::FakeTrack* const track = impl_->mixer.looping_track(handle);
     if (track == nullptr) {
         return;
@@ -420,15 +420,15 @@ void AudioSystem::ReleaseLoopingSfx(LoopingSfxHandle handle, float fade_out) {
 #endif
 }
 
-void AudioSystem::SetMasterVolume(float volume) {
+void AudioSystem::set_master_volume(float volume) {
     impl_->master = clamp01(volume);
 }
 
-void AudioSystem::SetMusicVolume(float volume) {
+void AudioSystem::set_music_volume(float volume) {
     impl_->music_bus = clamp01(volume);
 }
 
-void AudioSystem::SetSfxVolume(float volume) {
+void AudioSystem::set_sfx_volume(float volume) {
     impl_->sfx_bus = clamp01(volume);
 }
 
