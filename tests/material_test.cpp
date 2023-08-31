@@ -16,19 +16,19 @@ public:
     explicit FakeMaterial(glm::vec4 color)
         : color_(color) {}
 
-    std::shared_ptr<engine::render::IShader> Shader() const override {
+    std::shared_ptr<engine::render::IShader> shader() const override {
         return {};
     }
 
-    std::shared_ptr<engine::render::ITexture> Texture(int) const override {
+    std::shared_ptr<engine::render::ITexture> texture(int) const override {
         return {};
     }
 
-    glm::vec4 Color() const override {
+    glm::vec4 color() const override {
         return color_;
     }
 
-    engine::render::BlendMode Blend() const override {
+    engine::render::BlendMode blend() const override {
         return engine::render::BlendMode::Alpha;
     }
 
@@ -85,6 +85,6 @@ TEST(Material, InstanceColorMultiplies) {
     renderable.color = {0.5f, 1.0f, 1.0f, 0.5f};
 
     expect_vec4(renderable.tinted_color(), {0.5f, 0.5f, 0.25f, 0.5f});
-    expect_vec4(engine::render::multiply_instance_color(material->Color(), renderable.color),
+    expect_vec4(engine::render::multiply_instance_color(material->color(), renderable.color),
             {0.5f, 0.5f, 0.25f, 0.5f});
 }

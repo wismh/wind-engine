@@ -10,7 +10,7 @@ TEST(Scaffold, DefaultTestsHaveNoWindowBackend) {
 #ifndef ENGINE_WITH_WINDOW
     SUCCEED();
 #else
-    GTEST_SKIP() << "window backend preset; Engine::Run is still not invoked";
+    GTEST_SKIP() << "window backend preset; Engine::run is still not invoked";
 #endif
 }
 
