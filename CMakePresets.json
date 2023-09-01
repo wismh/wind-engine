@@ -1,0 +1,35 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "vs",
+      "displayName": "Visual Studio (installed)",
+      "generator": "Visual Studio 18 2026",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "ENGINE_BUILD_TESTS": "ON",
+        "ENGINE_WITH_WINDOW": "OFF",
+        "ENGINE_WITH_AUDIO": "OFF"
+      }
+    },
+    {
+      "name": "vs2022",
+      "displayName": "Visual Studio 17 2022",
+      "generator": "Visual Studio 17 2022",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "ENGINE_BUILD_TESTS": "ON",
+        "ENGINE_WITH_WINDOW": "OFF",
+        "ENGINE_WITH_AUDIO": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "tests",
+      "configurePreset": "vs",
+      "targets": ["engine_tests"]
+    }
+  ]
+}
+
