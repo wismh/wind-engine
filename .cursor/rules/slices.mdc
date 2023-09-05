@@ -1,0 +1,12 @@
+---
+description: One SDD slice per session; tests are the gate
+alwaysApply: true
+---
+
+# Slices
+
+Read `docs/slices.md` first. Implement the **lowest incomplete** slice only.
+
+Do not implement a later slice “while you are here”. Do not scaffold tic-tac-toe in this repo.
+
+Done = the tests listed for that slice pass (`engine_tests` / `ctest`). If CMake/submodules are missing, fix slice 0, not gameplay.
