@@ -1,0 +1,23 @@
+---
+description: C++23 layout, naming, and include paths for the engine
+globs: "**/*.{h,hpp,cpp,c}"
+alwaysApply: false
+---
+
+# C++
+
+C++23, 4 spaces, column 120, LLVM-based `.clang-format`. Namespaces: `engine`, `engine::ecs`, `engine::render`, `engine::ui`. Files `snake_case`. Types `PascalCase`. Members `trailing_`. `enum class`. No `using namespace`.
+
+Headers games may include live under `include/engine/`. Private headers sit next to `.cpp` under `src/` and are **not** on the public include path. Tests: `tests/<area>_test.cpp`.
+
+```cpp
+// BAD — private type in a public header
+#include <glad/glad.h>
+#include <spdlog/spdlog.h>
+
+// GOOD
+#include <engine/ecs/world.h>
+#include <engine/render/commands.h>
+```
+
+Do not call `gl*`, `MIX_*`, or `nvg*` from `include/` or tests. Engine APIs are main-thread only.

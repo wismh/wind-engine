@@ -1,0 +1,17 @@
+---
+description: wind-N commits, 2023 dates, commit-tree, no Co-authored-by
+alwaysApply: true
+---
+
+# Git
+
+This repo is **Wind**. Task code `wind-N`. Branch `feat/wind-N-short-kebab`. Follow `.cursor/skills/wind-git/SKILL.md` when the user asks to commit or push.
+
+```
+wind-2 feat: add generational ecs entities
+wind-2 test: cover try_get after destroy
+```
+
+Author `wismh <68060501+wismh@users.noreply.github.com>`. Dates: weekday after HEAD, `+0300`, **2023**. Do not use `git commit` (Cursor injects `Co-authored-by`). Do not change `git config`.
+
+No remote until asked. Do not force-push `main`. Do not commit `build/`, `.idea/`, generated catalogs, or secrets. Do not add EnTT.
