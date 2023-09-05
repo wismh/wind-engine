@@ -27,17 +27,17 @@ public:
     engine::ui::RelayCommand restart;
 
     HudViewModel() {
-        Property("Title", title);
-        Property("RestartLabel", restart_label);
-        Command("Restart", restart);
+        property("title", title);
+        property("restart_label", restart_label);
+        command("restart", restart);
     }
 };
 
 constexpr std::string_view kValidXml = R"(
 <Canvas>
   <Stack class="hud" direction="vertical">
-    <Label class="title" Text="{Binding Title}"/>
-    <Button Command="{Binding Restart}" Content="{Binding RestartLabel}"/>
+    <Label class="title" text="{binding title}"/>
+    <Button command="{binding restart}" content="{binding restart_label}"/>
   </Stack>
 </Canvas>
 )";
@@ -46,8 +46,8 @@ constexpr std::string_view kValidXml = R"(
 
 TEST(UiXml, ParseValidCanvasStackLabelButton) {
     HudViewModel vm;
-    vm.title.Set("Hello");
-    vm.restart_label.Set("Again");
+    vm.title.set("Hello");
+    vm.restart_label.set("Again");
 
     const auto parsed = engine::ui::parse_xml(kValidXml, nullptr, &vm);
     ASSERT_TRUE(parsed.has_value());
@@ -60,10 +60,10 @@ TEST(UiXml, ParseValidCanvasStackLabelButton) {
     EXPECT_EQ(root.children[0].direction, engine::ui::StackDirection::Vertical);
     ASSERT_EQ(root.children[0].children.size(), 2u);
     EXPECT_EQ(root.children[0].children[0].kind, engine::ui::ElementKind::Label);
-    EXPECT_EQ(root.children[0].children[0].text_binding, "Title");
+    EXPECT_EQ(root.children[0].children[0].text_binding, "title");
     EXPECT_EQ(root.children[0].children[1].kind, engine::ui::ElementKind::Button);
-    EXPECT_EQ(root.children[0].children[1].command_binding, "Restart");
-    EXPECT_EQ(root.children[0].children[1].content_binding, "RestartLabel");
+    EXPECT_EQ(root.children[0].children[1].command_binding, "restart");
+    EXPECT_EQ(root.children[0].children[1].content_binding, "restart_label");
 }
 
 TEST(UiXml, UnknownElementIsFatal) {
@@ -78,23 +78,23 @@ TEST(UiXml, UnknownElementIsFatal) {
 TEST(UiXml, MissingBindingNameIsFatal) {
     HudViewModel vm;
     RecordingFatalError fatal;
-    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Label Text="{Binding Score}"/></Canvas>)", &fatal, &vm);
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Label text="{binding score}"/></Canvas>)", &fatal, &vm);
     EXPECT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::MissingBinding);
     EXPECT_GE(fatal.call_count, 1);
-    EXPECT_NE(fatal.last_message.find("Score"), std::string::npos);
+    EXPECT_NE(fatal.last_message.find("score"), std::string::npos);
 }
 
 TEST(UiXml, EmptyBindingPathIsFatal) {
     RecordingFatalError fatal;
-    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Label Text="{Binding}"/></Canvas>)", &fatal);
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Label text="{binding}"/></Canvas>)", &fatal);
     EXPECT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::MissingBinding);
     EXPECT_GE(fatal.call_count, 1);
 }
 
 TEST(UiXml, OnClickAttributeIsNotAnApi) {
-    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Button onClick="nope" Content="Go"/></Canvas>)");
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Button onClick="nope" content="Go"/></Canvas>)");
     ASSERT_TRUE(parsed.has_value());
     const engine::ui::Element* button = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Button);
     ASSERT_NE(button, nullptr);

@@ -60,7 +60,7 @@ std::optional<ElementKind> kind_from_tag(const char* name) {
 // Returns nullopt if the value is a literal, empty string if the path is missing, otherwise the registered name.
 std::optional<std::string> try_parse_binding(std::string_view raw) {
     const std::string_view value = trim(raw);
-    constexpr std::string_view kPrefix = "{Binding";
+    constexpr std::string_view kPrefix = "{binding";
     if (value.size() < kPrefix.size() + 1 || !value.starts_with(kPrefix) || value.back() != '}') {
         return std::nullopt;
     }
@@ -71,7 +71,7 @@ std::optional<std::string> try_parse_binding(std::string_view raw) {
     const auto eq = inner.find('=');
     if (eq != std::string_view::npos) {
         const std::string_view key = trim(inner.substr(0, eq));
-        if (key == "Path" || key == "path") {
+        if (key == "path") {
             return std::string(trim(inner.substr(eq + 1)));
         }
     }
@@ -107,7 +107,7 @@ std::expected<void, UiError> assign_command_binding(Element& element, const char
     }
     const auto binding = try_parse_binding(attr);
     if (!binding) {
-        report(fatal, "UI Command must be a {Binding} path");
+        report(fatal, "UI command must be a {binding} path");
         return std::unexpected(UiError::MissingBinding);
     }
     if (binding->empty()) {
@@ -142,7 +142,7 @@ std::expected<void, UiError> parse_source(Element& element, const char* attr, IF
     }
     const auto id = AssetId::parse(attr);
     if (!id) {
-        report(fatal, "UI Image Source must be a 32-hex AssetId or {Binding}, not a filename");
+        report(fatal, "UI Image source must be a 32-hex AssetId or {binding}, not a filename");
         return std::unexpected(UiError::ForbiddenContent);
     }
     element.source = *id;
@@ -168,10 +168,8 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
     if (const char* cls = xml->Attribute("class")) {
         element.class_name = cls;
     }
-    if (const char* name_attr = xml->Attribute("Name")) {
+    if (const char* name_attr = xml->Attribute("name")) {
         element.name = name_attr;
-    } else if (const char* name_lower = xml->Attribute("name")) {
-        element.name = name_lower;
     }
 
     if (element.kind == ElementKind::Stack) {
@@ -188,23 +186,23 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
         }
     }
 
-    if (auto result = assign_property_binding(element.text_binding, element.text, xml->Attribute("Text"), fatal, vm,
+    if (auto result = assign_property_binding(element.text_binding, element.text, xml->Attribute("text"), fatal, vm,
                 in_template);
             !result) {
         return std::unexpected(result.error());
     }
-    if (auto result = assign_property_binding(element.content_binding, element.text, xml->Attribute("Content"), fatal, vm,
+    if (auto result = assign_property_binding(element.content_binding, element.text, xml->Attribute("content"), fatal, vm,
                 in_template);
             !result) {
         return std::unexpected(result.error());
     }
-    if (auto result = assign_command_binding(element, xml->Attribute("Command"), fatal, vm, in_template); !result) {
+    if (auto result = assign_command_binding(element, xml->Attribute("command"), fatal, vm, in_template); !result) {
         return std::unexpected(result.error());
     }
-    if (auto result = parse_source(element, xml->Attribute("Source"), fatal, vm, in_template); !result) {
+    if (auto result = parse_source(element, xml->Attribute("source"), fatal, vm, in_template); !result) {
         return std::unexpected(result.error());
     }
-    if (auto result = assign_property_binding(element.items_source_binding, element.text, xml->Attribute("ItemsSource"),
+    if (auto result = assign_property_binding(element.items_source_binding, element.text, xml->Attribute("items_source"),
                 fatal, vm, in_template);
             !result) {
         return std::unexpected(result.error());

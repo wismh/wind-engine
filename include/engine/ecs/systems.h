@@ -23,6 +23,6 @@ struct EngineSystemDeps {
     IAudioSystem* audio = nullptr;
 };
 
-void RegisterEngineSystems(ecs::World& world, EngineSystemDeps deps = {});
+void register_engine_systems(ecs::World& world, EngineSystemDeps deps = {});
 
 }

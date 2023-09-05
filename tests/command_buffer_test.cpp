@@ -20,19 +20,19 @@ class FakeMesh final : public engine::render::IMesh {};
 
 class FakeMaterial final : public engine::render::IMaterial {
 public:
-    std::shared_ptr<engine::render::IShader> Shader() const override {
+    std::shared_ptr<engine::render::IShader> shader() const override {
         return {};
     }
 
-    std::shared_ptr<engine::render::ITexture> Texture(int) const override {
+    std::shared_ptr<engine::render::ITexture> texture(int) const override {
         return {};
     }
 
-    glm::vec4 Color() const override {
+    glm::vec4 color() const override {
         return {1.0f, 1.0f, 1.0f, 1.0f};
     }
 
-    engine::render::BlendMode Blend() const override {
+    engine::render::BlendMode blend() const override {
         return engine::render::BlendMode::Opaque;
     }
 };

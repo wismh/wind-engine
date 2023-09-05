@@ -11,12 +11,12 @@ public:
     Bindable() = default;
     explicit Bindable(T value) : value_(std::move(value)) {}
 
-    void Set(T value) { value_ = std::move(value); }
+    void set(T value) { value_ = std::move(value); }
 
-    [[nodiscard]] const T& Get() const { return value_; }
+    [[nodiscard]] const T& get() const { return value_; }
 
     Bindable& operator=(T value) {
-        Set(std::move(value));
+        set(std::move(value));
         return *this;
     }
 
@@ -27,11 +27,11 @@ private:
 template<typename T>
 class BindableList {
 public:
-    void Set(std::vector<T> items) { items_ = std::move(items); }
+    void set(std::vector<T> items) { items_ = std::move(items); }
 
-    [[nodiscard]] const std::vector<T>& Get() const { return items_; }
+    [[nodiscard]] const std::vector<T>& get() const { return items_; }
 
-    [[nodiscard]] std::vector<T>& Get() { return items_; }
+    [[nodiscard]] std::vector<T>& get() { return items_; }
 
 private:
     std::vector<T> items_{};

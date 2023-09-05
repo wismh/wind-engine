@@ -19,7 +19,7 @@ public:
     Host(const Host&) = delete;
     Host& operator=(const Host&) = delete;
 
-    void tick(float real_dt = FIXED);
+    void tick(float real_dt = kFixed);
     void resize(int width, int height);
 
     [[nodiscard]] ecs::World& world();

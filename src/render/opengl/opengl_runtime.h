@@ -43,7 +43,7 @@ inline void quit_video() {
 }
 
 [[nodiscard]] inline bool create_runtime_for_game(IGame& game, OpenGLRuntime& runtime) {
-    return runtime.init(game.WindowTitle(), game.WindowSize());
+    return runtime.init(game.window_title(), game.window_size());
 }
 
 }

@@ -69,7 +69,7 @@ A small real-time 2D engine (**Wind**): window, input, ECS, command-buffer rende
 | `asset_guid`    | Dev tool: create missing `.meta` + new GUIDs (writes the assets tree)               |
 | `asset_codegen` | Build tool: **read-only** scan; emit `asset_ids.h` + cooked catalog; fail if meta missing |
 | `AssetId`       | 32-char lowercase hex GUID, strong type                                            |
-| `TryGet` / `Get`| Optional vs fatal asset lookup (see §10.7)                                         |
+| `try_get` / `get`| Optional vs fatal asset lookup (see §10.7)                                         |
 | `IMaterial`     | Shader + texture slots + blend + default color (see §6.2)                          |
 | `ViewModel`     | Game C++ MVVM object; XML binds to registered names (see §8)                       |
 | `ICommand`      | UI → VM (WPF command), not `onClick` lambdas in game code                          |
@@ -91,12 +91,12 @@ A small real-time 2D engine (**Wind**): window, input, ECS, command-buffer rende
 2. **Clear ownership.** Engine owns window/GL/audio/import; game owns the `assets/` tree, `.meta` files, and generated `asset_ids.h`.
 3. **One way to draw.** Game and ECS never call OpenGL. They push `Command`s; the backend executes them.
 4. **Named input.** Gameplay binds scancodes → action strings, not raw keys in systems.
-5. **Assets only by GUID.** `AssetsDb::Get<T>(AssetId)` (fatal if missing cooked asset) or `TryGet`. No filenames in game code.
+5. **Assets only by GUID.** `AssetsDb::get<T>(AssetId)` (fatal if missing cooked asset) or `try_get`. No filenames in game code.
 6. **Import settings live in `.meta`.** A bare PNG/WAV is not a texture/sound until its sidecar says how to load it (color space, filter, sound bank, …).
 7. **Audio is a system, not a filename firehose.** `IAudioSystem` plays `Sound` objects produced by the audio importer, not `PlaySoundEvent{"hit.wav"}`.
 8. **Reusable across remakes.** Window title/size come from `IGame`; audio and render APIs stay game-agnostic.
 9. **Test the engine, not the remakes.** Logic that will be shared (ECS, events, commands, audio policy, meta/catalog, input, camera, fixed-step loop) has GoogleTest coverage in this repo. Gameplay stays in the game repo.
-10. **Simulation is fixed-step.** Frame time drives present and audio fades; gameplay/physics tick at a constant `fixedDeltaTime` (§4.4).
+10. **Simulation is fixed-step.** Frame time drives present and audio fades; gameplay/physics tick at a constant `fixed_delta_time` (§4.4).
 11. **UI is markup + style + VM.** Games do not build `UIElement` trees in C++. XML + custom CSS + `ViewModel` / `ICommand` (see §8).
 12. **Draw with materials, then sort.** `Renderable` is mesh + material + layer, not ad-hoc shader/texture pointers with undefined order (§6).
 
@@ -193,11 +193,11 @@ A game `target_link_libraries(… PRIVATE engine)` therefore sees **only** `incl
 
 **Public (`include/engine/`):** `engine.h` (umbrella), `igame.h`, `log.h` (facade, not spdlog), ECS (`world.h`, `entity.h`, components games spawn), `Time`, `Events<T>` / `EventReader` / `EventWriter`, `Command` / `CommandBuffer`, `ICanvas` / `IGraphicFactory` / `IMesh` / `IShader` / `ITexture` / **`IMaterial`**, `UiCanvas` / `ViewModel` / `Bindable` / `ICommand`, `AssetsDb`, `IAudioSystem` / `Sound`, `IFatalError`, `builtin_ids.h`. Games include these (or the umbrella).
 
-**Private (`src/…`, never installed, never PUBLIC):** OpenGL/glad types, NanoVG context, SDL window/GL bootstrap, mixer tracks, Loop internals, importers, XML/CSS parsers, cooked-catalog parser. `OpenGLCanvas::Draw` executes commands here.
+**Private (`src/…`, never installed, never PUBLIC):** OpenGL/glad types, NanoVG context, SDL window/GL bootstrap, mixer tracks, Loop internals, importers, XML/CSS parsers, cooked-catalog parser. `OpenGLCanvas::draw` executes commands here.
 
 **Forbidden in game code (and not possible if CMake is followed):** `#include <glad/…>`, SDL render/mixer headers, spdlog, NanoVG, tinyxml2, any `src/` engine header, `gl*` / `MIX_*` / `nvg*` calls.
 
-Ping-pong ships almost every `.h` next to the game include path. Extraction **splits** that. `IGame::WindowSize` uses `glm::ivec2` — glm is a **PUBLIC** link of `engine`.
+Ping-pong ships almost every `.h` next to the game include path. Extraction **splits** that. `IGame::window_size` uses `glm::ivec2` — glm is a **PUBLIC** link of `engine`.
 
 ---
 
@@ -207,29 +207,29 @@ Ping-pong ships almost every `.h` next to the game include path. Extraction **sp
 
 ```
 main
-  → Engine<GameT>::Init()     Boost.DI + SDL + window + GL + UI canvas + audio
-  → Engine::Run()
-       → Loop::Run()
-            OnStart
+  → Engine<GameT>::init()     Boost.DI + SDL + window + GL + UI canvas + audio
+  → Engine::run()
+       → Loop
+            on_start
             while running:
-              World::FlushEvents()              // age Events<T> (start of frame)
+              World::flush_events()              // age Events<T> (start of frame)
               frameDt = clamp(realDt, 0, 0.25)
               PollEvents (QUIT, resize, InputSystem → queues)
               ctx<WindowSize>, WindowResizeEvent if size changed
               ctx<MouseConsumed> = false
-              IAudioSystem::Update(frameDt)     // fades use wall-clock (also while paused)
+              IAudioSystem::update(frameDt)     // fades use wall-clock (also while paused)
               if not ApplicationState.paused:
                 accumulator += frameDt
                 steps = 0
-                while accumulator >= FIXED && steps < MAX_FIXED_STEPS:
-                  Time.fixedDeltaTime = FIXED
-                  IGame::OnFixedUpdate()        // World::Run(Schedule::Fixed)
-                  accumulator -= FIXED
+                while accumulator >= kFixed && steps < kMaxFixedSteps:
+                  Time.fixed_delta_time = kFixed
+                  IGame::on_fixed_update()        // World::run(Schedule::Fixed)
+                  accumulator -= kFixed
                   steps += 1
-              Time.deltaTime = frameDt
-              IGame::OnUpdate()                 // World::Run(Schedule::Frame)
-              ICanvas::Draw()
-            OnQuit
+              Time.delta_time = frameDt
+              IGame::on_update()                 // World::run(Schedule::Frame)
+              ICanvas::draw()
+            on_quit
 ```
 
 
@@ -240,7 +240,7 @@ main
 | Area      | Path                       | Responsibility                                     |
 | --------- | -------------------------- | -------------------------------------------------- |
 | Host      | `core/engine.h`            | DI graph, SDL init, window title/size from `IGame` |
-| Time      | `core/time.h`              | `deltaTime` (frame), `fixedDeltaTime`, accumulator |
+| Time      | `core/time.h`              | `delta_time` (frame), `fixed_delta_time`, accumulator |
 | Loop      | `core/loop.h`              | fixed-step sim + one frame pass + present          |
 | Window    | `core/window_system.h`     | SDL window + GL context                            |
 | Input     | `core/input_system.h`      | scancode → `InputEvent`; mouse → `MouseEvent`      |
@@ -261,13 +261,13 @@ main
 
 ### 4.2 Dependency injection and systems
 
-`Engine<GameT>::Init` builds a Boost.DI injector. Singletons include `ApplicationState`, `Time`, `AssetsDb`, `InputSystem`, `IFatalError`, `CommandBuffer`, `ICanvas` → `OpenGLCanvas`, `IGraphicFactory` → `OpenGLFactory`, `IRenderBackend` → `OpenGLRenderBackend`, `IAudioSystem` → `AudioSystem`, `IGame` → `GameT`.
+`Engine<GameT>::init` builds a Boost.DI injector. Singletons include `ApplicationState`, `Time`, `AssetsDb`, `InputSystem`, `IFatalError`, `CommandBuffer`, `ICanvas` → `OpenGLCanvas`, `IGraphicFactory` → `OpenGLFactory`, `IRenderBackend` → `OpenGLRenderBackend`, `IAudioSystem` → `AudioSystem`, `IGame` → `GameT`.
 
-`IGame` is constructed by the injector (constructor parameters = services). Systems are **not** resolved from DI inside `Update()`. They capture `shared_ptr` services when constructed in `OnStart`, or they read `World::ctx<T>()` (`Time`, `WindowSize`, `MouseConsumed`, `ActiveCamera`, `Events<U>`).
+`IGame` is constructed by the injector (constructor parameters = services). Systems are **not** resolved from DI inside `on_update()`. They capture `shared_ptr` services when constructed in `on_start`, or they read `World::ctx<T>()` (`Time`, `WindowSize`, `MouseConsumed`, `ActiveCamera`, `Events<U>`).
 
-`engine::RegisterEngineSystems(world, …)` is called by the **host** after `World` exists and **before** `OnStart`. Games only `AddSystem` into **`Phase::Game`**.
+`engine::register_engine_systems(world, …)` is called by the **host** after `World` exists and **before** `on_start`. Games only `add_system` into **`Phase::Game`**.
 
-Do not introduce a service locator (`Engine::GetAudio()`).
+Do not introduce a service locator (`Engine::get_audio()`).
 
 Games receive services through `Game`’s constructor. Systems write/read typed events (`EventWriter` / `EventReader`); they must not load files or pass paths.
 
@@ -275,7 +275,7 @@ Games receive services through `Game`’s constructor. Systems write/read typed 
 
 Ping-pong’s `Node` / `NodeEcs` / `NodeUI` is **removed**. There is no scene-graph type beside ECS.
 
-`IGame` owns `ecs::World`. `OnStart` registers **game** systems onto `Schedule::Fixed` or `Schedule::Frame` at `Phase::Game`. `OnFixedUpdate` / `OnUpdate` run those schedules (see §4.4–§4.5).
+`IGame` owns `ecs::World`. `on_start` registers **game** systems onto `Schedule::Fixed` or `Schedule::Frame` at `Phase::Game`. `on_fixed_update` / `on_update` run those schedules (see §4.4–§4.5).
 
 ```
 ecs::World
@@ -301,28 +301,28 @@ Constants (in `Time` / Loop):
 
 | Name | Value | Role |
 | --- | --- | --- |
-| `FIXED` | `1/60` s | one simulation tick |
-| `MAX_FIXED_STEPS` | `8` | spiral-of-death cap (hitch → at most 8 ticks, then drop remainder) |
+| `kFixed` | `1/60` s | one simulation tick |
+| `kMaxFixedSteps` | `8` | spiral-of-death cap (hitch → at most 8 ticks, then drop remainder) |
 | `frameDt` clamp | `0.25` s | ignore a huge stall as one giant frame |
 
 `Time` fields:
 
-- `deltaTime` — this **frame’s** clamped wall time (UI animation, audio fades already ticked with `frameDt` in Loop).
-- `fixedDeltaTime` — always `FIXED` inside `OnFixedUpdate`.
-- `alpha` — `accumulator / FIXED` after the sim loop (0..1). Reserved for interpolating renderables later; v1 may ignore it.
+- `delta_time` — this **frame’s** clamped wall time (UI animation, audio fades already ticked with `frameDt` in Loop).
+- `fixed_delta_time` — always `kFixed` inside `on_fixed_update`.
+- `alpha` — `accumulator / kFixed` after the sim loop (0..1). Reserved for interpolating renderables later; v1 may ignore it.
 
 **Which schedule:**
 
 | Schedule | When | Put here |
 | --- | --- | --- |
-| `Fixed` | 0..N times per frame, dt = `FIXED`; **skipped while paused** | physics integrate, collision probe, movement, anything that must be fps-independent |
-| `Frame` | once per frame, dt = `deltaTime`; **always runs** (pause menus, UI) | input, bindings, render, UI, click-to-cell / other **one-shot input** gameplay |
+| `Fixed` | 0..N times per frame, dt = `kFixed`; **skipped while paused** | physics integrate, collision probe, movement, anything that must be fps-independent |
+| `Frame` | once per frame, dt = `delta_time`; **always runs** (pause menus, UI) | input, bindings, render, UI, click-to-cell / other **one-shot input** gameplay |
 
 Input is polled **once per frame** before the `while`. A click is visible to Frame systems **this same frame** (§9). If a click system ran on **Fixed**, two sim steps in one frame could apply the same click twice. **One-shot input gameplay runs on Frame, `Phase::Game`.** Held keys (state map) are fine to read from Fixed.
 
-`IGame::OnFixedUpdate` → `world.Run(Schedule::Fixed)`. `IGame::OnUpdate` → `world.Run(Schedule::Frame)`. Do not call `world.Run` for both schedules from a single hook.
+`IGame::on_fixed_update` → `world.run(Schedule::Fixed)`. `IGame::on_update` → `world.run(Schedule::Frame)`. Do not call `world.run` for both schedules from a single hook.
 
-Tests: given `accumulator` math (or a testable `FixedStepClock`), `dt = 1/60` → 1 step; `dt = 2/60` → 2 steps; `dt = 9 * FIXED` → exactly `MAX_FIXED_STEPS` and leftover discarded. While `paused`, zero Fixed steps and accumulator does not grow.
+Tests: given `accumulator` math (or a testable `FixedStepClock`), `dt = 1/60` → 1 step; `dt = 2/60` → 2 steps; `dt = 9 * kFixed` → exactly `kMaxFixedSteps` and leftover discarded. While `paused`, zero Fixed steps and accumulator does not grow.
 
 ### 4.5 Phases (order inside a schedule)
 
@@ -339,30 +339,30 @@ Registration order inside a **phase** is execution order. Games do not pick a ra
 
 | Phase | Who | Does |
 | --- | --- | --- |
-| `Input` | engine | `UiInputSystem` (hit-test, `ICommand::Execute`, `MouseConsumed`) |
+| `Input` | engine | `UiInputSystem` (hit-test, `ICommand::execute`, `MouseConsumed`) |
 | `Game` | remake | world picking if not consumed; mutate ViewModels; `EventWriter` |
 | `Bind` | engine | push `Bindable<T>` / commands into the XML instance tree |
 | `Audio` | engine | `EventReader<PlaySfxEvent>` / music — **after** Game so same-frame SFX work |
 | `Render` | engine | sort `Renderable`s, push `CmdDrawMesh` |
 | `UiRender` | engine | push `CmdDrawUI` (so HUD is on top of the world) |
 
-`AddSystem(Schedule, Phase::Game, system)` is the game API. Engine phases are registered by `RegisterEngineSystems`.
+`add_system(Schedule, Phase::Game, system)` is the game API. Engine phases are registered by `register_engine_systems`.
 
 ### 4.6 Pause
 
 `ApplicationState::paused` (bool). Loop: **do not** run Fixed, **do not** add to `accumulator` (unpause must not dump 8 sim steps). Frame still runs so a pause `UiCanvas` can bind Continue/Quit.
 
-Audio `Update(frameDt)` still runs (music keeps fading unless the game `StopMusic`). Gameplay SFX from skipped Fixed systems simply do not fire.
+Audio `update(frameDt)` still runs (music keeps fading unless the game `stop_music`). Gameplay SFX from skipped Fixed systems simply do not fire.
 
 ### 4.7 Window resize and camera
 
-`WindowSize` in `World::ctx` is the drawable size in pixels (SDL). On `SDL_EVENT_WINDOW_RESIZED` (and at `OnStart`): write ctx, `EventWriter<WindowResizeEvent>{ w, h }`.
+`WindowSize` in `World::ctx` is the drawable size in pixels (SDL). On `SDL_EVENT_WINDOW_RESIZED` (and at `on_start`): write ctx, `EventWriter<WindowResizeEvent>{ w, h }`.
 
 - `UiCanvas::fit = FillWindow` → engine sets `rect = {0,0,w,h}` before `Input`.
 - `UiCanvas::fit = Fixed` → game owns `rect` (centered pause panel, world-space HUD).
-- `Camera::auto_aspect = true` (default on the active camera) → rebuild ortho from window size; `ScreenToWorld` / `WorldToScreen` use that camera + `WindowSize`.
+- `Camera::auto_aspect = true` (default on the active camera) → rebuild ortho from window size; `screen_to_world` / `WorldToScreen` use that camera + `WindowSize`.
 - Active camera: `ctx<ActiveCamera>() = Entity`. Exactly one; missing camera is fatal on first `Render`.
-- `ctx<WindowSize>` is written **before** `OnStart` so `FillWindow` canvases spawned there get a real rect.
+- `ctx<WindowSize>` is written **before** `on_start` so `FillWindow` canvases spawned there get a real rect.
 
 Default clear color remains black until a later `Camera::clear` field exists.
 
@@ -376,20 +376,20 @@ Default clear color remains black until a later `Camera::clear` field exists.
 class IGame {
 public:
     virtual ~IGame() = default;
-    virtual std::string WindowTitle() const { return "Game"; }
-    virtual glm::ivec2 WindowSize() const { return {800, 600}; }
-    virtual ecs::World& World() = 0;
-    virtual void OnStart() = 0;
-    virtual void OnFixedUpdate() = 0;  // Schedule::Fixed, 0..N times
-    virtual void OnUpdate() = 0;       // Schedule::Frame, once
-    virtual void OnDraw() = 0;
-    virtual void OnQuit() = 0;
+    virtual std::string window_title() const { return "Game"; }
+    virtual glm::ivec2 window_size() const { return {800, 600}; }
+    virtual ecs::World& world() = 0;
+    virtual void on_start() = 0;
+    virtual void on_fixed_update() = 0;  // Schedule::Fixed, 0..N times
+    virtual void on_update() = 0;       // Schedule::Frame, once
+    virtual void on_draw() = 0;
+    virtual void on_quit() = 0;
 };
 ```
 
-Delta vs ping-pong: title/size are **not** hardcoded `"Ping Pong"` / `{800,600}` inside `Engine::Init`. The host constructs `IGame` from the injector, then `WindowSystem::Create(game->WindowTitle(), game->WindowSize())`. `World` exists after `Game` construction. Host calls `RegisterEngineSystems` then `OnStart` (scene spawn, `AddSystem` Game phase).
+Delta vs ping-pong: title/size are **not** hardcoded `"Ping Pong"` / `{800,600}` inside `Engine::init`. The host constructs `IGame` from the injector, then `WindowSystem::create(game->window_title(), game->window_size())`. `World` exists after `Game` construction. Host calls `register_engine_systems` then `on_start` (scene spawn, `add_system` Game phase).
 
-`OnDraw` stays empty: world draw is `Phase::Render`; UI is `Phase::UiRender`; present is `OpenGLCanvas::Draw`. Do not push commands from `OnDraw`.
+`on_draw` stays empty: world draw is `Phase::Render`; UI is `Phase::UiRender`; present is `OpenGLCanvas::draw`. Do not push commands from `on_draw`.
 
 ---
 
@@ -419,7 +419,7 @@ struct CmdDrawMesh {
 
 `CommandBuffer` is a FIFO. **Sort happens in `RenderSystem` before push**, not inside execute. `UiRender` runs after `Render`, so HUD commands follow world commands. Clear the buffer at the start of `Phase::Render` so Fixed systems never accumulate draws.
 
-`OpenGLCanvas::Draw`: clear → `CommandBuffer::Execute` → `SDL_GL_SwapWindow`. Execute lives in `src/`.
+`OpenGLCanvas::draw`: clear → `CommandBuffer::execute` → `SDL_GL_SwapWindow`. Execute lives in `src/`.
 
 ### 6.2 Materials
 
@@ -431,10 +431,10 @@ enum class BlendMode { Opaque, Alpha, Additive }; // Additive = ping-pong (src �
 class IMaterial {
 public:
     virtual ~IMaterial() = default;
-    virtual std::shared_ptr<IShader> Shader() const = 0;
-    virtual std::shared_ptr<ITexture> Texture(int slot) const = 0; // 0 = albedo
-    virtual glm::vec4 Color() const = 0;
-    virtual BlendMode Blend() const = 0;
+    virtual std::shared_ptr<IShader> shader() const = 0;
+    virtual std::shared_ptr<ITexture> texture(int slot) const = 0; // 0 = albedo
+    virtual glm::vec4 color() const = 0;
+    virtual BlendMode blend() const = 0;
 };
 ```
 
@@ -450,7 +450,7 @@ color = [1.0, 1.0, 1.0, 1.0]
 albedo = "32-hex-guid-of-texture"
 ```
 
-`AssetsDb::Get<IMaterial>(id)`. Games may multiply instance color on `Renderable`; they do not set GL blend in C++.
+`AssetsDb::get<IMaterial>(id)`. Games may multiply instance color on `Renderable`; they do not set GL blend in C++.
 
 Shared material = one GPU bind if consecutive sorted draws share `IMaterial*`. No material-instancing graph in v1 (no Unity MaterialPropertyBlock beyond `Renderable::color`).
 
@@ -490,11 +490,11 @@ Missing mesh or material on a `Renderable` → `IFatalError` (game bug), not a s
 | `IGraphicFactory` | `OpenGLFactory` |
 | `IMesh` / `IShader` / `ITexture` / `IMaterial` | `OpenGL*` |
 
-Game code depends on interfaces and `Get<IMaterial>` / `Get<ITexture>`, not glad or paths.
+Game code depends on interfaces and `get<IMaterial>` / `get<ITexture>`, not glad or paths.
 
 ### 6.5 Camera and coordinates
 
-Orthographic **Camera** component. `RenderSystem` uses `ctx<ActiveCamera>()`. `ScreenToWorld` / `WorldToScreen` take that camera + `WindowSize`.
+Orthographic **Camera** component. `RenderSystem` uses `ctx<ActiveCamera>()`. `screen_to_world` / `WorldToScreen` take that camera + `WindowSize`.
 
 | Space | Origin | Y |
 | --- | --- | --- |
@@ -506,7 +506,7 @@ Default shader (builtin): GLSL 330, `uModel/uView/uProjection`, `uTexture`, `uCo
 
 ### 6.6 Blend (execute)
 
-Set from `IMaterial::Blend()` per `CmdDrawMesh`. UI is NanoVG in a later command (its own blend). Do not inherit ping-pong’s global `(src alpha, one)` for every sprite.
+Set from `IMaterial::blend()` per `CmdDrawMesh`. UI is NanoVG in a later command (its own blend). Do not inherit ping-pong’s global `(src alpha, one)` for every sprite.
 
 ---
 
@@ -516,15 +516,15 @@ Set from `IMaterial::Blend()` per `CmdDrawMesh`. UI is NanoVG in a later command
 
 Do not vendor EnTT. Implement `ecs::World` **in this repo**, using EnTT as the **API and implementation reference** (generational index, sparse-set / packed storage, `view`, `try_get`, destroy that bumps generation).
 
-Contract the homemade registry must keep (names may match EnTT so games feel familiar):
+Contract the homemade registry must keep (EnTT-like verbs, `snake_case` like the rest of the engine):
 
 - `Entity` = index **plus generation**. Recycled ids do not alias live entities.
 - `emplace` / `get` / `try_get` / `remove` / `destroy`.
 - `view<T, U>()` — iteration over packed data, not `typeid().name()` string keys.
 - Do not invalidate a view you are iterating; defer `destroy` if a system needs it (command buffer / `destroy` queue flushed after the view).
-- `World::ctx<T>()` for singletons: `Time`, `WindowSize`, `MouseConsumed`, `ActiveCamera`, `Events<U>` (first access **registers** `U` for `FlushEvents`).
-- Engine systems are registered by `RegisterEngineSystems` into the phases in §4.5. They take `World&` plus constructor-injected `shared_ptr` services (`CommandBuffer`, `AssetsDb`, …).
-- Game systems: `world.AddSystem(Schedule::Fixed | Frame, Phase::Game, …)` in `OnStart` only.
+- `World::ctx<T>()` for singletons: `Time`, `WindowSize`, `MouseConsumed`, `ActiveCamera`, `Events<U>` (first access **registers** `U` for `flush_events`).
+- Engine systems are registered by `register_engine_systems` into the phases in §4.5. They take `World&` plus constructor-injected `shared_ptr` services (`CommandBuffer`, `AssetsDb`, …).
+- Game systems: `world.add_system(Schedule::Fixed | Frame, Phase::Game, …)` in `on_start` only.
 
 Ping-pong pools (erase-from-vector without fixing indices, `uint32_t` without generation) are **not** copied.
 
@@ -546,7 +546,7 @@ WPF split, mapped to this engine:
 | --- | --- |
 | XAML | XML document asset (`importer = "ui"`) |
 | ResourceDictionary / Style | custom CSS asset (`importer = "css"`) |
-| `DataContext` + `{Binding}` | `ViewModel` + `Bindable<T>` registered by name |
+| `DataContext` + `{binding}` | `ViewModel` + `Bindable<T>` registered by name |
 | `ICommand` / `RelayCommand` | `ICommand` / `RelayCommand` |
 | code-behind `x:Class` | **none** — no `.cpp` for a view |
 | `ControlTemplate` / VSM | **not v1** |
@@ -572,11 +572,11 @@ Spawn: `emplace<UiCanvas>(hud, { .document = assets::ui::hud, .data_context = hu
 
 The runtime tree is owned by the UI module (cached instance per canvas). Reloading XML every frame is forbidden; rebuild when `document` / stylesheet / `DataContext` pointer changes.
 
-Hit-test: mouse minus `rect` origin. Fonts: `Get` + `importer = "font"`; CSS `font-family` names a font **AssetId** (hex) or a builtin name (`default`).
+Hit-test: mouse minus `rect` origin. Fonts: `get` + `importer = "font"`; CSS `font-family` names a font **AssetId** (hex) or a builtin name (`default`).
 
 ### 8.2 XML (markup)
 
-Parsed with tinyxml2 **in `src/`**. Cooked catalog stores path + importer; runtime parses XML **once** on first `Get<UiDocument>` (not every frame; not TOML).
+Parsed with tinyxml2 **in `src/`**. Cooked catalog stores path + importer; runtime parses XML **once** on first `get<UiDocument>` (not every frame; not TOML).
 
 v1 elements:
 
@@ -585,30 +585,30 @@ v1 elements:
 | `Canvas` | root; optional `stylesheet="32-hex"` |
 | `Stack` | ping-pong `Layout`: `direction` horizontal/vertical, `gap`, `align` |
 | `Label` | text |
-| `Button` | hit-target; `Command` binding |
-| `Image` | `Source` = texture/ui_image AssetId or `{Binding}` |
-| `ItemsControl` | repeats `ItemTemplate` over `ItemsSource` |
+| `Button` | hit-target; `command` binding |
+| `Image` | `source` = texture/ui_image AssetId or `{binding}` |
+| `ItemsControl` | repeats `ItemTemplate` over `items_source` |
 
 ```xml
 <Canvas stylesheet="b0a1c2d3e4f5678901234567890abcde">
   <Stack class="hud" direction="vertical">
-    <Label class="title" Text="{Binding Title}"/>
-    <Label Text="{Binding Score}"/>
-    <Button Command="{Binding Restart}" Content="{Binding RestartLabel}"/>
-    <ItemsControl ItemsSource="{Binding Cells}">
+    <Label class="title" text="{binding title}"/>
+    <Label text="{binding score}"/>
+    <Button command="{binding restart}" content="{binding restart_label}"/>
+    <ItemsControl items_source="{binding cells}">
       <ItemTemplate>
-        <Button class="cell" Command="{Binding Click}" Content="{Binding Mark}"/>
+        <Button class="cell" command="{binding click}" content="{binding mark}"/>
       </ItemTemplate>
     </ItemsControl>
   </Stack>
 </Canvas>
 ```
 
-WPF-shaped `{Binding Path}` (path = registered name). `Mode=OneWay` default (VM → view). `Mode=TwoWay` reserved (sliders); not required for tic-tac-toe.
+WPF-shaped `{binding path}` (path = registered snake_case name). `mode=one_way` default (VM → view). `mode=two_way` reserved (sliders); not required for tic-tac-toe.
 
-`id` / `class` / `Name` attributes: CSS hooks. `Name` is not FindName-from-game; games do not reach into the tree.
+`id` / `class` / `name` attributes: CSS hooks. `name` is not FindName-from-game; games do not reach into the tree.
 
-Unknown tags / unknown bind paths: **load-time fatal** (`IFatalError` / codegen warning + runtime fatal on Get), not a silent empty label.
+Unknown tags / unknown bind paths: **load-time fatal** (`IFatalError` / codegen warning + runtime fatal on get), not a silent empty label.
 
 **Forbidden in XML:** filenames, `onClick`, inline GL, script. Asset refs are 32-hex GUIDs (or bindings that yield `AssetId`).
 
@@ -649,21 +649,21 @@ There is no C++ RTTI binding to arbitrary members. A `ViewModel` **registers** n
 class ICommand {
 public:
     virtual ~ICommand() = default;
-    virtual bool CanExecute() const = 0;
-    virtual void Execute() = 0;
+    virtual bool can_execute() const = 0;
+    virtual void execute() = 0;
 };
 
 template<typename T>
-class Bindable { /* Set/Get; notifies the binding engine only */ };
+class Bindable { /* set/get; notifies the binding engine only */ };
 
-class RelayCommand : public ICommand { /* ctor from std::function; CanExecute bindable */ };
+class RelayCommand : public ICommand { /* ctor from std::function; can_execute bindable */ };
 
 class ViewModel {
 protected:
     template<typename T>
-    void Property(std::string_view name, Bindable<T>&);
-    void Command(std::string_view name, ICommand&);
-    // ItemsSource: Property("Cells", cells) with BindableList<T>
+    void property(std::string_view name, Bindable<T>&);
+    void command(std::string_view name, ICommand&);
+    // items_source: property("cells", cells) with BindableList<T>
 };
 ```
 
@@ -677,9 +677,9 @@ public:
     RelayCommand restart;
 
     HudViewModel() {
-        Property("Title", title);
-        Property("Score", score);
-        Command("Restart", restart);
+        property("title", title);
+        property("score", score);
+        command("restart", restart);
         restart = [this] { /* send event or mutate game model — not GL, not UI tree */ };
     }
 };
@@ -687,9 +687,9 @@ public:
 
 **DataContext** on `UiCanvas` is inherited by children (WPF). `ItemsControl` sets the item as DataContext for each cloned `ItemTemplate`. Nested VMs are `Bindable<std::shared_ptr<ViewModel>>` if needed.
 
-**Phase `Bind`:** copy registered values into the instance tree (text, content, `CanExecute` → `:disabled`). One-way, every frame is acceptable in v1 (no dirty-rect requirement). `Bindable::Set` from Fixed is visible next Frame Bind.
+**Phase `Bind`:** copy registered values into the instance tree (text, content, `can_execute` → `:disabled`). One-way, every frame is acceptable in v1 (no dirty-rect requirement). `Bindable::set` from Fixed is visible next Frame Bind.
 
-**Commands:** `UiInputSystem` on hit calls `ICommand::Execute()` if `CanExecute()`. That is the **only** UI → game path. Execute may `EventWriter::send` or set other `Bindable`s. It must not include glad, touch `UIElement*`, or call `CommandBuffer`.
+**Commands:** `UiInputSystem` on hit calls `ICommand::execute()` if `can_execute()`. That is the **only** UI → game path. `execute` may `EventWriter::send` or set other `Bindable`s. It must not include glad, touch `UIElement*`, or call `CommandBuffer`.
 
 Ping-pong `std::function<void()> onClick` on `Layout` is **deleted** from the public API.
 
@@ -709,11 +709,11 @@ Ping-pong `EventBus` (`Subscribe` + `Emit`, no unsubscribe) is **removed**. Imme
 
 Replace with **double-buffered queues**, same shape as Bevy `Events<T>` / `EventReader` / `EventWriter`.
 
-**Storage:** `Events<T>` lives in `World::ctx<Events<T>>()`. First access **registers** `T` on a type-erased list. `World::FlushEvents()` (start of Loop) calls `update()` on every registered type. There is **no** central `EventQueues` object that must know game event types at compile time of the engine.
+**Storage:** `Events<T>` lives in `World::ctx<Events<T>>()`. First access **registers** `T` on a type-erased list. `World::flush_events()` (start of Loop) calls `update()` on every registered type. There is **no** central `EventQueues` object that must know game event types at compile time of the engine.
 
 **Lifetime (Bevy-like, two frames):**
 
-- `FlushEvents` at **start** of the iteration ages buffers (drop events older than one extra frame).
+- `flush_events` at **start** of the iteration ages buffers (drop events older than one extra frame).
 - `EventWriter<T>::send` appends to the **current** buffer.
 - `EventReader<T>` iterates **previous + current** (events sent earlier this frame are visible to later phases). Input polled after Flush is therefore visible to `Phase::Input` **the same frame**. `PlaySfxEvent` sent in `Phase::Game` is visible to `Phase::Audio` the same frame.
 - Events do not live forever.
@@ -722,10 +722,9 @@ Replace with **double-buffered queues**, same shape as Bevy `Events<T>` / `Event
 Input:
 
 - `InputSystem` (SDL poll in Loop, before schedules) writes `InputEvent` / `MouseEvent` / held-state map. It does not call UI.
-- Bindings: scancode → action string (codegen/enum can come later; strings stay until then).
 - Key **down / up / held** must be represented (held = state map updated from down/up, not a one-shot event only).
 
-`PlaySfx` from gameplay: `EventWriter<PlaySfxEvent>` (preferred) so `Phase::Audio` plays it. Direct `IAudioSystem` from a game system is allowed. Still no filenames.
+`play_sfx` from gameplay: `EventWriter<PlaySfxEvent>` (preferred) so `Phase::Audio` plays it. Direct `IAudioSystem` from a game system is allowed. Still no filenames.
 
 ---
 
@@ -733,18 +732,18 @@ Input:
 
 ## 10. Assets
 
-Ping-pong loads by filename (`Get<ITexture>("ball.png")`). That breaks when files move and puts import policy in C++. This engine loads **only by GUID**. The raw bytes + a sidecar `.meta` are the source of truth; C++ sees generated constants.
+Ping-pong loads by filename (`get<ITexture>("ball.png")`). That breaks when files move and puts import policy in C++. This engine loads **only by GUID**. The raw bytes + a sidecar `.meta` are the source of truth; C++ sees generated constants.
 
 ### 10.1 `AssetId`
 
 Strong type wrapping a **32-character lowercase hex** GUID (same length/charset as Unity `.meta`). Invalid length/charset is a load error. GUIDs are unique in a game’s `assets/` tree and **never change** after the asset is referenced from code or other metas.
 
 ```cpp
-db.Get<ITexture>(assets::textures::player);      // T; missing cooked → fatal
-db.TryGet<Sound>(assets::sfx::step);             // Result; caller handles NotFound
+db.get<ITexture>(assets::textures::player);      // T; missing cooked → fatal
+db.try_get<Sound>(assets::sfx::step);             // Result; caller handles NotFound
 ```
 
-Forbidden: `Get<T>("player.png")`, concatenating `ASSETS_PATH` in game code, dereferencing a null `Get`.
+Forbidden: `get<T>("player.png")`, concatenating `ASSETS_PATH` in game code, dereferencing a null `get`.
 
 ### 10.2 Authoring layout
 
@@ -841,7 +840,7 @@ inline constexpr engine::AssetId step{"a1b2c3d4e5f6789012345678901234ab"};
 
 On init, load the **cooked catalog** (guid → path + importer settings). Runtime **does not parse TOML** in the player. Authoring `.meta` is for `asset_guid` / `asset_codegen` only.
 
-`TryGet` / `Get` use the catalog, then load raw bytes from `ASSETS_PATH + relativePath` with the cooked importer fields. Cache by `(AssetId, T)`.
+`try_get` / `get` use the catalog, then load raw bytes from `ASSETS_PATH + relativePath` with the cooked importer fields. Cache by `(AssetId, T)`.
 
 `ASSETS_PATH` is `<exe dir>/assets` (base path of the executable), not `cwd`.
 
@@ -861,9 +860,9 @@ Decoded `MIX_Audio` is an implementation detail of the audio importer; game code
 
 ### 10.6 Sprite sheets (`layout = "multiple"`)
 
-v1 may ship `layout = "single"` only. The TOML schema includes `[[sprites]]` so atlas remakes do not change GUIDs later. `Get<ITexture>` returns the atlas; sprite rects from cooked meta (`GetSprite(id, "idle")` when implemented).
+v1 may ship `layout = "single"` only. The TOML schema includes `[[sprites]]` so atlas remakes do not change GUIDs later. `get<ITexture>` returns the atlas; sprite rects from cooked meta (`get_sprite(id, "idle")` when implemented).
 
-### 10.7 `Get` vs `TryGet`
+### 10.7 `get` vs `try_get`
 
 `Result` with only `{ T, None }` hides **corrupt vs missing**. Use an error enum.
 
@@ -875,15 +874,15 @@ enum class AssetError {
     NotReady        // Get before GL/audio init
 };
 
-std::expected<std::shared_ptr<T>, AssetError> TryGet(AssetId);
+std::expected<std::shared_ptr<T>, AssetError> try_get(AssetId);
 
 std::shared_ptr<T> Get(AssetId);  // never null
 ```
 
-- **`TryGet`:** caller must handle `AssetError`. `NotFound` is valid for optional content. `Corrupt` / `TypeMismatch` should usually still be treated as fatal by the game, but the API does not hide them as `None`.
-- **`Get`:** `TryGet` + on any error call `IFatalError` (message includes GUID + error) and **do not return**. Game hook: system dialog (e.g. `SDL_ShowSimpleMessageBox`) + `ApplicationState::Quit()` / abort so the process does not continue with a missing cooked asset. Test hook: `ADD_FAILURE` / fail the test — **no dialog**.
+- **`try_get`:** caller must handle `AssetError`. `NotFound` is valid for optional content. `Corrupt` / `TypeMismatch` should usually still be treated as fatal by the game, but the API does not hide them as `None`.
+- **`get`:** `try_get` + on any error call `IFatalError` (message includes GUID + error) and **do not return**. Game hook: system dialog (e.g. `SDL_ShowSimpleMessageBox`) + `ApplicationState::Quit()` / abort so the process does not continue with a missing cooked asset. Test hook: `ADD_FAILURE` / fail the test — **no dialog**.
 
-`Get` is the default in gameplay. `TryGet` is for content that may be absent (mod slot, optional pack). Examples in this SDD must not dereference a pointer that can be null.
+`get` is the default in gameplay. `try_get` is for content that may be absent (mod slot, optional pack). Examples in this SDD must not dereference a pointer that can be null.
 
 `IFatalError` is injected; `AssetsDb` does not hardcode Win32/`MessageBox`.
 
@@ -897,7 +896,7 @@ Default shader / unit quad / unlit sprite material / UI font are **not** copied 
 - Codegen is given the builtin GUID list and **fails** if a game `.meta` reuses one.
 - Public constants: `include/engine/builtin_ids.h` (`engine::builtin::shader_unlit`, `mesh_quad`, `material_unlit`, `font_ui`). **Do not regenerate these GUIDs.**
 
-Games still `Get<IMaterial>(engine::builtin::material_unlit)` (or a game `.mat` that references a game texture + builtin shader GUID).
+Games still `get<IMaterial>(engine::builtin::material_unlit)` (or a game `.mat` that references a game texture + builtin shader GUID).
 
 ---
 
@@ -920,7 +919,7 @@ Target model follows Lumenwake `IAudioSystem` / `SoundData` / SFX pool / dual mu
 | `SoundData`            | `Sound` from `importer: audio` `.meta`        |
 | `AudioSource`          | `MIX_Track`                           |
 | `AudioMixer` groups    | linear bus gains × `MIX_SetTrackGain` |
-| DOTween fade           | lerp in `IAudioSystem::Update(dt)`    |
+| DOTween fade           | lerp in `IAudioSystem::update(dt)`    |
 | Zenject `IAudioSystem` | Boost.DI `IAudioSystem`               |
 
 
@@ -928,13 +927,13 @@ Target model follows Lumenwake `IAudioSystem` / `SoundData` / SFX pool / dual mu
 
 ### 11.2 `Sound`
 
-Produced by `AssetsDb::Get<Sound>(AssetId)`, not hand-filled in game code.
+Produced by `AssetsDb::get<Sound>(AssetId)`, not hand-filled in game code.
 
 ```cpp
 struct Sound {
     std::shared_ptr<Audio> clip;     // decoded WAV
     float volume = 1.f;              // from .meta
-    glm::vec2 pitchRange {1.f, 1.f}; // from .meta
+    glm::vec2 pitch_range {1.f, 1.f}; // from .meta
     bool loop = false;
     // bank: sfx | music — default bus when playing
 };
@@ -949,24 +948,24 @@ class IAudioSystem {
 public:
     virtual ~IAudioSystem() = default;
 
-    virtual bool Init() = 0;
-    virtual void Dispose() = 0;
-    virtual void Update(float dt) = 0;   // fades, recycle SFX tracks
+    virtual bool init() = 0;
+    virtual void dispose() = 0;
+    virtual void update(float dt) = 0;   // fades, recycle SFX tracks
 
-    virtual void PlaySfx(const Sound& sound, float volumeScale = 1.f) = 0;
+    virtual void play_sfx(const Sound& sound, float volume_scale = 1.f) = 0;
 
-    virtual void PlayMusic(const Sound& sound, bool loop = true, float fadeSeconds = 0.f) = 0;
-    virtual void StopMusic(float fadeSeconds = 0.f) = 0;
-    virtual bool IsMusicPlaying() const = 0;
+    virtual void play_music(const Sound& sound, bool loop = true, float fade_seconds = 0.f) = 0;
+    virtual void stop_music(float fade_seconds = 0.f) = 0;
+    virtual bool is_music_playing() const = 0;
 
-    virtual LoopingSfxHandle CreateLoopingSfx() = 0;
-    virtual void PlayLoopingSfx(LoopingSfxHandle, const Sound&, float fadeIn = 0.f) = 0;
-    virtual void StopLoopingSfx(LoopingSfxHandle, float fadeOut = 0.f) = 0;
-    virtual void ReleaseLoopingSfx(LoopingSfxHandle, float fadeOut = 0.f) = 0;
+    virtual LoopingSfxHandle create_looping_sfx() = 0;
+    virtual void play_looping_sfx(LoopingSfxHandle, const Sound&, float fade_in = 0.f) = 0;
+    virtual void stop_looping_sfx(LoopingSfxHandle, float fade_out = 0.f) = 0;
+    virtual void release_looping_sfx(LoopingSfxHandle, float fade_out = 0.f) = 0;
 
-    virtual void SetMasterVolume(float) = 0;  // 0..1
-    virtual void SetMusicVolume(float) = 0;
-    virtual void SetSfxVolume(float) = 0;
+    virtual void set_master_volume(float) = 0;  // 0..1
+    virtual void set_music_volume(float) = 0;
+    virtual void set_sfx_volume(float) = 0;
 };
 ```
 
@@ -974,11 +973,11 @@ public:
 
 ### 11.4 Internals
 
-- **SFX pool:** ~12 `MIX_Track`s. `PlaySfx` acquires a free track (`!MIX_TrackPlaying`); if none, **skip** (no steal, no queue). Pitch via `MIX_SetTrackFrequencyRatio`. Gain: `master * sfxBus * sound.volume * volumeScale`.
-- **Music A/B:** two tracks. `PlayMusic` with `fadeSeconds > 0` and something already playing crossfades (incoming gain 0→target, outgoing →0 then stop). Immediate play if fade is 0 or idle.
+- **SFX pool:** ~12 `MIX_Track`s. `play_sfx` acquires a free track (`!MIX_TrackPlaying`); if none, **skip** (no steal, no queue). Pitch via `MIX_SetTrackFrequencyRatio`. Gain: `master * sfxBus * sound.volume * volume_scale`.
+- **Music A/B:** two tracks. `play_music` with `fade_seconds > 0` and something already playing crossfades (incoming gain 0→target, outgoing →0 then stop). Immediate play if fade is 0 or idle.
 - **Looping registry:** handle → dedicated track; fade in/out in `Update`. Enough for later remakes (engines, ambience); tic-tac-toe may unused it.
-- **Buses:** no Unity mixer. `finalGain = master * bus * voiceVolume`. Mute ≈ very small gain (SDL has no dB mixer).
-- **Tick:** `Loop` calls `IAudioSystem::Update(frameDt)` every **frame** (wall-clock fades), not once per fixed step. Ping-pong never ticked audio.
+- **Buses:** no Unity mixer. `final_gain = master * bus * voiceVolume`. Mute ≈ very small gain (SDL has no dB mixer).
+- **Tick:** `Loop` calls `IAudioSystem::update(frameDt)` every **frame** (wall-clock fades), not once per fixed step. Ping-pong never ticked audio.
 - **Format:** WAV only (mixer flags: OGG off).
 
 
@@ -986,20 +985,20 @@ public:
 ### 11.5 Event queues (SFX)
 
 ```cpp
-struct PlaySfxEvent { engine::AssetId id; float volumeScale = 1.f; };
-struct PlayMusicEvent { engine::AssetId id; bool loop = true; float fadeSeconds = 0.f; };
+struct PlaySfxEvent { engine::AssetId id; float volume_scale = 1.f; };
+struct PlayMusicEvent { engine::AssetId id; bool loop = true; float fade_seconds = 0.f; };
 ```
 
-An audio system in `Phase::Audio` (`EventReader<PlaySfxEvent>`): `Get<Sound>(id)` (fatal if the cue is required) then `IAudioSystem`. No filename events. Ping-pong `AudioEventsManager` is removed.
+An audio system in `Phase::Audio` (`EventReader<PlaySfxEvent>`): `get<Sound>(id)` (fatal if the cue is required) then `IAudioSystem`. No filename events. Ping-pong `AudioEventsManager` is removed.
 
 ### 11.6 Game usage
 
 ```cpp
-audio->PlayMusic(*db.Get<Sound>(assets::music::theme));
-audio->PlaySfx(*db.Get<Sound>(assets::sfx::step));
+audio->play_music(*db.get<Sound>(assets::music::theme));
+audio->play_sfx(*db.get<Sound>(assets::sfx::step));
 ```
 
-`Get` returns `std::shared_ptr<T>` that is never null; the `*` is a reference to a live object, not a null check.
+`get` returns `std::shared_ptr<T>` that is never null; the `*` is a reference to a live object, not a null check.
 
 ---
 
@@ -1025,7 +1024,7 @@ cmake --build build --target engine_tests
 ctest --test-dir build --output-on-failure
 ```
 
-A tiny dummy `IGame` (or tests that never call `Engine::Run`) is enough to link the static lib. Do not boot a real window in default CI.
+A tiny dummy `IGame` (or tests that never call `Engine::run`) is enough to link the static lib. Do not boot a real window in default CI.
 
 ### 12.2 What to cover (required)
 
@@ -1034,26 +1033,26 @@ Prefer **pure logic** and fakes over GPU/mixer. Extract policy (gain, pool, AABB
 | Area | Tests |
 |---|---|
 | ECS | generational Entity; try_get after destroy is empty; view<A,B>; deferred destroy during iteration |
-| Event queues | send; reader sees current+previous; `FlushEvents` drops older than two frames; first `ctx<Events<T>>` registers T |
+| Event queues | send; reader sees current+previous; `flush_events` drops older than two frames; first `ctx<Events<T>>` registers T |
 | CommandBuffer | push `CmdDrawMesh` (material, not raw shader) / `CmdDrawUI`; execute order; clear between frames; **no** custom-callback |
 | Sort | layer, order_in_layer, material, entity; stable; UI commands after world |
 | Materials | parse `.mat` TOML; missing shader GUID fails codegen; instance color multiplies |
 | UiCanvas | FillWindow rect on resize; hit-test in rect; order; MouseConsumed reset each frame |
-| UI XML/CSS | parse subset; unknown element fatal; `{Binding}` missing name fatal; CSS unknown prop warn |
-| MVVM | Property/Command registration; OneWay bind updates label text; Button click calls ICommand; onClick API absent |
-| Loop / Time | fixed-step accumulator; cap at `MAX_FIXED_STEPS`; **paused** → 0 Fixed steps, accumulator frozen |
-| Physics | integrate velocity with `fixedDeltaTime`; AABB overlap; `CollisionEvent` on enter, not every stay frame |
-| Camera | `ScreenToWorld` / orthographic bounds for a known window size |
+| UI XML/CSS | parse subset; unknown element fatal; `{binding}` missing name fatal; CSS unknown prop warn |
+| MVVM | property/command registration; OneWay bind updates label text; Button click calls ICommand; onClick API absent |
+| Loop / Time | fixed-step accumulator; cap at `kMaxFixedSteps`; **paused** → 0 Fixed steps, accumulator frozen |
+| Physics | integrate velocity with `fixed_delta_time`; AABB overlap; `CollisionEvent` on enter, not every stay frame |
+| Camera | `screen_to_world` / orthographic bounds for a known window size |
 | Input | binding scancode → action string; unbound key ignored (synthetic `SDL_Event` if possible, else a small mapper unit) |
-| Audio policy | `finalGain = master * bus * voice`; clamp 0..1; SFX pool acquire/release; skip when pool exhausted; music A/B index swap on crossfade; invalid `LoopingSfxHandle` is a no-op |
-| Assets / meta | parse texture + audio **TOML**; reject bad GUID; cooked catalog guid→path+importer; `TryGet` NotFound vs TypeMismatch; `Get` calls fatal hook; identifier from path; **codegen fails** if `.meta` missing; collision fails |
+| Audio policy | `final_gain = master * bus * voice`; clamp 0..1; SFX pool acquire/release; skip when pool exhausted; music A/B index swap on crossfade; invalid `LoopingSfxHandle` is a no-op |
+| Assets / meta | parse texture + audio **TOML**; reject bad GUID; cooked catalog guid→path+importer; `try_get` NotFound vs TypeMismatch; `get` calls fatal hook; identifier from path; **codegen fails** if `.meta` missing; collision fails |
 
 Test files: `tests/<area>_test.cpp` (`ecs_test.cpp`, `events_test.cpp`, `audio_test.cpp`, `assets_test.cpp`, …). One fixture per area is enough.
 
 ### 12.3 What not to cover in `engine_tests`
 
 - Pixel-perfect OpenGL / NanoVG screenshots.
-- `Engine<GameT>::Init` + real SDL window (needs a display; optional local `ENGINE_MANUAL_GL_TEST`).
+- `Engine<GameT>::init` + real SDL window (needs a display; optional local `ENGINE_MANUAL_GL_TEST`).
 - Decoding a WAV through SDL_mixer in CI (no audio device). Use a fake `Audio` / fake track for pool tests.
 - Gameplay (bot AI, score) — that belongs in `tic-tac-toe` later if at all.
 
@@ -1069,6 +1068,11 @@ A feature in §6 / §8 / §10 / §11 / ECS / events is **not done** until `engin
 
 - Namespaces: `engine`, `engine::ecs`, `engine::render`, `engine::ui`.
 - Files: `snake_case` (`input_system.cpp`). **Public** headers under `include/engine/…`. **Private** headers live next to `.cpp` under `src/…` (not mirrored into `include/`). Tests: `tests/<area>_test.cpp`.
+- Types / enums: `PascalCase`. Interfaces: `I` prefix (`IGame`, `IMaterial`).
+- Functions and methods: `snake_case` (`try_get`, `on_start`, `play_sfx`). Constructors keep the type name.
+- Fields: `snake_case` (`delta_time`, `order_in_layer`). Private members: `name_`.
+- Constants: `kPascalCase` (`kFixed`, `kSfxPoolSize`).
+- UI XML: tags match types (`Button`, `Label`). Attributes and `{binding}` paths are `snake_case` (`text`, `command`, `items_source`). CSS properties stay kebab-case. CSS element selectors match tags.
 - Game aliases (optional, ping-pong style): `e`, `er`, `ecs`, `eui`.
 - `.clang-format`: LLVM-based, 4 spaces, column 120 (copy from ping-pong).
 - Do not introduce a service locator. Do not call `MIX_*` / `gl*` / `nvg*` from game code. Do not include spdlog from game code.
@@ -1111,20 +1115,20 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 
 1. Move `external/` **into** this repo; engine CMake adds those subdirectories.
 2. Fix nanovg include to `external/nanovg/src` (ping-pong root points at a non-existent `src/`).
-3. `IGame::WindowTitle` / `WindowSize`; `Engine` uses them.
+3. `IGame::window_title` / `WindowSize`; `Engine` uses them.
 4. Replace `AudioSystem` (mixer-only) + `AudioEventsManager` with §11.
-5. `Loop` ticks `IAudioSystem::Update`.
+5. `Loop` ticks `IAudioSystem::update`.
 6. Bind `IAudioSystem` in DI instead of exposing `MIX_Mixer*` to games.
 7. Add `external/googletest`, `external/tomlplusplus`, `tests/`, `engine_tests` (§12). No EnTT package.
-8. GUID `AssetsDb`: TOML `.meta`, `asset_guid` + `asset_codegen`, `Get` / `TryGet` (§10).
+8. GUID `AssetsDb`: TOML `.meta`, `asset_guid` + `asset_codegen`, `get` / `try_get` (§10).
 9. Replace `EventBus` with Bevy-style `Events<T>` (§9). Homemade ECS with EnTT-like API (§7).
 10. Remove `Node` / `NodeEcs` / `NodeUI`. UI = `UiCanvas` + XML document + ViewModel (§4.3, §8). Delete ping-pong `onClick`.
-11. Fixed timestep Loop + `IGame::OnFixedUpdate` + `Schedule` / `Phase` (§4.4–§4.5). Variable `dt` into physics is not copied.
+11. Fixed timestep Loop + `IGame::on_fixed_update` + `Schedule` / `Phase` (§4.4–§4.5). Variable `dt` into physics is not copied.
 12. Delete `CmdCustomDraw`. `CmdDrawMesh` carries `IMaterial`, not shader+texture (§6).
 13. Public `include/engine/` vs private `src/` headers; glm PUBLIC, SDL/glad/spdlog/NanoVG not (§3.4).
 14. Sort `Renderable` by layer / order_in_layer / material / entity (§6.3).
 15. Builtin assets + well-known GUIDs (§10.8).
-16. `Events<T>` in `World::ctx`; `FlushEvents` at start of frame (§9).
+16. `Events<T>` in `World::ctx`; `flush_events` at start of frame (§9).
 17. Pause skips Fixed and freezes accumulator; resize updates `FillWindow` canvases (§4.6–§4.7).
 
 ---
@@ -1135,14 +1139,14 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 
 1. Game logic does not include glad / SDL render / mixer / NanoVG / spdlog / tinyxml2. Host includes `engine.h`. Game targets do not add `engine/src` to their include path (§3.4).
 2. Draw only through `CommandBuffer`. The public variant has **no** custom GL callback. World draws use `IMaterial`, not loose shader/texture on the command.
-3. Load only through `AssetsDb` by `AssetId`. Gameplay uses `Get` (fatal). Optional content uses `TryGet` and handles `AssetError`.
+3. Load only through `AssetsDb` by `AssetId`. Gameplay uses `get` (fatal). Optional content uses `try_get` and handles `AssetError`.
 4. Play audio only through `IAudioSystem` with a `Sound` that came from the audio importer (or a test double).
-5. Simulation / gameplay cross-talk: **event queues** (`send` / `read` / `FlushEvents`), not observer `Subscribe` on `this`. **UI → game:** `ICommand` on a `ViewModel` only — no `onClick` in game code.
+5. Simulation / gameplay cross-talk: **event queues** (`send` / `read` / `flush_events`), not observer `Subscribe` on `this`. **UI → game:** `ICommand` on a `ViewModel` only — no `onClick` in game code.
 6. Shared engine behavior ships with a GoogleTest, not only a remake that “seems to work”.
 7. Do not change an asset GUID after it is referenced. Move files with their `.meta`. Builtin GUIDs in `builtin_ids.h` are frozen.
 8. `asset_codegen` never writes `.meta`. Missing sidecar is a **failed build**, not a random GUID in CI.
 9. ECS is homemade, EnTT-shaped. **Do not add EnTT as a submodule.** Do not keep a Node graph beside World. No `Transform` parent in v1.
-10. Simulation uses `fixedDeltaTime` on `Schedule::Fixed`. One-shot clicks run on `Schedule::Frame`, `Phase::Game` (§4.4–§4.5).
+10. Simulation uses `fixed_delta_time` on `Schedule::Fixed`. One-shot clicks run on `Schedule::Frame`, `Phase::Game` (§4.4–§4.5).
 11. UI markup is XML + CSS assets. Games do not build visual trees in C++ (tests excepted).
 12. All engine APIs: **main thread only**.
 13. `MouseConsumed` is cleared at the start of each Loop iteration, not at the end.
@@ -1155,7 +1159,7 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 - Physics filename typo `physcis_system` — rename on extract.
 - GitHub remote for this repo; games currently use relative submodule `../engine`.
 - Optional later: gmock for `IRenderBackend`; game-repo tests for tic-tac-toe AI.
-- `GetSprite(id, name)` for `layout: multiple` atlases (schema reserved in §10.6).
+- `get_sprite(id, name)` for `layout: multiple` atlases (schema reserved in §10.6).
 - Packed asset bundles (still GUID-addressed; catalog would point inside a pak).
 - Separate `Sound` / cue asset that references a clip GUID (one WAV, several banks) — still one file = one cue until that exists.
 - `Transform` parent / world-matrix chain.

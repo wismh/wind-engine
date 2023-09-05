@@ -39,7 +39,7 @@ struct ColliderItem {
 }
 
 void run_physics(ecs::World& world) {
-    const float dt = world.ctx<Time>().fixedDeltaTime;
+    const float dt = world.ctx<Time>().fixed_delta_time;
 
     world.view<Transform, RigidBody>().each([dt](Transform& transform, const RigidBody& body) {
         transform.position += body.velocity * dt;

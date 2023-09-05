@@ -6,7 +6,7 @@ struct ApplicationState {
     bool running = true;
     bool paused = false;
 
-    void Quit() {
+    void quit() {
         running = false;
     }
 };

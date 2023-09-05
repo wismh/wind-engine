@@ -21,24 +21,24 @@ class IAudioSystem {
 public:
     virtual ~IAudioSystem() = default;
 
-    virtual bool Init() = 0;
-    virtual void Dispose() = 0;
-    virtual void Update(float dt) = 0;
+    virtual bool init() = 0;
+    virtual void dispose() = 0;
+    virtual void update(float dt) = 0;
 
-    virtual void PlaySfx(const Sound& sound, float volume_scale = 1.f) = 0;
+    virtual void play_sfx(const Sound& sound, float volume_scale = 1.f) = 0;
 
-    virtual void PlayMusic(const Sound& sound, bool loop = true, float fade_seconds = 0.f) = 0;
-    virtual void StopMusic(float fade_seconds = 0.f) = 0;
-    virtual bool IsMusicPlaying() const = 0;
+    virtual void play_music(const Sound& sound, bool loop = true, float fade_seconds = 0.f) = 0;
+    virtual void stop_music(float fade_seconds = 0.f) = 0;
+    virtual bool is_music_playing() const = 0;
 
-    virtual LoopingSfxHandle CreateLoopingSfx() = 0;
-    virtual void PlayLoopingSfx(LoopingSfxHandle handle, const Sound& sound, float fade_in = 0.f) = 0;
-    virtual void StopLoopingSfx(LoopingSfxHandle handle, float fade_out = 0.f) = 0;
-    virtual void ReleaseLoopingSfx(LoopingSfxHandle handle, float fade_out = 0.f) = 0;
+    virtual LoopingSfxHandle create_looping_sfx() = 0;
+    virtual void play_looping_sfx(LoopingSfxHandle handle, const Sound& sound, float fade_in = 0.f) = 0;
+    virtual void stop_looping_sfx(LoopingSfxHandle handle, float fade_out = 0.f) = 0;
+    virtual void release_looping_sfx(LoopingSfxHandle handle, float fade_out = 0.f) = 0;
 
-    virtual void SetMasterVolume(float volume) = 0;
-    virtual void SetMusicVolume(float volume) = 0;
-    virtual void SetSfxVolume(float volume) = 0;
+    virtual void set_master_volume(float volume) = 0;
+    virtual void set_music_volume(float volume) = 0;
+    virtual void set_sfx_volume(float volume) = 0;
 };
 
 namespace audio {
@@ -68,24 +68,24 @@ public:
     AudioSystem& operator=(AudioSystem&&) noexcept;
     ~AudioSystem() override;
 
-    bool Init() override;
-    void Dispose() override;
-    void Update(float dt) override;
+    bool init() override;
+    void dispose() override;
+    void update(float dt) override;
 
-    void PlaySfx(const Sound& sound, float volume_scale = 1.f) override;
+    void play_sfx(const Sound& sound, float volume_scale = 1.f) override;
 
-    void PlayMusic(const Sound& sound, bool loop = true, float fade_seconds = 0.f) override;
-    void StopMusic(float fade_seconds = 0.f) override;
-    bool IsMusicPlaying() const override;
+    void play_music(const Sound& sound, bool loop = true, float fade_seconds = 0.f) override;
+    void stop_music(float fade_seconds = 0.f) override;
+    bool is_music_playing() const override;
 
-    LoopingSfxHandle CreateLoopingSfx() override;
-    void PlayLoopingSfx(LoopingSfxHandle handle, const Sound& sound, float fade_in = 0.f) override;
-    void StopLoopingSfx(LoopingSfxHandle handle, float fade_out = 0.f) override;
-    void ReleaseLoopingSfx(LoopingSfxHandle handle, float fade_out = 0.f) override;
+    LoopingSfxHandle create_looping_sfx() override;
+    void play_looping_sfx(LoopingSfxHandle handle, const Sound& sound, float fade_in = 0.f) override;
+    void stop_looping_sfx(LoopingSfxHandle handle, float fade_out = 0.f) override;
+    void release_looping_sfx(LoopingSfxHandle handle, float fade_out = 0.f) override;
 
-    void SetMasterVolume(float volume) override;
-    void SetMusicVolume(float volume) override;
-    void SetSfxVolume(float volume) override;
+    void set_master_volume(float volume) override;
+    void set_music_volume(float volume) override;
+    void set_sfx_volume(float volume) override;
 
     [[nodiscard]] int sfx_pool_size() const;
     [[nodiscard]] int sfx_playing_count() const;
