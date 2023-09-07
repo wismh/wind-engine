@@ -170,6 +170,7 @@ if(ENGINE_BUILD_TESTS)
 
     add_executable(engine_tests ${ENGINE_TEST_SOURCES})
     target_link_libraries(engine_tests PRIVATE engine GTest::gtest_main)
+    target_include_directories(engine_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/builtin_assets" _engine_builtin_assets)
     target_compile_definitions(engine_tests PRIVATE "ENGINE_BUILTIN_ASSETS_DIR=\"${_engine_builtin_assets}\"")
     add_custom_command(TARGET engine_tests POST_BUILD
