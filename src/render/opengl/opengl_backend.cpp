@@ -5,8 +5,12 @@
 #include "opengl_shader.h"
 #include "opengl_texture.h"
 
+#include "ui/painter.h"
+
 #include <engine/render/commands.h>
 #include <engine/render/material.h>
+#include <engine/ui/document.h>
+#include <engine/ui/stylesheet.h>
 
 #include <memory>
 
@@ -59,19 +63,30 @@ void execute_draw_mesh(const CmdDrawMesh& cmd) {
 }
 
 struct ExecuteVisitor {
+    ui::IUiPainter* painter = nullptr;
+
     void operator()(const CmdDrawMesh& cmd) const {
         execute_draw_mesh(cmd);
     }
 
-    void operator()(const CmdDrawUI&) const {
-        // NanoVG UI pixels are a later slice; command is accepted and skipped.
+    void operator()(const CmdDrawUI& cmd) const {
+        if (painter == nullptr || cmd.document == nullptr) {
+            return;
+        }
+        ui::UiDocument document = *cmd.document;
+        ui::paint_document(document, cmd.stylesheet, *painter,
+                ui::UiPaintInput{.canvas_rect = cmd.rect, .pointer = cmd.pointer, .pointer_down = cmd.pointer_down});
     }
 };
 
 }
 
+void OpenGLRenderBackend::set_ui_painter(ui::IUiPainter* painter) {
+    ui_painter_ = painter;
+}
+
 void OpenGLRenderBackend::execute(const CommandBuffer& commands) {
-    commands.execute(ExecuteVisitor{});
+    commands.execute(ExecuteVisitor{.painter = ui_painter_});
 }
 
 }
