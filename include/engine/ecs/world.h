@@ -1,6 +1,7 @@
 #pragma once
 
 #include <engine/ecs/entity.h>
+#include <engine/ecs/events.h>
 
 #include <cassert>
 #include <cstddef>
@@ -85,7 +86,23 @@ public:
     template<typename... Ts>
     [[nodiscard]] View<Ts...> view();
 
+    template<typename T>
+    T& ctx();
+
+    void FlushEvents();
+
 private:
+    class IResource {
+    public:
+        virtual ~IResource() = default;
+    };
+
+    template<typename T>
+    class Resource final : public IResource {
+    public:
+        T value{};
+    };
+
     void begin_view();
     void end_view();
     void destroy_immediate(Entity entity);
@@ -104,6 +121,8 @@ private:
     std::vector<std::uint8_t> alive_;
     std::vector<std::uint32_t> free_list_;
     std::unordered_map<std::type_index, std::unique_ptr<IPool>> pools_;
+    std::unordered_map<std::type_index, std::unique_ptr<IResource>> resources_;
+    std::vector<std::function<void()>> event_queues_;
     std::vector<Entity> pending_destroy_;
     int view_depth_ = 0;
 };
