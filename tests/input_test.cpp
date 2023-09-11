@@ -26,49 +26,105 @@ std::vector<engine::MouseEvent> read_mouse(engine::ecs::World& world) {
 
 }
 
+TEST(Input, InternSameNameTwiceEqual) {
+    engine::InputSystem input;
+    const engine::ActionId a = input.intern("jump");
+    const engine::ActionId b = input.intern("jump");
+    EXPECT_EQ(a, b);
+    EXPECT_NE(a, engine::ActionId::Invalid);
+    EXPECT_EQ(input.debug_name(a), "jump");
+}
+
+TEST(Input, InternDifferentNamesUnequal) {
+    engine::InputSystem input;
+    EXPECT_NE(input.intern("jump"), input.intern("fire"));
+    EXPECT_NE(input.intern("jump"), input.intern("Jump"));
+}
+
+TEST(Input, EmptyAndWhitespaceNameInvalid) {
+    engine::InputSystem input;
+    EXPECT_EQ(input.intern(""), engine::ActionId::Invalid);
+    EXPECT_EQ(input.intern("   "), engine::ActionId::Invalid);
+    EXPECT_EQ(input.intern("\t\n"), engine::ActionId::Invalid);
+    EXPECT_FALSE(input.find(""));
+    EXPECT_FALSE(input.find("   "));
+    EXPECT_TRUE(input.debug_name(engine::ActionId::Invalid).empty());
+}
+
+TEST(Input, FindMissingIsEmpty) {
+    engine::InputSystem input;
+    EXPECT_FALSE(input.find("jump"));
+    const engine::ActionId jump = input.intern("jump");
+    const std::optional<engine::ActionId> found = input.find("jump");
+    ASSERT_TRUE(found.has_value());
+    EXPECT_EQ(*found, jump);
+    EXPECT_FALSE(input.find("fire"));
+}
+
 TEST(Input, BindScancodeToAction) {
     engine::ecs::World world;
     engine::InputSystem input{world};
-    input.bind(engine::KeyCode{4}, "jump");
+    const engine::ActionId jump = input.intern("jump");
+    input.bind(engine::KeyCode{4}, jump);
     input.handle_key(engine::KeyCode{4}, true);
 
     const std::vector<engine::InputEvent> events = read_input(world);
     ASSERT_EQ(events.size(), 1u);
-    EXPECT_EQ(events[0].action, "jump");
+    EXPECT_EQ(events[0].action, jump);
     EXPECT_EQ(events[0].kind, engine::InputEvent::Kind::Down);
+    EXPECT_FLOAT_EQ(events[0].value, 1.f);
 }
 
 TEST(Input, UnboundKeyIgnored) {
     engine::ecs::World world;
     engine::InputSystem input{world};
+    const engine::ActionId jump = input.intern("jump");
     input.handle_key(engine::KeyCode{4}, true);
     input.handle_key(engine::KeyCode{4}, false);
 
     EXPECT_TRUE(read_input(world).empty());
-    EXPECT_FALSE(input.is_held("jump"));
+    EXPECT_FALSE(input.is_held(jump));
 }
 
 TEST(Input, DownUpAndHeld) {
     engine::ecs::World world;
     engine::InputSystem input{world};
-    input.bind(engine::KeyCode{4}, "jump");
+    const engine::ActionId jump = input.intern("jump");
+    input.bind(engine::KeyCode{4}, jump);
 
     input.handle_key(engine::KeyCode{4}, true);
-    EXPECT_TRUE(input.is_held("jump"));
-    EXPECT_TRUE(input.is_held("jump"));
+    EXPECT_TRUE(input.is_held(jump));
+    EXPECT_TRUE(input.is_held(jump));
 
     input.handle_key(engine::KeyCode{4}, true);
-    EXPECT_TRUE(input.is_held("jump"));
+    EXPECT_TRUE(input.is_held(jump));
 
     input.handle_key(engine::KeyCode{4}, false);
-    EXPECT_FALSE(input.is_held("jump"));
+    EXPECT_FALSE(input.is_held(jump));
 
     const std::vector<engine::InputEvent> events = read_input(world);
     ASSERT_EQ(events.size(), 2u);
-    EXPECT_EQ(events[0].action, "jump");
+    EXPECT_EQ(events[0].action, jump);
     EXPECT_EQ(events[0].kind, engine::InputEvent::Kind::Down);
-    EXPECT_EQ(events[1].action, "jump");
+    EXPECT_FLOAT_EQ(events[0].value, 1.f);
+    EXPECT_EQ(events[1].action, jump);
     EXPECT_EQ(events[1].kind, engine::InputEvent::Kind::Up);
+    EXPECT_FLOAT_EQ(events[1].value, 0.f);
+}
+
+TEST(Input, BindKeyNameMatchesIntern) {
+    engine::ecs::World world;
+    engine::InputSystem input{world};
+    const engine::ActionId jump = input.intern("jump");
+    input.bind(engine::KeyCode{4}, "jump");
+    input.handle_key(engine::KeyCode{4}, true);
+
+    const std::vector<engine::InputEvent> events = read_input(world);
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].action, jump);
+    EXPECT_EQ(events[0].kind, engine::InputEvent::Kind::Down);
+    EXPECT_FLOAT_EQ(events[0].value, 1.f);
+    EXPECT_TRUE(input.is_held(jump));
 }
 
 TEST(Input, MouseDownMoveUp) {
