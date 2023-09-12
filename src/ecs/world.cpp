@@ -65,4 +65,10 @@ void World::flush_destroyed() {
     }
 }
 
+void World::FlushEvents() {
+    for (auto& update : event_queues_) {
+        update();
+    }
+}
+
 }
