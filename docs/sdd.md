@@ -608,7 +608,6 @@ WPF-shaped `{binding path}` (path = registered snake_case name). `mode=one_way` 
 
 `id` / `class` / `name` attributes: CSS hooks. `name` is not FindName-from-game; games do not reach into the tree.
 
-Unknown tags / unknown bind paths: **load-time fatal** (`IFatalError` / codegen warning + runtime fatal on get), not a silent empty label.
 
 **Forbidden in XML:** filenames, `onClick`, inline GL, script. Asset refs are 32-hex GUIDs (or bindings that yield `AssetId`).
 
@@ -643,7 +642,6 @@ Cascade: element < class < id < pseudo. Later file rules win if the xml `stylesh
 
 ### 8.4 MVVM (C++, no reflection)
 
-There is no C++ RTTI binding to arbitrary members. A `ViewModel` **registers** names (WPF property names, handwritten).
 
 ```cpp
 class ICommand {
