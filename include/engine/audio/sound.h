@@ -8,10 +8,23 @@
 
 namespace engine {
 
-// Opaque clip. Real MIX_Audio lives in src/ later; tests use this stub (or a null clip).
+struct AudioAccess;
+
+// Opaque clip. MIX_Audio stays in src/; public headers never include SDL_mixer.
 class Audio {
 public:
-    Audio() = default;
+    Audio();
+    Audio(const Audio&) = delete;
+    Audio& operator=(const Audio&) = delete;
+    Audio(Audio&&) noexcept;
+    Audio& operator=(Audio&&) noexcept;
+    ~Audio();
+
+private:
+    friend struct AudioAccess;
+
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 struct Sound {
