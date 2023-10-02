@@ -135,6 +135,91 @@ TEST(Input, BindKeyNameMatchesIntern) {
     EXPECT_TRUE(input.is_held(jump));
 }
 
+TEST(Input, RebindSpaceFromJumpToFire) {
+    engine::ecs::World world;
+    engine::InputSystem input{world};
+    const engine::ActionId jump = input.intern("jump");
+    const engine::ActionId fire = input.intern("fire");
+    input.bind(engine::KeyCode::Space, jump);
+    EXPECT_EQ(input.bound_action(engine::KeyCode::Space), jump);
+
+    input.bind(engine::KeyCode::Space, fire);
+    EXPECT_EQ(input.bound_action(engine::KeyCode::Space), fire);
+
+    input.handle_key(engine::KeyCode::Space, true);
+    const std::vector<engine::InputEvent> events = read_input(world);
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].action, fire);
+    EXPECT_EQ(events[0].kind, engine::InputEvent::Kind::Down);
+    EXPECT_FALSE(input.is_held(jump));
+    EXPECT_TRUE(input.is_held(fire));
+}
+
+TEST(Input, UnbindWhileHeldSendsUp) {
+    engine::ecs::World world;
+    engine::InputSystem input{world};
+    const engine::ActionId jump = input.intern("jump");
+    input.bind(engine::KeyCode::A, jump);
+    input.handle_key(engine::KeyCode::A, true);
+    EXPECT_TRUE(input.is_held(jump));
+
+    input.unbind(engine::KeyCode::A);
+    EXPECT_FALSE(input.is_held(jump));
+    EXPECT_EQ(input.bound_action(engine::KeyCode::A), engine::ActionId::Invalid);
+
+    const std::vector<engine::InputEvent> events = read_input(world);
+    ASSERT_EQ(events.size(), 2u);
+    EXPECT_EQ(events[0].action, jump);
+    EXPECT_EQ(events[0].kind, engine::InputEvent::Kind::Down);
+    EXPECT_EQ(events[1].action, jump);
+    EXPECT_EQ(events[1].kind, engine::InputEvent::Kind::Up);
+    EXPECT_FLOAT_EQ(events[1].value, 0.f);
+}
+
+TEST(Input, ControlsForStableOrder) {
+    engine::InputSystem input;
+    const engine::ActionId jump = input.intern("jump");
+    input.bind(engine::KeyCode::Space, jump);
+    input.bind(engine::KeyCode::A, jump);
+
+    const std::vector<engine::Control> controls = input.controls_for(jump);
+    ASSERT_EQ(controls.size(), 2u);
+    EXPECT_EQ(controls[0].kind, engine::ControlKind::Key);
+    EXPECT_EQ(controls[0].code, static_cast<std::uint32_t>(engine::KeyCode::A));
+    EXPECT_EQ(controls[0].device, 0u);
+    EXPECT_EQ(controls[1].kind, engine::ControlKind::Key);
+    EXPECT_EQ(controls[1].code, static_cast<std::uint32_t>(engine::KeyCode::Space));
+    EXPECT_EQ(controls[1].device, 0u);
+}
+
+TEST(Input, RebindHeldKeyReleasesOldAction) {
+    engine::ecs::World world;
+    engine::InputSystem input{world};
+    const engine::ActionId jump = input.intern("jump");
+    const engine::ActionId fire = input.intern("fire");
+    input.bind(engine::KeyCode::Space, jump);
+    input.handle_key(engine::KeyCode::Space, true);
+    EXPECT_TRUE(input.is_held(jump));
+
+    input.bind(engine::KeyCode::Space, fire);
+    EXPECT_FALSE(input.is_held(jump));
+    EXPECT_FALSE(input.is_held(fire));
+    EXPECT_EQ(input.bound_action(engine::KeyCode::Space), fire);
+
+    input.handle_key(engine::KeyCode::Space, true);
+    EXPECT_TRUE(input.is_held(fire));
+
+    const std::vector<engine::InputEvent> events = read_input(world);
+    ASSERT_EQ(events.size(), 3u);
+    EXPECT_EQ(events[0].action, jump);
+    EXPECT_EQ(events[0].kind, engine::InputEvent::Kind::Down);
+    EXPECT_EQ(events[1].action, jump);
+    EXPECT_EQ(events[1].kind, engine::InputEvent::Kind::Up);
+    EXPECT_FLOAT_EQ(events[1].value, 0.f);
+    EXPECT_EQ(events[2].action, fire);
+    EXPECT_EQ(events[2].kind, engine::InputEvent::Kind::Down);
+}
+
 TEST(Input, MouseDownMoveUp) {
     engine::ecs::World world;
     engine::InputSystem input{world};
