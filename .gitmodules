@@ -13,3 +13,12 @@
 [submodule "external/spdlog"]
 	path = external/spdlog
 	url = https://github.com/gabime/spdlog.git
+[submodule "external/glad"]
+	path = external/glad
+	url = https://github.com/wismh/glad.git
+[submodule "external/boost_di"]
+	path = external/boost_di
+	url = https://github.com/boost-ext/di.git
+[submodule "external/nanovg"]
+	path = external/nanovg
+	url = https://github.com/memononen/nanovg.git
