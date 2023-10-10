@@ -77,12 +77,16 @@ public:
     void bind(Control control, ActionId action);
     void bind(KeyCode key, ActionId action);
     void bind(KeyCode key, std::string_view name);
+    void bind(MouseButton button, ActionId action);
+    void bind(MouseButton button, std::string_view name);
 
     void unbind(Control control);
     void unbind(KeyCode key);
+    void unbind(MouseButton button);
 
     [[nodiscard]] ActionId bound_action(Control control) const;
     [[nodiscard]] ActionId bound_action(KeyCode key) const;
+    [[nodiscard]] ActionId bound_action(MouseButton button) const;
     [[nodiscard]] std::vector<Control> controls_for(ActionId action) const;
 
     void handle_key(KeyCode key, bool down);
@@ -92,6 +96,7 @@ public:
     [[nodiscard]] bool is_held(ActionId action) const;
 
 private:
+    void apply_digital(Control control, bool down);
     void release_held(Control control, ActionId action);
 
     ecs::World* world_ = nullptr;

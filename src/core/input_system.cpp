@@ -21,6 +21,10 @@ Control key_control(KeyCode key) {
     return Control{ControlKind::Key, static_cast<std::uint32_t>(key), 0};
 }
 
+Control mouse_control(MouseButton button) {
+    return Control{ControlKind::MouseButton, static_cast<std::uint32_t>(button), 0};
+}
+
 }
 
 InputSystem::InputSystem(ecs::World& world) : world_(&world) {}
@@ -62,6 +66,10 @@ void InputSystem::bind(Control control, ActionId action) {
     if (action == ActionId::Invalid) {
         return;
     }
+    if (control.kind == ControlKind::MouseButton &&
+        control.code == static_cast<std::uint32_t>(MouseButton::None)) {
+        return;
+    }
     if (bindings_.contains(control) && down_keys_.contains(control)) {
         unbind(control);
     }
@@ -80,6 +88,21 @@ void InputSystem::bind(KeyCode key, std::string_view name) {
     bind(key, action);
 }
 
+void InputSystem::bind(MouseButton button, ActionId action) {
+    if (button == MouseButton::None) {
+        return;
+    }
+    bind(mouse_control(button), action);
+}
+
+void InputSystem::bind(MouseButton button, std::string_view name) {
+    const ActionId action = intern(name);
+    if (action == ActionId::Invalid) {
+        return;
+    }
+    bind(button, action);
+}
+
 void InputSystem::unbind(Control control) {
     const auto it = bindings_.find(control);
     if (it == bindings_.end()) {
@@ -94,6 +117,10 @@ void InputSystem::unbind(KeyCode key) {
     unbind(key_control(key));
 }
 
+void InputSystem::unbind(MouseButton button) {
+    unbind(mouse_control(button));
+}
+
 ActionId InputSystem::bound_action(Control control) const {
     const auto it = bindings_.find(control);
     if (it == bindings_.end()) {
@@ -104,6 +131,10 @@ ActionId InputSystem::bound_action(Control control) const {
 
 ActionId InputSystem::bound_action(KeyCode key) const {
     return bound_action(key_control(key));
+}
+
+ActionId InputSystem::bound_action(MouseButton button) const {
+    return bound_action(mouse_control(button));
 }
 
 std::vector<Control> InputSystem::controls_for(ActionId action) const {
@@ -144,11 +175,7 @@ void InputSystem::release_held(Control control, ActionId action) {
     }
 }
 
-void InputSystem::handle_key(KeyCode key, bool down) {
-    if (world_ == nullptr) {
-        return;
-    }
-    const Control control = key_control(key);
+void InputSystem::apply_digital(Control control, bool down) {
     const auto binding = bindings_.find(control);
     if (binding == bindings_.end()) {
         return;
@@ -168,6 +195,13 @@ void InputSystem::handle_key(KeyCode key, bool down) {
     release_held(control, action);
 }
 
+void InputSystem::handle_key(KeyCode key, bool down) {
+    if (world_ == nullptr) {
+        return;
+    }
+    apply_digital(key_control(key), down);
+}
+
 void InputSystem::handle_mouse_button(MouseButton button, bool down, glm::vec2 position) {
     if (world_ == nullptr) {
         return;
@@ -177,6 +211,10 @@ void InputSystem::handle_mouse_button(MouseButton button, bool down, glm::vec2 p
             .position = position,
             .button = button,
     });
+    if (button == MouseButton::None) {
+        return;
+    }
+    apply_digital(mouse_control(button), down);
 }
 
 void InputSystem::handle_mouse_move(glm::vec2 position, glm::vec2 relative) {
