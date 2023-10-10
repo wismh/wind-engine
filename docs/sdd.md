@@ -720,6 +720,7 @@ Replace with **double-buffered queues**, same shape as Bevy `Events<T>` / `Event
 Input:
 
 - `InputSystem` (SDL poll in Loop, before schedules) writes `InputEvent` / `MouseEvent` / held-state map. It does not call UI.
+- Bindings: `Control` → `ActionId`. Intern names via `InputSystem::intern`; gameplay uses `ActionId`, not action strings. `KeyCode` names match SDL3 scancodes (no SDL in public headers). Mouse buttons may bind to `ActionId` (`bind(MouseButton, …)`); `handle_mouse_button` always emits `MouseEvent` (UI / pick) and, if that button is bound, the same down/up / held / `InputEvent` path as keys. `InputSystem` does not filter `InputEvent` on `MouseConsumed` (UI has not run at poll). Gameplay in `Phase::Game` must respect `world.ctx<ui::MouseConsumed>().value` before treating mouse-bound Fire as a world action. Mouse move is not an action.
 - Key **down / up / held** must be represented (held = state map updated from down/up, not a one-shot event only).
 
 `play_sfx` from gameplay: `EventWriter<PlaySfxEvent>` (preferred) so `Phase::Audio` plays it. Direct `IAudioSystem` from a game system is allowed. Still no filenames.
