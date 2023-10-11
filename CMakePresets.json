@@ -22,6 +22,17 @@
         "ENGINE_WITH_WINDOW": "OFF",
         "ENGINE_WITH_AUDIO": "OFF"
       }
+    },
+    {
+      "name": "vs-window",
+      "displayName": "Visual Studio + OpenGL window backend",
+      "generator": "Visual Studio 18 2026",
+      "binaryDir": "${sourceDir}/build-window",
+      "cacheVariables": {
+        "ENGINE_BUILD_TESTS": "ON",
+        "ENGINE_WITH_WINDOW": "ON",
+        "ENGINE_WITH_AUDIO": "OFF"
+      }
     }
   ],
   "buildPresets": [
