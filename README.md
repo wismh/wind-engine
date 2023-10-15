@@ -10,6 +10,6 @@ cmake --build build --target engine_tests --config Debug
 ctest --test-dir build -C Debug --output-on-failure
 ```
 
-SDL / mixer / OpenGL stay behind `ENGINE_WITH_WINDOW` / `ENGINE_WITH_AUDIO` (OFF until those slices).
+SDL / OpenGL / NanoVG stay behind `ENGINE_WITH_WINDOW` (default **OFF**; local preset `vs-window`). Mixer stays behind `ENGINE_WITH_AUDIO` (slice 9).
 
 Games consume this repo as a git submodule (`add_subdirectory(engine)`). `ENGINE_BUILD_TESTS` defaults OFF then.
