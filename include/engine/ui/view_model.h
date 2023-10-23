@@ -1,12 +1,12 @@
 #pragma once
 
 #include <engine/ui/bindable.h>
+#include <engine/ui/binding_id.h>
 #include <engine/ui/command.h>
 
 #include <memory>
 #include <optional>
 #include <string>
-#include <string_view>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
@@ -24,21 +24,20 @@ public:
     ViewModel(ViewModel&&) = delete;
     ViewModel& operator=(ViewModel&&) = delete;
 
-    [[nodiscard]] bool has_property(std::string_view name) const;
-    [[nodiscard]] bool has_command(std::string_view name) const;
-    [[nodiscard]] std::optional<std::string> read_property_string(std::string_view name) const;
-    [[nodiscard]] std::vector<ViewModel*> read_item_source(std::string_view name) const;
-    [[nodiscard]] ICommand* find_command(std::string_view name);
-    [[nodiscard]] const ICommand* find_command(std::string_view name) const;
-
-protected:
-    template<typename T>
-    void property(std::string_view name, Bindable<T>& bindable);
+    [[nodiscard]] bool has_property(BindingId id) const;
+    [[nodiscard]] bool has_command(BindingId id) const;
+    [[nodiscard]] std::optional<std::string> read_property_string(BindingId id) const;
+    [[nodiscard]] std::vector<ViewModel*> read_item_source(BindingId id) const;
+    [[nodiscard]] ICommand* find_command(BindingId id);
+    [[nodiscard]] const ICommand* find_command(BindingId id) const;
 
     template<typename T>
-    void property(std::string_view name, BindableList<std::shared_ptr<T>>& list);
+    void property(BindingId id, Bindable<T>& bindable);
 
-    void command(std::string_view name, ICommand& command);
+    template<typename T>
+    void property(BindingId id, BindableList<std::shared_ptr<T>>& list);
+
+    void command(BindingId id, ICommand& command);
 
 private:
     struct PropertyRef {
@@ -47,12 +46,12 @@ private:
         std::vector<ViewModel*> (*items)(void*) = nullptr;
     };
 
-    std::unordered_map<std::string, PropertyRef> properties_;
-    std::unordered_map<std::string, ICommand*> commands_;
+    std::unordered_map<BindingId, PropertyRef> properties_;
+    std::unordered_map<BindingId, ICommand*> commands_;
 };
 
 template<typename T>
-void ViewModel::property(std::string_view name, Bindable<T>& bindable) {
+void ViewModel::property(BindingId id, Bindable<T>& bindable) {
     PropertyRef ref;
     ref.bindable = &bindable;
     ref.to_string = [](void* ptr) -> std::string {
@@ -65,11 +64,11 @@ void ViewModel::property(std::string_view name, Bindable<T>& bindable) {
             return {};
         }
     };
-    properties_.insert_or_assign(std::string(name), ref);
+    properties_.insert_or_assign(id, ref);
 }
 
 template<typename T>
-void ViewModel::property(std::string_view name, BindableList<std::shared_ptr<T>>& list) {
+void ViewModel::property(BindingId id, BindableList<std::shared_ptr<T>>& list) {
     static_assert(std::is_base_of_v<ViewModel, T>, "items_source items must be ViewModels");
     PropertyRef ref;
     ref.bindable = &list;
@@ -84,7 +83,7 @@ void ViewModel::property(std::string_view name, BindableList<std::shared_ptr<T>>
         }
         return out;
     };
-    properties_.insert_or_assign(std::string(name), ref);
+    properties_.insert_or_assign(id, ref);
 }
 
 }

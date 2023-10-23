@@ -93,7 +93,7 @@ std::expected<void, UiError> assign_property_binding(std::optional<std::string>&
         return std::unexpected(UiError::MissingBinding);
     }
     dest = *binding;
-    if (vm != nullptr && !in_template && !vm->has_property(*binding)) {
+    if (vm != nullptr && !in_template && !vm->has_property(intern(*binding))) {
         report(fatal, "UI binding name is not registered: " + *binding);
         return std::unexpected(UiError::MissingBinding);
     }
@@ -115,7 +115,7 @@ std::expected<void, UiError> assign_command_binding(Element& element, const char
         return std::unexpected(UiError::MissingBinding);
     }
     element.command_binding = *binding;
-    if (vm != nullptr && !in_template && !vm->has_command(*binding)) {
+    if (vm != nullptr && !in_template && !vm->has_command(intern(*binding))) {
         report(fatal, "UI binding name is not registered: " + *binding);
         return std::unexpected(UiError::MissingBinding);
     }
@@ -134,7 +134,7 @@ std::expected<void, UiError> parse_source(Element& element, const char* attr, IF
             return std::unexpected(UiError::MissingBinding);
         }
         element.source_binding = *binding;
-        if (vm != nullptr && !in_template && !vm->has_property(*binding)) {
+        if (vm != nullptr && !in_template && !vm->has_property(intern(*binding))) {
             report(fatal, "UI binding name is not registered: " + *binding);
             return std::unexpected(UiError::MissingBinding);
         }
