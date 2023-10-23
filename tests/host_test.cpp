@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <engine/audio/audio_system.h>
+#include <engine/audio/sound.h>
 #include <engine/core/host.h>
 #include <engine/core/time.h>
 #include <engine/ecs/events.h>
@@ -87,6 +89,41 @@ public:
 void record_phase(std::vector<std::string>& log, const char* name) {
     log.push_back(name);
 }
+
+class CountingAudio final : public engine::IAudioSystem {
+public:
+    int update_count = 0;
+    float last_dt = 0.f;
+
+    bool Init() override {
+        return true;
+    }
+
+    void Dispose() override {}
+
+    void Update(float dt) override {
+        ++update_count;
+        last_dt = dt;
+    }
+
+    void PlaySfx(const engine::Sound&, float) override {}
+    void PlayMusic(const engine::Sound&, bool, float) override {}
+    void StopMusic(float) override {}
+    bool IsMusicPlaying() const override {
+        return false;
+    }
+
+    engine::LoopingSfxHandle CreateLoopingSfx() override {
+        return {};
+    }
+
+    void PlayLoopingSfx(engine::LoopingSfxHandle, const engine::Sound&, float) override {}
+    void StopLoopingSfx(engine::LoopingSfxHandle, float) override {}
+    void ReleaseLoopingSfx(engine::LoopingSfxHandle, float) override {}
+    void SetMasterVolume(float) override {}
+    void SetMusicVolume(float) override {}
+    void SetSfxVolume(float) override {}
+};
 
 }
 
@@ -199,4 +236,20 @@ TEST(Host, ResizeWritesWindowSize) {
         }
     }
     EXPECT_TRUE(saw_resize);
+}
+
+TEST(Host, AudioUpdateEveryFrame) {
+    DummyGame game;
+    FakeCanvas canvas;
+    CountingAudio audio;
+    engine::Host host{game, canvas, &audio};
+
+    host.tick(engine::FIXED);
+    EXPECT_EQ(audio.update_count, 1);
+    EXPECT_FLOAT_EQ(audio.last_dt, engine::FIXED);
+
+    host.application_state().paused = true;
+    host.tick(0.05f);
+    EXPECT_EQ(audio.update_count, 2);
+    EXPECT_FLOAT_EQ(audio.last_dt, 0.05f);
 }
