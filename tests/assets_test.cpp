@@ -1,23 +1,34 @@
 #include <gtest/gtest.h>
 
 #include <engine/audio/sound.h>
+#include <engine/builtin_ids.h>
+#include <engine/render/graphic_factory.h>
 #include <engine/render/graphics.h>
+#include <engine/render/material.h>
 #include <engine/resources/asset_guid.h>
 #include <engine/resources/asset_id.h>
 #include <engine/resources/assets_db.h>
 #include <engine/resources/fatal_error.h>
+#include <engine/resources/font.h>
 #include <engine/resources/meta.h>
 #include <engine/ui/document.h>
 #include <engine/ui/stylesheet.h>
 
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
+
+#ifndef ENGINE_BUILTIN_ASSETS_DIR
+#error "ENGINE_BUILTIN_ASSETS_DIR must be set to the builtin_assets path"
+#endif
 
 namespace {
 
@@ -25,6 +36,15 @@ constexpr std::string_view kTextureGuid = "a1b2c3d4e5f6789012345678901234ab";
 constexpr std::string_view kAudioGuid = "b1c2d3e4f567890123456789012345ab";
 constexpr std::string_view kUiGuid = "d1e2f3a4567890123456789012345abc";
 constexpr std::string_view kCssGuid = "e1f2a3b4567890123456789012345abc";
+constexpr std::string_view kUiImageGuid = "f1a2b3c4567890123456789012345abc";
+
+// 1x1 RGB red PNG; stb_image converts to RGBA when requested.
+constexpr std::uint8_t kPng1x1Red[] = {
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00,
+        0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00,
+        0x0C, 0x49, 0x44, 0x41, 0x54, 0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0x08,
+        0x3E, 0x33, 0x4C, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+};
 constexpr std::string_view kTextureToml = R"(
 guid = "a1b2c3d4e5f6789012345678901234ab"
 importer = "texture"
@@ -86,6 +106,61 @@ void write_file(const std::filesystem::path& path, std::string_view text) {
     ASSERT_TRUE(out.is_open());
     out << text;
 }
+
+void write_bytes(const std::filesystem::path& path, const std::uint8_t* data, std::size_t size) {
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    ASSERT_TRUE(out.is_open());
+    out.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(size));
+}
+
+bool load_builtin_catalog(engine::AssetsDb& db) {
+    const auto scanned = engine::codegen_scan(std::filesystem::path{ENGINE_BUILTIN_ASSETS_DIR});
+    if (!scanned) {
+        return false;
+    }
+    db.set_catalog(scanned->catalog);
+    db.set_root(std::filesystem::path{ENGINE_BUILTIN_ASSETS_DIR});
+    return true;
+}
+
+class DummyMesh final : public engine::render::IMesh {};
+class DummyShader final : public engine::render::IShader {};
+class DummyTexture final : public engine::render::ITexture {};
+
+class FakeGraphicFactory final : public engine::render::IGraphicFactory {
+public:
+    int mesh_calls = 0;
+    int shader_calls = 0;
+    int texture_calls = 0;
+    engine::render::MeshDesc last_mesh;
+    engine::render::ShaderDesc last_shader;
+    engine::render::TextureDesc last_texture;
+    std::shared_ptr<engine::render::IMesh> last_mesh_obj;
+    std::shared_ptr<engine::render::IShader> last_shader_obj;
+    std::shared_ptr<engine::render::ITexture> last_texture_obj;
+
+    std::shared_ptr<engine::render::IMesh> create_mesh(const engine::render::MeshDesc& desc) override {
+        ++mesh_calls;
+        last_mesh = desc;
+        last_mesh_obj = std::make_shared<DummyMesh>();
+        return last_mesh_obj;
+    }
+
+    std::shared_ptr<engine::render::IShader> create_shader(const engine::render::ShaderDesc& desc) override {
+        ++shader_calls;
+        last_shader = desc;
+        last_shader_obj = std::make_shared<DummyShader>();
+        return last_shader_obj;
+    }
+
+    std::shared_ptr<engine::render::ITexture> create_texture(const engine::render::TextureDesc& desc) override {
+        ++texture_calls;
+        last_texture = desc;
+        last_texture_obj = std::make_shared<DummyTexture>();
+        return last_texture_obj;
+    }
+};
 
 std::string read_file(const std::filesystem::path& path) {
     std::ifstream in(path, std::ios::binary);
@@ -421,4 +496,172 @@ TEST(Assets, LoadCatalogMissingFileNoCrash) {
     const auto missing_asset = db.TryGet<engine::ui::UiDocument>(engine::AssetId{kUiGuid});
     ASSERT_FALSE(missing_asset.has_value());
     EXPECT_EQ(missing_asset.error(), engine::AssetError::Corrupt);
+}
+
+TEST(Assets, GetBuiltinQuadMesh) {
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+    ASSERT_TRUE(load_builtin_catalog(db));
+
+    FakeGraphicFactory factory;
+    db.set_graphic_factory(&factory);
+
+    const auto mesh = db.Get<engine::render::IMesh>(engine::builtin::mesh_quad);
+    ASSERT_NE(mesh, nullptr);
+    EXPECT_EQ(mesh, factory.last_mesh_obj);
+    EXPECT_EQ(factory.mesh_calls, 1);
+    ASSERT_EQ(factory.last_mesh.vertices.size(), 6u);
+    EXPECT_FLOAT_EQ(factory.last_mesh.vertices[0].position.x, -0.5f);
+    EXPECT_FLOAT_EQ(factory.last_mesh.vertices[0].position.y, 0.5f);
+    EXPECT_FLOAT_EQ(factory.last_mesh.vertices[0].position.z, 0.0f);
+    EXPECT_FLOAT_EQ(factory.last_mesh.vertices[0].uv.x, 0.0f);
+    EXPECT_FLOAT_EQ(factory.last_mesh.vertices[0].uv.y, 1.0f);
+
+    EXPECT_EQ(db.Get<engine::render::IMesh>(engine::builtin::mesh_quad), mesh);
+    EXPECT_EQ(factory.mesh_calls, 1);
+}
+
+TEST(Assets, GetBuiltinUnlitShader) {
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+    ASSERT_TRUE(load_builtin_catalog(db));
+
+    FakeGraphicFactory factory;
+    db.set_graphic_factory(&factory);
+
+    const auto shader = db.Get<engine::render::IShader>(engine::builtin::shader_unlit);
+    ASSERT_NE(shader, nullptr);
+    EXPECT_EQ(shader, factory.last_shader_obj);
+    EXPECT_NE(factory.last_shader.vertex_src.find("#version 330"), std::string::npos);
+    EXPECT_NE(factory.last_shader.vertex_src.find("aPosition"), std::string::npos);
+    EXPECT_NE(factory.last_shader.fragment_src.find("uTexture"), std::string::npos);
+    EXPECT_NE(factory.last_shader.fragment_src.find("uColor"), std::string::npos);
+}
+
+TEST(Assets, GetBuiltinUnlitMaterial) {
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+    ASSERT_TRUE(load_builtin_catalog(db));
+
+    FakeGraphicFactory factory;
+    db.set_graphic_factory(&factory);
+
+    const auto material = db.Get<engine::render::IMaterial>(engine::builtin::material_unlit);
+    ASSERT_NE(material, nullptr);
+    ASSERT_NE(material->Shader(), nullptr);
+    EXPECT_EQ(material->Shader(), factory.last_shader_obj);
+    EXPECT_EQ(material->Texture(0), nullptr);
+    EXPECT_EQ(material->Blend(), engine::render::BlendMode::Alpha);
+    EXPECT_FLOAT_EQ(material->Color().r, 1.0f);
+    EXPECT_FLOAT_EQ(material->Color().g, 1.0f);
+    EXPECT_FLOAT_EQ(material->Color().b, 1.0f);
+    EXPECT_FLOAT_EQ(material->Color().a, 1.0f);
+}
+
+TEST(Assets, MaterialNotReadyWithoutFactory) {
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+    ASSERT_TRUE(load_builtin_catalog(db));
+
+    const auto result = db.TryGet<engine::render::IMaterial>(engine::builtin::material_unlit);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), engine::AssetError::NotReady);
+}
+
+TEST(Assets, GetTextureFromPng) {
+    TempTree tree;
+    write_bytes(tree.path / "textures" / "red.png", kPng1x1Red, sizeof(kPng1x1Red));
+
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+    db.set_root(tree.path);
+
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kTextureGuid}, "textures/red.png", engine::ImporterKind::Texture});
+    db.set_catalog(std::move(catalog));
+
+    FakeGraphicFactory factory;
+    db.set_graphic_factory(&factory);
+
+    const auto texture = db.Get<engine::render::ITexture>(engine::AssetId{kTextureGuid});
+    ASSERT_NE(texture, nullptr);
+    EXPECT_EQ(texture, factory.last_texture_obj);
+    EXPECT_EQ(factory.last_texture.width, 1);
+    EXPECT_EQ(factory.last_texture.height, 1);
+    ASSERT_EQ(factory.last_texture.rgba.size(), 4u);
+    EXPECT_EQ(factory.last_texture.rgba[0], 255);
+    EXPECT_EQ(factory.last_texture.rgba[1], 0);
+    EXPECT_EQ(factory.last_texture.rgba[2], 0);
+    EXPECT_EQ(factory.last_texture.rgba[3], 255);
+}
+
+TEST(Assets, GetTextureFromUiImage) {
+    TempTree tree;
+    write_bytes(tree.path / "ui" / "icon.png", kPng1x1Red, sizeof(kPng1x1Red));
+
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+    db.set_root(tree.path);
+
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kUiImageGuid}, "ui/icon.png", engine::ImporterKind::UiImage});
+    db.set_catalog(std::move(catalog));
+
+    FakeGraphicFactory factory;
+    db.set_graphic_factory(&factory);
+
+    const auto texture = db.Get<engine::render::ITexture>(engine::AssetId{kUiImageGuid});
+    ASSERT_NE(texture, nullptr);
+    EXPECT_EQ(factory.texture_calls, 1);
+    EXPECT_EQ(factory.last_texture.width, 1);
+    EXPECT_EQ(factory.last_texture.height, 1);
+}
+
+TEST(Assets, GetMeshTypeMismatch) {
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+    ASSERT_TRUE(load_builtin_catalog(db));
+
+    FakeGraphicFactory factory;
+    db.set_graphic_factory(&factory);
+
+    const auto result = db.TryGet<engine::render::IMesh>(engine::builtin::shader_unlit);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), engine::AssetError::TypeMismatch);
+    EXPECT_EQ(factory.mesh_calls, 0);
+}
+
+TEST(Assets, GetFontWithoutFactory) {
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+    ASSERT_TRUE(load_builtin_catalog(db));
+
+    const auto font = db.Get<engine::Font>(engine::builtin::font_ui);
+    ASSERT_NE(font, nullptr);
+    EXPECT_FALSE(font->bytes.empty());
+
+    const auto again = db.TryGet<engine::Font>(engine::builtin::font_ui);
+    ASSERT_TRUE(again.has_value());
+    EXPECT_EQ(*again, font);
+}
+
+TEST(Assets, CorruptPngIsCorrupt) {
+    TempTree tree;
+    write_file(tree.path / "textures" / "bad.png", "not-a-png");
+
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+    db.set_root(tree.path);
+
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kTextureGuid}, "textures/bad.png", engine::ImporterKind::Texture});
+    db.set_catalog(std::move(catalog));
+
+    FakeGraphicFactory factory;
+    db.set_graphic_factory(&factory);
+
+    const auto result = db.TryGet<engine::render::ITexture>(engine::AssetId{kTextureGuid});
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), engine::AssetError::Corrupt);
+    EXPECT_EQ(factory.texture_calls, 0);
 }
