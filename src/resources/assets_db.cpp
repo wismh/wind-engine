@@ -1,11 +1,15 @@
 #include <engine/audio/sound.h>
 #include <engine/render/graphic_factory.h>
 #include <engine/render/graphics.h>
+#include <engine/render/material.h>
 #include <engine/resources/assets_db.h>
+#include <engine/resources/font.h>
 #include <engine/ui/document.h>
 #include <engine/ui/stylesheet.h>
 
 #include "audio/clip.h"
+#include "render/material_instance.h"
+#include "resources/importers.h"
 
 #include <cstdlib>
 #include <filesystem>
@@ -25,6 +29,10 @@ bool is_gpu_type(const std::type_info& type) {
     return type == typeid(render::ITexture) || type == typeid(render::IMesh) || type == typeid(render::IShader);
 }
 
+bool needs_factory(const std::type_info& type) {
+    return is_gpu_type(type) || type == typeid(render::IMaterial);
+}
+
 std::optional<ImporterKind> importer_for_type(const std::type_info& type) {
     if (type == typeid(render::ITexture)) {
         return ImporterKind::Texture;
@@ -34,6 +42,12 @@ std::optional<ImporterKind> importer_for_type(const std::type_info& type) {
     }
     if (type == typeid(render::IShader)) {
         return ImporterKind::Shader;
+    }
+    if (type == typeid(render::IMaterial)) {
+        return ImporterKind::Material;
+    }
+    if (type == typeid(Font)) {
+        return ImporterKind::Font;
     }
     if (type == typeid(ui::UiDocument)) {
         return ImporterKind::Ui;
@@ -47,6 +61,14 @@ std::optional<ImporterKind> importer_for_type(const std::type_info& type) {
     return std::nullopt;
 }
 
+bool importer_matches(const std::type_info& type, ImporterKind actual) {
+    if (type == typeid(render::ITexture)) {
+        return actual == ImporterKind::Texture || actual == ImporterKind::UiImage;
+    }
+    const auto wanted = importer_for_type(type);
+    return wanted.has_value() && *wanted == actual;
+}
+
 std::optional<std::string> read_all(const std::filesystem::path& path) {
     std::ifstream in(path, std::ios::binary);
     if (!in) {
@@ -58,6 +80,57 @@ std::optional<std::string> read_all(const std::filesystem::path& path) {
 std::filesystem::path lookup_path(const CatalogEntry& entry, const std::filesystem::path& fallback_root) {
     const std::filesystem::path& root = entry.files_root.empty() ? fallback_root : entry.files_root;
     return root / entry.relative_path;
+}
+
+std::expected<std::shared_ptr<void>, AssetError> load_gpu(const CatalogEntry& entry, const std::type_info& type,
+        const std::filesystem::path& fallback_root, render::IGraphicFactory& factory) {
+    const std::filesystem::path path = lookup_path(entry, fallback_root);
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path, ec)) {
+        return std::unexpected(AssetError::Corrupt);
+    }
+    const auto bytes = read_all(path);
+    if (!bytes) {
+        return std::unexpected(AssetError::Corrupt);
+    }
+
+    if (type == typeid(render::IMesh)) {
+        const auto desc = parse_mesh(*bytes);
+        if (!desc) {
+            return std::unexpected(AssetError::Corrupt);
+        }
+        std::shared_ptr<render::IMesh> mesh = factory.create_mesh(*desc);
+        if (!mesh) {
+            return std::unexpected(AssetError::Corrupt);
+        }
+        return std::static_pointer_cast<void>(std::move(mesh));
+    }
+
+    if (type == typeid(render::IShader)) {
+        const auto desc = parse_shader_xml(*bytes);
+        if (!desc) {
+            return std::unexpected(AssetError::Corrupt);
+        }
+        std::shared_ptr<render::IShader> shader = factory.create_shader(*desc);
+        if (!shader) {
+            return std::unexpected(AssetError::Corrupt);
+        }
+        return std::static_pointer_cast<void>(std::move(shader));
+    }
+
+    if (type == typeid(render::ITexture)) {
+        const auto desc = decode_png_rgba(*bytes);
+        if (!desc) {
+            return std::unexpected(AssetError::Corrupt);
+        }
+        std::shared_ptr<render::ITexture> texture = factory.create_texture(*desc);
+        if (!texture) {
+            return std::unexpected(AssetError::Corrupt);
+        }
+        return std::static_pointer_cast<void>(std::move(texture));
+    }
+
+    return std::unexpected(AssetError::Corrupt);
 }
 
 std::expected<std::shared_ptr<void>, AssetError> load_cpu(
@@ -107,7 +180,55 @@ std::expected<std::shared_ptr<void>, AssetError> load_cpu(
         return std::static_pointer_cast<void>(std::move(sound));
     }
 
+    if (type == typeid(Font)) {
+        const auto bytes = read_all(path);
+        if (!bytes || bytes->empty()) {
+            return std::unexpected(AssetError::Corrupt);
+        }
+        auto font = std::make_shared<Font>();
+        font->bytes.assign(bytes->begin(), bytes->end());
+        return std::static_pointer_cast<void>(std::move(font));
+    }
+
     return std::unexpected(AssetError::Corrupt);
+}
+
+std::expected<std::shared_ptr<void>, AssetError> load_material(
+        AssetsDb& db, const CatalogEntry& entry, const std::filesystem::path& fallback_root) {
+    const std::filesystem::path path = lookup_path(entry, fallback_root);
+    const auto bytes = read_all(path);
+    if (!bytes) {
+        return std::unexpected(AssetError::Corrupt);
+    }
+    const auto desc = render::parse_material(*bytes);
+    if (!desc) {
+        return std::unexpected(AssetError::Corrupt);
+    }
+
+    const auto shader_id = AssetId::parse(desc->shader);
+    if (!shader_id) {
+        return std::unexpected(AssetError::Corrupt);
+    }
+    auto shader = db.TryGet<render::IShader>(*shader_id);
+    if (!shader) {
+        return std::unexpected(shader.error());
+    }
+
+    std::shared_ptr<render::ITexture> albedo;
+    if (!desc->albedo.empty()) {
+        const auto albedo_id = AssetId::parse(desc->albedo);
+        if (!albedo_id) {
+            return std::unexpected(AssetError::Corrupt);
+        }
+        auto texture = db.TryGet<render::ITexture>(*albedo_id);
+        if (!texture) {
+            return std::unexpected(texture.error());
+        }
+        albedo = std::move(*texture);
+    }
+
+    auto material = std::make_shared<render::Material>(std::move(*shader), std::move(albedo), desc->color, desc->blend);
+    return std::static_pointer_cast<void>(std::move(material));
 }
 
 }
@@ -167,17 +288,8 @@ std::expected<std::shared_ptr<void>, AssetError> AssetsDb::try_get_erased(AssetI
         return std::unexpected(AssetError::NotFound);
     }
 
-    const auto wanted = importer_for_type(type);
-    if (!wanted || *wanted != entry->importer) {
+    if (!importer_matches(type, entry->importer)) {
         return std::unexpected(AssetError::TypeMismatch);
-    }
-
-    if (is_gpu_type(type)) {
-        if (graphic_factory_ == nullptr) {
-            return std::unexpected(AssetError::NotReady);
-        }
-        // Slice 13: GPU upload is not implemented yet (factory is reserved for later slices).
-        return std::unexpected(AssetError::NotReady);
     }
 
     const CacheKey key{id, std::type_index(type)};
@@ -185,7 +297,18 @@ std::expected<std::shared_ptr<void>, AssetError> AssetsDb::try_get_erased(AssetI
         return it->second;
     }
 
-    auto loaded = load_cpu(*entry, type, assets_root_);
+    if (needs_factory(type) && graphic_factory_ == nullptr) {
+        return std::unexpected(AssetError::NotReady);
+    }
+
+    std::expected<std::shared_ptr<void>, AssetError> loaded;
+    if (is_gpu_type(type)) {
+        loaded = load_gpu(*entry, type, assets_root_, *graphic_factory_);
+    } else if (type == typeid(render::IMaterial)) {
+        loaded = load_material(*this, *entry, assets_root_);
+    } else {
+        loaded = load_cpu(*entry, type, assets_root_);
+    }
     if (!loaded) {
         return loaded;
     }
