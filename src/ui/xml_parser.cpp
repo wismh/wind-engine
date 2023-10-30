@@ -78,7 +78,7 @@ std::optional<std::string> try_parse_binding(std::string_view raw) {
     return std::string(inner);
 }
 
-std::expected<void, UiError> assign_property_binding(std::optional<std::string>& dest, std::string& literal, const char* attr,
+std::expected<void, UiError> assign_property_binding(BindingId& dest, std::string& literal, const char* attr,
         IFatalError* fatal, const ViewModel* vm, bool in_template) {
     if (attr == nullptr) {
         return {};
@@ -92,8 +92,8 @@ std::expected<void, UiError> assign_property_binding(std::optional<std::string>&
         report(fatal, "UI binding is missing a registered name");
         return std::unexpected(UiError::MissingBinding);
     }
-    dest = *binding;
-    if (vm != nullptr && !in_template && !vm->has_property(intern(*binding))) {
+    dest = intern(*binding);
+    if (vm != nullptr && !in_template && !vm->has_property(dest)) {
         report(fatal, "UI binding name is not registered: " + *binding);
         return std::unexpected(UiError::MissingBinding);
     }
@@ -114,8 +114,8 @@ std::expected<void, UiError> assign_command_binding(Element& element, const char
         report(fatal, "UI binding is missing a registered name");
         return std::unexpected(UiError::MissingBinding);
     }
-    element.command_binding = *binding;
-    if (vm != nullptr && !in_template && !vm->has_command(intern(*binding))) {
+    element.command_binding = intern(*binding);
+    if (vm != nullptr && !in_template && !vm->has_command(element.command_binding)) {
         report(fatal, "UI binding name is not registered: " + *binding);
         return std::unexpected(UiError::MissingBinding);
     }
@@ -133,8 +133,8 @@ std::expected<void, UiError> parse_source(Element& element, const char* attr, IF
             report(fatal, "UI binding is missing a registered name");
             return std::unexpected(UiError::MissingBinding);
         }
-        element.source_binding = *binding;
-        if (vm != nullptr && !in_template && !vm->has_property(intern(*binding))) {
+        element.source_binding = intern(*binding);
+        if (vm != nullptr && !in_template && !vm->has_property(element.source_binding)) {
             report(fatal, "UI binding name is not registered: " + *binding);
             return std::unexpected(UiError::MissingBinding);
         }
