@@ -1,5 +1,7 @@
 #include <engine/ui/document.h>
 
+#include "ui/bind_scan.h"
+
 #include <tinyxml2.h>
 
 #include <cctype>
@@ -220,6 +222,63 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
     return element;
 }
 
+void add_bind_member(BindBinder& binder, std::string path, bool is_command) {
+    for (const BindMember& existing : binder.members) {
+        if (existing.path == path) {
+            return;
+        }
+    }
+    binder.members.push_back(BindMember{std::move(path), is_command});
+}
+
+void add_bind_attr(BindBinder& binder, const char* attr, bool is_command) {
+    if (attr == nullptr) {
+        return;
+    }
+    const auto binding = try_parse_binding(attr);
+    if (!binding || binding->empty()) {
+        return;
+    }
+    add_bind_member(binder, *binding, is_command);
+}
+
+BindBinder& nested_binder(BindBinder& binder, const std::string& items_path) {
+    for (auto& entry : binder.nested) {
+        if (entry.first == items_path) {
+            return entry.second;
+        }
+    }
+    binder.nested.emplace_back(items_path, BindBinder{});
+    return binder.nested.back().second;
+}
+
+void collect_bind_element(const tinyxml2::XMLElement* xml, BindBinder& binder) {
+    add_bind_attr(binder, xml->Attribute("text"), false);
+    add_bind_attr(binder, xml->Attribute("content"), false);
+    add_bind_attr(binder, xml->Attribute("command"), true);
+    add_bind_attr(binder, xml->Attribute("source"), false);
+    add_bind_attr(binder, xml->Attribute("items_source"), false);
+
+    std::string items_path;
+    if (kind_from_tag(xml->Name()) == ElementKind::ItemsControl) {
+        if (const char* attr = xml->Attribute("items_source")) {
+            const auto binding = try_parse_binding(attr);
+            if (binding) {
+                items_path = *binding;
+            }
+        }
+    }
+
+    for (const tinyxml2::XMLElement* child = xml->FirstChildElement(); child != nullptr;
+            child = child->NextSiblingElement()) {
+        if (kind_from_tag(child->Name()) == ElementKind::ItemTemplate) {
+            collect_bind_element(child, nested_binder(binder, items_path));
+        } else {
+            collect_bind_element(child, binder);
+        }
+    }
+}
+
 }
 
 std::expected<UiDocument, UiError> parse_xml(std::string_view xml, IFatalError* fatal, const ViewModel* data_context) {
@@ -246,6 +305,22 @@ std::expected<UiDocument, UiError> parse_xml(std::string_view xml, IFatalError* 
         }
     }
     return document;
+}
+
+std::expected<BindBinder, UiError> scan_bind_tree(std::string_view xml) {
+    const auto parsed = parse_xml(xml, nullptr, nullptr);
+    if (!parsed) {
+        return std::unexpected(parsed.error());
+    }
+
+    tinyxml2::XMLDocument doc;
+    if (doc.Parse(xml.data(), xml.size()) != tinyxml2::XML_SUCCESS || doc.RootElement() == nullptr) {
+        return std::unexpected(UiError::InvalidMarkup);
+    }
+
+    BindBinder binder;
+    collect_bind_element(doc.RootElement(), binder);
+    return binder;
 }
 
 }
