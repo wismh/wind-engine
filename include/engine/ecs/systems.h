@@ -4,10 +4,25 @@
 
 namespace engine {
 
+namespace render {
+class CommandBuffer;
+}
+
+class IFatalError;
+class AssetsDb;
+class IAudioSystem;
+
 struct EngineSystemsRegistered {
     bool value = false;
 };
 
-void RegisterEngineSystems(ecs::World& world);
+struct EngineSystemDeps {
+    render::CommandBuffer* commands = nullptr;
+    IFatalError* fatal = nullptr;
+    AssetsDb* assets = nullptr;
+    IAudioSystem* audio = nullptr;
+};
+
+void RegisterEngineSystems(ecs::World& world, EngineSystemDeps deps = {});
 
 }
