@@ -67,6 +67,9 @@ file(GLOB_RECURSE ENGINE_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c")
 list(FILTER ENGINE_SOURCES EXCLUDE REGEX "[/\\\\]render[/\\\\]opengl[/\\\\]")
+list(FILTER ENGINE_SOURCES EXCLUDE REGEX "engine_runtime\\.cpp$")
+list(FILTER ENGINE_SOURCES EXCLUDE REGEX "engine_instantiate\\.cpp$")
+list(FILTER ENGINE_SOURCES EXCLUDE REGEX "sdl_fatal_error\\.cpp$")
 
 add_library(engine STATIC ${ENGINE_SOURCES})
 add_library(engine::engine ALIAS engine)
@@ -130,13 +133,19 @@ if(ENGINE_WITH_WINDOW)
     file(GLOB_RECURSE ENGINE_GL_SOURCES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/src/render/opengl/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/render/opengl/*.c")
-    target_sources(engine PRIVATE ${ENGINE_GL_SOURCES})
-    target_compile_definitions(engine PRIVATE ENGINE_WITH_WINDOW=1)
-    target_include_directories(engine PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/render/opengl"
-        "${CMAKE_CURRENT_SOURCE_DIR}/external/boost_di/include"
-        "${CMAKE_CURRENT_SOURCE_DIR}/external/boost_di/extension/include"
-        "${CMAKE_CURRENT_SOURCE_DIR}/external/nanovg/src")
+    target_sources(engine PRIVATE
+        ${ENGINE_GL_SOURCES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/core/engine_runtime.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/core/engine_instantiate.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/core/sdl_fatal_error.cpp")
+    target_compile_definitions(engine PUBLIC ENGINE_WITH_WINDOW=1)
+    target_include_directories(engine
+        PUBLIC
+            "${CMAKE_CURRENT_SOURCE_DIR}/external/boost_di/include"
+            "${CMAKE_CURRENT_SOURCE_DIR}/external/boost_di/extension/include"
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/render/opengl"
+            "${CMAKE_CURRENT_SOURCE_DIR}/external/nanovg/src")
     find_package(OpenGL REQUIRED)
     target_link_libraries(engine PRIVATE SDL3::SDL3 glad nanovg OpenGL::GL)
 endif()
