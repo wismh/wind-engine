@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <expected>
+#include <filesystem>
 #include <memory>
 #include <string_view>
 #include <typeindex>
@@ -14,6 +15,10 @@
 #include <utility>
 
 namespace engine {
+
+namespace render {
+class IGraphicFactory;
+}
 
 enum class AssetError {
     NotFound,
@@ -41,6 +46,9 @@ public:
     explicit AssetsDb(IFatalError& fatal_error);
 
     void set_catalog(CookedCatalog catalog);
+    void add_catalog(CookedCatalog catalog);
+    void set_root(std::filesystem::path assets_root);
+    void set_graphic_factory(render::IGraphicFactory* factory);
 
     template<typename T>
     [[nodiscard]] std::expected<std::shared_ptr<T>, AssetError> TryGet(AssetId id);
@@ -68,6 +76,8 @@ private:
 
     IFatalError& fatal_error_;
     CookedCatalog catalog_;
+    std::filesystem::path assets_root_;
+    render::IGraphicFactory* graphic_factory_ = nullptr;
     std::unordered_map<CacheKey, std::shared_ptr<void>, CacheKeyHash> cache_;
 };
 
