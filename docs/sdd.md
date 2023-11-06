@@ -608,6 +608,7 @@ WPF-shaped `{binding path}` (path = registered snake_case name). `mode=one_way` 
 
 `id` / `class` / `name` attributes: CSS hooks. `name` is not FindName-from-game; games do not reach into the tree.
 
+Unknown tags / empty `{binding}` / intern hash collision of two paths: **`asset_codegen` fails the build**, and load-time is still fatal on `get`. Binding identifiers are `BindingId` via `constexpr intern(path)`. Codegen emits `assets::ui::Hud::bind(vm)` on a binder struct (not a generated ViewModel class). Handwritten `intern("x")` remains valid for tests and extra properties.
 
 **Forbidden in XML:** filenames, `onClick`, inline GL, script. Asset refs are 32-hex GUIDs (or bindings that yield `AssetId`).
 
@@ -642,6 +643,7 @@ Cascade: element < class < id < pseudo. Later file rules win if the xml `stylesh
 
 ### 8.4 MVVM (C++, no reflection)
 
+There is no C++ RTTI binding to arbitrary members. A `ViewModel` **registers** `BindingId`s (`constexpr ui::intern(path)`). Strings are intern input only — not map keys. Games call generated `assets::ui::Hud::bind(*this)` so XML paths name `vm.title` / `vm.restart` and missing members fail at compile. Do not generate `ViewModel` classes or `Bindable<T>` fields from XML (no types in markup).
 
 ```cpp
 class ICommand {
@@ -675,9 +677,7 @@ public:
     RelayCommand restart;
 
     HudViewModel() {
-        property(engine::ui::intern("title"), title);
-        property(engine::ui::intern("score"), score);
-        command(engine::ui::intern("restart"), restart);
+        assets::ui::Hud::bind(*this);
         restart = [this] { /* send event or mutate game model — not GL, not UI tree */ };
     }
 };
