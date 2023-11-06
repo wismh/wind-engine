@@ -24,6 +24,11 @@ Element* find_button_at(Element& element, float x, float y) {
             return nested;
         }
     }
+    for (auto it = element.generated_items.rbegin(); it != element.generated_items.rend(); ++it) {
+        if (Element* nested = find_button_at(*it, x, y)) {
+            return nested;
+        }
+    }
     if (element.kind == ElementKind::Button) {
         return &element;
     }

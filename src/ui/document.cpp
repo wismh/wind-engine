@@ -9,10 +9,16 @@ void layout_element(Element& element, const render::Rect& allocated);
 
 void layout_stack(Element& element, const render::Rect& allocated) {
     std::vector<Element*> children;
-    children.reserve(element.children.size());
-    for (Element& child : element.children) {
-        if (child.kind != ElementKind::ItemTemplate) {
+    children.reserve(element.children.size() + element.generated_items.size());
+    if (element.kind == ElementKind::ItemsControl) {
+        for (Element& child : element.generated_items) {
             children.push_back(&child);
+        }
+    } else {
+        for (Element& child : element.children) {
+            if (child.kind != ElementKind::ItemTemplate) {
+                children.push_back(&child);
+            }
         }
     }
     if (children.empty()) {
@@ -43,7 +49,7 @@ void layout_element(Element& element, const render::Rect& allocated) {
     if (element.kind == ElementKind::ItemTemplate) {
         return;
     }
-    if (element.kind == ElementKind::Stack) {
+    if (element.kind == ElementKind::Stack || element.kind == ElementKind::ItemsControl) {
         layout_stack(element, allocated);
         return;
     }
@@ -95,6 +101,7 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
             return std::unexpected(UiError::MissingBinding);
         }
         element.command = command;
+        element.disabled = !command->CanExecute();
     }
 
     if (element.text_binding) {
@@ -112,6 +119,43 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
     for (Element& child : element.children) {
         if (auto result = bind_element(child, vm, fatal, nested_template); !result) {
             return result;
+        }
+    }
+
+    if (element.kind == ElementKind::ItemsControl && element.items_source_binding && !in_template) {
+        element.generated_items.clear();
+        const Element* tmpl = nullptr;
+        for (const Element& child : element.children) {
+            if (child.kind == ElementKind::ItemTemplate) {
+                tmpl = &child;
+                break;
+            }
+        }
+        if (tmpl != nullptr) {
+            const std::vector<ViewModel*> items = vm.read_item_source(*element.items_source_binding);
+            for (ViewModel* item : items) {
+                if (item == nullptr) {
+                    continue;
+                }
+                if (tmpl->children.empty()) {
+                    Element clone = *tmpl;
+                    clone.kind = ElementKind::Stack;
+                    clone.children.clear();
+                    if (auto result = bind_element(clone, *item, fatal, false); !result) {
+                        return result;
+                    }
+                    element.generated_items.push_back(std::move(clone));
+                    continue;
+                }
+                for (const Element& node : tmpl->children) {
+                    Element clone = node;
+                    clone.generated_items.clear();
+                    if (auto result = bind_element(clone, *item, fatal, false); !result) {
+                        return result;
+                    }
+                    element.generated_items.push_back(std::move(clone));
+                }
+            }
         }
     }
     return {};
