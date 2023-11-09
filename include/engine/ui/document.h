@@ -80,6 +80,9 @@ struct UiDocument {
 struct UiInstance {
     UiDocument document;
     std::optional<Stylesheet> stylesheet;
+    AssetId loaded_document{};
+    std::optional<AssetId> loaded_stylesheet;
+    ViewModel* loaded_data_context = nullptr;
 };
 
 [[nodiscard]] std::expected<UiDocument, UiError> parse_xml(
