@@ -4,10 +4,16 @@
 #include <engine/render/material.h>
 
 #include <glm/mat4x4.hpp>
+#include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
 
 #include <memory>
 #include <variant>
+
+namespace engine::ui {
+struct Stylesheet;
+struct UiDocument;
+}
 
 namespace engine::render {
 
@@ -31,6 +37,10 @@ struct CmdDrawMesh {
 
 struct CmdDrawUI {
     Rect rect{};
+    const ui::UiDocument* document = nullptr;
+    const ui::Stylesheet* stylesheet = nullptr;
+    glm::vec2 pointer{};
+    bool pointer_down = false;
 };
 
 using Command = std::variant<CmdDrawMesh, CmdDrawUI>;

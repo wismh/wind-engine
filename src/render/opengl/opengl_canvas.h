@@ -1,12 +1,15 @@
 #pragma once
 
 #include "opengl_backend.h"
+#include "nanovg_painter.h"
 #include "window_system.h"
 
 #include <engine/render/canvas.h>
 #include <engine/render/command_buffer.h>
 
 #include <glm/vec2.hpp>
+
+#include <memory>
 
 namespace engine::render {
 
@@ -28,6 +31,7 @@ private:
     CommandBuffer* commands_ = nullptr;
     IRenderBackend* backend_ = nullptr;
     SDL_GLContext context_ = nullptr;
+    std::unique_ptr<NanoVgPainter> ui_painter_;
 };
 
 }
