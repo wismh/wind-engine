@@ -60,6 +60,13 @@ bool OpenGLCanvas::init() {
     return true;
 }
 
+bool OpenGLCanvas::load_ui_font(const Font& font) {
+    if (ui_painter_ == nullptr) {
+        return false;
+    }
+    return ui_painter_->load_ui_font(font);
+}
+
 void OpenGLCanvas::Draw() {
     if (window_ != nullptr) {
         const glm::ivec2 size = window_->drawable_size();
