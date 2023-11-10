@@ -7,6 +7,7 @@
 #include <engine/core/time.h>
 #include <engine/ecs/events.h>
 #include <engine/ecs/world.h>
+#include <engine/resources/font.h>
 #include <engine/ui/canvas.h>
 
 #include <chrono>
@@ -68,6 +69,13 @@ bool EngineRuntime::create_window(std::string_view title, glm::ivec2 size) {
         return false;
     }
     return impl_->canvas->init();
+}
+
+bool EngineRuntime::load_ui_font(const Font& font) {
+    if (impl_->canvas == nullptr) {
+        return false;
+    }
+    return impl_->canvas->load_ui_font(font);
 }
 
 void EngineRuntime::shutdown() {
