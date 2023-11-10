@@ -5,6 +5,8 @@
 #include <engine/ui/document.h>
 #include <engine/ui/stylesheet.h>
 
+#include "audio/clip.h"
+
 #include <cstdlib>
 #include <filesystem>
 #include <format>
@@ -91,6 +93,8 @@ std::expected<std::shared_ptr<void>, AssetError> load_cpu(
     if (type == typeid(Sound)) {
         auto sound = std::make_shared<Sound>();
         sound->clip = std::make_shared<Audio>();
+        const std::u8string utf8 = path.generic_u8string();
+        audio_set_path(*sound->clip, std::string(reinterpret_cast<const char*>(utf8.data()), utf8.size()));
         sound->volume = entry.audio.volume;
         sound->pitchRange = {entry.audio.pitch_min, entry.audio.pitch_max};
         sound->loop = entry.audio.loop;
