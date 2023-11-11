@@ -6,6 +6,8 @@
 #include <engine/render/canvas.h>
 #include <engine/render/command_buffer.h>
 
+#include <glm/vec2.hpp>
+
 namespace engine::render {
 
 class OpenGLCanvas final : public ICanvas {
