@@ -23,10 +23,10 @@ Git submodules. Engine CMake owns these targets. **Do not add EnTT.** Do not use
 
 Include nanovg as `external/nanovg/src` (not ping-pong’s broken `../src`).
 
-## Required when `ENGINE_WITH_AUDIO=ON` (slice 9)
+## Required when `ENGINE_WITH_AUDIO=ON` (slice 16)
 
 | Dir | Repo |
 | --- | --- |
-| `SDL_mixer` | https://github.com/libsdl-org/SDL_mixer.git |
+| `SDL_mixer` | https://github.com/libsdl-org/SDL_mixer.git (`release-3.2.4`) |
 
 WAV only; OGG off (SDD §2.3).
