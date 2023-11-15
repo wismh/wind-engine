@@ -148,6 +148,20 @@ struct TempDir {
     TempDir& operator=(const TempDir&) = delete;
 };
 
+void write_file(const std::filesystem::path& path, std::string_view text) {
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream out(path, std::ios::trunc);
+    ASSERT_TRUE(out.is_open());
+    out << text;
+}
+
+void write_ui_asset(const std::filesystem::path& xml_path, std::string_view xml, std::string_view guid) {
+    write_file(xml_path, xml);
+    std::filesystem::path meta = xml_path;
+    meta += ".meta";
+    write_file(meta, std::string("guid = \"") + std::string(guid) + "\"\nimporter = \"ui\"\n");
+}
+
 }
 
 TEST(RenderSystem, SortThenPushMesh) {
@@ -266,6 +280,72 @@ TEST(RenderSystem, BindPhaseUpdatesInstance) {
     EXPECT_EQ(engine::ui::find_by_kind(world.get<engine::ui::UiInstance>(entity).document.root, engine::ui::ElementKind::Label)
                       ->text,
             "World");
+}
+
+TEST(RenderSystem, BindPhaseClonesDocumentFromAssets) {
+    constexpr std::string_view kHudGuid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1";
+    constexpr std::string_view kOtherGuid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2";
+
+    TempDir tree;
+    write_ui_asset(tree.path / "hud.xml", R"(<Canvas><Label text="{binding title}"/></Canvas>)", kHudGuid);
+    write_ui_asset(tree.path / "other.xml", R"(<Canvas><Label text="Rebuilt"/></Canvas>)", kOtherGuid);
+
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kHudGuid}, "hud.xml", engine::ImporterKind::Ui});
+    catalog.add({engine::AssetId{kOtherGuid}, "other.xml", engine::ImporterKind::Ui});
+    write_file(tree.path / "catalog.toml", catalog.serialize());
+
+    RecordingFatalError fatal;
+    engine::AssetsDb db(fatal);
+    const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
+    ASSERT_TRUE(loaded.has_value());
+
+    auto vm = std::make_shared<TitleViewModel>();
+    vm->title.set("Hello");
+
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.fatal = &fatal, .assets = &db});
+
+    engine::ui::UiCanvas canvas;
+    canvas.document = engine::AssetId{kHudGuid};
+    canvas.data_context = vm;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+
+    world.run(engine::ecs::Schedule::Frame);
+    const engine::ui::UiInstance* instance = world.try_get<engine::ui::UiInstance>(entity);
+    ASSERT_NE(instance, nullptr);
+    const engine::ui::Element* label =
+            engine::ui::find_by_kind(instance->document.root, engine::ui::ElementKind::Label);
+    ASSERT_NE(label, nullptr);
+    EXPECT_EQ(label->text, "Hello");
+
+    world.get<engine::ui::UiCanvas>(entity).document = engine::AssetId{kOtherGuid};
+    world.run(engine::ecs::Schedule::Frame);
+    instance = world.try_get<engine::ui::UiInstance>(entity);
+    ASSERT_NE(instance, nullptr);
+    label = engine::ui::find_by_kind(instance->document.root, engine::ui::ElementKind::Label);
+    ASSERT_NE(label, nullptr);
+    EXPECT_EQ(label->text, "Rebuilt");
+}
+
+TEST(RenderSystem, BindPhaseSkipsCloneWhenAssetsNull) {
+    auto vm = std::make_shared<TitleViewModel>();
+    vm->title.set("Hello");
+
+    engine::ecs::World world;
+    engine::register_engine_systems(world);
+
+    engine::ui::UiCanvas canvas;
+    canvas.document = engine::AssetId{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1"};
+    canvas.data_context = vm;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+
+    world.run(engine::ecs::Schedule::Frame);
+    EXPECT_EQ(world.try_get<engine::ui::UiInstance>(entity), nullptr);
 }
 
 TEST(RenderSystem, ModelMatrixIsTranslateRotateScale) {
