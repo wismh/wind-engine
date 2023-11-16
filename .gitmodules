@@ -22,3 +22,6 @@
 [submodule "external/nanovg"]
 	path = external/nanovg
 	url = https://github.com/memononen/nanovg.git
+[submodule "external/SDL3"]
+	path = external/SDL3
+	url = https://github.com/libsdl-org/SDL.git
