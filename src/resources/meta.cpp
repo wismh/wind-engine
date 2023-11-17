@@ -108,6 +108,38 @@ std::optional<AudioBank> parse_bank(std::string_view value) {
     return std::nullopt;
 }
 
+std::expected<void, MetaError> apply_optional_texture(const toml::table& table, TextureImportSettings& texture) {
+    if (const auto color_space = table["color_space"].value<std::string>()) {
+        const auto parsed = parse_color_space(*color_space);
+        if (!parsed) {
+            return std::unexpected(MetaError::InvalidField);
+        }
+        texture.color_space = *parsed;
+    }
+    if (const auto filter = table["filter"].value<std::string>()) {
+        const auto parsed = parse_filter(*filter);
+        if (!parsed) {
+            return std::unexpected(MetaError::InvalidField);
+        }
+        texture.filter = *parsed;
+    }
+    if (const auto wrap = table["wrap"].value<std::string>()) {
+        const auto parsed = parse_wrap(*wrap);
+        if (!parsed) {
+            return std::unexpected(MetaError::InvalidField);
+        }
+        texture.wrap = *parsed;
+    }
+    if (const auto layout = table["layout"].value<std::string>()) {
+        const auto parsed = parse_layout(*layout);
+        if (!parsed) {
+            return std::unexpected(MetaError::InvalidField);
+        }
+        texture.layout = *parsed;
+    }
+    return {};
+}
+
 std::expected<void, MetaError> apply_optional_audio(const toml::table& table, AudioImportSettings& audio) {
     if (const auto bank = table["bank"].value<std::string>()) {
         const auto parsed = parse_bank(*bank);
@@ -157,6 +189,48 @@ std::string_view bank_to_string(AudioBank bank) noexcept {
     return "sfx";
 }
 
+std::string_view color_space_to_string(ColorSpace value) noexcept {
+    switch (value) {
+        case ColorSpace::Srgb:
+            return "srgb";
+        case ColorSpace::Linear:
+            return "linear";
+    }
+    return "srgb";
+}
+
+std::string_view filter_to_string(FilterMode value) noexcept {
+    switch (value) {
+        case FilterMode::Nearest:
+            return "nearest";
+        case FilterMode::Linear:
+            return "linear";
+    }
+    return "linear";
+}
+
+std::string_view wrap_to_string(WrapMode value) noexcept {
+    switch (value) {
+        case WrapMode::Clamp:
+            return "clamp";
+        case WrapMode::Repeat:
+            return "repeat";
+        case WrapMode::Mirror:
+            return "mirror";
+    }
+    return "clamp";
+}
+
+std::string_view layout_to_string(TextureLayout value) noexcept {
+    switch (value) {
+        case TextureLayout::Single:
+            return "single";
+        case TextureLayout::Multiple:
+            return "multiple";
+    }
+    return "single";
+}
+
 std::expected<AssetMeta, MetaError> parse_meta_table(const toml::table& table) {
     if (!table.contains("guid")) {
         return std::unexpected(MetaError::MissingGuid);
@@ -187,35 +261,9 @@ std::expected<AssetMeta, MetaError> parse_meta_table(const toml::table& table) {
     meta.guid = *guid;
     meta.importer = *importer;
 
-    if (const auto color_space = table["color_space"].value<std::string>()) {
-        const auto parsed = parse_color_space(*color_space);
-        if (!parsed) {
-            return std::unexpected(MetaError::InvalidField);
-        }
-        meta.texture.color_space = *parsed;
+    if (auto texture = apply_optional_texture(table, meta.texture); !texture) {
+        return std::unexpected(texture.error());
     }
-    if (const auto filter = table["filter"].value<std::string>()) {
-        const auto parsed = parse_filter(*filter);
-        if (!parsed) {
-            return std::unexpected(MetaError::InvalidField);
-        }
-        meta.texture.filter = *parsed;
-    }
-    if (const auto wrap = table["wrap"].value<std::string>()) {
-        const auto parsed = parse_wrap(*wrap);
-        if (!parsed) {
-            return std::unexpected(MetaError::InvalidField);
-        }
-        meta.texture.wrap = *parsed;
-    }
-    if (const auto layout = table["layout"].value<std::string>()) {
-        const auto parsed = parse_layout(*layout);
-        if (!parsed) {
-            return std::unexpected(MetaError::InvalidField);
-        }
-        meta.texture.layout = *parsed;
-    }
-
     if (auto audio = apply_optional_audio(table, meta.audio); !audio) {
         return std::unexpected(audio.error());
     }
@@ -298,6 +346,12 @@ std::string CookedCatalog::serialize() const {
         os << "guid = \"" << entry.guid.hex() << "\"\n";
         os << "path = \"" << entry.relative_path << "\"\n";
         os << "importer = \"" << to_string(entry.importer) << "\"\n";
+        if (entry.importer == ImporterKind::Texture || entry.importer == ImporterKind::UiImage) {
+            os << "color_space = \"" << color_space_to_string(entry.texture.color_space) << "\"\n";
+            os << "filter = \"" << filter_to_string(entry.texture.filter) << "\"\n";
+            os << "wrap = \"" << wrap_to_string(entry.texture.wrap) << "\"\n";
+            os << "layout = \"" << layout_to_string(entry.texture.layout) << "\"\n";
+        }
         if (entry.importer == ImporterKind::Audio) {
             os << "bank = \"" << bank_to_string(entry.audio.bank) << "\"\n";
             os << "volume = " << entry.audio.volume << "\n";
@@ -342,6 +396,9 @@ std::expected<CookedCatalog, MetaError> parse_cooked_catalog(std::string_view to
                 return std::unexpected(MetaError::UnknownImporter);
             }
             CatalogEntry cooked{*guid, *path, *importer};
+            if (auto texture = apply_optional_texture(*entry_table, cooked.texture); !texture) {
+                return std::unexpected(texture.error());
+            }
             if (auto audio = apply_optional_audio(*entry_table, cooked.audio); !audio) {
                 return std::unexpected(audio.error());
             }
