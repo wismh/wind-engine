@@ -38,6 +38,11 @@ struct WindowResizeEvent {
     int height = 0;
 };
 
+struct UiPointer {
+    glm::vec2 position{};
+    bool down = false;
+};
+
 [[nodiscard]] constexpr bool rect_contains(const render::Rect& rect, float x, float y) noexcept {
     return x >= rect.x && y >= rect.y && x < (rect.x + rect.w) && y < (rect.y + rect.h);
 }
