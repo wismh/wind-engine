@@ -47,6 +47,8 @@ public:
     void restore();
     [[nodiscard]] bool is_maximized() const;
     [[nodiscard]] bool is_minimized() const;
+    [[nodiscard]] bool is_borderless() const noexcept;
+    [[nodiscard]] bool is_resizable() const noexcept;
     void show();
     void hide();
     [[nodiscard]] bool is_visible() const;

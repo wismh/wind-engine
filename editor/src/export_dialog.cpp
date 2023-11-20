@@ -32,11 +32,15 @@ std::string trimmed(const std::string& text) {
 
 }
 
-ExportDialog::ExportDialog(EditorViewModel& view_model)
-    : view_model_(&view_model) {
-    view_model_->exportBrowse.bind_to<ExportDialog, &ExportDialog::browse>(*this);
-    view_model_->exportConfirm.bind_to<ExportDialog, &ExportDialog::confirm, &ExportDialog::can_confirm>(*this);
-    view_model_->exportCancel.bind_to<ExportDialog, &ExportDialog::cancel>(*this);
+ExportDialog::ExportDialog()
+    : view_model_(std::make_shared<ExportViewModel>()) {
+    view_model_->browse.bind_to<ExportDialog, &ExportDialog::browse>(*this);
+    view_model_->confirm.bind_to<ExportDialog, &ExportDialog::confirm, &ExportDialog::can_confirm>(*this);
+    view_model_->cancel.bind_to<ExportDialog, &ExportDialog::cancel>(*this);
+}
+
+const std::shared_ptr<ExportViewModel>& ExportDialog::view_model() const {
+    return view_model_;
 }
 
 void ExportDialog::show(const std::filesystem::path& project, const std::string& target, const std::string& sdk_config) {
@@ -49,18 +53,19 @@ void ExportDialog::show(const std::filesystem::path& project, const std::string&
         last_development_ = false;
     }
     choice_.reset();
-    view_model_->exportPath = last_path_;
-    view_model_->exportDevelopment = last_development_;
-    view_model_->exportOpen = true;
+    close_requested_ = false;
+    view_model_->path = last_path_;
+    view_model_->development = last_development_;
+    is_open_ = true;
     refresh_message();
 }
 
 void ExportDialog::close() {
-    view_model_->exportOpen = false;
+    is_open_ = false;
 }
 
 bool ExportDialog::is_open() const {
-    return view_model_->exportOpen.get();
+    return is_open_;
 }
 
 void ExportDialog::set_available(bool available) {
@@ -81,13 +86,13 @@ void ExportDialog::frame(engine::IWindowControl& windows, engine::WindowId owner
     }
     if (const std::optional<engine::FileDialogResult> answer = folder_call_.take(); answer && answer->path) {
         last_path_ = path_text(*answer->path);
-        view_model_->exportPath = last_path_;
+        view_model_->path = last_path_;
     }
     if (!is_open()) {
         return;
     }
-    last_path_ = view_model_->exportPath.get();
-    last_development_ = view_model_->exportDevelopment.get();
+    last_path_ = view_model_->path.get();
+    last_development_ = view_model_->development.get();
     if (last_path_ != checked_path_ || last_development_ != checked_development_) {
         refresh_message();
     }
@@ -106,7 +111,8 @@ void ExportDialog::confirm() {
     if (problem_) {
         return;
     }
-    choice_ = ExportChoice{.directory = chosen_directory(), .development = view_model_->exportDevelopment.get()};
+    choice_ = ExportChoice{.directory = chosen_directory(), .development = view_model_->development.get()};
+    close_requested_ = true;
     close();
 }
 
@@ -115,6 +121,7 @@ bool ExportDialog::can_confirm() const {
 }
 
 void ExportDialog::cancel() {
+    close_requested_ = true;
     close();
 }
 
@@ -122,8 +129,12 @@ std::optional<ExportChoice> ExportDialog::take_choice() {
     return std::exchange(choice_, std::nullopt);
 }
 
+bool ExportDialog::take_close_requested() {
+    return std::exchange(close_requested_, false);
+}
+
 const std::string& ExportDialog::message() const {
-    return view_model_->exportMessage.get();
+    return view_model_->message.get();
 }
 
 bool ExportDialog::has_problem() const {
@@ -131,7 +142,7 @@ bool ExportDialog::has_problem() const {
 }
 
 std::filesystem::path ExportDialog::chosen_directory() const {
-    const std::string text = trimmed(view_model_->exportPath.get());
+    const std::string text = trimmed(view_model_->path.get());
     if (text.empty()) {
         return {};
     }
@@ -140,8 +151,8 @@ std::filesystem::path ExportDialog::chosen_directory() const {
 }
 
 void ExportDialog::refresh_message() {
-    checked_path_ = view_model_->exportPath.get();
-    checked_development_ = view_model_->exportDevelopment.get();
+    checked_path_ = view_model_->path.get();
+    checked_development_ = view_model_->development.get();
     std::string message;
     problem_ = false;
     if (trimmed(checked_path_).empty()) {
@@ -158,8 +169,8 @@ void ExportDialog::refresh_message() {
             message = "An earlier export is in this folder. Export replaces it.";
         }
     }
-    view_model_->exportMessage = message;
-    view_model_->exportMessageTone = std::string(problem_ ? kProblemTone : message.empty() ? "" : kWarningTone);
+    view_model_->message = message;
+    view_model_->messageTone = std::string(problem_ ? kProblemTone : message.empty() ? "" : kWarningTone);
 }
 
 }

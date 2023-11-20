@@ -20,6 +20,7 @@ set(_wind_editor_parts
     src/engine_host_play.cpp
     src/entity_inspection.cpp
     src/export_dialog.cpp
+    src/export_view_model.cpp
     src/explorer_panel.cpp
     src/explorer_row_view_model.cpp
     src/explorer_view_model.cpp
@@ -56,6 +57,7 @@ engine_configure_app(wind_editor)
 # assets/ and libengine beside it, and the launcher starts it by that path.
 set_target_properties(wind_editor PROPERTIES MACOSX_BUNDLE OFF)
 target_include_directories(wind_editor PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_definitions(wind_editor PRIVATE "WIND_ENGINE_VERSION=\"${ENGINE_VERSION_FULL}\"")
 
 if(ENGINE_BUILD_TESTS)
     # PlaySession against headless services and the fixture game module (tests/fixtures/game_module),

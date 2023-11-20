@@ -1,7 +1,6 @@
 #pragma once
 
 #include "editor_view_model.h"
-#include "export_dialog.h"
 
 #include <engine/core/window_control.h>
 #include <engine/core/window_desc.h>
@@ -11,13 +10,13 @@
 
 namespace editor {
 
-// What a toolbar button asked for. The editor acts on it at the end of the frame, never inside the
+// What a toolbar button or menu asked for. The editor acts on it at the end of the frame, never inside the
 // UI pass that ran the command.
 enum class EditorRequest {
     None,
     Play,
     Stop,
-    // Open (or close) the Export dialog, which then asks for the folder and the flavour of the standalone game.
+    // Open the Export panel in a separate window.
     Export,
     Quit,
 };
@@ -32,8 +31,8 @@ enum class RunState {
     Playing,
 };
 
-// The editor window's top bar: Play/Stop, Export, status line, and project line. Owns the view-model, the button
-// methods, and the Export dialog the Export button opens. Holds `this` in its commands, so it never moves.
+// The editor window's top bar: Play/Stop button, window title and project name. Owns the view-model and the button
+// methods. Holds `this` in its commands, so it never moves.
 class Toolbar {
 public:
     Toolbar();
@@ -46,14 +45,11 @@ public:
     void toggle_play();
     [[nodiscard]] bool can_toggle_play() const;
 
-    // The Export button: only when nothing runs (a build shows Cancel on the Play button). It asks the editor to open
-    // the dialog; Export in the dialog is what starts a build.
+    // File -> Export: only when nothing runs.
     void export_game();
     [[nodiscard]] bool can_export_game() const;
 
-    [[nodiscard]] ExportDialog& export_dialog();
-
-    // The project line. `playable` enables Play and Export: the project was read and fits this editor's SDK.
+    // The project name. `playable` enables Play and Export: the project was read and fits this editor's SDK.
     void show_project(std::string text, bool playable);
     void show_status(std::string text);
     void show_state(RunState state);
@@ -79,7 +75,7 @@ private:
     EditorRequest request_ = EditorRequest::None;
     RunState state_ = RunState::Idle;
     bool playable_ = false;
-    ExportDialog export_dialog_;
+    std::string status_;
     engine::IWindowControl* window_control_ = nullptr;
     engine::WindowId window_ = engine::kPrimaryWindow;
 };
