@@ -187,6 +187,7 @@ bool EditorApp::start(const EditorOptions& options) {
     session_.emplace(services, *play_host_, live, kIdleGameWindow);
     build_.emplace(services.processes);
     toolbar_->show_state(RunState::Idle);
+    panels_->export_dialog().set_available(toolbar_->can_export_game());
 
     play_at_start_ = options.play;
     open_project(*options.project);
@@ -222,10 +223,11 @@ void EditorApp::on_frame_end() {
         panels_->build().show_summary("Startup build skipped.");
         toolbar_->show_status("Ready. Press Play.");
     }
-    ExportDialog& export_dialog = toolbar_->export_dialog();
+    ExportDialog& export_dialog = panels_->export_dialog();
     export_dialog.frame(host_.services().windows, window_);
     if (const std::optional<ExportChoice> choice = export_dialog.take_choice()) {
         start_export(*choice);
+        panels_->close_export();
     }
     toolbar_->update_window_state();
     const auto current_win_size = host_.services().windows.size(window_);
@@ -280,25 +282,27 @@ void EditorApp::open_project(const std::filesystem::path& directory) {
     panels_->world_view().close();
     edit_module_->reset(world_);
     project_.reset();
-    toolbar_->export_dialog().close();
+    panels_->close_export();
     ProjectCheck check = check_project(directory, sdk_);
     project_dir_ = check.directory;
     if (!check.project) {
         panels_->explorer().close();
-        toolbar_->show_project(path_text(project_dir_), false);
+        toolbar_->show_project("", false);
+        panels_->export_dialog().set_available(false);
         toolbar_->show_status(check.problem);
         engine::log::warn("Editor: " + check.problem);
         return;
     }
-    const std::string line = check.project->name + "  (" + path_text(project_dir_) + ")";
     panels_->explorer().open(project_dir_);
     if (!check.fits) {
-        toolbar_->show_project(line, false);
+        toolbar_->show_project(check.project->name, false);
+        panels_->export_dialog().set_available(false);
         toolbar_->show_status(check.problem);
         return;
     }
     project_ = std::move(check.project);
-    toolbar_->show_project(line, true);
+    toolbar_->show_project(project_->name, true);
+    panels_->export_dialog().set_available(toolbar_->can_export_game());
     toolbar_->show_status("Ready. Press Play.");
     engine::log::info("Editor: project " + project_->name + " at " + path_text(project_dir_));
     if (!play_at_start_ && sdk_) {
@@ -344,19 +348,17 @@ void EditorApp::play() {
         opening_build_ = false;
         opening_overlay_->close();
         toolbar_->show_state(RunState::Building);
+        panels_->export_dialog().set_available(toolbar_->can_export_game());
         toolbar_->show_status("Building " + project_->name + "...");
         return;
     }
     start_build(BuildKind::Module);
 }
 
-// The Export button opens the dialog (or closes it); Export in the dialog starts the build.
+// File -> Export opens the Export panel in a separate window.
 void EditorApp::export_game() {
-    ExportDialog& export_dialog = toolbar_->export_dialog();
-    if (export_dialog.is_open()) {
-        export_dialog.close();
-    } else if (project_ && sdk_) {
-        export_dialog.show(project_dir_, project_->target, sdk_->config);
+    if (project_ && sdk_) {
+        panels_->show_export(project_dir_, project_->target, sdk_->config);
     }
 }
 
@@ -388,6 +390,7 @@ void EditorApp::start_build(BuildKind kind, bool development) {
             .development = development,
     });
     toolbar_->show_state(RunState::Building);
+    panels_->export_dialog().set_available(toolbar_->can_export_game());
     toolbar_->show_status((kind == BuildKind::Export ? "Exporting " : "Building ") + project_->name + "...");
 }
 
@@ -408,6 +411,7 @@ void EditorApp::poll_build() {
     }
     if (!outcome->has_value()) {
         toolbar_->show_state(RunState::Idle);
+        panels_->export_dialog().set_available(toolbar_->can_export_game());
         toolbar_->show_status(outcome->error());
         log.show_summary(log.first_error().empty() ? outcome->error() : log.first_error());
         panels_->show(EditorPanels::kBuild);
@@ -430,6 +434,7 @@ void EditorApp::poll_build() {
 void EditorApp::finish_export(const std::filesystem::path& built) {
     BuildPanel& log = panels_->build();
     toolbar_->show_state(RunState::Idle);
+    panels_->export_dialog().set_available(toolbar_->can_export_game());
     const auto copied = copy_export(built, export_directory_);
     if (!copied) {
         toolbar_->show_status(copied.error());
@@ -456,10 +461,12 @@ void EditorApp::start_game(const std::filesystem::path& module) {
             panels_->world_view().reload();
         }
         toolbar_->show_state(RunState::Idle);
+        panels_->export_dialog().set_available(toolbar_->can_export_game());
         toolbar_->show_status(started.error());
         return;
     }
     toolbar_->show_state(RunState::Playing);
+    panels_->export_dialog().set_available(toolbar_->can_export_game());
     std::string status = "Playing " + project_->name + ".";
     if (!started->empty()) {
         status += " " + *started;
@@ -474,6 +481,7 @@ void EditorApp::stop(std::string status) {
         opening_overlay_->close();
         panels_->build().show_summary("Build cancelled.");
         toolbar_->show_state(RunState::Idle);
+        panels_->export_dialog().set_available(toolbar_->can_export_game());
         toolbar_->show_status("Build cancelled.");
         return;
     }
@@ -487,6 +495,7 @@ void EditorApp::stop(std::string status) {
         }
     }
     toolbar_->show_state(RunState::Idle);
+    panels_->export_dialog().set_available(toolbar_->can_export_game());
     toolbar_->show_status(std::move(status));
 }
 

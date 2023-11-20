@@ -100,22 +100,30 @@ bool HierarchyPanel::attached() const {
     return game_ != nullptr;
 }
 
-void HierarchyPanel::set_edit_world(engine::ecs::World* edit_world, std::string_view world_label) {
-    const bool world_changed = edit_world != edit_world_ || edit_label_ != world_label;
+void HierarchyPanel::set_edit_world(engine::ecs::World* edit_world, std::string_view world_label, bool is_dirty) {
+    const bool world_identity_changed = edit_world != edit_world_ || edit_label_ != world_label;
+    const bool dirty_changed = is_dirty != is_dirty_;
     edit_world_ = edit_world;
     edit_label_ = std::string(world_label);
+    is_dirty_ = is_dirty;
     if (game_ == nullptr) {
-        if (world_changed || (selected_ != engine::ecs::Entity{} &&
+        if (world_identity_changed || (selected_ != engine::ecs::Entity{} &&
                 (edit_world_ == nullptr || !edit_world_->valid(selected_)))) {
             clear_selection_if_entity();
         }
-        if (world_changed) {
+        if (world_identity_changed) {
             expansion_.reset();
             rows_.clear();
             if (edit_world_ == nullptr) {
                 view_model_->rows.set({});
                 view_model_->statusText = std::string(kIdleHint);
             }
+        } else if (dirty_changed && edit_world_ != nullptr) {
+            const std::string_view prefix =
+                    edit_label_.empty() ? std::string_view("Scene") : std::string_view(edit_label_);
+            const std::string star = is_dirty_ ? "*" : "";
+            const std::vector<engine::ecs::Entity> alive = edit_world_->alive_entities();
+            view_model_->statusText = std::format("{}{}  ({} entities)", prefix, star, alive.size());
         }
     }
 }
@@ -209,7 +217,8 @@ void HierarchyPanel::show_rows(const engine::ecs::World& world) {
     const std::string_view prefix = game_ != nullptr
             ? std::string_view("Live game")
             : (edit_label_.empty() ? std::string_view("Scene") : std::string_view(edit_label_));
-    view_model_->statusText = std::format("{}  ({} entities)", prefix, alive.size());
+    const std::string star = (is_dirty_ && game_ == nullptr) ? "*" : "";
+    view_model_->statusText = std::format("{}{}  ({} entities)", prefix, star, alive.size());
 
     std::vector<engine::ecs::Entity> roots;
     roots.reserve(alive.size());

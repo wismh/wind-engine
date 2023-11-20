@@ -5,14 +5,13 @@
 namespace editor {
 
 Toolbar::Toolbar()
-    : view_model_(std::make_shared<EditorViewModel>())
-    , export_dialog_(*view_model_) {
+    : view_model_(std::make_shared<EditorViewModel>()) {
     view_model_->togglePlay.bind_to<Toolbar, &Toolbar::toggle_play, &Toolbar::can_toggle_play>(*this);
     view_model_->exportGame.bind_to<Toolbar, &Toolbar::export_game, &Toolbar::can_export_game>(*this);
     view_model_->minimizeWindow.bind_to<Toolbar, &Toolbar::minimize_window, &Toolbar::can_window_action>(*this);
     view_model_->maximizeWindow.bind_to<Toolbar, &Toolbar::maximize_window, &Toolbar::can_window_action>(*this);
     view_model_->closeWindow.bind_to<Toolbar, &Toolbar::close_window, &Toolbar::can_window_action>(*this);
-    view_model_->projectText = std::string("No project open");
+    view_model_->playLabel = std::string("\xe2\x96\xb6 Play");
 }
 
 void Toolbar::set_window_control(engine::IWindowControl& control, engine::WindowId window) {
@@ -75,30 +74,19 @@ bool Toolbar::can_export_game() const {
     return state_ == RunState::Idle && playable_;
 }
 
-ExportDialog& Toolbar::export_dialog() {
-    return export_dialog_;
-}
-
 void Toolbar::show_project(std::string text, bool playable) {
     playable_ = playable;
-    export_dialog_.set_available(can_export_game());
-    view_model_->projectText = std::move(text);
+    view_model_->projectName = std::move(text);
 }
 
 void Toolbar::show_status(std::string text) {
-    view_model_->statusText = std::move(text);
+    status_ = std::move(text);
 }
 
 void Toolbar::show_state(RunState state) {
     state_ = state;
-    export_dialog_.set_available(can_export_game());
     view_model_->isPlaying = state != RunState::Idle;
-    const char* label = "Play";
-    if (state == RunState::Building) {
-        label = "Cancel";
-    } else if (state == RunState::Playing) {
-        label = "Stop";
-    }
+    const char* label = state == RunState::Idle ? "\xe2\x96\xb6 Play" : "\xe2\x96\xa0 Stop";
     view_model_->playLabel = std::string(label);
 }
 
@@ -115,7 +103,7 @@ bool Toolbar::playable() const {
 }
 
 const std::string& Toolbar::status() const {
-    return view_model_->statusText.get();
+    return status_;
 }
 
 }

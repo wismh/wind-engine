@@ -395,3 +395,131 @@ Canvas.world-canvas {
   background: var(--viewport-bg, #1e1f22);
 }
 
+/* Export panel */
+.dialog-title {
+  font-size: 16;
+  color: #ffffff;
+}
+
+.field-label {
+  height: 18;
+  padding: 4 0 0 0;
+  font-size: 12;
+  color: #8c9096;
+}
+
+.field-row {
+  width: 100%;
+  gap: 10;
+}
+
+.field {
+  height: 34;
+  padding: 8 10 8 10;
+  border-radius: 6;
+  font-size: 14;
+  color: #dfe1e5;
+  background: #1e1f22;
+  border-width: 1;
+  border-color: #393b40;
+  selection-color: #2f65ca;
+}
+
+.field:focus {
+  border-color: #3574f0;
+}
+
+.path-field {
+  width: calc(100% - 110px);
+}
+
+.browse-button {
+  width: 100;
+  height: 34;
+  padding: 0 16 0 16;
+  border-radius: 6;
+  font-size: 14;
+  color: #dfe1e5;
+  background: #3c3f41;
+  text-align: center;
+  align-items: center;
+}
+
+.browse-button:hover {
+  background: #4b4f53;
+}
+
+.browse-button:pressed {
+  background: #5a5e62;
+}
+
+.check-row {
+  width: 100%;
+  height: 24;
+  padding: 4 0 0 0;
+  gap: 8;
+  align-items: center;
+}
+
+.check-label {
+  font-size: 13;
+  color: #dfe1e5;
+}
+
+.dialog-hint {
+  max-width: 480;
+  font-size: 12;
+  color: #8c9096;
+  white-space: normal;
+}
+
+.dialog-message {
+  max-width: 480;
+  font-size: 12;
+  color: var(--tone, #8c9096);
+  white-space: normal;
+}
+
+.dialog-buttons {
+  padding: 6 0 0 0;
+  gap: 8;
+}
+
+.cancel-button {
+  width: 84;
+  height: 34;
+  padding: 0 16 0 16;
+  border-radius: 6;
+  font-size: 14;
+  color: #dfe1e5;
+  background: #3c3f41;
+  text-align: center;
+  align-items: center;
+}
+
+.cancel-button:hover {
+  background: #4b4f53;
+}
+
+.confirm-button {
+  width: 84;
+  height: 34;
+  padding: 0 16 0 16;
+  border-radius: 6;
+  font-size: 14;
+  color: #ffffff;
+  background: #2f7d36;
+  text-align: center;
+  align-items: center;
+}
+
+.confirm-button:hover {
+  background: #3a9142;
+}
+
+.confirm-button:disabled {
+  color: #8a8f96;
+  background: #34413a;
+}
+
+

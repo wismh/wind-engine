@@ -36,20 +36,25 @@ engine::ecs::Entity spawn_panel(engine::ecs::World& world, engine::WindowId wind
     return canvas;
 }
 
-std::vector<std::string> registered_keys() {
-    std::vector<std::string> keys;
-    for (const std::string_view key : EditorPanels::kKeys) {
-        keys.emplace_back(key);
-    }
-    return keys;
-}
-
-// Drops panels this editor does not have and puts back the ones the layout lacks: tabbed with the Profiler, or the
-// first stack when the Profiler is missing too.
+// Drops panels this editor does not have and puts back the ones the default layout lacks: tabbed with the Profiler,
+// or the first stack when the Profiler is missing too. The Export panel is optional/closable, so it is kept if present
+// but not added if missing.
 bool reconcile(DockLayout& layout) {
-    const std::vector<std::string> keys = registered_keys();
-    return engine::ui::reconcile_dock_layout(layout, keys,
-            engine::ui::DockSpot{.beside = std::string(EditorPanels::kProfiler), .zone = DockZone::Center});
+    bool changed = false;
+    for (const std::string& key : layout.panels()) {
+        if (key != EditorPanels::kExport &&
+                std::ranges::find(EditorPanels::kKeys, key) == EditorPanels::kKeys.end()) {
+            changed |= layout.remove(key);
+        }
+    }
+    for (const std::string_view key : EditorPanels::kKeys) {
+        if (!layout.contains(key)) {
+            const std::optional<engine::ui::DockPanelPlace> profiler = layout.find(EditorPanels::kProfiler);
+            const DockNodeId stack = profiler ? profiler->stack : engine::ui::kNoDockNode;
+            changed |= layout.add(std::string(key), engine::ui::DockTarget{stack, DockZone::Center});
+        }
+    }
+    return changed;
 }
 
 // The saved layout when it holds at least one of the editor's panels, else the default.
@@ -107,6 +112,7 @@ void EditorPanels::spawn(engine::ecs::World& world, engine::WindowId window, eng
     inspector_canvas_ = spawn_panel(world, window, assets::ui::inspector, inspector_.view_model());
     profiler_canvas_ = spawn_panel(world, window, assets::ui::profiler, profiler_.view_model());
     build_canvas_ = spawn_panel(world, window, assets::ui::build, build_.view_model());
+    export_canvas_ = spawn_panel(world, window, assets::ui::export_dialog, export_dialog_.view_model());
 
     engine::ui::DockSpace space;
     space.window = window;
@@ -123,6 +129,7 @@ void EditorPanels::spawn(engine::ecs::World& world, engine::WindowId window, eng
             {std::string(kInspector), "Inspector", inspector_canvas_},
             {std::string(kProfiler), "Profiler", profiler_canvas_},
             {std::string(kBuild), "Build", build_canvas_},
+            {std::string(kExport), "Export", export_canvas_, true},
     };
     space.layout = initial_layout(layout_file_);
     dock_ = world.create();
@@ -153,8 +160,33 @@ void EditorPanels::frame(engine::ecs::World& world) {
     if (world_view_.sync_selection()) {
         show(kWorld);
     }
+    for (const engine::ui::DockPanelCloseRequested& event :
+            engine::ecs::EventReader<engine::ui::DockPanelCloseRequested>{world, close_cursor_}) {
+        if (event.key == kExport) {
+            close_export();
+        }
+    }
+    if (const std::optional<engine::WindowId> export_win = engine::ui::dock_panel_os_window(world, dock_, kExport)) {
+        export_window_ = *export_win;
+    }
+    for (const engine::ui::WindowCloseRequestedEvent& event :
+            engine::ecs::EventReader<engine::ui::WindowCloseRequestedEvent>{world, window_close_cursor_}) {
+        if (export_window_ && event.window == *export_window_) {
+            close_export();
+        }
+    }
+    if (export_dialog_.take_close_requested()) {
+        close_export();
+    }
     engine::ecs::World* edit_world = world_view_.world_loaded() ? &world_view_.edit_world() : nullptr;
-    hierarchy_.set_edit_world(edit_world, world_view_.open_path().filename().string());
+    const bool is_dirty = world_view_.is_dirty();
+    hierarchy_.set_edit_world(edit_world, world_view_.open_path().filename().string(), is_dirty);
+    for (engine::ui::DockPanel& panel : space.panels) {
+        if (panel.key == kHierarchy) {
+            panel.title = is_dirty ? "Hierarchy*" : "Hierarchy";
+            break;
+        }
+    }
     inspector_.set_edit_world(edit_world);
     world_view_.frame(world, world_canvas_, space.layout.is_visible(kWorld));
     if (space.layout.is_visible(kHierarchy)) {
@@ -203,6 +235,38 @@ void EditorPanels::show(std::string_view key) {
     }
 }
 
+void EditorPanels::show_export(const std::filesystem::path& project, const std::string& target,
+        const std::string& sdk_config) {
+    export_dialog_.show(project, target, sdk_config);
+    DockLayout& layout = layout_mut();
+    const engine::ui::WindowSize size = engine::ui::window_size_for(*world_, window_);
+    const float w = 520.0f;
+    const float h = 260.0f;
+    const float x = std::max(50.0f, (static_cast<float>(size.width) - w) * 0.5f);
+    const float y = std::max(50.0f, (static_cast<float>(size.height) - h) * 0.5f);
+    if (!layout.contains(kExport)) {
+        const std::vector<engine::ui::DockNodeId> stacks = layout.stacks_under(layout.root());
+        if (!stacks.empty()) {
+            layout.add(std::string(kExport), engine::ui::DockTarget{stacks.front(), DockZone::Center});
+        } else {
+            layout.add(std::string(kExport), {});
+        }
+        layout.float_panel(kExport, engine::render::Rect{x, y, w, h});
+    } else {
+        const std::optional<engine::ui::DockPanelPlace> place = layout.find(kExport);
+        if (place && place->float_id == engine::ui::kNoDockNode) {
+            layout.float_panel(kExport, engine::render::Rect{x, y, w, h});
+        }
+    }
+    show(kExport);
+}
+
+void EditorPanels::close_export() {
+    export_window_.reset();
+    export_dialog_.close();
+    layout_mut().remove(kExport);
+}
+
 void EditorPanels::save_layout() {
     (void) layout_file_.save(layout());
 }
@@ -241,6 +305,9 @@ engine::ecs::Entity EditorPanels::canvas(std::string_view key) const {
     if (key == kBuild) {
         return build_canvas_;
     }
+    if (key == kExport) {
+        return export_canvas_;
+    }
     return {};
 }
 
@@ -269,7 +336,15 @@ void EditorPanels::read_tree_keys(engine::ecs::World& world) {
     engine::ecs::Entity tree{};
     std::optional<std::size_t> keep_in_view;
     for (const engine::KeyEvent& event : engine::ecs::EventReader<engine::KeyEvent>{world, key_cursor_}) {
+        if (event.key == engine::KeyCode::LCtrl || event.key == engine::KeyCode::RCtrl) {
+            held_ctrl_ = event.down;
+            continue;
+        }
         if (!event.down) {
+            continue;
+        }
+        if (held_ctrl_ && event.key == engine::KeyCode::S) {
+            (void) world_view_.save_world();
             continue;
         }
         const std::optional<engine::ui::TreeNav> nav = engine::ui::tree_nav_for_key(event.key);
@@ -334,6 +409,10 @@ ProfilerPanel& EditorPanels::profiler() {
 
 BuildPanel& EditorPanels::build() {
     return build_;
+}
+
+ExportDialog& EditorPanels::export_dialog() {
+    return export_dialog_;
 }
 
 }
