@@ -63,6 +63,18 @@ public:
     virtual void set_position(glm::ivec2 position, WindowId window = kPrimaryWindow) = 0;
     virtual void resize(glm::ivec2 size, WindowId window = kPrimaryWindow) = 0;
 
+    // Window state: minimize to taskbar, maximize to screen work-area, or restore from either state.
+    virtual void minimize(WindowId window = kPrimaryWindow) = 0;
+    virtual void maximize(WindowId window = kPrimaryWindow) = 0;
+    virtual void restore(WindowId window = kPrimaryWindow) = 0;
+    [[nodiscard]] virtual bool is_maximized(WindowId window = kPrimaryWindow) const = 0;
+    [[nodiscard]] virtual bool is_minimized(WindowId window = kPrimaryWindow) const = 0;
+
+    // Window visibility. Hiding a window preserves its OpenGL context, canvas, and resources.
+    virtual void show(WindowId window = kPrimaryWindow) = 0;
+    virtual void hide(WindowId window = kPrimaryWindow) = 0;
+    [[nodiscard]] virtual bool is_visible(WindowId window = kPrimaryWindow) const = 0;
+
     // Brings the window to the front and gives it keyboard focus; a minimized window is restored first. A window
     // that is not open is a no-op. The OS may refuse focus to a process that is not in the foreground (Windows
     // then flashes its taskbar entry, or its owner's).

@@ -42,6 +42,14 @@ public:
     void set_always_on_top(bool always_on_top);
     void set_position(glm::ivec2 position);
     void resize(glm::ivec2 size);
+    void minimize();
+    void maximize();
+    void restore();
+    [[nodiscard]] bool is_maximized() const;
+    [[nodiscard]] bool is_minimized() const;
+    void show();
+    void hide();
+    [[nodiscard]] bool is_visible() const;
     // Restores a minimized window, brings it to the front, and focuses it (IWindowControl::raise).
     void raise();
 

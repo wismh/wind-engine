@@ -61,6 +61,57 @@ public:
         }
     }
 
+    void minimize(WindowId window) override {
+        if (WindowSystem* target = windows_->window(window)) {
+            target->minimize();
+        }
+    }
+
+    void maximize(WindowId window) override {
+        if (WindowSystem* target = windows_->window(window)) {
+            target->maximize();
+        }
+    }
+
+    void restore(WindowId window) override {
+        if (WindowSystem* target = windows_->window(window)) {
+            target->restore();
+        }
+    }
+
+    [[nodiscard]] bool is_maximized(WindowId window) const override {
+        if (const WindowSystem* target = windows_->window(window)) {
+            return target->is_maximized();
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool is_minimized(WindowId window) const override {
+        if (const WindowSystem* target = windows_->window(window)) {
+            return target->is_minimized();
+        }
+        return false;
+    }
+
+    void show(WindowId window) override {
+        if (WindowSystem* target = windows_->window(window)) {
+            target->show();
+        }
+    }
+
+    void hide(WindowId window) override {
+        if (WindowSystem* target = windows_->window(window)) {
+            target->hide();
+        }
+    }
+
+    [[nodiscard]] bool is_visible(WindowId window) const override {
+        if (const WindowSystem* target = windows_->window(window)) {
+            return target->is_visible();
+        }
+        return false;
+    }
+
     void raise(WindowId window) override {
         if (WindowSystem* target = windows_->window(window)) {
             target->raise();
