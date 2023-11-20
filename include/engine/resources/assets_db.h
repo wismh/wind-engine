@@ -57,6 +57,7 @@ public:
     void unload_catalog(const std::filesystem::path& files_root);
     void set_root(std::filesystem::path assets_root);
     void set_graphic_factory(render::IGraphicFactory* factory);
+    [[nodiscard]] render::IGraphicFactory* graphic_factory() const noexcept { return graphic_factory_; }
 
     [[nodiscard]] const CookedCatalog& catalog() const noexcept { return catalog_; }
 

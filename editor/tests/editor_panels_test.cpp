@@ -36,7 +36,8 @@ using engine::ui::DockLayout;
 using engine::ui::DockZone;
 
 constexpr engine::WindowId kEditorWindow{1};
-constexpr Rect kArea{0.0f, editor::EditorPanels::kToolbarHeight, 1280.0f, 800.0f - 56.0f};
+constexpr Rect kArea{0.0f, editor::EditorPanels::kToolbarHeight, 1280.0f,
+        800.0f - editor::EditorPanels::kToolbarHeight};
 
 class EmptyModel final : public engine::ui::ViewModel {};
 
@@ -144,7 +145,7 @@ TEST_F(EditorPanelsTest, TheDockSpaceFillsTheWindowBelowTheToolbarAndPlacesThePa
     EXPECT_EQ(space().window, kEditorWindow);
     EXPECT_EQ(space().area, kArea);
     EXPECT_EQ(space().layout, editor::EditorPanels::default_layout()) << "no saved layout";
-    ASSERT_EQ(space().panels.size(), 7u);
+    ASSERT_EQ(space().panels.size(), 8u);
     EXPECT_EQ(space().panels[0].title, "Project");
     EXPECT_EQ(space().panels[1].title, "Hierarchy");
     EXPECT_EQ(space().panels[2].title, "World");
@@ -152,6 +153,8 @@ TEST_F(EditorPanelsTest, TheDockSpaceFillsTheWindowBelowTheToolbarAndPlacesThePa
     EXPECT_EQ(space().panels[4].title, "Inspector");
     EXPECT_EQ(space().panels[5].title, "Profiler");
     EXPECT_EQ(space().panels[6].title, "Build");
+    EXPECT_EQ(space().panels[7].title, "Export");
+    EXPECT_TRUE(space().panels[7].closable);
 
     const engine::ui::DockGeometry geometry =
             engine::ui::compute_dock_geometry(space().layout, kArea, engine::ui::DockMetrics{});
@@ -170,7 +173,8 @@ TEST_F(EditorPanelsTest, TheDockSpaceFillsTheWindowBelowTheToolbarAndPlacesThePa
     // A resized window moves the dock area with it.
     engine::ui::presentation_of(world).sizes.sizes[kEditorWindow] = {1000, 700};
     frame();
-    EXPECT_EQ(space().area, (Rect{0.0f, 56.0f, 1000.0f, 644.0f}));
+    EXPECT_EQ(space().area, (Rect{0.0f, editor::EditorPanels::kToolbarHeight, 1000.0f,
+            700.0f - editor::EditorPanels::kToolbarHeight}));
     const Rect project = canvas("project").rect;
     EXPECT_EQ(project.y + project.h, 700.0f);
 }
@@ -544,6 +548,36 @@ TEST_F(EditorPanelsWindowsTest, TreeKeysGoToTheProjectPanelInItsOwnWindow) {
             engine::KeyEvent{.window = window, .key = engine::KeyCode::Down, .down = true});
     frame();
     EXPECT_EQ(panels->explorer().selected(), "assets");
+}
+
+TEST_F(EditorPanelsWindowsTest, ShowExportOpensAFloatingOsWindowAndCloseExportRemovesIt) {
+    start();
+    EXPECT_FALSE(space().layout.contains("export"));
+    EXPECT_EQ(windows.open.size(), 2u);
+
+    const std::filesystem::path project = dir / "project";
+    panels->show_export(project, "game", "Release");
+    EXPECT_TRUE(space().layout.contains("export"));
+    const std::optional<engine::ui::DockPanelPlace> place = space().layout.find("export");
+    ASSERT_TRUE(place.has_value());
+    EXPECT_NE(place->float_id, engine::ui::kNoDockNode);
+
+    frame();
+    ASSERT_EQ(windows.open.size(), 3u);
+    const engine::WindowId export_win = windows.open[2];
+    EXPECT_EQ(windows.opened.at(export_win).title, "Export");
+    EXPECT_EQ(windows.opened.at(export_win).size, (glm::ivec2{520, 260}));
+    EXPECT_EQ(canvas("export").window, export_win);
+
+    panels->close_export();
+    EXPECT_FALSE(space().layout.contains("export"));
+    frame();
+    EXPECT_EQ(windows.open.size(), 2u);
+
+    panels->show_export(project, "game", "Release");
+    EXPECT_TRUE(space().layout.contains("export"));
+    frame();
+    ASSERT_EQ(windows.open.size(), 3u);
 }
 
 }

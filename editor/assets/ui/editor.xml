@@ -1,33 +1,36 @@
 <Canvas id="editor">
   <Stack class="editor" direction="vertical">
+    <Stack class="titlebar" direction="horizontal">
+      <Stack class="titlebar-left" direction="horizontal">
+        <Image class="app-icon" source="e37ab68ef5a85b2bf93c84c168987296"/>
+        <Label class="app-title" text="{binding windowTitle}"/>
+        <MenuBar class="main-menu-bar">
+          <Menu text="File">
+            <MenuItem text="Export..." command="{binding exportGame}" shortcut="Ctrl+E"/>
+            <MenuSeparator/>
+            <MenuItem text="Exit" command="{binding closeWindow}" shortcut="Alt+F4"/>
+          </Menu>
+          <Menu text="Edit">
+            <MenuItem text="Undo" shortcut="Ctrl+Z"/>
+            <MenuItem text="Redo" shortcut="Ctrl+Y"/>
+          </Menu>
+          <Menu text="Window">
+            <MenuItem text="Toggle Play" command="{binding togglePlay}" shortcut="F5"/>
+          </Menu>
+          <Menu text="Help">
+            <MenuItem text="About Wind Engine"/>
+          </Menu>
+        </MenuBar>
+      </Stack>
+      <Stack class="titlebar-right" direction="horizontal">
+        <Label class="project-title" text="{binding projectName}"/>
+        <Button class="window-btn min-btn" command="{binding minimizeWindow}" content="_"/>
+        <Button class="window-btn max-btn" command="{binding maximizeWindow}" content="{binding maxRestoreLabel}"/>
+        <Button class="window-btn close-btn" command="{binding closeWindow}" content="x"/>
+      </Stack>
+    </Stack>
     <Stack class="toolbar" direction="horizontal">
       <Button class="play-button" command="{binding togglePlay}" checked="{binding isPlaying}" content="{binding playLabel}"/>
-      <!-- The dialog's anchor is the Stack, not the button: a press on the button while the dialog is open dismisses it. -->
-      <Stack class="export-anchor" direction="vertical">
-        <Button class="export-button" command="{binding exportGame}" content="Export"/>
-        <Popup class="export-dialog" open="{binding exportOpen}" placement="bottom-start">
-          <Label class="dialog-title" text="Export game"/>
-          <Label class="field-label" text="Folder"/>
-          <Stack class="field-row" direction="horizontal">
-            <TextInput class="field path-field" text="{binding exportPath}" command="{binding exportConfirm}"/>
-            <Button class="browse-button" command="{binding exportBrowse}" content="Browse…"/>
-          </Stack>
-          <Stack class="check-row" direction="horizontal">
-            <Checkbox class="option-box" checked="{binding exportDevelopment}"/>
-            <Label class="check-label" text="Development Build"/>
-          </Stack>
-          <Label class="dialog-hint" text="Your code unoptimized, with symbols, the UI profiler, and wind-cli. Unchecked: a Release build for players."/>
-          <Label class="dialog-message" text="{binding exportMessage}" var-tone="{binding exportMessageTone}"/>
-          <Stack class="dialog-buttons" direction="horizontal">
-            <Button class="cancel-button" command="{binding exportCancel}" content="Cancel"/>
-            <Button class="confirm-button" command="{binding exportConfirm}" content="Export"/>
-          </Stack>
-        </Popup>
-      </Stack>
-      <Stack class="info" direction="vertical">
-        <Label class="status" text="{binding statusText}"/>
-        <Label class="path" text="{binding projectText}"/>
-      </Stack>
     </Stack>
     <!-- Below the toolbar: the panels' dock space, canvases of their own (EditorPanels). -->
   </Stack>

@@ -1,0 +1,20 @@
+<Canvas id="export">
+  <Stack class="panel" direction="vertical">
+    <Label class="dialog-title" text="Export game"/>
+    <Label class="field-label" text="Folder"/>
+    <Stack class="field-row" direction="horizontal">
+      <TextInput class="field path-field" text="{binding path}" command="{binding confirm}"/>
+      <Button class="browse-button" command="{binding browse}" content="Browse…"/>
+    </Stack>
+    <Stack class="check-row" direction="horizontal">
+      <Checkbox class="option-box" checked="{binding development}"/>
+      <Label class="check-label" text="Development Build"/>
+    </Stack>
+    <Label class="dialog-hint" text="Your code unoptimized, with symbols, the UI profiler, and wind-cli. Unchecked: a Release build for players."/>
+    <Label class="dialog-message" text="{binding message}" var-tone="{binding messageTone}"/>
+    <Stack class="dialog-buttons" direction="horizontal">
+      <Button class="cancel-button" command="{binding cancel}" content="Cancel"/>
+      <Button class="confirm-button" command="{binding confirm}" content="Export"/>
+    </Stack>
+  </Stack>
+</Canvas>

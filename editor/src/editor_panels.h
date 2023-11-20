@@ -3,6 +3,7 @@
 #include "build_panel.h"
 #include "dock_layout_file.h"
 #include "editor_selection.h"
+#include "export_dialog.h"
 #include "explorer_panel.h"
 #include "hierarchy_panel.h"
 #include "inspector_panel.h"
@@ -15,10 +16,14 @@
 #include <engine/core/window_desc.h>
 #include <engine/ecs/entity.h>
 #include <engine/ecs/events.h>
+#include <engine/ui/canvas.h>
 #include <engine/ui/dock_layout.h>
+#include <engine/ui/dock_space.h>
 
 #include <array>
 #include <cstdint>
+#include <filesystem>
+#include <string>
 #include <string_view>
 
 namespace engine {
@@ -33,13 +38,7 @@ namespace editor {
 
 // The Project, Hierarchy, World, UI Tree, Inspector, Profiler, and Build panels in an engine dock space that fills
 // the editor window below the toolbar; a floated panel lives in an OS window of its own (DockFloatMode::OsWindow).
-// Each panel is its own canvas in the editor's world; the dock space places it, so an inactive tab is a Fixed canvas
-// with an empty rect and takes no clicks. The panels share one EditorSelection: the Project, Hierarchy, and UI Tree
-// panels write it, the Inspector shows it, and the World panel opens a selected `.world` file. While playing, the
-// Hierarchy, UI Tree, Inspector, and Profiler read the world of kPrimaryWindow and refresh only while their tab is
-// shown; in Edit Mode, Hierarchy and Inspector read the World panel's preview world. The Build panel is filled by the
-// editor as a build runs, and the Project panel scans when a project opens and on its Refresh. The layout is read from
-// `layout_file` at spawn and written back when the user changes it and at quit.
+// The Export panel is hidden by default and opens in a separate OS window on File -> Export.
 class EditorPanels {
 public:
     static constexpr std::string_view kProject = "project";
@@ -49,12 +48,13 @@ public:
     static constexpr std::string_view kInspector = "inspector";
     static constexpr std::string_view kProfiler = "profiler";
     static constexpr std::string_view kBuild = "build";
+    static constexpr std::string_view kExport = "export";
     // Dock order: the default layout's tabs and where reconcile puts a panel a saved layout lacks.
     static constexpr std::array<std::string_view, 7> kKeys{
             kProject, kHierarchy, kWorld, kUiTree, kInspector, kProfiler, kBuild};
 
-    // Height of the toolbar in the editor window: `.toolbar` of assets/css/editor.css. The dock space is below it.
-    static constexpr float kToolbarHeight = 56.0f;
+    // Height of the titlebar + toolbar in the editor window. The dock space is below it.
+    static constexpr float kToolbarHeight = 80.0f;
     // Lowest canvas order of the dock space: above the editor's own canvas (order 0).
     static constexpr int kDockOrder = 1;
 
@@ -77,18 +77,16 @@ public:
     // entity selection.
     void detach();
 
-    // Editor world, Phase::Game (before Bind): keeps the dock area under the toolbar, gives tree keys to the Project,
-    // Hierarchy, or UI Tree panel under the pointer, opens a newly selected `.world` in the World panel, syncs the
-    // Edit Mode world to Hierarchy and Inspector, takes a new UI selection from the game (a pick click, UI Tree shown
-    // or not), refreshes the World, Hierarchy, UI Tree, Inspector, and Profiler while shown, so this frame's bindings
-    // see this frame's copy, and saves the layout when the dock space changed it.
     void frame(engine::ecs::World& world);
-    // Editor world, Phase::Render: renders the World panel's preview world into its viewport rect when shown.
     void render(engine::ecs::World& world, const engine::EngineSystemDeps& deps);
 
     // Brings the panel to the front: its tab becomes active and its float, if any, goes on top; a float in an OS
     // window is raised and focused. A panel the layout lost goes back where reconcile puts it.
     void show(std::string_view key);
+    // Opens the Export panel in a separate floating OS window.
+    void show_export(const std::filesystem::path& project, const std::string& target, const std::string& sdk_config);
+    void close_export();
+
     // Writes the layout to the layout file. At quit.
     void save_layout();
 
@@ -104,19 +102,15 @@ public:
     [[nodiscard]] InspectorPanel& inspector();
     [[nodiscard]] ProfilerPanel& profiler();
     [[nodiscard]] BuildPanel& build();
+    [[nodiscard]] ExportDialog& export_dialog();
 
 private:
-    // Arrow, Home, and End presses (repeats too) on the editor window, or on a float's window, while the pointer is
-    // over the Project, Hierarchy, or UI Tree panel there, whichever canvas is on top. Every frame reads the queue,
-    // so a key pressed elsewhere is not replayed later.
     void read_tree_keys(engine::ecs::World& world);
-    // The Project, Hierarchy, or UI Tree canvas when it is the topmost canvas of `window` under its pointer.
     [[nodiscard]] engine::ecs::Entity tree_canvas_under_pointer(engine::ecs::World& world,
             engine::WindowId window) const;
     [[nodiscard]] engine::ui::DockLayout& layout_mut();
 
     DockLayoutFile layout_file_;
-    // Before the panels, which hold it.
     EditorSelection selection_;
     ExplorerPanel explorer_;
     HierarchyPanel hierarchy_;
@@ -125,6 +119,7 @@ private:
     InspectorPanel inspector_;
     ProfilerPanel profiler_;
     BuildPanel build_;
+    ExportDialog export_dialog_;
     engine::ecs::Entity explorer_canvas_{};
     engine::ecs::Entity hierarchy_canvas_{};
     engine::ecs::Entity world_canvas_{};
@@ -132,14 +127,17 @@ private:
     engine::ecs::Entity inspector_canvas_{};
     engine::ecs::Entity profiler_canvas_{};
     engine::ecs::Entity build_canvas_{};
+    engine::ecs::Entity export_canvas_{};
     engine::ecs::Entity dock_{};
     engine::ecs::World* world_ = nullptr;
     engine::IWindowControl* windows_ = nullptr;
     engine::WindowId window_{};
-    // DockSpace::revision last written to the layout file.
     std::uint64_t saved_revision_ = 0;
-    // Its own cursor: the UI's run_input reads KeyEvent through the world's.
+    std::optional<engine::WindowId> export_window_{};
     engine::ecs::EventCursor<engine::KeyEvent> key_cursor_;
+    engine::ecs::EventCursor<engine::ui::DockPanelCloseRequested> close_cursor_;
+    engine::ecs::EventCursor<engine::ui::WindowCloseRequestedEvent> window_close_cursor_;
+    bool held_ctrl_ = false;
 };
 
 }

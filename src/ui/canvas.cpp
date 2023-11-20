@@ -524,6 +524,26 @@ namespace engine::ui {
             }
         }
 
+        void open_popup(ecs::World &world, ecs::Entity canvas_entity, UiCanvas &canvas, Element &popup) {
+            popup.open = true;
+            mark_edited(world, canvas_entity, popup, kDirtyPaint | kDirtyLayout);
+            if (is_bound(popup.open_binding) && canvas.data_context) {
+                ViewModel *target = popup.generated_owner != nullptr
+                                            ? static_cast<ViewModel *>(const_cast<void *>(popup.generated_owner))
+                                            : canvas.data_context.get();
+                target->write_property_float(popup.open_binding, 1.0f);
+            }
+        }
+
+        Element *find_menu_popup(Element &menu) {
+            for (Element &child: menu.children) {
+                if (is_popup_kind(child.kind)) {
+                    return &child;
+                }
+            }
+            return nullptr;
+        }
+
         // Light dismiss: closes every open popup of `window` except those `hit` is inside and the one whose
         // anchor `hit` is (a click on the anchor is left to the anchor's own command, so a toggle still
         // toggles). Returns whether any closed; `kept` is set when `hit` held one open.
@@ -782,7 +802,7 @@ namespace engine::ui {
                     return {x, y};
                 }
                 // A popup is shown from its own offset; its anchor's scroll and camera do not apply inside it.
-                if (child->kind == ElementKind::Popup) {
+                if (is_popup_kind(child->kind)) {
                     layout = window_layout - child->popup_offset;
                 }
                 node = child;
@@ -1031,6 +1051,23 @@ namespace engine::ui {
                                     : hit->canvas->data_context.get();
                     target->write_property_float(hit->element->checked_binding, hit->element->checked ? 1.0f : 0.0f);
                 }
+            }
+
+            if (!clicked_scrollbar && hit->element->kind == ElementKind::Menu) {
+                if (Element *popup = find_menu_popup(*hit->element)) {
+                    if (popup->open) {
+                        close_popup(world, window, hit->entity, *hit->canvas, *popup);
+                    } else {
+                        bool dummy = false;
+                        close_popups_except(world, window, nullptr, dummy);
+                        open_popup(world, hit->entity, *hit->canvas, *popup);
+                    }
+                }
+            }
+
+            if (!clicked_scrollbar && hit->element->kind == ElementKind::MenuItem) {
+                bool dummy = false;
+                close_popups_except(world, window, nullptr, dummy);
             }
 
             if (!clicked_scrollbar && hit->element->kind != ElementKind::TextInput) {
@@ -1361,6 +1398,18 @@ namespace engine::ui {
                 if (hit->element->scrollbar_thumb_hovered != over_thumb) {
                     hit->element->scrollbar_thumb_hovered = over_thumb;
                     mark_edited(world, hit->entity, *hit->element, kDirtyFrame);
+                }
+            }
+            if (hit && hit->element->kind == ElementKind::Menu) {
+                UiInstance *instance = world.try_get<UiInstance>(hit->entity);
+                if (instance != nullptr && has_open_popup(instance->document.root)) {
+                    if (Element *popup = find_menu_popup(*hit->element)) {
+                        if (!popup->open) {
+                            bool dummy = false;
+                            close_popups_except(world, window, nullptr, dummy);
+                            open_popup(world, hit->entity, *hit->canvas, *popup);
+                        }
+                    }
                 }
             }
         }
