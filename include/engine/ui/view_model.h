@@ -1,5 +1,6 @@
 #pragma once
 
+#include <engine/resources/asset_id.h>
 #include <engine/ui/bindable.h>
 #include <engine/ui/binding_id.h>
 #include <engine/ui/command.h>
@@ -27,6 +28,7 @@ public:
     [[nodiscard]] bool has_property(BindingId id) const;
     [[nodiscard]] bool has_command(BindingId id) const;
     [[nodiscard]] std::optional<std::string> read_property_string(BindingId id) const;
+    [[nodiscard]] std::optional<AssetId> read_property_asset_id(BindingId id) const;
     [[nodiscard]] std::vector<ViewModel*> read_item_source(BindingId id) const;
     [[nodiscard]] ICommand* find_command(BindingId id);
     [[nodiscard]] const ICommand* find_command(BindingId id) const;
@@ -43,6 +45,7 @@ private:
     struct PropertyRef {
         void* bindable = nullptr;
         std::string (*to_string)(void*) = nullptr;
+        AssetId (*read_asset_id)(void*) = nullptr;
         std::vector<ViewModel*> (*items)(void*) = nullptr;
     };
 
@@ -64,6 +67,11 @@ void ViewModel::property(BindingId id, Bindable<T>& bindable) {
             return {};
         }
     };
+    if constexpr (std::is_same_v<T, AssetId>) {
+        ref.read_asset_id = [](void* ptr) -> AssetId {
+            return static_cast<Bindable<AssetId>*>(ptr)->get();
+        };
+    }
     properties_.insert_or_assign(id, ref);
 }
 
