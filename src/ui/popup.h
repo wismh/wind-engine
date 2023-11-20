@@ -41,7 +41,7 @@ namespace engine::ui {
     [[nodiscard]] glm::vec2 content_size_of(const Element &element, glm::vec2 parent_content);
 
     [[nodiscard]] inline bool is_open_popup(const Element &element) noexcept {
-        return element.kind == ElementKind::Popup && element.open && !element.display_none;
+        return is_popup_kind(element.kind) && element.open && !element.display_none;
     }
 
     // The rect a popup of `size` takes beside `anchor`, both in the canvas's layout units. `margin` is the

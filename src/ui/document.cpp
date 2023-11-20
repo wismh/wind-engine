@@ -349,7 +349,7 @@ namespace engine::ui {
             if (element.kind == ElementKind::ItemsControl) {
                 children.reserve(element.generated_items.size());
                 for (auto &child: element.generated_items) {
-                    if (child.kind != ElementKind::Popup && !child.display_none) {
+                    if (!is_popup_kind(child.kind) && !child.display_none) {
                         children.push_back(&child);
                     }
                 }
@@ -357,7 +357,7 @@ namespace engine::ui {
             }
             children.reserve(element.children.size());
             for (auto &child: element.children) {
-                if (child.kind != ElementKind::ItemTemplate && child.kind != ElementKind::Popup && !child.display_none) {
+                if (child.kind != ElementKind::ItemTemplate && !is_popup_kind(child.kind) && !child.display_none) {
                     children.push_back(&child);
                 }
             }
@@ -368,12 +368,24 @@ namespace engine::ui {
         [[nodiscard]] glm::vec2 intrinsic_size(const Element &element, IUiPainter *painter, glm::vec2 parent_content,
                                                float avail_x) {
             const ResolvedBox box = resolve_box(element, parent_content);
-            if (element.kind == ElementKind::Label || element.kind == ElementKind::Button) {
+            if (element.kind == ElementKind::Label || element.kind == ElementKind::Button ||
+                element.kind == ElementKind::Menu || element.kind == ElementKind::MenuItem) {
                 const glm::vec2 text =
                         measure_element_text(element, painter, box.font_size, content_width_limit(box, avail_x));
+                float text_w = text.x;
+                if (element.kind == ElementKind::MenuItem && !element.shortcut.empty() && painter != nullptr) {
+                    const glm::vec2 sc = painter->measure_text(element.shortcut, element.font_family, box.font_size);
+                    text_w += sc.x + 24.0f;
+                }
                 return {
-                        box.padding.left + text.x + box.padding.right,
+                        box.padding.left + text_w + box.padding.right,
                         box.padding.top + text.y + box.padding.bottom,
+                };
+            }
+            if (element.kind == ElementKind::MenuSeparator) {
+                return {
+                        box.padding.left + box.padding.right,
+                        box.padding.top + 1.0f + box.padding.bottom,
                 };
             }
             if (element.kind == ElementKind::TextInput) {
@@ -543,7 +555,7 @@ namespace engine::ui {
 
         // A positioned element, a popup, or a slider (its handle is placed in it) is the containing block of its `position: absolute` descendants.
         bool establishes_containing_block(const Element &element) {
-            return element.position != PositionMode::Static || element.kind == ElementKind::Popup ||
+            return element.position != PositionMode::Static || is_popup_kind(element.kind) ||
                    element.kind == ElementKind::Slider;
         }
 
@@ -552,7 +564,7 @@ namespace engine::ui {
         // place_popups (popup.h) works out where it is shown.
         void layout_popups(Element &anchor, glm::vec2 basis, IUiPainter *painter, bool partial) {
             for (Element &child: anchor.children) {
-                if (child.kind != ElementKind::Popup || child.display_none) {
+                if (!is_popup_kind(child.kind) || child.display_none) {
                     continue;
                 }
                 const glm::vec2 used = cached_used(child, painter, basis, kUnboundedWidth, partial);
@@ -751,7 +763,8 @@ namespace engine::ui {
             // A positioned element (relative or absolute) becomes the containing block its own
             // descendants resolve `position: absolute` against.
             const render::Rect child_containing_block = establishes_containing_block(element) ? box : containing_block;
-            if (packs_children(element.kind) || element.kind == ElementKind::ItemsControl) {
+            if (packs_children(element.kind) || element.kind == ElementKind::ItemsControl ||
+                element.kind == ElementKind::Menu) {
                 layout_stack(element, content, painter, resolved, child_containing_block, partial);
                 layout_popups(element, child_basis, painter, partial);
                 return;
@@ -760,7 +773,7 @@ namespace engine::ui {
             std::vector<Element *> flow;
             std::vector<Element *> absolute;
             for (Element &child: element.children) {
-                if (child.kind == ElementKind::ItemTemplate || child.kind == ElementKind::Popup || child.display_none) {
+                if (child.kind == ElementKind::ItemTemplate || is_popup_kind(child.kind) || child.display_none) {
                     continue;
                 }
                 if (child.position == PositionMode::Absolute) {
@@ -911,7 +924,7 @@ namespace engine::ui {
         for (std::vector<Element> *list: {&element.children, &element.generated_items}) {
             std::vector<Element *> order = child_stacking_order(*list);
             for (auto it = order.rbegin(); it != order.rend(); ++it) {
-                if ((*it)->kind == ElementKind::Popup || (*it)->position != PositionMode::Absolute) {
+                if (is_popup_kind((*it)->kind) || (*it)->position != PositionMode::Absolute) {
                     continue;
                 }
                 if (auto hit = visit(**it); hit) {
@@ -925,8 +938,9 @@ namespace engine::ui {
     // What hit_test_at returns for an element that no child took (selectable labels are decided separately).
     bool is_interactive_element(const Element &element) {
         return element.kind == ElementKind::Button || element.kind == ElementKind::Checkbox ||
-               element.kind == ElementKind::Popup || element.kind == ElementKind::TextInput ||
+               is_popup_kind(element.kind) || element.kind == ElementKind::TextInput ||
                element.kind == ElementKind::ScrollView || is_scrollable(element) ||
+               element.kind == ElementKind::Menu || element.kind == ElementKind::MenuItem ||
                is_bound(element.command_binding) || is_bound(element.drag_binding) || has_viewport_camera(element);
     }
 
@@ -936,7 +950,8 @@ namespace engine::ui {
         }
         if (!rect_contains(hit_bounds(element), x, y)) {
             const bool child_under_control =
-                    under_control || element.kind == ElementKind::Button || element.kind == ElementKind::Checkbox;
+                    under_control || element.kind == ElementKind::Button || element.kind == ElementKind::Checkbox ||
+                    element.kind == ElementKind::Menu || element.kind == ElementKind::MenuItem;
             return visit_absolute_children(
                     element, [&](Element &child) { return hit_test_at(child, x, y, child_under_control); });
         }
@@ -965,13 +980,14 @@ namespace engine::ui {
         // A Button or Checkbox owns the click, including a Label nested inside it (through a Stack or
         // otherwise). Otherwise `Label { user-select: text }` would steal `<Button><Label/></Button>`.
         const bool child_under_control =
-                under_control || element.kind == ElementKind::Button || element.kind == ElementKind::Checkbox;
+                under_control || element.kind == ElementKind::Button || element.kind == ElementKind::Checkbox ||
+                element.kind == ElementKind::Menu || element.kind == ElementKind::MenuItem;
         // child_stacking_order() is ascending (paint order); iterating its result back-to-front
         // visits the topmost (highest z-index / last-drawn) sibling first.
         // A Popup child is not hit from here: hit_test visits open popups first, from their own offset.
         std::vector<Element *> children = child_stacking_order(element.children);
         for (auto it = children.rbegin(); it != children.rend(); ++it) {
-            if ((*it)->kind == ElementKind::Popup) {
+            if (is_popup_kind((*it)->kind)) {
                 continue;
             }
             if (Element *nested = hit_test_at(**it, child_x, child_y, child_under_control)) {
@@ -980,7 +996,7 @@ namespace engine::ui {
         }
         std::vector<Element *> generated = child_stacking_order(element.generated_items);
         for (auto it = generated.rbegin(); it != generated.rend(); ++it) {
-            if ((*it)->kind == ElementKind::Popup) {
+            if (is_popup_kind((*it)->kind)) {
                 continue;
             }
             if (Element *nested = hit_test_at(**it, child_x, child_y, child_under_control)) {
@@ -1010,7 +1026,7 @@ namespace engine::ui {
             if (element.kind == ElementKind::ItemTemplate || !element.visible || element.display_none) {
                 return;
             }
-            if (element.kind == ElementKind::Popup) {
+            if (is_popup_kind(element.kind)) {
                 if (element.open) {
                     render::Rect shown = element.layout_rect;
                     shown.x += element.popup_offset.x;
@@ -1073,7 +1089,7 @@ namespace engine::ui {
         for (std::vector<Element> *list: {&element.children, &element.generated_items}) {
             std::vector<Element *> order = child_stacking_order(*list);
             for (auto it = order.rbegin(); it != order.rend(); ++it) {
-                if ((*it)->kind == ElementKind::Popup) {
+                if (is_popup_kind((*it)->kind)) {
                     continue;
                 }
                 if (const std::optional<Cursor> hit = cursor_at_element(**it, child_x, child_y)) {
@@ -1218,7 +1234,7 @@ namespace engine::ui {
 
         std::vector<Element *> children = child_stacking_order(element.children);
         for (auto it = children.rbegin(); it != children.rend(); ++it) {
-            if ((*it)->kind == ElementKind::Popup) {
+            if (is_popup_kind((*it)->kind)) {
                 continue;
             }
             if (VisualHit nested = hit_visual_at(**it, child_x, child_y, child_basis, child_map);
@@ -1228,7 +1244,7 @@ namespace engine::ui {
         }
         std::vector<Element *> generated = child_stacking_order(element.generated_items);
         for (auto it = generated.rbegin(); it != generated.rend(); ++it) {
-            if ((*it)->kind == ElementKind::Popup) {
+            if (is_popup_kind((*it)->kind)) {
                 continue;
             }
             if (VisualHit nested = hit_visual_at(**it, child_x, child_y, child_basis, child_map);
@@ -1249,7 +1265,7 @@ namespace engine::ui {
         const glm::vec2 child_basis = content_size_of(element, parent_content);
         // A popup is shown from its own offset, whatever scroll or camera its anchor sits under.
         const auto map_for = [&](const Element &child) {
-            return child.kind == ElementKind::Popup ? SpaceMap{1.0f, child.popup_offset} : child_map;
+            return is_popup_kind(child.kind) ? SpaceMap{1.0f, child.popup_offset} : child_map;
         };
         for (Element &child: element.children) {
             if (find_layout_boxes(child, target, child_basis, map_for(child), out)) {
@@ -1302,12 +1318,12 @@ namespace engine::ui {
             child_y = y + element.scroll_y;
         }
         for (Element *child: child_stacking_order(element.children)) {
-            if (child->kind != ElementKind::Popup) {
+            if (!is_popup_kind(child->kind)) {
                 find_viewport_at_impl(*child, child_x, child_y, found);
             }
         }
         for (Element *child: child_stacking_order(element.generated_items)) {
-            if (child->kind != ElementKind::Popup) {
+            if (!is_popup_kind(child->kind)) {
                 find_viewport_at_impl(*child, child_x, child_y, found);
             }
         }
@@ -1410,12 +1426,12 @@ namespace engine::ui {
             child_y = y + element.scroll_y;
         }
         for (Element *child: child_stacking_order(element.children)) {
-            if (child->kind != ElementKind::Popup) {
+            if (!is_popup_kind(child->kind)) {
                 find_scrollable_at_impl(*child, child_x, child_y, found);
             }
         }
         for (Element *child: child_stacking_order(element.generated_items)) {
-            if (child->kind != ElementKind::Popup) {
+            if (!is_popup_kind(child->kind)) {
                 find_scrollable_at_impl(*child, child_x, child_y, found);
             }
         }

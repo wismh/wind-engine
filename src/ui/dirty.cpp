@@ -41,7 +41,7 @@ namespace engine::ui {
 
     bool is_relayout_boundary(const Element &element) {
         return fixed_px(element.width) && fixed_px(element.height) && element.position != PositionMode::Relative &&
-               element.kind != ElementKind::Popup && element.kind != ElementKind::ItemTemplate &&
+               !is_popup_kind(element.kind) && element.kind != ElementKind::ItemTemplate &&
                element.layout_runs > 0 && !element.display_none && !element.is_virtualization_spacer;
     }
 

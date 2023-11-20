@@ -204,6 +204,16 @@ namespace engine::cli {
                     return "Popup";
                 case ui::ElementKind::Slider:
                     return "Slider";
+                case ui::ElementKind::MenuBar:
+                    return "MenuBar";
+                case ui::ElementKind::Menu:
+                    return "Menu";
+                case ui::ElementKind::MenuItem:
+                    return "MenuItem";
+                case ui::ElementKind::MenuSeparator:
+                    return "MenuSeparator";
+                case ui::ElementKind::ContextMenu:
+                    return "ContextMenu";
             }
             return "Element";
         }
