@@ -35,8 +35,8 @@ using engine::render::Rect;
 using engine::ui::DockLayout;
 using engine::ui::DockZone;
 
-constexpr engine::WindowId kEditorWindow{1};
-constexpr Rect kArea{0.0f, editor::EditorPanels::kToolbarHeight, 1280.0f, 800.0f - 56.0f};
+constexpr Rect kArea{0.0f, editor::EditorPanels::kToolbarHeight, 1280.0f,
+        800.0f - editor::EditorPanels::kToolbarHeight};
 
 class EmptyModel final : public engine::ui::ViewModel {};
 
