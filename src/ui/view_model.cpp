@@ -18,6 +18,14 @@ std::optional<std::string> ViewModel::read_property_string(std::string_view name
     return it->second.to_string(it->second.bindable);
 }
 
+std::vector<ViewModel*> ViewModel::read_item_source(std::string_view name) const {
+    const auto it = properties_.find(std::string(name));
+    if (it == properties_.end() || it->second.items == nullptr) {
+        return {};
+    }
+    return it->second.items(it->second.bindable);
+}
+
 ICommand* ViewModel::find_command(std::string_view name) {
     const auto it = commands_.find(std::string(name));
     if (it == commands_.end()) {

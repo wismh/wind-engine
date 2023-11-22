@@ -15,11 +15,13 @@
 #include <engine/resources/fatal_error.h>
 #include <engine/ui/canvas.h>
 #include <engine/ui/document.h>
+#include <engine/ui/stylesheet.h>
 
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace engine {
@@ -27,14 +29,22 @@ namespace {
 
 void run_input(ecs::World& world) {
     ui::begin_frame(world);
+    ui::UiPointer& pointer = world.ctx<ui::UiPointer>();
     for (const MouseEvent& event : ecs::EventReader<MouseEvent>{world}) {
+        if (event.kind == MouseEvent::Kind::Move || event.kind == MouseEvent::Kind::Down ||
+                event.kind == MouseEvent::Kind::Up) {
+            pointer.position = event.position;
+        }
         if (event.kind == MouseEvent::Kind::Down) {
+            pointer.down = true;
             ui::handle_pointer(world, event.position.x, event.position.y);
+        } else if (event.kind == MouseEvent::Kind::Up) {
+            pointer.down = false;
         }
     }
 }
 
-void run_bind(ecs::World& world) {
+void run_bind(ecs::World& world, const EngineSystemDeps& deps) {
     auto view = world.view<ui::UiCanvas>();
     for (ecs::Entity entity : view) {
         ui::UiCanvas& canvas = view.get<ui::UiCanvas>(entity);
@@ -46,6 +56,19 @@ void run_bind(ecs::World& world) {
             continue;
         }
         (void) ui::apply_bindings(instance->document, *canvas.data_context);
+        if (deps.assets == nullptr || instance->stylesheet) {
+            continue;
+        }
+        std::optional<AssetId> sheet_id = canvas.stylesheet;
+        if (!sheet_id) {
+            sheet_id = instance->document.stylesheet;
+        }
+        if (!sheet_id) {
+            continue;
+        }
+        if (auto sheet = deps.assets->TryGet<ui::Stylesheet>(*sheet_id)) {
+            instance->stylesheet = **sheet;
+        }
     }
 }
 
@@ -127,6 +150,8 @@ struct CanvasDraw {
     int order = 0;
     std::uint32_t index = 0;
     render::Rect rect{};
+    ui::UiDocument* document = nullptr;
+    const ui::Stylesheet* stylesheet = nullptr;
 };
 
 void run_ui_render(ecs::World& world, const EngineSystemDeps& deps) {
@@ -134,12 +159,20 @@ void run_ui_render(ecs::World& world, const EngineSystemDeps& deps) {
         return;
     }
 
+    const ui::UiPointer& pointer = world.ctx<ui::UiPointer>();
     std::vector<CanvasDraw> canvases;
     {
         auto view = world.view<ui::UiCanvas>();
         for (ecs::Entity entity : view) {
-            const ui::UiCanvas& canvas = view.get<ui::UiCanvas>(entity);
-            canvases.push_back(CanvasDraw{canvas.order, entity.index, canvas.rect});
+            ui::UiCanvas& canvas = view.get<ui::UiCanvas>(entity);
+            CanvasDraw draw{canvas.order, entity.index, canvas.rect};
+            if (ui::UiInstance* instance = world.try_get<ui::UiInstance>(entity)) {
+                draw.document = &instance->document;
+                if (instance->stylesheet) {
+                    draw.stylesheet = &*instance->stylesheet;
+                }
+            }
+            canvases.push_back(draw);
         }
     }
     std::stable_sort(canvases.begin(), canvases.end(), [](const CanvasDraw& a, const CanvasDraw& b) {
@@ -149,7 +182,13 @@ void run_ui_render(ecs::World& world, const EngineSystemDeps& deps) {
         return a.index < b.index;
     });
     for (const CanvasDraw& canvas : canvases) {
-        deps.commands->push(render::CmdDrawUI{canvas.rect});
+        deps.commands->push(render::CmdDrawUI{
+                canvas.rect,
+                canvas.document,
+                canvas.stylesheet,
+                pointer.position,
+                pointer.down,
+        });
     }
 }
 
@@ -160,7 +199,7 @@ void RegisterEngineSystems(ecs::World& world, EngineSystemDeps deps) {
 
     world.AddSystem(ecs::Schedule::Fixed, ecs::Phase::Physics, [](ecs::World& w) { run_physics(w); });
     world.AddSystem(ecs::Schedule::Frame, ecs::Phase::Input, [](ecs::World& w) { run_input(w); });
-    world.AddSystem(ecs::Schedule::Frame, ecs::Phase::Bind, [](ecs::World& w) { run_bind(w); });
+    world.AddSystem(ecs::Schedule::Frame, ecs::Phase::Bind, [deps](ecs::World& w) { run_bind(w, deps); });
     world.AddSystem(ecs::Schedule::Frame, ecs::Phase::Audio, [deps](ecs::World& w) { run_audio(w, deps); });
     world.AddSystem(ecs::Schedule::Frame, ecs::Phase::Render, [deps](ecs::World& w) { run_render(w, deps); });
     world.AddSystem(ecs::Schedule::Frame, ecs::Phase::UiRender, [deps](ecs::World& w) { run_ui_render(w, deps); });

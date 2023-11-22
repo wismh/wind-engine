@@ -4,6 +4,7 @@
 #include <engine/resources/asset_id.h>
 #include <engine/resources/fatal_error.h>
 #include <engine/ui/command.h>
+#include <engine/ui/stylesheet.h>
 #include <engine/ui/view_model.h>
 
 #include <expected>
@@ -55,7 +56,11 @@ struct Element {
 
     render::Rect layout_rect{};
     ICommand* command = nullptr;
+    bool hovered = false;
+    bool pressed = false;
+    bool disabled = false;
     std::vector<Element> children;
+    std::vector<Element> generated_items;
 };
 
 struct UiDocument {
@@ -65,6 +70,7 @@ struct UiDocument {
 
 struct UiInstance {
     UiDocument document;
+    std::optional<Stylesheet> stylesheet;
 };
 
 [[nodiscard]] std::expected<UiDocument, UiError> parse_xml(
