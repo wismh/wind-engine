@@ -2,6 +2,7 @@
 
 #include "ui/painter.h"
 
+#include <engine/render/graphic_factory.h>
 #include <engine/resources/font.h>
 
 #include <memory>
@@ -21,6 +22,7 @@ public:
     [[nodiscard]] bool create();
     [[nodiscard]] bool load_ui_font(const Font& font);
     [[nodiscard]] bool add_font(AssetId id, const Font& font);
+    [[nodiscard]] bool add_image(AssetId id, const TextureDesc& desc);
     void destroy();
     void begin_frame(float width, float height, float pixel_ratio = 1.0f);
     void end_frame();

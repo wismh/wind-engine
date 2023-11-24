@@ -32,6 +32,7 @@ public:
     [[nodiscard]] bool create_window(std::string_view title, glm::ivec2 size);
     [[nodiscard]] bool load_ui_font(const Font& font);
     [[nodiscard]] bool add_font(AssetId id, const Font& font);
+    [[nodiscard]] bool add_image(AssetId id, const render::TextureDesc& desc);
     void shutdown();
 
     [[nodiscard]] int run(IGame& game, InputSystem& input, IAudioSystem* audio);
