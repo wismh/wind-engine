@@ -46,6 +46,7 @@ public:
 
     [[nodiscard]] void* native_window() const;
     [[nodiscard]] glm::ivec2 drawable_size() const;
+    [[nodiscard]] std::filesystem::path base_path() const;
     [[nodiscard]] std::filesystem::path assets_root() const;
 
     void write_window_size(ecs::World& world, bool send_event);
