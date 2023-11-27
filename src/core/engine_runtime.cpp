@@ -172,12 +172,20 @@ glm::ivec2 EngineRuntime::drawable_size() const {
     return impl_->window.drawable_size();
 }
 
-std::filesystem::path EngineRuntime::assets_root() const {
+std::filesystem::path EngineRuntime::base_path() const {
     const char* base = SDL_GetBasePath();
     if (base == nullptr) {
         return {};
     }
-    return std::filesystem::path(base) / "assets";
+    return std::filesystem::path(base);
+}
+
+std::filesystem::path EngineRuntime::assets_root() const {
+    const std::filesystem::path base = base_path();
+    if (base.empty()) {
+        return {};
+    }
+    return base / "assets";
 }
 
 void EngineRuntime::write_window_size(ecs::World& world, bool send_event) {

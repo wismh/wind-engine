@@ -77,22 +77,26 @@ void run_audio(ecs::World& world, const EngineSystemDeps& deps) {
         if (deps.assets == nullptr || deps.audio == nullptr) {
             continue;
         }
-        auto sound = deps.assets->TryGet<Sound>(event.id);
-        if (!sound) {
-            continue;
-        }
-        deps.audio->PlaySfx(**sound, event.volume_scale);
+        auto sound = deps.assets->Get<Sound>(event.id);
+        deps.audio->PlaySfx(*sound, event.volume_scale);
     }
     for (const PlayMusicEvent& event : ecs::EventReader<PlayMusicEvent>{world}) {
         if (deps.assets == nullptr || deps.audio == nullptr) {
             continue;
         }
-        auto sound = deps.assets->TryGet<Sound>(event.id);
-        if (!sound) {
-            continue;
-        }
-        deps.audio->PlayMusic(**sound, event.loop, event.fade_seconds);
+        auto sound = deps.assets->Get<Sound>(event.id);
+        deps.audio->PlayMusic(*sound, event.loop, event.fade_seconds);
     }
+}
+
+glm::mat4 model_matrix(const Transform& transform) {
+    glm::mat4 model(1.0f);
+    model = glm::translate(model, transform.position);
+    model = glm::rotate(model, transform.rotation.x, glm::vec3{1.0f, 0.0f, 0.0f});
+    model = glm::rotate(model, transform.rotation.y, glm::vec3{0.0f, 1.0f, 0.0f});
+    model = glm::rotate(model, transform.rotation.z, glm::vec3{0.0f, 0.0f, 1.0f});
+    model = glm::scale(model, transform.scale);
+    return model;
 }
 
 void report_fatal(IFatalError* fatal, std::string_view message) {
@@ -138,7 +142,7 @@ void run_render(ecs::World& world, const EngineSystemDeps& deps) {
         render::CmdDrawMesh cmd;
         cmd.mesh = item.renderable.mesh;
         cmd.material = item.renderable.material;
-        cmd.model = glm::translate(glm::mat4(1.0f), transform.position);
+        cmd.model = model_matrix(transform);
         cmd.view = view;
         cmd.projection = projection;
         cmd.color = item.renderable.color;

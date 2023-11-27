@@ -15,6 +15,7 @@
 #include <engine/ecs/transform.h>
 #include <engine/ecs/world.h>
 #include <engine/igame.h>
+#include <engine/log.h>
 #include <engine/render/backend.h>
 #include <engine/render/canvas.h>
 #include <engine/render/command_buffer.h>

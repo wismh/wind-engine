@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <engine/audio/audio_system.h>
 #include <engine/audio/events.h>
 #include <engine/ecs/camera.h>
 #include <engine/ecs/events.h>
@@ -11,13 +12,20 @@
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
 #include <engine/render/renderable.h>
+#include <engine/resources/assets_db.h>
 #include <engine/resources/fatal_error.h>
+#include <engine/resources/meta.h>
 #include <engine/ui/canvas.h>
 #include <engine/ui/document.h>
 #include <engine/ui/view_model.h>
 
+#include <glm/gtc/matrix_transform.hpp>
 #include <glm/vec4.hpp>
 
+#include <chrono>
+#include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -88,6 +96,57 @@ engine::render::Renderable make_renderable(std::shared_ptr<engine::render::IMesh
             0,
     };
 }
+
+glm::mat4 expected_trs(const engine::Transform& transform) {
+    glm::mat4 model(1.0f);
+    model = glm::translate(model, transform.position);
+    model = glm::rotate(model, transform.rotation.x, glm::vec3{1.0f, 0.0f, 0.0f});
+    model = glm::rotate(model, transform.rotation.y, glm::vec3{0.0f, 1.0f, 0.0f});
+    model = glm::rotate(model, transform.rotation.z, glm::vec3{0.0f, 0.0f, 1.0f});
+    model = glm::scale(model, transform.scale);
+    return model;
+}
+
+void expect_mat4_eq(const glm::mat4& actual, const glm::mat4& expected) {
+    for (int column = 0; column < 4; ++column) {
+        for (int row = 0; row < 4; ++row) {
+            EXPECT_NEAR(actual[column][row], expected[column][row], 1e-4f)
+                    << "at [" << column << "][" << row << "]";
+        }
+    }
+}
+
+bool mat4_eq(const glm::mat4& a, const glm::mat4& b, float epsilon) {
+    for (int column = 0; column < 4; ++column) {
+        for (int row = 0; row < 4; ++row) {
+            if (std::abs(a[column][row] - b[column][row]) > epsilon) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+struct TempDir {
+    std::filesystem::path path;
+
+    TempDir() {
+        static int seq = 0;
+        const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+        path = std::filesystem::temp_directory_path() /
+                ("wind_playsfx_" + std::to_string(stamp) + "_" + std::to_string(++seq));
+        std::filesystem::remove_all(path);
+        std::filesystem::create_directories(path);
+    }
+
+    ~TempDir() {
+        std::error_code ec;
+        std::filesystem::remove_all(path, ec);
+    }
+
+    TempDir(const TempDir&) = delete;
+    TempDir& operator=(const TempDir&) = delete;
+};
 
 }
 
@@ -209,6 +268,32 @@ TEST(RenderSystem, BindPhaseUpdatesInstance) {
             "World");
 }
 
+TEST(RenderSystem, ModelMatrixIsTranslateRotateScale) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::RegisterEngineSystems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_camera(world);
+
+    const auto mesh = std::make_shared<FakeMesh>();
+    const auto material = std::make_shared<FakeMaterial>();
+    engine::Transform transform;
+    transform.position = {1.0f, 2.0f, 3.0f};
+    transform.rotation = {0.1f, 0.2f, 0.3f};
+    transform.scale = {2.0f, 3.0f, 4.0f};
+
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::Transform>(entity, transform);
+    world.emplace<engine::render::Renderable>(entity, make_renderable(mesh, material, 0));
+
+    world.Run(engine::ecs::Schedule::Frame);
+
+    ASSERT_EQ(commands.size(), 1u);
+    ASSERT_TRUE(std::holds_alternative<engine::render::CmdDrawMesh>(commands[0]));
+    const glm::mat4 model = std::get<engine::render::CmdDrawMesh>(commands[0]).model;
+    expect_mat4_eq(model, expected_trs(transform));
+    EXPECT_FALSE(mat4_eq(model, glm::translate(glm::mat4(1.0f), transform.position), 1e-4f));
+}
+
 TEST(Audio, PlaySfxEventType) {
     engine::ecs::World world;
     engine::RegisterEngineSystems(world);
@@ -221,4 +306,56 @@ TEST(Audio, PlaySfxEventType) {
     });
     world.Run(engine::ecs::Schedule::Frame);
     SUCCEED();
+}
+
+TEST(Audio, PlaySfxGetWhenDepsSet) {
+    TempDir dir;
+    std::filesystem::create_directories(dir.path / "sfx");
+    {
+        std::ofstream out(dir.path / "sfx" / "step.wav", std::ios::trunc);
+        ASSERT_TRUE(out.is_open());
+    }
+
+    RecordingFatalError fatal;
+    engine::AssetsDb db(fatal);
+    db.set_root(dir.path);
+    const engine::AssetId id{"b1c2d3e4f567890123456789012345ab"};
+    engine::CookedCatalog catalog;
+    catalog.add({id, "sfx/step.wav", engine::ImporterKind::Audio});
+    db.set_catalog(std::move(catalog));
+
+    engine::AudioSystem audio;
+    ASSERT_TRUE(audio.Init());
+
+    engine::ecs::World world;
+    engine::RegisterEngineSystems(world, engine::EngineSystemDeps{.assets = &db, .audio = &audio});
+    engine::ecs::EventWriter<engine::PlaySfxEvent>{world}.send(engine::PlaySfxEvent{
+            .id = id,
+            .volume_scale = 0.5f,
+    });
+    engine::ecs::EventWriter<engine::PlayMusicEvent>{world}.send(engine::PlayMusicEvent{
+            .id = id,
+            .loop = true,
+            .fade_seconds = 0.f,
+    });
+    world.Run(engine::ecs::Schedule::Frame);
+
+    EXPECT_EQ(audio.sfx_play_count(), 1);
+    EXPECT_TRUE(audio.IsMusicPlaying());
+}
+
+TEST(Audio, PlaySfxMissingCueIsFatal) {
+    RecordingFatalError fatal;
+    engine::AssetsDb db(fatal);
+    engine::AudioSystem audio;
+    ASSERT_TRUE(audio.Init());
+
+    engine::ecs::World world;
+    engine::RegisterEngineSystems(world, engine::EngineSystemDeps{.assets = &db, .audio = &audio});
+    engine::ecs::EventWriter<engine::PlaySfxEvent>{world}.send(engine::PlaySfxEvent{
+            .id = engine::AssetId{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+            .volume_scale = 0.5f,
+    });
+    EXPECT_THROW(world.Run(engine::ecs::Schedule::Frame), std::runtime_error);
+    EXPECT_EQ(fatal.call_count, 1);
 }
