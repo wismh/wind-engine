@@ -47,6 +47,8 @@ public:
 
     void set_catalog(CookedCatalog catalog);
     void add_catalog(CookedCatalog catalog);
+    [[nodiscard]] std::expected<void, MetaError> load_catalog(const std::filesystem::path& catalog_file,
+            const std::filesystem::path& files_root);
     void set_root(std::filesystem::path assets_root);
     void set_graphic_factory(render::IGraphicFactory* factory);
 
