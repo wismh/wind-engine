@@ -27,8 +27,14 @@ struct ComputedStyle {
     StackDirection direction = StackDirection::Vertical;
     bool has_direction = false;
     BoxInsets padding{};
+    BoxInsets margin{};
+    std::optional<float> width;
+    std::optional<float> height;
+    std::optional<float> min_width;
+    std::optional<float> min_height;
     UiAlign justify = UiAlign::Start;
     UiAlign align_items = UiAlign::Start;
+    UiAlign text_align = UiAlign::Start;
     float border_radius = 0.0f;
     float border_width = 0.0f;
     glm::vec4 border_color{0.0f, 0.0f, 0.0f, 0.0f};
@@ -127,7 +133,31 @@ UiAlign parse_align(std::string_view raw) {
     return UiAlign::Start;
 }
 
-std::optional<BoxInsets> parse_padding(std::string_view raw) {
+UiAlign parse_text_align(std::string_view raw) {
+    const std::string_view value = trim(raw);
+    if (value == "center") {
+        return UiAlign::Center;
+    }
+    if (value == "end") {
+        return UiAlign::End;
+    }
+    return UiAlign::Start;
+}
+
+std::optional<float> parse_length(std::string_view raw) {
+    const std::string_view value = trim(raw);
+    if (value.empty()) {
+        return std::nullopt;
+    }
+    char* end = nullptr;
+    const float n = std::strtof(value.data(), &end);
+    if (end == value.data()) {
+        return std::nullopt;
+    }
+    return n;
+}
+
+std::optional<BoxInsets> parse_insets(std::string_view raw) {
     const std::string_view value = trim(raw);
     if (value.empty()) {
         return std::nullopt;
@@ -260,13 +290,27 @@ void apply_declaration(ComputedStyle& style, const CssDeclaration& decl) {
             style.direction = StackDirection::Vertical;
         }
     } else if (decl.property == "padding") {
-        if (const auto padding = parse_padding(decl.value)) {
+        if (const auto padding = parse_insets(decl.value)) {
             style.padding = *padding;
         }
+    } else if (decl.property == "margin") {
+        if (const auto margin = parse_insets(decl.value)) {
+            style.margin = *margin;
+        }
+    } else if (decl.property == "width") {
+        style.width = parse_length(decl.value);
+    } else if (decl.property == "height") {
+        style.height = parse_length(decl.value);
+    } else if (decl.property == "min-width") {
+        style.min_width = parse_length(decl.value);
+    } else if (decl.property == "min-height") {
+        style.min_height = parse_length(decl.value);
     } else if (decl.property == "justify-content") {
         style.justify = parse_align(decl.value);
     } else if (decl.property == "align-items") {
         style.align_items = parse_align(decl.value);
+    } else if (decl.property == "text-align") {
+        style.text_align = parse_text_align(decl.value);
     } else if (decl.property == "border-radius") {
         style.border_radius = std::strtof(decl.value.c_str(), nullptr);
     } else if (decl.property == "border-width") {
@@ -334,6 +378,16 @@ void apply_layout_style(Element& element, const Stylesheet* sheet) {
         element.direction = style.direction;
     }
     element.padding = style.padding;
+    element.margin = style.margin;
+    element.width = style.width;
+    element.height = style.height;
+    element.min_width = style.min_width;
+    element.min_height = style.min_height;
+    element.justify = style.justify;
+    element.align_items = style.align_items;
+    element.text_align = style.text_align;
+    element.font_size = style.font_size;
+    element.font_family = style.font_family;
     for (Element& child : element.children) {
         apply_layout_style(child, sheet);
     }
@@ -392,9 +446,9 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
                     std::max(0.0f, element.layout_rect.h - style.padding.top - style.padding.bottom),
             };
             float x = content.x;
-            if (style.justify == UiAlign::Center) {
+            if (style.text_align == UiAlign::Center) {
                 x = content.x + content.w * 0.5f;
-            } else if (style.justify == UiAlign::End) {
+            } else if (style.text_align == UiAlign::End) {
                 x = content.x + content.w;
             }
             float y = content.y;
@@ -403,7 +457,7 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
             } else if (style.align_items == UiAlign::End) {
                 y = content.y + content.h;
             }
-            painter.fill_text(element.text, glm::vec2{x, y}, style.color, style.justify, style.align_items);
+            painter.fill_text(element.text, glm::vec2{x, y}, style.color, style.text_align, style.align_items);
         }
     }
     if (element.kind == ElementKind::Image && element.source) {
@@ -427,7 +481,7 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
 
 void paint_document(UiDocument& document, const Stylesheet* stylesheet, IUiPainter& painter, const UiPaintInput& input) {
     apply_layout_style(document.root, stylesheet);
-    layout(document, input.canvas_rect);
+    layout(document, input.canvas_rect, &painter);
     apply_interaction(document.root, input.pointer, input.pointer_down);
 
     painter.save();
