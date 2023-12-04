@@ -96,6 +96,53 @@ target_link_libraries(asset_codegen PRIVATE engine)
 add_executable(asset_guid "${CMAKE_CURRENT_SOURCE_DIR}/tools/asset_guid/main.cpp")
 target_link_libraries(asset_guid PRIVATE engine)
 
+set(ENGINE_BUILTIN_ASSETS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/builtin_assets" CACHE INTERNAL
+    "Source tree for engine builtin assets")
+set(ENGINE_COOKED_CATALOG_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/engine" CACHE INTERNAL
+    "Build-time output dir for the engine cooked catalog")
+set(ENGINE_COOKED_CATALOG "${ENGINE_COOKED_CATALOG_DIR}/catalog.toml" CACHE INTERNAL
+    "Cooked catalog.toml for engine builtins")
+
+file(GLOB_RECURSE _ENGINE_BUILTIN_ASSET_FILES CONFIGURE_DEPENDS
+    "${ENGINE_BUILTIN_ASSETS_DIR}/*")
+add_custom_command(
+    OUTPUT "${ENGINE_COOKED_CATALOG}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${ENGINE_COOKED_CATALOG_DIR}"
+    COMMAND asset_codegen "${ENGINE_BUILTIN_ASSETS_DIR}" "${ENGINE_COOKED_CATALOG_DIR}" --engine
+    DEPENDS asset_codegen ${_ENGINE_BUILTIN_ASSET_FILES}
+    COMMENT "Cook engine builtin catalog"
+    VERBATIM)
+add_custom_target(engine_builtin_catalog DEPENDS "${ENGINE_COOKED_CATALOG}")
+
+# Copy assets/engine (builtins + cooked catalog) and, when present, the consumer's assets/
+# beside a runtime target. Games call this after add_subdirectory(engine).
+function(engine_prepare_runtime target)
+    if(NOT TARGET ${target})
+        message(FATAL_ERROR "engine_prepare_runtime: target '${target}' does not exist")
+    endif()
+    add_dependencies(${target} engine_builtin_catalog)
+
+    set(_engine_game_assets "${CMAKE_CURRENT_SOURCE_DIR}/assets")
+    if(EXISTS "${_engine_game_assets}")
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${_engine_game_assets}"
+                "$<TARGET_FILE_DIR:${target}>/assets"
+            COMMENT "Copy game assets beside ${target}"
+            VERBATIM)
+    endif()
+
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${ENGINE_BUILTIN_ASSETS_DIR}"
+            "$<TARGET_FILE_DIR:${target}>/assets/engine"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${ENGINE_COOKED_CATALOG}"
+            "$<TARGET_FILE_DIR:${target}>/assets/engine/catalog.toml"
+        COMMENT "Copy engine assets and cooked catalog beside ${target}"
+        VERBATIM)
+endfunction()
+
 function(engine_add_sdl3)
     if(TARGET SDL3::SDL3)
         return()
@@ -201,10 +248,6 @@ if(ENGINE_BUILD_TESTS)
     target_include_directories(engine_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/builtin_assets" _engine_builtin_assets)
     target_compile_definitions(engine_tests PRIVATE "ENGINE_BUILTIN_ASSETS_DIR=\"${_engine_builtin_assets}\"")
-    add_custom_command(TARGET engine_tests POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${CMAKE_CURRENT_SOURCE_DIR}/builtin_assets"
-            "$<TARGET_FILE_DIR:engine_tests>/assets/engine"
-        COMMENT "Copy builtin_assets to engine_tests output dir")
+    engine_prepare_runtime(engine_tests)
     gtest_discover_tests(engine_tests DISCOVERY_MODE PRE_TEST)
 endif()
