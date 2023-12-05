@@ -197,7 +197,7 @@ TEST(Mvvm, ButtonClickExecutesWhenCanExecute) {
     spawn_button_canvas(world, vm, {0.0f, 0.0f, 100.0f, 100.0f}, 0);
 
     engine::ui::begin_frame(world);
-    engine::ui::handle_pointer(world, 50.0f, 50.0f);
+    engine::ui::handle_pointer(world, 4.0f, 4.0f);
 
     EXPECT_EQ(vm->clicks, 1);
     EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().value);
@@ -210,7 +210,7 @@ TEST(Mvvm, ButtonClickSkippedWhenCannotExecute) {
     spawn_button_canvas(world, vm, {0.0f, 0.0f, 100.0f, 100.0f}, 0);
 
     engine::ui::begin_frame(world);
-    engine::ui::handle_pointer(world, 50.0f, 50.0f);
+    engine::ui::handle_pointer(world, 4.0f, 4.0f);
 
     EXPECT_EQ(vm->clicks, 0);
     EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().value);
@@ -257,7 +257,7 @@ TEST(Mvvm, HigherOrderCanvasWinsHitTest) {
     spawn_button_canvas(world, front, {0.0f, 0.0f, 100.0f, 100.0f}, 1);
 
     engine::ui::begin_frame(world);
-    engine::ui::handle_pointer(world, 40.0f, 40.0f);
+    engine::ui::handle_pointer(world, 4.0f, 4.0f);
 
     EXPECT_EQ(front->clicks, 1);
     EXPECT_EQ(back->clicks, 0);
