@@ -1,3 +1,4 @@
+#include <engine/resources/asset_id.h>
 #include <engine/ui/stylesheet.h>
 
 #include <cctype>
@@ -44,6 +45,7 @@ bool is_known_property(std::string_view name) {
             "align-items",
             "justify-content",
             "text-align",
+            "background-image",
             "border-radius",
             "border-width",
             "border-color",
@@ -144,6 +146,12 @@ void parse_declarations(std::string_view body, CssRule& rule, std::vector<std::s
         }
         if (!is_known_property(decl.property)) {
             warnings.emplace_back("unknown CSS property: " + decl.property);
+        } else if (decl.property == "background-image") {
+            const std::string_view value = trim(decl.value);
+            if (value != "none" && !AssetId::parse(value)) {
+                warnings.emplace_back(
+                        "background-image value must be none or a 32-hex AssetId, not a filename: " + decl.value);
+            }
         }
         rule.declarations.push_back(std::move(decl));
     }
