@@ -17,6 +17,7 @@
 namespace engine {
 
 class IAudioSystem;
+struct Font;
 
 class EngineRuntime {
 public:
@@ -28,6 +29,7 @@ public:
 
     [[nodiscard]] bool init_video();
     [[nodiscard]] bool create_window(std::string_view title, glm::ivec2 size);
+    [[nodiscard]] bool load_ui_font(const Font& font);
     void shutdown();
 
     [[nodiscard]] int run(IGame& game, InputSystem& input, IAudioSystem* audio);
