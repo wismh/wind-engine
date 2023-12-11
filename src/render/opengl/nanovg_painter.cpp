@@ -7,11 +7,9 @@
 #include <nanovg_gl.h>
 
 #include <engine/builtin_ids.h>
+#include <engine/resources/font.h>
 
 #include <algorithm>
-#include <cstdint>
-#include <filesystem>
-#include <fstream>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -21,14 +19,6 @@ namespace {
 
 NVGcolor to_nvg(glm::vec4 color) {
     return nvgRGBAf(color.r, color.g, color.b, color.a);
-}
-
-std::vector<std::uint8_t> read_file(const std::filesystem::path& path) {
-    std::ifstream in(path, std::ios::binary);
-    if (!in) {
-        return {};
-    }
-    return std::vector<std::uint8_t>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 }
 
 }
@@ -49,22 +39,21 @@ NanoVgPainter::~NanoVgPainter() {
 bool NanoVgPainter::create() {
     destroy();
     impl_->vg = nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
-    if (impl_->vg == nullptr) {
+    return impl_->vg != nullptr;
+}
+
+bool NanoVgPainter::load_ui_font(const Font& font) {
+    if (impl_->vg == nullptr || font.bytes.empty()) {
         return false;
     }
-
-    std::filesystem::path font_path;
-    if (const char* base = SDL_GetBasePath(); base != nullptr) {
-        font_path = std::filesystem::path(base) / "assets" / "engine" / "fonts" / "ui.ttf";
+    impl_->font_bytes = font.bytes;
+    impl_->default_font = nvgCreateFontMem(impl_->vg, "default", impl_->font_bytes.data(),
+            static_cast<int>(impl_->font_bytes.size()), 0);
+    if (impl_->default_font < 0) {
+        impl_->font_bytes.clear();
+        return false;
     }
-    impl_->font_bytes = read_file(font_path);
-    if (!impl_->font_bytes.empty()) {
-        impl_->default_font = nvgCreateFontMem(impl_->vg, "default", impl_->font_bytes.data(),
-                static_cast<int>(impl_->font_bytes.size()), 0);
-        if (impl_->default_font >= 0) {
-            impl_->fonts.emplace(std::string(builtin::font_ui.hex()), impl_->default_font);
-        }
-    }
+    impl_->fonts.emplace(std::string(builtin::font_ui.hex()), impl_->default_font);
     return true;
 }
 

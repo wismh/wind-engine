@@ -6,6 +6,7 @@
 
 #include <engine/render/canvas.h>
 #include <engine/render/command_buffer.h>
+#include <engine/resources/font.h>
 
 #include <glm/vec2.hpp>
 
@@ -22,6 +23,7 @@ public:
     OpenGLCanvas& operator=(const OpenGLCanvas&) = delete;
 
     [[nodiscard]] bool init();
+    [[nodiscard]] bool load_ui_font(const Font& font);
     void Draw() override;
 
 private:
