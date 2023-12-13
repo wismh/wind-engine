@@ -1,5 +1,6 @@
 #define STBI_NO_STDIO
 #define STBI_ONLY_PNG
+#define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
 
 #ifdef _MSC_VER
