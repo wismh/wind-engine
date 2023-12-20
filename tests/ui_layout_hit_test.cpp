@@ -72,6 +72,33 @@ public:
     }
 };
 
+// Counts measure_text calls so layout can assert it isn't measuring the same element's text
+// more than once per layout pass (layout_stack used to call compute_used twice per flow child).
+class CountingPainter final : public engine::ui::IUiPainter {
+public:
+    int measure_text_calls = 0;
+
+    void save() override {}
+    void restore() override {}
+    void scissor(const engine::render::Rect&) override {}
+    void apply_transform(glm::vec2, float, float) override {}
+    void apply_view(glm::vec2, glm::vec2, float) override {}
+    void set_opacity(float) override {}
+    void fill_rounded_rect(const engine::render::Rect&, float, glm::vec4) override {}
+    void stroke_rounded_rect(const engine::render::Rect&, float, float, glm::vec4) override {}
+    void draw_line(glm::vec2, glm::vec2, glm::vec4, float) override {}
+    void set_font(engine::AssetId, float) override {}
+    void fill_text(std::string_view, glm::vec2, glm::vec4, engine::ui::UiAlign, engine::ui::UiAlign) override {}
+    void image(engine::AssetId, const engine::render::Rect&) override {}
+    void image_repeat(engine::AssetId, const engine::render::Rect&) override {}
+    void image_nine_slice(engine::AssetId, const engine::render::Rect&, const engine::ui::BoxInsets&) override {}
+
+    glm::vec2 measure_text(std::string_view text, engine::AssetId, float size) override {
+        ++measure_text_calls;
+        return {static_cast<float>(text.size()) * size * 0.5f, size};
+    }
+};
+
 engine::ui::Stylesheet viewport_sheet() {
     std::vector<std::string> warnings;
     auto sheet = engine::ui::parse_css(R"(
@@ -198,4 +225,78 @@ TEST(UiLayoutHit, ViewportZoomKeepsContentUnderPointer) {
     const glm::vec2 displayed = engine::ui::viewport_to_display(origin, new_pan, new_z, layout);
     EXPECT_NEAR(displayed.x, pointer.x, 1e-4f);
     EXPECT_NEAR(displayed.y, pointer.y, 1e-4f);
+}
+
+TEST(UiLayoutHit, LayoutStackMeasuresEachFlowChildTextOnce) {
+    engine::ui::UiDocument document;
+    document.root.kind = engine::ui::ElementKind::Stack;
+    document.root.direction = engine::ui::StackDirection::Vertical;
+    document.root.width = engine::ui::Length{200.0f, engine::ui::LengthUnit::Px};
+    document.root.height = engine::ui::Length{200.0f, engine::ui::LengthUnit::Px};
+
+    constexpr int kLabelCount = 5;
+    for (int i = 0; i < kLabelCount; ++i) {
+        engine::ui::Element label;
+        label.kind = engine::ui::ElementKind::Label;
+        label.text = "Label " + std::to_string(i);
+        document.root.children.push_back(std::move(label));
+    }
+
+    CountingPainter painter;
+    engine::ui::layout(document, engine::render::Rect{0.0f, 0.0f, 200.0f, 200.0f}, &painter);
+
+    // layout_stack resolves each flow child's used size once for the packed/cross (scroll
+    // extent) accumulation and once for placement; before the fix that meant two
+    // measure_text calls per label per layout() pass instead of one.
+    EXPECT_EQ(painter.measure_text_calls, kLabelCount);
+}
+
+TEST(UiLayoutHit, MeasureTextCacheReusedAcrossUnchangedLayoutCalls) {
+    engine::ui::UiDocument document;
+    document.root.kind = engine::ui::ElementKind::Stack;
+    document.root.direction = engine::ui::StackDirection::Vertical;
+    document.root.width = engine::ui::Length{200.0f, engine::ui::LengthUnit::Px};
+    document.root.height = engine::ui::Length{200.0f, engine::ui::LengthUnit::Px};
+
+    constexpr int kLabelCount = 5;
+    for (int i = 0; i < kLabelCount; ++i) {
+        engine::ui::Element label;
+        label.kind = engine::ui::ElementKind::Label;
+        label.text = "Label " + std::to_string(i);
+        document.root.children.push_back(std::move(label));
+    }
+
+    CountingPainter painter;
+    engine::ui::layout(document, engine::render::Rect{0.0f, 0.0f, 200.0f, 200.0f}, &painter);
+    const int calls_after_first = painter.measure_text_calls;
+    EXPECT_EQ(calls_after_first, kLabelCount);
+
+    // Same Element instances (mirrors a reconciled ItemsControl row reused by identity across
+    // frames), same painter, text/font/size unchanged: the second layout() pass must be served
+    // entirely from each Label's memoized Element::text_measure_cache_*, not re-shape text.
+    engine::ui::layout(document, engine::render::Rect{0.0f, 0.0f, 200.0f, 200.0f}, &painter);
+    EXPECT_EQ(painter.measure_text_calls, calls_after_first);
+}
+
+TEST(UiLayoutHit, MeasureTextCacheInvalidatesWhenElementTextChanges) {
+    engine::ui::UiDocument document;
+    document.root.kind = engine::ui::ElementKind::Stack;
+    document.root.direction = engine::ui::StackDirection::Vertical;
+    document.root.width = engine::ui::Length{200.0f, engine::ui::LengthUnit::Px};
+    document.root.height = engine::ui::Length{200.0f, engine::ui::LengthUnit::Px};
+
+    engine::ui::Element label;
+    label.kind = engine::ui::ElementKind::Label;
+    label.text = "Initial";
+    document.root.children.push_back(std::move(label));
+
+    CountingPainter painter;
+    engine::ui::layout(document, engine::render::Rect{0.0f, 0.0f, 200.0f, 200.0f}, &painter);
+    EXPECT_EQ(painter.measure_text_calls, 1);
+
+    // A changed text (e.g. from apply_bindings picking up a new bound value) must invalidate the
+    // cached measurement and force a fresh painter->measure_text call.
+    document.root.children[0].text = "Changed text";
+    engine::ui::layout(document, engine::render::Rect{0.0f, 0.0f, 200.0f, 200.0f}, &painter);
+    EXPECT_EQ(painter.measure_text_calls, 2);
 }

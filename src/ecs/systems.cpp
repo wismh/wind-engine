@@ -23,6 +23,7 @@
 #include <engine/ui/splash.h>
 #include <engine/ui/stylesheet.h>
 
+#include "ui/input_batch.h"
 #include "ui/ui_refs.h"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -38,6 +39,13 @@ namespace {
 
 void run_input(ecs::World& world) {
     ui::begin_frame(world);
+    // Scoped to exactly this run_input() call (wind ui_scrollview_perf_plan.md Крок 4) — several
+    // MouseEvents below can independently hit the same UiCanvas (e.g. a few Move events, or Wheel
+    // events during an active scroll), and nothing changes ViewModel data between them (no
+    // Game-phase system runs mid-loop), so the *_for_run_input() calls reuse one canvas's
+    // bind+style+layout across repeated touches instead of redoing it per event. See
+    // src/ui/input_batch.h for why this is a stack-local cache and not ctx<>() state.
+    ui::UiInputBatchCache input_batch;
     for (const MouseEvent& event : ecs::EventReader<MouseEvent>{world, world.ctx<ecs::EventCursor<MouseEvent>>()}) {
         ui::UiPointer& pointer = ui::pointer_for(world, event.window);
         if (event.kind == MouseEvent::Kind::Move || event.kind == MouseEvent::Kind::Down ||
@@ -46,7 +54,7 @@ void run_input(ecs::World& world) {
         }
         if (event.kind == MouseEvent::Kind::Down) {
             pointer.down = true;
-            ui::handle_pointer(world, event.position.x, event.position.y, event.window);
+            ui::handle_pointer_for_run_input(world, event.position.x, event.position.y, event.window, input_batch);
         } else if (event.kind == MouseEvent::Kind::Up) {
             pointer.down = false;
             ui::end_drag(world, event.window);
@@ -55,13 +63,15 @@ void run_input(ecs::World& world) {
             // Keeps MouseConsumed current on hover, not just on click —
             // without this, a window that only recomputes it on Down never learns the pointer
             // moved off (or onto) a UI element between clicks.
-            ui::update_pointer_hover(world, event.position.x, event.position.y, event.window);
+            ui::update_pointer_hover_for_run_input(
+                    world, event.position.x, event.position.y, event.window, input_batch);
             // Keeps an in-progress `drag="{binding}"` tracking the pointer even once it has left
             // the dragged element's bounds (real drag UX) — a no-op when no drag is active.
-            ui::update_drag(world, event.position.x, event.position.y, event.window);
-            ui::update_pan(world, event.position.x, event.position.y, event.window);
+            ui::update_drag_for_run_input(world, event.position.x, event.position.y, event.window, input_batch);
+            ui::update_pan_for_run_input(world, event.position.x, event.position.y, event.window, input_batch);
         } else if (event.kind == MouseEvent::Kind::Wheel) {
-            ui::handle_wheel(world, event.position.x, event.position.y, event.wheel_y, event.window);
+            ui::handle_wheel_for_run_input(
+                    world, event.position.x, event.position.y, event.wheel_y, event.window, input_batch);
         }
     }
     for (const KeyEvent& event : ecs::EventReader<KeyEvent>{world, world.ctx<ecs::EventCursor<KeyEvent>>()}) {
