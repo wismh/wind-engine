@@ -289,7 +289,7 @@ Widget buttons are **not** ECS entities. The visual tree is the **instance** of 
 
 World-space labels later: same `UiCanvas`, `rect` written each frame from `Transform` + `Camera::WorldToScreen` (`fit = Fixed`). No second graph.
 
-Mouse: `UiInputSystem` (phase `Input`) hit-tests canvases **front-to-back** (`UiCanvas::order`). On hit, `ctx<MouseConsumed>() = true` and the bound `ICommand` runs (see §8). Gameplay click systems in `Phase::Game` must respect `MouseConsumed`.
+Mouse: `UiInputSystem` (phase `Input`) hit-tests canvases **front-to-back** (`UiCanvas::order`, then entity index). Only the front canvas whose `rect` contains the pointer is considered; a miss on that canvas does not fall through for `ICommand`. `MouseConsumed` is true only on a **widget hit** (v1: `Button`); empty chrome / labels / Image do not consume. The bound `ICommand` runs if `can_execute()` (see §8.5). Gameplay click systems in `Phase::Game` must respect `MouseConsumed`.
 
 There is **no** `Transform` parent. A turret that must follow a tank is a game concern in v1 (copy position in a system) until a `Parent` component exists.
 
@@ -697,6 +697,12 @@ Ping-pong `std::function<void()> onClick` on `Layout` is **deleted** from the pu
 
 `MouseConsumed` is set **false** at the start of the Loop body, then `UiInputSystem` may set true. World picking in `Phase::Game` reads it. Do not reset it at end of frame.
 
+`UiInputSystem` hit-tests canvases **front-to-back** (`UiCanvas::order`, then entity index). Only the front canvas whose `rect` contains the pointer is considered; a miss on that canvas does not fall through to a lower canvas for `ICommand`.
+
+`MouseConsumed` is true only on a **widget hit**. v1 hit-target is `Button` (including when `can_execute` is false). Labels, empty Stack, Image without a command, and empty canvas chrome (FillWindow or Fixed) do not consume. Canvas-rect containment alone does not consume.
+
+`InputSystem` does not filter `InputEvent` on `MouseConsumed` (UI has not run at poll). Gameplay in `Phase::Game` still reads the flag before treating mouse-bound Fire / world picks as a world action.
+
 ---
 
 
@@ -1036,7 +1042,7 @@ Prefer **pure logic** and fakes over GPU/mixer. Extract policy (gain, pool, AABB
 | CommandBuffer | push `CmdDrawMesh` (material, not raw shader) / `CmdDrawUI`; execute order; clear between frames; **no** custom-callback |
 | Sort | layer, order_in_layer, material, entity; stable; UI commands after world |
 | Materials | parse `.mat` TOML; missing shader GUID fails codegen; instance color multiplies |
-| UiCanvas | FillWindow rect on resize; hit-test in rect; order; MouseConsumed reset each frame |
+| UiCanvas | FillWindow rect on resize; widget hit (Button) for MouseConsumed; order; MouseConsumed reset each frame |
 | UI XML/CSS | parse subset; unknown element fatal; `{binding}` missing name fatal; CSS unknown prop warn |
 | MVVM | property/command registration; OneWay bind updates label text; Button click calls ICommand; onClick API absent |
 | Loop / Time | fixed-step accumulator; cap at `kMaxFixedSteps`; **paused** → 0 Fixed steps, accumulator frozen |
