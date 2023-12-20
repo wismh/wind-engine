@@ -1,5 +1,6 @@
 #pragma once
 
+#include <engine/core/key_code.h>
 #include <engine/core/window_desc.h>
 #include <engine/ecs/world.h>
 #include <engine/render/commands.h>
@@ -182,5 +183,21 @@ void end_pan(ecs::World& world, WindowId window = kPrimaryWindow);
 
 // Wheel zoom-to-cursor on the innermost Viewport under (x, y). No-op if zoom is unbound.
 void handle_wheel(ecs::World& world, float x, float y, float wheel_y, WindowId window = kPrimaryWindow);
+
+struct UiFocus {
+    ecs::Entity canvas_entity{};
+    Element* element = nullptr;
+};
+
+struct UiFocusState {
+    std::unordered_map<WindowId, UiFocus> focused;
+};
+
+void set_focus(ecs::World& world, WindowId window, ecs::Entity canvas_entity, Element* element);
+void clear_focus(ecs::World& world, WindowId window = kPrimaryWindow);
+[[nodiscard]] Element* focused_element(ecs::World& world, WindowId window = kPrimaryWindow);
+
+void handle_key(ecs::World& world, KeyCode key, bool down, bool repeat = false, WindowId window = kPrimaryWindow);
+void handle_text_input(ecs::World& world, std::string_view text, WindowId window = kPrimaryWindow);
 
 }

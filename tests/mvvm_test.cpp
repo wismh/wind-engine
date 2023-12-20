@@ -207,6 +207,21 @@ TEST(Mvvm, AssetIdPropertyReadsTypedIdNotHexString) {
     EXPECT_TRUE(as_string->empty());
 }
 
+TEST(Mvvm, WritePropertyStringRoundTrip) {
+    HudViewModel vm;
+    vm.title.set("Original");
+    EXPECT_TRUE(vm.write_property_string(engine::ui::intern("title"), "Updated"));
+    EXPECT_EQ(vm.title.get(), "Updated");
+    EXPECT_EQ(vm.read_property_string(engine::ui::intern("title")), "Updated");
+
+    // Arithmetic property returns false and does not modify
+    EXPECT_FALSE(vm.write_property_string(engine::ui::intern("score"), "42"));
+    EXPECT_EQ(vm.score.get(), 0);
+
+    // Missing property returns false
+    EXPECT_FALSE(vm.write_property_string(engine::ui::intern("missing"), "noop"));
+}
+
 TEST(Mvvm, ImageSourceBindingWritesAssetId) {
     class IconVm final : public engine::ui::ViewModel {
     public:

@@ -37,6 +37,9 @@ public:
     // registered or was registered with a non-arithmetic T (e.g. Bindable<std::string>) — the
     // same graceful no-op this codebase already uses for other malformed/unsupported bindings.
     bool write_property_float(BindingId id, float value);
+    // Writes through to the Bindable<std::string> registered for `id`. Returns false and leaves
+    // the property untouched when `id` isn't registered or was registered with a non-string T.
+    bool write_property_string(BindingId id, std::string_view value);
     [[nodiscard]] std::vector<ViewModel*> read_item_source(BindingId id) const;
     [[nodiscard]] ICommand* find_command(BindingId id);
     [[nodiscard]] const ICommand* find_command(BindingId id) const;
@@ -59,6 +62,7 @@ private:
         AssetId (*read_asset_id)(void*) = nullptr;
         float (*read_float)(void*) = nullptr;
         void (*write_float)(void*, float) = nullptr;
+        void (*write_string)(void*, std::string_view) = nullptr;
         std::vector<ViewModel*> (*items)(void*) = nullptr;
     };
 
@@ -81,6 +85,11 @@ void ViewModel::property(BindingId id, Bindable<T>& bindable) {
             return {};
         }
     };
+    if constexpr (std::is_same_v<T, std::string>) {
+        ref.write_string = [](void* ptr, std::string_view value) {
+            static_cast<Bindable<std::string>*>(ptr)->set(std::string(value));
+        };
+    }
     if constexpr (std::is_same_v<T, AssetId>) {
         ref.read_asset_id = [](void* ptr) -> AssetId {
             return static_cast<Bindable<AssetId>*>(ptr)->get();
