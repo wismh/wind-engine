@@ -805,6 +805,69 @@ TEST(UiPainter, ButtonHoverUsesPseudoBackground) {
     EXPECT_NEAR(hover_fill->color.r, 0x33 / 255.0f, 0.01f);
 }
 
+// ComputedStyle cache (paint.cpp compute_style()) must never latch onto a stale :hover result -
+// the pointer moving on/off the button has to flip the painted color on the very next
+// paint_document() call, every time, not just once.
+TEST(UiPainter, ButtonHoverTogglesAcrossRepeatedPaintCallsWithoutStickyCache) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Button class="cell" content="X"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        Button { width: 100; height: 100; background: #111111; }
+        Button:hover { background: #333333; }
+    )");
+
+    const auto fill_r = [&](glm::vec2 pointer) {
+        FakePainter painter;
+        engine::ui::paint_document(*parsed, &sheet, painter,
+                engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 100.f, 100.f}, .pointer = pointer});
+        const PaintCall* fill = painter.find("fill_rect");
+        EXPECT_NE(fill, nullptr);
+        return fill != nullptr ? fill->color.r : -1.0f;
+    };
+
+    // Same Element tree/Stylesheet reused across every call below (mirrors a real frame loop) -
+    // idle/hover/idle/hover must each read back correctly, proving a cache hit never returns the
+    // previous frame's pseudo-state result.
+    EXPECT_NEAR(fill_r({1000.f, 1000.f}), 0x11 / 255.0f, 0.01f);
+    EXPECT_NEAR(fill_r({10.f, 10.f}), 0x33 / 255.0f, 0.01f);
+    EXPECT_NEAR(fill_r({1000.f, 1000.f}), 0x11 / 255.0f, 0.01f);
+    EXPECT_NEAR(fill_r({10.f, 10.f}), 0x33 / 255.0f, 0.01f);
+}
+
+// Indirect proof that compute_style()'s per-element cache actually short-circuits the stylesheet
+// scan: mutate the Stylesheet's declarations in place (same Stylesheet object/pointer/generation -
+// not a reload, which is the one case the cache contract does NOT promise to catch) between two
+// paint_document() calls on the same, otherwise-unchanged Element. Without a cache the new
+// declaration would show up on the very next paint; with the cache it must not, because nothing
+// the cache treats as an input (classes/id/pseudo-state/sheet identity/window size/custom
+// properties/ancestors) changed.
+TEST(UiPainter, StyleCacheSkipsRecomputeWhenStylesheetMutatedInPlaceWithSamePointer) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Button class="cell" content="X"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    engine::ui::Stylesheet sheet = must_parse_css("Button { width: 100; height: 100; background: #111111; }");
+
+    FakePainter first;
+    engine::ui::paint_document(
+            *parsed, &sheet, first, engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 100.f, 100.f}});
+    const PaintCall* first_fill = first.find("fill_rect");
+    ASSERT_NE(first_fill, nullptr);
+    EXPECT_NEAR(first_fill->color.r, 0x11 / 255.0f, 0.01f);
+
+    ASSERT_EQ(sheet.rules.size(), 1u);
+    for (engine::ui::CssDeclaration& decl : sheet.rules[0].declarations) {
+        if (decl.property == "background") {
+            decl.value = "#ff0000";
+        }
+    }
+
+    FakePainter second;
+    engine::ui::paint_document(
+            *parsed, &sheet, second, engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 100.f, 100.f}});
+    const PaintCall* second_fill = second.find("fill_rect");
+    ASSERT_NE(second_fill, nullptr);
+    EXPECT_NEAR(second_fill->color.r, 0x11 / 255.0f, 0.01f);
+}
+
 TEST(UiPainter, ButtonHoverUsesPseudoBackgroundImage) {
     auto parsed = engine::ui::parse_xml(R"(<Canvas><Button class="cell" content="X"/></Canvas>)");
     ASSERT_TRUE(parsed.has_value());
