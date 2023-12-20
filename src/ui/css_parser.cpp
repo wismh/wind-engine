@@ -71,6 +71,15 @@ bool is_known_property(std::string_view name) {
             "y2",
             "stroke",
             "stroke-width",
+            "overflow",
+            "overflow-x",
+            "overflow-y",
+            "scrollbar-width",
+            "scrollbar-color",
+            "scrollbar-thumb-color",
+            "scrollbar-track-color",
+            "scrollbar-thumb-hover-color",
+            "scrollbar-border-radius",
     };
     for (const std::string_view known : kKnown) {
         if (known == name) {
@@ -84,7 +93,8 @@ bool is_length_property(std::string_view name) {
     return name == "width" || name == "height" || name == "min-width" || name == "min-height" || name == "padding" ||
             name == "margin" || name == "gap" || name == "font-size" || name == "border-radius" ||
             name == "border-width" || name == "top" || name == "right" || name == "bottom" || name == "left" ||
-            name == "x1" || name == "y1" || name == "x2" || name == "y2" || name == "stroke-width";
+            name == "x1" || name == "y1" || name == "x2" || name == "y2" || name == "stroke-width" ||
+            name == "scrollbar-width" || name == "scrollbar-border-radius";
 }
 
 bool is_ident_char(char c) {

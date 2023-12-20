@@ -191,6 +191,54 @@ float compute_drag_fraction(StackDirection orientation, const render::Rect& rect
     return std::clamp(t, 0.0f, 1.0f);
 }
 
+bool build_element_path(const Element& current, const Element* target, std::vector<std::size_t>& path) {
+    if (&current == target) {
+        return true;
+    }
+    for (std::size_t i = 0; i < current.children.size(); ++i) {
+        path.push_back(i);
+        if (build_element_path(current.children[i], target, path)) {
+            return true;
+        }
+        path.pop_back();
+    }
+    for (std::size_t i = 0; i < current.generated_items.size(); ++i) {
+        path.push_back(i | 0x80000000ULL);
+        if (build_element_path(current.generated_items[i], target, path)) {
+            return true;
+        }
+        path.pop_back();
+    }
+    return false;
+}
+
+std::vector<std::size_t> find_element_path(const Element& root, const Element* target) {
+    std::vector<std::size_t> path;
+    build_element_path(root, target, path);
+    return path;
+}
+
+Element* resolve_element_path(Element& root, const std::vector<std::size_t>& path) {
+    Element* curr = &root;
+    for (std::size_t step : path) {
+        if ((step & 0x80000000ULL) != 0) {
+            const std::size_t idx = step & ~0x80000000ULL;
+            if (idx < curr->generated_items.size()) {
+                curr = &curr->generated_items[idx];
+            } else {
+                return nullptr;
+            }
+        } else {
+            if (step < curr->children.size()) {
+                curr = &curr->children[step];
+            } else {
+                return nullptr;
+            }
+        }
+    }
+    return curr;
+}
+
 }
 
 void handle_pointer(ecs::World& world, float x, float y, WindowId window) {
@@ -239,7 +287,48 @@ void handle_pointer(ecs::World& world, float x, float y, WindowId window) {
         };
     }
 
-    if (hit->element->kind != ElementKind::TextInput) {
+    bool clicked_scrollbar = false;
+    const glm::vec2 local_pointer{
+            (x - hit->space.offset.x) / hit->space.scale, (y - hit->space.offset.y) / hit->space.scale};
+    if (is_scrollable_y(*hit->element)) {
+        const render::Rect track = scrollbar_track_rect(*hit->element);
+        const render::Rect thumb = scrollbar_thumb_rect(*hit->element);
+        if (track.w > 0.0f && track.h > 0.0f && rect_contains(track, local_pointer.x, local_pointer.y)) {
+            clicked_scrollbar = true;
+            UiInstance& inst = world.get<UiInstance>(hit->entity);
+            if (rect_contains(thumb, local_pointer.x, local_pointer.y)) {
+                hit->element->scrollbar_dragging = true;
+                world.ctx<UiActiveScrollbars>().drags[window] = ActiveScrollbarDrag{
+                        hit->entity,
+                        find_element_path(inst.document.root, hit->element),
+                        hit->element->generated_owner,
+                        local_pointer.y,
+                        hit->element->scroll_y,
+                        track.h,
+                        thumb.h,
+                        hit->element->max_scroll_y,
+                        hit->space.offset,
+                        hit->space.scale,
+                        hit->element->scroll_y_binding,
+                };
+            } else {
+                const float available = track.h - thumb.h;
+                if (available > 0.0f) {
+                    const float target_thumb_y = local_pointer.y - track.y - thumb.h * 0.5f;
+                    const float fraction = std::clamp(target_thumb_y / available, 0.0f, 1.0f);
+                    hit->element->scroll_y = fraction * hit->element->max_scroll_y;
+                    if (is_bound(hit->element->scroll_y_binding) && hit->canvas->data_context) {
+                        ViewModel* target = hit->element->generated_owner != nullptr
+                                ? static_cast<ViewModel*>(const_cast<void*>(hit->element->generated_owner))
+                                : hit->canvas->data_context.get();
+                        target->write_property_float(hit->element->scroll_y_binding, hit->element->scroll_y);
+                    }
+                }
+            }
+        }
+    }
+
+    if (!clicked_scrollbar && hit->element->kind != ElementKind::TextInput) {
         ICommand* command = hit->element->command;
         if (command == nullptr && is_bound(hit->element->command_binding) && hit->canvas->data_context) {
             command = hit->canvas->data_context->find_command(hit->element->command_binding);
@@ -251,6 +340,33 @@ void handle_pointer(ecs::World& world, float x, float y, WindowId window) {
 }
 
 void update_drag(ecs::World& world, float x, float y, WindowId window) {
+    auto& scroll_drags = world.ctx<UiActiveScrollbars>().drags;
+    if (const auto sit = scroll_drags.find(window); sit != scroll_drags.end()) {
+        const ActiveScrollbarDrag& sdrag = sit->second;
+        UiInstance* instance = world.try_get<UiInstance>(sdrag.canvas_entity);
+        if (instance != nullptr) {
+            Element* elem = resolve_element_path(instance->document.root, sdrag.path);
+            if (elem != nullptr) {
+                const float local_y = (y - sdrag.space_offset.y) / sdrag.space_scale;
+                const float dy = local_y - sdrag.drag_start_pointer_y;
+                const float available = sdrag.track_h - sdrag.thumb_h;
+                if (available > 0.0f) {
+                    const float delta_scroll = (dy / available) * sdrag.max_scroll_y;
+                    elem->scroll_y = std::clamp(sdrag.drag_start_scroll_y + delta_scroll, 0.0f, sdrag.max_scroll_y);
+                    if (is_bound(sdrag.scroll_y_binding)) {
+                        UiCanvas* canvas = world.try_get<UiCanvas>(sdrag.canvas_entity);
+                        if (canvas != nullptr && canvas->data_context) {
+                            ViewModel* target = sdrag.owner != nullptr
+                                    ? static_cast<ViewModel*>(const_cast<void*>(sdrag.owner))
+                                    : canvas->data_context.get();
+                            target->write_property_float(sdrag.scroll_y_binding, elem->scroll_y);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     auto& drags = world.ctx<UiActiveDrags>().drags;
     const auto it = drags.find(window);
     if (it == drags.end()) {
@@ -265,13 +381,6 @@ void update_drag(ecs::World& world, float x, float y, WindowId window) {
 
     ViewModel* target = canvas->data_context.get();
     if (drag.owner != nullptr) {
-        // Re-resolve which item ViewModel `drag.owner` still identifies, if any, *this frame* —
-        // re-binding first (wind-112-style ItemsControl reconciliation refreshes every live
-        // Element::generated_owner from the current items_source) so the identity check below
-        // compares against up-to-date data, not whatever the tree happened to hold on the frame
-        // the drag started. The item may have been removed from the game's list since then; if
-        // so there's nothing left to write to, and continuing to poke a stale pointer would be a
-        // use-after-free, so the drag simply ends instead.
         UiInstance* instance = world.try_get<UiInstance>(drag.canvas_entity);
         if (instance == nullptr) {
             drags.erase(it);
@@ -292,6 +401,17 @@ void update_drag(ecs::World& world, float x, float y, WindowId window) {
 }
 
 void end_drag(ecs::World& world, WindowId window) {
+    auto& scroll_drags = world.ctx<UiActiveScrollbars>().drags;
+    if (const auto sit = scroll_drags.find(window); sit != scroll_drags.end()) {
+        UiInstance* instance = world.try_get<UiInstance>(sit->second.canvas_entity);
+        if (instance != nullptr) {
+            Element* elem = resolve_element_path(instance->document.root, sit->second.path);
+            if (elem != nullptr) {
+                elem->scrollbar_dragging = false;
+            }
+        }
+        scroll_drags.erase(sit);
+    }
     world.ctx<UiActiveDrags>().drags.erase(window);
 }
 
@@ -354,7 +474,43 @@ void handle_wheel(ecs::World& world, float x, float y, float wheel_y, WindowId w
         return;
     }
     const std::optional<PreparedCanvas> prepared = prepare_top_canvas(world, x, y, window);
-    if (!prepared || !prepared->canvas->data_context) {
+    if (!prepared) {
+        return;
+    }
+
+    Element* scrollable = find_scrollable_at(
+            prepared->instance->document.root, prepared->layout_pointer.x, prepared->layout_pointer.y);
+    if (scrollable != nullptr) {
+        constexpr float kScrollStep = 40.0f;
+        bool scrolled = false;
+        if (is_scrollable_y(*scrollable)) {
+            scrollable->scroll_y =
+                    std::clamp(scrollable->scroll_y - wheel_y * kScrollStep, 0.0f, scrollable->max_scroll_y);
+            if (is_bound(scrollable->scroll_y_binding) && prepared->canvas->data_context) {
+                ViewModel* target = scrollable->generated_owner != nullptr
+                        ? static_cast<ViewModel*>(const_cast<void*>(scrollable->generated_owner))
+                        : prepared->canvas->data_context.get();
+                target->write_property_float(scrollable->scroll_y_binding, scrollable->scroll_y);
+            }
+            scrolled = true;
+        } else if (is_scrollable_x(*scrollable)) {
+            scrollable->scroll_x =
+                    std::clamp(scrollable->scroll_x - wheel_y * kScrollStep, 0.0f, scrollable->max_scroll_x);
+            if (is_bound(scrollable->scroll_x_binding) && prepared->canvas->data_context) {
+                ViewModel* target = scrollable->generated_owner != nullptr
+                        ? static_cast<ViewModel*>(const_cast<void*>(scrollable->generated_owner))
+                        : prepared->canvas->data_context.get();
+                target->write_property_float(scrollable->scroll_x_binding, scrollable->scroll_x);
+            }
+            scrolled = true;
+        }
+        if (scrolled) {
+            world.ctx<MouseConsumed>().consumed_windows.insert(window);
+            return;
+        }
+    }
+
+    if (!prepared->canvas->data_context) {
         return;
     }
     Element* viewport = find_viewport_at(
@@ -388,7 +544,13 @@ void handle_wheel(ecs::World& world, float x, float y, float wheel_y, WindowId w
 }
 
 void update_pointer_hover(ecs::World& world, float x, float y, WindowId window) {
-    (void) resolve_pointer_hit(world, x, y, window);
+    const std::optional<PointerHit> hit = resolve_pointer_hit(world, x, y, window);
+    if (hit && is_scrollable_y(*hit->element)) {
+        const glm::vec2 local_pointer{
+                (x - hit->space.offset.x) / hit->space.scale, (y - hit->space.offset.y) / hit->space.scale};
+        const render::Rect thumb = scrollbar_thumb_rect(*hit->element);
+        hit->element->scrollbar_thumb_hovered = rect_contains(thumb, local_pointer.x, local_pointer.y);
+    }
 }
 
 ecs::Entity spawn_canvas(ecs::World& world, UiCanvas canvas, UiDocument document, std::optional<Stylesheet> stylesheet) {

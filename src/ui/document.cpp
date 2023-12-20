@@ -166,7 +166,8 @@ void collect_layout_children(ElementT& element, std::vector<Out*>& children) {
                 box.padding.top + kDefaultImageSize + box.padding.bottom,
         };
     }
-    if (element.kind != ElementKind::Stack && element.kind != ElementKind::ItemsControl) {
+    if (element.kind != ElementKind::Stack && element.kind != ElementKind::ItemsControl &&
+            element.kind != ElementKind::ScrollView) {
         return {
                 box.padding.left + box.padding.right,
                 box.padding.top + box.padding.bottom,
@@ -285,19 +286,32 @@ void layout_stack(Element& element, const render::Rect& allocated, IUiPainter* p
     const glm::vec2 child_basis{allocated.w, allocated.h};
     if (!flow.empty()) {
         float packed = 0.0f;
+        float cross = 0.0f;
         for (std::size_t i = 0; i < flow.size(); ++i) {
             const Element& child = *flow[i];
             const ResolvedBox child_box = resolve_box(child, child_basis);
             const glm::vec2 used = compute_used(child, painter, child_basis);
             if (element.direction == StackDirection::Horizontal) {
                 packed += child_box.margin.left + used.x + child_box.margin.right;
+                cross = std::max(cross, child_box.margin.top + used.y + child_box.margin.bottom);
             } else {
                 packed += child_box.margin.top + used.y + child_box.margin.bottom;
+                cross = std::max(cross, child_box.margin.left + used.x + child_box.margin.right);
             }
             if (i + 1 < flow.size()) {
                 packed += self.gap;
             }
         }
+
+        if (element.direction == StackDirection::Horizontal) {
+            element.max_scroll_x = std::max(0.0f, packed - allocated.w);
+            element.max_scroll_y = std::max(0.0f, cross - allocated.h);
+        } else {
+            element.max_scroll_x = std::max(0.0f, cross - allocated.w);
+            element.max_scroll_y = std::max(0.0f, packed - allocated.h);
+        }
+        element.scroll_x = std::clamp(element.scroll_x, 0.0f, element.max_scroll_x);
+        element.scroll_y = std::clamp(element.scroll_y, 0.0f, element.max_scroll_y);
 
         const bool horizontal = element.direction == StackDirection::Horizontal;
         const float leftover = std::max(0.0f, (horizontal ? allocated.w : allocated.h) - packed);
@@ -368,7 +382,8 @@ void layout_element(Element& element, const render::Rect& box, IUiPainter* paint
     // A positioned element (relative or absolute) becomes the containing block its own
     // descendants resolve `position: absolute` against.
     const render::Rect child_containing_block = element.position != PositionMode::Static ? box : containing_block;
-    if (element.kind == ElementKind::Stack || element.kind == ElementKind::ItemsControl) {
+    if (element.kind == ElementKind::Stack || element.kind == ElementKind::ItemsControl ||
+            element.kind == ElementKind::ScrollView) {
         layout_stack(element, content, painter, resolved, child_containing_block);
         return;
     }
@@ -499,6 +514,16 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
     if (is_bound(element.zoom_binding)) {
         if (auto value = vm.read_property_float(element.zoom_binding)) {
             element.zoom = *value > 0.0f ? std::clamp(*value, kViewportMinZoom, kViewportMaxZoom) : 1.0f;
+        }
+    }
+    if (is_bound(element.scroll_x_binding)) {
+        if (auto value = vm.read_property_float(element.scroll_x_binding)) {
+            element.scroll_x = *value;
+        }
+    }
+    if (is_bound(element.scroll_y_binding)) {
+        if (auto value = vm.read_property_float(element.scroll_y_binding)) {
+            element.scroll_y = *value;
         }
     }
     for (const CustomPropertyBinding& custom : element.custom_property_bindings) {
@@ -654,12 +679,27 @@ Element* hit_test(Element& element, float x, float y) {
     if (!rect_contains(hit_bounds(element), x, y)) {
         return nullptr;
     }
+    if (is_scrollable_y(element)) {
+        const render::Rect track = scrollbar_track_rect(element);
+        if (track.w > 0.0f && track.h > 0.0f && rect_contains(track, x, y)) {
+            return &element;
+        }
+    }
+    if (is_scrollable_x(element)) {
+        const render::Rect track = scrollbar_track_rect(element);
+        if (track.w > 0.0f && track.h > 0.0f && rect_contains(track, x, y)) {
+            return &element;
+        }
+    }
     float child_x = x;
     float child_y = y;
     if (element.kind == ElementKind::Viewport) {
         const glm::vec2 inverted = inverse_viewport_pointer(element, glm::vec2{x, y});
         child_x = inverted.x;
         child_y = inverted.y;
+    } else if (element.scroll_x != 0.0f || element.scroll_y != 0.0f) {
+        child_x = x + element.scroll_x;
+        child_y = y + element.scroll_y;
     }
     // child_stacking_order() is ascending (paint order); iterating its result back-to-front
     // visits the topmost (highest z-index / last-drawn) sibling first.
@@ -676,6 +716,7 @@ Element* hit_test(Element& element, float x, float y) {
         }
     }
     if (element.kind == ElementKind::Button || element.kind == ElementKind::TextInput ||
+            element.kind == ElementKind::ScrollView || is_scrollable(element) ||
             is_bound(element.command_binding) || is_bound(element.drag_binding) || has_viewport_camera(element)) {
         return &element;
     }
@@ -696,6 +737,9 @@ void find_viewport_at_impl(Element& element, float x, float y, Element*& found) 
         const glm::vec2 inverted = inverse_viewport_pointer(element, glm::vec2{x, y});
         child_x = inverted.x;
         child_y = inverted.y;
+    } else if (element.scroll_x != 0.0f || element.scroll_y != 0.0f) {
+        child_x = x + element.scroll_x;
+        child_y = y + element.scroll_y;
     }
     for (Element* child : child_stacking_order(element.children)) {
         find_viewport_at_impl(*child, child_x, child_y, found);
@@ -708,6 +752,103 @@ void find_viewport_at_impl(Element& element, float x, float y, Element*& found) 
 Element* find_viewport_at(Element& root, float x, float y) {
     Element* found = nullptr;
     find_viewport_at_impl(root, x, y, found);
+    return found;
+}
+
+render::Rect scrollbar_track_rect(const Element& element, float /*ui_scale*/) noexcept {
+    float width = 8.0f;
+    if (element.scrollbar_width) {
+        width = element.scrollbar_width->value;
+    }
+    if (width <= 0.0f) {
+        return render::Rect{};
+    }
+    if (is_scrollable_y(element)) {
+        return render::Rect{
+                element.layout_rect.x + std::max(0.0f, element.layout_rect.w - width),
+                element.layout_rect.y,
+                width,
+                element.layout_rect.h,
+        };
+    }
+    if (is_scrollable_x(element)) {
+        return render::Rect{
+                element.layout_rect.x,
+                element.layout_rect.y + std::max(0.0f, element.layout_rect.h - width),
+                element.layout_rect.w,
+                width,
+        };
+    }
+    return render::Rect{};
+}
+
+render::Rect scrollbar_thumb_rect(const Element& element, float /*ui_scale*/) noexcept {
+    const render::Rect track = scrollbar_track_rect(element);
+    if (track.w <= 0.0f || track.h <= 0.0f) {
+        return render::Rect{};
+    }
+    if (is_scrollable_y(element)) {
+        const float total_h = element.layout_rect.h + element.max_scroll_y;
+        const float ratio = total_h > 0.0f ? std::clamp(element.layout_rect.h / total_h, 0.05f, 1.0f) : 1.0f;
+        const float min_thumb_h = std::min(track.h, 20.0f);
+        const float thumb_h = std::max(min_thumb_h, track.h * ratio);
+        const float travel = track.h - thumb_h;
+        const float offset = element.max_scroll_y > 0.0f ? travel * (element.scroll_y / element.max_scroll_y) : 0.0f;
+        return render::Rect{
+                track.x,
+                track.y + offset,
+                track.w,
+                thumb_h,
+        };
+    }
+    if (is_scrollable_x(element)) {
+        const float total_w = element.layout_rect.w + element.max_scroll_x;
+        const float ratio = total_w > 0.0f ? std::clamp(element.layout_rect.w / total_w, 0.05f, 1.0f) : 1.0f;
+        const float min_thumb_w = std::min(track.w, 20.0f);
+        const float thumb_w = std::max(min_thumb_w, track.w * ratio);
+        const float travel = track.w - thumb_w;
+        const float offset = element.max_scroll_x > 0.0f ? travel * (element.scroll_x / element.max_scroll_x) : 0.0f;
+        return render::Rect{
+                track.x + offset,
+                track.y,
+                thumb_w,
+                track.h,
+        };
+    }
+    return render::Rect{};
+}
+
+void find_scrollable_at_impl(Element& element, float x, float y, Element*& found) {
+    if (element.kind == ElementKind::ItemTemplate) {
+        return;
+    }
+    if (!rect_contains(element.layout_rect, x, y)) {
+        return;
+    }
+    if (is_scrollable(element)) {
+        found = &element;
+    }
+    float child_x = x;
+    float child_y = y;
+    if (element.kind == ElementKind::Viewport) {
+        const glm::vec2 inverted = inverse_viewport_pointer(element, glm::vec2{x, y});
+        child_x = inverted.x;
+        child_y = inverted.y;
+    } else if (element.scroll_x != 0.0f || element.scroll_y != 0.0f) {
+        child_x = x + element.scroll_x;
+        child_y = y + element.scroll_y;
+    }
+    for (Element* child : child_stacking_order(element.children)) {
+        find_scrollable_at_impl(*child, child_x, child_y, found);
+    }
+    for (Element* child : child_stacking_order(element.generated_items)) {
+        find_scrollable_at_impl(*child, child_x, child_y, found);
+    }
+}
+
+Element* find_scrollable_at(Element& root, float x, float y) {
+    Element* found = nullptr;
+    find_scrollable_at_impl(root, x, y, found);
     return found;
 }
 
