@@ -168,10 +168,17 @@ void NanoVgPainter::scissor(const Rect& rect) {
 }
 
 void NanoVgPainter::apply_view(glm::vec2 origin, glm::vec2 pan, float zoom) {
-    apply_transform(origin, 0.0f, zoom);
-    if (impl_->vg != nullptr) {
-        nvgTranslate(impl_->vg, zoom * pan.x, zoom * pan.y);
+    if (impl_->vg == nullptr) {
+        return;
     }
+    // Same T(origin) S T(pan) T(-origin) order as apply_transform's scale-about-center: pan is in
+    // pre-scale units so a layout point L maps to origin + zoom * (L - origin + pan). Translating
+    // by zoom*pan after apply_transform() would apply pan before the scale-about-origin and paint
+    // Z²P, so wheel zoom-to-cursor would drift off the pointer.
+    nvgTranslate(impl_->vg, origin.x, origin.y);
+    nvgScale(impl_->vg, zoom, zoom);
+    nvgTranslate(impl_->vg, pan.x, pan.y);
+    nvgTranslate(impl_->vg, -origin.x, -origin.y);
 }
 
 void NanoVgPainter::set_opacity(float opacity) {

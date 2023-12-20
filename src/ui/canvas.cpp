@@ -360,7 +360,6 @@ void handle_wheel(ecs::World& world, float x, float y, float wheel_y, WindowId w
     const float z = viewport_zoom(target->read_property_float(viewport->zoom_binding).value_or(viewport->zoom));
     const float new_z = std::clamp(z * std::pow(kViewportZoomStep, wheel_y), kViewportMinZoom, kViewportMaxZoom);
     const glm::vec2 origin{viewport->layout_rect.x, viewport->layout_rect.y};
-    const glm::vec2 d = prepared->layout_pointer - origin;
     glm::vec2 pan{viewport->pan_x, viewport->pan_y};
     if (is_bound(viewport->pan_x_binding)) {
         pan.x = target->read_property_float(viewport->pan_x_binding).value_or(pan.x);
@@ -368,7 +367,7 @@ void handle_wheel(ecs::World& world, float x, float y, float wheel_y, WindowId w
     if (is_bound(viewport->pan_y_binding)) {
         pan.y = target->read_property_float(viewport->pan_y_binding).value_or(pan.y);
     }
-    const glm::vec2 new_pan = d * (1.0f / new_z - 1.0f / z) + pan;
+    const glm::vec2 new_pan = viewport_pan_after_zoom(origin, pan, z, new_z, prepared->layout_pointer);
     target->write_property_float(viewport->zoom_binding, new_z);
     if (is_bound(viewport->pan_x_binding)) {
         target->write_property_float(viewport->pan_x_binding, new_pan.x);

@@ -1030,8 +1030,13 @@ TEST(Mvvm, ViewportWheelZoomsTowardCursor) {
 
     const float z = engine::ui::kViewportZoomStep;
     EXPECT_FLOAT_EQ(vm->zoom.get(), z);
-    EXPECT_NEAR(vm->pan_x.get(), 10.0f * (1.0f / z - 1.0f), 1e-5f);
-    EXPECT_NEAR(vm->pan_y.get(), 10.0f * (1.0f / z - 1.0f), 1e-5f);
+    const glm::vec2 origin{0.0f, 0.0f};
+    const glm::vec2 pointer{10.0f, 10.0f};
+    const glm::vec2 layout = origin + pointer;
+    const glm::vec2 displayed =
+            engine::ui::viewport_to_display(origin, {vm->pan_x.get(), vm->pan_y.get()}, vm->zoom.get(), layout);
+    EXPECT_NEAR(displayed.x, pointer.x, 1e-4f);
+    EXPECT_NEAR(displayed.y, pointer.y, 1e-4f);
     EXPECT_EQ(vm->clicks, 0);
     EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
 }
