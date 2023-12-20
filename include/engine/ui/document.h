@@ -317,10 +317,24 @@ void layout(UiDocument& document, const render::Rect& canvas_rect);
 }
 
 // Inverse of the Viewport paint camera: displayed = O + Z * (layout - O + P).
+[[nodiscard]] inline glm::vec2 viewport_to_display(
+        glm::vec2 origin, glm::vec2 pan, float zoom, glm::vec2 layout) noexcept {
+    const float z = viewport_zoom(zoom);
+    return origin + z * (layout - origin + pan);
+}
+
 [[nodiscard]] inline glm::vec2 inverse_viewport_pointer(const Element& viewport, glm::vec2 pointer) noexcept {
     const glm::vec2 origin{viewport.layout_rect.x, viewport.layout_rect.y};
     const float z = viewport_zoom(viewport.zoom);
     return origin + (pointer - origin) / z - glm::vec2{viewport.pan_x, viewport.pan_y};
+}
+
+// Pan that keeps `pointer` (display/layout space) on the same content point after zoom changes.
+[[nodiscard]] inline glm::vec2 viewport_pan_after_zoom(
+        glm::vec2 origin, glm::vec2 pan, float zoom, float new_zoom, glm::vec2 pointer) noexcept {
+    const float z = viewport_zoom(zoom);
+    const float nz = viewport_zoom(new_zoom);
+    return (pointer - origin) * (1.0f / nz - 1.0f / z) + pan;
 }
 
 // Innermost Viewport whose clip contains `pointer` after ancestor camera inverses. Used by wheel

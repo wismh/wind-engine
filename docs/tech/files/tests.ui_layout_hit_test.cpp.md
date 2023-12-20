@@ -7,7 +7,7 @@ aliases: [tests/ui_layout_hit_test.cpp, ui_layout_hit_test.cpp]
 
 Module: [[modules/UI]]
 
-Hit-test layout uses the same `IUiPainter::measure_text` as paint when `UiLayoutPainters` is set; without it, hug text uses the CPU fallback and later siblings miss the painted button. Also covers Viewport pan/zoom hit-test (layout_rect unchanged; clip + inverse camera).
+Hit-test layout uses the same `IUiPainter::measure_text` as paint when `UiLayoutPainters` is set; without it, hug text uses the CPU fallback and later siblings miss the painted button. Also covers Viewport pan/zoom hit-test (layout_rect unchanged; clip + inverse camera) and zoom-to-cursor pan keeping the content point under the pointer.
 
 See [[features/UI Input]].
 
