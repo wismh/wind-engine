@@ -201,6 +201,10 @@ Node viewport() {
     return Node(ElementKind::Viewport);
 }
 
+Node text_input() {
+    return Node(ElementKind::TextInput);
+}
+
 std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal) {
     if (root.element_.kind != ElementKind::Canvas) {
         report(fatal, "UI document root must be a Canvas");
