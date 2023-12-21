@@ -445,7 +445,8 @@ void layout_element(Element& element, const render::Rect& box, IUiPainter* paint
     }
 }
 
-std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFatalError* fatal, bool in_template) {
+std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFatalError* fatal, bool in_template,
+        const Element* scroll_context = nullptr) {
     const auto require_property = [&](BindingId binding) -> std::expected<void, UiError> {
         if (!is_bound(binding)) {
             return {};
@@ -566,11 +567,12 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
     }
 
     const bool nested_template = in_template || element.kind == ElementKind::ItemTemplate;
+    const Element* child_scroll_context = is_scrollable_y(element) ? &element : scroll_context;
     for (Element& child : element.children) {
         if (element.generated_owner != nullptr && child.generated_owner == nullptr) {
             child.generated_owner = element.generated_owner;
         }
-        if (auto result = bind_element(child, vm, fatal, nested_template); !result) {
+        if (auto result = bind_element(child, vm, fatal, nested_template, child_scroll_context); !result) {
             return result;
         }
     }
@@ -594,25 +596,52 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
             // this frame falls back to `window_first = 0, window_last = items.size() - 1` with no
             // spacers: the historical, byte-identical full generation.
             constexpr int kVirtualizationOverscanRows = 2;
+            // The scrolled viewport this ItemsControl's rows are windowed against: itself when
+            // it is directly scrollable (the wind-127 self-scrolling case), otherwise the
+            // nearest scrollable ancestor threaded down through `scroll_context` (e.g. an
+            // enclosing <ScrollView> that isn't this control's direct parent). `direction ==
+            // Vertical` is required on the ancestor too: scroll_y / layout_rect.y only line up
+            // with the row axis when the scrolling container also stacks vertically. This is a
+            // strict generalization of the Case A check below (Case A has
+            // effective_context == &element, so the two conditions coincide there) — element's
+            // own `direction == Vertical` is still checked independently right below, since that
+            // condition is about the ItemsControl itself, not its scroll ancestor.
+            const Element* effective_context = is_scrollable_y(element) ? &element : scroll_context;
+            const bool has_scroll_context = effective_context != nullptr &&
+                    effective_context->direction == StackDirection::Vertical &&
+                    effective_context->layout_rect.h > 0.0f;
             std::optional<float> row_height_px;
             if (expected_count == 1 && element.direction == StackDirection::Vertical &&
-                    is_scrollable_y(element) && element.layout_rect.h > 0.0f &&
+                    has_scroll_context &&
                     element.gap.unit == LengthUnit::Px && element.gap.calc.empty()) {
                 // Row height can't be read off the static ItemTemplate: apply_layout_style
                 // (paint.cpp) never visits an ItemTemplate's own children, so tmpl's root never
                 // gets a resolved `height` there — only a *generated* clone does, once
                 // apply_layout_style has walked it on a previous frame. Sample the first
-                // surviving real (non-spacer) row from last frame's generated_items; if there
-                // isn't one yet (first bind for this control, or last frame fell back), row
-                // height is unknown this frame and we fall back to full generation too —
-                // self-correcting next frame, same as the max_scroll_y / layout_rect.h staleness
-                // this eligibility check already relies on above.
+                // surviving real (non-spacer) row from last frame's generated_items and, when
+                // found, treat it as this frame's source of truth and refresh
+                // `virtualization_row_height_cache` with it. When last frame's window held no
+                // real row at all — every generated item was a spacer, or there were none yet —
+                // fall back to the cached value from whenever it was last sampled, instead of
+                // declaring row height unknown: a wrapping ScrollView can scroll this
+                // ItemsControl entirely out of view for several frames in a row (visible window
+                // = zero real rows, one spacer standing in for all of them), and a live sample
+                // alone would never find anything then, tipping eligibility over to full
+                // generation for as long as the control stays offscreen. Only when neither a
+                // live sample nor a prior cached value exists (first bind ever for this control)
+                // does row height stay unknown this frame — self-correcting next frame, same as
+                // the max_scroll_y / layout_rect.h staleness this eligibility check already
+                // relies on above.
                 for (const Element& old : element.generated_items) {
                     if (old.generated_owner != nullptr && old.height && old.height->unit == LengthUnit::Px &&
                             old.height->calc.empty() && old.height->value > 0.0f) {
                         row_height_px = old.height->value;
+                        element.virtualization_row_height_cache = row_height_px;
                         break;
                     }
+                }
+                if (!row_height_px && element.virtualization_row_height_cache) {
+                    row_height_px = element.virtualization_row_height_cache;
                 }
             }
 
@@ -636,19 +665,34 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
             std::size_t window_last = items.empty() ? 0 : items.size() - 1;
             float leading_spacer_h = 0.0f;
             float trailing_spacer_h = 0.0f;
+            // True when the visible row window is empty: the ItemsControl sits entirely outside
+            // effective_context's viewport (Case B only — see below). When true, no real rows
+            // are generated this frame at all, just one spacer standing in for every item.
+            bool window_empty = false;
             if (row_height_px && !items.empty()) {
                 const float gap_px = element.gap.value;
                 const float row_stride = *row_height_px + gap_px;
                 const auto n = static_cast<std::int64_t>(items.size());
-                std::int64_t first =
-                        static_cast<std::int64_t>(std::floor(element.scroll_y / row_stride)) - kVirtualizationOverscanRows;
-                std::int64_t last = static_cast<std::int64_t>(std::ceil(
-                                             (element.scroll_y + element.layout_rect.h) / row_stride)) +
+
+                // Case A (effective_context == &element, i.e. this ItemsControl scrolls itself):
+                // offset == 0, so scroll_y_effective == element.scroll_y and viewport_h ==
+                // element.layout_rect.h — byte-identical to the wind-127 formula. Case B
+                // (effective_context is an ancestor, not necessarily the direct parent):
+                // layout_rect is always absolute/canvas-space at every nesting depth (each
+                // layout_element/layout_stack positions children from its own already-absolute
+                // content origin), so this one subtraction is correct however many intermediate
+                // Stacks/padding/margins sit between `element` and `effective_context`, without
+                // needing to check whether effective_context is element's direct parent.
+                const float offset = (effective_context == &element)
+                        ? 0.0f
+                        : element.layout_rect.y - effective_context->layout_rect.y;
+                const float viewport_h = effective_context->layout_rect.h;
+                const float scroll_y_effective = effective_context->scroll_y - offset;
+
+                std::int64_t first = static_cast<std::int64_t>(std::floor(scroll_y_effective / row_stride)) -
                         kVirtualizationOverscanRows;
-                first = std::clamp<std::int64_t>(first, 0, n - 1);
-                last = std::clamp<std::int64_t>(last, first, n - 1);
-                window_first = static_cast<std::size_t>(first);
-                window_last = static_cast<std::size_t>(last);
+                std::int64_t last = static_cast<std::int64_t>(std::ceil((scroll_y_effective + viewport_h) / row_stride)) +
+                        kVirtualizationOverscanRows;
 
                 // layout_stack packs N flow children with exactly (N-1) gaps total (a gap
                 // *between* consecutive children, never a trailing one after the last) — so a
@@ -665,8 +709,36 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
                     }
                     return static_cast<float>(count) * *row_height_px + static_cast<float>(count - 1) * gap_px;
                 };
-                leading_spacer_h = spacer_height(window_first);
-                trailing_spacer_h = spacer_height(items.size() - 1 - window_last);
+
+                if (last < 0 || first >= n) {
+                    // Entirely offscreen: only reachable in Case B, where scroll_y_effective can
+                    // legitimately land outside [0, N*row_stride) in either direction (e.g. the
+                    // wrapping ScrollView shows content before or after this ItemsControl while
+                    // the list itself is fully scrolled past). Case A can never hit this branch:
+                    // element.scroll_y is always clamped to [0, element.max_scroll_y] by the
+                    // element's own scrolling, which keeps the window over at least one real row.
+                    // Collapse to zero real rows plus one spacer covering every item. Critical
+                    // invariant (same one wind-127 established for the two-spacer case): the
+                    // summed used-height of this ItemsControl (spacers + any real rows) must
+                    // always equal N*row_height + (N-1)*gap regardless of window state, because
+                    // that sum is exactly what effective_context's own intrinsic_size /
+                    // compute_used reads back when laying out content that follows this
+                    // ItemsControl (e.g. a footer) and when computing its own max_scroll_y.
+                    // spacer_height(N) is that sum by construction for N > 0, so this case is
+                    // trivially exact.
+                    window_empty = true;
+                    window_first = 0;
+                    window_last = 0;
+                    leading_spacer_h = spacer_height(static_cast<std::size_t>(n));
+                    trailing_spacer_h = 0.0f;
+                } else {
+                    first = std::clamp<std::int64_t>(first, 0, n - 1);
+                    last = std::clamp<std::int64_t>(last, first, n - 1);
+                    window_first = static_cast<std::size_t>(first);
+                    window_last = static_cast<std::size_t>(last);
+                    leading_spacer_h = spacer_height(window_first);
+                    trailing_spacer_h = spacer_height(items.size() - 1 - window_last);
+                }
             }
 
             if (leading_spacer_h > 0.0f) {
@@ -676,7 +748,7 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
                 spacer.is_virtualization_spacer = true;
                 element.generated_items.push_back(std::move(spacer));
             }
-            for (std::size_t i = window_first; !items.empty() && i <= window_last; ++i) {
+            for (std::size_t i = window_first; !window_empty && !items.empty() && i <= window_last; ++i) {
                 ViewModel* item = items[i];
                 if (item == nullptr) {
                     continue;
@@ -684,7 +756,7 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
                 if (const auto reused = previous_by_owner.find(item);
                         reused != previous_by_owner.end() && reused->second.size() == expected_count) {
                     for (Element& clone : reused->second) {
-                        if (auto result = bind_element(clone, *item, fatal, false); !result) {
+                        if (auto result = bind_element(clone, *item, fatal, false, child_scroll_context); !result) {
                             return result;
                         }
                         element.generated_items.push_back(std::move(clone));
@@ -697,7 +769,7 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
                     clone.kind = ElementKind::Stack;
                     clone.children.clear();
                     clone.generated_owner = item;
-                    if (auto result = bind_element(clone, *item, fatal, false); !result) {
+                    if (auto result = bind_element(clone, *item, fatal, false, child_scroll_context); !result) {
                         return result;
                     }
                     element.generated_items.push_back(std::move(clone));
@@ -707,7 +779,7 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
                     Element clone = node;
                     clone.generated_items.clear();
                     clone.generated_owner = item;
-                    if (auto result = bind_element(clone, *item, fatal, false); !result) {
+                    if (auto result = bind_element(clone, *item, fatal, false, child_scroll_context); !result) {
                         return result;
                     }
                     element.generated_items.push_back(std::move(clone));
