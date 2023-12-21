@@ -2,7 +2,9 @@
 
 // docs/tech/modules/ECS.md
 
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 
 namespace engine::ecs {
 
@@ -20,4 +22,11 @@ struct Entity {
     }
 };
 
-}
+} // namespace engine::ecs
+
+template <>
+struct std::hash<engine::ecs::Entity> {
+    constexpr std::size_t operator()(const engine::ecs::Entity& entity) const noexcept {
+        return (static_cast<std::size_t>(entity.index) << 32) ^ static_cast<std::size_t>(entity.generation);
+    }
+};
