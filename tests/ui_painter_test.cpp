@@ -834,6 +834,35 @@ TEST(UiPainter, ButtonHoverTogglesAcrossRepeatedPaintCallsWithoutStickyCache) {
     EXPECT_NEAR(fill_r({10.f, 10.f}), 0x33 / 255.0f, 0.01f);
 }
 
+// Regression: paint_element() used to read the stale, allow_pseudo=false element.rotation_deg/
+// element.scale (apply_layout_style's copy, frozen at layout time) for the transform it hands the
+// painter, instead of this call's own freshly computed allow_pseudo=true `style` — so a
+// `:hover`/`:pressed` rule that changes `transform` silently had zero visual effect, even though
+// transform is a pure paint-time effect that never touches layout_rect (unlike width/height/
+// padding, which genuinely can't be pseudo-reactive without a relayout).
+TEST(UiPainter, HoverTransformAppliesFromPaintTimeStyleNotStaleLayoutField) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Button class="cell" content="X"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        Button { width: 100; height: 100; }
+        Button:hover { transform: scale(1.5); }
+    )");
+
+    // paint_element() only calls apply_transform() at all when rotation/scale is non-identity
+    // (paint.cpp), so the idle frame records no "transform" call whatsoever — that absence is
+    // itself part of what this test proves, not just the hover value.
+    const auto transform_scale = [&](glm::vec2 pointer) {
+        FakePainter painter;
+        engine::ui::paint_document(*parsed, &sheet, painter,
+                engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 100.f, 100.f}, .pointer = pointer});
+        const PaintCall* transform = painter.find("transform");
+        return transform != nullptr ? transform->transform_scale : -1.0f;
+    };
+
+    EXPECT_FLOAT_EQ(transform_scale({1000.f, 1000.f}), -1.0f);
+    EXPECT_FLOAT_EQ(transform_scale({10.f, 10.f}), 1.5f);
+}
+
 // Indirect proof that compute_style()'s per-element cache actually short-circuits the stylesheet
 // scan: mutate the Stylesheet's declarations in place (same Stylesheet object/pointer/generation -
 // not a reload, which is the one case the cache contract does NOT promise to catch) between two
