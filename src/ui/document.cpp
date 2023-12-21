@@ -17,6 +17,7 @@ namespace engine::ui {
 namespace {
 
 constexpr float kDefaultImageSize = 32.0f;
+constexpr float kDefaultCheckboxSize = 20.0f;
 
 void layout_element(Element& element, const render::Rect& box, IUiPainter* painter, glm::vec2 parent_content,
         const render::Rect& containing_block);
@@ -181,6 +182,12 @@ void collect_layout_children(ElementT& element, std::vector<Out*>& children) {
         return {
                 box.padding.left + kDefaultImageSize + box.padding.right,
                 box.padding.top + kDefaultImageSize + box.padding.bottom,
+        };
+    }
+    if (element.kind == ElementKind::Checkbox) {
+        return {
+                box.padding.left + kDefaultCheckboxSize + box.padding.right,
+                box.padding.top + kDefaultCheckboxSize + box.padding.bottom,
         };
     }
     if (element.kind != ElementKind::Stack && element.kind != ElementKind::ItemsControl &&
@@ -484,6 +491,9 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
     if (auto result = require_property(element.zoom_binding); !result) {
         return result;
     }
+    if (auto result = require_property(element.checked_binding); !result) {
+        return result;
+    }
     for (const CustomPropertyBinding& custom : element.custom_property_bindings) {
         if (auto result = require_property(custom.binding); !result) {
             return result;
@@ -556,6 +566,11 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
     if (is_bound(element.scroll_y_binding)) {
         if (auto value = vm.read_property_float(element.scroll_y_binding)) {
             element.scroll_y = *value;
+        }
+    }
+    if (is_bound(element.checked_binding)) {
+        if (auto value = vm.read_property_float(element.checked_binding)) {
+            element.checked = *value != 0.0f;
         }
     }
     for (const CustomPropertyBinding& custom : element.custom_property_bindings) {
@@ -965,9 +980,10 @@ Element* hit_test(Element& element, float x, float y) {
             return nested;
         }
     }
-    if (element.kind == ElementKind::Button || element.kind == ElementKind::TextInput ||
-            element.kind == ElementKind::ScrollView || is_scrollable(element) ||
-            is_bound(element.command_binding) || is_bound(element.drag_binding) || has_viewport_camera(element)) {
+    if (element.kind == ElementKind::Button || element.kind == ElementKind::Checkbox ||
+            element.kind == ElementKind::TextInput || element.kind == ElementKind::ScrollView ||
+            is_scrollable(element) || is_bound(element.command_binding) || is_bound(element.drag_binding) ||
+            has_viewport_camera(element)) {
         return &element;
     }
     return nullptr;

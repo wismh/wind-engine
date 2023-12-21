@@ -116,6 +116,36 @@ TEST(UiBuilder, CommandBindIsHitTargetAfterLayout) {
     EXPECT_EQ(hit->kind, engine::ui::ElementKind::Button);
 }
 
+TEST(UiBuilder, CheckboxIsHitTargetAfterLayoutWithNoBindingAtAll) {
+    auto document = engine::ui::make_document(engine::ui::canvas().add(engine::ui::checkbox()));
+    ASSERT_TRUE(document.has_value());
+    engine::ui::layout(*document, engine::render::Rect{0.0f, 0.0f, 100.0f, 100.0f});
+
+    const engine::ui::Element* box = engine::ui::find_by_kind(document->root, engine::ui::ElementKind::Checkbox);
+    ASSERT_NE(box, nullptr);
+    EXPECT_FALSE(engine::ui::is_bound(box->checked_binding));
+    EXPECT_FALSE(box->checked);
+
+    engine::ui::Element* hit = engine::ui::hit_test(document->root, 8.0f, 8.0f);
+    ASSERT_NE(hit, nullptr);
+    EXPECT_EQ(hit->kind, engine::ui::ElementKind::Checkbox);
+}
+
+TEST(UiBuilder, CheckedBindMatchesXml) {
+    const auto built = engine::ui::make_document(
+            engine::ui::canvas().add(engine::ui::checkbox().checked_bind(engine::ui::intern("agree"))));
+    ASSERT_TRUE(built.has_value());
+    const engine::ui::Element* box = engine::ui::find_by_kind(built->root, engine::ui::ElementKind::Checkbox);
+    ASSERT_NE(box, nullptr);
+    EXPECT_EQ(box->checked_binding, engine::ui::intern("agree"));
+
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Checkbox checked="{binding agree}"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Element* xml_box = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Checkbox);
+    ASSERT_NE(xml_box, nullptr);
+    EXPECT_EQ(box->checked_binding, xml_box->checked_binding);
+}
+
 TEST(UiBuilder, ViewportCameraBindsMatchXml) {
     const auto built = engine::ui::make_document(engine::ui::canvas().add(engine::ui::viewport()
                                                                                .pan_x_bind(engine::ui::intern("pan_x"))

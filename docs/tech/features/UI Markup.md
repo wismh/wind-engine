@@ -6,9 +6,9 @@ tags: [feature]
 
 ## Parse
 
-[[src.ui.xml_parser.cpp]]: tinyxml2, known tags only. `command` / `paint` / `drag` / `pan-x` / `pan-y` / `zoom` must be `{binding}`. `source` is 32-hex or binding, never a filename. `{binding path}` attributes (`text`/`content`/`command`/`paint`/`source`/`items_source`/`pan-x`/`pan-y`/`zoom`) are interned to a `BindingId` at parse time ([[include.engine.ui.binding_id.h]]), not stored as strings. `Component` is an empty layout hole. `Viewport` is a nested clip+camera (not a document root).
+[[src.ui.xml_parser.cpp]]: tinyxml2, known tags only. `command` / `paint` / `drag` / `pan-x` / `pan-y` / `zoom` must be `{binding}`; `checked` (Checkbox) may be either a `{binding}` (two-way) or a literal `true`/`false` (seeds `checked` once, no `ViewModel` tie). `source` is 32-hex or binding, never a filename. `{binding path}` attributes (`text`/`content`/`command`/`paint`/`source`/`items_source`/`pan-x`/`pan-y`/`zoom`/`checked`) are interned to a `BindingId` at parse time ([[include.engine.ui.binding_id.h]]), not stored as strings. `Component` is an empty layout hole. `Viewport` is a nested clip+camera (not a document root).
 
-[[src.ui.css_parser.cpp]]: selectors `E`, `.c`, `#id`, `E.c`, descendant `A B`, child `A > B` (no `+`/`~`, no `,` grouping), optional `:hover|:pressed|:disabled`. Known properties listed in parser; others warn. Units: px/`%`/`em`, `calc(+ - * /)`. `@media (min-width|min-height: N)` and `@keyframes` (opacity only) — see [[modules/UI]]. `z-index`, `position`/`top`/`right`/`bottom`/`left`, and `transform: rotate() scale()` are known properties too, parsed the same way but affecting layout/paint order rather than sizing — see Layout/Paint below.
+[[src.ui.css_parser.cpp]]: selectors `E`, `.c`, `#id`, `E.c`, descendant `A B`, child `A > B` (no `+`/`~`, no `,` grouping), optional `:hover|:pressed|:disabled|:focus|:checked`. Known properties listed in parser; others warn. Units: px/`%`/`em`, `calc(+ - * /)`. `@media (min-width|min-height: N)` and `@keyframes` (opacity only) — see [[modules/UI]]. `z-index`, `position`/`top`/`right`/`bottom`/`left`, and `transform: rotate() scale()` are known properties too, parsed the same way but affecting layout/paint order rather than sizing — see Layout/Paint below.
 
 ## Bind
 
@@ -20,7 +20,7 @@ tags: [feature]
 
 ## Layout
 
-`src/ui/document.cpp` resolves a real content-box model: `padding`/`margin`/`gap`/`width`/`height`/`min-width`/`min-height` (px/%/em/`calc()`, percent against the parent content box) all affect layout. Stack packs children along the main axis by **actual used size** (explicit size, else intrinsic "hug" size — text metrics for Label/Button, `kDefaultImageSize` for Image — clamped up by `min-*`), plus `margin` and `gap`, then applies `justify-content` (main axis) and `align-items` (cross axis). `text-align` positions glyphs independently of `justify-content`/`align-items`.
+`src/ui/document.cpp` resolves a real content-box model: `padding`/`margin`/`gap`/`width`/`height`/`min-width`/`min-height` (px/%/em/`calc()`, percent against the parent content box) all affect layout. Stack packs children along the main axis by **actual used size** (explicit size, else intrinsic "hug" size — text metrics for Label/Button, `kDefaultImageSize` for Image, `kDefaultCheckboxSize` for Checkbox — clamped up by `min-*`), plus `margin` and `gap`, then applies `justify-content` (main axis) and `align-items` (cross axis). `text-align` positions glyphs independently of `justify-content`/`align-items`.
 
 Canvas/Button/Label children (non-stack) still overlay the same content rect, but each child keeps its own box-resolved size within it.
 
