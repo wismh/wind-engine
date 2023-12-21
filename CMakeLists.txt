@@ -339,6 +339,15 @@ if(WIN32)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets")
         target_include_directories(engine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/include")
         target_link_libraries(engine PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/lib/x64/GameNetworkingSockets.lib")
+        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/bin/x64")
+            file(GLOB _gns_dlls "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/bin/x64/*.dll")
+            add_custom_command(TARGET engine POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${_gns_dlls}
+                    "$<TARGET_FILE_DIR:engine>"
+                COMMENT "Copy GameNetworkingSockets DLLs beside engine"
+                VERBATIM)
+        endif()
     endif()
 elseif(UNIX AND NOT ANDROID AND NOT EMSCRIPTEN)
     # src/net/curl_library.cpp opens the system libcurl with dlopen (no libcurl header or library is needed to
@@ -362,6 +371,16 @@ else()
 
     add_executable(asset_guid "${CMAKE_CURRENT_SOURCE_DIR}/tools/asset_guid/main.cpp")
     target_link_libraries(asset_guid PRIVATE engine)
+
+    if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/bin/x64")
+        file(GLOB _gns_dlls "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/bin/x64/*.dll")
+        add_custom_command(TARGET asset_codegen POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${_gns_dlls}
+                "$<TARGET_FILE_DIR:asset_codegen>"
+            COMMENT "Copy GameNetworkingSockets DLLs beside asset_codegen"
+            VERBATIM)
+    endif()
 
     # Host client. Does not link engine: it speaks HTTP to a running game or editor, and `launch` starts the
     # wind_editor beside it (the SDK installs both into bin/).
@@ -696,6 +715,10 @@ if(ENGINE_EDITOR)
         RUNTIME DESTINATION bin
         LIBRARY DESTINATION bin
         ARCHIVE DESTINATION lib)
+    if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/bin/x64")
+        file(GLOB _gns_dlls "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/bin/x64/*.dll")
+        install(FILES ${_gns_dlls} DESTINATION bin)
+    endif()
     if(MSVC)
         foreach(_tool IN LISTS _engine_tools_runtime)
             # Component "symbols": a plain `cmake --install` still installs them; the release installs
