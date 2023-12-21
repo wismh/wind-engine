@@ -1,5 +1,7 @@
 #include "gns_common.h"
 
+#if defined(_WIN32)
+
 #include <atomic>
 #include <mutex>
 #include <unordered_map>
@@ -442,3 +444,5 @@ float GnsBaseTransport::rtt_ms(PeerId peer_id) const {
 }
 
 } // namespace engine::net
+
+#endif
