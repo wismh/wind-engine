@@ -444,11 +444,68 @@ struct Element {
     // `element.height = style.height` it does for every other element would reset height to
     // nullopt. Never true for a real generated item, template, or hand-authored document Element.
     bool is_virtualization_spacer = false;
+
+    // wind-129 layout dirty-gate: last-frame copies compared by layout_state_changed()
+    // (document.cpp) to decide whether apply_layout_style()+layout() can be skipped this frame.
+    // Layout depends on this narrow set of fields and nothing else on Element:
+    //   - apply_layout_style (paint.cpp) always calls compute_style() with allow_pseudo=false, so
+    //     :hover/:pressed/:disabled/:focus can never change a layout-relevant resolved field
+    //     (width/height/padding/margin/gap/justify/align_items/direction/...) — subject_matches
+    //     (paint.cpp) returns false for any pseudo-class selector whenever allow_pseudo is false.
+    //     Those pseudo flags only affect paint_element's allow_pseudo=true resolve, so they're
+    //     deliberately absent from this list.
+    //   - intrinsic_size/compute_used (document.cpp) never read element.source (Image always hugs
+    //     kDefaultImageSize, independent of the actual asset), pan_x/pan_y/zoom (Viewport is a
+    //     paint-time-only camera — "layout_rect of descendants does not move", per UI.md's
+    //     Viewport section), animation_elapsed, or caret_blink_timer at all.
+    //   - scroll_x/scroll_y do not move a plain scrolled container's children's layout_rect
+    //     (paint-time pan, same as Viewport) — the one place scroll position affects layout is
+    //     indirectly, through ItemsControl virtualization (wind-127/128): a different scroll
+    //     position can change *which* items are generated (different generated_owner sequence),
+    //     and that is exactly what layout_dirty_check_generated_owners below already detects, so
+    //     scroll_x/scroll_y themselves don't need a separate copy.
+    // What's left is: text/content-bindings (both write element.text), custom_properties (read
+    // unconditionally by var(--x) resolution, not gated by allow_pseudo), and — for ItemsControl —
+    // the generated_owner sequence. layout_dirty_check_initialized starts false so the first call
+    // on a freshly constructed/cloned Element always reports "changed" (there is nothing yet to
+    // compare against).
+    mutable bool layout_dirty_check_initialized = false;
+    mutable std::string layout_dirty_check_text;
+    mutable std::unordered_map<std::string, std::string> layout_dirty_check_custom_properties;
+    mutable std::vector<const void*> layout_dirty_check_generated_owners;
 };
 
 struct UiDocument {
     Element root;
     std::optional<AssetId> stylesheet;
+
+    // wind-129 layout dirty-gate: "external" triggers that invalidate layout for the WHOLE
+    // document at once (unlike the per-Element fields above), since layout_stack's packing is
+    // holistic — canvas geometry, window size (media queries), and stylesheet identity/generation
+    // all affect every element's layout_rect simultaneously, not just one. Lives on UiDocument
+    // (not UiInstance) because paint_document (paint.cpp) — called from CmdDrawUI in
+    // opengl_backend.cpp with only a UiDocument*, no UiInstance* — needs to read/write these too;
+    // prepare_top_canvas (canvas.cpp) reaches them the same way, via instance->document.
+    // layout_computed_once starts false so the very first frame for a freshly spawned canvas
+    // always computes layout instead of trying to "skip" a layout that never happened.
+    mutable bool layout_computed_once = false;
+    mutable render::Rect last_canvas_layout_rect{};
+    mutable float last_media_width = 0.0f;
+    mutable float last_media_height = 0.0f;
+    mutable const Stylesheet* last_layout_sheet = nullptr;
+    mutable std::uint64_t last_layout_sheet_generation = 0;
+    // Which IUiPainter (opaque here — document.h is a public header and IUiPainter is declared in
+    // the private src/ui/painter.h, so this is stored as `const void*`, the same way
+    // Element::generated_owner is an opaque identity-only pointer) last actually measured this
+    // document's hug-sized text. Text/Button/TextInput hug sizing (document.cpp's
+    // measure_element_text) reads through whichever IUiPainter* layout() is given — a real painter's
+    // shaped metrics differ from the nullptr-painter CPU fallback layout() uses when none is
+    // registered for a window yet — so switching which painter (or none at all) resolves for this
+    // canvas between two frames is exactly as layout-relevant as a stylesheet swap, even though no
+    // Element field changed. Starts nullptr, matching layout_painter_for()'s own "no painter
+    // registered" result, so a document laid out once with the fallback and then again once a real
+    // painter registers doesn't spuriously look unchanged.
+    mutable const void* last_layout_painter = nullptr;
 };
 
 struct UiInstance {
