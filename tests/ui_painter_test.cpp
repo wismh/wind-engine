@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -48,6 +49,7 @@ struct PaintCall {
     engine::ui::BoxInsets insets{};
     glm::vec2 line_from{};
     glm::vec2 line_to{};
+    std::optional<engine::ui::Gradient> gradient;
 };
 
 class FakePainter final : public engine::ui::IUiPainter {
@@ -79,6 +81,11 @@ public:
 
     void fill_rounded_rect(const engine::render::Rect& rect, float radius, glm::vec4 color) override {
         calls.push_back(PaintCall{.op = "fill_rect", .rect = rect, .color = color, .radius = radius});
+    }
+
+    void fill_rounded_rect_gradient(
+            const engine::render::Rect& rect, float radius, const engine::ui::Gradient& gradient) override {
+        calls.push_back(PaintCall{.op = "fill_rect_gradient", .rect = rect, .radius = radius, .gradient = gradient});
     }
 
     void stroke_rounded_rect(const engine::render::Rect& rect, float radius, float width, glm::vec4 color) override {

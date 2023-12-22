@@ -14,6 +14,7 @@
 #include <engine/resources/font.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -23,8 +24,55 @@
 namespace engine::render {
 namespace {
 
+constexpr int kConicTextureSize = 128;
+constexpr float kPi = 3.14159265358979323846f;
+
 NVGcolor to_nvg(glm::vec4 color) {
     return nvgRGBAf(color.r, color.g, color.b, color.a);
+}
+
+// Distinct stylesheet gradients are few (a handful of classes/pseudo-states), so a plain string key
+// built from content is simpler than a hand-rolled Gradient hash/equality and just as effective —
+// same spirit as `fonts`/`images` being keyed by AssetId hex text rather than a binary key.
+std::string gradient_cache_key(const ui::Gradient& gradient) {
+    std::string key = std::to_string(static_cast<int>(gradient.kind));
+    key += ':';
+    key += std::to_string(gradient.angle_deg);
+    for (const ui::GradientStop& stop : gradient.stops) {
+        key += '|';
+        key += std::to_string(stop.color.r);
+        key += ',';
+        key += std::to_string(stop.color.g);
+        key += ',';
+        key += std::to_string(stop.color.b);
+        key += ',';
+        key += std::to_string(stop.color.a);
+        key += '@';
+        key += std::to_string(stop.percent.value_or(-1.0f));
+    }
+    return key;
+}
+
+// Linearly interpolates `percent` (0-100) against a gradient's stop list. `stops` is always
+// non-empty with every percent already resolved by parse_gradient (paint.cpp) before it reaches a
+// painter, so this never has to fall back to an unset percent.
+glm::vec4 sample_gradient_stops(const std::vector<ui::GradientStop>& stops, float percent) {
+    if (percent <= *stops.front().percent) {
+        return stops.front().color;
+    }
+    if (percent >= *stops.back().percent) {
+        return stops.back().color;
+    }
+    for (std::size_t i = 0; i + 1 < stops.size(); ++i) {
+        const float p0 = *stops[i].percent;
+        const float p1 = *stops[i + 1].percent;
+        if (percent > p1) {
+            continue;
+        }
+        const float t = p1 > p0 ? (percent - p0) / (p1 - p0) : 0.0f;
+        return glm::mix(stops[i].color, stops[i + 1].color, t);
+    }
+    return stops.back().color;
 }
 
 }
@@ -40,6 +88,7 @@ struct NanoVgPainter::Impl {
     std::vector<std::vector<std::uint8_t>> font_blobs;
     std::unordered_map<std::string, int> fonts;
     std::unordered_map<std::string, ImageEntry> images;
+    std::unordered_map<std::string, int> gradient_textures;
     int default_font = -1;
 };
 
@@ -123,6 +172,7 @@ void NanoVgPainter::destroy() {
     }
     impl_->fonts.clear();
     impl_->images.clear();
+    impl_->gradient_textures.clear();
     impl_->default_font = -1;
     impl_->font_blobs.clear();
 }
@@ -194,6 +244,78 @@ void NanoVgPainter::fill_rounded_rect(const Rect& rect, float radius, glm::vec4 
     nvgBeginPath(impl_->vg);
     nvgRoundedRect(impl_->vg, rect.x, rect.y, rect.w, rect.h, radius);
     nvgFillColor(impl_->vg, to_nvg(color));
+    nvgFill(impl_->vg);
+}
+
+int NanoVgPainter::ensure_conic_texture(const ui::Gradient& gradient) {
+    if (impl_->vg == nullptr) {
+        return -1;
+    }
+    const std::string key = gradient_cache_key(gradient);
+    if (const auto it = impl_->gradient_textures.find(key); it != impl_->gradient_textures.end()) {
+        return it->second;
+    }
+    std::vector<std::uint8_t> pixels(static_cast<std::size_t>(kConicTextureSize) * kConicTextureSize * 4);
+    const float center = (static_cast<float>(kConicTextureSize) - 1.0f) * 0.5f;
+    for (int y = 0; y < kConicTextureSize; ++y) {
+        for (int x = 0; x < kConicTextureSize; ++x) {
+            // 0deg at 12 o'clock, clockwise - CSS conic-gradient's default convention.
+            const float angle_rad = std::atan2(static_cast<float>(x) - center, center - static_cast<float>(y));
+            float percent = angle_rad * (180.0f / kPi);
+            if (percent < 0.0f) {
+                percent += 360.0f;
+            }
+            percent = percent / 360.0f * 100.0f;
+            const glm::vec4 color = sample_gradient_stops(gradient.stops, percent);
+            const std::size_t idx = (static_cast<std::size_t>(y) * kConicTextureSize + static_cast<std::size_t>(x)) * 4;
+            pixels[idx + 0] = static_cast<std::uint8_t>(std::clamp(color.r, 0.0f, 1.0f) * 255.0f);
+            pixels[idx + 1] = static_cast<std::uint8_t>(std::clamp(color.g, 0.0f, 1.0f) * 255.0f);
+            pixels[idx + 2] = static_cast<std::uint8_t>(std::clamp(color.b, 0.0f, 1.0f) * 255.0f);
+            pixels[idx + 3] = static_cast<std::uint8_t>(std::clamp(color.a, 0.0f, 1.0f) * 255.0f);
+        }
+    }
+    const int nvg_id = nvgCreateImageRGBA(impl_->vg, kConicTextureSize, kConicTextureSize, 0, pixels.data());
+    impl_->gradient_textures.emplace(key, nvg_id);
+    return nvg_id;
+}
+
+void NanoVgPainter::fill_rounded_rect_gradient(const Rect& rect, float radius, const ui::Gradient& gradient) {
+    if (impl_->vg == nullptr || gradient.stops.size() < 2) {
+        return;
+    }
+    NVGpaint paint{};
+    switch (gradient.kind) {
+        case ui::GradientKind::Linear: {
+            const float angle_rad = gradient.angle_deg * (kPi / 180.0f);
+            const float dx = std::sin(angle_rad);
+            const float dy = -std::cos(angle_rad);
+            const float half_len = 0.5f * (std::fabs(rect.w * dx) + std::fabs(rect.h * dy));
+            const float cx = rect.x + rect.w * 0.5f;
+            const float cy = rect.y + rect.h * 0.5f;
+            paint = nvgLinearGradient(impl_->vg, cx - dx * half_len, cy - dy * half_len, cx + dx * half_len,
+                    cy + dy * half_len, to_nvg(gradient.stops.front().color), to_nvg(gradient.stops.back().color));
+            break;
+        }
+        case ui::GradientKind::Radial: {
+            const float cx = rect.x + rect.w * 0.5f;
+            const float cy = rect.y + rect.h * 0.5f;
+            const float outer_radius = 0.5f * std::max(rect.w, rect.h);
+            paint = nvgRadialGradient(impl_->vg, cx, cy, 0.0f, outer_radius, to_nvg(gradient.stops.front().color),
+                    to_nvg(gradient.stops.back().color));
+            break;
+        }
+        case ui::GradientKind::Conic: {
+            const int nvg_id = ensure_conic_texture(gradient);
+            if (nvg_id <= 0) {
+                return;
+            }
+            paint = nvgImagePattern(impl_->vg, rect.x, rect.y, rect.w, rect.h, 0.0f, nvg_id, 1.0f);
+            break;
+        }
+    }
+    nvgBeginPath(impl_->vg);
+    nvgRoundedRect(impl_->vg, rect.x, rect.y, rect.w, rect.h, radius);
+    nvgFillPaint(impl_->vg, paint);
     nvgFill(impl_->vg);
 }
 
