@@ -8,8 +8,11 @@
 #include <engine/ui/document.h>
 #include <engine/ui/view_model.h>
 
+#include <functional>
 #include <memory>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -214,6 +217,29 @@ struct UiFocusState {
 void set_focus(ecs::World& world, WindowId window, ecs::Entity canvas_entity, Element* element);
 void clear_focus(ecs::World& world, WindowId window = kPrimaryWindow);
 [[nodiscard]] Element* focused_element(ecs::World& world, WindowId window = kPrimaryWindow);
+
+// Physically-held-right-now state for the two modifier keys clipboard shortcuts care about.
+// Tracked here (not in InputSystem/KeyEvent) so ui::handle_key stays the single place that turns
+// raw LCtrl/RCtrl/LShift/RShift key events into a usable "is Ctrl down" query, with no SDL
+// involved and no change to the plain physical-key-event shape of KeyEvent.
+struct UiModifiers {
+    bool ctrl = false;
+    bool shift = false;
+};
+
+struct UiModifierState {
+    std::unordered_map<WindowId, UiModifiers> modifiers;
+};
+
+// System clipboard seam. Both members are empty (calls are no-ops) unless something installs
+// them: EngineRuntime wires real SDL-backed functions once at startup (src/render/opengl/
+// clipboard.h); engine_tests installs an in-memory fake per test. Plain data (no SDL, no
+// polymorphism) so it can live in ctx<UiClipboard>() the same way WindowSizes/MouseConsumed
+// already carry window-system facts into this SDL-free module.
+struct UiClipboard {
+    std::function<void(std::string_view)> set_text;
+    std::function<std::optional<std::string>()> get_text;
+};
 
 void handle_key(ecs::World& world, KeyCode key, bool down, bool repeat = false, WindowId window = kPrimaryWindow);
 void handle_text_input(ecs::World& world, std::string_view text, WindowId window = kPrimaryWindow);
