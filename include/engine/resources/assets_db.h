@@ -52,6 +52,8 @@ public:
     void set_root(std::filesystem::path assets_root);
     void set_graphic_factory(render::IGraphicFactory* factory);
 
+    [[nodiscard]] const CookedCatalog& catalog() const noexcept { return catalog_; }
+
     template<typename T>
     [[nodiscard]] std::expected<std::shared_ptr<T>, AssetError> TryGet(AssetId id);
 
