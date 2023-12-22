@@ -83,4 +83,31 @@ struct UiLayoutPainters {
     return painters.resolve(window);
 }
 
+// Layout/design space -> real-pixel space, the same conversion paint_document applies to every
+// Element::layout_rect before drawing it (via UiPaintInput::ui_offset/ui_scale) and hit-test
+// applies to a canvas's content (via UiCanvasSpace::offset/scale, canvas.h) — one shared
+// definition so a click's hit-tested position and what actually got painted can't disagree.
+[[nodiscard]] inline render::Rect scale_rect(const render::Rect& rect, glm::vec2 offset, float scale) noexcept {
+    return render::Rect{
+            offset.x + rect.x * scale,
+            offset.y + rect.y * scale,
+            rect.w * scale,
+            rect.h * scale,
+    };
+}
+
+// x where a TextInput/Label/Button's text (and TextInput's caret/selection) starts, given its
+// content-box x/width and cascaded text-align — the same three-way branch paint.cpp's TextInput
+// block and canvas.cpp's click-to-caret-index both need. Shared so they can never compute it
+// differently and disagree about where a click's index falls versus where the caret renders.
+[[nodiscard]] inline float text_align_origin_x(float content_x, float content_w, UiAlign text_align) noexcept {
+    if (text_align == UiAlign::Center) {
+        return content_x + content_w * 0.5f;
+    }
+    if (text_align == UiAlign::End) {
+        return content_x + content_w;
+    }
+    return content_x;
+}
+
 }
