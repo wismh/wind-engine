@@ -63,6 +63,24 @@ engine::ui::Stylesheet test_sheet() {
     return sheet.value_or(engine::ui::Stylesheet{});
 }
 
+// Installs an in-memory fake clipboard on `world` — headless engine_tests stand-in for the real
+// SDL-backed one EngineRuntime wires up (src/render/opengl/clipboard.h/.cpp) via the same
+// ui::UiClipboard ctx<> seam.
+void install_fake_clipboard(engine::ecs::World& world, std::shared_ptr<std::string> storage) {
+    world.ctx<engine::ui::UiClipboard>() = engine::ui::UiClipboard{
+            .set_text = [storage](std::string_view text) { *storage = std::string(text); },
+            .get_text = [storage]() -> std::optional<std::string> { return *storage; },
+    };
+}
+
+// Sends Ctrl+`key` as LCtrl-down, `key`-down, LCtrl-up — exercises the modifier tracking
+// (ui::UiModifierState) the same way a real Ctrl+C/V/X/A chord arrives from SDL key events.
+void press_ctrl(engine::ecs::World& world, engine::KeyCode key) {
+    engine::ui::handle_key(world, engine::KeyCode::LCtrl, true);
+    engine::ui::handle_key(world, key, true);
+    engine::ui::handle_key(world, engine::KeyCode::LCtrl, false);
+}
+
 }
 
 TEST(UiTextInput, ParseXmlTag) {
@@ -410,4 +428,179 @@ TEST(UiTextInput, CssTypeSelectorMatches) {
     engine::ui::paint_document(instance.document, &*sheet, painter,
             engine::ui::UiPaintInput{.canvas_rect = canvas_rect, .delta_time = 0.1f});
     EXPECT_GT(painter.lines_drawn, 0);
+}
+
+TEST(UiTextInput, ParseXmlAllowCopyPasteAttributes) {
+    CardViewModel vm;
+    auto parsed = engine::ui::parse_xml(
+            R"(<Canvas>
+                <TextInput id="default" text="{binding word}"/>
+                <TextInput id="locked" text="{binding translation}" allow-copy="false" allow-paste="false"/>
+            </Canvas>)",
+            nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+
+    const engine::ui::Element& defaulted = parsed->root.children[0];
+    EXPECT_TRUE(defaulted.allow_copy);
+    EXPECT_TRUE(defaulted.allow_paste);
+
+    const engine::ui::Element& locked = parsed->root.children[1];
+    EXPECT_FALSE(locked.allow_copy);
+    EXPECT_FALSE(locked.allow_paste);
+}
+
+namespace {
+
+// Shared setup for the clipboard tests below: a focused "word" TextInput backed by
+// CardViewModel::word, plus an in-memory fake clipboard.
+struct ClipboardFixture {
+    engine::ecs::World world;
+    std::shared_ptr<CardViewModel> vm = std::make_shared<CardViewModel>();
+    std::shared_ptr<std::string> clipboard_storage = std::make_shared<std::string>();
+    engine::ui::Element* focused = nullptr;
+
+    explicit ClipboardFixture(std::string_view initial_text, bool allow_copy = true, bool allow_paste = true) {
+        vm->word.set(std::string(initial_text));
+        const std::string xml = std::string(R"(<Canvas width="200" height="200"><TextInput id="word" text="{binding word}" )") +
+                "allow-copy=\"" + (allow_copy ? "true" : "false") + "\" " +
+                "allow-paste=\"" + (allow_paste ? "true" : "false") + "\" " +
+                R"(width="100" height="30"/></Canvas>)";
+        auto parsed = engine::ui::parse_xml(xml, nullptr, vm.get());
+        EXPECT_TRUE(parsed.has_value());
+
+        engine::ui::UiCanvas canvas;
+        canvas.rect = engine::render::Rect{0.0f, 0.0f, 200.0f, 200.0f};
+        canvas.fit = engine::ui::UiFit::Fixed;
+        canvas.data_context = vm;
+
+        const engine::ecs::Entity entity = world.create();
+        world.emplace<engine::ui::UiCanvas>(entity, canvas);
+        world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{*parsed, test_sheet()});
+
+        install_fake_clipboard(world, clipboard_storage);
+
+        engine::ui::begin_frame(world);
+        engine::ui::handle_pointer(world, 20.0f, 15.0f);
+        focused = engine::ui::focused_element(world);
+    }
+};
+
+}
+
+TEST(UiTextInput, CtrlAThenCtrlCCopiesWholeFieldToClipboard) {
+    ClipboardFixture fx("hello");
+    ASSERT_NE(fx.focused, nullptr);
+
+    press_ctrl(fx.world, engine::KeyCode::A);
+    EXPECT_TRUE(fx.focused->selected_all);
+
+    press_ctrl(fx.world, engine::KeyCode::C);
+    EXPECT_EQ(*fx.clipboard_storage, "hello");
+    EXPECT_EQ(fx.focused->text, "hello"); // copy does not mutate the field
+}
+
+TEST(UiTextInput, CtrlCWithoutSelectAllIsNoOp) {
+    ClipboardFixture fx("hello");
+    ASSERT_NE(fx.focused, nullptr);
+    *fx.clipboard_storage = "unchanged";
+
+    press_ctrl(fx.world, engine::KeyCode::C);
+    EXPECT_EQ(*fx.clipboard_storage, "unchanged");
+}
+
+TEST(UiTextInput, CtrlAThenCtrlXCutsWholeField) {
+    ClipboardFixture fx("hello");
+    ASSERT_NE(fx.focused, nullptr);
+
+    press_ctrl(fx.world, engine::KeyCode::A);
+    press_ctrl(fx.world, engine::KeyCode::X);
+
+    EXPECT_EQ(*fx.clipboard_storage, "hello");
+    EXPECT_EQ(fx.focused->text, "");
+    EXPECT_EQ(fx.focused->caret_position, 0u);
+    EXPECT_FALSE(fx.focused->selected_all);
+    EXPECT_EQ(fx.vm->word.get(), "");
+}
+
+TEST(UiTextInput, CtrlVPastesAtCaretWithoutSelection) {
+    ClipboardFixture fx("ac");
+    ASSERT_NE(fx.focused, nullptr);
+    *fx.clipboard_storage = "b";
+
+    // Caret starts at 0 (bound text, never typed) — Right once lands it between 'a' and 'c'.
+    engine::ui::handle_key(fx.world, engine::KeyCode::Right, true);
+    press_ctrl(fx.world, engine::KeyCode::V);
+
+    EXPECT_EQ(fx.focused->text, "abc");
+    EXPECT_EQ(fx.focused->caret_position, 2u);
+    EXPECT_EQ(fx.vm->word.get(), "abc");
+}
+
+TEST(UiTextInput, CtrlAThenCtrlVReplacesWholeField) {
+    ClipboardFixture fx("hello");
+    ASSERT_NE(fx.focused, nullptr);
+    *fx.clipboard_storage = "bye";
+
+    press_ctrl(fx.world, engine::KeyCode::A);
+    press_ctrl(fx.world, engine::KeyCode::V);
+
+    EXPECT_EQ(fx.focused->text, "bye");
+    EXPECT_EQ(fx.focused->caret_position, 3u);
+    EXPECT_FALSE(fx.focused->selected_all);
+    EXPECT_EQ(fx.vm->word.get(), "bye");
+}
+
+TEST(UiTextInput, AllowCopyFalseBlocksCopyAndCut) {
+    ClipboardFixture fx("secret", /*allow_copy=*/false, /*allow_paste=*/true);
+    ASSERT_NE(fx.focused, nullptr);
+    ASSERT_FALSE(fx.focused->allow_copy);
+
+    press_ctrl(fx.world, engine::KeyCode::A);
+    press_ctrl(fx.world, engine::KeyCode::C);
+    EXPECT_EQ(*fx.clipboard_storage, "");
+
+    press_ctrl(fx.world, engine::KeyCode::X);
+    EXPECT_EQ(fx.focused->text, "secret"); // cut needs allow_copy too — field untouched
+}
+
+TEST(UiTextInput, AllowPasteFalseBlocksPaste) {
+    ClipboardFixture fx("secret", /*allow_copy=*/false, /*allow_paste=*/false);
+    ASSERT_NE(fx.focused, nullptr);
+    ASSERT_FALSE(fx.focused->allow_paste);
+    *fx.clipboard_storage = "hijacked";
+
+    press_ctrl(fx.world, engine::KeyCode::V);
+    EXPECT_EQ(fx.focused->text, "secret");
+}
+
+TEST(UiTextInput, ReleasingCtrlThenPressingCTypesLiteralLetter) {
+    ClipboardFixture fx("");
+    ASSERT_NE(fx.focused, nullptr);
+    *fx.clipboard_storage = "not-this";
+
+    // Ctrl down, Ctrl up (released before the letter), then a plain 'c' — must type, not copy.
+    engine::ui::handle_key(fx.world, engine::KeyCode::LCtrl, true);
+    engine::ui::handle_key(fx.world, engine::KeyCode::LCtrl, false);
+    engine::ui::handle_text_input(fx.world, "c");
+
+    EXPECT_EQ(fx.focused->text, "c");
+    EXPECT_EQ(*fx.clipboard_storage, "not-this");
+}
+
+TEST(UiTextInput, FocusLossClearsSelectAll) {
+    ClipboardFixture fx("hello");
+    ASSERT_NE(fx.focused, nullptr);
+
+    press_ctrl(fx.world, engine::KeyCode::A);
+    EXPECT_TRUE(fx.focused->selected_all);
+
+    engine::ui::handle_key(fx.world, engine::KeyCode::Escape, true);
+    EXPECT_FALSE(fx.focused->selected_all);
+
+    // Re-focus without Ctrl+A again: Ctrl+C must be a no-op.
+    engine::ui::begin_frame(fx.world);
+    engine::ui::handle_pointer(fx.world, 20.0f, 15.0f);
+    *fx.clipboard_storage = "";
+    press_ctrl(fx.world, engine::KeyCode::C);
+    EXPECT_EQ(*fx.clipboard_storage, "");
 }
