@@ -6,6 +6,7 @@
 
 #include <engine/render/canvas.h>
 #include <engine/render/command_buffer.h>
+#include <engine/resources/asset_id.h>
 #include <engine/resources/font.h>
 
 #include <glm/vec2.hpp>
@@ -24,6 +25,7 @@ public:
 
     [[nodiscard]] bool init();
     [[nodiscard]] bool load_ui_font(const Font& font);
+    [[nodiscard]] bool add_font(AssetId id, const Font& font);
     void Draw() override;
 
 private:
