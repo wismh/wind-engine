@@ -5,6 +5,7 @@
 #include <engine/render/graphic_factory.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
+#include <engine/loc/catalog.h>
 #include <engine/resources/asset_guid.h>
 #include <engine/resources/asset_id.h>
 #include <engine/resources/assets_db.h>
@@ -1025,4 +1026,100 @@ TEST(Assets, CodegenInternCollisionFails) {
     EXPECT_EQ(result.error().kind, engine::CodegenErrorKind::Collision);
     EXPECT_NE(result.error().message.find("costarring"), std::string::npos);
     EXPECT_NE(result.error().message.find("liquid"), std::string::npos);
+}
+
+constexpr std::string_view kStringsGuid = "a2b3c4d5567890123456789012345ab1";
+constexpr std::string_view kStringsUkGuid = "b2c3d4e5567890123456789012345ab2";
+constexpr std::string_view kTrUiGuid = "c2d3e4f5567890123456789012345ab3";
+
+void write_strings(const std::filesystem::path& path, std::string_view guid, std::string_view body, bool source) {
+    write_file(path, body);
+    std::filesystem::path meta = path;
+    meta += ".meta";
+    std::string text = "guid = \"" + std::string(guid) + "\"\nimporter = \"strings\"\n";
+    if (source) {
+        text += "source = true\n";
+    }
+    write_file(meta, text);
+}
+
+TEST(Assets, GetStringTable) {
+    TempTree tree;
+    write_strings(tree.path / "locale" / "en.strings", kStringsGuid,
+            "locale = \"en\"\n\n[[string]]\nid = \"menu.play\"\ntext = \"Play\"\n", true);
+
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+    db.set_root(tree.path);
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kStringsGuid}, "locale/en.strings", engine::ImporterKind::Strings});
+    db.set_catalog(std::move(catalog));
+
+    const auto table = db.get<engine::loc::StringTable>(engine::AssetId{kStringsGuid});
+    ASSERT_NE(table, nullptr);
+    EXPECT_EQ(table->locale, "en");
+    EXPECT_EQ(table->messages.at("menu.play"), "Play");
+}
+
+TEST(Assets, CorruptStringTable) {
+    TempTree tree;
+    write_strings(tree.path / "locale" / "en.strings", kStringsGuid, "not toml {", true);
+
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+    db.set_root(tree.path);
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kStringsGuid}, "locale/en.strings", engine::ImporterKind::Strings});
+    db.set_catalog(std::move(catalog));
+
+    const auto table = db.try_get<engine::loc::StringTable>(engine::AssetId{kStringsGuid});
+    ASSERT_FALSE(table.has_value());
+    EXPECT_EQ(table.error(), engine::AssetError::Corrupt);
+}
+
+TEST(Assets, SourceFlagOnlyOnStrings) {
+    const auto parsed = engine::parse_asset_meta(
+            "guid = \"a1b2c3d4e5f6789012345678901234ab\"\nimporter = \"texture\"\nsource = true\n");
+    ASSERT_FALSE(parsed.has_value());
+    EXPECT_EQ(parsed.error(), engine::MetaError::InvalidField);
+}
+
+TEST(Assets, CodegenStringsRequireOneSourceAndKnownKeys) {
+    constexpr std::string_view kEn = "locale = \"en\"\n\n[[string]]\nid = \"menu.play\"\ntext = \"Play\"\n";
+    constexpr std::string_view kUk = "locale = \"uk\"\n\n[[string]]\nid = \"menu.play\"\ntext = \"Грати\"\n";
+    constexpr std::string_view kUi = R"(<Canvas><Label text="{tr menu.play}"/></Canvas>)";
+
+    {
+        TempTree tree;
+        write_strings(tree.path / "locale" / "en.strings", kStringsGuid, kEn, true);
+        write_strings(tree.path / "locale" / "uk.strings", kStringsUkGuid, kUk, false);
+        write_ui_asset(tree.path / "ui" / "hud.xml", kUi, kTrUiGuid);
+        const auto result = engine::codegen_scan(tree.path);
+        ASSERT_TRUE(result.has_value()) << (result ? std::string{} : result.error().message);
+    }
+    {
+        TempTree tree;
+        write_strings(tree.path / "locale" / "en.strings", kStringsGuid, kEn, false);
+        write_ui_asset(tree.path / "ui" / "hud.xml", kUi, kTrUiGuid);
+        const auto result = engine::codegen_scan(tree.path);
+        ASSERT_FALSE(result.has_value());
+        EXPECT_EQ(result.error().kind, engine::CodegenErrorKind::Strings);
+    }
+    {
+        TempTree tree;
+        write_strings(tree.path / "locale" / "en.strings", kStringsGuid, kEn, true);
+        write_strings(tree.path / "locale" / "uk.strings", kStringsUkGuid, kUk, true);
+        const auto result = engine::codegen_scan(tree.path);
+        ASSERT_FALSE(result.has_value());
+        EXPECT_EQ(result.error().kind, engine::CodegenErrorKind::Strings);
+    }
+    {
+        TempTree tree;
+        write_strings(tree.path / "locale" / "en.strings", kStringsGuid, kEn, true);
+        write_ui_asset(tree.path / "ui" / "hud.xml", R"(<Canvas><Label text="{tr menu.missing}"/></Canvas>)", kTrUiGuid);
+        const auto result = engine::codegen_scan(tree.path);
+        ASSERT_FALSE(result.has_value());
+        EXPECT_EQ(result.error().kind, engine::CodegenErrorKind::Strings);
+        EXPECT_NE(result.error().message.find("menu.missing"), std::string::npos);
+    }
 }
