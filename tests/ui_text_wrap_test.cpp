@@ -297,6 +297,116 @@ TEST(UiTextWrapLayout, PainterLessLayoutWrapsWithTheSameRules) {
     EXPECT_FLOAT_EQ(label->layout_rect.h, 20.0f);
 }
 
+engine::ui::LineHeight styled_line_height(std::string_view css) {
+    MeasuringPainter painter;
+    const auto doc = laid_out(R"(<Canvas><Label class="t" text="hi"/></Canvas>)", css, 400.0f, &painter);
+    const engine::ui::Element* label = find_class(doc.root, "t");
+    EXPECT_NE(label, nullptr);
+    return label != nullptr ? label->line_height : engine::ui::LineHeight{};
+}
+
+TEST(UiTextWrapLayout, LineHeightParsesFactorLengthAndDropsBadValues) {
+    EXPECT_EQ(styled_line_height(".t { color: #fff; }").kind, engine::ui::LineHeightKind::Normal);
+    EXPECT_EQ(styled_line_height(".t { line-height: normal; }").kind, engine::ui::LineHeightKind::Normal);
+
+    const engine::ui::LineHeight factor = styled_line_height(".t { line-height: 1.5; }");
+    EXPECT_EQ(factor.kind, engine::ui::LineHeightKind::Factor);
+    EXPECT_FLOAT_EQ(factor.factor, 1.5f);
+
+    const engine::ui::LineHeight px = styled_line_height(".t { line-height: 24px; }");
+    EXPECT_EQ(px.kind, engine::ui::LineHeightKind::Length);
+    EXPECT_EQ(px.length.unit, engine::ui::LengthUnit::Px);
+    EXPECT_FLOAT_EQ(px.length.value, 24.0f);
+
+    const engine::ui::LineHeight em = styled_line_height(".t { line-height: 1.5em; }");
+    EXPECT_EQ(em.kind, engine::ui::LineHeightKind::Length);
+    EXPECT_EQ(em.length.unit, engine::ui::LengthUnit::Em);
+    EXPECT_FLOAT_EQ(em.length.value, 1.5f);
+
+    const engine::ui::LineHeight percent = styled_line_height(".t { line-height: 150%; }");
+    EXPECT_EQ(percent.kind, engine::ui::LineHeightKind::Length);
+    EXPECT_EQ(percent.length.unit, engine::ui::LengthUnit::Percent);
+    EXPECT_FLOAT_EQ(percent.length.value, 150.0f);
+
+    EXPECT_EQ(styled_line_height(".t { line-height: nope; }").kind, engine::ui::LineHeightKind::Normal);
+    EXPECT_EQ(styled_line_height(".t { line-height: 0; }").kind, engine::ui::LineHeightKind::Normal);
+    EXPECT_EQ(styled_line_height(".t { line-height: -1; }").kind, engine::ui::LineHeightKind::Normal);
+    EXPECT_EQ(styled_line_height(".t { line-height: 1.5 nope; }").kind, engine::ui::LineHeightKind::Normal);
+
+    const engine::ui::LineHeight kept = styled_line_height(".t { line-height: 1.5; line-height: 0; }");
+    EXPECT_EQ(kept.kind, engine::ui::LineHeightKind::Factor);
+    EXPECT_FLOAT_EQ(kept.factor, 1.5f);
+    EXPECT_EQ(styled_line_height(".t { line-height: 1.5; line-height: normal; }").kind,
+            engine::ui::LineHeightKind::Normal);
+}
+
+TEST(UiTextWrapLayout, LineHeightReplacesTheWrappedRowStride) {
+    MeasuringPainter painter;
+    const auto height_of = [&](const char* css) {
+        const auto doc = laid_out(kWrapXml, css, 400.0f, &painter);
+        const engine::ui::Element* label = find_class(doc.root, "t");
+        EXPECT_NE(label, nullptr);
+        if (label != nullptr) {
+            EXPECT_FLOAT_EQ(label->layout_rect.w, 25.0f);
+            return label->layout_rect.h;
+        }
+        return -1.0f;
+    };
+    EXPECT_FLOAT_EQ(height_of(".box { width: 50; } .t { font-size: 10; }"), 20.0f);
+    EXPECT_FLOAT_EQ(height_of(".box { width: 50; } .t { font-size: 10; line-height: normal; }"), 20.0f);
+    EXPECT_FLOAT_EQ(height_of(".box { width: 50; } .t { font-size: 10; line-height: 1.5; }"), 30.0f);
+    EXPECT_FLOAT_EQ(height_of(".box { width: 50; } .t { font-size: 10; line-height: 24px; }"), 48.0f);
+    EXPECT_FLOAT_EQ(height_of(".box { width: 50; } .t { font-size: 10; line-height: 1.5em; }"), 30.0f);
+    EXPECT_FLOAT_EQ(height_of(".box { width: 50; } .t { font-size: 10; line-height: 150%; }"), 30.0f);
+}
+
+TEST(UiTextWrapLayout, LineHeightLeavesASingleLineOnTheGlyphBox) {
+    MeasuringPainter painter;
+    const auto doc = laid_out(kWrapXml, ".box { width: 55; } .t { font-size: 10; line-height: 2; }", 400.0f, &painter);
+    const engine::ui::Element* label = find_class(doc.root, "t");
+    ASSERT_NE(label, nullptr);
+    EXPECT_FLOAT_EQ(label->layout_rect.w, 55.0f);
+    EXPECT_FLOAT_EQ(label->layout_rect.h, 10.0f);
+}
+
+TEST(UiTextWrapLayout, NowrapIgnoresLineHeight) {
+    MeasuringPainter painter;
+    const auto doc = laid_out(kWrapXml,
+            ".box { width: 50; } .t { font-size: 10; white-space: nowrap; line-height: 1.5; }", 400.0f, &painter);
+    const engine::ui::Element* label = find_class(doc.root, "t");
+    ASSERT_NE(label, nullptr);
+    EXPECT_FLOAT_EQ(label->layout_rect.w, 55.0f);
+    EXPECT_FLOAT_EQ(label->layout_rect.h, 10.0f);
+}
+
+TEST(UiTextWrapLayout, NewlineUsesLineHeight) {
+    MeasuringPainter painter;
+    const auto doc = laid_out(R"(<Canvas><Label class="t" text="ab&#10;cde"/></Canvas>)",
+            ".t { font-size: 10; line-height: 1.5; }", 400.0f, &painter);
+    const engine::ui::Element* label = find_class(doc.root, "t");
+    ASSERT_NE(label, nullptr);
+    EXPECT_FLOAT_EQ(label->layout_rect.w, 15.0f);
+    EXPECT_FLOAT_EQ(label->layout_rect.h, 30.0f);
+}
+
+TEST(UiTextWrapLayout, ButtonLineHeightReplacesTheRowStride) {
+    MeasuringPainter painter;
+    const auto doc = laid_out(R"(<Canvas><Button class="t" content="hello world"/></Canvas>)",
+            ".t { font-size: 10; width: 50; line-height: 1.5; }", 400.0f, &painter);
+    const engine::ui::Element* button = find_class(doc.root, "t");
+    ASSERT_NE(button, nullptr);
+    EXPECT_FLOAT_EQ(button->layout_rect.w, 50.0f);
+    EXPECT_FLOAT_EQ(button->layout_rect.h, 30.0f);
+}
+
+TEST(UiTextWrapLayout, PainterLessLayoutHonorsExplicitLineHeight) {
+    const auto doc = laid_out(kWrapXml, ".box { width: 50; } .t { font-size: 10; line-height: 1.5; }", 400.0f, nullptr);
+    const engine::ui::Element* label = find_class(doc.root, "t");
+    ASSERT_NE(label, nullptr);
+    EXPECT_FLOAT_EQ(label->layout_rect.w, 25.0f);
+    EXPECT_FLOAT_EQ(label->layout_rect.h, 30.0f);
+}
+
 TEST(UiTextWrapLayout, WrappedRowsAreMemoizedPerWidth) {
     CountingPainter painter;
     auto parsed = engine::ui::parse_xml(kWrapXml);
@@ -316,6 +426,30 @@ TEST(UiTextWrapLayout, WrappedRowsAreMemoizedPerWidth) {
     box.children.front().text = "hello brave new world";
     engine::ui::layout(*parsed, canvas, &painter);
     EXPECT_EQ(painter.break_calls, 2);
+    engine::ui::layout(*parsed, canvas, &painter);
+    EXPECT_EQ(painter.break_calls, 2);
+}
+
+TEST(UiTextWrapLayout, LineHeightChangeRebreaks) {
+    CountingPainter painter;
+    auto parsed = engine::ui::parse_xml(kWrapXml);
+    ASSERT_TRUE(parsed.has_value());
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css(".box { width: 50; } .t { font-size: 10; }", warnings);
+    ASSERT_TRUE(sheet.has_value());
+    const engine::render::Rect canvas{0.0f, 0.0f, 400.0f, 400.0f};
+    engine::ui::apply_layout_style(parsed->root, &*sheet, 400.0f, 400.0f);
+    engine::ui::layout(*parsed, canvas, &painter);
+    EXPECT_EQ(painter.break_calls, 1);
+
+    const auto taller = engine::ui::parse_css(".box { width: 50; } .t { font-size: 10; line-height: 1.5; }", warnings);
+    ASSERT_TRUE(taller.has_value());
+    engine::ui::apply_layout_style(parsed->root, &*taller, 400.0f, 400.0f);
+    engine::ui::layout(*parsed, canvas, &painter);
+    EXPECT_EQ(painter.break_calls, 2);
+    const engine::ui::Element* label = find_class(parsed->root, "t");
+    ASSERT_NE(label, nullptr);
+    EXPECT_FLOAT_EQ(label->layout_rect.h, 30.0f);
     engine::ui::layout(*parsed, canvas, &painter);
     EXPECT_EQ(painter.break_calls, 2);
 }
