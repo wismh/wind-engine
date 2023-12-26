@@ -18,7 +18,7 @@ Read-only. Writes `asset_ids.h` and `catalog.toml` into `output_dir`. Game mode:
 
 CMake: engine builtins and `engine_add_game` both depend on this executable + a glob of asset files (`CONFIGURE_DEPENDS` so new files retrigger).
 
-Failure modes: missing `.meta`, bad GUID, collision, IO. Non-zero exit fails the build.
+Failure modes: missing `.meta`, bad GUID, collision, IO, a `.strings` table that does not parse, not exactly one `source = true` among string tables, a UI `{tr}` key absent from that source table. Non-zero exit fails the build.
 
 For `importer = "ui"` XML, also scans `{binding}` paths ([[src.ui.bind_scan.h]]) and emits a binder struct (e.g. `Hud::bind(vm)`) plus one `constexpr BindingId` per path into the same header. Two paths hashing to the same `BindingId` fails codegen (`CodegenErrorKind::Collision`). Does not generate `ViewModel` classes or `Bindable<T>` fields — those stay hand-written; the game calls the generated `bind(vm)` from its own `ViewModel` constructor.
 

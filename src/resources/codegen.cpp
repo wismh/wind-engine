@@ -1,3 +1,4 @@
+#include <engine/loc/catalog.h>
 #include <engine/resources/meta.h>
 #include <engine/ui/binding_id.h>
 #include <engine/ui/document.h>
@@ -101,6 +102,36 @@ std::string nested_binder_name(const std::string& items_path) {
     return binder_struct_name(items_path);
 }
 
+void collect_tr_keys(const ui::Element& element, const std::string& relative,
+        std::vector<std::pair<std::string, std::string>>& out) {
+    if (!element.tr_key.empty()) {
+        out.emplace_back(relative, element.tr_key);
+    }
+    for (const ui::Element& child : element.children) {
+        collect_tr_keys(child, relative, out);
+    }
+}
+
+std::expected<void, CodegenError> check_string_tables(bool any_strings, int source_count,
+        const std::unordered_set<std::string>& source_keys,
+        const std::vector<std::pair<std::string, std::string>>& tr_refs) {
+    if (any_strings && source_count != 1) {
+        return std::unexpected(CodegenError{CodegenErrorKind::Strings,
+                "string tables need exactly one source = true"});
+    }
+    if (!tr_refs.empty() && source_count != 1) {
+        return std::unexpected(CodegenError{CodegenErrorKind::Strings,
+                tr_refs.front().first + " uses {tr} but there is no source string table"});
+    }
+    for (const auto& [relative, key] : tr_refs) {
+        if (!source_keys.contains(key)) {
+            return std::unexpected(CodegenError{CodegenErrorKind::Strings,
+                    relative + " {tr} key \"" + key + "\" is missing from the source string table"});
+        }
+    }
+    return {};
+}
+
 std::string ui_markup_message(const std::string& relative, ui::UiError err) {
     std::string msg = "invalid UI markup in " + relative;
     switch (err) {
@@ -109,6 +140,9 @@ std::string ui_markup_message(const std::string& relative, ui::UiError err) {
             break;
         case ui::UiError::MissingBinding:
             msg += " (empty or invalid binding)";
+            break;
+        case ui::UiError::MissingString:
+            msg += " (missing string key)";
             break;
         case ui::UiError::ForbiddenContent:
             msg += " (forbidden content)";
@@ -235,6 +269,10 @@ std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::p
     }
     std::vector<EmittedId> ids;
     std::unordered_map<std::uint32_t, std::string> interned_paths;
+    bool any_strings = false;
+    int source_count = 0;
+    std::unordered_set<std::string> source_keys;
+    std::vector<std::pair<std::string, std::string>> tr_refs;
 
     std::error_code iter_ec;
     const auto options = std::filesystem::directory_options::skip_permission_denied;
@@ -304,6 +342,33 @@ std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::p
                 return std::unexpected(std::move(noted.error()));
             }
             ui_binder = std::move(*binds);
+
+            auto document = ui::parse_xml(xml_text, nullptr, nullptr, resolve_include);
+            if (!document) {
+                return std::unexpected(
+                        CodegenError{CodegenErrorKind::UiMarkup, ui_markup_message(relative, document.error())});
+            }
+            collect_tr_keys(document->root, relative, tr_refs);
+        }
+
+        if (parsed->importer == ImporterKind::Strings) {
+            std::ifstream strings_in(file);
+            if (!strings_in) {
+                return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to read " + file.generic_string()});
+            }
+            const std::string body((std::istreambuf_iterator<char>(strings_in)), std::istreambuf_iterator<char>());
+            auto table = loc::parse_string_table(body);
+            if (!table) {
+                return std::unexpected(CodegenError{CodegenErrorKind::Strings, relative + ": " + table.error().detail});
+            }
+            any_strings = true;
+            if (parsed->strings_source) {
+                ++source_count;
+                for (const auto& [id, pattern] : table->messages) {
+                    (void)pattern;
+                    source_keys.insert(id);
+                }
+            }
         }
 
         CatalogEntry catalog_entry;
@@ -314,6 +379,10 @@ std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::p
         catalog_entry.texture = parsed->texture;
         output.catalog.add(std::move(catalog_entry));
         ids.push_back(EmittedId{identifier_from_path(relative), parsed->guid, std::move(ui_binder)});
+    }
+
+    if (auto checked = check_string_tables(any_strings, source_count, source_keys, tr_refs); !checked) {
+        return std::unexpected(std::move(checked.error()));
     }
 
     std::sort(ids.begin(), ids.end(),

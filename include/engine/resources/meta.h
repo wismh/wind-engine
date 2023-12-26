@@ -33,6 +33,7 @@ enum class ImporterKind {
     Ui,
     Css,
     Animation,
+    Strings,
 };
 
 enum class ColorSpace {
@@ -102,6 +103,9 @@ struct AssetMeta {
     ImporterKind importer = ImporterKind::Texture;
     TextureImportSettings texture;
     AudioImportSettings audio;
+    // importer = "strings" only. Exactly one strings asset in a tree is the key authority
+    // (`source = true`); codegen fails the build when that is not true and UI uses `{tr}`.
+    bool strings_source = false;
 };
 
 struct CatalogEntry {
@@ -139,6 +143,7 @@ enum class CodegenErrorKind {
     InvalidMeta,
     Io,
     UiMarkup,
+    Strings,
 };
 
 struct CodegenError {
