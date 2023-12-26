@@ -28,6 +28,11 @@ public:
         painter_.stroke_rounded_rect(map(rect), radius * scale_, width * scale_, color);
     }
 
+    void arc(glm::vec2 center, float radius, float start_angle, float end_angle, glm::vec4 color,
+            float width) override {
+        painter_.stroke_arc(map(center), radius * scale_, start_angle, end_angle, width * scale_, color);
+    }
+
     void set_font(AssetId font, float size) override {
         painter_.set_font(font, size * scale_);
     }
