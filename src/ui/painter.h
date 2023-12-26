@@ -7,6 +7,8 @@
 #include <engine/ui/document.h>
 #include <engine/ui/stylesheet.h>
 
+#include "ui/text_wrap.h"
+
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
 
@@ -82,6 +84,9 @@ public:
     virtual void image_repeat(AssetId texture, const render::Rect& rect) = 0;
     virtual void image_nine_slice(AssetId texture, const render::Rect& rect, const BoxInsets& insets) = 0;
     [[nodiscard]] virtual glm::vec2 measure_text(std::string_view text, AssetId font, float size) = 0;
+    // Breaks `text` into rows no wider than `max_width` at `font`/`size` (see break_text_lines). The default wraps
+    // through measure_text, so a painter only overrides it to use its own shaper's line breaker.
+    [[nodiscard]] virtual TextBlock break_lines(std::string_view text, AssetId font, float size, float max_width);
 };
 
 struct UiPaintInput {
@@ -104,6 +109,14 @@ void apply_layout_style(
         Element& root, const Stylesheet* sheet, float window_width = 0.0f, float window_height = 0.0f);
 void layout(UiDocument& document, const render::Rect& canvas_rect, IUiPainter* painter);
 void paint_document(UiDocument& document, const Stylesheet* stylesheet, IUiPainter& painter, const UiPaintInput& input);
+
+// The rows a Label/Button's text is drawn in when it wraps (`white-space: normal`) at `content_width` (design
+// pixels, the laid-out content box), or nullptr when it is one row and is drawn as a whole. Reuses the rows layout
+// already broke the text into, so paint and the height layout reserved cannot disagree; rows broken at a width at
+// least `content_width` that still fit it are the same rows. The pointer is into `element`'s wrap cache and lives
+// until the element is next measured.
+[[nodiscard]] const TextBlock* wrapped_text_rows(
+        const Element& element, IUiPainter& painter, float font_size, float content_width);
 
 // wind-129 layout dirty-gate (document.cpp): true if any layout-relevant field changed anywhere in
 // `element`'s subtree (text, custom_properties, or ItemsControl generated_owner sequence) since the

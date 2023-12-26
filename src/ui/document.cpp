@@ -12,6 +12,7 @@
 #include <limits>
 #include <optional>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace engine::ui {
@@ -19,11 +20,14 @@ namespace {
 
 constexpr float kDefaultImageSize = 32.0f;
 constexpr float kDefaultCheckboxSize = 20.0f;
+// avail_x for a box whose container has no definite width (a hug-sized ancestor): nothing to wrap against.
+constexpr float kUnboundedWidth = std::numeric_limits<float>::infinity();
 
 void layout_element(Element& element, const render::Rect& box, IUiPainter* painter, glm::vec2 parent_content,
         const render::Rect& containing_block);
 void layout_absolute(Element& element, const render::Rect& containing_block, IUiPainter* painter);
-[[nodiscard]] glm::vec2 compute_used(const Element& element, IUiPainter* painter, glm::vec2 parent_content);
+[[nodiscard]] glm::vec2 compute_used(
+        const Element& element, IUiPainter* painter, glm::vec2 parent_content, float avail_x);
 
 // position: relative never reflows siblings (they already packed/cursor'd against the
 // pre-offset size) - it only nudges this element's own already-placed layout_rect.
@@ -54,6 +58,7 @@ struct ResolvedBox {
     std::optional<float> width;
     std::optional<float> height;
     std::optional<float> min_width;
+    std::optional<float> max_width;
     std::optional<float> min_height;
     float font_size = kDefaultFontSize;
 };
@@ -83,6 +88,9 @@ struct ResolvedBox {
     if (element.min_width) {
         box.min_width = resolve_length(*element.min_width, parent_content.x, box.font_size);
     }
+    if (element.max_width) {
+        box.max_width = resolve_length(*element.max_width, parent_content.x, box.font_size);
+    }
     if (element.min_height) {
         box.min_height = resolve_length(*element.min_height, parent_content.y, box.font_size);
     }
@@ -109,6 +117,25 @@ struct ResolvedBox {
     return {static_cast<float>(text.size()) * size * 0.5f, size};
 }
 
+// Width the element's border box may take. `avail_x` is what its container can give it (kUnboundedWidth when
+// unknown): an explicit width wins, else the container's width less the margins, then max-width caps it and
+// min-width lifts it (CSS order). Infinite when nothing bounds it.
+[[nodiscard]] float outer_width_limit(const ResolvedBox& box, float avail_x) {
+    float outer = box.width ? *box.width : avail_x - box.margin.left - box.margin.right;
+    if (box.max_width) {
+        outer = std::min(outer, *box.max_width);
+    }
+    if (box.min_width) {
+        outer = std::max(outer, *box.min_width);
+    }
+    return std::max(0.0f, outer);
+}
+
+// Width left for the element's content (what text wraps at, and what its children may use).
+[[nodiscard]] float content_width_limit(const ResolvedBox& box, float avail_x) {
+    return std::max(0.0f, outer_width_limit(box, avail_x) - box.padding.left - box.padding.right);
+}
+
 // Memoized on `element` (see Element::text_measure_cache_* in document.h): a reconciled
 // ItemsControl-generated Element keeps its identity across frames, so an unchanged row's text is
 // shaped once instead of every layout(). Only the real-painter path is cached — the
@@ -133,6 +160,53 @@ struct ResolvedBox {
     return fallback_measure_text(element.text, font_size);
 }
 
+// Label/Button text size when it may wrap (`white-space: normal`) at `wrap_width` (kUnboundedWidth = never by
+// width). Text that fits on one line and has no newline takes the single-line path above, so unwrapped labels cost
+// what they always did. Otherwise the rows come from IUiPainter::break_lines, memoized on `element` per width; the
+// painter-less layout breaks with the same rules over the rough per-character width.
+[[nodiscard]] glm::vec2 measure_element_text(
+        const Element& element, IUiPainter* painter, float font_size, float wrap_width) {
+    const glm::vec2 single = measure_element_text(element, painter, font_size);
+    if (element.white_space != WhiteSpace::Normal || element.text.empty()) {
+        return single;
+    }
+    if (single.x <= wrap_width && element.text.find('\n') == std::string::npos) {
+        return single;
+    }
+    const auto size_of = [](const TextBlock& block, glm::vec2 fallback) {
+        if (block.lines.empty()) {
+            return fallback;
+        }
+        float widest = 0.0f;
+        for (const TextLine& line : block.lines) {
+            widest = std::max(widest, line.width);
+        }
+        return glm::vec2{widest, static_cast<float>(block.lines.size()) * block.line_height};
+    };
+    if (painter == nullptr) {
+        TextBlock block;
+        block.line_height = font_size;
+        block.lines = break_text_lines(element.text, wrap_width,
+                [font_size](std::string_view slice) { return fallback_measure_text(slice, font_size).x; });
+        return size_of(block, single);
+    }
+    if (element.text_wrap_cache_valid && element.text_wrap_cache_width == wrap_width &&
+            element.text_wrap_cache_font_size == font_size &&
+            element.text_wrap_cache_font_family == element.font_family && element.text_wrap_cache_text == element.text) {
+        return element.text_wrap_cache_result;
+    }
+    TextBlock block = painter->break_lines(element.text, element.font_family, font_size, wrap_width);
+    const glm::vec2 result = size_of(block, single);
+    element.text_wrap_cache_text = element.text;
+    element.text_wrap_cache_font_family = element.font_family;
+    element.text_wrap_cache_font_size = font_size;
+    element.text_wrap_cache_width = wrap_width;
+    element.text_wrap_cache_block = std::move(block);
+    element.text_wrap_cache_result = result;
+    element.text_wrap_cache_valid = true;
+    return result;
+}
+
 // A Math element's formula size. Needs the painter's math font (glyph metrics, no GPU); without one — the
 // painter-less layout used by tests, or a window whose font has not been registered yet — it is a rough
 // text-like size, and the layout dirty-gate (UiDocument::last_layout_math_font) relays out once the font arrives.
@@ -146,8 +220,13 @@ struct ResolvedBox {
     return fallback_measure_text(element.text, font_size);
 }
 
-[[nodiscard]] float clamp_axis(std::optional<float> specified, std::optional<float> min_size, float hug) {
+// CSS order: max-width caps first, then min-width wins over it.
+[[nodiscard]] float clamp_axis(std::optional<float> specified, std::optional<float> min_size,
+        std::optional<float> max_size, float hug) {
     float value = specified.value_or(hug);
+    if (max_size) {
+        value = std::min(value, *max_size);
+    }
     if (min_size) {
         value = std::max(value, *min_size);
     }
@@ -172,10 +251,13 @@ void collect_layout_children(ElementT& element, std::vector<Out*>& children) {
     }
 }
 
-[[nodiscard]] glm::vec2 intrinsic_size(const Element& element, IUiPainter* painter, glm::vec2 parent_content) {
+// `avail_x` is the width the element's container can offer it (see outer_width_limit); only wrapping text reads it.
+[[nodiscard]] glm::vec2 intrinsic_size(
+        const Element& element, IUiPainter* painter, glm::vec2 parent_content, float avail_x) {
     const ResolvedBox box = resolve_box(element, parent_content);
     if (element.kind == ElementKind::Label || element.kind == ElementKind::Button) {
-        const glm::vec2 text = measure_element_text(element, painter, box.font_size);
+        const glm::vec2 text =
+                measure_element_text(element, painter, box.font_size, content_width_limit(box, avail_x));
         return {
                 box.padding.left + text.x + box.padding.right,
                 box.padding.top + text.y + box.padding.bottom,
@@ -220,6 +302,7 @@ void collect_layout_children(ElementT& element, std::vector<Out*>& children) {
     }
 
     const glm::vec2 child_basis = content_basis(box);
+    const float child_avail_x = content_width_limit(box, avail_x);
     std::vector<const Element*> children;
     collect_layout_children(element, children);
     float main = 0.0f;
@@ -227,7 +310,7 @@ void collect_layout_children(ElementT& element, std::vector<Out*>& children) {
     for (std::size_t i = 0; i < children.size(); ++i) {
         const Element& child = *children[i];
         const ResolvedBox child_box = resolve_box(child, child_basis);
-        const glm::vec2 used = compute_used(child, painter, child_basis);
+        const glm::vec2 used = compute_used(child, painter, child_basis, child_avail_x);
         if (element.direction == StackDirection::Horizontal) {
             main += child_box.margin.left + used.x + child_box.margin.right;
             cross = std::max(cross, child_box.margin.top + used.y + child_box.margin.bottom);
@@ -251,12 +334,12 @@ void collect_layout_children(ElementT& element, std::vector<Out*>& children) {
     };
 }
 
-glm::vec2 compute_used(const Element& element, IUiPainter* painter, glm::vec2 parent_content) {
+glm::vec2 compute_used(const Element& element, IUiPainter* painter, glm::vec2 parent_content, float avail_x) {
     const ResolvedBox box = resolve_box(element, parent_content);
-    const glm::vec2 hug = intrinsic_size(element, painter, parent_content);
+    const glm::vec2 hug = intrinsic_size(element, painter, parent_content, avail_x);
     return {
-            clamp_axis(box.width, box.min_width, hug.x),
-            clamp_axis(box.height, box.min_height, hug.y),
+            clamp_axis(box.width, box.min_width, box.max_width, hug.x),
+            clamp_axis(box.height, box.min_height, std::nullopt, hug.y),
     };
 }
 
@@ -285,7 +368,16 @@ void layout_absolute(Element& element, const render::Rect& containing_block, IUi
         bottom = resolve_length(*element.inset_bottom, basis.y, box.font_size);
     }
 
-    glm::vec2 used = compute_used(element, painter, basis);
+    // Shrink-to-fit against the containing block, less whichever insets are set; both insets and no width stretch
+    // (below), so text wraps at the stretched width the height is measured for.
+    float avail_x = containing_block.w;
+    if (left) {
+        avail_x -= *left;
+    }
+    if (right) {
+        avail_x -= *right;
+    }
+    glm::vec2 used = compute_used(element, painter, basis, std::max(0.0f, avail_x));
     if (!box.width && left && right) {
         used.x = std::max(0.0f, containing_block.w - *left - *right);
     }
@@ -342,7 +434,8 @@ void layout_stack(Element& element, const render::Rect& allocated, IUiPainter* p
         std::vector<FlowMetrics> metrics;
         metrics.reserve(flow.size());
         for (Element* child : flow) {
-            metrics.push_back({resolve_box(*child, child_basis), compute_used(*child, painter, child_basis)});
+            metrics.push_back(
+                    {resolve_box(*child, child_basis), compute_used(*child, painter, child_basis, child_basis.x)});
         }
 
         float packed = 0.0f;
@@ -462,7 +555,7 @@ void layout_element(Element& element, const render::Rect& box, IUiPainter* paint
     for (Element* child_ptr : flow) {
         Element& child = *child_ptr;
         const ResolvedBox child_box = resolve_box(child, child_basis);
-        const glm::vec2 used = compute_used(child, painter, child_basis);
+        const glm::vec2 used = compute_used(child, painter, child_basis, child_basis.x);
         layout_element(child,
                 render::Rect{content.x + child_box.margin.left, content.y + child_box.margin.top, used.x, used.y},
                 painter, child_basis, child_containing_block);
@@ -917,6 +1010,29 @@ void layout(UiDocument& document, const render::Rect& canvas_rect, IUiPainter* p
 
 void layout(UiDocument& document, const render::Rect& canvas_rect) {
     layout(document, canvas_rect, nullptr);
+}
+
+const TextBlock* wrapped_text_rows(
+        const Element& element, IUiPainter& painter, float font_size, float content_width) {
+    if (element.white_space != WhiteSpace::Normal || element.text.empty()) {
+        return nullptr;
+    }
+    constexpr float kEpsilon = 0.01f;
+    const auto cache_matches_text = [&] {
+        return element.text_wrap_cache_valid && element.text_wrap_cache_font_size == font_size &&
+                element.text_wrap_cache_font_family == element.font_family &&
+                element.text_wrap_cache_text == element.text;
+    };
+    if (cache_matches_text() && element.text_wrap_cache_width >= content_width - kEpsilon &&
+            element.text_wrap_cache_result.x <= content_width + kEpsilon) {
+        return &element.text_wrap_cache_block;
+    }
+    // Measuring fills the cache when (and only when) the text needs more than one row at this width.
+    static_cast<void>(measure_element_text(element, &painter, font_size, content_width));
+    if (cache_matches_text() && element.text_wrap_cache_width == content_width) {
+        return &element.text_wrap_cache_block;
+    }
+    return nullptr;
 }
 
 render::Rect hit_bounds(const Element& element) {

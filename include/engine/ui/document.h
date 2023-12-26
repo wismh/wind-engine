@@ -8,6 +8,7 @@
 #include <engine/ui/command.h>
 #include <engine/ui/paint.h>
 #include <engine/ui/stylesheet.h>
+#include <engine/ui/text_line.h>
 #include <engine/ui/view_model.h>
 
 #include <glm/vec2.hpp>
@@ -73,6 +74,12 @@ enum class UiAlign {
     // space-between). First child flush to the start, last flush to the end, leftover space split
     // evenly between the rest. A single child behaves like Start (nothing to space against).
     SpaceBetween,
+};
+
+// `white-space` for Label/Button text. Normal wraps at the content width; NoWrap keeps one line.
+enum class WhiteSpace {
+    Normal,
+    NoWrap,
 };
 
 enum class PositionMode {
@@ -250,10 +257,12 @@ struct ComputedStyle {
     std::optional<Length> width;
     std::optional<Length> height;
     std::optional<Length> min_width;
+    std::optional<Length> max_width;
     std::optional<Length> min_height;
     UiAlign justify = UiAlign::Start;
     UiAlign align_items = UiAlign::Start;
     UiAlign text_align = UiAlign::Start;
+    WhiteSpace white_space = WhiteSpace::Normal;
     Length border_radius{};
     Length border_width{};
     glm::vec4 border_color{0.0f, 0.0f, 0.0f, 0.0f};
@@ -409,10 +418,12 @@ struct Element {
     std::optional<Length> width;
     std::optional<Length> height;
     std::optional<Length> min_width;
+    std::optional<Length> max_width;
     std::optional<Length> min_height;
     UiAlign justify = UiAlign::Start;
     UiAlign align_items = UiAlign::Start;
     UiAlign text_align = UiAlign::Start;
+    WhiteSpace white_space = WhiteSpace::Normal;
     Length font_size{kDefaultFontSize, LengthUnit::Px};
     AssetId font_family{};
     float animation_elapsed = 0.0f;
@@ -476,6 +487,19 @@ struct Element {
     mutable AssetId text_measure_cache_font_family{};
     mutable float text_measure_cache_font_size = 0.0f;
     mutable glm::vec2 text_measure_cache_result{0.0f, 0.0f};
+    // Same idea for a wrapped Label/Button (`white-space: normal`, document.cpp's measure_element_text): the rows
+    // `text` broke into at `text_wrap_cache_width` (content-box width, design pixels), and the size they make up.
+    // Keyed separately from the single-line cache above because a hug pass and the final pass of one layout()
+    // measure the same element at different widths; sharing one key would make every frame miss. Only filled for
+    // text that actually needs breaking (wider than the width, or containing a newline); never by the painter-less
+    // fallback.
+    mutable bool text_wrap_cache_valid = false;
+    mutable std::string text_wrap_cache_text;
+    mutable AssetId text_wrap_cache_font_family{};
+    mutable float text_wrap_cache_font_size = 0.0f;
+    mutable float text_wrap_cache_width = 0.0f;
+    mutable TextBlock text_wrap_cache_block;
+    mutable glm::vec2 text_wrap_cache_result{0.0f, 0.0f};
 
     // Math only: `display="true"` asks for display style (larger fractions, operator limits above and below);
     // false is text style. The formula source lives in `text` (`formula="..."` or `formula="{binding}"`), so
