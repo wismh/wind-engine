@@ -299,6 +299,10 @@ UiAlign parse_align(std::string_view raw) {
     return UiAlign::Start;
 }
 
+WhiteSpace parse_white_space(std::string_view raw) {
+    return trim(raw) == "nowrap" ? WhiteSpace::NoWrap : WhiteSpace::Normal;
+}
+
 UiAlign parse_text_align(std::string_view raw) {
     const std::string_view value = trim(raw);
     if (value == "center") {
@@ -569,6 +573,8 @@ void apply_declaration(ComputedStyle& style, const CssDeclaration& decl) {
         style.height = css_length::parse_length(decl.value);
     } else if (decl.property == "min-width") {
         style.min_width = css_length::parse_length(decl.value);
+    } else if (decl.property == "max-width") {
+        style.max_width = css_length::parse_length(decl.value);
     } else if (decl.property == "min-height") {
         style.min_height = css_length::parse_length(decl.value);
     } else if (decl.property == "justify-content") {
@@ -577,6 +583,8 @@ void apply_declaration(ComputedStyle& style, const CssDeclaration& decl) {
         style.align_items = parse_align(decl.value);
     } else if (decl.property == "text-align") {
         style.text_align = parse_text_align(decl.value);
+    } else if (decl.property == "white-space") {
+        style.white_space = parse_white_space(decl.value);
     } else if (decl.property == "border-radius") {
         if (const auto radius = css_length::parse_length(decl.value)) {
             style.border_radius = *radius;
@@ -1018,10 +1026,12 @@ void apply_layout_style(Element& element, const Stylesheet* sheet, std::vector<c
     element.width = style.width;
     element.height = style.height;
     element.min_width = style.min_width;
+    element.max_width = style.max_width;
     element.min_height = style.min_height;
     element.justify = style.justify;
     element.align_items = style.align_items;
     element.text_align = style.text_align;
+    element.white_space = style.white_space;
     element.font_size = style.font_size;
     element.font_family = style.font_family;
     element.z_index = style.z_index;
@@ -1224,7 +1234,33 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
         } else if (style.align_items == UiAlign::End) {
             y = content.y + content.h;
         }
-        if (!element.text.empty()) {
+        const TextBlock* rows = nullptr;
+        if ((element.kind == ElementKind::Label || element.kind == ElementKind::Button) && !element.text.empty()) {
+            const float content_width = std::max(0.0f, element.layout_rect.w - padding.left - padding.right);
+            rows = wrapped_text_rows(element, painter, font_size, content_width);
+        }
+        if (rows != nullptr) {
+            // One fill_text per row, top-aligned, stacked from where align-items puts the whole block. Rows are
+            // the ones layout broke at design size, so a scaled font cannot re-break them differently.
+            const float row_h = rows->line_height * input.ui_scale;
+            const float block_h = row_h * static_cast<float>(rows->lines.size());
+            float top = content.y;
+            if (style.align_items == UiAlign::Center) {
+                top = content.y + (content.h - block_h) * 0.5f;
+            } else if (style.align_items == UiAlign::End) {
+                top = content.y + content.h - block_h;
+            }
+            top = std::max(top, content.y);
+            for (std::size_t i = 0; i < rows->lines.size(); ++i) {
+                const TextLine& line = rows->lines[i];
+                if (line.begin == line.end) {
+                    continue;
+                }
+                painter.fill_text(std::string_view(element.text).substr(line.begin, line.end - line.begin),
+                        glm::vec2{x, top + static_cast<float>(i) * row_h}, style.color, style.text_align,
+                        UiAlign::Start);
+            }
+        } else if (!element.text.empty()) {
             painter.fill_text(element.text, glm::vec2{x, y}, style.color, style.text_align, style.align_items);
         }
         if (element.kind == ElementKind::TextInput) {
