@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <expected>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -48,6 +49,7 @@ enum class ElementKind {
     TextInput,
     ScrollView,
     Checkbox,
+    Math,
 };
 
 enum class Overflow {
@@ -475,6 +477,16 @@ struct Element {
     mutable float text_measure_cache_font_size = 0.0f;
     mutable glm::vec2 text_measure_cache_result{0.0f, 0.0f};
 
+    // Math only: `display="true"` asks for display style (larger fractions, operator limits above and below);
+    // false is text style. The formula source lives in `text` (`formula="..."` or `formula="{binding}"`), so
+    // the layout dirty-gate that already compares `text` covers it.
+    bool math_display = false;
+    // Math only: the laid-out formula, keyed by (text, font size, display, font). Opaque because the concrete
+    // type lives in the private src/ui/math code — a public header cannot name it. A `shared_ptr<void>` keeps
+    // the right deleter; a cache entry is never mutated, only replaced, so Elements cloned from one template
+    // (which copy this pointer) can share it safely.
+    mutable std::shared_ptr<void> math_cache;
+
     // Memoizes compute_style() (paint.cpp), one slot per allow_pseudo variant — see
     // StyleCacheEntry's comment above for what invalidates a hit. `mutable` for the same reason as
     // the text-measure cache: compute_style() takes `const Element&`, and reconciled
@@ -577,6 +589,9 @@ struct UiDocument {
     // registered" result, so a document laid out once with the fallback and then again once a real
     // painter registers doesn't spuriously look unchanged.
     mutable const void* last_layout_painter = nullptr;
+    // Same idea for the painter's math font: a Math element measured before the font is registered gets a
+    // fallback size, and nothing else would trigger a relayout once the real font arrives.
+    mutable const void* last_layout_math_font = nullptr;
 };
 
 struct UiInstance {

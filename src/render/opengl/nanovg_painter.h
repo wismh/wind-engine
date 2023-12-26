@@ -24,6 +24,7 @@ public:
     [[nodiscard]] bool add_font(AssetId id, const Font& font);
     [[nodiscard]] bool add_image(AssetId id, const TextureDesc& desc);
     void destroy();
+    [[nodiscard]] const ui::math::MathFont* math_font() const override;
     void begin_frame(float width, float height, float pixel_ratio = 1.0f);
     void end_frame();
 
@@ -39,6 +40,7 @@ public:
     void draw_line(glm::vec2 from, glm::vec2 to, glm::vec4 color, float width) override;
     void stroke_arc(glm::vec2 center, float radius, float start_angle, float end_angle, float width,
             glm::vec4 color) override;
+    void fill_path(std::span<const ui::PathSegment> path, glm::vec4 color) override;
     void set_font(AssetId font, float size) override;
     void fill_text(std::string_view text, glm::vec2 position, glm::vec4 color, ui::UiAlign horizontal,
             ui::UiAlign vertical) override;
