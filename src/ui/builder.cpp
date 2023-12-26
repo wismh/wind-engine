@@ -70,6 +70,21 @@ Node& Node::content_bind(BindingId id) {
     return *this;
 }
 
+Node& Node::formula(std::string_view value) {
+    element_.text = std::string(value);
+    return *this;
+}
+
+Node& Node::formula_bind(BindingId id) {
+    element_.text_binding = id;
+    return *this;
+}
+
+Node& Node::math_display(bool value) {
+    element_.math_display = value;
+    return *this;
+}
+
 Node& Node::command_bind(BindingId id) {
     element_.command_binding = id;
     return *this;
@@ -260,6 +275,10 @@ Node scroll_view() {
 
 Node checkbox() {
     return Node(ElementKind::Checkbox);
+}
+
+Node math_formula() {
+    return Node(ElementKind::Math);
 }
 
 std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal) {
