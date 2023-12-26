@@ -1,6 +1,7 @@
 #include <engine/ui/document.h>
 
 #include "ui/bind_scan.h"
+#include "ui/tr_attr.h"
 #include "ui/css_length.h"
 
 #include <tinyxml2.h>
@@ -142,6 +143,36 @@ std::expected<void, UiError> assign_property_binding(BindingId& dest, std::strin
         return std::unexpected(UiError::MissingBinding);
     }
     return {};
+}
+
+// `text` / `content` share one resolved string. `{tr}` wins for the whole element: it clears both
+// bindings. A later literal or `{binding}` on the other attribute clears the `{tr}` (last attribute
+// wins, same as the two attributes already overwriting `text`). `formula` rejects `{tr}`.
+std::expected<void, UiError> assign_text_attribute(Element& element, BindingId& dest, const char* attr, bool allow_tr,
+        IFatalError* fatal, const ViewModel* vm, bool in_template) {
+    if (attr == nullptr) {
+        return {};
+    }
+    const TrParse parsed = parse_tr_attribute(attr);
+    if (parsed.kind == TrParse::Kind::Error) {
+        report(fatal, parsed.message);
+        return std::unexpected(UiError::InvalidMarkup);
+    }
+    if (parsed.kind == TrParse::Kind::Ok) {
+        if (!allow_tr) {
+            report(fatal, "UI formula cannot be a {tr} key");
+            return std::unexpected(UiError::InvalidMarkup);
+        }
+        element.text.clear();
+        element.text_binding = {};
+        element.content_binding = {};
+        element.tr_key = parsed.key;
+        element.tr_args = parsed.args;
+        return {};
+    }
+    element.tr_key.clear();
+    element.tr_args.clear();
+    return assign_property_binding(dest, element.text, attr, fatal, vm, in_template);
 }
 
 std::expected<void, UiError> assign_command_binding(Element& element, const char* attr, IFatalError* fatal,
@@ -394,20 +425,20 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
         element.overflow_y = *ov;
     }
 
-    if (auto result = assign_property_binding(element.text_binding, element.text, xml->Attribute("text"), fatal, vm,
+    if (auto result = assign_text_attribute(element, element.text_binding, xml->Attribute("text"), true, fatal, vm,
                 in_template);
             !result) {
         return std::unexpected(result.error());
     }
-    if (auto result = assign_property_binding(element.content_binding, element.text, xml->Attribute("content"), fatal, vm,
+    if (auto result = assign_text_attribute(element, element.content_binding, xml->Attribute("content"), true, fatal, vm,
                 in_template);
             !result) {
         return std::unexpected(result.error());
     }
     if (element.kind == ElementKind::Math) {
         // The formula source rides the same text/binding plumbing as a Label's text, so the layout dirty-gate
-        // that already compares `text` covers it.
-        if (auto result = assign_property_binding(element.text_binding, element.text, xml->Attribute("formula"), fatal,
+        // that already compares `text` covers it. A formula is notation, not a translated string.
+        if (auto result = assign_text_attribute(element, element.text_binding, xml->Attribute("formula"), false, fatal,
                     vm, in_template);
                 !result) {
             return std::unexpected(result.error());

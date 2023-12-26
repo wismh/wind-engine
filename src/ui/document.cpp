@@ -3,14 +3,17 @@
 #include "painter.h"
 #include "math/math_element.h"
 
+#include <engine/loc/catalog.h>
 #include <engine/ui/canvas.h>  // rect_contains
 
 #include <glm/vec2.hpp>
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <optional>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -568,8 +571,24 @@ void layout_element(Element& element, const render::Rect& box, IUiPainter* paint
     }
 }
 
+std::int64_t tr_number(float n) {
+    if (!std::isfinite(n)) {
+        return 0;
+    }
+    // 2^53 is a power of two, so float can hold it, and it still fits in int64. Counts past it are
+    // not meaningful plurals; clamping keeps the cast defined.
+    constexpr float kLimit = 9007199254740992.f;
+    if (n >= kLimit) {
+        return static_cast<std::int64_t>(kLimit);
+    }
+    if (n <= -kLimit) {
+        return -static_cast<std::int64_t>(kLimit);
+    }
+    return static_cast<std::int64_t>(n);
+}
+
 std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFatalError* fatal, bool in_template,
-        const Element* scroll_context = nullptr) {
+        const Element* scroll_context, const engine::loc::Catalog* catalog) {
     const auto require_property = [&](BindingId binding) -> std::expected<void, UiError> {
         if (!is_bound(binding)) {
             return {};
@@ -615,6 +634,13 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
             return result;
         }
     }
+    if (!in_template) {
+        for (const TrArg& arg : element.tr_args) {
+            if (auto result = require_property(arg.binding); !result) {
+                return result;
+            }
+        }
+    }
 
     if (is_bound(element.command_binding) && !in_template) {
         ICommand* command = vm.find_command(element.command_binding);
@@ -647,6 +673,34 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
     if (is_bound(element.content_binding)) {
         if (auto value = vm.read_property_string(element.content_binding)) {
             element.text = *value;
+        }
+    }
+    if (!element.tr_key.empty() && !in_template) {
+        if (catalog == nullptr) {
+            element.text = element.tr_key;
+            if (fatal != nullptr) {
+                fatal->report("missing string key \"" + element.tr_key + "\"");
+                return std::unexpected(UiError::MissingString);
+            }
+        } else {
+            std::vector<std::string> held;
+            std::vector<engine::loc::Arg> args;
+            held.reserve(element.tr_args.size());
+            args.reserve(element.tr_args.size());
+            for (const TrArg& arg : element.tr_args) {
+                if (const auto number = vm.read_property_float(arg.binding)) {
+                    args.push_back(engine::loc::Arg{arg.name, tr_number(*number)});
+                } else if (auto text = vm.read_property_string(arg.binding)) {
+                    held.push_back(std::move(*text));
+                    args.push_back(engine::loc::Arg{arg.name, std::string_view{held.back()}});
+                }
+            }
+            const engine::loc::Translated translated = catalog->text(element.tr_key, args);
+            element.text = translated.text;
+            if (translated.missing_from_source && fatal != nullptr) {
+                fatal->report("missing string key \"" + element.tr_key + "\"");
+                return std::unexpected(UiError::MissingString);
+            }
         }
     }
     if (is_bound(element.source_binding) && !in_template) {
@@ -703,7 +757,7 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
         if (element.generated_owner != nullptr && child.generated_owner == nullptr) {
             child.generated_owner = element.generated_owner;
         }
-        if (auto result = bind_element(child, vm, fatal, nested_template, child_scroll_context); !result) {
+        if (auto result = bind_element(child, vm, fatal, nested_template, child_scroll_context, catalog); !result) {
             return result;
         }
     }
@@ -887,7 +941,8 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
                 if (const auto reused = previous_by_owner.find(item);
                         reused != previous_by_owner.end() && reused->second.size() == expected_count) {
                     for (Element& clone : reused->second) {
-                        if (auto result = bind_element(clone, *item, fatal, false, child_scroll_context); !result) {
+                        if (auto result = bind_element(clone, *item, fatal, false, child_scroll_context, catalog);
+                                    !result) {
                             return result;
                         }
                         element.generated_items.push_back(std::move(clone));
@@ -900,7 +955,7 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
                     clone.kind = ElementKind::Stack;
                     clone.children.clear();
                     clone.generated_owner = item;
-                    if (auto result = bind_element(clone, *item, fatal, false, child_scroll_context); !result) {
+                    if (auto result = bind_element(clone, *item, fatal, false, child_scroll_context, catalog); !result) {
                         return result;
                     }
                     element.generated_items.push_back(std::move(clone));
@@ -910,7 +965,7 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
                     Element clone = node;
                     clone.generated_items.clear();
                     clone.generated_owner = item;
-                    if (auto result = bind_element(clone, *item, fatal, false, child_scroll_context); !result) {
+                    if (auto result = bind_element(clone, *item, fatal, false, child_scroll_context, catalog); !result) {
                         return result;
                     }
                     element.generated_items.push_back(std::move(clone));
@@ -1002,8 +1057,9 @@ bool layout_state_changed(Element& element) {
     return changed;
 }
 
-std::expected<void, UiError> apply_bindings(UiDocument& document, ViewModel& data_context, IFatalError* fatal) {
-    return bind_element(document.root, data_context, fatal, false);
+std::expected<void, UiError> apply_bindings(UiDocument& document, ViewModel& data_context, IFatalError* fatal,
+        const engine::loc::Catalog* catalog) {
+    return bind_element(document.root, data_context, fatal, false, nullptr, catalog);
 }
 
 void layout(UiDocument& document, const render::Rect& canvas_rect, IUiPainter* painter) {
