@@ -10,7 +10,10 @@
 #include <nanovg.h>
 #include <nanovg_gl.h>
 
+#include "ui/math/math_font.h"
+
 #include <engine/builtin_ids.h>
+#include <engine/log.h>
 #include <engine/resources/font.h>
 
 #include <algorithm>
@@ -90,6 +93,9 @@ struct NanoVgPainter::Impl {
     std::unordered_map<std::string, ImageEntry> images;
     std::unordered_map<std::string, int> gradient_textures;
     int default_font = -1;
+    // The OpenType MATH font behind `<Math>`; parsed from the same Font bytes the engine hands to add_font,
+    // but kept out of NanoVG: formulas are drawn as glyph outlines through fill_path, never as text.
+    std::unique_ptr<ui::math::MathFont> math_font;
 };
 
 NanoVgPainter::NanoVgPainter() : impl_(std::make_unique<Impl>()) {}
@@ -112,6 +118,18 @@ bool NanoVgPainter::create() {
 bool NanoVgPainter::add_font(AssetId id, const Font& font) {
     if (impl_->vg == nullptr || font.bytes.empty()) {
         return false;
+    }
+    if (id == builtin::font_math) {
+        if (impl_->math_font != nullptr) {
+            return true;
+        }
+        auto loaded = ui::math::MathFont::load(font.bytes);
+        if (!loaded) {
+            log::error("builtin math font failed to load as an OpenType MATH font");
+            return false;
+        }
+        impl_->math_font = std::make_unique<ui::math::MathFont>(std::move(*loaded));
+        return true;
     }
     const std::string key(id.hex());
     if (impl_->fonts.contains(key)) {
@@ -175,6 +193,11 @@ void NanoVgPainter::destroy() {
     impl_->gradient_textures.clear();
     impl_->default_font = -1;
     impl_->font_blobs.clear();
+    impl_->math_font.reset();
+}
+
+const ui::math::MathFont* NanoVgPainter::math_font() const {
+    return impl_ != nullptr ? impl_->math_font.get() : nullptr;
 }
 
 void NanoVgPainter::begin_frame(float width, float height, float pixel_ratio) {
@@ -357,6 +380,85 @@ void NanoVgPainter::stroke_arc(
     nvgStrokeWidth(impl_->vg, width);
     nvgStrokeColor(impl_->vg, to_nvg(color));
     nvgStroke(impl_->vg);
+}
+
+void NanoVgPainter::fill_path(std::span<const ui::PathSegment> path, glm::vec4 color) {
+    if (impl_->vg == nullptr || path.empty()) {
+        return;
+    }
+    // NanoVG forces every sub-path to the winding it was declared with (solid = CCW by default), which would
+    // fill a glyph's counters. So hand it the real intent: contours wound like the largest one are solid, the
+    // rest are holes. Only the sign of the shoelace area matters, so control points join the polygon too.
+    struct Contour {
+        std::size_t first = 0;
+        std::size_t last = 0;  // one past the contour's final segment
+        float area = 0.0f;
+    };
+    std::vector<Contour> contours;
+    for (std::size_t i = 0; i < path.size(); ++i) {
+        if (path[i].kind == ui::PathSegment::Kind::Move) {
+            contours.push_back({i, i + 1, 0.0f});
+        } else if (!contours.empty()) {
+            contours.back().last = i + 1;
+        }
+    }
+    if (contours.empty()) {
+        return;
+    }
+    float reference = 0.0f;
+    for (Contour& contour : contours) {
+        glm::vec2 first{};
+        glm::vec2 previous{};
+        bool started = false;
+        const auto visit = [&](glm::vec2 point) {
+            if (!started) {
+                first = previous = point;
+                started = true;
+                return;
+            }
+            contour.area += previous.x * point.y - point.x * previous.y;
+            previous = point;
+        };
+        for (std::size_t i = contour.first; i < contour.last; ++i) {
+            const ui::PathSegment& seg = path[i];
+            if (seg.kind == ui::PathSegment::Kind::Quad || seg.kind == ui::PathSegment::Kind::Cubic) {
+                visit(seg.c1);
+            }
+            if (seg.kind == ui::PathSegment::Kind::Cubic) {
+                visit(seg.c2);
+            }
+            visit(seg.p);
+        }
+        contour.area += previous.x * first.y - first.x * previous.y;
+        if (std::abs(contour.area) > std::abs(reference)) {
+            reference = contour.area;
+        }
+    }
+
+    nvgBeginPath(impl_->vg);
+    for (const Contour& contour : contours) {
+        for (std::size_t i = contour.first; i < contour.last; ++i) {
+            const ui::PathSegment& seg = path[i];
+            switch (seg.kind) {
+                case ui::PathSegment::Kind::Move:
+                    nvgMoveTo(impl_->vg, seg.p.x, seg.p.y);
+                    nvgPathWinding(impl_->vg, contour.area * reference >= 0.0f ? NVG_SOLID : NVG_HOLE);
+                    break;
+                case ui::PathSegment::Kind::Line:
+                    nvgLineTo(impl_->vg, seg.p.x, seg.p.y);
+                    break;
+                case ui::PathSegment::Kind::Quad:
+                    nvgQuadTo(impl_->vg, seg.c1.x, seg.c1.y, seg.p.x, seg.p.y);
+                    break;
+                case ui::PathSegment::Kind::Cubic:
+                    nvgBezierTo(impl_->vg, seg.c1.x, seg.c1.y, seg.c2.x, seg.c2.y, seg.p.x, seg.p.y);
+                    break;
+            }
+        }
+        nvgClosePath(impl_->vg);
+    }
+    nvgFillColor(impl_->vg, to_nvg(color));
+    nvgFill(impl_->vg);
 }
 
 void NanoVgPainter::set_font(AssetId font, float size) {
