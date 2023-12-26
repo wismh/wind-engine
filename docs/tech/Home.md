@@ -23,6 +23,7 @@ flowchart LR
    - [[modules/Resources]]
    - [[modules/Render]]
    - [[modules/UI]]
+   - [[modules/Localization]]
    - [[modules/Audio]]
    - [[modules/Haptics]]
 3. **Features** — implementation walkthroughs (as-built):
