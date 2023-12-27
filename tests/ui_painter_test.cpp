@@ -669,3 +669,21 @@ TEST(UiPainter, TextAlignCenterMovesGlyphs) {
     EXPECT_EQ(text->horizontal, engine::ui::UiAlign::Center);
     EXPECT_EQ(text->vertical, engine::ui::UiAlign::Center);
 }
+
+TEST(UiPainter, LaterStylesheetWinsAtEqualSpecificity) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Button content="Go"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    engine::ui::Stylesheet merged =
+            must_parse_css("Button { width: 80; height: 40; background: #ff0000; }");
+    const engine::ui::Stylesheet later = must_parse_css("Button { background: #00ff00; }");
+    merged.rules.insert(merged.rules.end(), later.rules.begin(), later.rules.end());
+
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &merged, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 80.f, 40.f}});
+    const PaintCall* fill = painter.find("fill_rect");
+    ASSERT_NE(fill, nullptr);
+    EXPECT_NEAR(fill->color.r, 0.0f, 0.01f);
+    EXPECT_NEAR(fill->color.g, 1.0f, 0.01f);
+    EXPECT_NEAR(fill->color.b, 0.0f, 0.01f);
+}

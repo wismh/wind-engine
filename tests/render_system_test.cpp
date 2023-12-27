@@ -17,9 +17,13 @@
 #include <engine/resources/meta.h>
 #include <engine/ui/canvas.h>
 #include <engine/ui/document.h>
+#include <engine/ui/stylesheet.h>
 #include <engine/ui/view_model.h>
 
+#include "ui/painter.h"
+
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
 
 #include <chrono>
@@ -32,6 +36,7 @@
 #include <string_view>
 #include <utility>
 #include <variant>
+#include <vector>
 
 namespace {
 
@@ -160,6 +165,44 @@ void write_ui_asset(const std::filesystem::path& xml_path, std::string_view xml,
     std::filesystem::path meta = xml_path;
     meta += ".meta";
     write_file(meta, std::string("guid = \"") + std::string(guid) + "\"\nimporter = \"ui\"\n");
+}
+
+void write_css_asset(const std::filesystem::path& css_path, std::string_view css, std::string_view guid) {
+    write_file(css_path, css);
+    std::filesystem::path meta = css_path;
+    meta += ".meta";
+    write_file(meta, std::string("guid = \"") + std::string(guid) + "\"\nimporter = \"css\"\n");
+}
+
+class FillPainter final : public engine::ui::IUiPainter {
+public:
+    glm::vec4 last_fill{};
+    bool had_fill = false;
+
+    void save() override {}
+    void restore() override {}
+    void scissor(const engine::render::Rect&) override {}
+    void set_opacity(float) override {}
+    void fill_rounded_rect(const engine::render::Rect&, float, glm::vec4 color) override {
+        last_fill = color;
+        had_fill = true;
+    }
+    void stroke_rounded_rect(const engine::render::Rect&, float, float, glm::vec4) override {}
+    void set_font(engine::AssetId, float) override {}
+    void fill_text(std::string_view, glm::vec2, glm::vec4, engine::ui::UiAlign, engine::ui::UiAlign) override {}
+    void image(engine::AssetId, const engine::render::Rect&) override {}
+    glm::vec2 measure_text(std::string_view text, engine::AssetId, float size) override {
+        return {static_cast<float>(text.size()) * size * 0.5f, size};
+    }
+};
+
+glm::vec4 paint_button_fill(engine::ui::UiInstance& instance) {
+    FillPainter painter;
+    const engine::ui::Stylesheet* sheet = instance.stylesheet ? &*instance.stylesheet : nullptr;
+    engine::ui::paint_document(instance.document, sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 80.f, 40.f}});
+    EXPECT_TRUE(painter.had_fill);
+    return painter.last_fill;
 }
 
 }
@@ -346,6 +389,181 @@ TEST(RenderSystem, BindPhaseSkipsCloneWhenAssetsNull) {
 
     world.run(engine::ecs::Schedule::Frame);
     EXPECT_EQ(world.try_get<engine::ui::UiInstance>(entity), nullptr);
+}
+
+TEST(RenderSystem, BindXmlStylesheetWhenExtrasEmpty) {
+    constexpr std::string_view kHudGuid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3";
+    constexpr std::string_view kCssGuid = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb01";
+
+    TempDir tree;
+    write_ui_asset(tree.path / "hud.xml",
+            R"(<Canvas stylesheet="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb01"><Button content="Go"/></Canvas>)", kHudGuid);
+    write_css_asset(tree.path / "red.css", "Button { width: 80; height: 40; background: #ff0000; }\n", kCssGuid);
+
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kHudGuid}, "hud.xml", engine::ImporterKind::Ui});
+    catalog.add({engine::AssetId{kCssGuid}, "red.css", engine::ImporterKind::Css});
+    write_file(tree.path / "catalog.toml", catalog.serialize());
+
+    RecordingFatalError fatal;
+    engine::AssetsDb db(fatal);
+    const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
+    ASSERT_TRUE(loaded.has_value());
+
+    auto vm = std::make_shared<TitleViewModel>();
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.fatal = &fatal, .assets = &db});
+
+    engine::ui::UiCanvas canvas;
+    canvas.document = engine::AssetId{kHudGuid};
+    canvas.data_context = vm;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+
+    world.run(engine::ecs::Schedule::Frame);
+    engine::ui::UiInstance* instance = world.try_get<engine::ui::UiInstance>(entity);
+    ASSERT_NE(instance, nullptr);
+    ASSERT_TRUE(instance->stylesheet);
+    const glm::vec4 fill = paint_button_fill(*instance);
+    EXPECT_NEAR(fill.r, 1.0f, 0.01f);
+    EXPECT_NEAR(fill.g, 0.0f, 0.01f);
+    EXPECT_NEAR(fill.b, 0.0f, 0.01f);
+}
+
+TEST(RenderSystem, BindMergesExtraStylesheets) {
+    constexpr std::string_view kHudGuid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa4";
+    constexpr std::string_view kCssRed = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb03";
+    constexpr std::string_view kCssGreen = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb04";
+
+    TempDir tree;
+    write_ui_asset(tree.path / "hud.xml", R"(<Canvas><Button content="Go"/></Canvas>)", kHudGuid);
+    write_css_asset(tree.path / "red.css", "Button { width: 80; height: 40; background: #ff0000; }\n", kCssRed);
+    write_css_asset(tree.path / "green.css", "Button { background: #00ff00; }\n", kCssGreen);
+
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kHudGuid}, "hud.xml", engine::ImporterKind::Ui});
+    catalog.add({engine::AssetId{kCssRed}, "red.css", engine::ImporterKind::Css});
+    catalog.add({engine::AssetId{kCssGreen}, "green.css", engine::ImporterKind::Css});
+    write_file(tree.path / "catalog.toml", catalog.serialize());
+
+    RecordingFatalError fatal;
+    engine::AssetsDb db(fatal);
+    const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
+    ASSERT_TRUE(loaded.has_value());
+
+    auto vm = std::make_shared<TitleViewModel>();
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.fatal = &fatal, .assets = &db});
+
+    engine::ui::UiCanvas canvas;
+    canvas.document = engine::AssetId{kHudGuid};
+    canvas.stylesheet = engine::AssetId{kCssRed};
+    canvas.extra_stylesheets = {engine::AssetId{kCssGreen}};
+    canvas.data_context = vm;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+
+    world.run(engine::ecs::Schedule::Frame);
+    engine::ui::UiInstance* instance = world.try_get<engine::ui::UiInstance>(entity);
+    ASSERT_NE(instance, nullptr);
+    ASSERT_TRUE(instance->stylesheet);
+    const glm::vec4 fill = paint_button_fill(*instance);
+    EXPECT_NEAR(fill.r, 0.0f, 0.01f);
+    EXPECT_NEAR(fill.g, 1.0f, 0.01f);
+    EXPECT_NEAR(fill.b, 0.0f, 0.01f);
+}
+
+TEST(RenderSystem, BindReloadsWhenExtraStylesheetsChange) {
+    constexpr std::string_view kHudGuid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa5";
+    constexpr std::string_view kCssRed = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb05";
+    constexpr std::string_view kCssGreen = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb06";
+
+    TempDir tree;
+    write_ui_asset(tree.path / "hud.xml", R"(<Canvas><Button content="Go"/></Canvas>)", kHudGuid);
+    write_css_asset(tree.path / "red.css", "Button { width: 80; height: 40; background: #ff0000; }\n", kCssRed);
+    write_css_asset(tree.path / "green.css", "Button { background: #00ff00; }\n", kCssGreen);
+
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kHudGuid}, "hud.xml", engine::ImporterKind::Ui});
+    catalog.add({engine::AssetId{kCssRed}, "red.css", engine::ImporterKind::Css});
+    catalog.add({engine::AssetId{kCssGreen}, "green.css", engine::ImporterKind::Css});
+    write_file(tree.path / "catalog.toml", catalog.serialize());
+
+    RecordingFatalError fatal;
+    engine::AssetsDb db(fatal);
+    const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
+    ASSERT_TRUE(loaded.has_value());
+
+    auto vm = std::make_shared<TitleViewModel>();
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.fatal = &fatal, .assets = &db});
+
+    engine::ui::UiCanvas canvas;
+    canvas.document = engine::AssetId{kHudGuid};
+    canvas.extra_stylesheets = {engine::AssetId{kCssRed}};
+    canvas.data_context = vm;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+
+    world.run(engine::ecs::Schedule::Frame);
+    engine::ui::UiInstance* instance = world.try_get<engine::ui::UiInstance>(entity);
+    ASSERT_NE(instance, nullptr);
+    glm::vec4 fill = paint_button_fill(*instance);
+    EXPECT_NEAR(fill.r, 1.0f, 0.01f);
+    EXPECT_NEAR(fill.g, 0.0f, 0.01f);
+
+    world.get<engine::ui::UiCanvas>(entity).extra_stylesheets.push_back(engine::AssetId{kCssGreen});
+    world.run(engine::ecs::Schedule::Frame);
+    instance = world.try_get<engine::ui::UiInstance>(entity);
+    ASSERT_NE(instance, nullptr);
+    fill = paint_button_fill(*instance);
+    EXPECT_NEAR(fill.r, 0.0f, 0.01f);
+    EXPECT_NEAR(fill.g, 1.0f, 0.01f);
+}
+
+TEST(RenderSystem, BindSkipsMissingExtraStylesheet) {
+    constexpr std::string_view kHudGuid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa6";
+    constexpr std::string_view kCssRed = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb07";
+    constexpr std::string_view kMissing = "cccccccccccccccccccccccccccccc01";
+
+    TempDir tree;
+    write_ui_asset(tree.path / "hud.xml", R"(<Canvas><Button content="Go"/></Canvas>)", kHudGuid);
+    write_css_asset(tree.path / "red.css", "Button { width: 80; height: 40; background: #ff0000; }\n", kCssRed);
+
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kHudGuid}, "hud.xml", engine::ImporterKind::Ui});
+    catalog.add({engine::AssetId{kCssRed}, "red.css", engine::ImporterKind::Css});
+    write_file(tree.path / "catalog.toml", catalog.serialize());
+
+    RecordingFatalError fatal;
+    engine::AssetsDb db(fatal);
+    const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
+    ASSERT_TRUE(loaded.has_value());
+
+    auto vm = std::make_shared<TitleViewModel>();
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.fatal = &fatal, .assets = &db});
+
+    engine::ui::UiCanvas canvas;
+    canvas.document = engine::AssetId{kHudGuid};
+    canvas.stylesheet = engine::AssetId{kCssRed};
+    canvas.extra_stylesheets = {engine::AssetId{kMissing}};
+    canvas.data_context = vm;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+
+    world.run(engine::ecs::Schedule::Frame);
+    EXPECT_EQ(fatal.call_count, 0);
+    engine::ui::UiInstance* instance = world.try_get<engine::ui::UiInstance>(entity);
+    ASSERT_NE(instance, nullptr);
+    ASSERT_TRUE(instance->stylesheet);
+    const glm::vec4 fill = paint_button_fill(*instance);
+    EXPECT_NEAR(fill.r, 1.0f, 0.01f);
+    EXPECT_NEAR(fill.g, 0.0f, 0.01f);
 }
 
 TEST(RenderSystem, ModelMatrixIsTranslateRotateScale) {
