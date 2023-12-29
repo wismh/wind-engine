@@ -20,6 +20,7 @@ public:
 
     [[nodiscard]] bool create();
     [[nodiscard]] bool load_ui_font(const Font& font);
+    [[nodiscard]] bool add_font(AssetId id, const Font& font);
     void destroy();
     void begin_frame(float width, float height, float pixel_ratio = 1.0f);
     void end_frame();
