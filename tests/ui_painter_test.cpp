@@ -159,6 +159,26 @@ TEST(UiPainter, LabelTextFromXmlAndCssColor) {
     EXPECT_EQ(font->font, engine::builtin::font_ui);
 }
 
+TEST(UiPainter, FontFamilyGuidFromCss) {
+    TitleVm vm;
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="title" Text="{Binding Title}"/></Canvas>)", nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+
+    constexpr engine::AssetId hud_font{"c1a1c2d3e4f5678901234567890abc07"};
+    const engine::ui::Stylesheet sheet =
+            must_parse_css(".title { color: #ff0000; font-size: 24; font-family: c1a1c2d3e4f5678901234567890abc07; }");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    const PaintCall* font = painter.find("font");
+    ASSERT_NE(font, nullptr);
+    EXPECT_FLOAT_EQ(font->font_size, 24.0f);
+    EXPECT_EQ(font->font, hud_font);
+    EXPECT_NE(font->font, engine::builtin::font_ui);
+}
+
 TEST(UiPainter, ButtonHoverUsesPseudoBackground) {
     auto parsed = engine::ui::parse_xml(R"(<Canvas><Button class="cell" Content="X"/></Canvas>)");
     ASSERT_TRUE(parsed.has_value());
