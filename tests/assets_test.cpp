@@ -625,6 +625,36 @@ TEST(Assets, GetTextureFromPng) {
     EXPECT_EQ(factory.last_texture.rgba[1], 0);
     EXPECT_EQ(factory.last_texture.rgba[2], 0);
     EXPECT_EQ(factory.last_texture.rgba[3], 255);
+    EXPECT_EQ(factory.last_texture.filter, engine::FilterMode::Linear);
+    EXPECT_EQ(factory.last_texture.wrap, engine::WrapMode::Clamp);
+}
+
+TEST(Assets, GetTextureCopiesNearestRepeat) {
+    TempTree tree;
+    write_bytes(tree.path / "textures" / "red.png", kPng1x1Red, sizeof(kPng1x1Red));
+
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+    db.set_root(tree.path);
+
+    engine::CatalogEntry entry;
+    entry.guid = engine::AssetId{kTextureGuid};
+    entry.relative_path = "textures/red.png";
+    entry.importer = engine::ImporterKind::Texture;
+    entry.texture.filter = engine::FilterMode::Nearest;
+    entry.texture.wrap = engine::WrapMode::Repeat;
+
+    engine::CookedCatalog catalog;
+    catalog.add(std::move(entry));
+    db.set_catalog(std::move(catalog));
+
+    FakeGraphicFactory factory;
+    db.set_graphic_factory(&factory);
+
+    const auto texture = db.Get<engine::render::ITexture>(engine::AssetId{kTextureGuid});
+    ASSERT_NE(texture, nullptr);
+    EXPECT_EQ(factory.last_texture.filter, engine::FilterMode::Nearest);
+    EXPECT_EQ(factory.last_texture.wrap, engine::WrapMode::Repeat);
 }
 
 TEST(Assets, GetTextureFromUiImage) {
