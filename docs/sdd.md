@@ -561,6 +561,7 @@ struct Rect { float x, y, w, h; };  // screen pixels, origin top-left (SDL)
 struct UiCanvas {
     AssetId document;                       // .xml
     std::optional<AssetId> stylesheet;      // .css; else xml `stylesheet` attr
+    std::vector<AssetId> extra_stylesheets; // after xml + stylesheet; later file wins at equal spec
     std::shared_ptr<ui::ViewModel> data_context;
     Rect rect{};                            // scissor + layout origin
     UiFit fit = UiFit::FillWindow;
@@ -637,7 +638,7 @@ Button:pressed { background: #111111; }
 Button:disabled { opacity: 0.5; }
 ```
 
-Cascade: element < class < id < pseudo. Later file rules win if the xml `stylesheet` is a single sheet. Multiple sheets: `stylesheet` attr is one GUID; extra sheets are a later `UiCanvas` field if needed.
+Cascade: element < class < id < pseudo. Later file rules win at equal specificity (rule index). The xml `stylesheet` attr is one GUID; extra sheets are `UiCanvas::extra_stylesheets` (concatenated after the xml sheet and optional `UiCanvas::stylesheet`).
 
 `@import`, `@media`, animations: **not v1**.
 
