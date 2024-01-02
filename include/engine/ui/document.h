@@ -51,6 +51,45 @@ struct BoxInsets {
     float left = 0.0f;
 };
 
+enum class LengthUnit {
+    Px,
+    Percent,
+    Em,
+};
+
+struct Length {
+    float value = 0.0f;
+    LengthUnit unit = LengthUnit::Px;
+};
+
+struct LengthInsets {
+    Length top{};
+    Length right{};
+    Length bottom{};
+    Length left{};
+};
+
+constexpr float kDefaultFontSize = 16.0f;
+
+[[nodiscard]] constexpr float resolve_length(Length length, float percent_basis, float em_basis) noexcept {
+    switch (length.unit) {
+        case LengthUnit::Px:
+            return length.value;
+        case LengthUnit::Percent:
+            return percent_basis * (length.value / 100.0f);
+        case LengthUnit::Em:
+            return em_basis * length.value;
+    }
+    return length.value;
+}
+
+[[nodiscard]] constexpr float resolve_font_size(Length font_size, float percent_basis) noexcept {
+    if (font_size.unit == LengthUnit::Em) {
+        return font_size.value * kDefaultFontSize;
+    }
+    return resolve_length(font_size, percent_basis, kDefaultFontSize);
+}
+
 struct Element {
     ElementKind kind = ElementKind::Canvas;
     std::string id;
@@ -66,17 +105,17 @@ struct Element {
     std::optional<AssetId> source;
 
     StackDirection direction = StackDirection::Vertical;
-    float gap = 0.0f;
-    BoxInsets padding{};
-    BoxInsets margin{};
-    std::optional<float> width;
-    std::optional<float> height;
-    std::optional<float> min_width;
-    std::optional<float> min_height;
+    Length gap{};
+    LengthInsets padding{};
+    LengthInsets margin{};
+    std::optional<Length> width;
+    std::optional<Length> height;
+    std::optional<Length> min_width;
+    std::optional<Length> min_height;
     UiAlign justify = UiAlign::Start;
     UiAlign align_items = UiAlign::Start;
     UiAlign text_align = UiAlign::Start;
-    float font_size = 16.0f;
+    Length font_size{kDefaultFontSize, LengthUnit::Px};
     AssetId font_family{};
 
     render::Rect layout_rect{};
