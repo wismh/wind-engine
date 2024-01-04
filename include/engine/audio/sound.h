@@ -30,7 +30,7 @@ private:
 struct Sound {
     std::shared_ptr<Audio> clip;
     float volume = 1.f;
-    glm::vec2 pitchRange{1.f, 1.f};
+    glm::vec2 pitch_range{1.f, 1.f};
     bool loop = false;
     AudioBank bank = AudioBank::Sfx;
 };

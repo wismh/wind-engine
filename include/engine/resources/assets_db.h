@@ -55,10 +55,10 @@ public:
     [[nodiscard]] const CookedCatalog& catalog() const noexcept { return catalog_; }
 
     template<typename T>
-    [[nodiscard]] std::expected<std::shared_ptr<T>, AssetError> TryGet(AssetId id);
+    [[nodiscard]] std::expected<std::shared_ptr<T>, AssetError> try_get(AssetId id);
 
     template<typename T>
-    [[nodiscard]] std::shared_ptr<T> Get(AssetId id);
+    [[nodiscard]] std::shared_ptr<T> get(AssetId id);
 
 private:
     struct CacheKey {
@@ -86,7 +86,7 @@ private:
 };
 
 template<typename T>
-std::expected<std::shared_ptr<T>, AssetError> AssetsDb::TryGet(AssetId id) {
+std::expected<std::shared_ptr<T>, AssetError> AssetsDb::try_get(AssetId id) {
     auto result = try_get_erased(id, typeid(T));
     if (!result) {
         return std::unexpected(result.error());
@@ -95,8 +95,8 @@ std::expected<std::shared_ptr<T>, AssetError> AssetsDb::TryGet(AssetId id) {
 }
 
 template<typename T>
-std::shared_ptr<T> AssetsDb::Get(AssetId id) {
-    auto result = TryGet<T>(id);
+std::shared_ptr<T> AssetsDb::get(AssetId id) {
+    auto result = try_get<T>(id);
     if (result) {
         return std::move(*result);
     }
