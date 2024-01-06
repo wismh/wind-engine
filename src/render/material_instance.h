@@ -14,22 +14,22 @@ public:
         , color_(color)
         , blend_(blend) {}
 
-    std::shared_ptr<IShader> Shader() const override {
+    std::shared_ptr<IShader> shader() const override {
         return shader_;
     }
 
-    std::shared_ptr<ITexture> Texture(int slot) const override {
+    std::shared_ptr<ITexture> texture(int slot) const override {
         if (slot != 0) {
             return {};
         }
         return albedo_;
     }
 
-    glm::vec4 Color() const override {
+    glm::vec4 color() const override {
         return color_;
     }
 
-    BlendMode Blend() const override {
+    BlendMode blend() const override {
         return blend_;
     }
 
