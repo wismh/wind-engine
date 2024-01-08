@@ -46,7 +46,7 @@ TEST(Events, ReaderSeesCurrentAndPrevious) {
     engine::ecs::Events<Msg>& events = world.ctx<engine::ecs::Events<Msg>>();
 
     engine::ecs::EventWriter<Msg>{events}.send(Msg{1});
-    world.FlushEvents();
+    world.flush_events();
     engine::ecs::EventWriter<Msg>{events}.send(Msg{2});
 
     const std::vector<int> seen = read_values(events);
@@ -61,15 +61,15 @@ TEST(Events, FlushEventsDropsOlderThanTwoFrames) {
     engine::ecs::EventWriter<Msg> writer{world};
 
     writer.send(Msg{1});
-    world.FlushEvents();
+    world.flush_events();
     writer.send(Msg{2});
-    world.FlushEvents();
+    world.flush_events();
 
     std::vector<int> seen = read_values(events);
     ASSERT_EQ(seen.size(), 1u);
     EXPECT_EQ(seen[0], 2);
 
-    world.FlushEvents();
+    world.flush_events();
     seen = read_values(events);
     EXPECT_TRUE(seen.empty());
 }
@@ -84,8 +84,8 @@ TEST(Events, FirstCtxRegistersType) {
     engine::ecs::Events<Other> orphan;
     orphan.send(Other{9});
 
-    world.FlushEvents();
-    world.FlushEvents();
+    world.flush_events();
+    world.flush_events();
 
     EXPECT_TRUE(read_values(registered).empty());
 
