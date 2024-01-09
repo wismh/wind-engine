@@ -687,3 +687,143 @@ TEST(UiPainter, LaterStylesheetWinsAtEqualSpecificity) {
     EXPECT_NEAR(fill->color.g, 1.0f, 0.01f);
     EXPECT_NEAR(fill->color.b, 0.0f, 0.01f);
 }
+
+[[nodiscard]] const engine::ui::Element* find_class(const engine::ui::Element& root, std::string_view class_name) {
+    if (root.class_name == class_name) {
+        return &root;
+    }
+    for (const engine::ui::Element& child : root.children) {
+        if (const engine::ui::Element* found = find_class(child, class_name)) {
+            return found;
+        }
+    }
+    return nullptr;
+}
+
+[[nodiscard]] const PaintCall* find_fill_at(const FakePainter& painter, const engine::render::Rect& rect) {
+    for (const PaintCall& call : painter.calls) {
+        if (call.op == "fill_rect" && call.rect.x == rect.x && call.rect.y == rect.y && call.rect.w == rect.w &&
+                call.rect.h == rect.h) {
+            return &call;
+        }
+    }
+    return nullptr;
+}
+
+TEST(UiPainter, DescendantSelectorMatchesInsideStackHud) {
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Stack>
+            <Stack class="hud">
+              <Label class="inside" text="In"/>
+              <Stack class="inner">
+                <Label class="nested" text="Mid"/>
+              </Stack>
+            </Stack>
+            <Label class="outside" text="Out"/>
+          </Stack>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        Label { width: 40; height: 16; background: #00ff00; }
+        Stack.hud Label { background: #ff0000; }
+    )");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    const engine::ui::Element* inside = find_class(parsed->root, "inside");
+    const engine::ui::Element* nested = find_class(parsed->root, "nested");
+    const engine::ui::Element* outside = find_class(parsed->root, "outside");
+    ASSERT_NE(inside, nullptr);
+    ASSERT_NE(nested, nullptr);
+    ASSERT_NE(outside, nullptr);
+    const PaintCall* inside_fill = find_fill_at(painter, inside->layout_rect);
+    const PaintCall* nested_fill = find_fill_at(painter, nested->layout_rect);
+    const PaintCall* outside_fill = find_fill_at(painter, outside->layout_rect);
+    ASSERT_NE(inside_fill, nullptr);
+    ASSERT_NE(nested_fill, nullptr);
+    ASSERT_NE(outside_fill, nullptr);
+    EXPECT_NEAR(inside_fill->color.r, 1.0f, 0.01f);
+    EXPECT_NEAR(nested_fill->color.r, 1.0f, 0.01f);
+    EXPECT_NEAR(outside_fill->color.r, 0.0f, 0.01f);
+    EXPECT_NEAR(outside_fill->color.g, 1.0f, 0.01f);
+}
+
+TEST(UiPainter, ChildSelectorMatchesDirectChildOnly) {
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Stack class="hud">
+            <Label class="direct" text="A"/>
+            <Stack class="inner">
+              <Label class="nested" text="B"/>
+            </Stack>
+          </Stack>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        Label { width: 40; height: 16; background: #00ff00; }
+        Stack.hud > Label { background: #ff0000; }
+    )");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    const engine::ui::Element* direct = find_class(parsed->root, "direct");
+    const engine::ui::Element* nested = find_class(parsed->root, "nested");
+    ASSERT_NE(direct, nullptr);
+    ASSERT_NE(nested, nullptr);
+    const PaintCall* direct_fill = find_fill_at(painter, direct->layout_rect);
+    const PaintCall* nested_fill = find_fill_at(painter, nested->layout_rect);
+    ASSERT_NE(direct_fill, nullptr);
+    ASSERT_NE(nested_fill, nullptr);
+    EXPECT_NEAR(direct_fill->color.r, 1.0f, 0.01f);
+    EXPECT_NEAR(direct_fill->color.g, 0.0f, 0.01f);
+    EXPECT_NEAR(nested_fill->color.r, 0.0f, 0.01f);
+    EXPECT_NEAR(nested_fill->color.g, 1.0f, 0.01f);
+}
+
+TEST(UiPainter, WidthPercentOfParentContentBox) {
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Stack class="box">
+            <Label class="half" text="Hi"/>
+          </Stack>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .box { width: 220; height: 80; padding: 10; background: #000000; }
+        .half { width: 50%; height: 20; background: #ff0000; }
+    )");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 400.f, 200.f}});
+
+    const engine::ui::Element* half = find_class(parsed->root, "half");
+    ASSERT_NE(half, nullptr);
+    EXPECT_FLOAT_EQ(half->layout_rect.w, 100.0f);
+    const PaintCall* fill = find_fill_at(painter, half->layout_rect);
+    ASSERT_NE(fill, nullptr);
+    EXPECT_FLOAT_EQ(fill->rect.w, 100.0f);
+    EXPECT_NEAR(fill->color.r, 1.0f, 0.01f);
+}
+
+TEST(UiPainter, PaddingEmUsesElementFontSize) {
+    TitleVm vm;
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="title" text="{binding title}"/></Canvas>)", nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+
+    const engine::ui::Stylesheet sheet = must_parse_css(".title { font-size: 20; padding: 1em; }");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    const PaintCall* text = painter.find("text");
+    ASSERT_NE(text, nullptr);
+    EXPECT_FLOAT_EQ(text->position.x, 20.0f);
+    EXPECT_FLOAT_EQ(text->position.y, 20.0f);
+}

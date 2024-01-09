@@ -184,7 +184,7 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
             }
         }
         if (const char* gap = xml->Attribute("gap")) {
-            element.gap = std::strtof(gap, nullptr);
+            element.gap = Length{std::strtof(gap, nullptr), LengthUnit::Px};
         }
     }
 
