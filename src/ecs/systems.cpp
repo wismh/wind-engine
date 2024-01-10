@@ -66,7 +66,7 @@ void run_bind(ecs::World& world, const EngineSystemDeps& deps) {
         if (!sheet_id) {
             continue;
         }
-        if (auto sheet = deps.assets->TryGet<ui::Stylesheet>(*sheet_id)) {
+        if (auto sheet = deps.assets->try_get<ui::Stylesheet>(*sheet_id)) {
             instance->stylesheet = **sheet;
         }
     }
@@ -77,15 +77,15 @@ void run_audio(ecs::World& world, const EngineSystemDeps& deps) {
         if (deps.assets == nullptr || deps.audio == nullptr) {
             continue;
         }
-        auto sound = deps.assets->Get<Sound>(event.id);
-        deps.audio->PlaySfx(*sound, event.volume_scale);
+        auto sound = deps.assets->get<Sound>(event.id);
+        deps.audio->play_sfx(*sound, event.volume_scale);
     }
     for (const PlayMusicEvent& event : ecs::EventReader<PlayMusicEvent>{world}) {
         if (deps.assets == nullptr || deps.audio == nullptr) {
             continue;
         }
-        auto sound = deps.assets->Get<Sound>(event.id);
-        deps.audio->PlayMusic(*sound, event.loop, event.fade_seconds);
+        auto sound = deps.assets->get<Sound>(event.id);
+        deps.audio->play_music(*sound, event.loop, event.fade_seconds);
     }
 }
 
@@ -198,15 +198,15 @@ void run_ui_render(ecs::World& world, const EngineSystemDeps& deps) {
 
 }
 
-void RegisterEngineSystems(ecs::World& world, EngineSystemDeps deps) {
+void register_engine_systems(ecs::World& world, EngineSystemDeps deps) {
     world.ctx<EngineSystemsRegistered>().value = true;
 
-    world.AddSystem(ecs::Schedule::Fixed, ecs::Phase::Physics, [](ecs::World& w) { run_physics(w); });
-    world.AddSystem(ecs::Schedule::Frame, ecs::Phase::Input, [](ecs::World& w) { run_input(w); });
-    world.AddSystem(ecs::Schedule::Frame, ecs::Phase::Bind, [deps](ecs::World& w) { run_bind(w, deps); });
-    world.AddSystem(ecs::Schedule::Frame, ecs::Phase::Audio, [deps](ecs::World& w) { run_audio(w, deps); });
-    world.AddSystem(ecs::Schedule::Frame, ecs::Phase::Render, [deps](ecs::World& w) { run_render(w, deps); });
-    world.AddSystem(ecs::Schedule::Frame, ecs::Phase::UiRender, [deps](ecs::World& w) { run_ui_render(w, deps); });
+    world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics, [](ecs::World& w) { run_physics(w); });
+    world.add_system(ecs::Schedule::Frame, ecs::Phase::Input, [](ecs::World& w) { run_input(w); });
+    world.add_system(ecs::Schedule::Frame, ecs::Phase::Bind, [deps](ecs::World& w) { run_bind(w, deps); });
+    world.add_system(ecs::Schedule::Frame, ecs::Phase::Audio, [deps](ecs::World& w) { run_audio(w, deps); });
+    world.add_system(ecs::Schedule::Frame, ecs::Phase::Render, [deps](ecs::World& w) { run_render(w, deps); });
+    world.add_system(ecs::Schedule::Frame, ecs::Phase::UiRender, [deps](ecs::World& w) { run_ui_render(w, deps); });
 }
 
 }

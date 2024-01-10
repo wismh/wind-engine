@@ -38,9 +38,9 @@ void execute_draw_mesh(const CmdDrawMesh& cmd) {
         return;
     }
 
-    apply_blend(cmd.material->Blend());
+    apply_blend(cmd.material->blend());
 
-    const auto shader = std::dynamic_pointer_cast<OpenGLShader>(cmd.material->Shader());
+    const auto shader = std::dynamic_pointer_cast<OpenGLShader>(cmd.material->shader());
     const auto mesh = std::dynamic_pointer_cast<OpenGLMesh>(cmd.mesh);
     if (!shader || !mesh || !shader->valid() || !mesh->valid()) {
         return;
@@ -50,10 +50,10 @@ void execute_draw_mesh(const CmdDrawMesh& cmd) {
     shader->set_mat4("uModel", cmd.model);
     shader->set_mat4("uView", cmd.view);
     shader->set_mat4("uProjection", cmd.projection);
-    shader->set_vec4("uColor", cmd.material->Color() * cmd.color);
+    shader->set_vec4("uColor", cmd.material->color() * cmd.color);
     shader->set_int("uTexture", 0);
 
-    if (const auto texture = std::dynamic_pointer_cast<OpenGLTexture>(cmd.material->Texture(0))) {
+    if (const auto texture = std::dynamic_pointer_cast<OpenGLTexture>(cmd.material->texture(0))) {
         if (texture->valid()) {
             texture->bind(0);
         }
