@@ -37,10 +37,13 @@ struct CmdDrawMesh {
 
 struct CmdDrawUI {
     Rect rect{};
-    const ui::UiDocument* document = nullptr;
+    ui::UiDocument* document = nullptr;
     const ui::Stylesheet* stylesheet = nullptr;
     glm::vec2 pointer{};
     bool pointer_down = false;
+    float delta_time = 0.0f;
+    float window_width = 0.0f;
+    float window_height = 0.0f;
 };
 
 using Command = std::variant<CmdDrawMesh, CmdDrawUI>;
