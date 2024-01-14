@@ -90,7 +90,7 @@ A small real-time 2D engine (**Wind**): window, input, ECS, command-buffer rende
 1. **Low coupling.** Core services do not construct each other; Boost.DI injects constructors.
 2. **Clear ownership.** Engine owns window/GL/audio/import; game owns the `assets/` tree, `.meta` files, and generated `asset_ids.h`.
 3. **One way to draw.** Game and ECS never call OpenGL. They push `Command`s; the backend executes them.
-4. **Named input.** Gameplay binds scancodes → action strings, not raw keys in systems.
+4. **Named input.** Gameplay binds controls → interned `ActionId`, not raw keys in systems.
 5. **Assets only by GUID.** `AssetsDb::get<T>(AssetId)` (fatal if missing cooked asset) or `try_get`. No filenames in game code.
 6. **Import settings live in `.meta`.** A bare PNG/WAV is not a texture/sound until its sidecar says how to load it (color space, filter, sound bank, …).
 7. **Audio is a system, not a filename firehose.** `IAudioSystem` plays `Sound` objects produced by the audio importer, not `PlaySoundEvent{"hit.wav"}`.
