@@ -1,6 +1,7 @@
 #pragma once
 
 #include <engine/render/graphics.h>
+#include <engine/resources/meta.h>
 
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
@@ -30,6 +31,8 @@ struct TextureDesc {
     int width = 0;
     int height = 0;
     std::vector<std::uint8_t> rgba;
+    FilterMode filter = FilterMode::Linear;
+    WrapMode wrap = WrapMode::Clamp;
 };
 
 class IGraphicFactory {
