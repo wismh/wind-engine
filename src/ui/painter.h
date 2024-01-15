@@ -33,9 +33,13 @@ struct UiPaintInput {
     render::Rect canvas_rect{};
     glm::vec2 pointer{};
     bool pointer_down = false;
+    float delta_time = 0.0f;
+    float window_width = 0.0f;
+    float window_height = 0.0f;
 };
 
-void apply_layout_style(Element& root, const Stylesheet* sheet);
+void apply_layout_style(
+        Element& root, const Stylesheet* sheet, float window_width = 0.0f, float window_height = 0.0f);
 void layout(UiDocument& document, const render::Rect& canvas_rect, IUiPainter* painter);
 void paint_document(UiDocument& document, const Stylesheet* stylesheet, IUiPainter& painter, const UiPaintInput& input);
 
