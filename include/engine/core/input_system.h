@@ -1,5 +1,6 @@
 #pragma once
 
+#include <engine/core/key_code.h>
 #include <engine/ecs/world.h>
 
 #include <glm/vec2.hpp>
@@ -14,8 +15,6 @@
 #include <unordered_set>
 
 namespace engine {
-
-enum class KeyCode : std::uint32_t { Unknown = 0 };
 
 enum class MouseButton : std::uint8_t { None = 0, Left = 1, Middle = 2, Right = 3 };
 
