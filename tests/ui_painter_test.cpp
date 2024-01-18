@@ -827,3 +827,87 @@ TEST(UiPainter, PaddingEmUsesElementFontSize) {
     EXPECT_FLOAT_EQ(text->position.x, 20.0f);
     EXPECT_FLOAT_EQ(text->position.y, 20.0f);
 }
+
+TEST(UiPainter, CalcWidthSubtractsFromParentContentBox) {
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Stack class="box">
+            <Label class="fit" text="Hi"/>
+          </Stack>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .box { width: 220; height: 80; padding: 10; background: #000000; }
+        .fit { width: calc(100% - 16); height: 20; background: #ff0000; }
+    )");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 400.f, 200.f}});
+
+    const engine::ui::Element* fit = find_class(parsed->root, "fit");
+    ASSERT_NE(fit, nullptr);
+    EXPECT_FLOAT_EQ(fit->layout_rect.w, 184.0f);
+    const PaintCall* fill = find_fill_at(painter, fit->layout_rect);
+    ASSERT_NE(fill, nullptr);
+    EXPECT_FLOAT_EQ(fill->rect.w, 184.0f);
+}
+
+TEST(UiPainter, MediaMinWidthAppliesAfterResize) {
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Label class="title" text="Hi"/>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .title { height: 20; background: #ff0000; }
+        @media (min-width: 800) { .title { width: 200; } }
+    )");
+
+    FakePainter narrow;
+    engine::ui::paint_document(*parsed, &sheet, narrow,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 400.f, 200.f}, .window_width = 799.f, .window_height = 600.f});
+    const engine::ui::Element* title = find_class(parsed->root, "title");
+    ASSERT_NE(title, nullptr);
+    EXPECT_NE(title->layout_rect.w, 200.0f);
+
+    FakePainter wide;
+    engine::ui::paint_document(*parsed, &sheet, wide,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 400.f, 200.f}, .window_width = 800.f, .window_height = 600.f});
+    title = find_class(parsed->root, "title");
+    ASSERT_NE(title, nullptr);
+    EXPECT_FLOAT_EQ(title->layout_rect.w, 200.0f);
+    const PaintCall* fill = find_fill_at(wide, title->layout_rect);
+    ASSERT_NE(fill, nullptr);
+    EXPECT_FLOAT_EQ(fill->rect.w, 200.0f);
+}
+
+TEST(UiPainter, KeyframeOpacityAdvancesWithDeltaTime) {
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Label class="fade" text="Hi"/>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        @keyframes fade {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .fade { animation-name: fade; animation-duration: 1s; }
+    )");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}, .delta_time = 0.5f});
+
+    const PaintCall* fade = nullptr;
+    for (const PaintCall& call : painter.calls) {
+        if (call.op == "opacity" && call.opacity < 0.99f) {
+            fade = &call;
+            break;
+        }
+    }
+    ASSERT_NE(fade, nullptr);
+    EXPECT_NEAR(fade->opacity, 0.5f, 0.01f);
+}
