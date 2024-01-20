@@ -61,12 +61,20 @@ TEST(Input, FindMissingIsEmpty) {
     EXPECT_FALSE(input.find("fire"));
 }
 
+TEST(Input, KeyCodeAEqualsFour) {
+    EXPECT_EQ(engine::KeyCode::A, engine::KeyCode{4});
+}
+
+TEST(Input, KeyCodeSpaceEqualsFortyFour) {
+    EXPECT_EQ(engine::KeyCode::Space, engine::KeyCode{44});
+}
+
 TEST(Input, BindScancodeToAction) {
     engine::ecs::World world;
     engine::InputSystem input{world};
     const engine::ActionId jump = input.intern("jump");
-    input.bind(engine::KeyCode{4}, jump);
-    input.handle_key(engine::KeyCode{4}, true);
+    input.bind(engine::KeyCode::A, jump);
+    input.handle_key(engine::KeyCode::A, true);
 
     const std::vector<engine::InputEvent> events = read_input(world);
     ASSERT_EQ(events.size(), 1u);
@@ -79,8 +87,8 @@ TEST(Input, UnboundKeyIgnored) {
     engine::ecs::World world;
     engine::InputSystem input{world};
     const engine::ActionId jump = input.intern("jump");
-    input.handle_key(engine::KeyCode{4}, true);
-    input.handle_key(engine::KeyCode{4}, false);
+    input.handle_key(engine::KeyCode::A, true);
+    input.handle_key(engine::KeyCode::A, false);
 
     EXPECT_TRUE(read_input(world).empty());
     EXPECT_FALSE(input.is_held(jump));
@@ -90,16 +98,16 @@ TEST(Input, DownUpAndHeld) {
     engine::ecs::World world;
     engine::InputSystem input{world};
     const engine::ActionId jump = input.intern("jump");
-    input.bind(engine::KeyCode{4}, jump);
+    input.bind(engine::KeyCode::A, jump);
 
-    input.handle_key(engine::KeyCode{4}, true);
+    input.handle_key(engine::KeyCode::A, true);
     EXPECT_TRUE(input.is_held(jump));
     EXPECT_TRUE(input.is_held(jump));
 
-    input.handle_key(engine::KeyCode{4}, true);
+    input.handle_key(engine::KeyCode::A, true);
     EXPECT_TRUE(input.is_held(jump));
 
-    input.handle_key(engine::KeyCode{4}, false);
+    input.handle_key(engine::KeyCode::A, false);
     EXPECT_FALSE(input.is_held(jump));
 
     const std::vector<engine::InputEvent> events = read_input(world);
@@ -116,8 +124,8 @@ TEST(Input, BindKeyNameMatchesIntern) {
     engine::ecs::World world;
     engine::InputSystem input{world};
     const engine::ActionId jump = input.intern("jump");
-    input.bind(engine::KeyCode{4}, "jump");
-    input.handle_key(engine::KeyCode{4}, true);
+    input.bind(engine::KeyCode::A, "jump");
+    input.handle_key(engine::KeyCode::A, true);
 
     const std::vector<engine::InputEvent> events = read_input(world);
     ASSERT_EQ(events.size(), 1u);
