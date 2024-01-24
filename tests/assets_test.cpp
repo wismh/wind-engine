@@ -338,3 +338,87 @@ TEST(Assets, TextureNotReadyWithoutFactory) {
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), engine::AssetError::NotReady);
 }
+
+TEST(Assets, CookedCatalogTextureFieldsRoundTrip) {
+    engine::CatalogEntry entry;
+    entry.guid = engine::AssetId{kTextureGuid};
+    entry.relative_path = "textures/player.png";
+    entry.importer = engine::ImporterKind::Texture;
+    entry.texture.color_space = engine::ColorSpace::Linear;
+    entry.texture.filter = engine::FilterMode::Nearest;
+    entry.texture.wrap = engine::WrapMode::Repeat;
+    entry.texture.layout = engine::TextureLayout::Multiple;
+
+    engine::CookedCatalog catalog;
+    catalog.add(entry);
+    const auto loaded = engine::parse_cooked_catalog(catalog.serialize());
+    ASSERT_TRUE(loaded.has_value());
+    const engine::CatalogEntry* again = loaded->find(entry.guid);
+    ASSERT_NE(again, nullptr);
+    EXPECT_EQ(again->relative_path, "textures/player.png");
+    EXPECT_EQ(again->importer, engine::ImporterKind::Texture);
+    EXPECT_EQ(again->texture.color_space, engine::ColorSpace::Linear);
+    EXPECT_EQ(again->texture.filter, engine::FilterMode::Nearest);
+    EXPECT_EQ(again->texture.wrap, engine::WrapMode::Repeat);
+    EXPECT_EQ(again->texture.layout, engine::TextureLayout::Multiple);
+
+    TempTree tree;
+    write_file(tree.path / "textures" / "player.png", "png");
+    write_file(tree.path / "textures" / "player.png.meta", R"(
+guid = "a1b2c3d4e5f6789012345678901234ab"
+importer = "texture"
+color_space = "linear"
+filter = "nearest"
+wrap = "repeat"
+layout = "multiple"
+)");
+    const auto scanned = engine::codegen_scan(tree.path);
+    ASSERT_TRUE(scanned.has_value());
+    const engine::CatalogEntry* cooked = scanned->catalog.find(engine::AssetId{kTextureGuid});
+    ASSERT_NE(cooked, nullptr);
+    EXPECT_EQ(cooked->texture.color_space, engine::ColorSpace::Linear);
+    EXPECT_EQ(cooked->texture.filter, engine::FilterMode::Nearest);
+    EXPECT_EQ(cooked->texture.wrap, engine::WrapMode::Repeat);
+    EXPECT_EQ(cooked->texture.layout, engine::TextureLayout::Multiple);
+}
+
+TEST(Assets, LoadCatalogFromTempDir) {
+    TempTree tree;
+    write_file(tree.path / "hud.xml", "<Canvas><Label Text=\"Hi\"/></Canvas>");
+
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kUiGuid}, "hud.xml", engine::ImporterKind::Ui});
+    write_file(tree.path / "catalog.toml", catalog.serialize());
+
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+    const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
+    ASSERT_TRUE(loaded.has_value());
+
+    const auto document = db.TryGet<engine::ui::UiDocument>(engine::AssetId{kUiGuid});
+    ASSERT_TRUE(document.has_value());
+    ASSERT_NE(*document, nullptr);
+    EXPECT_EQ((*document)->root.kind, engine::ui::ElementKind::Canvas);
+}
+
+TEST(Assets, LoadCatalogMissingFileNoCrash) {
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+
+    const auto missing_catalog =
+            db.load_catalog(std::filesystem::path("wind_missing_catalog") / "catalog.toml",
+                    std::filesystem::path("wind_missing_catalog"));
+    ASSERT_FALSE(missing_catalog.has_value());
+    EXPECT_EQ(missing_catalog.error(), engine::MetaError::Io);
+
+    TempTree tree;
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kUiGuid}, "hud.xml", engine::ImporterKind::Ui});
+    write_file(tree.path / "catalog.toml", catalog.serialize());
+
+    const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
+    ASSERT_TRUE(loaded.has_value());
+    const auto missing_asset = db.TryGet<engine::ui::UiDocument>(engine::AssetId{kUiGuid});
+    ASSERT_FALSE(missing_asset.has_value());
+    EXPECT_EQ(missing_asset.error(), engine::AssetError::Corrupt);
+}
