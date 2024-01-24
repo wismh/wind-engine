@@ -13,6 +13,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace engine {
 
@@ -77,6 +78,13 @@ public:
     void bind(KeyCode key, ActionId action);
     void bind(KeyCode key, std::string_view name);
 
+    void unbind(Control control);
+    void unbind(KeyCode key);
+
+    [[nodiscard]] ActionId bound_action(Control control) const;
+    [[nodiscard]] ActionId bound_action(KeyCode key) const;
+    [[nodiscard]] std::vector<Control> controls_for(ActionId action) const;
+
     void handle_key(KeyCode key, bool down);
     void handle_mouse_button(MouseButton button, bool down, glm::vec2 position);
     void handle_mouse_move(glm::vec2 position, glm::vec2 relative);
@@ -84,6 +92,8 @@ public:
     [[nodiscard]] bool is_held(ActionId action) const;
 
 private:
+    void release_held(Control control, ActionId action);
+
     ecs::World* world_ = nullptr;
     std::deque<std::string> interned_names_;
     std::unordered_map<std::string_view, ActionId> name_to_id_;
