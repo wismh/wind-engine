@@ -3,6 +3,7 @@
 #include <engine/core/input_system.h>
 #include <engine/ecs/events.h>
 #include <engine/ecs/world.h>
+#include <engine/ui/canvas.h>
 
 #include <vector>
 
@@ -248,4 +249,81 @@ TEST(Input, MouseDownMoveUp) {
     EXPECT_EQ(events[2].kind, engine::MouseEvent::Kind::Up);
     EXPECT_EQ(events[2].button, engine::MouseButton::Left);
     EXPECT_EQ(events[2].position, up_pos);
+
+    EXPECT_TRUE(read_input(world).empty());
+}
+
+TEST(Input, BoundLeftMouseEmitsMouseAndInput) {
+    engine::ecs::World world;
+    engine::InputSystem input{world};
+    const engine::ActionId fire = input.intern("fire");
+    input.bind(engine::MouseButton::Left, fire);
+
+    const glm::vec2 pos{8.f, 16.f};
+    input.handle_mouse_button(engine::MouseButton::Left, true, pos);
+
+    const std::vector<engine::MouseEvent> mouse = read_mouse(world);
+    ASSERT_EQ(mouse.size(), 1u);
+    EXPECT_EQ(mouse[0].kind, engine::MouseEvent::Kind::Down);
+    EXPECT_EQ(mouse[0].button, engine::MouseButton::Left);
+    EXPECT_EQ(mouse[0].position, pos);
+
+    const std::vector<engine::InputEvent> events = read_input(world);
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].action, fire);
+    EXPECT_EQ(events[0].kind, engine::InputEvent::Kind::Down);
+    EXPECT_FLOAT_EQ(events[0].value, 1.f);
+    EXPECT_TRUE(input.is_held(fire));
+}
+
+TEST(Input, BoundLeftMouseHeldWhileDown) {
+    engine::ecs::World world;
+    engine::InputSystem input{world};
+    const engine::ActionId fire = input.intern("fire");
+    input.bind(engine::MouseButton::Left, "fire");
+    EXPECT_EQ(input.bound_action(engine::MouseButton::Left), fire);
+
+    input.handle_mouse_button(engine::MouseButton::Left, true, {1.f, 2.f});
+    EXPECT_TRUE(input.is_held(fire));
+
+    input.handle_mouse_button(engine::MouseButton::Left, false, {1.f, 2.f});
+    EXPECT_FALSE(input.is_held(fire));
+}
+
+TEST(Input, KeyAndLeftMouseShareHeldCount) {
+    engine::ecs::World world;
+    engine::InputSystem input{world};
+    const engine::ActionId fire = input.intern("fire");
+    input.bind(engine::KeyCode::Space, fire);
+    input.bind(engine::MouseButton::Left, fire);
+
+    input.handle_key(engine::KeyCode::Space, true);
+    input.handle_mouse_button(engine::MouseButton::Left, true, {10.f, 20.f});
+    EXPECT_TRUE(input.is_held(fire));
+
+    input.handle_key(engine::KeyCode::Space, false);
+    EXPECT_TRUE(input.is_held(fire));
+
+    input.handle_mouse_button(engine::MouseButton::Left, false, {10.f, 20.f});
+    EXPECT_FALSE(input.is_held(fire));
+}
+
+TEST(Input, InputEventNotFilteredByMouseConsumed) {
+    // InputSystem polls before UiInputSystem. It must not drop InputEvent when
+    // MouseConsumed is already true. Phase::Game gameplay checks
+    // world.ctx<ui::MouseConsumed>().value before treating Fire as a world action.
+    engine::ecs::World world;
+    world.ctx<engine::ui::MouseConsumed>().value = true;
+    engine::InputSystem input{world};
+    const engine::ActionId fire = input.intern("fire");
+    input.bind(engine::MouseButton::Left, fire);
+    input.handle_mouse_button(engine::MouseButton::Left, true, {0.f, 0.f});
+
+    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().value);
+    ASSERT_EQ(read_mouse(world).size(), 1u);
+    const std::vector<engine::InputEvent> events = read_input(world);
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].action, fire);
+    EXPECT_EQ(events[0].kind, engine::InputEvent::Kind::Down);
+    EXPECT_FLOAT_EQ(events[0].value, 1.f);
 }
