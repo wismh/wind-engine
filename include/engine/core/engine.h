@@ -12,6 +12,7 @@
 #include <engine/core/sdl_fatal_error.h>
 #include <engine/ecs/systems.h>
 #include <engine/igame.h>
+#include <engine/log.h>
 #include <engine/render/backend.h>
 #include <engine/render/canvas.h>
 #include <engine/render/command_buffer.h>
@@ -68,6 +69,7 @@ bool Engine<GameT>::Init() {
     if (!runtime_.init_video()) {
         return false;
     }
+    log::init(runtime_.base_path());
 
     input_ = std::make_shared<InputSystem>();
     auto injector = di::make_injector(
