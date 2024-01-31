@@ -26,6 +26,9 @@ struct ComputedStyle {
     bool has_gap = false;
     StackDirection direction = StackDirection::Vertical;
     bool has_direction = false;
+    BoxInsets padding{};
+    UiAlign justify = UiAlign::Start;
+    UiAlign align_items = UiAlign::Start;
     float border_radius = 0.0f;
     float border_width = 0.0f;
     glm::vec4 border_color{0.0f, 0.0f, 0.0f, 0.0f};
@@ -111,6 +114,61 @@ std::optional<glm::vec4> parse_color(std::string_view raw) {
         };
     }
     return std::nullopt;
+}
+
+UiAlign parse_align(std::string_view raw) {
+    const std::string_view value = trim(raw);
+    if (value == "center") {
+        return UiAlign::Center;
+    }
+    if (value == "end" || value == "flex-end") {
+        return UiAlign::End;
+    }
+    return UiAlign::Start;
+}
+
+std::optional<BoxInsets> parse_padding(std::string_view raw) {
+    const std::string_view value = trim(raw);
+    if (value.empty()) {
+        return std::nullopt;
+    }
+    float parts[4] = {};
+    int count = 0;
+    std::size_t i = 0;
+    while (i < value.size() && count < 4) {
+        while (i < value.size() && std::isspace(static_cast<unsigned char>(value[i])) != 0) {
+            ++i;
+        }
+        if (i >= value.size()) {
+            break;
+        }
+        char* end = nullptr;
+        const float n = std::strtof(value.data() + i, &end);
+        if (end == value.data() + i) {
+            return std::nullopt;
+        }
+        parts[count++] = n;
+        i = static_cast<std::size_t>(end - value.data());
+    }
+    BoxInsets padding;
+    if (count == 1) {
+        padding.top = padding.right = padding.bottom = padding.left = parts[0];
+    } else if (count == 2) {
+        padding.top = padding.bottom = parts[0];
+        padding.right = padding.left = parts[1];
+    } else if (count == 3) {
+        padding.top = parts[0];
+        padding.right = padding.left = parts[1];
+        padding.bottom = parts[2];
+    } else if (count == 4) {
+        padding.top = parts[0];
+        padding.right = parts[1];
+        padding.bottom = parts[2];
+        padding.left = parts[3];
+    } else {
+        return std::nullopt;
+    }
+    return padding;
 }
 
 bool selector_matches(const CssSelector& selector, const Element& element, bool allow_pseudo) {
@@ -201,6 +259,14 @@ void apply_declaration(ComputedStyle& style, const CssDeclaration& decl) {
         } else {
             style.direction = StackDirection::Vertical;
         }
+    } else if (decl.property == "padding") {
+        if (const auto padding = parse_padding(decl.value)) {
+            style.padding = *padding;
+        }
+    } else if (decl.property == "justify-content") {
+        style.justify = parse_align(decl.value);
+    } else if (decl.property == "align-items") {
+        style.align_items = parse_align(decl.value);
     } else if (decl.property == "border-radius") {
         style.border_radius = std::strtof(decl.value.c_str(), nullptr);
     } else if (decl.property == "border-width") {
@@ -254,6 +320,8 @@ ComputedStyle compute_style(const Element& element, const Stylesheet* sheet, boo
     return style;
 }
 
+}
+
 void apply_layout_style(Element& element, const Stylesheet* sheet) {
     if (element.kind == ElementKind::ItemTemplate) {
         return;
@@ -265,6 +333,7 @@ void apply_layout_style(Element& element, const Stylesheet* sheet) {
     if (style.has_direction) {
         element.direction = style.direction;
     }
+    element.padding = style.padding;
     for (Element& child : element.children) {
         apply_layout_style(child, sheet);
     }
@@ -272,6 +341,8 @@ void apply_layout_style(Element& element, const Stylesheet* sheet) {
         apply_layout_style(child, sheet);
     }
 }
+
+namespace {
 
 void apply_interaction(Element& element, glm::vec2 pointer, bool pointer_down) {
     if (element.kind == ElementKind::ItemTemplate) {
@@ -314,7 +385,25 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
     if (element.kind == ElementKind::Label || element.kind == ElementKind::Button) {
         if (!element.text.empty()) {
             painter.set_font(style.font_family, style.font_size);
-            painter.fill_text(element.text, glm::vec2{element.layout_rect.x, element.layout_rect.y}, style.color);
+            const render::Rect content{
+                    element.layout_rect.x + style.padding.left,
+                    element.layout_rect.y + style.padding.top,
+                    std::max(0.0f, element.layout_rect.w - style.padding.left - style.padding.right),
+                    std::max(0.0f, element.layout_rect.h - style.padding.top - style.padding.bottom),
+            };
+            float x = content.x;
+            if (style.justify == UiAlign::Center) {
+                x = content.x + content.w * 0.5f;
+            } else if (style.justify == UiAlign::End) {
+                x = content.x + content.w;
+            }
+            float y = content.y;
+            if (style.align_items == UiAlign::Center) {
+                y = content.y + content.h * 0.5f;
+            } else if (style.align_items == UiAlign::End) {
+                y = content.y + content.h;
+            }
+            painter.fill_text(element.text, glm::vec2{x, y}, style.color, style.justify, style.align_items);
         }
     }
     if (element.kind == ElementKind::Image && element.source) {

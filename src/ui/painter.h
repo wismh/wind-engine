@@ -12,6 +12,12 @@
 
 namespace engine::ui {
 
+enum class UiAlign {
+    Start,
+    Center,
+    End,
+};
+
 class IUiPainter {
 public:
     virtual ~IUiPainter() = default;
@@ -23,7 +29,8 @@ public:
     virtual void fill_rounded_rect(const render::Rect& rect, float radius, glm::vec4 color) = 0;
     virtual void stroke_rounded_rect(const render::Rect& rect, float radius, float width, glm::vec4 color) = 0;
     virtual void set_font(AssetId font, float size) = 0;
-    virtual void fill_text(std::string_view text, glm::vec2 position, glm::vec4 color) = 0;
+    virtual void fill_text(std::string_view text, glm::vec2 position, glm::vec4 color, UiAlign horizontal,
+            UiAlign vertical) = 0;
     virtual void image(AssetId texture, const render::Rect& rect) = 0;
 };
 
@@ -33,6 +40,7 @@ struct UiPaintInput {
     bool pointer_down = false;
 };
 
+void apply_layout_style(Element& root, const Stylesheet* sheet);
 void paint_document(UiDocument& document, const Stylesheet* stylesheet, IUiPainter& painter, const UiPaintInput& input);
 
 }
