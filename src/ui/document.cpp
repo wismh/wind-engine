@@ -7,6 +7,15 @@ namespace {
 
 void layout_element(Element& element, const render::Rect& allocated);
 
+[[nodiscard]] render::Rect inset_rect(const render::Rect& rect, const BoxInsets& padding) {
+    return render::Rect{
+            rect.x + padding.left,
+            rect.y + padding.top,
+            std::max(0.0f, rect.w - padding.left - padding.right),
+            std::max(0.0f, rect.h - padding.top - padding.bottom),
+    };
+}
+
 void layout_stack(Element& element, const render::Rect& allocated) {
     std::vector<Element*> children;
     children.reserve(element.children.size() + element.generated_items.size());
@@ -50,7 +59,7 @@ void layout_element(Element& element, const render::Rect& allocated) {
         return;
     }
     if (element.kind == ElementKind::Stack || element.kind == ElementKind::ItemsControl) {
-        layout_stack(element, allocated);
+        layout_stack(element, inset_rect(allocated, element.padding));
         return;
     }
 

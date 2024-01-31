@@ -156,13 +156,39 @@ void NanoVgPainter::set_font(AssetId font, float size) {
     }
 }
 
-void NanoVgPainter::fill_text(std::string_view text, glm::vec2 position, glm::vec4 color) {
+void NanoVgPainter::fill_text(std::string_view text, glm::vec2 position, glm::vec4 color, ui::UiAlign horizontal,
+        ui::UiAlign vertical) {
     if (impl_->vg == nullptr || text.empty()) {
         return;
     }
+    int align = 0;
+    switch (horizontal) {
+        case ui::UiAlign::Center:
+            align |= NVG_ALIGN_CENTER;
+            break;
+        case ui::UiAlign::End:
+            align |= NVG_ALIGN_RIGHT;
+            break;
+        case ui::UiAlign::Start:
+        default:
+            align |= NVG_ALIGN_LEFT;
+            break;
+    }
+    switch (vertical) {
+        case ui::UiAlign::Center:
+            align |= NVG_ALIGN_MIDDLE;
+            break;
+        case ui::UiAlign::End:
+            align |= NVG_ALIGN_BOTTOM;
+            break;
+        case ui::UiAlign::Start:
+        default:
+            align |= NVG_ALIGN_TOP;
+            break;
+    }
     const std::string z(text);
     nvgFillColor(impl_->vg, to_nvg(color));
-    nvgTextAlign(impl_->vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
+    nvgTextAlign(impl_->vg, align);
     nvgText(impl_->vg, position.x, position.y, z.c_str(), nullptr);
 }
 
