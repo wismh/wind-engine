@@ -17,11 +17,11 @@ Git submodules. Engine CMake owns these targets. **Do not add EnTT.** Do not use
 | Dir | Repo |
 | --- | --- |
 | `SDL3` | https://github.com/libsdl-org/SDL.git |
-| `glad` | vendored generator output (ping-pong `external/glad`) or dav1dde/glad |
+| `glad` | vendored generator output or dav1dde/glad |
 | `nanovg` | https://github.com/memononen/nanovg.git |
 | `boost_di` | https://github.com/boost-ext/di.git |
 
-Include nanovg as `external/nanovg/src` (not ping-pong’s broken `../src`).
+Include nanovg as `external/nanovg/src`.
 
 ## Required when `ENGINE_WITH_AUDIO=ON` (slice 16)
 
