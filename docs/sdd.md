@@ -159,24 +159,21 @@ Engine CMake **owns** third-party targets (including nanovg). Include paths use 
 
 ```
 tic-tac-toe/
-  engine/                 # git submodule, url = ../engine (local); GitHub URL later
+  external/engine/        # git submodule, url = ../engine (local); GitHub URL later
   CMakeLists.txt
   include/game/ …
   src/ …
   assets/                 # raw files + sidecar .meta; copied next to the exe
-  generated/              # asset_ids.h + catalog (CMake output; gitignore the binaries, commit ids if desired)
 ```
 
 ```cmake
-add_subdirectory(engine)
-# asset_codegen (read-only) runs on assets/ before compiling game sources
-# missing .meta → configure/build FAIL; run asset_guid locally, commit the new .meta
-add_executable(tic-tac-toe … ${GENERATED_CATALOG})
-target_link_libraries(tic-tac-toe PRIVATE engine)
-target_include_directories(tic-tac-toe PRIVATE ${CMAKE_BINARY_DIR}/generated)
+add_subdirectory(external/engine)
+engine_add_game(tic-tac-toe src/main.cpp …)
 ```
 
-After clone: `git submodule update --init --recursive` (engine’s own `external/` submodules included). Game CMake does not build `engine_tests` unless `-DENGINE_BUILD_TESTS=ON`.
+`engine_add_game` owns codegen (`asset_ids.h` + cooked `catalog.toml` under the build tree), links `engine`, and copies `assets/` + `assets/engine/` beside the exe. Missing `.meta` → configure/build FAIL; run `asset_guid` locally and commit the new `.meta`.
+
+After clone: `git submodule update --init --recursive` (engine’s own `external/` submodules included). Game CMake does not build `engine_tests` unless `-DENGINE_BUILD_TESTS=ON`. `ENGINE_WITH_WINDOW` defaults **ON** when Wind is a subdirectory (still **OFF** in the engine repo so `engine_tests` stay headless).
 
 ### 3.3 Why a separate repo
 
@@ -828,7 +825,7 @@ Two executables, different trust boundaries.
 | `asset_guid` | Developer, by hand | **Yes** — missing `.meta` only | New random GUID + default importer from extension |
 | `asset_codegen` | CMake every game build | **No** | Parse TOML metas; fail on missing/invalid/collision; emit `asset_ids.h` + **cooked catalog** (guid, relative path, **parsed importer blob**) |
 
-`asset_codegen` output: `${CMAKE_BINARY_DIR}/generated/`. Gitignore generated files. **Commit `.meta`.** CI must not run `asset_guid`.
+`asset_codegen` output: build-tree `generated/` (`engine_add_game`). Gitignore generated files. **Commit `.meta`.** CI must not run `asset_guid`.
 
 Constants still:
 
@@ -1019,7 +1016,7 @@ Ping-pong has no tests. This repo does. Tests live **in the engine**, not in eac
 - `enable_testing()`, `include(GoogleTest)`, `gtest_discover_tests(engine_tests DISCOVERY_MODE PRE_TEST)` (same as Q+).
 - MSVC: `gtest_force_shared_crt ON`; `INSTALL_GTEST OFF`; `BUILD_GMOCK OFF` until a test needs `NiceMock`.
 
-`ENGINE_BUILD_TESTS` defaults to **ON** when this repo is the CMake root, **OFF** when a game does `add_subdirectory(engine)` — so remakes do not compile gtest unless they pass `-DENGINE_BUILD_TESTS=ON`.
+`ENGINE_BUILD_TESTS` defaults to **ON** when this repo is the CMake root, **OFF** when a game does `add_subdirectory(external/engine)` — so remakes do not compile gtest unless they pass `-DENGINE_BUILD_TESTS=ON`.
 
 ```bash
 # from engine/
