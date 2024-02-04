@@ -657,11 +657,11 @@ class Bindable { /* set/get; notifies the binding engine only */ };
 class RelayCommand : public ICommand { /* ctor from std::function; can_execute bindable */ };
 
 class ViewModel {
-protected:
+public:
     template<typename T>
-    void property(std::string_view name, Bindable<T>&);
-    void command(std::string_view name, ICommand&);
-    // items_source: property("cells", cells) with BindableList<T>
+    void property(BindingId id, Bindable<T>&);
+    void command(BindingId id, ICommand&);
+    // items_source: property(intern("cells"), cells) with BindableList<T>
 };
 ```
 
@@ -675,9 +675,9 @@ public:
     RelayCommand restart;
 
     HudViewModel() {
-        property("title", title);
-        property("score", score);
-        command("restart", restart);
+        property(engine::ui::intern("title"), title);
+        property(engine::ui::intern("score"), score);
+        command(engine::ui::intern("restart"), restart);
         restart = [this] { /* send event or mutate game model — not GL, not UI tree */ };
     }
 };
