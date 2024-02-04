@@ -67,6 +67,13 @@ bool OpenGLCanvas::load_ui_font(const Font& font) {
     return ui_painter_->load_ui_font(font);
 }
 
+bool OpenGLCanvas::add_font(AssetId id, const Font& font) {
+    if (ui_painter_ == nullptr) {
+        return false;
+    }
+    return ui_painter_->add_font(id, font);
+}
+
 void OpenGLCanvas::Draw() {
     if (window_ != nullptr) {
         const glm::ivec2 size = window_->drawable_size();
