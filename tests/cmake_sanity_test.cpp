@@ -21,3 +21,11 @@ TEST(Scaffold, DefaultTestsHaveNoAudioBackend) {
     GTEST_SKIP() << "audio backend preset; mixer device is still not opened in engine_tests";
 #endif
 }
+
+TEST(Scaffold, DefaultTestsHaveNoWebProfile) {
+#ifndef ENGINE_WITH_WEB
+    SUCCEED();
+#else
+    GTEST_SKIP() << "web profile preset; Engine::run is still not invoked";
+#endif
+}
