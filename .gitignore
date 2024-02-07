@@ -1,6 +1,7 @@
 /build/
 /build-window/
 /build-audio/
+/build-web/
 /out/
 /cmake-build-*/
 /.vs/
