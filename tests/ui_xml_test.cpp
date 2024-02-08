@@ -60,10 +60,10 @@ TEST(UiXml, ParseValidCanvasStackLabelButton) {
     EXPECT_EQ(root.children[0].direction, engine::ui::StackDirection::Vertical);
     ASSERT_EQ(root.children[0].children.size(), 2u);
     EXPECT_EQ(root.children[0].children[0].kind, engine::ui::ElementKind::Label);
-    EXPECT_EQ(root.children[0].children[0].text_binding, "title");
+    EXPECT_EQ(root.children[0].children[0].text_binding, engine::ui::intern("title"));
     EXPECT_EQ(root.children[0].children[1].kind, engine::ui::ElementKind::Button);
-    EXPECT_EQ(root.children[0].children[1].command_binding, "restart");
-    EXPECT_EQ(root.children[0].children[1].content_binding, "restart_label");
+    EXPECT_EQ(root.children[0].children[1].command_binding, engine::ui::intern("restart"));
+    EXPECT_EQ(root.children[0].children[1].content_binding, engine::ui::intern("restart_label"));
 }
 
 TEST(UiXml, UnknownElementIsFatal) {
@@ -98,7 +98,7 @@ TEST(UiXml, OnClickAttributeIsNotAnApi) {
     ASSERT_TRUE(parsed.has_value());
     const engine::ui::Element* button = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Button);
     ASSERT_NE(button, nullptr);
-    EXPECT_FALSE(button->command_binding.has_value());
+    EXPECT_FALSE(engine::ui::is_bound(button->command_binding));
     EXPECT_EQ(button->text, "Go");
     EXPECT_EQ(button->command, nullptr);
 }
