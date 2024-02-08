@@ -2,6 +2,8 @@
 
 #include <engine/ui/document.h>
 
+#include "painter.h"
+
 #include <algorithm>
 #include <cstdint>
 #include <vector>
@@ -90,6 +92,11 @@ void handle_pointer(ecs::World& world, float x, float y) {
         return;
     }
 
+    const Stylesheet* sheet = nullptr;
+    if (instance->stylesheet) {
+        sheet = &*instance->stylesheet;
+    }
+    apply_layout_style(instance->document.root, sheet);
     layout(instance->document, canvas.rect);
     if (canvas.data_context) {
         (void) apply_bindings(instance->document, *canvas.data_context, nullptr);
