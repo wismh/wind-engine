@@ -21,9 +21,15 @@ struct OpenGLRuntime {
     std::unique_ptr<OpenGLCanvas> canvas;
 
     [[nodiscard]] bool init(std::string_view title, glm::ivec2 size) {
+#if defined(__EMSCRIPTEN__)
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#else
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+#endif
         SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 
         if (!window.create(title, size)) {

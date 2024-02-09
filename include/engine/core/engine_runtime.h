@@ -56,6 +56,10 @@ public:
 
 private:
     void poll_events(ecs::World& world, InputSystem& input, ApplicationState& app);
+    void begin_loop(IGame& game, InputSystem& input, IAudioSystem* audio);
+    void tick_loop();
+    void end_loop();
+    static void main_loop_thunk(void* self);
 
     struct Impl;
     std::unique_ptr<Impl> impl_;

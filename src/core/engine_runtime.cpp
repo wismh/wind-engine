@@ -4,7 +4,9 @@
 
 #include <engine/audio/audio_system.h>
 #include <engine/core/fixed_step.h>
+#include <engine/core/platform.h>
 #include <engine/core/time.h>
+#include <engine/core/web_loop.h>
 #include <engine/ecs/events.h>
 #include <engine/ecs/world.h>
 #include <engine/resources/font.h>
@@ -15,6 +17,10 @@
 #include <memory>
 #include <string>
 #include <utility>
+
+#if defined(__EMSCRIPTEN__)
+#include <emscripten.h>
+#endif
 
 namespace engine {
 namespace {
@@ -41,6 +47,11 @@ struct EngineRuntime::Impl {
     std::shared_ptr<render::OpenGLRenderBackend> backend = std::make_shared<render::OpenGLRenderBackend>();
     std::shared_ptr<render::OpenGLCanvas> canvas;
     bool video_inited = false;
+    IGame* loop_game = nullptr;
+    InputSystem* loop_input = nullptr;
+    IAudioSystem* loop_audio = nullptr;
+    std::unique_ptr<FixedStepClock> loop_clock;
+    std::chrono::steady_clock::time_point loop_last{};
 
     Impl() {
         canvas = std::make_shared<render::OpenGLCanvas>(window, *commands, *backend);
@@ -60,6 +71,10 @@ bool EngineRuntime::init_video() {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         return false;
     }
+#if defined(__EMSCRIPTEN__)
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+    SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
+#endif
     impl_->video_inited = true;
     return true;
 }
@@ -110,40 +125,97 @@ void EngineRuntime::shutdown() {
 }
 
 int EngineRuntime::run(IGame& game, InputSystem& input, IAudioSystem* audio) {
+    begin_loop(game, input, audio);
+
+    const MainLoopPolicy policy{default_loop_kind()};
+#if defined(__EMSCRIPTEN__)
+    if (policy.uses_request_animation_frame()) {
+        emscripten_set_main_loop_arg(&EngineRuntime::main_loop_thunk, this, 0, 1);
+        return 0;
+    }
+#else
+    (void)policy;
+#endif
+
+    ApplicationState& app = game.world().ctx<ApplicationState>();
+    while (app.running) {
+        tick_loop();
+    }
+    end_loop();
+    return 0;
+}
+
+void EngineRuntime::begin_loop(IGame& game, InputSystem& input, IAudioSystem* audio) {
+    impl_->loop_game = &game;
+    impl_->loop_input = &input;
+    impl_->loop_audio = audio;
+    impl_->loop_clock = std::make_unique<FixedStepClock>(game.world().ctx<Time>(), game.world().ctx<ApplicationState>());
+    impl_->loop_last = std::chrono::steady_clock::now();
+
+    game.on_start();
+    ui::apply_fill_window(game.world());
+    game.world().ctx<ApplicationState>().running = true;
+}
+
+void EngineRuntime::tick_loop() {
+    if (impl_->loop_game == nullptr || impl_->loop_input == nullptr || impl_->loop_clock == nullptr) {
+        return;
+    }
+    IGame& game = *impl_->loop_game;
     ecs::World& world = game.world();
     Time& time = world.ctx<Time>();
     ApplicationState& app = world.ctx<ApplicationState>();
-    FixedStepClock clock(time, app);
 
-    game.on_start();
-    ui::apply_fill_window(world);
-    app.running = true;
+    const auto now = std::chrono::steady_clock::now();
+    const float real_dt = std::chrono::duration<float>(now - impl_->loop_last).count();
+    impl_->loop_last = now;
 
-    using Clock = std::chrono::steady_clock;
-    auto last = Clock::now();
+    world.flush_events();
+    poll_events(world, *impl_->loop_input, app);
+    ui::begin_frame(world);
 
-    while (app.running) {
-        const auto now = Clock::now();
-        const float real_dt = std::chrono::duration<float>(now - last).count();
-        last = now;
-
-        world.flush_events();
-        poll_events(world, input, app);
-        ui::begin_frame(world);
-
-        const int steps = clock.advance(real_dt);
-        if (audio != nullptr) {
-            audio->update(time.delta_time);
-        }
-        for (int i = 0; i < steps; ++i) {
-            game.on_fixed_update();
-        }
-        game.on_update();
-        canvas().draw();
+    const int steps = impl_->loop_clock->advance(real_dt);
+    if (impl_->loop_audio != nullptr) {
+        impl_->loop_audio->update(time.delta_time);
     }
+    for (int i = 0; i < steps; ++i) {
+        game.on_fixed_update();
+    }
+    game.on_update();
+    canvas().draw();
+}
 
-    game.on_quit();
-    return 0;
+void EngineRuntime::end_loop() {
+    if (impl_->loop_game != nullptr) {
+        impl_->loop_game->on_quit();
+    }
+    impl_->loop_game = nullptr;
+    impl_->loop_input = nullptr;
+    impl_->loop_audio = nullptr;
+    impl_->loop_clock.reset();
+}
+
+void EngineRuntime::main_loop_thunk(void* self) {
+    auto* runtime = static_cast<EngineRuntime*>(self);
+    if (runtime == nullptr || runtime->impl_ == nullptr) {
+#if defined(__EMSCRIPTEN__)
+        emscripten_cancel_main_loop();
+#endif
+        return;
+    }
+    runtime->tick_loop();
+    if (runtime->impl_->loop_game == nullptr) {
+#if defined(__EMSCRIPTEN__)
+        emscripten_cancel_main_loop();
+#endif
+        return;
+    }
+    if (!runtime->impl_->loop_game->world().ctx<ApplicationState>().running) {
+#if defined(__EMSCRIPTEN__)
+        emscripten_cancel_main_loop();
+#endif
+        runtime->end_loop();
+    }
 }
 
 render::CommandBuffer& EngineRuntime::commands() {
@@ -199,7 +271,7 @@ std::filesystem::path EngineRuntime::assets_root() const {
     if (base.empty()) {
         return {};
     }
-    return base / "assets";
+    return default_assets_root(base);
 }
 
 void EngineRuntime::write_window_size(ecs::World& world, bool send_event) {
@@ -240,6 +312,21 @@ void EngineRuntime::poll_events(ecs::World& world, InputSystem& input, Applicati
                 input.handle_mouse_move(glm::vec2{event.motion.x, event.motion.y},
                         glm::vec2{event.motion.xrel, event.motion.yrel});
                 break;
+            case SDL_EVENT_FINGER_DOWN:
+            case SDL_EVENT_FINGER_UP: {
+                const glm::ivec2 size = drawable_size();
+                const glm::vec2 pos = denormalize_touch({event.tfinger.x, event.tfinger.y}, size);
+                input.handle_touch(static_cast<std::uint32_t>(event.tfinger.fingerID),
+                        event.type == SDL_EVENT_FINGER_DOWN, pos);
+                break;
+            }
+            case SDL_EVENT_FINGER_MOTION: {
+                const glm::ivec2 size = drawable_size();
+                const glm::vec2 pos = denormalize_touch({event.tfinger.x, event.tfinger.y}, size);
+                const glm::vec2 rel = denormalize_touch({event.tfinger.dx, event.tfinger.dy}, size);
+                input.handle_touch_move(static_cast<std::uint32_t>(event.tfinger.fingerID), pos, rel);
+                break;
+            }
             default:
                 break;
         }
