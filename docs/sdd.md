@@ -1116,6 +1116,7 @@ cmake --build build --target <game>
 
 Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (builtin, §10.8) copied beside the exe. Game build runs `asset_codegen` so `asset_ids.h` exists before compiling sources.
 
+
 ---
 
 
