@@ -115,6 +115,7 @@ enum class CodegenErrorKind {
     Collision,
     InvalidMeta,
     Io,
+    UiMarkup,
 };
 
 struct CodegenError {
