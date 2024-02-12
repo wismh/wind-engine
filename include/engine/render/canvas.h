@@ -5,7 +5,7 @@ namespace engine::render {
 class ICanvas {
 public:
     virtual ~ICanvas() = default;
-    virtual void Draw() = 0;
+    virtual void draw() = 0;
 };
 
 }

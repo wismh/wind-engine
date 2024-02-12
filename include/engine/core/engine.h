@@ -40,15 +40,15 @@ class Engine {
 public:
     Engine() = default;
     ~Engine() {
-        Dispose();
+        dispose();
     }
 
     Engine(const Engine&) = delete;
     Engine& operator=(const Engine&) = delete;
 
-    bool Init();
-    int Run();
-    void Dispose();
+    bool init();
+    int run();
+    void dispose();
 
 private:
     EngineRuntime runtime_;
@@ -62,7 +62,7 @@ private:
 
 template<typename GameT>
     requires std::derived_from<GameT, IGame>
-bool Engine<GameT>::Init() {
+bool Engine<GameT>::init() {
     if (initialized_) {
         return true;
     }
@@ -92,20 +92,20 @@ bool Engine<GameT>::Init() {
         return false;
     }
 
-    input_->set_world(game_->World());
+    input_->set_world(game_->world());
     if (auto* sdl_fatal = dynamic_cast<SdlFatalError*>(fatal_.get())) {
-        sdl_fatal->attach(game_->World().ctx<ApplicationState>(), runtime_.native_window());
+        sdl_fatal->attach(game_->world().ctx<ApplicationState>(), runtime_.native_window());
     }
 
-    if (!runtime_.create_window(game_->WindowTitle(), game_->WindowSize())) {
+    if (!runtime_.create_window(game_->window_title(), game_->window_size())) {
         runtime_.shutdown();
         return false;
     }
     if (auto* sdl_fatal = dynamic_cast<SdlFatalError*>(fatal_.get())) {
-        sdl_fatal->attach(game_->World().ctx<ApplicationState>(), runtime_.native_window());
+        sdl_fatal->attach(game_->world().ctx<ApplicationState>(), runtime_.native_window());
     }
 
-    if (!audio_->Init()) {
+    if (!audio_->init()) {
         runtime_.shutdown();
         return false;
     }
@@ -130,7 +130,7 @@ bool Engine<GameT>::Init() {
             return false;
         }
     }
-    if (!runtime_.load_ui_font(*assets_->Get<Font>(builtin::font_ui))) {
+    if (!runtime_.load_ui_font(*assets_->get<Font>(builtin::font_ui))) {
         fatal_->report("Failed to load UI font");
         runtime_.shutdown();
         return false;
@@ -139,21 +139,21 @@ bool Engine<GameT>::Init() {
         if (entry.importer != ImporterKind::Font || entry.guid == builtin::font_ui) {
             continue;
         }
-        if (!runtime_.add_font(entry.guid, *assets_->Get<Font>(entry.guid))) {
+        if (!runtime_.add_font(entry.guid, *assets_->get<Font>(entry.guid))) {
             fatal_->report("Failed to load UI font");
             runtime_.shutdown();
             return false;
         }
     }
 
-    runtime_.write_window_size(game_->World(), true);
-    RegisterEngineSystems(game_->World(), EngineSystemDeps{
+    runtime_.write_window_size(game_->world(), true);
+    register_engine_systems(game_->world(), EngineSystemDeps{
             .commands = &runtime_.commands(),
             .fatal = fatal_.get(),
             .assets = assets_.get(),
             .audio = audio_.get(),
     });
-    ui::apply_fill_window(game_->World());
+    ui::apply_fill_window(game_->world());
 
     initialized_ = true;
     return true;
@@ -161,23 +161,23 @@ bool Engine<GameT>::Init() {
 
 template<typename GameT>
     requires std::derived_from<GameT, IGame>
-int Engine<GameT>::Run() {
+int Engine<GameT>::run() {
     if (!initialized_ || !game_ || !input_) {
         return 1;
     }
     const int result = runtime_.run(*game_, *input_, audio_.get());
-    Dispose();
+    dispose();
     return result;
 }
 
 template<typename GameT>
     requires std::derived_from<GameT, IGame>
-void Engine<GameT>::Dispose() {
+void Engine<GameT>::dispose() {
     if (!initialized_) {
         return;
     }
     if (audio_) {
-        audio_->Dispose();
+        audio_->dispose();
     }
     runtime_.shutdown();
     initialized_ = false;
