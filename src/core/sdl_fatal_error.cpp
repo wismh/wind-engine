@@ -16,7 +16,7 @@ void SdlFatalError::report(std::string_view message) {
     SDL_ShowSimpleMessageBox(
             SDL_MESSAGEBOX_ERROR, "Engine", text.c_str(), static_cast<SDL_Window*>(native_window_));
     if (app_ != nullptr) {
-        app_->Quit();
+        app_->quit();
     }
 }
 
