@@ -74,7 +74,7 @@ bool OpenGLCanvas::add_font(AssetId id, const Font& font) {
     return ui_painter_->add_font(id, font);
 }
 
-void OpenGLCanvas::Draw() {
+void OpenGLCanvas::draw() {
     if (window_ != nullptr) {
         const glm::ivec2 size = window_->drawable_size();
         if (size.x > 0 && size.y > 0) {
