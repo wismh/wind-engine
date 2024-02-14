@@ -7,7 +7,7 @@ alwaysApply: true
 
 Design of record: `docs/sdd.md`. Ping-pong is a prototype only.
 
-Do not introduce: EnTT, `Node` / `NodeEcs` / `NodeUI`, `EventBus` Subscribe/Emit, `CmdCustomDraw`, UI `onClick` lambdas, `Get("file.png")`, `Transform` parent, service locator (`Engine::GetAudio()`).
+Do not introduce: EnTT, `Node` / `NodeEcs` / `NodeUI`, `EventBus` Subscribe/Emit, `CmdCustomDraw`, UI `onClick` lambdas, `get("file.png")`, `Transform` parent, service locator (`Engine::get_audio()`).
 
 Public headers may include glm. They must not include SDL, glad, NanoVG, spdlog, tinyxml2, or mixer.
 
