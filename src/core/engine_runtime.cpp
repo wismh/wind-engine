@@ -267,11 +267,9 @@ std::filesystem::path EngineRuntime::base_path() const {
 }
 
 std::filesystem::path EngineRuntime::assets_root() const {
-    const std::filesystem::path base = base_path();
-    if (base.empty()) {
-        return {};
-    }
-    return default_assets_root(base);
+    // Do not drop an empty SDL_GetBasePath(): on web that still maps to /assets
+    // (SDD-WIND-WEB-001 §5). Native empty base stays empty via the helper.
+    return default_assets_root(base_path());
 }
 
 void EngineRuntime::write_window_size(ecs::World& world, bool send_event) {
