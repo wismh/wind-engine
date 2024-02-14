@@ -136,4 +136,5 @@ TEST(Builtin, CodegenScanBuiltinAssets) {
     const auto result = engine::codegen_scan(builtin_assets_dir());
     ASSERT_TRUE(result.has_value()) << (result ? "" : result.error().message);
     EXPECT_GE(result->catalog.entries().size(), 4u);
+    EXPECT_EQ(result->asset_ids_header.find("binding_id.h"), std::string::npos);
 }
