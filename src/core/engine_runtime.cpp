@@ -52,6 +52,8 @@ struct EngineRuntime::Impl {
     IAudioSystem* loop_audio = nullptr;
     std::unique_ptr<FixedStepClock> loop_clock;
     std::chrono::steady_clock::time_point loop_last{};
+    std::function<void()> host_dispose;
+    LoopShutdown loop_shutdown;
 
     Impl() {
         canvas = std::make_shared<render::OpenGLCanvas>(window, *commands, *backend);
@@ -124,7 +126,8 @@ void EngineRuntime::shutdown() {
     }
 }
 
-int EngineRuntime::run(IGame& game, InputSystem& input, IAudioSystem* audio) {
+int EngineRuntime::run(IGame& game, InputSystem& input, IAudioSystem* audio, std::function<void()> host_dispose) {
+    impl_->host_dispose = std::move(host_dispose);
     begin_loop(game, input, audio);
 
     const MainLoopPolicy policy{default_loop_kind()};
@@ -151,6 +154,7 @@ void EngineRuntime::begin_loop(IGame& game, InputSystem& input, IAudioSystem* au
     impl_->loop_audio = audio;
     impl_->loop_clock = std::make_unique<FixedStepClock>(game.world().ctx<Time>(), game.world().ctx<ApplicationState>());
     impl_->loop_last = std::chrono::steady_clock::now();
+    impl_->loop_shutdown = LoopShutdown{};
 
     game.on_start();
     ui::apply_fill_window(game.world());
@@ -186,13 +190,15 @@ void EngineRuntime::tick_loop() {
 }
 
 void EngineRuntime::end_loop() {
-    if (impl_->loop_game != nullptr) {
-        impl_->loop_game->on_quit();
-    }
+    IGame* const game = impl_->loop_game;
     impl_->loop_game = nullptr;
     impl_->loop_input = nullptr;
     impl_->loop_audio = nullptr;
     impl_->loop_clock.reset();
+
+    const std::function<void()> on_quit = game == nullptr ? std::function<void()>{}
+                                                          : std::function<void()>{[game] { game->on_quit(); }};
+    impl_->loop_shutdown.complete(on_quit, impl_->host_dispose);
 }
 
 void EngineRuntime::main_loop_thunk(void* self) {

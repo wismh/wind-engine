@@ -24,4 +24,27 @@ int MainLoopPolicy::pump(ApplicationState& app, const std::function<void(float)>
     return frames;
 }
 
+void LoopShutdown::complete(const std::function<void()>& on_quit, const std::function<void()>& dispose) {
+    if (!quit_completed_) {
+        quit_completed_ = true;
+        if (on_quit) {
+            on_quit();
+        }
+    }
+    if (!dispose_completed_) {
+        dispose_completed_ = true;
+        if (dispose) {
+            dispose();
+        }
+    }
+}
+
+bool LoopShutdown::quit_completed() const noexcept {
+    return quit_completed_;
+}
+
+bool LoopShutdown::dispose_completed() const noexcept {
+    return dispose_completed_;
+}
+
 }
