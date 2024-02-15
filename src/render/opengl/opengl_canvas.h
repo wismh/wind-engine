@@ -26,7 +26,7 @@ public:
     [[nodiscard]] bool init();
     [[nodiscard]] bool load_ui_font(const Font& font);
     [[nodiscard]] bool add_font(AssetId id, const Font& font);
-    void Draw() override;
+    void draw() override;
 
 private:
     void destroy_context();

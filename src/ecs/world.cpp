@@ -65,11 +65,11 @@ void World::flush_destroyed() {
     }
 }
 
-void World::AddSystem(Schedule schedule, Phase phase, SystemFn fn) {
+void World::add_system(Schedule schedule, Phase phase, SystemFn fn) {
     systems_[schedule_index(schedule)][phase_index(phase)].push_back(std::move(fn));
 }
 
-void World::Run(Schedule schedule) {
+void World::run(Schedule schedule) {
     const auto run_phases = [this, schedule](const auto& phases) {
         auto& by_phase = systems_[schedule_index(schedule)];
         for (const Phase phase : phases) {
@@ -87,7 +87,7 @@ void World::Run(Schedule schedule) {
     }
 }
 
-void World::FlushEvents() {
+void World::flush_events() {
     for (auto& update : event_queues_) {
         update();
     }

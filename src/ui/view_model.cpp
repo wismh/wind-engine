@@ -42,7 +42,7 @@ const ICommand* ViewModel::find_command(std::string_view name) const {
     return it->second;
 }
 
-void ViewModel::Command(std::string_view name, ICommand& command) {
+void ViewModel::command(std::string_view name, ICommand& command) {
     commands_.insert_or_assign(std::string(name), &command);
 }
 

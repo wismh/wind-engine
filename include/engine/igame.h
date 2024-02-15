@@ -13,41 +13,41 @@ class IGame {
 public:
     virtual ~IGame() = default;
 
-    virtual std::string WindowTitle() const {
+    virtual std::string window_title() const {
         return "Game";
     }
 
-    virtual glm::ivec2 WindowSize() const {
+    virtual glm::ivec2 window_size() const {
         return {800, 600};
     }
 
-    virtual ecs::World& World() = 0;
-    virtual void OnStart() = 0;
-    virtual void OnFixedUpdate() = 0;
-    virtual void OnUpdate() = 0;
-    virtual void OnDraw() = 0;
-    virtual void OnQuit() = 0;
+    virtual ecs::World& world() = 0;
+    virtual void on_start() = 0;
+    virtual void on_fixed_update() = 0;
+    virtual void on_update() = 0;
+    virtual void on_draw() = 0;
+    virtual void on_quit() = 0;
 };
 
 class GameBase : public IGame {
 public:
-    ecs::World& World() override {
+    ecs::World& world() override {
         return world_;
     }
 
-    void OnStart() override {}
+    void on_start() override {}
 
-    void OnFixedUpdate() override {
-        world_.Run(ecs::Schedule::Fixed);
+    void on_fixed_update() override {
+        world_.run(ecs::Schedule::Fixed);
     }
 
-    void OnUpdate() override {
-        world_.Run(ecs::Schedule::Frame);
+    void on_update() override {
+        world_.run(ecs::Schedule::Frame);
     }
 
-    void OnDraw() override {}
+    void on_draw() override {}
 
-    void OnQuit() override {}
+    void on_quit() override {}
 
 protected:
     ecs::World world_;

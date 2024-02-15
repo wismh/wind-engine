@@ -44,7 +44,7 @@
 
 namespace engine {
 
-inline constexpr int kApiEpoch = 1;
+inline constexpr int kApiEpoch = 2;
 
 int api_epoch();
 

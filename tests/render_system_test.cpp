@@ -39,19 +39,19 @@ class FakeMesh final : public engine::render::IMesh {};
 
 class FakeMaterial final : public engine::render::IMaterial {
 public:
-    std::shared_ptr<engine::render::IShader> Shader() const override {
+    std::shared_ptr<engine::render::IShader> shader() const override {
         return {};
     }
 
-    std::shared_ptr<engine::render::ITexture> Texture(int) const override {
+    std::shared_ptr<engine::render::ITexture> texture(int) const override {
         return {};
     }
 
-    glm::vec4 Color() const override {
+    glm::vec4 color() const override {
         return {1.0f, 1.0f, 1.0f, 1.0f};
     }
 
-    engine::render::BlendMode Blend() const override {
+    engine::render::BlendMode blend() const override {
         return engine::render::BlendMode::Opaque;
     }
 };
@@ -73,7 +73,7 @@ public:
     engine::ui::Bindable<std::string> title;
 
     TitleViewModel() {
-        Property("Title", title);
+        property("title", title);
     }
 };
 
@@ -153,7 +153,7 @@ struct TempDir {
 TEST(RenderSystem, SortThenPushMesh) {
     engine::render::CommandBuffer commands;
     engine::ecs::World world;
-    engine::RegisterEngineSystems(world, engine::EngineSystemDeps{.commands = &commands});
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
     spawn_camera(world);
 
     const auto mesh_high = std::make_shared<FakeMesh>();
@@ -168,7 +168,7 @@ TEST(RenderSystem, SortThenPushMesh) {
     world.emplace<engine::Transform>(low, engine::Transform{});
     world.emplace<engine::render::Renderable>(low, make_renderable(mesh_low, material, 0));
 
-    world.Run(engine::ecs::Schedule::Frame);
+    world.run(engine::ecs::Schedule::Frame);
 
     ASSERT_EQ(commands.size(), 2u);
     ASSERT_TRUE(std::holds_alternative<engine::render::CmdDrawMesh>(commands[0]));
@@ -182,7 +182,7 @@ TEST(RenderSystem, MissingMeshOrMaterialIsFatal) {
         engine::render::CommandBuffer commands;
         RecordingFatalError fatal;
         engine::ecs::World world;
-        engine::RegisterEngineSystems(world, engine::EngineSystemDeps{.commands = &commands, .fatal = &fatal});
+        engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands, .fatal = &fatal});
         spawn_camera(world);
 
         const auto material = std::make_shared<FakeMaterial>();
@@ -190,7 +190,7 @@ TEST(RenderSystem, MissingMeshOrMaterialIsFatal) {
         world.emplace<engine::Transform>(entity, engine::Transform{});
         world.emplace<engine::render::Renderable>(entity, make_renderable(nullptr, material, 0));
 
-        EXPECT_THROW(world.Run(engine::ecs::Schedule::Frame), std::runtime_error);
+        EXPECT_THROW(world.run(engine::ecs::Schedule::Frame), std::runtime_error);
         EXPECT_EQ(fatal.call_count, 1);
         EXPECT_TRUE(commands.empty());
     }
@@ -198,7 +198,7 @@ TEST(RenderSystem, MissingMeshOrMaterialIsFatal) {
         engine::render::CommandBuffer commands;
         RecordingFatalError fatal;
         engine::ecs::World world;
-        engine::RegisterEngineSystems(world, engine::EngineSystemDeps{.commands = &commands, .fatal = &fatal});
+        engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands, .fatal = &fatal});
         spawn_camera(world);
 
         const auto mesh = std::make_shared<FakeMesh>();
@@ -206,7 +206,7 @@ TEST(RenderSystem, MissingMeshOrMaterialIsFatal) {
         world.emplace<engine::Transform>(entity, engine::Transform{});
         world.emplace<engine::render::Renderable>(entity, make_renderable(mesh, nullptr, 0));
 
-        EXPECT_THROW(world.Run(engine::ecs::Schedule::Frame), std::runtime_error);
+        EXPECT_THROW(world.run(engine::ecs::Schedule::Frame), std::runtime_error);
         EXPECT_EQ(fatal.call_count, 1);
         EXPECT_TRUE(commands.empty());
     }
@@ -215,7 +215,7 @@ TEST(RenderSystem, MissingMeshOrMaterialIsFatal) {
 TEST(RenderSystem, UiCommandsAfterWorld) {
     engine::render::CommandBuffer commands;
     engine::ecs::World world;
-    engine::RegisterEngineSystems(world, engine::EngineSystemDeps{.commands = &commands});
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
     spawn_camera(world);
 
     const auto mesh = std::make_shared<FakeMesh>();
@@ -230,7 +230,7 @@ TEST(RenderSystem, UiCommandsAfterWorld) {
     const engine::ecs::Entity hud = world.create();
     world.emplace<engine::ui::UiCanvas>(hud, canvas);
 
-    world.Run(engine::ecs::Schedule::Frame);
+    world.run(engine::ecs::Schedule::Frame);
 
     ASSERT_EQ(commands.size(), 2u);
     EXPECT_TRUE(std::holds_alternative<engine::render::CmdDrawMesh>(commands[0]));
@@ -240,12 +240,12 @@ TEST(RenderSystem, UiCommandsAfterWorld) {
 
 TEST(RenderSystem, BindPhaseUpdatesInstance) {
     engine::ecs::World world;
-    engine::RegisterEngineSystems(world);
+    engine::register_engine_systems(world);
 
     auto vm = std::make_shared<TitleViewModel>();
-    vm->title.Set("Hello");
+    vm->title.set("Hello");
     const auto parsed =
-            engine::ui::parse_xml(R"(<Canvas><Label Text="{Binding Title}"/></Canvas>)", nullptr, vm.get());
+            engine::ui::parse_xml(R"(<Canvas><Label text="{binding title}"/></Canvas>)", nullptr, vm.get());
     ASSERT_TRUE(parsed.has_value());
 
     engine::ui::UiCanvas canvas;
@@ -255,14 +255,14 @@ TEST(RenderSystem, BindPhaseUpdatesInstance) {
     world.emplace<engine::ui::UiCanvas>(entity, canvas);
     world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{*parsed});
 
-    world.Run(engine::ecs::Schedule::Frame);
+    world.run(engine::ecs::Schedule::Frame);
     const engine::ui::Element* label =
             engine::ui::find_by_kind(world.get<engine::ui::UiInstance>(entity).document.root, engine::ui::ElementKind::Label);
     ASSERT_NE(label, nullptr);
     EXPECT_EQ(label->text, "Hello");
 
-    vm->title.Set("World");
-    world.Run(engine::ecs::Schedule::Frame);
+    vm->title.set("World");
+    world.run(engine::ecs::Schedule::Frame);
     EXPECT_EQ(engine::ui::find_by_kind(world.get<engine::ui::UiInstance>(entity).document.root, engine::ui::ElementKind::Label)
                       ->text,
             "World");
@@ -271,7 +271,7 @@ TEST(RenderSystem, BindPhaseUpdatesInstance) {
 TEST(RenderSystem, ModelMatrixIsTranslateRotateScale) {
     engine::render::CommandBuffer commands;
     engine::ecs::World world;
-    engine::RegisterEngineSystems(world, engine::EngineSystemDeps{.commands = &commands});
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
     spawn_camera(world);
 
     const auto mesh = std::make_shared<FakeMesh>();
@@ -285,7 +285,7 @@ TEST(RenderSystem, ModelMatrixIsTranslateRotateScale) {
     world.emplace<engine::Transform>(entity, transform);
     world.emplace<engine::render::Renderable>(entity, make_renderable(mesh, material, 0));
 
-    world.Run(engine::ecs::Schedule::Frame);
+    world.run(engine::ecs::Schedule::Frame);
 
     ASSERT_EQ(commands.size(), 1u);
     ASSERT_TRUE(std::holds_alternative<engine::render::CmdDrawMesh>(commands[0]));
@@ -296,7 +296,7 @@ TEST(RenderSystem, ModelMatrixIsTranslateRotateScale) {
 
 TEST(Audio, PlaySfxEventType) {
     engine::ecs::World world;
-    engine::RegisterEngineSystems(world);
+    engine::register_engine_systems(world);
     engine::ecs::EventWriter<engine::PlaySfxEvent>{world}.send(engine::PlaySfxEvent{
             .id = engine::AssetId{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
             .volume_scale = 0.5f,
@@ -304,7 +304,7 @@ TEST(Audio, PlaySfxEventType) {
     engine::ecs::EventWriter<engine::PlayMusicEvent>{world}.send(engine::PlayMusicEvent{
             .id = engine::AssetId{"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
     });
-    world.Run(engine::ecs::Schedule::Frame);
+    world.run(engine::ecs::Schedule::Frame);
     SUCCEED();
 }
 
@@ -325,10 +325,10 @@ TEST(Audio, PlaySfxGetWhenDepsSet) {
     db.set_catalog(std::move(catalog));
 
     engine::AudioSystem audio;
-    ASSERT_TRUE(audio.Init());
+    ASSERT_TRUE(audio.init());
 
     engine::ecs::World world;
-    engine::RegisterEngineSystems(world, engine::EngineSystemDeps{.assets = &db, .audio = &audio});
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.assets = &db, .audio = &audio});
     engine::ecs::EventWriter<engine::PlaySfxEvent>{world}.send(engine::PlaySfxEvent{
             .id = id,
             .volume_scale = 0.5f,
@@ -338,24 +338,24 @@ TEST(Audio, PlaySfxGetWhenDepsSet) {
             .loop = true,
             .fade_seconds = 0.f,
     });
-    world.Run(engine::ecs::Schedule::Frame);
+    world.run(engine::ecs::Schedule::Frame);
 
     EXPECT_EQ(audio.sfx_play_count(), 1);
-    EXPECT_TRUE(audio.IsMusicPlaying());
+    EXPECT_TRUE(audio.is_music_playing());
 }
 
 TEST(Audio, PlaySfxMissingCueIsFatal) {
     RecordingFatalError fatal;
     engine::AssetsDb db(fatal);
     engine::AudioSystem audio;
-    ASSERT_TRUE(audio.Init());
+    ASSERT_TRUE(audio.init());
 
     engine::ecs::World world;
-    engine::RegisterEngineSystems(world, engine::EngineSystemDeps{.assets = &db, .audio = &audio});
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.assets = &db, .audio = &audio});
     engine::ecs::EventWriter<engine::PlaySfxEvent>{world}.send(engine::PlaySfxEvent{
             .id = engine::AssetId{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
             .volume_scale = 0.5f,
     });
-    EXPECT_THROW(world.Run(engine::ecs::Schedule::Frame), std::runtime_error);
+    EXPECT_THROW(world.run(engine::ecs::Schedule::Frame), std::runtime_error);
     EXPECT_EQ(fatal.call_count, 1);
 }

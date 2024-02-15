@@ -22,7 +22,7 @@ struct Renderable {
 
     [[nodiscard]] glm::vec4 tinted_color() const {
         const glm::vec4 material_color =
-                material ? material->Color() : glm::vec4{1.0f, 1.0f, 1.0f, 1.0f};
+                material ? material->color() : glm::vec4{1.0f, 1.0f, 1.0f, 1.0f};
         return multiply_instance_color(material_color, color);
     }
 };

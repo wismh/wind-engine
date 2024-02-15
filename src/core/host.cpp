@@ -13,34 +13,34 @@ Host::Host(IGame& game, render::ICanvas& canvas, IAudioSystem* audio)
     : game_(&game)
     , canvas_(&canvas)
     , audio_(audio)
-    , time_(&game.World().ctx<Time>())
-    , app_state_(&game.World().ctx<ApplicationState>())
+    , time_(&game.world().ctx<Time>())
+    , app_state_(&game.world().ctx<ApplicationState>())
     , clock_(*time_, *app_state_) {
-    const glm::ivec2 size = game_->WindowSize();
+    const glm::ivec2 size = game_->window_size();
     write_window_size(size.x, size.y, true);
-    RegisterEngineSystems(game_->World());
-    game_->OnStart();
-    ui::apply_fill_window(game_->World());
+    register_engine_systems(game_->world());
+    game_->on_start();
+    ui::apply_fill_window(game_->world());
 }
 
 Host::~Host() {
-    game_->OnQuit();
+    game_->on_quit();
 }
 
 void Host::tick(float real_dt) {
     ecs::World& world_ref = world();
-    world_ref.FlushEvents();
+    world_ref.flush_events();
     ui::begin_frame(world_ref);
 
     const int steps = clock_.advance(real_dt);
     if (audio_ != nullptr) {
-        audio_->Update(time_->deltaTime);
+        audio_->update(time_->delta_time);
     }
     for (int i = 0; i < steps; ++i) {
-        game_->OnFixedUpdate();
+        game_->on_fixed_update();
     }
-    game_->OnUpdate();
-    canvas_->Draw();
+    game_->on_update();
+    canvas_->draw();
 }
 
 void Host::resize(int width, int height) {
@@ -48,7 +48,7 @@ void Host::resize(int width, int height) {
 }
 
 ecs::World& Host::world() {
-    return game_->World();
+    return game_->world();
 }
 
 ApplicationState& Host::application_state() {

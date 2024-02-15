@@ -7,8 +7,8 @@ namespace engine::ui {
 class ICommand {
 public:
     virtual ~ICommand() = default;
-    [[nodiscard]] virtual bool CanExecute() const = 0;
-    virtual void Execute() = 0;
+    [[nodiscard]] virtual bool can_execute() const = 0;
+    virtual void execute() = 0;
 };
 
 class RelayCommand final : public ICommand {
@@ -25,15 +25,15 @@ public:
 
     void set_can_execute(bool value) { can_execute_ = value; }
 
-    [[nodiscard]] bool CanExecute() const override {
+    [[nodiscard]] bool can_execute() const override {
         if (can_execute_fn_) {
             return can_execute_fn_();
         }
         return can_execute_;
     }
 
-    void Execute() override {
-        if (execute_ && CanExecute()) {
+    void execute() override {
+        if (execute_ && can_execute()) {
             execute_();
         }
     }

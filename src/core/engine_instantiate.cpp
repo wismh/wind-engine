@@ -7,6 +7,6 @@ class WindowSmokeGame final : public engine::GameBase {};
 
 }
 
-template bool engine::Engine<WindowSmokeGame>::Init();
-template int engine::Engine<WindowSmokeGame>::Run();
-template void engine::Engine<WindowSmokeGame>::Dispose();
+template bool engine::Engine<WindowSmokeGame>::init();
+template int engine::Engine<WindowSmokeGame>::run();
+template void engine::Engine<WindowSmokeGame>::dispose();

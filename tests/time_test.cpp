@@ -9,11 +9,11 @@ TEST(Time, OneFixedStep) {
     engine::ApplicationState app;
     engine::FixedStepClock clock{time, app};
 
-    const int steps = clock.advance(engine::FIXED);
+    const int steps = clock.advance(engine::kFixed);
 
     EXPECT_EQ(steps, 1);
-    EXPECT_FLOAT_EQ(time.fixedDeltaTime, engine::FIXED);
-    EXPECT_FLOAT_EQ(time.deltaTime, engine::FIXED);
+    EXPECT_FLOAT_EQ(time.fixed_delta_time, engine::kFixed);
+    EXPECT_FLOAT_EQ(time.delta_time, engine::kFixed);
 }
 
 TEST(Time, TwoFixedSteps) {
@@ -21,10 +21,10 @@ TEST(Time, TwoFixedSteps) {
     engine::ApplicationState app;
     engine::FixedStepClock clock{time, app};
 
-    const int steps = clock.advance(2.0f * engine::FIXED);
+    const int steps = clock.advance(2.0f * engine::kFixed);
 
     EXPECT_EQ(steps, 2);
-    EXPECT_FLOAT_EQ(time.fixedDeltaTime, engine::FIXED);
+    EXPECT_FLOAT_EQ(time.fixed_delta_time, engine::kFixed);
 }
 
 TEST(Time, CapMaxFixedSteps) {
@@ -32,12 +32,12 @@ TEST(Time, CapMaxFixedSteps) {
     engine::ApplicationState app;
     engine::FixedStepClock clock{time, app};
 
-    const int steps = clock.advance(9.0f * engine::FIXED);
+    const int steps = clock.advance(9.0f * engine::kFixed);
 
-    EXPECT_EQ(steps, engine::MAX_FIXED_STEPS);
+    EXPECT_EQ(steps, engine::kMaxFixedSteps);
     EXPECT_EQ(steps, 8);
     EXPECT_FLOAT_EQ(time.accumulator, 0.0f);
-    EXPECT_LT(time.accumulator, engine::FIXED);
+    EXPECT_LT(time.accumulator, engine::kFixed);
 }
 
 TEST(Time, PausedZeroStepsAccumulatorFrozen) {
@@ -45,7 +45,7 @@ TEST(Time, PausedZeroStepsAccumulatorFrozen) {
     engine::ApplicationState app;
     engine::FixedStepClock clock{time, app};
 
-    const float remainder = 0.5f * engine::FIXED;
+    const float remainder = 0.5f * engine::kFixed;
     time.accumulator = remainder;
     app.paused = true;
 
@@ -55,9 +55,9 @@ TEST(Time, PausedZeroStepsAccumulatorFrozen) {
     EXPECT_FLOAT_EQ(time.accumulator, remainder);
 
     app.paused = false;
-    const int unpaused_steps = clock.advance(engine::FIXED);
+    const int unpaused_steps = clock.advance(engine::kFixed);
 
     EXPECT_EQ(unpaused_steps, 1);
-    EXPECT_NE(unpaused_steps, engine::MAX_FIXED_STEPS);
+    EXPECT_NE(unpaused_steps, engine::kMaxFixedSteps);
     EXPECT_FLOAT_EQ(time.accumulator, remainder);
 }
