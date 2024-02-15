@@ -265,7 +265,7 @@ TEST(Assets, CatalogListsFontAfterSetAndAdd) {
 TEST(Assets, TryGetNotFound) {
     SilentFatalError fatal;
     engine::AssetsDb db(fatal);
-    const auto result = db.TryGet<engine::render::ITexture>(engine::AssetId{kTextureGuid});
+    const auto result = db.try_get<engine::render::ITexture>(engine::AssetId{kTextureGuid});
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), engine::AssetError::NotFound);
 }
@@ -278,7 +278,7 @@ TEST(Assets, TryGetTypeMismatch) {
     catalog.add({engine::AssetId{kAudioGuid}, "sfx/step.wav", engine::ImporterKind::Audio});
     db.set_catalog(std::move(catalog));
 
-    const auto result = db.TryGet<engine::render::ITexture>(engine::AssetId{kAudioGuid});
+    const auto result = db.try_get<engine::render::ITexture>(engine::AssetId{kAudioGuid});
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), engine::AssetError::TypeMismatch);
 }
@@ -292,13 +292,13 @@ TEST(Assets, GetCallsFatalHook) {
     catalog.add({engine::AssetId{kAudioGuid}, "sfx/step.wav", engine::ImporterKind::Audio});
     db.set_catalog(std::move(catalog));
 
-    const auto not_ready = db.TryGet<engine::render::ITexture>(engine::AssetId{kTextureGuid});
+    const auto not_ready = db.try_get<engine::render::ITexture>(engine::AssetId{kTextureGuid});
     ASSERT_FALSE(not_ready.has_value());
     EXPECT_EQ(not_ready.error(), engine::AssetError::NotReady);
 
     bool missing_returned = false;
     try {
-        (void) db.Get<engine::render::ITexture>(engine::AssetId{"c1d2e3f4567890123456789012345abc"});
+        (void) db.get<engine::render::ITexture>(engine::AssetId{"c1d2e3f4567890123456789012345abc"});
         missing_returned = true;
     } catch (const std::runtime_error&) {
     }
@@ -309,7 +309,7 @@ TEST(Assets, GetCallsFatalHook) {
 
     bool mismatch_returned = false;
     try {
-        (void) db.Get<engine::render::ITexture>(engine::AssetId{kAudioGuid});
+        (void) db.get<engine::render::ITexture>(engine::AssetId{kAudioGuid});
         mismatch_returned = true;
     } catch (const std::runtime_error&) {
     }
@@ -352,7 +352,7 @@ TEST(Assets, CollisionFails) {
 
 TEST(Assets, GuidWritesMissingMetaOnly) {
     TempTree tree;
-    write_file(tree.path / "hud.xml", "<Canvas><Label Text=\"Hi\"/></Canvas>");
+    write_file(tree.path / "hud.xml", "<Canvas><Label text=\"Hi\"/></Canvas>");
 
     EXPECT_EQ(engine::write_missing_metas(tree.path), 1);
     const std::filesystem::path meta_path = tree.path / "hud.xml.meta";
@@ -373,7 +373,7 @@ TEST(Assets, GuidWritesMissingMetaOnly) {
 
 TEST(Assets, GetUiDocument) {
     TempTree tree;
-    write_file(tree.path / "hud.xml", "<Canvas><Label Text=\"Hi\"/></Canvas>");
+    write_file(tree.path / "hud.xml", "<Canvas><Label text=\"Hi\"/></Canvas>");
 
     SilentFatalError fatal;
     engine::AssetsDb db(fatal);
@@ -383,7 +383,7 @@ TEST(Assets, GetUiDocument) {
     catalog.add({engine::AssetId{kUiGuid}, "hud.xml", engine::ImporterKind::Ui});
     db.set_catalog(std::move(catalog));
 
-    const auto document = db.Get<engine::ui::UiDocument>(engine::AssetId{kUiGuid});
+    const auto document = db.get<engine::ui::UiDocument>(engine::AssetId{kUiGuid});
     ASSERT_NE(document, nullptr);
     EXPECT_EQ(document->root.kind, engine::ui::ElementKind::Canvas);
     ASSERT_EQ(document->root.children.size(), 1u);
@@ -403,7 +403,7 @@ TEST(Assets, GetStyleSheet) {
     catalog.add({engine::AssetId{kCssGuid}, "hud.css", engine::ImporterKind::Css});
     db.set_catalog(std::move(catalog));
 
-    const auto sheet = db.Get<engine::ui::Stylesheet>(engine::AssetId{kCssGuid});
+    const auto sheet = db.get<engine::ui::Stylesheet>(engine::AssetId{kCssGuid});
     ASSERT_NE(sheet, nullptr);
     ASSERT_FALSE(sheet->rules.empty());
     EXPECT_EQ(sheet->rules[0].selector.class_name, "hud");
@@ -427,7 +427,7 @@ TEST(Assets, GetSoundFromCatalog) {
     catalog.add(std::move(entry));
     db.set_catalog(std::move(catalog));
 
-    const auto sound = db.Get<engine::Sound>(engine::AssetId{kAudioGuid});
+    const auto sound = db.get<engine::Sound>(engine::AssetId{kAudioGuid});
     ASSERT_NE(sound, nullptr);
     EXPECT_FLOAT_EQ(sound->volume, 0.5f);
     ASSERT_NE(sound->clip, nullptr);
@@ -441,7 +441,7 @@ TEST(Assets, TextureNotReadyWithoutFactory) {
     catalog.add({engine::AssetId{kTextureGuid}, "textures/player.png", engine::ImporterKind::Texture});
     db.set_catalog(std::move(catalog));
 
-    const auto result = db.TryGet<engine::render::ITexture>(engine::AssetId{kTextureGuid});
+    const auto result = db.try_get<engine::render::ITexture>(engine::AssetId{kTextureGuid});
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), engine::AssetError::NotReady);
 }
@@ -491,7 +491,7 @@ layout = "multiple"
 
 TEST(Assets, LoadCatalogFromTempDir) {
     TempTree tree;
-    write_file(tree.path / "hud.xml", "<Canvas><Label Text=\"Hi\"/></Canvas>");
+    write_file(tree.path / "hud.xml", "<Canvas><Label text=\"Hi\"/></Canvas>");
 
     engine::CookedCatalog catalog;
     catalog.add({engine::AssetId{kUiGuid}, "hud.xml", engine::ImporterKind::Ui});
@@ -502,7 +502,7 @@ TEST(Assets, LoadCatalogFromTempDir) {
     const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
     ASSERT_TRUE(loaded.has_value());
 
-    const auto document = db.TryGet<engine::ui::UiDocument>(engine::AssetId{kUiGuid});
+    const auto document = db.try_get<engine::ui::UiDocument>(engine::AssetId{kUiGuid});
     ASSERT_TRUE(document.has_value());
     ASSERT_NE(*document, nullptr);
     EXPECT_EQ((*document)->root.kind, engine::ui::ElementKind::Canvas);
@@ -525,7 +525,7 @@ TEST(Assets, LoadCatalogMissingFileNoCrash) {
 
     const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
     ASSERT_TRUE(loaded.has_value());
-    const auto missing_asset = db.TryGet<engine::ui::UiDocument>(engine::AssetId{kUiGuid});
+    const auto missing_asset = db.try_get<engine::ui::UiDocument>(engine::AssetId{kUiGuid});
     ASSERT_FALSE(missing_asset.has_value());
     EXPECT_EQ(missing_asset.error(), engine::AssetError::Corrupt);
 }
@@ -538,7 +538,7 @@ TEST(Assets, GetBuiltinQuadMesh) {
     FakeGraphicFactory factory;
     db.set_graphic_factory(&factory);
 
-    const auto mesh = db.Get<engine::render::IMesh>(engine::builtin::mesh_quad);
+    const auto mesh = db.get<engine::render::IMesh>(engine::builtin::mesh_quad);
     ASSERT_NE(mesh, nullptr);
     EXPECT_EQ(mesh, factory.last_mesh_obj);
     EXPECT_EQ(factory.mesh_calls, 1);
@@ -549,7 +549,7 @@ TEST(Assets, GetBuiltinQuadMesh) {
     EXPECT_FLOAT_EQ(factory.last_mesh.vertices[0].uv.x, 0.0f);
     EXPECT_FLOAT_EQ(factory.last_mesh.vertices[0].uv.y, 1.0f);
 
-    EXPECT_EQ(db.Get<engine::render::IMesh>(engine::builtin::mesh_quad), mesh);
+    EXPECT_EQ(db.get<engine::render::IMesh>(engine::builtin::mesh_quad), mesh);
     EXPECT_EQ(factory.mesh_calls, 1);
 }
 
@@ -561,7 +561,7 @@ TEST(Assets, GetBuiltinUnlitShader) {
     FakeGraphicFactory factory;
     db.set_graphic_factory(&factory);
 
-    const auto shader = db.Get<engine::render::IShader>(engine::builtin::shader_unlit);
+    const auto shader = db.get<engine::render::IShader>(engine::builtin::shader_unlit);
     ASSERT_NE(shader, nullptr);
     EXPECT_EQ(shader, factory.last_shader_obj);
     EXPECT_NE(factory.last_shader.vertex_src.find("#version 330"), std::string::npos);
@@ -578,16 +578,16 @@ TEST(Assets, GetBuiltinUnlitMaterial) {
     FakeGraphicFactory factory;
     db.set_graphic_factory(&factory);
 
-    const auto material = db.Get<engine::render::IMaterial>(engine::builtin::material_unlit);
+    const auto material = db.get<engine::render::IMaterial>(engine::builtin::material_unlit);
     ASSERT_NE(material, nullptr);
-    ASSERT_NE(material->Shader(), nullptr);
-    EXPECT_EQ(material->Shader(), factory.last_shader_obj);
-    EXPECT_EQ(material->Texture(0), nullptr);
-    EXPECT_EQ(material->Blend(), engine::render::BlendMode::Alpha);
-    EXPECT_FLOAT_EQ(material->Color().r, 1.0f);
-    EXPECT_FLOAT_EQ(material->Color().g, 1.0f);
-    EXPECT_FLOAT_EQ(material->Color().b, 1.0f);
-    EXPECT_FLOAT_EQ(material->Color().a, 1.0f);
+    ASSERT_NE(material->shader(), nullptr);
+    EXPECT_EQ(material->shader(), factory.last_shader_obj);
+    EXPECT_EQ(material->texture(0), nullptr);
+    EXPECT_EQ(material->blend(), engine::render::BlendMode::Alpha);
+    EXPECT_FLOAT_EQ(material->color().r, 1.0f);
+    EXPECT_FLOAT_EQ(material->color().g, 1.0f);
+    EXPECT_FLOAT_EQ(material->color().b, 1.0f);
+    EXPECT_FLOAT_EQ(material->color().a, 1.0f);
 }
 
 TEST(Assets, MaterialNotReadyWithoutFactory) {
@@ -595,7 +595,7 @@ TEST(Assets, MaterialNotReadyWithoutFactory) {
     engine::AssetsDb db(fatal);
     ASSERT_TRUE(load_builtin_catalog(db));
 
-    const auto result = db.TryGet<engine::render::IMaterial>(engine::builtin::material_unlit);
+    const auto result = db.try_get<engine::render::IMaterial>(engine::builtin::material_unlit);
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), engine::AssetError::NotReady);
 }
@@ -615,7 +615,7 @@ TEST(Assets, GetTextureFromPng) {
     FakeGraphicFactory factory;
     db.set_graphic_factory(&factory);
 
-    const auto texture = db.Get<engine::render::ITexture>(engine::AssetId{kTextureGuid});
+    const auto texture = db.get<engine::render::ITexture>(engine::AssetId{kTextureGuid});
     ASSERT_NE(texture, nullptr);
     EXPECT_EQ(texture, factory.last_texture_obj);
     EXPECT_EQ(factory.last_texture.width, 1);
@@ -651,7 +651,7 @@ TEST(Assets, GetTextureCopiesNearestRepeat) {
     FakeGraphicFactory factory;
     db.set_graphic_factory(&factory);
 
-    const auto texture = db.Get<engine::render::ITexture>(engine::AssetId{kTextureGuid});
+    const auto texture = db.get<engine::render::ITexture>(engine::AssetId{kTextureGuid});
     ASSERT_NE(texture, nullptr);
     EXPECT_EQ(factory.last_texture.filter, engine::FilterMode::Nearest);
     EXPECT_EQ(factory.last_texture.wrap, engine::WrapMode::Repeat);
@@ -672,7 +672,7 @@ TEST(Assets, GetTextureFromUiImage) {
     FakeGraphicFactory factory;
     db.set_graphic_factory(&factory);
 
-    const auto texture = db.Get<engine::render::ITexture>(engine::AssetId{kUiImageGuid});
+    const auto texture = db.get<engine::render::ITexture>(engine::AssetId{kUiImageGuid});
     ASSERT_NE(texture, nullptr);
     EXPECT_EQ(factory.texture_calls, 1);
     EXPECT_EQ(factory.last_texture.width, 1);
@@ -687,7 +687,7 @@ TEST(Assets, GetMeshTypeMismatch) {
     FakeGraphicFactory factory;
     db.set_graphic_factory(&factory);
 
-    const auto result = db.TryGet<engine::render::IMesh>(engine::builtin::shader_unlit);
+    const auto result = db.try_get<engine::render::IMesh>(engine::builtin::shader_unlit);
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), engine::AssetError::TypeMismatch);
     EXPECT_EQ(factory.mesh_calls, 0);
@@ -698,11 +698,11 @@ TEST(Assets, GetFontWithoutFactory) {
     engine::AssetsDb db(fatal);
     ASSERT_TRUE(load_builtin_catalog(db));
 
-    const auto font = db.Get<engine::Font>(engine::builtin::font_ui);
+    const auto font = db.get<engine::Font>(engine::builtin::font_ui);
     ASSERT_NE(font, nullptr);
     EXPECT_FALSE(font->bytes.empty());
 
-    const auto again = db.TryGet<engine::Font>(engine::builtin::font_ui);
+    const auto again = db.try_get<engine::Font>(engine::builtin::font_ui);
     ASSERT_TRUE(again.has_value());
     EXPECT_EQ(*again, font);
 }
@@ -722,7 +722,7 @@ TEST(Assets, CorruptPngIsCorrupt) {
     FakeGraphicFactory factory;
     db.set_graphic_factory(&factory);
 
-    const auto result = db.TryGet<engine::render::ITexture>(engine::AssetId{kTextureGuid});
+    const auto result = db.try_get<engine::render::ITexture>(engine::AssetId{kTextureGuid});
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), engine::AssetError::Corrupt);
     EXPECT_EQ(factory.texture_calls, 0);

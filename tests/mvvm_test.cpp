@@ -19,7 +19,7 @@ public:
     engine::ui::RelayCommand click;
 
     ClickViewModel() {
-        Command("Click", click);
+        command("click", click);
         click = [this] { ++clicks; };
     }
 };
@@ -31,9 +31,9 @@ public:
     engine::ui::RelayCommand restart;
 
     HudViewModel() {
-        Property("Title", title);
-        Property("Score", score);
-        Command("Restart", restart);
+        property("title", title);
+        property("score", score);
+        command("restart", restart);
     }
 };
 
@@ -56,7 +56,7 @@ struct has_onClick<T, std::void_t<decltype(std::declval<T>().onClick)>> : std::t
 
 engine::ecs::Entity spawn_button_canvas(engine::ecs::World& world, std::shared_ptr<ClickViewModel> vm,
         engine::render::Rect rect, int order) {
-    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Button Command="{Binding Click}" Content="Go"/></Canvas>)", nullptr,
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Button command="{binding click}" content="Go"/></Canvas>)", nullptr,
             vm.get());
     EXPECT_TRUE(parsed.has_value());
     const engine::ecs::Entity entity = world.create();
@@ -71,24 +71,24 @@ engine::ecs::Entity spawn_button_canvas(engine::ecs::World& world, std::shared_p
 
 TEST(Mvvm, PropertyAndCommandRegistration) {
     HudViewModel vm;
-    EXPECT_TRUE(vm.has_property("Title"));
-    EXPECT_TRUE(vm.has_property("Score"));
-    EXPECT_TRUE(vm.has_command("Restart"));
+    EXPECT_TRUE(vm.has_property("title"));
+    EXPECT_TRUE(vm.has_property("score"));
+    EXPECT_TRUE(vm.has_command("restart"));
     EXPECT_FALSE(vm.has_property("Missing"));
     EXPECT_FALSE(vm.has_command("Missing"));
 
-    vm.title.Set("HUD");
-    vm.score.Set(12);
-    EXPECT_EQ(vm.read_property_string("Title"), "HUD");
-    EXPECT_EQ(vm.read_property_string("Score"), "12");
-    EXPECT_NE(vm.find_command("Restart"), nullptr);
+    vm.title.set("HUD");
+    vm.score.set(12);
+    EXPECT_EQ(vm.read_property_string("title"), "HUD");
+    EXPECT_EQ(vm.read_property_string("score"), "12");
+    EXPECT_NE(vm.find_command("restart"), nullptr);
 }
 
 TEST(Mvvm, OneWayBindUpdatesLabelText) {
     HudViewModel vm;
-    vm.title.Set("Hello");
+    vm.title.set("Hello");
 
-    auto parsed = engine::ui::parse_xml(R"(<Canvas><Label Text="{Binding Title}"/></Canvas>)", nullptr, &vm);
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Label text="{binding title}"/></Canvas>)", nullptr, &vm);
     ASSERT_TRUE(parsed.has_value());
 
     ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
@@ -96,7 +96,7 @@ TEST(Mvvm, OneWayBindUpdatesLabelText) {
     ASSERT_NE(label, nullptr);
     EXPECT_EQ(label->text, "Hello");
 
-    vm.title.Set("World");
+    vm.title.set("World");
     ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
     EXPECT_EQ(engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Label)->text, "World");
 }

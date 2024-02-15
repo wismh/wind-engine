@@ -13,8 +13,8 @@
 namespace {
 
 void step_physics(engine::ecs::World& world) {
-    world.ctx<engine::Time>().fixedDeltaTime = engine::FIXED;
-    world.Run(engine::ecs::Schedule::Fixed);
+    world.ctx<engine::Time>().fixed_delta_time = engine::kFixed;
+    world.run(engine::ecs::Schedule::Fixed);
 }
 
 std::vector<engine::CollisionEvent> read_collisions(engine::ecs::World& world) {
@@ -26,15 +26,15 @@ std::vector<engine::CollisionEvent> read_collisions(engine::ecs::World& world) {
 }
 
 void drop_collision_history(engine::ecs::World& world) {
-    world.FlushEvents();
-    world.FlushEvents();
+    world.flush_events();
+    world.flush_events();
 }
 
 }
 
 TEST(Physics, IntegrateFixedDeltaTime) {
     engine::ecs::World world;
-    engine::RegisterEngineSystems(world);
+    engine::register_engine_systems(world);
 
     const engine::ecs::Entity entity = world.create();
     world.emplace<engine::Transform>(entity, engine::Transform{});
@@ -50,7 +50,7 @@ TEST(Physics, IntegrateFixedDeltaTime) {
 
 TEST(Physics, AabbOverlap) {
     engine::ecs::World world;
-    engine::RegisterEngineSystems(world);
+    engine::register_engine_systems(world);
 
     const engine::ecs::Entity a = world.create();
     const engine::ecs::Entity b = world.create();
@@ -69,7 +69,7 @@ TEST(Physics, AabbOverlap) {
 
 TEST(Physics, CollisionEventOnEnterNotStay) {
     engine::ecs::World world;
-    engine::RegisterEngineSystems(world);
+    engine::register_engine_systems(world);
 
     const engine::ecs::Entity a = world.create();
     const engine::ecs::Entity b = world.create();
@@ -88,7 +88,7 @@ TEST(Physics, CollisionEventOnEnterNotStay) {
 
 TEST(Physics, CollisionEventReenterAfterSeparate) {
     engine::ecs::World world;
-    engine::RegisterEngineSystems(world);
+    engine::register_engine_systems(world);
 
     const engine::ecs::Entity a = world.create();
     const engine::ecs::Entity b = world.create();

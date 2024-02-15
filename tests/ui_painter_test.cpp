@@ -98,7 +98,7 @@ class TitleVm final : public engine::ui::ViewModel {
 public:
     engine::ui::Bindable<std::string> title{"Score"};
 
-    TitleVm() { Property("Title", title); }
+    TitleVm() { property("title", title); }
 };
 
 class CellVm final : public engine::ui::ViewModel {
@@ -107,8 +107,8 @@ public:
     engine::ui::RelayCommand click;
 
     CellVm() {
-        Property("Mark", mark);
-        Command("Click", click);
+        property("mark", mark);
+        command("click", click);
     }
 };
 
@@ -116,7 +116,7 @@ class BoardVm final : public engine::ui::ViewModel {
 public:
     engine::ui::BindableList<std::shared_ptr<CellVm>> cells;
 
-    BoardVm() { Property("Cells", cells); }
+    BoardVm() { property("cells", cells); }
 };
 
 class ToggleVm final : public engine::ui::ViewModel {
@@ -125,7 +125,7 @@ public:
     bool enabled = true;
 
     ToggleVm() {
-        Command("Go", go);
+        command("go", go);
         go.set_can_execute(true);
         go = [] {};
     }
@@ -142,7 +142,7 @@ engine::ui::Stylesheet must_parse_css(std::string_view css) {
 
 TEST(UiPainter, LabelTextFromXmlAndCssColor) {
     TitleVm vm;
-    auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="title" Text="{Binding Title}"/></Canvas>)", nullptr, &vm);
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="title" text="{binding title}"/></Canvas>)", nullptr, &vm);
     ASSERT_TRUE(parsed.has_value());
     ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
 
@@ -169,7 +169,7 @@ TEST(UiPainter, LabelTextFromXmlAndCssColor) {
 
 TEST(UiPainter, FontFamilyGuidFromCss) {
     TitleVm vm;
-    auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="title" Text="{Binding Title}"/></Canvas>)", nullptr, &vm);
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="title" text="{binding title}"/></Canvas>)", nullptr, &vm);
     ASSERT_TRUE(parsed.has_value());
     ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
 
@@ -189,7 +189,7 @@ TEST(UiPainter, FontFamilyGuidFromCss) {
 
 TEST(UiPainter, PaddingInsetsLabelText) {
     TitleVm vm;
-    auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="title" Text="{Binding Title}"/></Canvas>)", nullptr, &vm);
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="title" text="{binding title}"/></Canvas>)", nullptr, &vm);
     ASSERT_TRUE(parsed.has_value());
     ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
 
@@ -208,7 +208,7 @@ TEST(UiPainter, PaddingInsetsLabelText) {
 
 TEST(UiPainter, JustifyAndAlignCenterText) {
     TitleVm vm;
-    auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="title" Text="{Binding Title}"/></Canvas>)", nullptr, &vm);
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="title" text="{binding title}"/></Canvas>)", nullptr, &vm);
     ASSERT_TRUE(parsed.has_value());
     ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
 
@@ -230,8 +230,8 @@ TEST(UiPainter, StackPaddingInsetsEqualSplit) {
     auto parsed = engine::ui::parse_xml(R"(
         <Canvas>
           <Stack class="hud" direction="vertical">
-            <Label class="cell" Text="A"/>
-            <Label class="cell" Text="B"/>
+            <Label class="cell" text="A"/>
+            <Label class="cell" text="B"/>
           </Stack>
         </Canvas>
     )");
@@ -262,7 +262,7 @@ TEST(UiPainter, StackPaddingInsetsEqualSplit) {
 }
 
 TEST(UiPainter, ButtonHoverUsesPseudoBackground) {
-    auto parsed = engine::ui::parse_xml(R"(<Canvas><Button class="cell" Content="X"/></Canvas>)");
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Button class="cell" content="X"/></Canvas>)");
     ASSERT_TRUE(parsed.has_value());
     const engine::ui::Stylesheet sheet = must_parse_css(R"(
         Button { background: #111111; }
@@ -287,7 +287,7 @@ TEST(UiPainter, ButtonHoverUsesPseudoBackground) {
 TEST(UiPainter, DisabledButtonAppliesOpacity) {
     ToggleVm vm;
     vm.go.set_can_execute(false);
-    auto parsed = engine::ui::parse_xml(R"(<Canvas><Button Command="{Binding Go}" Content="Go"/></Canvas>)", nullptr, &vm);
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Button command="{binding go}" content="Go"/></Canvas>)", nullptr, &vm);
     ASSERT_TRUE(parsed.has_value());
     ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
     const engine::ui::Element* button = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Button);
@@ -311,16 +311,16 @@ TEST(UiPainter, DisabledButtonAppliesOpacity) {
 TEST(UiPainter, ItemsControlPaintsItemDataContext) {
     BoardVm board;
     auto a = std::make_shared<CellVm>();
-    a->mark.Set("X");
+    a->mark.set("X");
     auto b = std::make_shared<CellVm>();
-    b->mark.Set("O");
-    board.cells.Set({a, b});
+    b->mark.set("O");
+    board.cells.set({a, b});
 
     auto parsed = engine::ui::parse_xml(R"(
         <Canvas>
-          <ItemsControl ItemsSource="{Binding Cells}">
+          <ItemsControl items_source="{binding cells}">
             <ItemTemplate>
-              <Button class="cell" Command="{Binding Click}" Content="{Binding Mark}"/>
+              <Button class="cell" command="{binding click}" content="{binding mark}"/>
             </ItemTemplate>
           </ItemsControl>
         </Canvas>
