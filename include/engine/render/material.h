@@ -20,10 +20,10 @@ enum class BlendMode {
 class IMaterial {
 public:
     virtual ~IMaterial() = default;
-    virtual std::shared_ptr<IShader> Shader() const = 0;
-    virtual std::shared_ptr<ITexture> Texture(int slot) const = 0;
-    virtual glm::vec4 Color() const = 0;
-    virtual BlendMode Blend() const = 0;
+    virtual std::shared_ptr<IShader> shader() const = 0;
+    virtual std::shared_ptr<ITexture> texture(int slot) const = 0;
+    virtual glm::vec4 color() const = 0;
+    virtual BlendMode blend() const = 0;
 };
 
 struct MaterialDesc {

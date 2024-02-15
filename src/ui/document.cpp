@@ -110,7 +110,7 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
             return std::unexpected(UiError::MissingBinding);
         }
         element.command = command;
-        element.disabled = !command->CanExecute();
+        element.disabled = !command->can_execute();
     }
 
     if (element.text_binding) {

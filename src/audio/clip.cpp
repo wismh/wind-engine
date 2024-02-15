@@ -17,7 +17,7 @@ Audio& Audio::operator=(Audio&&) noexcept = default;
 Audio::~Audio() {
 #ifdef ENGINE_WITH_AUDIO
     if (impl_ && impl_->mix != nullptr) {
-        // MIX_Quit in AudioSystem::Dispose frees remaining MIX_Audio. Skip
+        // MIX_Quit in AudioSystem::dispose frees remaining MIX_Audio. Skip
         // MIX_DestroyAudio here so a clip can outlive mixer teardown.
         impl_->mix = nullptr;
     }
