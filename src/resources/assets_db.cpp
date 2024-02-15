@@ -176,7 +176,7 @@ std::expected<std::shared_ptr<void>, AssetError> load_cpu(
         const std::u8string utf8 = path.generic_u8string();
         audio_set_path(*sound->clip, std::string(reinterpret_cast<const char*>(utf8.data()), utf8.size()));
         sound->volume = entry.audio.volume;
-        sound->pitchRange = {entry.audio.pitch_min, entry.audio.pitch_max};
+        sound->pitch_range = {entry.audio.pitch_min, entry.audio.pitch_max};
         sound->loop = entry.audio.loop;
         sound->bank = entry.audio.bank;
         return std::static_pointer_cast<void>(std::move(sound));
@@ -211,7 +211,7 @@ std::expected<std::shared_ptr<void>, AssetError> load_material(
     if (!shader_id) {
         return std::unexpected(AssetError::Corrupt);
     }
-    auto shader = db.TryGet<render::IShader>(*shader_id);
+    auto shader = db.try_get<render::IShader>(*shader_id);
     if (!shader) {
         return std::unexpected(shader.error());
     }
@@ -222,7 +222,7 @@ std::expected<std::shared_ptr<void>, AssetError> load_material(
         if (!albedo_id) {
             return std::unexpected(AssetError::Corrupt);
         }
-        auto texture = db.TryGet<render::ITexture>(*albedo_id);
+        auto texture = db.try_get<render::ITexture>(*albedo_id);
         if (!texture) {
             return std::unexpected(texture.error());
         }
