@@ -103,12 +103,12 @@ void EngineRuntime::shutdown() {
 }
 
 int EngineRuntime::run(IGame& game, InputSystem& input, IAudioSystem* audio) {
-    ecs::World& world = game.World();
+    ecs::World& world = game.world();
     Time& time = world.ctx<Time>();
     ApplicationState& app = world.ctx<ApplicationState>();
     FixedStepClock clock(time, app);
 
-    game.OnStart();
+    game.on_start();
     ui::apply_fill_window(world);
     app.running = true;
 
@@ -120,22 +120,22 @@ int EngineRuntime::run(IGame& game, InputSystem& input, IAudioSystem* audio) {
         const float real_dt = std::chrono::duration<float>(now - last).count();
         last = now;
 
-        world.FlushEvents();
+        world.flush_events();
         poll_events(world, input, app);
         ui::begin_frame(world);
 
         const int steps = clock.advance(real_dt);
         if (audio != nullptr) {
-            audio->Update(time.deltaTime);
+            audio->update(time.delta_time);
         }
         for (int i = 0; i < steps; ++i) {
-            game.OnFixedUpdate();
+            game.on_fixed_update();
         }
-        game.OnUpdate();
-        canvas().Draw();
+        game.on_update();
+        canvas().draw();
     }
 
-    game.OnQuit();
+    game.on_quit();
     return 0;
 }
 
@@ -211,7 +211,7 @@ void EngineRuntime::poll_events(ecs::World& world, InputSystem& input, Applicati
     while (SDL_PollEvent(&event)) {
         switch (event.type) {
             case SDL_EVENT_QUIT:
-                app.Quit();
+                app.quit();
                 break;
             case SDL_EVENT_WINDOW_RESIZED:
             case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
