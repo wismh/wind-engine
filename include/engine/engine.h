@@ -7,6 +7,7 @@
 #include <engine/core/fixed_step.h>
 #include <engine/core/host.h>
 #include <engine/core/input_system.h>
+#include <engine/core/app_lifecycle.h>
 #include <engine/core/platform.h>
 #include <engine/core/time.h>
 #include <engine/core/web_loop.h>
@@ -48,7 +49,7 @@
 
 namespace engine {
 
-inline constexpr int kApiEpoch = 3;
+inline constexpr int kApiEpoch = 4;
 
 int api_epoch();
 
