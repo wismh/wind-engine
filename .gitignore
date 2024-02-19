@@ -2,6 +2,7 @@
 /build-window/
 /build-audio/
 /build-web/
+/build-android/
 /out/
 /cmake-build-*/
 /.vs/

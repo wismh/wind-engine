@@ -1,0 +1,79 @@
+plugins {
+    id 'com.android.application'
+}
+
+def engineDir = project.hasProperty('ENGINE_SOURCE_DIR')
+        ? file(ENGINE_SOURCE_DIR).absolutePath
+        : (System.getenv('ENGINE_SOURCE_DIR') ?: file('../../..').absolutePath)
+def cmakeLists = project.hasProperty('ENGINE_ANDROID_CMAKE')
+        ? file(ENGINE_ANDROID_CMAKE).absolutePath
+        : (System.getenv('ENGINE_ANDROID_CMAKE') ?: file("${engineDir}/CMakeLists.txt").absolutePath)
+def hostCodegen = project.hasProperty('ENGINE_HOST_ASSET_CODEGEN')
+        ? ENGINE_HOST_ASSET_CODEGEN
+        : (System.getenv('ENGINE_HOST_ASSET_CODEGEN') ?: '')
+def sdlJava = "${engineDir}/external/SDL3/android-project/app/src/main/java"
+def stagedAssets = project.hasProperty('ENGINE_ANDROID_ASSETS')
+        ? file(ENGINE_ANDROID_ASSETS).absolutePath
+        : (System.getenv('ENGINE_ANDROID_ASSETS') ?: file("${engineDir}/build-android/android-assets").absolutePath)
+
+android {
+    namespace 'org.windengine.app'
+    compileSdk 35
+    ndkVersion '28.2.13676358'
+
+    defaultConfig {
+        applicationId 'org.windengine.app'
+        minSdk 21
+        targetSdk 35
+        versionCode 1
+        versionName '1.0'
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_PLATFORM=android-21',
+                        '-DANDROID_STL=c++_shared',
+                        '-DENGINE_WITH_WINDOW=ON',
+                        '-DENGINE_WITH_ANDROID=ON',
+                        '-DENGINE_WITH_AUDIO=OFF',
+                        '-DENGINE_BUILD_TESTS=OFF'
+                if (hostCodegen) {
+                    arguments.add("-DENGINE_HOST_ASSET_CODEGEN=${hostCodegen}")
+                }
+                abiFilters 'arm64-v8a'
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    sourceSets {
+        main {
+            java.srcDirs += [sdlJava]
+            assets.srcDirs += [stagedAssets]
+        }
+    }
+
+    applicationVariants.all { variant ->
+        tasks.matching { it.name == "merge${variant.name.capitalize()}Assets" }.configureEach {
+            dependsOn "externalNativeBuild${variant.name.capitalize()}"
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path cmakeLists
+        }
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+}

@@ -32,6 +32,22 @@ TEST(Scaffold, DefaultTestsHaveNoWebProfile) {
 #endif
 }
 
+TEST(Scaffold, DefaultTestsHaveNoAndroidProfile) {
+#ifndef ENGINE_WITH_ANDROID
+    SUCCEED();
+#else
+    GTEST_SKIP() << "android profile preset; Engine::run is still not invoked";
+#endif
+}
+
+TEST(Scaffold, DefaultTestsHaveNoGlesProfile) {
+#ifndef ENGINE_WITH_GLES
+    SUCCEED();
+#else
+    GTEST_SKIP() << "gles profile preset; Engine::run is still not invoked";
+#endif
+}
+
 TEST(Scaffold, WebCmakeFilesExist) {
 #ifdef ENGINE_SOURCE_DIR
     const std::filesystem::path root{ENGINE_SOURCE_DIR};
@@ -40,6 +56,22 @@ TEST(Scaffold, WebCmakeFilesExist) {
     EXPECT_TRUE(std::filesystem::is_regular_file(root / "cmake" / "toolchains" / "Emscripten.cmake"));
     EXPECT_TRUE(std::filesystem::is_regular_file(root / "docs" / "sdd-web.md"));
     EXPECT_TRUE(std::filesystem::is_regular_file(root / "docs" / "plan-web.md"));
+#else
+    GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
+#endif
+}
+
+TEST(Scaffold, AndroidCmakeFilesExist) {
+#ifdef ENGINE_SOURCE_DIR
+    const std::filesystem::path root{ENGINE_SOURCE_DIR};
+    EXPECT_TRUE(std::filesystem::is_regular_file(root / "cmake" / "toolchains" / "android-ndk.cmake"));
+    EXPECT_TRUE(std::filesystem::is_regular_file(root / "cmake" / "android" / "settings.gradle"));
+    EXPECT_TRUE(std::filesystem::is_regular_file(root / "cmake" / "android" / "build.gradle"));
+    EXPECT_TRUE(std::filesystem::is_regular_file(root / "cmake" / "android" / "app" / "build.gradle"));
+    EXPECT_TRUE(std::filesystem::is_regular_file(
+            root / "cmake" / "android" / "app" / "src" / "main" / "AndroidManifest.xml"));
+    EXPECT_TRUE(std::filesystem::is_regular_file(root / "docs" / "sdd-android.md"));
+    EXPECT_TRUE(std::filesystem::is_regular_file(root / "docs" / "plan-android.md"));
 #else
     GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
 #endif

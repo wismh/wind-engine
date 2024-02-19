@@ -35,8 +35,20 @@ else()
     set(_engine_web_default OFF)
 endif()
 option(ENGINE_WITH_WEB "WebGL2 / Emscripten profile (shader adapt, RAF, packaged assets)" ${_engine_web_default})
+if(ANDROID)
+    set(_engine_android_default ON)
+else()
+    set(_engine_android_default OFF)
+endif()
+option(ENGINE_WITH_ANDROID "Android NDK / GLES / APK profile" ${_engine_android_default})
+if(EMSCRIPTEN OR ANDROID)
+    set(_engine_gles_default ON)
+else()
+    set(_engine_gles_default OFF)
+endif()
+option(ENGINE_WITH_GLES "OpenGL ES 3.0 backend (no glad, NanoVG GLES3, shader adapt)" ${_engine_gles_default})
 set(ENGINE_WEB_SHELL "" CACHE FILEPATH "Optional HTML shell for Emscripten (defaults to cmake/web/shell.html)")
-set(ENGINE_HOST_ASSET_CODEGEN "" CACHE FILEPATH "Native asset_codegen when cross-compiling with Emscripten")
+set(ENGINE_HOST_ASSET_CODEGEN "" CACHE FILEPATH "Native asset_codegen when cross-compiling (Emscripten or Android)")
 
 function(engine_require_submodule dir)
     if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/${dir}/CMakeLists.txt")
@@ -105,10 +117,10 @@ target_link_libraries(engine
         tinyxml2::tinyxml2
         tomlplusplus::tomlplusplus)
 
-if(EMSCRIPTEN)
+if(CMAKE_CROSSCOMPILING)
     if(NOT ENGINE_HOST_ASSET_CODEGEN)
         message(FATAL_ERROR
-            "Emscripten builds need a native asset_codegen (host tool).\n"
+            "Cross-compiling builds need a native asset_codegen (host tool).\n"
             "Configure a native build first, then pass for example:\n"
             "  -DENGINE_HOST_ASSET_CODEGEN=/path/to/build/asset_codegen")
     endif()
@@ -178,6 +190,16 @@ function(engine_prepare_runtime target)
             COMMENT "Install cooked game catalog for ${target}"
             VERBATIM)
     endif()
+
+    if(ANDROID)
+        set(_apk_assets "${CMAKE_BINARY_DIR}/android-assets")
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "$<TARGET_FILE_DIR:${target}>/assets"
+                "${_apk_assets}"
+            COMMENT "Stage APK assets for ${target}"
+            VERBATIM)
+    endif()
 endfunction()
 
 # Windowed game: executable + C++23 + asset_codegen + runtime asset copy.
@@ -195,7 +217,12 @@ function(engine_add_game target)
             "It defaults ON when Wind is a subdirectory.")
     endif()
 
-    add_executable(${target} ${ARGN})
+    if(ANDROID)
+        add_library(${target} SHARED ${ARGN})
+        set_target_properties(${target} PROPERTIES OUTPUT_NAME main)
+    else()
+        add_executable(${target} ${ARGN})
+    endif()
     set_target_properties(${target} PROPERTIES
         CXX_STANDARD 23
         CXX_STANDARD_REQUIRED ON
@@ -203,6 +230,10 @@ function(engine_add_game target)
     if(NOT CMAKE_RUNTIME_OUTPUT_DIRECTORY)
         set_target_properties(${target} PROPERTIES
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+    endif()
+    if(ANDROID)
+        set_target_properties(${target} PROPERTIES
+            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
     endif()
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8)
@@ -240,6 +271,9 @@ function(engine_add_game target)
         engine_target_web_link_options(${target})
         engine_target_web_preload(${target})
     endif()
+    if(ANDROID AND TARGET SDL3::SDL3main)
+        target_link_libraries(${target} PRIVATE SDL3::SDL3main)
+    endif()
 endfunction()
 
 function(engine_add_web_game target)
@@ -250,13 +284,26 @@ function(engine_add_web_game target)
     engine_add_game(${target} ${ARGN})
 endfunction()
 
+function(engine_add_android_game target)
+    if(NOT ANDROID)
+        message(FATAL_ERROR
+            "engine_add_android_game(${target}): configure with the Android NDK toolchain")
+    endif()
+    engine_add_game(${target} ${ARGN})
+endfunction()
+
 function(engine_add_sdl3)
     if(TARGET SDL3::SDL3)
         return()
     endif()
     engine_require_file(external/SDL3/CMakeLists.txt)
-    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
-    set(SDL_STATIC ON CACHE BOOL "" FORCE)
+    if(ANDROID)
+        set(SDL_SHARED ON CACHE BOOL "" FORCE)
+        set(SDL_STATIC OFF CACHE BOOL "" FORCE)
+    else()
+        set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+        set(SDL_STATIC ON CACHE BOOL "" FORCE)
+    endif()
     set(SDL_TEST OFF CACHE BOOL "" FORCE)
     set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
     set(SDL_TESTS OFF CACHE BOOL "" FORCE)
@@ -269,7 +316,7 @@ if(ENGINE_WITH_WINDOW)
     engine_require_file(external/nanovg/src/nanovg.c)
     engine_require_file(external/boost_di/include/boost/di.hpp)
 
-    if(NOT EMSCRIPTEN)
+    if(NOT ENGINE_WITH_GLES)
         if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/glad/CMakeLists.txt")
             add_subdirectory(external/glad)
         elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/glad/src/glad.c")
@@ -309,8 +356,12 @@ if(ENGINE_WITH_WINDOW)
         PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}/src/render/opengl"
             "${CMAKE_CURRENT_SOURCE_DIR}/external/nanovg/src")
-    if(EMSCRIPTEN)
-        target_link_libraries(engine PRIVATE SDL3::SDL3 nanovg)
+    if(ENGINE_WITH_GLES)
+        if(ANDROID)
+            target_link_libraries(engine PRIVATE SDL3::SDL3 nanovg GLESv3 EGL android log)
+        else()
+            target_link_libraries(engine PRIVATE SDL3::SDL3 nanovg)
+        endif()
     else()
         find_package(OpenGL REQUIRED)
         target_link_libraries(engine PRIVATE SDL3::SDL3 glad nanovg OpenGL::GL)
@@ -319,6 +370,12 @@ endif()
 
 if(ENGINE_WITH_WEB)
     target_compile_definitions(engine PUBLIC ENGINE_WITH_WEB=1)
+endif()
+if(ENGINE_WITH_ANDROID)
+    target_compile_definitions(engine PUBLIC ENGINE_WITH_ANDROID=1)
+endif()
+if(ENGINE_WITH_GLES)
+    target_compile_definitions(engine PUBLIC ENGINE_WITH_GLES=1)
 endif()
 
 if(ENGINE_WITH_AUDIO)
@@ -373,6 +430,8 @@ if(ENGINE_BUILD_TESTS)
         include("${ENGINE_CMAKE_DIR}/cmake/web/link_flags.cmake")
         engine_target_web_link_options(engine_tests)
         engine_target_web_preload(engine_tests)
+    elseif(ANDROID)
+        # Device/emulator GoogleTest is not a merge gate.
     else()
         gtest_discover_tests(engine_tests DISCOVERY_MODE PRE_TEST)
     endif()
