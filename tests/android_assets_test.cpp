@@ -16,11 +16,11 @@ std::filesystem::path unique_temp(const char* name) {
 }
 
 TEST(AndroidAssets, ApkMountIsAssetsScheme) {
-    EXPECT_EQ(engine::apk_assets_mount().generic_string(), "assets://");
+    EXPECT_EQ(engine::apk_assets_mount(), "assets://");
 }
 
-TEST(AndroidAssets, EmptyBaseUsesApkMount) {
-    EXPECT_EQ(engine::default_assets_root({}, engine::Platform::Android), engine::apk_assets_mount());
+TEST(AndroidAssets, EmptyBaseYieldsEmptyFilesystemRoot) {
+    EXPECT_TRUE(engine::default_assets_root({}, engine::Platform::Android).empty());
 }
 
 TEST(AndroidAssets, NonEmptyBaseIsFilesystemTree) {

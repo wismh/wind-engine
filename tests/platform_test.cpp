@@ -95,8 +95,8 @@ TEST(Platform, AndroidProfileConstants) {
 }
 
 TEST(Platform, AndroidAssetsRoot) {
-    EXPECT_EQ(engine::apk_assets_mount().generic_string(), "assets://");
-    EXPECT_EQ(engine::default_assets_root({}, engine::Platform::Android), engine::apk_assets_mount());
+    EXPECT_EQ(engine::apk_assets_mount(), "assets://");
+    EXPECT_TRUE(engine::default_assets_root({}, engine::Platform::Android).empty());
     EXPECT_EQ(engine::default_assets_root(std::filesystem::path{"/data/app"}, engine::Platform::Android),
             std::filesystem::path{"/data/app"} / "assets");
 }
