@@ -145,6 +145,16 @@ bool Engine<GameT>::init() {
             return false;
         }
     }
+    for (const CatalogEntry& entry : assets_->catalog().entries()) {
+        if (entry.importer != ImporterKind::Texture && entry.importer != ImporterKind::UiImage) {
+            continue;
+        }
+        if (!runtime_.add_image(entry.guid, *assets_->get<render::TextureDesc>(entry.guid))) {
+            fatal_->report("Failed to load UI image");
+            runtime_.shutdown();
+            return false;
+        }
+    }
 
     runtime_.write_window_size(game_->world(), true);
     register_engine_systems(game_->world(), EngineSystemDeps{
