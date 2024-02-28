@@ -1,6 +1,9 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
 
 #include "engine/engine.h"
 
@@ -72,6 +75,29 @@ TEST(Scaffold, AndroidCmakeFilesExist) {
             root / "cmake" / "android" / "app" / "src" / "main" / "AndroidManifest.xml"));
     EXPECT_TRUE(std::filesystem::is_regular_file(root / "docs" / "sdd-android.md"));
     EXPECT_TRUE(std::filesystem::is_regular_file(root / "docs" / "plan-android.md"));
+#else
+    GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
+#endif
+}
+
+TEST(Scaffold, AndroidCmakeAndGradleShareAssetsOut) {
+#ifdef ENGINE_SOURCE_DIR
+    const std::filesystem::path root{ENGINE_SOURCE_DIR};
+    const auto slurp = [](const std::filesystem::path& path) {
+        std::ifstream in(path);
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    };
+    const std::string cmake = slurp(root / "CMakeLists.txt");
+    const std::string gradle = slurp(root / "cmake" / "android" / "app" / "build.gradle");
+    ASSERT_FALSE(cmake.empty());
+    ASSERT_FALSE(gradle.empty());
+    EXPECT_NE(cmake.find("ENGINE_ANDROID_ASSETS_OUT"), std::string::npos);
+    EXPECT_NE(gradle.find("ENGINE_ANDROID_ASSETS_OUT"), std::string::npos);
+    EXPECT_NE(gradle.find("-DENGINE_ANDROID_ASSETS_OUT="), std::string::npos);
+    EXPECT_NE(gradle.find("wind-assets"), std::string::npos);
+    EXPECT_EQ(gradle.find("build-android/android-assets"), std::string::npos);
+    EXPECT_EQ(gradle.find("hasProperty('ENGINE_ANDROID_ASSETS')"), std::string::npos);
+    EXPECT_EQ(cmake.find("CMAKE_BINARY_DIR}/android-assets"), std::string::npos);
 #else
     GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
 #endif
