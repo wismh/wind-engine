@@ -167,8 +167,18 @@ public:
 };
 
 constexpr engine::AssetId kIconGuid{"c1a1c2d3e4f5678901234567890abc09"};
+constexpr engine::AssetId kHoverImage{"c1a1c2d3e4f5678901234567890abc0a"};
 constexpr float kDefaultImageSize = 32.0f;
 constexpr float kFakeFontSize = 16.0f;
+
+[[nodiscard]] const PaintCall* find_image(const FakePainter& painter, engine::AssetId texture) {
+    for (const PaintCall& call : painter.calls) {
+        if (call.op == "image" && call.texture == texture) {
+            return &call;
+        }
+    }
+    return nullptr;
+}
 
 [[nodiscard]] float fake_text_width(std::string_view text, float size = kFakeFontSize) {
     return static_cast<float>(text.size()) * size * 0.5f;
@@ -327,6 +337,77 @@ TEST(UiPainter, ButtonHoverUsesPseudoBackground) {
     const PaintCall* hover_fill = hover.find("fill_rect");
     ASSERT_NE(hover_fill, nullptr);
     EXPECT_NEAR(hover_fill->color.r, 0x33 / 255.0f, 0.01f);
+}
+
+TEST(UiPainter, ButtonHoverUsesPseudoBackgroundImage) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Button class="cell" content="X"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        Button { width: 100; height: 100; }
+        Button:hover { background-image: c1a1c2d3e4f5678901234567890abc0a; }
+    )");
+
+    FakePainter idle;
+    engine::ui::paint_document(*parsed, &sheet, idle,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 100.f, 100.f}, .pointer = {1000.f, 1000.f}});
+    EXPECT_EQ(find_image(idle, kHoverImage), nullptr);
+    EXPECT_EQ(idle.count("image"), 0);
+
+    FakePainter hover;
+    engine::ui::paint_document(*parsed, &sheet, hover,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 100.f, 100.f}, .pointer = {10.f, 10.f}});
+    const engine::ui::Element* button = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Button);
+    ASSERT_NE(button, nullptr);
+    const PaintCall* image = find_image(hover, kHoverImage);
+    ASSERT_NE(image, nullptr);
+    EXPECT_FLOAT_EQ(image->rect.x, button->layout_rect.x);
+    EXPECT_FLOAT_EQ(image->rect.y, button->layout_rect.y);
+    EXPECT_FLOAT_EQ(image->rect.w, button->layout_rect.w);
+    EXPECT_FLOAT_EQ(image->rect.h, button->layout_rect.h);
+}
+
+TEST(UiPainter, BackgroundImageNoneSkipsPaint) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Button content="X"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        Button { width: 80; height: 40; background-image: c1a1c2d3e4f5678901234567890abc0a; }
+        Button:hover { background-image: none; }
+    )");
+
+    FakePainter idle;
+    engine::ui::paint_document(*parsed, &sheet, idle,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 80.f, 40.f}, .pointer = {1000.f, 1000.f}});
+    ASSERT_NE(find_image(idle, kHoverImage), nullptr);
+
+    FakePainter hover;
+    engine::ui::paint_document(*parsed, &sheet, hover,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 80.f, 40.f}, .pointer = {10.f, 10.f}});
+    EXPECT_EQ(find_image(hover, kHoverImage), nullptr);
+    EXPECT_EQ(hover.count("image"), 0);
+}
+
+TEST(UiPainter, BackgroundImageFilenameDoesNotPaint) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Button content="X"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    std::vector<std::string> warnings;
+    auto sheet = engine::ui::parse_css(R"(
+        Button { width: 80; height: 40; background-image: hover.png; }
+    )",
+            warnings);
+    ASSERT_TRUE(sheet.has_value());
+    EXPECT_TRUE(!warnings.empty());
+    bool mentions_filename = false;
+    for (const std::string& warning : warnings) {
+        if (warning.find("hover.png") != std::string::npos) {
+            mentions_filename = true;
+        }
+    }
+    EXPECT_TRUE(mentions_filename);
+
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &*sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 80.f, 40.f}, .pointer = {10.f, 10.f}});
+    EXPECT_EQ(painter.count("image"), 0);
 }
 
 TEST(UiPainter, DisabledButtonAppliesOpacity) {
