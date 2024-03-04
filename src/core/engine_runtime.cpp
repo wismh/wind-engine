@@ -3,8 +3,12 @@
 #include "render/opengl/opengl_runtime.h"
 
 #include <engine/audio/audio_system.h>
+#include <engine/core/app_lifecycle.h>
 #include <engine/core/fixed_step.h>
+#include <engine/core/key_code.h>
+#include <engine/core/platform.h>
 #include <engine/core/time.h>
+#include <engine/core/web_loop.h>
 #include <engine/ecs/events.h>
 #include <engine/ecs/world.h>
 #include <engine/resources/font.h>
@@ -12,9 +16,16 @@
 
 #include <chrono>
 #include <cstdint>
+#include <fstream>
 #include <memory>
 #include <string>
+#include <system_error>
 #include <utility>
+#include <vector>
+
+#if defined(__EMSCRIPTEN__)
+#include <emscripten.h>
+#endif
 
 namespace engine {
 namespace {
@@ -32,6 +43,113 @@ MouseButton mouse_button_from_sdl(Uint8 button) {
     }
 }
 
+#if defined(__ANDROID__)
+bool copy_sdl_io_file(const char* sdl_path, const std::filesystem::path& dest) {
+    SDL_IOStream* io = SDL_IOFromFile(sdl_path, "rb");
+    if (io == nullptr) {
+        return false;
+    }
+    const Sint64 size = SDL_GetIOSize(io);
+    if (size < 0) {
+        SDL_CloseIO(io);
+        return false;
+    }
+    std::vector<char> buf(static_cast<std::size_t>(size));
+    if (size > 0 && SDL_ReadIO(io, buf.data(), static_cast<std::size_t>(size)) != static_cast<std::size_t>(size)) {
+        SDL_CloseIO(io);
+        return false;
+    }
+    SDL_CloseIO(io);
+    std::error_code ec;
+    std::filesystem::create_directories(dest.parent_path(), ec);
+    if (ec) {
+        return false;
+    }
+    std::ofstream out(dest, std::ios::binary);
+    if (!out) {
+        return false;
+    }
+    if (!buf.empty()) {
+        out.write(buf.data(), static_cast<std::streamsize>(buf.size()));
+    }
+    return static_cast<bool>(out);
+}
+
+struct ApkCopyContext {
+    std::filesystem::path dest_root;
+    std::string mount;
+};
+
+SDL_EnumerationResult SDLCALL copy_apk_entry(void* userdata, const char* dirname, const char* fname) {
+    auto* ctx = static_cast<ApkCopyContext*>(userdata);
+    if (ctx == nullptr || dirname == nullptr || fname == nullptr) {
+        return SDL_ENUM_FAILURE;
+    }
+    std::string sdl_path = dirname;
+    if (!sdl_path.empty() && sdl_path.back() != '/' && sdl_path.find("://") == std::string::npos) {
+        sdl_path.push_back('/');
+    }
+    if (!sdl_path.empty() && sdl_path.rfind("://") == sdl_path.size() - 3) {
+        // "assets://" — keep as-is before appending the name
+    } else if (!sdl_path.empty() && sdl_path.back() != '/') {
+        sdl_path.push_back('/');
+    }
+    sdl_path += fname;
+
+    SDL_PathInfo info{};
+    if (SDL_GetPathInfo(sdl_path.c_str(), &info) && info.type == SDL_PATHTYPE_DIRECTORY) {
+        std::string child = sdl_path;
+        if (!child.empty() && child.back() != '/') {
+            child.push_back('/');
+        }
+        SDL_EnumerateDirectory(child.c_str(), copy_apk_entry, userdata);
+        return SDL_ENUM_CONTINUE;
+    }
+
+    std::string relative = dirname;
+    if (relative.rfind(ctx->mount, 0) == 0) {
+        relative.erase(0, ctx->mount.size());
+    }
+    while (!relative.empty() && relative.front() == '/') {
+        relative.erase(relative.begin());
+    }
+    if (!relative.empty() && relative.back() != '/') {
+        relative.push_back('/');
+    }
+    relative += fname;
+    copy_sdl_io_file(sdl_path.c_str(), ctx->dest_root / relative);
+    return SDL_ENUM_CONTINUE;
+}
+
+std::filesystem::path android_runtime_assets_root(const std::filesystem::path& base) {
+    const char* storage = SDL_GetAndroidInternalStoragePath();
+    const std::filesystem::path internal = storage != nullptr ? std::filesystem::path{storage} : std::filesystem::path{};
+    const std::filesystem::path dest = default_assets_root(internal, Platform::Android);
+
+    std::error_code ec;
+    if (std::filesystem::exists(dest / "engine" / "catalog.toml", ec)) {
+        return dest;
+    }
+
+    const std::string generic = base.generic_string();
+    if (!base.empty() && generic.find("assets:") == std::string::npos && generic != "." && generic != "./") {
+        const std::filesystem::path src = default_assets_root(base, Platform::Native);
+        if (std::filesystem::is_directory(src, ec)) {
+            stage_android_assets(src, dest);
+            return dest;
+        }
+    }
+
+    ApkCopyContext ctx{.dest_root = dest, .mount = apk_assets_mount()};
+    if (!SDL_EnumerateDirectory(ctx.mount.c_str(), copy_apk_entry, &ctx)) {
+        SDL_EnumerateDirectory("", copy_apk_entry, &ctx);
+    }
+    copy_sdl_io_file("catalog.toml", dest / "catalog.toml");
+    copy_sdl_io_file("engine/catalog.toml", dest / "engine" / "catalog.toml");
+    return dest;
+}
+#endif
+
 }
 
 struct EngineRuntime::Impl {
@@ -41,6 +159,13 @@ struct EngineRuntime::Impl {
     std::shared_ptr<render::OpenGLRenderBackend> backend = std::make_shared<render::OpenGLRenderBackend>();
     std::shared_ptr<render::OpenGLCanvas> canvas;
     bool video_inited = false;
+    IGame* loop_game = nullptr;
+    InputSystem* loop_input = nullptr;
+    IAudioSystem* loop_audio = nullptr;
+    std::unique_ptr<FixedStepClock> loop_clock;
+    std::chrono::steady_clock::time_point loop_last{};
+    std::function<void()> host_dispose;
+    LoopShutdown loop_shutdown;
 
     Impl() {
         canvas = std::make_shared<render::OpenGLCanvas>(window, *commands, *backend);
@@ -60,6 +185,8 @@ bool EngineRuntime::init_video() {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         return false;
     }
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+    SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
     impl_->video_inited = true;
     return true;
 }
@@ -109,41 +236,102 @@ void EngineRuntime::shutdown() {
     }
 }
 
-int EngineRuntime::run(IGame& game, InputSystem& input, IAudioSystem* audio) {
+int EngineRuntime::run(IGame& game, InputSystem& input, IAudioSystem* audio, std::function<void()> host_dispose) {
+    impl_->host_dispose = std::move(host_dispose);
+    begin_loop(game, input, audio);
+
+    const MainLoopPolicy policy{default_loop_kind()};
+#if defined(__EMSCRIPTEN__)
+    if (policy.uses_request_animation_frame()) {
+        emscripten_set_main_loop_arg(&EngineRuntime::main_loop_thunk, this, 0, 1);
+        return 0;
+    }
+#else
+    (void)policy;
+#endif
+
+    ApplicationState& app = game.world().ctx<ApplicationState>();
+    while (app.running) {
+        tick_loop();
+    }
+    end_loop();
+    return 0;
+}
+
+void EngineRuntime::begin_loop(IGame& game, InputSystem& input, IAudioSystem* audio) {
+    impl_->loop_game = &game;
+    impl_->loop_input = &input;
+    impl_->loop_audio = audio;
+    impl_->loop_clock = std::make_unique<FixedStepClock>(game.world().ctx<Time>(), game.world().ctx<ApplicationState>());
+    impl_->loop_last = std::chrono::steady_clock::now();
+    impl_->loop_shutdown = LoopShutdown{};
+
+    game.on_start();
+    ui::apply_fill_window(game.world());
+    game.world().ctx<ApplicationState>().running = true;
+}
+
+void EngineRuntime::tick_loop() {
+    if (impl_->loop_game == nullptr || impl_->loop_input == nullptr || impl_->loop_clock == nullptr) {
+        return;
+    }
+    IGame& game = *impl_->loop_game;
     ecs::World& world = game.world();
     Time& time = world.ctx<Time>();
     ApplicationState& app = world.ctx<ApplicationState>();
-    FixedStepClock clock(time, app);
 
-    game.on_start();
-    ui::apply_fill_window(world);
-    app.running = true;
+    const auto now = std::chrono::steady_clock::now();
+    const float real_dt = std::chrono::duration<float>(now - impl_->loop_last).count();
+    impl_->loop_last = now;
 
-    using Clock = std::chrono::steady_clock;
-    auto last = Clock::now();
+    world.flush_events();
+    poll_events(world, *impl_->loop_input, app);
+    ui::begin_frame(world);
 
-    while (app.running) {
-        const auto now = Clock::now();
-        const float real_dt = std::chrono::duration<float>(now - last).count();
-        last = now;
-
-        world.flush_events();
-        poll_events(world, input, app);
-        ui::begin_frame(world);
-
-        const int steps = clock.advance(real_dt);
-        if (audio != nullptr) {
-            audio->update(time.delta_time);
-        }
-        for (int i = 0; i < steps; ++i) {
-            game.on_fixed_update();
-        }
-        game.on_update();
-        canvas().draw();
+    const int steps = impl_->loop_clock->advance(real_dt);
+    if (impl_->loop_audio != nullptr) {
+        impl_->loop_audio->update(time.delta_time);
     }
+    for (int i = 0; i < steps; ++i) {
+        game.on_fixed_update();
+    }
+    game.on_update();
+    canvas().draw();
+}
 
-    game.on_quit();
-    return 0;
+void EngineRuntime::end_loop() {
+    IGame* const game = impl_->loop_game;
+    impl_->loop_game = nullptr;
+    impl_->loop_input = nullptr;
+    impl_->loop_audio = nullptr;
+    impl_->loop_clock.reset();
+
+    const std::function<void()> on_quit = game == nullptr ? std::function<void()>{}
+                                                          : std::function<void()>{[game] { game->on_quit(); }};
+    impl_->loop_shutdown.complete(on_quit, impl_->host_dispose);
+}
+
+void EngineRuntime::main_loop_thunk(void* self) {
+    auto* runtime = static_cast<EngineRuntime*>(self);
+    if (runtime == nullptr || runtime->impl_ == nullptr) {
+#if defined(__EMSCRIPTEN__)
+        emscripten_cancel_main_loop();
+#endif
+        return;
+    }
+    runtime->tick_loop();
+    if (runtime->impl_->loop_game == nullptr) {
+#if defined(__EMSCRIPTEN__)
+        emscripten_cancel_main_loop();
+#endif
+        return;
+    }
+    if (!runtime->impl_->loop_game->world().ctx<ApplicationState>().running) {
+#if defined(__EMSCRIPTEN__)
+        emscripten_cancel_main_loop();
+#endif
+        runtime->end_loop();
+    }
 }
 
 render::CommandBuffer& EngineRuntime::commands() {
@@ -195,11 +383,12 @@ std::filesystem::path EngineRuntime::base_path() const {
 }
 
 std::filesystem::path EngineRuntime::assets_root() const {
-    const std::filesystem::path base = base_path();
-    if (base.empty()) {
-        return {};
-    }
-    return base / "assets";
+#if defined(__ANDROID__)
+    return android_runtime_assets_root(base_path());
+#endif
+    // Do not drop an empty SDL_GetBasePath(): on web that still maps to /assets
+    // (SDD-WIND-WEB-001 §5). Native empty base stays empty via the helper.
+    return default_assets_root(base_path());
 }
 
 void EngineRuntime::write_window_size(ecs::World& world, bool send_event) {
@@ -220,6 +409,17 @@ void EngineRuntime::poll_events(ecs::World& world, InputSystem& input, Applicati
             case SDL_EVENT_QUIT:
                 app.quit();
                 break;
+            case SDL_EVENT_WILL_ENTER_BACKGROUND:
+            case SDL_EVENT_DID_ENTER_BACKGROUND:
+                apply_app_lifecycle(app, AppLifecycleEvent::WillEnterBackground);
+                break;
+            case SDL_EVENT_WILL_ENTER_FOREGROUND:
+            case SDL_EVENT_DID_ENTER_FOREGROUND:
+                apply_app_lifecycle(app, AppLifecycleEvent::DidEnterForeground);
+                break;
+            case SDL_EVENT_TERMINATING:
+                apply_app_lifecycle(app, AppLifecycleEvent::Terminating);
+                break;
             case SDL_EVENT_WINDOW_RESIZED:
             case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
                 write_window_size(world, true);
@@ -227,8 +427,11 @@ void EngineRuntime::poll_events(ecs::World& world, InputSystem& input, Applicati
             case SDL_EVENT_KEY_DOWN:
             case SDL_EVENT_KEY_UP:
                 if (!event.key.repeat) {
-                    input.handle_key(static_cast<KeyCode>(static_cast<std::uint32_t>(event.key.scancode)),
-                            event.key.down);
+                    const auto code = static_cast<KeyCode>(static_cast<std::uint32_t>(event.key.scancode));
+                    input.handle_key(code, event.key.down);
+                    if (event.key.down && code == KeyCode::AcBack) {
+                        apply_android_back(app);
+                    }
                 }
                 break;
             case SDL_EVENT_MOUSE_BUTTON_DOWN:
@@ -240,6 +443,21 @@ void EngineRuntime::poll_events(ecs::World& world, InputSystem& input, Applicati
                 input.handle_mouse_move(glm::vec2{event.motion.x, event.motion.y},
                         glm::vec2{event.motion.xrel, event.motion.yrel});
                 break;
+            case SDL_EVENT_FINGER_DOWN:
+            case SDL_EVENT_FINGER_UP: {
+                const glm::ivec2 size = drawable_size();
+                const glm::vec2 pos = denormalize_touch({event.tfinger.x, event.tfinger.y}, size);
+                input.handle_touch(static_cast<std::uint32_t>(event.tfinger.fingerID),
+                        event.type == SDL_EVENT_FINGER_DOWN, pos);
+                break;
+            }
+            case SDL_EVENT_FINGER_MOTION: {
+                const glm::ivec2 size = drawable_size();
+                const glm::vec2 pos = denormalize_touch({event.tfinger.x, event.tfinger.y}, size);
+                const glm::vec2 rel = denormalize_touch({event.tfinger.dx, event.tfinger.dy}, size);
+                input.handle_touch_move(static_cast<std::uint32_t>(event.tfinger.fingerID), pos, rel);
+                break;
+            }
             default:
                 break;
         }
