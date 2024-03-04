@@ -9,6 +9,8 @@ TEST(Platform, NativeDefaultsOnThisBuild) {
     EXPECT_EQ(engine::current_platform(), engine::Platform::Native);
     EXPECT_FALSE(engine::is_emscripten_build());
     EXPECT_FALSE(engine::web_profile_enabled());
+    EXPECT_FALSE(engine::android_profile_enabled());
+    EXPECT_FALSE(engine::gles_profile_enabled());
     EXPECT_EQ(engine::default_loop_kind(), engine::LoopKind::Blocking);
     EXPECT_EQ(engine::default_graphics_profile().api, engine::GraphicsProfile::Api::OpenGl33Core);
     EXPECT_EQ(engine::default_graphics_profile().major, 3);
@@ -60,6 +62,7 @@ TEST(Platform, EngineRuntimeEmptyBaseFollowsHelperNotShortCircuit) {
             engine::packaged_assets_mount());
     EXPECT_FALSE(engine::default_assets_root(empty_sdl_base, engine::Platform::Web).empty());
     EXPECT_TRUE(engine::default_assets_root(empty_sdl_base, engine::Platform::Native).empty());
+    EXPECT_TRUE(engine::default_assets_root(empty_sdl_base, engine::Platform::Android).empty());
     EXPECT_EQ(engine::default_assets_root(empty_sdl_base),
             engine::default_assets_root(empty_sdl_base, engine::current_platform()));
 }
@@ -69,7 +72,32 @@ TEST(Platform, OneArgAssetsRootMatchesCurrentPlatform) {
             engine::default_assets_root(std::filesystem::path{"/opt/app"}, engine::current_platform()));
 }
 
-TEST(Platform, ApiEpochIsThree) {
-    EXPECT_EQ(engine::kApiEpoch, 3);
-    EXPECT_EQ(engine::api_epoch(), 3);
+TEST(Platform, ApiEpochIsFour) {
+    EXPECT_EQ(engine::kApiEpoch, 4);
+    EXPECT_EQ(engine::api_epoch(), 4);
+}
+
+TEST(Platform, AndroidProfileConstants) {
+    EXPECT_EQ(engine::loop_kind_for(engine::Platform::Android), engine::LoopKind::Blocking);
+    EXPECT_TRUE(engine::uses_gles(engine::Platform::Android));
+    EXPECT_TRUE(engine::uses_gles(engine::Platform::Web));
+    EXPECT_FALSE(engine::uses_gles(engine::Platform::Native));
+
+    const engine::GraphicsProfile android = engine::graphics_profile_for(engine::Platform::Android);
+    EXPECT_EQ(android.api, engine::GraphicsProfile::Api::Gles3);
+    EXPECT_EQ(android.major, 3);
+    EXPECT_EQ(android.minor, 0);
+    EXPECT_TRUE(android.es);
+
+    EXPECT_FALSE(engine::audio_requires_user_gesture(engine::Platform::Android));
+    EXPECT_FALSE(engine::is_android_build());
+    EXPECT_FALSE(engine::android_profile_enabled());
+    EXPECT_FALSE(engine::gles_profile_enabled());
+}
+
+TEST(Platform, AndroidAssetsRoot) {
+    EXPECT_EQ(engine::apk_assets_mount(), "assets://");
+    EXPECT_TRUE(engine::default_assets_root({}, engine::Platform::Android).empty());
+    EXPECT_EQ(engine::default_assets_root(std::filesystem::path{"/data/app"}, engine::Platform::Android),
+            std::filesystem::path{"/data/app"} / "assets");
 }

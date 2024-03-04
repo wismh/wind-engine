@@ -32,7 +32,7 @@ OpenGLTexture::OpenGLTexture(const TextureDesc& desc) {
     glGenTextures(1, &id_);
     glBindTexture(GL_TEXTURE_2D, id_);
     glTexImage2D(GL_TEXTURE_2D, 0,
-#if defined(__EMSCRIPTEN__)
+#if defined(ENGINE_WITH_GLES)
             GL_RGBA8,
 #else
             GL_RGBA,

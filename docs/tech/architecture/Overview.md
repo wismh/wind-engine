@@ -45,6 +45,7 @@ flowchart TB
 Windowed host: [[include.engine.core.engine.h|Engine&lt;GameT&gt;]] in [[include.engine.engine.h|engine.h]] (only if `ENGINE_WITH_WINDOW`). Headless `engine_tests` never call `Engine::run`.
 
 
+
 ## Module responsibilities
 
 | Module                | Owns                                                     | Does not own                     |

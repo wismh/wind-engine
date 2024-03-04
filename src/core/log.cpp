@@ -35,7 +35,7 @@ void init() {
 }
 
 void init(const std::filesystem::path& exe_dir) {
-#if defined(__EMSCRIPTEN__)
+#if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
     (void)exe_dir;
     current() = make_logger(std::make_shared<spdlog::sinks::stdout_sink_st>());
     return;
