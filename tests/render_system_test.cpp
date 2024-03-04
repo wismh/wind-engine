@@ -73,7 +73,7 @@ public:
     engine::ui::Bindable<std::string> title;
 
     TitleViewModel() {
-        property("title", title);
+        property(engine::ui::intern("title"), title);
     }
 };
 
