@@ -3,6 +3,7 @@
 #include <engine/render/commands.h>
 #include <engine/resources/asset_id.h>
 #include <engine/resources/fatal_error.h>
+#include <engine/ui/binding_id.h>
 #include <engine/ui/command.h>
 #include <engine/ui/stylesheet.h>
 #include <engine/ui/view_model.h>
@@ -51,11 +52,11 @@ struct Element {
     std::string name;
 
     std::string text;
-    std::optional<std::string> text_binding;
-    std::optional<std::string> content_binding;
-    std::optional<std::string> command_binding;
-    std::optional<std::string> source_binding;
-    std::optional<std::string> items_source_binding;
+    BindingId text_binding{};
+    BindingId content_binding{};
+    BindingId command_binding{};
+    BindingId source_binding{};
+    BindingId items_source_binding{};
     std::optional<AssetId> source;
 
     StackDirection direction = StackDirection::Vertical;
