@@ -12,6 +12,7 @@
 #include <engine/ecs/events.h>
 #include <engine/ecs/world.h>
 #include <engine/resources/font.h>
+#include <engine/resources/meta.h>
 #include <engine/ui/canvas.h>
 
 #include <chrono>
@@ -75,50 +76,26 @@ bool copy_sdl_io_file(const char* sdl_path, const std::filesystem::path& dest) {
     return static_cast<bool>(out);
 }
 
-struct ApkCopyContext {
-    std::filesystem::path dest_root;
-    std::string mount;
-};
-
-SDL_EnumerationResult SDLCALL copy_apk_entry(void* userdata, const char* dirname, const char* fname) {
-    auto* ctx = static_cast<ApkCopyContext*>(userdata);
-    if (ctx == nullptr || dirname == nullptr || fname == nullptr) {
-        return SDL_ENUM_FAILURE;
+// This SDL3 build has no Android-specific SDL_EnumerateDirectory/SDL_GetPathInfo backend
+// (see external/SDL3/src/filesystem/android/SDL_sysfilesystem.c — only GetBasePath/GetPrefPath
+// are implemented there), so directory enumeration over the packaged "assets://" tree never
+// finds anything on Android; it silently walks zero entries. SDL_IOFromFile() by exact name
+// does reach the APK's AAssetManager, though. So instead of enumerating, stage each asset the
+// cooked catalog already lists by its known relative path.
+void stage_catalog_assets(
+        const std::filesystem::path& catalog_file, const std::string& sdl_prefix, const std::filesystem::path& dest_root) {
+    std::ifstream in(catalog_file, std::ios::binary);
+    if (!in) {
+        return;
     }
-    std::string sdl_path = dirname;
-    if (!sdl_path.empty() && sdl_path.back() != '/' && sdl_path.find("://") == std::string::npos) {
-        sdl_path.push_back('/');
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const auto parsed = parse_cooked_catalog(text);
+    if (!parsed) {
+        return;
     }
-    if (!sdl_path.empty() && sdl_path.rfind("://") == sdl_path.size() - 3) {
-        // "assets://" — keep as-is before appending the name
-    } else if (!sdl_path.empty() && sdl_path.back() != '/') {
-        sdl_path.push_back('/');
+    for (const CatalogEntry& entry : parsed->entries()) {
+        copy_sdl_io_file((sdl_prefix + entry.relative_path).c_str(), dest_root / entry.relative_path);
     }
-    sdl_path += fname;
-
-    SDL_PathInfo info{};
-    if (SDL_GetPathInfo(sdl_path.c_str(), &info) && info.type == SDL_PATHTYPE_DIRECTORY) {
-        std::string child = sdl_path;
-        if (!child.empty() && child.back() != '/') {
-            child.push_back('/');
-        }
-        SDL_EnumerateDirectory(child.c_str(), copy_apk_entry, userdata);
-        return SDL_ENUM_CONTINUE;
-    }
-
-    std::string relative = dirname;
-    if (relative.rfind(ctx->mount, 0) == 0) {
-        relative.erase(0, ctx->mount.size());
-    }
-    while (!relative.empty() && relative.front() == '/') {
-        relative.erase(relative.begin());
-    }
-    if (!relative.empty() && relative.back() != '/') {
-        relative.push_back('/');
-    }
-    relative += fname;
-    copy_sdl_io_file(sdl_path.c_str(), ctx->dest_root / relative);
-    return SDL_ENUM_CONTINUE;
 }
 
 std::filesystem::path android_runtime_assets_root(const std::filesystem::path& base) {
@@ -140,12 +117,10 @@ std::filesystem::path android_runtime_assets_root(const std::filesystem::path& b
         }
     }
 
-    ApkCopyContext ctx{.dest_root = dest, .mount = apk_assets_mount()};
-    if (!SDL_EnumerateDirectory(ctx.mount.c_str(), copy_apk_entry, &ctx)) {
-        SDL_EnumerateDirectory("", copy_apk_entry, &ctx);
-    }
     copy_sdl_io_file("catalog.toml", dest / "catalog.toml");
     copy_sdl_io_file("engine/catalog.toml", dest / "engine" / "catalog.toml");
+    stage_catalog_assets(dest / "catalog.toml", "", dest);
+    stage_catalog_assets(dest / "engine" / "catalog.toml", "engine/", dest / "engine");
     return dest;
 }
 #endif
