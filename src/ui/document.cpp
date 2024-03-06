@@ -72,18 +72,18 @@ void layout_element(Element& element, const render::Rect& allocated) {
 }
 
 std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFatalError* fatal, bool in_template) {
-    const auto require_property = [&](const std::optional<std::string>& binding) -> std::expected<void, UiError> {
-        if (!binding) {
+    const auto require_property = [&](BindingId binding) -> std::expected<void, UiError> {
+        if (!is_bound(binding)) {
             return {};
         }
         if (in_template) {
             return {};
         }
-        if (vm.has_property(intern(*binding))) {
+        if (vm.has_property(binding)) {
             return {};
         }
         if (fatal != nullptr) {
-            fatal->report("UI binding name is not registered: " + *binding);
+            fatal->report("UI binding name is not registered");
         }
         return std::unexpected(UiError::MissingBinding);
     };
@@ -101,11 +101,11 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
         return result;
     }
 
-    if (element.command_binding && !in_template) {
-        ICommand* command = vm.find_command(intern(*element.command_binding));
+    if (is_bound(element.command_binding) && !in_template) {
+        ICommand* command = vm.find_command(element.command_binding);
         if (command == nullptr) {
             if (fatal != nullptr) {
-                fatal->report("UI binding name is not registered: " + *element.command_binding);
+                fatal->report("UI binding name is not registered");
             }
             return std::unexpected(UiError::MissingBinding);
         }
@@ -113,13 +113,13 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
         element.disabled = !command->can_execute();
     }
 
-    if (element.text_binding) {
-        if (auto value = vm.read_property_string(intern(*element.text_binding))) {
+    if (is_bound(element.text_binding)) {
+        if (auto value = vm.read_property_string(element.text_binding)) {
             element.text = *value;
         }
     }
-    if (element.content_binding) {
-        if (auto value = vm.read_property_string(intern(*element.content_binding))) {
+    if (is_bound(element.content_binding)) {
+        if (auto value = vm.read_property_string(element.content_binding)) {
             element.text = *value;
         }
     }
@@ -131,7 +131,7 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
         }
     }
 
-    if (element.kind == ElementKind::ItemsControl && element.items_source_binding && !in_template) {
+    if (element.kind == ElementKind::ItemsControl && is_bound(element.items_source_binding) && !in_template) {
         element.generated_items.clear();
         const Element* tmpl = nullptr;
         for (const Element& child : element.children) {
@@ -141,7 +141,7 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
             }
         }
         if (tmpl != nullptr) {
-            const std::vector<ViewModel*> items = vm.read_item_source(intern(*element.items_source_binding));
+            const std::vector<ViewModel*> items = vm.read_item_source(element.items_source_binding);
             for (ViewModel* item : items) {
                 if (item == nullptr) {
                     continue;
