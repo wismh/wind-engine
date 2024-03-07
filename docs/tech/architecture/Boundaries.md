@@ -21,7 +21,7 @@ Games include `<engine/…>` only. `IUiPainter` is **not** public ([[src.ui.pain
 - `onClick`, `CmdCustomDraw`, `EventBus`, `Node*`.
 - `#include` glad / SDL in tests (except what already lives behind `ENGINE_WITH_WINDOW` in production code).
 - Regenerating [[include.engine.builtin_ids.h|builtin GUIDs]].
-- Building the whole engine in one agent session (slices / packages).
+- Building the whole engine in one session.
 
 ## Compile flags
 

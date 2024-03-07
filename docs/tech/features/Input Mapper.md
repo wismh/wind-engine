@@ -16,6 +16,7 @@ Windowed poll: [[src.core.engine_runtime.cpp]] maps SDL events → these handler
 
 ## Later
 
+Keyboard and mouse-button binds are done. Not yet implemented, same `Control`/`ActionId`/`InputEvent` types: gamepad buttons/axes, touch, WASD composites, action maps, `MouseEvent` → `PointerEvent` rename. Not a Unity Input System clone (no action callbacks, no `.inputactions`).
 
 ## Files
 
