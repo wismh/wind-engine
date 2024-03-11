@@ -278,6 +278,12 @@ function(engine_add_game target)
     if(ANDROID AND TARGET SDL3::SDL3main)
         target_link_libraries(${target} PRIVATE SDL3::SDL3main)
     endif()
+    if(ANDROID)
+        # SDLActivity's nativeRunMain() dlsym()s "SDL_main" specifically; a game's plain
+        # int main() never gets renamed (no <SDL3/SDL_main.h> in game code, by design —
+        # see engine boundary rules), so alias it at link time instead.
+        target_link_options(${target} PRIVATE "SHELL:-Wl,--defsym=SDL_main=main")
+    endif()
 endfunction()
 
 function(engine_add_web_game target)

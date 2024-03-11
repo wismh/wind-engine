@@ -3,6 +3,7 @@
 /build-audio/
 /build-web/
 /build-android/
+/build-*/
 /out/
 /cmake-build-*/
 /.vs/
@@ -15,5 +16,11 @@ compile_commands.json
 .DS_Store
 Thumbs.db
 
+# Agent & AI tool configurations
 /.cursor/
 /.claude/
+/.agents/
+/.agent/
+/.gemini/
+/CLAUDE.md
+/GEMINI.md
