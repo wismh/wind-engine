@@ -18,6 +18,14 @@ std::optional<std::string> ViewModel::read_property_string(BindingId id) const {
     return it->second.to_string(it->second.bindable);
 }
 
+std::optional<AssetId> ViewModel::read_property_asset_id(BindingId id) const {
+    const auto it = properties_.find(id);
+    if (it == properties_.end() || it->second.read_asset_id == nullptr) {
+        return std::nullopt;
+    }
+    return it->second.read_asset_id(it->second.bindable);
+}
+
 std::vector<ViewModel*> ViewModel::read_item_source(BindingId id) const {
     const auto it = properties_.find(id);
     if (it == properties_.end() || it->second.items == nullptr) {
