@@ -100,8 +100,8 @@ TEST(UiCss, UnknownPropertyDoesNotFailSheet) {
     )",
             warnings);
     ASSERT_TRUE(sheet.has_value());
-    EXPECT_FALSE(warnings.empty());
-    EXPECT_TRUE(warning_mentions(warnings, "zoom") || warning_mentions(warnings, "combinator"));
+    EXPECT_TRUE(warning_mentions(warnings, "zoom"));
+    EXPECT_FALSE(warning_mentions(warnings, "combinator"));
 
     const engine::ui::CssRule* ok = find_class_rule(*sheet, "ok");
     ASSERT_NE(ok, nullptr);
@@ -142,5 +142,38 @@ TEST(UiCss, BackgroundImageFilenameWarns) {
     ASSERT_FALSE(warnings.empty());
     EXPECT_TRUE(warning_mentions(warnings, "hover.png"));
     EXPECT_TRUE(warning_mentions(warnings, "background-image"));
+}
+
+TEST(UiCss, DescendantAndChildCombinatorsDoNotWarn) {
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css(R"(
+        Stack.hud Label { color: #ffffff; }
+        Stack > Label { padding: 4; }
+    )",
+            warnings);
+    ASSERT_TRUE(sheet.has_value());
+    EXPECT_FALSE(warning_mentions(warnings, "combinator"));
+    ASSERT_EQ(sheet->rules.size(), 2u);
+
+    EXPECT_EQ(sheet->rules[0].ancestors.size(), 1u);
+    EXPECT_EQ(sheet->rules[0].combinators.size(), 1u);
+    EXPECT_EQ(sheet->rules[0].ancestors[0].type, engine::ui::CssSelectorType::ElementClass);
+    EXPECT_EQ(sheet->rules[0].ancestors[0].element, "Stack");
+    EXPECT_EQ(sheet->rules[0].ancestors[0].class_name, "hud");
+    EXPECT_EQ(sheet->rules[0].combinators[0], engine::ui::CssCombinator::Descendant);
+    EXPECT_EQ(sheet->rules[0].selector.type, engine::ui::CssSelectorType::Element);
+    EXPECT_EQ(sheet->rules[0].selector.element, "Label");
+
+    EXPECT_EQ(sheet->rules[1].ancestors.size(), 1u);
+    EXPECT_EQ(sheet->rules[1].combinators[0], engine::ui::CssCombinator::Child);
+    EXPECT_EQ(sheet->rules[1].selector.element, "Label");
+}
+
+TEST(UiCss, AdjacentSiblingCombinatorWarns) {
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css("Label + Button { color: #ffffff; }", warnings);
+    ASSERT_TRUE(sheet.has_value());
+    EXPECT_TRUE(warning_mentions(warnings, "combinator"));
+    EXPECT_TRUE(sheet->rules.empty());
 }
 
