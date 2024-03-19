@@ -123,6 +123,16 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
             element.text = *value;
         }
     }
+    if (is_bound(element.source_binding) && !in_template) {
+        const auto value = vm.read_property_asset_id(element.source_binding);
+        if (!value) {
+            if (fatal != nullptr) {
+                fatal->report("UI binding name is not registered");
+            }
+            return std::unexpected(UiError::MissingBinding);
+        }
+        element.source = *value;
+    }
 
     const bool nested_template = in_template || element.kind == ElementKind::ItemTemplate;
     for (Element& child : element.children) {

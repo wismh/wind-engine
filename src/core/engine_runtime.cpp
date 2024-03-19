@@ -85,6 +85,13 @@ bool EngineRuntime::add_font(AssetId id, const Font& font) {
     return impl_->canvas->add_font(id, font);
 }
 
+bool EngineRuntime::add_image(AssetId id, const render::TextureDesc& desc) {
+    if (impl_->canvas == nullptr) {
+        return false;
+    }
+    return impl_->canvas->add_image(id, desc);
+}
+
 void EngineRuntime::shutdown() {
     if (impl_ == nullptr) {
         return;

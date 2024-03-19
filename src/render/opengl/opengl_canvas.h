@@ -6,6 +6,7 @@
 
 #include <engine/render/canvas.h>
 #include <engine/render/command_buffer.h>
+#include <engine/render/graphic_factory.h>
 #include <engine/resources/asset_id.h>
 #include <engine/resources/font.h>
 
@@ -26,6 +27,7 @@ public:
     [[nodiscard]] bool init();
     [[nodiscard]] bool load_ui_font(const Font& font);
     [[nodiscard]] bool add_font(AssetId id, const Font& font);
+    [[nodiscard]] bool add_image(AssetId id, const TextureDesc& desc);
     void draw() override;
 
 private:
