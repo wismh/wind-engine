@@ -1,11 +1,20 @@
 #include <engine/ui/document.h>
 
+#include "painter.h"
+
+#include <glm/vec2.hpp>
+
 #include <algorithm>
+#include <optional>
+#include <vector>
 
 namespace engine::ui {
 namespace {
 
-void layout_element(Element& element, const render::Rect& allocated);
+constexpr float kDefaultImageSize = 32.0f;
+
+void layout_element(Element& element, const render::Rect& box, IUiPainter* painter);
+[[nodiscard]] glm::vec2 compute_used(const Element& element, IUiPainter* painter);
 
 [[nodiscard]] render::Rect inset_rect(const render::Rect& rect, const BoxInsets& padding) {
     return render::Rect{
@@ -16,58 +25,185 @@ void layout_element(Element& element, const render::Rect& allocated);
     };
 }
 
-void layout_stack(Element& element, const render::Rect& allocated) {
-    std::vector<Element*> children;
-    children.reserve(element.children.size() + element.generated_items.size());
+[[nodiscard]] glm::vec2 fallback_measure_text(std::string_view text, float size) {
+    return {static_cast<float>(text.size()) * size * 0.5f, size};
+}
+
+[[nodiscard]] glm::vec2 measure_element_text(const Element& element, IUiPainter* painter) {
+    if (painter != nullptr) {
+        return painter->measure_text(element.text, element.font_family, element.font_size);
+    }
+    return fallback_measure_text(element.text, element.font_size);
+}
+
+[[nodiscard]] float clamp_axis(std::optional<float> specified, std::optional<float> min_size, float hug) {
+    float value = specified.value_or(hug);
+    if (min_size) {
+        value = std::max(value, *min_size);
+    }
+    return std::max(0.0f, value);
+}
+
+template<typename ElementT, typename Out>
+void collect_layout_children(ElementT& element, std::vector<Out*>& children) {
+    children.clear();
     if (element.kind == ElementKind::ItemsControl) {
-        for (Element& child : element.generated_items) {
+        children.reserve(element.generated_items.size());
+        for (auto& child : element.generated_items) {
             children.push_back(&child);
         }
-    } else {
-        for (Element& child : element.children) {
-            if (child.kind != ElementKind::ItemTemplate) {
-                children.push_back(&child);
-            }
+        return;
+    }
+    children.reserve(element.children.size());
+    for (auto& child : element.children) {
+        if (child.kind != ElementKind::ItemTemplate) {
+            children.push_back(&child);
         }
     }
+}
+
+[[nodiscard]] glm::vec2 intrinsic_size(const Element& element, IUiPainter* painter) {
+    if (element.kind == ElementKind::Label || element.kind == ElementKind::Button) {
+        const glm::vec2 text = measure_element_text(element, painter);
+        return {
+                element.padding.left + text.x + element.padding.right,
+                element.padding.top + text.y + element.padding.bottom,
+        };
+    }
+    if (element.kind == ElementKind::Image) {
+        return {
+                element.padding.left + kDefaultImageSize + element.padding.right,
+                element.padding.top + kDefaultImageSize + element.padding.bottom,
+        };
+    }
+    if (element.kind != ElementKind::Stack && element.kind != ElementKind::ItemsControl) {
+        return {
+                element.padding.left + element.padding.right,
+                element.padding.top + element.padding.bottom,
+        };
+    }
+
+    std::vector<const Element*> children;
+    collect_layout_children(element, children);
+    float main = 0.0f;
+    float cross = 0.0f;
+    for (std::size_t i = 0; i < children.size(); ++i) {
+        const Element& child = *children[i];
+        const glm::vec2 used = compute_used(child, painter);
+        if (element.direction == StackDirection::Horizontal) {
+            main += child.margin.left + used.x + child.margin.right;
+            cross = std::max(cross, child.margin.top + used.y + child.margin.bottom);
+        } else {
+            main += child.margin.top + used.y + child.margin.bottom;
+            cross = std::max(cross, child.margin.left + used.x + child.margin.right);
+        }
+        if (i + 1 < children.size()) {
+            main += element.gap;
+        }
+    }
+    if (element.direction == StackDirection::Horizontal) {
+        return {
+                element.padding.left + main + element.padding.right,
+                element.padding.top + cross + element.padding.bottom,
+        };
+    }
+    return {
+            element.padding.left + cross + element.padding.right,
+            element.padding.top + main + element.padding.bottom,
+    };
+}
+
+glm::vec2 compute_used(const Element& element, IUiPainter* painter) {
+    const glm::vec2 hug = intrinsic_size(element, painter);
+    return {
+            clamp_axis(element.width, element.min_width, hug.x),
+            clamp_axis(element.height, element.min_height, hug.y),
+    };
+}
+
+void layout_stack(Element& element, const render::Rect& allocated, IUiPainter* painter) {
+    std::vector<Element*> children;
+    collect_layout_children(element, children);
     if (children.empty()) {
         return;
     }
 
-    const float gap_total = element.gap * static_cast<float>(children.size() - 1);
-    if (element.direction == StackDirection::Horizontal) {
-        const float width = std::max(0.0f, (allocated.w - gap_total) / static_cast<float>(children.size()));
-        float x = allocated.x;
-        for (Element* child : children) {
-            layout_element(*child, render::Rect{x, allocated.y, width, allocated.h});
-            x += width + element.gap;
+    float packed = 0.0f;
+    for (std::size_t i = 0; i < children.size(); ++i) {
+        const Element& child = *children[i];
+        const glm::vec2 used = compute_used(child, painter);
+        if (element.direction == StackDirection::Horizontal) {
+            packed += child.margin.left + used.x + child.margin.right;
+        } else {
+            packed += child.margin.top + used.y + child.margin.bottom;
         }
-        return;
+        if (i + 1 < children.size()) {
+            packed += element.gap;
+        }
     }
 
-    const float height = std::max(0.0f, (allocated.h - gap_total) / static_cast<float>(children.size()));
-    float y = allocated.y;
-    for (Element* child : children) {
-        layout_element(*child, render::Rect{allocated.x, y, allocated.w, height});
-        y += height + element.gap;
+    const bool horizontal = element.direction == StackDirection::Horizontal;
+    const float leftover = std::max(0.0f, (horizontal ? allocated.w : allocated.h) - packed);
+    float cursor = horizontal ? allocated.x : allocated.y;
+    if (element.justify == UiAlign::Center) {
+        cursor += leftover * 0.5f;
+    } else if (element.justify == UiAlign::End) {
+        cursor += leftover;
+    }
+
+    for (std::size_t i = 0; i < children.size(); ++i) {
+        Element& child = *children[i];
+        const glm::vec2 used = compute_used(child, painter);
+        if (horizontal) {
+            cursor += child.margin.left;
+            const float extra =
+                    std::max(0.0f, allocated.h - child.margin.top - child.margin.bottom - used.y);
+            float y = allocated.y + child.margin.top;
+            if (element.align_items == UiAlign::Center) {
+                y += extra * 0.5f;
+            } else if (element.align_items == UiAlign::End) {
+                y += extra;
+            }
+            layout_element(child, render::Rect{cursor, y, used.x, used.y}, painter);
+            cursor += used.x + child.margin.right;
+        } else {
+            cursor += child.margin.top;
+            const float extra =
+                    std::max(0.0f, allocated.w - child.margin.left - child.margin.right - used.x);
+            float x = allocated.x + child.margin.left;
+            if (element.align_items == UiAlign::Center) {
+                x += extra * 0.5f;
+            } else if (element.align_items == UiAlign::End) {
+                x += extra;
+            }
+            layout_element(child, render::Rect{x, cursor, used.x, used.y}, painter);
+            cursor += used.y + child.margin.bottom;
+        }
+        if (i + 1 < children.size()) {
+            cursor += element.gap;
+        }
     }
 }
 
-void layout_element(Element& element, const render::Rect& allocated) {
-    element.layout_rect = allocated;
+void layout_element(Element& element, const render::Rect& box, IUiPainter* painter) {
+    element.layout_rect = box;
     if (element.kind == ElementKind::ItemTemplate) {
         return;
     }
     if (element.kind == ElementKind::Stack || element.kind == ElementKind::ItemsControl) {
-        layout_stack(element, inset_rect(allocated, element.padding));
+        layout_stack(element, inset_rect(box, element.padding), painter);
         return;
     }
 
+    const render::Rect content = inset_rect(box, element.padding);
     for (Element& child : element.children) {
         if (child.kind == ElementKind::ItemTemplate) {
             continue;
         }
-        layout_element(child, allocated);
+        const glm::vec2 used = compute_used(child, painter);
+        layout_element(child,
+                render::Rect{content.x + child.margin.left, content.y + child.margin.top, used.x, used.y},
+                painter);
     }
 }
 
@@ -198,8 +334,12 @@ std::expected<void, UiError> apply_bindings(UiDocument& document, ViewModel& dat
     return bind_element(document.root, data_context, fatal, false);
 }
 
+void layout(UiDocument& document, const render::Rect& canvas_rect, IUiPainter* painter) {
+    layout_element(document.root, canvas_rect, painter);
+}
+
 void layout(UiDocument& document, const render::Rect& canvas_rect) {
-    layout_element(document.root, canvas_rect);
+    layout(document, canvas_rect, nullptr);
 }
 
 Element* find_by_kind(Element& root, ElementKind kind) {
