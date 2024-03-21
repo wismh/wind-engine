@@ -38,6 +38,12 @@ enum class StackDirection {
     Horizontal,
 };
 
+enum class UiAlign {
+    Start,
+    Center,
+    End,
+};
+
 struct BoxInsets {
     float top = 0.0f;
     float right = 0.0f;
@@ -62,6 +68,16 @@ struct Element {
     StackDirection direction = StackDirection::Vertical;
     float gap = 0.0f;
     BoxInsets padding{};
+    BoxInsets margin{};
+    std::optional<float> width;
+    std::optional<float> height;
+    std::optional<float> min_width;
+    std::optional<float> min_height;
+    UiAlign justify = UiAlign::Start;
+    UiAlign align_items = UiAlign::Start;
+    UiAlign text_align = UiAlign::Start;
+    float font_size = 16.0f;
+    AssetId font_family{};
 
     render::Rect layout_rect{};
     ICommand* command = nullptr;

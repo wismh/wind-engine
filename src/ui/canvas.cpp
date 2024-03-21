@@ -96,11 +96,11 @@ void handle_pointer(ecs::World& world, float x, float y) {
     if (instance->stylesheet) {
         sheet = &*instance->stylesheet;
     }
-    apply_layout_style(instance->document.root, sheet);
-    layout(instance->document, canvas.rect);
     if (canvas.data_context) {
         (void) apply_bindings(instance->document, *canvas.data_context, nullptr);
     }
+    apply_layout_style(instance->document.root, sheet);
+    layout(instance->document, canvas.rect);
 
     Element* button = find_button_at(instance->document.root, x, y);
     if (button == nullptr) {
