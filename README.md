@@ -43,6 +43,8 @@ emcmake cmake --preset web -DENGINE_HOST_ASSET_CODEGEN="$PWD/build/asset_codegen
 cmake --build build-web
 ```
 
+Mixer stays behind `ENGINE_WITH_AUDIO` here too (default **OFF**; local preset `web-audio` builds to `build-web-audio` with it **ON**).
+
 If the `web` preset's Ninja generator is missing, pass `-G "Unix Makefiles"` (or install Ninja). Equivalent without the preset:
 
 ```bash
