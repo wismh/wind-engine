@@ -361,6 +361,15 @@ void apply_declaration(ComputedStyle& style, const CssDeclaration& decl) {
     }
 }
 
+render::Rect scale_rect(const render::Rect& rect, glm::vec2 offset, float scale) {
+    return render::Rect{
+            offset.x + rect.x * scale,
+            offset.y + rect.y * scale,
+            rect.w * scale,
+            rect.h * scale,
+    };
+}
+
 bool media_matches(const std::optional<MediaQuery>& media, float window_width, float window_height) {
     if (!media) {
         return true;
@@ -560,28 +569,32 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
     const float border_radius = resolve_length(style.border_radius, parent_content.x, font_size);
     const float border_width = resolve_length(style.border_width, parent_content.x, font_size);
 
+    const render::Rect screen_rect = scale_rect(element.layout_rect, input.ui_offset, input.ui_scale);
+    const float screen_border_radius = border_radius * input.ui_scale;
+    const float screen_border_width = border_width * input.ui_scale;
+
     painter.save();
     painter.set_opacity(style.opacity);
-    painter.scissor(element.layout_rect);
+    painter.scissor(screen_rect);
 
     if (style.background.a > 0.0f) {
-        painter.fill_rounded_rect(element.layout_rect, border_radius, style.background);
+        painter.fill_rounded_rect(screen_rect, screen_border_radius, style.background);
     }
     if (style.background_image) {
-        painter.image(*style.background_image, element.layout_rect);
+        painter.image(*style.background_image, screen_rect);
     }
     if (border_width > 0.0f && style.border_color.a > 0.0f) {
-        painter.stroke_rounded_rect(element.layout_rect, border_radius, border_width, style.border_color);
+        painter.stroke_rounded_rect(screen_rect, screen_border_radius, screen_border_width, style.border_color);
     }
 
     if (element.kind == ElementKind::Label || element.kind == ElementKind::Button) {
         if (!element.text.empty()) {
-            painter.set_font(style.font_family, font_size);
+            painter.set_font(style.font_family, font_size * input.ui_scale);
             const render::Rect content{
-                    element.layout_rect.x + padding.left,
-                    element.layout_rect.y + padding.top,
-                    std::max(0.0f, element.layout_rect.w - padding.left - padding.right),
-                    std::max(0.0f, element.layout_rect.h - padding.top - padding.bottom),
+                    screen_rect.x + padding.left * input.ui_scale,
+                    screen_rect.y + padding.top * input.ui_scale,
+                    std::max(0.0f, screen_rect.w - (padding.left + padding.right) * input.ui_scale),
+                    std::max(0.0f, screen_rect.h - (padding.top + padding.bottom) * input.ui_scale),
             };
             float x = content.x;
             if (style.text_align == UiAlign::Center) {
@@ -600,7 +613,7 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
     }
     if (element.kind == ElementKind::Image && element.source) {
         if (!style.background_image || *element.source != *style.background_image) {
-            painter.image(*element.source, element.layout_rect);
+            painter.image(*element.source, screen_rect);
         }
     }
 
@@ -631,7 +644,7 @@ void paint_document(UiDocument& document, const Stylesheet* stylesheet, IUiPaint
     apply_interaction(document.root, input.pointer, input.pointer_down);
 
     painter.save();
-    painter.scissor(input.canvas_rect);
+    painter.scissor(scale_rect(input.canvas_rect, input.ui_offset, input.ui_scale));
     std::vector<const Element*> ancestors;
     paint_element(document.root, stylesheet, painter, ancestors, glm::vec2{input.canvas_rect.w, input.canvas_rect.h},
             input);

@@ -44,6 +44,8 @@ struct CmdDrawUI {
     float delta_time = 0.0f;
     float window_width = 0.0f;
     float window_height = 0.0f;
+    glm::vec2 ui_offset{0.0f, 0.0f};  // layout-space -> real-pixel offset (ScaleWithScreenSize letterbox)
+    float ui_scale = 1.0f;           // layout-space -> real-pixel scale
 };
 
 using Command = std::variant<CmdDrawMesh, CmdDrawUI>;

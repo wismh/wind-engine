@@ -20,7 +20,7 @@ Host::Host(IGame& game, render::ICanvas& canvas, IAudioSystem* audio)
     write_window_size(size.x, size.y, true);
     register_engine_systems(game_->world());
     game_->on_start();
-    ui::apply_fill_window(game_->world());
+    ui::apply_canvas_fit(game_->world());
 }
 
 Host::~Host() {
@@ -67,7 +67,7 @@ void Host::write_window_size(int width, int height, bool send_event) {
     if (send_event) {
         ecs::EventWriter<ui::WindowResizeEvent>{world_ref}.send(ui::WindowResizeEvent{width, height});
     }
-    ui::apply_fill_window(world_ref);
+    ui::apply_canvas_fit(world_ref);
 }
 
 }
