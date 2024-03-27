@@ -210,6 +210,8 @@ struct CanvasDraw {
     int order = 0;
     std::uint32_t index = 0;
     render::Rect rect{};
+    ui::UiFit fit = ui::UiFit::FillWindow;
+    glm::vec2 reference_size{0.0f, 0.0f};
     ui::UiDocument* document = nullptr;
     const ui::Stylesheet* stylesheet = nullptr;
 };
@@ -227,7 +229,7 @@ void run_ui_render(ecs::World& world, const EngineSystemDeps& deps) {
         auto view = world.view<ui::UiCanvas>();
         for (ecs::Entity entity : view) {
             ui::UiCanvas& canvas = view.get<ui::UiCanvas>(entity);
-            CanvasDraw draw{canvas.order, entity.index, canvas.rect};
+            CanvasDraw draw{canvas.order, entity.index, canvas.rect, canvas.fit, canvas.reference_size};
             if (ui::UiInstance* instance = world.try_get<ui::UiInstance>(entity)) {
                 draw.document = &instance->document;
                 if (instance->stylesheet) {
@@ -244,15 +246,20 @@ void run_ui_render(ecs::World& world, const EngineSystemDeps& deps) {
         return a.index < b.index;
     });
     for (const CanvasDraw& canvas : canvases) {
+        const ui::UiCanvasSpace space = ui::canvas_layout_space(canvas.rect, canvas.fit, canvas.reference_size);
+        const float window_width = space.reference_space ? space.layout_rect.w : static_cast<float>(window.width);
+        const float window_height = space.reference_space ? space.layout_rect.h : static_cast<float>(window.height);
         deps.commands->push(render::CmdDrawUI{
-                canvas.rect,
+                space.layout_rect,
                 canvas.document,
                 canvas.stylesheet,
-                pointer.position,
+                (pointer.position - space.offset) / space.scale,
                 pointer.down,
                 time.delta_time,
-                static_cast<float>(window.width),
-                static_cast<float>(window.height),
+                window_width,
+                window_height,
+                space.offset,
+                space.scale,
         });
     }
 }
