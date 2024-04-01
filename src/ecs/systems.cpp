@@ -4,6 +4,7 @@
 #include <engine/audio/events.h>
 #include <engine/audio/sound.h>
 #include <engine/core/input_system.h>
+#include <engine/core/time.h>
 #include <engine/ecs/camera.h>
 #include <engine/ecs/events.h>
 #include <engine/ecs/physics.h>
@@ -219,6 +220,8 @@ void run_ui_render(ecs::World& world, const EngineSystemDeps& deps) {
     }
 
     const ui::UiPointer& pointer = world.ctx<ui::UiPointer>();
+    const Time& time = world.ctx<Time>();
+    const ui::WindowSize& window = world.ctx<ui::WindowSize>();
     std::vector<CanvasDraw> canvases;
     {
         auto view = world.view<ui::UiCanvas>();
@@ -247,6 +250,9 @@ void run_ui_render(ecs::World& world, const EngineSystemDeps& deps) {
                 canvas.stylesheet,
                 pointer.position,
                 pointer.down,
+                time.delta_time,
+                static_cast<float>(window.width),
+                static_cast<float>(window.height),
         });
     }
 }
