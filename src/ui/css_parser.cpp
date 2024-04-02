@@ -1,7 +1,10 @@
+#include "css_length.h"
+
 #include <engine/resources/asset_id.h>
 #include <engine/ui/stylesheet.h>
 
 #include <cctype>
+#include <cstdlib>
 #include <optional>
 #include <utility>
 
@@ -51,6 +54,8 @@ bool is_known_property(std::string_view name) {
             "border-color",
             "font-size",
             "font-family",
+            "animation-name",
+            "animation-duration",
     };
     for (const std::string_view known : kKnown) {
         if (known == name) {
@@ -60,27 +65,41 @@ bool is_known_property(std::string_view name) {
     return false;
 }
 
-void skip_whitespace_and_comments(std::string_view css, std::size_t& i) {
-    while (i < css.size()) {
+bool is_length_property(std::string_view name) {
+    return name == "width" || name == "height" || name == "min-width" || name == "min-height" || name == "padding" ||
+            name == "margin" || name == "gap" || name == "font-size" || name == "border-radius" ||
+            name == "border-width";
+}
+
+bool is_ident_char(char c) {
+    return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_' || c == '-';
+}
+
+void skip_whitespace_and_comments(std::string_view css, std::size_t& i, std::size_t limit) {
+    while (i < limit) {
         const unsigned char ch = static_cast<unsigned char>(css[i]);
         if (std::isspace(ch) != 0) {
             ++i;
             continue;
         }
-        if (ch == '/' && i + 1 < css.size() && css[i + 1] == '*') {
+        if (ch == '/' && i + 1 < limit && css[i + 1] == '*') {
             i += 2;
-            while (i + 1 < css.size() && !(css[i] == '*' && css[i + 1] == '/')) {
+            while (i + 1 < limit && !(css[i] == '*' && css[i + 1] == '/')) {
                 ++i;
             }
-            if (i + 1 < css.size()) {
+            if (i + 1 < limit) {
                 i += 2;
             } else {
-                i = css.size();
+                i = limit;
             }
             continue;
         }
         break;
     }
+}
+
+void skip_whitespace_and_comments(std::string_view css, std::size_t& i) {
+    skip_whitespace_and_comments(css, i, css.size());
 }
 
 std::optional<CssSelector> parse_simple_selector(std::string_view raw) {
@@ -190,11 +209,12 @@ bool parse_selector_chain(std::string_view raw, CssRule& rule, std::vector<std::
     return true;
 }
 
-void parse_declarations(std::string_view body, CssRule& rule, std::vector<std::string>& warnings) {
+void parse_declarations(std::string_view body, std::vector<CssDeclaration>& declarations, std::vector<std::string>& warnings) {
     std::size_t i = 0;
     while (i < body.size()) {
         const auto semi = body.find(';', i);
-        const std::string_view chunk = trim(body.substr(i, semi == std::string_view::npos ? std::string_view::npos : semi - i));
+        const std::string_view chunk =
+                trim(body.substr(i, semi == std::string_view::npos ? std::string_view::npos : semi - i));
         i = semi == std::string_view::npos ? body.size() : semi + 1;
         if (chunk.empty()) {
             continue;
@@ -218,9 +238,260 @@ void parse_declarations(std::string_view body, CssRule& rule, std::vector<std::s
                 warnings.emplace_back(
                         "background-image value must be none or a 32-hex AssetId, not a filename: " + decl.value);
             }
+        } else if (is_length_property(decl.property)) {
+            const bool padding_like = decl.property == "padding" || decl.property == "margin";
+            if (css_length::contains_var(decl.value)) {
+                warnings.emplace_back("var() is not supported");
+                continue;
+            }
+            const bool has_calc = decl.value.find("calc") != std::string::npos;
+            if (has_calc) {
+                const bool ok = padding_like ? css_length::parse_insets(decl.value).has_value()
+                                             : css_length::parse_length(decl.value).has_value();
+                if (!ok) {
+                    warnings.emplace_back("invalid calc()");
+                    continue;
+                }
+            }
         }
-        rule.declarations.push_back(std::move(decl));
+        declarations.push_back(std::move(decl));
     }
+}
+
+bool consume_curly_block(
+        std::string_view css, std::size_t& i, std::size_t limit, std::size_t& body_begin, std::size_t& body_end) {
+    if (i >= limit || css[i] != '{') {
+        return false;
+    }
+    ++i;
+    body_begin = i;
+    int depth = 1;
+    while (i < limit && depth > 0) {
+        if (css[i] == '{') {
+            ++depth;
+        } else if (css[i] == '}') {
+            --depth;
+        }
+        if (depth > 0) {
+            ++i;
+        }
+    }
+    if (i >= limit || css[i] != '}') {
+        return false;
+    }
+    body_end = i;
+    ++i;
+    return true;
+}
+
+void skip_at_rule(std::string_view css, std::size_t& i, std::size_t limit) {
+    while (i < limit && css[i] != ';' && css[i] != '{') {
+        ++i;
+    }
+    if (i < limit && css[i] == ';') {
+        ++i;
+        return;
+    }
+    std::size_t body_begin = 0;
+    std::size_t body_end = 0;
+    if (i < limit && css[i] == '{') {
+        if (!consume_curly_block(css, i, limit, body_begin, body_end)) {
+            i = limit;
+        }
+    }
+}
+
+std::optional<MediaQuery> parse_media_query(std::string_view prelude) {
+    const std::string_view query = trim(prelude);
+    if (query.size() < 2 || query.front() != '(' || query.back() != ')') {
+        return std::nullopt;
+    }
+    const std::string_view inner = trim(query.substr(1, query.size() - 2));
+    const auto colon = inner.find(':');
+    if (colon == std::string_view::npos) {
+        return std::nullopt;
+    }
+    const std::string feature = to_lower(trim(inner.substr(0, colon)));
+    const std::string_view value = trim(inner.substr(colon + 1));
+    MediaQuery media;
+    if (feature == "min-width") {
+        media.feature = MediaFeature::MinWidth;
+    } else if (feature == "min-height") {
+        media.feature = MediaFeature::MinHeight;
+    } else {
+        return std::nullopt;
+    }
+    const std::string tmp(value);
+    char* end = nullptr;
+    const float n = std::strtof(tmp.c_str(), &end);
+    if (end == tmp.c_str()) {
+        return std::nullopt;
+    }
+    const std::string_view suffix = trim(std::string_view(end));
+    if (!suffix.empty() && suffix != "px") {
+        return std::nullopt;
+    }
+    media.px = n;
+    return media;
+}
+
+std::optional<float> parse_keyframe_offset(std::string_view raw) {
+    const std::string_view value = trim(raw);
+    if (value == "from") {
+        return 0.0f;
+    }
+    if (value == "to") {
+        return 1.0f;
+    }
+    if (value.empty() || value.back() != '%') {
+        return std::nullopt;
+    }
+    const std::string tmp(value.substr(0, value.size() - 1));
+    char* end = nullptr;
+    const float n = std::strtof(tmp.c_str(), &end);
+    if (end == tmp.c_str() || end != tmp.c_str() + tmp.size()) {
+        return std::nullopt;
+    }
+    return n / 100.0f;
+}
+
+bool parse_keyframes_body(std::string_view body, Keyframes& keyframes, std::vector<std::string>& warnings) {
+    std::size_t i = 0;
+    while (i < body.size()) {
+        skip_whitespace_and_comments(body, i);
+        if (i >= body.size()) {
+            break;
+        }
+        const std::size_t sel_begin = i;
+        while (i < body.size() && body[i] != '{') {
+            ++i;
+        }
+        if (i >= body.size()) {
+            return trim(body.substr(sel_begin)).empty();
+        }
+        const std::string_view selector = body.substr(sel_begin, i - sel_begin);
+        std::size_t block_begin = 0;
+        std::size_t block_end = 0;
+        if (!consume_curly_block(body, i, body.size(), block_begin, block_end)) {
+            return false;
+        }
+        const auto offset = parse_keyframe_offset(selector);
+        if (!offset) {
+            warnings.emplace_back("invalid keyframe selector");
+            continue;
+        }
+        KeyframeStop stop;
+        stop.offset = *offset;
+        parse_declarations(body.substr(block_begin, block_end - block_begin), stop.declarations, warnings);
+        keyframes.stops.push_back(std::move(stop));
+    }
+    return true;
+}
+
+bool parse_stylesheet_body(std::string_view css, std::size_t& i, std::size_t limit, Stylesheet& sheet,
+        const std::optional<MediaQuery>& media, std::vector<std::string>& warnings);
+
+bool parse_at_rule(std::string_view css, std::size_t& i, std::size_t limit, Stylesheet& sheet,
+        const std::optional<MediaQuery>& parent_media, std::vector<std::string>& warnings) {
+    ++i;
+    const std::size_t name_begin = i;
+    while (i < limit && is_ident_char(css[i])) {
+        ++i;
+    }
+    const std::string name = to_lower(css.substr(name_begin, i - name_begin));
+    skip_whitespace_and_comments(css, i, limit);
+    const std::size_t prelude_begin = i;
+    while (i < limit && css[i] != '{' && css[i] != ';') {
+        ++i;
+    }
+    const std::string_view prelude = css.substr(prelude_begin, i - prelude_begin);
+
+    if (name == "media") {
+        std::size_t body_begin = 0;
+        std::size_t body_end = 0;
+        if (i >= limit || css[i] != '{' || !consume_curly_block(css, i, limit, body_begin, body_end)) {
+            return false;
+        }
+        if (parent_media) {
+            warnings.emplace_back("unknown media");
+            return true;
+        }
+        const auto query = parse_media_query(prelude);
+        if (!query) {
+            warnings.emplace_back("unknown media");
+            return true;
+        }
+        std::size_t inner = body_begin;
+        return parse_stylesheet_body(css, inner, body_end, sheet, query, warnings);
+    }
+
+    if (name == "keyframes") {
+        std::size_t body_begin = 0;
+        std::size_t body_end = 0;
+        if (i >= limit || css[i] != '{' || !consume_curly_block(css, i, limit, body_begin, body_end)) {
+            return false;
+        }
+        const std::string_view kf_name = trim(prelude);
+        if (kf_name.empty()) {
+            warnings.emplace_back("unsupported at-rule");
+            return true;
+        }
+        Keyframes keyframes;
+        keyframes.name = std::string(kf_name);
+        if (!parse_keyframes_body(css.substr(body_begin, body_end - body_begin), keyframes, warnings)) {
+            return false;
+        }
+        sheet.keyframes.push_back(std::move(keyframes));
+        return true;
+    }
+
+    warnings.emplace_back("unsupported at-rule");
+    skip_at_rule(css, i, limit);
+    return true;
+}
+
+bool parse_stylesheet_body(std::string_view css, std::size_t& i, std::size_t limit, Stylesheet& sheet,
+        const std::optional<MediaQuery>& media, std::vector<std::string>& warnings) {
+    while (i < limit) {
+        skip_whitespace_and_comments(css, i, limit);
+        if (i >= limit) {
+            break;
+        }
+        if (css[i] == '}') {
+            break;
+        }
+        if (css[i] == '@') {
+            if (!parse_at_rule(css, i, limit, sheet, media, warnings)) {
+                return false;
+            }
+            continue;
+        }
+
+        const std::size_t selector_begin = i;
+        while (i < limit && css[i] != '{') {
+            ++i;
+        }
+        if (i >= limit) {
+            const std::string_view rest = trim(css.substr(selector_begin, limit - selector_begin));
+            return rest.empty();
+        }
+
+        const std::string_view selector_text = css.substr(selector_begin, i - selector_begin);
+        std::size_t body_begin = 0;
+        std::size_t body_end = 0;
+        if (!consume_curly_block(css, i, limit, body_begin, body_end)) {
+            return false;
+        }
+
+        CssRule rule;
+        rule.media = media;
+        if (!parse_selector_chain(selector_text, rule, warnings)) {
+            continue;
+        }
+        parse_declarations(css.substr(body_begin, body_end - body_begin), rule.declarations, warnings);
+        sheet.rules.push_back(std::move(rule));
+    }
+    return true;
 }
 
 }
@@ -228,74 +499,8 @@ void parse_declarations(std::string_view body, CssRule& rule, std::vector<std::s
 std::expected<Stylesheet, CssError> parse_css(std::string_view css, std::vector<std::string>& warnings) {
     Stylesheet sheet;
     std::size_t i = 0;
-    while (i < css.size()) {
-        skip_whitespace_and_comments(css, i);
-        if (i >= css.size()) {
-            break;
-        }
-
-        if (css[i] == '@') {
-            warnings.emplace_back("unsupported at-rule");
-            while (i < css.size() && css[i] != ';' && css[i] != '{') {
-                ++i;
-            }
-            if (i < css.size() && css[i] == ';') {
-                ++i;
-                continue;
-            }
-            if (i < css.size() && css[i] == '{') {
-                int depth = 1;
-                ++i;
-                while (i < css.size() && depth > 0) {
-                    if (css[i] == '{') {
-                        ++depth;
-                    } else if (css[i] == '}') {
-                        --depth;
-                    }
-                    ++i;
-                }
-            }
-            continue;
-        }
-
-        const std::size_t selector_begin = i;
-        while (i < css.size() && css[i] != '{') {
-            ++i;
-        }
-        if (i >= css.size()) {
-            const std::string_view rest = trim(css.substr(selector_begin));
-            if (rest.empty()) {
-                break;
-            }
-            return std::unexpected(CssError::InvalidSyntax);
-        }
-
-        const std::string_view selector_text = css.substr(selector_begin, i - selector_begin);
-        ++i;
-        const std::size_t body_begin = i;
-        int depth = 1;
-        while (i < css.size() && depth > 0) {
-            if (css[i] == '{') {
-                ++depth;
-            } else if (css[i] == '}') {
-                --depth;
-            }
-            if (depth > 0) {
-                ++i;
-            }
-        }
-        if (i >= css.size() || css[i] != '}') {
-            return std::unexpected(CssError::InvalidSyntax);
-        }
-        const std::string_view body = css.substr(body_begin, i - body_begin);
-        ++i;
-
-        CssRule rule;
-        if (!parse_selector_chain(selector_text, rule, warnings)) {
-            continue;
-        }
-        parse_declarations(body, rule, warnings);
-        sheet.rules.push_back(std::move(rule));
+    if (!parse_stylesheet_body(css, i, css.size(), sheet, std::nullopt, warnings)) {
+        return std::unexpected(CssError::InvalidSyntax);
     }
     return sheet;
 }
