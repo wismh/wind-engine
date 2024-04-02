@@ -1,0 +1,62 @@
+#include <gtest/gtest.h>
+
+#include <engine/core/platform.h>
+#include <engine/engine.h>
+
+#include <filesystem>
+
+TEST(Platform, NativeDefaultsOnThisBuild) {
+    EXPECT_EQ(engine::current_platform(), engine::Platform::Native);
+    EXPECT_FALSE(engine::is_emscripten_build());
+    EXPECT_FALSE(engine::web_profile_enabled());
+    EXPECT_EQ(engine::default_loop_kind(), engine::LoopKind::Blocking);
+    EXPECT_EQ(engine::default_graphics_profile().api, engine::GraphicsProfile::Api::OpenGl33Core);
+    EXPECT_EQ(engine::default_graphics_profile().major, 3);
+    EXPECT_EQ(engine::default_graphics_profile().minor, 3);
+    EXPECT_FALSE(engine::default_graphics_profile().es);
+    EXPECT_FALSE(engine::audio_requires_user_gesture());
+}
+
+TEST(Platform, WebProfileConstants) {
+    EXPECT_EQ(engine::loop_kind_for(engine::Platform::Web), engine::LoopKind::RequestAnimationFrame);
+    EXPECT_EQ(engine::loop_kind_for(engine::Platform::Native), engine::LoopKind::Blocking);
+
+    const engine::GraphicsProfile web = engine::graphics_profile_for(engine::Platform::Web);
+    EXPECT_EQ(web.api, engine::GraphicsProfile::Api::WebGl2);
+    EXPECT_EQ(web.major, 3);
+    EXPECT_EQ(web.minor, 0);
+    EXPECT_TRUE(web.es);
+
+    EXPECT_TRUE(engine::audio_requires_user_gesture(engine::Platform::Web));
+    EXPECT_FALSE(engine::audio_requires_user_gesture(engine::Platform::Native));
+}
+
+TEST(Platform, PackagedAssetsMount) {
+    EXPECT_EQ(engine::packaged_assets_mount(), std::filesystem::path{"/assets"});
+}
+
+TEST(Platform, NativeAssetsRootUnderBase) {
+    const std::filesystem::path root = engine::default_assets_root(std::filesystem::path{"/tmp/game"},
+            engine::Platform::Native);
+    EXPECT_EQ(root, std::filesystem::path{"/tmp/game"} / "assets");
+}
+
+TEST(Platform, NativeEmptyBaseYieldsEmptyRoot) {
+    EXPECT_TRUE(engine::default_assets_root({}, engine::Platform::Native).empty());
+}
+
+TEST(Platform, WebAssetsRootIsPackagedMount) {
+    EXPECT_EQ(engine::default_assets_root(std::filesystem::path{"/tmp/game"}, engine::Platform::Web),
+            engine::packaged_assets_mount());
+    EXPECT_EQ(engine::default_assets_root({}, engine::Platform::Web), engine::packaged_assets_mount());
+}
+
+TEST(Platform, OneArgAssetsRootMatchesCurrentPlatform) {
+    EXPECT_EQ(engine::default_assets_root(std::filesystem::path{"/opt/app"}),
+            engine::default_assets_root(std::filesystem::path{"/opt/app"}, engine::current_platform()));
+}
+
+TEST(Platform, ApiEpochIsThree) {
+    EXPECT_EQ(engine::kApiEpoch, 3);
+    EXPECT_EQ(engine::api_epoch(), 3);
+}
