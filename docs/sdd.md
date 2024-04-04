@@ -619,15 +619,15 @@ Building the same tree in C++ is allowed **only in `engine_tests`**.
 
 Not browser CSS. Engine parser in `src/` (no libcss). File + `.meta` `importer = "css"`.
 
-**Selectors (v1):** `Element`, `.class`, `#id`, `Element.class`. **No** descendant/child combinators (`A B`, `A > B`), no `,` grouping beyond listing duplicate rules.
+**Selectors (v1):** `Element`, `.class`, `#id`, `Element.class`, descendant `A B`, child `A > B`. **No** adjacent/general sibling (`+`, `~`), no `,` grouping beyond listing duplicate rules — either warns and drops the rule.
 
 **Pseudos:** `:hover`, `:pressed`, `:disabled` (buttons). No `:nth-child`, no `::before`.
 
-**Units:** unitless number = **pixels**. No `%`, `em`, `vw`, `calc()`, `var()`.
+**Units:** unitless number = **pixels**. `%` (of the parent content box) and `em` (of the element's `font-size`, default 16) are also supported. `calc()` accepts `+ - * /` with normal precedence and parens over px/%/em operands, on the length properties below; invalid `calc()` warns and drops the declaration. No `vw`, `vh`, `var()` (custom properties are not implemented at all — `var()` warns and drops the declaration).
 
 **Properties (v1)** — ignore unknown with a **warn** (do not fail the whole sheet):
 
-`color`, `background`, `opacity`, `visibility`, `width`, `height`, `min-width`, `min-height`, `padding` (1–4), `margin` (1–4), `gap`, `flex-direction`, `align-items`, `justify-content`, `border-radius`, `border-width`, `border-color`, `font-size`, `font-family`.
+`color`, `background`, `opacity`, `visibility`, `width`, `height`, `min-width`, `min-height`, `padding` (1–4), `margin` (1–4), `gap`, `flex-direction`, `align-items`, `justify-content`, `border-radius`, `border-width`, `border-color`, `font-size`, `font-family`, `animation-name`, `animation-duration`.
 
 ```css
 .hud { padding: 16; gap: 8; flex-direction: vertical; }
@@ -640,7 +640,11 @@ Button:disabled { opacity: 0.5; }
 
 Cascade: element < class < id < pseudo. Later file rules win at equal specificity (rule index). The xml `stylesheet` attr is one GUID; extra sheets are `UiCanvas::extra_stylesheets` (concatenated after the xml sheet and optional `UiCanvas::stylesheet`).
 
-`@import`, `@media`, animations: **not v1**.
+**`@media`:** one feature query per block, `(min-width: N)` or `(min-height: N)` in px, matched against the window size at paint time. No nesting, no `and`/`or`, no other features — an unrecognized or nested query warns and drops the whole block.
+
+**Animations:** `@keyframes <name> { from|to|N% { … } }`; an element opts in with `animation-name` + `animation-duration` (seconds). Only `opacity` is interpolated between the two bracketing keyframe stops, driven by `Frame::delta_time`. No `transition:`, no other animatable property.
+
+`@import`, `var()`: **not v1**.
 
 ### 8.4 MVVM (C++, no reflection)
 
@@ -1169,7 +1173,7 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 - Packed asset bundles (still GUID-addressed; catalog would point inside a pak).
 - Separate `Sound` / cue asset that references a clip GUID (one WAV, several banks) — still one file = one cue until that exists.
 - `Transform` parent / world-matrix chain.
-- CSS combinators, `%` units, `@media`, animations; WPF `ControlTemplate`, `VisualStateManager`, `IValueConverter`, `Mode=TwoWay`.
+- CSS `@import`, `var()`; WPF `ControlTemplate`, `VisualStateManager`, `IValueConverter`, `Mode=TwoWay`.
 - `Renderable` `sort_mode = Y` (auto ground-sort) — not v1; use `order_in_layer`.
 - Widget-as-ECS-entity (Bevy UI) — not v1; would replace the XML instance tree inside `UiCanvas`.
 
