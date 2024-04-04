@@ -2,6 +2,7 @@
 
 #include <engine/ecs/events.h>
 
+#include <algorithm>
 #include <cctype>
 
 namespace engine {
@@ -61,6 +62,9 @@ void InputSystem::bind(Control control, ActionId action) {
     if (action == ActionId::Invalid) {
         return;
     }
+    if (bindings_.contains(control) && down_keys_.contains(control)) {
+        unbind(control);
+    }
     bindings_[control] = action;
 }
 
@@ -74,6 +78,70 @@ void InputSystem::bind(KeyCode key, std::string_view name) {
         return;
     }
     bind(key, action);
+}
+
+void InputSystem::unbind(Control control) {
+    const auto it = bindings_.find(control);
+    if (it == bindings_.end()) {
+        return;
+    }
+    const ActionId previous = it->second;
+    release_held(control, previous);
+    bindings_.erase(it);
+}
+
+void InputSystem::unbind(KeyCode key) {
+    unbind(key_control(key));
+}
+
+ActionId InputSystem::bound_action(Control control) const {
+    const auto it = bindings_.find(control);
+    if (it == bindings_.end()) {
+        return ActionId::Invalid;
+    }
+    return it->second;
+}
+
+ActionId InputSystem::bound_action(KeyCode key) const {
+    return bound_action(key_control(key));
+}
+
+std::vector<Control> InputSystem::controls_for(ActionId action) const {
+    std::vector<Control> controls;
+    if (action == ActionId::Invalid) {
+        return controls;
+    }
+    for (const auto& [control, bound] : bindings_) {
+        if (bound == action) {
+            controls.push_back(control);
+        }
+    }
+    std::sort(controls.begin(), controls.end(), [](const Control& a, const Control& b) {
+        if (a.kind != b.kind) {
+            return a.kind < b.kind;
+        }
+        if (a.code != b.code) {
+            return a.code < b.code;
+        }
+        return a.device < b.device;
+    });
+    return controls;
+}
+
+void InputSystem::release_held(Control control, ActionId action) {
+    if (!down_keys_.erase(control)) {
+        return;
+    }
+    auto held = held_counts_.find(action);
+    if (held != held_counts_.end()) {
+        --held->second;
+        if (held->second <= 0) {
+            held_counts_.erase(held);
+        }
+    }
+    if (world_ != nullptr) {
+        ecs::EventWriter<InputEvent>{*world_}.send(InputEvent{action, InputEvent::Kind::Up, 0.f});
+    }
 }
 
 void InputSystem::handle_key(KeyCode key, bool down) {
@@ -97,18 +165,7 @@ void InputSystem::handle_key(KeyCode key, bool down) {
         return;
     }
 
-    if (!down_keys_.contains(control)) {
-        return;
-    }
-    down_keys_.erase(control);
-    auto held = held_counts_.find(action);
-    if (held != held_counts_.end()) {
-        --held->second;
-        if (held->second <= 0) {
-            held_counts_.erase(held);
-        }
-    }
-    ecs::EventWriter<InputEvent>{*world_}.send(InputEvent{action, InputEvent::Kind::Up, 0.f});
+    release_held(control, action);
 }
 
 void InputSystem::handle_mouse_button(MouseButton button, bool down, glm::vec2 position) {
