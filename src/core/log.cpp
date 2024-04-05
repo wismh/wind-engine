@@ -2,6 +2,7 @@
 
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/null_sink.h>
+#include <spdlog/sinks/stdout_sinks.h>
 #include <spdlog/spdlog.h>
 
 #include <memory>
@@ -34,6 +35,11 @@ void init() {
 }
 
 void init(const std::filesystem::path& exe_dir) {
+#if defined(__EMSCRIPTEN__)
+    (void)exe_dir;
+    current() = make_logger(std::make_shared<spdlog::sinks::stdout_sink_st>());
+    return;
+#endif
     if (exe_dir.empty()) {
         init();
         return;

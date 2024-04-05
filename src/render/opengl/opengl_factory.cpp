@@ -4,6 +4,8 @@
 #include "opengl_shader.h"
 #include "opengl_texture.h"
 
+#include <engine/render/shader_adapt.h>
+
 #include <memory>
 
 namespace engine::render {
@@ -17,7 +19,12 @@ std::shared_ptr<IMesh> OpenGLFactory::create_mesh(const MeshDesc& desc) {
 }
 
 std::shared_ptr<IShader> OpenGLFactory::create_shader(const ShaderDesc& desc) {
+#if defined(__EMSCRIPTEN__)
+    const ShaderDesc adapted = adapt_shader(desc, ShaderTarget::Glsl300Es);
+    auto shader = std::make_shared<OpenGLShader>(adapted.vertex_src, adapted.fragment_src);
+#else
     auto shader = std::make_shared<OpenGLShader>(desc.vertex_src, desc.fragment_src);
+#endif
     if (!shader->valid()) {
         return {};
     }
