@@ -22,4 +22,19 @@ private:
     LoopKind kind_{};
 };
 
+// Ordered RAF/blocking quit: on_quit then host dispose (audio + runtime shutdown).
+// EngineRuntime::end_loop uses this so emscripten_set_main_loop (simulate_infinite_loop=1)
+// still runs Engine::dispose even though run() never returns.
+class LoopShutdown {
+public:
+    void complete(const std::function<void()>& on_quit, const std::function<void()>& dispose);
+
+    [[nodiscard]] bool quit_completed() const noexcept;
+    [[nodiscard]] bool dispose_completed() const noexcept;
+
+private:
+    bool quit_completed_ = false;
+    bool dispose_completed_ = false;
+};
+
 }
