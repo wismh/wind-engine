@@ -17,26 +17,6 @@ struct CanvasHit {
     ecs::Entity entity{};
 };
 
-Element* find_button_at(Element& element, float x, float y) {
-    if (!rect_contains(element.layout_rect, x, y)) {
-        return nullptr;
-    }
-    for (auto it = element.children.rbegin(); it != element.children.rend(); ++it) {
-        if (Element* nested = find_button_at(*it, x, y)) {
-            return nested;
-        }
-    }
-    for (auto it = element.generated_items.rbegin(); it != element.generated_items.rend(); ++it) {
-        if (Element* nested = find_button_at(*it, x, y)) {
-            return nested;
-        }
-    }
-    if (element.kind == ElementKind::Button) {
-        return &element;
-    }
-    return nullptr;
-}
-
 render::Rect scaled_fit_rect(glm::vec2 reference_size, float window_width, float window_height) {
     if (reference_size.x <= 0.0f || reference_size.y <= 0.0f) {
         return render::Rect{0.0f, 0.0f, window_width, window_height};
@@ -135,7 +115,7 @@ void handle_pointer(ecs::World& world, float x, float y) {
     layout(instance->document, space.layout_rect);
 
     Element* button =
-            find_button_at(instance->document.root, (x - space.offset.x) / space.scale, (y - space.offset.y) / space.scale);
+            hit_test(instance->document.root, (x - space.offset.x) / space.scale, (y - space.offset.y) / space.scale);
     if (button == nullptr) {
         return;
     }
