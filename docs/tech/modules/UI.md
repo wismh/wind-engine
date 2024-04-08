@@ -4,7 +4,7 @@ tags: [module]
 
 # UI
 
-XML + custom CSS + C++ MVVM. UI is an ECS component (`UiCanvas` + `UiInstance`), not a C++ widget graph and not ping-pong `Layout`/`onClick`.
+XML + custom CSS + C++ MVVM. UI is an ECS component (`UiCanvas` + `UiInstance`), not a C++ widget graph and not a `Layout`/`onClick` tree.
 
 ## Capabilities
 
