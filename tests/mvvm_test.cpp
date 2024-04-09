@@ -6,6 +6,7 @@
 #include <engine/ui/binding_id.h>
 #include <engine/ui/canvas.h>
 #include <engine/ui/document.h>
+#include <engine/ui/stylesheet.h>
 #include <engine/ui/view_model.h>
 
 #include <memory>
@@ -25,6 +26,21 @@ public:
     ClickViewModel() {
         command(engine::ui::intern("click"), click);
         click = [this] { ++clicks; };
+    }
+};
+
+class OverlapViewModel final : public engine::ui::ViewModel {
+public:
+    int front_clicks = 0;
+    int back_clicks = 0;
+    engine::ui::RelayCommand front;
+    engine::ui::RelayCommand back;
+
+    OverlapViewModel() {
+        command(engine::ui::intern("front"), front);
+        command(engine::ui::intern("back"), back);
+        front = [this] { ++front_clicks; };
+        back = [this] { ++back_clicks; };
     }
 };
 
@@ -294,6 +310,65 @@ TEST(Mvvm, HigherOrderCanvasWinsHitTest) {
     EXPECT_EQ(front->clicks, 1);
     EXPECT_EQ(back->clicks, 0);
     EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().value);
+}
+
+TEST(Mvvm, ElementZIndexWinsHitTestWithinSameCanvas) {
+    // "back" is first in document order (would win today's document-order-only hit-test) but
+    // gets a higher z-index via CSS, so it must win the click despite being written first.
+    engine::ecs::World world;
+    auto vm = std::make_shared<OverlapViewModel>();
+    const auto parsed = engine::ui::parse_xml(
+            R"(<Canvas><Button class="back" command="{binding back}" content="Back"/>)"
+            R"(<Button class="front" command="{binding front}" content="Front"/></Canvas>)",
+            nullptr, vm.get());
+    ASSERT_TRUE(parsed.has_value());
+
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css(".back { z-index: 5; } .front { z-index: 1; }", warnings);
+    ASSERT_TRUE(sheet.has_value());
+
+    const engine::ecs::Entity entity = world.create();
+    engine::ui::UiCanvas canvas = make_canvas({0.0f, 0.0f, 100.0f, 100.0f}, 0);
+    canvas.data_context = vm;
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+    engine::ui::UiInstance instance{*parsed};
+    instance.stylesheet = *sheet;
+    world.emplace<engine::ui::UiInstance>(entity, instance);
+
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 4.0f, 4.0f);
+
+    EXPECT_EQ(vm->back_clicks, 1);
+    EXPECT_EQ(vm->front_clicks, 0);
+    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().value);
+}
+
+TEST(Mvvm, RotatedButtonAabbIsClickableOutsideUnrotatedRect) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<ClickViewModel>();
+    const auto parsed = engine::ui::parse_xml(
+            R"(<Canvas><Button class="spin" command="{binding click}" content="X"/></Canvas>)", nullptr, vm.get());
+    ASSERT_TRUE(parsed.has_value());
+
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css(".spin { width: 20; height: 20; transform: rotate(45); }", warnings);
+    ASSERT_TRUE(sheet.has_value());
+
+    const engine::ecs::Entity entity = world.create();
+    engine::ui::UiCanvas canvas = make_canvas({0.0f, 0.0f, 100.0f, 100.0f}, 0);
+    canvas.data_context = vm;
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+    engine::ui::UiInstance instance{*parsed};
+    instance.stylesheet = *sheet;
+    world.emplace<engine::ui::UiInstance>(entity, instance);
+
+    engine::ui::begin_frame(world);
+    // The button is a 20x20 square at (0,0), center (10,10) - unrotated it ends at x=20.
+    // Rotated 45deg its AABB half-diagonal is 10*sqrt(2) =~ 14.14, so x=22 (outside the
+    // unrotated rect) falls inside the rotated AABB and must still register the click.
+    engine::ui::handle_pointer(world, 22.0f, 10.0f);
+
+    EXPECT_EQ(vm->clicks, 1);
 }
 
 TEST(Mvvm, FrontCanvasMissDoesNotFallThrough) {
