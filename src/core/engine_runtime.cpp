@@ -3,7 +3,9 @@
 #include "render/opengl/opengl_runtime.h"
 
 #include <engine/audio/audio_system.h>
+#include <engine/core/app_lifecycle.h>
 #include <engine/core/fixed_step.h>
+#include <engine/core/key_code.h>
 #include <engine/core/platform.h>
 #include <engine/core/time.h>
 #include <engine/core/web_loop.h>
@@ -14,9 +16,12 @@
 
 #include <chrono>
 #include <cstdint>
+#include <fstream>
 #include <memory>
 #include <string>
+#include <system_error>
 #include <utility>
+#include <vector>
 
 #if defined(__EMSCRIPTEN__)
 #include <emscripten.h>
@@ -37,6 +42,113 @@ MouseButton mouse_button_from_sdl(Uint8 button) {
             return MouseButton::None;
     }
 }
+
+#if defined(__ANDROID__)
+bool copy_sdl_io_file(const char* sdl_path, const std::filesystem::path& dest) {
+    SDL_IOStream* io = SDL_IOFromFile(sdl_path, "rb");
+    if (io == nullptr) {
+        return false;
+    }
+    const Sint64 size = SDL_GetIOSize(io);
+    if (size < 0) {
+        SDL_CloseIO(io);
+        return false;
+    }
+    std::vector<char> buf(static_cast<std::size_t>(size));
+    if (size > 0 && SDL_ReadIO(io, buf.data(), static_cast<std::size_t>(size)) != static_cast<std::size_t>(size)) {
+        SDL_CloseIO(io);
+        return false;
+    }
+    SDL_CloseIO(io);
+    std::error_code ec;
+    std::filesystem::create_directories(dest.parent_path(), ec);
+    if (ec) {
+        return false;
+    }
+    std::ofstream out(dest, std::ios::binary);
+    if (!out) {
+        return false;
+    }
+    if (!buf.empty()) {
+        out.write(buf.data(), static_cast<std::streamsize>(buf.size()));
+    }
+    return static_cast<bool>(out);
+}
+
+struct ApkCopyContext {
+    std::filesystem::path dest_root;
+    std::string mount;
+};
+
+SDL_EnumerationResult SDLCALL copy_apk_entry(void* userdata, const char* dirname, const char* fname) {
+    auto* ctx = static_cast<ApkCopyContext*>(userdata);
+    if (ctx == nullptr || dirname == nullptr || fname == nullptr) {
+        return SDL_ENUM_FAILURE;
+    }
+    std::string sdl_path = dirname;
+    if (!sdl_path.empty() && sdl_path.back() != '/' && sdl_path.find("://") == std::string::npos) {
+        sdl_path.push_back('/');
+    }
+    if (!sdl_path.empty() && sdl_path.rfind("://") == sdl_path.size() - 3) {
+        // "assets://" — keep as-is before appending the name
+    } else if (!sdl_path.empty() && sdl_path.back() != '/') {
+        sdl_path.push_back('/');
+    }
+    sdl_path += fname;
+
+    SDL_PathInfo info{};
+    if (SDL_GetPathInfo(sdl_path.c_str(), &info) && info.type == SDL_PATHTYPE_DIRECTORY) {
+        std::string child = sdl_path;
+        if (!child.empty() && child.back() != '/') {
+            child.push_back('/');
+        }
+        SDL_EnumerateDirectory(child.c_str(), copy_apk_entry, userdata);
+        return SDL_ENUM_CONTINUE;
+    }
+
+    std::string relative = dirname;
+    if (relative.rfind(ctx->mount, 0) == 0) {
+        relative.erase(0, ctx->mount.size());
+    }
+    while (!relative.empty() && relative.front() == '/') {
+        relative.erase(relative.begin());
+    }
+    if (!relative.empty() && relative.back() != '/') {
+        relative.push_back('/');
+    }
+    relative += fname;
+    copy_sdl_io_file(sdl_path.c_str(), ctx->dest_root / relative);
+    return SDL_ENUM_CONTINUE;
+}
+
+std::filesystem::path android_runtime_assets_root(const std::filesystem::path& base) {
+    const char* storage = SDL_GetAndroidInternalStoragePath();
+    const std::filesystem::path internal = storage != nullptr ? std::filesystem::path{storage} : std::filesystem::path{};
+    const std::filesystem::path dest = default_assets_root(internal, Platform::Android);
+
+    std::error_code ec;
+    if (std::filesystem::exists(dest / "engine" / "catalog.toml", ec)) {
+        return dest;
+    }
+
+    const std::string generic = base.generic_string();
+    if (!base.empty() && generic.find("assets:") == std::string::npos && generic != "." && generic != "./") {
+        const std::filesystem::path src = default_assets_root(base, Platform::Native);
+        if (std::filesystem::is_directory(src, ec)) {
+            stage_android_assets(src, dest);
+            return dest;
+        }
+    }
+
+    ApkCopyContext ctx{.dest_root = dest, .mount = apk_assets_mount().generic_string()};
+    if (!SDL_EnumerateDirectory(ctx.mount.c_str(), copy_apk_entry, &ctx)) {
+        SDL_EnumerateDirectory("", copy_apk_entry, &ctx);
+    }
+    copy_sdl_io_file("catalog.toml", dest / "catalog.toml");
+    copy_sdl_io_file("engine/catalog.toml", dest / "engine" / "catalog.toml");
+    return dest;
+}
+#endif
 
 }
 
@@ -73,10 +185,8 @@ bool EngineRuntime::init_video() {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         return false;
     }
-#if defined(__EMSCRIPTEN__)
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
     SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
-#endif
     impl_->video_inited = true;
     return true;
 }
@@ -273,6 +383,9 @@ std::filesystem::path EngineRuntime::base_path() const {
 }
 
 std::filesystem::path EngineRuntime::assets_root() const {
+#if defined(__ANDROID__)
+    return android_runtime_assets_root(base_path());
+#endif
     // Do not drop an empty SDL_GetBasePath(): on web that still maps to /assets
     // (SDD-WIND-WEB-001 §5). Native empty base stays empty via the helper.
     return default_assets_root(base_path());
@@ -296,6 +409,17 @@ void EngineRuntime::poll_events(ecs::World& world, InputSystem& input, Applicati
             case SDL_EVENT_QUIT:
                 app.quit();
                 break;
+            case SDL_EVENT_WILL_ENTER_BACKGROUND:
+            case SDL_EVENT_DID_ENTER_BACKGROUND:
+                apply_app_lifecycle(app, AppLifecycleEvent::WillEnterBackground);
+                break;
+            case SDL_EVENT_WILL_ENTER_FOREGROUND:
+            case SDL_EVENT_DID_ENTER_FOREGROUND:
+                apply_app_lifecycle(app, AppLifecycleEvent::DidEnterForeground);
+                break;
+            case SDL_EVENT_TERMINATING:
+                apply_app_lifecycle(app, AppLifecycleEvent::Terminating);
+                break;
             case SDL_EVENT_WINDOW_RESIZED:
             case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
                 write_window_size(world, true);
@@ -303,8 +427,11 @@ void EngineRuntime::poll_events(ecs::World& world, InputSystem& input, Applicati
             case SDL_EVENT_KEY_DOWN:
             case SDL_EVENT_KEY_UP:
                 if (!event.key.repeat) {
-                    input.handle_key(static_cast<KeyCode>(static_cast<std::uint32_t>(event.key.scancode)),
-                            event.key.down);
+                    const auto code = static_cast<KeyCode>(static_cast<std::uint32_t>(event.key.scancode));
+                    input.handle_key(code, event.key.down);
+                    if (event.key.down && code == KeyCode::AcBack) {
+                        apply_android_back(app);
+                    }
                 }
                 break;
             case SDL_EVENT_MOUSE_BUTTON_DOWN:
