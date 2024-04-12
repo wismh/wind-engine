@@ -30,6 +30,7 @@ public:
     void save() override;
     void restore() override;
     void scissor(const Rect& rect) override;
+    void apply_transform(glm::vec2 center, float rotation_radians, float scale) override;
     void set_opacity(float opacity) override;
     void fill_rounded_rect(const Rect& rect, float radius, glm::vec4 color) override;
     void stroke_rounded_rect(const Rect& rect, float radius, float width, glm::vec4 color) override;

@@ -46,6 +46,14 @@ struct ComputedStyle {
     AssetId font_family = builtin::font_ui;
     std::string animation_name;
     float animation_duration = 0.0f;
+    int z_index = 0;
+    PositionMode position = PositionMode::Static;
+    std::optional<Length> inset_top;
+    std::optional<Length> inset_right;
+    std::optional<Length> inset_bottom;
+    std::optional<Length> inset_left;
+    float rotation_deg = 0.0f;
+    float scale = 1.0f;
 };
 
 std::string_view trim(std::string_view value) {
@@ -148,6 +156,62 @@ UiAlign parse_text_align(std::string_view raw) {
         return UiAlign::End;
     }
     return UiAlign::Start;
+}
+
+PositionMode parse_position(std::string_view raw) {
+    const std::string_view value = trim(raw);
+    if (value == "relative") {
+        return PositionMode::Relative;
+    }
+    if (value == "absolute") {
+        return PositionMode::Absolute;
+    }
+    return PositionMode::Static;
+}
+
+struct ParsedTransform {
+    float rotation_deg = 0.0f;
+    float scale = 1.0f;
+};
+
+// Deliberately not a general CSS transform-function grammar: only rotate(N) / rotate(Ndeg) and
+// scale(N), order-independent (this engine supports rotation+scale about the element's own
+// center, not a composed matrix where function order would matter). A malformed or unrecognized
+// function is silently ignored, same as the parser's "unknown property" warn-and-continue.
+std::optional<float> parse_transform_arg(std::string_view value, std::string_view fn_name) {
+    const std::size_t start = value.find(fn_name);
+    if (start == std::string_view::npos) {
+        return std::nullopt;
+    }
+    const std::size_t open = value.find('(', start);
+    if (open == std::string_view::npos) {
+        return std::nullopt;
+    }
+    const std::size_t close = value.find(')', open);
+    if (close == std::string_view::npos || close <= open) {
+        return std::nullopt;
+    }
+    const std::string arg(trim(value.substr(open + 1, close - open - 1)));
+    if (arg.empty()) {
+        return std::nullopt;
+    }
+    char* end = nullptr;
+    const float parsed = std::strtof(arg.c_str(), &end);
+    if (end == arg.c_str()) {
+        return std::nullopt;
+    }
+    return parsed;
+}
+
+ParsedTransform parse_transform(std::string_view value) {
+    ParsedTransform result;
+    if (const auto rotation = parse_transform_arg(value, "rotate")) {
+        result.rotation_deg = *rotation;
+    }
+    if (const auto scale = parse_transform_arg(value, "scale")) {
+        result.scale = *scale;
+    }
+    return result;
 }
 
 std::optional<float> parse_seconds(std::string_view raw) {
@@ -358,6 +422,22 @@ void apply_declaration(ComputedStyle& style, const CssDeclaration& decl) {
         if (const auto duration = parse_seconds(decl.value)) {
             style.animation_duration = *duration;
         }
+    } else if (decl.property == "z-index") {
+        style.z_index = static_cast<int>(std::strtol(decl.value.c_str(), nullptr, 10));
+    } else if (decl.property == "position") {
+        style.position = parse_position(decl.value);
+    } else if (decl.property == "top") {
+        style.inset_top = css_length::parse_length(decl.value);
+    } else if (decl.property == "right") {
+        style.inset_right = css_length::parse_length(decl.value);
+    } else if (decl.property == "bottom") {
+        style.inset_bottom = css_length::parse_length(decl.value);
+    } else if (decl.property == "left") {
+        style.inset_left = css_length::parse_length(decl.value);
+    } else if (decl.property == "transform") {
+        const ParsedTransform transform = parse_transform(decl.value);
+        style.rotation_deg = transform.rotation_deg;
+        style.scale = transform.scale;
     }
 }
 
@@ -515,6 +595,14 @@ void apply_layout_style(Element& element, const Stylesheet* sheet, std::vector<c
     element.text_align = style.text_align;
     element.font_size = style.font_size;
     element.font_family = style.font_family;
+    element.z_index = style.z_index;
+    element.position = style.position;
+    element.inset_top = style.inset_top;
+    element.inset_right = style.inset_right;
+    element.inset_bottom = style.inset_bottom;
+    element.inset_left = style.inset_left;
+    element.rotation_deg = style.rotation_deg;
+    element.scale = style.scale;
     ancestors.push_back(&element);
     for (Element& child : element.children) {
         apply_layout_style(child, sheet, ancestors, window_width, window_height);
@@ -534,20 +622,30 @@ void apply_layout_style(Element& root, const Stylesheet* sheet, float window_wid
 
 namespace {
 
-void apply_interaction(Element& element, glm::vec2 pointer, bool pointer_down) {
+void clear_interaction(Element& element) {
+    element.hovered = false;
+    element.pressed = false;
     if (element.kind == ElementKind::ItemTemplate) {
-        element.hovered = false;
-        element.pressed = false;
         return;
     }
-    const bool inside = rect_contains(element.layout_rect, pointer.x, pointer.y);
-    element.hovered = element.kind == ElementKind::Button && inside && !element.disabled;
-    element.pressed = element.hovered && pointer_down;
     for (Element& child : element.children) {
-        apply_interaction(child, pointer, pointer_down);
+        clear_interaction(child);
     }
     for (Element& child : element.generated_items) {
-        apply_interaction(child, pointer, pointer_down);
+        clear_interaction(child);
+    }
+}
+
+// Only the single topmost element under the pointer (the same stacking order paint and click
+// resolution use, via the shared hit_test()) gets :hover/:pressed. Previously every
+// geometrically-overlapping Button was hovered independently, which z-index/position/rotation
+// turn from a rare accident into a common, intentional case.
+void apply_interaction(Element& root, glm::vec2 pointer, bool pointer_down) {
+    clear_interaction(root);
+    Element* hit = hit_test(root, pointer.x, pointer.y);
+    if (hit != nullptr && !hit->disabled) {
+        hit->hovered = true;
+        hit->pressed = pointer_down;
     }
 }
 
@@ -576,6 +674,11 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
     painter.save();
     painter.set_opacity(style.opacity);
     painter.scissor(screen_rect);
+    if (element.rotation_deg != 0.0f || element.scale != 1.0f) {
+        constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
+        const glm::vec2 center{screen_rect.x + screen_rect.w * 0.5f, screen_rect.y + screen_rect.h * 0.5f};
+        painter.apply_transform(center, element.rotation_deg * kDegToRad, element.scale);
+    }
 
     if (style.background.a > 0.0f) {
         painter.fill_rounded_rect(screen_rect, screen_border_radius, style.background);
@@ -623,12 +726,12 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
     };
     ancestors.push_back(&element);
     if (element.kind == ElementKind::ItemsControl) {
-        for (Element& child : element.generated_items) {
-            paint_element(child, sheet, painter, ancestors, child_content, input);
+        for (Element* child : child_stacking_order(element.generated_items)) {
+            paint_element(*child, sheet, painter, ancestors, child_content, input);
         }
     } else {
-        for (Element& child : element.children) {
-            paint_element(child, sheet, painter, ancestors, child_content, input);
+        for (Element* child : child_stacking_order(element.children)) {
+            paint_element(*child, sheet, painter, ancestors, child_content, input);
         }
     }
     ancestors.pop_back();
