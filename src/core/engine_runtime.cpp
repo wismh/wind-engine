@@ -140,7 +140,7 @@ std::filesystem::path android_runtime_assets_root(const std::filesystem::path& b
         }
     }
 
-    ApkCopyContext ctx{.dest_root = dest, .mount = apk_assets_mount().generic_string()};
+    ApkCopyContext ctx{.dest_root = dest, .mount = apk_assets_mount()};
     if (!SDL_EnumerateDirectory(ctx.mount.c_str(), copy_apk_entry, &ctx)) {
         SDL_EnumerateDirectory("", copy_apk_entry, &ctx);
     }
