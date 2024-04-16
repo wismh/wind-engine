@@ -94,7 +94,7 @@ cmake --build build --target asset_codegen
 
 On Visual Studio the binary is `build/Debug/asset_codegen.exe` (or the active config dir). On Ninja/Make it is `build/asset_codegen`.
 
-3. Configure the native shared library with the NDK toolchain. `ENGINE_WITH_ANDROID` and `ENGINE_WITH_GLES` default **ON** when `ANDROID` is set.
+3. Optional: configure the native shared library with the NDK toolchain to compile-check `libmain.so`. `ENGINE_WITH_ANDROID` and `ENGINE_WITH_GLES` default **ON** when `ANDROID` is set. This does **not** populate APK assets for Gradle.
 
 ```bash
 cmake --preset android-arm64 \
@@ -116,9 +116,9 @@ cmake -S . -B build-android \
 cmake --build build-android
 ```
 
-That produces `libmain.so` (and shared SDL3) under `build-android/` and stages cooked assets to `build-android/android-assets/` for Gradle.
+That produces `libmain.so` (and shared SDL3) under `build-android/` and stages cooked assets beside the library for compile checks.
 
-4. Build an APK with the Gradle template in `cmake/android/`. Point Java sources at the SDL3 submodule (`external/SDL3/android-project/...`). From a **game** repo (engine at `external/engine`):
+4. Build an APK with the Gradle template in `cmake/android/`. Point Java sources at the SDL3 submodule (`external/SDL3/android-project/...`). `assembleDebug` runs CMake via `externalNativeBuild` and stages cooked assets to the app module's `build/wind-assets/` (`-DENGINE_ANDROID_ASSETS_OUT`, same path as `sourceSets.main.assets.srcDirs`). From a **game** repo (engine at `external/engine`):
 
 ```cmake
 add_subdirectory(external/engine)
@@ -132,8 +132,7 @@ cd external/engine/cmake/android
 ./gradlew :app:assembleDebug \
   -PENGINE_SOURCE_DIR="$(pwd)/../.." \
   -PENGINE_ANDROID_CMAKE=/path/to/game/CMakeLists.txt \
-  -PENGINE_HOST_ASSET_CODEGEN=/path/to/native/asset_codegen \
-  -PENGINE_ANDROID_ASSETS=/path/to/build-android/android-assets
+  -PENGINE_HOST_ASSET_CODEGEN=/path/to/native/asset_codegen
 ```
 
 Change `applicationId` / `namespace` (`org.windengine.app`) and `app_name` before shipping. v1 ABI is **arm64-v8a**, minSdk **21**. Mixer stays off on the `android-arm64` preset (`ENGINE_WITH_AUDIO=OFF`).
