@@ -7,7 +7,10 @@
 #include <engine/core/fixed_step.h>
 #include <engine/core/host.h>
 #include <engine/core/input_system.h>
+#include <engine/core/app_lifecycle.h>
+#include <engine/core/platform.h>
 #include <engine/core/time.h>
+#include <engine/core/web_loop.h>
 #include <engine/ecs/camera.h>
 #include <engine/ecs/physics.h>
 #include <engine/ecs/schedule.h>
@@ -24,6 +27,7 @@
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
 #include <engine/render/renderable.h>
+#include <engine/render/shader_adapt.h>
 #include <engine/builtin_ids.h>
 #include <engine/resources/asset_guid.h>
 #include <engine/resources/asset_id.h>
@@ -45,7 +49,7 @@
 
 namespace engine {
 
-inline constexpr int kApiEpoch = 2;
+inline constexpr int kApiEpoch = 4;
 
 int api_epoch();
 

@@ -83,6 +83,9 @@ enum class KeyCode : std::uint32_t {
     RCtrl = 228,
     RShift = 229,
     RAlt = 230,
+
+    // SDL_SCANCODE_AC_BACK — Android back key.
+    AcBack = 282,
 };
 
 }

@@ -25,6 +25,10 @@ Control mouse_control(MouseButton button) {
     return Control{ControlKind::MouseButton, static_cast<std::uint32_t>(button), 0};
 }
 
+Control touch_control(std::uint32_t finger_id) {
+    return Control{ControlKind::Touch, finger_id, 0};
+}
+
 }
 
 InputSystem::InputSystem(ecs::World& world) : world_(&world) {}
@@ -228,9 +232,41 @@ void InputSystem::handle_mouse_move(glm::vec2 position, glm::vec2 relative) {
     });
 }
 
+void InputSystem::handle_touch(std::uint32_t finger_id, bool down, glm::vec2 position) {
+    if (world_ == nullptr) {
+        return;
+    }
+    if (down) {
+        if (!primary_finger_.has_value()) {
+            primary_finger_ = finger_id;
+            handle_mouse_button(MouseButton::Left, true, position);
+        }
+        apply_digital(touch_control(finger_id), true);
+        return;
+    }
+    apply_digital(touch_control(finger_id), false);
+    if (primary_finger_ == finger_id) {
+        handle_mouse_button(MouseButton::Left, false, position);
+        primary_finger_.reset();
+    }
+}
+
+void InputSystem::handle_touch_move(std::uint32_t finger_id, glm::vec2 position, glm::vec2 relative) {
+    if (world_ == nullptr) {
+        return;
+    }
+    if (primary_finger_ == finger_id) {
+        handle_mouse_move(position, relative);
+    }
+}
+
 bool InputSystem::is_held(ActionId action) const {
     const auto it = held_counts_.find(action);
     return it != held_counts_.end() && it->second > 0;
+}
+
+std::optional<std::uint32_t> InputSystem::primary_touch_finger() const {
+    return primary_finger_;
 }
 
 }
