@@ -12,7 +12,7 @@
         android:label="@string/app_name">
         <activity
             android:name="org.libsdl.app.SDLActivity"
-            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|navigation|mouse|touchscreen|locale"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|navigation|touchscreen|locale"
             android:exported="true"
             android:label="@string/app_name"
             android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
