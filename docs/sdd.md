@@ -103,7 +103,7 @@ A small real-time 2D engine (**Wind**): window, input, ECS, command-buffer rende
 
 ### 2.2 Non-goals (v1)
 
-- Hot reload, multi-window, mobile / Emscripten.
+- Hot reload, multi-window.
 - 3D spatial audio, Doppler, HRTF.
 - JSON/ScriptableObject sound banks in C++ (`GameSounds { … }` with hardcoded volume). Volume/pitch live in audio `.meta`.
 - Pitch re-roll every looping-SFX cycle (Lumenwake `LateUpdate` trick) — API may appear later.
