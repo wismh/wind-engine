@@ -39,6 +39,11 @@ compile time via `__EMSCRIPTEN__`/`__ANDROID__` inside `HapticsSystem`, not a bu
 
 When a game `add_subdirectory`s Wind, window defaults **ON**. Engine-root `vs` preset keeps window **OFF** so CI stays headless. [[build/CMake]].
 
+`engine_tests` links `engine` alone by default; `ENGINE_WITH_WINDOW` additionally links it to
+`SDL3::SDL3` and `glad` (both otherwise `PRIVATE` on `engine`, so their include dirs would not
+reach a test TU) — needed so a test can `#include "render/opengl/window_system.h"` under the
+same `#if defined(ENGINE_WITH_WINDOW)` guard production code uses ([[tests.window_icon_test.cpp]]).
+
 ## Fatal vs warn
 
 - Unknown UI element / missing `{binding}` name: fatal (`IFatalError`).
