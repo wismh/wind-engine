@@ -1,5 +1,8 @@
 #include "window_system.h"
 
+#include <cstddef>
+#include <cstdint>
+
 namespace engine {
 
 WindowSystem::~WindowSystem() {
@@ -41,6 +44,18 @@ void WindowSystem::swap() const {
     }
 }
 
+void WindowSystem::set_icon(const render::TextureDesc& desc) {
+    if (window_ == nullptr) {
+        return;
+    }
+    SDL_Surface* surface = make_icon_surface(desc);
+    if (surface == nullptr) {
+        return;
+    }
+    SDL_SetWindowIcon(window_, surface);
+    SDL_DestroySurface(surface);
+}
+
 glm::ivec2 WindowSystem::size() const {
     int width = 0;
     int height = 0;
@@ -57,6 +72,18 @@ glm::ivec2 WindowSystem::drawable_size() const {
         SDL_GetWindowSizeInPixels(window_, &width, &height);
     }
     return {width, height};
+}
+
+SDL_Surface* make_icon_surface(const render::TextureDesc& desc) {
+    const std::size_t required =
+            static_cast<std::size_t>(desc.width) * static_cast<std::size_t>(desc.height) * 4;
+    if (desc.width <= 0 || desc.height <= 0 || desc.rgba.size() < required) {
+        return nullptr;
+    }
+    // SDL3 wants a non-const pixel pointer even though SDL_SetWindowIcon only reads from it
+    // (it copies the pixels before returning), so this cast does not violate desc's constness.
+    return SDL_CreateSurfaceFrom(desc.width, desc.height, SDL_PIXELFORMAT_RGBA32,
+            const_cast<std::uint8_t*>(desc.rgba.data()), desc.width * 4);
 }
 
 }
