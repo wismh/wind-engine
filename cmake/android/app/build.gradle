@@ -11,6 +11,9 @@ def cmakeLists = project.hasProperty('ENGINE_ANDROID_CMAKE')
 def hostCodegen = project.hasProperty('ENGINE_HOST_ASSET_CODEGEN')
         ? ENGINE_HOST_ASSET_CODEGEN
         : (System.getenv('ENGINE_HOST_ASSET_CODEGEN') ?: '')
+def withAudio = project.hasProperty('ENGINE_WITH_AUDIO')
+        ? ENGINE_WITH_AUDIO
+        : (System.getenv('ENGINE_WITH_AUDIO') ?: 'OFF')
 def sdlJava = "${engineDir}/external/SDL3/android-project/app/src/main/java"
 // Same directory CMake stages via -DENGINE_ANDROID_ASSETS_OUT (do not point at engine/build-android).
 def apkAssets = project.hasProperty('ENGINE_ANDROID_ASSETS_OUT')
@@ -34,7 +37,7 @@ android {
                         '-DANDROID_STL=c++_shared',
                         '-DENGINE_WITH_WINDOW=ON',
                         '-DENGINE_WITH_ANDROID=ON',
-                        '-DENGINE_WITH_AUDIO=OFF',
+                        "-DENGINE_WITH_AUDIO=${withAudio}",
                         '-DENGINE_BUILD_TESTS=OFF',
                         "-DENGINE_ANDROID_ASSETS_OUT=${apkAssets.absolutePath}"
                 if (hostCodegen) {
