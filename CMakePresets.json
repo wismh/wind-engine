@@ -58,6 +58,18 @@
       }
     },
     {
+      "name": "web-audio",
+      "displayName": "Emscripten WebGL2 + SDL3_mixer WAV backend (configure with emcmake)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-web-audio",
+      "cacheVariables": {
+        "ENGINE_BUILD_TESTS": "OFF",
+        "ENGINE_WITH_WINDOW": "ON",
+        "ENGINE_WITH_WEB": "ON",
+        "ENGINE_WITH_AUDIO": "ON"
+      }
+    },
+    {
       "name": "android-arm64",
       "displayName": "Android NDK arm64-v8a (configure with NDK toolchain)",
       "generator": "Ninja",
