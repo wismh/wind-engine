@@ -81,6 +81,8 @@ struct ExecuteVisitor {
                         .delta_time = cmd.delta_time,
                         .window_width = cmd.window_width,
                         .window_height = cmd.window_height,
+                        .ui_offset = cmd.ui_offset,
+                        .ui_scale = cmd.ui_scale,
                 });
     }
 };

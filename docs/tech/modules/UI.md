@@ -13,7 +13,7 @@ XML + custom CSS + C++ MVVM. UI is an ECS component (`UiCanvas` + `UiInstance`),
 - CSS: element / class / id / `E.c`, descendant `A B`, child `A > B` (no `+`/`~`, no `,` grouping); `:hover` `:pressed` `:disabled`; units px/`%`/`em` + `calc(+ - * /)`; `@media (min-width|min-height: N)`; `@keyframes` (opacity only, via `animation-name`/`animation-duration`).
 - Applied style: color, background, background-image, opacity, visibility, width, height, min-width, min-height, gap, flex-direction, padding, margin, justify-content, align-items, text-align, border-*, font-size, font-family (AssetId hex or `default`), animation-name, animation-duration.
 - `ICommand` / `RelayCommand` — only UI → game path.
-- Hit-test canvases by `order` (front first); only a hit **Button** sets `MouseConsumed` (Label/Stack/Canvas/Image do not consume). `FillWindow` copies `WindowSize` into `rect`.
+- Hit-test canvases by `order` (front first); only a hit **Button** sets `MouseConsumed` (Label/Stack/Canvas/Image do not consume). `FillWindow` copies `WindowSize` into `rect`. `ScaleWithScreenSize` (Unity `PanelSettings`-style) keeps layout/paint/hit-test in fixed `reference_size` design units and lets the engine derive one uniform letterbox `scale` + `offset` from `rect` — pixel-perfect scaling for a fixed pixel-art canvas at any window size, see [[include.engine.ui.canvas.h]] `canvas_layout_space`.
 
 ## How it is implemented
 
@@ -21,7 +21,7 @@ XML + custom CSS + C++ MVVM. UI is an ECS component (`UiCanvas` + `UiInstance`),
 - [[src.ui.css_parser.cpp]] — combinators, units, `calc()`, `@media`, `@keyframes`; unknown property → warning string, not fatal.
 - [[src.ui.document.cpp]] — real content-box layout (padding/margin/gap/width/height/min-* affect sizing; Stack packs by used size + `justify-content`/`align-items`), bindings by `BindingId`.
 - [[src.ui.paint.cpp]] — cascade (incl. `@media`), interaction flags, text position from justify/align/text-align, opacity keyframe sampling, calls `IUiPainter`.
-- [[src.ui.canvas.cpp]] — begin_frame, handle_pointer (widget-level `MouseConsumed` via `find_button_at`), apply_fill_window.
+- [[src.ui.canvas.cpp]] — begin_frame, handle_pointer (widget-level `MouseConsumed` via `find_button_at`), apply_canvas_fit, canvas_layout_space.
 - [[src.ui.view_model.cpp]] — `property_`/`command_` maps keyed by `BindingId`, not name.
 - [[src.ui.painter.h]] — private painter interface.
 - [[src.resources.codegen.cpp]] — for `importer = "ui"` XML, emits a binder struct (e.g. `assets::ui::Hud::bind(vm)`) with one `constexpr BindingId` per `{binding}` path; fails the build on an intern collision. `ViewModel` subclasses and `Bindable<T>` members stay hand-written.
