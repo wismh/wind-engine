@@ -11,6 +11,7 @@
 #include <engine/core/input_system.h>
 #include <engine/core/sdl_fatal_error.h>
 #include <engine/ecs/systems.h>
+#include <engine/haptics/haptics_system.h>
 #include <engine/igame.h>
 #include <engine/log.h>
 #include <engine/render/backend.h>
@@ -56,6 +57,7 @@ private:
     std::shared_ptr<AssetsDb> assets_;
     std::shared_ptr<InputSystem> input_;
     std::shared_ptr<IAudioSystem> audio_;
+    std::shared_ptr<IHaptics> haptics_;
     std::shared_ptr<IGame> game_;
     bool initialized_ = false;
 };
@@ -77,6 +79,7 @@ bool Engine<GameT>::init() {
             di::bind<AssetsDb>().in(di::singleton),
             di::bind<InputSystem>().to(input_),
             di::bind<IAudioSystem>().to<AudioSystem>().in(di::singleton),
+            di::bind<IHaptics>().to<HapticsSystem>().in(di::singleton),
             di::bind<render::CommandBuffer>().to(runtime_.commands_ptr()),
             di::bind<render::ICanvas>().to(runtime_.canvas_ptr()),
             di::bind<render::IGraphicFactory>().to(runtime_.factory_ptr()),
@@ -86,8 +89,9 @@ bool Engine<GameT>::init() {
     fatal_ = injector.template create<std::shared_ptr<IFatalError>>();
     assets_ = injector.template create<std::shared_ptr<AssetsDb>>();
     audio_ = injector.template create<std::shared_ptr<IAudioSystem>>();
+    haptics_ = injector.template create<std::shared_ptr<IHaptics>>();
     game_ = injector.template create<std::shared_ptr<IGame>>();
-    if (!fatal_ || !assets_ || !audio_ || !game_) {
+    if (!fatal_ || !assets_ || !audio_ || !haptics_ || !game_) {
         runtime_.shutdown();
         return false;
     }
@@ -106,6 +110,10 @@ bool Engine<GameT>::init() {
     }
 
     if (!audio_->init()) {
+        runtime_.shutdown();
+        return false;
+    }
+    if (!haptics_->init()) {
         runtime_.shutdown();
         return false;
     }
@@ -188,6 +196,9 @@ void Engine<GameT>::dispose() {
     }
     if (audio_) {
         audio_->dispose();
+    }
+    if (haptics_) {
+        haptics_->dispose();
     }
     runtime_.shutdown();
     initialized_ = false;
