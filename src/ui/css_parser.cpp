@@ -56,6 +56,13 @@ bool is_known_property(std::string_view name) {
             "font-family",
             "animation-name",
             "animation-duration",
+            "z-index",
+            "position",
+            "top",
+            "right",
+            "bottom",
+            "left",
+            "transform",
     };
     for (const std::string_view known : kKnown) {
         if (known == name) {
@@ -68,7 +75,7 @@ bool is_known_property(std::string_view name) {
 bool is_length_property(std::string_view name) {
     return name == "width" || name == "height" || name == "min-width" || name == "min-height" || name == "padding" ||
             name == "margin" || name == "gap" || name == "font-size" || name == "border-radius" ||
-            name == "border-width";
+            name == "border-width" || name == "top" || name == "right" || name == "bottom" || name == "left";
 }
 
 bool is_ident_char(char c) {
