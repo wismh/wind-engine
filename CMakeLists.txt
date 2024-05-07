@@ -49,6 +49,7 @@ endif()
 option(ENGINE_WITH_GLES "OpenGL ES 3.0 backend (no glad, NanoVG GLES3, shader adapt)" ${_engine_gles_default})
 set(ENGINE_WEB_SHELL "" CACHE FILEPATH "Optional HTML shell for Emscripten (defaults to cmake/web/shell.html)")
 set(ENGINE_HOST_ASSET_CODEGEN "" CACHE FILEPATH "Native asset_codegen when cross-compiling (Emscripten or Android)")
+set(ENGINE_HOST_ICON_CODEGEN "" CACHE FILEPATH "Native icon_codegen when cross-compiling (Emscripten or Android)")
 # Gradle passes -DENGINE_ANDROID_ASSETS_OUT=${project.buildDir}/wind-assets and packs that same tree.
 set(ENGINE_ANDROID_ASSETS_OUT "" CACHE PATH
     "Cooked APK assets directory shared with Gradle sourceSets (empty: stage beside libmain.so only)")
@@ -136,6 +137,24 @@ else()
 
     add_executable(asset_guid "${CMAKE_CURRENT_SOURCE_DIR}/tools/asset_guid/main.cpp")
     target_link_libraries(asset_guid PRIVATE engine)
+endif()
+
+if(CMAKE_CROSSCOMPILING)
+    if(NOT ENGINE_HOST_ICON_CODEGEN)
+        message(FATAL_ERROR
+            "Cross-compiling builds need a native icon_codegen (host tool).\n"
+            "Configure a native build first, then pass for example:\n"
+            "  -DENGINE_HOST_ICON_CODEGEN=/path/to/build/icon_codegen")
+    endif()
+    add_executable(icon_codegen IMPORTED GLOBAL)
+    set_target_properties(icon_codegen PROPERTIES
+        IMPORTED_LOCATION "${ENGINE_HOST_ICON_CODEGEN}")
+else()
+    add_executable(icon_codegen "${CMAKE_CURRENT_SOURCE_DIR}/tools/icon_codegen/main.cpp")
+    target_link_libraries(icon_codegen PRIVATE engine)
+    # icon_codegen_write lives in src/resources (private, no window/SDL dependency needed) rather
+    # than include/engine, so the CLI needs the engine target's private include dir too.
+    target_include_directories(icon_codegen PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 endif()
 
 set(ENGINE_BUILTIN_ASSETS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/builtin_assets" CACHE INTERNAL
