@@ -80,6 +80,55 @@ TEST(UiCss, ParseClassAndElementRules) {
     EXPECT_EQ(button_padding->value, "8 12");
 }
 
+TEST(UiCss, ZIndexParsesAsKnownProperty) {
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css(".front { z-index: 5; } .back { z-index: -1; }", warnings);
+    ASSERT_TRUE(sheet.has_value());
+    EXPECT_TRUE(warnings.empty());
+
+    const engine::ui::CssRule* front = find_class_rule(*sheet, "front");
+    ASSERT_NE(front, nullptr);
+    const engine::ui::CssDeclaration* front_z = find_declaration(*front, "z-index");
+    ASSERT_NE(front_z, nullptr);
+    EXPECT_EQ(front_z->value, "5");
+
+    const engine::ui::CssRule* back = find_class_rule(*sheet, "back");
+    ASSERT_NE(back, nullptr);
+    const engine::ui::CssDeclaration* back_z = find_declaration(*back, "z-index");
+    ASSERT_NE(back_z, nullptr);
+    EXPECT_EQ(back_z->value, "-1");
+}
+
+TEST(UiCss, PositionAndInsetsParseAsKnownProperties) {
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css(
+            ".badge { position: absolute; top: 10%; right: 5; bottom: calc(10 + 2); left: 2em; }", warnings);
+    ASSERT_TRUE(sheet.has_value());
+    EXPECT_TRUE(warnings.empty());
+
+    const engine::ui::CssRule* badge = find_class_rule(*sheet, "badge");
+    ASSERT_NE(badge, nullptr);
+    EXPECT_NE(find_declaration(*badge, "position"), nullptr);
+    EXPECT_EQ(find_declaration(*badge, "position")->value, "absolute");
+    EXPECT_NE(find_declaration(*badge, "top"), nullptr);
+    EXPECT_NE(find_declaration(*badge, "right"), nullptr);
+    EXPECT_NE(find_declaration(*badge, "bottom"), nullptr);
+    EXPECT_NE(find_declaration(*badge, "left"), nullptr);
+}
+
+TEST(UiCss, TransformParsesAsKnownProperty) {
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css(".spin { transform: rotate(45) scale(1.5); }", warnings);
+    ASSERT_TRUE(sheet.has_value());
+    EXPECT_TRUE(warnings.empty());
+
+    const engine::ui::CssRule* spin = find_class_rule(*sheet, "spin");
+    ASSERT_NE(spin, nullptr);
+    const engine::ui::CssDeclaration* transform = find_declaration(*spin, "transform");
+    ASSERT_NE(transform, nullptr);
+    EXPECT_EQ(transform->value, "rotate(45) scale(1.5)");
+}
+
 TEST(UiCss, UnknownPropertyWarns) {
     std::vector<std::string> warnings;
     const auto sheet = engine::ui::parse_css(".x { color: #ffffff; frobnicate: 1; padding: 4; }", warnings);

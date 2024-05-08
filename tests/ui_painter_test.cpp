@@ -38,6 +38,9 @@ struct PaintCall {
     glm::vec2 position{};
     engine::ui::UiAlign horizontal = engine::ui::UiAlign::Start;
     engine::ui::UiAlign vertical = engine::ui::UiAlign::Start;
+    glm::vec2 transform_center{};
+    float rotation_radians = 0.0f;
+    float transform_scale = 1.0f;
 };
 
 class FakePainter final : public engine::ui::IUiPainter {
@@ -50,6 +53,12 @@ public:
 
     void scissor(const engine::render::Rect& rect) override {
         calls.push_back(PaintCall{.op = "scissor", .rect = rect});
+    }
+
+    void apply_transform(glm::vec2 center, float rotation_radians, float scale) override {
+        calls.push_back(PaintCall{
+                .op = "transform", .transform_center = center, .rotation_radians = rotation_radians,
+                .transform_scale = scale});
     }
 
     void set_opacity(float opacity) override {
@@ -277,6 +286,154 @@ TEST(UiPainter, JustifyAndAlignCenterText) {
     EXPECT_FLOAT_EQ(text->position.y, 50.0f);
     EXPECT_EQ(text->horizontal, engine::ui::UiAlign::Center);
     EXPECT_EQ(text->vertical, engine::ui::UiAlign::Center);
+}
+
+TEST(UiPainter, RelativePositionOffsetsOwnRectWithoutReflowingSiblings) {
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Stack class="hud" direction="vertical">
+            <Label class="a" text="A"/>
+            <Label class="b" text="B"/>
+          </Stack>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .a { position: relative; top: 5; left: 3; background: #ffffff; }
+        .b { background: #ffffff; }
+    )");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    // z_index is untouched (both default to 0), so paint order stays document order: "A"'s
+    // fill_rect comes before "B"'s.
+    ASSERT_EQ(painter.count("fill_rect"), 2);
+    std::vector<engine::render::Rect> fills;
+    for (const PaintCall& call : painter.calls) {
+        if (call.op == "fill_rect") {
+            fills.push_back(call.rect);
+        }
+    }
+    ASSERT_EQ(fills.size(), 2u);
+    const engine::render::Rect& first = fills[0];
+    const engine::render::Rect& second = fills[1];
+
+    // A: normally {0,0,8,16} (1-char label, fake font size 16) - offset by top:5 left:3.
+    EXPECT_FLOAT_EQ(first.x, 3.0f);
+    EXPECT_FLOAT_EQ(first.y, 5.0f);
+    // B: unaffected by A's offset - still stacked directly below A's *unoffset* position.
+    EXPECT_FLOAT_EQ(second.x, 0.0f);
+    EXPECT_FLOAT_EQ(second.y, 16.0f);
+}
+
+TEST(UiPainter, AbsoluteChildDoesNotConsumeFlowSpace) {
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Stack class="hud" direction="vertical">
+            <Label class="badge" text="B"/>
+            <Label class="item" text="X"/>
+          </Stack>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .badge { position: absolute; top: 50; left: 60; background: #ffffff; }
+        .item { background: #ffffff; }
+    )");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    std::vector<engine::render::Rect> fills;
+    for (const PaintCall& call : painter.calls) {
+        if (call.op == "fill_rect") {
+            fills.push_back(call.rect);
+        }
+    }
+    ASSERT_EQ(fills.size(), 2u);
+    // "badge" is absolutely positioned against the canvas root (no positioned ancestor).
+    EXPECT_FLOAT_EQ(fills[0].x, 60.0f);
+    EXPECT_FLOAT_EQ(fills[0].y, 50.0f);
+    // "item" is the only *flow* child, so it starts the stack at (0,0) - badge reserved no space.
+    EXPECT_FLOAT_EQ(fills[1].x, 0.0f);
+    EXPECT_FLOAT_EQ(fills[1].y, 0.0f);
+}
+
+TEST(UiPainter, AbsoluteChildStretchesWhenOppositeInsetsSetAndNoExplicitSize) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="stretch" text="S"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet =
+            must_parse_css(".stretch { position: absolute; top: 10; right: 20; bottom: 10; left: 5; "
+                            "background: #ffffff; }");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    const PaintCall* fill = painter.find("fill_rect");
+    ASSERT_NE(fill, nullptr);
+    EXPECT_FLOAT_EQ(fill->rect.x, 5.0f);
+    EXPECT_FLOAT_EQ(fill->rect.y, 10.0f);
+    EXPECT_FLOAT_EQ(fill->rect.w, 175.0f);  // 200 - 5(left) - 20(right)
+    EXPECT_FLOAT_EQ(fill->rect.h, 80.0f);   // 100 - 10(top) - 10(bottom)
+}
+
+TEST(UiPainter, AbsoluteChildResolvesAgainstNearestPositionedAncestorNotRoot) {
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Stack class="outer" direction="vertical">
+            <Label class="spacer" text="S"/>
+            <Stack class="panel">
+              <Label class="badge" text="B"/>
+            </Stack>
+          </Stack>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .panel { position: relative; width: 50; height: 40; }
+        .badge { position: absolute; top: 2; left: 3; background: #ffffff; }
+    )");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    const PaintCall* fill = painter.find("fill_rect");
+    ASSERT_NE(fill, nullptr);
+    // spacer (16px tall, fake font size) pushes .panel to y=16; badge = panel's box (0,16,50,40)
+    // + (left:3, top:2), NOT the canvas root (0,0) + (3,2) it would land at if the containing
+    // block were resolved wrong.
+    EXPECT_FLOAT_EQ(fill->rect.x, 3.0f);
+    EXPECT_FLOAT_EQ(fill->rect.y, 18.0f);
+}
+
+TEST(UiPainter, TransformFiresWithCenterRotationAndScale) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="spin" text="S"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(
+            ".spin { width: 20; height: 10; transform: rotate(90) scale(2); background: #fff; }");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    const PaintCall* transform = painter.find("transform");
+    ASSERT_NE(transform, nullptr);
+    // Label sits at (0,0,20,10) - the transform center is the rect's own center.
+    EXPECT_FLOAT_EQ(transform->transform_center.x, 10.0f);
+    EXPECT_FLOAT_EQ(transform->transform_center.y, 5.0f);
+    EXPECT_NEAR(transform->rotation_radians, 1.5707964f, 1e-5f);  // 90deg
+    EXPECT_FLOAT_EQ(transform->transform_scale, 2.0f);
+}
+
+TEST(UiPainter, NoTransformDeclarationMeansNoTransformCall) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="plain" text="S"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(".plain { color: #ffffff; }");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    EXPECT_EQ(painter.count("transform"), 0);
 }
 
 TEST(UiPainter, StackPaddingInsetsEqualSplit) {
@@ -953,4 +1110,83 @@ TEST(UiPainter, KeyframeOpacityAdvancesWithDeltaTime) {
     }
     ASSERT_NE(fade, nullptr);
     EXPECT_NEAR(fade->opacity, 0.5f, 0.01f);
+}
+
+TEST(UiPainter, ChildStackingOrderSortsByZIndexStableOnTies) {
+    std::vector<engine::ui::Element> children(4);
+    children[0].name = "a";
+    children[0].z_index = 0;
+    children[1].name = "b";
+    children[1].z_index = -1;
+    children[2].name = "c";
+    children[2].z_index = 2;
+    children[3].name = "d";
+    children[3].z_index = 0;
+
+    const std::vector<engine::ui::Element*> order = engine::ui::child_stacking_order(children);
+    ASSERT_EQ(order.size(), 4u);
+    // ascending z-index (-1, 0, 0, 2); the two z_index==0 siblings ("a" then "d") keep their
+    // original relative (document) order — this is the stable-sort tie-break the whole z-index
+    // feature relies on to leave untouched (all-zero) trees unchanged.
+    EXPECT_EQ(order[0]->name, "b");
+    EXPECT_EQ(order[1]->name, "a");
+    EXPECT_EQ(order[2]->name, "d");
+    EXPECT_EQ(order[3]->name, "c");
+}
+
+TEST(UiPainter, ZIndexOverridesDocumentOrderAtPaintTime) {
+    // "back" is first in the XML (would paint last / on top under today's document-order-only
+    // rule) but gets a lower z-index via CSS, so it must paint FIRST (behind) despite that.
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Label class="back" text="Back"/>
+          <Label class="front" text="Front"/>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(".back { z-index: -1; } .front { z-index: 5; }");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    int back_index = -1;
+    int front_index = -1;
+    for (std::size_t i = 0; i < painter.calls.size(); ++i) {
+        const PaintCall& call = painter.calls[i];
+        if (call.op != "text") {
+            continue;
+        }
+        if (call.text == "Back") {
+            back_index = static_cast<int>(i);
+        } else if (call.text == "Front") {
+            front_index = static_cast<int>(i);
+        }
+    }
+    ASSERT_NE(back_index, -1);
+    ASSERT_NE(front_index, -1);
+    EXPECT_LT(back_index, front_index);
+}
+
+TEST(UiPainter, OnlyTopmostOverlappingButtonGetsHovered) {
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Button class="back" content="Back"/>
+          <Button class="front" content="Front"/>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(".back { z-index: 5; } .front { z-index: 1; }");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}, .pointer = {5.f, 5.f}});
+
+    ASSERT_EQ(parsed->root.children.size(), 2u);
+    const engine::ui::Element& back = parsed->root.children[0];
+    const engine::ui::Element& front = parsed->root.children[1];
+    ASSERT_EQ(back.class_name, "back");
+    ASSERT_EQ(front.class_name, "front");
+    // "back" has the higher z-index, so it's the topmost element at (5,5) despite being first
+    // in document order - it alone gets :hover, "front" does not (they geometrically overlap).
+    EXPECT_TRUE(back.hovered);
+    EXPECT_FALSE(front.hovered);
 }
