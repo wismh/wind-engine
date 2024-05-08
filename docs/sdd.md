@@ -1314,6 +1314,15 @@ encoder — both are containers that wrap already-decoded PNGs behind a small bi
 one cross-compiled host tool can emit both, on any host, without shelling out to `rc.exe` or
 `iconutil`.
 
+`engine_add_game` runs `icon_codegen` **once**, shared by every consumer below, rather than each
+platform block invoking the tool itself (four independent `add_custom_command`s writing
+overlapping output files would race/duplicate). Gate: `EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/icon.png"`.
+When present, it emits one `add_custom_command` (`OUTPUT` listing all eight generated files) plus
+an `${target}_icons` custom target the game target depends on, and records the output directory
+on `ENGINE_GAME_ICON_DIR` (a target property on `${target}`). Each platform block below reads
+`ENGINE_GAME_ICON_DIR` and `add_dependencies(${target} ${target}_icons)` instead of re-deriving
+the path or re-invoking `icon_codegen`.
+
 ### 19.3 `icon_codegen` (host tool)
 
 Same shape as `asset_codegen` / `asset_guid` (§10.4): built from
