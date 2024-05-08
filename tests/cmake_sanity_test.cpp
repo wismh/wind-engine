@@ -114,3 +114,23 @@ TEST(Scaffold, AndroidCmakeAndGradleShareAssetsOut) {
     GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
 #endif
 }
+
+TEST(Scaffold, EngineAddGameGeneratesIconsOnce) {
+#ifdef ENGINE_SOURCE_DIR
+    const std::filesystem::path root{ENGINE_SOURCE_DIR};
+    const auto slurp = [](const std::filesystem::path& path) {
+        std::ifstream in(path);
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    };
+    const std::string cmake = slurp(root / "CMakeLists.txt");
+    ASSERT_FALSE(cmake.empty());
+    // One shared add_custom_command per game target — per-platform packaging tasks must depend on
+    // ${target}_icons / ENGINE_GAME_ICON_DIR instead of invoking icon_codegen themselves, or two
+    // independent custom commands would race to write the same generated files.
+    EXPECT_NE(cmake.find("ENGINE_GAME_ICON_DIR"), std::string::npos);
+    EXPECT_NE(cmake.find("${target}_icons"), std::string::npos);
+    EXPECT_NE(cmake.find("COMMAND icon_codegen"), std::string::npos);
+#else
+    GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
+#endif
+}
