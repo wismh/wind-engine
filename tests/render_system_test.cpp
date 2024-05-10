@@ -182,6 +182,7 @@ public:
     void save() override {}
     void restore() override {}
     void scissor(const engine::render::Rect&) override {}
+    void apply_transform(glm::vec2, float, float) override {}
     void set_opacity(float) override {}
     void fill_rounded_rect(const engine::render::Rect&, float, glm::vec4 color) override {
         last_fill = color;
