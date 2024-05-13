@@ -31,6 +31,7 @@ public:
 
     [[nodiscard]] bool init_video();
     [[nodiscard]] bool create_window(std::string_view title, glm::ivec2 size);
+    void set_window_icon(const render::TextureDesc& desc);
     [[nodiscard]] bool load_ui_font(const Font& font);
     [[nodiscard]] bool add_font(AssetId id, const Font& font);
     [[nodiscard]] bool add_image(AssetId id, const render::TextureDesc& desc);
