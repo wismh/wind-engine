@@ -4,7 +4,7 @@ tags: [build]
 
 # Icon codegen
 
-Host tool for turning one master PNG into the icon files each platform packaging step wants. Not yet wired into `engine_add_game` — that's later, per-platform work (Windows `.rc`, Web favicon, Android, macOS bundle). Today it's a standalone CLI plus a testable library function.
+Host tool for turning one master PNG into the icon files each platform packaging step wants. `engine_add_game` runs it once per game target (gated on `icon.png` existing) and records the output directory on the `ENGINE_GAME_ICON_DIR` target property; each platform's packaging step reads that property instead of re-invoking the tool. Windows consumes `icon.ico` this way (below); Web favicon, Android, and macOS bundle wiring are the remaining per-platform work.
 
 ## `icon_codegen`
 
@@ -39,8 +39,13 @@ The library functions (`icon_resize_rgba`, `icon_encode_png`, `icon_encode_ico`,
 
 Mirrors `asset_codegen`/`asset_guid`: `ENGINE_HOST_ICON_CODEGEN` cache var supplies a native binary when `CMAKE_CROSSCOMPILING` (imported as `IMPORTED GLOBAL` + `IMPORTED_LOCATION`); otherwise `add_executable(icon_codegen ...)` links `engine` directly. Unlike the asset tools, `icon_codegen`'s library logic lives under `src/resources` (private) rather than `include/engine`, so the target additionally gets `engine`'s private `src/` include dir so `main.cpp` can reach `resources/icon_codegen.h`.
 
+## Windows packaging (`.rc`/`.ico`)
+
+`engine_add_game` reads `ENGINE_GAME_ICON_DIR` (set by the shared `icon_codegen` block above) and, `WIN32 AND` that property is set, `file(GENERATE)`s a tiny `icon.rc` under `generated/<target>/icon.rc` containing `IDI_ICON1 ICON "<icon dir>/icon.ico"`, then `target_sources(${target} PRIVATE ...)`s it. Forward slashes in the path sidestep `rc.exe`'s backslash-escaping rules. `icon.ico` itself doesn't exist at configure time — `icon_codegen` writes it at build time — so the gate is the target property set by the earlier block, not `EXISTS icon.ico`. No-op when `WIN32` is false or the game supplied no `icon.png`.
+
 ## See also
 
 - [[build/Asset Codegen]]
+- [[build/Game Consumer]]
 - [[modules/Resources]]
 - [[src.resources.icon_codegen.cpp]]

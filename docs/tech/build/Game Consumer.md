@@ -20,6 +20,7 @@ engine_add_game(my_game
 - `PRIVATE engine`
 - `include/` of the game if present
 - asset codegen + `target_include_directories` generated dir
+- packaging icon generation (`icon.png` → `.ico`/`.icns`/mipmaps/favicon) when present; on Windows, `icon.rc` embeds `icon.ico` into the target
 - `engine_prepare_runtime`
 
 `main.cpp` typically:
@@ -42,6 +43,7 @@ Pin the submodule to a Wind `main` commit; do not develop features inside the ne
 
 - [[build/Pipeline]]
 - [[build/CMake]]
+- [[build/Icon Codegen]]
 - [[features/Init and Loop]]
 - [[include.engine.core.engine.h]]
 - [[include.engine.igame.h]]
