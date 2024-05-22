@@ -79,7 +79,7 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
         if (in_template) {
             return {};
         }
-        if (vm.has_property(*binding)) {
+        if (vm.has_property(intern(*binding))) {
             return {};
         }
         if (fatal != nullptr) {
@@ -102,7 +102,7 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
     }
 
     if (element.command_binding && !in_template) {
-        ICommand* command = vm.find_command(*element.command_binding);
+        ICommand* command = vm.find_command(intern(*element.command_binding));
         if (command == nullptr) {
             if (fatal != nullptr) {
                 fatal->report("UI binding name is not registered: " + *element.command_binding);
@@ -114,12 +114,12 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
     }
 
     if (element.text_binding) {
-        if (auto value = vm.read_property_string(*element.text_binding)) {
+        if (auto value = vm.read_property_string(intern(*element.text_binding))) {
             element.text = *value;
         }
     }
     if (element.content_binding) {
-        if (auto value = vm.read_property_string(*element.content_binding)) {
+        if (auto value = vm.read_property_string(intern(*element.content_binding))) {
             element.text = *value;
         }
     }
@@ -141,7 +141,7 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
             }
         }
         if (tmpl != nullptr) {
-            const std::vector<ViewModel*> items = vm.read_item_source(*element.items_source_binding);
+            const std::vector<ViewModel*> items = vm.read_item_source(intern(*element.items_source_binding));
             for (ViewModel* item : items) {
                 if (item == nullptr) {
                     continue;
