@@ -27,9 +27,9 @@ public:
     engine::ui::RelayCommand restart;
 
     HudViewModel() {
-        property("title", title);
-        property("restart_label", restart_label);
-        command("restart", restart);
+        property(engine::ui::intern("title"), title);
+        property(engine::ui::intern("restart_label"), restart_label);
+        command(engine::ui::intern("restart"), restart);
     }
 };
 

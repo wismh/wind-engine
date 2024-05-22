@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <engine/ecs/world.h>
+#include <engine/ui/binding_id.h>
 #include <engine/ui/canvas.h>
 #include <engine/ui/document.h>
 #include <engine/ui/view_model.h>
@@ -19,7 +20,7 @@ public:
     engine::ui::RelayCommand click;
 
     ClickViewModel() {
-        command("click", click);
+        command(engine::ui::intern("click"), click);
         click = [this] { ++clicks; };
     }
 };
@@ -31,9 +32,9 @@ public:
     engine::ui::RelayCommand restart;
 
     HudViewModel() {
-        property("title", title);
-        property("score", score);
-        command("restart", restart);
+        property(engine::ui::intern("title"), title);
+        property(engine::ui::intern("score"), score);
+        command(engine::ui::intern("restart"), restart);
     }
 };
 
@@ -69,19 +70,39 @@ engine::ecs::Entity spawn_button_canvas(engine::ecs::World& world, std::shared_p
 
 }
 
+TEST(Mvvm, InternEmptyIsInvalid) {
+    EXPECT_EQ(engine::ui::intern(""), engine::ui::BindingId{});
+    EXPECT_EQ(engine::ui::intern("   "), engine::ui::BindingId{});
+    EXPECT_EQ(engine::ui::intern("\t\n"), engine::ui::BindingId{});
+}
+
+TEST(Mvvm, InternKnownFnvFixtures) {
+    static_assert(engine::ui::intern("").value == 0u);
+    static_assert(engine::ui::intern("title").value == 2556802313u);
+    static_assert(engine::ui::intern("score").value == 3526332565u);
+    static_assert(engine::ui::intern("title") == engine::ui::intern("title"));
+    static_assert(engine::ui::intern("title") != engine::ui::intern("score"));
+
+    EXPECT_EQ(engine::ui::intern("").value, 0u);
+    EXPECT_EQ(engine::ui::intern("title").value, 2556802313u);
+    EXPECT_EQ(engine::ui::intern("score").value, 3526332565u);
+    EXPECT_EQ(engine::ui::intern("title"), engine::ui::intern("title"));
+    EXPECT_NE(engine::ui::intern("title"), engine::ui::intern("score"));
+}
+
 TEST(Mvvm, PropertyAndCommandRegistration) {
     HudViewModel vm;
-    EXPECT_TRUE(vm.has_property("title"));
-    EXPECT_TRUE(vm.has_property("score"));
-    EXPECT_TRUE(vm.has_command("restart"));
-    EXPECT_FALSE(vm.has_property("Missing"));
-    EXPECT_FALSE(vm.has_command("Missing"));
+    EXPECT_TRUE(vm.has_property(engine::ui::intern("title")));
+    EXPECT_TRUE(vm.has_property(engine::ui::intern("score")));
+    EXPECT_TRUE(vm.has_command(engine::ui::intern("restart")));
+    EXPECT_FALSE(vm.has_property(engine::ui::intern("Missing")));
+    EXPECT_FALSE(vm.has_command(engine::ui::intern("Missing")));
 
     vm.title.set("HUD");
     vm.score.set(12);
-    EXPECT_EQ(vm.read_property_string("title"), "HUD");
-    EXPECT_EQ(vm.read_property_string("score"), "12");
-    EXPECT_NE(vm.find_command("restart"), nullptr);
+    EXPECT_EQ(vm.read_property_string(engine::ui::intern("title")), "HUD");
+    EXPECT_EQ(vm.read_property_string(engine::ui::intern("score")), "12");
+    EXPECT_NE(vm.find_command(engine::ui::intern("restart")), nullptr);
 }
 
 TEST(Mvvm, OneWayBindUpdatesLabelText) {
