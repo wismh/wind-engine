@@ -98,7 +98,7 @@ class TitleVm final : public engine::ui::ViewModel {
 public:
     engine::ui::Bindable<std::string> title{"Score"};
 
-    TitleVm() { property("title", title); }
+    TitleVm() { property(engine::ui::intern("title"), title); }
 };
 
 class CellVm final : public engine::ui::ViewModel {
@@ -107,8 +107,8 @@ public:
     engine::ui::RelayCommand click;
 
     CellVm() {
-        property("mark", mark);
-        command("click", click);
+        property(engine::ui::intern("mark"), mark);
+        command(engine::ui::intern("click"), click);
     }
 };
 
@@ -116,7 +116,7 @@ class BoardVm final : public engine::ui::ViewModel {
 public:
     engine::ui::BindableList<std::shared_ptr<CellVm>> cells;
 
-    BoardVm() { property("cells", cells); }
+    BoardVm() { property(engine::ui::intern("cells"), cells); }
 };
 
 class ToggleVm final : public engine::ui::ViewModel {
@@ -125,7 +125,7 @@ public:
     bool enabled = true;
 
     ToggleVm() {
-        command("go", go);
+        command(engine::ui::intern("go"), go);
         go.set_can_execute(true);
         go = [] {};
     }
