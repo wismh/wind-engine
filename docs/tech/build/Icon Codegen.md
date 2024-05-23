@@ -4,7 +4,7 @@ tags: [build]
 
 # Icon codegen
 
-Host tool for turning one master PNG into the icon files each platform packaging step wants. Not yet wired into `engine_add_game` — that's later, per-platform work (Windows `.rc`, Web favicon, Android, macOS bundle). Today it's a standalone CLI plus a testable library function.
+Host tool for turning one master PNG into the icon files each platform packaging step wants. `engine_add_game` runs it once per game target (§ CMake below) and records the output directory on the `ENGINE_GAME_ICON_DIR` target property; each platform's packaging block reads that property instead of invoking the tool itself.
 
 ## `icon_codegen`
 
@@ -38,6 +38,8 @@ The library functions (`icon_resize_rgba`, `icon_encode_png`, `icon_encode_ico`,
 ## CMake
 
 Mirrors `asset_codegen`/`asset_guid`: `ENGINE_HOST_ICON_CODEGEN` cache var supplies a native binary when `CMAKE_CROSSCOMPILING` (imported as `IMPORTED GLOBAL` + `IMPORTED_LOCATION`); otherwise `add_executable(icon_codegen ...)` links `engine` directly. Unlike the asset tools, `icon_codegen`'s library logic lives under `src/resources` (private) rather than `include/engine`, so the target additionally gets `engine`'s private `src/` include dir so `main.cpp` can reach `resources/icon_codegen.h`.
+
+On `APPLE`, `engine_add_game` also sets `MACOSX_BUNDLE ON` on the game target and, when `ENGINE_GAME_ICON_DIR` is set, adds the shared `icon.icns` output as a source with `MACOSX_PACKAGE_LOCATION "Resources"` plus `MACOSX_BUNDLE_ICON_FILE "icon.icns"` — the two CMake target properties the default `Info.plist` template (`MacOSXBundleInfo.plist.in`) substitutes into `CFBundleIconFile` and copies the file into `<app>.app/Contents/Resources/`. No macOS preset exists in this repo to build/run the bundle (SDD §17).
 
 ## See also
 
