@@ -314,6 +314,16 @@ function(engine_add_game target)
         set_property(TARGET ${target} PROPERTY ENGINE_GAME_ICON_DIR "${_icon_gen}")
     endif()
 
+    get_property(_icon_dir TARGET ${target} PROPERTY ENGINE_GAME_ICON_DIR)
+    if(WIN32 AND _icon_dir)
+        # icon.ico does not exist at configure time (icon_codegen writes it at build time), so
+        # gate on the target property set above rather than EXISTS; forward slashes in the .rc
+        # path avoid fighting rc.exe's backslash-escaping rules.
+        set(_icon_rc "${CMAKE_CURRENT_BINARY_DIR}/generated/${target}/icon.rc")
+        file(GENERATE OUTPUT "${_icon_rc}" CONTENT "IDI_ICON1 ICON \"${_icon_dir}/icon.ico\"\n")
+        target_sources(${target} PRIVATE "${_icon_rc}")
+    endif()
+
     engine_prepare_runtime(${target})
     if(EMSCRIPTEN)
         include("${ENGINE_CMAKE_DIR}/cmake/web/link_flags.cmake")
