@@ -319,6 +319,17 @@ function(engine_add_game target)
         include("${ENGINE_CMAKE_DIR}/cmake/web/link_flags.cmake")
         engine_target_web_link_options(${target})
         engine_target_web_preload(${target})
+        # Re-fetch rather than reuse the _icon_gen local above: it's only set when icon.png
+        # exists, and this block must stay a no-op otherwise.
+        get_property(_icon_dir TARGET ${target} PROPERTY ENGINE_GAME_ICON_DIR)
+        if(_icon_dir)
+            add_custom_command(TARGET ${target} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_icon_dir}/favicon.png"
+                    "$<TARGET_FILE_DIR:${target}>/favicon.png"
+                COMMENT "Copy web favicon beside ${target}"
+                VERBATIM)
+        endif()
     endif()
     if(ANDROID AND TARGET SDL3::SDL3main)
         target_link_libraries(${target} PRIVATE SDL3::SDL3main)
