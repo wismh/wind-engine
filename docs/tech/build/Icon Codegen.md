@@ -4,7 +4,7 @@ tags: [build]
 
 # Icon codegen
 
-Host tool for turning one master PNG into the icon files each platform packaging step wants. `engine_add_game` runs it once per game target (gated on `icon.png` existing, § CMake below) and records the output directory on the `ENGINE_GAME_ICON_DIR` target property; each platform's packaging block reads that property instead of re-invoking the tool. Windows and macOS consume it this way below; Web favicon and Android launcher-icon wiring land in the same spot shortly.
+Host tool for turning one master PNG into the icon files each platform packaging step wants. `engine_add_game` runs it once per game target (gated on `icon.png` existing, § CMake below) and records the output directory on the `ENGINE_GAME_ICON_DIR` target property; per-platform consumers (Windows `.rc`, Web favicon, Android, macOS bundle) read that property instead of invoking the tool themselves.
 
 ## `icon_codegen`
 
@@ -46,6 +46,10 @@ Mirrors `asset_codegen`/`asset_guid`: `ENGINE_HOST_ICON_CODEGEN` cache var suppl
 ## macOS packaging (`.icns` bundle)
 
 On `APPLE`, `engine_add_game` also sets `MACOSX_BUNDLE ON` on the game target and, when `ENGINE_GAME_ICON_DIR` is set, adds the shared `icon.icns` output as a source with `MACOSX_PACKAGE_LOCATION "Resources"` plus `MACOSX_BUNDLE_ICON_FILE "icon.icns"` — the two CMake target properties the default `Info.plist` template (`MacOSXBundleInfo.plist.in`) substitutes into `CFBundleIconFile` and copies the file into `<app>.app/Contents/Resources/`. No macOS preset exists in this repo to build/run the bundle (SDD §17).
+
+## Web favicon
+
+Inside `engine_add_game`'s `EMSCRIPTEN` branch, a `POST_BUILD` step copies `${ENGINE_GAME_ICON_DIR}/favicon.png` beside the target's `.html`/`.js`/`.wasm` output (same `$<TARGET_FILE_DIR:${target}>` idiom `engine_prepare_runtime` uses for assets) — a no-op when the game has no `icon.png`. [[cmake.web.shell.html]] references it with `<link rel="icon" type="image/png" href="favicon.png">`.
 
 ## See also
 

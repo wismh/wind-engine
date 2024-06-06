@@ -208,3 +208,52 @@ TEST(Scaffold, EngineAddGameBundlesMacIcon) {
     GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
 #endif
 }
+
+TEST(Scaffold, WebShellHtmlReferencesFavicon) {
+#ifdef ENGINE_SOURCE_DIR
+    const std::filesystem::path root{ENGINE_SOURCE_DIR};
+    const auto slurp = [](const std::filesystem::path& path) {
+        std::ifstream in(path);
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    };
+    const std::string shell = slurp(root / "cmake" / "web" / "shell.html");
+    ASSERT_FALSE(shell.empty());
+    EXPECT_NE(shell.find("<link rel=\"icon\""), std::string::npos);
+    EXPECT_NE(shell.find("favicon.png"), std::string::npos);
+#else
+    GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
+#endif
+}
+
+TEST(Scaffold, EngineAddGameCopiesWebFavicon) {
+#ifdef ENGINE_SOURCE_DIR
+    const std::filesystem::path root{ENGINE_SOURCE_DIR};
+    const auto slurp = [](const std::filesystem::path& path) {
+        std::ifstream in(path);
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    };
+    const std::string cmake = slurp(root / "CMakeLists.txt");
+    ASSERT_FALSE(cmake.empty());
+
+    // The favicon copy must consume the shared ENGINE_GAME_ICON_DIR output (§19.2), not
+    // re-invoke icon_codegen, and must live inside engine_add_game's EMSCRIPTEN block rather
+    // than e.g. the ANDROID block, so it stays a no-op on every other platform.
+    const std::size_t emscripten_block = cmake.find("if(EMSCRIPTEN)\n        include(\"${ENGINE_CMAKE_DIR}/cmake/web/link_flags.cmake\")");
+    ASSERT_NE(emscripten_block, std::string::npos);
+    const std::size_t emscripten_endif = cmake.find("\n    endif()", emscripten_block);
+    ASSERT_NE(emscripten_endif, std::string::npos);
+
+    const std::size_t favicon_copy = cmake.find("favicon.png", emscripten_block);
+    ASSERT_NE(favicon_copy, std::string::npos);
+    EXPECT_LT(favicon_copy, emscripten_endif);
+
+    const std::size_t android_block = cmake.find("if(ANDROID AND TARGET SDL3::SDL3main)");
+    if (android_block != std::string::npos) {
+        EXPECT_LT(favicon_copy, android_block);
+    }
+
+    EXPECT_NE(cmake.find("ENGINE_GAME_ICON_DIR", emscripten_block), std::string::npos);
+#else
+    GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
+#endif
+}
