@@ -108,8 +108,8 @@ void handle_pointer(ecs::World& world, float x, float y) {
     }
 
     ICommand* command = button->command;
-    if (command == nullptr && button->command_binding && canvas.data_context) {
-        command = canvas.data_context->find_command(intern(*button->command_binding));
+    if (command == nullptr && is_bound(button->command_binding) && canvas.data_context) {
+        command = canvas.data_context->find_command(button->command_binding);
     }
     if (command != nullptr && command->can_execute()) {
         command->execute();
