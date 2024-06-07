@@ -11,6 +11,10 @@ struct BindingId {
     constexpr bool operator==(BindingId other) const noexcept { return value == other.value; }
 };
 
+[[nodiscard]] constexpr bool is_bound(BindingId id) noexcept {
+    return id.value != 0;
+}
+
 [[nodiscard]] constexpr BindingId intern(std::string_view path) noexcept {
     bool has_content = false;
     for (char ch : path) {
