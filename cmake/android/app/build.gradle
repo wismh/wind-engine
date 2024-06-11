@@ -14,6 +14,15 @@ def hostCodegen = project.hasProperty('ENGINE_HOST_ASSET_CODEGEN')
 def withAudio = project.hasProperty('ENGINE_WITH_AUDIO')
         ? ENGINE_WITH_AUDIO
         : (System.getenv('ENGINE_WITH_AUDIO') ?: 'OFF')
+// Game-supplied res overlay (mipmap-*/ic_launcher.png, values/strings.xml app_name) merged over
+// the engine's own res/ by AGP's standard resource merger — see SDD §19.4. Empty means no overlay,
+// i.e. every game keeps shipping the engine's own icon/name until it supplies one.
+def gameResDir = project.hasProperty('ENGINE_ANDROID_RES_DIR')
+        ? file(ENGINE_ANDROID_RES_DIR).absolutePath
+        : (System.getenv('ENGINE_ANDROID_RES_DIR') ?: '')
+def gameApplicationId = project.hasProperty('ENGINE_ANDROID_APPLICATION_ID')
+        ? ENGINE_ANDROID_APPLICATION_ID
+        : (System.getenv('ENGINE_ANDROID_APPLICATION_ID') ?: '')
 def sdlJava = "${engineDir}/external/SDL3/android-project/app/src/main/java"
 // Same directory CMake stages via -DENGINE_ANDROID_ASSETS_OUT (do not point at engine/build-android).
 def apkAssets = project.hasProperty('ENGINE_ANDROID_ASSETS_OUT')
@@ -26,7 +35,7 @@ android {
     ndkVersion '28.2.13676358'
 
     defaultConfig {
-        applicationId 'org.windengine.app'
+        applicationId gameApplicationId ?: 'org.windengine.app'
         minSdk 21
         targetSdk 35
         versionCode 1
@@ -59,6 +68,9 @@ android {
         main {
             java.srcDirs += [sdlJava]
             assets.srcDirs += [apkAssets]
+            if (gameResDir) {
+                res.srcDirs += [gameResDir]
+            }
         }
     }
 

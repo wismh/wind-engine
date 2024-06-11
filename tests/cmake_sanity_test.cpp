@@ -257,3 +257,44 @@ TEST(Scaffold, EngineAddGameCopiesWebFavicon) {
     GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
 #endif
 }
+
+TEST(Scaffold, AndroidManifestDeclaresLauncherIcon) {
+#ifdef ENGINE_SOURCE_DIR
+    const std::filesystem::path root{ENGINE_SOURCE_DIR};
+    const auto slurp = [](const std::filesystem::path& path) {
+        std::ifstream in(path);
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    };
+    const std::string manifest =
+            slurp(root / "cmake" / "android" / "app" / "src" / "main" / "AndroidManifest.xml");
+    ASSERT_FALSE(manifest.empty());
+    EXPECT_NE(manifest.find(R"(android:icon="@mipmap/ic_launcher")"), std::string::npos);
+#else
+    GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
+#endif
+}
+
+TEST(Scaffold, AndroidGradleOverlaysPerGameResDirAndApplicationId) {
+#ifdef ENGINE_SOURCE_DIR
+    const std::filesystem::path root{ENGINE_SOURCE_DIR};
+    const auto slurp = [](const std::filesystem::path& path) {
+        std::ifstream in(path);
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    };
+    const std::string gradle = slurp(root / "cmake" / "android" / "app" / "build.gradle");
+    ASSERT_FALSE(gradle.empty());
+    // A game supplies its own mipmap-*/ic_launcher.png (and optionally values/strings.xml) via
+    // ENGINE_ANDROID_RES_DIR; AGP's standard resource merger overlays it over the engine's own
+    // res/ by name, without ever editing the committed engine template (SDD §19.4).
+    EXPECT_NE(gradle.find("ENGINE_ANDROID_RES_DIR"), std::string::npos);
+    EXPECT_NE(gradle.find("res.srcDirs"), std::string::npos);
+    // Two games must not collide under the same applicationId; default stays the engine's own.
+    EXPECT_NE(gradle.find("ENGINE_ANDROID_APPLICATION_ID"), std::string::npos);
+    EXPECT_NE(gradle.find("applicationId gameApplicationId"), std::string::npos);
+    EXPECT_NE(gradle.find("'org.windengine.app'"), std::string::npos);
+    // The overlay must never require editing the engine's committed manifest/strings/res per game.
+    EXPECT_EQ(gradle.find("applicationId 'org.windengine.app'"), std::string::npos);
+#else
+    GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
+#endif
+}
