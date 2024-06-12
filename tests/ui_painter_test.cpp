@@ -425,6 +425,31 @@ TEST(UiPainter, TransformFiresWithCenterRotationAndScale) {
     EXPECT_FLOAT_EQ(transform->transform_scale, 2.0f);
 }
 
+TEST(UiPainter, ScissorAppliesAfterTransformSoRotatedContentIsNotClipped) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="spin" text="S"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(
+            ".spin { width: 20; height: 10; transform: rotate(90) scale(2); background: #fff; }");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    std::size_t transform_index = painter.calls.size();
+    for (std::size_t i = 0; i < painter.calls.size(); ++i) {
+        if (painter.calls[i].op == "transform") {
+            transform_index = i;
+            break;
+        }
+    }
+    ASSERT_LT(transform_index, painter.calls.size());
+    ASSERT_LT(transform_index + 1, painter.calls.size());
+    // nvgScissor() bakes in whatever transform is active when called; setting it before the
+    // rotation would clip this rotated element against its un-rotated axis-aligned rect instead.
+    // The Canvas root's own (untransformed) scissor call precedes this, so check the call
+    // immediately after the rotated element's transform, not just the first scissor anywhere.
+    EXPECT_EQ(painter.calls[transform_index + 1].op, "scissor");
+}
+
 TEST(UiPainter, NoTransformDeclarationMeansNoTransformCall) {
     auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="plain" text="S"/></Canvas>)");
     ASSERT_TRUE(parsed.has_value());
