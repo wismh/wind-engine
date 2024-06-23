@@ -59,10 +59,11 @@ overlay handled all of them, which a downstream game's real Gradle build proved 
   them declare the same `string/app_name`. `manifestPlaceholders` is manifest-merger territory,
   not resource-merger territory, so it sidesteps the collision entirely.
 - `ENGINE_ANDROID_RES_DIR` — a directory the game supplies (`mipmap-*/ic_launcher.png`). Added to
-  `sourceSets.main.res.srcDirs`, and this one genuinely does work as an overlay — but only because
-  the engine's own `res/` declares zero `mipmap-*` resources, so there is nothing for a game's
-  entry to collide with; it's the sole definition, not an override. The committed engine template
-  is never edited per game.
+  `sourceSets.debug.res.srcDirs` **and** `sourceSets.release.res.srcDirs` — **not** `main`. The
+  engine's own `res/` now ships a default `mipmap-*/ic_launcher.png` (below), so a sibling entry
+  in `main.res.srcDirs` would hit the identical "Duplicate resources" collision `app_name` did;
+  build-variant source sets are the only place with real override precedence over `main`. The
+  committed engine template is never edited per game.
 - `ENGINE_HOST_ICON_CODEGEN` — threaded into `externalNativeBuild.cmake.arguments` alongside the
   existing `ENGINE_HOST_ASSET_CODEGEN`, for the same reason: cross-compiling for Android needs a
   native `icon_codegen` (§19.3 host tool) the same way it needs a native `asset_codegen`. Missing
