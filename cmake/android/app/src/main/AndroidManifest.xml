@@ -12,12 +12,12 @@
         android:hardwareAccelerated="true"
         android:hasCode="true"
         android:icon="@mipmap/ic_launcher"
-        android:label="@string/app_name">
+        android:label="${appName}">
         <activity
             android:name="org.libsdl.app.SDLActivity"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|navigation|touchscreen|locale"
             android:exported="true"
-            android:label="@string/app_name"
+            android:label="${appName}"
             android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
