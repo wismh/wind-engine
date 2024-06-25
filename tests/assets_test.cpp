@@ -11,6 +11,7 @@
 #include <engine/resources/fatal_error.h>
 #include <engine/resources/font.h>
 #include <engine/resources/meta.h>
+#include <engine/ui/binding_id.h>
 #include <engine/ui/document.h>
 #include <engine/ui/stylesheet.h>
 
@@ -106,6 +107,13 @@ void write_file(const std::filesystem::path& path, std::string_view text) {
     std::ofstream out(path, std::ios::trunc);
     ASSERT_TRUE(out.is_open());
     out << text;
+}
+
+void write_ui_asset(const std::filesystem::path& xml_path, std::string_view xml, std::string_view guid) {
+    write_file(xml_path, xml);
+    std::filesystem::path meta = xml_path;
+    meta += ".meta";
+    write_file(meta, std::string("guid = \"") + std::string(guid) + "\"\nimporter = \"ui\"\n");
 }
 
 void write_bytes(const std::filesystem::path& path, const std::uint8_t* data, std::size_t size) {
@@ -726,4 +734,99 @@ TEST(Assets, CorruptPngIsCorrupt) {
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), engine::AssetError::Corrupt);
     EXPECT_EQ(factory.texture_calls, 0);
+}
+
+constexpr std::string_view kHudXml = R"(
+<Canvas>
+  <Stack class="hud" direction="vertical">
+    <Label class="title" text="{binding title}"/>
+    <Button command="{binding restart}" content="{binding restart_label}"/>
+    <ItemsControl items_source="{binding cells}">
+      <ItemTemplate>
+        <Button class="cell" command="{binding click}" content="{binding mark}"/>
+      </ItemTemplate>
+    </ItemsControl>
+  </Stack>
+</Canvas>
+)";
+
+TEST(Assets, CodegenEmitsUiBindStructs) {
+    TempTree tree;
+    write_ui_asset(tree.path / "ui" / "hud.xml", kHudXml, kUiGuid);
+
+    const auto scanned = engine::codegen_scan(tree.path);
+    ASSERT_TRUE(scanned.has_value()) << (scanned ? "" : scanned.error().message);
+    const std::string& header = scanned->asset_ids_header;
+
+    EXPECT_NE(header.find("#include <engine/ui/binding_id.h>"), std::string::npos);
+    EXPECT_NE(header.find("inline constexpr engine::AssetId hud{\""), std::string::npos);
+    EXPECT_NE(header.find("struct Hud"), std::string::npos);
+    EXPECT_NE(header.find("bind(T& vm)"), std::string::npos);
+    EXPECT_NE(header.find("vm.title"), std::string::npos);
+    EXPECT_NE(header.find("vm.command"), std::string::npos);
+    EXPECT_NE(header.find("struct Cells"), std::string::npos);
+    EXPECT_NE(header.find("vm.mark"), std::string::npos);
+    EXPECT_NE(header.find("engine::ui::intern(\"title\")"), std::string::npos);
+}
+
+TEST(Assets, CodegenHeaderOmitsBindingIdWithoutUi) {
+    TempTree tree;
+    write_file(tree.path / "textures" / "player.png", "png");
+    write_file(tree.path / "textures" / "player.png.meta", kTextureToml);
+
+    const auto scanned = engine::codegen_scan(tree.path);
+    ASSERT_TRUE(scanned.has_value()) << (scanned ? "" : scanned.error().message);
+    EXPECT_EQ(scanned->asset_ids_header.find("binding_id.h"), std::string::npos);
+    EXPECT_EQ(scanned->asset_ids_header.find("struct "), std::string::npos);
+    EXPECT_NE(scanned->asset_ids_header.find("inline constexpr engine::AssetId player{\""), std::string::npos);
+}
+
+TEST(Assets, CodegenUnknownUiTagFails) {
+    TempTree tree;
+    write_ui_asset(tree.path / "ui" / "hud.xml", "<Canvas><Nope/></Canvas>", kUiGuid);
+
+    const auto result = engine::codegen_scan(tree.path);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().kind, engine::CodegenErrorKind::UiMarkup);
+}
+
+TEST(Assets, CodegenEmptyBindingFails) {
+    TempTree tree;
+    write_ui_asset(tree.path / "ui" / "hud.xml", R"(<Canvas><Label text="{binding}"/></Canvas>)", kUiGuid);
+
+    const auto result = engine::codegen_scan(tree.path);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().kind, engine::CodegenErrorKind::UiMarkup);
+}
+
+TEST(Assets, CodegenCommandMustBeBinding) {
+    TempTree tree;
+    write_ui_asset(tree.path / "ui" / "hud.xml", R"(<Canvas><Button command="restart"/></Canvas>)", kUiGuid);
+
+    const auto result = engine::codegen_scan(tree.path);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().kind, engine::CodegenErrorKind::UiMarkup);
+}
+
+TEST(Assets, CodegenImageSourceFilenameFails) {
+    TempTree tree;
+    write_ui_asset(tree.path / "ui" / "hud.xml", R"(<Canvas><Image source="foo.png"/></Canvas>)", kUiGuid);
+
+    const auto result = engine::codegen_scan(tree.path);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().kind, engine::CodegenErrorKind::UiMarkup);
+}
+
+TEST(Assets, CodegenInternCollisionFails) {
+    ASSERT_EQ(engine::ui::intern("costarring"), engine::ui::intern("liquid"));
+
+    TempTree tree;
+    write_ui_asset(tree.path / "ui" / "hud.xml",
+            R"(<Canvas><Label text="{binding costarring}"/><Label text="{binding liquid}"/></Canvas>)", kUiGuid);
+
+    const auto result = engine::codegen_scan(tree.path);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().kind, engine::CodegenErrorKind::Collision);
+    EXPECT_NE(result.error().message.find("costarring"), std::string::npos);
+    EXPECT_NE(result.error().message.find("liquid"), std::string::npos);
 }
