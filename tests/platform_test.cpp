@@ -51,6 +51,19 @@ TEST(Platform, WebAssetsRootIsPackagedMount) {
     EXPECT_EQ(engine::default_assets_root({}, engine::Platform::Web), engine::packaged_assets_mount());
 }
 
+TEST(Platform, EngineRuntimeEmptyBaseFollowsHelperNotShortCircuit) {
+    // EngineRuntime::assets_root() must call default_assets_root(base) even when
+    // SDL_GetBasePath() is empty. A native `if (base.empty()) return {}` would
+    // fatal Engine::init on Emscripten ("Assets root is missing").
+    const std::filesystem::path empty_sdl_base{};
+    EXPECT_EQ(engine::default_assets_root(empty_sdl_base, engine::Platform::Web),
+            engine::packaged_assets_mount());
+    EXPECT_FALSE(engine::default_assets_root(empty_sdl_base, engine::Platform::Web).empty());
+    EXPECT_TRUE(engine::default_assets_root(empty_sdl_base, engine::Platform::Native).empty());
+    EXPECT_EQ(engine::default_assets_root(empty_sdl_base),
+            engine::default_assets_root(empty_sdl_base, engine::current_platform()));
+}
+
 TEST(Platform, OneArgAssetsRootMatchesCurrentPlatform) {
     EXPECT_EQ(engine::default_assets_root(std::filesystem::path{"/opt/app"}),
             engine::default_assets_root(std::filesystem::path{"/opt/app"}, engine::current_platform()));
