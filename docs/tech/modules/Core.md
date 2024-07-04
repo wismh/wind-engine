@@ -21,8 +21,10 @@ Host, time, input polling, logging, fatal errors, and (when windowed) `Engine<Ga
 - [[src.core.api_epoch.cpp]] — `kApiEpoch` / `api_epoch()`.
 - [[src.core.fixed_step.cpp]] — accumulator.
 - [[src.core.host.cpp]] — fake-canvas host for tests (registers systems, ticks).
-- [[src.core.input_system.cpp]] — bind table + `handle_key` / `handle_mouse_*`.
+- [[src.core.input_system.cpp]] — bind table + `handle_key` / `handle_mouse_*` / `handle_touch*`.
 - [[src.core.log.cpp]] — spdlog, optional `<exe>/game.log`.
+- [[src.core.platform.cpp]] — `Platform`, assets root (`/assets` on web), graphics/loop profile.
+- [[src.core.web_loop.cpp]] — `MainLoopPolicy` (blocking vs requestAnimationFrame).
 
 **Only `ENGINE_WITH_WINDOW`:**
 
@@ -46,10 +48,12 @@ Host, time, input polling, logging, fatal errors, and (when windowed) `Engine<Ga
 - [[include.engine.core.input_system.h]]
 - [[include.engine.core.sdl_fatal_error.h]]
 - [[include.engine.core.time.h]]
+- [[include.engine.core.platform.h]]
+- [[include.engine.core.web_loop.h]]
 
 ## Tests
 
-[[tests.cmake_sanity_test.cpp]] · [[tests.host_test.cpp]] · [[tests.time_test.cpp]] · [[tests.input_test.cpp]] · [[tests.log_test.cpp]]
+[[tests.cmake_sanity_test.cpp]] · [[tests.host_test.cpp]] · [[tests.time_test.cpp]] · [[tests.input_test.cpp]] · [[tests.log_test.cpp]] · [[tests.platform_test.cpp]] · [[tests.web_loop_test.cpp]]
 
 ## See also
 
