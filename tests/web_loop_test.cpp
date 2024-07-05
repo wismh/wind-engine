@@ -69,3 +69,56 @@ TEST(WebLoop, PumpSkipsWhenAlreadyQuit) {
     EXPECT_EQ(policy.pump(app, [&](float) { ++ticks; }, 8, 0.1f), 0);
     EXPECT_EQ(ticks, 0);
 }
+
+TEST(WebLoop, ShutdownRunsQuitThenDispose) {
+    engine::LoopShutdown shutdown;
+    int order = 0;
+    int quit_at = 0;
+    int dispose_at = 0;
+
+    shutdown.complete([&] { quit_at = ++order; }, [&] { dispose_at = ++order; });
+
+    EXPECT_TRUE(shutdown.quit_completed());
+    EXPECT_TRUE(shutdown.dispose_completed());
+    EXPECT_EQ(quit_at, 1);
+    EXPECT_EQ(dispose_at, 2);
+}
+
+TEST(WebLoop, ShutdownIsIdempotent) {
+    engine::LoopShutdown shutdown;
+    int quits = 0;
+    int disposes = 0;
+    shutdown.complete([&] { ++quits; }, [&] { ++disposes; });
+    shutdown.complete([&] { ++quits; }, [&] { ++disposes; });
+    EXPECT_EQ(quits, 1);
+    EXPECT_EQ(disposes, 1);
+}
+
+TEST(WebLoop, RafQuitInvokesDisposeAfterPump) {
+    engine::ApplicationState app;
+    app.running = true;
+    engine::MainLoopPolicy policy{engine::LoopKind::RequestAnimationFrame};
+    engine::LoopShutdown shutdown;
+    int ticks = 0;
+    int quits = 0;
+    int disposes = 0;
+
+    policy.pump(
+            app,
+            [&](float) {
+                ++ticks;
+                if (ticks == 2) {
+                    app.quit();
+                }
+            },
+            8, 0.016f);
+
+    ASSERT_FALSE(app.running);
+    EXPECT_FALSE(shutdown.dispose_completed());
+    shutdown.complete([&] { ++quits; }, [&] { ++disposes; });
+    EXPECT_EQ(ticks, 2);
+    EXPECT_EQ(quits, 1);
+    EXPECT_EQ(disposes, 1);
+    EXPECT_TRUE(shutdown.quit_completed());
+    EXPECT_TRUE(shutdown.dispose_completed());
+}

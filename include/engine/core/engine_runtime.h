@@ -10,6 +10,7 @@
 #include <engine/resources/asset_id.h>
 
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string_view>
 
@@ -35,7 +36,8 @@ public:
     [[nodiscard]] bool add_image(AssetId id, const render::TextureDesc& desc);
     void shutdown();
 
-    [[nodiscard]] int run(IGame& game, InputSystem& input, IAudioSystem* audio);
+    [[nodiscard]] int run(IGame& game, InputSystem& input, IAudioSystem* audio,
+            std::function<void()> host_dispose = {});
 
     [[nodiscard]] render::CommandBuffer& commands();
     [[nodiscard]] render::ICanvas& canvas();
