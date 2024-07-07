@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <string>
 
 namespace engine {
 
@@ -120,7 +121,9 @@ struct GraphicsProfile {
 
 [[nodiscard]] std::filesystem::path packaged_assets_mount() noexcept;
 
-[[nodiscard]] std::filesystem::path apk_assets_mount() noexcept;
+// SDL Android I/O prefix. Returned as a string because std::filesystem::path
+// treats "assets:" as a drive letter and would collapse "assets://" to "assets:/".
+[[nodiscard]] std::string apk_assets_mount() noexcept;
 
 [[nodiscard]] std::filesystem::path default_assets_root(const std::filesystem::path& base_path, Platform platform);
 

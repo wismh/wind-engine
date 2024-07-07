@@ -1,5 +1,6 @@
 #include <engine/core/platform.h>
 
+#include <string>
 #include <system_error>
 
 namespace engine {
@@ -8,8 +9,8 @@ std::filesystem::path packaged_assets_mount() noexcept {
     return std::filesystem::path{"/assets"};
 }
 
-std::filesystem::path apk_assets_mount() noexcept {
-    return std::filesystem::path{"assets://"};
+std::string apk_assets_mount() noexcept {
+    return "assets://";
 }
 
 std::filesystem::path default_assets_root(const std::filesystem::path& base_path, Platform platform) {
@@ -18,7 +19,8 @@ std::filesystem::path default_assets_root(const std::filesystem::path& base_path
     }
     if (platform == Platform::Android) {
         if (base_path.empty()) {
-            return apk_assets_mount();
+            // assets:// is not a portable std::filesystem::path (drive-letter parse).
+            return {};
         }
         return base_path / "assets";
     }
