@@ -1496,6 +1496,15 @@ everything else, fading itself out via machinery that already exists:
   `run_ui_render` (`src/ecs/systems.cpp`, the existing `Phase::UiRender` system) already walks
   every `UiCanvas`/`UiInstance` entity and pushes its draw calls through the same `CommandBuffer`
   → render-backend path everything else uses — no `ICanvas`/`OpenGLCanvas` changes needed.
+- One divergence from `spawn_button_canvas`'s literal shape: that test never runs `Phase::Bind`,
+  so it can set `canvas.document` to an arbitrary/dummy `AssetId` without consequence. In the real
+  loop, `run_bind` (`src/ecs/systems.cpp`) runs every frame and calls `clone_document` — which
+  replaces `UiInstance` with a fresh `assets.get<UiDocument>(canvas.document)` — whenever
+  `instance_needs_rebuild` sees `UiInstance::loaded_document != UiCanvas::document` (plus
+  stylesheet/data-context). The splash's document only exists in memory, so `canvas.document` and
+  `canvas.data_context` must stay at their defaults (matching `UiInstance`'s equally-defaulted
+  `loaded_document`/`loaded_data_context`) to keep that check a no-op — otherwise the in-memory
+  document gets silently clobbered by a failed asset lookup on the very next frame.
 - `element.animation_elapsed` clamps at `animation_duration` and the animation's last keyframe
   stop is `opacity: 0`, so once the fade-out finishes the element simply sits invisible forever —
   correct output with no explicit "done" transition needed. Despawning the now-inert entity
