@@ -10,7 +10,9 @@ namespace engine::render {
 namespace {
 
 bool load_gl_entry_points() {
-#if __has_include(<glad/glad.h>)
+#if defined(ENGINE_WITH_GLES)
+    return true;
+#elif __has_include(<glad/glad.h>)
     return gladLoadGLLoader(reinterpret_cast<GLADloadproc>(SDL_GL_GetProcAddress)) != 0;
 #else
     return gladLoadGL(reinterpret_cast<GLADloadfunc>(SDL_GL_GetProcAddress)) != 0;
@@ -34,9 +36,15 @@ bool OpenGLCanvas::init() {
         return false;
     }
 
+#if defined(ENGINE_WITH_GLES)
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#else
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+#endif
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 
     context_ = SDL_GL_CreateContext(window_->window());
