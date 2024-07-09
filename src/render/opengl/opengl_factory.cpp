@@ -19,7 +19,7 @@ std::shared_ptr<IMesh> OpenGLFactory::create_mesh(const MeshDesc& desc) {
 }
 
 std::shared_ptr<IShader> OpenGLFactory::create_shader(const ShaderDesc& desc) {
-#if defined(__EMSCRIPTEN__)
+#if defined(ENGINE_WITH_GLES)
     const ShaderDesc adapted = adapt_shader(desc, ShaderTarget::Glsl300Es);
     auto shader = std::make_shared<OpenGLShader>(adapted.vertex_src, adapted.fragment_src);
 #else
