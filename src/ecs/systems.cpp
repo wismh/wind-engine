@@ -44,14 +44,40 @@ void run_input(ecs::World& world) {
     }
 }
 
+bool instance_needs_rebuild(const ui::UiInstance* instance, const ui::UiCanvas& canvas) {
+    if (instance == nullptr) {
+        return true;
+    }
+    return instance->loaded_document != canvas.document || instance->loaded_stylesheet != canvas.stylesheet ||
+            instance->loaded_data_context != canvas.data_context.get();
+}
+
+void clone_document(ecs::World& world, ecs::Entity entity, ui::UiCanvas& canvas, AssetsDb& assets,
+        ui::UiInstance*& instance) {
+    const std::shared_ptr<ui::UiDocument> document = assets.get<ui::UiDocument>(canvas.document);
+    ui::UiInstance fresh;
+    fresh.document = *document;
+    fresh.loaded_document = canvas.document;
+    fresh.loaded_stylesheet = canvas.stylesheet;
+    fresh.loaded_data_context = canvas.data_context.get();
+    if (instance == nullptr) {
+        instance = &world.emplace<ui::UiInstance>(entity, std::move(fresh));
+    } else {
+        *instance = std::move(fresh);
+    }
+}
+
 void run_bind(ecs::World& world, const EngineSystemDeps& deps) {
     auto view = world.view<ui::UiCanvas>();
     for (ecs::Entity entity : view) {
         ui::UiCanvas& canvas = view.get<ui::UiCanvas>(entity);
+        ui::UiInstance* instance = world.try_get<ui::UiInstance>(entity);
+        if (deps.assets != nullptr && instance_needs_rebuild(instance, canvas)) {
+            clone_document(world, entity, canvas, *deps.assets, instance);
+        }
         if (!canvas.data_context) {
             continue;
         }
-        ui::UiInstance* instance = world.try_get<ui::UiInstance>(entity);
         if (instance == nullptr) {
             continue;
         }
