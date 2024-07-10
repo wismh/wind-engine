@@ -142,7 +142,6 @@ A small real-time 2D engine (**Wind**): window, input, ECS, command-buffer rende
 engine/
   CMakeLists.txt          # deps + static `engine`; optional `engine_tests`
   docs/sdd.md             # this file
-  docs/slices.md          # implementation order + test gates
   include/engine/         # public API only (games may include these)
   src/                    # .cpp + private headers (not on the game include path)
   tools/asset_guid/       # write missing .meta + GUIDs (dev only)
@@ -1175,4 +1174,5 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 - CSS `@import`, `var()`; WPF `ControlTemplate`, `VisualStateManager`, `IValueConverter`, `Mode=TwoWay`.
 - `Renderable` `sort_mode = Y` (auto ground-sort) — not v1; use `order_in_layer`.
 - Widget-as-ECS-entity (Bevy UI) — not v1; would replace the XML instance tree inside `UiCanvas`.
+- Input: gamepad buttons/axes, touch, WASD composites, action maps, `MouseEvent` → `PointerEvent` rename — same `Control` / `ActionId` / `InputEvent` types, added as new `ControlKind`s (keyboard and mouse binds are done). Not a Unity Input System clone (no action callbacks).
 
