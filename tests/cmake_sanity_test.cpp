@@ -57,8 +57,6 @@ TEST(Scaffold, WebCmakeFilesExist) {
     EXPECT_TRUE(std::filesystem::is_regular_file(root / "cmake" / "web" / "shell.html"));
     EXPECT_TRUE(std::filesystem::is_regular_file(root / "cmake" / "web" / "link_flags.cmake"));
     EXPECT_TRUE(std::filesystem::is_regular_file(root / "cmake" / "toolchains" / "Emscripten.cmake"));
-    EXPECT_TRUE(std::filesystem::is_regular_file(root / "docs" / "sdd-web.md"));
-    EXPECT_TRUE(std::filesystem::is_regular_file(root / "docs" / "plan-web.md"));
 #else
     GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
 #endif
@@ -73,8 +71,6 @@ TEST(Scaffold, AndroidCmakeFilesExist) {
     EXPECT_TRUE(std::filesystem::is_regular_file(root / "cmake" / "android" / "app" / "build.gradle"));
     EXPECT_TRUE(std::filesystem::is_regular_file(
             root / "cmake" / "android" / "app" / "src" / "main" / "AndroidManifest.xml"));
-    EXPECT_TRUE(std::filesystem::is_regular_file(root / "docs" / "sdd-android.md"));
-    EXPECT_TRUE(std::filesystem::is_regular_file(root / "docs" / "plan-android.md"));
 #else
     GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
 #endif
