@@ -2,15 +2,32 @@
 
 #include <engine/core/platform.h>
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <system_error>
+#include <thread>
 
 namespace {
 
 std::filesystem::path unique_temp(const char* name) {
     return std::filesystem::temp_directory_path() / name;
+}
+
+// On Windows, a file just written can still be held by a antivirus/indexer scan for a few
+// milliseconds; remove_all() then fails with ERROR_SHARING_VIOLATION even though nothing in
+// this process holds it open. Retry with backoff instead of letting that flake the test.
+void remove_all_retry(const std::filesystem::path& path) {
+    std::error_code ec;
+    for (int attempt = 0; attempt < 6; ++attempt) {
+        std::filesystem::remove_all(path, ec);
+        if (!ec) {
+            return;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10 << attempt));
+    }
 }
 
 }
@@ -33,7 +50,7 @@ TEST(AndroidAssets, StageCopiesCatalogAndFiles) {
     const auto root = unique_temp("wind-android-assets-stage");
     const auto src = root / "src";
     const auto dest = root / "dest";
-    std::filesystem::remove_all(root);
+    remove_all_retry(root);
     std::filesystem::create_directories(src / "engine");
     {
         std::ofstream{src / "catalog.toml"} << "guid = \"game\"\n";
@@ -50,7 +67,7 @@ TEST(AndroidAssets, StageCopiesCatalogAndFiles) {
     const std::string body{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
     EXPECT_NE(body.find("game"), std::string::npos);
 
-    std::filesystem::remove_all(root);
+    remove_all_retry(root);
 }
 
 TEST(AndroidAssets, StageRejectsMissingSource) {
