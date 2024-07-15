@@ -17,6 +17,9 @@ Host, time, input polling, logging, fatal errors, and (when windowed) `Engine<Ga
   `AssetsDb` (after the catalog + texture/`UiImage` preload loop) and forwards the
   `render::TextureDesc` to `EngineRuntime::set_window_icon()`. Unset (`std::nullopt`) leaves the
   OS/window-manager default icon alone.
+- `IGame::splash_screen()` — `SplashScreen{enabled, image, fade_in/hold/fade_out_seconds}`,
+  defaulting to the builtin `splash_wind` image (§20.1–§20.2). Contract only so far; `Host::tick`
+  does not yet draw it (§20.3, tracked separately).
 
 ## How it is implemented
 

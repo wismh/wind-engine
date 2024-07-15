@@ -687,6 +687,21 @@ TEST(Assets, GetTextureFromUiImage) {
     EXPECT_EQ(factory.last_texture.height, 1);
 }
 
+TEST(Assets, GetBuiltinSplashDecodesRealDimensions) {
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+    ASSERT_TRUE(load_builtin_catalog(db));
+
+    FakeGraphicFactory factory;
+    db.set_graphic_factory(&factory);
+
+    const auto texture = db.get<engine::render::ITexture>(engine::builtin::splash_wind);
+    ASSERT_NE(texture, nullptr);
+    EXPECT_EQ(factory.texture_calls, 1);
+    EXPECT_EQ(factory.last_texture.width, 1086);
+    EXPECT_EQ(factory.last_texture.height, 884);
+}
+
 TEST(Assets, GetMeshTypeMismatch) {
     SilentFatalError fatal;
     engine::AssetsDb db(fatal);
