@@ -163,7 +163,7 @@ bool Engine<GameT>::init() {
             .assets = assets_.get(),
             .audio = audio_.get(),
     });
-    ui::apply_fill_window(game_->world());
+    ui::apply_canvas_fit(game_->world());
 
     initialized_ = true;
     return true;
