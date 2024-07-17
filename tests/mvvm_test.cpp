@@ -346,3 +346,81 @@ TEST(Mvvm, FixedFitLeavesRectAlone) {
     EXPECT_EQ(world.get<engine::ui::UiCanvas>(entity).rect, original);
 }
 
+TEST(Mvvm, ScaleWithScreenSizeResizeWritesLetterboxedRect) {
+    engine::ecs::World world;
+    const engine::ecs::Entity entity = world.create();
+    engine::ui::UiCanvas canvas = make_canvas({});
+    canvas.fit = engine::ui::UiFit::ScaleWithScreenSize;
+    canvas.reference_size = {200.0f, 100.0f};
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+
+    world.ctx<engine::ui::WindowSize>().width = 800;
+    world.ctx<engine::ui::WindowSize>().height = 600;
+    engine::ui::begin_frame(world);
+
+    // scale = min(800/200, 600/100) = min(4, 6) = 4; scaled box is 800x400, letterboxed vertically.
+    EXPECT_EQ(world.get<engine::ui::UiCanvas>(entity).rect, (engine::render::Rect{0.0f, 100.0f, 800.0f, 400.0f}));
+}
+
+TEST(Mvvm, ScaleWithScreenSizeWithoutReferenceSizeFallsBackToWindow) {
+    engine::ecs::World world;
+    const engine::ecs::Entity entity = world.create();
+    engine::ui::UiCanvas canvas = make_canvas({});
+    canvas.fit = engine::ui::UiFit::ScaleWithScreenSize;
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+
+    world.ctx<engine::ui::WindowSize>().width = 800;
+    world.ctx<engine::ui::WindowSize>().height = 600;
+    engine::ui::begin_frame(world);
+
+    EXPECT_EQ(world.get<engine::ui::UiCanvas>(entity).rect, (engine::render::Rect{0.0f, 0.0f, 800.0f, 600.0f}));
+}
+
+TEST(Mvvm, ScaleWithScreenSizeRejectsClicksInLetterboxBar) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<ClickViewModel>();
+    const engine::ecs::Entity entity = world.create();
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Button command="{binding click}" content="Go"/></Canvas>)",
+            nullptr, vm.get());
+    ASSERT_TRUE(parsed.has_value());
+    engine::ui::UiCanvas canvas = make_canvas({});
+    canvas.fit = engine::ui::UiFit::ScaleWithScreenSize;
+    canvas.reference_size = {200.0f, 100.0f};
+    canvas.data_context = vm;
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+    world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{*parsed});
+
+    world.ctx<engine::ui::WindowSize>().width = 800;
+    world.ctx<engine::ui::WindowSize>().height = 600;
+    engine::ui::begin_frame(world);
+    // Viewport is {0,100,800,400} (see ScaleWithScreenSizeResizeWritesLetterboxedRect); y=5 is in the top bar.
+    engine::ui::handle_pointer(world, 5.0f, 5.0f);
+
+    EXPECT_FALSE(world.ctx<engine::ui::MouseConsumed>().value);
+    EXPECT_EQ(vm->clicks, 0);
+}
+
+TEST(Mvvm, ScaleWithScreenSizeHitTestScalesPointerIntoDesignSpace) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<ClickViewModel>();
+    const engine::ecs::Entity entity = world.create();
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Button command="{binding click}" content="Go"/></Canvas>)",
+            nullptr, vm.get());
+    ASSERT_TRUE(parsed.has_value());
+    engine::ui::UiCanvas canvas = make_canvas({});
+    canvas.fit = engine::ui::UiFit::ScaleWithScreenSize;
+    canvas.reference_size = {200.0f, 100.0f};
+    canvas.data_context = vm;
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+    world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{*parsed});
+
+    world.ctx<engine::ui::WindowSize>().width = 800;
+    world.ctx<engine::ui::WindowSize>().height = 600;
+    engine::ui::begin_frame(world);
+    // Viewport {0,100,800,400}, scale 4. Real (16,116) maps to design (4,4), inside the default-sized button.
+    engine::ui::handle_pointer(world, 16.0f, 116.0f);
+
+    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().value);
+    EXPECT_EQ(vm->clicks, 1);
+}
+

@@ -358,6 +358,7 @@ Audio `update(frameDt)` still runs (music keeps fading unless the game `stop_mus
 
 - `UiCanvas::fit = FillWindow` → engine sets `rect = {0,0,w,h}` before `Input`.
 - `UiCanvas::fit = Fixed` → game owns `rect` (centered pause panel, world-space HUD).
+- `UiCanvas::fit = ScaleWithScreenSize` → engine writes `rect` to the letterboxed, aspect-preserving real-pixel box for `reference_size` before `Input` (same timing as `FillWindow`); layout/paint/hit-test then run in `reference_size` design units through that box (§8.1).
 - `Camera::auto_aspect = true` (default on the active camera) → rebuild ortho from window size; `screen_to_world` / `WorldToScreen` use that camera + `WindowSize`.
 - Active camera: `ctx<ActiveCamera>() = Entity`. Exactly one; missing camera is fatal on first `Render`.
 - `ctx<WindowSize>` is written **before** `on_start` so `FillWindow` canvases spawned there get a real rect.
@@ -552,7 +553,7 @@ WPF split, mapped to this engine:
 ### 8.1 `UiCanvas`
 
 ```cpp
-enum class UiFit { FillWindow, Fixed };
+enum class UiFit { FillWindow, Fixed, ScaleWithScreenSize };
 
 struct Rect { float x, y, w, h; };  // screen pixels, origin top-left (SDL)
 
@@ -562,10 +563,13 @@ struct UiCanvas {
     std::vector<AssetId> extra_stylesheets; // after xml + stylesheet; later file wins at equal spec
     std::shared_ptr<ui::ViewModel> data_context;
     Rect rect{};                            // scissor + layout origin
+    glm::vec2 reference_size{0.0f, 0.0f};   // design resolution; required when fit == ScaleWithScreenSize
     UiFit fit = UiFit::FillWindow;
     int order = 0;                          // higher = later draw / hit-test
 };
 ```
+
+`ScaleWithScreenSize` is the Unity `PanelSettings`-style "Scale With Screen Size" fit: layout, hit-testing, and painting all run in fixed `reference_size` design units (same XML/CSS as any other canvas — px means design px), and the engine derives one uniform `scale = min(window.w/reference_size.x, window.h/reference_size.y)` plus a centering `offset`, applied only at the paint/hit-test boundary (`ui::canvas_layout_space`). This keeps a pixel-art canvas laid out at its authored resolution (e.g. 576×696) and pixel-perfect at any window size, letterboxed rather than stretched. Use `FillWindow`/`Fixed` when the document's own CSS should react to the real window size instead (e.g. `%`-based responsive HUDs).
 
 Spawn: `emplace<UiCanvas>(hud, { .document = assets::ui::hud, .data_context = hudVm })`. Game code does **not** `make_shared<Layout>()` or set `onClick`.
 
@@ -1045,7 +1049,7 @@ Prefer **pure logic** and fakes over GPU/mixer. Extract policy (gain, pool, AABB
 | CommandBuffer | push `CmdDrawMesh` (material, not raw shader) / `CmdDrawUI`; execute order; clear between frames; **no** custom-callback |
 | Sort | layer, order_in_layer, material, entity; stable; UI commands after world |
 | Materials | parse `.mat` TOML; missing shader GUID fails codegen; instance color multiplies |
-| UiCanvas | FillWindow rect on resize; widget hit (Button) for MouseConsumed; order; MouseConsumed reset each frame |
+| UiCanvas | FillWindow rect on resize; ScaleWithScreenSize letterboxed rect + design-space hit-test on resize; widget hit (Button) for MouseConsumed; order; MouseConsumed reset each frame |
 | UI XML/CSS | parse subset; unknown element fatal; `{binding}` missing name fatal; CSS unknown prop warn |
 | MVVM | property/command registration; OneWay bind updates label text; Button click calls ICommand; onClick API absent |
 | Loop / Time | fixed-step accumulator; cap at `kMaxFixedSteps`; **paused** → 0 Fixed steps, accumulator frozen |

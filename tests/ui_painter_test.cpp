@@ -883,6 +883,49 @@ TEST(UiPainter, MediaMinWidthAppliesAfterResize) {
     EXPECT_FLOAT_EQ(fill->rect.w, 200.0f);
 }
 
+TEST(UiPainter, ScaleWithScreenSizeTransformsRectAndFontSize) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Button content="Go"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet =
+            must_parse_css("Button { width: 100; height: 40; font-size: 16; background: #ffffff; }");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{
+                    .canvas_rect = {0.f, 0.f, 200.f, 100.f}, .ui_offset = {50.f, 25.f}, .ui_scale = 2.0f});
+
+    const PaintCall* fill = painter.find("fill_rect");
+    ASSERT_NE(fill, nullptr);
+    EXPECT_FLOAT_EQ(fill->rect.x, 50.0f);
+    EXPECT_FLOAT_EQ(fill->rect.y, 25.0f);
+    EXPECT_FLOAT_EQ(fill->rect.w, 200.0f);
+    EXPECT_FLOAT_EQ(fill->rect.h, 80.0f);
+
+    const PaintCall* font = painter.find("font");
+    ASSERT_NE(font, nullptr);
+    EXPECT_FLOAT_EQ(font->font_size, 32.0f);
+
+    const PaintCall* text = painter.find("text");
+    ASSERT_NE(text, nullptr);
+    EXPECT_FLOAT_EQ(text->position.x, 50.0f);
+    EXPECT_FLOAT_EQ(text->position.y, 25.0f);
+}
+
+TEST(UiPainter, IdentityTransformLeavesRectUnchanged) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Button content="Go"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css("Button { width: 100; height: 40; background: #ffffff; }");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    const PaintCall* fill = painter.find("fill_rect");
+    ASSERT_NE(fill, nullptr);
+    EXPECT_FLOAT_EQ(fill->rect.x, 0.0f);
+    EXPECT_FLOAT_EQ(fill->rect.y, 0.0f);
+    EXPECT_FLOAT_EQ(fill->rect.w, 100.0f);
+    EXPECT_FLOAT_EQ(fill->rect.h, 40.0f);
+}
+
 TEST(UiPainter, KeyframeOpacityAdvancesWithDeltaTime) {
     auto parsed = engine::ui::parse_xml(R"(
         <Canvas>
