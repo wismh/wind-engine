@@ -1147,7 +1147,7 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 15. `Events<T>` in `World::ctx`; `flush_events` at start of frame (§9).
 16. Pause skips Fixed and freezes accumulator; resize updates `FillWindow` canvases (§4.6–§4.7).
 17. App icon splits into runtime (`IGame::window_icon`, `AssetId`-based) vs. packaging (host-tool-generated `.ico`/`.icns`/mipmap/favicon, CMake/Gradle-time only) — no shared abstraction (§19).
-18. Splash screen is a `Host::tick` phase, not a separate blocking loop — fade-in/hold/fade-out drives `IUiPainter::set_opacity` on the existing image-draw path; on by default with a builtin asset (§20).
+18. Splash screen is one `UiCanvas`/`Image` entity reusing the existing CSS `@keyframes` opacity animator, not a new draw path or a `Host::tick` pause — on by default with a builtin asset (§20).
 
 ---
 
@@ -1453,31 +1453,47 @@ engine-owned runtime image:
   a third of its width as dead black margin on each side) so the shipped asset isn't mostly empty
   space before any runtime letterboxing even happens.
 
-### 20.3 Rendering: fade-in → hold → fade-out
+### 20.3 Rendering: reuse the CSS keyframe animation system, not a new draw path
 
-`Host::tick(float real_dt)` is the single per-frame entry point `MainLoopPolicy::pump` calls
-identically for the blocking desktop loop and the RAF web loop (`web_loop.h`) — the splash is a
-state at the *start* of that tick, not a separate blocking loop before `run()` begins, so it
-needs no per-platform branching the way §19.2's packaging icons did:
+`Host::tick` does **not** gate `Schedule::Fixed`/`Frame`, and `on_start()` is **not** moved —
+both stay exactly as they are today (`on_start()` already runs unconditionally inside `Host`'s
+constructor, before any `tick()`). The splash is not a pause-like blocking phase; it is one more
+`UiCanvas`/`UiInstance` entity drawn on top of everything else, fading itself out via machinery
+that already exists:
 
-- While `elapsed < fade_in + hold + fade_out`: `Host::tick` skips `world_.run(Schedule::Fixed)` /
-  `Frame` entirely (same idea as pause freezing the accumulator, §4.6) and instead draws
-  `splash_screen().image` full-screen, letterboxed with the same fit math `ui::apply_canvas_fit`
-  / `ScaleWithScreenSize` already do — no new fit logic. Opacity comes from the phase:
-  - `[0, fade_in)`: `alpha = elapsed / fade_in` (linear ramp up from 0).
-  - `[fade_in, fade_in + hold)`: `alpha = 1`.
-  - `[fade_in + hold, total)`: `alpha = 1 - (elapsed - fade_in - hold) / fade_out` (linear ramp
-    down to 0).
-  - `fade_in <= 0` or `fade_out <= 0` collapses that ramp to an instant cut, consistent with how
-    §19.1's icon contract treats a zero/negative input as a no-op rather than a special case.
-  - `alpha` feeds `IUiPainter::set_opacity` — the same primitive `paint_element` already uses for
-    element opacity (§8), not a new painter method.
-- The canvas clear color during this phase must be black so the fade-out actually reveals black
-  rather than an undefined or non-black framebuffer — the source art's own background is already
-  near-black by design (§20.2), so the transition from "faded-out splash" to "black clear" is
-  seamless without a special crossfade.
-- Once `elapsed >= total`: one-time transition to normal ticking. `on_start()` runs after this
-  point, same as today — a game never observes a partial splash state.
+- The UI layer already has a working `@keyframes` opacity animator: `ComputedStyle::animation_name`
+  / `animation_duration`, `Element::animation_elapsed` (accumulates real per-frame `delta_time`,
+  clamped to the duration — see `apply_animation_opacity`/`sample_opacity` in `src/ui/paint.cpp`),
+  and an `Image` element kind (`ElementKind::Image`, draws via the same `IUiPainter::image` +
+  `set_opacity` `paint_element` already uses for any element's `opacity`). Fade-in/hold/fade-out
+  is a 4-stop keyframe list computed once from the config
+  (`{0%: 0}, {fade_in/total%: 1}, {(fade_in+hold)/total%: 1}, {100%: 0}`, `animation-duration =
+  fade_in+hold+fade_out`) — no new animation code, no new painter method.
+- This document/stylesheet is **not** a builtin XML/CSS asset (the percentages depend on the
+  game's runtime `SplashScreen` config, which a static asset can't parameterize) — build the CSS
+  and XML as small formatted strings from the config and feed them through the existing
+  `ui::parse_xml` / `parse_css`, the same functions already used everywhere else text markup
+  becomes a `Document`/`Stylesheet`, rather than hand-assembling `Element`/`Keyframes` structs.
+  §16 rule 11 ("games do not build visual trees in C++") is about the API surface exposed to game
+  authors — the engine procedurally generating its *own* one fixed internal splash document from
+  a config struct is a narrow, documented exception to that rule, not a pattern games are meant to
+  copy.
+- Spawned once — gated on `splash_screen().enabled` — as a `UiCanvas{fit = UiFit::FillWindow,
+  order = <high, above every other canvas>}` + `UiInstance{document, stylesheet}` entity, most
+  naturally right where `Host`'s constructor already calls `ui::apply_canvas_fit(game_->world())`
+  (or equivalently in `Engine::init()` after the existing image-preload loop, whichever keeps the
+  builtin/game splash image already resolved through `AssetsDb` by the time this entity exists).
+  `run_ui_render` (`src/ecs/systems.cpp`, the existing `Phase::UiRender` system) already walks
+  every `UiCanvas`/`UiInstance` entity and pushes its draw calls through the same `CommandBuffer`
+  → render-backend path everything else uses — no `ICanvas`/`OpenGLCanvas` changes needed.
+- `element.animation_elapsed` clamps at `animation_duration` and the animation's last keyframe
+  stop is `opacity: 0`, so once the fade-out finishes the element simply sits invisible forever —
+  correct output with no explicit "done" transition needed. Despawning the now-inert entity
+  afterward is a cheap tidiness improvement, not required for correctness; leave it to whoever
+  implements this to decide if it's worth a small system versus one permanently-idle entity.
+- No canvas-clear-color change needed: `OpenGLCanvas::draw()` already clears to black
+  (`glClearColor(0,0,0,1)`) every frame regardless, so a fully faded-out splash already reveals
+  black underneath with no special-casing.
 
 ### 20.4 Open question — not v1
 
@@ -1488,12 +1504,20 @@ status as the deferred items in §17.
 
 ### 20.5 Testing
 
-The three-phase alpha computation (`[0, fade_in)` / hold / `[fade_in+hold, total)`, including the
-`<= 0` collapse-to-instant edge cases) is a pure function of `elapsed` and the `SplashScreen`
-config — testable by injecting `elapsed` values directly, no window needed, the same way
-`FixedStepClock` / `Loop` timing is already tested (`tests/host_test.cpp`, `tests/time_test.cpp`).
+The keyframe-animator half (`element.animation_elapsed` accumulation, `sample_opacity`'s
+interpolation between stops) is **already** covered by `UiPainter.KeyframeOpacityAdvancesWithDeltaTime`
+(§20.3) — this feature adds no new animation logic to test. What's new and needs its own coverage:
+building the 4 keyframe stops (`{0, 0}`, `{fade_in/total, 1}`, `{(fade_in+hold)/total, 1}`,
+`{1, 0}`) and `animation-duration = fade_in+hold+fade_out` from a `SplashScreen` config — a pure
+function, testable directly (feed it a config, assert the stop offsets/values and duration), no
+window or painter needed. Feed the generated CSS/XML strings through the real `parse_css`/
+`parse_xml` in the test too, not just the raw computed numbers, so a malformed generated string
+is caught the same way `UiXml.UnknownElementIsFatal`-style tests already catch bad markup.
 `SplashScreen`'s defaults (`enabled = true`, `image = builtin::splash_wind`, the three durations)
-are a one-line contract test, same pattern as `IGame::window_icon()`'s `nullopt` default (§19.5).
-Actual drawing is not tested — GPU/window excluded from `engine_tests` (§12.3), same as
-everything else in §19 and §18.
+are a one-line contract test, same pattern as `IGame::window_icon()`'s `nullopt` default (§19.5) —
+already done (§20.1). Whether the spawned `UiCanvas`/`UiInstance` entity actually renders on top
+of everything else is not tested — GPU/window excluded from `engine_tests` (§12.3), same as
+everything else in §19 and §18 — but that the entity gets spawned at all when `enabled` and *not*
+spawned when disabled is an ECS-level check (`world.view<ui::UiCanvas>()` count), no window
+needed, same spirit as `tests/host_test.cpp`'s existing `Host` construction tests.
 
