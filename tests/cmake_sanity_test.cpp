@@ -76,6 +76,22 @@ TEST(Scaffold, AndroidCmakeFilesExist) {
 #endif
 }
 
+TEST(Scaffold, AndroidManifestDeclaresVibratePermission) {
+#ifdef ENGINE_SOURCE_DIR
+    const std::filesystem::path root{ENGINE_SOURCE_DIR};
+    const auto slurp = [](const std::filesystem::path& path) {
+        std::ifstream in(path);
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    };
+    const std::string manifest =
+            slurp(root / "cmake" / "android" / "app" / "src" / "main" / "AndroidManifest.xml");
+    ASSERT_FALSE(manifest.empty());
+    EXPECT_NE(manifest.find("android.permission.VIBRATE"), std::string::npos);
+#else
+    GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
+#endif
+}
+
 TEST(Scaffold, AndroidCmakeAndGradleShareAssetsOut) {
 #ifdef ENGINE_SOURCE_DIR
     const std::filesystem::path root{ENGINE_SOURCE_DIR};
