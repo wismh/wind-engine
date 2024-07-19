@@ -2,9 +2,13 @@
 
 #include "painter.h"
 
+#include <engine/ui/canvas.h>  // rect_contains
+
 #include <glm/vec2.hpp>
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <optional>
 #include <vector>
 
@@ -13,8 +17,32 @@ namespace {
 
 constexpr float kDefaultImageSize = 32.0f;
 
-void layout_element(Element& element, const render::Rect& box, IUiPainter* painter, glm::vec2 parent_content);
+void layout_element(Element& element, const render::Rect& box, IUiPainter* painter, glm::vec2 parent_content,
+        const render::Rect& containing_block);
+void layout_absolute(Element& element, const render::Rect& containing_block, IUiPainter* painter);
 [[nodiscard]] glm::vec2 compute_used(const Element& element, IUiPainter* painter, glm::vec2 parent_content);
+
+// position: relative never reflows siblings (they already packed/cursor'd against the
+// pre-offset size) - it only nudges this element's own already-placed layout_rect.
+void apply_relative_offset(Element& element, glm::vec2 basis, float em_basis) {
+    if (element.position != PositionMode::Relative) {
+        return;
+    }
+    float dx = 0.0f;
+    if (element.inset_left) {
+        dx = resolve_length(*element.inset_left, basis.x, em_basis);
+    } else if (element.inset_right) {
+        dx = -resolve_length(*element.inset_right, basis.x, em_basis);
+    }
+    float dy = 0.0f;
+    if (element.inset_top) {
+        dy = resolve_length(*element.inset_top, basis.y, em_basis);
+    } else if (element.inset_bottom) {
+        dy = -resolve_length(*element.inset_bottom, basis.y, em_basis);
+    }
+    element.layout_rect.x += dx;
+    element.layout_rect.y += dy;
+}
 
 struct ResolvedBox {
     float gap = 0.0f;
@@ -174,74 +202,144 @@ glm::vec2 compute_used(const Element& element, IUiPainter* painter, glm::vec2 pa
     };
 }
 
-void layout_stack(Element& element, const render::Rect& allocated, IUiPainter* painter, const ResolvedBox& self) {
+// position: absolute is resolved against `containing_block` (the nearest ancestor with
+// position != Static, or the canvas root) rather than packed into the normal flow. Explicit or
+// hug size is used by default; when both opposite insets are set and no explicit size on that
+// axis, the box stretches to fill instead.
+void layout_absolute(Element& element, const render::Rect& containing_block, IUiPainter* painter) {
+    const glm::vec2 basis{containing_block.w, containing_block.h};
+    const ResolvedBox box = resolve_box(element, basis);
+
+    std::optional<float> left;
+    std::optional<float> right;
+    std::optional<float> top;
+    std::optional<float> bottom;
+    if (element.inset_left) {
+        left = resolve_length(*element.inset_left, basis.x, box.font_size);
+    }
+    if (element.inset_right) {
+        right = resolve_length(*element.inset_right, basis.x, box.font_size);
+    }
+    if (element.inset_top) {
+        top = resolve_length(*element.inset_top, basis.y, box.font_size);
+    }
+    if (element.inset_bottom) {
+        bottom = resolve_length(*element.inset_bottom, basis.y, box.font_size);
+    }
+
+    glm::vec2 used = compute_used(element, painter, basis);
+    if (!box.width && left && right) {
+        used.x = std::max(0.0f, containing_block.w - *left - *right);
+    }
+    if (!box.height && top && bottom) {
+        used.y = std::max(0.0f, containing_block.h - *top - *bottom);
+    }
+
+    float x = containing_block.x;
+    if (left) {
+        x += *left;
+    } else if (right) {
+        x += containing_block.w - *right - used.x;
+    }
+    float y = containing_block.y;
+    if (top) {
+        y += *top;
+    } else if (bottom) {
+        y += containing_block.h - *bottom - used.y;
+    }
+
+    layout_element(element, render::Rect{x, y, used.x, used.y}, painter, basis, containing_block);
+}
+
+void layout_stack(Element& element, const render::Rect& allocated, IUiPainter* painter, const ResolvedBox& self,
+        const render::Rect& containing_block) {
     std::vector<Element*> children;
     collect_layout_children(element, children);
     if (children.empty()) {
         return;
     }
 
+    std::vector<Element*> flow;
+    std::vector<Element*> absolute;
+    flow.reserve(children.size());
+    for (Element* child : children) {
+        if (child->position == PositionMode::Absolute) {
+            absolute.push_back(child);
+        } else {
+            flow.push_back(child);
+        }
+    }
+
     const glm::vec2 child_basis{allocated.w, allocated.h};
-    float packed = 0.0f;
-    for (std::size_t i = 0; i < children.size(); ++i) {
-        const Element& child = *children[i];
-        const ResolvedBox child_box = resolve_box(child, child_basis);
-        const glm::vec2 used = compute_used(child, painter, child_basis);
-        if (element.direction == StackDirection::Horizontal) {
-            packed += child_box.margin.left + used.x + child_box.margin.right;
-        } else {
-            packed += child_box.margin.top + used.y + child_box.margin.bottom;
+    if (!flow.empty()) {
+        float packed = 0.0f;
+        for (std::size_t i = 0; i < flow.size(); ++i) {
+            const Element& child = *flow[i];
+            const ResolvedBox child_box = resolve_box(child, child_basis);
+            const glm::vec2 used = compute_used(child, painter, child_basis);
+            if (element.direction == StackDirection::Horizontal) {
+                packed += child_box.margin.left + used.x + child_box.margin.right;
+            } else {
+                packed += child_box.margin.top + used.y + child_box.margin.bottom;
+            }
+            if (i + 1 < flow.size()) {
+                packed += self.gap;
+            }
         }
-        if (i + 1 < children.size()) {
-            packed += self.gap;
+
+        const bool horizontal = element.direction == StackDirection::Horizontal;
+        const float leftover = std::max(0.0f, (horizontal ? allocated.w : allocated.h) - packed);
+        float cursor = horizontal ? allocated.x : allocated.y;
+        if (element.justify == UiAlign::Center) {
+            cursor += leftover * 0.5f;
+        } else if (element.justify == UiAlign::End) {
+            cursor += leftover;
+        }
+
+        for (std::size_t i = 0; i < flow.size(); ++i) {
+            Element& child = *flow[i];
+            const ResolvedBox child_box = resolve_box(child, child_basis);
+            const glm::vec2 used = compute_used(child, painter, child_basis);
+            if (horizontal) {
+                cursor += child_box.margin.left;
+                const float extra =
+                        std::max(0.0f, allocated.h - child_box.margin.top - child_box.margin.bottom - used.y);
+                float y = allocated.y + child_box.margin.top;
+                if (element.align_items == UiAlign::Center) {
+                    y += extra * 0.5f;
+                } else if (element.align_items == UiAlign::End) {
+                    y += extra;
+                }
+                layout_element(child, render::Rect{cursor, y, used.x, used.y}, painter, child_basis, containing_block);
+                apply_relative_offset(child, child_basis, child_box.font_size);
+                cursor += used.x + child_box.margin.right;
+            } else {
+                cursor += child_box.margin.top;
+                const float extra =
+                        std::max(0.0f, allocated.w - child_box.margin.left - child_box.margin.right - used.x);
+                float x = allocated.x + child_box.margin.left;
+                if (element.align_items == UiAlign::Center) {
+                    x += extra * 0.5f;
+                } else if (element.align_items == UiAlign::End) {
+                    x += extra;
+                }
+                layout_element(child, render::Rect{x, cursor, used.x, used.y}, painter, child_basis, containing_block);
+                apply_relative_offset(child, child_basis, child_box.font_size);
+                cursor += used.y + child_box.margin.bottom;
+            }
+            if (i + 1 < flow.size()) {
+                cursor += self.gap;
+            }
         }
     }
 
-    const bool horizontal = element.direction == StackDirection::Horizontal;
-    const float leftover = std::max(0.0f, (horizontal ? allocated.w : allocated.h) - packed);
-    float cursor = horizontal ? allocated.x : allocated.y;
-    if (element.justify == UiAlign::Center) {
-        cursor += leftover * 0.5f;
-    } else if (element.justify == UiAlign::End) {
-        cursor += leftover;
-    }
-
-    for (std::size_t i = 0; i < children.size(); ++i) {
-        Element& child = *children[i];
-        const ResolvedBox child_box = resolve_box(child, child_basis);
-        const glm::vec2 used = compute_used(child, painter, child_basis);
-        if (horizontal) {
-            cursor += child_box.margin.left;
-            const float extra =
-                    std::max(0.0f, allocated.h - child_box.margin.top - child_box.margin.bottom - used.y);
-            float y = allocated.y + child_box.margin.top;
-            if (element.align_items == UiAlign::Center) {
-                y += extra * 0.5f;
-            } else if (element.align_items == UiAlign::End) {
-                y += extra;
-            }
-            layout_element(child, render::Rect{cursor, y, used.x, used.y}, painter, child_basis);
-            cursor += used.x + child_box.margin.right;
-        } else {
-            cursor += child_box.margin.top;
-            const float extra =
-                    std::max(0.0f, allocated.w - child_box.margin.left - child_box.margin.right - used.x);
-            float x = allocated.x + child_box.margin.left;
-            if (element.align_items == UiAlign::Center) {
-                x += extra * 0.5f;
-            } else if (element.align_items == UiAlign::End) {
-                x += extra;
-            }
-            layout_element(child, render::Rect{x, cursor, used.x, used.y}, painter, child_basis);
-            cursor += used.y + child_box.margin.bottom;
-        }
-        if (i + 1 < children.size()) {
-            cursor += self.gap;
-        }
+    for (Element* child : absolute) {
+        layout_absolute(*child, containing_block, painter);
     }
 }
 
-void layout_element(Element& element, const render::Rect& box, IUiPainter* painter, glm::vec2 parent_content) {
+void layout_element(Element& element, const render::Rect& box, IUiPainter* painter, glm::vec2 parent_content,
+        const render::Rect& containing_block) {
     element.layout_rect = box;
     if (element.kind == ElementKind::ItemTemplate) {
         return;
@@ -249,20 +347,37 @@ void layout_element(Element& element, const render::Rect& box, IUiPainter* paint
     const ResolvedBox resolved = resolve_box(element, parent_content);
     const render::Rect content = inset_rect(box, resolved.padding);
     const glm::vec2 child_basis{content.w, content.h};
+    // A positioned element (relative or absolute) becomes the containing block its own
+    // descendants resolve `position: absolute` against.
+    const render::Rect child_containing_block = element.position != PositionMode::Static ? box : containing_block;
     if (element.kind == ElementKind::Stack || element.kind == ElementKind::ItemsControl) {
-        layout_stack(element, content, painter, resolved);
+        layout_stack(element, content, painter, resolved, child_containing_block);
         return;
     }
 
+    std::vector<Element*> flow;
+    std::vector<Element*> absolute;
     for (Element& child : element.children) {
         if (child.kind == ElementKind::ItemTemplate) {
             continue;
         }
+        if (child.position == PositionMode::Absolute) {
+            absolute.push_back(&child);
+        } else {
+            flow.push_back(&child);
+        }
+    }
+    for (Element* child_ptr : flow) {
+        Element& child = *child_ptr;
         const ResolvedBox child_box = resolve_box(child, child_basis);
         const glm::vec2 used = compute_used(child, painter, child_basis);
         layout_element(child,
                 render::Rect{content.x + child_box.margin.left, content.y + child_box.margin.top, used.x, used.y},
-                painter, child_basis);
+                painter, child_basis, child_containing_block);
+        apply_relative_offset(child, child_basis, child_box.font_size);
+    }
+    for (Element* child_ptr : absolute) {
+        layout_absolute(*child_ptr, child_containing_block, painter);
     }
 }
 
@@ -394,11 +509,77 @@ std::expected<void, UiError> apply_bindings(UiDocument& document, ViewModel& dat
 }
 
 void layout(UiDocument& document, const render::Rect& canvas_rect, IUiPainter* painter) {
-    layout_element(document.root, canvas_rect, painter, glm::vec2{canvas_rect.w, canvas_rect.h});
+    layout_element(document.root, canvas_rect, painter, glm::vec2{canvas_rect.w, canvas_rect.h}, canvas_rect);
 }
 
 void layout(UiDocument& document, const render::Rect& canvas_rect) {
     layout(document, canvas_rect, nullptr);
+}
+
+render::Rect hit_bounds(const Element& element) {
+    if (element.rotation_deg == 0.0f && element.scale == 1.0f) {
+        return element.layout_rect;
+    }
+    const render::Rect& rect = element.layout_rect;
+    const glm::vec2 center{rect.x + rect.w * 0.5f, rect.y + rect.h * 0.5f};
+    const float radians = element.rotation_deg * (3.14159265358979323846f / 180.0f);
+    const float cos_r = std::cos(radians);
+    const float sin_r = std::sin(radians);
+    const glm::vec2 half{rect.w * 0.5f * element.scale, rect.h * 0.5f * element.scale};
+    const glm::vec2 corners[4] = {
+            {-half.x, -half.y},
+            {half.x, -half.y},
+            {half.x, half.y},
+            {-half.x, half.y},
+    };
+    float min_x = std::numeric_limits<float>::max();
+    float max_x = std::numeric_limits<float>::lowest();
+    float min_y = std::numeric_limits<float>::max();
+    float max_y = std::numeric_limits<float>::lowest();
+    for (const glm::vec2& corner : corners) {
+        const float x = corner.x * cos_r - corner.y * sin_r;
+        const float y = corner.x * sin_r + corner.y * cos_r;
+        min_x = std::min(min_x, x);
+        max_x = std::max(max_x, x);
+        min_y = std::min(min_y, y);
+        max_y = std::max(max_y, y);
+    }
+    return render::Rect{center.x + min_x, center.y + min_y, max_x - min_x, max_y - min_y};
+}
+
+std::vector<Element*> child_stacking_order(std::vector<Element>& children) {
+    std::vector<Element*> order;
+    order.reserve(children.size());
+    for (Element& child : children) {
+        order.push_back(&child);
+    }
+    std::stable_sort(order.begin(), order.end(),
+            [](const Element* a, const Element* b) { return a->z_index < b->z_index; });
+    return order;
+}
+
+Element* hit_test(Element& element, float x, float y) {
+    if (!rect_contains(hit_bounds(element), x, y)) {
+        return nullptr;
+    }
+    // child_stacking_order() is ascending (paint order); iterating its result back-to-front
+    // visits the topmost (highest z-index / last-drawn) sibling first.
+    std::vector<Element*> children = child_stacking_order(element.children);
+    for (auto it = children.rbegin(); it != children.rend(); ++it) {
+        if (Element* nested = hit_test(**it, x, y)) {
+            return nested;
+        }
+    }
+    std::vector<Element*> generated = child_stacking_order(element.generated_items);
+    for (auto it = generated.rbegin(); it != generated.rend(); ++it) {
+        if (Element* nested = hit_test(**it, x, y)) {
+            return nested;
+        }
+    }
+    if (element.kind == ElementKind::Button) {
+        return &element;
+    }
+    return nullptr;
 }
 
 Element* find_by_kind(Element& root, ElementKind kind) {

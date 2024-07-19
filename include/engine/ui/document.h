@@ -45,6 +45,12 @@ enum class UiAlign {
     End,
 };
 
+enum class PositionMode {
+    Static,
+    Relative,
+    Absolute,
+};
+
 struct BoxInsets {
     float top = 0.0f;
     float right = 0.0f;
@@ -172,6 +178,14 @@ struct Element {
     Length font_size{kDefaultFontSize, LengthUnit::Px};
     AssetId font_family{};
     float animation_elapsed = 0.0f;
+    int z_index = 0;
+    PositionMode position = PositionMode::Static;
+    std::optional<Length> inset_top;
+    std::optional<Length> inset_right;
+    std::optional<Length> inset_bottom;
+    std::optional<Length> inset_left;
+    float rotation_deg = 0.0f;
+    float scale = 1.0f;
 
     render::Rect layout_rect{};
     ICommand* command = nullptr;
@@ -206,5 +220,23 @@ void layout(UiDocument& document, const render::Rect& canvas_rect);
 
 [[nodiscard]] Element* find_by_kind(Element& root, ElementKind kind);
 [[nodiscard]] const Element* find_by_kind(const Element& root, ElementKind kind);
+
+// Sibling paint/hit-test order: stable sort by z_index ascending (low first = behind, matching
+// UiCanvas::order), tie-broken by document order. z_index == 0 everywhere (the default) leaves
+// order unchanged. Paint iterates this forward; hit-testing iterates it in reverse (topmost
+// first).
+[[nodiscard]] std::vector<Element*> child_stacking_order(std::vector<Element>& children);
+
+// Hit-test bounds: layout_rect for an untransformed element (the common case, byte-identical to
+// today), otherwise the axis-aligned bounding box of the element's rotated+scaled corners about
+// its own center. This is an AABB approximation, not a precise oriented-rect test - a rotated
+// element's hit area is slightly generous at its corners.
+[[nodiscard]] render::Rect hit_bounds(const Element& element);
+
+// Topmost Button under (x, y): prunes by hit_bounds() containment, visits siblings in reverse
+// stacking order (highest z-index / last-drawn first), returns the first Button found or
+// nullptr. Shared by click resolution (canvas.cpp) and hover resolution (paint.cpp) so both
+// agree on which element is "on top."
+[[nodiscard]] Element* hit_test(Element& root, float x, float y);
 
 }

@@ -19,6 +19,11 @@ public:
     virtual void save() = 0;
     virtual void restore() = 0;
     virtual void scissor(const render::Rect& rect) = 0;
+    // Rotates (radians) and uniformly scales everything painted after this call - including
+    // recursed children - about `center`, until the matching restore(). No un-apply call is
+    // needed: restore() already undoes it, the same way a single scissor() call has no
+    // matching "unscissor".
+    virtual void apply_transform(glm::vec2 center, float rotation_radians, float scale) = 0;
     virtual void set_opacity(float opacity) = 0;
     virtual void fill_rounded_rect(const render::Rect& rect, float radius, glm::vec4 color) = 0;
     virtual void stroke_rounded_rect(const render::Rect& rect, float radius, float width, glm::vec4 color) = 0;
