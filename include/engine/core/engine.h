@@ -29,6 +29,7 @@
 #include <concepts>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <utility>
 
 namespace engine {
@@ -162,6 +163,10 @@ bool Engine<GameT>::init() {
             runtime_.shutdown();
             return false;
         }
+    }
+
+    if (const std::optional<AssetId> icon_id = game_->window_icon(); icon_id.has_value()) {
+        runtime_.set_window_icon(*assets_->get<render::TextureDesc>(*icon_id));
     }
 
     runtime_.write_window_size(game_->world(), true);
