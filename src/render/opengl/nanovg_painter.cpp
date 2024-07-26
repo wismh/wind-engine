@@ -29,6 +29,7 @@ struct NanoVgPainter::Impl {
     NVGcontext* vg = nullptr;
     std::vector<std::vector<std::uint8_t>> font_blobs;
     std::unordered_map<std::string, int> fonts;
+    std::unordered_map<std::string, int> images;
     int default_font = -1;
 };
 
@@ -71,6 +72,23 @@ bool NanoVgPainter::load_ui_font(const Font& font) {
     return true;
 }
 
+bool NanoVgPainter::add_image(AssetId id, const TextureDesc& desc) {
+    if (impl_->vg == nullptr || desc.width <= 0 || desc.height <= 0 || desc.rgba.empty()) {
+        return false;
+    }
+    const std::string key(id.hex());
+    if (impl_->images.contains(key)) {
+        return true;
+    }
+    const int nvg_id =
+            nvgCreateImageRGBA(impl_->vg, desc.width, desc.height, 0, desc.rgba.data());
+    if (nvg_id <= 0) {
+        return false;
+    }
+    impl_->images.emplace(key, nvg_id);
+    return true;
+}
+
 void NanoVgPainter::destroy() {
     if (impl_ == nullptr) {
         return;
@@ -80,6 +98,7 @@ void NanoVgPainter::destroy() {
         impl_->vg = nullptr;
     }
     impl_->fonts.clear();
+    impl_->images.clear();
     impl_->default_font = -1;
     impl_->font_blobs.clear();
 }
@@ -192,6 +211,20 @@ void NanoVgPainter::fill_text(std::string_view text, glm::vec2 position, glm::ve
     nvgText(impl_->vg, position.x, position.y, z.c_str(), nullptr);
 }
 
-void NanoVgPainter::image(AssetId, const Rect&) {}
+void NanoVgPainter::image(AssetId texture, const Rect& rect) {
+    if (impl_->vg == nullptr) {
+        return;
+    }
+    const auto it = impl_->images.find(std::string(texture.hex()));
+    if (it == impl_->images.end()) {
+        return;
+    }
+    const NVGpaint paint =
+            nvgImagePattern(impl_->vg, rect.x, rect.y, rect.w, rect.h, 0.0f, it->second, 1.0f);
+    nvgBeginPath(impl_->vg);
+    nvgRect(impl_->vg, rect.x, rect.y, rect.w, rect.h);
+    nvgFillPaint(impl_->vg, paint);
+    nvgFill(impl_->vg);
+}
 
 }
