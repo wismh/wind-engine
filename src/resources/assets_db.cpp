@@ -62,7 +62,7 @@ std::optional<ImporterKind> importer_for_type(const std::type_info& type) {
 }
 
 bool importer_matches(const std::type_info& type, ImporterKind actual) {
-    if (type == typeid(render::ITexture)) {
+    if (type == typeid(render::ITexture) || type == typeid(render::TextureDesc)) {
         return actual == ImporterKind::Texture || actual == ImporterKind::UiImage;
     }
     const auto wanted = importer_for_type(type);
@@ -190,6 +190,20 @@ std::expected<std::shared_ptr<void>, AssetError> load_cpu(
         auto font = std::make_shared<Font>();
         font->bytes.assign(bytes->begin(), bytes->end());
         return std::static_pointer_cast<void>(std::move(font));
+    }
+
+    if (type == typeid(render::TextureDesc)) {
+        const auto bytes = read_all(path);
+        if (!bytes) {
+            return std::unexpected(AssetError::Corrupt);
+        }
+        auto desc = decode_png_rgba(*bytes);
+        if (!desc) {
+            return std::unexpected(AssetError::Corrupt);
+        }
+        desc->filter = entry.texture.filter;
+        desc->wrap = entry.texture.wrap;
+        return std::static_pointer_cast<void>(std::make_shared<render::TextureDesc>(std::move(*desc)));
     }
 
     return std::unexpected(AssetError::Corrupt);

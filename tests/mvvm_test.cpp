@@ -1,12 +1,15 @@
 #include <gtest/gtest.h>
 
 #include <engine/ecs/world.h>
+#include <engine/resources/asset_id.h>
+#include <engine/resources/fatal_error.h>
 #include <engine/ui/binding_id.h>
 #include <engine/ui/canvas.h>
 #include <engine/ui/document.h>
 #include <engine/ui/view_model.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -38,6 +41,18 @@ public:
     }
 };
 
+class RecordingFatalError final : public engine::IFatalError {
+public:
+    int call_count = 0;
+    std::string last_message;
+
+    void report(std::string_view message) override {
+        ++call_count;
+        last_message = std::string(message);
+    }
+};
+
+constexpr engine::AssetId kIconGuid{"c1a1c2d3e4f5678901234567890abc09"};
 constexpr std::string_view kDummyGuid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 engine::ui::UiCanvas make_canvas(engine::render::Rect rect, int order = 0) {
@@ -102,7 +117,61 @@ TEST(Mvvm, PropertyAndCommandRegistration) {
     vm.score.set(12);
     EXPECT_EQ(vm.read_property_string(engine::ui::intern("title")), "HUD");
     EXPECT_EQ(vm.read_property_string(engine::ui::intern("score")), "12");
+    EXPECT_EQ(vm.read_property_asset_id(engine::ui::intern("title")), std::nullopt);
+    EXPECT_EQ(vm.read_property_asset_id(engine::ui::intern("score")), std::nullopt);
     EXPECT_NE(vm.find_command(engine::ui::intern("restart")), nullptr);
+}
+
+TEST(Mvvm, AssetIdPropertyReadsTypedIdNotHexString) {
+    class IconVm final : public engine::ui::ViewModel {
+    public:
+        engine::ui::Bindable<engine::AssetId> icon{kIconGuid};
+
+        IconVm() { property(engine::ui::intern("icon"), icon); }
+    };
+    IconVm vm;
+    EXPECT_TRUE(vm.has_property(engine::ui::intern("icon")));
+    EXPECT_EQ(vm.read_property_asset_id(engine::ui::intern("icon")), kIconGuid);
+    const auto as_string = vm.read_property_string(engine::ui::intern("icon"));
+    ASSERT_TRUE(as_string.has_value());
+    EXPECT_TRUE(as_string->empty());
+}
+
+TEST(Mvvm, ImageSourceBindingWritesAssetId) {
+    class IconVm final : public engine::ui::ViewModel {
+    public:
+        engine::ui::Bindable<engine::AssetId> icon{kIconGuid};
+
+        IconVm() { property(engine::ui::intern("icon"), icon); }
+    };
+    IconVm vm;
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Image source="{binding icon}"/></Canvas>)", nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+    const engine::ui::Element* image = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Image);
+    ASSERT_NE(image, nullptr);
+    ASSERT_TRUE(image->source.has_value());
+    EXPECT_EQ(*image->source, kIconGuid);
+}
+
+TEST(Mvvm, ImageSourceStringPropertyIsTypeMismatch) {
+    class StringIconVm final : public engine::ui::ViewModel {
+    public:
+        engine::ui::Bindable<std::string> icon{std::string(kIconGuid.hex())};
+
+        StringIconVm() { property(engine::ui::intern("icon"), icon); }
+    };
+    StringIconVm vm;
+    RecordingFatalError fatal;
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Image source="{binding icon}"/></Canvas>)", nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    const auto applied = engine::ui::apply_bindings(*parsed, vm, &fatal);
+    EXPECT_FALSE(applied.has_value());
+    EXPECT_EQ(applied.error(), engine::ui::UiError::MissingBinding);
+    EXPECT_GE(fatal.call_count, 1);
+    const engine::ui::Element* image = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Image);
+    ASSERT_NE(image, nullptr);
+    EXPECT_FALSE(image->source.has_value());
 }
 
 TEST(Mvvm, OneWayBindUpdatesLabelText) {

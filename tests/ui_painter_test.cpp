@@ -3,6 +3,8 @@
 #include "ui/painter.h"
 
 #include <engine/builtin_ids.h>
+#include <engine/resources/asset_id.h>
+#include <engine/resources/fatal_error.h>
 #include <engine/ui/document.h>
 #include <engine/ui/stylesheet.h>
 #include <engine/ui/view_model.h>
@@ -13,6 +15,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #if defined(NANOVG_H) || defined(NANOVG_GL_H) || defined(NANOVG_GL3)
@@ -30,6 +33,7 @@ struct PaintCall {
     float opacity = 1.0f;
     float font_size = 0.0f;
     engine::AssetId font{};
+    engine::AssetId texture{};
     std::string text;
     glm::vec2 position{};
     engine::ui::UiAlign horizontal = engine::ui::UiAlign::Start;
@@ -71,7 +75,7 @@ public:
     }
 
     void image(engine::AssetId texture, const engine::render::Rect& rect) override {
-        calls.push_back(PaintCall{.op = "image", .rect = rect, .font = texture});
+        calls.push_back(PaintCall{.op = "image", .rect = rect, .texture = texture});
     }
 
     [[nodiscard]] int count(std::string_view op) const {
@@ -130,6 +134,35 @@ public:
         go = [] {};
     }
 };
+
+class IconVm final : public engine::ui::ViewModel {
+public:
+    engine::ui::Bindable<engine::AssetId> icon;
+
+    explicit IconVm(engine::AssetId id) : icon(id) { property(engine::ui::intern("icon"), icon); }
+};
+
+class StringIconVm final : public engine::ui::ViewModel {
+public:
+    engine::ui::Bindable<std::string> icon;
+
+    explicit StringIconVm(std::string value) : icon(std::move(value)) {
+        property(engine::ui::intern("icon"), icon);
+    }
+};
+
+class RecordingFatalError final : public engine::IFatalError {
+public:
+    int call_count = 0;
+    std::string last_message;
+
+    void report(std::string_view message) override {
+        ++call_count;
+        last_message = std::string(message);
+    }
+};
+
+constexpr engine::AssetId kIconGuid{"c1a1c2d3e4f5678901234567890abc09"};
 
 engine::ui::Stylesheet must_parse_css(std::string_view css) {
     std::vector<std::string> warnings;
@@ -349,4 +382,60 @@ TEST(UiPainter, ItemsControlPaintsItemDataContext) {
     ASSERT_EQ(texts.size(), 2u);
     EXPECT_EQ(texts[0], "X");
     EXPECT_EQ(texts[1], "O");
+}
+
+TEST(UiPainter, ImageSourceFromBoundAssetId) {
+    IconVm vm{kIconGuid};
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Image source="{binding icon}"/></Canvas>)", nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+
+    const engine::ui::Element* image = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Image);
+    ASSERT_NE(image, nullptr);
+    ASSERT_TRUE(image->source.has_value());
+    EXPECT_EQ(*image->source, kIconGuid);
+
+    FakePainter painter;
+    const engine::render::Rect canvas{0.f, 0.f, 200.f, 100.f};
+    engine::ui::paint_document(*parsed, nullptr, painter, engine::ui::UiPaintInput{.canvas_rect = canvas});
+
+    const PaintCall* call = painter.find("image");
+    ASSERT_NE(call, nullptr);
+    EXPECT_EQ(call->texture, kIconGuid);
+    EXPECT_EQ(call->rect, canvas);
+}
+
+TEST(UiPainter, ImageSourceLiteralGuidPaints) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Image source="c1a1c2d3e4f5678901234567890abc09"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+
+    const engine::ui::Element* image = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Image);
+    ASSERT_NE(image, nullptr);
+    ASSERT_TRUE(image->source.has_value());
+    EXPECT_EQ(*image->source, kIconGuid);
+
+    FakePainter painter;
+    const engine::render::Rect canvas{0.f, 0.f, 64.f, 32.f};
+    engine::ui::paint_document(*parsed, nullptr, painter, engine::ui::UiPaintInput{.canvas_rect = canvas});
+
+    const PaintCall* call = painter.find("image");
+    ASSERT_NE(call, nullptr);
+    EXPECT_EQ(call->texture, kIconGuid);
+    EXPECT_EQ(call->rect, canvas);
+}
+
+TEST(UiPainter, ImageSourceStringBindingFailsAtApply) {
+    StringIconVm vm{std::string(kIconGuid.hex())};
+    RecordingFatalError fatal;
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Image source="{binding icon}"/></Canvas>)", nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+
+    const auto applied = engine::ui::apply_bindings(*parsed, vm, &fatal);
+    EXPECT_FALSE(applied.has_value());
+    EXPECT_EQ(applied.error(), engine::ui::UiError::MissingBinding);
+    EXPECT_GE(fatal.call_count, 1);
+
+    const engine::ui::Element* image = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Image);
+    ASSERT_NE(image, nullptr);
+    EXPECT_FALSE(image->source.has_value());
 }
