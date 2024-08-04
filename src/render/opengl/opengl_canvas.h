@@ -24,11 +24,22 @@ public:
     OpenGLCanvas(const OpenGLCanvas&) = delete;
     OpenGLCanvas& operator=(const OpenGLCanvas&) = delete;
 
-    [[nodiscard]] bool init();
+    // with_ui_painter=false skips constructing a NanoVgPainter for this canvas entirely (used by
+    // callers that only ever push CmdDrawMesh, never CmdDrawUI, into this window's buffer). Every
+    // real window — primary or secondary — passes the default `true` today (SDD §21.6): each
+    // OpenGLCanvas owns its own NanoVgPainter, and draw() re-arms the one shared
+    // OpenGLRenderBackend::ui_painter_ pointer to *this* canvas's painter immediately before its
+    // own execute() call, so "last window's draw() wins" is scoped to that single instant rather
+    // than being a permanent, corrupting registration.
+    [[nodiscard]] bool init(bool with_ui_painter = true);
     [[nodiscard]] bool load_ui_font(const Font& font);
     [[nodiscard]] bool add_font(AssetId id, const Font& font);
     [[nodiscard]] bool add_image(AssetId id, const TextureDesc& desc);
     void draw() override;
+
+    [[nodiscard]] SDL_GLContext native_context() const noexcept {
+        return context_;
+    }
 
 private:
     void destroy_context();
