@@ -9,7 +9,6 @@
 #include <engine/render/command_buffer.h>
 
 #include <memory>
-#include <string_view>
 
 namespace engine::render {
 
@@ -20,7 +19,7 @@ struct OpenGLRuntime {
     OpenGLRenderBackend backend;
     std::unique_ptr<OpenGLCanvas> canvas;
 
-    [[nodiscard]] bool init(std::string_view title, glm::ivec2 size) {
+    [[nodiscard]] bool init(const WindowDesc& desc) {
 #if defined(ENGINE_WITH_GLES)
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
@@ -32,7 +31,7 @@ struct OpenGLRuntime {
 #endif
         SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 
-        if (!window.create(title, size)) {
+        if (!window.create(desc)) {
             return false;
         }
         canvas = std::make_unique<OpenGLCanvas>(window, commands, backend);
@@ -49,7 +48,7 @@ inline void quit_video() {
 }
 
 [[nodiscard]] inline bool create_runtime_for_game(IGame& game, OpenGLRuntime& runtime) {
-    return runtime.init(game.window_title(), game.window_size());
+    return runtime.init(game.primary_window());
 }
 
 }
