@@ -20,6 +20,7 @@
 #include <chrono>
 #include <cstdint>
 #include <fstream>
+#include <map>
 #include <memory>
 #include <string>
 #include <system_error>
@@ -131,14 +132,15 @@ std::filesystem::path android_runtime_assets_root(const std::filesystem::path& b
 // integers like 0-2), so the splash always paints last without games needing to coordinate.
 constexpr int kSplashCanvasOrder = 1000;
 
-void spawn_splash(ecs::World& world, const SplashScreen& config) {
-    const std::optional<ui::SplashDocument> splash = ui::build_splash_document(config);
+void spawn_splash(ecs::World& world, const SplashScreen& config, glm::vec2 image_size) {
+    const std::optional<ui::SplashDocument> splash = ui::build_splash_document(config, image_size);
     if (!splash) {
         return;
     }
     const ecs::Entity entity = world.create();
     ui::UiCanvas canvas;
-    canvas.fit = ui::UiFit::FillWindow;
+    canvas.fit = ui::UiFit::ScaleWithScreenSize;
+    canvas.reference_size = splash->reference_size;
     canvas.order = kSplashCanvasOrder;
     world.emplace<ui::UiCanvas>(entity, canvas);
     // canvas.document/data_context are left at their defaults so they match UiInstance's
@@ -164,6 +166,10 @@ struct EngineRuntime::Impl {
     std::chrono::steady_clock::time_point loop_last{};
     std::function<void()> host_dispose;
     LoopShutdown loop_shutdown;
+    // Recorded from add_image's TextureDesc as images are preloaded, so spawn_splash can look up
+    // the splash image's real pixel size (needed to keep its aspect ratio) without threading
+    // AssetsDb through EngineRuntime's public API.
+    std::map<AssetId, glm::vec2> image_sizes;
 
     Impl() {
         canvas = std::make_shared<render::OpenGLCanvas>(window, *commands, *backend);
@@ -218,6 +224,7 @@ bool EngineRuntime::add_image(AssetId id, const render::TextureDesc& desc) {
     if (impl_->canvas == nullptr) {
         return false;
     }
+    impl_->image_sizes[id] = glm::vec2{static_cast<float>(desc.width), static_cast<float>(desc.height)};
     return impl_->canvas->add_image(id, desc);
 }
 
@@ -270,7 +277,11 @@ void EngineRuntime::begin_loop(IGame& game, InputSystem& input, IAudioSystem* au
 
     game.on_start();
     ui::apply_canvas_fit(game.world());
-    spawn_splash(game.world(), game.splash_screen());
+    const SplashScreen splash_config = game.splash_screen();
+    const auto image_size_it = impl_->image_sizes.find(splash_config.image);
+    const glm::vec2 splash_image_size =
+            image_size_it != impl_->image_sizes.end() ? image_size_it->second : glm::vec2{0.0f, 0.0f};
+    spawn_splash(game.world(), splash_config, splash_image_size);
     game.world().ctx<ApplicationState>().running = true;
 }
 
