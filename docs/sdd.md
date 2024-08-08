@@ -1484,18 +1484,33 @@ everything else, fading itself out via machinery that already exists:
   authors — the engine procedurally generating its *own* one fixed internal splash document from
   a config struct is a narrow, documented exception to that rule, not a pattern games are meant to
   copy.
-- Spawned once — gated on `splash_screen().enabled` — as a `UiCanvas{fit = UiFit::FillWindow,
-  order = <high, above every other canvas>}` + `UiInstance{document, stylesheet}` entity, most
-  naturally right where `EngineRuntime::begin_loop()` already calls
-  `ui::apply_canvas_fit(game.world())` (that's after `Engine::init()`'s catalog/image-preload
-  loop has already finished, so the builtin/game splash image is already resolved through
-  `AssetsDb` by the time this entity exists). `world.create()` + `world.emplace<ui::UiCanvas>(...)`
-  + `world.emplace<ui::UiInstance>(...)` is the existing spawn pattern — see
-  `spawn_button_canvas` in `tests/mvvm_test.cpp` for a working example of building a `UiCanvas` +
-  `UiInstance{parsed_document}` pair from a `parse_xml` result.
+- Spawned once — gated on `splash_screen().enabled` — as a `UiCanvas{fit =
+  UiFit::ScaleWithScreenSize, order = <high, above every other canvas>}` +
+  `UiInstance{document, stylesheet}` entity, most naturally right where
+  `EngineRuntime::begin_loop()` already calls `ui::apply_canvas_fit(game.world())` (that's after
+  `Engine::init()`'s catalog/image-preload loop has already finished, so the builtin/game splash
+  image is already resolved through `AssetsDb` by the time this entity exists). `world.create()`
+  + `world.emplace<ui::UiCanvas>(...)` + `world.emplace<ui::UiInstance>(...)` is the existing
+  spawn pattern — see `spawn_button_canvas` in `tests/mvvm_test.cpp` for a working example of
+  building a `UiCanvas` + `UiInstance{parsed_document}` pair from a `parse_xml` result.
   `run_ui_render` (`src/ecs/systems.cpp`, the existing `Phase::UiRender` system) already walks
   every `UiCanvas`/`UiInstance` entity and pushes its draw calls through the same `CommandBuffer`
   → render-backend path everything else uses — no `ICanvas`/`OpenGLCanvas` changes needed.
+- **Aspect ratio, not stretch-to-fill**: the `Image` rule is `position: absolute; left: 10%;
+  top: 10%; width: 80%; height: 80%` — a fixed, centered 80% box within the canvas, not
+  `width/height: 100%` (a first draft used `100%`, which stretches a non-square image to whatever
+  aspect ratio the window happens to be — wrong, caught after implementation and fixed). The
+  actual letterboxing that keeps the image's own aspect ratio comes from `UiCanvas::reference_size
+  = image_size / 0.8` combined with `ScaleWithScreenSize`'s existing contain-fit math
+  (`canvas_layout_space`/`scaled_fit_rect` in `src/ui/canvas.cpp`, §8.1's `ScaleWithScreenSize`
+  entry): that fits the *canvas* into the real window preserving `reference_size`'s aspect ratio
+  (the image's own), so the fixed 80% image box inside it lands at the image's exact aspect ratio
+  with a minimum 10% margin on every edge — more margin on whichever axis the window's aspect
+  ratio doesn't match, never less. `image_size` is the configured image's real decoded pixel
+  dimensions, not something `build_splash_document` can know on its own — `EngineRuntime` records
+  it from the `TextureDesc` it already receives in `add_image()` (every builtin/game image is
+  preloaded through that call before the splash ever spawns) into a small `AssetId → glm::vec2`
+  map, rather than threading `AssetsDb` through `EngineRuntime`'s public API just for this.
 - One divergence from `spawn_button_canvas`'s literal shape: that test never runs `Phase::Bind`,
   so it can set `canvas.document` to an arbitrary/dummy `AssetId` without consequence. In the real
   loop, `run_bind` (`src/ecs/systems.cpp`) runs every frame and calls `clone_document` — which
