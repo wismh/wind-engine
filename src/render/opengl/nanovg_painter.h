@@ -37,6 +37,7 @@ public:
     void fill_text(std::string_view text, glm::vec2 position, glm::vec4 color, ui::UiAlign horizontal,
             ui::UiAlign vertical) override;
     void image(AssetId texture, const Rect& rect) override;
+    [[nodiscard]] glm::vec2 measure_text(std::string_view text, AssetId font, float size) override;
 
 private:
     struct Impl;
