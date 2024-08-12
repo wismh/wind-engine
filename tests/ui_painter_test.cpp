@@ -78,6 +78,10 @@ public:
         calls.push_back(PaintCall{.op = "image", .rect = rect, .texture = texture});
     }
 
+    glm::vec2 measure_text(std::string_view text, engine::AssetId, float size) override {
+        return {static_cast<float>(text.size()) * size * 0.5f, size};
+    }
+
     [[nodiscard]] int count(std::string_view op) const {
         int n = 0;
         for (const PaintCall& call : calls) {
@@ -163,6 +167,12 @@ public:
 };
 
 constexpr engine::AssetId kIconGuid{"c1a1c2d3e4f5678901234567890abc09"};
+constexpr float kDefaultImageSize = 32.0f;
+constexpr float kFakeFontSize = 16.0f;
+
+[[nodiscard]] float fake_text_width(std::string_view text, float size = kFakeFontSize) {
+    return static_cast<float>(text.size()) * size * 0.5f;
+}
 
 engine::ui::Stylesheet must_parse_css(std::string_view css) {
     std::vector<std::string> warnings;
@@ -246,7 +256,7 @@ TEST(UiPainter, JustifyAndAlignCenterText) {
     ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
 
     const engine::ui::Stylesheet sheet =
-            must_parse_css(".title { justify-content: center; align-items: center; }");
+            must_parse_css(".title { width: 200; height: 100; text-align: center; align-items: center; }");
     FakePainter painter;
     engine::ui::paint_document(*parsed, &sheet, painter,
             engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
@@ -284,21 +294,23 @@ TEST(UiPainter, StackPaddingInsetsEqualSplit) {
         }
     }
     ASSERT_EQ(fills.size(), 2u);
+    const float cell_w = fake_text_width("A");
+    const float cell_h = kFakeFontSize;
     EXPECT_FLOAT_EQ(fills[0].x, 10.0f);
     EXPECT_FLOAT_EQ(fills[0].y, 10.0f);
-    EXPECT_FLOAT_EQ(fills[0].w, 80.0f);
-    EXPECT_FLOAT_EQ(fills[0].h, 40.0f);
+    EXPECT_FLOAT_EQ(fills[0].w, cell_w);
+    EXPECT_FLOAT_EQ(fills[0].h, cell_h);
     EXPECT_FLOAT_EQ(fills[1].x, 10.0f);
-    EXPECT_FLOAT_EQ(fills[1].y, 50.0f);
-    EXPECT_FLOAT_EQ(fills[1].w, 80.0f);
-    EXPECT_FLOAT_EQ(fills[1].h, 40.0f);
+    EXPECT_FLOAT_EQ(fills[1].y, 10.0f + cell_h);
+    EXPECT_FLOAT_EQ(fills[1].w, cell_w);
+    EXPECT_FLOAT_EQ(fills[1].h, cell_h);
 }
 
 TEST(UiPainter, ButtonHoverUsesPseudoBackground) {
     auto parsed = engine::ui::parse_xml(R"(<Canvas><Button class="cell" content="X"/></Canvas>)");
     ASSERT_TRUE(parsed.has_value());
     const engine::ui::Stylesheet sheet = must_parse_css(R"(
-        Button { background: #111111; }
+        Button { width: 100; height: 100; background: #111111; }
         Button:hover { background: #333333; }
     )");
 
@@ -402,7 +414,10 @@ TEST(UiPainter, ImageSourceFromBoundAssetId) {
     const PaintCall* call = painter.find("image");
     ASSERT_NE(call, nullptr);
     EXPECT_EQ(call->texture, kIconGuid);
-    EXPECT_EQ(call->rect, canvas);
+    EXPECT_FLOAT_EQ(call->rect.x, 0.0f);
+    EXPECT_FLOAT_EQ(call->rect.y, 0.0f);
+    EXPECT_FLOAT_EQ(call->rect.w, kDefaultImageSize);
+    EXPECT_FLOAT_EQ(call->rect.h, kDefaultImageSize);
 }
 
 TEST(UiPainter, ImageSourceLiteralGuidPaints) {
@@ -421,7 +436,10 @@ TEST(UiPainter, ImageSourceLiteralGuidPaints) {
     const PaintCall* call = painter.find("image");
     ASSERT_NE(call, nullptr);
     EXPECT_EQ(call->texture, kIconGuid);
-    EXPECT_EQ(call->rect, canvas);
+    EXPECT_FLOAT_EQ(call->rect.x, 0.0f);
+    EXPECT_FLOAT_EQ(call->rect.y, 0.0f);
+    EXPECT_FLOAT_EQ(call->rect.w, kDefaultImageSize);
+    EXPECT_FLOAT_EQ(call->rect.h, kDefaultImageSize);
 }
 
 TEST(UiPainter, ImageSourceStringBindingFailsAtApply) {
@@ -438,4 +456,135 @@ TEST(UiPainter, ImageSourceStringBindingFailsAtApply) {
     const engine::ui::Element* image = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Image);
     ASSERT_NE(image, nullptr);
     EXPECT_FALSE(image->source.has_value());
+}
+
+TEST(UiPainter, LabelsHugDifferentTextWidths) {
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Stack>
+            <Label class="cell" text="Hi"/>
+            <Label class="cell" text="Hello"/>
+          </Stack>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(".cell { background: #ffffff; }");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    std::vector<engine::render::Rect> fills;
+    for (const PaintCall& call : painter.calls) {
+        if (call.op == "fill_rect") {
+            fills.push_back(call.rect);
+        }
+    }
+    ASSERT_EQ(fills.size(), 2u);
+    EXPECT_FLOAT_EQ(fills[0].w, fake_text_width("Hi"));
+    EXPECT_FLOAT_EQ(fills[1].w, fake_text_width("Hello"));
+    EXPECT_GT(fills[1].w, fills[0].w);
+    EXPECT_FLOAT_EQ(fills[0].h, kFakeFontSize);
+    EXPECT_FLOAT_EQ(fills[1].h, kFakeFontSize);
+}
+
+TEST(UiPainter, WidthClampsUsedSize) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="title" text="HelloWorld!"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(".title { width: 80; background: #ffffff; }");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    const PaintCall* fill = painter.find("fill_rect");
+    ASSERT_NE(fill, nullptr);
+    EXPECT_GT(fake_text_width("HelloWorld!"), 80.0f);
+    EXPECT_FLOAT_EQ(fill->rect.w, 80.0f);
+    EXPECT_FLOAT_EQ(fill->rect.h, kFakeFontSize);
+}
+
+TEST(UiPainter, MarginOffsetsSiblingRect) {
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Stack>
+            <Label class="a" text="A"/>
+            <Label class="b" text="B"/>
+          </Stack>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .a { background: #ffffff; }
+        .b { background: #ffffff; margin: 10; }
+    )");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    std::vector<engine::render::Rect> fills;
+    for (const PaintCall& call : painter.calls) {
+        if (call.op == "fill_rect") {
+            fills.push_back(call.rect);
+        }
+    }
+    ASSERT_EQ(fills.size(), 2u);
+    EXPECT_FLOAT_EQ(fills[0].x, 0.0f);
+    EXPECT_FLOAT_EQ(fills[0].y, 0.0f);
+    EXPECT_FLOAT_EQ(fills[1].x, 10.0f);
+    EXPECT_FLOAT_EQ(fills[1].y, fills[0].y + fills[0].h + 10.0f);
+}
+
+TEST(UiPainter, StackJustifyContentMovesChildren) {
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Stack class="col">
+            <Label class="cell" text="A"/>
+            <Label class="cell" text="B"/>
+          </Stack>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .col { width: 40; height: 100; justify-content: center; }
+        .cell { background: #ffffff; }
+    )");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    std::vector<engine::render::Rect> fills;
+    std::vector<glm::vec2> texts;
+    for (const PaintCall& call : painter.calls) {
+        if (call.op == "fill_rect") {
+            fills.push_back(call.rect);
+        }
+        if (call.op == "text") {
+            texts.push_back(call.position);
+        }
+    }
+    ASSERT_EQ(fills.size(), 2u);
+    ASSERT_EQ(texts.size(), 2u);
+    const float packed = kFakeFontSize * 2.0f;
+    const float offset = (100.0f - packed) * 0.5f;
+    EXPECT_FLOAT_EQ(fills[0].y, offset);
+    EXPECT_FLOAT_EQ(fills[1].y, offset + kFakeFontSize);
+    EXPECT_FLOAT_EQ(texts[0].y, fills[0].y);
+    EXPECT_FLOAT_EQ(texts[1].y, fills[1].y);
+    EXPECT_NE(texts[0].y, 50.0f);
+}
+
+TEST(UiPainter, TextAlignCenterMovesGlyphs) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="title" text="Hi"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet =
+            must_parse_css(".title { width: 200; height: 100; text-align: center; align-items: center; }");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    const PaintCall* text = painter.find("text");
+    ASSERT_NE(text, nullptr);
+    EXPECT_FLOAT_EQ(text->position.x, 100.0f);
+    EXPECT_FLOAT_EQ(text->position.y, 50.0f);
+    EXPECT_EQ(text->horizontal, engine::ui::UiAlign::Center);
+    EXPECT_EQ(text->vertical, engine::ui::UiAlign::Center);
 }

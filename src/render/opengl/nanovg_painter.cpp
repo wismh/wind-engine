@@ -227,4 +227,18 @@ void NanoVgPainter::image(AssetId texture, const Rect& rect) {
     nvgFill(impl_->vg);
 }
 
+glm::vec2 NanoVgPainter::measure_text(std::string_view text, AssetId font, float size) {
+    if (impl_->vg == nullptr) {
+        return {static_cast<float>(text.size()) * size * 0.5f, size};
+    }
+    nvgSave(impl_->vg);
+    set_font(font, size);
+    nvgTextAlign(impl_->vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
+    const std::string z(text);
+    float bounds[4] = {};
+    nvgTextBounds(impl_->vg, 0.0f, 0.0f, z.c_str(), nullptr, bounds);
+    nvgRestore(impl_->vg);
+    return {std::max(0.0f, bounds[2] - bounds[0]), std::max(0.0f, bounds[3] - bounds[1])};
+}
+
 }

@@ -110,3 +110,15 @@ TEST(UiCss, UnknownPropertyDoesNotFailSheet) {
     EXPECT_EQ(padding->value, "2");
 }
 
+TEST(UiCss, TextAlignIsKnownProperty) {
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css(".x { text-align: center; frobnicate: 1; }", warnings);
+    ASSERT_TRUE(sheet.has_value());
+    EXPECT_FALSE(warning_mentions(warnings, "text-align"));
+    EXPECT_TRUE(warning_mentions(warnings, "frobnicate"));
+    ASSERT_EQ(sheet->rules.size(), 1u);
+    const engine::ui::CssDeclaration* text_align = find_declaration(sheet->rules[0], "text-align");
+    ASSERT_NE(text_align, nullptr);
+    EXPECT_EQ(text_align->value, "center");
+}
+
