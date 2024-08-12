@@ -43,6 +43,7 @@ bool is_known_property(std::string_view name) {
             "flex-direction",
             "align-items",
             "justify-content",
+            "text-align",
             "border-radius",
             "border-width",
             "border-color",
