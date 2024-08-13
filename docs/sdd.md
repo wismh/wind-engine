@@ -1362,17 +1362,18 @@ single `res.srcDirs` overlay for all three and was wrong about how AGP actually 
   two of them declare the same `string/app_name`. `manifestPlaceholders` sidesteps resource
   merging entirely.
 - **`mipmap-*/ic_launcher.png`** — `ENGINE_ANDROID_RES_DIR` (a directory the game supplies) is
-  still added to `sourceSets.main.res.srcDirs`, and this one *does* work as an overlay in
-  practice, but not for the reason originally claimed: it works because the engine's own `res/`
-  declares no `mipmap-*` resources at all, so a game's `res.srcDirs` entry is the sibling
-  *defining* `mipmap/ic_launcher`, not one *colliding* with an existing definition — there is
-  nothing to duplicate against. That also means a game that supplies no icon has nothing to
-  resolve `android:icon="@mipmap/ic_launcher"` against, which is a hard AAPT2 link error, not a
-  graceful fallback to a platform default (the earlier draft of this section claimed the latter).
-  The engine now ships its own default `mipmap-{m,h,xh,xxh,xxxh}dpi/ic_launcher.png` under
-  `cmake/android/app/src/main/res/` precisely so `@mipmap/ic_launcher` always resolves even
-  without a per-game overlay — the same role `strings.xml`'s built-in `app_name = "Wind"` already
-  played for the label before `manifestPlaceholders` took over that job.
+  added to `sourceSets.debug.res.srcDirs` **and** `sourceSets.release.res.srcDirs`, not
+  `sourceSets.main.res.srcDirs`. A game that supplies no icon has nothing to resolve
+  `android:icon="@mipmap/ic_launcher"` against otherwise, which is a hard AAPT2 link error, not a
+  graceful fallback to a platform default — so the engine ships its own default
+  `mipmap-{m,h,xh,xxh,xxxh}dpi/ic_launcher.png` under `cmake/android/app/src/main/res/`, the same
+  role `strings.xml`'s built-in `app_name = "Wind"` already played for the label before
+  `manifestPlaceholders` took over that job. That default living in `main`'s own `res/` is
+  exactly why the overlay can no longer sit in `main.res.srcDirs` either, the way an earlier
+  revision of this section had it and this one first shipped it: once `main` declares
+  `mipmap/ic_launcher` itself, a sibling directory in the *same* source set declaring it again is
+  the identical "Duplicate resources" collision `app_name` hit above — build-variant source sets
+  are the only place with real override precedence over `main`, for icons the same as for names.
 - `cmake/android/app/build.gradle` also threads `ENGINE_HOST_ICON_CODEGEN` into
   `externalNativeBuild.cmake.arguments` alongside the existing `ENGINE_HOST_ASSET_CODEGEN`
   passthrough — cross-compiling for Android needs a native `icon_codegen` (§19.3) the same way it
@@ -1394,3 +1395,4 @@ build in this repo's CI to exercise instead, which is exactly how the `res.srcDi
 in §19.4 went uncaught until a downstream game's real build failed on it. The macOS bundle path
 (§19.2) has no test at all, same caveat as noted in §17.
 
+---
