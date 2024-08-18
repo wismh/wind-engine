@@ -272,7 +272,7 @@ main
 
 Do not introduce a service locator (`Engine::get_audio()`).
 
-Games receive services through `Game`’s constructor. Systems write/read typed events (`EventWriter` / `EventReader`); they must not load files or pass paths.
+Games receive services through `Game`’s constructor. Systems write/read typed events (`EventWriter` / `EventReader`); they must not load files or pass paths. Any system registered here that reads events every frame must use the `EventCursor<T>` reader overload (`world.ctx<EventCursor<T>>()`), not the plain ad-hoc `EventReader<T>{world}` — see §9.
 
 ### 4.3 One world, no Node graph
 
@@ -345,7 +345,7 @@ Registration order inside a **phase** is execution order. Games do not pick a ra
 | `Input` | engine | `UiInputSystem` (hit-test, `ICommand::execute`, `MouseConsumed`) |
 | `Game` | game | world picking if not consumed; mutate ViewModels; `EventWriter` |
 | `Bind` | engine | push `Bindable<T>` / commands into the XML instance tree |
-| `Audio` | engine | `EventReader<PlaySfxEvent>` / music — **after** Game so same-frame SFX work |
+| `Audio` | engine | `EventReader<PlaySfxEvent>` / music (via `EventCursor<T>`, §9) — **after** Game so same-frame SFX work |
 | `Render` | engine | sort `Renderable`s, push `CmdDrawMesh` |
 | `UiRender` | engine | push `CmdDrawUI` (so HUD is on top of the world) |
 
@@ -746,6 +746,12 @@ Replace with **double-buffered queues**, same shape as Bevy `Events<T>` / `Event
 - Events do not live forever.
 - No `Unsubscribe`: readers hold no allocation in the queue; writers do not store `this`.
 
+**Bug (fixed) and the `EventCursor<T>` rule.** The plain `EventReader<T>{world}` / `EventReader<T>{events}` constructor is **stateless**: every construction unconditionally iterates the whole retained `previous_ + current_` buffer with no memory of what a prior construction already returned. That is correct for a one-off read, but a system that constructs a fresh `EventReader<T>` **every frame** — exactly what any `Schedule::Frame` system does — saw each event **twice**: once the frame it was sent (in `current_`), and again the next frame after `flush_events` demoted it into `previous_` (which the reader still scans unconditionally; it takes a second `update()` to actually drop it). This bit three real engine systems before the fix, all `Schedule::Frame` with no other de-dup guard: `run_input` (`Phase::Input`) reading `MouseEvent` (a UI click's `ICommand::execute()` ran twice across two frames), and `run_audio` (`Phase::Audio`) reading `PlaySfxEvent` / `PlayMusicEvent` (an SFX/music trigger played twice). The 2-generation buffer itself is not the bug and is unchanged — a slow/occasional reader legitimately needs to catch a fast event that arrived since its last (non-adjacent) read; the bug was that the *common* every-frame reader had no way to say "only what's new since I last looked."
+
+The fix adds `EventCursor<T>` (`include/engine/ecs/events.h`): a persistent `{ next_id }` position into an `Events<T>` queue, plus a second `EventReader<T>` constructor overload, `EventReader(events_or_world, EventCursor<T>&)`, that returns only events sent since the cursor's position and advances the cursor to "caught up" immediately at construction. The natural home for the cursor is `world.ctx<EventCursor<T>>()` — one shared cursor per event type, correct for every current call site (each event type here has exactly one per-frame reader); a caller that genuinely needs a second independent per-frame reader of the same `T` can hold its own separate `EventCursor<T>` instead.
+
+**Rule for every reader, engine or game:** a reader that runs **every frame** (any `Schedule::Frame` or `Schedule::Fixed` system) **must** use the `EventCursor<T>` overload — `EventReader<T>{world, world.ctx<EventCursor<T>>()}` — or it will double-process events exactly like the bug above. The plain `EventReader<T>{world}` ad-hoc form stays correct and is for one-off or intentionally-infrequent reads only (tests, a system that doesn't run every tick and wants "whatever's still in the ~2-frame window"). `run_input`, and both loops in `run_audio`, now use the cursor overload; see `src/ecs/systems.cpp`.
+
 Input:
 
 - `InputSystem` (SDL poll in Loop, before schedules) writes `InputEvent` / `MouseEvent` / held-state map. It does not call UI.
@@ -1061,7 +1067,7 @@ Prefer **pure logic** and fakes over GPU/mixer. Extract policy (gain, pool, AABB
 | Area | Tests |
 |---|---|
 | ECS | generational Entity; try_get after destroy is empty; view<A,B>; deferred destroy during iteration |
-| Event queues | send; reader sees current+previous; `flush_events` drops older than two frames; first `ctx<Events<T>>` registers T |
+| Event queues | send; reader sees current+previous; `flush_events` drops older than two frames; first `ctx<Events<T>>` registers T; `EventCursor<T>` reader does not re-see an event across a `flush_events` with no new send; fresh cursor catches up on history already in the buffer; independent cursors on the same queue each see an event exactly once; cursor advanced past several sends then only sees new ones on the next read |
 | CommandBuffer | push `CmdDrawMesh` (material, not raw shader) / `CmdDrawUI`; execute order; clear between frames; **no** custom-callback |
 | Sort | layer, order_in_layer, material, entity; stable; UI commands after world |
 | Materials | parse `.mat` TOML; missing shader GUID fails codegen; instance color multiplies |
