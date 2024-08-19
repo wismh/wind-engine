@@ -22,6 +22,7 @@
 #include <fstream>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -132,10 +133,15 @@ std::filesystem::path android_runtime_assets_root(const std::filesystem::path& b
 // integers like 0-2), so the splash always paints last without games needing to coordinate.
 constexpr int kSplashCanvasOrder = 1000;
 
-void spawn_splash(ecs::World& world, const SplashScreen& config, glm::vec2 image_size) {
+struct SpawnedSplash {
+    ecs::Entity entity;
+    float total_duration = 0.0f;
+};
+
+std::optional<SpawnedSplash> spawn_splash(ecs::World& world, const SplashScreen& config, glm::vec2 image_size) {
     const std::optional<ui::SplashDocument> splash = ui::build_splash_document(config, image_size);
     if (!splash) {
-        return;
+        return std::nullopt;
     }
     const ecs::Entity entity = world.create();
     ui::UiCanvas canvas;
@@ -148,6 +154,7 @@ void spawn_splash(ecs::World& world, const SplashScreen& config, glm::vec2 image
     // instance_needs_rebuild() sees a mismatch and clone_document() overwrites this in-memory
     // document by trying (and failing) to load canvas.document from the asset catalog.
     world.emplace<ui::UiInstance>(entity, ui::UiInstance{splash->document, splash->stylesheet});
+    return SpawnedSplash{entity, splash->total_duration};
 }
 
 }
@@ -170,6 +177,13 @@ struct EngineRuntime::Impl {
     // the splash image's real pixel size (needed to keep its aspect ratio) without threading
     // AssetsDb through EngineRuntime's public API.
     std::map<AssetId, glm::vec2> image_sizes;
+    // The splash's root canvas has a constant (non-animated) opaque black background so the game
+    // underneath - already running by the time it spawns - never shows through mid-fade; nothing
+    // else makes that backdrop go away, so tick_loop destroys the entity once real time crosses
+    // total_duration instead of leaving the game permanently blacked out after the fade finishes.
+    std::optional<ecs::Entity> splash_entity;
+    float splash_elapsed = 0.0f;
+    float splash_total_duration = 0.0f;
 
     Impl() {
         canvas = std::make_shared<render::OpenGLCanvas>(window, *commands, *backend);
@@ -281,7 +295,12 @@ void EngineRuntime::begin_loop(IGame& game, InputSystem& input, IAudioSystem* au
     const auto image_size_it = impl_->image_sizes.find(splash_config.image);
     const glm::vec2 splash_image_size =
             image_size_it != impl_->image_sizes.end() ? image_size_it->second : glm::vec2{0.0f, 0.0f};
-    spawn_splash(game.world(), splash_config, splash_image_size);
+    impl_->splash_elapsed = 0.0f;
+    impl_->splash_entity.reset();
+    if (const auto spawned = spawn_splash(game.world(), splash_config, splash_image_size)) {
+        impl_->splash_entity = spawned->entity;
+        impl_->splash_total_duration = spawned->total_duration;
+    }
     game.world().ctx<ApplicationState>().running = true;
 }
 
@@ -297,6 +316,14 @@ void EngineRuntime::tick_loop() {
     const auto now = std::chrono::steady_clock::now();
     const float real_dt = std::chrono::duration<float>(now - impl_->loop_last).count();
     impl_->loop_last = now;
+
+    if (impl_->splash_entity) {
+        impl_->splash_elapsed += real_dt;
+        if (impl_->splash_elapsed >= impl_->splash_total_duration) {
+            world.destroy(*impl_->splash_entity);
+            impl_->splash_entity.reset();
+        }
+    }
 
     world.flush_events();
     poll_events(world, *impl_->loop_input, app);
