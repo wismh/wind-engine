@@ -11,6 +11,7 @@
       background: #111;
       color: #ddd;
       font-family: sans-serif;
+      overflow-x: hidden;
     }
     #status {
       text-align: center;
@@ -22,6 +23,14 @@
       margin: 0 auto;
       background: #000;
       outline: none;
+      /* IGame::window_size() sets the canvas's drawing-buffer width/height attributes in real
+         px (e.g. 576) via SDL3's Emscripten backend; without this, a viewport narrower than
+         that (any phone) overflows horizontally instead of shrinking. max-width/height:auto
+         treats it like a replaced element (same as an <img>) - shrinks to fit, preserving the
+         drawing buffer's own aspect ratio, never grows past its native size on a wide desktop
+         window. */
+      max-width: 100%;
+      height: auto;
     }
   </style>
 </head>
