@@ -225,6 +225,32 @@ TEST(Scaffold, WebShellHtmlReferencesFavicon) {
 #endif
 }
 
+TEST(Scaffold, WebShellHtmlCanvasShrinksToFitNarrowViewports) {
+#ifdef ENGINE_SOURCE_DIR
+    const std::filesystem::path root{ENGINE_SOURCE_DIR};
+    const auto slurp = [](const std::filesystem::path& path) {
+        std::ifstream in(path);
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    };
+    const std::string shell = slurp(root / "cmake" / "web" / "shell.html");
+    ASSERT_FALSE(shell.empty());
+    // IGame::window_size() becomes the canvas's real-px drawing-buffer width/height attributes;
+    // without a CSS cap, a viewport narrower than that (any phone) overflows horizontally
+    // instead of the canvas shrinking to fit, preserving its aspect ratio (same replaced-element
+    // behavior as an <img>).
+    EXPECT_NE(shell.find("width=device-width"), std::string::npos);
+    const auto canvas_rule = shell.find("#canvas");
+    ASSERT_NE(canvas_rule, std::string::npos);
+    const auto canvas_rule_end = shell.find("}", canvas_rule);
+    ASSERT_NE(canvas_rule_end, std::string::npos);
+    const std::string canvas_rule_text = shell.substr(canvas_rule, canvas_rule_end - canvas_rule);
+    EXPECT_NE(canvas_rule_text.find("max-width: 100%"), std::string::npos);
+    EXPECT_NE(canvas_rule_text.find("height: auto"), std::string::npos);
+#else
+    GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
+#endif
+}
+
 TEST(Scaffold, EngineAddGameCopiesWebFavicon) {
 #ifdef ENGINE_SOURCE_DIR
     const std::filesystem::path root{ENGINE_SOURCE_DIR};
