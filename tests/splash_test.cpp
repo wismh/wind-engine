@@ -37,6 +37,17 @@ std::string decl_value(const engine::ui::CssRule& rule, std::string_view propert
     return {};
 }
 
+// Finds the rule by what it declares rather than its generated class name, so the test doesn't
+// couple to splash.cpp's internal naming constants.
+const engine::ui::CssRule* find_rule_declaring(const engine::ui::Stylesheet& sheet, std::string_view property) {
+    for (const engine::ui::CssRule& rule : sheet.rules) {
+        if (!decl_value(rule, property).empty()) {
+            return &rule;
+        }
+    }
+    return nullptr;
+}
+
 }
 
 TEST(Splash, BuildsFourKeyframeStopsAndDurationFromConfig) {
@@ -62,8 +73,11 @@ TEST(Splash, BuildsFourKeyframeStopsAndDurationFromConfig) {
     EXPECT_FLOAT_EQ(keyframes.stops[3].offset, 1.0f);
     EXPECT_EQ(opacity_at(keyframes.stops[3]), "0");
 
-    ASSERT_EQ(splash->stylesheet.rules.size(), 1u);
-    EXPECT_EQ(decl_value(splash->stylesheet.rules.front(), "animation-duration"), "2s");
+    ASSERT_EQ(splash->stylesheet.rules.size(), 2u);
+    const engine::ui::CssRule* image_rule = find_rule_declaring(splash->stylesheet, "animation-duration");
+    ASSERT_NE(image_rule, nullptr);
+    EXPECT_EQ(decl_value(*image_rule, "animation-duration"), "2s");
+    EXPECT_FLOAT_EQ(splash->total_duration, 2.0f);
 }
 
 TEST(Splash, ImageRuleIsAbsoluteAndCenteredAtEightyPercentNotStretched) {
@@ -73,16 +87,39 @@ TEST(Splash, ImageRuleIsAbsoluteAndCenteredAtEightyPercentNotStretched) {
     const auto splash = engine::ui::build_splash_document(config, kValidImageSize);
     ASSERT_TRUE(splash.has_value());
 
-    ASSERT_EQ(splash->stylesheet.rules.size(), 1u);
-    const engine::ui::CssRule& rule = splash->stylesheet.rules.front();
+    const engine::ui::CssRule* image_rule = find_rule_declaring(splash->stylesheet, "animation-name");
+    ASSERT_NE(image_rule, nullptr);
     // Aspect ratio comes from the canvas's reference_size (below) being fit to the real window
     // preserving aspect (UiFit::ScaleWithScreenSize); the image itself is a fixed, centered 80%
     // box within that canvas - width/height: 100% here would stretch a non-square image.
-    EXPECT_EQ(decl_value(rule, "position"), "absolute");
-    EXPECT_EQ(decl_value(rule, "left"), "10%");
-    EXPECT_EQ(decl_value(rule, "top"), "10%");
-    EXPECT_EQ(decl_value(rule, "width"), "80%");
-    EXPECT_EQ(decl_value(rule, "height"), "80%");
+    EXPECT_EQ(decl_value(*image_rule, "position"), "absolute");
+    EXPECT_EQ(decl_value(*image_rule, "left"), "10%");
+    EXPECT_EQ(decl_value(*image_rule, "top"), "10%");
+    EXPECT_EQ(decl_value(*image_rule, "width"), "80%");
+    EXPECT_EQ(decl_value(*image_rule, "height"), "80%");
+}
+
+TEST(Splash, RootHasConstantOpaqueBlackBackdropNotAnimated) {
+    engine::SplashScreen config;
+    config.image = engine::AssetId{kSplashImageGuid};
+
+    const auto splash = engine::ui::build_splash_document(config, kValidImageSize);
+    ASSERT_TRUE(splash.has_value());
+
+    // The game underneath is already running (on_start already fired) by the time this spawns,
+    // so the backdrop must be opaque and NOT share the image's fade animation - otherwise the
+    // game would show through during the image's own fade-in/out instead of it appearing "from
+    // black". EngineRuntime is responsible for despawning the whole entity once total_duration
+    // elapses, since nothing here makes this backdrop go away on its own.
+    const engine::ui::CssRule* root_rule = find_rule_declaring(splash->stylesheet, "background");
+    ASSERT_NE(root_rule, nullptr);
+    EXPECT_EQ(decl_value(*root_rule, "background"), "#000000");
+    EXPECT_TRUE(decl_value(*root_rule, "animation-name").empty());
+
+    const engine::ui::Element& root = splash->document.root;
+    EXPECT_FALSE(root.class_name.empty());
+    ASSERT_EQ(root.children.size(), 1u);
+    EXPECT_EQ(root.children.front().kind, engine::ui::ElementKind::Image);
 }
 
 TEST(Splash, ReferenceSizePreservesImageAspectRatioWithTenPercentMargin) {
