@@ -20,6 +20,7 @@ namespace {
 struct ComputedStyle {
     glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
     glm::vec4 background{0.0f, 0.0f, 0.0f, 0.0f};
+    std::optional<AssetId> background_image;
     float opacity = 1.0f;
     bool visible = true;
     float gap = 0.0f;
@@ -274,6 +275,13 @@ void apply_declaration(ComputedStyle& style, const CssDeclaration& decl) {
         if (const auto color = parse_color(decl.value)) {
             style.background = *color;
         }
+    } else if (decl.property == "background-image") {
+        const std::string_view value = trim(decl.value);
+        if (value == "none") {
+            style.background_image.reset();
+        } else if (const auto id = AssetId::parse(value)) {
+            style.background_image = *id;
+        }
     } else if (decl.property == "opacity") {
         style.opacity = std::strtof(decl.value.c_str(), nullptr);
     } else if (decl.property == "visibility") {
@@ -432,6 +440,9 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
     if (style.background.a > 0.0f) {
         painter.fill_rounded_rect(element.layout_rect, style.border_radius, style.background);
     }
+    if (style.background_image) {
+        painter.image(*style.background_image, element.layout_rect);
+    }
     if (style.border_width > 0.0f && style.border_color.a > 0.0f) {
         painter.stroke_rounded_rect(element.layout_rect, style.border_radius, style.border_width, style.border_color);
     }
@@ -461,7 +472,9 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
         }
     }
     if (element.kind == ElementKind::Image && element.source) {
-        painter.image(*element.source, element.layout_rect);
+        if (!style.background_image || *element.source != *style.background_image) {
+            painter.image(*element.source, element.layout_rect);
+        }
     }
 
     if (element.kind == ElementKind::ItemsControl) {
