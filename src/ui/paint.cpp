@@ -144,6 +144,9 @@ UiAlign parse_align(std::string_view raw) {
     if (value == "end" || value == "flex-end") {
         return UiAlign::End;
     }
+    if (value == "space-between") {
+        return UiAlign::SpaceBetween;
+    }
     return UiAlign::Start;
 }
 
