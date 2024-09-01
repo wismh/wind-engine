@@ -290,10 +290,16 @@ void layout_stack(Element& element, const render::Rect& allocated, IUiPainter* p
         const bool horizontal = element.direction == StackDirection::Horizontal;
         const float leftover = std::max(0.0f, (horizontal ? allocated.w : allocated.h) - packed);
         float cursor = horizontal ? allocated.x : allocated.y;
+        // space-between splits leftover space into the gaps between children instead of around
+        // the group (first child flush to the start, last flush to the end) — one fewer gap than
+        // children, so a single child has nothing to split against and behaves like Start.
+        float justify_gap = 0.0f;
         if (element.justify == UiAlign::Center) {
             cursor += leftover * 0.5f;
         } else if (element.justify == UiAlign::End) {
             cursor += leftover;
+        } else if (element.justify == UiAlign::SpaceBetween && flow.size() > 1) {
+            justify_gap = leftover / static_cast<float>(flow.size() - 1);
         }
 
         for (std::size_t i = 0; i < flow.size(); ++i) {
@@ -328,7 +334,7 @@ void layout_stack(Element& element, const render::Rect& allocated, IUiPainter* p
                 cursor += used.y + child_box.margin.bottom;
             }
             if (i + 1 < flow.size()) {
-                cursor += self.gap;
+                cursor += self.gap + justify_gap;
             }
         }
     }
