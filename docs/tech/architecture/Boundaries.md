@@ -32,7 +32,8 @@ Games include `<engine/…>` only. `IUiPainter` is **not** public ([[src.ui.pain
 | `ENGINE_WITH_WEB` | PUBLIC. Web profile helpers; Emscripten turns this on by default. |
 | `ENGINE_WITH_ANDROID` | PUBLIC. Android profile helpers; NDK builds turn this on by default. |
 | `ENGINE_WITH_GLES` | PUBLIC. ES 3.0 backend (no glad, NanoVG GLES3, shader adapt). Default ON when `EMSCRIPTEN` or `ANDROID`. |
-| `ENGINE_BUILD_TESTS` | `engine_tests` + GoogleTest. Default ON at engine root, OFF when Wind is a subdirectory. |
+| `ENGINE_BUILD_TESTS` | Builds `engine_tests`; implies `ENGINE_WITH_GTEST`. Default ON at engine root, OFF when Wind is a subdirectory. |
+| `ENGINE_WITH_GTEST` | Vendors GoogleTest (`external/googletest`) without building `engine_tests` — set this alone so a game's own test target gets `GTest::gtest_main` without also compiling the engine's internal suite. Defaults to `ENGINE_BUILD_TESTS`. |
 
 `IHaptics` has no `ENGINE_WITH_*` flag of its own — its Native/Web/Android split happens at
 compile time via `__EMSCRIPTEN__`/`__ANDROID__` inside `HapticsSystem`, not a build option.
