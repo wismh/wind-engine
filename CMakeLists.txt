@@ -20,6 +20,9 @@ else()
 endif()
 
 option(ENGINE_BUILD_TESTS "Build engine_tests (GoogleTest)" ${_engine_is_root})
+# Split out from ENGINE_BUILD_TESTS so a game can vendor GoogleTest for its own test target
+# without also compiling the engine's own engine_tests suite (see engine_add_game usage below).
+option(ENGINE_WITH_GTEST "Vendor GoogleTest (implied by ENGINE_BUILD_TESTS)" ${ENGINE_BUILD_TESTS})
 # Root builds stay headless (`engine_tests`). A game `add_subdirectory` turns the window on.
 if(_engine_is_root)
     option(ENGINE_WITH_WINDOW "SDL3 + OpenGL + NanoVG backend" OFF)
@@ -494,7 +497,11 @@ if(ENGINE_WITH_AUDIO)
     target_link_libraries(engine PRIVATE SDL3_mixer::SDL3_mixer SDL3::SDL3)
 endif()
 
-if(ENGINE_BUILD_TESTS)
+if(ENGINE_BUILD_TESTS AND NOT ENGINE_WITH_GTEST)
+    set(ENGINE_WITH_GTEST ON CACHE BOOL "" FORCE)
+endif()
+
+if(ENGINE_WITH_GTEST)
     engine_require_submodule(googletest)
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
     set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
@@ -502,7 +509,9 @@ if(ENGINE_BUILD_TESTS)
     enable_testing()
     add_subdirectory(external/googletest)
     include(GoogleTest)
+endif()
 
+if(ENGINE_BUILD_TESTS)
     file(GLOB ENGINE_TEST_SOURCES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/*_test.cpp")
 
