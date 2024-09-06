@@ -337,6 +337,50 @@ TEST(RenderSystem, UiCommandsAfterWorld) {
     EXPECT_EQ(std::get<engine::render::CmdDrawUI>(commands[1]).rect, canvas.rect);
 }
 
+TEST(RenderSystem, UiCanvasForSecondaryWindowRoutesThroughCommandsForWindow) {
+    const engine::WindowId secondary{3};
+    engine::render::CommandBuffer primary_commands;
+    engine::render::CommandBuffer secondary_commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{
+            .commands = &primary_commands,
+            .commands_for_window = [&](engine::WindowId id) -> engine::render::CommandBuffer* {
+                return id == secondary ? &secondary_commands : nullptr;
+            },
+    });
+
+    engine::ui::UiCanvas canvas;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    canvas.rect = engine::render::Rect{8.0f, 16.0f, 32.0f, 48.0f};
+    canvas.window = secondary;
+    const engine::ecs::Entity hud = world.create();
+    world.emplace<engine::ui::UiCanvas>(hud, canvas);
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    EXPECT_TRUE(primary_commands.empty());
+    ASSERT_EQ(secondary_commands.size(), 1u);
+    ASSERT_TRUE(std::holds_alternative<engine::render::CmdDrawUI>(secondary_commands[0]));
+    EXPECT_EQ(std::get<engine::render::CmdDrawUI>(secondary_commands[0]).rect, canvas.rect);
+}
+
+TEST(RenderSystem, UiCanvasForSecondaryWindowSkippedWithoutCommandsForWindow) {
+    engine::render::CommandBuffer primary_commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &primary_commands});
+
+    engine::ui::UiCanvas canvas;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    canvas.rect = engine::render::Rect{8.0f, 16.0f, 32.0f, 48.0f};
+    canvas.window = engine::WindowId{3};
+    const engine::ecs::Entity hud = world.create();
+    world.emplace<engine::ui::UiCanvas>(hud, canvas);
+
+    EXPECT_NO_THROW(world.run(engine::ecs::Schedule::Frame));
+
+    EXPECT_TRUE(primary_commands.empty());
+}
+
 TEST(RenderSystem, BindPhaseUpdatesInstance) {
     engine::ecs::World world;
     engine::register_engine_systems(world);

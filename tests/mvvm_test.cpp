@@ -499,3 +499,78 @@ TEST(Mvvm, ScaleWithScreenSizeHitTestScalesPointerIntoDesignSpace) {
     EXPECT_EQ(vm->clicks, 1);
 }
 
+TEST(Mvvm, WindowSizeForPrimaryReadsWindowSizeCtx) {
+    engine::ecs::World world;
+    world.ctx<engine::ui::WindowSize>().width = 800;
+    world.ctx<engine::ui::WindowSize>().height = 600;
+
+    const engine::ui::WindowSize size = engine::ui::window_size_for(world, engine::kPrimaryWindow);
+    EXPECT_EQ(size.width, 800);
+    EXPECT_EQ(size.height, 600);
+}
+
+TEST(Mvvm, WindowSizeForUnsizedSecondaryWindowDefaultsToZero) {
+    engine::ecs::World world;
+    const engine::WindowId other{7};
+
+    const engine::ui::WindowSize size = engine::ui::window_size_for(world, other);
+    EXPECT_EQ(size.width, 0);
+    EXPECT_EQ(size.height, 0);
+}
+
+TEST(Mvvm, WindowSizeForSecondaryWindowReadsWindowSizesCtx) {
+    engine::ecs::World world;
+    const engine::WindowId other{7};
+    world.ctx<engine::ui::WindowSizes>().sizes[other] = engine::ui::WindowSize{320, 240};
+
+    const engine::ui::WindowSize size = engine::ui::window_size_for(world, other);
+    EXPECT_EQ(size.width, 320);
+    EXPECT_EQ(size.height, 240);
+}
+
+TEST(Mvvm, FillWindowCanvasesEachFollowTheirOwnWindowSize) {
+    engine::ecs::World world;
+    const engine::WindowId secondary{9};
+
+    const engine::ecs::Entity primary_entity = world.create();
+    engine::ui::UiCanvas primary_canvas = make_canvas({});
+    primary_canvas.fit = engine::ui::UiFit::FillWindow;
+    primary_canvas.window = engine::kPrimaryWindow;
+    world.emplace<engine::ui::UiCanvas>(primary_entity, primary_canvas);
+
+    const engine::ecs::Entity secondary_entity = world.create();
+    engine::ui::UiCanvas secondary_canvas = make_canvas({});
+    secondary_canvas.fit = engine::ui::UiFit::FillWindow;
+    secondary_canvas.window = secondary;
+    world.emplace<engine::ui::UiCanvas>(secondary_entity, secondary_canvas);
+
+    world.ctx<engine::ui::WindowSize>().width = 800;
+    world.ctx<engine::ui::WindowSize>().height = 600;
+    world.ctx<engine::ui::WindowSizes>().sizes[secondary] = engine::ui::WindowSize{320, 240};
+    engine::ui::apply_canvas_fit(world);
+
+    EXPECT_EQ(world.get<engine::ui::UiCanvas>(primary_entity).rect, (engine::render::Rect{0.0f, 0.0f, 800.0f, 600.0f}));
+    EXPECT_EQ(world.get<engine::ui::UiCanvas>(secondary_entity).rect, (engine::render::Rect{0.0f, 0.0f, 320.0f, 240.0f}));
+}
+
+TEST(Mvvm, HandlePointerOnlyHitTestsCanvasesOnItsOwnWindow) {
+    engine::ecs::World world;
+    const engine::WindowId window_a = engine::kPrimaryWindow;
+    const engine::WindowId window_b{5};
+
+    auto vm_a = std::make_shared<ClickViewModel>();
+    const engine::ecs::Entity entity_a = spawn_button_canvas(world, vm_a, {0.0f, 0.0f, 100.0f, 100.0f}, 0);
+    world.get<engine::ui::UiCanvas>(entity_a).window = window_a;
+
+    auto vm_b = std::make_shared<ClickViewModel>();
+    const engine::ecs::Entity entity_b = spawn_button_canvas(world, vm_b, {0.0f, 0.0f, 100.0f, 100.0f}, 0);
+    world.get<engine::ui::UiCanvas>(entity_b).window = window_b;
+
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 4.0f, 4.0f, window_a);
+
+    EXPECT_EQ(vm_a->clicks, 1);
+    EXPECT_EQ(vm_b->clicks, 0);
+    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().value);
+}
+

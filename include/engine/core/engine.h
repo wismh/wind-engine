@@ -85,6 +85,7 @@ bool Engine<GameT>::init() {
             di::bind<render::ICanvas>().to(runtime_.canvas_ptr()),
             di::bind<render::IGraphicFactory>().to(runtime_.factory_ptr()),
             di::bind<render::IRenderBackend>().to(runtime_.backend_ptr()),
+            di::bind<IWindowControl>().to(runtime_.window_control_ptr()),
             di::bind<IGame>().to<GameT>().in(di::singleton));
 
     fatal_ = injector.template create<std::shared_ptr<IFatalError>>();
@@ -102,7 +103,7 @@ bool Engine<GameT>::init() {
         sdl_fatal->attach(game_->world().ctx<ApplicationState>(), runtime_.native_window());
     }
 
-    if (!runtime_.create_window(game_->window_title(), game_->window_size())) {
+    if (!runtime_.create_window(game_->primary_window())) {
         runtime_.shutdown();
         return false;
     }
@@ -175,6 +176,7 @@ bool Engine<GameT>::init() {
             .fatal = fatal_.get(),
             .assets = assets_.get(),
             .audio = audio_.get(),
+            .commands_for_window = [this](WindowId id) { return runtime_.commands_for_window(id); },
     });
     ui::apply_canvas_fit(game_->world());
 
