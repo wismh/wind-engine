@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <optional>
+#include <unordered_set>
 #include <vector>
 
 namespace engine {
@@ -38,7 +39,7 @@ void run_input(ecs::World& world) {
         }
         if (event.kind == MouseEvent::Kind::Down) {
             pointer.down = true;
-            ui::handle_pointer(world, event.position.x, event.position.y);
+            ui::handle_pointer(world, event.position.x, event.position.y, event.window);
         } else if (event.kind == MouseEvent::Kind::Up) {
             pointer.down = false;
         }
@@ -219,6 +220,7 @@ struct CanvasDraw {
     glm::vec2 reference_size{0.0f, 0.0f};
     ui::UiDocument* document = nullptr;
     const ui::Stylesheet* stylesheet = nullptr;
+    WindowId window = kPrimaryWindow;
 };
 
 void run_ui_render(ecs::World& world, const EngineSystemDeps& deps) {
@@ -228,13 +230,13 @@ void run_ui_render(ecs::World& world, const EngineSystemDeps& deps) {
 
     const ui::UiPointer& pointer = world.ctx<ui::UiPointer>();
     const Time& time = world.ctx<Time>();
-    const ui::WindowSize& window = world.ctx<ui::WindowSize>();
     std::vector<CanvasDraw> canvases;
     {
         auto view = world.view<ui::UiCanvas>();
         for (ecs::Entity entity : view) {
             ui::UiCanvas& canvas = view.get<ui::UiCanvas>(entity);
-            CanvasDraw draw{canvas.order, entity.index, canvas.rect, canvas.fit, canvas.reference_size};
+            CanvasDraw draw{
+                    canvas.order, entity.index, canvas.rect, canvas.fit, canvas.reference_size, nullptr, nullptr, canvas.window};
             if (ui::UiInstance* instance = world.try_get<ui::UiInstance>(entity)) {
                 draw.document = &instance->document;
                 if (instance->stylesheet) {
@@ -250,11 +252,27 @@ void run_ui_render(ecs::World& world, const EngineSystemDeps& deps) {
         }
         return a.index < b.index;
     });
+    // Tracks which non-primary CommandBuffers this call has already cleared — a target window's
+    // buffer needs clearing once per frame before anything is pushed into it (the primary's is
+    // already cleared by run_render), and this set is function-local so it naturally resets every
+    // invocation with no state to carry across frames.
+    std::unordered_set<WindowId> cleared_windows;
     for (const CanvasDraw& canvas : canvases) {
+        const ui::WindowSize size = ui::window_size_for(world, canvas.window);
         const ui::UiCanvasSpace space = ui::canvas_layout_space(canvas.rect, canvas.fit, canvas.reference_size);
-        const float window_width = space.reference_space ? space.layout_rect.w : static_cast<float>(window.width);
-        const float window_height = space.reference_space ? space.layout_rect.h : static_cast<float>(window.height);
-        deps.commands->push(render::CmdDrawUI{
+        const float window_width = space.reference_space ? space.layout_rect.w : static_cast<float>(size.width);
+        const float window_height = space.reference_space ? space.layout_rect.h : static_cast<float>(size.height);
+        render::CommandBuffer* target = deps.commands;
+        if (canvas.window != kPrimaryWindow) {
+            target = deps.commands_for_window ? deps.commands_for_window(canvas.window) : nullptr;
+            if (target == nullptr) {
+                continue;
+            }
+            if (cleared_windows.insert(canvas.window).second) {
+                target->clear();
+            }
+        }
+        target->push(render::CmdDrawUI{
                 space.layout_rect,
                 canvas.document,
                 canvas.stylesheet,
