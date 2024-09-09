@@ -2,20 +2,26 @@
 
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/null_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/stdout_sinks.h>
 #include <spdlog/spdlog.h>
 
 #include <memory>
 #include <utility>
+#include <vector>
 
 namespace engine::log {
 namespace {
 
-std::shared_ptr<spdlog::logger> make_logger(spdlog::sink_ptr sink) {
-    auto logger = std::make_shared<spdlog::logger>("engine", std::move(sink));
+std::shared_ptr<spdlog::logger> make_logger(std::vector<spdlog::sink_ptr> sinks) {
+    auto logger = std::make_shared<spdlog::logger>("engine", sinks.begin(), sinks.end());
     logger->set_level(spdlog::level::info);
     logger->flush_on(spdlog::level::info);
     return logger;
+}
+
+std::shared_ptr<spdlog::logger> make_logger(spdlog::sink_ptr sink) {
+    return make_logger(std::vector<spdlog::sink_ptr>{std::move(sink)});
 }
 
 std::shared_ptr<spdlog::logger>& current() {
@@ -46,7 +52,13 @@ void init(const std::filesystem::path& exe_dir) {
     }
     try {
         const std::filesystem::path path = exe_dir / "game.log";
-        current() = make_logger(std::make_shared<spdlog::sinks::basic_file_sink_mt>(path.string(), true));
+        std::vector<spdlog::sink_ptr> sinks{std::make_shared<spdlog::sinks::basic_file_sink_mt>(path.string(), true)};
+#ifndef NDEBUG
+        // Debug game executables keep a console window (engine_add_game hides it in Release-ish
+        // configs), so mirror log output there too instead of leaving it file-only.
+        sinks.push_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
+#endif
+        current() = make_logger(std::move(sinks));
     } catch (...) {
         init();
     }
