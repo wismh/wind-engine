@@ -1031,7 +1031,7 @@ Tests live **in the engine**, not in each consuming game.
 - `enable_testing()`, `include(GoogleTest)`, `gtest_discover_tests(engine_tests DISCOVERY_MODE PRE_TEST)` (same as Q+).
 - MSVC: `gtest_force_shared_crt ON`; `INSTALL_GTEST OFF`; `BUILD_GMOCK OFF` until a test needs `NiceMock`.
 
-`ENGINE_BUILD_TESTS` defaults to **ON** when this repo is the CMake root, **OFF** when a game does `add_subdirectory(external/engine)` — so games do not compile gtest unless they pass `-DENGINE_BUILD_TESTS=ON`.
+`ENGINE_BUILD_TESTS` defaults to **ON** when this repo is the CMake root, **OFF** when a game does `add_subdirectory(external/engine)` — so games do not compile `engine_tests` unless they pass `-DENGINE_BUILD_TESTS=ON`. A game that wants GoogleTest for its own test binary without also compiling `engine_tests` sets `ENGINE_WITH_GTEST ON` instead (defaults to `ENGINE_BUILD_TESTS`'s value, so `ENGINE_BUILD_TESTS=ON` still implies it).
 
 ```bash
 # from engine/
