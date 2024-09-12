@@ -83,8 +83,6 @@ void handle_pointer(ecs::World& world, float x, float y) {
         return a.index > b.index;
     });
 
-    world.ctx<MouseConsumed>().value = true;
-
     const ecs::Entity entity = hits.front().entity;
     UiCanvas& canvas = world.get<UiCanvas>(entity);
     UiInstance* instance = world.try_get<UiInstance>(entity);
@@ -106,6 +104,8 @@ void handle_pointer(ecs::World& world, float x, float y) {
     if (button == nullptr) {
         return;
     }
+
+    world.ctx<MouseConsumed>().value = true;
 
     ICommand* command = button->command;
     if (command == nullptr && is_bound(button->command_binding) && canvas.data_context) {

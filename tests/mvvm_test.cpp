@@ -227,14 +227,46 @@ TEST(Mvvm, OnClickApiAbsent) {
 
 TEST(Mvvm, UiCanvasHitTestInsideRect) {
     engine::ecs::World world;
-    auto vm = std::make_shared<ClickViewModel>();
-    spawn_button_canvas(world, vm, {10.0f, 20.0f, 50.0f, 40.0f}, 0);
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, make_canvas({10.0f, 20.0f, 50.0f, 40.0f}));
 
     engine::ui::begin_frame(world);
     engine::ui::handle_pointer(world, 15.0f, 25.0f);
 
-    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().value);
-    EXPECT_EQ(vm->clicks, 1);
+    EXPECT_FALSE(world.ctx<engine::ui::MouseConsumed>().value);
+}
+
+TEST(Mvvm, UiCanvasHitTestEmptyFillWindow) {
+    engine::ecs::World world;
+    const engine::ecs::Entity entity = world.create();
+    engine::ui::UiCanvas canvas = make_canvas({10.0f, 20.0f, 30.0f, 40.0f});
+    canvas.fit = engine::ui::UiFit::FillWindow;
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+
+    world.ctx<engine::ui::WindowSize>().width = 800;
+    world.ctx<engine::ui::WindowSize>().height = 600;
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 15.0f, 25.0f);
+
+    EXPECT_FALSE(world.ctx<engine::ui::MouseConsumed>().value);
+}
+
+TEST(Mvvm, UiCanvasHitTestLabelDoesNotConsume) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<ClickViewModel>();
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Label text="HUD"/></Canvas>)", nullptr, vm.get());
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ecs::Entity entity = world.create();
+    engine::ui::UiCanvas canvas = make_canvas({0.0f, 0.0f, 100.0f, 100.0f});
+    canvas.data_context = vm;
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+    world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{*parsed});
+
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 4.0f, 4.0f);
+
+    EXPECT_FALSE(world.ctx<engine::ui::MouseConsumed>().value);
+    EXPECT_EQ(vm->clicks, 0);
 }
 
 TEST(Mvvm, UiCanvasHitTestMissOutsideRect) {
@@ -262,6 +294,20 @@ TEST(Mvvm, HigherOrderCanvasWinsHitTest) {
     EXPECT_EQ(front->clicks, 1);
     EXPECT_EQ(back->clicks, 0);
     EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().value);
+}
+
+TEST(Mvvm, FrontCanvasMissDoesNotFallThrough) {
+    engine::ecs::World world;
+    auto back = std::make_shared<ClickViewModel>();
+    spawn_button_canvas(world, back, {0.0f, 0.0f, 100.0f, 100.0f}, 0);
+    const engine::ecs::Entity front = world.create();
+    world.emplace<engine::ui::UiCanvas>(front, make_canvas({0.0f, 0.0f, 100.0f, 100.0f}, 1));
+
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 4.0f, 4.0f);
+
+    EXPECT_EQ(back->clicks, 0);
+    EXPECT_FALSE(world.ctx<engine::ui::MouseConsumed>().value);
 }
 
 TEST(Mvvm, MouseConsumedResetOnBeginFrame) {
