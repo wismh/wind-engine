@@ -28,7 +28,7 @@ Games include `<engine/…>` only. `IUiPainter` is **not** public ([[src.ui.pain
 | Macro | Meaning |
 | --- | --- |
 | `ENGINE_WITH_WINDOW` | PUBLIC on `engine`. Unlocks `Engine<GameT>`, OpenGL sources, Boost.DI include path. |
-| `ENGINE_WITH_AUDIO` | PRIVATE. Real `MIX_*`; WAV-only mixer in CMake. |
+| `ENGINE_WITH_AUDIO` | PRIVATE. Real `MIX_*`; WAV-only mixer in CMake. Same root/subdirectory split as `ENGINE_WITH_WINDOW`: OFF at engine root, ON for a game's subdirectory. |
 | `ENGINE_WITH_WEB` | PUBLIC. Web profile helpers; Emscripten turns this on by default. |
 | `ENGINE_WITH_ANDROID` | PUBLIC. Android profile helpers; NDK builds turn this on by default. |
 | `ENGINE_WITH_GLES` | PUBLIC. ES 3.0 backend (no glad, NanoVG GLES3, shader adapt). Default ON when `EMSCRIPTEN` or `ANDROID`. |
