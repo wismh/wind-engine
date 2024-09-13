@@ -1208,7 +1208,7 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 - Transparent/borderless/always-on-top windows are validated on Windows only; Linux (compositor-dependent) and macOS are untested (§21.2, same status as the macOS icon path in §17 above).
 - Per-window `Camera` / world rendering — v1 renders `Renderable`s only into `kPrimaryWindow`; secondary windows are UI-only (§21.1).
 - Multi-monitor coordinate edge cases (DPI scaling differences between monitors, a window straddling two displays) — `set_window_position` takes virtual-desktop coordinates and does no clamping/validation in v1.
-- GL-window transparency (§21.2) has never been visually verified against a real display, engine-side included — distinct from the existing "Windows-only, Linux/macOS untested" item above: even the validated Windows path has only been confirmed correct by reading source (`WindowSystem::create`'s `SDL_GL_ALPHA_SIZE` request, SDL's own `DwmEnableBlurBehindWindow` call), never by rendering an actual transparent window on an actual screen — this repo has no sample game and no GPU/display in CI or in the sandbox these changes were made in (§12.3). A downstream game (`td-over`) reported a transparent primary window rendering opaque black despite this pipeline reading correct on paper (§21.2) — unresolved, no fix applied yet.
+- GL-window transparency (§21.2) has never been visually verified against a real display, engine-side included — distinct from the existing "Windows-only, Linux/macOS untested" item above: even the validated Windows path has only been confirmed correct by reading source (`WindowSystem::create`'s `SDL_GL_ALPHA_SIZE` request, SDL's own `DwmEnableBlurBehindWindow` call), never by rendering an actual transparent window on an actual screen — this repo has no sample game and no GPU/display in CI or in the sandbox these changes were made in (§12.3). A downstream game (`td-over`) originally reported a transparent primary window rendering opaque black; investigating that report live (actually running the game, `GetWindowLongPtr` inspection, temporary diagnostic logging) found two real, unrelated bugs before transparency itself could even be exercised: the borderless-titlebar issue fixed in §21.2 above, and — the actual root cause of "nothing renders at all" — the downstream game's own `on_update()` override never called `world_.run(Schedule::Fixed/Frame)` (or `GameBase::on_update()`), so every engine-registered system (`Phase::Render`/`UiRender` included) silently never ran, for either window, regardless of transparency. With that fixed on the game side, transparency itself is still unconfirmed either way — still open.
 
 ---
 
@@ -1695,6 +1695,30 @@ When `style.transparent` is set, that window's canvas clears to `(0, 0, 0, 0)` i
 engine-wide opaque black (§4.7). `borderless` and `always_on_top` map straight to
 `SDL_WINDOW_BORDERLESS` / `SDL_SetWindowAlwaysOnTop` and, unlike `transparent`, can be toggled at
 runtime (§21.3).
+
+**`SDL_WINDOW_BORDERLESS` alone does not produce a chrome-less window on Windows.** SDL3's Windows
+backend defaults a borderless window to `STYLE_BORDERLESS_WINDOWED` (`WS_POPUP | WS_CAPTION |
+WS_SYSMENU | WS_MINIMIZEBOX`, `external/SDL3/src/video/windows/SDL_windowswindow.c`,
+`GetWindowStyle()`) — i.e. Windows still draws a titlebar — deliberately, so a borderless window
+keeps acting like a normal desktop citizen (shows in the taskbar, respects the work area). A
+desktop-overlay window wants the opposite: no titlebar, no system menu, at all. This was found by
+actually running a downstream game (`td-over`) and inspecting its live windows via
+`GetWindowLongPtr(hwnd, GWL_STYLE)` — the "borderless" primary window's real style was
+`0x96CF0000`, which includes `WS_CAPTION`/`WS_SYSMENU`, confirming the titlebar seen on screen was
+not a rendering artifact. `WindowSystem::create()` (`src/render/opengl/window_system.cpp`) now
+sets the (public-API-less, raw-string) hint before creating a borderless window:
+```cpp
+if (desc.style.borderless) {
+    SDL_SetHint("SDL_BORDERLESS_WINDOWED_STYLE", "0");
+}
+```
+which selects SDL's other borderless style (`STYLE_BORDERLESS = WS_POPUP | WS_MINIMIZEBOX`, no
+caption/sysmenu). Re-inspecting the same live window afterward gave `0x96070000` — `WS_CAPTION`
+and `WS_SYSMENU` gone, everything else (resizable/minimize bits) unchanged — confirming the fix
+empirically, not just by reading source. The hint is read once per `SDL_CreateWindow` call, so
+setting it immediately before creating *this* window is sufficient and has zero effect on any
+window created with `borderless = false` (that branch in `GetWindowStyle()` is never taken for
+one), including a different window created earlier or later in the same process.
 
 `WindowSystem::is_transparent()` reports whether the live window was created with
 `style.transparent` (`false` before any `create()` and after `destroy()`) — `OpenGLCanvas::draw()`
