@@ -2,6 +2,7 @@
 
 #include <engine/audio/audio_system.h>
 #include <engine/audio/events.h>
+#include <engine/core/input_system.h>
 #include <engine/ecs/camera.h>
 #include <engine/ecs/events.h>
 #include <engine/ecs/schedule.h>
@@ -362,6 +363,48 @@ TEST(RenderSystem, UiCanvasForSecondaryWindowRoutesThroughCommandsForWindow) {
     ASSERT_EQ(secondary_commands.size(), 1u);
     ASSERT_TRUE(std::holds_alternative<engine::render::CmdDrawUI>(secondary_commands[0]));
     EXPECT_EQ(std::get<engine::render::CmdDrawUI>(secondary_commands[0]).rect, canvas.rect);
+}
+
+TEST(RenderSystem, UiPointerDoesNotLeakAcrossWindows) {
+    const engine::WindowId window_b{3};
+    engine::render::CommandBuffer commands_a;
+    engine::render::CommandBuffer commands_b;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{
+            .commands = &commands_a,
+            .commands_for_window = [&](engine::WindowId id) -> engine::render::CommandBuffer* {
+                return id == window_b ? &commands_b : nullptr;
+            },
+    });
+
+    engine::ui::UiCanvas canvas_a;
+    canvas_a.fit = engine::ui::UiFit::Fixed;
+    canvas_a.rect = engine::render::Rect{0.0f, 0.0f, 100.0f, 100.0f};
+    canvas_a.window = engine::kPrimaryWindow;
+    world.emplace<engine::ui::UiCanvas>(world.create(), canvas_a);
+
+    engine::ui::UiCanvas canvas_b = canvas_a;
+    canvas_b.window = window_b;
+    world.emplace<engine::ui::UiCanvas>(world.create(), canvas_b);
+
+    // A down-click at the same local pixel offset, but only in window A.
+    engine::ecs::EventWriter<engine::MouseEvent>{world}.send(engine::MouseEvent{
+            .window = engine::kPrimaryWindow,
+            .kind = engine::MouseEvent::Kind::Down,
+            .position = {40.0f, 40.0f},
+    });
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    ASSERT_EQ(commands_a.size(), 1u);
+    ASSERT_EQ(commands_b.size(), 1u);
+    const auto& draw_a = std::get<engine::render::CmdDrawUI>(commands_a[0]);
+    const auto& draw_b = std::get<engine::render::CmdDrawUI>(commands_b[0]);
+    EXPECT_EQ(draw_a.pointer, (glm::vec2{40.0f, 40.0f}));
+    EXPECT_TRUE(draw_a.pointer_down);
+    // Window B never received a click — its pointer must stay at rest, not mirror window A's.
+    EXPECT_EQ(draw_b.pointer, (glm::vec2{0.0f, 0.0f}));
+    EXPECT_FALSE(draw_b.pointer_down);
 }
 
 TEST(RenderSystem, UiCanvasForSecondaryWindowSkippedWithoutCommandsForWindow) {
