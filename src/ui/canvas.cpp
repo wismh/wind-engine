@@ -79,7 +79,15 @@ void begin_frame(ecs::World& world) {
     apply_canvas_fit(world);
 }
 
-void handle_pointer(ecs::World& world, float x, float y, WindowId window) {
+namespace {
+
+// Shared by handle_pointer() and update_pointer_hover(): finds the topmost element under (x, y),
+// rebuilding bindings/layout the same way for both so a hover hit test sees the exact same
+// element a click at that position would. Sets MouseConsumed as a side effect whenever it finds a
+// hit (matching the previous handle_pointer() behavior) — both callers want that. `out_canvas`
+// receives the owning canvas (needed by handle_pointer() to resolve a command binding); left
+// untouched on a miss.
+Element* resolve_pointer_hit(ecs::World& world, float x, float y, WindowId window, UiCanvas** out_canvas) {
     std::vector<CanvasHit> hits;
     {
         auto view = world.view<UiCanvas>();
@@ -95,7 +103,7 @@ void handle_pointer(ecs::World& world, float x, float y, WindowId window) {
         }
     }
     if (hits.empty()) {
-        return;
+        return nullptr;
     }
 
     std::stable_sort(hits.begin(), hits.end(), [](const CanvasHit& a, const CanvasHit& b) {
@@ -109,7 +117,7 @@ void handle_pointer(ecs::World& world, float x, float y, WindowId window) {
     UiCanvas& canvas = world.get<UiCanvas>(entity);
     UiInstance* instance = world.try_get<UiInstance>(entity);
     if (instance == nullptr) {
-        return;
+        return nullptr;
     }
 
     const Stylesheet* sheet = nullptr;
@@ -129,18 +137,35 @@ void handle_pointer(ecs::World& world, float x, float y, WindowId window) {
     Element* button =
             hit_test(instance->document.root, (x - space.offset.x) / space.scale, (y - space.offset.y) / space.scale);
     if (button == nullptr) {
-        return;
+        return nullptr;
     }
 
     world.ctx<MouseConsumed>().value = true;
+    *out_canvas = &canvas;
+    return button;
+}
+
+}
+
+void handle_pointer(ecs::World& world, float x, float y, WindowId window) {
+    UiCanvas* canvas = nullptr;
+    Element* button = resolve_pointer_hit(world, x, y, window, &canvas);
+    if (button == nullptr) {
+        return;
+    }
 
     ICommand* command = button->command;
-    if (command == nullptr && is_bound(button->command_binding) && canvas.data_context) {
-        command = canvas.data_context->find_command(button->command_binding);
+    if (command == nullptr && is_bound(button->command_binding) && canvas->data_context) {
+        command = canvas->data_context->find_command(button->command_binding);
     }
     if (command != nullptr && command->can_execute()) {
         command->execute();
     }
+}
+
+void update_pointer_hover(ecs::World& world, float x, float y, WindowId window) {
+    UiCanvas* canvas = nullptr;
+    (void) resolve_pointer_hit(world, x, y, window, &canvas);
 }
 
 }
