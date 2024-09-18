@@ -1,14 +1,12 @@
 #pragma once
 
 #include <engine/builtin_ids.h>
+#include <engine/core/window_desc.h>
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/world.h>
 #include <engine/resources/asset_id.h>
 
-#include <glm/vec2.hpp>
-
 #include <optional>
-#include <string>
 
 namespace engine {
 
@@ -26,12 +24,11 @@ class IGame {
 public:
     virtual ~IGame() = default;
 
-    virtual std::string window_title() const {
-        return "Game";
-    }
-
-    virtual glm::ivec2 window_size() const {
-        return {800, 600};
+    // Replaces the older separate window_title()/window_size() pair (SDD §5, §21.2) — a breaking
+    // change made pre-1.0, not a compatibility shim. Only the primary window is declared up
+    // front; any further window is opened later through IWindowControl (§21.3).
+    virtual WindowDesc primary_window() const {
+        return {};
     }
 
     // No default icon: unset means the OS/window-manager default is used.

@@ -16,7 +16,7 @@ Host::Host(IGame& game, render::ICanvas& canvas, IAudioSystem* audio)
     , time_(&game.world().ctx<Time>())
     , app_state_(&game.world().ctx<ApplicationState>())
     , clock_(*time_, *app_state_) {
-    const glm::ivec2 size = game_->window_size();
+    const glm::ivec2 size = game_->primary_window().size;
     write_window_size(size.x, size.y, true);
     register_engine_systems(game_->world());
     game_->on_start();
@@ -65,7 +65,8 @@ void Host::write_window_size(int width, int height, bool send_event) {
     size.width = width;
     size.height = height;
     if (send_event) {
-        ecs::EventWriter<ui::WindowResizeEvent>{world_ref}.send(ui::WindowResizeEvent{width, height});
+        ecs::EventWriter<ui::WindowResizeEvent>{world_ref}.send(
+                ui::WindowResizeEvent{.window = kPrimaryWindow, .width = width, .height = height});
     }
     ui::apply_canvas_fit(world_ref);
 }

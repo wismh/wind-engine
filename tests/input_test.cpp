@@ -234,9 +234,9 @@ TEST(Input, MouseDownMoveUp) {
     const glm::vec2 relative{1.5f, -2.f};
     const glm::vec2 up_pos{41.f, 48.f};
 
-    input.handle_mouse_button(engine::MouseButton::Left, true, down_pos);
-    input.handle_mouse_move(move_pos, relative);
-    input.handle_mouse_button(engine::MouseButton::Left, false, up_pos);
+    input.handle_mouse_button(engine::kPrimaryWindow, engine::MouseButton::Left, true, down_pos);
+    input.handle_mouse_move(engine::kPrimaryWindow, move_pos, relative);
+    input.handle_mouse_button(engine::kPrimaryWindow, engine::MouseButton::Left, false, up_pos);
 
     const std::vector<engine::MouseEvent> events = read_mouse(world);
     ASSERT_EQ(events.size(), 3u);
@@ -264,7 +264,7 @@ TEST(Input, BoundLeftMouseEmitsMouseAndInput) {
     input.bind(engine::MouseButton::Left, fire);
 
     const glm::vec2 pos{8.f, 16.f};
-    input.handle_mouse_button(engine::MouseButton::Left, true, pos);
+    input.handle_mouse_button(engine::kPrimaryWindow, engine::MouseButton::Left, true, pos);
 
     const std::vector<engine::MouseEvent> mouse = read_mouse(world);
     ASSERT_EQ(mouse.size(), 1u);
@@ -287,10 +287,10 @@ TEST(Input, BoundLeftMouseHeldWhileDown) {
     input.bind(engine::MouseButton::Left, "fire");
     EXPECT_EQ(input.bound_action(engine::MouseButton::Left), fire);
 
-    input.handle_mouse_button(engine::MouseButton::Left, true, {1.f, 2.f});
+    input.handle_mouse_button(engine::kPrimaryWindow, engine::MouseButton::Left, true, {1.f, 2.f});
     EXPECT_TRUE(input.is_held(fire));
 
-    input.handle_mouse_button(engine::MouseButton::Left, false, {1.f, 2.f});
+    input.handle_mouse_button(engine::kPrimaryWindow, engine::MouseButton::Left, false, {1.f, 2.f});
     EXPECT_FALSE(input.is_held(fire));
 }
 
@@ -302,13 +302,13 @@ TEST(Input, KeyAndLeftMouseShareHeldCount) {
     input.bind(engine::MouseButton::Left, fire);
 
     input.handle_key(engine::KeyCode::Space, true);
-    input.handle_mouse_button(engine::MouseButton::Left, true, {10.f, 20.f});
+    input.handle_mouse_button(engine::kPrimaryWindow, engine::MouseButton::Left, true, {10.f, 20.f});
     EXPECT_TRUE(input.is_held(fire));
 
     input.handle_key(engine::KeyCode::Space, false);
     EXPECT_TRUE(input.is_held(fire));
 
-    input.handle_mouse_button(engine::MouseButton::Left, false, {10.f, 20.f});
+    input.handle_mouse_button(engine::kPrimaryWindow, engine::MouseButton::Left, false, {10.f, 20.f});
     EXPECT_FALSE(input.is_held(fire));
 }
 
@@ -321,7 +321,7 @@ TEST(Input, InputEventNotFilteredByMouseConsumed) {
     engine::InputSystem input{world};
     const engine::ActionId fire = input.intern("fire");
     input.bind(engine::MouseButton::Left, fire);
-    input.handle_mouse_button(engine::MouseButton::Left, true, {0.f, 0.f});
+    input.handle_mouse_button(engine::kPrimaryWindow, engine::MouseButton::Left, true, {0.f, 0.f});
 
     EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().value);
     ASSERT_EQ(read_mouse(world).size(), 1u);

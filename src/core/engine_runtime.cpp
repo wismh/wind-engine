@@ -1,6 +1,8 @@
 #include <engine/core/engine_runtime.h>
 
 #include "render/opengl/opengl_runtime.h"
+#include "render/opengl/window_control.h"
+#include "render/opengl/window_manager.h"
 
 #include <engine/audio/audio_system.h>
 #include <engine/core/app_lifecycle.h>
@@ -160,11 +162,14 @@ std::optional<SpawnedSplash> spawn_splash(ecs::World& world, const SplashScreen&
 }
 
 struct EngineRuntime::Impl {
-    WindowSystem window;
-    std::shared_ptr<render::CommandBuffer> commands = std::make_shared<render::CommandBuffer>();
     std::shared_ptr<render::OpenGLFactory> factory = std::make_shared<render::OpenGLFactory>();
     std::shared_ptr<render::OpenGLRenderBackend> backend = std::make_shared<render::OpenGLRenderBackend>();
-    std::shared_ptr<render::OpenGLCanvas> canvas;
+    // Owns the primary window plus any secondary ones opened later (SDD §21.5). The primary slot
+    // exists from construction (see WindowManager's constructor) so window_control below — and
+    // commands_ptr()/canvas_ptr() further down — have something valid to bind to even though no
+    // real window exists yet at this point in Engine<GameT>::init()'s DI graph construction.
+    WindowManager windows{*backend};
+    std::shared_ptr<WindowControlImpl> window_control = std::make_shared<WindowControlImpl>(windows);
     bool video_inited = false;
     IGame* loop_game = nullptr;
     InputSystem* loop_input = nullptr;
@@ -184,10 +189,6 @@ struct EngineRuntime::Impl {
     std::optional<ecs::Entity> splash_entity;
     float splash_elapsed = 0.0f;
     float splash_total_duration = 0.0f;
-
-    Impl() {
-        canvas = std::make_shared<render::OpenGLCanvas>(window, *commands, *backend);
-    }
 };
 
 EngineRuntime::EngineRuntime() : impl_(std::make_unique<Impl>()) {}
@@ -209,53 +210,55 @@ bool EngineRuntime::init_video() {
     return true;
 }
 
-bool EngineRuntime::create_window(std::string_view title, glm::ivec2 size) {
-    if (!impl_->window.create(title, size)) {
-        return false;
-    }
-    return impl_->canvas->init();
+bool EngineRuntime::create_window(const WindowDesc& desc) {
+    return impl_->windows.create_primary_window(desc);
+}
+
+std::optional<WindowId> EngineRuntime::open_window(const WindowDesc& desc) {
+    return impl_->windows.create_window(desc);
+}
+
+void EngineRuntime::close_window(WindowId id) {
+    impl_->windows.destroy_window(id);
 }
 
 void EngineRuntime::set_window_icon(const render::TextureDesc& desc) {
-    impl_->window.set_icon(desc);
+    impl_->windows.primary_window().set_icon(desc);
 }
 
 bool EngineRuntime::load_ui_font(const Font& font) {
-    if (impl_->canvas == nullptr) {
+    const auto canvas = impl_->windows.canvas_ptr(kPrimaryWindow);
+    if (canvas == nullptr) {
         return false;
     }
-    return impl_->canvas->load_ui_font(font);
+    return canvas->load_ui_font(font);
 }
 
 bool EngineRuntime::add_font(AssetId id, const Font& font) {
-    if (impl_->canvas == nullptr) {
+    const auto canvas = impl_->windows.canvas_ptr(kPrimaryWindow);
+    if (canvas == nullptr) {
         return false;
     }
-    return impl_->canvas->add_font(id, font);
+    return canvas->add_font(id, font);
 }
 
 bool EngineRuntime::add_image(AssetId id, const render::TextureDesc& desc) {
-    if (impl_->canvas == nullptr) {
+    const auto canvas = impl_->windows.canvas_ptr(kPrimaryWindow);
+    if (canvas == nullptr) {
         return false;
     }
     impl_->image_sizes[id] = glm::vec2{static_cast<float>(desc.width), static_cast<float>(desc.height)};
-    return impl_->canvas->add_image(id, desc);
+    return canvas->add_image(id, desc);
 }
 
 void EngineRuntime::shutdown() {
     if (impl_ == nullptr) {
         return;
     }
-    if (impl_->canvas) {
-        impl_->canvas.reset();
-    }
-    impl_->window.destroy();
+    impl_->windows.shutdown();
     if (impl_->video_inited) {
         SDL_Quit();
         impl_->video_inited = false;
-    }
-    if (impl_->canvas == nullptr && impl_->commands) {
-        impl_->canvas = std::make_shared<render::OpenGLCanvas>(impl_->window, *impl_->commands, *impl_->backend);
     }
 }
 
@@ -327,6 +330,31 @@ void EngineRuntime::tick_loop() {
 
     world.flush_events();
     poll_events(world, *impl_->loop_input, app);
+
+    // Backfills a WindowSizes entry for any secondary window that has none yet (SDD §21.7) — a
+    // freshly opened window has no drawable size in ui::WindowSizes until its first real
+    // SDL_EVENT_WINDOW_RESIZED/PIXEL_SIZE_CHANGED event, which isn't guaranteed to fire
+    // immediately after creation; without this, a FillWindow/ScaleWithScreenSize canvas targeting
+    // it sizes itself to {0,0} for however many frames that takes. Only fills in *missing*
+    // entries — never overwrites one a real resize event already kept current. Lives here (not in
+    // WindowControlImpl/WindowManager) to keep the rendering/OS layer free of ecs::World& (§3.4/
+    // §4.2) — this is the one place in EngineRuntime that already has both `impl_->windows` and
+    // `world` in scope.
+    {
+        ui::WindowSizes& sizes = world.ctx<ui::WindowSizes>();
+        bool backfilled = false;
+        impl_->windows.for_each_secondary_window([&](WindowId id, WindowSystem& window) {
+            if (!sizes.sizes.contains(id)) {
+                const glm::ivec2 size = window.drawable_size();
+                sizes.sizes[id] = ui::WindowSize{size.x, size.y};
+                backfilled = true;
+            }
+        });
+        if (backfilled) {
+            ui::apply_canvas_fit(world);
+        }
+    }
+
     ui::begin_frame(world);
 
     const int steps = impl_->loop_clock->advance(real_dt);
@@ -337,7 +365,8 @@ void EngineRuntime::tick_loop() {
         game.on_fixed_update();
     }
     game.on_update();
-    canvas().draw();
+    impl_->windows.primary_window().update_click_through(world.ctx<ui::MouseConsumed>().value);
+    impl_->windows.draw_all();
 }
 
 void EngineRuntime::end_loop() {
@@ -376,11 +405,15 @@ void EngineRuntime::main_loop_thunk(void* self) {
 }
 
 render::CommandBuffer& EngineRuntime::commands() {
-    return *impl_->commands;
+    return *impl_->windows.commands_ptr(kPrimaryWindow);
 }
 
 render::ICanvas& EngineRuntime::canvas() {
-    return *impl_->canvas;
+    return *impl_->windows.canvas_ptr(kPrimaryWindow);
+}
+
+render::CommandBuffer* EngineRuntime::commands_for_window(WindowId id) {
+    return impl_->windows.commands(id);
 }
 
 render::IGraphicFactory& EngineRuntime::factory() {
@@ -392,11 +425,11 @@ render::IRenderBackend& EngineRuntime::backend() {
 }
 
 std::shared_ptr<render::CommandBuffer> EngineRuntime::commands_ptr() const {
-    return impl_->commands;
+    return impl_->windows.commands_ptr(kPrimaryWindow);
 }
 
 std::shared_ptr<render::ICanvas> EngineRuntime::canvas_ptr() const {
-    return impl_->canvas;
+    return impl_->windows.canvas_ptr(kPrimaryWindow);
 }
 
 std::shared_ptr<render::IGraphicFactory> EngineRuntime::factory_ptr() const {
@@ -407,12 +440,16 @@ std::shared_ptr<render::IRenderBackend> EngineRuntime::backend_ptr() const {
     return impl_->backend;
 }
 
+std::shared_ptr<IWindowControl> EngineRuntime::window_control_ptr() const {
+    return impl_->window_control;
+}
+
 void* EngineRuntime::native_window() const {
-    return impl_->window.window();
+    return impl_->windows.primary_window().window();
 }
 
 glm::ivec2 EngineRuntime::drawable_size() const {
-    return impl_->window.drawable_size();
+    return impl_->windows.primary_window().drawable_size();
 }
 
 std::filesystem::path EngineRuntime::base_path() const {
@@ -438,7 +475,8 @@ void EngineRuntime::write_window_size(ecs::World& world, bool send_event) {
     ctx.width = size.x;
     ctx.height = size.y;
     if (send_event) {
-        ecs::EventWriter<ui::WindowResizeEvent>{world}.send(ui::WindowResizeEvent{size.x, size.y});
+        ecs::EventWriter<ui::WindowResizeEvent>{world}.send(
+                ui::WindowResizeEvent{.window = kPrimaryWindow, .width = size.x, .height = size.y});
     }
     ui::apply_canvas_fit(world);
 }
@@ -462,9 +500,32 @@ void EngineRuntime::poll_events(ecs::World& world, InputSystem& input, Applicati
                 apply_app_lifecycle(app, AppLifecycleEvent::Terminating);
                 break;
             case SDL_EVENT_WINDOW_RESIZED:
-            case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
-                write_window_size(world, true);
+            case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED: {
+                // write_window_size() always meant "the primary window's size" — resolving which
+                // window actually resized (rather than assuming primary unconditionally) is the
+                // §21.6 fix; defaulting to kPrimaryWindow on a failed lookup is defensive (e.g. a
+                // stray event for a window that already closed).
+                const WindowId resized = impl_->windows.find_by_sdl_id(event.window.windowID).value_or(kPrimaryWindow);
+                if (resized == kPrimaryWindow) {
+                    write_window_size(world, true);
+                } else if (WindowSystem* secondary = impl_->windows.window(resized)) {
+                    const glm::ivec2 size = secondary->drawable_size();
+                    world.ctx<ui::WindowSizes>().sizes[resized] = ui::WindowSize{size.x, size.y};
+                    ecs::EventWriter<ui::WindowResizeEvent>{world}.send(
+                            ui::WindowResizeEvent{.window = resized, .width = size.x, .height = size.y});
+                    ui::apply_canvas_fit(world);
+                }
                 break;
+            }
+            case SDL_EVENT_WINDOW_CLOSE_REQUESTED: {
+                // Purely informational (SDD §21.7 — product decision): the engine never quits or
+                // destroys anything here on its own. A game system reads WindowCloseRequestedEvent
+                // in its own schedule and decides (quit, confirm dialog, ignore, close just this
+                // window via IWindowControl::close_window).
+                const WindowId closed = impl_->windows.find_by_sdl_id(event.window.windowID).value_or(kPrimaryWindow);
+                ecs::EventWriter<ui::WindowCloseRequestedEvent>{world}.send(ui::WindowCloseRequestedEvent{.window = closed});
+                break;
+            }
             case SDL_EVENT_KEY_DOWN:
             case SDL_EVENT_KEY_UP:
                 if (!event.key.repeat) {
@@ -476,14 +537,18 @@ void EngineRuntime::poll_events(ecs::World& world, InputSystem& input, Applicati
                 }
                 break;
             case SDL_EVENT_MOUSE_BUTTON_DOWN:
-            case SDL_EVENT_MOUSE_BUTTON_UP:
-                input.handle_mouse_button(mouse_button_from_sdl(event.button.button), event.button.down,
+            case SDL_EVENT_MOUSE_BUTTON_UP: {
+                const WindowId window_id = impl_->windows.find_by_sdl_id(event.button.windowID).value_or(kPrimaryWindow);
+                input.handle_mouse_button(window_id, mouse_button_from_sdl(event.button.button), event.button.down,
                         glm::vec2{event.button.x, event.button.y});
                 break;
-            case SDL_EVENT_MOUSE_MOTION:
-                input.handle_mouse_move(glm::vec2{event.motion.x, event.motion.y},
+            }
+            case SDL_EVENT_MOUSE_MOTION: {
+                const WindowId window_id = impl_->windows.find_by_sdl_id(event.motion.windowID).value_or(kPrimaryWindow);
+                input.handle_mouse_move(window_id, glm::vec2{event.motion.x, event.motion.y},
                         glm::vec2{event.motion.xrel, event.motion.yrel});
                 break;
+            }
             case SDL_EVENT_FINGER_DOWN:
             case SDL_EVENT_FINGER_UP: {
                 const glm::ivec2 size = drawable_size();
