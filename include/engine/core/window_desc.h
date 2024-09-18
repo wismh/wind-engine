@@ -20,6 +20,12 @@ struct WindowStyle {
     bool borderless = false;
     bool always_on_top = false;
     bool transparent = false;
+    // false omits SDL_WINDOW_RESIZABLE at creation. On Windows this also removes WS_MAXIMIZEBOX
+    // (SDL's GetWindowStyle() only adds it for a resizable window — SDL_windowswindow.c), which is
+    // what stops a double-click inside a set_drag_region() (window_control.h) from maximizing a
+    // fixed-size overlay: without a titlebar, SDL reports HTCAPTION for a drag region, and Windows
+    // treats a double-click on HTCAPTION as SC_MAXIMIZE whenever WS_MAXIMIZEBOX is present.
+    bool resizable = true;
 };
 
 struct WindowDesc {
