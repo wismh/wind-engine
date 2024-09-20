@@ -60,8 +60,8 @@ class WindowSizeGame final : public engine::GameBase {
 public:
     engine::ui::WindowSize seen{};
 
-    glm::ivec2 window_size() const override {
-        return {800, 600};
+    engine::WindowDesc primary_window() const override {
+        return {.title = "Game", .size = {800, 600}};
     }
 
     void on_start() override {
@@ -73,8 +73,8 @@ class FillWindowGame final : public engine::GameBase {
 public:
     engine::ecs::Entity canvas_entity{};
 
-    glm::ivec2 window_size() const override {
-        return {640, 480};
+    engine::WindowDesc primary_window() const override {
+        return {.title = "Game", .size = {640, 480}};
     }
 
     void on_start() override {
@@ -207,8 +207,8 @@ TEST(Host, WindowSizeWrittenBeforeOnStart) {
 
     EXPECT_EQ(game.seen.width, 800);
     EXPECT_EQ(game.seen.height, 600);
-    EXPECT_EQ(host.world().ctx<engine::ui::WindowSize>().width, game.window_size().x);
-    EXPECT_EQ(host.world().ctx<engine::ui::WindowSize>().height, game.window_size().y);
+    EXPECT_EQ(host.world().ctx<engine::ui::WindowSize>().width, game.primary_window().size.x);
+    EXPECT_EQ(host.world().ctx<engine::ui::WindowSize>().height, game.primary_window().size.y);
 }
 
 TEST(Host, ResizeWritesWindowSize) {

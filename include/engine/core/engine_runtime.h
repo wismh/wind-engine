@@ -2,6 +2,8 @@
 
 #include <engine/core/application_state.h>
 #include <engine/core/input_system.h>
+#include <engine/core/window_control.h>
+#include <engine/core/window_desc.h>
 #include <engine/igame.h>
 #include <engine/render/backend.h>
 #include <engine/render/canvas.h>
@@ -12,7 +14,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
-#include <string_view>
+#include <optional>
 
 #include <glm/vec2.hpp>
 
@@ -30,7 +32,12 @@ public:
     EngineRuntime& operator=(const EngineRuntime&) = delete;
 
     [[nodiscard]] bool init_video();
-    [[nodiscard]] bool create_window(std::string_view title, glm::ivec2 size);
+    [[nodiscard]] bool create_window(const WindowDesc& desc);
+    // Secondary windows (SDD §21.5): share GL resources with the primary window, get drawn/swapped
+    // every frame alongside it. No per-window UI/render routing yet (§21.6) — a freshly opened
+    // window is just cleared each frame until that phase lands.
+    [[nodiscard]] std::optional<WindowId> open_window(const WindowDesc& desc);
+    void close_window(WindowId id);
     void set_window_icon(const render::TextureDesc& desc);
     [[nodiscard]] bool load_ui_font(const Font& font);
     [[nodiscard]] bool add_font(AssetId id, const Font& font);
@@ -42,6 +49,11 @@ public:
 
     [[nodiscard]] render::CommandBuffer& commands();
     [[nodiscard]] render::ICanvas& canvas();
+    // Additive (§21.6): the CommandBuffer for any live window, primary or secondary — nullptr if
+    // `id` has no live window. Exposed as a plain WindowId -> CommandBuffer* lookup (rather than
+    // leaking WindowManager, which stays src-private) so Engine<GameT>::init() can wire
+    // EngineSystemDeps::commands_for_window without widening this header's dependencies.
+    [[nodiscard]] render::CommandBuffer* commands_for_window(WindowId id);
     [[nodiscard]] render::IGraphicFactory& factory();
     [[nodiscard]] render::IRenderBackend& backend();
 
@@ -49,6 +61,7 @@ public:
     [[nodiscard]] std::shared_ptr<render::ICanvas> canvas_ptr() const;
     [[nodiscard]] std::shared_ptr<render::IGraphicFactory> factory_ptr() const;
     [[nodiscard]] std::shared_ptr<render::IRenderBackend> backend_ptr() const;
+    [[nodiscard]] std::shared_ptr<IWindowControl> window_control_ptr() const;
 
     [[nodiscard]] void* native_window() const;
     [[nodiscard]] glm::ivec2 drawable_size() const;

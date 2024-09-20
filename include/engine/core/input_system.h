@@ -1,6 +1,7 @@
 #pragma once
 
 #include <engine/core/key_code.h>
+#include <engine/core/window_desc.h>
 #include <engine/ecs/world.h>
 
 #include <glm/vec2.hpp>
@@ -57,6 +58,7 @@ struct InputEvent {
 };
 
 struct MouseEvent {
+    WindowId window = kPrimaryWindow;
     enum class Kind { Down, Up, Move } kind = Kind::Move;
     glm::vec2 position{};
     glm::vec2 relative{};
@@ -96,8 +98,8 @@ public:
     [[nodiscard]] std::vector<Control> controls_for(ActionId action) const;
 
     void handle_key(KeyCode key, bool down);
-    void handle_mouse_button(MouseButton button, bool down, glm::vec2 position);
-    void handle_mouse_move(glm::vec2 position, glm::vec2 relative);
+    void handle_mouse_button(WindowId window, MouseButton button, bool down, glm::vec2 position);
+    void handle_mouse_move(WindowId window, glm::vec2 position, glm::vec2 relative);
     void handle_touch(std::uint32_t finger_id, bool down, glm::vec2 position);
     void handle_touch_move(std::uint32_t finger_id, glm::vec2 position, glm::vec2 relative);
 
