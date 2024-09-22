@@ -39,6 +39,17 @@ public:
     [[nodiscard]] glm::ivec2 size() const;
     [[nodiscard]] glm::ivec2 drawable_size() const;
 
+    // Current OS cursor position in this window's client pixels, queried directly
+    // (SDL_GetGlobalMouseState + SDL_GetWindowPosition) rather than read from the last delivered
+    // SDL_EVENT_MOUSE_MOTION. SDD §21.7 regression fix: once click-through is actually applied
+    // (WS_EX_TRANSPARENT set), Windows stops delivering WM_MOUSEMOVE for any point that hit-tests
+    // as HTTRANSPARENT — including a point that later moves onto a widget — so a caller that only
+    // ever reacts to real motion events can never learn the pointer came back over something
+    // clickable. std::nullopt without a live window (§12.3). Assumes the window's OS position *is*
+    // its client-area origin, true for the borderless windows this exists for (SDD §21.7 — a
+    // bordered window's own titlebar drag doesn't need this workaround, see the caller).
+    [[nodiscard]] std::optional<glm::vec2> cursor_client_position() const;
+
     [[nodiscard]] bool is_transparent() const noexcept {
         return transparent_;
     }
