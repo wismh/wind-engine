@@ -1,5 +1,8 @@
 #include "ui/splash.h"
 
+#include <engine/ui/canvas.h>
+#include <engine/ui/splash.h>
+
 #include <format>
 #include <string>
 #include <vector>
@@ -10,6 +13,10 @@ namespace {
 constexpr std::string_view kKeyframesName = "engine-splash-fade";
 constexpr std::string_view kRootClass = "engine-splash-root";
 constexpr std::string_view kImageClass = "engine-splash-image";
+
+// Above any order a game plausibly picks for its own UI (existing usage sticks to small
+// integers like 0-2), so the splash always paints last without games needing to coordinate.
+constexpr int kSplashCanvasOrder = 1000;
 
 }
 
@@ -65,6 +72,28 @@ std::optional<SplashDocument> build_splash_document(const SplashScreen& config, 
     const glm::vec2 reference_size = image_size / kContentFraction;
 
     return SplashDocument{std::move(*document), std::move(*stylesheet), reference_size, total};
+}
+
+std::optional<ecs::Entity> show_splash(
+        ecs::World& world, const SplashScreen& config, glm::vec2 image_size, WindowId window) {
+    const std::optional<SplashDocument> splash = build_splash_document(config, image_size);
+    if (!splash) {
+        return std::nullopt;
+    }
+    const ecs::Entity entity = world.create();
+    UiCanvas canvas;
+    canvas.fit = UiFit::ScaleWithScreenSize;
+    canvas.reference_size = splash->reference_size;
+    canvas.order = kSplashCanvasOrder;
+    canvas.window = window;
+    world.emplace<UiCanvas>(entity, canvas);
+    // canvas.document/data_context are left at their defaults so they match UiInstance's
+    // freshly-constructed loaded_document/loaded_data_context - otherwise run_bind's
+    // instance_needs_rebuild() sees a mismatch and clone_document() overwrites this in-memory
+    // document by trying (and failing) to load canvas.document from the asset catalog.
+    world.emplace<UiInstance>(entity, UiInstance{splash->document, splash->stylesheet});
+    world.emplace<SplashTimer>(entity, SplashTimer{.total_duration = splash->total_duration});
+    return entity;
 }
 
 }

@@ -2,11 +2,15 @@
 
 #include "ui/splash.h"
 
+#include <engine/core/time.h>
+#include <engine/core/window_desc.h>
+#include <engine/ecs/systems.h>
 #include <engine/ecs/world.h>
 #include <engine/igame.h>
 #include <engine/resources/asset_id.h>
 #include <engine/ui/canvas.h>
 #include <engine/ui/document.h>
+#include <engine/ui/splash.h>
 #include <engine/ui/stylesheet.h>
 
 #include <glm/vec2.hpp>
@@ -182,16 +186,9 @@ TEST(Splash, SpawnsExactlyOneCanvasWhenEnabledAndNoneWhenDisabled) {
         engine::SplashScreen config;
         config.image = engine::AssetId{kSplashImageGuid};
 
-        const auto splash = engine::ui::build_splash_document(config, kValidImageSize);
-        ASSERT_TRUE(splash.has_value());
-
-        const engine::ecs::Entity entity = world.create();
-        engine::ui::UiCanvas canvas;
-        canvas.fit = engine::ui::UiFit::ScaleWithScreenSize;
-        canvas.reference_size = splash->reference_size;
-        canvas.order = 1000;
-        world.emplace<engine::ui::UiCanvas>(entity, canvas);
-        world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{splash->document, splash->stylesheet});
+        const auto entity = engine::ui::show_splash(world, config, kValidImageSize);
+        ASSERT_TRUE(entity.has_value());
+        ASSERT_TRUE(world.valid(*entity));
 
         int count = 0;
         for (engine::ecs::Entity e : world.view<engine::ui::UiCanvas>()) {
@@ -199,14 +196,19 @@ TEST(Splash, SpawnsExactlyOneCanvasWhenEnabledAndNoneWhenDisabled) {
             ++count;
         }
         EXPECT_EQ(count, 1);
+
+        const auto* timer = world.try_get<engine::ui::SplashTimer>(*entity);
+        ASSERT_NE(timer, nullptr);
+        EXPECT_FLOAT_EQ(timer->elapsed, 0.0f);
+        EXPECT_FLOAT_EQ(timer->total_duration, config.fade_in_seconds + config.hold_seconds + config.fade_out_seconds);
     }
     {
         engine::ecs::World world;
         engine::SplashScreen config;
         config.enabled = false;
 
-        const auto splash = engine::ui::build_splash_document(config, kValidImageSize);
-        ASSERT_FALSE(splash.has_value());
+        const auto entity = engine::ui::show_splash(world, config, kValidImageSize);
+        EXPECT_FALSE(entity.has_value());
 
         int count = 0;
         for (engine::ecs::Entity e : world.view<engine::ui::UiCanvas>()) {
@@ -215,4 +217,50 @@ TEST(Splash, SpawnsExactlyOneCanvasWhenEnabledAndNoneWhenDisabled) {
         }
         EXPECT_EQ(count, 0);
     }
+}
+
+TEST(Splash, TargetsTheRequestedWindowInsteadOfAlwaysPrimary) {
+    engine::ecs::World world;
+    engine::SplashScreen config;
+    config.image = engine::AssetId{kSplashImageGuid};
+    constexpr engine::WindowId kSecondaryWindow{1};
+
+    const auto entity = engine::ui::show_splash(world, config, kValidImageSize, kSecondaryWindow);
+    ASSERT_TRUE(entity.has_value());
+
+    const auto& canvas = world.get<engine::ui::UiCanvas>(*entity);
+    EXPECT_EQ(canvas.window, kSecondaryWindow);
+}
+
+TEST(Splash, DefaultsToPrimaryWindowWhenNoneRequested) {
+    engine::ecs::World world;
+    engine::SplashScreen config;
+    config.image = engine::AssetId{kSplashImageGuid};
+
+    const auto entity = engine::ui::show_splash(world, config, kValidImageSize);
+    ASSERT_TRUE(entity.has_value());
+
+    const auto& canvas = world.get<engine::ui::UiCanvas>(*entity);
+    EXPECT_EQ(canvas.window, engine::kPrimaryWindow);
+}
+
+TEST(Splash, AgingSystemDespawnsOnceTotalDurationElapsesButNotBefore) {
+    engine::ecs::World world;
+    engine::register_engine_systems(world);
+
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::SplashTimer>(entity, engine::ui::SplashTimer{.total_duration = 1.0f});
+
+    engine::Time& time = world.ctx<engine::Time>();
+
+    // 0.6s elapsed: still short of the 1.0s total_duration, entity must survive.
+    time.delta_time = 0.6f;
+    world.run(engine::ecs::Schedule::Frame);
+    EXPECT_TRUE(world.valid(entity));
+    EXPECT_FLOAT_EQ(world.get<engine::ui::SplashTimer>(entity).elapsed, 0.6f);
+
+    // Another 0.5s crosses the 1.0s total, entity must be destroyed.
+    time.delta_time = 0.5f;
+    world.run(engine::ecs::Schedule::Frame);
+    EXPECT_FALSE(world.valid(entity));
 }
