@@ -2616,11 +2616,12 @@ calls — or between the last one and `tick_loop()`'s own resumption — can't r
 
 Not covered by a dedicated `engine_tests` case: same real-HWND/real-drag boundary as the rest of
 this section (§12.3) — `world.flush_events()`'s ordering relative to a mid-`poll_events()` reentrant
-call isn't something a headless test can exercise. **Not yet confirmed against a real drag with live
-gameplay** (unlike every other Win32-only fix in this section, which `td-over` validated by hand
-before this was merged) — held on a feature branch pending exactly that: `td-over` dragging the
-overlay while waves/enemies are live, watching for correct real-time advancement, no burst
-catch-up, and no corrupted/dropped-event side effects elsewhere in the same session.
+call isn't something a headless test can exercise. **Merged to `main` on `td-over`'s explicit
+request, ahead of the live-gameplay confirmation every other Win32-only fix in this section got
+before merging** — the reasoning above (flush/poll omission, shared `loop_last`/`FixedStepClock`)
+is believed correct but, unlike the rest of §21.7, has not yet been watched working against a real
+drag with waves/enemies live. If `td-over` hits dropped events, corrupted state, or burst catch-up
+after dragging with this merged, that is the first place to look.
 
 **Primary window's own `WindowSize` had no equivalent backfill.** The paragraph above fixes a
 *secondary* window's missing `WindowSizes` entry; the primary window had the same class of bug for
