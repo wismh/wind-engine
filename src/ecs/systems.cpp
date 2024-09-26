@@ -16,6 +16,7 @@
 #include <engine/resources/fatal_error.h>
 #include <engine/ui/canvas.h>
 #include <engine/ui/document.h>
+#include <engine/ui/splash.h>
 #include <engine/ui/stylesheet.h>
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -42,6 +43,23 @@ void run_input(ecs::World& world) {
             ui::handle_pointer(world, event.position.x, event.position.y, event.window);
         } else if (event.kind == MouseEvent::Kind::Up) {
             pointer.down = false;
+        }
+    }
+}
+
+// Mirrors the deleted EngineRuntime::tick_loop() splash-aging block: ages every SplashTimer by
+// real Time::delta_time and destroys the entity once elapsed crosses total_duration. Calling
+// world.destroy() while iterating this view is safe — World::destroy() defers to
+// pending_destroy_ for the lifetime of any live View (World::view_depth_), flushed once the view
+// backing this range-for goes out of scope, same as every other view-based system in this file.
+void run_splash_timers(ecs::World& world) {
+    const float dt = world.ctx<Time>().delta_time;
+    auto view = world.view<ui::SplashTimer>();
+    for (ecs::Entity entity : view) {
+        ui::SplashTimer& timer = view.get<ui::SplashTimer>(entity);
+        timer.elapsed += dt;
+        if (timer.elapsed >= timer.total_duration) {
+            world.destroy(entity);
         }
     }
 }
@@ -294,6 +312,7 @@ void register_engine_systems(ecs::World& world, EngineSystemDeps deps) {
 
     world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics, [](ecs::World& w) { run_physics(w); });
     world.add_system(ecs::Schedule::Frame, ecs::Phase::Input, [](ecs::World& w) { run_input(w); });
+    world.add_system(ecs::Schedule::Frame, ecs::Phase::Input, [](ecs::World& w) { run_splash_timers(w); });
     world.add_system(ecs::Schedule::Frame, ecs::Phase::Bind, [deps](ecs::World& w) { run_bind(w, deps); });
     world.add_system(ecs::Schedule::Frame, ecs::Phase::Audio, [deps](ecs::World& w) { run_audio(w, deps); });
     world.add_system(ecs::Schedule::Frame, ecs::Phase::Render, [deps](ecs::World& w) { run_render(w, deps); });
