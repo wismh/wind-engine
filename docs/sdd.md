@@ -1223,6 +1223,9 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 - Transparent/borderless/always-on-top windows are validated on Windows only; Linux (compositor-dependent) and macOS are untested (§21.2, same status as the macOS icon path in §17 above).
 - Per-window `Camera` / world rendering — v1 renders `Renderable`s only into `kPrimaryWindow`; secondary windows are UI-only (§21.1).
 - Multi-monitor coordinate edge cases (DPI scaling differences between monitors, a window straddling two displays) — `set_window_position` takes virtual-desktop coordinates and does no clamping/validation in v1.
+- Excluding an interactive control's bounds from a window's drag region (§21.7) — `set_drag_region`
+  takes a raw rect with no hole-punching; a `Button` placed inside it is unclickable (`HTCAPTION`
+  swallows the click before the engine sees it) and the game must shrink/notch the rect itself.
 - GL-window transparency (§21.2) has never been visually verified against a real display, engine-side included — distinct from the existing "Windows-only, Linux/macOS untested" item above: even the validated Windows path has only been confirmed correct by reading source (`WindowSystem::create`'s `SDL_GL_ALPHA_SIZE` request, SDL's own `DwmEnableBlurBehindWindow` call), never by rendering an actual transparent window on an actual screen — this repo has no sample game and no GPU/display in CI or in the sandbox these changes were made in (§12.3). A downstream game (`td-over`) originally reported a transparent primary window rendering opaque black; investigating that report live (actually running the game, `GetWindowLongPtr` inspection, temporary diagnostic logging) found two real, unrelated bugs before transparency itself could even be exercised: the borderless-titlebar issue fixed in §21.2 above, and — the actual root cause of "nothing renders at all" — the downstream game's own `on_update()` override never called `world_.run(Schedule::Fixed/Frame)` (or `GameBase::on_update()`), so every engine-registered system (`Phase::Render`/`UiRender` included) silently never ran, for either window, regardless of transparency. With that fixed on the game side, transparency itself is still unconfirmed either way — still open.
 
 ---
@@ -2104,6 +2107,54 @@ compiling unchanged) and now skips any `UiCanvas` whose `window` doesn't match b
 it, so a canvas assigned to a different window never receives another window's click. `run_input`
 (`src/ecs/systems.cpp`) passes `event.window` through on every `MouseEvent::Kind::Down`.
 
+**Bug found (and fixed): a background window's first click was swallowed by SDL, not the engine.**
+Reported by `td-over`: clicking a `Button` in any window that wasn't the OS-focused window did
+nothing — the same click that raised/focused the window never registered as a press; the next
+click (now that the window already had focus) worked normally, reading to a user as "the button
+didn't work." `EngineRuntime::poll_events`/`init_video()` never set
+`SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH`; SDL's documented default for that hint is disabled, meaning a
+click that both activates a window and lands inside it is consumed by the OS activation itself — no
+`SDL_EVENT_MOUSE_BUTTON_DOWN` is ever emitted for it, so `InputSystem`/`handle_pointer` never see it
+at all. Nothing about the per-window routing above was wrong; the event simply never arrived. Fixed
+with one more hint call in `EngineRuntime::init_video()` (`src/core/engine_runtime.cpp`), alongside
+the existing `SDL_HINT_TOUCH_MOUSE_EVENTS`/`SDL_HINT_MOUSE_TOUCH_EVENTS` pair:
+```cpp
+SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
+```
+Applies process-wide, not per-window — set once at video init, before any window (primary or
+secondary) is created. Not covered by a dedicated `engine_tests` case: it's an SDL hint with no
+observable effect without a real OS window/focus model, out of scope per §12.3.
+
+**Bug found (and fixed): hover/pressed visuals leaked across windows.** Reported by `td-over`:
+moving the mouse over window A visually hovered a `Button` in window B that happened to sit at the
+same local pixel offset within its own window. `handle_pointer`/`update_pointer_hover` above
+already filter correctly by `canvas.window` for click execution and `MouseConsumed` — this bug was
+one level downstream, at paint time. `run_input` used to write every `MouseEvent`'s
+position/down state into one global `world.ctx<ui::UiPointer>()` singleton regardless of
+`event.window`; `run_ui_render` then fed that same raw global pointer to **every** canvas's
+`CmdDrawUI` regardless of `canvas.window`, which flows into `apply_interaction()`
+(`src/ui/paint.cpp`) and sets `Element::hovered`/`pressed` purely by local coordinate overlap — no
+window filter anywhere in that path. Fixed by splitting `UiPointer` the same way `WindowSize` is
+split above:
+
+```cpp
+struct UiPointers {
+    std::unordered_map<WindowId, UiPointer> pointers;   // never holds a kPrimaryWindow entry
+};
+
+UiPointer& pointer_for(ecs::World& world, WindowId id);   // mirrors window_size_for: id ==
+                                                            // kPrimaryWindow ? ctx<UiPointer>()
+                                                            // : ctx<UiPointers>().pointers[id]
+```
+
+(`include/engine/ui/canvas.h`/`src/ui/canvas.cpp`). `run_input` now resolves
+`pointer_for(world, event.window)` per event instead of holding one shared reference for the whole
+loop, and `run_ui_render` resolves `pointer_for(world, canvas.window)` per canvas instead of reading
+the global singleton once outside the canvas loop. Covered by `tests/mvvm_test.cpp`
+(`Mvvm.PointerForSecondaryWindowIsIsolatedFromPrimary`) and `tests/render_system_test.cpp`
+(`RenderSystem.UiPointerDoesNotLeakAcrossWindows`, which reproduces the exact cross-window scenario
+end to end through `register_engine_systems`/`Schedule::Frame`).
+
 **Render routing.** `EngineSystemDeps` (`include/engine/ecs/systems.h`) keeps its existing
 `commands` field meaning exactly what it always meant — the primary window's `CommandBuffer`, used
 unchanged by `run_render` and by `run_ui_render` for any `kPrimaryWindow`-targeted canvas — and
@@ -2277,6 +2328,23 @@ already uses for `UiCanvas.rect`, e.g. a title-bar canvas's rect), else `SDL_HIT
 `IWindowControl::set_drag_region(std::optional<render::Rect>, WindowId window = kPrimaryWindow)`
 (§21.3 — `WindowId`-addressed like the interface's other style methods) forwards to
 `windows_->window(window)->set_drag_region(region)`, a no-op if `window` has no live SDL window.
+
+**Known limitation (`td-over`): an interactive element inside the drag region is unclickable — by
+design of the underlying OS mechanism, not an engine oversight.** `window_drag_hit_test` above is a
+plain rectangle-containment test with no knowledge of what's drawn inside that rectangle. Any click
+inside it is reported to the OS as `SDL_HITTEST_DRAGGABLE`, which Windows treats as `HTCAPTION` —
+the click becomes a non-client `WM_NCLBUTTONDOWN`, so SDL never emits
+`SDL_EVENT_MOUSE_BUTTON_DOWN`/`_UP` for it and the engine never sees it, regardless of what a game
+put there. A custom titlebar with a close `Button` placed inside its own drag `Stack` is the exact
+failure `td-over` hit: "put a close button next to your drag handle" is the obvious pattern for a
+borderless window's custom titlebar, and it silently breaks — no click event reaches the app at
+all, for any command that `Button` is bound to. `set_drag_region`'s doc comment
+(`include/engine/core/window_control.h`) now says this loudly: a game must shrink or notch its drag
+rect around any interactive control's bounds itself — the engine has no mechanism to exclude a hole
+in an SDL hit-test rectangle. Not fixed in code: doing so would need either per-point exclusion
+rects threaded through `window_drag_hit_test`, or resolving hover/hit-test against the UI tree
+before falling back to the drag rect — both a larger design change than a doc-comment warning,
+deferred (§17).
 
 **Primary window's own `WindowSize` had no equivalent backfill.** The paragraph above fixes a
 *secondary* window's missing `WindowSizes` entry; the primary window had the same class of bug for
