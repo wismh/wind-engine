@@ -25,23 +25,29 @@ XML + custom CSS + C++ MVVM. UI is an ECS component (`UiCanvas` + `UiInstance`),
 - [[src.ui.canvas.cpp]] — begin_frame, handle_pointer (widget-level `MouseConsumed` via the shared `hit_test`), apply_canvas_fit, canvas_layout_space.
 - [[src.ui.view_model.cpp]] — `property_`/`command_` maps keyed by `BindingId`, not name.
 - [[src.ui.painter.h]] — private painter interface.
-- [[src.ui.splash.h]] — `build_splash_document(config, image_size)` turns `IGame::splash_screen()`'s
-  config into an in-memory XML `Image` (fixed `position:absolute; left/top:10%; width/height:80%`
-  box, not `100%` — stretching would ignore the image's aspect ratio) + a 4-stop `@keyframes`
-  opacity CSS, plus a `reference_size = image_size / 0.8` for the canvas, via the same
+- [[src.ui.splash.h]] — `ui::show_splash(world, config, image_size, window)` is a plain function a
+  game calls explicitly (not engine-auto-triggered); `build_splash_document(config, image_size)`
+  turns `SplashScreen`'s config into **two** in-memory documents, not one, via the same
   `parse_xml`/`parse_css` every other document goes through (no hand-built `Element`/`Keyframes`
-  structs); spawned as a `UiCanvas{fit=ScaleWithScreenSize, reference_size, order=1000}` +
-  `UiInstance` entity in `EngineRuntime::begin_loop()` (`src/core/engine_runtime.cpp`, not `Host`
-  — see SDD §20.3), on top of every other canvas. `ScaleWithScreenSize`'s existing contain-fit
-  letterboxes that canvas into the real window preserving the image's aspect ratio, so the fixed
-  80% image box lands with a minimum 10% margin on every edge; `image_size` comes from a small
-  `AssetId → glm::vec2` map `EngineRuntime` fills in as `add_image()` receives each `TextureDesc`.
-  The root `<Canvas>` also carries its own rule, `background: #000000` with **no**
-  `animation-name` — constant, not faded — because the game underneath is already running
-  (`on_start()`/`Schedule::Fixed`/`Frame` are never gated) and would otherwise show through
-  during the image's own fade-in/out. `EngineRuntime` tracks a separate `splash_elapsed` timer in
-  `tick_loop()` against `SplashDocument::total_duration` and `world.destroy()`s the whole entity
-  once it's past, since that constant backdrop has no animation of its own to make it disappear.
+  structs): a backdrop (`background: #000000`, no `animation-name` — constant, not faded — plus no
+  children) and an image (fixed `position:absolute; left/top:10%; width/height:80%` `Image`, not
+  `100%` — stretching would ignore the image's aspect ratio — animated via a 4-stop `@keyframes`
+  opacity, plus `reference_size = image_size / 0.8`). `show_splash` spawns them as two entities —
+  backdrop `UiCanvas{fit=FillWindow, order=1000, window}` + `UiInstance`, image
+  `UiCanvas{fit=ScaleWithScreenSize, reference_size, order=1001, window}` + `UiInstance`, both
+  above every other canvas — because a single `ScaleWithScreenSize` canvas would letterbox the
+  backdrop along with the image, leaving the game's own UI visible in the gap whenever the
+  window's aspect ratio doesn't match the image's (SDD §20.3). `ScaleWithScreenSize`'s existing
+  contain-fit letterboxes the image canvas into the real window preserving the image's aspect
+  ratio, so the fixed 80% image box lands with a minimum 10% margin on every edge; `FillWindow`
+  always makes the backdrop canvas's `rect` the full real window, so its opaque background covers
+  the letterbox gap the image canvas leaves. `image_size` comes from
+  `AssetsDb::get<render::TextureDesc>(config.image)`, resolved by the caller. Both entities carry
+  a `SplashTimer{elapsed, total_duration}`; the engine system `run_splash_timers`
+  (`src/ecs/systems.cpp`, registered by `register_engine_systems`) ages every `SplashTimer` by
+  `Time::delta_time` each frame and `world.destroy()`s its entity once `elapsed >=
+  total_duration` — both entities start together with the same `total_duration`, so they always
+  despawn on the same frame.
 - [[src.resources.codegen.cpp]] — for `importer = "ui"` XML, emits a binder struct (e.g. `assets::ui::Hud::bind(vm)`) with one `constexpr BindingId` per `{binding}` path; fails the build on an intern collision. `ViewModel` subclasses and `Bindable<T>` members stay hand-written.
 
 NanoVG implementation: [[src.render.opengl.nanovg_painter.cpp]] — `Image` and CSS `background-image` both paint via `IUiPainter::image(AssetId, Rect)`, backed by an `AssetId`-keyed NanoVG image map populated at Init from `ImporterKind::Texture`/`UiImage` catalog entries.
