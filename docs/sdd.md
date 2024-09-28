@@ -2380,6 +2380,47 @@ rects threaded through `window_drag_hit_test`, or resolving hover/hit-test again
 before falling back to the drag rect — both a larger design change than a doc-comment warning,
 deferred (§17).
 
+**Bug found (and fixed, `td-over`): a drag region silently broke real click-through everywhere on
+the window, not just inside itself.** `WindowSystem::create()` installs `window_drag_hit_test` via
+`SDL_SetWindowHitTest` unconditionally (above). Confirmed from
+`external/SDL3/src/video/windows/SDL_windowsevents.c`'s `WIN_WindowProc`: once a window has any
+`hit_test` callback at all, its `WM_NCHITTEST` handler maps `SDL_HITTEST_NORMAL` straight to
+`HTCLIENT` and returns — `DefWindowProc` is never reached for that message. `DefWindowProc` is the
+only place that inspects `WS_EX_TRANSPARENT` and would answer `HTTRANSPARENT` for it, which is
+exactly the mechanism §21.4's `apply_click_through` relies on. So the moment any drag region is set
+(effectively always, once a game's overlay HUD sets one), real OS-level click-through stopped
+working across the *entire* window — not only inside the drag rect — regardless of
+`click_through_enabled`/`is_transparent`/pointer position. `SDL_HitTestResult`
+(`external/SDL3/include/SDL3/SDL_video.h`) has no `HTTRANSPARENT`-equivalent value, so this isn't
+fixable through the public `SDL_HitTest` callback alone — reported upstream
+(`libsdl-org/SDL`, no public issue number to cite). Fixed by subclassing the HWND on top of SDL's
+own `WIN_WindowProc` (already installed by `SDL_CreateWindow` — see `WIN_CreateWindow` in
+`SDL_windowswindow.c`): `WindowSystem::create()` now also calls `SetWindowLongPtrW(hwnd,
+GWLP_WNDPROC, &win32_hit_test_wndproc)` right after `SDL_SetWindowHitTest`, saving the previous
+value (SDL's own `WIN_WindowProc`) into `win32_prev_wndproc_` (`src/render/opengl/window_system.h`,
+stored as `void*` so the header still never needs `<windows.h>` — §16 rule 15 — the `.cpp` casts
+both ways) and stashing `this` in `GWLP_USERDATA` (confirmed unused by SDL for a normal
+`SDL_CreateWindow`-created window — it only touches that slot for its own message-box dialogs and
+tray-icon windows, `SDL_windowsmessagebox.c`/`SDL_tray.c`; a normal window's own SDL bookkeeping
+lives in a window *property*, `"SDL_WindowData"`, read via `WIN_GetWindowDataFromHWND`, untouched
+here). `win32_hit_test_wndproc` (`src/render/opengl/window_system.cpp`, anonymous namespace)
+intercepts only `WM_NCHITTEST`: when `WindowSystem::click_through_applied()` (new getter, mirrors
+`click_through_enabled()`) is true and the point — converted screen-to-client itself, matching what
+SDL's own handler does — falls *outside* the drag region (checked by calling the existing
+`window_drag_hit_test` directly, so the rect test isn't duplicated), it returns `HTTRANSPARENT`
+straight away, bypassing SDL for that one message. Every other case, including inside the drag
+region, delegates via `CallWindowProcW` to the saved original proc — deliberately, rather than
+reimplementing `HTCAPTION` itself, so SDL's own button-state-aware choice between `HTCAPTION` and
+`HTCLIENT` for `SDL_HITTEST_DRAGGABLE` (`WIN_WindowProc`'s `WM_NCHITTEST` case, "If the mouse
+button state is something other than none or left button down, return HTCLIENT, or Windows will
+eat the button press") keeps working unchanged. `destroy()` resets `win32_prev_wndproc_` to
+`nullptr` alongside `transparent_`/`click_through_applied_`/`drag_region_` (the HWND itself is
+destroyed there, so the subclass installed on it goes away with it — nothing to explicitly
+uninstall). Not covered by a dedicated `engine_tests` case for the actual hit-test override itself
+— needs a real HWND, out of scope per §12.3, same boundary as `apply_click_through` already had;
+`WindowSystem.ClickThroughAppliedDefaultsToFalse`/`ClickThroughAppliedStaysFalseWithoutWindow`
+(`tests/window_style_test.cpp`) cover the pure getter and its no-window no-op contract instead.
+
 **Primary window's own `WindowSize` had no equivalent backfill.** The paragraph above fixes a
 *secondary* window's missing `WindowSizes` entry; the primary window had the same class of bug for
 `world.ctx<ui::WindowSize>()` (§4.7), just never noticed because most primary windows get resized
@@ -2412,6 +2453,10 @@ logic and gets a `tests/windowing_test.cpp` case:
   and combined).
 - `should_be_click_through(...)` (§21.4) truth table, including "transparent but click-through
   disabled" and "opaque window" never returning true.
+- `WindowSystem::click_through_applied()` (§21.7 fix) defaults to `false` and stays `false` after
+  `set_click_through_enabled(true)` + `update_click_through(false)` without a real window — the
+  no-window no-op contract `apply_click_through` already had, now asserted through the getter the
+  Win32 hit-test hook reads.
 - `CommandBuffer` selection by a `Renderable`/`UiCanvas`'s `window` field — commands for window B
   never land in window A's buffer, and clearing one window's buffer does not touch another's.
 - `WindowSizes` (§4.7): a resize event for one `WindowId` updates only that entry; `FillWindow`
