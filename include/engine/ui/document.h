@@ -98,6 +98,8 @@ struct UiInstance {
     std::optional<Stylesheet> stylesheet;
     AssetId loaded_document{};
     std::optional<AssetId> loaded_stylesheet;
+    std::vector<AssetId> loaded_extra_stylesheets;
+    std::vector<AssetId> loaded_sheet_ids;
     ViewModel* loaded_data_context = nullptr;
 };
 
