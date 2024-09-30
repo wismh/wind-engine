@@ -7,6 +7,7 @@
 
 #include <memory>
 #include <optional>
+#include <vector>
 
 namespace engine::ui {
 
@@ -18,6 +19,7 @@ enum class UiFit {
 struct UiCanvas {
     AssetId document;
     std::optional<AssetId> stylesheet;
+    std::vector<AssetId> extra_stylesheets;
     std::shared_ptr<ViewModel> data_context;
     render::Rect rect{};
     UiFit fit = UiFit::FillWindow;

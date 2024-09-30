@@ -49,6 +49,7 @@ bool instance_needs_rebuild(const ui::UiInstance* instance, const ui::UiCanvas& 
         return true;
     }
     return instance->loaded_document != canvas.document || instance->loaded_stylesheet != canvas.stylesheet ||
+            instance->loaded_extra_stylesheets != canvas.extra_stylesheets ||
             instance->loaded_data_context != canvas.data_context.get();
 }
 
@@ -59,11 +60,48 @@ void clone_document(ecs::World& world, ecs::Entity entity, ui::UiCanvas& canvas,
     fresh.document = *document;
     fresh.loaded_document = canvas.document;
     fresh.loaded_stylesheet = canvas.stylesheet;
+    fresh.loaded_extra_stylesheets = canvas.extra_stylesheets;
     fresh.loaded_data_context = canvas.data_context.get();
     if (instance == nullptr) {
         instance = &world.emplace<ui::UiInstance>(entity, std::move(fresh));
     } else {
         *instance = std::move(fresh);
+    }
+}
+
+std::vector<AssetId> resolved_stylesheet_ids(const ui::UiCanvas& canvas, const ui::UiInstance& instance) {
+    std::vector<AssetId> ids;
+    if (instance.document.stylesheet) {
+        ids.push_back(*instance.document.stylesheet);
+    }
+    if (canvas.stylesheet) {
+        ids.push_back(*canvas.stylesheet);
+    }
+    ids.insert(ids.end(), canvas.extra_stylesheets.begin(), canvas.extra_stylesheets.end());
+    return ids;
+}
+
+void load_merged_stylesheets(ui::UiInstance& instance, const ui::UiCanvas& canvas, AssetsDb& assets) {
+    const std::vector<AssetId> wanted = resolved_stylesheet_ids(canvas, instance);
+    if (instance.loaded_sheet_ids == wanted) {
+        return;
+    }
+    ui::Stylesheet merged;
+    bool all_found = true;
+    for (const AssetId& id : wanted) {
+        if (auto sheet = assets.try_get<ui::Stylesheet>(id)) {
+            merged.rules.insert(merged.rules.end(), (*sheet)->rules.begin(), (*sheet)->rules.end());
+        } else {
+            all_found = false;
+        }
+    }
+    if (wanted.empty()) {
+        instance.stylesheet.reset();
+    } else {
+        instance.stylesheet = std::move(merged);
+    }
+    if (all_found) {
+        instance.loaded_sheet_ids = wanted;
     }
 }
 
@@ -82,19 +120,10 @@ void run_bind(ecs::World& world, const EngineSystemDeps& deps) {
             continue;
         }
         (void) ui::apply_bindings(instance->document, *canvas.data_context);
-        if (deps.assets == nullptr || instance->stylesheet) {
+        if (deps.assets == nullptr) {
             continue;
         }
-        std::optional<AssetId> sheet_id = canvas.stylesheet;
-        if (!sheet_id) {
-            sheet_id = instance->document.stylesheet;
-        }
-        if (!sheet_id) {
-            continue;
-        }
-        if (auto sheet = deps.assets->try_get<ui::Stylesheet>(*sheet_id)) {
-            instance->stylesheet = **sheet;
-        }
+        load_merged_stylesheets(*instance, canvas, *deps.assets);
     }
 }
 
