@@ -1208,6 +1208,7 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 - Transparent/borderless/always-on-top windows are validated on Windows only; Linux (compositor-dependent) and macOS are untested (§21.2, same status as the macOS icon path in §17 above).
 - Per-window `Camera` / world rendering — v1 renders `Renderable`s only into `kPrimaryWindow`; secondary windows are UI-only (§21.1).
 - Multi-monitor coordinate edge cases (DPI scaling differences between monitors, a window straddling two displays) — `set_window_position` takes virtual-desktop coordinates and does no clamping/validation in v1.
+- GL-window transparency (§21.2) has never been visually verified against a real display, engine-side included — distinct from the existing "Windows-only, Linux/macOS untested" item above: even the validated Windows path has only been confirmed correct by reading source (`WindowSystem::create`'s `SDL_GL_ALPHA_SIZE` request, SDL's own `DwmEnableBlurBehindWindow` call), never by rendering an actual transparent window on an actual screen — this repo has no sample game and no GPU/display in CI or in the sandbox these changes were made in (§12.3). A downstream game (`td-over`) reported a transparent primary window rendering opaque black despite this pipeline reading correct on paper (§21.2) — unresolved, no fix applied yet.
 
 ---
 
@@ -1723,6 +1724,21 @@ Validated on Windows only for v1 (DWM composites unconditionally since Windows 8
 is untested here — same "not blocking, not regressed against" status as the macOS icon path in
 §17.
 
+**Known report, not yet fixed:** a downstream game (`td-over`) reported a primary window created
+with `borderless = true, transparent = true` rendering opaque black instead of see-through.
+Re-reading the whole pipeline end to end for this found nothing incorrect on paper:
+`window_style_flags()` ORs `SDL_WINDOW_BORDERLESS`/`SDL_WINDOW_TRANSPARENT` independently (no
+masking bug when both are set together), `WindowSystem::create()` requests `SDL_GL_ALPHA_SIZE = 8`
+unconditionally whenever `desc.style.transparent` regardless of `borderless`, and
+`OpenGLCanvas::draw()` reads `is_transparent()` off the same `WindowSystem` instance that just
+created the live window, each frame, not a stale one. SDL3 itself already calls
+`DwmEnableBlurBehindWindow(hwnd, &bb)` with a degenerate/empty blur region
+(`CreateRectRgn(-1, -1, 0, 0)`) for `SDL_WINDOW_TRANSPARENT`
+(`external/SDL3/src/video/windows/SDL_windowswindow.c`, ~line 758-775) — the textbook-correct
+technique for whole-window-alpha compositing without an actual blur effect — so this pipeline looks
+complete and correct on paper, yet the symptom is real and reproducible in a live game. No fix has
+been applied yet pending further diagnosis; see the §17 open item.
+
 ### 21.3 Runtime window control
 
 For the single-window shape that exists today (§21.5 below is what generalizes this to several
@@ -2033,6 +2049,44 @@ windows entirely.
 `EngineRuntime::tick_loop` → `WindowManager::draw_all()` still draws/swaps every live window once
 per frame (unchanged from §21.5); each window's `draw()` call now also re-arms the shared UI painter
 pointer to its own painter and pushes its own `CommandBuffer`'s `CmdDrawUI` commands through it.
+
+**A freshly opened secondary window's `NanoVgPainter` starts with no font loaded — a downstream
+bug (`td-over`, the first real-world exercise of this feature), fixed with the same
+cache-and-replay shape §21.7 already uses for `WindowSizes`.** Every `OpenGLCanvas` — primary or
+secondary — owns its *own* `NanoVgPainter` with its own font atlas (§21.6 above), but
+`EngineRuntime::load_ui_font`/`add_font` only ever called
+`impl_->windows.canvas_ptr(kPrimaryWindow)->load_ui_font(...)`/`add_font(...)`: nothing loaded any
+font into a secondary window's painter, so any `Label`/`Button` targeting one silently failed to
+draw text. `EngineRuntime::Impl` (`src/core/engine_runtime.cpp`) now caches every font handed to
+those two calls —
+
+```cpp
+std::optional<Font> ui_font;              // set by load_ui_font
+std::map<AssetId, Font> fonts;            // set by add_font — std::map, not unordered_map:
+                                           // AssetId has no std::hash specialization, only
+                                           // operator<=>, and this cache is at most a handful of
+                                           // entries
+std::unordered_set<WindowId> fonts_replayed_for;   // secondary windows already caught up
+```
+
+— alongside their existing primary-canvas call, unconditionally (even if the primary call itself
+fails). `EngineRuntime::tick_loop()` replays the cache into every secondary window inside the same
+`WindowManager::for_each_secondary_window` pass that already backfills `WindowSizes` (§21.7): for
+each live window not yet in `fonts_replayed_for`, it looks up the window's canvas via
+`impl_->windows.canvas(id)` (the liveness-gated accessor — `nullptr` skips it for this frame,
+retried next frame, not marked done), makes that window's GL context current
+(`SDL_GL_MakeCurrent(window.window(), canvas->native_context())` — required because this backfill
+runs *before* `draw_all()`, so whichever context was left current by the *previous* frame's
+`draw_all()` iteration, unordered across windows, is not guaranteed to be this window's own; no
+context needs restoring afterward since `OpenGLCanvas::draw()` already makes its own context
+current unconditionally at the top of every draw), then calls `canvas->load_ui_font(*ui_font)`
+(if set) and `canvas->add_font(font_id, font)` for every cached entry, and marks the window done in
+`fonts_replayed_for`. Not covered by a dedicated unit test: `EngineRuntime::Impl` is a private
+`.cpp`-only type with no test-reachable accessor for the cache, and the mechanism's actual payoff
+(a live secondary `NanoVgPainter` gaining a working font) needs a real GL context, out of
+`engine_tests` scope (§12.3) — build + the existing suite (`ctest`) not regressing is the
+signal for this phase, consistent with how much of this windowing feature area has already been
+verified.
 
 ### 21.7 Secondary window lifecycle
 
