@@ -13,11 +13,11 @@ namespace engine {
 namespace {
 
 // SDD §21.7 fix: WIN_WindowProc (external/SDL3/src/video/windows/SDL_windowsevents.c) maps
-// SDL_HITTEST_NORMAL to HTCLIENT unconditionally once any SDL_HitTest callback is installed —
-// which create() below does for every window — and never falls through to DefWindowProc for that
-// message. DefWindowProc is the only place that inspects WS_EX_TRANSPARENT and would return
-// HTTRANSPARENT for it (the mechanism apply_click_through's doc comment relies on), so once a
-// drag region exists, real click-through can never fire, regardless of where the pointer is.
+// SDL_HITTEST_NORMAL to HTCLIENT unconditionally once any SDL_HitTest callback is installed, and
+// never falls through to DefWindowProc for that message. DefWindowProc is the only place that
+// inspects WS_EX_TRANSPARENT and would return HTTRANSPARENT for it (the mechanism
+// apply_click_through's doc comment relies on) — so a hit_test callback shuts off real
+// click-through entirely, everywhere, the moment one is ever installed on a window.
 // SDL_HitTestResult also has no HTTRANSPARENT-equivalent value, so this can't be fixed through
 // the public SDL_HitTest callback alone (reported upstream:
 // https://github.com/libsdl-org/SDL — no way to yield to DefWindowProc / express a transparent
@@ -25,10 +25,16 @@ namespace {
 // installed by SDL_CreateWindow, see SDL_windowswindow.c's WIN_CreateWindow) and intercepts only
 // WM_NCHITTEST: when click-through is currently applied and the point falls outside the drag
 // region, it returns HTTRANSPARENT directly, bypassing SDL entirely for that one message. Every
-// other case — including inside the drag region — delegates to the saved original proc, which
-// runs SDL's own window_drag_hit_test callback exactly as before (including its
-// button-state-aware HTCAPTION/HTCLIENT choice, SDL_windowsevents.c's WM_NCHITTEST handler,
-// SDL_HITTEST_DRAGGABLE case) rather than reimplementing that nuance here.
+// other case delegates to the saved original proc — which, since wind-92 stopped calling
+// SDL_SetWindowHitTest at all (create() below no longer installs window_drag_hit_test as an
+// SDL_HitTest callback; drag-region clicks are handled manually instead, never reaching
+// WM_NCHITTEST as HTCAPTION in the first place — see begin_drag_if_in_region()), now means
+// `window->hit_test` is null and WIN_WindowProc's own hit-test branch is never taken, so this
+// falls all the way through to DefWindowProc's own default per-style hit-testing — exactly what a
+// borderless window with no active click-through wants (plain HTCLIENT), and, as a side effect,
+// restores a *bordered* window's real OS titlebar to DefWindowProc's native recognition instead of
+// the SDL_HITTEST_NORMAL-always-means-HTCLIENT override installing any hit_test callback used to
+// impose on every point regardless of style.
 LRESULT CALLBACK win32_hit_test_wndproc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     auto* self = reinterpret_cast<WindowSystem*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     auto prev = reinterpret_cast<WNDPROC>(self != nullptr ? self->win32_prev_wndproc() : nullptr);
@@ -100,10 +106,11 @@ bool WindowSystem::create(const WindowDesc& desc) {
     if (desc.position) {
         SDL_SetWindowPosition(window_, desc.position->x, desc.position->y);
     }
-    // Installed unconditionally (SDD §21.7): a bordered window's OS titlebar already drags on its
-    // own, and the callback is harmless there — it only ever returns SDL_HITTEST_DRAGGABLE inside
-    // a region set via set_drag_region(), which stays nullopt unless the game opts in.
-    SDL_SetWindowHitTest(window_, &window_drag_hit_test, this);
+    // wind-92 (SDD §21.7): no SDL_SetWindowHitTest call here anymore — a drag-region click is
+    // handled manually (begin_drag_if_in_region()) instead of being routed through the OS's own
+    // HTCAPTION/modal-loop drag, so nothing needs SDL to know about drag_region_ at the
+    // hit-testing level at all. window_drag_hit_test still exists as a plain, directly-called
+    // geometry check (see its own doc comment).
 #if defined(_WIN32)
     // SDD §21.7 fix (see win32_hit_test_wndproc's doc comment above): subclass on top of SDL's own
     // WIN_WindowProc so WM_NCHITTEST can resolve to HTTRANSPARENT for click-through, which SDL's
@@ -148,6 +155,11 @@ void WindowSystem::destroy() {
     transparent_ = false;
     click_through_applied_ = false;
     drag_region_.reset();
+    // wind-92: releases capture (harmless if it was never held) rather than leaving a captured
+    // mouse dangling past the window it was captured for.
+    if (dragging_) {
+        end_drag();
+    }
 #if defined(_WIN32)
     win32_prev_wndproc_ = nullptr;
 #endif
@@ -270,6 +282,49 @@ std::optional<glm::vec2> WindowSystem::cursor_client_position() const {
     int window_y = 0;
     SDL_GetWindowPosition(window_, &window_x, &window_y);
     return glm::vec2{global_x - static_cast<float>(window_x), global_y - static_cast<float>(window_y)};
+}
+
+bool WindowSystem::begin_drag_if_in_region(glm::vec2 window_local_pos) {
+    if (window_ == nullptr) {
+        return false;
+    }
+    const SDL_Point point{static_cast<int>(window_local_pos.x), static_cast<int>(window_local_pos.y)};
+    // window_drag_hit_test ignores its `window` parameter (only reads drag_region_ off `this`), so
+    // passing nullptr here is safe — same call win32_hit_test_wndproc already makes.
+    if (window_drag_hit_test(nullptr, &point, this) != SDL_HITTEST_DRAGGABLE) {
+        return false;
+    }
+    float global_x = 0.0f;
+    float global_y = 0.0f;
+    SDL_GetGlobalMouseState(&global_x, &global_y);
+    drag_start_cursor_screen_ = glm::ivec2{static_cast<int>(global_x), static_cast<int>(global_y)};
+    int window_x = 0;
+    int window_y = 0;
+    SDL_GetWindowPosition(window_, &window_x, &window_y);
+    drag_start_window_pos_ = glm::ivec2{window_x, window_y};
+    SDL_CaptureMouse(true);
+    dragging_ = true;
+    return true;
+}
+
+void WindowSystem::update_drag() {
+    if (!dragging_ || window_ == nullptr) {
+        return;
+    }
+    float global_x = 0.0f;
+    float global_y = 0.0f;
+    SDL_GetGlobalMouseState(&global_x, &global_y);
+    const int delta_x = static_cast<int>(global_x) - drag_start_cursor_screen_.x;
+    const int delta_y = static_cast<int>(global_y) - drag_start_cursor_screen_.y;
+    SDL_SetWindowPosition(window_, drag_start_window_pos_.x + delta_x, drag_start_window_pos_.y + delta_y);
+}
+
+void WindowSystem::end_drag() {
+    if (!dragging_) {
+        return;
+    }
+    dragging_ = false;
+    SDL_CaptureMouse(false);
 }
 
 glm::ivec2 WindowSystem::drawable_size() const {

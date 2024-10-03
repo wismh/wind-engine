@@ -78,13 +78,48 @@ public:
     void update_click_through(bool pointer_hit_something);
 
     // Marks a window-client-pixel region draggable (SDD §21.7) — needed for a borderless window,
-    // which has no OS titlebar to drag by. The SDL_SetWindowHitTest callback is installed
-    // unconditionally in create() (every window, not just borderless ones — a bordered window's
-    // titlebar already drags on its own, and the callback is inert outside a set region), so this
-    // just updates the stored region the already-installed callback reads live. nullopt clears it.
-    // No-op without a window (§12.3).
+    // which has no OS titlebar to drag by. nullopt clears it. No-op without a window (§12.3).
+    // wind-92: no longer routed through the OS's own drag mechanism (SDL_HITTEST_DRAGGABLE/
+    // HTCAPTION) — see begin_drag_if_in_region()'s doc comment for why — so this purely updates
+    // the stored rect that helper (and the click-through exclusion in update_click_through()/
+    // win32_hit_test_wndproc) read live.
     void set_drag_region(std::optional<render::Rect> region) noexcept {
         drag_region_ = region;
+    }
+
+    // wind-92 (SDD §21.7): starts a manually-implemented drag if `window_local_pos` (client
+    // pixels, e.g. from an SDL_EVENT_MOUSE_BUTTON_DOWN's x/y) falls inside drag_region_, deliberately
+    // *without* ever going through the OS's native HTCAPTION/DefWindowProc-modal-loop path the
+    // engine used before. That path — reached by returning SDL_HITTEST_DRAGGABLE from a window's
+    // SDL_HitTest callback, which Windows turns into HTCAPTION — hands control of the calling
+    // thread to DefWindowProc's own modal move loop until the mouse button is released, and
+    // wind-88 through wind-91 each worked around a different downstream symptom of that same
+    // handoff (frozen rendering, then unreliable WM_TIMER delivery specifically for an opaque
+    // window, confirmed by measurement — SDD §21.7) rather than avoiding it. This avoids it
+    // entirely for a drag-region-initiated drag: captures the mouse (SDL_CaptureMouse) so motion
+    // keeps arriving even once the cursor leaves the window's bounds, remembers the window's and
+    // cursor's starting position, and update_drag()/end_drag() do the rest through ordinary
+    // SDL_SetWindowPosition calls on the normal event-pumped thread — no modal loop, no
+    // reentrancy, none of the machinery §21.7's earlier fixes needed. Only ever call this on a
+    // left-button-down (matching the old HTCAPTION convention); returns true if a drag actually
+    // started, in which case the caller should treat the triggering click as fully consumed — the
+    // app never saw a button-down for an HTCAPTION click either. Still doesn't help a *bordered*
+    // window's real OS titlebar or a live-resize via WS_THICKFRAME borders — both still enter the
+    // true OS modal loop regardless of anything here, so §21.7's reentrant-tick fixes remain
+    // load-bearing for those.
+    [[nodiscard]] bool begin_drag_if_in_region(glm::vec2 window_local_pos);
+
+    // Moves the window to track the cursor — call once per SDL_EVENT_MOUSE_MOTION while
+    // is_dragging() is true. No-op if not currently dragging or without a window (§12.3).
+    void update_drag();
+
+    // Ends a drag started by begin_drag_if_in_region(), releasing mouse capture. Safe to call even
+    // when not currently dragging (no-op) — e.g. as a focus-loss safety net so a drag can never
+    // get stuck active if a button-up is somehow missed.
+    void end_drag();
+
+    [[nodiscard]] bool is_dragging() const noexcept {
+        return dragging_;
     }
 
 private:
@@ -95,6 +130,9 @@ private:
     bool click_through_enabled_ = false;
     bool click_through_applied_ = false;
     std::optional<render::Rect> drag_region_;
+    bool dragging_ = false;                       // wind-92
+    glm::ivec2 drag_start_cursor_screen_{};        // wind-92, valid only while dragging_
+    glm::ivec2 drag_start_window_pos_{};           // wind-92, valid only while dragging_
 
 #if defined(_WIN32)
 public:
@@ -116,9 +154,12 @@ private:
     void apply_click_through(bool click_through);
 };
 
-// SDL_HitTest callback installed on every window in WindowSystem::create() (SDD §21.7). `data` is
-// the owning WindowSystem*; returns SDL_HITTEST_DRAGGABLE when `area` falls inside that window's
-// current drag_region_, else SDL_HITTEST_NORMAL.
+// Pure "is this point inside the drag region" geometry check (SDD §21.7) — `data` is the owning
+// WindowSystem*; returns SDL_HITTEST_DRAGGABLE when `area` falls inside that window's current
+// drag_region_, else SDL_HITTEST_NORMAL. Despite the SDL_HitTest-shaped signature (convenient,
+// nothing more), wind-92 stopped registering this via SDL_SetWindowHitTest — it's called directly
+// as a plain membership test instead, by begin_drag_if_in_region() (window_system.cpp) and by the
+// click-through exclusion in win32_hit_test_wndproc/update_click_through() (same file).
 [[nodiscard]] SDL_HitTestResult window_drag_hit_test(SDL_Window* window, const SDL_Point* area, void* data);
 
 // Split out from create() so WindowStyle -> SDL_WindowFlags is unit-testable without
