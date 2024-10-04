@@ -250,6 +250,7 @@ TEST(WindowManager, DestroyShutdownAndDrawAllAreNoopOnEmptyManager) {
     manager.destroy_window(engine::kPrimaryWindow);
     manager.destroy_window(engine::WindowId{7});
     manager.draw_all();
+    manager.draw_all(engine::kPrimaryWindow);   // wind-90: skip parameter, still a no-op here
     manager.shutdown();
     manager.shutdown();
     EXPECT_FALSE(manager.has_window(engine::kPrimaryWindow));
@@ -263,6 +264,18 @@ TEST(WindowManager, FindBySdlIdReturnsNulloptWithNoLiveWindows) {
     EXPECT_FALSE(manager.find_by_sdl_id(0).has_value());
     EXPECT_FALSE(manager.find_by_sdl_id(1).has_value());
     EXPECT_FALSE(manager.find_by_sdl_id(12345).has_value());
+}
+
+TEST(WindowManager, FindByNativeHandleReturnsNulloptWithNoLiveWindows) {
+    engine::render::OpenGLRenderBackend backend;
+    engine::WindowManager manager{backend};
+    // No SDL video, no window ever created (SDD §12.3/wind-90): no live window has a real HWND to
+    // match against, regardless of platform (SDL_PROP_WINDOW_WIN32_HWND_POINTER is simply unset on
+    // non-Windows builds too, so this must stay nullopt there as well) — and nullptr itself must be
+    // treated as "never matches" rather than accidentally matching an empty/uninitialized slot.
+    int dummy = 0;
+    EXPECT_FALSE(manager.find_by_native_handle(nullptr).has_value());
+    EXPECT_FALSE(manager.find_by_native_handle(&dummy).has_value());
 }
 
 TEST(WindowManager, ForEachSecondaryWindowVisitsNothingOnFreshManager) {

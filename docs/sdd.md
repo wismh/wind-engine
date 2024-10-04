@@ -2623,6 +2623,50 @@ is believed correct but, unlike the rest of §21.7, has not yet been watched wor
 drag with waves/enemies live. If `td-over` hits dropped events, corrupted state, or burst catch-up
 after dragging with this merged, that is the first place to look.
 
+**Regression found (and fixed, `td-over`, wind-90): the reentrant tick above was smooth for the
+transparent primary overlay, but dragging an opaque secondary window stalled everything —
+including simulation that has nothing to do with that window.** Reported immediately after wind-89
+merged: dragging the primary overlay kept real time flowing exactly as intended, but dragging
+`td-over`'s `workshop`/`settings` (ordinary opaque borderless secondary windows) made the whole
+game lag/near-freeze *while that specific drag was in progress*. `game.on_update()` for the
+overlay's own scene never stops running while a secondary window like `workshop` is open (nothing
+in `td-over`'s `open_workshop()` hides the overlay HUD), so both cases run the identical
+`reentrant_tick()` work — the only difference is *which* window the OS is actively live-moving.
+Suspected (`td-over`'s hypothesis, not yet independently root-caused further) `OpenGLCanvas::draw()`'s
+`SDL_GL_SwapWindow` call: observed to block for the DWM compositor to catch up specifically for
+whichever window is being live-moved/resized *right now*, and worse for an ordinary opaque window
+than for the transparent, `DwmEnableBlurBehindWindow`-composited primary overlay — which would
+explain why `reentrant_tick()`'s entire ~10ms budget (game logic included, even though logic itself
+never touches `SwapWindow`) was getting eaten by one window's draw call.
+
+Fixed by having `reentrant_tick()` skip draw/swap for whichever window is the one actually being
+dragged, resolved from the Win32 message itself rather than guessed: `windows_message_hook`
+(`window_manager.cpp`) now resolves `msg->hwnd` via the new
+`WindowManager::find_by_native_handle(void* native_handle)` (mirrors `find_by_sdl_id`, but keyed by
+the platform-native handle — `void*` in the header so it stays `<windows.h>`-free, §16 rule 15;
+`SDL_PROP_WINDOW_WIN32_HWND_POINTER` is simply never set on non-Windows platforms, so this is safe
+to call unconditionally everywhere, no `#if defined(_WIN32)` needed on the caller's side) and passes
+the resulting `std::optional<WindowId>` into the registered callback —
+`set_modal_loop_tick_callback` took `std::function<void()>` before, now
+`std::function<void(std::optional<WindowId>)>`, still opaque to `WindowManager` itself (§3.4/§4.2 —
+it resolves *which* window, never *what* runs or *why*). `EngineRuntime::reentrant_tick()` forwards
+it straight into `WindowManager::draw_all(std::optional<WindowId> skip = std::nullopt)`'s new `skip`
+parameter (default preserves `tick_loop()`'s own unconditional-full-redraw call unchanged). The
+skipped window's own content simply doesn't redraw again until either the drag ends (`tick_loop()`
+resumes its normal unconditional `draw_all()`) or a different window becomes the active one — an
+accepted trade-off (a window not redrawing while the OS is actively moving it around the screen is
+common elsewhere, e.g. many apps), not the same class of problem as the visual freeze wind-89 fixed,
+which affected every window regardless of which one (if any) was even being dragged.
+
+`WindowManager.FindByNativeHandleReturnsNulloptWithNoLiveWindows` (`tests/window_style_test.cpp`)
+covers the no-live-window contract (`nullptr` and a non-null-but-unmatched pointer both correctly
+`std::nullopt`, including on non-Windows builds where the property is simply never set) and
+`draw_all(skip)` on an empty manager still not crashing; the actual HWND resolution and
+selective-skip behavior, like the rest of this section, needs a real drag and isn't covered by
+`engine_tests` (§12.3). Also not yet independently confirmed further than `td-over`'s own
+diagnosis — if the lag persists after this, the `SDL_GL_SwapWindow`-blocks-on-DWM hypothesis itself
+needs measuring directly (`td-over`'s own suggestion), not just working around by skipping it.
+
 **Primary window's own `WindowSize` had no equivalent backfill.** The paragraph above fixes a
 *secondary* window's missing `WindowSizes` entry; the primary window had the same class of bug for
 `world.ctx<ui::WindowSize>()` (§4.7), just never noticed because most primary windows get resized
