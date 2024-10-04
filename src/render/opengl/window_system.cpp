@@ -36,6 +36,17 @@ bool WindowSystem::create(const WindowDesc& desc) {
     if (desc.style.transparent) {
         SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
     }
+    // SDL3's Windows backend defaults SDL_WINDOW_BORDERLESS to a "borderless-windowed" style that
+    // still keeps WS_CAPTION/WS_SYSMENU (external/SDL3/src/video/windows/SDL_windowswindow.c,
+    // GetWindowStyle()/STYLE_BORDERLESS_WINDOWED) — i.e. Windows still draws a titlebar — on
+    // purpose, so a borderless window keeps acting like a normal desktop citizen (taskbar,
+    // work-area clamping). A desktop-overlay window wants the opposite: no titlebar at all. The
+    // hint has no public SDL_HINT_* constant (raw string, same one GetWindowStyle() reads); it's
+    // read once per SDL_CreateWindow call, so setting it right before this one call is enough — it
+    // has no effect at all on a non-borderless window (that branch is never taken for one).
+    if (desc.style.borderless) {
+        SDL_SetHint("SDL_BORDERLESS_WINDOWED_STYLE", "0");
+    }
 
     const SDL_WindowFlags flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | window_style_flags(desc.style);
     window_ = SDL_CreateWindow(desc.title.c_str(), desc.size.x, desc.size.y, flags);
