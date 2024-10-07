@@ -202,6 +202,14 @@ void WindowManager::for_each_secondary_window(const std::function<void(WindowId,
     }
 }
 
+void WindowManager::for_each_window(const std::function<void(WindowId, WindowSystem&)>& fn) {
+    for (auto& [id, entry] : windows_) {
+        if (entry->window.window() != nullptr) {
+            fn(id, entry->window);
+        }
+    }
+}
+
 void WindowManager::draw_all() {
     // The primary slot's canvas object always exists (constructor), even before
     // create_primary_window() ever succeeds — gating on window.window() rather than on canvas

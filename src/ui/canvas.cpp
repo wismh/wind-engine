@@ -82,7 +82,9 @@ void apply_canvas_fit(ecs::World& world) {
 }
 
 void begin_frame(ecs::World& world) {
-    world.ctx<MouseConsumed>().value = false;
+    auto& consumed = world.ctx<MouseConsumed>();
+    consumed.value = false;
+    consumed.consumed_windows.clear();
     apply_canvas_fit(world);
 }
 
@@ -147,7 +149,11 @@ Element* resolve_pointer_hit(ecs::World& world, float x, float y, WindowId windo
         return nullptr;
     }
 
-    world.ctx<MouseConsumed>().value = true;
+    auto& consumed = world.ctx<MouseConsumed>();
+    if (window == kPrimaryWindow) {
+        consumed.value = true;
+    }
+    consumed.consumed_windows.insert(window);
     *out_canvas = &canvas;
     return button;
 }
