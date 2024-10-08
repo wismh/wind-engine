@@ -655,14 +655,44 @@ void EngineRuntime::poll_events(ecs::World& world, InputSystem& input, Applicati
             case SDL_EVENT_MOUSE_BUTTON_DOWN:
             case SDL_EVENT_MOUSE_BUTTON_UP: {
                 const WindowId window_id = impl_->windows.find_by_sdl_id(event.button.windowID).value_or(kPrimaryWindow);
+                WindowSystem* window = impl_->windows.window(window_id);
+                // wind-92 (SDD §21.7): a left-button-down inside the window's drag region starts a
+                // manually-implemented drag (WindowSystem::begin_drag_if_in_region()) instead of
+                // ever reaching the OS's native HTCAPTION/modal-loop path — consumed here exactly
+                // like the old OS-native drag consumed it (the app never saw a button-down for an
+                // HTCAPTION click either). The matching button-up ends it the same way.
+                if (window != nullptr) {
+                    if (event.button.down && event.button.button == SDL_BUTTON_LEFT &&
+                            window->begin_drag_if_in_region(glm::vec2{event.button.x, event.button.y})) {
+                        break;
+                    }
+                    if (!event.button.down && event.button.button == SDL_BUTTON_LEFT && window->is_dragging()) {
+                        window->end_drag();
+                        break;
+                    }
+                }
                 input.handle_mouse_button(window_id, mouse_button_from_sdl(event.button.button), event.button.down,
                         glm::vec2{event.button.x, event.button.y});
                 break;
             }
             case SDL_EVENT_MOUSE_MOTION: {
                 const WindowId window_id = impl_->windows.find_by_sdl_id(event.motion.windowID).value_or(kPrimaryWindow);
+                if (WindowSystem* window = impl_->windows.window(window_id); window != nullptr && window->is_dragging()) {
+                    window->update_drag();
+                    break;
+                }
                 input.handle_mouse_move(window_id, glm::vec2{event.motion.x, event.motion.y},
                         glm::vec2{event.motion.xrel, event.motion.yrel});
+                break;
+            }
+            case SDL_EVENT_WINDOW_FOCUS_LOST: {
+                // wind-92 safety net: if a button-up ever gets missed (e.g. focus stolen mid-drag
+                // by another app), don't leave the mouse captured and the window stuck "dragging"
+                // forever.
+                const WindowId window_id = impl_->windows.find_by_sdl_id(event.window.windowID).value_or(kPrimaryWindow);
+                if (WindowSystem* window = impl_->windows.window(window_id); window != nullptr && window->is_dragging()) {
+                    window->end_drag();
+                }
                 break;
             }
             case SDL_EVENT_FINGER_DOWN:
