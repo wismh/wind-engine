@@ -2778,6 +2778,24 @@ it reflects DPI scaling) immediately before `game.on_start()`. Not covered by a 
 boundary as the rest of `EngineRuntime`'s window-loop code — build + the existing suite not
 regressing is the signal, same as the font-replay fix earlier in this section.
 
+**Overlay cleanup and symmetry (wind-93):** Following wind-92's removal of modal-loop drag handoff,
+several remnants and asymmetries left behind by the rapid iteration across wind-88 through wind-92 were
+cleaned up:
+- The selective `draw_all(skip)` parameter and `WindowManager::find_by_native_handle()` — originally added
+  in wind-90/91 under the disproved hypothesis that `SDL_GL_SwapWindow` was blocking during modal drags —
+  were removed; `draw_all()` now unconditionally draws and swaps all live windows, and
+  `reentrant_tick()`/`modal_loop_tick_callback` no longer track or resolve a `dragged_window`.
+- `window_drag_hit_test()`'s C-style `SDL_HitTestResult` callback signature and `friend` declaration
+  (a remnant from when it was registered via `SDL_SetWindowHitTest`) were replaced with a clean, typed
+  member method `WindowSystem::is_in_drag_region(glm::vec2 point) const noexcept`.
+- Win32 subclassing via `win32_hit_test_wndproc` is now restricted to transparent windows only
+  (`if (transparent_)`), avoiding useless message hooking on ordinary opaque windows.
+- Click-through asymmetry between primary and secondary windows was eliminated:
+  `IWindowControl::set_click_through_enabled(bool enabled, WindowId window = kPrimaryWindow)` now accepts
+  a `WindowId`, `ui::MouseConsumed` tracks consumed windows via `consumed_for(WindowId)`, and
+  `EngineRuntime::tick_loop()`/`reentrant_tick()` query and update click-through across all live windows
+  via `WindowManager::for_each_window()`.
+
 ### 21.8 Testing
 
 Same split as every other feature in this SDD (§12.2/§12.3): the platform calls
