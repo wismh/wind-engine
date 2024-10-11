@@ -139,7 +139,10 @@ template<typename T>
 EventWriter<T>::EventWriter(World& world) : events_(&world.ctx<Events<T>>()) {}
 
 template<typename T>
-EventReader<T>::EventReader(World& world) : events_(&world.ctx<Events<T>>()) {}
+EventReader<T>::EventReader(World& world) : EventReader(world.ctx<Events<T>>()) {}
+
+template<typename T>
+EventReader<T>::EventReader(World& world, EventCursor<T>& cursor) : EventReader(world.ctx<Events<T>>(), cursor) {}
 
 template<typename T>
 World::Pool<T>& World::assure_pool() {
