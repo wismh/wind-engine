@@ -1,5 +1,6 @@
 #include <engine/core/engine_runtime.h>
 
+#include "render/opengl/desktop_overlay_policy.h"
 #include "render/opengl/opengl_runtime.h"
 #include "render/opengl/window_control.h"
 #include "render/opengl/window_manager.h"
@@ -159,6 +160,7 @@ struct EngineRuntime::Impl {
     std::chrono::steady_clock::time_point loop_last{};
     std::function<void()> host_dispose;
     LoopShutdown loop_shutdown;
+    DesktopOverlayPolicy overlay_policy;
 };
 
 EngineRuntime::EngineRuntime() : impl_(std::make_unique<Impl>()) {}
@@ -190,11 +192,18 @@ bool EngineRuntime::create_window(const WindowDesc& desc) {
 }
 
 std::optional<WindowId> EngineRuntime::open_window(const WindowDesc& desc) {
-    return impl_->windows.create_window(desc);
+    const auto id = impl_->windows.create_window(desc);
+    if (id.has_value() && impl_->loop_game != nullptr) {
+        impl_->overlay_policy.sync_modal_loop_hook(impl_->windows, [this] { reentrant_tick(); });
+    }
+    return id;
 }
 
 void EngineRuntime::close_window(WindowId id) {
     impl_->windows.destroy_window(id);
+    if (impl_->loop_game != nullptr) {
+        impl_->overlay_policy.sync_modal_loop_hook(impl_->windows, [this] { reentrant_tick(); });
+    }
 }
 
 void EngineRuntime::set_window_icon(const render::TextureDesc& desc) {
@@ -279,11 +288,10 @@ void EngineRuntime::begin_loop(IGame& game, InputSystem& input, IAudioSystem* au
     ui::apply_canvas_fit(game.world());
     game.world().ctx<ApplicationState>().running = true;
 
-    // wind-89: from here until end_loop() clears it, WindowManager's Win32 modal-loop hook
-    // (window_manager.cpp) calls reentrant_tick() on every WM_TIMER it sees — see that method's
-    // doc comment for what it does and why it's safe to nest inside poll_events()'s SDL_PollEvent()
-    // call specifically.
-    impl_->windows.set_modal_loop_tick_callback([this] { reentrant_tick(); });
+    // wind-89 / wind-94: DesktopOverlayPolicy registers reentrant_tick() with WindowManager's Win32
+    // modal-loop hook only when an active overlay is present, keeping the core loop standard and
+    // unhooked for normal games.
+    impl_->overlay_policy.sync_modal_loop_hook(impl_->windows, [this] { reentrant_tick(); });
 }
 
 void EngineRuntime::tick_loop() {
@@ -302,26 +310,8 @@ void EngineRuntime::tick_loop() {
     world.flush_events();
     poll_events(world, *impl_->loop_input, app);
 
-    // SDD §21.7 regression fix: click-through relies on MouseConsumed staying current every frame
-    // (update_click_through() below reads it), and MouseConsumed only ever updates in reaction to
-    // a real SDL_EVENT_MOUSE_MOTION (poll_events() above -> InputSystem::handle_mouse_move() ->
-    // run_input()'s Move case -> ui::update_pointer_hover()). Once click-through is actually
-    // applied on Windows (WS_EX_TRANSPARENT set), the OS stops delivering WM_MOUSEMOVE at all for
-    // any point that now hit-tests as HTTRANSPARENT — so the moment the pointer sits over empty
-    // (click-through) space, no further motion event ever arrives for this window again, even once
-    // the pointer moves onto a real widget, and MouseConsumed gets stuck at whatever it last was:
-    // both click-through and every button it "froze" over stop reacting to the mouse at all. Poll
-    // the true OS cursor position directly every tick — the same technique other click-through
-    // overlay apps use for this reason — instead of relying only on whichever motion events the OS
-    // chose to deliver. Gated to when click-through could actually be engaged (kPrimaryWindow-only,
-    // SDD §21.4) so every other window/game pays nothing extra here.
-    impl_->windows.for_each_window([&](WindowId id, WindowSystem& window) {
-        if (window.click_through_enabled() && window.is_transparent()) {
-            if (const std::optional<glm::vec2> cursor = window.cursor_client_position()) {
-                impl_->loop_input->handle_mouse_move(id, *cursor, glm::vec2{0.0f, 0.0f});
-            }
-        }
-    });
+    // DesktopOverlayPolicy polls OS cursor for transparent click-through windows if an overlay is active.
+    impl_->overlay_policy.poll_cursor(impl_->windows, *impl_->loop_input);
 
     // Backfills a WindowSizes entry for any secondary window that has none yet (SDD §21.7) — a
     // freshly opened window has no drawable size in ui::WindowSizes until its first real
@@ -379,10 +369,7 @@ void EngineRuntime::tick_loop() {
         game.on_fixed_update();
     }
     game.on_update();
-    const auto& mouse_consumed = world.ctx<ui::MouseConsumed>();
-    impl_->windows.for_each_window([&](WindowId id, WindowSystem& window) {
-        window.update_click_through(mouse_consumed.consumed_for(id));
-    });
+    impl_->overlay_policy.update_click_through(impl_->windows, world.ctx<ui::MouseConsumed>());
     impl_->windows.draw_all();
 }
 
@@ -440,15 +427,12 @@ void EngineRuntime::reentrant_tick() {
         game.on_fixed_update();
     }
     game.on_update();
-    const auto& mouse_consumed = world.ctx<ui::MouseConsumed>();
-    impl_->windows.for_each_window([&](WindowId id, WindowSystem& window) {
-        window.update_click_through(mouse_consumed.consumed_for(id));
-    });
+    impl_->overlay_policy.update_click_through(impl_->windows, world.ctx<ui::MouseConsumed>());
     impl_->windows.draw_all();
 }
 
 void EngineRuntime::end_loop() {
-    impl_->windows.set_modal_loop_tick_callback(nullptr);
+    impl_->overlay_policy.sync_modal_loop_hook(impl_->windows, nullptr);
     IGame* const game = impl_->loop_game;
     impl_->loop_game = nullptr;
     impl_->loop_input = nullptr;
