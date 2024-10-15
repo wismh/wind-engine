@@ -83,14 +83,9 @@ void skip_whitespace_and_comments(std::string_view css, std::size_t& i) {
     }
 }
 
-std::optional<CssSelector> parse_selector(std::string_view raw, std::vector<std::string>& warnings) {
+std::optional<CssSelector> parse_simple_selector(std::string_view raw) {
     const std::string_view selector = trim(raw);
     if (selector.empty()) {
-        return std::nullopt;
-    }
-    if (selector.find(',') != std::string_view::npos || selector.find('>') != std::string_view::npos ||
-            selector.find(' ') != std::string_view::npos || selector.find('\t') != std::string_view::npos) {
-        warnings.emplace_back("unsupported combinator in selector: " + std::string(selector));
         return std::nullopt;
     }
 
@@ -100,6 +95,9 @@ std::optional<CssSelector> parse_selector(std::string_view raw, std::vector<std:
     if (colon != std::string_view::npos) {
         parsed.pseudo = std::string(body.substr(colon + 1));
         body = body.substr(0, colon);
+    }
+    if (body.empty() && parsed.pseudo.empty()) {
+        return std::nullopt;
     }
 
     if (body.starts_with('.')) {
@@ -122,6 +120,74 @@ std::optional<CssSelector> parse_selector(std::string_view raw, std::vector<std:
     parsed.type = CssSelectorType::Element;
     parsed.element = std::string(body);
     return parsed;
+}
+
+bool parse_selector_chain(std::string_view raw, CssRule& rule, std::vector<std::string>& warnings) {
+    const std::string_view selector = trim(raw);
+    if (selector.empty()) {
+        return false;
+    }
+    if (selector.find(',') != std::string_view::npos || selector.find('+') != std::string_view::npos ||
+            selector.find('~') != std::string_view::npos) {
+        warnings.emplace_back("unsupported combinator in selector: " + std::string(selector));
+        return false;
+    }
+
+    std::vector<CssSelector> compounds;
+    std::vector<CssCombinator> combinators;
+    std::size_t i = 0;
+    const auto skip_ws = [&] {
+        while (i < selector.size() && std::isspace(static_cast<unsigned char>(selector[i])) != 0) {
+            ++i;
+        }
+    };
+
+    skip_ws();
+    while (i < selector.size()) {
+        bool has_combinator = false;
+        CssCombinator combinator = CssCombinator::Descendant;
+        if (selector[i] == '>') {
+            if (compounds.empty()) {
+                warnings.emplace_back("unsupported combinator in selector: " + std::string(selector));
+                return false;
+            }
+            combinator = CssCombinator::Child;
+            has_combinator = true;
+            ++i;
+            skip_ws();
+        } else if (!compounds.empty()) {
+            combinator = CssCombinator::Descendant;
+            has_combinator = true;
+        }
+        if (i >= selector.size() || selector[i] == '>') {
+            warnings.emplace_back("unsupported combinator in selector: " + std::string(selector));
+            return false;
+        }
+
+        const std::size_t begin = i;
+        while (i < selector.size() && std::isspace(static_cast<unsigned char>(selector[i])) == 0 &&
+                selector[i] != '>') {
+            ++i;
+        }
+        auto compound = parse_simple_selector(selector.substr(begin, i - begin));
+        if (!compound) {
+            return false;
+        }
+        if (has_combinator) {
+            combinators.push_back(combinator);
+        }
+        compounds.push_back(std::move(*compound));
+        skip_ws();
+    }
+
+    if (compounds.empty()) {
+        return false;
+    }
+    rule.selector = std::move(compounds.back());
+    compounds.pop_back();
+    rule.ancestors = std::move(compounds);
+    rule.combinators = std::move(combinators);
+    return true;
 }
 
 void parse_declarations(std::string_view body, CssRule& rule, std::vector<std::string>& warnings) {
@@ -224,12 +290,10 @@ std::expected<Stylesheet, CssError> parse_css(std::string_view css, std::vector<
         const std::string_view body = css.substr(body_begin, i - body_begin);
         ++i;
 
-        auto selector = parse_selector(selector_text, warnings);
-        if (!selector) {
+        CssRule rule;
+        if (!parse_selector_chain(selector_text, rule, warnings)) {
             continue;
         }
-        CssRule rule;
-        rule.selector = std::move(*selector);
         parse_declarations(body, rule, warnings);
         sheet.rules.push_back(std::move(rule));
     }

@@ -18,6 +18,11 @@ enum class CssSelectorType {
     ElementClass,
 };
 
+enum class CssCombinator {
+    Descendant,
+    Child,
+};
+
 struct CssSelector {
     CssSelectorType type = CssSelectorType::Element;
     std::string element;
@@ -33,6 +38,8 @@ struct CssDeclaration {
 
 struct CssRule {
     CssSelector selector;
+    std::vector<CssSelector> ancestors;
+    std::vector<CssCombinator> combinators;
     std::vector<CssDeclaration> declarations;
 };
 
