@@ -2796,12 +2796,29 @@ cleaned up:
   `EngineRuntime::tick_loop()`/`reentrant_tick()` query and update click-through across all live windows
   via `WindowManager::for_each_window()`.
 
+**Desktop overlay policy isolation (wind-94):** Addressing the SDD-WIND-001 audit recommendation
+(preventing desktop overlay edge cases from permanently defining the engine's default frame loop),
+all overlay-specific behaviors were isolated into `DesktopOverlayPolicy`:
+- `DesktopOverlayPolicy` encapsulates OS cursor polling (`poll_cursor`), click-through updates
+  (`update_click_through`), and Win32 modal message hook registration (`sync_modal_loop_hook`).
+- For standard opaque games and fullscreen games, `DesktopOverlayPolicy::has_active_overlay()`
+  evaluates to `false`, rendering cursor polling and click-through updates instant no-ops.
+- `WindowManager` no longer unconditionally installs `SDL_SetWindowsMessageHook` at process startup;
+  the hook is dynamically registered only when `DesktopOverlayPolicy::sync_modal_loop_hook` detects
+  an active overlay and a valid tick callback, and unhooked when overlays cease to exist or when the
+  game loop exits.
+- Standard games thus execute a clean, predictable, standard game loop without paying for Win32
+  message interception or synthetic polling.
+
 ### 21.8 Testing
 
 Same split as every other feature in this SDD (§12.2/§12.3): the platform calls
 (`SDL_CreateWindow`, `SetWindowLongPtr`, `SDL_SetWindowHitTest`) are not exercised in
 `engine_tests` — no display in CI, and §12.3 already excludes booting a real window. What's pure
 logic and gets a `tests/windowing_test.cpp` case:
+
+- `DesktopOverlayPolicy` auto-detection, explicit mode overrides, no-op behavior when inactive, and
+  dynamic modal loop hook installation and cleanup (`tests/window_style_test.cpp`).
 
 - `WindowStyle → SDL window-creation flag bitmask` (borderless/always-on-top/transparent, alone
   and combined).
