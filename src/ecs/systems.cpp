@@ -33,7 +33,7 @@ namespace {
 void run_input(ecs::World& world) {
     ui::begin_frame(world);
     ui::UiPointer& pointer = world.ctx<ui::UiPointer>();
-    for (const MouseEvent& event : ecs::EventReader<MouseEvent>{world}) {
+    for (const MouseEvent& event : ecs::EventReader<MouseEvent>{world, world.ctx<ecs::EventCursor<MouseEvent>>()}) {
         if (event.kind == MouseEvent::Kind::Move || event.kind == MouseEvent::Kind::Down ||
                 event.kind == MouseEvent::Kind::Up) {
             pointer.position = event.position;
@@ -148,14 +148,16 @@ void run_bind(ecs::World& world, const EngineSystemDeps& deps) {
 }
 
 void run_audio(ecs::World& world, const EngineSystemDeps& deps) {
-    for (const PlaySfxEvent& event : ecs::EventReader<PlaySfxEvent>{world}) {
+    for (const PlaySfxEvent& event :
+            ecs::EventReader<PlaySfxEvent>{world, world.ctx<ecs::EventCursor<PlaySfxEvent>>()}) {
         if (deps.assets == nullptr || deps.audio == nullptr) {
             continue;
         }
         auto sound = deps.assets->get<Sound>(event.id);
         deps.audio->play_sfx(*sound, event.volume_scale);
     }
-    for (const PlayMusicEvent& event : ecs::EventReader<PlayMusicEvent>{world}) {
+    for (const PlayMusicEvent& event :
+            ecs::EventReader<PlayMusicEvent>{world, world.ctx<ecs::EventCursor<PlayMusicEvent>>()}) {
         if (deps.assets == nullptr || deps.audio == nullptr) {
             continue;
         }
