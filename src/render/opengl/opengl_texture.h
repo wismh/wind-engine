@@ -5,7 +5,14 @@
 #include <engine/render/graphic_factory.h>
 #include <engine/render/graphics.h>
 
+#include <cstdint>
+#include <span>
+#include <vector>
+
 namespace engine::render {
+
+[[nodiscard]] std::vector<std::uint8_t> flip_image_vertically(
+        std::span<const std::uint8_t> rgba, int width, int height);
 
 class OpenGLTexture final : public ITexture {
 public:
