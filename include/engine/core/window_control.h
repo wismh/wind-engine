@@ -31,17 +31,19 @@ public:
     // windows the same way as other controls.
     virtual void set_click_through_enabled(bool enabled, WindowId window = kPrimaryWindow) = 0;
 
-    // Marks a region (window-client pixels, same space as UiCanvas.rect) draggable via
-    // SDL_SetWindowHitTest — needed for a borderless window, which has no OS titlebar to drag by
-    // (SDD §21.7). nullopt clears it. `window` generalizes to secondary windows the same way as
-    // above — a borderless secondary window needs its own drag region just as much as the primary.
+    // Marks a region (window-client pixels, same coordinate space as UiCanvas.rect) draggable —
+    // needed for a borderless window, which has no OS titlebar to drag by (SDD §21.7). nullopt
+    // clears it. `window` generalizes to secondary windows the same way as other controls.
     //
-    // WARNING: this is a raw rectangle with no knowledge of the UI tree. Any click inside it is
-    // reported to the OS as HTCAPTION (SDL_HITTEST_DRAGGABLE), which becomes a non-client
-    // WM_NCLBUTTONDOWN — the engine never sees SDL_EVENT_MOUSE_BUTTON_DOWN/_UP for it, so a Button
-    // placed inside the drag rect (e.g. a titlebar close button next to the drag handle) is
-    // silently unclickable no matter what it's bound to. Shrink or notch the rect yourself to
-    // exclude every interactive control's bounds before calling this.
+    // Window movement is handled manually by the engine via mouse capture (SDL_CaptureMouse),
+    // avoiding the OS's native modal move loop (DefWindowProc / HTCAPTION) and its associated
+    // message starvation.
+    //
+    // WARNING: this is a raw geometry rectangle evaluated before UI event dispatch. Any left click
+    // inside it initiates window dragging and is consumed immediately by the engine — no
+    // button-down event reaches the UI or ECS input systems. Consequently, a Button placed inside
+    // the drag rect (e.g. a titlebar close button next to or inside a drag handle) is unclickable.
+    // Shrink or notch the rect to exclude every interactive control's bounds before calling this.
     virtual void set_drag_region(std::optional<render::Rect> region, WindowId window = kPrimaryWindow) = 0;
 
     // Opens/closes a secondary window (SDD §21.5/§21.7). nullopt on failure (e.g. no primary
