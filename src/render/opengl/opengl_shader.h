@@ -5,6 +5,7 @@
 #include <engine/render/graphics.h>
 
 #include <glm/mat4x4.hpp>
+#include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
 
 #include <string>
@@ -23,6 +24,7 @@ public:
     void use() const;
     void set_mat4(std::string_view name, const glm::mat4& value) const;
     void set_vec4(std::string_view name, const glm::vec4& value) const;
+    void set_vec2(std::string_view name, const glm::vec2& value) const;
     void set_int(std::string_view name, int value) const;
 
     [[nodiscard]] bool valid() const noexcept {
