@@ -94,5 +94,11 @@ void apply_canvas_fit(ecs::World& world);
 // unchanged) restricts hit-testing to canvases whose UiCanvas::window matches — a canvas assigned
 // to a different window never receives this pointer event's click (SDD §21.6).
 void handle_pointer(ecs::World& world, float x, float y, WindowId window = kPrimaryWindow);
+// Same hit test as handle_pointer() (and updates MouseConsumed the same way) but never executes a
+// command — for MouseEvent::Kind::Move, where re-running a bound element's command on every hover
+// pixel would be wrong. Without this, MouseConsumed only ever reflects the pointer's position at
+// the last click, so click_through (SDD §21.4) stays wrong for every frame the pointer merely
+// moves over (or off of) a UI element without clicking.
+void update_pointer_hover(ecs::World& world, float x, float y, WindowId window = kPrimaryWindow);
 
 }
