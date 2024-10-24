@@ -43,7 +43,7 @@ std::vector<std::uint8_t> flip_image_vertically(
     return flipped;
 }
 
-OpenGLTexture::OpenGLTexture(const TextureDesc& desc) {
+OpenGLTexture::OpenGLTexture(const TextureDesc& desc) : width_(desc.width), height_(desc.height) {
     if (desc.width <= 0 || desc.height <= 0 || desc.rgba.empty()) {
         return;
     }

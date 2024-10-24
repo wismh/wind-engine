@@ -15,6 +15,8 @@ public:
 class ITexture {
 public:
     virtual ~ITexture() = default;
+    [[nodiscard]] virtual int width() const noexcept { return 0; }
+    [[nodiscard]] virtual int height() const noexcept { return 0; }
 };
 
 }
