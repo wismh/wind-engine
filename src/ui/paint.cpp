@@ -24,6 +24,7 @@ struct ComputedStyle {
     glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
     glm::vec4 background{0.0f, 0.0f, 0.0f, 0.0f};
     std::optional<AssetId> background_image;
+    std::optional<LengthInsets> background_slice;
     float opacity = 1.0f;
     bool visible = true;
     Length gap{};
@@ -356,6 +357,10 @@ void apply_declaration(ComputedStyle& style, const CssDeclaration& decl) {
             style.background_image.reset();
         } else if (const auto id = AssetId::parse(value)) {
             style.background_image = *id;
+        }
+    } else if (decl.property == "background-slice") {
+        if (const auto insets = css_length::parse_insets(decl.value)) {
+            style.background_slice = *insets;
         }
     } else if (decl.property == "opacity") {
         style.opacity = std::strtof(decl.value.c_str(), nullptr);
@@ -692,7 +697,18 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
         painter.fill_rounded_rect(screen_rect, screen_border_radius, style.background);
     }
     if (style.background_image) {
-        painter.image(*style.background_image, screen_rect);
+        if (style.background_slice) {
+            const BoxInsets slice = resolve_insets(*style.background_slice, parent_content, font_size);
+            const BoxInsets screen_slice{
+                    slice.top * input.ui_scale,
+                    slice.right * input.ui_scale,
+                    slice.bottom * input.ui_scale,
+                    slice.left * input.ui_scale,
+            };
+            painter.image_nine_slice(*style.background_image, screen_rect, screen_slice);
+        } else {
+            painter.image(*style.background_image, screen_rect);
+        }
     }
     if (border_width > 0.0f && style.border_color.a > 0.0f) {
         painter.stroke_rounded_rect(screen_rect, screen_border_radius, screen_border_width, style.border_color);
@@ -724,7 +740,19 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
     }
     if (element.kind == ElementKind::Image && element.source) {
         if (!style.background_image || *element.source != *style.background_image) {
-            painter.image(*element.source, screen_rect);
+            const auto& slice_insets = element.slice ? element.slice : style.background_slice;
+            if (slice_insets) {
+                const BoxInsets slice = resolve_insets(*slice_insets, parent_content, font_size);
+                const BoxInsets screen_slice{
+                        slice.top * input.ui_scale,
+                        slice.right * input.ui_scale,
+                        slice.bottom * input.ui_scale,
+                        slice.left * input.ui_scale,
+                };
+                painter.image_nine_slice(*element.source, screen_rect, screen_slice);
+            } else {
+                painter.image(*element.source, screen_rect);
+            }
         }
     }
 
