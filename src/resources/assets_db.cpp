@@ -1,4 +1,5 @@
 #include <engine/audio/sound.h>
+#include <engine/render/animation.h>
 #include <engine/render/graphic_factory.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
@@ -31,12 +32,16 @@ bool is_gpu_type(const std::type_info& type) {
 }
 
 bool needs_factory(const std::type_info& type) {
-    return is_gpu_type(type) || type == typeid(render::IMaterial) || type == typeid(SpriteSheet);
+    return is_gpu_type(type) || type == typeid(render::IMaterial) || type == typeid(SpriteSheet) ||
+            type == typeid(render::SpriteAnimationClip);
 }
 
 std::optional<ImporterKind> importer_for_type(const std::type_info& type) {
     if (type == typeid(render::ITexture) || type == typeid(SpriteSheet)) {
         return ImporterKind::Texture;
+    }
+    if (type == typeid(render::SpriteAnimationClip)) {
+        return ImporterKind::Animation;
     }
     if (type == typeid(render::IMesh)) {
         return ImporterKind::Mesh;
@@ -262,7 +267,44 @@ std::expected<std::shared_ptr<void>, AssetError> load_sprite_sheet(AssetsDb& db,
     return std::static_pointer_cast<void>(std::move(sheet));
 }
 
+std::expected<std::shared_ptr<void>, AssetError> load_animation(
+        AssetsDb& db, const CatalogEntry& entry, const std::filesystem::path& fallback_root) {
+    const std::filesystem::path path = lookup_path(entry, fallback_root);
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path, ec)) {
+        return std::unexpected(AssetError::Corrupt);
+    }
+    const auto bytes = read_all(path);
+    if (!bytes) {
+        return std::unexpected(AssetError::Corrupt);
+    }
+    const auto desc = render::parse_animation(*bytes);
+    if (!desc) {
+        return std::unexpected(AssetError::Corrupt);
+    }
+
+    auto clip = std::make_shared<render::SpriteAnimationClip>();
+    clip->fps = desc->fps;
+    clip->loop = desc->loop;
+    const float default_duration = 1.0f / desc->fps;
+
+    for (const auto& frame_desc : desc->frames) {
+        auto sprite_res = db.try_get_sprite(frame_desc.texture, frame_desc.sprite);
+        if (!sprite_res) {
+            return std::unexpected(sprite_res.error());
+        }
+        const float dur = frame_desc.duration.value_or(default_duration);
+        clip->frames.push_back(render::SpriteAnimationFrame{
+                .sprite = std::move(*sprite_res),
+                .duration = dur,
+        });
+    }
+
+    return std::static_pointer_cast<void>(std::move(clip));
 }
+
+}
+
 
 AssetsDb::AssetsDb(IFatalError& fatal_error)
     : fatal_error_(fatal_error) {}
@@ -339,6 +381,8 @@ std::expected<std::shared_ptr<void>, AssetError> AssetsDb::try_get_erased(AssetI
         loaded = load_material(*this, *entry, assets_root_);
     } else if (type == typeid(SpriteSheet)) {
         loaded = load_sprite_sheet(*this, *entry);
+    } else if (type == typeid(render::SpriteAnimationClip)) {
+        loaded = load_animation(*this, *entry, assets_root_);
     } else {
         loaded = load_cpu(*entry, type, assets_root_);
     }
