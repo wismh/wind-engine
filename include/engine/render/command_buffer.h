@@ -22,6 +22,10 @@ public:
         commands_.emplace_back(std::move(command));
     }
 
+    void push(CmdDrawParticles command) {
+        commands_.emplace_back(std::move(command));
+    }
+
     void clear() {
         commands_.clear();
     }
