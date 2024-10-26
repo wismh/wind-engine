@@ -29,11 +29,17 @@ NVGcolor to_nvg(glm::vec4 color) {
 
 }
 
+struct ImageEntry {
+    int nvg_id = -1;
+    int width = 0;
+    int height = 0;
+};
+
 struct NanoVgPainter::Impl {
     NVGcontext* vg = nullptr;
     std::vector<std::vector<std::uint8_t>> font_blobs;
     std::unordered_map<std::string, int> fonts;
-    std::unordered_map<std::string, int> images;
+    std::unordered_map<std::string, ImageEntry> images;
     int default_font = -1;
 };
 
@@ -94,7 +100,7 @@ bool NanoVgPainter::add_image(AssetId id, const TextureDesc& desc) {
     if (nvg_id <= 0) {
         return false;
     }
-    impl_->images.emplace(key, nvg_id);
+    impl_->images.emplace(key, ImageEntry{nvg_id, desc.width, desc.height});
     return true;
 }
 
@@ -243,11 +249,103 @@ void NanoVgPainter::image(AssetId texture, const Rect& rect) {
         return;
     }
     const NVGpaint paint =
-            nvgImagePattern(impl_->vg, rect.x, rect.y, rect.w, rect.h, 0.0f, it->second, 1.0f);
+            nvgImagePattern(impl_->vg, rect.x, rect.y, rect.w, rect.h, 0.0f, it->second.nvg_id, 1.0f);
     nvgBeginPath(impl_->vg);
     nvgRect(impl_->vg, rect.x, rect.y, rect.w, rect.h);
     nvgFillPaint(impl_->vg, paint);
     nvgFill(impl_->vg);
+}
+
+void NanoVgPainter::image_nine_slice(AssetId texture, const Rect& rect, const ui::BoxInsets& insets) {
+    if (impl_->vg == nullptr || rect.w <= 0.0f || rect.h <= 0.0f) {
+        return;
+    }
+    const auto it = impl_->images.find(std::string(texture.hex()));
+    if (it == impl_->images.end()) {
+        return;
+    }
+    const int nvg_id = it->second.nvg_id;
+    const float tw = static_cast<float>(it->second.width);
+    const float th = static_cast<float>(it->second.height);
+    if (tw <= 0.0f || th <= 0.0f) {
+        return;
+    }
+
+    float sl = std::max(0.0f, insets.left);
+    float sr = std::max(0.0f, insets.right);
+    float st = std::max(0.0f, insets.top);
+    float sb = std::max(0.0f, insets.bottom);
+
+    if (sl + sr > tw) {
+        const float s = tw / (sl + sr);
+        sl *= s;
+        sr *= s;
+    }
+    if (st + sb > th) {
+        const float s = th / (st + sb);
+        st *= s;
+        sb *= s;
+    }
+
+    float dl = sl;
+    float dr = sr;
+    float dt = st;
+    float db = sb;
+
+    if (dl + dr > rect.w) {
+        const float s = rect.w / (dl + dr);
+        dl *= s;
+        dr *= s;
+    }
+    if (dt + db > rect.h) {
+        const float s = rect.h / (dt + db);
+        dt *= s;
+        db *= s;
+    }
+
+    const float dw_center = std::max(0.0f, rect.w - dl - dr);
+    const float dh_center = std::max(0.0f, rect.h - dt - db);
+    const float sw_center = std::max(0.0f, tw - sl - sr);
+    const float sh_center = std::max(0.0f, th - st - sb);
+
+    const float src_x[3] = {0.0f, sl, tw - sr};
+    const float src_w[3] = {sl, sw_center, sr};
+    const float dst_x[3] = {rect.x, rect.x + dl, rect.x + rect.w - dr};
+    const float dst_w[3] = {dl, dw_center, dr};
+
+    const float src_y[3] = {0.0f, st, th - sb};
+    const float src_h[3] = {st, sh_center, sb};
+    const float dst_y[3] = {rect.y, rect.y + dt, rect.y + rect.h - db};
+    const float dst_h[3] = {dt, dh_center, db};
+
+    for (int row = 0; row < 3; ++row) {
+        for (int col = 0; col < 3; ++col) {
+            const float sw = src_w[col];
+            const float sh = src_h[row];
+            const float dw = dst_w[col];
+            const float dh = dst_h[row];
+            if (dw <= 0.0f || dh <= 0.0f || sw <= 0.0f || sh <= 0.0f) {
+                continue;
+            }
+            const float sx = src_x[col];
+            const float sy = src_y[row];
+            const float dx = dst_x[col];
+            const float dy = dst_y[row];
+
+            const float scale_x = dw / sw;
+            const float scale_y = dh / sh;
+            const float ox = dx - sx * scale_x;
+            const float oy = dy - sy * scale_y;
+            const float ex = tw * scale_x;
+            const float ey = th * scale_y;
+
+            const NVGpaint paint = nvgImagePattern(impl_->vg, ox, oy, ex, ey, 0.0f, nvg_id, 1.0f);
+            nvgBeginPath(impl_->vg);
+            nvgRect(impl_->vg, dx, dy, dw, dh);
+            nvgFillPaint(impl_->vg, paint);
+            nvgFill(impl_->vg);
+        }
+    }
 }
 
 glm::vec2 NanoVgPainter::measure_text(std::string_view text, AssetId font, float size) {

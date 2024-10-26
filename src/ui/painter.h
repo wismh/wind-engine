@@ -31,6 +31,7 @@ public:
     virtual void fill_text(std::string_view text, glm::vec2 position, glm::vec4 color, UiAlign horizontal,
             UiAlign vertical) = 0;
     virtual void image(AssetId texture, const render::Rect& rect) = 0;
+    virtual void image_nine_slice(AssetId texture, const render::Rect& rect, const BoxInsets& insets) = 0;
     [[nodiscard]] virtual glm::vec2 measure_text(std::string_view text, AssetId font, float size) = 0;
 };
 
