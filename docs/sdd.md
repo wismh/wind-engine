@@ -1841,6 +1841,23 @@ alpha sampling of the rendered frame (that needs a framebuffer readback synced a
 swap, deferred — §17); a fully transparent pixel inside a widget's bounding rect still captures
 input in v1, same as an opaque one.
 
+**Bug found (and fixed): `MouseConsumed` only updated on click, never on hover.**
+`run_input()` (`src/ecs/systems.cpp`) used to call `ui::handle_pointer()` — the function that both
+hit-tests and sets `MouseConsumed` — only for `MouseEvent::Kind::Down`. `ui::begin_frame()`
+(`src/ui/canvas.cpp`) resets `MouseConsumed` to `false` at the start of every frame regardless, so
+on any frame with only `Move` events (i.e. almost every frame click-through is actually meant to
+react to) it stayed `false` even while the pointer sat directly over an opaque widget —
+`update_click_through()` would then make the window click-through *over its own UI*, defeating the
+feature, and the state only ever became accurate for the one frame a click happened to land. Fixed
+by splitting the hit-test out of `handle_pointer()`: `resolve_pointer_hit()` (anonymous namespace,
+`src/ui/canvas.cpp`) does the hit-test + layout rebuild + `MouseConsumed` update; `handle_pointer()`
+additionally resolves and executes a command (unchanged, still `Down`-only — nothing should fire a
+button's command on hover); the new `update_pointer_hover(world, x, y, window)`
+(`include/engine/ui/canvas.h`) does the hit-test half only. `run_input()` now calls
+`update_pointer_hover` on `MouseEvent::Kind::Move` too, so `MouseConsumed` (and therefore
+click-through) tracks the pointer's actual current position every frame, not just the position at
+the last click.
+
 ```cpp
 bool should_be_click_through(bool click_through_enabled, bool window_is_transparent, bool pointer_hit_something) noexcept;
 ```
@@ -2234,4 +2251,7 @@ logic and gets a `tests/windowing_test.cpp` case:
 - `UiInputSystem` hit-testing already covers per-canvas hit-testing (§12.2); the new case is that
   a canvas on window B is never hit by window A's pointer position, using two synthetic pointer
   positions and two `UiCanvas::window` values, no real SDL window needed.
+- `update_pointer_hover` (§21.4) sets `MouseConsumed` on a hit exactly like `handle_pointer` does,
+  without executing the hit element's command — covered alongside `handle_pointer`'s existing cases
+  in `tests/mvvm_test.cpp`.
 
