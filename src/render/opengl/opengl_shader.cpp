@@ -76,6 +76,10 @@ void OpenGLShader::set_vec4(std::string_view name, const glm::vec4& value) const
     glUniform4fv(uniform_location(name), 1, glm::value_ptr(value));
 }
 
+void OpenGLShader::set_vec2(std::string_view name, const glm::vec2& value) const {
+    glUniform2fv(uniform_location(name), 1, glm::value_ptr(value));
+}
+
 void OpenGLShader::set_int(std::string_view name, int value) const {
     glUniform1i(uniform_location(name), value);
 }
