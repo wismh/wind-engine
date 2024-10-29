@@ -48,7 +48,7 @@ bool WindowSystem::create(const WindowDesc& desc) {
         SDL_SetHint("SDL_BORDERLESS_WINDOWED_STYLE", "0");
     }
 
-    const SDL_WindowFlags flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | window_style_flags(desc.style);
+    const SDL_WindowFlags flags = SDL_WINDOW_OPENGL | window_style_flags(desc.style);
     window_ = SDL_CreateWindow(desc.title.c_str(), desc.size.x, desc.size.y, flags);
     if (window_ == nullptr) {
         return false;
@@ -169,6 +169,9 @@ glm::ivec2 WindowSystem::drawable_size() const {
 
 SDL_WindowFlags window_style_flags(const WindowStyle& style) {
     SDL_WindowFlags flags = 0;
+    if (style.resizable) {
+        flags |= SDL_WINDOW_RESIZABLE;
+    }
     if (style.borderless) {
         flags |= SDL_WINDOW_BORDERLESS;
     }

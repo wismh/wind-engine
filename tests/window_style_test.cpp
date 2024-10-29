@@ -27,34 +27,45 @@ TEST(PrimaryWindow, DefaultsMatchSdd) {
     EXPECT_FALSE(desc.style.borderless);
     EXPECT_FALSE(desc.style.always_on_top);
     EXPECT_FALSE(desc.style.transparent);
+    EXPECT_TRUE(desc.style.resizable);
 }
 
 #if defined(ENGINE_WITH_WINDOW)
 
-TEST(WindowStyleFlags, DefaultStyleHasNoExtraFlags) {
-    EXPECT_EQ(engine::window_style_flags(engine::WindowStyle{}), 0u);
+TEST(WindowStyleFlags, DefaultStyleIsResizableOnly) {
+    EXPECT_EQ(engine::window_style_flags(engine::WindowStyle{}), SDL_WINDOW_RESIZABLE);
+}
+
+TEST(WindowStyleFlags, NotResizableClearsResizableBit) {
+    const engine::WindowStyle style{.resizable = false};
+    EXPECT_EQ(engine::window_style_flags(style), 0u);
 }
 
 TEST(WindowStyleFlags, BorderlessSetsBorderlessBit) {
-    const engine::WindowStyle style{.borderless = true};
+    const engine::WindowStyle style{.borderless = true, .resizable = false};
     EXPECT_EQ(engine::window_style_flags(style), SDL_WINDOW_BORDERLESS);
 }
 
 TEST(WindowStyleFlags, AlwaysOnTopSetsAlwaysOnTopBit) {
-    const engine::WindowStyle style{.always_on_top = true};
+    const engine::WindowStyle style{.always_on_top = true, .resizable = false};
     EXPECT_EQ(engine::window_style_flags(style), SDL_WINDOW_ALWAYS_ON_TOP);
 }
 
 TEST(WindowStyleFlags, TransparentSetsTransparentBit) {
-    const engine::WindowStyle style{.transparent = true};
+    const engine::WindowStyle style{.transparent = true, .resizable = false};
     EXPECT_EQ(engine::window_style_flags(style), SDL_WINDOW_TRANSPARENT);
 }
 
 TEST(WindowStyleFlags, FlagsCombine) {
     const engine::WindowStyle style{.borderless = true, .always_on_top = true, .transparent = true};
     const SDL_WindowFlags expected =
-            SDL_WINDOW_BORDERLESS | SDL_WINDOW_ALWAYS_ON_TOP | SDL_WINDOW_TRANSPARENT;
+            SDL_WINDOW_RESIZABLE | SDL_WINDOW_BORDERLESS | SDL_WINDOW_ALWAYS_ON_TOP | SDL_WINDOW_TRANSPARENT;
     EXPECT_EQ(engine::window_style_flags(style), expected);
+}
+
+TEST(WindowStyleFlags, NotResizableCombinesWithOtherFlags) {
+    const engine::WindowStyle style{.borderless = true, .resizable = false};
+    EXPECT_EQ(engine::window_style_flags(style), SDL_WINDOW_BORDERLESS);
 }
 
 TEST(WindowSystem, IsTransparentDefaultsToFalse) {
@@ -93,6 +104,37 @@ TEST(WindowControlImpl, DelegatesWithoutCrashingWithoutWindow) {
     EXPECT_FALSE(control_ref.open_window(engine::WindowDesc{}).has_value());
     control_ref.close_window(engine::WindowId{7});
     control_ref.close_window(engine::kPrimaryWindow);
+}
+
+TEST(WindowControlImpl, WindowIdAddressedMethodsDefaultToPrimary) {
+    // Every setter's default argument must resolve to kPrimaryWindow so every pre-existing
+    // single-window call site (going through IWindowControl&, where the default lives) keeps
+    // behaving identically after §21.7's WindowId generalization (SDD §21.3).
+    engine::render::OpenGLRenderBackend backend;
+    engine::WindowManager windows{backend};
+    engine::WindowControlImpl control{windows};
+    engine::IWindowControl& control_ref = control;
+    control_ref.set_borderless(true);
+    control_ref.set_always_on_top(true);
+    control_ref.set_position({0, 0});
+    control_ref.resize({100, 100});
+    control_ref.set_drag_region(engine::render::Rect{0, 0, 10, 10});
+}
+
+TEST(WindowControlImpl, WindowIdAddressedMethodsAreNoopForUnknownWindow) {
+    // A WindowId with no live window (never opened, or already closed) must not crash — same
+    // no-crash contract set_borderless/etc. already had for a not-yet-created primary window.
+    engine::render::OpenGLRenderBackend backend;
+    engine::WindowManager windows{backend};
+    engine::WindowControlImpl control{windows};
+    engine::IWindowControl& control_ref = control;
+    const engine::WindowId secondary{7};
+    control_ref.set_borderless(true, secondary);
+    control_ref.set_always_on_top(true, secondary);
+    control_ref.set_position({0, 0}, secondary);
+    control_ref.resize({100, 100}, secondary);
+    control_ref.set_drag_region(engine::render::Rect{0, 0, 10, 10}, secondary);
+    control_ref.set_drag_region(std::nullopt, secondary);
 }
 
 TEST(ShouldBeClickThrough, TrueOnlyWhenEnabledTransparentAndNoHit) {
@@ -142,6 +184,20 @@ TEST(WindowSystem, SetDragRegionIsNoopWithoutWindow) {
 // one this build also compiles in — actually calling create_primary_window() in this environment
 // was observed to open a real, visible OS window (SDL_GL_CreateContext and all, ~250ms instead of
 // the <1ms every other test here takes), which is exactly what §12.3 rules out.
+
+TEST(WindowControlImpl, UsableDisplayBoundsIsNoopWithoutVideo) {
+    // No SDL_Init(SDL_INIT_VIDEO) here (SDD §12.3): must not crash. The real, non-zero-bounds path
+    // needs a live display and is out of engine_tests scope, same boundary as every other real-SDL
+    // query in this file.
+    engine::render::OpenGLRenderBackend backend;
+    engine::WindowManager windows{backend};
+    engine::WindowControlImpl control{windows};
+    engine::IWindowControl& control_ref = control;
+    (void) control_ref.usable_display_bounds();
+    (void) control_ref.usable_display_bounds(0);
+    (void) control_ref.usable_display_bounds(-1);
+    (void) control_ref.usable_display_bounds(99);
+}
 
 TEST(WindowManager, CreateSecondaryWindowFailsWithoutPrimary) {
     engine::render::OpenGLRenderBackend backend;
