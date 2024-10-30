@@ -90,7 +90,8 @@ TEST(WindowSystem, RuntimeSettersAreNoopWithoutWindow) {
 TEST(WindowControlImpl, DelegatesWithoutCrashingWithoutWindow) {
     engine::render::OpenGLRenderBackend backend;
     engine::WindowManager windows{backend};
-    engine::WindowControlImpl control{windows};
+    engine::DesktopOverlayPolicy overlay;
+    engine::WindowControlImpl control{windows, overlay};
     engine::IWindowControl& control_ref = control;
     control_ref.set_borderless(true);
     control_ref.set_always_on_top(true);
@@ -114,7 +115,8 @@ TEST(WindowControlImpl, WindowIdAddressedMethodsDefaultToPrimary) {
     // behaving identically after §21.7's WindowId generalization (SDD §21.3).
     engine::render::OpenGLRenderBackend backend;
     engine::WindowManager windows{backend};
-    engine::WindowControlImpl control{windows};
+    engine::DesktopOverlayPolicy overlay;
+    engine::WindowControlImpl control{windows, overlay};
     engine::IWindowControl& control_ref = control;
     control_ref.set_borderless(true);
     control_ref.set_always_on_top(true);
@@ -129,7 +131,8 @@ TEST(WindowControlImpl, WindowIdAddressedMethodsAreNoopForUnknownWindow) {
     // no-crash contract set_borderless/etc. already had for a not-yet-created primary window.
     engine::render::OpenGLRenderBackend backend;
     engine::WindowManager windows{backend};
-    engine::WindowControlImpl control{windows};
+    engine::DesktopOverlayPolicy overlay;
+    engine::WindowControlImpl control{windows, overlay};
     engine::IWindowControl& control_ref = control;
     const engine::WindowId secondary{7};
     control_ref.set_borderless(true, secondary);
@@ -264,12 +267,34 @@ TEST(WindowControlImpl, UsableDisplayBoundsIsNoopWithoutVideo) {
     // query in this file.
     engine::render::OpenGLRenderBackend backend;
     engine::WindowManager windows{backend};
-    engine::WindowControlImpl control{windows};
+    engine::DesktopOverlayPolicy overlay;
+    engine::WindowControlImpl control{windows, overlay};
     engine::IWindowControl& control_ref = control;
     (void) control_ref.usable_display_bounds();
     (void) control_ref.usable_display_bounds(0);
     (void) control_ref.usable_display_bounds(-1);
     (void) control_ref.usable_display_bounds(99);
+}
+
+TEST(WindowControlImpl, OverlayModeDefaultsToAutoAndForwardsToPolicy) {
+    // A game that wants an alpha-blended window without the desktop-overlay hooks (cursor
+    // polling, WS_EX_TRANSPARENT sync, modal-loop tick hook) has no way to say so before this
+    // setter existed — AlwaysDisabled was reachable only from DesktopOverlayPolicy directly, never
+    // through the public IWindowControl surface a game actually gets via DI.
+    engine::render::OpenGLRenderBackend backend;
+    engine::WindowManager windows{backend};
+    engine::DesktopOverlayPolicy overlay;
+    engine::WindowControlImpl control{windows, overlay};
+    engine::IWindowControl& control_ref = control;
+
+    EXPECT_EQ(control_ref.overlay_mode(), engine::OverlayMode::Auto);
+
+    control_ref.set_overlay_mode(engine::OverlayMode::AlwaysDisabled);
+    EXPECT_EQ(control_ref.overlay_mode(), engine::OverlayMode::AlwaysDisabled);
+    EXPECT_EQ(overlay.mode(), engine::OverlayMode::AlwaysDisabled);
+
+    control_ref.set_overlay_mode(engine::OverlayMode::AlwaysEnabled);
+    EXPECT_EQ(overlay.mode(), engine::OverlayMode::AlwaysEnabled);
 }
 
 TEST(WindowManager, CreateSecondaryWindowFailsWithoutPrimary) {

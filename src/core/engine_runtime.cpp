@@ -141,7 +141,8 @@ struct EngineRuntime::Impl {
     // commands_ptr()/canvas_ptr() further down — have something valid to bind to even though no
     // real window exists yet at this point in Engine<GameT>::init()'s DI graph construction.
     WindowManager windows{*backend};
-    std::shared_ptr<WindowControlImpl> window_control = std::make_shared<WindowControlImpl>(windows);
+    DesktopOverlayPolicy overlay_policy;
+    std::shared_ptr<WindowControlImpl> window_control = std::make_shared<WindowControlImpl>(windows, overlay_policy);
     // Cache of every font handed to load_ui_font/add_font, replayed into each secondary window's
     // own NanoVgPainter once its canvas is live (SDD §21.5/§21.6 — a secondary window has its own
     // independent painter/font atlas and nothing else ever loads a font into it). Mirrors the
@@ -160,7 +161,6 @@ struct EngineRuntime::Impl {
     std::chrono::steady_clock::time_point loop_last{};
     std::function<void()> host_dispose;
     LoopShutdown loop_shutdown;
-    DesktopOverlayPolicy overlay_policy;
 };
 
 EngineRuntime::EngineRuntime() : impl_(std::make_unique<Impl>()) {}
