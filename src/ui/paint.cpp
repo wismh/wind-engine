@@ -1,4 +1,5 @@
 #include "painter.h"
+#include "css_length.h"
 
 #include <engine/builtin_ids.h>
 #include <engine/ui/canvas.h>
@@ -43,6 +44,8 @@ struct ComputedStyle {
     glm::vec4 border_color{0.0f, 0.0f, 0.0f, 0.0f};
     Length font_size{kDefaultFontSize, LengthUnit::Px};
     AssetId font_family = builtin::font_ui;
+    std::string animation_name;
+    float animation_duration = 0.0f;
 };
 
 std::string_view trim(std::string_view value) {
@@ -147,93 +150,22 @@ UiAlign parse_text_align(std::string_view raw) {
     return UiAlign::Start;
 }
 
-std::optional<Length> parse_length_token(std::string_view raw, std::size_t& consumed) {
-    std::size_t i = 0;
-    while (i < raw.size() && std::isspace(static_cast<unsigned char>(raw[i])) != 0) {
-        ++i;
-    }
-    if (i >= raw.size()) {
+std::optional<float> parse_seconds(std::string_view raw) {
+    const std::string_view value = trim(raw);
+    if (value.empty()) {
         return std::nullopt;
     }
-    const std::string tmp(raw.substr(i));
+    const std::string tmp(value);
     char* end = nullptr;
     const float n = std::strtof(tmp.c_str(), &end);
     if (end == tmp.c_str()) {
         return std::nullopt;
     }
-    const std::size_t number_len = static_cast<std::size_t>(end - tmp.c_str());
-    std::size_t suffix_end = number_len;
-    while (suffix_end < tmp.size() && std::isspace(static_cast<unsigned char>(tmp[suffix_end])) == 0) {
-        ++suffix_end;
+    const std::string_view suffix = trim(std::string_view(end));
+    if (suffix.empty() || suffix == "s") {
+        return n;
     }
-    const std::string_view suffix = trim(std::string_view(tmp.data() + number_len, suffix_end - number_len));
-    Length length;
-    length.value = n;
-    if (suffix.empty() || suffix == "px") {
-        length.unit = LengthUnit::Px;
-    } else if (suffix == "%") {
-        length.unit = LengthUnit::Percent;
-    } else if (suffix == "em") {
-        length.unit = LengthUnit::Em;
-    } else {
-        return std::nullopt;
-    }
-    consumed = i + suffix_end;
-    return length;
-}
-
-std::optional<Length> parse_length(std::string_view raw) {
-    const std::string_view value = trim(raw);
-    if (value.empty()) {
-        return std::nullopt;
-    }
-    std::size_t consumed = 0;
-    const auto length = parse_length_token(value, consumed);
-    if (!length || !trim(value.substr(consumed)).empty()) {
-        return std::nullopt;
-    }
-    return length;
-}
-
-std::optional<LengthInsets> parse_insets(std::string_view raw) {
-    const std::string_view value = trim(raw);
-    if (value.empty()) {
-        return std::nullopt;
-    }
-    Length parts[4] = {};
-    int count = 0;
-    std::size_t i = 0;
-    while (i < value.size() && count < 4) {
-        std::size_t consumed = 0;
-        const auto length = parse_length_token(value.substr(i), consumed);
-        if (!length) {
-            return std::nullopt;
-        }
-        parts[count++] = *length;
-        i += consumed;
-    }
-    if (i < value.size() && !trim(value.substr(i)).empty()) {
-        return std::nullopt;
-    }
-    LengthInsets padding;
-    if (count == 1) {
-        padding.top = padding.right = padding.bottom = padding.left = parts[0];
-    } else if (count == 2) {
-        padding.top = padding.bottom = parts[0];
-        padding.right = padding.left = parts[1];
-    } else if (count == 3) {
-        padding.top = parts[0];
-        padding.right = padding.left = parts[1];
-        padding.bottom = parts[2];
-    } else if (count == 4) {
-        padding.top = parts[0];
-        padding.right = parts[1];
-        padding.bottom = parts[2];
-        padding.left = parts[3];
-    } else {
-        return std::nullopt;
-    }
-    return padding;
+    return std::nullopt;
 }
 
 bool compound_matches(const CssSelector& selector, const Element& element) {
@@ -363,7 +295,7 @@ void apply_declaration(ComputedStyle& style, const CssDeclaration& decl) {
     } else if (decl.property == "visibility") {
         style.visible = trim(decl.value) != "hidden";
     } else if (decl.property == "gap") {
-        if (const auto gap = parse_length(decl.value)) {
+        if (const auto gap = css_length::parse_length(decl.value)) {
             style.gap = *gap;
             style.has_gap = true;
         }
@@ -376,21 +308,21 @@ void apply_declaration(ComputedStyle& style, const CssDeclaration& decl) {
             style.direction = StackDirection::Vertical;
         }
     } else if (decl.property == "padding") {
-        if (const auto padding = parse_insets(decl.value)) {
+        if (const auto padding = css_length::parse_insets(decl.value)) {
             style.padding = *padding;
         }
     } else if (decl.property == "margin") {
-        if (const auto margin = parse_insets(decl.value)) {
+        if (const auto margin = css_length::parse_insets(decl.value)) {
             style.margin = *margin;
         }
     } else if (decl.property == "width") {
-        style.width = parse_length(decl.value);
+        style.width = css_length::parse_length(decl.value);
     } else if (decl.property == "height") {
-        style.height = parse_length(decl.value);
+        style.height = css_length::parse_length(decl.value);
     } else if (decl.property == "min-width") {
-        style.min_width = parse_length(decl.value);
+        style.min_width = css_length::parse_length(decl.value);
     } else if (decl.property == "min-height") {
-        style.min_height = parse_length(decl.value);
+        style.min_height = css_length::parse_length(decl.value);
     } else if (decl.property == "justify-content") {
         style.justify = parse_align(decl.value);
     } else if (decl.property == "align-items") {
@@ -398,11 +330,11 @@ void apply_declaration(ComputedStyle& style, const CssDeclaration& decl) {
     } else if (decl.property == "text-align") {
         style.text_align = parse_text_align(decl.value);
     } else if (decl.property == "border-radius") {
-        if (const auto radius = parse_length(decl.value)) {
+        if (const auto radius = css_length::parse_length(decl.value)) {
             style.border_radius = *radius;
         }
     } else if (decl.property == "border-width") {
-        if (const auto width = parse_length(decl.value)) {
+        if (const auto width = css_length::parse_length(decl.value)) {
             style.border_width = *width;
         }
     } else if (decl.property == "border-color") {
@@ -410,7 +342,7 @@ void apply_declaration(ComputedStyle& style, const CssDeclaration& decl) {
             style.border_color = *color;
         }
     } else if (decl.property == "font-size") {
-        if (const auto size = parse_length(decl.value)) {
+        if (const auto size = css_length::parse_length(decl.value)) {
             style.font_size = *size;
         }
     } else if (decl.property == "font-family") {
@@ -420,11 +352,93 @@ void apply_declaration(ComputedStyle& style, const CssDeclaration& decl) {
         } else if (const auto id = AssetId::parse(value)) {
             style.font_family = *id;
         }
+    } else if (decl.property == "animation-name") {
+        style.animation_name = std::string(trim(decl.value));
+    } else if (decl.property == "animation-duration") {
+        if (const auto duration = parse_seconds(decl.value)) {
+            style.animation_duration = *duration;
+        }
     }
 }
 
-ComputedStyle compute_style(
-        const Element& element, const Stylesheet* sheet, bool allow_pseudo, const std::vector<const Element*>& ancestors) {
+bool media_matches(const std::optional<MediaQuery>& media, float window_width, float window_height) {
+    if (!media) {
+        return true;
+    }
+    if (media->feature == MediaFeature::MinWidth) {
+        return window_width >= media->px;
+    }
+    return window_height >= media->px;
+}
+
+const Keyframes* find_keyframes(const Stylesheet& sheet, std::string_view name) {
+    for (const Keyframes& keyframes : sheet.keyframes) {
+        if (keyframes.name == name) {
+            return &keyframes;
+        }
+    }
+    return nullptr;
+}
+
+std::optional<float> sample_opacity(const Keyframes& keyframes, float t) {
+    struct Stop {
+        float offset = 0.0f;
+        float opacity = 1.0f;
+    };
+    std::vector<Stop> stops;
+    for (const KeyframeStop& stop : keyframes.stops) {
+        for (const CssDeclaration& decl : stop.declarations) {
+            if (decl.property == "opacity") {
+                stops.push_back(Stop{stop.offset, std::strtof(decl.value.c_str(), nullptr)});
+                break;
+            }
+        }
+    }
+    if (stops.empty()) {
+        return std::nullopt;
+    }
+    std::sort(stops.begin(), stops.end(), [](const Stop& a, const Stop& b) { return a.offset < b.offset; });
+    t = std::clamp(t, 0.0f, 1.0f);
+    if (t <= stops.front().offset) {
+        return stops.front().opacity;
+    }
+    if (t >= stops.back().offset) {
+        return stops.back().opacity;
+    }
+    for (std::size_t i = 0; i + 1 < stops.size(); ++i) {
+        if (t > stops[i + 1].offset) {
+            continue;
+        }
+        const float span = stops[i + 1].offset - stops[i].offset;
+        const float u = span > 0.0f ? (t - stops[i].offset) / span : 0.0f;
+        return stops[i].opacity + (stops[i + 1].opacity - stops[i].opacity) * u;
+    }
+    return stops.back().opacity;
+}
+
+void apply_animation_opacity(Element& element, ComputedStyle& style, const Stylesheet* sheet, float delta_time) {
+    if (sheet == nullptr || style.animation_name.empty()) {
+        return;
+    }
+    const Keyframes* keyframes = find_keyframes(*sheet, style.animation_name);
+    if (keyframes == nullptr) {
+        return;
+    }
+    element.animation_elapsed += delta_time;
+    float t = 0.0f;
+    if (style.animation_duration > 0.0f) {
+        if (element.animation_elapsed > style.animation_duration) {
+            element.animation_elapsed = style.animation_duration;
+        }
+        t = element.animation_elapsed / style.animation_duration;
+    }
+    if (const auto opacity = sample_opacity(*keyframes, t)) {
+        style.opacity = *opacity;
+    }
+}
+
+ComputedStyle compute_style(const Element& element, const Stylesheet* sheet, bool allow_pseudo,
+        const std::vector<const Element*>& ancestors, float window_width, float window_height) {
     ComputedStyle style;
     if (sheet == nullptr) {
         return style;
@@ -438,6 +452,9 @@ ComputedStyle compute_style(
     std::vector<Ranked> matched;
     for (std::size_t i = 0; i < sheet->rules.size(); ++i) {
         const CssRule& rule = sheet->rules[i];
+        if (!media_matches(rule.media, window_width, window_height)) {
+            continue;
+        }
         if (!selector_matches(rule, element, ancestors, allow_pseudo)) {
             continue;
         }
@@ -466,11 +483,12 @@ BoxInsets resolve_insets(const LengthInsets& insets, glm::vec2 parent_content, f
     };
 }
 
-void apply_layout_style(Element& element, const Stylesheet* sheet, std::vector<const Element*>& ancestors) {
+void apply_layout_style(Element& element, const Stylesheet* sheet, std::vector<const Element*>& ancestors,
+        float window_width, float window_height) {
     if (element.kind == ElementKind::ItemTemplate) {
         return;
     }
-    const ComputedStyle style = compute_style(element, sheet, false, ancestors);
+    const ComputedStyle style = compute_style(element, sheet, false, ancestors, window_width, window_height);
     if (style.has_gap) {
         element.gap = style.gap;
     }
@@ -490,19 +508,19 @@ void apply_layout_style(Element& element, const Stylesheet* sheet, std::vector<c
     element.font_family = style.font_family;
     ancestors.push_back(&element);
     for (Element& child : element.children) {
-        apply_layout_style(child, sheet, ancestors);
+        apply_layout_style(child, sheet, ancestors, window_width, window_height);
     }
     for (Element& child : element.generated_items) {
-        apply_layout_style(child, sheet, ancestors);
+        apply_layout_style(child, sheet, ancestors, window_width, window_height);
     }
     ancestors.pop_back();
 }
 
 }
 
-void apply_layout_style(Element& root, const Stylesheet* sheet) {
+void apply_layout_style(Element& root, const Stylesheet* sheet, float window_width, float window_height) {
     std::vector<const Element*> ancestors;
-    apply_layout_style(root, sheet, ancestors);
+    apply_layout_style(root, sheet, ancestors, window_width, window_height);
 }
 
 namespace {
@@ -525,15 +543,17 @@ void apply_interaction(Element& element, glm::vec2 pointer, bool pointer_down) {
 }
 
 void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painter,
-        std::vector<const Element*>& ancestors, glm::vec2 parent_content) {
+        std::vector<const Element*>& ancestors, glm::vec2 parent_content, const UiPaintInput& input) {
     if (element.kind == ElementKind::ItemTemplate) {
         return;
     }
 
-    const ComputedStyle style = compute_style(element, sheet, true, ancestors);
+    ComputedStyle style =
+            compute_style(element, sheet, true, ancestors, input.window_width, input.window_height);
     if (!style.visible) {
         return;
     }
+    apply_animation_opacity(element, style, sheet, input.delta_time);
 
     const float font_size = resolve_font_size(style.font_size, parent_content.x);
     const BoxInsets padding = resolve_insets(style.padding, parent_content, font_size);
@@ -591,11 +611,11 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
     ancestors.push_back(&element);
     if (element.kind == ElementKind::ItemsControl) {
         for (Element& child : element.generated_items) {
-            paint_element(child, sheet, painter, ancestors, child_content);
+            paint_element(child, sheet, painter, ancestors, child_content, input);
         }
     } else {
         for (Element& child : element.children) {
-            paint_element(child, sheet, painter, ancestors, child_content);
+            paint_element(child, sheet, painter, ancestors, child_content, input);
         }
     }
     ancestors.pop_back();
@@ -606,14 +626,15 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
 }
 
 void paint_document(UiDocument& document, const Stylesheet* stylesheet, IUiPainter& painter, const UiPaintInput& input) {
-    apply_layout_style(document.root, stylesheet);
+    apply_layout_style(document.root, stylesheet, input.window_width, input.window_height);
     layout(document, input.canvas_rect, &painter);
     apply_interaction(document.root, input.pointer, input.pointer_down);
 
     painter.save();
     painter.scissor(input.canvas_rect);
     std::vector<const Element*> ancestors;
-    paint_element(document.root, stylesheet, painter, ancestors, glm::vec2{input.canvas_rect.w, input.canvas_rect.h});
+    paint_element(document.root, stylesheet, painter, ancestors, glm::vec2{input.canvas_rect.w, input.canvas_rect.h},
+            input);
     painter.restore();
 }
 
