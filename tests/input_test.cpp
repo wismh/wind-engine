@@ -315,15 +315,15 @@ TEST(Input, KeyAndLeftMouseShareHeldCount) {
 TEST(Input, InputEventNotFilteredByMouseConsumed) {
     // InputSystem polls before UiInputSystem. It must not drop InputEvent when
     // MouseConsumed is already true. Phase::Game gameplay checks
-    // world.ctx<ui::MouseConsumed>().value before treating Fire as a world action.
+    // world.ctx<ui::MouseConsumed>().consumed_for(kPrimaryWindow) before treating Fire as a world action.
     engine::ecs::World world;
-    world.ctx<engine::ui::MouseConsumed>().value = true;
+    world.ctx<engine::ui::MouseConsumed>().consumed_windows.insert(engine::kPrimaryWindow);
     engine::InputSystem input{world};
     const engine::ActionId fire = input.intern("fire");
     input.bind(engine::MouseButton::Left, fire);
     input.handle_mouse_button(engine::kPrimaryWindow, engine::MouseButton::Left, true, {0.f, 0.f});
 
-    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().value);
+    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
     ASSERT_EQ(read_mouse(world).size(), 1u);
     const std::vector<engine::InputEvent> events = read_input(world);
     ASSERT_EQ(events.size(), 1u);

@@ -45,14 +45,12 @@ struct UiCanvasSpace {
 
 [[nodiscard]] UiCanvasSpace canvas_layout_space(const render::Rect& rect, UiFit fit, glm::vec2 reference_size);
 
+// One WindowId-keyed set, kPrimaryWindow included like any other window (wind-107) — there is no
+// separate "primary" flag; consumed_for(kPrimaryWindow) is just a lookup like any other id.
 struct MouseConsumed {
-    bool value = false;
     std::unordered_set<WindowId> consumed_windows;
 
     [[nodiscard]] bool consumed_for(WindowId window = kPrimaryWindow) const noexcept {
-        if (window == kPrimaryWindow) {
-            return value;
-        }
         return consumed_windows.contains(window);
     }
 };
@@ -62,17 +60,13 @@ struct WindowSize {
     int height = 0;
 };
 
-// Only ever holds entries for windows OTHER than kPrimaryWindow — the primary's size stays
-// authoritative in the existing ctx<WindowSize>() singleton, unchanged, so every pre-existing
-// single-window call site (including every ctx<WindowSize>() write across tests/) keeps working
-// with zero modification. A canvas/window not present here has never been sized (not yet resized
-// since creation) and resolves to {0, 0} via window_size_for() below.
+// Every live window's last-known drawable size, keyed by WindowId — kPrimaryWindow included like
+// any other window (wind-107). A WindowId with no entry yet (never resized/backfilled since the
+// window was created) resolves to {0, 0} via window_size_for() below.
 struct WindowSizes {
     std::unordered_map<WindowId, WindowSize> sizes;
 };
 
-// Centralizes the "primary reads ctx<WindowSize>(), everything else reads ctx<WindowSizes>()"
-// branch so callers (apply_canvas_fit, run_ui_render) don't duplicate it.
 [[nodiscard]] WindowSize window_size_for(ecs::World& world, WindowId id);
 
 struct WindowResizeEvent {
