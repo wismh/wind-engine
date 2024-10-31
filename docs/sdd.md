@@ -1677,6 +1677,7 @@ struct WindowStyle {
     bool borderless = false;
     bool always_on_top = false;
     bool transparent = false;     // needs SDL_WINDOW_TRANSPARENT at creation; can't be added later
+    bool resizable = true;        // false omits SDL_WINDOW_RESIZABLE at creation
 };
 
 struct WindowDesc {
@@ -1689,6 +1690,24 @@ struct WindowDesc {
 enum class WindowId : std::uint32_t {};
 inline constexpr WindowId kPrimaryWindow{0};
 ```
+
+**`resizable = false` also removes `WS_MAXIMIZEBOX` on Windows, for free.** A downstream game
+(`td-over`) reported a double-click inside a `set_drag_region()` region (§21.7) maximizing its
+fixed-size overlay window. Root cause: `WindowSystem::create()` used to pass `SDL_WINDOW_RESIZABLE`
+unconditionally, and SDL's Windows backend (`GetWindowStyle()`,
+`external/SDL3/src/video/windows/SDL_windowswindow.c`) only adds `WS_MAXIMIZEBOX` when that flag is
+set (`if (window->flags & SDL_WINDOW_RESIZABLE) { style |= STYLE_RESIZABLE; }` —
+`STYLE_RESIZABLE` includes `WS_MAXIMIZEBOX`). A drag region reports `HTCAPTION` to
+`SDL_SetWindowHitTest` so the window can be moved without an OS titlebar, and Windows treats a
+double-click on `HTCAPTION` as `SC_MAXIMIZE` whenever `WS_MAXIMIZEBOX` is present — with no
+titlebar buttons to represent it, this looked like the window randomly maximizing on double-click.
+No custom `SetWindowSubclass`/`WM_NCLBUTTONDBLCLK` interception was needed: `window_style_flags()`
+(`src/render/opengl/window_system.cpp`, next to `should_be_click_through` for the same
+SDL-init-free unit-testability) now ORs in `SDL_WINDOW_RESIZABLE` only when `style.resizable` is
+set, and SDL's own `GetWindowStyle()` handles the rest — a fixed-size overlay just sets
+`resizable = false` and gets both "can't be resized" and "double-click can't maximize it" from one
+flag, matching how `SDL_video.c`'s own `SDL_MaximizeWindow()` already refuses to maximize a
+non-resizable window (`"A window without the 'SDL_WINDOW_RESIZABLE' flag can't be maximized"`).
 
 `transparent` is create-time only (SDL requires `SDL_WINDOW_TRANSPARENT` in the creation flags;
 there is no "make an existing window transparent" call) — a game that wants to switch from an
@@ -1780,10 +1799,13 @@ DI-constructor injection (§4.2), not a locator:
 class IWindowControl {
 public:
     virtual ~IWindowControl() = default;
-    virtual void set_borderless(bool borderless) = 0;
-    virtual void set_always_on_top(bool always_on_top) = 0;
-    virtual void set_position(glm::ivec2 position) = 0;
-    virtual void resize(glm::ivec2 size) = 0;      // WindowStyle::transparent has no setter — create-time only (§21.2)
+    // window (default kPrimaryWindow) generalizes each of these to a secondary window (§21.7) —
+    // see the "WindowId-addressed style methods" note below.
+    virtual void set_borderless(bool borderless, WindowId window = kPrimaryWindow) = 0;
+    virtual void set_always_on_top(bool always_on_top, WindowId window = kPrimaryWindow) = 0;
+    virtual void set_position(glm::ivec2 position, WindowId window = kPrimaryWindow) = 0;
+    virtual void resize(glm::ivec2 size, WindowId window = kPrimaryWindow) = 0;      // WindowStyle::transparent has no setter — create-time only (§21.2)
+    [[nodiscard]] virtual render::Rect usable_display_bounds(int display_index = 0) const = 0;
 };
 ```
 
@@ -1799,12 +1821,34 @@ call to the one `WindowSystem` `EngineRuntime` owns (`SDL_SetWindowBordered`, `S
 
 Multi-window (§21.5/§21.7) generalizes part of this to `WindowId`-addressed calls:
 `IWindowControl::open_window(const WindowDesc&) -> std::optional<WindowId>` and
-`close_window(WindowId)`, thin forwards to `WindowManager::create_window`/`destroy_window`, are the
-first (and so far only) `WindowId`-addressed methods on the interface — a game finally has a
-DI-reachable way to invoke §21.5's multi-window infrastructure at all. Everything else on
-`IWindowControl` (`set_borderless`, `set_always_on_top`, `set_position`, `resize`,
-`set_click_through_enabled`, `set_drag_region`) still implicitly means `kPrimaryWindow` only —
-generalizing those is deferred, consistent with this feature area's incremental scoping.
+`close_window(WindowId)`, thin forwards to `WindowManager::create_window`/`destroy_window`, were
+the first `WindowId`-addressed methods on the interface — a game finally had a DI-reachable way to
+invoke §21.5's multi-window infrastructure at all, but every *style* method still only ever touched
+`kPrimaryWindow`, unreachable for a secondary window (e.g. a settings window opened via
+`open_window` had no way to toggle its own `always_on_top` or move itself afterward).
+
+**`WindowId`-addressed style methods.** `set_borderless`/`set_always_on_top`/`set_position`/`resize`/
+`set_drag_region` (§21.7) now take a trailing `WindowId window = kPrimaryWindow` — a default
+argument, not an overload, so it resolves at the call site's static type; every pre-existing
+single-window call (going through `IWindowControl&`, where the default lives) keeps compiling and
+behaving unchanged. `WindowControlImpl` (`src/render/opengl/window_control.h`) forwards each to
+`windows_->window(window)` (the liveness-gated `WindowManager` accessor, §21.5 — `nullptr`/no-op for
+a `WindowId` with no live SDL window, same contract every one of these already had for a
+not-yet-created primary window) instead of the old `windows_->primary_window()` reference.
+`set_click_through_enabled` deliberately did **not** get this treatment: click-through stays a
+`kPrimaryWindow`-only concept (§21.4) because `EngineRuntime::tick_loop()` only ever drives
+`update_click_through()` for the primary window — generalizing the setter without generalizing the
+per-frame driver would just add a parameter nothing reads.
+
+**`usable_display_bounds`.** A game placing a fixed-size overlay flush against a screen edge (e.g.
+bottom-right, above the taskbar) needs the display's usable area — full bounds minus OS chrome —
+without reaching for a platform-specific query itself (a downstream game was calling Win32
+`SystemParametersInfoW(SPI_GETWORKAREA, ...)` directly, which doesn't compile on Linux/macOS without
+its own `#ifdef`). `IWindowControl::usable_display_bounds(int display_index = 0) const` wraps
+`SDL_GetDisplayUsableBounds`, resolving `display_index` against `SDL_GetDisplays()` (falling back to
+`SDL_GetPrimaryDisplay()` when out of range or when the display list itself is empty — no video
+subsystem, e.g. in `engine_tests`, §12.3) and returning a zeroed `render::Rect` on failure rather
+than throwing or asserting.
 
 Because `open_window`/`close_window` need the whole `WindowManager`, not just the primary
 `WindowSystem`, `WindowControlImpl`'s constructor changed from `WindowControlImpl(WindowSystem&)`
@@ -1875,8 +1919,10 @@ right after `game.on_update()` returns, once `Phase::Input` has run for the fram
 `IWindowControl::set_click_through_enabled(bool)` (`include/engine/core/window_control.h`,
 forwarded by `WindowControlImpl` to `WindowSystem::set_click_through_enabled`) is the manual on/off
 a settings menu binds to; the automatic per-frame toggle only runs while it's enabled and the
-window is transparent. Once `WindowId`-addressed multi-window control lands (§21.5, not yet
-built), this generalizes to a per-window call the same way the rest of `IWindowControl` will.
+window is transparent. Unlike the rest of `IWindowControl` (§21.3), this one stays
+`kPrimaryWindow`-only by design, not by omission — `EngineRuntime::tick_loop()` only ever drives
+`update_click_through()` for the primary window, so a `WindowId` parameter here would have nothing
+to read it.
 
 ### 21.5 Multi-window infrastructure
 
@@ -2208,9 +2254,9 @@ back to the owning `WindowSystem*` and returns `SDL_HITTEST_DRAGGABLE` if `drag_
 contains `area->x`/`area->y` (window-client pixels — the same coordinate space `render::Rect`
 already uses for `UiCanvas.rect`, e.g. a title-bar canvas's rect), else `SDL_HITTEST_NORMAL`.
 `drag_region_` is reset in `destroy()` alongside `transparent_`/`click_through_applied_`.
-`IWindowControl::set_drag_region(std::optional<render::Rect>)` (primary-window-only, same scope as
-the interface's other style methods — not generalized to `WindowId`, per §21.3) forwards to
-`windows_->primary_window().set_drag_region(region)`.
+`IWindowControl::set_drag_region(std::optional<render::Rect>, WindowId window = kPrimaryWindow)`
+(§21.3 — `WindowId`-addressed like the interface's other style methods) forwards to
+`windows_->window(window)->set_drag_region(region)`, a no-op if `window` has no live SDL window.
 
 **Primary window's own `WindowSize` had no equivalent backfill.** The paragraph above fixes a
 *secondary* window's missing `WindowSizes` entry; the primary window had the same class of bug for
@@ -2254,4 +2300,9 @@ logic and gets a `tests/windowing_test.cpp` case:
 - `update_pointer_hover` (§21.4) sets `MouseConsumed` on a hit exactly like `handle_pointer` does,
   without executing the hit element's command — covered alongside `handle_pointer`'s existing cases
   in `tests/mvvm_test.cpp`.
+- `resizable = false` clears `SDL_WINDOW_RESIZABLE` in `window_style_flags()` (alone and combined
+  with the other style bits); every `WindowId`-addressed `IWindowControl` method (§21.3) and
+  `usable_display_bounds` are a no-op, not a crash, for a `WindowId` with no live window —
+  `WindowManager`'s liveness gate makes "unknown id" and "not-yet-created primary" the same code
+  path, so one test shape (`tests/window_style_test.cpp`) covers both.
 
