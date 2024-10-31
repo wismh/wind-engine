@@ -1,5 +1,7 @@
 #pragma once
 
+#include <engine/core/window_control.h>
+
 #include <functional>
 
 namespace engine {
@@ -10,12 +12,6 @@ class InputSystem;
 namespace ui {
 struct MouseConsumed;
 }
-
-enum class OverlayMode {
-    Auto,
-    AlwaysEnabled,
-    AlwaysDisabled
-};
 
 // Encapsulates desktop overlay specific behavior (cursor polling for click-through windows,
 // per-window WS_EX_TRANSPARENT updates, and Win32 modal loop message hook synchronization)
