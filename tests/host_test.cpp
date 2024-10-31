@@ -65,7 +65,7 @@ public:
     }
 
     void on_start() override {
-        seen = world().ctx<engine::ui::WindowSize>();
+        seen = engine::ui::window_size_for(world(), engine::kPrimaryWindow);
     }
 };
 
@@ -207,8 +207,9 @@ TEST(Host, WindowSizeWrittenBeforeOnStart) {
 
     EXPECT_EQ(game.seen.width, 800);
     EXPECT_EQ(game.seen.height, 600);
-    EXPECT_EQ(host.world().ctx<engine::ui::WindowSize>().width, game.primary_window().size.x);
-    EXPECT_EQ(host.world().ctx<engine::ui::WindowSize>().height, game.primary_window().size.y);
+    const engine::ui::WindowSize size = engine::ui::window_size_for(host.world(), engine::kPrimaryWindow);
+    EXPECT_EQ(size.width, game.primary_window().size.x);
+    EXPECT_EQ(size.height, game.primary_window().size.y);
 }
 
 TEST(Host, ResizeWritesWindowSize) {
@@ -221,7 +222,7 @@ TEST(Host, ResizeWritesWindowSize) {
 
     host.resize(1024, 768);
 
-    const engine::ui::WindowSize& size = host.world().ctx<engine::ui::WindowSize>();
+    const engine::ui::WindowSize size = engine::ui::window_size_for(host.world(), engine::kPrimaryWindow);
     EXPECT_EQ(size.width, 1024);
     EXPECT_EQ(size.height, 768);
 

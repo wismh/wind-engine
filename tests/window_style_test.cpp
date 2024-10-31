@@ -146,7 +146,7 @@ TEST(MouseConsumed, ConsumedForTracksPerWindow) {
     EXPECT_FALSE(consumed.consumed_for(engine::kPrimaryWindow));
     EXPECT_FALSE(consumed.consumed_for(engine::WindowId{1}));
 
-    consumed.value = true;
+    consumed.consumed_windows.insert(engine::kPrimaryWindow);
     EXPECT_TRUE(consumed.consumed_for(engine::kPrimaryWindow));
     EXPECT_FALSE(consumed.consumed_for(engine::WindowId{1}));
 
