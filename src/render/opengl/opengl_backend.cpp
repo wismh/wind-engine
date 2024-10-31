@@ -73,9 +73,15 @@ struct ExecuteVisitor {
         if (painter == nullptr || cmd.document == nullptr) {
             return;
         }
-        ui::UiDocument document = *cmd.document;
-        ui::paint_document(document, cmd.stylesheet, *painter,
-                ui::UiPaintInput{.canvas_rect = cmd.rect, .pointer = cmd.pointer, .pointer_down = cmd.pointer_down});
+        ui::paint_document(*cmd.document, cmd.stylesheet, *painter,
+                ui::UiPaintInput{
+                        .canvas_rect = cmd.rect,
+                        .pointer = cmd.pointer,
+                        .pointer_down = cmd.pointer_down,
+                        .delta_time = cmd.delta_time,
+                        .window_width = cmd.window_width,
+                        .window_height = cmd.window_height,
+                });
     }
 };
 
