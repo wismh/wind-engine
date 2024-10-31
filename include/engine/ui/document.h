@@ -8,6 +8,7 @@
 #include <engine/ui/stylesheet.h>
 #include <engine/ui/view_model.h>
 
+#include <cstddef>
 #include <expected>
 #include <optional>
 #include <string>
@@ -57,9 +58,31 @@ enum class LengthUnit {
     Em,
 };
 
+enum class CalcOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+};
+
+struct CalcNode {
+    enum class Kind {
+        Literal,
+        Binary,
+    };
+
+    Kind kind = Kind::Literal;
+    float value = 0.0f;
+    LengthUnit unit = LengthUnit::Px;
+    CalcOp op = CalcOp::Add;
+    std::size_t left = 0;
+    std::size_t right = 0;
+};
+
 struct Length {
     float value = 0.0f;
     LengthUnit unit = LengthUnit::Px;
+    std::vector<CalcNode> calc;
 };
 
 struct LengthInsets {
@@ -71,20 +94,51 @@ struct LengthInsets {
 
 constexpr float kDefaultFontSize = 16.0f;
 
-[[nodiscard]] constexpr float resolve_length(Length length, float percent_basis, float em_basis) noexcept {
-    switch (length.unit) {
+[[nodiscard]] inline float resolve_literal(float value, LengthUnit unit, float percent_basis, float em_basis) noexcept {
+    switch (unit) {
         case LengthUnit::Px:
-            return length.value;
+            return value;
         case LengthUnit::Percent:
-            return percent_basis * (length.value / 100.0f);
+            return percent_basis * (value / 100.0f);
         case LengthUnit::Em:
-            return em_basis * length.value;
+            return em_basis * value;
     }
-    return length.value;
+    return value;
 }
 
-[[nodiscard]] constexpr float resolve_font_size(Length font_size, float percent_basis) noexcept {
-    if (font_size.unit == LengthUnit::Em) {
+[[nodiscard]] inline float resolve_calc_node(
+        const std::vector<CalcNode>& nodes, std::size_t index, float percent_basis, float em_basis) noexcept {
+    if (index >= nodes.size()) {
+        return 0.0f;
+    }
+    const CalcNode& node = nodes[index];
+    if (node.kind != CalcNode::Kind::Binary) {
+        return resolve_literal(node.value, node.unit, percent_basis, em_basis);
+    }
+    const float lhs = resolve_calc_node(nodes, node.left, percent_basis, em_basis);
+    const float rhs = resolve_calc_node(nodes, node.right, percent_basis, em_basis);
+    switch (node.op) {
+        case CalcOp::Add:
+            return lhs + rhs;
+        case CalcOp::Sub:
+            return lhs - rhs;
+        case CalcOp::Mul:
+            return lhs * rhs;
+        case CalcOp::Div:
+            return rhs == 0.0f ? 0.0f : lhs / rhs;
+    }
+    return 0.0f;
+}
+
+[[nodiscard]] inline float resolve_length(const Length& length, float percent_basis, float em_basis) noexcept {
+    if (!length.calc.empty()) {
+        return resolve_calc_node(length.calc, length.calc.size() - 1, percent_basis, em_basis);
+    }
+    return resolve_literal(length.value, length.unit, percent_basis, em_basis);
+}
+
+[[nodiscard]] inline float resolve_font_size(const Length& font_size, float percent_basis) noexcept {
+    if (font_size.calc.empty() && font_size.unit == LengthUnit::Em) {
         return font_size.value * kDefaultFontSize;
     }
     return resolve_length(font_size, percent_basis, kDefaultFontSize);
@@ -117,6 +171,7 @@ struct Element {
     UiAlign text_align = UiAlign::Start;
     Length font_size{kDefaultFontSize, LengthUnit::Px};
     AssetId font_family{};
+    float animation_elapsed = 0.0f;
 
     render::Rect layout_rect{};
     ICommand* command = nullptr;
