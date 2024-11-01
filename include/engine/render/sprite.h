@@ -20,6 +20,9 @@ struct Sprite {
     bool flip_y = false;
     glm::vec2 tiling{1.0f, 1.0f};
     glm::vec2 offset{0.0f, 0.0f};
+    glm::vec2 pixel_size{0.0f, 0.0f};
+    float pixels_per_unit = 100.0f;
+    glm::vec2 pivot{0.5f, 0.5f};
 
     // Optional overrides (defaults to builtin::mesh_quad and builtin::material_unlit when null)
     std::shared_ptr<IMesh> mesh;

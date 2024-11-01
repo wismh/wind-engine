@@ -4,6 +4,7 @@
 #include <engine/render/material.h>
 #include <engine/resources/assets_db.h>
 #include <engine/resources/font.h>
+#include <engine/resources/sprite_sheet.h>
 #include <engine/ui/document.h>
 #include <engine/ui/stylesheet.h>
 
@@ -30,11 +31,11 @@ bool is_gpu_type(const std::type_info& type) {
 }
 
 bool needs_factory(const std::type_info& type) {
-    return is_gpu_type(type) || type == typeid(render::IMaterial);
+    return is_gpu_type(type) || type == typeid(render::IMaterial) || type == typeid(SpriteSheet);
 }
 
 std::optional<ImporterKind> importer_for_type(const std::type_info& type) {
-    if (type == typeid(render::ITexture)) {
+    if (type == typeid(render::ITexture) || type == typeid(SpriteSheet)) {
         return ImporterKind::Texture;
     }
     if (type == typeid(render::IMesh)) {
@@ -62,7 +63,7 @@ std::optional<ImporterKind> importer_for_type(const std::type_info& type) {
 }
 
 bool importer_matches(const std::type_info& type, ImporterKind actual) {
-    if (type == typeid(render::ITexture) || type == typeid(render::TextureDesc)) {
+    if (type == typeid(render::ITexture) || type == typeid(render::TextureDesc) || type == typeid(SpriteSheet)) {
         return actual == ImporterKind::Texture || actual == ImporterKind::UiImage;
     }
     const auto wanted = importer_for_type(type);
@@ -247,6 +248,20 @@ std::expected<std::shared_ptr<void>, AssetError> load_material(
     return std::static_pointer_cast<void>(std::move(material));
 }
 
+std::expected<std::shared_ptr<void>, AssetError> load_sprite_sheet(AssetsDb& db, const CatalogEntry& entry) {
+    auto texture = db.try_get<render::ITexture>(entry.guid);
+    if (!texture) {
+        return std::unexpected(texture.error());
+    }
+    auto sheet = std::make_shared<SpriteSheet>();
+    sheet->texture = std::move(*texture);
+    sheet->pixels_per_unit = entry.texture.pixels_per_unit;
+    for (const SpriteMeta& meta : entry.texture.sprites) {
+        sheet->sprites[meta.name] = meta;
+    }
+    return std::static_pointer_cast<void>(std::move(sheet));
+}
+
 }
 
 AssetsDb::AssetsDb(IFatalError& fatal_error)
@@ -322,6 +337,8 @@ std::expected<std::shared_ptr<void>, AssetError> AssetsDb::try_get_erased(AssetI
         loaded = load_gpu(*entry, type, assets_root_, *graphic_factory_);
     } else if (type == typeid(render::IMaterial)) {
         loaded = load_material(*this, *entry, assets_root_);
+    } else if (type == typeid(SpriteSheet)) {
+        loaded = load_sprite_sheet(*this, *entry);
     } else {
         loaded = load_cpu(*entry, type, assets_root_);
     }
@@ -330,6 +347,56 @@ std::expected<std::shared_ptr<void>, AssetError> AssetsDb::try_get_erased(AssetI
     }
     cache_.emplace(key, *loaded);
     return loaded;
+}
+
+std::expected<render::Sprite, AssetError> AssetsDb::try_get_sprite(AssetId id, std::string_view name) {
+    const CatalogEntry* const entry = catalog_.find(id);
+    if (entry == nullptr) {
+        return std::unexpected(AssetError::NotFound);
+    }
+    if (entry->importer != ImporterKind::Texture && entry->importer != ImporterKind::UiImage) {
+        return std::unexpected(AssetError::TypeMismatch);
+    }
+
+    if (name.empty()) {
+        if (entry->texture.layout == TextureLayout::Multiple) {
+            return std::unexpected(AssetError::NotFound);
+        }
+        auto tex_res = try_get<render::ITexture>(id);
+        if (!tex_res) {
+            return std::unexpected(tex_res.error());
+        }
+        render::Sprite sprite;
+        sprite.texture = *tex_res;
+        sprite.offset = {0.0f, 0.0f};
+        sprite.tiling = {1.0f, 1.0f};
+        if (sprite.texture) {
+            sprite.pixel_size = {
+                    static_cast<float>(sprite.texture->width()),
+                    static_cast<float>(sprite.texture->height()),
+            };
+        }
+        sprite.pixels_per_unit = entry->texture.pixels_per_unit;
+        return sprite;
+    }
+
+    auto sheet_res = try_get<SpriteSheet>(id);
+    if (!sheet_res) {
+        return std::unexpected(sheet_res.error());
+    }
+    auto sprite = (*sheet_res)->get(name);
+    if (!sprite) {
+        return std::unexpected(AssetError::NotFound);
+    }
+    return *sprite;
+}
+
+render::Sprite AssetsDb::get_sprite(AssetId id, std::string_view name) {
+    auto result = try_get_sprite(id, name);
+    if (result) {
+        return std::move(*result);
+    }
+    fail_get(id, result.error());
 }
 
 [[noreturn]] void AssetsDb::fail_get(AssetId id, AssetError error) {
