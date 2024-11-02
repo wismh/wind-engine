@@ -32,6 +32,7 @@ enum class ImporterKind {
     Material,
     Ui,
     Css,
+    Animation,
 };
 
 enum class ColorSpace {
