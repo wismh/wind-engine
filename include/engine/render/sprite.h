@@ -8,6 +8,7 @@
 #include <glm/vec4.hpp>
 
 #include <memory>
+#include <optional>
 
 namespace engine::render {
 
@@ -27,6 +28,7 @@ struct Sprite {
     // Optional overrides (defaults to builtin::mesh_quad and builtin::material_unlit when null)
     std::shared_ptr<IMesh> mesh;
     std::shared_ptr<IMaterial> material;
+    std::optional<MaterialOverride> material_override;
 
     [[nodiscard]] glm::vec4 tinted_color() const {
         const glm::vec4 material_color =
