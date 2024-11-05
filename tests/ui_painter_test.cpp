@@ -835,6 +835,62 @@ TEST(UiPainter, StackJustifyContentMovesChildren) {
     EXPECT_NE(texts[0].y, 50.0f);
 }
 
+TEST(UiPainter, StackJustifyContentSpaceBetweenSpreadsChildren) {
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Stack class="row" direction="horizontal">
+            <Label class="cell" text="A"/>
+            <Label class="cell" text="B"/>
+            <Label class="cell" text="C"/>
+          </Stack>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .row { width: 200; height: 20; justify-content: space-between; }
+        .cell { width: 20; height: 10; background: #ffffff; }
+    )");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    std::vector<engine::render::Rect> fills;
+    for (const PaintCall& call : painter.calls) {
+        if (call.op == "fill_rect") {
+            fills.push_back(call.rect);
+        }
+    }
+    // First child flush to the row's start, last flush to its end, leftover (200 - 3*20 = 140)
+    // split evenly across the two gaps between them (70 each) — not before the first or after the
+    // last child, unlike center/end.
+    ASSERT_EQ(fills.size(), 3u);
+    EXPECT_FLOAT_EQ(fills[0].x, 0.0f);
+    EXPECT_FLOAT_EQ(fills[1].x, 90.0f);
+    EXPECT_FLOAT_EQ(fills[2].x, 180.0f);
+}
+
+TEST(UiPainter, StackJustifyContentSpaceBetweenSingleChildStaysAtStart) {
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Stack class="row" direction="horizontal">
+            <Label class="cell" text="A"/>
+          </Stack>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .row { width: 200; height: 20; justify-content: space-between; }
+        .cell { width: 20; height: 10; background: #ffffff; }
+    )");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    const PaintCall* fill = painter.find("fill_rect");
+    ASSERT_NE(fill, nullptr);
+    EXPECT_FLOAT_EQ(fill->rect.x, 0.0f);
+}
+
 TEST(UiPainter, TextAlignCenterMovesGlyphs) {
     auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="title" text="Hi"/></Canvas>)");
     ASSERT_TRUE(parsed.has_value());

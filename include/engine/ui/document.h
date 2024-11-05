@@ -43,6 +43,11 @@ enum class UiAlign {
     Start,
     Center,
     End,
+    // justify-content only (parse_align() never returns this for align-items/text-align; those
+    // ignore it and fall back to Start-equivalent behavior, same as CSS align-items has no
+    // space-between). First child flush to the start, last flush to the end, leftover space split
+    // evenly between the rest. A single child behaves like Start (nothing to space against).
+    SpaceBetween,
 };
 
 enum class PositionMode {
