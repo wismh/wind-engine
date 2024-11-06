@@ -14,6 +14,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -55,6 +56,10 @@ struct ComputedStyle {
     std::optional<Length> inset_left;
     float rotation_deg = 0.0f;
     float scale = 1.0f;
+    // Cascaded `--name: value;` declarations, keyed without the leading `--`. Consulted by
+    // resolve_var() when a declaration's value is `var(--name)` and the element itself has no
+    // matching entry in Element::custom_properties (per-instance, VM-bound — takes priority).
+    std::unordered_map<std::string, std::string> custom_properties;
 };
 
 std::string_view trim(std::string_view value) {
@@ -449,6 +454,57 @@ void apply_declaration(ComputedStyle& style, const CssDeclaration& decl) {
     }
 }
 
+struct VarReference {
+    std::string_view name;  // without the leading "--"
+    std::optional<std::string_view> fallback;
+};
+
+// Parses `var(--name)` / `var(--name, fallback)`. Anything else (a literal value, or a value that
+// merely contains "var(" as text) returns nullopt and is left for apply_declaration as-is.
+std::optional<VarReference> parse_var_reference(std::string_view value) {
+    const std::string_view trimmed = trim(value);
+    constexpr std::string_view kFuncPrefix = "var(";
+    if (!trimmed.starts_with(kFuncPrefix) || !trimmed.ends_with(')')) {
+        return std::nullopt;
+    }
+    const std::string_view inner = trim(trimmed.substr(kFuncPrefix.size(), trimmed.size() - kFuncPrefix.size() - 1));
+    const auto comma = inner.find(',');
+    const std::string_view raw_name = trim(comma == std::string_view::npos ? inner : inner.substr(0, comma));
+    constexpr std::string_view kVarPrefix = "--";
+    if (!raw_name.starts_with(kVarPrefix)) {
+        return std::nullopt;
+    }
+    VarReference ref;
+    ref.name = raw_name.substr(kVarPrefix.size());
+    if (comma != std::string_view::npos) {
+        ref.fallback = trim(inner.substr(comma + 1));
+    }
+    return ref;
+}
+
+// Element::custom_properties (per-instance, refreshed every frame from a `var-<name>="{binding}"`
+// XML attribute in bind_element) takes priority over ComputedStyle::custom_properties (cascaded
+// `--name: value;` stylesheet declarations), matching how an inline override would beat a class
+// rule. Unresolved with no fallback resolves to an empty value — the same graceful no-op every
+// other apply_declaration parser already falls back to on invalid input.
+CssDeclaration resolve_var(const CssDeclaration& decl, const Element& element, const ComputedStyle& style) {
+    const auto ref = parse_var_reference(decl.value);
+    if (!ref) {
+        return decl;
+    }
+    const std::string name(ref->name);
+    if (const auto it = element.custom_properties.find(name); it != element.custom_properties.end()) {
+        return CssDeclaration{decl.property, it->second};
+    }
+    if (const auto it = style.custom_properties.find(name); it != style.custom_properties.end()) {
+        return CssDeclaration{decl.property, it->second};
+    }
+    if (ref->fallback) {
+        return CssDeclaration{decl.property, std::string(*ref->fallback)};
+    }
+    return CssDeclaration{decl.property, std::string{}};
+}
+
 render::Rect scale_rect(const render::Rect& rect, glm::vec2 offset, float scale) {
     return render::Rect{
             offset.x + rect.x * scale,
@@ -565,7 +621,11 @@ ComputedStyle compute_style(const Element& element, const Stylesheet* sheet, boo
     });
     for (const Ranked& item : matched) {
         for (const CssDeclaration& decl : item.rule->declarations) {
-            apply_declaration(style, decl);
+            if (decl.property.starts_with("--")) {
+                style.custom_properties[decl.property.substr(2)] = decl.value;
+                continue;
+            }
+            apply_declaration(style, resolve_var(decl, element, style));
         }
     }
     return style;
