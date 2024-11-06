@@ -10,6 +10,7 @@
 
 #include <cstddef>
 #include <expected>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -22,6 +23,8 @@ enum class UiError {
     UnknownElement,
     MissingBinding,
     ForbiddenContent,
+    Io,
+    CyclicInclude,
 };
 
 enum class ElementKind {
@@ -217,8 +220,13 @@ struct UiInstance {
     ViewModel* loaded_data_context = nullptr;
 };
 
-[[nodiscard]] std::expected<UiDocument, UiError> parse_xml(
-        std::string_view xml, IFatalError* fatal = nullptr, const ViewModel* data_context = nullptr);
+// Resolves an `<ItemTemplate src="...">` reference to the referenced file's raw XML text.
+// All `src` values in a document tree are relative to that document's own file, regardless of
+// include nesting depth — the resolver owns path composition. Returns nullopt if unreadable.
+using UiIncludeResolver = std::function<std::optional<std::string>(std::string_view src)>;
+
+[[nodiscard]] std::expected<UiDocument, UiError> parse_xml(std::string_view xml, IFatalError* fatal = nullptr,
+        const ViewModel* data_context = nullptr, const UiIncludeResolver& resolve_include = {});
 
 std::expected<void, UiError> apply_bindings(UiDocument& document, ViewModel& data_context, IFatalError* fatal = nullptr);
 

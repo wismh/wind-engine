@@ -637,6 +637,8 @@ v1 elements:
 </Canvas>
 ```
 
+`ItemTemplate` markup reuse: `<ItemTemplate src="relative/path.xml"/>` splices in another file's single root element as if it were written inline — `src` is a relative filesystem path resolved by the importer/codegen against the referencing document's own directory (not an AssetId; the fragment has no independent GUID and games cannot load it as a `UiCanvas::document`). Includes may nest; a cycle or unreadable/invalid file fails the build the same as any other markup error. This is authoring-time DRY only — it carries no data parameterization, unlike a real `ControlTemplate` (§8, not v1).
+
 WPF-shaped `{binding path}` (path = registered snake_case name). `mode=one_way` default (VM → view). `mode=two_way` reserved (sliders); not required in v1.
 
 `id` / `class` / `name` attributes: CSS hooks. `name` is not FindName-from-game; games do not reach into the tree.
