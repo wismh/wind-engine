@@ -13,6 +13,7 @@
 #include <engine/builtin_ids.h>
 #include <engine/render/animation.h>
 #include <engine/render/command_buffer.h>
+#include <engine/render/particles.h>
 #include <engine/render/renderable.h>
 #include <engine/render/sprite.h>
 #include <engine/resources/assets_db.h>
@@ -195,15 +196,11 @@ struct SpriteMaterialCache {
 };
 
 struct DrawItem {
-    std::shared_ptr<render::IMesh> mesh;
-    std::shared_ptr<render::IMaterial> material;
-    glm::mat4 model{1.0f};
-    glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
-    glm::vec2 uv_scale{1.0f, 1.0f};
-    glm::vec2 uv_offset{0.0f, 0.0f};
     int layer = 0;
     int order_in_layer = 0;
+    const render::IMaterial* material = nullptr;
     ecs::Entity entity;
+    render::Command command;
 };
 
 inline bool draw_item_less(const DrawItem& a, const DrawItem& b) {
@@ -213,10 +210,8 @@ inline bool draw_item_less(const DrawItem& a, const DrawItem& b) {
     if (a.order_in_layer != b.order_in_layer) {
         return a.order_in_layer < b.order_in_layer;
     }
-    const render::IMaterial* const mat_a = a.material.get();
-    const render::IMaterial* const mat_b = b.material.get();
-    if (mat_a != mat_b) {
-        return std::less<>{}(mat_a, mat_b);
+    if (a.material != b.material) {
+        return std::less<>{}(a.material, b.material);
     }
     return a.entity.index < b.entity.index;
 }
@@ -229,7 +224,9 @@ void run_render(ecs::World& world, const EngineSystemDeps& deps) {
 
     auto renderables = world.view<render::Renderable, Transform>();
     auto sprites = world.view<render::Sprite, Transform>();
-    if (renderables.begin() == renderables.end() && sprites.begin() == sprites.end()) {
+    auto emitters = world.view<render::ParticleEmitter>();
+    if (renderables.begin() == renderables.end() && sprites.begin() == sprites.end() &&
+            emitters.begin() == emitters.end()) {
         return;
     }
 
@@ -258,16 +255,23 @@ void run_render(ecs::World& world, const EngineSystemDeps& deps) {
             continue;
         }
         const Transform& transform = world.get<Transform>(entity);
+        render::CmdDrawMesh cmd;
+        cmd.mesh = r.mesh;
+        cmd.material = r.material;
+        cmd.model = model_matrix(transform);
+        cmd.view = view;
+        cmd.projection = projection;
+        cmd.color = r.color;
+        cmd.uv_scale = {1.0f, 1.0f};
+        cmd.uv_offset = {0.0f, 0.0f};
+
+        const render::IMaterial* mat_ptr = r.material.get();
         items.push_back(DrawItem{
-                .mesh = r.mesh,
-                .material = r.material,
-                .model = model_matrix(transform),
-                .color = r.color,
-                .uv_scale = {1.0f, 1.0f},
-                .uv_offset = {0.0f, 0.0f},
                 .layer = r.layer,
                 .order_in_layer = r.order_in_layer,
+                .material = mat_ptr,
                 .entity = entity,
+                .command = std::move(cmd),
         });
     }
 
@@ -325,32 +329,100 @@ void run_render(ecs::World& world, const EngineSystemDeps& deps) {
         if (s.flip_x || s.flip_y) {
             model = glm::scale(model, glm::vec3{s.flip_x ? -1.0f : 1.0f, s.flip_y ? -1.0f : 1.0f, 1.0f});
         }
+
+        render::CmdDrawMesh cmd;
+        cmd.mesh = std::move(mesh);
+        cmd.material = material;
+        cmd.model = model;
+        cmd.view = view;
+        cmd.projection = projection;
+        cmd.color = s.color;
+        cmd.uv_scale = s.tiling;
+        cmd.uv_offset = s.offset;
+
+        const render::IMaterial* mat_ptr = material.get();
         items.push_back(DrawItem{
-                .mesh = std::move(mesh),
-                .material = std::move(material),
-                .model = model,
-                .color = s.color,
-                .uv_scale = s.tiling,
-                .uv_offset = s.offset,
                 .layer = s.layer,
                 .order_in_layer = s.order_in_layer,
+                .material = mat_ptr,
                 .entity = entity,
+                .command = std::move(cmd),
+        });
+    }
+
+    for (ecs::Entity entity : emitters) {
+        const auto& em = emitters.get<render::ParticleEmitter>(entity);
+        if (em.particles.empty()) {
+            continue;
+        }
+        std::shared_ptr<render::IMesh> mesh = em.mesh ? em.mesh : default_quad;
+        std::shared_ptr<render::IMaterial> material;
+        render::BlendMode blend = em.blend;
+        if (em.material != nullptr) {
+            material = em.material;
+            blend = em.material->blend();
+        } else if (em.texture != nullptr) {
+            auto it = cache.materials.find(em.texture.get());
+            if (it != cache.materials.end()) {
+                material = it->second;
+            } else if (default_shader != nullptr) {
+                material = std::make_shared<render::Material>(
+                        default_shader, em.texture, glm::vec4{1.0f, 1.0f, 1.0f, 1.0f}, em.blend);
+                cache.materials[em.texture.get()] = material;
+            }
+        } else {
+            material = default_unlit;
+        }
+
+        if (!mesh || !material) {
+            report_fatal(deps.fatal, "ParticleEmitter is missing mesh or material");
+            continue;
+        }
+
+        glm::mat4 model{1.0f};
+        if (em.simulation_space == render::SimulationSpace::Local) {
+            if (const auto* transform = world.try_get<Transform>(entity)) {
+                model = model_matrix(*transform);
+            }
+        }
+
+        render::CmdDrawParticles cmd;
+        cmd.mesh = std::move(mesh);
+        cmd.material = material;
+        cmd.view = view;
+        cmd.projection = projection;
+        cmd.blend = blend;
+        cmd.instances.reserve(em.particles.size());
+
+        for (const auto& p : em.particles) {
+            glm::vec3 pos = p.position;
+            if (em.simulation_space == render::SimulationSpace::Local) {
+                pos = glm::vec3(model * glm::vec4(p.position, 1.0f));
+            }
+            cmd.instances.push_back(render::ParticleInstance{
+                    .position = pos,
+                    .rotation = p.rotation,
+                    .size = p.size,
+                    .color = p.color,
+                    .uv_scale = em.uv_scale,
+                    .uv_offset = em.uv_offset,
+            });
+        }
+
+        const render::IMaterial* mat_ptr = material.get();
+        items.push_back(DrawItem{
+                .layer = em.layer,
+                .order_in_layer = em.order_in_layer,
+                .material = mat_ptr,
+                .entity = entity,
+                .command = std::move(cmd),
         });
     }
 
     std::stable_sort(items.begin(), items.end(), draw_item_less);
 
-    for (const DrawItem& item : items) {
-        render::CmdDrawMesh cmd;
-        cmd.mesh = item.mesh;
-        cmd.material = item.material;
-        cmd.model = item.model;
-        cmd.view = view;
-        cmd.projection = projection;
-        cmd.color = item.color;
-        cmd.uv_scale = item.uv_scale;
-        cmd.uv_offset = item.uv_offset;
-        deps.commands->push(std::move(cmd));
+    for (DrawItem& item : items) {
+        deps.commands->push(std::move(item.command));
     }
 }
 
@@ -474,6 +546,19 @@ void run_sprite_animations(ecs::World& world) {
     }
 }
 
+void run_particles(ecs::World& world) {
+    const float dt = world.ctx<Time>().delta_time;
+    auto view = world.view<render::ParticleEmitter>();
+    for (ecs::Entity entity : view) {
+        auto& emitter = view.get<render::ParticleEmitter>(entity);
+        glm::mat4 model{1.0f};
+        if (const auto* transform = world.try_get<Transform>(entity)) {
+            model = model_matrix(*transform);
+        }
+        render::update_emitter(emitter, dt, model);
+    }
+}
+
 void register_engine_systems(ecs::World& world, EngineSystemDeps deps) {
     world.ctx<EngineSystemsRegistered>().value = true;
 
@@ -481,6 +566,7 @@ void register_engine_systems(ecs::World& world, EngineSystemDeps deps) {
     world.add_system(ecs::Schedule::Frame, ecs::Phase::Input, [](ecs::World& w) { run_input(w); });
     world.add_system(ecs::Schedule::Frame, ecs::Phase::Input, [](ecs::World& w) { run_splash_timers(w); });
     world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World& w) { run_sprite_animations(w); });
+    world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World& w) { run_particles(w); });
     world.add_system(ecs::Schedule::Frame, ecs::Phase::Bind, [deps](ecs::World& w) { run_bind(w, deps); });
     world.add_system(ecs::Schedule::Frame, ecs::Phase::Audio, [deps](ecs::World& w) { run_audio(w, deps); });
     world.add_system(ecs::Schedule::Frame, ecs::Phase::Render, [deps](ecs::World& w) { run_render(w, deps); });
