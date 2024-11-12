@@ -131,6 +131,17 @@ public:
     TintVm() { property(engine::ui::intern("tint"), tint); }
 };
 
+class PositionVm final : public engine::ui::ViewModel {
+public:
+    engine::ui::Bindable<std::string> x{"3"};
+    engine::ui::Bindable<std::string> y{"5"};
+
+    PositionVm() {
+        property(engine::ui::intern("x"), x);
+        property(engine::ui::intern("y"), y);
+    }
+};
+
 class CellVm final : public engine::ui::ViewModel {
 public:
     engine::ui::Bindable<std::string> mark;
@@ -438,6 +449,31 @@ TEST(UiPainter, RelativePositionOffsetsOwnRectWithoutReflowingSiblings) {
     // B: unaffected by A's offset - still stacked directly below A's *unoffset* position.
     EXPECT_FLOAT_EQ(second.x, 0.0f);
     EXPECT_FLOAT_EQ(second.y, 16.0f);
+}
+
+TEST(UiPainter, CustomPropertyDrivesRelativePositionTopLeft) {
+    // css_parser.cpp used to reject var() outright for length properties (top/left/width/...),
+    // warning "var() is not supported" and dropping the declaration — var() only ever reached
+    // apply_declaration for non-length properties like color/opacity. This is the same
+    // position:relative + top/left shape as RelativePositionOffsetsOwnRectWithoutReflowingSiblings
+    // above, except the lengths are var()-bound to live VM data instead of literal numbers — the
+    // exact shape needed to position a floating popup at its own spawn point.
+    PositionVm vm;
+    auto parsed = engine::ui::parse_xml(
+            R"(<Canvas><Label class="a" var-x="{binding x}" var-y="{binding y}" text="A"/></Canvas>)", nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+
+    const engine::ui::Stylesheet sheet =
+            must_parse_css(".a { position: relative; top: var(--y); left: var(--x); background: #ffffff; }");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    const PaintCall* fill = painter.find("fill_rect");
+    ASSERT_NE(fill, nullptr);
+    EXPECT_FLOAT_EQ(fill->rect.x, 3.0f);
+    EXPECT_FLOAT_EQ(fill->rect.y, 5.0f);
 }
 
 TEST(UiPainter, AbsoluteChildDoesNotConsumeFlowSpace) {
