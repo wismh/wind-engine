@@ -4,6 +4,7 @@
 #include <engine/ecs/world.h>
 #include <engine/render/commands.h>
 #include <engine/resources/asset_id.h>
+#include <engine/ui/document.h>
 #include <engine/ui/view_model.h>
 
 #include <memory>
@@ -87,6 +88,26 @@ struct UiPointer {
     bool down = false;
 };
 
+// State of one in-progress `drag="{binding}"` (canvas.h/document.h Element::drag_binding),
+// captured at pointer-down so update_drag() can keep recomputing the fraction from the same
+// geometry on every subsequent Move — including once the pointer leaves `rect` — without
+// re-hit-testing (a fresh hit-test would lose the drag the moment the cursor left the element).
+struct ActiveDrag {
+    ecs::Entity canvas_entity{};
+    BindingId value_binding{};
+    render::Rect rect{};
+    glm::vec2 space_offset{0.0f, 0.0f};
+    float space_scale = 1.0f;
+    StackDirection orientation = StackDirection::Horizontal;
+};
+
+// One map for every window (kPrimaryWindow included like any other key) — unlike UiPointer/
+// UiPointers above, this is new state with no pre-existing single-window call site to keep
+// source-compatible, so it doesn't need that split.
+struct UiActiveDrags {
+    std::unordered_map<WindowId, ActiveDrag> drags;
+};
+
 // Only ever holds entries for windows OTHER than kPrimaryWindow — mirrors WindowSizes above:
 // the primary's pointer stays authoritative in the existing ctx<UiPointer>() singleton, unchanged,
 // so every pre-existing single-window call site keeps working with zero modification. A window
@@ -116,5 +137,14 @@ void handle_pointer(ecs::World& world, float x, float y, WindowId window = kPrim
 // the last click, so click_through (SDD §21.4) stays wrong for every frame the pointer merely
 // moves over (or off of) a UI element without clicking.
 void update_pointer_hover(ecs::World& world, float x, float y, WindowId window = kPrimaryWindow);
+
+// Recomputes the in-progress drag (if any) for `window` from its captured start geometry — not a
+// fresh hit-test, so the drag keeps tracking (x, y) even once the pointer has left the dragged
+// element's bounds — and writes the new [0,1] fraction into the bound ViewModel property. A no-op
+// if no drag is active for this window (e.g. the Move didn't follow a Down on a `drag`-bound
+// element).
+void update_drag(ecs::World& world, float x, float y, WindowId window = kPrimaryWindow);
+// Ends the in-progress drag (if any) for `window`. Called on pointer-up.
+void end_drag(ecs::World& world, WindowId window = kPrimaryWindow);
 
 }

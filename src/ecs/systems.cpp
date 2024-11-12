@@ -49,11 +49,15 @@ void run_input(ecs::World& world) {
             ui::handle_pointer(world, event.position.x, event.position.y, event.window);
         } else if (event.kind == MouseEvent::Kind::Up) {
             pointer.down = false;
+            ui::end_drag(world, event.window);
         } else if (event.kind == MouseEvent::Kind::Move) {
             // Keeps MouseConsumed (SDD §21.4 click-through) current on hover, not just on click —
             // without this, a window that only recomputes it on Down never learns the pointer
             // moved off (or onto) a UI element between clicks.
             ui::update_pointer_hover(world, event.position.x, event.position.y, event.window);
+            // Keeps an in-progress `drag="{binding}"` tracking the pointer even once it has left
+            // the dragged element's bounds (real drag UX) — a no-op when no drag is active.
+            ui::update_drag(world, event.position.x, event.position.y, event.window);
         }
     }
 }
