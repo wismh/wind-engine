@@ -99,6 +99,12 @@ struct ActiveDrag {
     glm::vec2 space_offset{0.0f, 0.0f};
     float space_scale = 1.0f;
     StackDirection orientation = StackDirection::Horizontal;
+    // Element::generated_owner of the drag-start element, when it was generated inside an
+    // ItemsControl/ItemTemplate — nullptr for an ordinary (non-templated) drag target. Never
+    // dereferenced directly from here across frames; update_drag() re-validates it against a
+    // freshly re-bound tree (document.cpp find_by_generated_owner()) before writing through it,
+    // since the game is free to remove that item from its list between Move events mid-drag.
+    const void* owner = nullptr;
 };
 
 // One map for every window (kPrimaryWindow included like any other key) — unlike UiPointer/
