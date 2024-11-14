@@ -2,6 +2,7 @@
 
 #include <engine/core/time.h>
 #include <engine/ecs/camera.h>
+#include <engine/ecs/physics.h>
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/systems.h>
 #include <engine/ecs/transform.h>
@@ -431,5 +432,245 @@ TEST(ParticleEmitter, ColorAndAlphaCurvesAnimateCustomGradients) {
     ASSERT_EQ(emitter.active_count(), 1u);
     EXPECT_NEAR(emitter.particles[0].color.b, 1.0f, 0.05f);
     EXPECT_NEAR(emitter.particles[0].color.a, 0.0f, 0.05f);
+}
+
+TEST(ParticleCollision, ParticlesBounceOffBoxFloor) {
+    engine::render::ParticleEmitter emitter;
+    emitter.emission_rate = 0.0f;
+    emitter.lifetime_min = 5.0f;
+    emitter.lifetime_max = 5.0f;
+    emitter.speed_min = 0.0f;
+    emitter.speed_max = 0.0f;
+    emitter.gravity = {0.0f, -10.0f, 0.0f};
+    emitter.collision_enabled = true;
+    emitter.bounce = 0.6f;
+    emitter.friction = 0.0f;
+
+    // Floor at y = 0, height = 2 (so top of box is at y = 1.0f)
+    std::vector<engine::render::ParticleCollider> colliders{
+            engine::render::ParticleCollider{
+                    .shape = engine::render::ParticleCollider::Shape::Box,
+                    .position = {0.0f, 0.0f, 0.0f},
+                    .box_size = {100.0f, 2.0f, 1.0f},
+                    .circle_radius = 0.0f,
+                    .layer = 1,
+            },
+    };
+
+    emitter.burst(1);
+    // Spawn at (0, 5, 0)
+    glm::mat4 transform = glm::translate(glm::mat4{1.0f}, glm::vec3{0.0f, 5.0f, 0.0f});
+    engine::render::update_emitter(emitter, 0.0001f, transform, colliders);
+    ASSERT_EQ(emitter.active_count(), 1u);
+    EXPECT_NEAR(emitter.particles[0].position.y, 5.0f, 0.01f);
+
+    // Advance 0.5s: falls with gravity
+    engine::render::update_emitter(emitter, 0.5f, transform, colliders);
+    ASSERT_EQ(emitter.active_count(), 1u);
+    // At t=0.5, falls to around y = 5 - 0.5 * 10 * 0.5^2 = 3.75, still above floor
+    EXPECT_GT(emitter.particles[0].position.y, 1.0f);
+    EXPECT_LT(emitter.particles[0].velocity.y, 0.0f);
+
+    // Advance 0.6s more (total > 1s): hits floor at y = 1.0f and bounces up!
+    engine::render::update_emitter(emitter, 0.6f, transform, colliders);
+    ASSERT_EQ(emitter.active_count(), 1u);
+    // Particle should have bounced upwards!
+    EXPECT_GE(emitter.particles[0].position.y, 1.0f);
+    EXPECT_GT(emitter.particles[0].velocity.y, 0.0f);
+}
+
+TEST(ParticleCollision, ParticlesBounceOffCircleObstacle) {
+    engine::render::ParticleEmitter emitter;
+    emitter.emission_rate = 0.0f;
+    emitter.lifetime_min = 5.0f;
+    emitter.lifetime_max = 5.0f;
+    emitter.speed_min = 10.0f;
+    emitter.speed_max = 10.0f;
+    emitter.direction = {1.0f, 0.0f, 0.0f}; // moving right
+    emitter.gravity = {0.0f, 0.0f, 0.0f};
+    emitter.collision_enabled = true;
+    emitter.bounce = 0.8f;
+
+    // Circle obstacle at x = 5.0, radius = 2.0 (left edge is at x = 3.0)
+    std::vector<engine::render::ParticleCollider> colliders{
+            engine::render::ParticleCollider{
+                    .shape = engine::render::ParticleCollider::Shape::Circle,
+                    .position = {5.0f, 0.0f, 0.0f},
+                    .box_size = {0.0f, 0.0f, 0.0f},
+                    .circle_radius = 2.0f,
+                    .layer = 1,
+            },
+    };
+
+    emitter.burst(1);
+    engine::render::update_emitter(emitter, 0.0001f, glm::mat4{1.0f}, colliders);
+    ASSERT_EQ(emitter.active_count(), 1u);
+
+    // Initial position is at 0, moving right at +10
+    EXPECT_NEAR(emitter.particles[0].position.x, 0.0f, 0.01f);
+    EXPECT_GT(emitter.particles[0].velocity.x, 0.0f);
+
+    // Advance 0.5s: moves 5 units, hits circle obstacle at x = 3.0, bounces left!
+    engine::render::update_emitter(emitter, 0.5f, glm::mat4{1.0f}, colliders);
+    ASSERT_EQ(emitter.active_count(), 1u);
+    // Bounced: velocity.x should now be negative!
+    EXPECT_LT(emitter.particles[0].velocity.x, 0.0f);
+    EXPECT_LE(emitter.particles[0].position.x, 3.1f);
+}
+
+TEST(ParticleCollision, KillOnCollisionTerminatesParticle) {
+    engine::render::ParticleEmitter emitter;
+    emitter.emission_rate = 0.0f;
+    emitter.lifetime_min = 10.0f;
+    emitter.lifetime_max = 10.0f;
+    emitter.speed_min = 10.0f;
+    emitter.speed_max = 10.0f;
+    emitter.direction = {0.0f, -1.0f, 0.0f}; // moving down
+    emitter.gravity = {0.0f, 0.0f, 0.0f};
+    emitter.collision_enabled = true;
+    emitter.kill_on_collision = true;
+
+    // Floor at y = -2
+    std::vector<engine::render::ParticleCollider> colliders{
+            engine::render::ParticleCollider{
+                    .shape = engine::render::ParticleCollider::Shape::Box,
+                    .position = {0.0f, -2.0f, 0.0f},
+                    .box_size = {50.0f, 1.0f, 1.0f},
+                    .circle_radius = 0.0f,
+                    .layer = 1,
+            },
+    };
+
+    emitter.burst(1);
+    engine::render::update_emitter(emitter, 0.0001f, glm::mat4{1.0f}, colliders);
+    ASSERT_EQ(emitter.active_count(), 1u);
+
+    // Step 0.3s (moves 3 units down, passes y = -1.5, hits floor)
+    engine::render::update_emitter(emitter, 0.3f, glm::mat4{1.0f}, colliders);
+    // Particle must be killed!
+    EXPECT_EQ(emitter.active_count(), 0u);
+}
+
+TEST(ParticleCollision, FrictionDampsTangentialVelocity) {
+    engine::render::ParticleEmitter emitter;
+    emitter.emission_rate = 0.0f;
+    emitter.lifetime_min = 5.0f;
+    emitter.lifetime_max = 5.0f;
+    emitter.speed_min = 0.0f;
+    emitter.speed_max = 0.0f;
+    emitter.collision_enabled = true;
+    emitter.bounce = 0.5f;
+    emitter.friction = 0.75f; // 75% friction damping
+
+    // Floor at y = 0, top edge at y = 0.5
+    std::vector<engine::render::ParticleCollider> colliders{
+            engine::render::ParticleCollider{
+                    .shape = engine::render::ParticleCollider::Shape::Box,
+                    .position = {0.0f, 0.0f, 0.0f},
+                    .box_size = {100.0f, 1.0f, 1.0f},
+                    .circle_radius = 0.0f,
+                    .layer = 1,
+            },
+    };
+
+    emitter.burst(1);
+    engine::render::update_emitter(emitter, 0.0001f, glm::mat4{1.0f}, colliders);
+    ASSERT_EQ(emitter.active_count(), 1u);
+
+    // Manually give particle an angled velocity: vx = 10, vy = -10 at position (0, 2, 0)
+    emitter.particles[0].position = {0.0f, 2.0f, 0.0f};
+    emitter.particles[0].velocity = {10.0f, -10.0f, 0.0f};
+
+    // Step 0.3s (falls into floor at y = 0.5)
+    engine::render::update_emitter(emitter, 0.3f, glm::mat4{1.0f}, colliders);
+    ASSERT_EQ(emitter.active_count(), 1u);
+
+    // vy bounced: should be positive (+5)
+    EXPECT_GT(emitter.particles[0].velocity.y, 0.0f);
+    // vx damped by 75%: 10 * (1 - 0.75) = 2.5
+    EXPECT_NEAR(emitter.particles[0].velocity.x, 2.5f, 0.1f);
+}
+
+TEST(ParticleCollision, CollisionMaskFiltersLayers) {
+    engine::render::ParticleEmitter emitter;
+    emitter.emission_rate = 0.0f;
+    emitter.lifetime_min = 5.0f;
+    emitter.lifetime_max = 5.0f;
+    emitter.speed_min = 10.0f;
+    emitter.speed_max = 10.0f;
+    emitter.direction = {0.0f, -1.0f, 0.0f};
+    emitter.gravity = {0.0f, 0.0f, 0.0f};
+    emitter.collision_enabled = true;
+    emitter.collision_mask = 0b0001; // only collide with layer 1
+    emitter.kill_on_collision = true;
+
+    // Collider on layer 2 (0b0010)
+    std::vector<engine::render::ParticleCollider> colliders{
+            engine::render::ParticleCollider{
+                    .shape = engine::render::ParticleCollider::Shape::Box,
+                    .position = {0.0f, -1.0f, 0.0f},
+                    .box_size = {10.0f, 1.0f, 1.0f},
+                    .circle_radius = 0.0f,
+                    .layer = 0b0010,
+            },
+    };
+
+    emitter.burst(1);
+    engine::render::update_emitter(emitter, 0.0001f, glm::mat4{1.0f}, colliders);
+    ASSERT_EQ(emitter.active_count(), 1u);
+
+    // Step 0.3s: moves through layer 2 collider without colliding
+    engine::render::update_emitter(emitter, 0.3f, glm::mat4{1.0f}, colliders);
+    // Still alive because layer didn't match mask!
+    EXPECT_EQ(emitter.active_count(), 1u);
+    EXPECT_LT(emitter.particles[0].position.y, -1.5f);
+}
+
+TEST(ParticleSystemECS, RunParticlesCollidesWithWorldEntities) {
+    engine::ecs::World world;
+    world.ctx<engine::Time>().delta_time = 0.5f;
+
+    // Spawn an obstacle entity in the ECS world with BoxCollider
+    const engine::ecs::Entity floor = world.create();
+    world.emplace<engine::Transform>(floor, engine::Transform{.position = {0.0f, 0.0f, 0.0f}});
+    world.emplace<engine::BoxCollider>(floor, engine::BoxCollider{
+            .size = {50.0f, 2.0f, 1.0f}, // top edge at y = 1.0
+            .layer = 1,
+            .is_trigger = false,
+    });
+
+    // Spawn an emitter entity with particle collisions enabled
+    const engine::ecs::Entity emitter_entity = world.create();
+    world.emplace<engine::Transform>(emitter_entity, engine::Transform{.position = {0.0f, 4.0f, 0.0f}});
+
+    engine::render::ParticleEmitter emitter;
+    emitter.emission_rate = 0.0f;
+    emitter.lifetime_min = 5.0f;
+    emitter.lifetime_max = 5.0f;
+    emitter.speed_min = 0.0f;
+    emitter.speed_max = 0.0f;
+    emitter.gravity = {0.0f, -10.0f, 0.0f};
+    emitter.collision_enabled = true;
+    emitter.bounce = 0.5f;
+    emitter.burst(1);
+
+    world.emplace<engine::render::ParticleEmitter>(emitter_entity, std::move(emitter));
+
+    // First frame (dt = 0.001 to spawn particle at emitter transform (0, 4, 0))
+    world.ctx<engine::Time>().delta_time = 0.001f;
+    engine::run_particles(world);
+
+    auto& em = world.get<engine::render::ParticleEmitter>(emitter_entity);
+    ASSERT_EQ(em.active_count(), 1u);
+    EXPECT_NEAR(em.particles[0].position.y, 4.0f, 0.05f);
+
+    // Advance 0.8s: falls with gravity towards y=1.0 and bounces
+    world.ctx<engine::Time>().delta_time = 0.8f;
+    engine::run_particles(world);
+
+    ASSERT_EQ(em.active_count(), 1u);
+    // Must have hit the ECS floor collider and bounced upward!
+    EXPECT_GE(em.particles[0].position.y, 1.0f);
+    EXPECT_GT(em.particles[0].velocity.y, 0.0f);
 }
 

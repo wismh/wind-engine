@@ -12,9 +12,23 @@
 
 #include <cstddef>
 #include <memory>
+#include <span>
 #include <vector>
 
 namespace engine::render {
+
+struct ParticleCollider {
+    enum class Shape {
+        Box,
+        Circle,
+    };
+
+    Shape shape = Shape::Box;
+    glm::vec3 position{0.0f};
+    glm::vec3 box_size{1.0f, 1.0f, 1.0f};
+    float circle_radius = 0.5f;
+    uint32_t layer = 1;
+};
 
 enum class EmitterShape {
     Point,
@@ -87,6 +101,15 @@ struct ParticleEmitter {
     glm::vec3 shape_scale{1.0f, 1.0f, 1.0f};
     SimulationSpace simulation_space = SimulationSpace::World;
 
+    // Collision parameters
+    bool collision_enabled = false;
+    uint32_t collision_mask = 0xFFFFFFFFu; // bitmask of layers to collide with
+    float bounce = 0.5f;                  // coefficient of restitution [0, 1]
+    float friction = 0.0f;                // tangential velocity damping [0, 1]
+    float lifetime_loss = 0.0f;           // fraction of lifetime lost on hit [0, 1]
+    bool kill_on_collision = false;       // immediately kill particle on contact
+    float collision_radius = 0.0f;        // 0.0f treats particle as a point; >0 gives thickness
+
     // Rendering configuration
     std::shared_ptr<ITexture> texture;
     std::shared_ptr<IMaterial> material;
@@ -131,6 +154,10 @@ struct ParticleEmitter {
     }
 };
 
-void update_emitter(ParticleEmitter& emitter, float dt, const glm::mat4& transform = glm::mat4{1.0f});
+void update_emitter(
+        ParticleEmitter& emitter,
+        float dt,
+        const glm::mat4& transform = glm::mat4{1.0f},
+        std::span<const ParticleCollider> colliders = {});
 
 }
