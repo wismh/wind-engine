@@ -15,6 +15,7 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -75,6 +76,26 @@ public:
         command(engine::ui::intern("click"), click);
         click = [this] { ++clicks; };
     }
+};
+
+// One volume channel's (Master/Music/SFX) own ViewModel — its `fraction` binding only exists
+// here, never on LauncherViewModel below, so a drag write that (incorrectly) lands on the
+// document-level VM instead of the item's own VM would silently no-op instead of changing
+// anything observable. Mirrors the real repro this regression test is for (report to WindEngine,
+// "drag inside ItemsControl/ItemTemplate", filed against Master/Music/SFX volume sliders built
+// with an ItemsControl over one row per channel).
+class VolumeChannelViewModel final : public engine::ui::ViewModel {
+public:
+    engine::ui::Bindable<float> fraction;
+
+    VolumeChannelViewModel() { property(engine::ui::intern("fraction"), fraction); }
+};
+
+class LauncherViewModel final : public engine::ui::ViewModel {
+public:
+    engine::ui::BindableList<std::shared_ptr<VolumeChannelViewModel>> channels;
+
+    LauncherViewModel() { property(engine::ui::intern("channels"), channels); }
 };
 
 class RecordingFatalError final : public engine::IFatalError {
@@ -552,6 +573,97 @@ TEST(Mvvm, DragIsIsolatedPerWindow) {
     engine::ui::update_drag(world, 32.0f, 8.0f, window_a);
     EXPECT_FLOAT_EQ(vm_a->fraction.get(), 1.0f);
     EXPECT_FLOAT_EQ(vm_b->fraction.get(), 0.5f);
+}
+
+constexpr std::string_view kVolumeChannelDragXml = R"(
+<Canvas>
+  <ItemsControl items_source="{binding channels}">
+    <ItemTemplate>
+      <Image drag="{binding fraction}"/>
+    </ItemTemplate>
+  </ItemsControl>
+</Canvas>
+)";
+
+TEST(Mvvm, DragInsideItemsControlWritesToItsOwnItemViewModelNotTheDocument) {
+    // Regression test for the bug reported against wind-114 (engine pin 79c6c79): a `drag`
+    // binding on an ItemTemplate-generated element used to always write through the canvas's own
+    // data_context, which never has the item-level property registered — the write silently
+    // no-op'd. This is the report's own repro shape: one ItemsControl row per volume channel
+    // (Master/Music/SFX), each with its own `fraction`. LauncherViewModel below deliberately has
+    // no "fraction" property at all, so this can only pass if the write reaches the right
+    // VolumeChannelViewModel.
+    engine::ecs::World world;
+    auto vm = std::make_shared<LauncherViewModel>();
+    auto master = std::make_shared<VolumeChannelViewModel>();
+    auto music = std::make_shared<VolumeChannelViewModel>();
+    auto sfx = std::make_shared<VolumeChannelViewModel>();
+    vm->channels.set({master, music, sfx});
+    spawn_canvas(world, vm, kVolumeChannelDragXml, {0.0f, 0.0f, 100.0f, 100.0f});
+
+    engine::ui::begin_frame(world);
+    // ItemsControl stacks generated items vertically with the default 32x32 Image hug box each;
+    // music's row sits at {0, 32, 32, 32}. x=8 within it is 8/32 = 0.25 on the default
+    // horizontal drag axis.
+    engine::ui::handle_pointer(world, 8.0f, 40.0f);
+
+    EXPECT_FLOAT_EQ(music->fraction.get(), 0.25f);
+    EXPECT_FLOAT_EQ(master->fraction.get(), 0.0f);
+    EXPECT_FLOAT_EQ(sfx->fraction.get(), 0.0f);
+}
+
+TEST(Mvvm, DragInsideItemsControlContinuesAcrossMoveEvents) {
+    // Proves update_drag()'s owner re-resolution path, not just handle_pointer()'s drag-start
+    // write: the drag must keep targeting master's ViewModel on later Move events too, including
+    // once (x, y) is far outside its bounds.
+    engine::ecs::World world;
+    auto vm = std::make_shared<LauncherViewModel>();
+    auto master = std::make_shared<VolumeChannelViewModel>();
+    auto music = std::make_shared<VolumeChannelViewModel>();
+    vm->channels.set({master, music});
+    spawn_canvas(world, vm, kVolumeChannelDragXml, {0.0f, 0.0f, 100.0f, 100.0f});
+
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 8.0f, 8.0f);
+    ASSERT_FLOAT_EQ(master->fraction.get(), 0.25f);
+
+    engine::ui::update_drag(world, 5000.0f, 5000.0f);
+
+    EXPECT_FLOAT_EQ(master->fraction.get(), 1.0f);
+    EXPECT_FLOAT_EQ(music->fraction.get(), 0.0f);
+}
+
+TEST(Mvvm, DragInsideItemsControlStopsWritingWhenItemRemovedMidDrag) {
+    // Not itself part of the reported repro — a general robustness guard for any ItemsControl
+    // whose items_source can shrink mid-drag. update_drag() must re-validate the captured owner
+    // against a freshly re-bound tree every frame rather than holding onto (and dereferencing) a
+    // ViewModel* across frames unconditionally.
+    engine::ecs::World world;
+    auto vm = std::make_shared<LauncherViewModel>();
+    auto master = std::make_shared<VolumeChannelViewModel>();
+    auto music = std::make_shared<VolumeChannelViewModel>();
+    vm->channels.set({master, music});
+    spawn_canvas(world, vm, kVolumeChannelDragXml, {0.0f, 0.0f, 100.0f, 100.0f});
+
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 8.0f, 8.0f);
+    ASSERT_FLOAT_EQ(master->fraction.get(), 0.25f);
+
+    // master's row is removed from the list mid-drag; music slides up to occupy its old
+    // on-screen position once bindings/layout next run.
+    vm->channels.set({music});
+    engine::ui::update_drag(world, 5000.0f, 5000.0f);
+
+    // The stale drag must not keep writing into the removed item...
+    EXPECT_FLOAT_EQ(master->fraction.get(), 0.25f);
+    // ...nor misattribute its update to whatever item now occupies that screen position.
+    EXPECT_FLOAT_EQ(music->fraction.get(), 0.0f);
+
+    // Dropping the test's own last reference actually destroys the removed item; update_drag()
+    // must not still be holding (and now dereferencing) that freed pointer.
+    master.reset();
+    engine::ui::update_drag(world, 1.0f, 1.0f);
+    engine::ui::end_drag(world);
 }
 
 TEST(Mvvm, ElementZIndexWinsHitTestWithinSameCanvas) {
