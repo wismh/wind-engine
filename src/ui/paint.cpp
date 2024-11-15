@@ -294,14 +294,14 @@ bool selector_matches(
                 return false;
             }
             --pos;
-            if (!compound_matches(compound, *ancestors[pos])) {
+            if (!subject_matches(compound, *ancestors[pos], allow_pseudo)) {
                 return false;
             }
         } else {
             bool found = false;
             while (pos > 0) {
                 --pos;
-                if (compound_matches(compound, *ancestors[pos])) {
+                if (subject_matches(compound, *ancestors[pos], allow_pseudo)) {
                     found = true;
                     break;
                 }
