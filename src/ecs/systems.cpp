@@ -242,7 +242,7 @@ void run_render(ecs::World& world, const EngineSystemDeps& deps) {
         return;
     }
 
-    const ui::WindowSize& window = world.ctx<ui::WindowSize>();
+    const ui::WindowSize window = ui::window_size_for(world, kPrimaryWindow);
     const glm::mat4 view = view_matrix(*camera_transform);
     const glm::mat4 projection = projection_matrix(*camera, window);
 
