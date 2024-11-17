@@ -1282,6 +1282,76 @@ TEST(UiPainter, ChildSelectorMatchesDirectChildOnly) {
     EXPECT_NEAR(nested_fill->color.g, 1.0f, 0.01f);
 }
 
+TEST(UiPainter, ChildSelectorMatchesHoveredAncestorPseudo) {
+    // paint.cpp used to drop `.pseudo` for every ancestor compound in a selector chain
+    // (selector_matches called raw compound_matches instead of subject_matches for ancestors), so
+    // `X:hover > Y` never matched no matter how X's own :hover rules behaved. This is the tooltip
+    // shape from the skill-tree UI report: a hoverable node revealing a child popup.
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Button class="node">
+            <Label class="tooltip" text="T"/>
+          </Button>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        Button { width: 100; height: 100; }
+        Label { width: 40; height: 16; background: #00ff00; }
+        Button.node:hover > .tooltip { background: #ff0000; }
+    )");
+    const engine::ui::Element* tooltip = find_class(parsed->root, "tooltip");
+    ASSERT_NE(tooltip, nullptr);
+
+    FakePainter idle;
+    engine::ui::paint_document(*parsed, &sheet, idle,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 100.f, 100.f}, .pointer = {1000.f, 1000.f}});
+    const PaintCall* idle_fill = find_fill_at(idle, tooltip->layout_rect);
+    ASSERT_NE(idle_fill, nullptr);
+    EXPECT_NEAR(idle_fill->color.g, 1.0f, 0.01f);
+
+    FakePainter hover;
+    engine::ui::paint_document(*parsed, &sheet, hover,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 100.f, 100.f}, .pointer = {10.f, 10.f}});
+    const PaintCall* hover_fill = find_fill_at(hover, tooltip->layout_rect);
+    ASSERT_NE(hover_fill, nullptr);
+    EXPECT_NEAR(hover_fill->color.r, 1.0f, 0.01f);
+}
+
+TEST(UiPainter, DescendantSelectorMatchesHoveredAncestorPseudo) {
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Button class="node">
+            <Stack class="inner">
+              <Label class="tooltip" text="T"/>
+            </Stack>
+          </Button>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        Button { width: 100; height: 100; }
+        Label { width: 40; height: 16; background: #00ff00; }
+        Button.node:hover .tooltip { background: #ff0000; }
+    )");
+    const engine::ui::Element* tooltip = find_class(parsed->root, "tooltip");
+    ASSERT_NE(tooltip, nullptr);
+
+    FakePainter idle;
+    engine::ui::paint_document(*parsed, &sheet, idle,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 100.f, 100.f}, .pointer = {1000.f, 1000.f}});
+    const PaintCall* idle_fill = find_fill_at(idle, tooltip->layout_rect);
+    ASSERT_NE(idle_fill, nullptr);
+    EXPECT_NEAR(idle_fill->color.g, 1.0f, 0.01f);
+
+    FakePainter hover;
+    engine::ui::paint_document(*parsed, &sheet, hover,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 100.f, 100.f}, .pointer = {10.f, 10.f}});
+    const PaintCall* hover_fill = find_fill_at(hover, tooltip->layout_rect);
+    ASSERT_NE(hover_fill, nullptr);
+    EXPECT_NEAR(hover_fill->color.r, 1.0f, 0.01f);
+}
+
 TEST(UiPainter, WidthPercentOfParentContentBox) {
     auto parsed = engine::ui::parse_xml(R"(
         <Canvas>
