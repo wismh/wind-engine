@@ -61,9 +61,7 @@ Time& Host::time() {
 
 void Host::write_window_size(int width, int height, bool send_event) {
     ecs::World& world_ref = world();
-    ui::WindowSize& size = world_ref.ctx<ui::WindowSize>();
-    size.width = width;
-    size.height = height;
+    world_ref.ctx<ui::WindowSizes>().sizes[kPrimaryWindow] = ui::WindowSize{width, height};
     if (send_event) {
         ecs::EventWriter<ui::WindowResizeEvent>{world_ref}.send(
                 ui::WindowResizeEvent{.window = kPrimaryWindow, .width = width, .height = height});
