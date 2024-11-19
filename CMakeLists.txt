@@ -275,6 +275,16 @@ function(engine_add_game target)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8)
     endif()
+    if(WIN32 AND MSVC)
+        # Release-ish configs hide the console window (players shouldn't see a terminal); Debug
+        # keeps it so spdlog output is visible live. /ENTRY:mainCRTStartup keeps the ordinary
+        # int main(int, char**) entry point instead of requiring a WinMain — the CRT startup
+        # routine mainCRTStartup already parses argv and calls main() either way, /SUBSYSTEM just
+        # controls whether the OS allocates a console for the process.
+        target_link_options(${target} PRIVATE
+            "$<$<NOT:$<CONFIG:Debug>>:/SUBSYSTEM:WINDOWS>"
+            "$<$<NOT:$<CONFIG:Debug>>:/ENTRY:mainCRTStartup>")
+    endif()
     target_link_libraries(${target} PRIVATE engine)
 
     set(_include "${CMAKE_CURRENT_SOURCE_DIR}/include")
