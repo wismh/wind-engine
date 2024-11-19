@@ -213,6 +213,17 @@ TEST(UiCss, BackgroundImageIsKnownProperty) {
     EXPECT_EQ(background_image->value, "c1a1c2d3e4f5678901234567890abc0a");
 }
 
+TEST(UiCss, BackgroundRepeatIsKnownProperty) {
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css(".x { background-repeat: repeat; }", warnings);
+    ASSERT_TRUE(sheet.has_value());
+    EXPECT_FALSE(warning_mentions(warnings, "background-repeat"));
+    ASSERT_EQ(sheet->rules.size(), 1u);
+    const engine::ui::CssDeclaration* background_repeat = find_declaration(sheet->rules[0], "background-repeat");
+    ASSERT_NE(background_repeat, nullptr);
+    EXPECT_EQ(background_repeat->value, "repeat");
+}
+
 TEST(UiCss, BackgroundImageFilenameWarns) {
     std::vector<std::string> warnings;
     const auto sheet = engine::ui::parse_css("Button { background-image: hover.png; }", warnings);
