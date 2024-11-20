@@ -126,7 +126,7 @@ A small real-time 2D engine (**Wind**): window, input, ECS, command-buffer rende
 - `.meta` files are **TOML** (tomlplusplus).
 - `ASSETS_PATH` is resolved from the **executable directory** (e.g. `SDL_GetBasePath()`), not the process cwd.
 - Asset GUIDs: exactly 32 lowercase hex chars; stable once referenced. Never reuse a GUID.
-- Logging: spdlog **only in `src/`**. Public facade `engine::log::{info,warn,error}` (no spdlog types in `include/`). File: `<exe dir>/game.log`.
+- Logging: spdlog **only in `src/`**. Public facade `engine::log::{info,warn,error}` (no spdlog types in `include/`). File: `<exe dir>/game.log`; Debug builds also mirror to a stdout color sink (§19.2 explains why that matters on Windows).
 - Fatal errors (missing cooked asset, corrupt catalog): `IFatalError` hook — game shows a system dialog and quits; tests fail the assertion. Not C++ exceptions for normal gameplay.
 - Tests: GoogleTest (same pattern as Q+: `gtest_force_shared_crt`, `INSTALL_GTEST OFF`). `enable_testing()` + `gtest_discover_tests`.
 - **Main thread only.** `World`, GL, mixer, `AssetsDb`, UI bindings — not thread-safe. Do not call engine APIs from worker threads.
@@ -1343,6 +1343,17 @@ time — never at runtime, so none of this links into the shipped binary.
 | Android | `mipmap-*/ic_launcher.png` merged in via the game's resource overlay (§19.5); `android:icon="@mipmap/ic_launcher"` added to `<application>` in the engine's `AndroidManifest.xml`. | flat legacy PNG per density (no adaptive layers — §17) |
 | Web | `favicon.png` copied beside the Emscripten output (same mechanism as `engine_target_web_preload`); `<link rel="icon">` added to `cmake/web/shell.html`. | `.png` |
 | Linux | Not covered — no `install()` target exists for games yet (§17). | — |
+
+### 19.2a Windows console visibility
+
+`engine_add_game` links Release-ish configs (`$<NOT:$<CONFIG:Debug>>`) with
+`/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup` — players get no terminal window, and the game keeps
+writing an ordinary `int main(int, char**)` because `mainCRTStartup` (the normal CRT entry point
+that parses argv and calls `main`) still runs; only `/SUBSYSTEM` changes whether the OS allocates a
+console for the process. No `WinMain` shim needed. Debug configs are left untouched (console
+subsystem, visible terminal) specifically so the stdout sink added to `engine::log` in Debug (§2.3)
+has something to print to — a hidden console with no stdout sink would silently drop the exact
+output a developer is running a Debug build to see.
 
 `.ico` and `.icns` are not opaque platform-proprietary formats needing a platform-specific
 encoder — both are containers that wrap already-decoded PNGs behind a small binary header
