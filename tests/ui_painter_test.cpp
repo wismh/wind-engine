@@ -42,6 +42,8 @@ struct PaintCall {
     float rotation_radians = 0.0f;
     float transform_scale = 1.0f;
     engine::ui::BoxInsets insets{};
+    glm::vec2 line_from{};
+    glm::vec2 line_to{};
 };
 
 class FakePainter final : public engine::ui::IUiPainter {
@@ -72,6 +74,11 @@ public:
 
     void stroke_rounded_rect(const engine::render::Rect& rect, float radius, float width, glm::vec4 color) override {
         calls.push_back(PaintCall{.op = "stroke_rect", .rect = rect, .color = color, .radius = radius, .width = width});
+    }
+
+    void draw_line(glm::vec2 from, glm::vec2 to, glm::vec4 color, float width) override {
+        calls.push_back(
+                PaintCall{.op = "line", .color = color, .width = width, .line_from = from, .line_to = to});
     }
 
     void set_font(engine::AssetId font, float size) override {
@@ -487,6 +494,86 @@ TEST(UiPainter, CustomPropertyDrivesRelativePositionTopLeft) {
     ASSERT_NE(fill, nullptr);
     EXPECT_FLOAT_EQ(fill->rect.x, 3.0f);
     EXPECT_FLOAT_EQ(fill->rect.y, 5.0f);
+}
+
+TEST(UiPainter, LineStaticCoordinatesDrawScreenSpaceSegment) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Line class="edge"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .edge {
+            position: absolute; top: 10; left: 20;
+            x1: 0; y1: 0; x2: 40; y2: 30;
+            stroke: #ff0000; stroke-width: 4;
+        }
+    )");
+
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 200.f}});
+
+    const PaintCall* line = painter.find("line");
+    ASSERT_NE(line, nullptr);
+    // Endpoints are offsets from the Line element's own layout_rect origin (20, 10 here, from
+    // position:absolute; top/left), not canvas-absolute coordinates.
+    EXPECT_FLOAT_EQ(line->line_from.x, 20.0f);
+    EXPECT_FLOAT_EQ(line->line_from.y, 10.0f);
+    EXPECT_FLOAT_EQ(line->line_to.x, 60.0f);
+    EXPECT_FLOAT_EQ(line->line_to.y, 40.0f);
+    EXPECT_NEAR(line->color.r, 1.0f, 0.01f);
+    EXPECT_FLOAT_EQ(line->width, 4.0f);
+}
+
+class SkillNodeVm final : public engine::ui::ViewModel {
+public:
+    engine::ui::Bindable<std::string> ax{"0"};
+    engine::ui::Bindable<std::string> ay{"0"};
+    engine::ui::Bindable<std::string> bx{"48"};
+    engine::ui::Bindable<std::string> by{"64"};
+
+    SkillNodeVm() {
+        property(engine::ui::intern("ax"), ax);
+        property(engine::ui::intern("ay"), ay);
+        property(engine::ui::intern("bx"), bx);
+        property(engine::ui::intern("by"), by);
+    }
+};
+
+TEST(UiPainter, LineVarBoundCoordinatesTrackViewModel) {
+    // The skill-tree UI report asked for a way to connect two graph nodes with a line whose
+    // endpoints come from runtime layout data. Rather than a bespoke id-to-id "Edge" concept, Line
+    // endpoints are ordinary CSS lengths, so they get var()-bound VM data through the exact
+    // mechanism CustomPropertyDrivesRelativePositionTopLeft already proves for top/left above.
+    SkillNodeVm vm;
+    auto parsed = engine::ui::parse_xml(
+            R"(<Canvas><Line class="edge" var-ax="{binding ax}" var-ay="{binding ay}"
+                             var-bx="{binding bx}" var-by="{binding by}"/></Canvas>)",
+            nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+
+    const engine::ui::Stylesheet sheet = must_parse_css(
+            ".edge { x1: var(--ax); y1: var(--ay); x2: var(--bx); y2: var(--by); stroke: #00ff00; }");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 200.f}});
+
+    const PaintCall* line = painter.find("line");
+    ASSERT_NE(line, nullptr);
+    EXPECT_FLOAT_EQ(line->line_from.x, 0.0f);
+    EXPECT_FLOAT_EQ(line->line_from.y, 0.0f);
+    EXPECT_FLOAT_EQ(line->line_to.x, 48.0f);
+    EXPECT_FLOAT_EQ(line->line_to.y, 64.0f);
+
+    vm.bx.set("96");
+    vm.by.set("10");
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+    FakePainter moved;
+    engine::ui::paint_document(*parsed, &sheet, moved,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 200.f}});
+    const PaintCall* moved_line = moved.find("line");
+    ASSERT_NE(moved_line, nullptr);
+    EXPECT_FLOAT_EQ(moved_line->line_to.x, 96.0f);
+    EXPECT_FLOAT_EQ(moved_line->line_to.y, 10.0f);
 }
 
 TEST(UiPainter, AbsoluteChildDoesNotConsumeFlowSpace) {
