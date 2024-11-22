@@ -12,6 +12,7 @@
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -280,6 +281,32 @@ TEST(UiPainter, LabelTextFromXmlAndCssColor) {
     EXPECT_FLOAT_EQ(text->position.y, 0.0f);
     EXPECT_EQ(text->horizontal, engine::ui::UiAlign::Start);
     EXPECT_EQ(text->vertical, engine::ui::UiAlign::Start);
+}
+
+TEST(UiPainter, SpaceSeparatedClassesEachApplyIndependently) {
+    TitleVm vm;
+    auto parsed =
+            engine::ui::parse_xml(R"(<Canvas><Label class="title bold" text="{binding title}"/></Canvas>)", nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+
+    const engine::ui::Stylesheet sheet =
+            must_parse_css(".title { color: #ff0000; } .bold { font-size: 24; } Label.bold { opacity: 0.5; }");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    const PaintCall* text = painter.find("text");
+    ASSERT_NE(text, nullptr);
+    EXPECT_FLOAT_EQ(text->color.r, 1.0f);
+    const PaintCall* font = painter.find("font");
+    ASSERT_NE(font, nullptr);
+    EXPECT_FLOAT_EQ(font->font_size, 24.0f);
+    // The Label's own opacity call, not the Canvas root's - "opacity" fires once per element in
+    // document order, so the Label's is the last one.
+    const auto opacity_it = std::ranges::find_last(painter.calls, "opacity", &PaintCall::op);
+    ASSERT_FALSE(opacity_it.empty());
+    EXPECT_FLOAT_EQ(opacity_it.front().opacity, 0.5f);
 }
 
 TEST(UiPainter, FontFamilyGuidFromCss) {
@@ -1326,7 +1353,7 @@ TEST(UiPainter, LaterStylesheetWinsAtEqualSpecificity) {
 }
 
 [[nodiscard]] const engine::ui::Element* find_class(const engine::ui::Element& root, std::string_view class_name) {
-    if (root.class_name == class_name) {
+    if (std::ranges::find(root.classes, class_name) != root.classes.end()) {
         return &root;
     }
     for (const engine::ui::Element& child : root.children) {
@@ -1733,8 +1760,8 @@ TEST(UiPainter, OnlyTopmostOverlappingButtonGetsHovered) {
     ASSERT_EQ(parsed->root.children.size(), 2u);
     const engine::ui::Element& back = parsed->root.children[0];
     const engine::ui::Element& front = parsed->root.children[1];
-    ASSERT_EQ(back.class_name, "back");
-    ASSERT_EQ(front.class_name, "front");
+    ASSERT_EQ(back.classes, std::vector<std::string>{"back"});
+    ASSERT_EQ(front.classes, std::vector<std::string>{"front"});
     // "back" has the higher z-index, so it's the topmost element at (5,5) despite being first
     // in document order - it alone gets :hover, "front" does not (they geometrically overlap).
     EXPECT_TRUE(back.hovered);
