@@ -424,6 +424,7 @@ struct CmdDrawMesh {
     std::shared_ptr<IMaterial> material;
     glm::mat4 model, view, projection;
     glm::vec4 color{1, 1, 1, 1};
+    std::optional<MaterialOverride> material_override;  // §6.2
 };
 ```
 
@@ -464,7 +465,20 @@ albedo = "32-hex-guid-of-texture"
 
 `AssetsDb::get<IMaterial>(id)`. Games may multiply instance color on `Renderable`; they do not set GL blend in C++.
 
-Shared material = one GPU bind if consecutive sorted draws share `IMaterial*`. No material-instancing graph in v1 (no Unity MaterialPropertyBlock beyond `Renderable::color`).
+Shared material = one GPU bind if consecutive sorted draws share `IMaterial*`.
+
+Per-instance escape hatch beyond `Renderable::color`, analogous to Unity's `MaterialPropertyBlock`: a `Renderable`/`Sprite` may carry a `MaterialOverride` that replaces the material's `texture(0)` and/or sets named shader `vec4` uniforms for that one draw, without minting a new `IMaterial`.
+
+```cpp
+struct MaterialOverride {
+    std::shared_ptr<ITexture> albedo;                                // replaces texture(0) when set
+    std::vector<std::pair<std::string, glm::vec4>> vec4_params;      // applied after the material's own uniforms
+
+    void set_vec4(std::string_view name, const glm::vec4& value);    // replace-if-present, else append
+};
+```
+
+It flows `Renderable`/`Sprite` → `CmdDrawMesh::material_override` → the backend's existing named-uniform setters (`IShader::set_vec4` et al.). It is data only, applied by the same fixed execute path as every other `CmdDrawMesh` — not a callback, so it does not reopen the `CmdCustomDraw` question (§16 rule 11). Scope in v1 is texture slot 0 plus `vec4` params only; other param kinds (float, vec2) and `CmdDrawParticles` support are not implemented — add them the same way if a real use case needs them.
 
 Engine **builtin** unlit sprite material + unit quad + default shader: well-known ids in `engine::builtin` (§10.8). Games that only need a tinted sprite use those plus their own albedo (or a `.mat` that already references it).
 
@@ -477,8 +491,11 @@ struct Renderable {
     glm::vec4 color{1, 1, 1, 1};  // multiply with material color
     int layer = 0;                // coarse; world 0, foreground 10, …
     int order_in_layer = 0;       // painter order inside the layer
+    std::optional<MaterialOverride> material_override;  // §6.2, per-instance texture/uniform override
 };
 ```
+
+`Sprite` carries the same `material_override` field, for the same reason.
 
 `RenderSystem` (`Phase::Render`) collects `view<Renderable, Transform>()`, sorts, then pushes `CmdDrawMesh`.
 

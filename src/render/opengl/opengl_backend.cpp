@@ -117,6 +117,17 @@ void execute_draw_mesh(const CmdDrawMesh& cmd) {
         }
     }
 
+    if (cmd.material_override) {
+        if (const auto override_tex = std::dynamic_pointer_cast<OpenGLTexture>(cmd.material_override->albedo)) {
+            if (override_tex->valid()) {
+                override_tex->bind(0);
+            }
+        }
+        for (const auto& [name, value] : cmd.material_override->vec4_params) {
+            shader->set_vec4(name, value);
+        }
+    }
+
     mesh->draw();
 }
 
