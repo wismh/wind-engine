@@ -43,6 +43,13 @@ WindowSize window_size_for(ecs::World& world, WindowId id) {
     return it == sizes.sizes.end() ? WindowSize{} : it->second;
 }
 
+UiPointer& pointer_for(ecs::World& world, WindowId id) {
+    if (id == kPrimaryWindow) {
+        return world.ctx<UiPointer>();
+    }
+    return world.ctx<UiPointers>().pointers[id];
+}
+
 UiCanvasSpace canvas_layout_space(const render::Rect& rect, UiFit fit, glm::vec2 reference_size) {
     if (fit == UiFit::ScaleWithScreenSize && reference_size.x > 0.0f && reference_size.y > 0.0f) {
         return UiCanvasSpace{

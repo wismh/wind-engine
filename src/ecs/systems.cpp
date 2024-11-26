@@ -32,8 +32,8 @@ namespace {
 
 void run_input(ecs::World& world) {
     ui::begin_frame(world);
-    ui::UiPointer& pointer = world.ctx<ui::UiPointer>();
     for (const MouseEvent& event : ecs::EventReader<MouseEvent>{world, world.ctx<ecs::EventCursor<MouseEvent>>()}) {
+        ui::UiPointer& pointer = ui::pointer_for(world, event.window);
         if (event.kind == MouseEvent::Kind::Move || event.kind == MouseEvent::Kind::Down ||
                 event.kind == MouseEvent::Kind::Up) {
             pointer.position = event.position;
@@ -253,7 +253,6 @@ void run_ui_render(ecs::World& world, const EngineSystemDeps& deps) {
         return;
     }
 
-    const ui::UiPointer& pointer = world.ctx<ui::UiPointer>();
     const Time& time = world.ctx<Time>();
     std::vector<CanvasDraw> canvases;
     {
@@ -283,6 +282,7 @@ void run_ui_render(ecs::World& world, const EngineSystemDeps& deps) {
     // invocation with no state to carry across frames.
     std::unordered_set<WindowId> cleared_windows;
     for (const CanvasDraw& canvas : canvases) {
+        const ui::UiPointer& pointer = ui::pointer_for(world, canvas.window);
         const ui::WindowSize size = ui::window_size_for(world, canvas.window);
         const ui::UiCanvasSpace space = ui::canvas_layout_space(canvas.rect, canvas.fit, canvas.reference_size);
         const float window_width = space.reference_space ? space.layout_rect.w : static_cast<float>(size.width);
