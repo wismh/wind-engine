@@ -1,9 +1,12 @@
 #include <gtest/gtest.h>
 
+#include "ui/bind_scan.h"
+
 #include <engine/resources/fatal_error.h>
 #include <engine/ui/document.h>
 #include <engine/ui/view_model.h>
 
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -123,5 +126,143 @@ TEST(UiXml, InvalidSliceIsFatal) {
     EXPECT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::InvalidMarkup);
     EXPECT_GE(fatal.call_count, 1);
+}
+
+TEST(UiXml, ItemTemplateSrcSplicesReferencedRootAsChild) {
+    const engine::ui::UiIncludeResolver resolve = [](std::string_view src) -> std::optional<std::string> {
+        if (src == "row.xml") {
+            return std::string(R"(<Label class="row" content="hello"/>)");
+        }
+        return std::nullopt;
+    };
+    const auto parsed =
+            engine::ui::parse_xml(R"(<Canvas><ItemTemplate src="row.xml"/></Canvas>)", nullptr, nullptr, resolve);
+    ASSERT_TRUE(parsed.has_value());
+
+    const engine::ui::Element& tmpl = parsed->root.children.at(0);
+    EXPECT_EQ(tmpl.kind, engine::ui::ElementKind::ItemTemplate);
+    ASSERT_EQ(tmpl.children.size(), 1u);
+    EXPECT_EQ(tmpl.children[0].kind, engine::ui::ElementKind::Label);
+    EXPECT_EQ(tmpl.children[0].class_name, "row");
+    EXPECT_EQ(tmpl.children[0].text, "hello");
+}
+
+TEST(UiXml, ItemTemplateSrcResolvesNestedIncludes) {
+    const engine::ui::UiIncludeResolver resolve = [](std::string_view src) -> std::optional<std::string> {
+        if (src == "outer.xml") {
+            return std::string(R"(<Stack><ItemTemplate src="inner.xml"/></Stack>)");
+        }
+        if (src == "inner.xml") {
+            return std::string(R"(<Label content="deep"/>)");
+        }
+        return std::nullopt;
+    };
+    const auto parsed =
+            engine::ui::parse_xml(R"(<Canvas><ItemTemplate src="outer.xml"/></Canvas>)", nullptr, nullptr, resolve);
+    ASSERT_TRUE(parsed.has_value());
+
+    const engine::ui::Element& outer_tmpl = parsed->root.children.at(0);
+    ASSERT_EQ(outer_tmpl.children.size(), 1u);
+    const engine::ui::Element& stack = outer_tmpl.children[0];
+    EXPECT_EQ(stack.kind, engine::ui::ElementKind::Stack);
+    ASSERT_EQ(stack.children.size(), 1u);
+    const engine::ui::Element& inner_tmpl = stack.children[0];
+    EXPECT_EQ(inner_tmpl.kind, engine::ui::ElementKind::ItemTemplate);
+    ASSERT_EQ(inner_tmpl.children.size(), 1u);
+    EXPECT_EQ(inner_tmpl.children[0].text, "deep");
+}
+
+TEST(UiXml, ItemTemplateSrcWithoutResolverIsFatal) {
+    RecordingFatalError fatal;
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><ItemTemplate src="row.xml"/></Canvas>)", &fatal);
+    EXPECT_FALSE(parsed.has_value());
+    EXPECT_EQ(parsed.error(), engine::ui::UiError::Io);
+    EXPECT_GE(fatal.call_count, 1);
+}
+
+TEST(UiXml, ItemTemplateSrcMissingFileIsFatal) {
+    RecordingFatalError fatal;
+    const engine::ui::UiIncludeResolver resolve = [](std::string_view) -> std::optional<std::string> {
+        return std::nullopt;
+    };
+    const auto parsed =
+            engine::ui::parse_xml(R"(<Canvas><ItemTemplate src="missing.xml"/></Canvas>)", &fatal, nullptr, resolve);
+    EXPECT_FALSE(parsed.has_value());
+    EXPECT_EQ(parsed.error(), engine::ui::UiError::Io);
+}
+
+TEST(UiXml, ItemTemplateSrcInvalidXmlIsFatal) {
+    RecordingFatalError fatal;
+    const engine::ui::UiIncludeResolver resolve = [](std::string_view) -> std::optional<std::string> {
+        return std::string("not xml <<<");
+    };
+    const auto parsed =
+            engine::ui::parse_xml(R"(<Canvas><ItemTemplate src="broken.xml"/></Canvas>)", &fatal, nullptr, resolve);
+    EXPECT_FALSE(parsed.has_value());
+    EXPECT_EQ(parsed.error(), engine::ui::UiError::InvalidMarkup);
+}
+
+TEST(UiXml, ItemTemplateSrcWithInlineChildrenIsFatal) {
+    RecordingFatalError fatal;
+    const engine::ui::UiIncludeResolver resolve = [](std::string_view) -> std::optional<std::string> {
+        return std::string(R"(<Label content="hi"/>)");
+    };
+    const auto parsed = engine::ui::parse_xml(
+            R"(<Canvas><ItemTemplate src="row.xml"><Label content="inline"/></ItemTemplate></Canvas>)", &fatal, nullptr,
+            resolve);
+    EXPECT_FALSE(parsed.has_value());
+    EXPECT_EQ(parsed.error(), engine::ui::UiError::InvalidMarkup);
+}
+
+TEST(UiXml, ItemTemplateSrcSelfIncludeIsFatal) {
+    RecordingFatalError fatal;
+    const engine::ui::UiIncludeResolver resolve = [](std::string_view src) -> std::optional<std::string> {
+        if (src == "self.xml") {
+            return std::string(R"(<ItemTemplate src="self.xml"/>)");
+        }
+        return std::nullopt;
+    };
+    const auto parsed =
+            engine::ui::parse_xml(R"(<Canvas><ItemTemplate src="self.xml"/></Canvas>)", &fatal, nullptr, resolve);
+    EXPECT_FALSE(parsed.has_value());
+    EXPECT_EQ(parsed.error(), engine::ui::UiError::CyclicInclude);
+}
+
+TEST(UiXml, ItemTemplateSrcIndirectCycleIsFatal) {
+    RecordingFatalError fatal;
+    const engine::ui::UiIncludeResolver resolve = [](std::string_view src) -> std::optional<std::string> {
+        if (src == "a.xml") {
+            return std::string(R"(<ItemTemplate src="b.xml"/>)");
+        }
+        if (src == "b.xml") {
+            return std::string(R"(<ItemTemplate src="a.xml"/>)");
+        }
+        return std::nullopt;
+    };
+    const auto parsed =
+            engine::ui::parse_xml(R"(<Canvas><ItemTemplate src="a.xml"/></Canvas>)", &fatal, nullptr, resolve);
+    EXPECT_FALSE(parsed.has_value());
+    EXPECT_EQ(parsed.error(), engine::ui::UiError::CyclicInclude);
+}
+
+TEST(UiXml, ScanBindTreeResolvesBindingsInsideIncludedTemplate) {
+    const engine::ui::UiIncludeResolver resolve = [](std::string_view src) -> std::optional<std::string> {
+        if (src == "row.xml") {
+            return std::string(R"(<Button command="{binding click}" content="{binding mark}"/>)");
+        }
+        return std::nullopt;
+    };
+    const auto binder = engine::ui::scan_bind_tree(
+            R"(<Canvas><ItemsControl items_source="{binding cells}"><ItemTemplate src="row.xml"/></ItemsControl></Canvas>)",
+            resolve);
+    ASSERT_TRUE(binder.has_value());
+    ASSERT_EQ(binder->nested.size(), 1u);
+    EXPECT_EQ(binder->nested[0].first, "cells");
+    const engine::ui::BindBinder& item_binder = binder->nested[0].second;
+    ASSERT_EQ(item_binder.members.size(), 2u);
+    EXPECT_EQ(item_binder.members[0].path, "mark");
+    EXPECT_FALSE(item_binder.members[0].is_command);
+    EXPECT_EQ(item_binder.members[1].path, "click");
+    EXPECT_TRUE(item_binder.members[1].is_command);
 }
 

@@ -154,7 +154,11 @@ std::expected<std::shared_ptr<void>, AssetError> load_cpu(
         if (!bytes) {
             return std::unexpected(AssetError::Corrupt);
         }
-        auto parsed = ui::parse_xml(*bytes, nullptr);
+        const std::filesystem::path base_dir = path.parent_path();
+        const ui::UiIncludeResolver resolve_include = [base_dir](std::string_view src) -> std::optional<std::string> {
+            return read_all(base_dir / std::string(src));
+        };
+        auto parsed = ui::parse_xml(*bytes, nullptr, nullptr, resolve_include);
         if (!parsed) {
             return std::unexpected(AssetError::Corrupt);
         }
