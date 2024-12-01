@@ -154,6 +154,38 @@ std::expected<void, UiError> parse_source(Element& element, const char* attr, IF
     return {};
 }
 
+// Attributes named `var-<name>="{binding path}"` become CustomPropertyBinding{name, id} — resolved
+// every frame in bind_element and substituted for `var(--<name>)` in CSS declarations (paint.cpp).
+// Always a {binding}, never a literal: a static override belongs in the stylesheet as `--name: ...;`.
+std::expected<void, UiError> parse_custom_properties(
+        Element& element, const tinyxml2::XMLElement* xml, IFatalError* fatal, const ViewModel* vm, bool in_template) {
+    constexpr std::string_view kPrefix = "var-";
+    for (const tinyxml2::XMLAttribute* attr = xml->FirstAttribute(); attr != nullptr; attr = attr->Next()) {
+        const std::string_view attr_name = attr->Name() != nullptr ? attr->Name() : "";
+        if (!attr_name.starts_with(kPrefix) || attr_name.size() == kPrefix.size()) {
+            continue;
+        }
+        const std::string_view name = attr_name.substr(kPrefix.size());
+        const std::string_view value = attr->Value() != nullptr ? attr->Value() : "";
+        const auto binding = try_parse_binding(value);
+        if (!binding) {
+            report(fatal, "UI custom property must be a {binding} path: " + std::string(attr_name));
+            return std::unexpected(UiError::ForbiddenContent);
+        }
+        if (binding->empty()) {
+            report(fatal, "UI binding is missing a registered name");
+            return std::unexpected(UiError::MissingBinding);
+        }
+        const BindingId id = intern(*binding);
+        if (vm != nullptr && !in_template && !vm->has_property(id)) {
+            report(fatal, "UI binding name is not registered: " + *binding);
+            return std::unexpected(UiError::MissingBinding);
+        }
+        element.custom_property_bindings.push_back(CustomPropertyBinding{std::string(name), id});
+    }
+    return {};
+}
+
 std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, IFatalError* fatal, const ViewModel* vm,
         bool in_template, const UiIncludeResolver& resolve_include, std::vector<std::string>& include_stack) {
     const auto kind = kind_from_tag(xml->Name());
@@ -218,6 +250,9 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
     if (auto result = assign_property_binding(element.items_source_binding, element.text, xml->Attribute("items_source"),
                 fatal, vm, in_template);
             !result) {
+        return std::unexpected(result.error());
+    }
+    if (auto result = parse_custom_properties(element, xml, fatal, vm, in_template); !result) {
         return std::unexpected(result.error());
     }
 
@@ -291,6 +326,17 @@ void add_bind_attr(BindBinder& binder, const char* attr, bool is_command) {
     add_bind_member(binder, *binding, is_command);
 }
 
+void add_bind_custom_properties(BindBinder& binder, const tinyxml2::XMLElement* xml) {
+    constexpr std::string_view kPrefix = "var-";
+    for (const tinyxml2::XMLAttribute* attr = xml->FirstAttribute(); attr != nullptr; attr = attr->Next()) {
+        const std::string_view attr_name = attr->Name() != nullptr ? attr->Name() : "";
+        if (!attr_name.starts_with(kPrefix) || attr_name.size() == kPrefix.size()) {
+            continue;
+        }
+        add_bind_attr(binder, attr->Value(), false);
+    }
+}
+
 BindBinder& nested_binder(BindBinder& binder, const std::string& items_path) {
     for (auto& entry : binder.nested) {
         if (entry.first == items_path) {
@@ -337,6 +383,7 @@ void collect_bind_element(const tinyxml2::XMLElement* xml, BindBinder& binder, c
     add_bind_attr(binder, xml->Attribute("command"), true);
     add_bind_attr(binder, xml->Attribute("source"), false);
     add_bind_attr(binder, xml->Attribute("items_source"), false);
+    add_bind_custom_properties(binder, xml);
 
     std::string items_path;
     if (kind_from_tag(xml->Name()) == ElementKind::ItemsControl) {
