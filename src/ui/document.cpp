@@ -10,6 +10,7 @@
 #include <cmath>
 #include <limits>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 namespace engine::ui {
@@ -470,6 +471,16 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
     }
 
     if (element.kind == ElementKind::ItemsControl && is_bound(element.items_source_binding) && !in_template) {
+        // Reconcile by ViewModel* identity instead of clearing+rebuilding from the static
+        // ItemTemplate every frame: an item still present in items_source reuses (re-binds in
+        // place) its previous Element(s), preserving animation_elapsed and any other per-instance
+        // runtime state across frames. Only a genuinely new item is cloned fresh from the template;
+        // an item no longer in items_source simply isn't claimed and its old Element(s) are dropped
+        // when `previous_by_owner` goes out of scope.
+        std::unordered_map<const void*, std::vector<Element>> previous_by_owner;
+        for (Element& old : element.generated_items) {
+            previous_by_owner[old.generated_owner].push_back(std::move(old));
+        }
         element.generated_items.clear();
         const Element* tmpl = nullptr;
         for (const Element& child : element.children) {
@@ -479,15 +490,28 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
             }
         }
         if (tmpl != nullptr) {
+            const std::size_t expected_count = tmpl->children.empty() ? 1 : tmpl->children.size();
             const std::vector<ViewModel*> items = vm.read_item_source(element.items_source_binding);
             for (ViewModel* item : items) {
                 if (item == nullptr) {
+                    continue;
+                }
+                if (const auto reused = previous_by_owner.find(item);
+                        reused != previous_by_owner.end() && reused->second.size() == expected_count) {
+                    for (Element& clone : reused->second) {
+                        if (auto result = bind_element(clone, *item, fatal, false); !result) {
+                            return result;
+                        }
+                        element.generated_items.push_back(std::move(clone));
+                    }
+                    previous_by_owner.erase(reused);
                     continue;
                 }
                 if (tmpl->children.empty()) {
                     Element clone = *tmpl;
                     clone.kind = ElementKind::Stack;
                     clone.children.clear();
+                    clone.generated_owner = item;
                     if (auto result = bind_element(clone, *item, fatal, false); !result) {
                         return result;
                     }
@@ -497,6 +521,7 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
                 for (const Element& node : tmpl->children) {
                     Element clone = node;
                     clone.generated_items.clear();
+                    clone.generated_owner = item;
                     if (auto result = bind_element(clone, *item, fatal, false); !result) {
                         return result;
                     }
