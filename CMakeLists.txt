@@ -158,7 +158,7 @@ function(engine_prepare_runtime target)
     endif()
 endfunction()
 
-# Windowed remake: executable + C++23 + asset_codegen + runtime asset copy.
+# Windowed game: executable + C++23 + asset_codegen + runtime asset copy.
 # Call after add_subdirectory(external/engine). Remaining args are sources.
 function(engine_add_game target)
     if(NOT ARGN)

@@ -56,4 +56,4 @@ flowchart LR
 
 ## Mental model
 
-A remake is an `IGame` (usually `GameBase`). `Engine<GameT>` (windowed) constructs services with Boost.DI, loads catalogs into [[include.engine.resources.assets_db.h|AssetsDb]], registers [[include.engine.ecs.systems.h|engine systems]], then [[include.engine.core.engine_runtime.h|EngineRuntime]] runs the loop. Games never call OpenGL; they spawn ECS components and push work through events / UI commands. The backend executes a [[include.engine.render.command_buffer.h|CommandBuffer]].
+A game is an `IGame` (usually `GameBase`). `Engine<GameT>` (windowed) constructs services with Boost.DI, loads catalogs into [[include.engine.resources.assets_db.h|AssetsDb]], registers [[include.engine.ecs.systems.h|engine systems]], then [[include.engine.core.engine_runtime.h|EngineRuntime]] runs the loop. Games never call OpenGL; they spawn ECS components and push work through events / UI commands. The backend executes a [[include.engine.render.command_buffer.h|CommandBuffer]].
