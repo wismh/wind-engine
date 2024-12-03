@@ -4,15 +4,14 @@
 | Field     | Value                                                                                |
 | --------- | ------------------------------------------------------------------------------------ |
 | Document  | SDD-WIND-001                                                                         |
-| Project   | **Wind** — 2D game engine for remakes                                                |
+| Project   | **Wind** — a small, embeddable 2D C++ game engine                                    |
 | Status    | Design of record for the **target** standalone repo                                  |
-| Baseline  | Extracted from `_ref_ping-pong` (`github.com/wismh/ping-pong`), then adapted         |
 | Language  | C++23                                                                                |
 | Tests     | GoogleTest, target `engine_tests` (see §12)                                          |
-| Consumers | Sibling game repos (`tic-tac-toe/`, later `pong/`, `arkanoid/`, …) via git submodule |
+| Consumers | Sibling game repos via git submodule                                                |
 
 
-This document describes **what the engine is designed to be** after extraction. Ping-pong is the working prototype; where this file disagrees with ping-pong source, **this file wins** for the new repo. Implementation notes that are still open live in §17.
+This document is the **design of record** for the engine. Implementation notes that are still open live in §17.
 
 ---
 
@@ -43,7 +42,7 @@ A small real-time 2D engine (**Wind**): window, input, ECS, command-buffer rende
 
 ### 1.3 Out of scope
 
-- Gameplay, levels, AI, menus of a specific remake.
+- Gameplay, levels, AI, menus of a specific game.
 - 3D renderer, lighting, skeletal animation.
 - Physics engine (Box2D / rapier). Current physics is AABB + velocity integration only.
 - Networking, scripting VM, editor, asset pipeline GUI.
@@ -94,8 +93,8 @@ A small real-time 2D engine (**Wind**): window, input, ECS, command-buffer rende
 5. **Assets only by GUID.** `AssetsDb::get<T>(AssetId)` (fatal if missing cooked asset) or `try_get`. No filenames in game code.
 6. **Import settings live in `.meta`.** A bare PNG/WAV is not a texture/sound until its sidecar says how to load it (color space, filter, sound bank, …).
 7. **Audio is a system, not a filename firehose.** `IAudioSystem` plays `Sound` objects produced by the audio importer, not `PlaySoundEvent{"hit.wav"}`.
-8. **Reusable across remakes.** Window title/size come from `IGame`; audio and render APIs stay game-agnostic.
-9. **Test the engine, not the remakes.** Logic that will be shared (ECS, events, commands, audio policy, meta/catalog, input, camera, fixed-step loop) has GoogleTest coverage in this repo. Gameplay stays in the game repo.
+8. **Reusable across games.** Window title/size come from `IGame`; audio and render APIs stay game-agnostic.
+9. **Test the engine, not the games built with it.** Logic that will be shared (ECS, events, commands, audio policy, meta/catalog, input, camera, fixed-step loop) has GoogleTest coverage in this repo. Gameplay stays in the game repo.
 10. **Simulation is fixed-step.** Frame time drives present and audio fades; gameplay/physics tick at a constant `fixed_delta_time` (§4.4).
 11. **UI is markup + style + VM.** Games do not build `UIElement` trees in C++. XML + custom CSS + `ViewModel` / `ICommand` (see §8).
 12. **Draw with materials, then sort.** `Renderable` is mesh + material + layer, not ad-hoc shader/texture pointers with undefined order (§6).
@@ -153,12 +152,12 @@ engine/
   external/               # git submodules (SDL3, glm, glad, spdlog, boost_di, nanovg, tinyxml2, SDL_mixer, googletest, tomlplusplus)
 ```
 
-Engine CMake **owns** third-party targets (including nanovg). Include paths use `${CMAKE_CURRENT_SOURCE_DIR}/external/…`, not `../external/` as in ping-pong.
+Engine CMake **owns** third-party targets (including nanovg). Include paths use `${CMAKE_CURRENT_SOURCE_DIR}/external/…`, not a relative `../external/` that only works when the engine is nested under one specific game.
 
 ### 3.2 Game repo
 
 ```
-tic-tac-toe/
+your-game/
   external/engine/        # git submodule, url = ../engine (local); GitHub URL later
   CMakeLists.txt
   include/game/ …
@@ -168,7 +167,7 @@ tic-tac-toe/
 
 ```cmake
 add_subdirectory(external/engine)
-engine_add_game(tic-tac-toe src/main.cpp …)
+engine_add_game(your-game src/main.cpp …)
 ```
 
 `engine_add_game` owns codegen (`asset_ids.h` + cooked `catalog.toml` under the build tree), links `engine`, and copies `assets/` + `assets/engine/` beside the exe. Missing `.meta` → configure/build FAIL; run `asset_guid` locally and commit the new `.meta`.
@@ -177,7 +176,7 @@ After clone: `git submodule update --init --recursive` (engine’s own `external
 
 ### 3.3 Why a separate repo
 
-Ping-pong nested `engine/` under a game and put SDL next to it. That cannot be a submodule. Extracting the engine makes every remake a sibling that pins a commit of `engine`.
+Nesting `engine/` directly under one game and vendoring SDL next to it cannot be a submodule. A standalone repo makes every game a sibling that pins a commit of `engine`.
 
 ### 3.4 Public headers vs private implementation
 
@@ -197,7 +196,7 @@ A game `target_link_libraries(… PRIVATE engine)` therefore sees **only** `incl
 
 **Forbidden in game code (and not possible if CMake is followed):** `#include <glad/…>`, SDL render/mixer headers, spdlog, NanoVG, tinyxml2, any `src/` engine header, `gl*` / `MIX_*` / `nvg*` calls.
 
-Ping-pong ships almost every `.h` next to the game include path. Extraction **splits** that. `IGame::window_size` uses `glm::ivec2` — glm is a **PUBLIC** link of `engine`.
+This repo **splits** public and private headers instead of shipping every `.h` next to the game include path. `IGame::window_size` uses `glm::ivec2` — glm is a **PUBLIC** link of `engine`.
 
 ---
 
@@ -273,7 +272,7 @@ Games receive services through `Game`’s constructor. Systems write/read typed 
 
 ### 4.3 One world, no Node graph
 
-Ping-pong’s `Node` / `NodeEcs` / `NodeUI` is **removed**. There is no scene-graph type beside ECS.
+There is no `Node` / `NodeEcs` / `NodeUI` scene-graph type beside ECS.
 
 `IGame` owns `ecs::World`. `on_start` registers **game** systems onto `Schedule::Fixed` or `Schedule::Frame` at `Phase::Game`. `on_fixed_update` / `on_update` run those schedules (see §4.4–§4.5).
 
@@ -295,7 +294,7 @@ There is **no** `Transform` parent. A turret that must follow a tank is a game c
 
 ### 4.4 Fixed timestep
 
-Ping-pong (and the first draft of this SDD) passed a **clamped variable `dt`** into every system. That makes physics and turn timing frame-rate dependent. This repo does **not** do that.
+An earlier draft of this SDD passed a **clamped variable `dt`** into every system. That makes physics and turn timing frame-rate dependent. This repo does **not** do that.
 
 Constants (in `Time` / Loop):
 
@@ -333,14 +332,14 @@ Registration order inside a **phase** is execution order. Games do not pick a ra
 | Phase | Who | Does |
 | --- | --- | --- |
 | `Physics` | engine | integrate, AABB probe, `CollisionEvent` |
-| `Game` | remake | movement responses, gameplay that must be fps-independent |
+| `Game` | game | movement responses, gameplay that must be fps-independent |
 
 **`Schedule::Frame`**
 
 | Phase | Who | Does |
 | --- | --- | --- |
 | `Input` | engine | `UiInputSystem` (hit-test, `ICommand::execute`, `MouseConsumed`) |
-| `Game` | remake | world picking if not consumed; mutate ViewModels; `EventWriter` |
+| `Game` | game | world picking if not consumed; mutate ViewModels; `EventWriter` |
 | `Bind` | engine | push `Bindable<T>` / commands into the XML instance tree |
 | `Audio` | engine | `EventReader<PlaySfxEvent>` / music — **after** Game so same-frame SFX work |
 | `Render` | engine | sort `Renderable`s, push `CmdDrawMesh` |
@@ -387,7 +386,7 @@ public:
 };
 ```
 
-Delta vs ping-pong: title/size are **not** hardcoded `"Ping Pong"` / `{800,600}` inside `Engine::init`. The host constructs `IGame` from the injector, then `WindowSystem::create(game->window_title(), game->window_size())`. `World` exists after `Game` construction. Host calls `register_engine_systems` then `on_start` (scene spawn, `add_system` Game phase).
+Title/size are **not** hardcoded inside `Engine::init`. The host constructs `IGame` from the injector, then `WindowSystem::create(game->window_title(), game->window_size())`. `World` exists after `Game` construction. Host calls `register_engine_systems` then `on_start` (scene spawn, `add_system` Game phase).
 
 `on_draw` stays empty: world draw is `Phase::Render`; UI is `Phase::UiRender`; present is `OpenGLCanvas::draw`. Do not push commands from `on_draw`.
 
@@ -397,7 +396,7 @@ Delta vs ping-pong: title/size are **not** hardcoded `"Ping Pong"` / `{800,600}`
 
 ## 6. Rendering
 
-Ping-pong `Renderable` is `{ mesh, shader, texture }` with **undefined draw order** and blend hardcoded to `(src alpha, one)`. This engine uses **materials** and an explicit **sort key**.
+A `Renderable` of raw `{ mesh, shader, texture }` has **undefined draw order** and one blend mode hardcoded for every sprite. This engine uses **materials** and an explicit **sort key** instead.
 
 ### 6.1 Command buffer
 
@@ -415,7 +414,7 @@ struct CmdDrawMesh {
 };
 ```
 
-**There is no `CmdCustomDraw`.** Ping-pong’s `std::function<void()>` escape hatch is deleted. Extra draw paths = new **named** command types in the engine (public header + private execute).
+**There is no `CmdCustomDraw`.** A `std::function<void()>` escape hatch is not part of the command variant. Extra draw paths = new **named** command types in the engine (public header + private execute).
 
 `CommandBuffer` is a FIFO. **Sort happens in `RenderSystem` before push**, not inside execute. `UiRender` runs after `Render`, so HUD commands follow world commands. Clear the buffer at the start of `Phase::Render` so Fixed systems never accumulate draws.
 
@@ -426,7 +425,7 @@ struct CmdDrawMesh {
 A material is a cooked asset (`importer = "material"`), not three loose pointers on `Renderable`.
 
 ```cpp
-enum class BlendMode { Opaque, Alpha, Additive }; // Additive = ping-pong (src α, one)
+enum class BlendMode { Opaque, Alpha, Additive }; // Additive = (src alpha, one)
 
 class IMaterial {
 public:
@@ -506,7 +505,7 @@ Default shader (builtin): GLSL 330, `uModel/uView/uProjection`, `uTexture`, `uCo
 
 ### 6.6 Blend (execute)
 
-Set from `IMaterial::blend()` per `CmdDrawMesh`. UI is NanoVG in a later command (its own blend). Do not inherit ping-pong’s global `(src alpha, one)` for every sprite.
+Set from `IMaterial::blend()` per `CmdDrawMesh`. UI is NanoVG in a later command (its own blend). Do not apply one global `(src alpha, one)` blend to every sprite.
 
 ---
 
@@ -526,7 +525,7 @@ Contract the homemade registry must keep (EnTT-like verbs, `snake_case` like the
 - Engine systems are registered by `register_engine_systems` into the phases in §4.5. They take `World&` plus constructor-injected `shared_ptr` services (`CommandBuffer`, `AssetsDb`, …).
 - Game systems: `world.add_system(Schedule::Fixed | Frame, Phase::Game, …)` in `on_start` only.
 
-Ping-pong pools (erase-from-vector without fixing indices, `uint32_t` without generation) are **not** copied.
+Erase-from-vector pools that do not fix up indices, and raw `uint32_t` handles without a generation, are **not** used.
 
 **Engine components:** `Transform` (no parent), `Renderable` (§6.3), `Camera`, `RigidBody`, `BoxCollider`, `UiCanvas` (§8).
 
@@ -538,7 +537,7 @@ Ping-pong pools (erase-from-vector without fixing indices, `uint32_t` without ge
 
 ## 8. UI (XML + CSS + MVVM)
 
-NanoVG (GL3) draws the **instance** of a markup document. This is not ping-pong `Layout`/`Label` trees with `onClick` lambdas, and not one ECS entity per widget.
+NanoVG (GL3) draws the **instance** of a markup document. This is not a C++ `Layout`/`Label` tree with `onClick` lambdas, and not one ECS entity per widget.
 
 WPF split, mapped to this engine:
 
@@ -584,7 +583,7 @@ v1 elements:
 | Tag | Role |
 | --- | --- |
 | `Canvas` | root; optional `stylesheet="32-hex"` |
-| `Stack` | ping-pong `Layout`: `direction` horizontal/vertical, `gap`, `align` |
+| `Stack` | flex-like box: `direction` horizontal/vertical, `gap`, `align` |
 | `Label` | text |
 | `Button` | hit-target; `command` binding |
 | `Image` | `source` = texture/ui_image AssetId or `{binding}` |
@@ -605,7 +604,7 @@ v1 elements:
 </Canvas>
 ```
 
-WPF-shaped `{binding path}` (path = registered snake_case name). `mode=one_way` default (VM → view). `mode=two_way` reserved (sliders); not required for tic-tac-toe.
+WPF-shaped `{binding path}` (path = registered snake_case name). `mode=one_way` default (VM → view). `mode=two_way` reserved (sliders); not required in v1.
 
 `id` / `class` / `name` attributes: CSS hooks. `name` is not FindName-from-game; games do not reach into the tree.
 
@@ -694,7 +693,7 @@ public:
 
 **Commands:** `UiInputSystem` on hit calls `ICommand::execute()` if `can_execute()`. That is the **only** UI → game path. `execute` may `EventWriter::send` or set other `Bindable`s. It must not include glad, touch `UIElement*`, or call `CommandBuffer`.
 
-Ping-pong `std::function<void()> onClick` on `Layout` is **deleted** from the public API.
+A `std::function<void()> onClick` on a widget is **not** part of the public API.
 
 `INotifyPropertyChanged` is not a game-facing interface; `Bindable<T>` is the notification.
 
@@ -714,7 +713,7 @@ Ping-pong `std::function<void()> onClick` on `Layout` is **deleted** from the pu
 
 ## 9. Input and events (Bevy queues)
 
-Ping-pong `EventBus` (`Subscribe` + `Emit`, no unsubscribe) is **removed**. Immediate observer lists dangle when a node dies and re-enter unsafely during `Emit`. UI clicks are **not** a second bus: they are `ICommand` (§8.4).
+An immediate-callback `EventBus` (`Subscribe` + `Emit`, no unsubscribe) is **not used**: immediate observer lists dangle when a node dies and re-enter unsafely during `Emit`. UI clicks are **not** a second bus: they are `ICommand` (§8.4).
 
 Replace with **double-buffered queues**, same shape as Bevy `Events<T>` / `EventReader` / `EventWriter`.
 
@@ -742,7 +741,7 @@ Input:
 
 ## 10. Assets
 
-Ping-pong loads by filename (`get<ITexture>("ball.png")`). That breaks when files move and puts import policy in C++. This engine loads **only by GUID**. The raw bytes + a sidecar `.meta` are the source of truth; C++ sees generated constants.
+Loading by filename (`get<ITexture>("ball.png")`) breaks when files move and puts import policy in C++. This engine loads **only by GUID**. The raw bytes + a sidecar `.meta` are the source of truth; C++ sees generated constants.
 
 ### 10.1 `AssetId`
 
@@ -870,7 +869,7 @@ Decoded `MIX_Audio` is an implementation detail of the audio importer; game code
 
 ### 10.6 Sprite sheets (`layout = "multiple"`)
 
-v1 may ship `layout = "single"` only. The TOML schema includes `[[sprites]]` so atlas remakes do not change GUIDs later. `get<ITexture>` returns the atlas; sprite rects from cooked meta (`get_sprite(id, "idle")` when implemented).
+v1 may ship `layout = "single"` only. The TOML schema includes `[[sprites]]` so re-packing an atlas later does not change GUIDs. `get<ITexture>` returns the atlas; sprite rects from cooked meta (`get_sprite(id, "idle")` when implemented).
 
 ### 10.7 `get` vs `try_get`
 
@@ -898,7 +897,7 @@ std::shared_ptr<T> Get(AssetId);  // never null
 
 ### 10.8 Engine builtin assets
 
-Default shader / unit quad / unlit sprite material / UI font are **not** copied by hand into every remake.
+Default shader / unit quad / unlit sprite material / UI font are **not** copied by hand into every game.
 
 - Source: `engine/builtin_assets/` with committed `.meta` and **stable well-known GUIDs**.
 - CMake copies them to `<exe dir>/assets/engine/` (engine tests and games).
@@ -916,9 +915,9 @@ Games still `get<IMaterial>(engine::builtin::material_unlit)` (or a game `.mat` 
 
 
 
-### 11.1 Why not ping-pong audio
+### 11.1 Design rationale
 
-Ping-pong `AudioEventsManager`: `PlaySoundEvent{name}` → `MIX_PlayAudio` (no gain/pitch/stop); music is a single `MIX_Track`. That is not reusable for remakes with UI clicks, overlapping SFX, or music transitions.
+A filename-keyed `PlaySoundEvent{name}` → `MIX_PlayAudio` with no gain/pitch/stop control, and music as a single `MIX_Track`, does not scale to a game with UI clicks, overlapping SFX, or music transitions.
 
 Target model follows Lumenwake `IAudioSystem` / `SoundData` / SFX pool / dual music sources / looping handles, mapped onto SDL3_mixer:
 
@@ -985,9 +984,9 @@ public:
 
 - **SFX pool:** ~12 `MIX_Track`s. `play_sfx` acquires a free track (`!MIX_TrackPlaying`); if none, **skip** (no steal, no queue). Pitch via `MIX_SetTrackFrequencyRatio`. Gain: `master * sfxBus * sound.volume * volume_scale`.
 - **Music A/B:** two tracks. `play_music` with `fade_seconds > 0` and something already playing crossfades (incoming gain 0→target, outgoing →0 then stop). Immediate play if fade is 0 or idle.
-- **Looping registry:** handle → dedicated track; fade in/out in `Update`. Enough for later remakes (engines, ambience); tic-tac-toe may unused it.
+- **Looping registry:** handle → dedicated track; fade in/out in `Update`. Enough for looping engine/ambience sounds; a simple game may leave it unused.
 - **Buses:** no Unity mixer. `final_gain = master * bus * voiceVolume`. Mute ≈ very small gain (SDL has no dB mixer).
-- **Tick:** `Loop` calls `IAudioSystem::update(frameDt)` every **frame** (wall-clock fades), not once per fixed step. Ping-pong never ticked audio.
+- **Tick:** `Loop` calls `IAudioSystem::update(frameDt)` every **frame** (wall-clock fades), not once per fixed step.
 - **Format:** WAV only (mixer flags: OGG off).
 
 
@@ -999,7 +998,7 @@ struct PlaySfxEvent { engine::AssetId id; float volume_scale = 1.f; };
 struct PlayMusicEvent { engine::AssetId id; bool loop = true; float fade_seconds = 0.f; };
 ```
 
-An audio system in `Phase::Audio` (`EventReader<PlaySfxEvent>`): `get<Sound>(id)` (fatal if the cue is required) then `IAudioSystem`. No filename events. Ping-pong `AudioEventsManager` is removed.
+An audio system in `Phase::Audio` (`EventReader<PlaySfxEvent>`): `get<Sound>(id)` (fatal if the cue is required) then `IAudioSystem`. No filename events.
 
 ### 11.6 Game usage
 
@@ -1016,7 +1015,7 @@ audio->play_sfx(*db.get<Sound>(assets::sfx::step));
 
 ## 12. Testing (GoogleTest)
 
-Ping-pong has no tests. This repo does. Tests live **in the engine**, not in each remake.
+Tests live **in the engine**, not in each consuming game.
 
 ### 12.1 Targets and CMake
 
@@ -1025,7 +1024,7 @@ Ping-pong has no tests. This repo does. Tests live **in the engine**, not in eac
 - `enable_testing()`, `include(GoogleTest)`, `gtest_discover_tests(engine_tests DISCOVERY_MODE PRE_TEST)` (same as Q+).
 - MSVC: `gtest_force_shared_crt ON`; `INSTALL_GTEST OFF`; `BUILD_GMOCK OFF` until a test needs `NiceMock`.
 
-`ENGINE_BUILD_TESTS` defaults to **ON** when this repo is the CMake root, **OFF** when a game does `add_subdirectory(external/engine)` — so remakes do not compile gtest unless they pass `-DENGINE_BUILD_TESTS=ON`.
+`ENGINE_BUILD_TESTS` defaults to **ON** when this repo is the CMake root, **OFF** when a game does `add_subdirectory(external/engine)` — so games do not compile gtest unless they pass `-DENGINE_BUILD_TESTS=ON`.
 
 ```bash
 # from engine/
@@ -1064,7 +1063,7 @@ Test files: `tests/<area>_test.cpp` (`ecs_test.cpp`, `events_test.cpp`, `audio_t
 - Pixel-perfect OpenGL / NanoVG screenshots.
 - `Engine<GameT>::init` + real SDL window (needs a display; optional local `ENGINE_MANUAL_GL_TEST`).
 - Decoding a WAV through SDL_mixer in CI (no audio device). Use a fake `Audio` / fake track for pool tests.
-- Gameplay (bot AI, score) — that belongs in `tic-tac-toe` later if at all.
+- Gameplay (bot AI, score) — that belongs in the game repo, not here.
 
 ### 12.4 Fakes
 
@@ -1083,8 +1082,8 @@ A feature in §6 / §8 / §10 / §11 / ECS / events is **not done** until `engin
 - Fields: `snake_case` (`delta_time`, `order_in_layer`). Private members: `name_`.
 - Constants: `kPascalCase` (`kFixed`, `kSfxPoolSize`).
 - UI XML: tags match types (`Button`, `Label`). Attributes and `{binding}` paths are `snake_case` (`text`, `command`, `items_source`). CSS properties stay kebab-case. CSS element selectors match tags.
-- Game aliases (optional, ping-pong style): `e`, `er`, `ecs`, `eui`.
-- `.clang-format`: LLVM-based, 4 spaces, column 120 (copy from ping-pong).
+- Game aliases (optional): `e`, `er`, `ecs`, `eui`.
+- `.clang-format`: LLVM-based, 4 spaces, column 120.
 - Do not introduce a service locator. Do not call `MIX_*` / `gl*` / `nvg*` from game code. Do not include spdlog from game code.
 - Do not add `CmdCustomDraw` or any `std::function` draw callback to the public command variant.
 - Do not add `onClick` lambdas to UI widgets. UI → game is `ICommand` only.
@@ -1121,25 +1120,24 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 
 
 
-## 15. Delta from ping-pong (checklist for extraction)
+## 15. Key design decisions
 
-1. Move `external/` **into** this repo; engine CMake adds those subdirectories.
-2. Fix nanovg include to `external/nanovg/src` (ping-pong root points at a non-existent `src/`).
-3. `IGame::window_title` / `WindowSize`; `Engine` uses them.
-4. Replace `AudioSystem` (mixer-only) + `AudioEventsManager` with §11.
-5. `Loop` ticks `IAudioSystem::update`.
-6. Bind `IAudioSystem` in DI instead of exposing `MIX_Mixer*` to games.
-7. Add `external/googletest`, `external/tomlplusplus`, `tests/`, `engine_tests` (§12). No EnTT package.
-8. GUID `AssetsDb`: TOML `.meta`, `asset_guid` + `asset_codegen`, `get` / `try_get` (§10).
-9. Replace `EventBus` with Bevy-style `Events<T>` (§9). Homemade ECS with EnTT-like API (§7).
-10. Remove `Node` / `NodeEcs` / `NodeUI`. UI = `UiCanvas` + XML document + ViewModel (§4.3, §8). Delete ping-pong `onClick`.
-11. Fixed timestep Loop + `IGame::on_fixed_update` + `Schedule` / `Phase` (§4.4–§4.5). Variable `dt` into physics is not copied.
-12. Delete `CmdCustomDraw`. `CmdDrawMesh` carries `IMaterial`, not shader+texture (§6).
-13. Public `include/engine/` vs private `src/` headers; glm PUBLIC, SDL/glad/spdlog/NanoVG not (§3.4).
-14. Sort `Renderable` by layer / order_in_layer / material / entity (§6.3).
-15. Builtin assets + well-known GUIDs (§10.8).
-16. `Events<T>` in `World::ctx`; `flush_events` at start of frame (§9).
-17. Pause skips Fixed and freezes accumulator; resize updates `FillWindow` canvases (§4.6–§4.7).
+1. Third-party libraries live in this repo's own `external/`; engine CMake adds those subdirectories.
+2. `IGame::window_title` / `WindowSize`; `Engine` uses them instead of a hardcoded title/size.
+3. `IAudioSystem` (§11) instead of raw mixer calls and a filename-keyed event manager.
+4. `Loop` ticks `IAudioSystem::update`.
+5. `IAudioSystem` is bound in DI instead of exposing `MIX_Mixer*` to games.
+6. `external/googletest`, `external/tomlplusplus`, `tests/`, `engine_tests` (§12). No EnTT package.
+7. GUID `AssetsDb`: TOML `.meta`, `asset_guid` + `asset_codegen`, `get` / `try_get` (§10).
+8. Bevy-style `Events<T>` (§9), not an immediate-callback bus. Homemade ECS with an EnTT-like API (§7).
+9. No `Node` / `NodeEcs` / `NodeUI`. UI = `UiCanvas` + XML document + ViewModel (§4.3, §8). No `onClick` lambdas.
+10. Fixed timestep Loop + `IGame::on_fixed_update` + `Schedule` / `Phase` (§4.4–§4.5). No variable `dt` into physics.
+11. No `CmdCustomDraw`. `CmdDrawMesh` carries `IMaterial`, not shader+texture (§6).
+12. Public `include/engine/` vs private `src/` headers; glm PUBLIC, SDL/glad/spdlog/NanoVG not (§3.4).
+13. Sort `Renderable` by layer / order_in_layer / material / entity (§6.3).
+14. Builtin assets + well-known GUIDs (§10.8).
+15. `Events<T>` in `World::ctx`; `flush_events` at start of frame (§9).
+16. Pause skips Fixed and freezes accumulator; resize updates `FillWindow` canvases (§4.6–§4.7).
 
 ---
 
@@ -1152,7 +1150,7 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 3. Load only through `AssetsDb` by `AssetId`. Gameplay uses `get` (fatal). Optional content uses `try_get` and handles `AssetError`.
 4. Play audio only through `IAudioSystem` with a `Sound` that came from the audio importer (or a test double).
 5. Simulation / gameplay cross-talk: **event queues** (`send` / `read` / `flush_events`), not observer `Subscribe` on `this`. **UI → game:** `ICommand` on a `ViewModel` only — no `onClick` in game code.
-6. Shared engine behavior ships with a GoogleTest, not only a remake that “seems to work”.
+6. Shared engine behavior ships with a GoogleTest, not only a game that “seems to work”.
 7. Do not change an asset GUID after it is referenced. Move files with their `.meta`. Builtin GUIDs in `builtin_ids.h` are frozen.
 8. `asset_codegen` never writes `.meta`. Missing sidecar is a **failed build**, not a random GUID in CI.
 9. ECS is homemade, EnTT-shaped. **Do not add EnTT as a submodule.** Do not keep a Node graph beside World. No `Transform` parent in v1.
@@ -1168,7 +1166,7 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 - Persist bus volumes (settings file) — game concern.
 - Physics filename typo `physcis_system` — rename on extract.
 - GitHub remote for this repo; games currently use relative submodule `../engine`.
-- Optional later: gmock for `IRenderBackend`; game-repo tests for tic-tac-toe AI.
+- Optional later: gmock for `IRenderBackend`; game-repo tests for that game's own AI.
 - `get_sprite(id, name)` for `layout: multiple` atlases (schema reserved in §10.6).
 - Packed asset bundles (still GUID-addressed; catalog would point inside a pak).
 - Separate `Sound` / cue asset that references a clip GUID (one WAV, several banks) — still one file = one cue until that exists.

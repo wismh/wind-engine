@@ -19,4 +19,4 @@ add_subdirectory(external/engine)
 engine_add_game(my_game src/main.cpp)
 ```
 
-`ENGINE_BUILD_TESTS` defaults OFF then. `ENGINE_WITH_WINDOW` defaults **ON** for that subdirectory so a remake does not have to FORCE it.
+`ENGINE_BUILD_TESTS` defaults OFF then. `ENGINE_WITH_WINDOW` defaults **ON** for that subdirectory so a game does not have to FORCE it.
