@@ -31,7 +31,13 @@ OpenGLTexture::OpenGLTexture(const TextureDesc& desc) {
 
     glGenTextures(1, &id_);
     glBindTexture(GL_TEXTURE_2D, id_);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, desc.width, desc.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, desc.rgba.data());
+    glTexImage2D(GL_TEXTURE_2D, 0,
+#if defined(__EMSCRIPTEN__)
+            GL_RGBA8,
+#else
+            GL_RGBA,
+#endif
+            desc.width, desc.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, desc.rgba.data());
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap);
