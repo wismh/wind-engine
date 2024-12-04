@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wind</title>
+  <style>
+    html, body {
+      margin: 0;
+      background: #111;
+      color: #ddd;
+      font-family: sans-serif;
+    }
+    #status {
+      text-align: center;
+      padding: 8px;
+      font-size: 14px;
+    }
+    #canvas {
+      display: block;
+      margin: 0 auto;
+      background: #000;
+      outline: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="status">Loading…</div>
+  <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+  <script>
+    var Module = {
+      canvas: (function () { return document.getElementById('canvas'); })(),
+      setStatus: function (text) {
+        var el = document.getElementById('status');
+        if (el) {
+          el.textContent = text || '';
+        }
+      }
+    };
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>
