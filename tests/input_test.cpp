@@ -327,3 +327,110 @@ TEST(Input, InputEventNotFilteredByMouseConsumed) {
     EXPECT_EQ(events[0].kind, engine::InputEvent::Kind::Down);
     EXPECT_FLOAT_EQ(events[0].value, 1.f);
 }
+
+TEST(Input, DenormalizeTouchUsesDrawablePixels) {
+    const glm::vec2 pos = engine::denormalize_touch({0.25f, 0.5f}, {800, 600});
+    EXPECT_FLOAT_EQ(pos.x, 200.f);
+    EXPECT_FLOAT_EQ(pos.y, 300.f);
+}
+
+TEST(Input, DenormalizeTouchZeroDrawable) {
+    const glm::vec2 pos = engine::denormalize_touch({1.f, 1.f}, {0, 0});
+    EXPECT_FLOAT_EQ(pos.x, 0.f);
+    EXPECT_FLOAT_EQ(pos.y, 0.f);
+}
+
+TEST(Input, TouchPrimaryMapsToLeftMouse) {
+    engine::ecs::World world;
+    engine::InputSystem input{world};
+
+    const glm::vec2 down_pos = engine::denormalize_touch({0.1f, 0.2f}, {100, 100});
+    const glm::vec2 move_pos = engine::denormalize_touch({0.3f, 0.4f}, {100, 100});
+    const glm::vec2 rel{2.f, 3.f};
+    const glm::vec2 up_pos = engine::denormalize_touch({0.3f, 0.5f}, {100, 100});
+
+    input.handle_touch(7, true, down_pos);
+    ASSERT_TRUE(input.primary_touch_finger().has_value());
+    EXPECT_EQ(*input.primary_touch_finger(), 7u);
+
+    input.handle_touch_move(7, move_pos, rel);
+    input.handle_touch(7, false, up_pos);
+    EXPECT_FALSE(input.primary_touch_finger().has_value());
+
+    const std::vector<engine::MouseEvent> events = read_mouse(world);
+    ASSERT_EQ(events.size(), 3u);
+    EXPECT_EQ(events[0].kind, engine::MouseEvent::Kind::Down);
+    EXPECT_EQ(events[0].button, engine::MouseButton::Left);
+    EXPECT_EQ(events[0].position, down_pos);
+    EXPECT_EQ(events[1].kind, engine::MouseEvent::Kind::Move);
+    EXPECT_EQ(events[1].position, move_pos);
+    EXPECT_EQ(events[1].relative, rel);
+    EXPECT_EQ(events[2].kind, engine::MouseEvent::Kind::Up);
+    EXPECT_EQ(events[2].button, engine::MouseButton::Left);
+    EXPECT_EQ(events[2].position, up_pos);
+}
+
+TEST(Input, ExtraFingerDoesNotEmitMouse) {
+    engine::ecs::World world;
+    engine::InputSystem input{world};
+
+    input.handle_touch(1, true, {10.f, 10.f});
+    input.handle_touch(2, true, {20.f, 20.f});
+    input.handle_touch_move(2, {21.f, 22.f}, {1.f, 2.f});
+    input.handle_touch(2, false, {21.f, 22.f});
+
+    ASSERT_TRUE(input.primary_touch_finger().has_value());
+    EXPECT_EQ(*input.primary_touch_finger(), 1u);
+
+    const std::vector<engine::MouseEvent> events = read_mouse(world);
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].kind, engine::MouseEvent::Kind::Down);
+    EXPECT_EQ(events[0].position, (glm::vec2{10.f, 10.f}));
+    EXPECT_TRUE(read_input(world).empty());
+}
+
+TEST(Input, ExtraFingerDoesNotStealPrimaryOnRelease) {
+    engine::ecs::World world;
+    engine::InputSystem input{world};
+    input.handle_touch(1, true, {1.f, 1.f});
+    input.handle_touch(2, true, {2.f, 2.f});
+    input.handle_touch(2, false, {2.f, 2.f});
+    ASSERT_TRUE(input.primary_touch_finger().has_value());
+    EXPECT_EQ(*input.primary_touch_finger(), 1u);
+    input.handle_touch_move(1, {3.f, 4.f}, {0.f, 0.f});
+
+    const std::vector<engine::MouseEvent> events = read_mouse(world);
+    ASSERT_EQ(events.size(), 2u);
+    EXPECT_EQ(events[1].kind, engine::MouseEvent::Kind::Move);
+    EXPECT_EQ(events[1].position, (glm::vec2{3.f, 4.f}));
+}
+
+TEST(Input, BoundTouchControlEmitsInputEvent) {
+    engine::ecs::World world;
+    engine::InputSystem input{world};
+    const engine::ActionId tap = input.intern("tap");
+    const engine::Control finger{engine::ControlKind::Touch, 4, 0};
+    input.bind(finger, tap);
+
+    input.handle_touch(4, true, {8.f, 9.f});
+    EXPECT_TRUE(input.is_held(tap));
+    input.handle_touch(4, false, {8.f, 9.f});
+    EXPECT_FALSE(input.is_held(tap));
+
+    const std::vector<engine::InputEvent> events = read_input(world);
+    ASSERT_EQ(events.size(), 2u);
+    EXPECT_EQ(events[0].action, tap);
+    EXPECT_EQ(events[0].kind, engine::InputEvent::Kind::Down);
+    EXPECT_EQ(events[1].action, tap);
+    EXPECT_EQ(events[1].kind, engine::InputEvent::Kind::Up);
+}
+
+TEST(Input, UnboundExtraFingerIgnoredForActions) {
+    engine::ecs::World world;
+    engine::InputSystem input{world};
+    const engine::ActionId tap = input.intern("tap");
+    input.handle_touch(9, true, {0.f, 0.f});
+    input.handle_touch(9, false, {0.f, 0.f});
+    EXPECT_FALSE(input.is_held(tap));
+    EXPECT_TRUE(read_input(world).empty());
+}
