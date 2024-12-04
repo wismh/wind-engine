@@ -25,6 +25,8 @@ Command buffer, materials, sprite sort, OpenGL 3.3 backend, NanoVG UI execute. G
 
 **OpenGL (`ENGINE_WITH_WINDOW`):**
 
+- Desktop: OpenGL 3.3 Core + glad + NanoVG GL3.
+
 - [[src.render.opengl.opengl_factory.cpp]] — create GL resources.
 - [[src.render.opengl.opengl_mesh.cpp]], [[src.render.opengl.opengl_shader.cpp]], [[src.render.opengl.opengl_texture.cpp]].
 - [[src.render.opengl.opengl_backend.cpp]] — execute mesh draws.
@@ -44,6 +46,7 @@ World draw is **not** in this folder: [[src.ecs.systems.cpp]] `run_render` build
 - [[include.engine.render.canvas.h]]
 - [[include.engine.render.backend.h]]
 - [[include.engine.render.graphic_factory.h]]
+- [[include.engine.render.shader_adapt.h]]
 
 ## Tests
 
