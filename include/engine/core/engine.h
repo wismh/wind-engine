@@ -175,7 +175,7 @@ int Engine<GameT>::run() {
     if (!initialized_ || !game_ || !input_) {
         return 1;
     }
-    const int result = runtime_.run(*game_, *input_, audio_.get());
+    const int result = runtime_.run(*game_, *input_, audio_.get(), [this] { dispose(); });
     dispose();
     return result;
 }
