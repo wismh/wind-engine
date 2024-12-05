@@ -772,6 +772,116 @@ TEST(UiPainter, ItemsControlPaintsItemDataContext) {
     EXPECT_EQ(texts[1], "O");
 }
 
+TEST(UiPainter, ItemsControlPreservesAnimationElapsedAcrossFrames) {
+    BoardVm board;
+    auto a = std::make_shared<CellVm>();
+    a->mark.set("X");
+    board.cells.set({a});
+
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <ItemsControl items_source="{binding cells}">
+            <ItemTemplate>
+              <Button class="fade" command="{binding click}" content="{binding mark}"/>
+            </ItemTemplate>
+          </ItemsControl>
+        </Canvas>
+    )",
+            nullptr, &board);
+    ASSERT_TRUE(parsed.has_value());
+
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        @keyframes fade {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .fade { animation-name: fade; animation-duration: 1s; }
+    )");
+
+    const auto count_partial_opacities = [](const FakePainter& painter) {
+        int count = 0;
+        for (const PaintCall& call : painter.calls) {
+            if (call.op == "opacity" && call.opacity < 0.99f) {
+                ++count;
+            }
+        }
+        return count;
+    };
+
+    // Frame 1: 0.5s of a 1s fade-in — the generated Button (unlike the un-animated Canvas/
+    // ItemsControl wrapper, which always paint opacity 1.0) should show the mid-fade value.
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, board).has_value());
+    FakePainter first;
+    engine::ui::paint_document(*parsed, &sheet, first,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}, .delta_time = 0.5f});
+    ASSERT_EQ(count_partial_opacities(first), 1);
+
+    // Frame 2: another 0.5s. If bind_element rebuilt generated_items from the static ItemTemplate
+    // instead of reusing the previous Element for this same ViewModel*, animation_elapsed would
+    // reset to 0 every frame and the item would still show a partial ~0.5 here instead of having
+    // reached the end of the animation (elapsed 0.5+0.5 = 1.0, no more partial-opacity calls).
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, board).has_value());
+    FakePainter second;
+    engine::ui::paint_document(*parsed, &sheet, second,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}, .delta_time = 0.5f});
+    EXPECT_EQ(count_partial_opacities(second), 0);
+}
+
+TEST(UiPainter, ItemsControlKeepsPerItemAnimationStateAcrossReorderAndNewItemStartsFresh) {
+    BoardVm board;
+    auto a = std::make_shared<CellVm>();
+    a->mark.set("A");
+    auto b = std::make_shared<CellVm>();
+    b->mark.set("B");
+    board.cells.set({a, b});
+
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <ItemsControl items_source="{binding cells}">
+            <ItemTemplate>
+              <Button class="fade" command="{binding click}" content="{binding mark}"/>
+            </ItemTemplate>
+          </ItemsControl>
+        </Canvas>
+    )",
+            nullptr, &board);
+    ASSERT_TRUE(parsed.has_value());
+
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+        .fade { animation-name: fade; animation-duration: 1s; }
+    )");
+
+    // Frame 1: [a, b], 0.6s — both accumulate elapsed=0.6.
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, board).has_value());
+    FakePainter frame1;
+    engine::ui::paint_document(*parsed, &sheet, frame1,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}, .delta_time = 0.6f});
+
+    // Frame 2: reorder to [b, a] and append a brand-new item c. Reconciliation is by ViewModel*, not
+    // by generated_items index, so a/b must keep their elapsed time despite the reorder; c (never
+    // seen before) must start from elapsed=0, not inherit a/b's progress.
+    auto c = std::make_shared<CellVm>();
+    c->mark.set("C");
+    board.cells.set({b, a, c});
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, board).has_value());
+    FakePainter frame2;
+    engine::ui::paint_document(*parsed, &sheet, frame2,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}, .delta_time = 0.4f});
+
+    // a and b: elapsed 0.6 + 0.4 = 1.0 (fully faded in, clamped at the animation duration).
+    // c: elapsed 0 + 0.4 = 0.4 only. A reconciliation bug (rebuilding from the static template every
+    // frame) would show all three at ~0.4 instead.
+    std::vector<float> partial_opacities;
+    for (const PaintCall& call : frame2.calls) {
+        if (call.op == "opacity" && call.opacity < 0.99f) {
+            partial_opacities.push_back(call.opacity);
+        }
+    }
+    ASSERT_EQ(partial_opacities.size(), 1u);
+    EXPECT_NEAR(partial_opacities[0], 0.4f, 0.01f);
+}
+
 TEST(UiPainter, ImageSourceFromBoundAssetId) {
     IconVm vm{kIconGuid};
     auto parsed = engine::ui::parse_xml(R"(<Canvas><Image source="{binding icon}"/></Canvas>)", nullptr, &vm);
