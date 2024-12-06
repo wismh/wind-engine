@@ -1492,11 +1492,14 @@ already has for loading any other asset; the engine keeps no `AssetId → glm::v
 own for this. `window` (default `kPrimaryWindow`) lets a game target a secondary window (§21.6)
 instead of always the primary. `show_splash` returns `nullopt` when there's nothing to show
 (`enabled == false`, or `build_splash_document` fails — §20.3's zero-duration/unresolved-image-size
-cases), otherwise the spawned entity, which carries `UiCanvas` + `UiInstance` + `SplashTimer{
-total_duration = fade_in_seconds + hold_seconds + fade_out_seconds}`. An engine system
+cases), otherwise it spawns **two** entities (§20.3) — a backdrop and an image layer, each
+carrying `UiCanvas` + `UiInstance` + `SplashTimer{total_duration = fade_in_seconds + hold_seconds +
+fade_out_seconds}` — and returns the backdrop entity as the caller's handle. An engine system
 (`run_splash_timers`, registered in `register_engine_systems`, §20.3/§20.5) ages every
-`SplashTimer` and despawns its entity automatically once `total_duration` elapses — the caller
-does not need to track or destroy it itself.
+`SplashTimer` and despawns its entity automatically once `total_duration` elapses; both entities
+start at `elapsed = 0` with the same `total_duration` and age by the same per-frame `delta_time`,
+so they always despawn on the same frame — the caller does not need to track or destroy either one
+itself.
 
 ### 20.2 Default asset
 
@@ -1557,20 +1560,45 @@ that already exists:
   authors — the engine procedurally generating its *own* one fixed internal splash document from
   a config struct is a narrow, documented exception to that rule, not a pattern games are meant to
   copy.
-- Spawned by `ui::show_splash` (§20.1) — gated on `config.enabled` — as a `UiCanvas{fit =
-  UiFit::ScaleWithScreenSize, order = <high, above every other canvas>, window}` +
-  `UiInstance{document, stylesheet}` + `SplashTimer{total_duration}` entity. A game typically calls
-  it right where the old auto-trigger used to fire (around `on_start()`, after
-  `Engine::init()`'s catalog/image-preload loop has finished, so the builtin/game splash image is
-  already resolved through `AssetsDb`), but the call site is entirely the game's choice now — §20.1.
-  `world.create()` + `world.emplace<ui::UiCanvas>(...)` + `world.emplace<ui::UiInstance>(...)` is
-  the existing spawn pattern — see `spawn_button_canvas` in `tests/mvvm_test.cpp` for a working
-  example of building a `UiCanvas` + `UiInstance{parsed_document}` pair from a `parse_xml` result.
-  `run_ui_render` (`src/ecs/systems.cpp`, the existing `Phase::UiRender` system) already walks
-  every `UiCanvas`/`UiInstance` entity and pushes its draw calls through the same `CommandBuffer`
-  → render-backend path everything else uses — no `ICanvas`/`OpenGLCanvas` changes needed.
+- Spawned by `ui::show_splash` (§20.1) — gated on `config.enabled` — as **two** entities, not one:
+  a backdrop `UiCanvas{fit = UiFit::FillWindow, order = kSplashCanvasOrder, window}` +
+  `UiInstance{backdrop_document, backdrop_stylesheet}` + `SplashTimer{total_duration}`, and an
+  image `UiCanvas{fit = UiFit::ScaleWithScreenSize, order = kSplashCanvasOrder + 1, window}` +
+  `UiInstance{image_document, image_stylesheet}` + `SplashTimer{total_duration}` drawn above it
+  (`order` sorts ascending in `run_ui_render`, so the higher `order` paints last, i.e. on top —
+  see the letterboxing bullet below for why these can't be one canvas). Both above every order a
+  game plausibly picks for its own UI. A game typically calls `show_splash` right where the old
+  auto-trigger used to fire (around `on_start()`, after `Engine::init()`'s catalog/image-preload
+  loop has finished, so the builtin/game splash image is already resolved through `AssetsDb`), but
+  the call site is entirely the game's choice now — §20.1. `world.create()` +
+  `world.emplace<ui::UiCanvas>(...)` + `world.emplace<ui::UiInstance>(...)` is the existing spawn
+  pattern — see `spawn_button_canvas` in `tests/mvvm_test.cpp` for a working example of building a
+  `UiCanvas` + `UiInstance{parsed_document}` pair from a `parse_xml` result. `run_ui_render`
+  (`src/ecs/systems.cpp`, the existing `Phase::UiRender` system) already walks every
+  `UiCanvas`/`UiInstance` entity and pushes its draw calls through the same `CommandBuffer` →
+  render-backend path everything else uses — no `ICanvas`/`OpenGLCanvas` changes needed, and no
+  special-casing for having two canvases instead of one; it was already built to walk an arbitrary
+  set of them.
+- **The backdrop must fully cover the window regardless of its aspect ratio, which is why it is a
+  separate `UiFit::FillWindow` canvas from the image rather than a `background` rule on the same
+  `UiFit::ScaleWithScreenSize` canvas the image uses** — this was wrong in the first
+  implementation (one canvas, `ScaleWithScreenSize` on the root, black `background` on the same
+  root as the image), caught when a caller with a window aspect ratio far from the splash image's
+  (a tall, narrow settings window against WindEngine's landscape mark) reported the black backdrop
+  itself letterboxing — visible game UI framing it top and bottom — instead of covering the whole
+  window. `scaled_fit_rect` (`src/ui/canvas.cpp`) is a *contain* fit: it scales `reference_size`
+  down uniformly to fit the real window and centers the result, leaving letterbox gap on whichever
+  axis the aspect ratio doesn't match. That is exactly the behavior the image itself needs (next
+  bullet), but applied to a single root canvas it letterboxes *everything on that canvas*,
+  backdrop included — so the gap is left uncovered by the splash entirely, and whatever the game
+  had already drawn there (its own `UiFit::FillWindow` UI canvas, painted at a lower `order`
+  earlier in the same `run_ui_render` pass) shows through. Two canvases fixes this because
+  `UiFit::FillWindow`'s `canvas.rect` is unconditionally the real window rect (`apply_canvas_fit`,
+  `src/ui/canvas.cpp`) — the backdrop's own draw call always covers 100% of the window, and the
+  image canvas, drawn on top with no `background` of its own, needs no special-casing for the area
+  its own contain-fit rect doesn't reach: the opaque backdrop underneath already covers it.
 - **Aspect ratio, not stretch-to-fill**: the `Image` rule is `position: absolute; left: 10%;
-  top: 10%; width: 80%; height: 80%` — a fixed, centered 80% box within the canvas, not
+  top: 10%; width: 80%; height: 80%` — a fixed, centered 80% box within its canvas, not
   `width/height: 100%` (a first draft used `100%`, which stretches a non-square image to whatever
   aspect ratio the window happens to be — wrong, caught after implementation and fixed). The
   actual letterboxing that keeps the image's own aspect ratio comes from `UiCanvas::reference_size
@@ -1588,38 +1616,38 @@ that already exists:
   loop, `run_bind` (`src/ecs/systems.cpp`) runs every frame and calls `clone_document` — which
   replaces `UiInstance` with a fresh `assets.get<UiDocument>(canvas.document)` — whenever
   `instance_needs_rebuild` sees `UiInstance::loaded_document != UiCanvas::document` (plus
-  stylesheet/data-context). The splash's document only exists in memory, so `canvas.document` and
-  `canvas.data_context` must stay at their defaults (matching `UiInstance`'s equally-defaulted
-  `loaded_document`/`loaded_data_context`) to keep that check a no-op — otherwise the in-memory
-  document gets silently clobbered by a failed asset lookup on the very next frame.
-- **The game underneath is already running while the splash shows, so its own root needs a
-  constant opaque backdrop, and that backdrop must be explicitly despawned when it's over** —
-  this was wrong in the first implementation, caught by the game visibly flashing behind the
-  splash for its first frame. `on_start()` and `Schedule::Fixed`/`Frame` are never gated (§20.3's
-  opening paragraph), so the game's own UI (a menu, say) is already fully set up and rendering by
-  the time the splash spawns on top of it; on the splash's own first frame the `Image`'s
+  stylesheet/data-context). Both splash documents only exist in memory, so each canvas's
+  `document` and `data_context` must stay at their defaults (matching `UiInstance`'s
+  equally-defaulted `loaded_document`/`loaded_data_context`) to keep that check a no-op —
+  otherwise the in-memory document gets silently clobbered by a failed asset lookup on the very
+  next frame.
+- **The game underneath is already running while the splash shows, so the backdrop needs a
+  constant opaque background, and it must be explicitly despawned when it's over** — this was
+  wrong in the first implementation, caught by the game visibly flashing behind the splash for its
+  first frame. `on_start()` and `Schedule::Fixed`/`Frame` are never gated (§20.3's opening
+  paragraph), so the game's own UI (a menu, say) is already fully set up and rendering by the time
+  the splash spawns on top of it; on the splash's own first frame the `Image`'s
   `animation_elapsed` is still 0 (opacity 0, per the keyframe stops above), so with nothing else
   drawn by the splash, the game shows through underneath for the whole fade-in ramp. The fix: the
-  root `<Canvas>` gets its own rule with a **constant** `background: #000000` — no
+  backdrop's root `<Canvas>` gets its own rule with a **constant** `background: #000000` — no
   `animation-name`, so it stays fully opaque for the splash's entire lifetime rather than fading
-  with the image — while the `Image` child keeps the keyframe animation from above. That opaque
-  root then has to be explicitly removed once the sequence ends, or the game stays permanently
-  blacked out after the image's fade-out finishes: `element.animation_elapsed` clamps at
-  `animation_duration` and the image's last keyframe stop is `opacity: 0`, so the *image* sitting
-  invisible forever would be fine on its own, but the *non-animated, always-opaque* root
-  backdrop never goes away by itself. The despawn is ECS-native, not engine-internal hidden state:
-  `ui::show_splash` emplaces a `SplashTimer{elapsed = 0, total_duration}` on the spawned entity
-  (separate from `element.animation_elapsed`, which is the UI painter's own per-element concept),
-  and `run_splash_timers` — a system registered in `register_engine_systems`
-  (`ecs::Schedule::Frame`, `ecs::Phase::Input`, `src/ecs/systems.cpp`) — adds real
-  `Time::delta_time` to every `SplashTimer::elapsed` each frame and calls `world.destroy(entity)`
-  once `elapsed >= total_duration` — despawning was floated as optional tidiness in an earlier
-  draft of this section; it is not optional once the backdrop is opaque and constant.
-- No canvas-clear-color change needed for the letterbox bars specifically: `OpenGLCanvas::draw()`
-  already clears to black (`glClearColor(0,0,0,1)`) every frame regardless, so the area the
-  `ScaleWithScreenSize`-fit canvas rect doesn't cover is already black without special-casing —
-  it's only the *inside* of that canvas rect, covered by the game's own already-rendered UI,
-  that needed the explicit opaque backdrop above.
+  with the image — while the image canvas's `Image` child keeps the keyframe animation from above,
+  independently. That opaque backdrop then has to be explicitly removed once the sequence ends, or
+  the game stays permanently blacked out after the image's fade-out finishes:
+  `element.animation_elapsed` clamps at `animation_duration` and the image's last keyframe stop is
+  `opacity: 0`, so the *image* sitting invisible forever would be fine on its own, but the
+  *non-animated, always-opaque* backdrop never goes away by itself. The despawn is ECS-native, not
+  engine-internal hidden state: `ui::show_splash` emplaces a `SplashTimer{elapsed = 0,
+  total_duration}` on **both** spawned entities (separate from `element.animation_elapsed`, which
+  is the UI painter's own per-element concept, and only meaningful on the image entity) — and
+  `run_splash_timers` — a system registered in `register_engine_systems` (`ecs::Schedule::Frame`,
+  `ecs::Phase::Input`, `src/ecs/systems.cpp`) — adds real `Time::delta_time` to every
+  `SplashTimer::elapsed` each frame and calls `world.destroy(entity)` once `elapsed >=
+  total_duration`; both timers start at `elapsed = 0` with the same `total_duration` and age by
+  the same per-frame `delta_time`, so they always cross the threshold on the same frame with no
+  explicit link between the two entities needed to keep them in sync. Despawning was floated as
+  optional tidiness in an earlier draft of this section; it is not optional once the backdrop is
+  opaque and constant.
 
 ### 20.4 Open question — not v1
 
@@ -1643,22 +1671,28 @@ is caught the same way `UiXml.UnknownElementIsFatal`-style tests already catch b
 are a one-line contract test in `tests/window_icon_test.cpp`
 (`SplashScreenContract.DefaultsMatchSdd`) — since `SplashScreen` is no longer reached through an
 `IGame` virtual (§20.1), it's just `const engine::SplashScreen splash;` constructed directly.
-Whether the spawned `UiCanvas`/`UiInstance` entity actually renders on top of everything else is
-not tested — GPU/window excluded from `engine_tests` (§12.3), same as everything else in §19 and
-§18 — but that `ui::show_splash` spawns the entity at all when `enabled` and returns `nullopt`
-without spawning anything when disabled is an ECS-level check (`world.view<ui::UiCanvas>()`
-count, plus asserting the returned entity carries a `SplashTimer`), no window needed, same spirit
-as `tests/host_test.cpp`'s existing `Host` construction tests; `tests/splash_test.cpp` also checks
+Whether the spawned `UiCanvas`/`UiInstance` entities actually render on top of everything else, in
+the right order, is not tested — GPU/window excluded from `engine_tests` (§12.3), same as
+everything else in §19 and §18 — but that `ui::show_splash` spawns **two** entities when `enabled`
+(one `UiFit::FillWindow`, one `UiFit::ScaleWithScreenSize`, each carrying a `SplashTimer`) and
+returns `nullopt` without spawning anything when disabled is an ECS-level check
+(`world.view<ui::UiCanvas>()` count == 2, plus asserting each entity's `fit` and that the returned
+(backdrop) entity carries a `SplashTimer`), no window needed, same spirit as
+`tests/host_test.cpp`'s existing `Host` construction tests; `tests/splash_test.cpp` also checks
 that `window` defaults to `kPrimaryWindow` and is threaded onto `UiCanvas::window` when a caller
-passes a different one (§21.6). The root's constant `background: #000000` rule and its lack of an
-`animation-name` are checked the same pure-function way as the image rule (find the rule declaring
-`background`, assert no `animation-name` on it) — the point being that it must *not* fade with the
-image. `run_splash_timers` itself is ECS-level testable too, unlike the old hidden
-`EngineRuntime`-internal timer it replaces: spawn (or `world.emplace`) a `SplashTimer`, call
-`engine::register_engine_systems(world)` + `world.run(ecs::Schedule::Frame)` with a known
-`ctx<Time>().delta_time` (same idiom as `tests/host_test.cpp`'s `PhaseOrderFrame`/`PhaseOrderFixed`
-tests), and assert `world.valid(entity)` stays true while `elapsed < total_duration` and flips
-false once accumulated `delta_time` crosses it — no window or real loop iteration needed.
+passes a different one (§21.6) — checked against the returned backdrop entity, since both
+canvases are always spawned on the same `window`. The backdrop's constant `background: #000000`
+rule and its lack of an `animation-name` are checked the same pure-function way as the image rule
+(find the rule declaring `background`, assert no `animation-name` on it) — the point being that it
+must *not* fade with the image; a separate assertion checks the backdrop document's root has no
+children (the `Image` lives only in the image document now). `run_splash_timers` itself is
+ECS-level testable too, unlike the old hidden `EngineRuntime`-internal timer it replaces: spawn
+(or `world.emplace`) a `SplashTimer`, call `engine::register_engine_systems(world)` +
+`world.run(ecs::Schedule::Frame)` with a known `ctx<Time>().delta_time` (same idiom as
+`tests/host_test.cpp`'s `PhaseOrderFrame`/`PhaseOrderFixed` tests), and assert `world.valid(entity)`
+stays true while `elapsed < total_duration` and flips false once accumulated `delta_time` crosses
+it — no window or real loop iteration needed; this test doesn't need two entities since
+`run_splash_timers` treats every `SplashTimer` identically regardless of how many share a splash.
 
 ---
 
