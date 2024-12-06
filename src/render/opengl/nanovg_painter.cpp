@@ -2,7 +2,7 @@
 
 #include "gl_includes.h"
 
-#if defined(__EMSCRIPTEN__)
+#if defined(ENGINE_WITH_GLES)
 #define NANOVG_GLES3_IMPLEMENTATION
 #else
 #define NANOVG_GL3_IMPLEMENTATION
@@ -46,7 +46,7 @@ NanoVgPainter::~NanoVgPainter() {
 bool NanoVgPainter::create() {
     destroy();
     impl_->vg =
-#if defined(__EMSCRIPTEN__)
+#if defined(ENGINE_WITH_GLES)
             nvgCreateGLES3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
 #else
             nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
@@ -103,7 +103,7 @@ void NanoVgPainter::destroy() {
         return;
     }
     if (impl_->vg != nullptr) {
-#if defined(__EMSCRIPTEN__)
+#if defined(ENGINE_WITH_GLES)
         nvgDeleteGLES3(impl_->vg);
 #else
         nvgDeleteGL3(impl_->vg);
