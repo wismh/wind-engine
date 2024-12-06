@@ -1,0 +1,30 @@
+// Wind Android APK wrapper. Points CMake at the game (or engine) root and
+// Java sources at the SDL3 submodule — do not fork SDLActivity.
+//
+// Typical invocation from a game repo (engine at external/engine):
+//   cd external/engine/cmake/android
+//   ./gradlew :app:assembleDebug \
+//     -PENGINE_SOURCE_DIR=/abs/path/to/engine \
+//     -PENGINE_ANDROID_CMAKE=/abs/path/to/game/CMakeLists.txt \
+//     -PENGINE_HOST_ASSET_CODEGEN=/abs/path/to/native/asset_codegen
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.7.3'
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}
