@@ -62,6 +62,7 @@ TEST(Platform, EngineRuntimeEmptyBaseFollowsHelperNotShortCircuit) {
             engine::packaged_assets_mount());
     EXPECT_FALSE(engine::default_assets_root(empty_sdl_base, engine::Platform::Web).empty());
     EXPECT_TRUE(engine::default_assets_root(empty_sdl_base, engine::Platform::Native).empty());
+    EXPECT_TRUE(engine::default_assets_root(empty_sdl_base, engine::Platform::Android).empty());
     EXPECT_EQ(engine::default_assets_root(empty_sdl_base),
             engine::default_assets_root(empty_sdl_base, engine::current_platform()));
 }
