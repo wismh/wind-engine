@@ -12,9 +12,10 @@ def hostCodegen = project.hasProperty('ENGINE_HOST_ASSET_CODEGEN')
         ? ENGINE_HOST_ASSET_CODEGEN
         : (System.getenv('ENGINE_HOST_ASSET_CODEGEN') ?: '')
 def sdlJava = "${engineDir}/external/SDL3/android-project/app/src/main/java"
-def stagedAssets = project.hasProperty('ENGINE_ANDROID_ASSETS')
-        ? file(ENGINE_ANDROID_ASSETS).absolutePath
-        : (System.getenv('ENGINE_ANDROID_ASSETS') ?: file("${engineDir}/build-android/android-assets").absolutePath)
+// Same directory CMake stages via -DENGINE_ANDROID_ASSETS_OUT (do not point at engine/build-android).
+def apkAssets = project.hasProperty('ENGINE_ANDROID_ASSETS_OUT')
+        ? file(ENGINE_ANDROID_ASSETS_OUT)
+        : file("${project.buildDir}/wind-assets")
 
 android {
     namespace 'org.windengine.app'
@@ -34,7 +35,8 @@ android {
                         '-DENGINE_WITH_WINDOW=ON',
                         '-DENGINE_WITH_ANDROID=ON',
                         '-DENGINE_WITH_AUDIO=OFF',
-                        '-DENGINE_BUILD_TESTS=OFF'
+                        '-DENGINE_BUILD_TESTS=OFF',
+                        "-DENGINE_ANDROID_ASSETS_OUT=${apkAssets.absolutePath}"
                 if (hostCodegen) {
                     arguments.add("-DENGINE_HOST_ASSET_CODEGEN=${hostCodegen}")
                 }
@@ -53,7 +55,7 @@ android {
     sourceSets {
         main {
             java.srcDirs += [sdlJava]
-            assets.srcDirs += [stagedAssets]
+            assets.srcDirs += [apkAssets]
         }
     }
 

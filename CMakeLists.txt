@@ -49,6 +49,9 @@ endif()
 option(ENGINE_WITH_GLES "OpenGL ES 3.0 backend (no glad, NanoVG GLES3, shader adapt)" ${_engine_gles_default})
 set(ENGINE_WEB_SHELL "" CACHE FILEPATH "Optional HTML shell for Emscripten (defaults to cmake/web/shell.html)")
 set(ENGINE_HOST_ASSET_CODEGEN "" CACHE FILEPATH "Native asset_codegen when cross-compiling (Emscripten or Android)")
+# Gradle passes -DENGINE_ANDROID_ASSETS_OUT=${project.buildDir}/wind-assets and packs that same tree.
+set(ENGINE_ANDROID_ASSETS_OUT "" CACHE PATH
+    "Cooked APK assets directory shared with Gradle sourceSets (empty: stage beside libmain.so only)")
 
 function(engine_require_submodule dir)
     if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/${dir}/CMakeLists.txt")
@@ -191,13 +194,14 @@ function(engine_prepare_runtime target)
             VERBATIM)
     endif()
 
-    if(ANDROID)
-        set(_apk_assets "${CMAKE_BINARY_DIR}/android-assets")
+    if(ANDROID AND ENGINE_ANDROID_ASSETS_OUT)
         add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                "${ENGINE_ANDROID_ASSETS_OUT}"
             COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "$<TARGET_FILE_DIR:${target}>/assets"
-                "${_apk_assets}"
-            COMMENT "Stage APK assets for ${target}"
+                "${ENGINE_ANDROID_ASSETS_OUT}"
+            COMMENT "Stage cooked APK assets to ENGINE_ANDROID_ASSETS_OUT"
             VERBATIM)
     endif()
 endfunction()
