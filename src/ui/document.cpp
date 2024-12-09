@@ -619,7 +619,7 @@ Element* hit_test(Element& element, float x, float y) {
             return nested;
         }
     }
-    if (element.kind == ElementKind::Button) {
+    if (element.kind == ElementKind::Button || is_bound(element.command_binding) || is_bound(element.drag_binding)) {
         return &element;
     }
     return nullptr;
