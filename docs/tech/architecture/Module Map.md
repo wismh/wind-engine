@@ -75,7 +75,7 @@ flowchart TB
 5. `assets_->set_graphic_factory`, `set_root(exe/assets)`.
 6. Load `assets/engine/catalog.toml` then optional `assets/catalog.toml`.
 7. Load [[include.engine.builtin_ids.h|builtin::font_ui]] into NanoVG; `add_font` for every other catalog font.
-8. `register_engine_systems`, `ui::apply_fill_window`.
+8. `register_engine_systems`, `ui::apply_canvas_fit`.
 
 Then [[include.engine.core.engine.h|Run]] → [[architecture/Runtime Loop]].
 

@@ -242,7 +242,7 @@ void EngineRuntime::begin_loop(IGame& game, InputSystem& input, IAudioSystem* au
     impl_->loop_shutdown = LoopShutdown{};
 
     game.on_start();
-    ui::apply_fill_window(game.world());
+    ui::apply_canvas_fit(game.world());
     game.world().ctx<ApplicationState>().running = true;
 }
 
@@ -374,7 +374,7 @@ void EngineRuntime::write_window_size(ecs::World& world, bool send_event) {
     if (send_event) {
         ecs::EventWriter<ui::WindowResizeEvent>{world}.send(ui::WindowResizeEvent{size.x, size.y});
     }
-    ui::apply_fill_window(world);
+    ui::apply_canvas_fit(world);
 }
 
 void EngineRuntime::poll_events(ecs::World& world, InputSystem& input, ApplicationState& app) {

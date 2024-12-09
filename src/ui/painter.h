@@ -36,6 +36,8 @@ struct UiPaintInput {
     float delta_time = 0.0f;
     float window_width = 0.0f;
     float window_height = 0.0f;
+    glm::vec2 ui_offset{0.0f, 0.0f};  // canvas_rect-space -> real-pixel offset (identity for FillWindow/Fixed)
+    float ui_scale = 1.0f;           // canvas_rect-space -> real-pixel scale
 };
 
 void apply_layout_style(

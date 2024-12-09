@@ -37,9 +37,36 @@ Element* find_button_at(Element& element, float x, float y) {
     return nullptr;
 }
 
+render::Rect scaled_fit_rect(glm::vec2 reference_size, float window_width, float window_height) {
+    if (reference_size.x <= 0.0f || reference_size.y <= 0.0f) {
+        return render::Rect{0.0f, 0.0f, window_width, window_height};
+    }
+    const float scale = std::min(window_width / reference_size.x, window_height / reference_size.y);
+    const float scaled_w = reference_size.x * scale;
+    const float scaled_h = reference_size.y * scale;
+    return render::Rect{
+            (window_width - scaled_w) * 0.5f,
+            (window_height - scaled_h) * 0.5f,
+            scaled_w,
+            scaled_h,
+    };
 }
 
-void apply_fill_window(ecs::World& world) {
+}
+
+UiCanvasSpace canvas_layout_space(const render::Rect& rect, UiFit fit, glm::vec2 reference_size) {
+    if (fit == UiFit::ScaleWithScreenSize && reference_size.x > 0.0f && reference_size.y > 0.0f) {
+        return UiCanvasSpace{
+                render::Rect{0.0f, 0.0f, reference_size.x, reference_size.y},
+                glm::vec2{rect.x, rect.y},
+                rect.w / reference_size.x,
+                true,
+        };
+    }
+    return UiCanvasSpace{rect, glm::vec2{0.0f, 0.0f}, 1.0f, false};
+}
+
+void apply_canvas_fit(ecs::World& world) {
     const WindowSize& size = world.ctx<WindowSize>();
     auto view = world.view<UiCanvas>();
     for (ecs::Entity entity : view) {
@@ -51,13 +78,16 @@ void apply_fill_window(ecs::World& world) {
                     static_cast<float>(size.width),
                     static_cast<float>(size.height),
             };
+        } else if (canvas.fit == UiFit::ScaleWithScreenSize) {
+            canvas.rect = scaled_fit_rect(
+                    canvas.reference_size, static_cast<float>(size.width), static_cast<float>(size.height));
         }
     }
 }
 
 void begin_frame(ecs::World& world) {
     world.ctx<MouseConsumed>().value = false;
-    apply_fill_window(world);
+    apply_canvas_fit(world);
 }
 
 void handle_pointer(ecs::World& world, float x, float y) {
@@ -98,10 +128,14 @@ void handle_pointer(ecs::World& world, float x, float y) {
         (void) apply_bindings(instance->document, *canvas.data_context, nullptr);
     }
     const WindowSize& size = world.ctx<WindowSize>();
-    apply_layout_style(instance->document.root, sheet, static_cast<float>(size.width), static_cast<float>(size.height));
-    layout(instance->document, canvas.rect);
+    const UiCanvasSpace space = canvas_layout_space(canvas.rect, canvas.fit, canvas.reference_size);
+    const float media_width = space.reference_space ? space.layout_rect.w : static_cast<float>(size.width);
+    const float media_height = space.reference_space ? space.layout_rect.h : static_cast<float>(size.height);
+    apply_layout_style(instance->document.root, sheet, media_width, media_height);
+    layout(instance->document, space.layout_rect);
 
-    Element* button = find_button_at(instance->document.root, x, y);
+    Element* button =
+            find_button_at(instance->document.root, (x - space.offset.x) / space.scale, (y - space.offset.y) / space.scale);
     if (button == nullptr) {
         return;
     }
