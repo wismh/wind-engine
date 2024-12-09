@@ -1,5 +1,6 @@
 # Wind
 
+A small, embeddable 2D C++ game engine. CMake target / C++ namespace: `engine`. Task codes: `wind-N`. Design of record: [docs/sdd.md](docs/sdd.md). Obsidian tech vault (architecture, modules, files, build): [docs/tech/README.md](docs/tech/README.md).
 
 ## Build (library + tests)
 
