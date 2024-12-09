@@ -9,6 +9,49 @@
 
 namespace engine {
 
+#if defined(_WIN32)
+namespace {
+
+// SDD §21.7 fix: WIN_WindowProc (external/SDL3/src/video/windows/SDL_windowsevents.c) maps
+// SDL_HITTEST_NORMAL to HTCLIENT unconditionally once any SDL_HitTest callback is installed —
+// which create() below does for every window — and never falls through to DefWindowProc for that
+// message. DefWindowProc is the only place that inspects WS_EX_TRANSPARENT and would return
+// HTTRANSPARENT for it (the mechanism apply_click_through's doc comment relies on), so once a
+// drag region exists, real click-through can never fire, regardless of where the pointer is.
+// SDL_HitTestResult also has no HTTRANSPARENT-equivalent value, so this can't be fixed through
+// the public SDL_HitTest callback alone (reported upstream:
+// https://github.com/libsdl-org/SDL — no way to yield to DefWindowProc / express a transparent
+// hit region). Instead, this subclasses the HWND on top of SDL's own WIN_WindowProc (already
+// installed by SDL_CreateWindow, see SDL_windowswindow.c's WIN_CreateWindow) and intercepts only
+// WM_NCHITTEST: when click-through is currently applied and the point falls outside the drag
+// region, it returns HTTRANSPARENT directly, bypassing SDL entirely for that one message. Every
+// other case — including inside the drag region — delegates to the saved original proc, which
+// runs SDL's own window_drag_hit_test callback exactly as before (including its
+// button-state-aware HTCAPTION/HTCLIENT choice, SDL_windowsevents.c's WM_NCHITTEST handler,
+// SDL_HITTEST_DRAGGABLE case) rather than reimplementing that nuance here.
+LRESULT CALLBACK win32_hit_test_wndproc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    auto* self = reinterpret_cast<WindowSystem*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    auto prev = reinterpret_cast<WNDPROC>(self != nullptr ? self->win32_prev_wndproc() : nullptr);
+
+    if (msg == WM_NCHITTEST && self != nullptr && self->click_through_applied()) {
+        POINT pt{static_cast<LONG>(static_cast<short>(LOWORD(lParam))),
+                static_cast<LONG>(static_cast<short>(HIWORD(lParam)))};
+        if (ScreenToClient(hwnd, &pt)) {
+            const SDL_Point area{static_cast<int>(pt.x), static_cast<int>(pt.y)};
+            // window_drag_hit_test ignores its `window` parameter (only reads drag_region_ off
+            // `self`), so passing nullptr here is safe — same call SDL itself makes internally.
+            if (window_drag_hit_test(nullptr, &area, self) == SDL_HITTEST_NORMAL) {
+                return HTTRANSPARENT;
+            }
+        }
+    }
+
+    return prev != nullptr ? CallWindowProcW(prev, hwnd, msg, wParam, lParam) : DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+}
+#endif
+
 WindowSystem::~WindowSystem() {
     destroy();
 }
@@ -61,6 +104,23 @@ bool WindowSystem::create(const WindowDesc& desc) {
     // own, and the callback is harmless there — it only ever returns SDL_HITTEST_DRAGGABLE inside
     // a region set via set_drag_region(), which stays nullopt unless the game opts in.
     SDL_SetWindowHitTest(window_, &window_drag_hit_test, this);
+#if defined(_WIN32)
+    // SDD §21.7 fix (see win32_hit_test_wndproc's doc comment above): subclass on top of SDL's own
+    // WIN_WindowProc so WM_NCHITTEST can resolve to HTTRANSPARENT for click-through, which SDL's
+    // own hit-test dispatch can never produce. GWLP_USERDATA is free for a normal top-level window
+    // — SDL only ever uses it for its message-box dialogs and tray-icon windows (SDL_windowsmessagebox.c,
+    // SDL_tray.c), never for a window created via SDL_CreateWindow, so this doesn't collide with
+    // SDL's own bookkeeping (that lives in a window property, "SDL_WindowData", read via
+    // WIN_GetWindowDataFromHWND — untouched here). SetWindowLongPtrW's return value is the
+    // previously-installed WNDPROC (SDL's WIN_WindowProc), saved so the subclass can delegate.
+    if (HWND hwnd = static_cast<HWND>(
+                SDL_GetPointerProperty(SDL_GetWindowProperties(window_), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
+            hwnd != nullptr) {
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+        win32_prev_wndproc_ = reinterpret_cast<void*>(
+                SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&win32_hit_test_wndproc)));
+    }
+#endif
     return true;
 }
 
@@ -68,6 +128,9 @@ void WindowSystem::destroy() {
     transparent_ = false;
     click_through_applied_ = false;
     drag_region_.reset();
+#if defined(_WIN32)
+    win32_prev_wndproc_ = nullptr;
+#endif
     if (window_ == nullptr) {
         return;
     }
