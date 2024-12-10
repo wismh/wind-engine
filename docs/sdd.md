@@ -630,7 +630,7 @@ Not browser CSS. Engine parser in `src/` (no libcss). File + `.meta` `importer =
 
 **Properties (v1)** — ignore unknown with a **warn** (do not fail the whole sheet):
 
-`color`, `background`, `opacity`, `visibility`, `width`, `height`, `min-width`, `min-height`, `padding` (1–4), `margin` (1–4), `gap`, `flex-direction`, `align-items`, `justify-content`, `border-radius`, `border-width`, `border-color`, `font-size`, `font-family`, `animation-name`, `animation-duration`.
+`color`, `background`, `opacity`, `visibility`, `width`, `height`, `min-width`, `min-height`, `padding` (1–4), `margin` (1–4), `gap`, `flex-direction`, `align-items`, `justify-content`, `border-radius`, `border-width`, `border-color`, `font-size`, `font-family`, `animation-name`, `animation-duration`, `z-index`, `position`, `top`, `right`, `bottom`, `left`, `transform`.
 
 ```css
 .hud { padding: 16; gap: 8; flex-direction: vertical; }
@@ -639,7 +639,10 @@ Button { padding: 8 12; border-radius: 4; }
 Button:hover { background: #333333; }
 Button:pressed { background: #111111; }
 Button:disabled { opacity: 0.5; }
+.badge { position: absolute; top: 4; right: 4; z-index: 1; transform: rotate(15) scale(1.2); }
 ```
+
+**Stacking, positioning, transform (v1):** `z-index` is a plain integer, **sibling-local** — direct children are stable-sorted by it (low = behind, matching `UiCanvas::order`'s "low first = behind" convention), tie-broken by document order; this is not full CSS stacking-context semantics. `position: static | relative | absolute`; `relative` offsets an element's own painted rect via `top`/`left` (or `-bottom`/`-right`) without reflowing siblings; `absolute` removes it from flow and resolves `top`/`right`/`bottom`/`left` against the nearest ancestor with `position` other than `static`, falling back to the canvas root — explicit or hug size by default, stretching to fill when both opposite insets are set with no explicit size on that axis. `transform: rotate(<deg>) scale(<factor>)` — rotation and uniform scale about the element's own center only, not a general matrix; layout itself is never transformed, only paint (and hit-testing, via an axis-aligned bounding-box approximation of the rotated/scaled corners — not a precise oriented-rect test). None of `z-index`/`position`/`top`/`right`/`bottom`/`left`/`transform` are MVVM-bindable or `@keyframes`-animatable in v1 (see below — only `opacity` is).
 
 Cascade: element < class < id < pseudo. Later file rules win at equal specificity (rule index). The xml `stylesheet` attr is one GUID; extra sheets are `UiCanvas::extra_stylesheets` (concatenated after the xml sheet and optional `UiCanvas::stylesheet`).
 
