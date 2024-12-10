@@ -140,6 +140,16 @@ void NanoVgPainter::restore() {
     }
 }
 
+void NanoVgPainter::apply_transform(glm::vec2 center, float rotation_radians, float scale) {
+    if (impl_->vg == nullptr) {
+        return;
+    }
+    nvgTranslate(impl_->vg, center.x, center.y);
+    nvgRotate(impl_->vg, rotation_radians);
+    nvgScale(impl_->vg, scale, scale);
+    nvgTranslate(impl_->vg, -center.x, -center.y);
+}
+
 void NanoVgPainter::scissor(const Rect& rect) {
     if (impl_->vg != nullptr) {
         nvgScissor(impl_->vg, rect.x, rect.y, rect.w, rect.h);
