@@ -95,6 +95,12 @@ TEST(Platform, AndroidProfileConstants) {
     EXPECT_FALSE(engine::gles_profile_enabled());
 }
 
+TEST(Platform, HapticsAmplitudeControl) {
+    EXPECT_TRUE(engine::haptics_has_amplitude_control(engine::Platform::Android));
+    EXPECT_FALSE(engine::haptics_has_amplitude_control(engine::Platform::Web));
+    EXPECT_FALSE(engine::haptics_has_amplitude_control(engine::Platform::Native));
+}
+
 TEST(Platform, AndroidAssetsRoot) {
     EXPECT_EQ(engine::apk_assets_mount(), "assets://");
     EXPECT_TRUE(engine::default_assets_root({}, engine::Platform::Android).empty());
