@@ -251,6 +251,7 @@ main
 | UI        | `ui/`                      | XML + CSS + MVVM; `UiCanvas` draws into a Rect     |
 | Resources | `resources/`               | AssetsDb, cooked catalog, TOML `.meta` (§10)       |
 | Audio     | `audio/`                   | `IAudioSystem` (see §11)                           |
+| Haptics   | `haptics/`                 | `IHaptics` (see §18)                               |
 | Codegen   | `tools/asset_guid`, `asset_codegen` | Write GUIDs vs read-only generate            |
 | Tests     | `tests/`                   | GoogleTest (`engine_tests`, see §12)               |
 
@@ -1179,4 +1180,72 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 - `Renderable` `sort_mode = Y` (auto ground-sort) — not v1; use `order_in_layer`.
 - Widget-as-ECS-entity (Bevy UI) — not v1; would replace the XML instance tree inside `UiCanvas`.
 - Input: gamepad buttons/axes, touch, WASD composites, action maps, `MouseEvent` → `PointerEvent` rename — same `Control` / `ActionId` / `InputEvent` types, added as new `ControlKind`s (keyboard and mouse binds are done). Not a Unity Input System clone (no action callbacks).
+
+---
+
+## 18. Haptics
+
+Device vibration: duration + intensity only (no waveform/pattern playback — out of scope for
+v1). One frontend API — game code never sees which backend is active.
+
+### 18.1 Design rationale
+
+There is no vibration-relevant precedent to reuse from `IAudioSystem`'s Lumenwake mapping —
+this is new ground. The interface follows the same shape anyway (pure-virtual `IHaptics` +
+pimpl'd `HapticsSystem`, DI singleton, always-on fake state model) so it reads like the rest of
+the engine, with two deliberate differences from Audio:
+
+- No `ENGINE_WITH_*` build flag. Audio's `ENGINE_WITH_AUDIO` gates linking a third-party
+  library (SDL3_mixer); haptics has no library to opt into, so the backend split is purely by
+  platform — `#if defined(__EMSCRIPTEN__)` / `#elif defined(__ANDROID__)` / `#else` inside
+  `HapticsSystem::Impl`, compiled unconditionally on every platform.
+- No `update(float dt)`. Audio ticks every frame for wall-clock fades; vibration calls are
+  fire-and-forget and timed by the OS/browser, so there is nothing to tick.
+
+### 18.2 `IHaptics`
+
+```cpp
+class IHaptics {
+public:
+    virtual ~IHaptics() = default;
+
+    virtual bool init() = 0;
+    virtual void dispose() = 0;
+
+    virtual void vibrate(float duration_seconds, float intensity = 1.f) = 0;
+    virtual void cancel() = 0;
+
+    virtual bool is_supported() const = 0;
+};
+```
+
+Contract: `intensity` is clamped to `[0, 1]`. `duration_seconds <= 0`, or clamped
+`intensity <= 0`, is a no-op — nothing is requested, and a vibration already running from an
+earlier call keeps running (`vibrate()` never implicitly cancels; call `cancel()` explicitly).
+
+### 18.3 Per-platform degradation
+
+| Platform | Behavior |
+| --- | --- |
+| Native (desktop) | True no-op, no hardware. `is_supported()` is always `false`. |
+| Web (Emscripten) | `navigator.vibrate(ms)` via an `EM_JS` shim — pure on/off, no amplitude control. `is_supported()` is a genuine runtime check (`typeof navigator.vibrate === 'function'`), not "compiled for Web ⇒ yes" (Firefox removed the API, Safari/iOS never shipped it). |
+| Android API 26+ | Real amplitude control: `VibrationEffect.createOneShot(ms, amplitude)`, amplitude clamped to `[1, 255]` (never `0` — the API throws `IllegalArgumentException` on `0`, which is why the shared `intensity <= 0` no-op gate matters). |
+| Android API 21–25 | Legacy `Vibrator.vibrate(long)`; amplitude ignored. |
+
+Android reaches `android.os.Vibrator` via the first JNI code in this engine
+(`SDL_GetAndroidJNIEnv()` / `SDL_GetAndroidActivity()` / `SDL_GetAndroidSDKVersion()`), resolved
+once in `init()` and cached as global refs — `SDL_Haptic` was considered and rejected because it
+only reaches external joystick/gamepad rumble motors, not the phone's own body vibrator.
+`android.permission.VIBRATE` is a *normal* manifest permission (auto-granted at install, no
+runtime prompt), declared in `cmake/android/app/src/main/AndroidManifest.xml`.
+
+### 18.4 Testing
+
+[[src.haptics.fake_haptics.h]] is an always-on state tracker in the same spirit as
+`audio::FakeMixer`: real backend calls mirror onto it on every platform, so
+[[tests.haptics_test.cpp]] exercises the full contract (gating, clamping, `cancel()`, fake-state
+accessors) without a device or browser. The manifest permission is covered by a text-content
+regression test (`AndroidManifestDeclaresVibratePermission` in
+[[tests.cmake_sanity_test.cpp]]), the only feasible check since there is no real Android
+manifest-merge build in this repo's CI.
 

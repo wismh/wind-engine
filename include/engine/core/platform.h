@@ -119,6 +119,14 @@ struct GraphicsProfile {
     return audio_requires_user_gesture(current_platform());
 }
 
+// Whether IHaptics::vibrate()'s intensity is honored as real amplitude on this platform,
+// as opposed to being accepted but only usable as an on/off gate. This is a compile-time
+// simplification: even on Android, amplitude control additionally requires API 26+ at
+// runtime, which cannot be represented as a pure Platform predicate.
+[[nodiscard]] constexpr bool haptics_has_amplitude_control(Platform platform) noexcept {
+    return platform == Platform::Android;
+}
+
 [[nodiscard]] std::filesystem::path packaged_assets_mount() noexcept;
 
 // SDL Android I/O prefix. Returned as a string because std::filesystem::path

@@ -17,6 +17,7 @@
 #include <engine/ecs/systems.h>
 #include <engine/ecs/transform.h>
 #include <engine/ecs/world.h>
+#include <engine/haptics/haptics_system.h>
 #include <engine/igame.h>
 #include <engine/log.h>
 #include <engine/render/backend.h>

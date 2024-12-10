@@ -10,7 +10,7 @@ Rules that keep games from depending on SDL, glad, or NanoVG.
 
 | Public `include/engine/` | Private `src/` |
 | --- | --- |
-| `IGame`, `World`, components, `AssetsDb`, `IMaterial`, UI MVVM, `IAudioSystem` | OpenGL classes, NanoVG painter, XML/CSS parsers, `stb_image`, clip/mixer |
+| `IGame`, `World`, components, `AssetsDb`, `IMaterial`, UI MVVM, `IAudioSystem`, `IHaptics` | OpenGL classes, NanoVG painter, XML/CSS parsers, `stb_image`, clip/mixer |
 | glm types on game-facing structs | spdlog, tinyxml2, tomlplusplus, SDL |
 
 Games include `<engine/…>` only. `IUiPainter` is **not** public ([[src.ui.painter.h]]).
@@ -33,6 +33,9 @@ Games include `<engine/…>` only. `IUiPainter` is **not** public ([[src.ui.pain
 | `ENGINE_WITH_ANDROID` | PUBLIC. Android profile helpers; NDK builds turn this on by default. |
 | `ENGINE_WITH_GLES` | PUBLIC. ES 3.0 backend (no glad, NanoVG GLES3, shader adapt). Default ON when `EMSCRIPTEN` or `ANDROID`. |
 | `ENGINE_BUILD_TESTS` | `engine_tests` + GoogleTest. Default ON at engine root, OFF when Wind is a subdirectory. |
+
+`IHaptics` has no `ENGINE_WITH_*` flag of its own — its Native/Web/Android split happens at
+compile time via `__EMSCRIPTEN__`/`__ANDROID__` inside `HapticsSystem`, not a build option.
 
 When a game `add_subdirectory`s Wind, window defaults **ON**. Engine-root `vs` preset keeps window **OFF** so CI stays headless. [[build/CMake]].
 
