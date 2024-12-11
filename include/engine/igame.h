@@ -2,9 +2,11 @@
 
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/world.h>
+#include <engine/resources/asset_id.h>
 
 #include <glm/vec2.hpp>
 
+#include <optional>
 #include <string>
 
 namespace engine {
@@ -19,6 +21,11 @@ public:
 
     virtual glm::ivec2 window_size() const {
         return {800, 600};
+    }
+
+    // No default icon: unset means the OS/window-manager default is used.
+    virtual std::optional<AssetId> window_icon() const {
+        return std::nullopt;
     }
 
     virtual ecs::World& world() = 0;

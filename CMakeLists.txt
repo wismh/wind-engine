@@ -430,6 +430,14 @@ if(ENGINE_BUILD_TESTS)
     add_executable(engine_tests ${ENGINE_TEST_SOURCES})
     target_link_libraries(engine_tests PRIVATE engine GTest::gtest_main)
     target_include_directories(engine_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    if(ENGINE_WITH_WINDOW)
+        # WindowSystem is private to engine (linked PRIVATE, so its glad/SDL3 include
+        # dirs don't propagate); tests that reach it via src/render/opengl need them directly.
+        target_link_libraries(engine_tests PRIVATE SDL3::SDL3)
+        if(NOT ENGINE_WITH_GLES)
+            target_link_libraries(engine_tests PRIVATE glad)
+        endif()
+    endif()
     file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/builtin_assets" _engine_builtin_assets)
     file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}" _engine_source_dir)
     target_compile_definitions(engine_tests PRIVATE
