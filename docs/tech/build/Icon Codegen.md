@@ -4,7 +4,7 @@ tags: [build]
 
 # Icon codegen
 
-Host tool for turning one master PNG into the icon files each platform packaging step wants. Not yet wired into `engine_add_game` — that's later, per-platform work (Windows `.rc`, Web favicon, Android, macOS bundle). Today it's a standalone CLI plus a testable library function.
+Host tool for turning one master PNG into the icon files each platform packaging step wants. `engine_add_game` runs it once per game target (when `icon.png` exists) and records the output directory on the `ENGINE_GAME_ICON_DIR` target property; per-platform consumers (Windows `.rc`, Web favicon, Android, macOS bundle) read that property instead of invoking the tool themselves.
 
 ## `icon_codegen`
 
@@ -38,6 +38,10 @@ The library functions (`icon_resize_rgba`, `icon_encode_png`, `icon_encode_ico`,
 ## CMake
 
 Mirrors `asset_codegen`/`asset_guid`: `ENGINE_HOST_ICON_CODEGEN` cache var supplies a native binary when `CMAKE_CROSSCOMPILING` (imported as `IMPORTED GLOBAL` + `IMPORTED_LOCATION`); otherwise `add_executable(icon_codegen ...)` links `engine` directly. Unlike the asset tools, `icon_codegen`'s library logic lives under `src/resources` (private) rather than `include/engine`, so the target additionally gets `engine`'s private `src/` include dir so `main.cpp` can reach `resources/icon_codegen.h`.
+
+### Web favicon
+
+Inside `engine_add_game`'s `EMSCRIPTEN` branch, a `POST_BUILD` step copies `${ENGINE_GAME_ICON_DIR}/favicon.png` beside the target's `.html`/`.js`/`.wasm` output (same `$<TARGET_FILE_DIR:${target}>` idiom `engine_prepare_runtime` uses for assets) — a no-op when the game has no `icon.png`. [[cmake.web.shell.html]] references it with `<link rel="icon" type="image/png" href="favicon.png">`.
 
 ## See also
 
