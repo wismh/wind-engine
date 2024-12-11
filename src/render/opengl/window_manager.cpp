@@ -2,7 +2,42 @@
 
 #include "gl_includes.h"
 
+#if defined(_WIN32)
+#include <windows.h>
+#endif
+
 namespace engine {
+
+#if defined(_WIN32)
+namespace {
+
+// SDD §21.7 fix ("game doesn't update while dragging any window"): on Windows, the OS enters its
+// own modal move/size loop inside DefWindowProc as soon as a WM_NCLBUTTONDOWN with HTCAPTION
+// arrives — whether HTCAPTION came from a real OS titlebar or from window_drag_hit_test's
+// SDL_HITTEST_DRAGGABLE — and the calling thread blocks inside it until the mouse button is
+// released. EngineRuntime's main loop is the classic SDL_PollEvent poll loop (not SDL3's
+// SDL_AppIterate/main-callbacks model), so it never runs again until the drag ends: the whole
+// game visibly freezes for the duration of any drag, not just ones through a drag region.
+// SDL3 already ticks a WM_TIMER (USER_TIMER_MINIMUM, i.e. ~10ms) while inside that modal loop
+// (see WM_ENTERSIZEMOVE in SDL_windowsevents.c) purely to drive its own SDL_AppIterate-based main
+// loop, which this engine doesn't use — but SDL_SetWindowsMessageHook (SDL_system.h), called for
+// every message while the modal loop is active, gives any app a way to piggyback on it. This
+// redraws every live window's *already-recorded* frame (WindowManager::draw_all() re-executes the
+// last CommandBuffer without clearing it, see CommandBuffer::clear()'s one call site in
+// systems.cpp) on each such tick — visual-only, no game_.on_update()/on_fixed_update() reentrancy
+// into the game loop, which would need EngineRuntime state (FixedStepClock, world.flush_events())
+// this class deliberately never touches (SDD §21.4 "platform calls stay behind WindowManager").
+bool windows_message_hook(void* userdata, MSG* msg) {
+    if (msg != nullptr && msg->message == WM_TIMER) {
+        static_cast<WindowManager*>(userdata)->draw_all();
+    }
+    // Must always return true: SDL_windowsevents.c drops the message entirely (WIN_WindowProc
+    // returns 0 without further processing) whenever a Windows message hook returns false.
+    return true;
+}
+
+}
+#endif
 
 WindowManager::WindowManager(render::IRenderBackend& backend) : backend_(&backend) {
     // Pre-build the primary slot's CommandBuffer/OpenGLCanvas objects up front, inert until
@@ -12,7 +47,24 @@ WindowManager::WindowManager(render::IRenderBackend& backend) : backend_(&backen
     auto primary = std::make_unique<Entry>();
     primary->canvas = std::make_shared<render::OpenGLCanvas>(primary->window, *primary->commands, backend);
     windows_[kPrimaryWindow] = std::move(primary);
+#if defined(_WIN32)
+    // A process-global single-slot hook (SDL keeps exactly one), so this only ever needs
+    // installing once per WindowManager (one per EngineRuntime, one EngineRuntime per process).
+    // Safe before SDL_Init(SDL_INIT_VIDEO): SDL_SetWindowsMessageHook just stores two globals.
+    SDL_SetWindowsMessageHook(&windows_message_hook, this);
+#endif
 }
+
+#if defined(_WIN32)
+WindowManager::~WindowManager() {
+    // Clears the hook before `this` goes away — EngineRuntime::shutdown() always calls SDL_Quit()
+    // shortly after destroying/tearing down this manager, but nothing guarantees no stray Windows
+    // message gets pumped in between, and userdata above is this object.
+    SDL_SetWindowsMessageHook(nullptr, nullptr);
+}
+#else
+WindowManager::~WindowManager() = default;
+#endif
 
 bool WindowManager::create_primary_window(const WindowDesc& desc) {
     // The primary Entry always exists (constructor guarantee) — "re-creating" it is just tearing
