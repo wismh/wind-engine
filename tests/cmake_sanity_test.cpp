@@ -134,3 +134,39 @@ TEST(Scaffold, EngineAddGameGeneratesIconsOnce) {
     GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
 #endif
 }
+
+TEST(Scaffold, EngineAddGameBundlesMacIcon) {
+#ifdef ENGINE_SOURCE_DIR
+    const std::filesystem::path root{ENGINE_SOURCE_DIR};
+    const auto slurp = [](const std::filesystem::path& path) {
+        std::ifstream in(path);
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    };
+    const std::string cmake = slurp(root / "CMakeLists.txt");
+    ASSERT_FALSE(cmake.empty());
+    // The macOS block must consume the shared ENGINE_GAME_ICON_DIR / icon.icns output rather than
+    // re-invoking icon_codegen (SDD §19.2) — a second add_custom_command would race the shared one.
+    const auto apple_block = cmake.find("if(APPLE AND _icon_dir)");
+    ASSERT_NE(apple_block, std::string::npos);
+    const auto apple_block_end = cmake.find("endif()", apple_block);
+    ASSERT_NE(apple_block_end, std::string::npos);
+    const std::string apple_block_text = cmake.substr(apple_block, apple_block_end - apple_block);
+    EXPECT_NE(apple_block_text.find("MACOSX_BUNDLE_ICON_FILE"), std::string::npos);
+    EXPECT_NE(apple_block_text.find("MACOSX_PACKAGE_LOCATION"), std::string::npos);
+    EXPECT_NE(apple_block_text.find("icon.icns"), std::string::npos);
+    EXPECT_NE(apple_block_text.find("ENGINE_GAME_ICON_DIR"), std::string::npos);
+    EXPECT_EQ(cmake.find("COMMAND icon_codegen", apple_block), std::string::npos);
+    // Bundle-executable toggle must be gated on APPLE, distinct from the icon-resource block above,
+    // and must precede it (target must become a bundle before its icon resource is attached).
+    const auto bundle_toggle = cmake.find("PROPERTIES MACOSX_BUNDLE ON");
+    ASSERT_NE(bundle_toggle, std::string::npos);
+    ASSERT_LT(bundle_toggle, apple_block);
+    const auto guard_start = cmake.rfind("if(APPLE)", bundle_toggle);
+    ASSERT_NE(guard_start, std::string::npos);
+    const auto guard_end = cmake.find("endif()", guard_start);
+    ASSERT_NE(guard_end, std::string::npos);
+    EXPECT_LT(bundle_toggle, guard_end) << "MACOSX_BUNDLE ON is not inside the if(APPLE) guard";
+#else
+    GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
+#endif
+}
