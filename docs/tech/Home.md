@@ -51,6 +51,7 @@ flowchart LR
 
 - [[build/CMake]]
 - [[build/Asset Codegen]]
+- [[build/Icon Codegen]]
 - [[build/Runtime Assets]]
 - [[build/Game Consumer]]
 
