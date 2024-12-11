@@ -32,7 +32,11 @@ Command buffer, materials, sprite sort, OpenGL 3.3 backend, NanoVG UI execute. G
 - [[src.render.opengl.opengl_backend.cpp]] — execute mesh draws.
 - [[src.render.opengl.opengl_canvas.cpp]] — Draw + font forward to NanoVG.
 - [[src.render.opengl.nanovg_painter.cpp]] — UI painter; `image()` draws (Image source + CSS `background-image`) via a NanoVG image map.
-- [[src.render.opengl.window_system.cpp]] — SDL window + GL context.
+- [[src.render.opengl.window_system.cpp]] — SDL window + GL context. `WindowSystem::set_icon`
+  builds an `SDL_Surface` from a `render::TextureDesc` via the free function
+  `make_icon_surface()` (no-op / `nullptr` on a null window or an undersized RGBA buffer) and
+  calls `SDL_SetWindowIcon`; factored out so the byte layout is unit-testable without
+  `SDL_Init(SDL_INIT_VIDEO)` or a real window.
 
 World draw is **not** in this folder: [[src.ecs.systems.cpp]] `run_render` builds commands.
 
@@ -50,7 +54,7 @@ World draw is **not** in this folder: [[src.ecs.systems.cpp]] `run_render` build
 
 ## Tests
 
-[[tests.command_buffer_test.cpp]] · [[tests.sort_test.cpp]] · [[tests.material_test.cpp]] · [[tests.render_system_test.cpp]] · [[tests.ui_painter_test.cpp]] (fake painter)
+[[tests.command_buffer_test.cpp]] · [[tests.sort_test.cpp]] · [[tests.material_test.cpp]] · [[tests.render_system_test.cpp]] · [[tests.ui_painter_test.cpp]] (fake painter) · [[tests.window_icon_test.cpp]] (`make_icon_surface`, no real window)
 
 GPU pixels are out of `engine_tests` (SDD §12.3).
 

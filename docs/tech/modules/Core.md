@@ -13,6 +13,10 @@ Host, time, input polling, logging, fatal errors, and (when windowed) `Engine<Ga
 - Map SDL scancodes / mouse into ECS events ([[features/Input Mapper]]).
 - spdlog facade `engine::log` ([[features/Logging]]).
 - `IFatalError` — tests use a recorder; games use SDL message box.
+- `IGame::window_icon()` — optional `AssetId`; `Engine<GameT>::init()` resolves it through
+  `AssetsDb` (after the catalog + texture/`UiImage` preload loop) and forwards the
+  `render::TextureDesc` to `EngineRuntime::set_window_icon()`. Unset (`std::nullopt`) leaves the
+  OS/window-manager default icon alone.
 
 ## How it is implemented
 
@@ -30,7 +34,7 @@ Host, time, input polling, logging, fatal errors, and (when windowed) `Engine<Ga
 **Only `ENGINE_WITH_WINDOW`:**
 
 - [[include.engine.core.engine.h]] — template Init/Run/Dispose.
-- [[src.core.engine_runtime.cpp]] — SDL init, window, poll, loop.
+- [[src.core.engine_runtime.cpp]] — SDL init, window, poll, loop, `set_window_icon()` thin wrapper over `WindowSystem::set_icon`.
 - [[src.core.engine_instantiate.cpp]] — explicit template / TU glue if any.
 - [[src.core.sdl_fatal_error.cpp]] — SDL_ShowSimpleMessageBox + quit.
 
@@ -55,7 +59,7 @@ Host, time, input polling, logging, fatal errors, and (when windowed) `Engine<Ga
 
 ## Tests
 
-[[tests.cmake_sanity_test.cpp]] · [[tests.host_test.cpp]] · [[tests.time_test.cpp]] · [[tests.input_test.cpp]] · [[tests.log_test.cpp]] · [[tests.platform_test.cpp]] · [[tests.web_loop_test.cpp]] · [[tests.android_lifecycle_test.cpp]] · [[tests.android_assets_test.cpp]]
+[[tests.cmake_sanity_test.cpp]] · [[tests.host_test.cpp]] · [[tests.time_test.cpp]] · [[tests.input_test.cpp]] · [[tests.log_test.cpp]] · [[tests.platform_test.cpp]] · [[tests.web_loop_test.cpp]] · [[tests.android_lifecycle_test.cpp]] · [[tests.android_assets_test.cpp]] · [[tests.window_icon_test.cpp]]
 
 ## See also
 
