@@ -4,7 +4,7 @@ tags: [build]
 
 # Icon codegen
 
-Host tool for turning one master PNG into the icon files each platform packaging step wants. `engine_add_game` runs it once per game target (gated on `icon.png` existing) and records the output directory on the `ENGINE_GAME_ICON_DIR` target property; each platform's packaging step reads that property instead of re-invoking the tool. Windows consumes `icon.ico` this way (below); Web favicon, Android, and macOS bundle wiring are the remaining per-platform work.
+Host tool for turning one master PNG into the icon files each platform packaging step wants. `engine_add_game` runs it once per game target (gated on `icon.png` existing, § CMake below) and records the output directory on the `ENGINE_GAME_ICON_DIR` target property; each platform's packaging block reads that property instead of re-invoking the tool. Windows and macOS consume it this way below; Web favicon and Android launcher-icon wiring land in the same spot shortly.
 
 ## `icon_codegen`
 
@@ -42,6 +42,10 @@ Mirrors `asset_codegen`/`asset_guid`: `ENGINE_HOST_ICON_CODEGEN` cache var suppl
 ## Windows packaging (`.rc`/`.ico`)
 
 `engine_add_game` reads `ENGINE_GAME_ICON_DIR` (set by the shared `icon_codegen` block above) and, `WIN32 AND` that property is set, `file(GENERATE)`s a tiny `icon.rc` under `generated/<target>/icon.rc` containing `IDI_ICON1 ICON "<icon dir>/icon.ico"`, then `target_sources(${target} PRIVATE ...)`s it. Forward slashes in the path sidestep `rc.exe`'s backslash-escaping rules. `icon.ico` itself doesn't exist at configure time — `icon_codegen` writes it at build time — so the gate is the target property set by the earlier block, not `EXISTS icon.ico`. No-op when `WIN32` is false or the game supplied no `icon.png`.
+
+## macOS packaging (`.icns` bundle)
+
+On `APPLE`, `engine_add_game` also sets `MACOSX_BUNDLE ON` on the game target and, when `ENGINE_GAME_ICON_DIR` is set, adds the shared `icon.icns` output as a source with `MACOSX_PACKAGE_LOCATION "Resources"` plus `MACOSX_BUNDLE_ICON_FILE "icon.icns"` — the two CMake target properties the default `Info.plist` template (`MacOSXBundleInfo.plist.in`) substitutes into `CFBundleIconFile` and copies the file into `<app>.app/Contents/Resources/`. No macOS preset exists in this repo to build/run the bundle (SDD §17).
 
 ## See also
 
