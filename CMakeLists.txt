@@ -288,6 +288,32 @@ function(engine_add_game target)
         set_property(TARGET ${target} PROPERTY ENGINE_GAME_ASSETS "${_assets}")
     endif()
 
+    set(_icon "${CMAKE_CURRENT_SOURCE_DIR}/icon.png")
+    if(EXISTS "${_icon}")
+        if(NOT TARGET icon_codegen)
+            message(FATAL_ERROR "engine_add_game(${target}): icon.png present but icon_codegen is not a target")
+        endif()
+        set(_icon_gen "${CMAKE_CURRENT_BINARY_DIR}/generated/${target}/icons")
+        set(_icon_outputs
+            "${_icon_gen}/icon.ico"
+            "${_icon_gen}/icon.icns"
+            "${_icon_gen}/favicon.png"
+            "${_icon_gen}/mipmap-mdpi/ic_launcher.png"
+            "${_icon_gen}/mipmap-hdpi/ic_launcher.png"
+            "${_icon_gen}/mipmap-xhdpi/ic_launcher.png"
+            "${_icon_gen}/mipmap-xxhdpi/ic_launcher.png"
+            "${_icon_gen}/mipmap-xxxhdpi/ic_launcher.png")
+        add_custom_command(
+            OUTPUT ${_icon_outputs}
+            COMMAND icon_codegen "${_icon}" "${_icon_gen}"
+            DEPENDS icon_codegen "${_icon}"
+            COMMENT "Generate platform app icons for ${target}"
+            VERBATIM)
+        add_custom_target(${target}_icons DEPENDS ${_icon_outputs})
+        add_dependencies(${target} ${target}_icons)
+        set_property(TARGET ${target} PROPERTY ENGINE_GAME_ICON_DIR "${_icon_gen}")
+    endif()
+
     engine_prepare_runtime(${target})
     if(EMSCRIPTEN)
         include("${ENGINE_CMAKE_DIR}/cmake/web/link_flags.cmake")
