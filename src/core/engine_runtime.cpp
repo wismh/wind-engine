@@ -173,6 +173,10 @@ bool EngineRuntime::create_window(std::string_view title, glm::ivec2 size) {
     return impl_->canvas->init();
 }
 
+void EngineRuntime::set_window_icon(const render::TextureDesc& desc) {
+    impl_->window.set_icon(desc);
+}
+
 bool EngineRuntime::load_ui_font(const Font& font) {
     if (impl_->canvas == nullptr) {
         return false;
