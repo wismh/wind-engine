@@ -1146,6 +1146,7 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 14. Builtin assets + well-known GUIDs (§10.8).
 15. `Events<T>` in `World::ctx`; `flush_events` at start of frame (§9).
 16. Pause skips Fixed and freezes accumulator; resize updates `FillWindow` canvases (§4.6–§4.7).
+17. App icon splits into runtime (`IGame::window_icon`, `AssetId`-based) vs. packaging (host-tool-generated `.ico`/`.icns`/mipmap/favicon, CMake/Gradle-time only) — no shared abstraction (§19).
 
 ---
 
@@ -1183,6 +1184,9 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 - `Renderable` `sort_mode = Y` (auto ground-sort) — not v1; use `order_in_layer`.
 - Widget-as-ECS-entity (Bevy UI) — not v1; would replace the XML instance tree inside `UiCanvas`.
 - Input: gamepad buttons/axes, touch, WASD composites, action maps, `MouseEvent` → `PointerEvent` rename — same `Control` / `ActionId` / `InputEvent` types, added as new `ControlKind`s (keyboard and mouse binds are done). Not a Unity Input System clone (no action callbacks).
+- Adaptive Android launcher icon (foreground/background layers) — v1 icon ships as a flat legacy icon only (§19.3); adaptive needs a two-layer source input, not just the one master PNG `icon_codegen` takes today.
+- Linux `.desktop` entry + icon-cache install — no `install()` target exists for games yet; out of scope until one does.
+- macOS `.icns`/bundle path (§19.2) is untested in this repo's CI — no macOS machine or preset exists to build/run it on.
 
 ---
 
@@ -1251,4 +1255,108 @@ accessors) without a device or browser. The manifest permission is covered by a 
 regression test (`AndroidManifestDeclaresVibratePermission` in
 [[tests.cmake_sanity_test.cpp]]), the only feasible check since there is no real Android
 manifest-merge build in this repo's CI.
+
+---
+
+## 19. Application icon
+
+Two unrelated concerns share the name "app icon" and get two different mechanisms:
+
+- **Runtime window icon** — shown in the title bar / taskbar while the game is running. Goes
+  through `AssetsDb` like any other texture; per-game via `IGame`.
+- **Packaging icon** — the `.exe` icon in Explorer, the macOS Dock/Finder icon, the Android
+  launcher icon, the browser favicon. Exists before the engine runs at all; a CMake/build-time
+  concern, not a runtime asset.
+
+Do not unify these into one abstraction — they have different lifetimes (asset-catalog load
+time vs. link/package time) and different platforms support only one of the two (§19.1).
+
+### 19.1 Runtime window icon
+
+```cpp
+virtual std::optional<AssetId> window_icon() const { return std::nullopt; }
+```
+
+Added to `IGame` next to `window_title()` / `window_size()` (§5), default `nullopt` = OS
+default icon. The source is a plain PNG in the game's `assets/` (importer `Texture` or
+`UiImage` — no new importer). `WindowSystem::set_icon(const render::TextureDesc&)` builds an
+`SDL_Surface` with `SDL_CreateSurfaceFrom(w, h, SDL_PIXELFORMAT_RGBA32, rgba.data(), w * 4)` and
+calls `SDL_SetWindowIcon`; `EngineRuntime::set_window_icon` wraps it the same way
+`create_window` wraps `WindowSystem::create`.
+
+Call site: `Engine::init`, **after** `assets_->load_catalog(...)`, alongside the existing
+texture/`UiImage` preload loop — not at `create_window` time, because the catalog is not loaded
+yet when the window is created.
+
+| Platform | Behavior |
+| --- | --- |
+| Windows / Linux (X11) | `SDL_SetWindowIcon` works: title bar + taskbar. |
+| macOS | No-op. SDL does not set the Dock icon this way; only the bundle icon (§19.2) does. |
+| Web / Android | No-op. No windowed chrome to put an icon on. |
+
+### 19.2 Packaging icon per platform
+
+One host tool (§19.3) turns one master PNG into every platform's native icon format at build
+time — never at runtime, so none of this links into the shipped binary.
+
+| Platform | Mechanism | File(s) consumed |
+| --- | --- | --- |
+| Windows | `engine_add_game` generates an `icon.rc` (`IDI_ICON1 ICON "icon.ico"`) and adds it to `target_sources` when `WIN32 AND EXISTS icon.ico`. | `.ico` |
+| macOS | `if(APPLE AND EXISTS icon.icns)`: `add_executable(${target} MACOSX_BUNDLE ...)`, `MACOSX_BUNDLE_ICON_FILE`, resource with `MACOSX_PACKAGE_LOCATION "Resources"`. | `.icns` |
+| Android | `mipmap-*/ic_launcher.png` merged in via the game's resource overlay (§19.5); `android:icon="@mipmap/ic_launcher"` added to `<application>` in the engine's `AndroidManifest.xml`. | flat legacy PNG per density (no adaptive layers — §17) |
+| Web | `favicon.png` copied beside the Emscripten output (same mechanism as `engine_target_web_preload`); `<link rel="icon">` added to `cmake/web/shell.html`. | `.png` |
+| Linux | Not covered — no `install()` target exists for games yet (§17). | — |
+
+`.ico` and `.icns` are not opaque platform-proprietary formats needing a platform-specific
+encoder — both are containers that wrap already-decoded PNGs behind a small binary header
+(`ICONDIR`/`ICONDIRENTRY` for `.ico`; `icns` + tagged chunks such as `ic07`/`ic08`/`ic09` for
+`.icns`, both accepting embedded PNG payloads on any target OS since Vista / 10.7). That is why
+one cross-compiled host tool can emit both, on any host, without shelling out to `rc.exe` or
+`iconutil`.
+
+### 19.3 `icon_codegen` (host tool)
+
+Same shape as `asset_codegen` / `asset_guid` (§10.4): built from
+`tools/icon_codegen/main.cpp`, linked against `engine` for `decode_png_rgba`, invoked via
+`add_custom_command` at configure/build time, never shipped. Cross-compiling (Android NDK)
+requires a native build first and `-DENGINE_HOST_ICON_CODEGEN=/path/to/icon_codegen`, mirroring
+`ENGINE_HOST_ASSET_CODEGEN`.
+
+Input: one master PNG (minimum 1024×1024, square) named by convention, e.g. `icon.png` at the
+game's root. Resizing uses a vendored `stb_image_resize2.h` (public domain, dropped into
+`src/resources/` next to `stb_image.h` — no new submodule). Output, under
+`${CMAKE_CURRENT_BINARY_DIR}/generated/<target>/icons/`: `icon.ico` (16/32/48/256),
+`icon.icns` (16 up to 1024), `mipmap-{m,h,xh,xxh,xxxh}dpi/ic_launcher.png`, `favicon.png`.
+
+### 19.4 Android per-game identity overlay
+
+Today `cmake/android/app/src/main/AndroidManifest.xml` and
+`cmake/android/app/src/main/res/values/strings.xml` are engine-owned and fixed — every game
+gets `app_name = "Wind"` and `applicationId 'org.windengine.app'` (`build.gradle`), so two games
+cannot coexist as-is. The icon needs the same fix, so it lands here rather than as a
+one-off hack:
+
+- New Gradle properties on the existing `-P` pass-through in `cmake/android/app/build.gradle`:
+  `ENGINE_ANDROID_RES_DIR` (a directory the game supplies) and
+  `ENGINE_ANDROID_APPLICATION_ID`.
+- `sourceSets.main.res.srcDirs += [gameResDir]` — standard Android Gradle Plugin resource
+  merging overlays the game's `mipmap-*/ic_launcher.png` and `values/strings.xml` (`app_name`)
+  over the engine's own `res/`, by resource name, with **no edits to the committed engine
+  template**. This is the same mechanism Unity's generated Android project uses
+  (`Assets/Plugins/Android/res` overlay) — reused here rather than inventing a template system.
+- `defaultConfig.applicationId` reads `ENGINE_ANDROID_APPLICATION_ID` if present, else keeps
+  `org.windengine.app`.
+
+### 19.5 Testing
+
+`WindowSystem::set_icon`'s `TextureDesc → SDL_Surface` conversion (dimensions, pitch, byte
+layout) is a pure-data unit test, no window needed; `IGame::window_icon()`'s `nullopt` default
+is a one-line contract test. `icon_codegen`'s `.ico`/`.icns` writers are tested by round-tripping
+known PNG fixtures through the container writer and checking header/chunk bytes, not by
+rendering — no OS icon viewer runs in `engine_tests` (§12.3). The `android:icon` attribute and
+the `ENGINE_ANDROID_RES_DIR`/`ENGINE_ANDROID_APPLICATION_ID` plumbing get a text-content
+regression test in [[tests.cmake_sanity_test.cpp]], the same pattern as
+`AndroidManifestDeclaresVibratePermission` (§18.4) — there is no real Gradle resource-merge
+build in this repo's CI to exercise instead. The macOS bundle path (§19.2) has no test at all,
+same caveat as noted in §17.
 
