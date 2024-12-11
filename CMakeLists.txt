@@ -246,6 +246,11 @@ function(engine_add_game target)
     else()
         add_executable(${target} ${ARGN})
     endif()
+    if(APPLE)
+        # Package as a .app bundle so MACOSX_BUNDLE_ICON_FILE / MACOSX_PACKAGE_LOCATION below
+        # (SDD §19.2) take effect; ignored by CMake on non-Apple platforms either way.
+        set_target_properties(${target} PROPERTIES MACOSX_BUNDLE ON)
+    endif()
     set_target_properties(${target} PROPERTIES
         CXX_STANDARD 23
         CXX_STANDARD_REQUIRED ON
@@ -312,6 +317,16 @@ function(engine_add_game target)
         add_custom_target(${target}_icons DEPENDS ${_icon_outputs})
         add_dependencies(${target} ${target}_icons)
         set_property(TARGET ${target} PROPERTY ENGINE_GAME_ICON_DIR "${_icon_gen}")
+    endif()
+
+    get_property(_icon_dir TARGET ${target} PROPERTY ENGINE_GAME_ICON_DIR)
+    if(APPLE AND _icon_dir)
+        # Consumes the shared icon_codegen output above (ENGINE_GAME_ICON_DIR) rather than
+        # re-invoking icon_codegen — a second add_custom_command writing icon.icns would race it.
+        set(_icns "${_icon_dir}/icon.icns")
+        set_source_files_properties("${_icns}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+        target_sources(${target} PRIVATE "${_icns}")
+        set_target_properties(${target} PROPERTIES MACOSX_BUNDLE_ICON_FILE "icon.icns")
     endif()
 
     engine_prepare_runtime(${target})
