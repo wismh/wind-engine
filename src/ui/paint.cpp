@@ -673,12 +673,17 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
 
     painter.save();
     painter.set_opacity(style.opacity);
-    painter.scissor(screen_rect);
     if (element.rotation_deg != 0.0f || element.scale != 1.0f) {
         constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
         const glm::vec2 center{screen_rect.x + screen_rect.w * 0.5f, screen_rect.y + screen_rect.h * 0.5f};
         painter.apply_transform(center, element.rotation_deg * kDegToRad, element.scale);
     }
+    // Must come after apply_transform: nvgScissor() bakes in whatever transform is active when
+    // called, so a scissor set before a rotation clips against the element's un-rotated
+    // axis-aligned rect instead of rotating along with the content — a rotated thin/long element
+    // (e.g. a strike-through line) then gets clipped down to little more than where its rotated
+    // bounds cross that stale rect, rather than its full rotated length.
+    painter.scissor(screen_rect);
 
     if (style.background.a > 0.0f) {
         painter.fill_rounded_rect(screen_rect, screen_border_radius, style.background);
