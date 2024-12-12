@@ -283,15 +283,29 @@ TEST(Scaffold, AndroidGradleOverlaysPerGameResDirAndApplicationId) {
     };
     const std::string gradle = slurp(root / "cmake" / "android" / "app" / "build.gradle");
     ASSERT_FALSE(gradle.empty());
-    // A game supplies its own mipmap-*/ic_launcher.png via ENGINE_ANDROID_RES_DIR; AGP's resource
-    // merger overlays it over the engine's own res/, without editing the committed engine
-    // template (SDD §19.4). app_name does NOT go through this path — see
-    // AndroidGradleSetsAppNameManifestPlaceholder below: a values/strings.xml overlay here would
-    // collide with the engine's own string/app_name (AAPT2 "Duplicate resources"), since AGP only
-    // gives override precedence to build-variant source sets over main, not to sibling
-    // directories added to main's own res.srcDirs.
+    // A game supplies its own mipmap-*/ic_launcher.png via ENGINE_ANDROID_RES_DIR. AGP only gives
+    // override precedence to build-variant source sets (debug/release) over main, never to
+    // sibling directories added to main's own res.srcDirs — those merge as equal siblings and
+    // AAPT2 hard-fails as "Duplicate resources" the moment both declare the same resource. Since
+    // wind-62 shipped a default mipmap/ic_launcher in the engine's own main res/, the overlay
+    // MUST live under debug/release, not main, or every game supplying its own icon would hit
+    // that same collision (app_name hit exactly this before it moved to a manifestPlaceholder —
+    // see AndroidGradleSetsAppNameManifestPlaceholder below).
     EXPECT_NE(gradle.find("ENGINE_ANDROID_RES_DIR"), std::string::npos);
-    EXPECT_NE(gradle.find("res.srcDirs"), std::string::npos);
+    const auto main_block = gradle.find("main {");
+    ASSERT_NE(main_block, std::string::npos);
+    const auto main_block_end = gradle.find("}", main_block);
+    ASSERT_NE(main_block_end, std::string::npos);
+    const auto res_in_main = gradle.find("res.srcDirs", main_block);
+    EXPECT_TRUE(res_in_main == std::string::npos || res_in_main > main_block_end)
+            << "res.srcDirs must not be added inside sourceSets.main";
+    const auto debug_res = gradle.find("debug {");
+    ASSERT_NE(debug_res, std::string::npos);
+    ASSERT_GT(debug_res, main_block_end);
+    EXPECT_NE(gradle.find("res.srcDirs", debug_res), std::string::npos);
+    const auto release_res = gradle.find("release {", debug_res);
+    ASSERT_NE(release_res, std::string::npos);
+    EXPECT_NE(gradle.find("res.srcDirs", release_res), std::string::npos);
     // Two games must not collide under the same applicationId; default stays the engine's own.
     EXPECT_NE(gradle.find("ENGINE_ANDROID_APPLICATION_ID"), std::string::npos);
     EXPECT_NE(gradle.find("applicationId gameApplicationId"), std::string::npos);

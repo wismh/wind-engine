@@ -83,7 +83,17 @@ android {
         main {
             java.srcDirs += [sdlJava]
             assets.srcDirs += [apkAssets]
-            if (gameResDir) {
+        }
+        // Build-variant sourceSets (debug/release) win over main's own resources of the same
+        // name — sibling dirs added to main.res.srcDirs do not (AAPT2 hard-fails as "Duplicate
+        // resources" instead, which is what broke this overlay once wind-62 shipped a default
+        // mipmap/ic_launcher in the engine's own main res/). Registering the game's overlay on
+        // both debug and release, rather than main, gets the real override precedence.
+        if (gameResDir) {
+            debug {
+                res.srcDirs += [gameResDir]
+            }
+            release {
                 res.srcDirs += [gameResDir]
             }
         }
