@@ -1147,6 +1147,7 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 15. `Events<T>` in `World::ctx`; `flush_events` at start of frame (§9).
 16. Pause skips Fixed and freezes accumulator; resize updates `FillWindow` canvases (§4.6–§4.7).
 17. App icon splits into runtime (`IGame::window_icon`, `AssetId`-based) vs. packaging (host-tool-generated `.ico`/`.icns`/mipmap/favicon, CMake/Gradle-time only) — no shared abstraction (§19).
+18. Splash screen is a `Host::tick` phase, not a separate blocking loop — fade-in/hold/fade-out drives `IUiPainter::set_opacity` on the existing image-draw path; on by default with a builtin asset (§20).
 
 ---
 
@@ -1187,6 +1188,7 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 - Adaptive Android launcher icon (foreground/background layers) — v1 icon ships as a flat legacy icon only (§19.3); adaptive needs a two-layer source input, not just the one master PNG `icon_codegen` takes today.
 - Linux `.desktop` entry + icon-cache install — no `install()` target exists for games yet; out of scope until one does.
 - macOS `.icns`/bundle path (§19.2) is untested in this repo's CI — no macOS machine or preset exists to build/run it on.
+- Tying the splash screen (§20) to real asset-load completion instead of a fixed fade-in/hold/fade-out timer — not v1 (§20.4).
 
 ---
 
@@ -1396,3 +1398,102 @@ in §19.4 went uncaught until a downstream game's real build failed on it. The m
 (§19.2) has no test at all, same caveat as noted in §17.
 
 ---
+
+## 20. Splash screen
+
+A runtime concern, not a packaging one (§19) — shown by `Host`/`EngineRuntime` right after the
+window exists, using an asset already in the NanoVG image cache, not something CMake generates.
+Default: **on**, showing the engine's own mark, fading in from black and back out to black.
+
+### 20.1 `IGame` contract
+
+```cpp
+struct SplashScreen {
+    bool enabled = true;
+    AssetId image = builtin::splash_wind;
+    float fade_in_seconds = 0.4f;
+    float hold_seconds = 1.0f;
+    float fade_out_seconds = 0.4f;
+};
+
+virtual SplashScreen splash_screen() const { return {}; }
+```
+
+Same shape as `window_title()` / `window_size()` / `window_icon()` (§5, §19.1): a virtual with a
+sensible default, no separate config file. A game overrides `image` for its own splash, tunes the
+three durations, or sets `enabled = false` to skip it outright. No single `duration_seconds` —
+three phases, because the animation (§20.3) needs fade-in and fade-out timed independently from
+the hold in the middle.
+
+### 20.2 Default asset
+
+Builtin, like the default shader / quad / material / UI font (§10.8) — not something
+`icon_codegen` touches, since that pipeline is for per-game packaging icons, and this is a single
+engine-owned runtime image:
+
+- `builtin_assets/textures/splash.png` + `.meta`:
+  ```toml
+  guid = "a0e1b2c3d4f5678901234567890abc05"
+  importer = "ui_image"
+  color_space = "srgb"
+  filter = "linear"
+  wrap = "clamp"
+  layout = "single"
+  ```
+- `include/engine/builtin_ids.h`: `builtin::splash_wind`, the 5th well-known GUID, added to
+  `ids` / `count()`. Existing four GUIDs are **not** renumbered (§10.8: never regenerate).
+- `importer = "ui_image"`, not `"texture"`: it's drawn through the same NanoVG image path UI
+  images already use, which `Engine::init()`'s existing preload loop (the one that already walks
+  `Texture`/`UiImage` catalog entries into `runtime_.add_image`) picks up automatically — no new
+  loading code needed, the splash is just another entry in the engine's own builtin catalog.
+- Source art: an AI-generated "made with WindEngine" mark, cleaned up before committing —the
+  original export had a broken alpha channel (jagged, never fully opaque, from a bad
+  background-removal pass) sitting over otherwise-clean RGB; flattened to opaque RGB fixed it
+  with no visible seam. Then cropped tight to the content region (the source canvas had roughly
+  a third of its width as dead black margin on each side) so the shipped asset isn't mostly empty
+  space before any runtime letterboxing even happens.
+
+### 20.3 Rendering: fade-in → hold → fade-out
+
+`Host::tick(float real_dt)` is the single per-frame entry point `MainLoopPolicy::pump` calls
+identically for the blocking desktop loop and the RAF web loop (`web_loop.h`) — the splash is a
+state at the *start* of that tick, not a separate blocking loop before `run()` begins, so it
+needs no per-platform branching the way §19.2's packaging icons did:
+
+- While `elapsed < fade_in + hold + fade_out`: `Host::tick` skips `world_.run(Schedule::Fixed)` /
+  `Frame` entirely (same idea as pause freezing the accumulator, §4.6) and instead draws
+  `splash_screen().image` full-screen, letterboxed with the same fit math `ui::apply_canvas_fit`
+  / `ScaleWithScreenSize` already do — no new fit logic. Opacity comes from the phase:
+  - `[0, fade_in)`: `alpha = elapsed / fade_in` (linear ramp up from 0).
+  - `[fade_in, fade_in + hold)`: `alpha = 1`.
+  - `[fade_in + hold, total)`: `alpha = 1 - (elapsed - fade_in - hold) / fade_out` (linear ramp
+    down to 0).
+  - `fade_in <= 0` or `fade_out <= 0` collapses that ramp to an instant cut, consistent with how
+    §19.1's icon contract treats a zero/negative input as a no-op rather than a special case.
+  - `alpha` feeds `IUiPainter::set_opacity` — the same primitive `paint_element` already uses for
+    element opacity (§8), not a new painter method.
+- The canvas clear color during this phase must be black so the fade-out actually reveals black
+  rather than an undefined or non-black framebuffer — the source art's own background is already
+  near-black by design (§20.2), so the transition from "faded-out splash" to "black clear" is
+  seamless without a special crossfade.
+- Once `elapsed >= total`: one-time transition to normal ticking. `on_start()` runs after this
+  point, same as today — a game never observes a partial splash state.
+
+### 20.4 Open question — not v1
+
+Fixed durations assume `Engine::init()`'s synchronous catalog/font/image loading (already
+finished before the splash phase even starts) is the only thing worth covering. Tying the splash
+to real load completion instead of a timer is a possible follow-up, not implemented here — same
+status as the deferred items in §17.
+
+### 20.5 Testing
+
+The three-phase alpha computation (`[0, fade_in)` / hold / `[fade_in+hold, total)`, including the
+`<= 0` collapse-to-instant edge cases) is a pure function of `elapsed` and the `SplashScreen`
+config — testable by injecting `elapsed` values directly, no window needed, the same way
+`FixedStepClock` / `Loop` timing is already tested (`tests/host_test.cpp`, `tests/time_test.cpp`).
+`SplashScreen`'s defaults (`enabled = true`, `image = builtin::splash_wind`, the three durations)
+are a one-line contract test, same pattern as `IGame::window_icon()`'s `nullopt` default (§19.5).
+Actual drawing is not tested — GPU/window excluded from `engine_tests` (§12.3), same as
+everything else in §19 and §18.
+
