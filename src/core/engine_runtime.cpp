@@ -15,6 +15,8 @@
 #include <engine/resources/meta.h>
 #include <engine/ui/canvas.h>
 
+#include "ui/splash.h"
+
 #include <chrono>
 #include <cstdint>
 #include <fstream>
@@ -124,6 +126,27 @@ std::filesystem::path android_runtime_assets_root(const std::filesystem::path& b
     return dest;
 }
 #endif
+
+// Above any order a game plausibly picks for its own UI (existing usage sticks to small
+// integers like 0-2), so the splash always paints last without games needing to coordinate.
+constexpr int kSplashCanvasOrder = 1000;
+
+void spawn_splash(ecs::World& world, const SplashScreen& config) {
+    const std::optional<ui::SplashDocument> splash = ui::build_splash_document(config);
+    if (!splash) {
+        return;
+    }
+    const ecs::Entity entity = world.create();
+    ui::UiCanvas canvas;
+    canvas.fit = ui::UiFit::FillWindow;
+    canvas.order = kSplashCanvasOrder;
+    world.emplace<ui::UiCanvas>(entity, canvas);
+    // canvas.document/data_context are left at their defaults so they match UiInstance's
+    // freshly-constructed loaded_document/loaded_data_context - otherwise run_bind's
+    // instance_needs_rebuild() sees a mismatch and clone_document() overwrites this in-memory
+    // document by trying (and failing) to load canvas.document from the asset catalog.
+    world.emplace<ui::UiInstance>(entity, ui::UiInstance{splash->document, splash->stylesheet});
+}
 
 }
 
@@ -247,6 +270,7 @@ void EngineRuntime::begin_loop(IGame& game, InputSystem& input, IAudioSystem* au
 
     game.on_start();
     ui::apply_canvas_fit(game.world());
+    spawn_splash(game.world(), game.splash_screen());
     game.world().ctx<ApplicationState>().running = true;
 }
 
