@@ -11,18 +11,29 @@ def cmakeLists = project.hasProperty('ENGINE_ANDROID_CMAKE')
 def hostCodegen = project.hasProperty('ENGINE_HOST_ASSET_CODEGEN')
         ? ENGINE_HOST_ASSET_CODEGEN
         : (System.getenv('ENGINE_HOST_ASSET_CODEGEN') ?: '')
+def hostIconCodegen = project.hasProperty('ENGINE_HOST_ICON_CODEGEN')
+        ? ENGINE_HOST_ICON_CODEGEN
+        : (System.getenv('ENGINE_HOST_ICON_CODEGEN') ?: '')
 def withAudio = project.hasProperty('ENGINE_WITH_AUDIO')
         ? ENGINE_WITH_AUDIO
         : (System.getenv('ENGINE_WITH_AUDIO') ?: 'OFF')
-// Game-supplied res overlay (mipmap-*/ic_launcher.png, values/strings.xml app_name) merged over
-// the engine's own res/ by AGP's standard resource merger — see SDD §19.4. Empty means no overlay,
-// i.e. every game keeps shipping the engine's own icon/name until it supplies one.
+// Game-supplied res overlay (mipmap-*/ic_launcher.png only) merged over the engine's own res/ by
+// AGP's standard resource merger — see SDD §19.4. Empty means no overlay, i.e. every game keeps
+// shipping the engine's own icon until it supplies one. app_name does NOT go through this path:
+// a values/strings.xml here would redeclare the same string/app_name the engine's own res/
+// already defines, which AAPT2 treats as a hard "Duplicate resources" error rather than an
+// override (multiple res.srcDirs in one sourceSet merge as siblings, not an overlay chain — real
+// override precedence only exists between build-variant sourceSets and main). App name is
+// instead a manifestPlaceholder (see AndroidManifest.xml's android:label="${appName}").
 def gameResDir = project.hasProperty('ENGINE_ANDROID_RES_DIR')
         ? file(ENGINE_ANDROID_RES_DIR).absolutePath
         : (System.getenv('ENGINE_ANDROID_RES_DIR') ?: '')
 def gameApplicationId = project.hasProperty('ENGINE_ANDROID_APPLICATION_ID')
         ? ENGINE_ANDROID_APPLICATION_ID
         : (System.getenv('ENGINE_ANDROID_APPLICATION_ID') ?: '')
+def gameAppName = project.hasProperty('ENGINE_ANDROID_APP_NAME')
+        ? ENGINE_ANDROID_APP_NAME
+        : (System.getenv('ENGINE_ANDROID_APP_NAME') ?: '')
 def sdlJava = "${engineDir}/external/SDL3/android-project/app/src/main/java"
 // Same directory CMake stages via -DENGINE_ANDROID_ASSETS_OUT (do not point at engine/build-android).
 def apkAssets = project.hasProperty('ENGINE_ANDROID_ASSETS_OUT')
@@ -40,6 +51,7 @@ android {
         targetSdk 35
         versionCode 1
         versionName '1.0'
+        manifestPlaceholders = [appName: gameAppName ?: 'Wind']
         externalNativeBuild {
             cmake {
                 arguments '-DANDROID_PLATFORM=android-21',
@@ -51,6 +63,9 @@ android {
                         "-DENGINE_ANDROID_ASSETS_OUT=${apkAssets.absolutePath}"
                 if (hostCodegen) {
                     arguments.add("-DENGINE_HOST_ASSET_CODEGEN=${hostCodegen}")
+                }
+                if (hostIconCodegen) {
+                    arguments.add("-DENGINE_HOST_ICON_CODEGEN=${hostIconCodegen}")
                 }
                 abiFilters 'arm64-v8a'
             }

@@ -1339,22 +1339,44 @@ game's root. Resizing uses a vendored `stb_image_resize2.h` (public domain, drop
 
 ### 19.4 Android per-game identity overlay
 
-Today `cmake/android/app/src/main/AndroidManifest.xml` and
-`cmake/android/app/src/main/res/values/strings.xml` are engine-owned and fixed — every game
-gets `app_name = "Wind"` and `applicationId 'org.windengine.app'` (`build.gradle`), so two games
-cannot coexist as-is. The icon needs the same fix, so it lands here rather than as a
-one-off hack:
+`cmake/android/app/src/main/AndroidManifest.xml` and
+`cmake/android/app/src/main/res/values/strings.xml` are engine-owned and fixed — without an
+overlay every game would get the same `app_name`, `applicationId` (`org.windengine.app`), and
+launcher icon, so two games cannot coexist as-is. Two independent mechanisms fix this, chosen
+per resource kind rather than one uniform overlay — an earlier draft of this section proposed a
+single `res.srcDirs` overlay for all three and was wrong about how AGP actually merges resources
+(caught by a downstream game build failing for real; see below):
 
-- New Gradle properties on the existing `-P` pass-through in `cmake/android/app/build.gradle`:
-  `ENGINE_ANDROID_RES_DIR` (a directory the game supplies) and
-  `ENGINE_ANDROID_APPLICATION_ID`.
-- `sourceSets.main.res.srcDirs += [gameResDir]` — standard Android Gradle Plugin resource
-  merging overlays the game's `mipmap-*/ic_launcher.png` and `values/strings.xml` (`app_name`)
-  over the engine's own `res/`, by resource name, with **no edits to the committed engine
-  template**. This is the same mechanism Unity's generated Android project uses
-  (`Assets/Plugins/Android/res` overlay) — reused here rather than inventing a template system.
-- `defaultConfig.applicationId` reads `ENGINE_ANDROID_APPLICATION_ID` if present, else keeps
-  `org.windengine.app`.
+- **`applicationId`** — `ENGINE_ANDROID_APPLICATION_ID` (`-P` property, same pass-through style as
+  `ENGINE_ANDROID_ASSETS_OUT`) overrides `defaultConfig.applicationId`; defaults to
+  `org.windengine.app` when absent. Plain Gradle config, no resource merging involved.
+- **`app_name`** — *not* a `values/strings.xml` overlay. `ENGINE_ANDROID_APP_NAME` feeds
+  `defaultConfig.manifestPlaceholders = [appName: gameAppName ?: 'Wind']`, and the manifest's
+  `<application>`/`<activity>` carry `android:label="${appName}"` — a manifest-merger token
+  substitution, not a resource. A `values/strings.xml` placed in a game's own res dir and merged
+  via `sourceSets.main.res.srcDirs += [...]` does **not** override the engine's own
+  `string/app_name` the way a Unity-style plugin `res/` overlay might suggest: AGP only defines
+  real override precedence between build-variant source sets (a product flavor or build type over
+  `main`), not between multiple directories added to the *same* source set's `res.srcDirs` list —
+  those merge as siblings, and AAPT2 hard-fails the build with "Duplicate resources" the moment
+  two of them declare the same `string/app_name`. `manifestPlaceholders` sidesteps resource
+  merging entirely.
+- **`mipmap-*/ic_launcher.png`** — `ENGINE_ANDROID_RES_DIR` (a directory the game supplies) is
+  still added to `sourceSets.main.res.srcDirs`, and this one *does* work as an overlay in
+  practice, but not for the reason originally claimed: it works because the engine's own `res/`
+  declares no `mipmap-*` resources at all, so a game's `res.srcDirs` entry is the sibling
+  *defining* `mipmap/ic_launcher`, not one *colliding* with an existing definition — there is
+  nothing to duplicate against. That also means a game that supplies no icon has nothing to
+  resolve `android:icon="@mipmap/ic_launcher"` against, which is a hard AAPT2 link error, not a
+  graceful fallback to a platform default (the earlier draft of this section claimed the latter).
+  The engine now ships its own default `mipmap-{m,h,xh,xxh,xxxh}dpi/ic_launcher.png` under
+  `cmake/android/app/src/main/res/` precisely so `@mipmap/ic_launcher` always resolves even
+  without a per-game overlay — the same role `strings.xml`'s built-in `app_name = "Wind"` already
+  played for the label before `manifestPlaceholders` took over that job.
+- `cmake/android/app/build.gradle` also threads `ENGINE_HOST_ICON_CODEGEN` into
+  `externalNativeBuild.cmake.arguments` alongside the existing `ENGINE_HOST_ASSET_CODEGEN`
+  passthrough — cross-compiling for Android needs a native `icon_codegen` (§19.3) the same way it
+  needs a native `asset_codegen`, and this was missing until a downstream game's build hit it.
 
 ### 19.5 Testing
 
@@ -1362,10 +1384,13 @@ one-off hack:
 layout) is a pure-data unit test, no window needed; `IGame::window_icon()`'s `nullopt` default
 is a one-line contract test. `icon_codegen`'s `.ico`/`.icns` writers are tested by round-tripping
 known PNG fixtures through the container writer and checking header/chunk bytes, not by
-rendering — no OS icon viewer runs in `engine_tests` (§12.3). The `android:icon` attribute and
-the `ENGINE_ANDROID_RES_DIR`/`ENGINE_ANDROID_APPLICATION_ID` plumbing get a text-content
-regression test in [[tests.cmake_sanity_test.cpp]], the same pattern as
+rendering — no OS icon viewer runs in `engine_tests` (§12.3). The `android:icon` attribute, the
+`ENGINE_ANDROID_RES_DIR`/`ENGINE_ANDROID_APPLICATION_ID`/`ENGINE_ANDROID_APP_NAME`/
+`ENGINE_HOST_ICON_CODEGEN` plumbing, the `manifestPlaceholders`/`android:label="${appName}"`
+wiring, and the presence of the default `mipmap-*/ic_launcher.png` set all get text-content
+regression tests in [[tests.cmake_sanity_test.cpp]], the same pattern as
 `AndroidManifestDeclaresVibratePermission` (§18.4) — there is no real Gradle resource-merge
-build in this repo's CI to exercise instead. The macOS bundle path (§19.2) has no test at all,
-same caveat as noted in §17.
+build in this repo's CI to exercise instead, which is exactly how the `res.srcDirs` overlay claim
+in §19.4 went uncaught until a downstream game's real build failed on it. The macOS bundle path
+(§19.2) has no test at all, same caveat as noted in §17.
 

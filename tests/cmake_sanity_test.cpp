@@ -283,9 +283,13 @@ TEST(Scaffold, AndroidGradleOverlaysPerGameResDirAndApplicationId) {
     };
     const std::string gradle = slurp(root / "cmake" / "android" / "app" / "build.gradle");
     ASSERT_FALSE(gradle.empty());
-    // A game supplies its own mipmap-*/ic_launcher.png (and optionally values/strings.xml) via
-    // ENGINE_ANDROID_RES_DIR; AGP's standard resource merger overlays it over the engine's own
-    // res/ by name, without ever editing the committed engine template (SDD §19.4).
+    // A game supplies its own mipmap-*/ic_launcher.png via ENGINE_ANDROID_RES_DIR; AGP's resource
+    // merger overlays it over the engine's own res/, without editing the committed engine
+    // template (SDD §19.4). app_name does NOT go through this path — see
+    // AndroidGradleSetsAppNameManifestPlaceholder below: a values/strings.xml overlay here would
+    // collide with the engine's own string/app_name (AAPT2 "Duplicate resources"), since AGP only
+    // gives override precedence to build-variant source sets over main, not to sibling
+    // directories added to main's own res.srcDirs.
     EXPECT_NE(gradle.find("ENGINE_ANDROID_RES_DIR"), std::string::npos);
     EXPECT_NE(gradle.find("res.srcDirs"), std::string::npos);
     // Two games must not collide under the same applicationId; default stays the engine's own.
@@ -294,6 +298,65 @@ TEST(Scaffold, AndroidGradleOverlaysPerGameResDirAndApplicationId) {
     EXPECT_NE(gradle.find("'org.windengine.app'"), std::string::npos);
     // The overlay must never require editing the engine's committed manifest/strings/res per game.
     EXPECT_EQ(gradle.find("applicationId 'org.windengine.app'"), std::string::npos);
+#else
+    GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
+#endif
+}
+
+TEST(Scaffold, AndroidGradleThreadsHostIconCodegen) {
+#ifdef ENGINE_SOURCE_DIR
+    const std::filesystem::path root{ENGINE_SOURCE_DIR};
+    const auto slurp = [](const std::filesystem::path& path) {
+        std::ifstream in(path);
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    };
+    const std::string gradle = slurp(root / "cmake" / "android" / "app" / "build.gradle");
+    ASSERT_FALSE(gradle.empty());
+    // Cross-compiling for Android needs a native icon_codegen (SDD §19.3) the same way it needs a
+    // native asset_codegen — mirror the existing ENGINE_HOST_ASSET_CODEGEN passthrough exactly.
+    EXPECT_NE(gradle.find("ENGINE_HOST_ICON_CODEGEN"), std::string::npos);
+    EXPECT_NE(gradle.find("-DENGINE_HOST_ICON_CODEGEN="), std::string::npos);
+    EXPECT_NE(gradle.find("hostIconCodegen"), std::string::npos);
+#else
+    GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
+#endif
+}
+
+TEST(Scaffold, AndroidGradleSetsAppNameManifestPlaceholder) {
+#ifdef ENGINE_SOURCE_DIR
+    const std::filesystem::path root{ENGINE_SOURCE_DIR};
+    const auto slurp = [](const std::filesystem::path& path) {
+        std::ifstream in(path);
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    };
+    const std::string gradle = slurp(root / "cmake" / "android" / "app" / "build.gradle");
+    const std::string manifest =
+            slurp(root / "cmake" / "android" / "app" / "src" / "main" / "AndroidManifest.xml");
+    ASSERT_FALSE(gradle.empty());
+    ASSERT_FALSE(manifest.empty());
+    // app_name is a manifestPlaceholder, not a values/strings.xml resource overlay (SDD §19.4) —
+    // a second res.srcDirs entry declaring string/app_name would hard-fail AAPT2 as a duplicate.
+    EXPECT_NE(gradle.find("ENGINE_ANDROID_APP_NAME"), std::string::npos);
+    EXPECT_NE(gradle.find("manifestPlaceholders"), std::string::npos);
+    EXPECT_NE(gradle.find("appName:"), std::string::npos);
+    EXPECT_NE(manifest.find(R"(android:label="${appName}")"), std::string::npos);
+    EXPECT_EQ(manifest.find(R"(android:label="@string/app_name")"), std::string::npos);
+#else
+    GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
+#endif
+}
+
+TEST(Scaffold, AndroidResIncludesDefaultLauncherIcon) {
+#ifdef ENGINE_SOURCE_DIR
+    const std::filesystem::path root{ENGINE_SOURCE_DIR};
+    const std::filesystem::path res = root / "cmake" / "android" / "app" / "src" / "main" / "res";
+    // android:icon="@mipmap/ic_launcher" is unconditional in the manifest and has no
+    // manifestPlaceholder equivalent, so an unresolved reference is a hard AAPT2 link error, not
+    // a graceful fallback — the engine must ship its own default set (SDD §19.4) so a game with no
+    // icon.png/ENGINE_ANDROID_RES_DIR overlay still builds.
+    for (const char* density : {"mipmap-mdpi", "mipmap-hdpi", "mipmap-xhdpi", "mipmap-xxhdpi", "mipmap-xxxhdpi"}) {
+        EXPECT_TRUE(std::filesystem::is_regular_file(res / density / "ic_launcher.png")) << density;
+    }
 #else
     GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
 #endif
