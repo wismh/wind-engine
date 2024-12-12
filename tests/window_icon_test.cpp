@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <engine/builtin_ids.h>
 #include <engine/igame.h>
 
 #include <cstdint>
@@ -16,6 +17,16 @@ class DummyGame final : public engine::GameBase {};
 TEST(WindowIcon, DefaultIsNullopt) {
     DummyGame game;
     EXPECT_FALSE(game.window_icon().has_value());
+}
+
+TEST(SplashScreenContract, DefaultsMatchSdd) {
+    DummyGame game;
+    const auto splash = game.splash_screen();
+    EXPECT_TRUE(splash.enabled);
+    EXPECT_EQ(splash.image, engine::builtin::splash_wind);
+    EXPECT_FLOAT_EQ(splash.fade_in_seconds, 0.4f);
+    EXPECT_FLOAT_EQ(splash.hold_seconds, 1.0f);
+    EXPECT_FLOAT_EQ(splash.fade_out_seconds, 0.4f);
 }
 
 #if defined(ENGINE_WITH_WINDOW)
