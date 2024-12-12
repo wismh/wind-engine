@@ -167,6 +167,22 @@ TEST(WindowSystem, ClickThroughSetterAndUpdateAreNoopWithoutWindow) {
     window.update_click_through(true);
 }
 
+TEST(WindowSystem, ClickThroughAppliedDefaultsToFalse) {
+    engine::WindowSystem window;
+    EXPECT_FALSE(window.click_through_applied());
+}
+
+TEST(WindowSystem, ClickThroughAppliedStaysFalseWithoutWindow) {
+    engine::WindowSystem window;
+    // update_click_through()'s apply_click_through() call is itself a no-op without a real HWND
+    // (SDD §12.3), so click_through_applied() must never latch true from this alone — otherwise
+    // the SDD §21.7 Win32 hit-test hook (window_system.cpp) would treat a window that was never
+    // actually made click-through as if it were.
+    window.set_click_through_enabled(true);
+    window.update_click_through(/*pointer_hit_something=*/false);
+    EXPECT_FALSE(window.click_through_applied());
+}
+
 TEST(WindowSystem, SetDragRegionIsNoopWithoutWindow) {
     engine::WindowSystem window;
     // No SDL_Init(SDL_INIT_VIDEO), no window created: must not crash (SDD §12.3/§21.7).

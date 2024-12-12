@@ -24,6 +24,12 @@ namespace engine {
 class WindowManager {
 public:
     explicit WindowManager(render::IRenderBackend& backend);
+    // Declared (not defaulted) so it can clear the Win32 modal-loop redraw hook installed by the
+    // constructor (SDD §21.7 "game freezes during any window drag" fix) on Windows; a no-op body
+    // elsewhere. Declaring it unconditionally (rather than only under _WIN32) keeps
+    // move-special-member behavior identical across platforms — a destructor guarded by #if would
+    // silently suppress the implicit move ctor/assignment on Windows only.
+    ~WindowManager();
 
     [[nodiscard]] bool create_primary_window(const WindowDesc& desc);
     [[nodiscard]] std::optional<WindowId> create_window(const WindowDesc& desc);
