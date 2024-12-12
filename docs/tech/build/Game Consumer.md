@@ -43,21 +43,39 @@ Pin the submodule to a Wind `main` commit; do not develop features inside the ne
 
 `cmake/android/app/` (manifest, `strings.xml`, `res/`) is an engine-owned template shared by every
 game that builds for Android — without an overlay, two games would collide on the same
-`app_name`, `applicationId`, and launcher icon. `cmake/android/app/build.gradle` resolves two more
-`-P` properties, mirroring `ENGINE_ANDROID_ASSETS_OUT`:
+`app_name`, `applicationId`, and launcher icon. `cmake/android/app/build.gradle` resolves more
+`-P` properties, mirroring `ENGINE_ANDROID_ASSETS_OUT` — but **not all three identity pieces go
+through the same mechanism**; an earlier version of this doc claimed a single `res.srcDirs`
+overlay handled all of them, which a downstream game's real Gradle build proved wrong (AAPT2
+"Duplicate resources" on `strings.xml`):
 
-- `ENGINE_ANDROID_RES_DIR` — a directory the game supplies (`mipmap-*/ic_launcher.png`, optionally
-  `values/strings.xml` with its own `app_name`). Added to `sourceSets.main.res.srcDirs`, so AGP's
-  standard resource merger overlays it over the engine's own `res/` by resource name — the same
-  technique Unity's generated Android project uses. The committed engine template is never edited
-  per game.
 - `ENGINE_ANDROID_APPLICATION_ID` — overrides `defaultConfig.applicationId`; defaults to
-  `org.windengine.app` when absent.
+  `org.windengine.app` when absent. Plain Gradle config.
+- `ENGINE_ANDROID_APP_NAME` — feeds `defaultConfig.manifestPlaceholders = [appName: gameAppName ?:
+  'Wind']`; the manifest's `<application>`/`<activity>` use `android:label="${appName}"`. **Not**
+  a `values/strings.xml` overlay: AGP only gives real override precedence to build-variant source
+  sets over `main` (a flavor or build type over it), not to multiple directories added to `main`'s
+  own `res.srcDirs` list — those are siblings, and AAPT2 hard-fails the build the moment two of
+  them declare the same `string/app_name`. `manifestPlaceholders` is manifest-merger territory,
+  not resource-merger territory, so it sidesteps the collision entirely.
+- `ENGINE_ANDROID_RES_DIR` — a directory the game supplies (`mipmap-*/ic_launcher.png`). Added to
+  `sourceSets.main.res.srcDirs`, and this one genuinely does work as an overlay — but only because
+  the engine's own `res/` declares zero `mipmap-*` resources, so there is nothing for a game's
+  entry to collide with; it's the sole definition, not an override. The committed engine template
+  is never edited per game.
+- `ENGINE_HOST_ICON_CODEGEN` — threaded into `externalNativeBuild.cmake.arguments` alongside the
+  existing `ENGINE_HOST_ASSET_CODEGEN`, for the same reason: cross-compiling for Android needs a
+  native `icon_codegen` (§19.3 host tool) the same way it needs a native `asset_codegen`. Missing
+  until a downstream game's cross-compiling build hit `CMake Error: Cross-compiling builds need a
+  native icon_codegen`.
 
-`AndroidManifest.xml`'s `<application>` carries `android:icon="@mipmap/ic_launcher"` unconditionally
-— it simply doesn't resolve (falls back to the platform default) when no overlay supplies that
-mipmap, the same behavior `android:label="@string/app_name"` already has without a `strings.xml`
-overlay.
+Because `AndroidManifest.xml`'s `<application>` carries `android:icon="@mipmap/ic_launcher"`
+unconditionally, and unlike `android:label` there is no `manifestPlaceholders` equivalent for a
+whole mipmap resource, a game that supplies no icon overlay has nothing for that reference to
+resolve against — an unresolved manifest resource reference is a hard AAPT2 link error, not a
+graceful fallback to a platform default. The engine ships its own default
+`mipmap-{m,h,xh,xxh,xxxh}dpi/ic_launcher.png` under `cmake/android/app/src/main/res/` specifically
+so the reference always resolves even without a per-game overlay.
 
 `engine_add_game`'s icon step (`icon.png` → `icon_codegen` → `ENGINE_GAME_ICON_DIR`, one
 `${target}_icons` target shared by every platform) already generates
