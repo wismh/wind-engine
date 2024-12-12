@@ -1455,11 +1455,17 @@ engine-owned runtime image:
 
 ### 20.3 Rendering: reuse the CSS keyframe animation system, not a new draw path
 
-`Host::tick` does **not** gate `Schedule::Fixed`/`Frame`, and `on_start()` is **not** moved —
-both stay exactly as they are today (`on_start()` already runs unconditionally inside `Host`'s
-constructor, before any `tick()`). The splash is not a pause-like blocking phase; it is one more
-`UiCanvas`/`UiInstance` entity drawn on top of everything else, fading itself out via machinery
-that already exists:
+The per-frame tick does **not** gate `Schedule::Fixed`/`Frame`, and `on_start()` is **not**
+moved — both stay exactly as they are today. Note: `include/engine/core/host.h`'s `Host` class
+*looks* like the per-frame entry point (and is what earlier drafts of this section assumed), but
+it is not actually wired into `Engine<GameT>::run()` — the real production loop is
+`EngineRuntime::begin_loop()` (one-time: `game.on_start()`, `ui::apply_canvas_fit()`, starts
+`running`) plus `EngineRuntime::tick_loop()` (per-frame: fixed/frame update, `canvas().draw()`) in
+`src/core/engine_runtime.cpp`. `Host` is a separate, parallel class exercised only by
+`tests/host_test.cpp`; changes here belong in `EngineRuntime`, not `Host` (though mirroring the
+change there too, if cheap, keeps the two from drifting further apart — not required). The splash
+is not a pause-like blocking phase; it is one more `UiCanvas`/`UiInstance` entity drawn on top of
+everything else, fading itself out via machinery that already exists:
 
 - The UI layer already has a working `@keyframes` opacity animator: `ComputedStyle::animation_name`
   / `animation_duration`, `Element::animation_elapsed` (accumulates real per-frame `delta_time`,
@@ -1480,9 +1486,13 @@ that already exists:
   copy.
 - Spawned once — gated on `splash_screen().enabled` — as a `UiCanvas{fit = UiFit::FillWindow,
   order = <high, above every other canvas>}` + `UiInstance{document, stylesheet}` entity, most
-  naturally right where `Host`'s constructor already calls `ui::apply_canvas_fit(game_->world())`
-  (or equivalently in `Engine::init()` after the existing image-preload loop, whichever keeps the
-  builtin/game splash image already resolved through `AssetsDb` by the time this entity exists).
+  naturally right where `EngineRuntime::begin_loop()` already calls
+  `ui::apply_canvas_fit(game.world())` (that's after `Engine::init()`'s catalog/image-preload
+  loop has already finished, so the builtin/game splash image is already resolved through
+  `AssetsDb` by the time this entity exists). `world.create()` + `world.emplace<ui::UiCanvas>(...)`
+  + `world.emplace<ui::UiInstance>(...)` is the existing spawn pattern — see
+  `spawn_button_canvas` in `tests/mvvm_test.cpp` for a working example of building a `UiCanvas` +
+  `UiInstance{parsed_document}` pair from a `parse_xml` result.
   `run_ui_render` (`src/ecs/systems.cpp`, the existing `Phase::UiRender` system) already walks
   every `UiCanvas`/`UiInstance` entity and pushes its draw calls through the same `CommandBuffer`
   → render-backend path everything else uses — no `ICanvas`/`OpenGLCanvas` changes needed.
