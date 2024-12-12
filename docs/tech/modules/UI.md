@@ -25,6 +25,12 @@ XML + custom CSS + C++ MVVM. UI is an ECS component (`UiCanvas` + `UiInstance`),
 - [[src.ui.canvas.cpp]] — begin_frame, handle_pointer (widget-level `MouseConsumed` via the shared `hit_test`), apply_canvas_fit, canvas_layout_space.
 - [[src.ui.view_model.cpp]] — `property_`/`command_` maps keyed by `BindingId`, not name.
 - [[src.ui.painter.h]] — private painter interface.
+- [[src.ui.splash.h]] — `build_splash_document()` turns `IGame::splash_screen()`'s config into an
+  in-memory XML `Image` + a 4-stop `@keyframes` opacity CSS via the same `parse_xml`/`parse_css`
+  every other document goes through (no hand-built `Element`/`Keyframes` structs); spawned as a
+  `UiCanvas{fit=FillWindow, order=1000}` + `UiInstance` entity in `EngineRuntime::begin_loop()`
+  (`src/core/engine_runtime.cpp`, not `Host` — see SDD §20.3), on top of every other canvas, fading
+  itself out via the existing keyframe animator with no new draw path.
 - [[src.resources.codegen.cpp]] — for `importer = "ui"` XML, emits a binder struct (e.g. `assets::ui::Hud::bind(vm)`) with one `constexpr BindingId` per `{binding}` path; fails the build on an intern collision. `ViewModel` subclasses and `Bindable<T>` members stay hand-written.
 
 NanoVG implementation: [[src.render.opengl.nanovg_painter.cpp]] — `Image` and CSS `background-image` both paint via `IUiPainter::image(AssetId, Rect)`, backed by an `AssetId`-keyed NanoVG image map populated at Init from `ImporterKind::Texture`/`UiImage` catalog entries.
@@ -43,7 +49,7 @@ Font faces: builtin UI font plus every catalog `ImporterKind::Font` registered i
 
 ## Tests
 
-[[tests.ui_xml_test.cpp]] · [[tests.ui_css_test.cpp]] · [[tests.mvvm_test.cpp]] · [[tests.ui_painter_test.cpp]] · [[tests.assets_test.cpp]] (codegen)
+[[tests.ui_xml_test.cpp]] · [[tests.ui_css_test.cpp]] · [[tests.mvvm_test.cpp]] · [[tests.ui_painter_test.cpp]] · [[tests.assets_test.cpp]] (codegen) · [[tests.splash_test.cpp]]
 
 ## See also
 
