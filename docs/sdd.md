@@ -1520,14 +1520,31 @@ everything else, fading itself out via machinery that already exists:
   `canvas.data_context` must stay at their defaults (matching `UiInstance`'s equally-defaulted
   `loaded_document`/`loaded_data_context`) to keep that check a no-op — otherwise the in-memory
   document gets silently clobbered by a failed asset lookup on the very next frame.
-- `element.animation_elapsed` clamps at `animation_duration` and the animation's last keyframe
-  stop is `opacity: 0`, so once the fade-out finishes the element simply sits invisible forever —
-  correct output with no explicit "done" transition needed. Despawning the now-inert entity
-  afterward is a cheap tidiness improvement, not required for correctness; leave it to whoever
-  implements this to decide if it's worth a small system versus one permanently-idle entity.
-- No canvas-clear-color change needed: `OpenGLCanvas::draw()` already clears to black
-  (`glClearColor(0,0,0,1)`) every frame regardless, so a fully faded-out splash already reveals
-  black underneath with no special-casing.
+- **The game underneath is already running while the splash shows, so its own root needs a
+  constant opaque backdrop, and that backdrop must be explicitly despawned when it's over** —
+  this was wrong in the first implementation, caught by the game visibly flashing behind the
+  splash for its first frame. `on_start()` and `Schedule::Fixed`/`Frame` are never gated (§20.3's
+  opening paragraph), so the game's own UI (a menu, say) is already fully set up and rendering by
+  the time the splash spawns on top of it; on the splash's own first frame the `Image`'s
+  `animation_elapsed` is still 0 (opacity 0, per the keyframe stops above), so with nothing else
+  drawn by the splash, the game shows through underneath for the whole fade-in ramp. The fix: the
+  root `<Canvas>` gets its own rule with a **constant** `background: #000000` — no
+  `animation-name`, so it stays fully opaque for the splash's entire lifetime rather than fading
+  with the image — while the `Image` child keeps the keyframe animation from above. That opaque
+  root then has to be explicitly removed once the sequence ends, or the game stays permanently
+  blacked out after the image's fade-out finishes: `element.animation_elapsed` clamps at
+  `animation_duration` and the image's last keyframe stop is `opacity: 0`, so the *image* sitting
+  invisible forever would be fine on its own, but the *non-animated, always-opaque* root
+  backdrop never goes away by itself. `EngineRuntime` tracks its own `splash_elapsed` timer
+  (advanced by real `dt` in `tick_loop()`, separate from `element.animation_elapsed`) against the
+  `SplashDocument::total_duration` `build_splash_document` returns, and calls
+  `world.destroy(splash_entity)` once it's past — despawning was floated as optional tidiness in
+  an earlier draft of this section; it is not optional once the backdrop is opaque and constant.
+- No canvas-clear-color change needed for the letterbox bars specifically: `OpenGLCanvas::draw()`
+  already clears to black (`glClearColor(0,0,0,1)`) every frame regardless, so the area the
+  `ScaleWithScreenSize`-fit canvas rect doesn't cover is already black without special-casing —
+  it's only the *inside* of that canvas rect, covered by the game's own already-rendered UI,
+  that needed the explicit opaque backdrop above.
 
 ### 20.4 Open question — not v1
 
@@ -1553,5 +1570,12 @@ already done (§20.1). Whether the spawned `UiCanvas`/`UiInstance` entity actual
 of everything else is not tested — GPU/window excluded from `engine_tests` (§12.3), same as
 everything else in §19 and §18 — but that the entity gets spawned at all when `enabled` and *not*
 spawned when disabled is an ECS-level check (`world.view<ui::UiCanvas>()` count), no window
-needed, same spirit as `tests/host_test.cpp`'s existing `Host` construction tests.
+needed, same spirit as `tests/host_test.cpp`'s existing `Host` construction tests. The root's
+constant `background: #000000` rule and its lack of an `animation-name` are checked the same
+pure-function way as the image rule (find the rule declaring `background`, assert no
+`animation-name` on it) — the point being that it must *not* fade with the image. `EngineRuntime`'s
+own despawn-timer wiring (`splash_elapsed` vs. `SplashDocument::total_duration`,
+`world.destroy(...)`) is integration glue in `tick_loop()`/`begin_loop()` that needs a real loop
+iteration to exercise end-to-end — same GPU/window exclusion as the spawn itself, not separately
+tested beyond `total_duration` being computed and threaded through correctly.
 

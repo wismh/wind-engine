@@ -36,7 +36,12 @@ XML + custom CSS + C++ MVVM. UI is an ECS component (`UiCanvas` + `UiInstance`),
   letterboxes that canvas into the real window preserving the image's aspect ratio, so the fixed
   80% image box lands with a minimum 10% margin on every edge; `image_size` comes from a small
   `AssetId → glm::vec2` map `EngineRuntime` fills in as `add_image()` receives each `TextureDesc`.
-  Fades itself out via the existing keyframe animator with no new draw path.
+  The root `<Canvas>` also carries its own rule, `background: #000000` with **no**
+  `animation-name` — constant, not faded — because the game underneath is already running
+  (`on_start()`/`Schedule::Fixed`/`Frame` are never gated) and would otherwise show through
+  during the image's own fade-in/out. `EngineRuntime` tracks a separate `splash_elapsed` timer in
+  `tick_loop()` against `SplashDocument::total_duration` and `world.destroy()`s the whole entity
+  once it's past, since that constant backdrop has no animation of its own to make it disappear.
 - [[src.resources.codegen.cpp]] — for `importer = "ui"` XML, emits a binder struct (e.g. `assets::ui::Hud::bind(vm)`) with one `constexpr BindingId` per `{binding}` path; fails the build on an intern collision. `ViewModel` subclasses and `Bindable<T>` members stay hand-written.
 
 NanoVG implementation: [[src.render.opengl.nanovg_painter.cpp]] — `Image` and CSS `background-image` both paint via `IUiPainter::image(AssetId, Rect)`, backed by an `AssetId`-keyed NanoVG image map populated at Init from `ImporterKind::Texture`/`UiImage` catalog entries.
