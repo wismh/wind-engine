@@ -7,12 +7,15 @@ tags: [build]
 Wind is a **git submodule** (e.g. `external/engine`, url `../engine`).
 
 ```cmake
-set(ENGINE_WITH_AUDIO ON CACHE BOOL "" FORCE)  # optional
 add_subdirectory(external/engine)
 engine_add_game(my_game
     src/main.cpp
     src/game.cpp)
 ```
+
+`ENGINE_WITH_AUDIO` defaults **ON** for this subdirectory (same `_engine_is_root` split as
+`ENGINE_WITH_WINDOW`); `set(ENGINE_WITH_AUDIO OFF CACHE BOOL "" FORCE)` before `add_subdirectory`
+to leave the mixer out.
 
 `engine_add_game`:
 
