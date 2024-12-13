@@ -20,7 +20,7 @@ add_subdirectory(external/engine)
 engine_add_game(my_game src/main.cpp)
 ```
 
-`ENGINE_BUILD_TESTS` defaults OFF then. `ENGINE_WITH_WINDOW` defaults **ON** for that subdirectory so a game does not have to FORCE it.
+`ENGINE_BUILD_TESTS` defaults OFF then, so `engine_tests` is not even configured as a target. If the game wants GoogleTest for its own tests without pulling in the engine's internal suite, set `ENGINE_WITH_GTEST ON` instead — `ENGINE_BUILD_TESTS` still implies it, but not the other way around. `ENGINE_WITH_WINDOW` defaults **ON** for that subdirectory so a game does not have to FORCE it.
 
 ## Build for web (Emscripten / WebGL2)
 
