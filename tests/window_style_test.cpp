@@ -183,6 +183,12 @@ TEST(WindowSystem, ClickThroughAppliedStaysFalseWithoutWindow) {
     EXPECT_FALSE(window.click_through_applied());
 }
 
+TEST(WindowSystem, CursorClientPositionIsNulloptWithoutWindow) {
+    engine::WindowSystem window;
+    // No SDL_Init(SDL_INIT_VIDEO), no window created: must not crash (SDD §12.3).
+    EXPECT_FALSE(window.cursor_client_position().has_value());
+}
+
 TEST(WindowSystem, SetDragRegionIsNoopWithoutWindow) {
     engine::WindowSystem window;
     // No SDL_Init(SDL_INIT_VIDEO), no window created: must not crash (SDD §12.3/§21.7).
