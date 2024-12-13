@@ -270,6 +270,47 @@ TEST(RenderSystem, MissingMeshOrMaterialIsFatal) {
     }
 }
 
+TEST(RenderSystem, SkipsScenePassWhenActiveCameraUnset) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+
+    const auto mesh = std::make_shared<FakeMesh>();
+    const auto material = std::make_shared<FakeMaterial>();
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::Transform>(entity, engine::Transform{});
+    world.emplace<engine::render::Renderable>(entity, make_renderable(mesh, material, 0));
+
+    engine::ui::UiCanvas canvas;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    canvas.rect = engine::render::Rect{8.0f, 16.0f, 32.0f, 48.0f};
+    const engine::ecs::Entity hud = world.create();
+    world.emplace<engine::ui::UiCanvas>(hud, canvas);
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    ASSERT_EQ(commands.size(), 1u);
+    ASSERT_TRUE(std::holds_alternative<engine::render::CmdDrawUI>(commands[0]));
+}
+
+TEST(RenderSystem, SkipsScenePassWhenNoRenderables) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_camera(world);
+
+    engine::ui::UiCanvas canvas;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    canvas.rect = engine::render::Rect{8.0f, 16.0f, 32.0f, 48.0f};
+    const engine::ecs::Entity hud = world.create();
+    world.emplace<engine::ui::UiCanvas>(hud, canvas);
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    ASSERT_EQ(commands.size(), 1u);
+    ASSERT_TRUE(std::holds_alternative<engine::render::CmdDrawUI>(commands[0]));
+}
+
 TEST(RenderSystem, UiCommandsAfterWorld) {
     engine::render::CommandBuffer commands;
     engine::ecs::World world;
