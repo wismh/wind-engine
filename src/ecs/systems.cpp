@@ -167,10 +167,18 @@ void run_render(ecs::World& world, const EngineSystemDeps& deps) {
     }
     deps.commands->clear();
 
+    auto entities = world.view<render::Renderable, Transform>();
+    if (entities.begin() == entities.end()) {
+        return;
+    }
+
     const ActiveCamera& active = world.ctx<ActiveCamera>();
-    const Camera* camera = world.valid(active.entity) ? world.try_get<Camera>(active.entity) : nullptr;
-    const Transform* camera_transform =
-            world.valid(active.entity) ? world.try_get<Transform>(active.entity) : nullptr;
+    if (!world.valid(active.entity)) {
+        return;
+    }
+
+    const Camera* camera = world.try_get<Camera>(active.entity);
+    const Transform* camera_transform = world.try_get<Transform>(active.entity);
     if (camera == nullptr || camera_transform == nullptr) {
         report_fatal(deps.fatal, "ActiveCamera is missing Camera or Transform");
         return;
@@ -181,11 +189,8 @@ void run_render(ecs::World& world, const EngineSystemDeps& deps) {
     const glm::mat4 projection = projection_matrix(*camera, window);
 
     std::vector<render::RenderableItem> items;
-    {
-        auto entities = world.view<render::Renderable, Transform>();
-        for (ecs::Entity entity : entities) {
-            items.push_back(render::RenderableItem{entities.get<render::Renderable>(entity), entity});
-        }
+    for (ecs::Entity entity : entities) {
+        items.push_back(render::RenderableItem{entities.get<render::Renderable>(entity), entity});
     }
     render::sort_renderables(items);
 
