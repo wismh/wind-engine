@@ -16,7 +16,7 @@ def hostIconCodegen = project.hasProperty('ENGINE_HOST_ICON_CODEGEN')
         : (System.getenv('ENGINE_HOST_ICON_CODEGEN') ?: '')
 def withAudio = project.hasProperty('ENGINE_WITH_AUDIO')
         ? ENGINE_WITH_AUDIO
-        : (System.getenv('ENGINE_WITH_AUDIO') ?: 'OFF')
+        : (System.getenv('ENGINE_WITH_AUDIO') ?: 'ON')
 // Game-supplied res overlay (mipmap-*/ic_launcher.png only) merged over the engine's own res/ by
 // AGP's standard resource merger — see SDD §19.4. Empty means no overlay, i.e. every game keeps
 // shipping the engine's own icon until it supplies one. app_name does NOT go through this path:

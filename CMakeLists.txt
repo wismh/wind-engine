@@ -29,7 +29,13 @@ if(_engine_is_root)
 else()
     option(ENGINE_WITH_WINDOW "SDL3 + OpenGL + NanoVG backend" ON)
 endif()
-option(ENGINE_WITH_AUDIO "SDL3_mixer audio backend" OFF)
+# Same split as ENGINE_WITH_WINDOW: root stays silent (`engine_tests` never opens a mixer
+# device), a game gets sound without having to FORCE it on itself.
+if(_engine_is_root)
+    option(ENGINE_WITH_AUDIO "SDL3_mixer audio backend" OFF)
+else()
+    option(ENGINE_WITH_AUDIO "SDL3_mixer audio backend" ON)
+endif()
 set(ENGINE_CMAKE_DIR "${CMAKE_CURRENT_SOURCE_DIR}" CACHE INTERNAL "Wind engine source tree")
 
 if(EMSCRIPTEN)
