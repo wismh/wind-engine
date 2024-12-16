@@ -20,8 +20,7 @@ TEST(WindowIcon, DefaultIsNullopt) {
 }
 
 TEST(SplashScreenContract, DefaultsMatchSdd) {
-    DummyGame game;
-    const auto splash = game.splash_screen();
+    const engine::SplashScreen splash;
     EXPECT_TRUE(splash.enabled);
     EXPECT_EQ(splash.image, engine::builtin::splash_wind);
     EXPECT_FLOAT_EQ(splash.fade_in_seconds, 0.4f);
