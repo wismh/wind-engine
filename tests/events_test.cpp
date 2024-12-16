@@ -98,3 +98,114 @@ TEST(Events, FirstCtxRegistersType) {
     ASSERT_EQ(after_send.size(), 1u);
     EXPECT_EQ(after_send[0], 4);
 }
+
+TEST(Events, CursorReaderDoesNotReSeeEventAcrossFlush) {
+    engine::ecs::World world;
+    engine::ecs::Events<Msg>& events = world.ctx<engine::ecs::Events<Msg>>();
+    engine::ecs::EventCursor<Msg> cursor;
+
+    engine::ecs::EventWriter<Msg>{events}.send(Msg{1});
+
+    std::vector<int> seen;
+    for (const Msg& event : engine::ecs::EventReader<Msg>{events, cursor}) {
+        seen.push_back(event.value);
+    }
+    ASSERT_EQ(seen.size(), 1u);
+    EXPECT_EQ(seen[0], 1);
+
+    // No new send — a system that runs every frame must not see the same event a second time
+    // just because flush_events() demoted it from current_ into previous_. Before the
+    // EventCursor<T> fix, the ad-hoc EventReader<T> read the whole 2-generation buffer
+    // unconditionally every construction, so this assertion would have failed (seen == {1}).
+    world.flush_events();
+    seen.clear();
+    for (const Msg& event : engine::ecs::EventReader<Msg>{events, cursor}) {
+        seen.push_back(event.value);
+    }
+    EXPECT_TRUE(seen.empty());
+}
+
+TEST(Events, FreshCursorSeesEventsAlreadyInBuffer) {
+    engine::ecs::World world;
+    engine::ecs::Events<Msg>& events = world.ctx<engine::ecs::Events<Msg>>();
+
+    engine::ecs::EventWriter<Msg>{events}.send(Msg{1});
+    world.flush_events();
+    engine::ecs::EventWriter<Msg>{events}.send(Msg{2});
+
+    // Constructed only now, after both sends — still catches up on history rather than starting
+    // from "now".
+    engine::ecs::EventCursor<Msg> cursor;
+    std::vector<int> seen;
+    for (const Msg& event : engine::ecs::EventReader<Msg>{events, cursor}) {
+        seen.push_back(event.value);
+    }
+    ASSERT_EQ(seen.size(), 2u);
+    EXPECT_EQ(seen[0], 1);
+    EXPECT_EQ(seen[1], 2);
+}
+
+TEST(Events, IndependentCursorsEachSeeEventOnce) {
+    engine::ecs::World world;
+    engine::ecs::Events<Msg>& events = world.ctx<engine::ecs::Events<Msg>>();
+    engine::ecs::EventCursor<Msg> cursor_a;
+    engine::ecs::EventCursor<Msg> cursor_b;
+
+    engine::ecs::EventWriter<Msg>{events}.send(Msg{1});
+
+    std::vector<int> seen_a;
+    for (const Msg& event : engine::ecs::EventReader<Msg>{events, cursor_a}) {
+        seen_a.push_back(event.value);
+    }
+    ASSERT_EQ(seen_a.size(), 1u);
+    EXPECT_EQ(seen_a[0], 1);
+
+    world.flush_events();
+
+    // cursor_b reads later (after a flush with no new sends) but, never having read before,
+    // still sees the event exactly once — independent of cursor_a's earlier read.
+    std::vector<int> seen_b;
+    for (const Msg& event : engine::ecs::EventReader<Msg>{events, cursor_b}) {
+        seen_b.push_back(event.value);
+    }
+    ASSERT_EQ(seen_b.size(), 1u);
+    EXPECT_EQ(seen_b[0], 1);
+
+    // cursor_a does not re-see it.
+    std::vector<int> seen_a_again;
+    for (const Msg& event : engine::ecs::EventReader<Msg>{events, cursor_a}) {
+        seen_a_again.push_back(event.value);
+    }
+    EXPECT_TRUE(seen_a_again.empty());
+}
+
+TEST(Events, CursorAdvancedPastSeveralSendsThenOnlySeesNewOnes) {
+    engine::ecs::World world;
+    engine::ecs::Events<Msg>& events = world.ctx<engine::ecs::Events<Msg>>();
+    engine::ecs::EventCursor<Msg> cursor;
+
+    engine::ecs::EventWriter<Msg> writer{events};
+    writer.send(Msg{1});
+    writer.send(Msg{2});
+    writer.send(Msg{3});
+
+    std::vector<int> seen;
+    for (const Msg& event : engine::ecs::EventReader<Msg>{events, cursor}) {
+        seen.push_back(event.value);
+    }
+    ASSERT_EQ(seen.size(), 3u);
+    EXPECT_EQ(seen[0], 1);
+    EXPECT_EQ(seen[1], 2);
+    EXPECT_EQ(seen[2], 3);
+
+    writer.send(Msg{4});
+    writer.send(Msg{5});
+
+    seen.clear();
+    for (const Msg& event : engine::ecs::EventReader<Msg>{events, cursor}) {
+        seen.push_back(event.value);
+    }
+    ASSERT_EQ(seen.size(), 2u);
+    EXPECT_EQ(seen[0], 4);
+    EXPECT_EQ(seen[1], 5);
+}
