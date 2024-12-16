@@ -1159,7 +1159,7 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 15. `Events<T>` in `World::ctx`; `flush_events` at start of frame (§9).
 16. Pause skips Fixed and freezes accumulator; resize updates `FillWindow` canvases (§4.6–§4.7).
 17. App icon splits into runtime (`IGame::window_icon`, `AssetId`-based) vs. packaging (host-tool-generated `.ico`/`.icns`/mipmap/favicon, CMake/Gradle-time only) — no shared abstraction (§19).
-18. Splash screen is one `UiCanvas`/`Image` entity reusing the existing CSS `@keyframes` opacity animator, not a new draw path or a `Host::tick` pause — on by default with a builtin asset (§20).
+18. Splash screen is one `UiCanvas`/`Image` entity reusing the existing CSS `@keyframes` opacity animator, not a new draw path or a `Host::tick` pause — `SplashScreen` defaults to enabled with a builtin asset, but a game must call `ui::show_splash` explicitly to trigger it (no `IGame` auto-trigger) (§20).
 19. Multi-window is in scope; multiple *games* sharing a process is still not (§2.2). One `ecs::World` stays authoritative — a second window is a second `WindowId` that a `UiCanvas` targets, not a second `World`/`Loop` (§21.1). Click-through is bounding-box hit-test, not framebuffer-alpha sampling, in v1 (§21.4).
 
 ---
@@ -1424,7 +1424,7 @@ A runtime concern, not a packaging one (§19) — shown by `Host`/`EngineRuntime
 window exists, using an asset already in the NanoVG image cache, not something CMake generates.
 Default: **on**, showing the engine's own mark, fading in from black and back out to black.
 
-### 20.1 `IGame` contract
+### 20.1 Explicit, window-aware trigger
 
 ```cpp
 struct SplashScreen {
@@ -1434,15 +1434,39 @@ struct SplashScreen {
     float hold_seconds = 1.0f;
     float fade_out_seconds = 0.4f;
 };
-
-virtual SplashScreen splash_screen() const { return {}; }
 ```
 
-Same shape as `window_title()` / `window_size()` / `window_icon()` (§5, §19.1): a virtual with a
-sensible default, no separate config file. A game overrides `image` for its own splash, tunes the
-three durations, or sets `enabled = false` to skip it outright. No single `duration_seconds` —
-three phases, because the animation (§20.3) needs fade-in and fade-out timed independently from
-the hold in the middle.
+`SplashScreen` is pure config data — a game overrides `image` for its own splash, tunes the three
+durations, or sets `enabled = false` to skip it outright. No single `duration_seconds` — three
+phases, because the animation (§20.3) needs fade-in and fade-out timed independently from the hold
+in the middle. Unlike `window_title()` / `window_size()` / `window_icon()` (§5, §19.1), it is not
+reached through an `IGame` virtual: the engine never triggers the splash on its own. Instead
+`include/engine/ui/splash.h` exposes one free function a game calls explicitly:
+
+```cpp
+struct SplashTimer {
+    float elapsed = 0.0f;
+    float total_duration = 0.0f;
+};
+
+[[nodiscard]] std::optional<ecs::Entity> show_splash(
+        ecs::World& world, const SplashScreen& config, glm::vec2 image_size, WindowId window = kPrimaryWindow);
+```
+
+Typically called from `on_start()` (closest analogue to the old auto-triggered behavior), but
+nothing requires that — it can be called later, e.g. right after opening a secondary window via
+`IWindowControl` (§21.3), targeting that window instead of the primary. `image_size` is the
+configured image's real decoded pixel size, resolved by the caller from
+`AssetsDb::get<render::TextureDesc>(config.image)` — the same DI-provided `AssetsDb` a game
+already has for loading any other asset; the engine keeps no `AssetId → glm::vec2` cache of its
+own for this. `window` (default `kPrimaryWindow`) lets a game target a secondary window (§21.6)
+instead of always the primary. `show_splash` returns `nullopt` when there's nothing to show
+(`enabled == false`, or `build_splash_document` fails — §20.3's zero-duration/unresolved-image-size
+cases), otherwise the spawned entity, which carries `UiCanvas` + `UiInstance` + `SplashTimer{
+total_duration = fade_in_seconds + hold_seconds + fade_out_seconds}`. An engine system
+(`run_splash_timers`, registered in `register_engine_systems`, §20.3/§20.5) ages every
+`SplashTimer` and despawns its entity automatically once `total_duration` elapses — the caller
+does not need to track or destroy it itself.
 
 ### 20.2 Default asset
 
@@ -1475,16 +1499,16 @@ engine-owned runtime image:
 ### 20.3 Rendering: reuse the CSS keyframe animation system, not a new draw path
 
 The per-frame tick does **not** gate `Schedule::Fixed`/`Frame`, and `on_start()` is **not**
-moved — both stay exactly as they are today. Note: `include/engine/core/host.h`'s `Host` class
-*looks* like the per-frame entry point (and is what earlier drafts of this section assumed), but
-it is not actually wired into `Engine<GameT>::run()` — the real production loop is
-`EngineRuntime::begin_loop()` (one-time: `game.on_start()`, `ui::apply_canvas_fit()`, starts
-`running`) plus `EngineRuntime::tick_loop()` (per-frame: fixed/frame update, `canvas().draw()`) in
-`src/core/engine_runtime.cpp`. `Host` is a separate, parallel class exercised only by
-`tests/host_test.cpp`; changes here belong in `EngineRuntime`, not `Host` (though mirroring the
-change there too, if cheap, keeps the two from drifting further apart — not required). The splash
-is not a pause-like blocking phase; it is one more `UiCanvas`/`UiInstance` entity drawn on top of
-everything else, fading itself out via machinery that already exists:
+moved — both stay exactly as they are today. Neither `EngineRuntime` (`src/core/engine_runtime.cpp`,
+the real production loop) nor `Host` (`include/engine/core/host.h`, the separate parallel class
+exercised only by `tests/host_test.cpp`) spawns or ages the splash itself — that used to matter
+when the trigger lived in `EngineRuntime::begin_loop()`/`tick_loop()`, but now the whole mechanism
+is ECS-native: `ui::show_splash` (§20.1) is a plain function a game calls, and the aging system
+(`run_splash_timers`, §20.5) is registered by `register_engine_systems`, which both `Host` and
+`Engine<GameT>::init()` already call — so it works identically from either entry point with no
+special-casing. The splash is not a pause-like blocking phase; it is one more
+`UiCanvas`/`UiInstance` entity drawn on top of everything else, fading itself out via machinery
+that already exists:
 
 - The UI layer already has a working `@keyframes` opacity animator: `ComputedStyle::animation_name`
   / `animation_duration`, `Element::animation_elapsed` (accumulates real per-frame `delta_time`,
@@ -1503,15 +1527,15 @@ everything else, fading itself out via machinery that already exists:
   authors — the engine procedurally generating its *own* one fixed internal splash document from
   a config struct is a narrow, documented exception to that rule, not a pattern games are meant to
   copy.
-- Spawned once — gated on `splash_screen().enabled` — as a `UiCanvas{fit =
-  UiFit::ScaleWithScreenSize, order = <high, above every other canvas>}` +
-  `UiInstance{document, stylesheet}` entity, most naturally right where
-  `EngineRuntime::begin_loop()` already calls `ui::apply_canvas_fit(game.world())` (that's after
-  `Engine::init()`'s catalog/image-preload loop has already finished, so the builtin/game splash
-  image is already resolved through `AssetsDb` by the time this entity exists). `world.create()`
-  + `world.emplace<ui::UiCanvas>(...)` + `world.emplace<ui::UiInstance>(...)` is the existing
-  spawn pattern — see `spawn_button_canvas` in `tests/mvvm_test.cpp` for a working example of
-  building a `UiCanvas` + `UiInstance{parsed_document}` pair from a `parse_xml` result.
+- Spawned by `ui::show_splash` (§20.1) — gated on `config.enabled` — as a `UiCanvas{fit =
+  UiFit::ScaleWithScreenSize, order = <high, above every other canvas>, window}` +
+  `UiInstance{document, stylesheet}` + `SplashTimer{total_duration}` entity. A game typically calls
+  it right where the old auto-trigger used to fire (around `on_start()`, after
+  `Engine::init()`'s catalog/image-preload loop has finished, so the builtin/game splash image is
+  already resolved through `AssetsDb`), but the call site is entirely the game's choice now — §20.1.
+  `world.create()` + `world.emplace<ui::UiCanvas>(...)` + `world.emplace<ui::UiInstance>(...)` is
+  the existing spawn pattern — see `spawn_button_canvas` in `tests/mvvm_test.cpp` for a working
+  example of building a `UiCanvas` + `UiInstance{parsed_document}` pair from a `parse_xml` result.
   `run_ui_render` (`src/ecs/systems.cpp`, the existing `Phase::UiRender` system) already walks
   every `UiCanvas`/`UiInstance` entity and pushes its draw calls through the same `CommandBuffer`
   → render-backend path everything else uses — no `ICanvas`/`OpenGLCanvas` changes needed.
@@ -1526,10 +1550,9 @@ everything else, fading itself out via machinery that already exists:
   (the image's own), so the fixed 80% image box inside it lands at the image's exact aspect ratio
   with a minimum 10% margin on every edge — more margin on whichever axis the window's aspect
   ratio doesn't match, never less. `image_size` is the configured image's real decoded pixel
-  dimensions, not something `build_splash_document` can know on its own — `EngineRuntime` records
-  it from the `TextureDesc` it already receives in `add_image()` (every builtin/game image is
-  preloaded through that call before the splash ever spawns) into a small `AssetId → glm::vec2`
-  map, rather than threading `AssetsDb` through `EngineRuntime`'s public API just for this.
+  dimensions, not something `build_splash_document` can know on its own — the caller resolves it
+  via `AssetsDb::get<render::TextureDesc>(config.image)` and passes it into `ui::show_splash`
+  (§20.1); the engine keeps no `AssetId → glm::vec2` cache of its own for this.
 - One divergence from `spawn_button_canvas`'s literal shape: that test never runs `Phase::Bind`,
   so it can set `canvas.document` to an arbitrary/dummy `AssetId` without consequence. In the real
   loop, `run_bind` (`src/ecs/systems.cpp`) runs every frame and calls `clone_document` — which
@@ -1554,11 +1577,14 @@ everything else, fading itself out via machinery that already exists:
   blacked out after the image's fade-out finishes: `element.animation_elapsed` clamps at
   `animation_duration` and the image's last keyframe stop is `opacity: 0`, so the *image* sitting
   invisible forever would be fine on its own, but the *non-animated, always-opaque* root
-  backdrop never goes away by itself. `EngineRuntime` tracks its own `splash_elapsed` timer
-  (advanced by real `dt` in `tick_loop()`, separate from `element.animation_elapsed`) against the
-  `SplashDocument::total_duration` `build_splash_document` returns, and calls
-  `world.destroy(splash_entity)` once it's past — despawning was floated as optional tidiness in
-  an earlier draft of this section; it is not optional once the backdrop is opaque and constant.
+  backdrop never goes away by itself. The despawn is ECS-native, not engine-internal hidden state:
+  `ui::show_splash` emplaces a `SplashTimer{elapsed = 0, total_duration}` on the spawned entity
+  (separate from `element.animation_elapsed`, which is the UI painter's own per-element concept),
+  and `run_splash_timers` — a system registered in `register_engine_systems`
+  (`ecs::Schedule::Frame`, `ecs::Phase::Input`, `src/ecs/systems.cpp`) — adds real
+  `Time::delta_time` to every `SplashTimer::elapsed` each frame and calls `world.destroy(entity)`
+  once `elapsed >= total_duration` — despawning was floated as optional tidiness in an earlier
+  draft of this section; it is not optional once the backdrop is opaque and constant.
 - No canvas-clear-color change needed for the letterbox bars specifically: `OpenGLCanvas::draw()`
   already clears to black (`glClearColor(0,0,0,1)`) every frame regardless, so the area the
   `ScaleWithScreenSize`-fit canvas rect doesn't cover is already black without special-casing —
@@ -1584,19 +1610,25 @@ window or painter needed. Feed the generated CSS/XML strings through the real `p
 `parse_xml` in the test too, not just the raw computed numbers, so a malformed generated string
 is caught the same way `UiXml.UnknownElementIsFatal`-style tests already catch bad markup.
 `SplashScreen`'s defaults (`enabled = true`, `image = builtin::splash_wind`, the three durations)
-are a one-line contract test, same pattern as `IGame::window_icon()`'s `nullopt` default (§19.5) —
-already done (§20.1). Whether the spawned `UiCanvas`/`UiInstance` entity actually renders on top
-of everything else is not tested — GPU/window excluded from `engine_tests` (§12.3), same as
-everything else in §19 and §18 — but that the entity gets spawned at all when `enabled` and *not*
-spawned when disabled is an ECS-level check (`world.view<ui::UiCanvas>()` count), no window
-needed, same spirit as `tests/host_test.cpp`'s existing `Host` construction tests. The root's
-constant `background: #000000` rule and its lack of an `animation-name` are checked the same
-pure-function way as the image rule (find the rule declaring `background`, assert no
-`animation-name` on it) — the point being that it must *not* fade with the image. `EngineRuntime`'s
-own despawn-timer wiring (`splash_elapsed` vs. `SplashDocument::total_duration`,
-`world.destroy(...)`) is integration glue in `tick_loop()`/`begin_loop()` that needs a real loop
-iteration to exercise end-to-end — same GPU/window exclusion as the spawn itself, not separately
-tested beyond `total_duration` being computed and threaded through correctly.
+are a one-line contract test in `tests/window_icon_test.cpp`
+(`SplashScreenContract.DefaultsMatchSdd`) — since `SplashScreen` is no longer reached through an
+`IGame` virtual (§20.1), it's just `const engine::SplashScreen splash;` constructed directly.
+Whether the spawned `UiCanvas`/`UiInstance` entity actually renders on top of everything else is
+not tested — GPU/window excluded from `engine_tests` (§12.3), same as everything else in §19 and
+§18 — but that `ui::show_splash` spawns the entity at all when `enabled` and returns `nullopt`
+without spawning anything when disabled is an ECS-level check (`world.view<ui::UiCanvas>()`
+count, plus asserting the returned entity carries a `SplashTimer`), no window needed, same spirit
+as `tests/host_test.cpp`'s existing `Host` construction tests; `tests/splash_test.cpp` also checks
+that `window` defaults to `kPrimaryWindow` and is threaded onto `UiCanvas::window` when a caller
+passes a different one (§21.6). The root's constant `background: #000000` rule and its lack of an
+`animation-name` are checked the same pure-function way as the image rule (find the rule declaring
+`background`, assert no `animation-name` on it) — the point being that it must *not* fade with the
+image. `run_splash_timers` itself is ECS-level testable too, unlike the old hidden
+`EngineRuntime`-internal timer it replaces: spawn (or `world.emplace`) a `SplashTimer`, call
+`engine::register_engine_systems(world)` + `world.run(ecs::Schedule::Frame)` with a known
+`ctx<Time>().delta_time` (same idiom as `tests/host_test.cpp`'s `PhaseOrderFrame`/`PhaseOrderFixed`
+tests), and assert `world.valid(entity)` stays true while `elapsed < total_duration` and flips
+false once accumulated `delta_time` crosses it — no window or real loop iteration needed.
 
 ---
 
