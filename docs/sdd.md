@@ -74,6 +74,9 @@ A small real-time 2D engine (**Wind**): window, input, ECS, command-buffer rende
 | `ICommand`      | UI → VM (WPF command), not `onClick` lambdas in game code                          |
 | `UiDocument`    | Parsed XML view (`importer = "ui"`)                                                |
 | `StyleSheet`    | Parsed custom CSS (`importer = "css"`)                                             |
+| `WindowId`      | Strong handle for one OS window; `kPrimaryWindow` is the game's first window (see §21) |
+| `WindowDesc` / `WindowStyle` | Public, GL/SDL-free description of a window's title/size/position and borderless/always-on-top/transparent flags (§21.2) |
+| `WindowManager` | Private (`src/render/opengl/…`) owner of every `WindowSystem` + `OpenGLCanvas` + `CommandBuffer` pair, one per `WindowId` (§21.5) |
 
 
 ---
@@ -103,13 +106,14 @@ A small real-time 2D engine (**Wind**): window, input, ECS, command-buffer rende
 
 ### 2.2 Non-goals (v1)
 
-- Hot reload, multi-window.
+- Hot reload.
 - 3D spatial audio, Doppler, HRTF.
 - JSON/ScriptableObject sound banks in C++ (`GameSounds { … }` with hardcoded volume). Volume/pitch live in audio `.meta`.
 - Pitch re-roll every looping-SFX cycle (Lumenwake `LateUpdate` trick) — API may appear later.
-- Sharing one process between multiple games.
+- Sharing one process between multiple games (multiple `IGame` instances). Multiple **windows** for one running game is in scope — see §21.
 - Building or mutating visual trees from game C++ as the supported UI API (tests may construct trees).
 - Transform parenting, scene-graph matrices, or auto Y-sort unless a later `sort_mode` is added.
+- Per-pixel (framebuffer-alpha) click-through. v1 click-through is bounding-box hit-test only (§21.4).
 
 
 
@@ -240,7 +244,7 @@ main
 | Host      | `core/engine.h`            | DI graph, SDL init, window title/size from `IGame` |
 | Time      | `core/time.h`              | `delta_time` (frame), `fixed_delta_time`, accumulator |
 | Loop      | `core/loop.h`              | fixed-step sim + one frame pass + present          |
-| Window    | `core/window_system.h`     | SDL window + GL context                            |
+| Window    | `render/opengl/window_system.h`, `render/opengl/window_manager.h` | SDL window(s) + GL context(s); style/click-through (§21) |
 | Input     | `core/input_system.h`      | scancode → `InputEvent`; mouse → `MouseEvent`      |
 | Events    | `core/events.h`            | Bevy-style double-buffered `Events<T>`             |
 | App state | `core/application_state.h` | `running`, `paused`, `Quit()`                      |
@@ -355,16 +359,25 @@ Audio `update(frameDt)` still runs (music keeps fading unless the game `stop_mus
 
 ### 4.7 Window resize and camera
 
-`WindowSize` in `World::ctx` is the drawable size in pixels (SDL). On `SDL_EVENT_WINDOW_RESIZED` (and at `on_start`): write ctx, `EventWriter<WindowResizeEvent>{ w, h }`.
+With a single window, `WindowSize` lived directly in `World::ctx`. Once a game can own more than one `WindowId` (§21), a lone `ctx<WindowSize>()` is ambiguous — resize now goes through a per-window map:
 
-- `UiCanvas::fit = FillWindow` → engine sets `rect = {0,0,w,h}` before `Input`.
+```cpp
+struct WindowSizes {
+    std::unordered_map<WindowId, glm::ivec2> sizes;   // drawable size in pixels (SDL), per window
+};
+```
+
+On `SDL_EVENT_WINDOW_RESIZED` / `SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED` (and at `on_start`, once per window that exists): write `ctx<WindowSizes>().sizes[id]`, `EventWriter<WindowResizeEvent>{ id, w, h }`. A single-window game still reads `ctx<WindowSizes>().sizes[kPrimaryWindow]` — there is no separate "simple" path for one window.
+
+- `UiCanvas::window` (default `kPrimaryWindow`) says which window's size drives its `rect`.
+- `UiCanvas::fit = FillWindow` → engine sets `rect = {0,0,w,h}` from that window's size before `Input`.
 - `UiCanvas::fit = Fixed` → game owns `rect` (centered pause panel, world-space HUD).
 - `UiCanvas::fit = ScaleWithScreenSize` → engine writes `rect` to the letterboxed, aspect-preserving real-pixel box for `reference_size` before `Input` (same timing as `FillWindow`); layout/paint/hit-test then run in `reference_size` design units through that box (§8.1).
-- `Camera::auto_aspect = true` (default on the active camera) → rebuild ortho from window size; `screen_to_world` / `WorldToScreen` use that camera + `WindowSize`.
+- `Camera::auto_aspect = true` (default on the active camera) → rebuild ortho from `kPrimaryWindow`'s size; `screen_to_world` / `WorldToScreen` use that camera + `WindowSizes`. World rendering (`Renderable`) is a `kPrimaryWindow`-only concept in v1 — secondary windows carry UI-only canvases (§21.1), so there is no per-window camera yet.
 - Active camera: `ctx<ActiveCamera>() = Entity`. Exactly one; missing camera is fatal on first `Render`.
-- `ctx<WindowSize>` is written **before** `on_start` so `FillWindow` canvases spawned there get a real rect.
+- `ctx<WindowSizes>` is written **before** `on_start` for every window `IGame` declares up front, so `FillWindow` canvases spawned there get a real rect.
 
-Default clear color remains black until a later `Camera::clear` field exists.
+Default clear color remains black (opaque) unless the window's `WindowStyle::transparent` is set, in which case the primary window's canvas clears to `(0,0,0,0)` instead — see §21.2 — until a later `Camera::clear` field lets a game choose per-camera.
 
 ---
 
@@ -376,8 +389,7 @@ Default clear color remains black until a later `Camera::clear` field exists.
 class IGame {
 public:
     virtual ~IGame() = default;
-    virtual std::string window_title() const { return "Game"; }
-    virtual glm::ivec2 window_size() const { return {800, 600}; }
+    virtual WindowDesc primary_window() const { return {}; }   // title "Game", size {800,600}, no style
     virtual ecs::World& world() = 0;
     virtual void on_start() = 0;
     virtual void on_fixed_update() = 0;  // Schedule::Fixed, 0..N times
@@ -387,7 +399,7 @@ public:
 };
 ```
 
-Title/size are **not** hardcoded inside `Engine::init`. The host constructs `IGame` from the injector, then `WindowSystem::create(game->window_title(), game->window_size())`. `World` exists after `Game` construction. Host calls `register_engine_systems` then `on_start` (scene spawn, `add_system` Game phase).
+`primary_window()` replaces the older separate `window_title()` / `window_size()` pair — this is a breaking change made while the engine is pre-1.0 (§21), not a compatibility shim; games update one override instead of two. Title/size/style are **not** hardcoded inside `Engine::init`. The host constructs `IGame` from the injector, then `WindowManager::create(kPrimaryWindow, game->primary_window())`. `World` exists after `Game` construction. Host calls `register_engine_systems` then `on_start` (scene spawn, `add_system` Game phase). Any window beyond the primary one is opened later, at the game's own request, through `Host`/`EngineRuntime` (§21.5) — `IGame` only declares the one window that must exist before `on_start` runs.
 
 `on_draw` stays empty: world draw is `Phase::Render`; UI is `Phase::UiRender`; present is `OpenGLCanvas::draw`. Do not push commands from `on_draw`.
 
@@ -1131,7 +1143,7 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 ## 15. Key design decisions
 
 1. Third-party libraries live in this repo's own `external/`; engine CMake adds those subdirectories.
-2. `IGame::window_title` / `WindowSize`; `Engine` uses them instead of a hardcoded title/size.
+2. `IGame::primary_window()` (originally separate `window_title` / `window_size`, folded into one `WindowDesc` — §21.2); `Engine` uses it instead of a hardcoded title/size.
 3. `IAudioSystem` (§11) instead of raw mixer calls and a filename-keyed event manager.
 4. `Loop` ticks `IAudioSystem::update`.
 5. `IAudioSystem` is bound in DI instead of exposing `MIX_Mixer*` to games.
@@ -1148,6 +1160,7 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 16. Pause skips Fixed and freezes accumulator; resize updates `FillWindow` canvases (§4.6–§4.7).
 17. App icon splits into runtime (`IGame::window_icon`, `AssetId`-based) vs. packaging (host-tool-generated `.ico`/`.icns`/mipmap/favicon, CMake/Gradle-time only) — no shared abstraction (§19).
 18. Splash screen is one `UiCanvas`/`Image` entity reusing the existing CSS `@keyframes` opacity animator, not a new draw path or a `Host::tick` pause — on by default with a builtin asset (§20).
+19. Multi-window is in scope; multiple *games* sharing a process is still not (§2.2). One `ecs::World` stays authoritative — a second window is a second `WindowId` that a `UiCanvas` targets, not a second `World`/`Loop` (§21.1). Click-through is bounding-box hit-test, not framebuffer-alpha sampling, in v1 (§21.4).
 
 ---
 
@@ -1168,6 +1181,8 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 11. UI markup is XML + CSS assets. Games do not build visual trees in C++ (tests excepted).
 12. All engine APIs: **main thread only**.
 13. `MouseConsumed` is cleared at the start of each Loop iteration, not at the end.
+14. No engine code assumes a single global window. Rendering and input for a `UiCanvas` (and, in v1, all world `Renderable`s) go through its `WindowId`; a `ctx<T>()` singleton that used to mean "the window" is a `WindowId`-keyed map instead (`WindowSizes`, §4.7/§21).
+15. Window/GL/SDL platform calls (`WS_EX_TRANSPARENT`, `SDL_SetWindowHitTest`, …) stay behind `WindowManager` in `src/render/opengl/`; `#if defined(_WIN32)` platform branches do not leak a Win32 type into `include/` (§21.4).
 
 ---
 
@@ -1189,6 +1204,10 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 - Linux `.desktop` entry + icon-cache install — no `install()` target exists for games yet; out of scope until one does.
 - macOS `.icns`/bundle path (§19.2) is untested in this repo's CI — no macOS machine or preset exists to build/run it on.
 - Tying the splash screen (§20) to real asset-load completion instead of a fixed fade-in/hold/fade-out timer — not v1 (§20.4).
+- Per-pixel (framebuffer-alpha) click-through — v1 is bounding-box hit-test only (§21.4).
+- Transparent/borderless/always-on-top windows are validated on Windows only; Linux (compositor-dependent) and macOS are untested (§21.2, same status as the macOS icon path in §17 above).
+- Per-window `Camera` / world rendering — v1 renders `Renderable`s only into `kPrimaryWindow`; secondary windows are UI-only (§21.1).
+- Multi-monitor coordinate edge cases (DPI scaling differences between monitors, a window straddling two displays) — `set_window_position` takes virtual-desktop coordinates and does no clamping/validation in v1.
 
 ---
 
@@ -1578,4 +1597,504 @@ own despawn-timer wiring (`splash_elapsed` vs. `SplashDocument::total_duration`,
 `world.destroy(...)`) is integration glue in `tick_loop()`/`begin_loop()` that needs a real loop
 iteration to exercise end-to-end — same GPU/window exclusion as the spawn itself, not separately
 tested beyond `total_duration` being computed and threaded through correctly.
+
+---
+
+## 21. Windowing
+
+A desktop-overlay companion game (game runs as a borderless, transparent, always-on-top strip
+near the taskbar; separate popup windows for per-building detail) needs three things this engine
+did not have: window *style* control beyond a fixed decorated rectangle, mouse pass-through so
+the desktop underneath stays usable, and more than one OS window per process. §2.2 used to list
+multi-window as a v1 non-goal; this section replaces that with a real design.
+
+### 21.1 Design rationale
+
+**One `World`, many windows — not one `World` per window.** §4.3's "one world, no Node graph"
+rule is not window-specific by accident: a building's detail popup reads the same `ViewModel`
+and the same `ecs::World` as the overlay, it just paints into a different `WindowId`. Giving each
+window its own `World`/`Loop` would duplicate `Time`/`ApplicationState`/schedule wiring for no
+benefit here, and would blur into the already-rejected "sharing one process between multiple
+games" non-goal (§2.2) — that non-goal is about running two independent `IGame`s, not one game
+with two windows. So: a window is an output target a `UiCanvas` (or, for `kPrimaryWindow`, world
+`Renderable`s) is drawn into, not a second simulation.
+
+**Breaking `IGame` is fine.** This engine is pre-1.0 with no external consumers to freeze an ABI
+for (§0 constraints); `primary_window()` replacing `window_title()`/`window_size()` (§5) is a
+straight rename-and-merge, not a deprecation path. Windowing work in general should prefer the
+clean shape over a compatibility shim.
+
+**Scope for v1:** one *primary* window that also renders the game world, plus any number of
+*secondary* windows that are UI-only (a building's stat panel, the initial settings window before
+the overlay appears). A secondary window is not a second `Camera`/world viewport — see the open
+item in §17.
+
+### 21.2 `WindowDesc` / `WindowStyle`
+
+Public, GL/SDL-free (`include/engine/core/window_desc.h`):
+
+```cpp
+struct WindowStyle {
+    bool borderless = false;
+    bool always_on_top = false;
+    bool transparent = false;     // needs SDL_WINDOW_TRANSPARENT at creation; can't be added later
+};
+
+struct WindowDesc {
+    std::string title = "Game";
+    glm::ivec2 size = {800, 600};
+    std::optional<glm::ivec2> position;   // nullopt = platform default placement
+    WindowStyle style;
+};
+
+enum class WindowId : std::uint32_t {};
+inline constexpr WindowId kPrimaryWindow{0};
+```
+
+`transparent` is create-time only (SDL requires `SDL_WINDOW_TRANSPARENT` in the creation flags;
+there is no "make an existing window transparent" call) — a game that wants to switch from an
+opaque settings window to a transparent overlay opens a **second** window and destroys the first,
+it does not flip a flag on one window (matches the "first window 500×600 settings → hide it,
+show a transparent overlay" use case directly: that is `create_window` + `destroy_window`, not a
+style mutation).
+
+When `style.transparent` is set, that window's canvas clears to `(0, 0, 0, 0)` instead of the
+engine-wide opaque black (§4.7). `borderless` and `always_on_top` map straight to
+`SDL_WINDOW_BORDERLESS` / `SDL_SetWindowAlwaysOnTop` and, unlike `transparent`, can be toggled at
+runtime (§21.3).
+
+`WindowSystem::is_transparent()` reports whether the live window was created with
+`style.transparent` (`false` before any `create()` and after `destroy()`) — `OpenGLCanvas::draw()`
+reads it each frame to pick the clear alpha (§4.7), rather than re-deriving it from `WindowDesc`.
+
+`SDL_WINDOW_TRANSPARENT` by itself is not sufficient on Windows: DWM only composites a GL window's
+backbuffer with alpha if the window's own GL pixel format actually carries an alpha channel, and
+SDL3 does not add one automatically for a transparent window. Read from source
+(`external/SDL3/src/video/windows/SDL_windowswindow.c` and `SDL_windowsopengl.c`, read-only per
+that submodule's own no-AI-contributions `CLAUDE.md`): on Windows, `SDL_WINDOW_TRANSPARENT` only
+makes `WIN_CreateWindow` call `DwmEnableBlurBehindWindow` with a zero-size blur region — a trick
+that lets DWM alpha-blend the window against the desktop using the backbuffer's own alpha, without
+`WS_EX_LAYERED`/`SetLayeredWindowAttributes`. It never touches `_this->gl_config.alpha_size`; the
+WGL pixel-format selection in `SDL_windowsopengl.c` (`WIN_GL_ChoosePixelFormat*`) sets
+`cAlphaBits`/`WGL_ALPHA_BITS_ARB` purely from `gl_config.alpha_size`, which is zero unless the app
+calls `SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8)` beforehand. So `WindowSystem::create()` requests
+`SDL_GL_ALPHA_SIZE = 8` before `SDL_CreateWindow` whenever `desc.style.transparent` is set (this is
+also where the pixel format is actually finalized on Windows — inside `SDL_CreateWindow` itself,
+before any `SDL_GL_CreateContext` call) and only in that case, to avoid changing the pixel format
+opaque windows get. `OpenGLCanvas::init()` mirrors the same attribute before `SDL_GL_CreateContext`
+(via `window_->is_transparent()`) purely for attribute-consistency with `WindowSystem::create()`,
+the same way it already mirrors `SDL_GL_DOUBLEBUFFER` — the pixel format itself is already fixed by
+that point.
+
+Validated on Windows only for v1 (DWM composites unconditionally since Windows 8, so
+`SDL_WINDOW_TRANSPARENT` behaves predictably); Linux depends on the running compositor and macOS
+is untested here — same "not blocking, not regressed against" status as the macOS icon path in
+§17.
+
+### 21.3 Runtime window control
+
+For the single-window shape that exists today (§21.5 below is what generalizes this to several
+windows), a game reaches window control the same way it reaches any other engine service —
+DI-constructor injection (§4.2), not a locator:
+
+```cpp
+// include/engine/core/window_control.h — public, GL/SDL-free
+class IWindowControl {
+public:
+    virtual ~IWindowControl() = default;
+    virtual void set_borderless(bool borderless) = 0;
+    virtual void set_always_on_top(bool always_on_top) = 0;
+    virtual void set_position(glm::ivec2 position) = 0;
+    virtual void resize(glm::ivec2 size) = 0;      // WindowStyle::transparent has no setter — create-time only (§21.2)
+};
+```
+
+`Engine<GameT>::init()` binds `IWindowControl` in the injector to `EngineRuntime::window_control_ptr()`
+— a small private `WindowControlImpl` (`src/render/opengl/window_control.h`) that forwards each
+call to the one `WindowSystem` `EngineRuntime` owns (`SDL_SetWindowBordered`, `SDL_SetWindowAlwaysOnTop`,
+`SDL_SetWindowPosition`, `SDL_SetWindowSize`) — the same shared-instance pattern already used for
+`ICanvas`/`OpenGLCanvas` (§4.2). A game constructor that wants to expose "always on top" and
+"borderless" toggles in a settings menu takes `IWindowControl&`, same as it would take
+`IAudioSystem&`. `IGame::primary_window()` (§5) only *declares* the window that must exist before
+`on_start`; changing it afterward goes through `IWindowControl`, not a second call to
+`primary_window()`.
+
+Multi-window (§21.5/§21.7) generalizes part of this to `WindowId`-addressed calls:
+`IWindowControl::open_window(const WindowDesc&) -> std::optional<WindowId>` and
+`close_window(WindowId)`, thin forwards to `WindowManager::create_window`/`destroy_window`, are the
+first (and so far only) `WindowId`-addressed methods on the interface — a game finally has a
+DI-reachable way to invoke §21.5's multi-window infrastructure at all. Everything else on
+`IWindowControl` (`set_borderless`, `set_always_on_top`, `set_position`, `resize`,
+`set_click_through_enabled`, `set_drag_region`) still implicitly means `kPrimaryWindow` only —
+generalizing those is deferred, consistent with this feature area's incremental scoping.
+
+Because `open_window`/`close_window` need the whole `WindowManager`, not just the primary
+`WindowSystem`, `WindowControlImpl`'s constructor changed from `WindowControlImpl(WindowSystem&)`
+to `explicit WindowControlImpl(WindowManager&)` (`src/render/opengl/window_control.h`) — its other
+five methods now go through `windows_->primary_window()` instead of a bare `WindowSystem&`. The one
+construction site, `EngineRuntime::Impl` (`src/core/engine_runtime.cpp`), passes `windows` (the
+manager) instead of `windows.primary_window()`.
+
+### 21.4 Click-through overlay mode
+
+Goal: while the overlay sits always-on-top and transparent over the desktop, clicks over the
+transparent parts of the window must reach whatever is underneath (the taskbar, the user's IDE),
+while clicks over an actual game widget or sprite still hit the game.
+
+**Mechanism (Windows):** `WindowSystem::apply_click_through` (`src/render/opengl/window_system.cpp`)
+reads the window's native handle via `SDL_GetWindowProperties` /
+`SDL_PROP_WINDOW_WIN32_HWND_POINTER` and toggles the `WS_EX_TRANSPARENT` extended style on that
+HWND — `SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_TRANSPARENT)` to pass clicks through,
+clear the bit to capture them again. Confirmed from `external/SDL3/src/video/windows/SDL_windowswindow.c`
+that plain `WS_EX_TRANSPARENT` is sufficient here without `WS_EX_LAYERED`: this window's alpha
+compositing already goes through DWM's `DwmEnableBlurBehindWindow` (§21.2's `SDL_WINDOW_TRANSPARENT`
+path, in `WIN_CreateWindow`), not the legacy layered-window path — `WS_EX_LAYERED` only appears
+elsewhere in that file, inside `WIN_SetWindowOpacity`, and is unrelated/independent from the
+`WS_EX_TRANSPARENT` hit-test-passthrough bit. This is a Win32 detail: it lives entirely inside
+`WindowSystem` (`src/render/opengl/window_system.h`/`.cpp`) behind `#if defined(_WIN32)` (a
+no-op `#else` branch elsewhere), `#include <windows.h>` only in the `.cpp`, never a public type
+(§16 rule 15).
+
+**Decision per frame:** reuse the existing hit-test result instead of a new pipeline.
+`UiInputSystem` (§4.3) already computes, per window, whether the pointer is over a widget
+(`MouseConsumed`); v1 click-through is **bounding-box** — the window is click-through whenever
+that per-window hit-test misses, and captures input whenever it hits. This is *not* per-pixel
+alpha sampling of the rendered frame (that needs a framebuffer readback synced against the GL
+swap, deferred — §17); a fully transparent pixel inside a widget's bounding rect still captures
+input in v1, same as an opaque one.
+
+```cpp
+bool should_be_click_through(bool click_through_enabled, bool window_is_transparent, bool pointer_hit_something) noexcept;
+```
+
+(`src/render/opengl/window_system.h`, next to `window_style_flags` for the same reason — SDL-type-free
+and unit-testable without `SDL_Init`) is a pure function
+(`click_through_enabled && window_is_transparent && !pointer_hit_something`).
+`WindowSystem::update_click_through(bool pointer_hit_something)` calls it once per frame — using
+`click_through_enabled()`/`is_transparent()` for the other two inputs — and applies the result via
+`apply_click_through` only when it changed since the last frame (a cached `click_through_applied_`
+member avoids calling `SetWindowLongPtrW` every frame when nothing changed). `EngineRuntime::tick_loop()`
+(`src/core/engine_runtime.cpp`) calls `impl_->window.update_click_through(world.ctx<ui::MouseConsumed>().value)`
+right after `game.on_update()` returns, once `Phase::Input` has run for the frame and
+`MouseConsumed` is current, and before `canvas().draw()`.
+`IWindowControl::set_click_through_enabled(bool)` (`include/engine/core/window_control.h`,
+forwarded by `WindowControlImpl` to `WindowSystem::set_click_through_enabled`) is the manual on/off
+a settings menu binds to; the automatic per-frame toggle only runs while it's enabled and the
+window is transparent. Once `WindowId`-addressed multi-window control lands (§21.5, not yet
+built), this generalizes to a per-window call the same way the rest of `IWindowControl` will.
+
+### 21.5 Multi-window infrastructure
+
+`WindowId` (public, `core/window_desc.h`) is `enum class WindowId : std::uint32_t {}` with
+`inline constexpr WindowId kPrimaryWindow{0}`; `enum class` gets `std::hash`/`==` for free since
+C++14 (LWG 2148), so it works as an `unordered_map` key with no extra machinery.
+
+`WindowManager` (private, `src/render/opengl/window_manager.h`/`.cpp`) owns one
+`{WindowSystem, CommandBuffer, OpenGLCanvas}` triple per live `WindowId`, keyed in an
+`unordered_map<WindowId, unique_ptr<Entry>>` (`unique_ptr<Entry>` because `OpenGLCanvas` captures
+`WindowSystem&`/`CommandBuffer&` by reference at construction — a bare `Entry` value in the map
+would dangle on rehash). All triples share the one `IRenderBackend`/`IGraphicFactory`-produced GL
+objects `EngineRuntime` already owns — texture/mesh/shader GL object ids stay valid across the
+whole GL share group once contexts share, so `AssetsDb`/`IGraphicFactory` stay single-instance;
+nothing about asset upload changes.
+
+**The `kPrimaryWindow` slot is permanent infrastructure, not just another map entry.**
+`WindowManager`'s constructor eagerly builds the primary `Entry` (its `WindowSystem` default-
+constructs with no OS window yet; its `CommandBuffer` and `OpenGLCanvas` are constructed too, the
+latter inert until `init()` runs) and the map entry is **never erased** for the lifetime of the
+`WindowManager` — only reset in place:
+
+- `create_primary_window(desc)` calls `entry.window.create(desc)` (which itself calls `destroy()`
+  first) then `entry.canvas->init(/*with_ui_painter=*/true)` on the *same* `Entry` object, tearing
+  down and rebuilding the OS window/GL context in place rather than swapping in a new `Entry`.
+- `destroy_window(kPrimaryWindow)` and `shutdown()` do the same reset-in-place (`window.destroy()`
+  + a freshly constructed `canvas` bound to the same `window`/`commands`) instead of removing the
+  slot. Secondary windows, by contrast, are fully erased (`unordered_map::erase`) — nothing outside
+  `WindowManager` holds long-lived references into a secondary `Entry` in this phase.
+
+This is why: `EngineRuntime::Impl`'s `WindowControlImpl` (bound to `windows.primary_window()`, a
+`WindowSystem&`) and its `commands_ptr()`/`canvas_ptr()` (bound to `windows.commands_ptr()`/
+`canvas_ptr(kPrimaryWindow)`, both `shared_ptr`) are all wired into `Engine<GameT>`'s DI graph
+*before* `EngineRuntime::create_window` — i.e. `WindowManager::create_primary_window` — is ever
+called (see `di::make_injector(...)` vs. the later `runtime_.create_window(...)` call in
+`engine.h`). If the primary slot could be erased and reallocated at a different address (as a
+literal "map key → value" model would suggest), those bindings would dangle the first time a game
+re-created its primary window, or the first time `shutdown()` ran. Treating the primary slot as
+permanent, mutated-in-place infrastructure is the same pattern the pre-this-phase `EngineRuntime`
+already used (a plain `WindowSystem window;` member, `.create()`/`.destroy()`'d in place, never
+reallocated) — this phase just moves that object inside `WindowManager` without losing the
+guarantee.
+
+`WindowManager`'s public surface reflects this split:
+
+- `has_window(id)` / `window(id)` / `canvas(id)` / `commands(id)` are **liveness-gated** — `false`/
+  `nullptr` unless a real SDL window exists for `id` (`entry->window.window() != nullptr`). This is
+  what `tests/window_style_test.cpp`'s `WindowManager` cases exercise: on a freshly constructed
+  manager (no `SDL_Init(SDL_INIT_VIDEO)`, §12.3), all four report "not found" for both
+  `kPrimaryWindow` and an arbitrary other id, and `destroy_window`/`shutdown`/`draw_all` on that
+  empty-but-primary-slotted manager do not crash.
+- `commands_ptr(id)` / `canvas_ptr(id)` are **ungated** — valid whenever a slot exists at all,
+  which for `kPrimaryWindow` is always. `primary_window()` returns `WindowSystem&` the same way,
+  ungated, for `WindowControlImpl`'s sake.
+- `create_window(const WindowDesc&)` (secondary) fails (`nullopt`) unless `has_window(kPrimaryWindow)`
+  is already true — a secondary's GL context shares the primary's, so the primary must be live
+  first. On success it inserts a *new* `Entry` into the map (ordinary insert, not the primary's
+  reset-in-place dance) and returns a fresh `WindowId{next_id_++}`; `next_id_` starts at 1 and is
+  **never reset**, including across `shutdown()`, matching this codebase's "never reuse a GUID"
+  hygiene for asset ids, applied here by analogy so a stale `WindowId` can never silently refer to
+  a different, later window.
+- `draw_all()` iterates every entry and calls `canvas->draw()` **only when `window.window() !=
+  nullptr`** — the primary's `canvas` object exists (and is safe to call methods on) even before
+  any window was ever created, but calling `draw()` on it pre-`init()` would issue raw GL calls
+  with no context loaded (`glClearColor`/`glClear` as null function pointers, since `glad` is only
+  loaded inside `OpenGLCanvas::init()`) — a real crash risk this liveness check exists to prevent.
+
+**Context sharing.** `create_window`'s sequencing, immediately before constructing the secondary's
+`OpenGLCanvas` and calling `init(false)`:
+```cpp
+SDL_GL_MakeCurrent(primary->window.window(), primary->canvas->native_context());
+SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT, 1);
+```
+`SDL_GL_CreateContext` (called inside `OpenGLCanvas::init()`) consults
+`SDL_GL_SHARE_WITH_CURRENT_CONTEXT` against whichever context is *current at that call*, per SDL's
+own contract (`SDL_video.h`) — so the primary's context must be made current right before `init()`
+runs, not merely at some earlier point. `OpenGLCanvas::native_context() const noexcept` (a small
+`src`-only accessor next to its other simple getters, not part of the public API surface) exposes
+the `SDL_GLContext` needed for the `SDL_GL_MakeCurrent` call.
+
+**`OpenGLCanvas::init(bool with_ui_painter = true)`.** The default keeps every pre-existing call
+site (`EngineRuntime`'s primary-window path via `WindowManager`; the already-dead
+`OpenGLRuntime::init()` in `opengl_runtime.h`) compiling and behaving identically. `destroy_context()`
+(called at the top of every `init()`, and from the destructor) was fixed alongside this: it used to
+unconditionally call `gl_backend->set_ui_painter(nullptr)`, which — now that `backend_` is shared
+across every window's `OpenGLCanvas` — would have nulled out *whichever* window's painter happened
+to be currently set the instant another window's `init()`/destructor ran (`init()` always calls
+`destroy_context()` first, even on a brand-new canvas that never owned a painter). It now only
+clears the shared pointer when `ui_painter_ != nullptr`, i.e. when this particular canvas is the
+one that actually set it.
+
+**Per-window UI painting was solved without changing `execute()`'s signature — see §21.6.** This
+section originally deferred the problem (a secondary window's `OpenGLCanvas` skipped NanoVG
+entirely, `init(with_ui_painter=false)`) because `OpenGLRenderBackend::set_ui_painter` is a single
+mutable pointer field on the *one* shared `backend_`, and a naive "just call it from every window's
+`init()` too" would let the *last* window to `init()` silently win, permanently clobbering every
+other window's painter. §21.6 fixes this a different way: every window still shares the one
+`ui_painter_` field, but `OpenGLCanvas::draw()` now re-arms it to *its own* `NanoVgPainter` every
+frame, immediately before its own `backend_->execute()` call — since `execute()` only ever reads
+whatever painter is current *at that call* (never something captured earlier), "last window to run
+wins" is scoped to the instant of that one `execute()` call rather than being a lasting corruption.
+No `CommandBuffer`-keyed or per-window `IRenderBackend` state was needed.
+
+**`EngineRuntime`** (`core/engine_runtime.h`/`.cpp`) exposes the primary path unchanged —
+`create_window(const WindowDesc&) -> bool` still means `windows.create_primary_window(desc)` — plus
+two new methods for secondary windows: `open_window(const WindowDesc&) -> std::optional<WindowId>`
+and `close_window(WindowId)`, thin wrappers over `WindowManager::create_window`/`destroy_window`.
+`commands()`/`canvas()`/`commands_ptr()`/`canvas_ptr()`/`window_control_ptr()`/`native_window()`/
+`drawable_size()` all continue to mean the primary window specifically, now sourced from
+`impl_->windows` instead of separate `Impl` members. `tick_loop()` updates the primary's
+click-through state, then calls `windows.draw_all()` (in place of the old single `canvas().draw()`)
+so every live window is drawn/swapped each frame — secondary windows are simply cleared for now
+(their `CommandBuffer` is never populated; that's §21.6). `OpenGLCanvas::draw()` now calls
+`SDL_GL_MakeCurrent(window_->window(), context_)` at its very top, before any GL state call — with
+2+ live contexts, whichever context happened to still be "current" from initialization order would
+otherwise silently receive every window's draw calls (wrong framebuffer, no build/CI signal per
+§12.3); this one call is what makes `draw_all()` correct across multiple simultaneously-live
+contexts.
+
+### 21.6 Per-window UI and input routing
+
+**`UiCanvas.window`** (`include/engine/ui/canvas.h`, default `kPrimaryWindow`) says which window's
+size drives a canvas's `rect` and which window's pointer events can hit-test it.
+
+**Sizing stays split, not unified.** `ui::WindowSize` (a plain `{width, height}`) keeps meaning
+exactly what it always meant — "the primary window's drawable size," read from
+`world.ctx<WindowSize>()` — with zero changes to its type or to any of the roughly a dozen
+pre-existing `world.ctx<engine::ui::WindowSize>().width = …`-style direct writes across
+`tests/mvvm_test.cpp`, `tests/render_system_test.cpp`, and `tests/host_test.cpp`; rewriting every
+one of those for a purely additive feature would have been churn with no behavior change for any of
+them. A new type carries every *other* window's size instead:
+
+```cpp
+struct WindowSizes {
+    std::unordered_map<WindowId, WindowSize> sizes;   // never holds a kPrimaryWindow entry
+};
+
+WindowSize window_size_for(ecs::World& world, WindowId id);   // id == kPrimaryWindow ? ctx<WindowSize>()
+                                                                // : ctx<WindowSizes>().sizes[id], default {0,0}
+```
+
+`window_size_for` centralizes that branch so `apply_canvas_fit` and `run_ui_render` (below) don't
+duplicate it. A `WindowId` with no entry yet in `WindowSizes` (never resized since the window was
+created) resolves to `{0, 0}` rather than being an error — matching how a freshly-created window has
+no drawable size until its first resize event arrives.
+
+`apply_canvas_fit` (`src/ui/canvas.cpp`) reads `window_size_for(world, canvas.window)` per canvas,
+inside its loop, instead of one `ctx<WindowSize>()` read shared by every canvas — so a `FillWindow`
+canvas on a secondary window sizes itself from that window, not the primary's.
+
+**Hit-testing.** `MouseEvent` (`include/engine/core/input_system.h`) gains a `window` field
+(default `kPrimaryWindow`, first field so the struct's existing designated-initializer construction
+sites in `input_system.cpp` need only add `.window = window,`). `InputSystem::handle_mouse_button`/
+`handle_mouse_move` each gain a leading `WindowId window` parameter; their one real call site
+(`EngineRuntime::poll_events`, below) resolves it from the SDL event. `ui::handle_pointer` gains a
+trailing `WindowId window = kPrimaryWindow` parameter (defaulted so every pre-existing call site —
+`run_input`'s own logic aside, chiefly the many direct calls across `tests/mvvm_test.cpp` — keeps
+compiling unchanged) and now skips any `UiCanvas` whose `window` doesn't match before rect-testing
+it, so a canvas assigned to a different window never receives another window's click. `run_input`
+(`src/ecs/systems.cpp`) passes `event.window` through on every `MouseEvent::Kind::Down`.
+
+**Render routing.** `EngineSystemDeps` (`include/engine/ecs/systems.h`) keeps its existing
+`commands` field meaning exactly what it always meant — the primary window's `CommandBuffer`, used
+unchanged by `run_render` and by `run_ui_render` for any `kPrimaryWindow`-targeted canvas — and
+gains one new, purely additive field:
+
+```cpp
+std::function<render::CommandBuffer*(WindowId)> commands_for_window;
+```
+
+Left unset (the default for every existing caller — tests, single-window games), a canvas targeting
+a non-primary window is silently skipped for that frame rather than crashing; this is a normal
+"that window isn't wired up" case, not a fatal error. `run_ui_render` looks up each canvas's own
+`window_size_for` (for its `CmdDrawUI`'s media width/height), and for `window != kPrimaryWindow`
+resolves the target buffer via `deps.commands_for_window`, clearing it exactly once per
+`run_ui_render` call (tracked with a function-local `std::unordered_set<WindowId>`, so it naturally
+resets every invocation) before the first push — mirroring how `run_render` already clears the
+primary's buffer once per frame, since a secondary window's buffer has no other system doing that
+for it. `Engine<GameT>::init()` (`include/engine/core/engine.h`) wires this to a new
+`EngineRuntime::commands_for_window(WindowId) -> render::CommandBuffer*` method, itself a thin
+forward to the already-private `WindowManager::commands(id)` — keeping `WindowManager` out of the
+public `engine_runtime.h` header while still exposing per-window routing through it.
+
+**`poll_events` demultiplexes by SDL's `windowID`.** A new `WindowManager::find_by_sdl_id(SDL_WindowID) -> std::optional<WindowId>`
+(linear scan over live windows — window counts are always tiny, not worth indexing) resolves which
+`WindowId` an `SDL_Event` actually belongs to; resolution failure (e.g. a stray event for an
+already-closed window) defaults to `kPrimaryWindow`. For `SDL_EVENT_WINDOW_RESIZED`/
+`SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED`: a `kPrimaryWindow` resize keeps using the pre-existing
+`write_window_size(world, true)` path (`ctx<WindowSize>()`, unchanged); any other window instead
+writes `ctx<WindowSizes>().sizes[id]`, sends `WindowResizeEvent{.window = id, …}`, and calls
+`ui::apply_canvas_fit(world)` — the same sequence `write_window_size` already ran for the primary,
+just addressed at the resized window instead of always assuming primary (previously a latent bug:
+before this phase, *any* window resizing re-read the primary's `drawable_size()` regardless of which
+OS window actually changed, because only one window could exist). `SDL_EVENT_MOUSE_BUTTON_DOWN`/`_UP`/
+`SDL_EVENT_MOUSE_MOTION` resolve the event's window the same way and pass it through to
+`InputSystem::handle_mouse_button`/`handle_mouse_move`. `WindowResizeEvent` (`include/engine/ui/canvas.h`)
+gains a `window` field (default `kPrimaryWindow`, first field); its two pre-existing construction
+sites (`Host::write_window_size`, `EngineRuntime::write_window_size`) used positional aggregate
+init, which would have silently misassigned fields once a new one was inserted anywhere but last —
+both were converted to designated initializers rather than relying on field order. `Host` has no
+multi-window concept and keeps sending `kPrimaryWindow` unconditionally.
+
+Touch and keyboard input stay out of scope for this phase (SDD-noted: touch isn't wired into UI
+hit-testing at all yet, and keyboard has no per-window concept to route) — `InputSystem::handle_key`/
+`handle_touch`/`handle_touch_move` keep their existing signatures; internally, `handle_touch`/
+`handle_touch_move` now pass `kPrimaryWindow` explicitly to the `handle_mouse_button`/
+`handle_mouse_move` calls they forward into.
+
+**Per-window UI painting** (the blocker §21.5 named and deferred here) turned out not to need
+`OpenGLRenderBackend::execute()` to take a painter parameter at all — see the writeup in §21.5
+above for the mechanism (`OpenGLCanvas::draw()` re-arming the shared `ui_painter_` pointer every
+frame, right before its own `execute()` call). `WindowManager::create_window` (secondary windows)
+now calls `entry->canvas->init(/*with_ui_painter=*/true)` — every window, primary or secondary, gets
+its own `NanoVgPainter` — where it previously passed `false` and skipped NanoVG for secondary
+windows entirely.
+
+`EngineRuntime::tick_loop` → `WindowManager::draw_all()` still draws/swaps every live window once
+per frame (unchanged from §21.5); each window's `draw()` call now also re-arms the shared UI painter
+pointer to its own painter and pushes its own `CommandBuffer`'s `CmdDrawUI` commands through it.
+
+### 21.7 Secondary window lifecycle
+
+**Closing is event-based, not automatic — a deliberate product decision, not an oversight.**
+Closing a non-primary window (taskbar close, Alt+F4 on the popup) must not end the game process,
+and the engine does not decide unilaterally what a close click means for *any* window, including
+the primary one. `EngineRuntime::poll_events` (`src/core/engine_runtime.cpp`) handles
+`SDL_EVENT_WINDOW_CLOSE_REQUESTED` by resolving `event.window.windowID` to a `WindowId` via
+`WindowManager::find_by_sdl_id` (defaulting to `kPrimaryWindow` on a failed lookup, the same
+defensive idiom the resize/mouse cases already use) and sending
+
+```cpp
+struct WindowCloseRequestedEvent {   // include/engine/ui/canvas.h, next to WindowResizeEvent
+    WindowId window = kPrimaryWindow;
+};
+```
+
+as `ecs::EventWriter<ui::WindowCloseRequestedEvent>{world}.send({.window = id})` — nothing else.
+No `ApplicationState::quit()`, no `WindowManager::destroy_window()`, no interception/cancellation
+mechanism of any kind. A game system reads the event in its own `Schedule::Frame`/`Phase::Game`
+system and decides: quit, show a confirm dialog, ignore it, or call
+`IWindowControl::close_window(id)` for a secondary window. This mirrors how `IGame::on_quit()`
+already works — a notification, not a veto point — and keeps that property consistent across the
+whole engine rather than adding a one-off exception for windows.
+
+**`IWindowControl::open_window`/`close_window`** (§21.3) are the DI-facing bridge a game actually
+calls to invoke this: `open_window(const WindowDesc&) -> std::optional<WindowId>` forwards to
+`WindowManager::create_window`, `close_window(WindowId)` to `WindowManager::destroy_window`.
+Before this phase these existed only on `EngineRuntime` itself (`open_window`/`close_window`,
+§21.5), unreachable from a game's DI graph — `IWindowControl` was the only window-control surface
+a game could depend on, and it had no `WindowId`-addressed methods at all.
+
+**A freshly opened secondary window needs an initial `WindowSizes` entry, or its canvases start at
+`{0,0,0,0}`.** A `UiCanvas` with `fit = FillWindow`/`ScaleWithScreenSize` targeting a window sizes
+itself from `ui::window_size_for(world, canvas.window)` (§21.6), which resolves to `WindowSize{}`
+until that window has an entry in `world.ctx<ui::WindowSizes>()` — normally written only by an
+actual `SDL_EVENT_WINDOW_RESIZED`/`PIXEL_SIZE_CHANGED` event, not guaranteed to fire immediately (or
+at all) right after creation. `IWindowControl::open_window` has no `ecs::World&` to write that entry
+itself — `WindowControlImpl`/`WindowManager` deliberately stay ECS-free (rendering/OS layer, §3.4/
+§4.2), so threading a `World&` through them was rejected as a layering violation rather than
+plumbed through. Instead, `EngineRuntime::tick_loop()` — which already has both `impl_->windows` and
+`world` in scope — backfills once per frame, right after `poll_events(...)` and before
+`ui::begin_frame(world)`: for every live window other than `kPrimaryWindow` with **no** entry yet in
+`WindowSizes`, it writes one from that window's current `drawable_size()` and calls
+`ui::apply_canvas_fit(world)` if at least one was filled in. `WindowManager::for_each_secondary_window`
+(`src/render/opengl/window_manager.h`/`.cpp`) — a thin enumeration helper mirroring `draw_all()`'s
+liveness check (skip `kPrimaryWindow`, skip any entry whose `window.window() == nullptr`) — is what
+`tick_loop` iterates. This only ever fills in *missing* entries; a `WindowId` a real resize event
+already wrote is never touched by it.
+
+**Borderless window dragging.** Borderless windows have no OS-drawn titlebar to drag by.
+`WindowSystem::create()` (`src/render/opengl/window_system.cpp`) installs an
+`SDL_SetWindowHitTest` callback **unconditionally, on every window** — not just borderless ones,
+because a bordered window's OS titlebar already handles dragging on its own and an
+installed-but-inert callback (it only ever returns anything but `SDL_HITTEST_NORMAL` inside a
+region the game explicitly set) is harmless there. This also means the callback is installed
+exactly once, at `create()` time, and never needs reinstalling: it reads `WindowSystem`'s
+`std::optional<render::Rect> drag_region_` member live on every hit-test query, so
+
+```cpp
+void WindowSystem::set_drag_region(std::optional<render::Rect> region);   // src/render/opengl/window_system.h
+```
+
+just updates that stored value. The callback itself,
+
+```cpp
+SDL_HitTestResult window_drag_hit_test(SDL_Window* window, const SDL_Point* area, void* data);
+```
+
+(matching `SDL_HitTest`'s exact signature, `src/render/opengl/window_system.h`/`.cpp`) casts `data`
+back to the owning `WindowSystem*` and returns `SDL_HITTEST_DRAGGABLE` if `drag_region_` is set and
+contains `area->x`/`area->y` (window-client pixels — the same coordinate space `render::Rect`
+already uses for `UiCanvas.rect`, e.g. a title-bar canvas's rect), else `SDL_HITTEST_NORMAL`.
+`drag_region_` is reset in `destroy()` alongside `transparent_`/`click_through_applied_`.
+`IWindowControl::set_drag_region(std::optional<render::Rect>)` (primary-window-only, same scope as
+the interface's other style methods — not generalized to `WindowId`, per §21.3) forwards to
+`windows_->primary_window().set_drag_region(region)`.
+
+### 21.8 Testing
+
+Same split as every other feature in this SDD (§12.2/§12.3): the platform calls
+(`SDL_CreateWindow`, `SetWindowLongPtr`, `SDL_SetWindowHitTest`) are not exercised in
+`engine_tests` — no display in CI, and §12.3 already excludes booting a real window. What's pure
+logic and gets a `tests/windowing_test.cpp` case:
+
+- `WindowStyle → SDL window-creation flag bitmask` (borderless/always-on-top/transparent, alone
+  and combined).
+- `should_be_click_through(...)` (§21.4) truth table, including "transparent but click-through
+  disabled" and "opaque window" never returning true.
+- `CommandBuffer` selection by a `Renderable`/`UiCanvas`'s `window` field — commands for window B
+  never land in window A's buffer, and clearing one window's buffer does not touch another's.
+- `WindowSizes` (§4.7): a resize event for one `WindowId` updates only that entry; `FillWindow`
+  canvases targeting other windows keep their own window's rect.
+- `UiInputSystem` hit-testing already covers per-canvas hit-testing (§12.2); the new case is that
+  a canvas on window B is never hit by window A's pointer position, using two synthetic pointer
+  positions and two `UiCanvas::window` values, no real SDL window needed.
 
