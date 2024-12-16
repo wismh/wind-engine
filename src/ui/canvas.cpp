@@ -34,6 +34,15 @@ render::Rect scaled_fit_rect(glm::vec2 reference_size, float window_width, float
 
 }
 
+WindowSize window_size_for(ecs::World& world, WindowId id) {
+    if (id == kPrimaryWindow) {
+        return world.ctx<WindowSize>();
+    }
+    const WindowSizes& sizes = world.ctx<WindowSizes>();
+    const auto it = sizes.sizes.find(id);
+    return it == sizes.sizes.end() ? WindowSize{} : it->second;
+}
+
 UiCanvasSpace canvas_layout_space(const render::Rect& rect, UiFit fit, glm::vec2 reference_size) {
     if (fit == UiFit::ScaleWithScreenSize && reference_size.x > 0.0f && reference_size.y > 0.0f) {
         return UiCanvasSpace{
@@ -47,10 +56,10 @@ UiCanvasSpace canvas_layout_space(const render::Rect& rect, UiFit fit, glm::vec2
 }
 
 void apply_canvas_fit(ecs::World& world) {
-    const WindowSize& size = world.ctx<WindowSize>();
     auto view = world.view<UiCanvas>();
     for (ecs::Entity entity : view) {
         UiCanvas& canvas = view.get<UiCanvas>(entity);
+        const WindowSize size = window_size_for(world, canvas.window);
         if (canvas.fit == UiFit::FillWindow) {
             canvas.rect = render::Rect{
                     0.0f,
@@ -70,12 +79,15 @@ void begin_frame(ecs::World& world) {
     apply_canvas_fit(world);
 }
 
-void handle_pointer(ecs::World& world, float x, float y) {
+void handle_pointer(ecs::World& world, float x, float y, WindowId window) {
     std::vector<CanvasHit> hits;
     {
         auto view = world.view<UiCanvas>();
         for (ecs::Entity entity : view) {
             const UiCanvas& canvas = view.get<UiCanvas>(entity);
+            if (canvas.window != window) {
+                continue;
+            }
             if (!rect_contains(canvas.rect, x, y)) {
                 continue;
             }
@@ -107,7 +119,7 @@ void handle_pointer(ecs::World& world, float x, float y) {
     if (canvas.data_context) {
         (void) apply_bindings(instance->document, *canvas.data_context, nullptr);
     }
-    const WindowSize& size = world.ctx<WindowSize>();
+    const WindowSize size = window_size_for(world, canvas.window);
     const UiCanvasSpace space = canvas_layout_space(canvas.rect, canvas.fit, canvas.reference_size);
     const float media_width = space.reference_space ? space.layout_rect.w : static_cast<float>(size.width);
     const float media_height = space.reference_space ? space.layout_rect.h : static_cast<float>(size.height);

@@ -234,7 +234,7 @@ TEST(Scaffold, WebShellHtmlCanvasShrinksToFitNarrowViewports) {
     };
     const std::string shell = slurp(root / "cmake" / "web" / "shell.html");
     ASSERT_FALSE(shell.empty());
-    // IGame::window_size() becomes the canvas's real-px drawing-buffer width/height attributes;
+    // IGame::primary_window().size becomes the canvas's real-px drawing-buffer width/height attributes;
     // without a CSS cap, a viewport narrower than that (any phone) overflows horizontally
     // instead of the canvas shrinking to fit, preserving its aspect ratio (same replaced-element
     // behavior as an <img>).
