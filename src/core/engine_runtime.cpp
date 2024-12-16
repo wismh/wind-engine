@@ -20,10 +20,12 @@
 #include <chrono>
 #include <cstdint>
 #include <fstream>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
 #include <system_error>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -139,6 +141,16 @@ struct EngineRuntime::Impl {
     // real window exists yet at this point in Engine<GameT>::init()'s DI graph construction.
     WindowManager windows{*backend};
     std::shared_ptr<WindowControlImpl> window_control = std::make_shared<WindowControlImpl>(windows);
+    // Cache of every font handed to load_ui_font/add_font, replayed into each secondary window's
+    // own NanoVgPainter once its canvas is live (SDD §21.5/§21.6 — a secondary window has its own
+    // independent painter/font atlas and nothing else ever loads a font into it). Mirrors the
+    // WindowSizes backfill below: fonts_replayed_for tracks which windows already caught up so the
+    // replay runs at most once per window, retried next frame if the canvas wasn't live yet.
+    std::optional<Font> ui_font;
+    // std::map, not unordered_map: AssetId has no std::hash specialization (only operator<=>), and
+    // this cache is at most a handful of entries — ordering/lookup cost doesn't matter here.
+    std::map<AssetId, Font> fonts;
+    std::unordered_set<WindowId> fonts_replayed_for;
     bool video_inited = false;
     IGame* loop_game = nullptr;
     InputSystem* loop_input = nullptr;
@@ -189,6 +201,7 @@ bool EngineRuntime::load_ui_font(const Font& font) {
     if (canvas == nullptr) {
         return false;
     }
+    impl_->ui_font = font;
     return canvas->load_ui_font(font);
 }
 
@@ -197,6 +210,7 @@ bool EngineRuntime::add_font(AssetId id, const Font& font) {
     if (canvas == nullptr) {
         return false;
     }
+    impl_->fonts[id] = font;
     return canvas->add_font(id, font);
 }
 
@@ -287,6 +301,28 @@ void EngineRuntime::tick_loop() {
                 const glm::ivec2 size = window.drawable_size();
                 sizes.sizes[id] = ui::WindowSize{size.x, size.y};
                 backfilled = true;
+            }
+
+            // Font backfill (same shape as the WindowSizes backfill above): a secondary window gets
+            // its own independent OpenGLCanvas/NanoVgPainter with its own empty font atlas, and
+            // nothing else ever loads a font into it — replay every font handed to
+            // load_ui_font/add_font so far, once, as soon as this window's canvas is live. Retried
+            // next frame (not marked done) if the canvas isn't live yet.
+            if (!impl_->fonts_replayed_for.contains(id)) {
+                if (render::OpenGLCanvas* canvas = impl_->windows.canvas(id)) {
+                    // tick_loop() runs this backfill before draw_all(), so whatever GL context was
+                    // left current by the *previous* frame's draw_all() (window order there is
+                    // unordered) is not guaranteed to be this window's own context — NanoVG's
+                    // load_ui_font/add_font need the right context bound.
+                    SDL_GL_MakeCurrent(window.window(), canvas->native_context());
+                    if (impl_->ui_font) {
+                        (void)canvas->load_ui_font(*impl_->ui_font);
+                    }
+                    for (const auto& [font_id, font] : impl_->fonts) {
+                        (void)canvas->add_font(font_id, font);
+                    }
+                    impl_->fonts_replayed_for.insert(id);
+                }
             }
         });
         if (backfilled) {
