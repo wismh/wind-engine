@@ -1,5 +1,6 @@
 #pragma once
 
+#include <engine/core/window_desc.h>
 #include <engine/ecs/world.h>
 #include <engine/render/commands.h>
 #include <engine/resources/asset_id.h>
@@ -7,6 +8,7 @@
 
 #include <memory>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 namespace engine::ui {
@@ -26,6 +28,7 @@ struct UiCanvas {
     glm::vec2 reference_size{0.0f, 0.0f};  // design resolution; required when fit == ScaleWithScreenSize
     UiFit fit = UiFit::FillWindow;
     int order = 0;
+    WindowId window = kPrimaryWindow;   // which window's size drives this canvas's rect (SDD §21.6)
 };
 
 // Maps a canvas's `rect` + `fit` to the coordinate space layout/hit-test should run in:
@@ -50,9 +53,30 @@ struct WindowSize {
     int height = 0;
 };
 
+// Only ever holds entries for windows OTHER than kPrimaryWindow — the primary's size stays
+// authoritative in the existing ctx<WindowSize>() singleton, unchanged, so every pre-existing
+// single-window call site (including every ctx<WindowSize>() write across tests/) keeps working
+// with zero modification. A canvas/window not present here has never been sized (not yet resized
+// since creation) and resolves to {0, 0} via window_size_for() below.
+struct WindowSizes {
+    std::unordered_map<WindowId, WindowSize> sizes;
+};
+
+// Centralizes the "primary reads ctx<WindowSize>(), everything else reads ctx<WindowSizes>()"
+// branch so callers (apply_canvas_fit, run_ui_render) don't duplicate it.
+[[nodiscard]] WindowSize window_size_for(ecs::World& world, WindowId id);
+
 struct WindowResizeEvent {
+    WindowId window = kPrimaryWindow;
     int width = 0;
     int height = 0;
+};
+
+// Purely informational (SDD §21.7): the engine never quits or destroys a window on its own when
+// the OS reports a close request — a game system reads this in its own schedule and decides
+// (quit, confirm dialog, ignore, or call IWindowControl::close_window for a secondary window).
+struct WindowCloseRequestedEvent {
+    WindowId window = kPrimaryWindow;
 };
 
 struct UiPointer {
@@ -66,6 +90,9 @@ struct UiPointer {
 
 void begin_frame(ecs::World& world);
 void apply_canvas_fit(ecs::World& world);
-void handle_pointer(ecs::World& world, float x, float y);
+// `window` (default kPrimaryWindow, trailing so every pre-existing call site keeps compiling
+// unchanged) restricts hit-testing to canvases whose UiCanvas::window matches — a canvas assigned
+// to a different window never receives this pointer event's click (SDD §21.6).
+void handle_pointer(ecs::World& world, float x, float y, WindowId window = kPrimaryWindow);
 
 }

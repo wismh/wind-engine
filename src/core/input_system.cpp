@@ -206,11 +206,12 @@ void InputSystem::handle_key(KeyCode key, bool down) {
     apply_digital(key_control(key), down);
 }
 
-void InputSystem::handle_mouse_button(MouseButton button, bool down, glm::vec2 position) {
+void InputSystem::handle_mouse_button(WindowId window, MouseButton button, bool down, glm::vec2 position) {
     if (world_ == nullptr) {
         return;
     }
     ecs::EventWriter<MouseEvent>{*world_}.send(MouseEvent{
+            .window = window,
             .kind = down ? MouseEvent::Kind::Down : MouseEvent::Kind::Up,
             .position = position,
             .button = button,
@@ -221,11 +222,12 @@ void InputSystem::handle_mouse_button(MouseButton button, bool down, glm::vec2 p
     apply_digital(mouse_control(button), down);
 }
 
-void InputSystem::handle_mouse_move(glm::vec2 position, glm::vec2 relative) {
+void InputSystem::handle_mouse_move(WindowId window, glm::vec2 position, glm::vec2 relative) {
     if (world_ == nullptr) {
         return;
     }
     ecs::EventWriter<MouseEvent>{*world_}.send(MouseEvent{
+            .window = window,
             .kind = MouseEvent::Kind::Move,
             .position = position,
             .relative = relative,
@@ -239,14 +241,14 @@ void InputSystem::handle_touch(std::uint32_t finger_id, bool down, glm::vec2 pos
     if (down) {
         if (!primary_finger_.has_value()) {
             primary_finger_ = finger_id;
-            handle_mouse_button(MouseButton::Left, true, position);
+            handle_mouse_button(kPrimaryWindow, MouseButton::Left, true, position);
         }
         apply_digital(touch_control(finger_id), true);
         return;
     }
     apply_digital(touch_control(finger_id), false);
     if (primary_finger_ == finger_id) {
-        handle_mouse_button(MouseButton::Left, false, position);
+        handle_mouse_button(kPrimaryWindow, MouseButton::Left, false, position);
         primary_finger_.reset();
     }
 }
@@ -256,7 +258,7 @@ void InputSystem::handle_touch_move(std::uint32_t finger_id, glm::vec2 position,
         return;
     }
     if (primary_finger_ == finger_id) {
-        handle_mouse_move(position, relative);
+        handle_mouse_move(kPrimaryWindow, position, relative);
     }
 }
 
