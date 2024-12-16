@@ -36,10 +36,6 @@ public:
         return std::nullopt;
     }
 
-    virtual SplashScreen splash_screen() const {
-        return {};
-    }
-
     virtual ecs::World& world() = 0;
     virtual void on_start() = 0;
     virtual void on_fixed_update() = 0;
