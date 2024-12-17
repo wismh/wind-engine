@@ -49,27 +49,25 @@ WindowManager::WindowManager(render::IRenderBackend& backend) : backend_(&backen
     auto primary = std::make_unique<Entry>();
     primary->canvas = std::make_shared<render::OpenGLCanvas>(primary->window, *primary->commands, backend);
     windows_[kPrimaryWindow] = std::move(primary);
-#if defined(_WIN32)
-    // A process-global single-slot hook (SDL keeps exactly one), so this only ever needs
-    // installing once per WindowManager (one per EngineRuntime, one EngineRuntime per process).
-    // Safe before SDL_Init(SDL_INIT_VIDEO): SDL_SetWindowsMessageHook just stores two globals.
-    // modal_loop_tick_callback_ is still empty at this point (WindowManager is constructed well
-    // before EngineRuntime::begin_loop() runs) — the hook is a harmless no-op until that call sets
-    // it, per its own null check.
-    SDL_SetWindowsMessageHook(&windows_message_hook, this);
-#endif
 }
 
-#if defined(_WIN32)
 WindowManager::~WindowManager() {
-    // Clears the hook before `this` goes away — EngineRuntime::shutdown() always calls SDL_Quit()
-    // shortly after destroying/tearing down this manager, but nothing guarantees no stray Windows
-    // message gets pumped in between, and userdata above is this object.
-    SDL_SetWindowsMessageHook(nullptr, nullptr);
+    set_modal_loop_tick_callback(nullptr);
 }
-#else
-WindowManager::~WindowManager() = default;
+
+void WindowManager::set_modal_loop_tick_callback(std::function<void()> callback) {
+    modal_loop_tick_callback_ = std::move(callback);
+#if defined(_WIN32)
+    if (modal_loop_tick_callback_) {
+        // SDD §21.7 / wind-94: only hook into Windows messages when a modal loop tick callback is
+        // actually active (e.g. desktop overlay mode), avoiding process-global message interception
+        // overhead for normal games.
+        SDL_SetWindowsMessageHook(&windows_message_hook, this);
+    } else {
+        SDL_SetWindowsMessageHook(nullptr, nullptr);
+    }
 #endif
+}
 
 bool WindowManager::create_primary_window(const WindowDesc& desc) {
     // The primary Entry always exists (constructor guarantee) — "re-creating" it is just tearing
@@ -134,6 +132,7 @@ void WindowManager::destroy_window(WindowId id) {
 }
 
 void WindowManager::shutdown() {
+    set_modal_loop_tick_callback(nullptr);
     // Secondary windows have no long-lived external references in this phase (no per-window DI
     // yet — that's §21.6), so they are fully torn down and forgotten. The primary slot is reset in
     // place via destroy_window() rather than erased, so a later create_window()/
@@ -204,6 +203,14 @@ void WindowManager::for_each_secondary_window(const std::function<void(WindowId,
 
 void WindowManager::for_each_window(const std::function<void(WindowId, WindowSystem&)>& fn) {
     for (auto& [id, entry] : windows_) {
+        if (entry->window.window() != nullptr) {
+            fn(id, entry->window);
+        }
+    }
+}
+
+void WindowManager::for_each_window(const std::function<void(WindowId, const WindowSystem&)>& fn) const {
+    for (const auto& [id, entry] : windows_) {
         if (entry->window.window() != nullptr) {
             fn(id, entry->window);
         }
