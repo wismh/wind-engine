@@ -1924,13 +1924,14 @@ while clicks over an actual game widget or sprite still hit the game.
 reads the window's native handle via `SDL_GetWindowProperties` /
 `SDL_PROP_WINDOW_WIN32_HWND_POINTER` and toggles the `WS_EX_TRANSPARENT` extended style on that
 HWND — `SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_TRANSPARENT)` to pass clicks through,
-clear the bit to capture them again. Confirmed from `external/SDL3/src/video/windows/SDL_windowswindow.c`
-that plain `WS_EX_TRANSPARENT` is sufficient here without `WS_EX_LAYERED`: this window's alpha
-compositing already goes through DWM's `DwmEnableBlurBehindWindow` (§21.2's `SDL_WINDOW_TRANSPARENT`
-path, in `WIN_CreateWindow`), not the legacy layered-window path — `WS_EX_LAYERED` only appears
-elsewhere in that file, inside `WIN_SetWindowOpacity`, and is unrelated/independent from the
-`WS_EX_TRANSPARENT` hit-test-passthrough bit. This is a Win32 detail: it lives entirely inside
-`WindowSystem` (`src/render/opengl/window_system.h`/`.cpp`) behind `#if defined(_WIN32)` (a
+clear the bit to capture them again. **`WS_EX_LAYERED` is also required, and must be armed** —
+see the regression writeup below in §21.7; the belief that plain `WS_EX_TRANSPARENT` was
+sufficient without it (an earlier revision of this section, reasoned from reading
+`SDL_windowswindow.c` alone) turned out to be wrong once click-through actually started working at
+the OS level and got tested against a real click. `WindowSystem::create()` sets `WS_EX_LAYERED`
+once, at creation, for a transparent window (never toggled per-frame — only `WS_EX_TRANSPARENT`
+is); `apply_click_through` only ever touches the latter. This is a Win32 detail: it lives entirely
+inside `WindowSystem` (`src/render/opengl/window_system.h`/`.cpp`) behind `#if defined(_WIN32)` (a
 no-op `#else` branch elsewhere), `#include <windows.h>` only in the `.cpp`, never a public type
 (§16 rule 15).
 
@@ -1940,7 +1941,9 @@ no-op `#else` branch elsewhere), `#include <windows.h>` only in the `.cpp`, neve
 that per-window hit-test misses, and captures input whenever it hits. This is *not* per-pixel
 alpha sampling of the rendered frame (that needs a framebuffer readback synced against the GL
 swap, deferred — §17); a fully transparent pixel inside a widget's bounding rect still captures
-input in v1, same as an opaque one.
+input in v1, same as an opaque one. `WindowSystem::update_click_through()` additionally treats the
+pointer sitting inside `drag_region_` (§21.7) as a hit too, regardless of `MouseConsumed` — see the
+§21.7 regression writeup for why that turned out to be load-bearing, not just a nice-to-have.
 
 **Bug found (and fixed): `MouseConsumed` only updated on click, never on hover.**
 `run_input()` (`src/ecs/systems.cpp`) used to call `ui::handle_pointer()` — the function that both
@@ -2459,6 +2462,61 @@ Discord overlay) use, for the same reason. `WindowSystem.CursorClientPositionIsN
 (`tests/window_style_test.cpp`) covers the no-window no-op contract; the actual OS polling, like
 the rest of this section's Win32-only pieces, needs a real window and isn't covered by
 `engine_tests` (§12.3).
+
+**Regression found (and fixed, `td-over`, 3 rounds): the fix above made `WM_NCHITTEST` answer
+correctly, but that alone still didn't get a real click delivered — two more attempts each traded
+one working thing for another before landing on the actual fix.** Isolated with
+`samples/overlay_probe` (a temporary, throwaway SDL3-only repro, `ENGINE_BUILD_SAMPLES`, since none
+of this is reachable from `engine_tests` per §12.3 — no real HWND, no real desktop, no real mouse)
+because none of it could be diagnosed from source reading alone.
+
+*Round 1.* `td-over` confirmed via a direct `SendMessage(hwnd, WM_NCHITTEST, ...)` that
+`win32_hit_test_wndproc` answers `HTTRANSPARENT` exactly where expected — but a real mouse click at
+that same screen point still didn't reach Explorer underneath. Suspected `WS_EX_TRANSPARENT` alone
+being insufficient for a *DWM-composited* window (this window's transparency comes from
+`DwmEnableBlurBehindWindow`, not the classic `WS_EX_LAYERED` alpha-blend path — see §21.2/§21.4's
+now-corrected "Mechanism" paragraph) — most reference click-through-overlay implementations pair
+`WS_EX_TRANSPARENT` with `WS_EX_LAYERED`, contrary to this engine's original (wrong) reasoning.
+
+*Round 2.* Adding bare `WS_EX_LAYERED` (`overlay_probe`'s `L` key) made real click-through pass
+through correctly — confirming Round 1's hypothesis — but broke the drag region *and, with it,
+keyboard focus* entirely: a temporary diagnostic logger (`wind88_log`, `%TEMP%\wind88_diagnostic.log`
++ stdout, `window_manager.cpp`/`window_system.cpp`, removed again once this concluded) showed 118
+correct `HTCAPTION` hits for the drag region before adding `WS_EX_LAYERED`, and exactly 0 after,
+with the same cursor motion pattern. Root cause: `WS_EX_LAYERED` without ever calling
+`SetLayeredWindowAttributes`/`UpdateLayeredWindow` leaves its alpha/blend state undefined, and
+Windows then appears to treat the *entire* window as input-transparent — not just the points
+`win32_hit_test_wndproc` actually answers `HTTRANSPARENT` for. No click ever reached the window
+again, for any point, which is also why keyboard input stopped working: a window that never
+receives a real click never gets activated/focused. Fixed by "arming" the layered style once,
+right after adding it, with `SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)` — full opacity on
+the classic GDI blend path; the real visual transparency still comes from DWM above, untouched by
+this call.
+
+*Round 3.* With `WS_EX_LAYERED` armed, the *drag region* still didn't work, even though the
+diagnostic log now showed it correctly answering `HTCAPTION` 698 times with 0 `HTTRANSPARENT` hits
+inside it — i.e., `win32_hit_test_wndproc`'s per-point logic was, and always had been, correct. The
+missing piece: `overlay_probe`'s stand-in for `update_click_through()`'s decision only ever
+excluded its fake *button* from "should be click-through", never the drag region — so
+`WS_EX_TRANSPARENT` (unlike `WS_EX_LAYERED`) stayed *applied* almost the entire time the pointer
+sat in the drag region, because nothing ever told it not to. That revealed the actual governing
+rule: **real click delivery for this layered+transparent composited window depends on whether
+`WS_EX_TRANSPARENT` is set on the window *at all*, at the instant the real click lands — not on
+`win32_hit_test_wndproc`'s correct per-point `WM_NCHITTEST` answer**, which DWM's real input
+routing for a composited window apparently doesn't consult as granularly as the public Win32 API
+implies it should. Fixed by making `WindowSystem::update_click_through()` treat the pointer sitting
+inside `drag_region_` as a hit too (via `cursor_client_position()` above + the existing
+`window_drag_hit_test`, reused rather than duplicating the rect test — same as
+`win32_hit_test_wndproc` already does), regardless of `MouseConsumed`: a game's drag strip is not
+guaranteed to be backed by an actual UI widget that would set `MouseConsumed` on its own, and
+click-through must never be *applied* while the pointer is there, not just correctly *answered
+about* there. Confirmed fixed end to end by `td-over`: real click-through, real dragging, and
+keyboard focus all work simultaneously now.
+
+Not covered by a dedicated `engine_tests` case for any of this — same real-HWND/real-DWM boundary
+as the rest of this section (§12.3); `samples/overlay_probe` and the temporary log lines were
+removed once `td-over` confirmed the fix, per the "temporary, not part of the shipped engine"
+warning at the top of that file.
 
 **Bug found (and fixed): the whole game visibly froze for as long as any window was being
 dragged.** Not specific to click-through or drag regions — reported separately, but same root area.
