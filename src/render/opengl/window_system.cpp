@@ -221,6 +221,19 @@ glm::ivec2 WindowSystem::size() const {
     return {width, height};
 }
 
+std::optional<glm::vec2> WindowSystem::cursor_client_position() const {
+    if (window_ == nullptr) {
+        return std::nullopt;
+    }
+    float global_x = 0.0f;
+    float global_y = 0.0f;
+    SDL_GetGlobalMouseState(&global_x, &global_y);
+    int window_x = 0;
+    int window_y = 0;
+    SDL_GetWindowPosition(window_, &window_x, &window_y);
+    return glm::vec2{global_x - static_cast<float>(window_x), global_y - static_cast<float>(window_y)};
+}
+
 glm::ivec2 WindowSystem::drawable_size() const {
     int width = 0;
     int height = 0;

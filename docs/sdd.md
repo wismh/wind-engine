@@ -2421,6 +2421,45 @@ uninstall). Not covered by a dedicated `engine_tests` case for the actual hit-te
 `WindowSystem.ClickThroughAppliedDefaultsToFalse`/`ClickThroughAppliedStaysFalseWithoutWindow`
 (`tests/window_style_test.cpp`) cover the pure getter and its no-window no-op contract instead.
 
+**Regression found (and fixed, `td-over`): the click-through fix above made real Win32
+click-through work for the first time — which broke every button, permanently, the first frame the
+pointer left one.** Diagnosed by `td-over`: `WindowSystem::update_click_through()` (§21.4) only
+ever recomputes `click_through_applied_` from `world.ctx<ui::MouseConsumed>().value`, which itself
+only updates in reaction to a *real* `SDL_EVENT_MOUSE_MOTION` — `poll_events()` ->
+`InputSystem::handle_mouse_move()` -> `run_input()`'s `Move` case -> `ui::update_pointer_hover()`
+(`src/ecs/systems.cpp`/`src/ui/canvas.cpp`). Before the fix above, this was harmless because real
+OS-level click-through never actually engaged (that was the whole bug) — `WM_NCHITTEST` always
+resolved to `HTCLIENT` via SDL regardless of `WS_EX_TRANSPARENT`, so Windows kept delivering every
+`WM_MOUSEMOVE` unconditionally, and `MouseConsumed` stayed fresh no matter where the pointer was.
+Once real click-through actually started working, that stopped being true: `WS_EX_TRANSPARENT`
+causes Windows' own hit-test/routing machinery to *stop delivering mouse messages for a point once
+it resolves to `HTTRANSPARENT`* — Windows just keeps testing the window(s) underneath instead of
+this one — and `win32_hit_test_wndproc` decides *every* point outside the drag region purely from
+the last frame's (already-stale) `click_through_applied()`, with no per-point knowledge of where
+the actual UI buttons are. Concretely: the first frame the pointer sat over empty space,
+`click_through_applied_` latched `true`; from then on `win32_hit_test_wndproc` answered
+`HTTRANSPARENT` for literally every point outside the drag region, including a point the pointer
+later moved onto that was actually a button — so no new `WM_MOUSEMOVE` (and no new
+`SDL_EVENT_MOUSE_MOTION`) was ever delivered to this window again, `MouseConsumed` could never be
+recomputed from the pointer's true position, and the window got permanently stuck treating
+everything outside the drag region as click-through, buttons included: exactly a deadlock, the OS
+mechanism click-through depends on (real mouse-message delivery) is the same mechanism its own
+"click-through engaged" state now silently suppresses. Fixed by no longer relying on the OS to
+*choose* to deliver a motion event at all: `WindowSystem::cursor_client_position()`
+(`src/render/opengl/window_system.h`/`.cpp`) polls the true OS cursor position directly every tick
+— `SDL_GetGlobalMouseState` (works regardless of window focus/message delivery) minus
+`SDL_GetWindowPosition`, assuming the window's OS position is its client-area origin, true for the
+borderless windows this exists for. `EngineRuntime::tick_loop()` calls it right after
+`poll_events()`, but only when `primary.click_through_enabled() && primary.is_transparent()`
+(kPrimaryWindow-only, matching click-through's own §21.4 scope — every other window/game pays
+nothing extra here), and feeds the result through the exact same
+`InputSystem::handle_mouse_move()` -> `MouseEvent` -> `run_input()` -> `update_pointer_hover()`
+pipeline a real motion event already used — same technique other click-through overlay apps (RTSS,
+Discord overlay) use, for the same reason. `WindowSystem.CursorClientPositionIsNulloptWithoutWindow`
+(`tests/window_style_test.cpp`) covers the no-window no-op contract; the actual OS polling, like
+the rest of this section's Win32-only pieces, needs a real window and isn't covered by
+`engine_tests` (§12.3).
+
 **Bug found (and fixed): the whole game visibly froze for as long as any window was being
 dragged.** Not specific to click-through or drag regions — reported separately, but same root area.
 On Windows, a `WM_NCLBUTTONDOWN` with `HTCAPTION` (whether from a real OS titlebar on a bordered
@@ -2493,6 +2532,8 @@ logic and gets a `tests/windowing_test.cpp` case:
   `set_click_through_enabled(true)` + `update_click_through(false)` without a real window — the
   no-window no-op contract `apply_click_through` already had, now asserted through the getter the
   Win32 hit-test hook reads.
+- `WindowSystem::cursor_client_position()` (§21.7 regression fix) returns `std::nullopt` without a
+  real window — the actual OS-polling path needs one, out of scope here per §12.3.
 - `CommandBuffer` selection by a `Renderable`/`UiCanvas`'s `window` field — commands for window B
   never land in window A's buffer, and clearing one window's buffer does not touch another's.
 - `WindowSizes` (§4.7): a resize event for one `WindowId` updates only that entry; `FillWindow`
