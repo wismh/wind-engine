@@ -2667,6 +2667,24 @@ selective-skip behavior, like the rest of this section, needs a real drag and is
 diagnosis — if the lag persists after this, the `SDL_GL_SwapWindow`-blocks-on-DWM hypothesis itself
 needs measuring directly (`td-over`'s own suggestion), not just working around by skipping it.
 
+**Regression found (and fixed, `td-over`, wind-91): the wind-90 skip broke the one drag case that
+had been perfect.** Dragging the primary overlay itself — transparent, so per wind-90's own
+hypothesis its `SDL_GL_SwapWindow` was never the slow one — got its own redraw skipped too, same as
+any other dragged window. Simulation never actually stopped (`on_fixed_update()`/`on_update()` keep
+running exactly as wind-89 intended), but the overlay is the only thing the player is looking at
+while dragging it, so a frozen picture reads as "the game stopped" regardless — a purely visual
+regression with no corresponding benefit, since an already-fast swap had nothing to gain from being
+skipped. Fixed in `EngineRuntime::reentrant_tick()`: the dragged window is now only passed to
+`draw_all()`'s `skip` parameter when `WindowSystem::is_transparent()` is false for it — matching
+the actual suspected mechanism (opaque-window swap blocking) instead of "whichever window happens
+to be dragged, regardless of type". `td-over` also reports `workshop`/`settings` dragging is
+*still* not fully smooth even with wind-90's skip active — i.e. skipping just the dragged window's
+own swap didn't fully explain the stall, hinting DWM may serialize composition more broadly during
+any live move/resize than just the one window's own `Present` call. Not re-investigated with real
+measurements yet in this fix — it only undoes the overlay regression; `td-over`'s own suggested next
+step (measure `canvas->draw()`/`SDL_GL_SwapWindow` duration per window during a live drag, dragged
+window vs. the rest, to confirm or rule out whole-composition serialization) is still open.
+
 **Primary window's own `WindowSize` had no equivalent backfill.** The paragraph above fixes a
 *secondary* window's missing `WindowSizes` entry; the primary window had the same class of bug for
 `world.ctx<ui::WindowSize>()` (§4.7), just never noticed because most primary windows get resized
