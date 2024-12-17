@@ -278,6 +278,12 @@ void EngineRuntime::begin_loop(IGame& game, InputSystem& input, IAudioSystem* au
     game.on_start();
     ui::apply_canvas_fit(game.world());
     game.world().ctx<ApplicationState>().running = true;
+
+    // wind-89: from here until end_loop() clears it, WindowManager's Win32 modal-loop hook
+    // (window_manager.cpp) calls reentrant_tick() on every WM_TIMER it sees — see that method's
+    // doc comment for what it does and why it's safe to nest inside poll_events()'s SDL_PollEvent()
+    // call specifically.
+    impl_->windows.set_modal_loop_tick_callback([this] { reentrant_tick(); });
 }
 
 void EngineRuntime::tick_loop() {
@@ -375,7 +381,66 @@ void EngineRuntime::tick_loop() {
     impl_->windows.draw_all();
 }
 
+void EngineRuntime::reentrant_tick() {
+    // wind-89: called from WindowManager's Win32 modal-loop hook (window_manager.cpp), itself
+    // firing on WM_TIMER (~10ms, USER_TIMER_MINIMUM) while the user is dragging or resizing a
+    // window — the outer tick_loop() -> poll_events() -> SDL_PollEvent() call further up this
+    // exact call stack (single thread, genuinely nested/reentrant, not concurrent) is paused
+    // inside the OS's own modal move/size loop for as long as that continues. Deliberately not
+    // identical to tick_loop():
+    //
+    //   - No world.flush_events() here. Events<T>::update() (ecs/events.h) ages previous_ into
+    //     oblivion and promotes current_ into previous_; the outer tick_loop() already called it
+    //     once for this real frame (the line right before poll_events()) before pausing here, so
+    //     calling it *again* would clear out previous_ contents the outer frame's own systems —
+    //     which haven't run yet; that happens once poll_events() eventually returns — are still
+    //     depending on reading once execution resumes there. This reentrant tick doesn't need its
+    //     own flush anyway: EventReader<T>::begin()/end() (events.h) index into previous_/current_
+    //     fresh at every call rather than requiring a prior update(), so a system here that sends
+    //     an event and a later system (same reentrant tick, or the next one) that reads it via a
+    //     fresh EventReader/EventCursor construction sees it correctly with no flush involved —
+    //     flushing is only about *aging across frame boundaries*, not same-tick delivery.
+    //   - No poll_events(). Real OS input isn't flowing through SDL_PollEvent right now anyway —
+    //     that's the entire reason this hook exists — and this callback receives Windows messages
+    //     directly, so there's nothing for it to poll.
+    //   - No secondary-window WindowSizes/font backfill (tick_loop()'s block right after
+    //     poll_events()) — a cosmetic one-frame-late edge case if a new window happens to open in
+    //     the exact same frame a drag starts, not worth the extra complexity here.
+    //
+    // real_dt is measured against the exact same impl_->loop_last tick_loop() itself advances, and
+    // updated every call here too — so no matter how many times this fires during one drag,
+    // tick_loop()'s own real_dt once the drag ends and it resumes is just the small remainder since
+    // the *last* reentrant_tick() call, never a multi-second "catch-up burst". FixedStepClock's own
+    // accumulator (fixed_step.cpp) independently clamps any single call's real_dt to 0.25s and caps
+    // steps at 8 (discarding, not deferring, any leftover past that) regardless of caller, so even
+    // an unusually long gap between two calls can't run away either.
+    if (impl_->loop_game == nullptr || impl_->loop_clock == nullptr) {
+        return;
+    }
+    IGame& game = *impl_->loop_game;
+    ecs::World& world = game.world();
+    Time& time = world.ctx<Time>();
+
+    const auto now = std::chrono::steady_clock::now();
+    const float real_dt = std::chrono::duration<float>(now - impl_->loop_last).count();
+    impl_->loop_last = now;
+
+    ui::begin_frame(world);
+
+    const int steps = impl_->loop_clock->advance(real_dt);
+    if (impl_->loop_audio != nullptr) {
+        impl_->loop_audio->update(time.delta_time);
+    }
+    for (int i = 0; i < steps; ++i) {
+        game.on_fixed_update();
+    }
+    game.on_update();
+    impl_->windows.primary_window().update_click_through(world.ctx<ui::MouseConsumed>().value);
+    impl_->windows.draw_all();
+}
+
 void EngineRuntime::end_loop() {
+    impl_->windows.set_modal_loop_tick_callback(nullptr);
     IGame* const game = impl_->loop_game;
     impl_->loop_game = nullptr;
     impl_->loop_input = nullptr;
