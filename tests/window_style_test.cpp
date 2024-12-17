@@ -196,6 +196,23 @@ TEST(WindowSystem, SetDragRegionIsNoopWithoutWindow) {
     window.set_drag_region(std::nullopt);
 }
 
+TEST(WindowSystem, IsDraggingDefaultsToFalse) {
+    engine::WindowSystem window;
+    EXPECT_FALSE(window.is_dragging());
+}
+
+TEST(WindowSystem, ManualDragApiIsNoopWithoutWindow) {
+    engine::WindowSystem window;
+    // No SDL_Init(SDL_INIT_VIDEO), no window created (SDD §12.3/wind-92): begin_drag_if_in_region()
+    // must refuse (no window to check a region against, let alone capture the mouse for) rather
+    // than crash; update_drag()/end_drag() must stay no-ops too.
+    window.set_drag_region(engine::render::Rect{0, 0, 100, 32});
+    EXPECT_FALSE(window.begin_drag_if_in_region(glm::vec2{10, 10}));
+    EXPECT_FALSE(window.is_dragging());
+    window.update_drag();
+    window.end_drag();
+}
+
 // WindowManager's success path (a real primary window + a secondary window sharing its GL
 // context) needs a live display/GPU and is out of engine_tests scope (SDD §12.3), same boundary
 // every prior phase here has respected — only the no-SDL-video failure-path bookkeeping is
