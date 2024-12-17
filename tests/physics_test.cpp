@@ -67,7 +67,7 @@ TEST(Physics, AabbOverlap) {
     EXPECT_EQ(events[0].b, b);
 }
 
-TEST(Physics, CollisionEventOnEnterNotStay) {
+TEST(Physics, CollisionPhaseEnterThenStay) {
     engine::ecs::World world;
     engine::register_engine_systems(world);
 
@@ -79,14 +79,22 @@ TEST(Physics, CollisionEventOnEnterNotStay) {
     world.emplace<engine::BoxCollider>(b, engine::BoxCollider{glm::vec3{2.f, 2.f, 1.f}});
 
     step_physics(world);
-    ASSERT_EQ(read_collisions(world).size(), 1u);
+    {
+        const std::vector<engine::CollisionEvent> events = read_collisions(world);
+        ASSERT_EQ(events.size(), 1u);
+        EXPECT_EQ(events[0].phase, engine::CollisionPhase::Enter);
+    }
 
     drop_collision_history(world);
     step_physics(world);
-    EXPECT_TRUE(read_collisions(world).empty());
+    {
+        const std::vector<engine::CollisionEvent> events = read_collisions(world);
+        ASSERT_EQ(events.size(), 1u);
+        EXPECT_EQ(events[0].phase, engine::CollisionPhase::Stay);
+    }
 }
 
-TEST(Physics, CollisionEventReenterAfterSeparate) {
+TEST(Physics, CollisionPhaseExitThenReenter) {
     engine::ecs::World world;
     engine::register_engine_systems(world);
 
@@ -103,6 +111,14 @@ TEST(Physics, CollisionEventReenterAfterSeparate) {
     world.get<engine::Transform>(b).position.x = 100.f;
     drop_collision_history(world);
     step_physics(world);
+    {
+        const std::vector<engine::CollisionEvent> events = read_collisions(world);
+        ASSERT_EQ(events.size(), 1u);
+        EXPECT_EQ(events[0].phase, engine::CollisionPhase::Exit);
+    }
+
+    drop_collision_history(world);
+    step_physics(world);
     EXPECT_TRUE(read_collisions(world).empty());
 
     world.get<engine::Transform>(b).position.x = 0.f;
@@ -113,4 +129,109 @@ TEST(Physics, CollisionEventReenterAfterSeparate) {
     ASSERT_EQ(events.size(), 1u);
     EXPECT_EQ(events[0].a, a);
     EXPECT_EQ(events[0].b, b);
+    EXPECT_EQ(events[0].phase, engine::CollisionPhase::Enter);
+}
+
+TEST(Physics, CircleOverlap) {
+    engine::ecs::World world;
+    engine::register_engine_systems(world);
+
+    const engine::ecs::Entity a = world.create();
+    const engine::ecs::Entity b = world.create();
+    world.emplace<engine::Transform>(a, engine::Transform{});
+    world.emplace<engine::CircleCollider>(a, engine::CircleCollider{.radius = 1.f});
+    world.emplace<engine::Transform>(b, engine::Transform{glm::vec3{1.5f, 0.f, 0.f}});
+    world.emplace<engine::CircleCollider>(b, engine::CircleCollider{.radius = 1.f});
+
+    step_physics(world);
+
+    const std::vector<engine::CollisionEvent> events = read_collisions(world);
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].a, a);
+    EXPECT_EQ(events[0].b, b);
+}
+
+TEST(Physics, CircleNoOverlapBeyondRadius) {
+    engine::ecs::World world;
+    engine::register_engine_systems(world);
+
+    const engine::ecs::Entity a = world.create();
+    const engine::ecs::Entity b = world.create();
+    world.emplace<engine::Transform>(a, engine::Transform{});
+    world.emplace<engine::CircleCollider>(a, engine::CircleCollider{.radius = 1.f});
+    world.emplace<engine::Transform>(b, engine::Transform{glm::vec3{3.f, 0.f, 0.f}});
+    world.emplace<engine::CircleCollider>(b, engine::CircleCollider{.radius = 1.f});
+
+    step_physics(world);
+
+    EXPECT_TRUE(read_collisions(world).empty());
+}
+
+TEST(Physics, BoxCircleOverlapCrossShape) {
+    engine::ecs::World world;
+    engine::register_engine_systems(world);
+
+    const engine::ecs::Entity a = world.create();
+    const engine::ecs::Entity b = world.create();
+    world.emplace<engine::Transform>(a, engine::Transform{});
+    world.emplace<engine::BoxCollider>(a, engine::BoxCollider{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::Transform>(b, engine::Transform{glm::vec3{1.5f, 0.f, 0.f}});
+    world.emplace<engine::CircleCollider>(b, engine::CircleCollider{.radius = 1.f});
+
+    step_physics(world);
+
+    const std::vector<engine::CollisionEvent> events = read_collisions(world);
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].a, a);
+    EXPECT_EQ(events[0].b, b);
+}
+
+TEST(Physics, LayerMaskFiltersCollision) {
+    engine::ecs::World world;
+    engine::register_engine_systems(world);
+
+    const engine::ecs::Entity a = world.create();
+    const engine::ecs::Entity b = world.create();
+    world.emplace<engine::Transform>(a, engine::Transform{});
+    world.emplace<engine::BoxCollider>(a, engine::BoxCollider{.size = glm::vec3{2.f, 2.f, 1.f}, .layer = 0b01, .mask = 0b01});
+    world.emplace<engine::Transform>(b, engine::Transform{});
+    world.emplace<engine::BoxCollider>(b, engine::BoxCollider{.size = glm::vec3{2.f, 2.f, 1.f}, .layer = 0b10, .mask = 0b10});
+
+    step_physics(world);
+
+    EXPECT_TRUE(read_collisions(world).empty());
+}
+
+TEST(Physics, LayerMaskDefaultStillCollidesWithAll) {
+    engine::ecs::World world;
+    engine::register_engine_systems(world);
+
+    const engine::ecs::Entity a = world.create();
+    const engine::ecs::Entity b = world.create();
+    world.emplace<engine::Transform>(a, engine::Transform{});
+    world.emplace<engine::BoxCollider>(a, engine::BoxCollider{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::Transform>(b, engine::Transform{});
+    world.emplace<engine::BoxCollider>(b, engine::BoxCollider{glm::vec3{2.f, 2.f, 1.f}});
+
+    step_physics(world);
+
+    ASSERT_EQ(read_collisions(world).size(), 1u);
+}
+
+TEST(Physics, TriggerFlagReportedOnEvent) {
+    engine::ecs::World world;
+    engine::register_engine_systems(world);
+
+    const engine::ecs::Entity a = world.create();
+    const engine::ecs::Entity b = world.create();
+    world.emplace<engine::Transform>(a, engine::Transform{});
+    world.emplace<engine::BoxCollider>(a, engine::BoxCollider{.size = glm::vec3{2.f, 2.f, 1.f}, .is_trigger = true});
+    world.emplace<engine::Transform>(b, engine::Transform{});
+    world.emplace<engine::BoxCollider>(b, engine::BoxCollider{glm::vec3{2.f, 2.f, 1.f}});
+
+    step_physics(world);
+
+    const std::vector<engine::CollisionEvent> events = read_collisions(world);
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_TRUE(events[0].is_trigger);
 }
