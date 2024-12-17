@@ -84,6 +84,19 @@ struct UiPointer {
     bool down = false;
 };
 
+// Only ever holds entries for windows OTHER than kPrimaryWindow — mirrors WindowSizes above:
+// the primary's pointer stays authoritative in the existing ctx<UiPointer>() singleton, unchanged,
+// so every pre-existing single-window call site keeps working with zero modification. A window
+// whose pointer has never moved resolves to a default-constructed UiPointer via pointer_for().
+struct UiPointers {
+    std::unordered_map<WindowId, UiPointer> pointers;
+};
+
+// Centralizes the "primary reads ctx<UiPointer>(), everything else reads ctx<UiPointers>()" branch
+// (same shape as window_size_for) so a pointer move/click in one window never leaks its position or
+// down-state into another window's hover/press paint state (SDD §21.6).
+[[nodiscard]] UiPointer& pointer_for(ecs::World& world, WindowId id);
+
 [[nodiscard]] constexpr bool rect_contains(const render::Rect& rect, float x, float y) noexcept {
     return x >= rect.x && y >= rect.y && x < (rect.x + rect.w) && y < (rect.y + rect.h);
 }
