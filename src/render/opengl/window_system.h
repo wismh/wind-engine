@@ -53,6 +53,15 @@ public:
         return click_through_enabled_;
     }
 
+    // True once apply_click_through(true) actually landed on the OS window (WS_EX_TRANSPARENT
+    // currently set) — distinct from click_through_enabled(), the manual on/off toggle. The Win32
+    // hit-test hook (window_drag_hit_test's caller in window_system.cpp, SDD §21.7 fix) reads this
+    // to decide whether a point outside the drag region should resolve to HTTRANSPARENT instead of
+    // the HTCLIENT SDL would otherwise hardcode once any SDL_HitTest callback is installed.
+    [[nodiscard]] bool click_through_applied() const noexcept {
+        return click_through_applied_;
+    }
+
     // Called once per frame from EngineRuntime::tick_loop() with this frame's UiInputSystem hit
     // result. No-op without a window (§12.3 — no real window in engine_tests).
     void update_click_through(bool pointer_hit_something);
@@ -75,6 +84,23 @@ private:
     bool click_through_enabled_ = false;
     bool click_through_applied_ = false;
     std::optional<render::Rect> drag_region_;
+
+#if defined(_WIN32)
+public:
+    // Original SDL window procedure (WIN_WindowProc), captured by create() before it subclasses
+    // the HWND with win32_hit_test_wndproc (window_system.cpp, SDD §21.7 fix) on top of it — the
+    // subclass needs it to delegate every message it doesn't special-case. Stored as void* (real
+    // type WNDPROC) purely so this header never needs <windows.h> (SDD §16 rule 15 — keeps
+    // windows.h macro pollution, e.g. min/max, out of every other TU that includes this private
+    // header); window_system.cpp does the cast both ways. Not a general-purpose accessor — read
+    // only by the free function installed as the HWND's GWLP_WNDPROC.
+    [[nodiscard]] void* win32_prev_wndproc() const noexcept {
+        return win32_prev_wndproc_;
+    }
+
+private:
+    void* win32_prev_wndproc_ = nullptr;
+#endif
 
     void apply_click_through(bool click_through);
 };
