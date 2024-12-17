@@ -540,9 +540,9 @@ Contract the homemade registry must keep (EnTT-like verbs, `snake_case` like the
 
 Erase-from-vector pools that do not fix up indices, and raw `uint32_t` handles without a generation, are **not** used.
 
-**Engine components:** `Transform` (no parent), `Renderable` (§6.3), `Camera`, `RigidBody`, `BoxCollider`, `UiCanvas` (§8).
+**Engine components:** `Transform` (no parent), `Renderable` (§6.3), `Camera`, `RigidBody`, `BoxCollider`, `CircleCollider`, `UiCanvas` (§8).
 
-**Physics:** AABB + velocity is a **collision probe**, not a solver. Writes `CollisionEvent` to `Events<CollisionEvent>` on enter. Bounce stays in game systems until a real solver exists.
+**Physics:** AABB/circle + velocity is a **collision probe**, not a solver. `BoxCollider` and `CircleCollider` each carry `layer` / `mask` bitmasks (a pair is only tested when each side's `mask` includes the other's `layer`) and an `is_trigger` flag. `run_physics` writes `CollisionEvent{a, b, phase, is_trigger}` to `Events<CollisionEvent>` every fixed tick a pair overlaps — `phase` is `Enter` the first tick, `Stay` on every following tick the pair still overlaps, `Exit` the tick it stops. Bounce / resolution stays in game systems until a real solver exists; `is_trigger` only marks the event, it does not change probe behavior (both trigger and solid pairs are detected and reported the same way).
 
 ---
 
