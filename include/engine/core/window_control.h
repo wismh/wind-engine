@@ -27,10 +27,9 @@ public:
     virtual void resize(glm::ivec2 size, WindowId window = kPrimaryWindow) = 0;
 
     // Manual on/off for §21.4 click-through overlay mode; the automatic per-frame toggle only
-    // runs while this is enabled (and the window is transparent). Click-through stays a
-    // kPrimaryWindow-only concept (§21.4/§21.7) — EngineRuntime::tick_loop() only ever drives it
-    // for the primary window — so this one has no WindowId parameter.
-    virtual void set_click_through_enabled(bool enabled) = 0;
+    // runs while this is enabled (and the window is transparent). `window` generalizes to secondary
+    // windows the same way as other controls.
+    virtual void set_click_through_enabled(bool enabled, WindowId window = kPrimaryWindow) = 0;
 
     // Marks a region (window-client pixels, same space as UiCanvas.rect) draggable via
     // SDL_SetWindowHitTest — needed for a borderless window, which has no OS titlebar to drag by

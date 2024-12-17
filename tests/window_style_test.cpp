@@ -118,6 +118,7 @@ TEST(WindowControlImpl, WindowIdAddressedMethodsDefaultToPrimary) {
     control_ref.set_always_on_top(true);
     control_ref.set_position({0, 0});
     control_ref.resize({100, 100});
+    control_ref.set_click_through_enabled(true);
     control_ref.set_drag_region(engine::render::Rect{0, 0, 10, 10});
 }
 
@@ -133,8 +134,24 @@ TEST(WindowControlImpl, WindowIdAddressedMethodsAreNoopForUnknownWindow) {
     control_ref.set_always_on_top(true, secondary);
     control_ref.set_position({0, 0}, secondary);
     control_ref.resize({100, 100}, secondary);
+    control_ref.set_click_through_enabled(true, secondary);
     control_ref.set_drag_region(engine::render::Rect{0, 0, 10, 10}, secondary);
     control_ref.set_drag_region(std::nullopt, secondary);
+}
+
+TEST(MouseConsumed, ConsumedForTracksPerWindow) {
+    engine::ui::MouseConsumed consumed;
+    EXPECT_FALSE(consumed.consumed_for(engine::kPrimaryWindow));
+    EXPECT_FALSE(consumed.consumed_for(engine::WindowId{1}));
+
+    consumed.value = true;
+    EXPECT_TRUE(consumed.consumed_for(engine::kPrimaryWindow));
+    EXPECT_FALSE(consumed.consumed_for(engine::WindowId{1}));
+
+    consumed.consumed_windows.insert(engine::WindowId{2});
+    EXPECT_TRUE(consumed.consumed_for(engine::kPrimaryWindow));
+    EXPECT_TRUE(consumed.consumed_for(engine::WindowId{2}));
+    EXPECT_FALSE(consumed.consumed_for(engine::WindowId{1}));
 }
 
 TEST(ShouldBeClickThrough, TrueOnlyWhenEnabledTransparentAndNoHit) {
@@ -304,6 +321,15 @@ TEST(WindowManager, ForEachSecondaryWindowVisitsNothingOnFreshManager) {
     // was ever created — the callback must never fire (SDD §21.7).
     int calls = 0;
     manager.for_each_secondary_window([&](engine::WindowId, engine::WindowSystem&) { ++calls; });
+    EXPECT_EQ(calls, 0);
+}
+
+TEST(WindowManager, ForEachWindowVisitsNothingOnFreshManager) {
+    engine::render::OpenGLRenderBackend backend;
+    engine::WindowManager manager{backend};
+    // Fresh manager: neither primary nor secondary windows have live SDL_Window instances.
+    int calls = 0;
+    manager.for_each_window([&](engine::WindowId, engine::WindowSystem&) { ++calls; });
     EXPECT_EQ(calls, 0);
 }
 
