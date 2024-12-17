@@ -122,9 +122,9 @@ public:
         return dragging_;
     }
 
-private:
-    friend SDL_HitTestResult window_drag_hit_test(SDL_Window* window, const SDL_Point* area, void* data);
+    [[nodiscard]] bool is_in_drag_region(glm::vec2 point) const noexcept;
 
+private:
     SDL_Window* window_ = nullptr;
     bool transparent_ = false;
     bool click_through_enabled_ = false;
@@ -153,14 +153,6 @@ private:
 
     void apply_click_through(bool click_through);
 };
-
-// Pure "is this point inside the drag region" geometry check (SDD §21.7) — `data` is the owning
-// WindowSystem*; returns SDL_HITTEST_DRAGGABLE when `area` falls inside that window's current
-// drag_region_, else SDL_HITTEST_NORMAL. Despite the SDL_HitTest-shaped signature (convenient,
-// nothing more), wind-92 stopped registering this via SDL_SetWindowHitTest — it's called directly
-// as a plain membership test instead, by begin_drag_if_in_region() (window_system.cpp) and by the
-// click-through exclusion in win32_hit_test_wndproc/update_click_through() (same file).
-[[nodiscard]] SDL_HitTestResult window_drag_hit_test(SDL_Window* window, const SDL_Point* area, void* data);
 
 // Split out from create() so WindowStyle -> SDL_WindowFlags is unit-testable without
 // SDL_Init(SDL_INIT_VIDEO) or a real window.

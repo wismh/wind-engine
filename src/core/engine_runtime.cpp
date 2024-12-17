@@ -283,8 +283,7 @@ void EngineRuntime::begin_loop(IGame& game, InputSystem& input, IAudioSystem* au
     // (window_manager.cpp) calls reentrant_tick() on every WM_TIMER it sees — see that method's
     // doc comment for what it does and why it's safe to nest inside poll_events()'s SDL_PollEvent()
     // call specifically.
-    impl_->windows.set_modal_loop_tick_callback(
-            [this](std::optional<WindowId> dragged_window) { reentrant_tick(dragged_window); });
+    impl_->windows.set_modal_loop_tick_callback([this] { reentrant_tick(); });
 }
 
 void EngineRuntime::tick_loop() {
@@ -316,11 +315,13 @@ void EngineRuntime::tick_loop() {
     // overlay apps use for this reason — instead of relying only on whichever motion events the OS
     // chose to deliver. Gated to when click-through could actually be engaged (kPrimaryWindow-only,
     // SDD §21.4) so every other window/game pays nothing extra here.
-    if (WindowSystem& primary = impl_->windows.primary_window(); primary.click_through_enabled() && primary.is_transparent()) {
-        if (const std::optional<glm::vec2> cursor = primary.cursor_client_position()) {
-            impl_->loop_input->handle_mouse_move(kPrimaryWindow, *cursor, glm::vec2{0.0f, 0.0f});
+    impl_->windows.for_each_window([&](WindowId id, WindowSystem& window) {
+        if (window.click_through_enabled() && window.is_transparent()) {
+            if (const std::optional<glm::vec2> cursor = window.cursor_client_position()) {
+                impl_->loop_input->handle_mouse_move(id, *cursor, glm::vec2{0.0f, 0.0f});
+            }
         }
-    }
+    });
 
     // Backfills a WindowSizes entry for any secondary window that has none yet (SDD §21.7) — a
     // freshly opened window has no drawable size in ui::WindowSizes until its first real
@@ -378,11 +379,14 @@ void EngineRuntime::tick_loop() {
         game.on_fixed_update();
     }
     game.on_update();
-    impl_->windows.primary_window().update_click_through(world.ctx<ui::MouseConsumed>().value);
+    const auto& mouse_consumed = world.ctx<ui::MouseConsumed>();
+    impl_->windows.for_each_window([&](WindowId id, WindowSystem& window) {
+        window.update_click_through(mouse_consumed.consumed_for(id));
+    });
     impl_->windows.draw_all();
 }
 
-void EngineRuntime::reentrant_tick(std::optional<WindowId> dragged_window) {
+void EngineRuntime::reentrant_tick() {
     // wind-89: called from WindowManager's Win32 modal-loop hook (window_manager.cpp), itself
     // firing on WM_TIMER (~10ms, USER_TIMER_MINIMUM) while the user is dragging or resizing a
     // window — the outer tick_loop() -> poll_events() -> SDL_PollEvent() call further up this
@@ -407,38 +411,6 @@ void EngineRuntime::reentrant_tick(std::optional<WindowId> dragged_window) {
     //   - No secondary-window WindowSizes/font backfill (tick_loop()'s block right after
     //     poll_events()) — a cosmetic one-frame-late edge case if a new window happens to open in
     //     the exact same frame a drag starts, not worth the extra complexity here.
-    //
-    // wind-90 (td-over report): `dragged_window`'s own draw/swap was skipped below, not just here
-    // in spirit — but only for an *opaque* window (wind-91 correction, see below). Dragging the
-    // transparent/DWM-blur-behind primary overlay window was smooth — real time, no lag — but
-    // dragging an *opaque* borderless window (a secondary window like td-over's
-    // "workshop"/"settings") made the whole reentrant tick stall, including simulation that has
-    // nothing to do with that window. The primary overlay's own on_update()/game logic never
-    // stopped in either case — only OpenGLCanvas::draw()'s SDL_GL_SwapWindow call is suspected:
-    // observed to block for the DWM compositor to catch up specifically for the one window
-    // currently being live-moved/resized by the OS, worse for an opaque window than a transparent
-    // one. Skipping that one window's draw/swap for the tick's duration keeps everything else —
-    // game logic, every other live window — running at full speed; the skipped window's own
-    // content simply doesn't redraw again until either the drag ends (tick_loop() resumes normal
-    // drawing) or it stops being the active one (dragged_window changes). A window not being
-    // freshly redrawn while the OS itself is actively moving it around the screen is an accepted,
-    // common trade-off elsewhere (same idea as skipping the WindowSizes backfill above).
-    //
-    // wind-91 regression fix (td-over report): skipping unconditionally broke the one case that had
-    // been perfect — dragging the *primary overlay itself*. It's transparent, so its own swap was
-    // never the slow one (that's the whole reason wind-90 only ever suspected opaque windows); but
-    // when the overlay is what's being dragged, it's also the only thing the player is looking at,
-    // so skipping its redraw for the drag's duration reads as "the game stopped" even though
-    // on_fixed_update()/on_update() never actually paused — a purely visual regression with zero
-    // upside, since there was nothing to fix there in the first place. Below, the dragged window is
-    // only ever excluded from draw_all() when it isn't transparent — matching the actual suspected
-    // mechanism (opaque-window swap blocking) instead of "whichever window happens to be dragged".
-    // td-over also reports workshop/settings dragging is still not fully smooth even with wind-90's
-    // skip in place — i.e. skipping just the dragged window's own swap didn't fully explain the
-    // stall either, hinting DWM may serialize composition more broadly than one window's Present
-    // call during any live move/resize, not just the dragged window's own. Not yet re-investigated
-    // with real measurements (td-over's own suggestion) — this fix only undoes the regression;
-    // it does not claim to further improve the workshop/settings case.
     //
     // real_dt is measured against the exact same impl_->loop_last tick_loop() itself advances, and
     // updated every call here too — so no matter how many times this fires during one drag,
@@ -468,20 +440,11 @@ void EngineRuntime::reentrant_tick(std::optional<WindowId> dragged_window) {
         game.on_fixed_update();
     }
     game.on_update();
-    impl_->windows.primary_window().update_click_through(world.ctx<ui::MouseConsumed>().value);
-
-    // wind-91: only skip the dragged window's own draw/swap when it's opaque — a transparent one's
-    // swap was never the suspected bottleneck (see the wind-90/wind-91 doc comment above), so
-    // skipping it bought nothing and cost a real, visible regression for the one case (dragging the
-    // overlay itself) that had been perfect.
-    std::optional<WindowId> skip_draw = dragged_window;
-    if (skip_draw) {
-        const WindowSystem* dragged = impl_->windows.window(*skip_draw);
-        if (dragged == nullptr || dragged->is_transparent()) {
-            skip_draw = std::nullopt;
-        }
-    }
-    impl_->windows.draw_all(skip_draw);
+    const auto& mouse_consumed = world.ctx<ui::MouseConsumed>();
+    impl_->windows.for_each_window([&](WindowId id, WindowSystem& window) {
+        window.update_click_through(mouse_consumed.consumed_for(id));
+    });
+    impl_->windows.draw_all();
 }
 
 void EngineRuntime::end_loop() {
