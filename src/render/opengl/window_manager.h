@@ -76,7 +76,7 @@ public:
 
     // Called on every WM_TIMER seen while a Windows modal move/size loop is active — a no-op on
     // other platforms and a no-op here until someone sets it (SDD §21.7 "game freezes during any
-    // window drag" fix, extended by wind-89 to a full reentrant tick, not just a redraw).
+    // window drag" fix: a full reentrant tick, not just a redraw).
     // EngineRuntime::begin_loop() supplies the actual callback once its own loop state
     // (IGame&, FixedStepClock, ecs::World&) exists.
     void set_modal_loop_tick_callback(std::function<void()> callback);

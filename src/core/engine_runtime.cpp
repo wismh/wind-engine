@@ -288,9 +288,8 @@ void EngineRuntime::begin_loop(IGame& game, InputSystem& input, IAudioSystem* au
     ui::apply_canvas_fit(game.world());
     game.world().ctx<ApplicationState>().running = true;
 
-    // wind-89 / wind-94: DesktopOverlayPolicy registers reentrant_tick() with WindowManager's Win32
-    // modal-loop hook only when an active overlay is present, keeping the core loop standard and
-    // unhooked for normal games.
+    // DesktopOverlayPolicy registers reentrant_tick() with WindowManager's Win32 modal-loop hook
+    // only when an active overlay is present, keeping the core loop standard and unhooked for normal games.
     impl_->overlay_policy.sync_modal_loop_hook(impl_->windows, [this] { reentrant_tick(); });
 }
 
@@ -374,9 +373,8 @@ void EngineRuntime::tick_loop() {
 }
 
 void EngineRuntime::reentrant_tick() {
-    // wind-89: called from WindowManager's Win32 modal-loop hook (window_manager.cpp), itself
-    // firing on WM_TIMER (~10ms, USER_TIMER_MINIMUM) while the user is dragging or resizing a
-    // window — the outer tick_loop() -> poll_events() -> SDL_PollEvent() call further up this
+    // Called from WindowManager's Win32 modal-loop hook (window_manager.cpp), itself firing on
+    // WM_TIMER (~10ms, USER_TIMER_MINIMUM) while the user is dragging or resizing a window — the outer tick_loop() -> poll_events() -> SDL_PollEvent() call further up this
     // exact call stack (single thread, genuinely nested/reentrant, not concurrent) is paused
     // inside the OS's own modal move/size loop for as long as that continues. Deliberately not
     // identical to tick_loop():
@@ -603,7 +601,7 @@ void EngineRuntime::poll_events(ecs::World& world, InputSystem& input, Applicati
             case SDL_EVENT_MOUSE_BUTTON_UP: {
                 const WindowId window_id = impl_->windows.find_by_sdl_id(event.button.windowID).value_or(kPrimaryWindow);
                 WindowSystem* window = impl_->windows.window(window_id);
-                // wind-92 (SDD §21.7): a left-button-down inside the window's drag region starts a
+                // SDD §21.7: a left-button-down inside the window's drag region starts a
                 // manually-implemented drag (WindowSystem::begin_drag_if_in_region()) instead of
                 // ever reaching the OS's native HTCAPTION/modal-loop path — consumed here exactly
                 // like the old OS-native drag consumed it (the app never saw a button-down for an
@@ -633,7 +631,7 @@ void EngineRuntime::poll_events(ecs::World& world, InputSystem& input, Applicati
                 break;
             }
             case SDL_EVENT_WINDOW_FOCUS_LOST: {
-                // wind-92 safety net: if a button-up ever gets missed (e.g. focus stolen mid-drag
+                // Safety net: if a button-up ever gets missed (e.g. focus stolen mid-drag
                 // by another app), don't leave the mouse captured and the window stuck "dragging"
                 // forever.
                 const WindowId window_id = impl_->windows.find_by_sdl_id(event.window.windowID).value_or(kPrimaryWindow);
