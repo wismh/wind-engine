@@ -644,6 +644,15 @@ Not browser CSS. Engine parser in `src/` (no libcss). File + `.meta` `importer =
 
 `color`, `background`, `opacity`, `visibility`, `width`, `height`, `min-width`, `min-height`, `padding` (1–4), `margin` (1–4), `gap`, `flex-direction`, `align-items`, `justify-content`, `border-radius`, `border-width`, `border-color`, `font-size`, `font-family`, `animation-name`, `animation-duration`, `z-index`, `position`, `top`, `right`, `bottom`, `left`, `transform`.
 
+`justify-content` accepts `start` (default), `center`, `end`/`flex-end`, and `space-between` (first
+child flush to the stack's start, last flush to its end, leftover space split evenly across the
+gaps *between* children — one fewer gap than children, so a single child behaves like `start`).
+`align-items`/`text-align` accept `start`/`center`/`end` only — `space-between` there falls back to
+`start`-equivalent behavior, same as CSS itself has no `align-items: space-between`. Before
+`space-between` existed, right-aligning trailing elements in a row (e.g. Settings/Close buttons at
+a title bar's right edge) needed pulling them out of flow entirely (`position: absolute; right: …`)
+— still valid, but no longer the only option for that specific layout.
+
 ```css
 .hud { padding: 16; gap: 8; flex-direction: vertical; }
 .title { font-size: 24; color: #ffffff; }
@@ -2305,4 +2314,6 @@ logic and gets a `tests/windowing_test.cpp` case:
   `usable_display_bounds` are a no-op, not a crash, for a `WindowId` with no live window —
   `WindowManager`'s liveness gate makes "unknown id" and "not-yet-created primary" the same code
   path, so one test shape (`tests/window_style_test.cpp`) covers both.
+- `justify-content: space-between` (§8.3): three fixed-width children in a row land flush-start,
+  evenly spaced, flush-end; a single child stays flush-start (`tests/ui_painter_test.cpp`).
 
