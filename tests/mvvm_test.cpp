@@ -232,6 +232,52 @@ TEST(Mvvm, ButtonClickSkippedWhenCannotExecute) {
     EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().value);
 }
 
+TEST(Mvvm, HoverSetsMouseConsumedWithoutExecutingCommand) {
+    // SDD §21.4: click_through must not engage while the pointer merely hovers a UI element
+    // (no click yet) — update_pointer_hover has to set MouseConsumed the same way handle_pointer
+    // does, but never invoke the hit element's command.
+    engine::ecs::World world;
+    auto vm = std::make_shared<ClickViewModel>();
+    spawn_button_canvas(world, vm, {0.0f, 0.0f, 100.0f, 100.0f}, 0);
+
+    engine::ui::begin_frame(world);
+    engine::ui::update_pointer_hover(world, 4.0f, 4.0f);
+
+    EXPECT_EQ(vm->clicks, 0);
+    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().value);
+}
+
+TEST(Mvvm, HoverMissLeavesMouseConsumedFalse) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<ClickViewModel>();
+    spawn_button_canvas(world, vm, {10.0f, 20.0f, 50.0f, 40.0f}, 0);
+
+    engine::ui::begin_frame(world);
+    engine::ui::update_pointer_hover(world, 5.0f, 5.0f);
+
+    EXPECT_FALSE(world.ctx<engine::ui::MouseConsumed>().value);
+    EXPECT_EQ(vm->clicks, 0);
+}
+
+TEST(Mvvm, MouseConsumedGoesFalseWhenPointerMovesOffWidgetWithoutAClick) {
+    // The bug this fix addresses: begin_frame() resets MouseConsumed every frame, and before this
+    // fix only a Down event (via handle_pointer) ever set it back to true — a frame with only Move
+    // events left it permanently false, so click-through would ignore hover entirely. Hovering on
+    // then off, with no click in between, must track both transitions correctly on its own.
+    engine::ecs::World world;
+    auto vm = std::make_shared<ClickViewModel>();
+    spawn_button_canvas(world, vm, {0.0f, 0.0f, 100.0f, 100.0f}, 0);
+
+    engine::ui::begin_frame(world);
+    engine::ui::update_pointer_hover(world, 4.0f, 4.0f);
+    ASSERT_TRUE(world.ctx<engine::ui::MouseConsumed>().value);
+
+    engine::ui::begin_frame(world);
+    engine::ui::update_pointer_hover(world, 500.0f, 500.0f);
+    EXPECT_FALSE(world.ctx<engine::ui::MouseConsumed>().value);
+    EXPECT_EQ(vm->clicks, 0);
+}
+
 TEST(Mvvm, OnClickApiAbsent) {
     EXPECT_FALSE(has_onClick<engine::ui::Element>::value);
     EXPECT_FALSE(has_onClick<engine::ui::ViewModel>::value);
