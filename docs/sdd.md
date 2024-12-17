@@ -2195,6 +2195,27 @@ already uses for `UiCanvas.rect`, e.g. a title-bar canvas's rect), else `SDL_HIT
 the interface's other style methods — not generalized to `WindowId`, per §21.3) forwards to
 `windows_->primary_window().set_drag_region(region)`.
 
+**Primary window's own `WindowSize` had no equivalent backfill.** The paragraph above fixes a
+*secondary* window's missing `WindowSizes` entry; the primary window had the same class of bug for
+`world.ctx<ui::WindowSize>()` (§4.7), just never noticed because most primary windows get resized
+at least once during startup on most platforms. `EngineRuntime::begin_loop()`
+(`src/core/engine_runtime.cpp`) used to call `game.on_start()` without ever calling
+`write_window_size()` first — only `tick_loop()`'s per-frame secondary-window backfill (above)
+wrote anything, and it explicitly skips `kPrimaryWindow`. A primary window that's never resized
+before its first frame (typical for a fixed-size overlay) left `ctx<WindowSize>()` at its
+default-constructed `{0, 0}` through `on_start()` and every frame until an actual
+`SDL_EVENT_WINDOW_RESIZED` arrived, if one ever did — breaking `FillWindow`/`ScaleWithScreenSize`
+canvas sizing for exactly that window. `Host` (`src/core/host.cpp`), the headless test harness used
+by `engine_tests`, already got this right — its constructor calls `write_window_size()` before
+`game_->on_start()` — which is why the bug was invisible to `engine_tests` despite `Host` and
+`EngineRuntime` being meant to behave the same way here. Fixed by mirroring `Host`: `begin_loop()`
+now calls `write_window_size(game.world(), false)` (reading the just-created primary window's real
+`drawable_size()`, more accurate than `Host`'s use of the *requested* `primary_window().size` since
+it reflects DPI scaling) immediately before `game.on_start()`. Not covered by a dedicated
+`engine_tests` case: exercising it needs a real primary `SDL_Window`, out of scope per §12.3, same
+boundary as the rest of `EngineRuntime`'s window-loop code — build + the existing suite not
+regressing is the signal, same as the font-replay fix earlier in this section.
+
 ### 21.8 Testing
 
 Same split as every other feature in this SDD (§12.2/§12.3): the platform calls
