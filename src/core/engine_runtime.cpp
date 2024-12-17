@@ -176,6 +176,11 @@ bool EngineRuntime::init_video() {
     }
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
     SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
+    // Without this, a click on a background window that also focuses it is swallowed by SDL at
+    // the OS level (its documented default is disabled) — no SDL_EVENT_MOUSE_BUTTON_DOWN fires for
+    // that click, so the first click into any non-focused window (primary or secondary) appears to
+    // do nothing until the user clicks again.
+    SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
     impl_->video_inited = true;
     return true;
 }
