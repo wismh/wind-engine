@@ -2354,7 +2354,7 @@ ender::Rect) defining the draggable
 portion of the window. IWindowControl::set_drag_region(std::optional<render::Rect>, WindowId window = kPrimaryWindow)
 (§21.3) forwards to the specified window.
 When an SDL_EVENT_MOUSE_BUTTON_DOWN arrives on left click, EngineRuntime::poll_events() calls
-egin_drag_if_in_region(client_pos). If the click falls inside the configured drag region:
+begin_drag_if_in_region(client_pos). If the click falls inside the configured drag region:
 1. SDL_CaptureMouse(true) is called so mouse movement continues delivering even when the cursor leaves the window.
 2. The initial global cursor position (SDL_GetGlobalMouseState) and window position (SDL_GetWindowPosition) are recorded.
 3. Subsequent SDL_EVENT_MOUSE_MOTION events call update_drag(), shifting the window via SDL_SetWindowPosition.
@@ -2415,12 +2415,10 @@ before initial layout and canvas sizing execute.
 - DesktopOverlayPolicy manages whether desktop overlay behaviors (synthetic cursor polling, click-through
   updates, and modal message hooking) are active.
 - For standard opaque games and fullscreen applications, DesktopOverlayPolicy::has_active_overlay()
-  evaluates to alse, causing overlay routines to become zero-cost no-ops.
+  evaluates to false, causing overlay routines to become zero-cost no-ops.
 - SDL_SetWindowsMessageHook is dynamically registered only when an active overlay is running and an active
   tick callback is set, and is safely unhooked when overlays close or the loop exits. Standard games run a clean,
   straightforward frame loop without OS message interception overhead.
-
-*(For detailed empirical investigation logs, diagnostic timings, and historical development notes from early overlay integration, see [docs/tech/td-over-overlay-diary.md](tech/td-over-overlay-diary.md).)*
 
 ### 21.8 Testing
 
