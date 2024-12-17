@@ -2339,13 +2339,14 @@ liveness check (skip `kPrimaryWindow`, skip any entry whose `window.window() == 
 already wrote is never touched by it.
 
 **Borderless window dragging.** Borderless windows have no OS-drawn titlebar to drag by.
-`WindowSystem::create()` (`src/render/opengl/window_system.cpp`) installs an
-`SDL_SetWindowHitTest` callback **unconditionally, on every window** — not just borderless ones,
-because a bordered window's OS titlebar already handles dragging on its own and an
-installed-but-inert callback (it only ever returns anything but `SDL_HITTEST_NORMAL` inside a
-region the game explicitly set) is harmless there. This also means the callback is installed
-exactly once, at `create()` time, and never needs reinstalling: it reads `WindowSystem`'s
-`std::optional<render::Rect> drag_region_` member live on every hit-test query, so
+**Superseded by wind-92 (see the writeup further down this section)**: through wind-91,
+`WindowSystem::create()` installed an `SDL_SetWindowHitTest` callback **unconditionally, on every
+window** — not just borderless ones — that answered `SDL_HITTEST_DRAGGABLE` inside `drag_region_`,
+which Windows turned into `HTCAPTION` and dragged natively via `DefWindowProc`'s own modal loop.
+wind-92 replaced that with a manually-implemented drag (`WindowSystem::begin_drag_if_in_region()`)
+that never enters that modal loop at all, so `SDL_SetWindowHitTest` is no longer called — the
+paragraph below describes what's still true of the mechanism regardless: it reads `WindowSystem`'s
+`std::optional<render::Rect> drag_region_` member live on every check, so
 
 ```cpp
 void WindowSystem::set_drag_region(std::optional<render::Rect> region);   // src/render/opengl/window_system.h
@@ -2357,30 +2358,36 @@ just updates that stored value. The callback itself,
 SDL_HitTestResult window_drag_hit_test(SDL_Window* window, const SDL_Point* area, void* data);
 ```
 
-(matching `SDL_HitTest`'s exact signature, `src/render/opengl/window_system.h`/`.cpp`) casts `data`
-back to the owning `WindowSystem*` and returns `SDL_HITTEST_DRAGGABLE` if `drag_region_` is set and
-contains `area->x`/`area->y` (window-client pixels — the same coordinate space `render::Rect`
-already uses for `UiCanvas.rect`, e.g. a title-bar canvas's rect), else `SDL_HITTEST_NORMAL`.
-`drag_region_` is reset in `destroy()` alongside `transparent_`/`click_through_applied_`.
+(kept in its original `SDL_HitTest`-matching signature purely out of convenience — no longer
+registered as one since wind-92, see its own doc comment, `src/render/opengl/window_system.h`/`.cpp`)
+casts `data` back to the owning `WindowSystem*` and returns `SDL_HITTEST_DRAGGABLE` if
+`drag_region_` is set and contains `area->x`/`area->y` (window-client pixels — the same coordinate
+space `render::Rect` already uses for `UiCanvas.rect`, e.g. a title-bar canvas's rect), else
+`SDL_HITTEST_NORMAL`. Still called directly as a plain geometry check by
+`begin_drag_if_in_region()` and by the click-through exclusion (§21.4). `drag_region_` is reset in
+`destroy()` alongside `transparent_`/`click_through_applied_`.
 `IWindowControl::set_drag_region(std::optional<render::Rect>, WindowId window = kPrimaryWindow)`
 (§21.3 — `WindowId`-addressed like the interface's other style methods) forwards to
 `windows_->window(window)->set_drag_region(region)`, a no-op if `window` has no live SDL window.
 
-**Known limitation (`td-over`): an interactive element inside the drag region is unclickable — by
-design of the underlying OS mechanism, not an engine oversight.** `window_drag_hit_test` above is a
-plain rectangle-containment test with no knowledge of what's drawn inside that rectangle. Any click
-inside it is reported to the OS as `SDL_HITTEST_DRAGGABLE`, which Windows treats as `HTCAPTION` —
-the click becomes a non-client `WM_NCLBUTTONDOWN`, so SDL never emits
-`SDL_EVENT_MOUSE_BUTTON_DOWN`/`_UP` for it and the engine never sees it, regardless of what a game
-put there. A custom titlebar with a close `Button` placed inside its own drag `Stack` is the exact
-failure `td-over` hit: "put a close button next to your drag handle" is the obvious pattern for a
-borderless window's custom titlebar, and it silently breaks — no click event reaches the app at
-all, for any command that `Button` is bound to. `set_drag_region`'s doc comment
-(`include/engine/core/window_control.h`) now says this loudly: a game must shrink or notch its drag
-rect around any interactive control's bounds itself — the engine has no mechanism to exclude a hole
-in an SDL hit-test rectangle. Not fixed in code: doing so would need either per-point exclusion
-rects threaded through `window_drag_hit_test`, or resolving hover/hit-test against the UI tree
-before falling back to the drag rect — both a larger design change than a doc-comment warning,
+**Known limitation (`td-over`): an interactive element inside the drag region is unclickable —
+still true after wind-92, mechanism changed but the outcome didn't.** `window_drag_hit_test` is a
+plain rectangle-containment test with no knowledge of what's drawn inside that rectangle. Through
+wind-91, a click inside it was reported to the OS as `SDL_HITTEST_DRAGGABLE` (→ `HTCAPTION` →
+non-client `WM_NCLBUTTONDOWN`), so SDL never emitted `SDL_EVENT_MOUSE_BUTTON_DOWN`/`_UP` for it and
+the engine never saw it. wind-92 removed that OS-level mechanism (see below), but
+`EngineRuntime::poll_events()` still checks `begin_drag_if_in_region()` *before* ever forwarding a
+button-down to `InputSystem`/the UI hit-test pipeline — so a click inside the drag region still
+never reaches a `Button` sitting there, same practical outcome, just decided by our own code now
+instead of the OS. A custom titlebar with a close `Button` placed inside its own drag `Stack` is
+the exact failure `td-over` hit: "put a close button next to your drag handle" is the obvious
+pattern for a borderless window's custom titlebar, and it silently breaks — no click event reaches
+the app at all, for any command that `Button` is bound to. `set_drag_region`'s doc comment
+(`include/engine/core/window_control.h`) says this loudly: a game must shrink or notch its drag
+rect around any interactive control's bounds itself. Still not fixed in code: doing so would need
+either per-point exclusion rects threaded through `window_drag_hit_test`, or checking a UI hit-test
+result *before* `begin_drag_if_in_region()` decides — `EngineRuntime::poll_events()` has no such
+hit-test access today, and wiring it in is a larger design change than a doc-comment warning,
 deferred (§17).
 
 **Bug found (and fixed, `td-over`): a drag region silently broke real click-through everywhere on
@@ -2423,6 +2430,10 @@ uninstall). Not covered by a dedicated `engine_tests` case for the actual hit-te
 — needs a real HWND, out of scope per §12.3, same boundary as `apply_click_through` already had;
 `WindowSystem.ClickThroughAppliedDefaultsToFalse`/`ClickThroughAppliedStaysFalseWithoutWindow`
 (`tests/window_style_test.cpp`) cover the pure getter and its no-window no-op contract instead.
+(wind-92 note: `SDL_SetWindowHitTest` is no longer called at all as of wind-92 further down this
+section, so "delegates... to SDL's own window_drag_hit_test callback" above no longer applies to
+the drag-region case specifically — see wind-92's writeup for what replaced it. The click-through
+`HTTRANSPARENT` mechanism described here is unaffected.)
 
 **Regression found (and fixed, `td-over`): the click-through fix above made real Win32
 click-through work for the first time — which broke every button, permanently, the first frame the
@@ -2684,6 +2695,67 @@ any live move/resize than just the one window's own `Present` call. Not re-inves
 measurements yet in this fix — it only undoes the overlay regression; `td-over`'s own suggested next
 step (measure `canvas->draw()`/`SDL_GL_SwapWindow` duration per window during a live drag, dragged
 window vs. the rest, to confirm or rule out whole-composition serialization) is still open.
+
+**Root cause found, and the whole mechanism replaced (`td-over`, wind-92): the bottleneck was never
+`SDL_GL_SwapWindow` — it was `WM_TIMER` delivery itself stalling for up to ~550ms during an opaque
+secondary window's drag, confirmed to be specific to that window's message queue, not the thread or
+process.** `td-over` measured `canvas->draw()` directly (a temporary diagnostic build, `wind_swap_log`
++ `%TEMP%\wind_swap_timing.log`, removed once this concluded): it never exceeded ~12ms, for any
+window, dragged or not — ruling out wind-90/91's swap-blocking hypothesis outright. The real signal
+was in the *gaps between* `WM_TIMER`-triggered `draw_all()` calls: near-perfect ~15–16ms spacing
+while dragging the transparent primary overlay, but a long tail of 31–547ms gaps specific to
+dragging an *opaque* secondary window (`workshop`/`settings`) — `WM_TIMER` itself just wasn't
+arriving on schedule, not our own code taking long once it did. To settle whether that meant the
+whole thread (and therefore any background-thread mitigation) was blocked too, `td-over` added a
+Windows multimedia timer (`timeSetEvent`) — its callback runs on a separate, winmm-owned thread,
+entirely outside any window's message queue — logging its own tick to the same file. It kept a
+gap-free ~16ms cadence through the exact spans where `WM_TIMER` had 400+ms gaps: conclusive proof
+the stall is specific to *this window's message-queue processing* (very likely DWM synchronously
+live-capturing an opaque window's thumbnail on every move step, serialized through the thread that
+owns that HWND) — not the thread or process being genuinely descheded.
+
+Two ways forward from that finding: drive `reentrant_tick()` from the multimedia-timer thread
+instead of (or alongside) `WM_TIMER`, or stop entering the OS's modal loop for a drag-region drag
+at all. The former is real, working multithreading — `ecs::World`, the ECS systems, and GL context
+handling have zero concurrency protection today, so doing it safely means a mutex whose scope
+specifically excludes the exact span where the main thread is blocked inside `SDL_PollEvent()`
+(narrowing `poll_events()`'s locked region to just its per-event `switch` bodies, not the blocking
+`SDL_PollEvent()` call that wraps them) — worked out as a concrete, correct design, but a
+first-of-its-kind, permanent addition to the engine's threading model, not a bounded bug fix. Given
+the choice, `td-over` picked the latter — see the paragraph below.
+
+**Fix (wind-92): drag-region drags no longer enter the OS's modal loop at all, so none of this
+section's `WM_TIMER`/reentrant-tick machinery is even reached for them anymore.** `WindowSystem::create()`
+no longer calls `SDL_SetWindowHitTest` — `window_drag_hit_test` (above) is now only ever called
+directly, as a plain geometry check, never registered with SDL. `WindowSystem::begin_drag_if_in_region()`
+(`window_system.h`/`.cpp`) starts a manually-implemented drag instead: `SDL_CaptureMouse(true)` so
+motion keeps arriving even once the cursor leaves the window's bounds, remembers the cursor's and
+window's starting position (`SDL_GetGlobalMouseState`/`SDL_GetWindowPosition`), and
+`update_drag()`/`end_drag()` do the rest through ordinary `SDL_SetWindowPosition` calls — no
+`HTCAPTION`, no `DefWindowProc` modal loop, no reentrancy of any kind. `EngineRuntime::poll_events()`
+calls it on a left-button-down (`SDL_EVENT_MOUSE_BUTTON_DOWN`) inside the window's drag region,
+`WindowSystem::update_drag()` on `SDL_EVENT_MOUSE_MOTION` while `is_dragging()`, and `end_drag()` on
+the matching button-up — plus, as a safety net, on `SDL_EVENT_WINDOW_FOCUS_LOST` for the dragging
+window, so a drag can never get stuck active (mouse still captured) if a button-up is somehow
+missed (focus stolen mid-drag by another app). A drag-region click is fully consumed the same way
+an `HTCAPTION` click always was — the app never sees a button-down for it either way. As a side
+effect, `win32_hit_test_wndproc`'s delegation to the saved original `WIN_WindowProc` now falls all
+the way through to `DefWindowProc`'s own default per-style hit-testing whenever click-through isn't
+active, since `window->hit_test` is never set anymore — restoring a *bordered* window's real OS
+titlebar to native recognition instead of the SDL_HITTEST_NORMAL-always-means-HTCLIENT override any
+installed hit_test callback used to impose on every point regardless of style (§21.7's original
+"Borderless window dragging" writeup already assumed titlebar dragging "just worked" for a bordered
+window; this is the point where that assumption is actually true again).
+
+This does **not** help a bordered window's real OS titlebar drag or a live-resize via
+`WS_THICKFRAME` borders — both still enter the true OS modal loop regardless, so
+`EngineRuntime::reentrant_tick()`/the Win32 modal-loop hook (`WindowManager::set_modal_loop_tick_callback`)
+remain load-bearing for those, unchanged. `WindowSystem.IsDraggingDefaultsToFalse`/
+`ManualDragApiIsNoopWithoutWindow` (`tests/window_style_test.cpp`) cover the pure defaults and the
+no-window no-op contract; the actual drag behavior — real mouse capture, real window movement, real
+focus-loss recovery — needs a real HWND and a real mouse, out of scope for `engine_tests` per §12.3,
+same boundary as the rest of this section. Not yet confirmed against a real drag by `td-over` at the
+time this was written.
 
 **Primary window's own `WindowSize` had no equivalent backfill.** The paragraph above fixes a
 *secondary* window's missing `WindowSizes` entry; the primary window had the same class of bug for
