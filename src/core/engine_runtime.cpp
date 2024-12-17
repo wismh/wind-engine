@@ -296,6 +296,25 @@ void EngineRuntime::tick_loop() {
     world.flush_events();
     poll_events(world, *impl_->loop_input, app);
 
+    // SDD §21.7 regression fix: click-through relies on MouseConsumed staying current every frame
+    // (update_click_through() below reads it), and MouseConsumed only ever updates in reaction to
+    // a real SDL_EVENT_MOUSE_MOTION (poll_events() above -> InputSystem::handle_mouse_move() ->
+    // run_input()'s Move case -> ui::update_pointer_hover()). Once click-through is actually
+    // applied on Windows (WS_EX_TRANSPARENT set), the OS stops delivering WM_MOUSEMOVE at all for
+    // any point that now hit-tests as HTTRANSPARENT — so the moment the pointer sits over empty
+    // (click-through) space, no further motion event ever arrives for this window again, even once
+    // the pointer moves onto a real widget, and MouseConsumed gets stuck at whatever it last was:
+    // both click-through and every button it "froze" over stop reacting to the mouse at all. Poll
+    // the true OS cursor position directly every tick — the same technique other click-through
+    // overlay apps use for this reason — instead of relying only on whichever motion events the OS
+    // chose to deliver. Gated to when click-through could actually be engaged (kPrimaryWindow-only,
+    // SDD §21.4) so every other window/game pays nothing extra here.
+    if (WindowSystem& primary = impl_->windows.primary_window(); primary.click_through_enabled() && primary.is_transparent()) {
+        if (const std::optional<glm::vec2> cursor = primary.cursor_client_position()) {
+            impl_->loop_input->handle_mouse_move(kPrimaryWindow, *cursor, glm::vec2{0.0f, 0.0f});
+        }
+    }
+
     // Backfills a WindowSizes entry for any secondary window that has none yet (SDD §21.7) — a
     // freshly opened window has no drawable size in ui::WindowSizes until its first real
     // SDL_EVENT_WINDOW_RESIZED/PIXEL_SIZE_CHANGED event, which isn't guaranteed to fire
