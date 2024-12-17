@@ -15,8 +15,10 @@
 
 #include <glm/vec2.hpp>
 
+#include <algorithm>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -64,8 +66,8 @@ TEST(Splash, BuildsFourKeyframeStopsAndDurationFromConfig) {
     const auto splash = engine::ui::build_splash_document(config, kValidImageSize);
     ASSERT_TRUE(splash.has_value());
 
-    ASSERT_EQ(splash->stylesheet.keyframes.size(), 1u);
-    const engine::ui::Keyframes& keyframes = splash->stylesheet.keyframes.front();
+    ASSERT_EQ(splash->image_stylesheet.keyframes.size(), 1u);
+    const engine::ui::Keyframes& keyframes = splash->image_stylesheet.keyframes.front();
     ASSERT_EQ(keyframes.stops.size(), 4u);
 
     EXPECT_FLOAT_EQ(keyframes.stops[0].offset, 0.0f);
@@ -77,8 +79,8 @@ TEST(Splash, BuildsFourKeyframeStopsAndDurationFromConfig) {
     EXPECT_FLOAT_EQ(keyframes.stops[3].offset, 1.0f);
     EXPECT_EQ(opacity_at(keyframes.stops[3]), "0");
 
-    ASSERT_EQ(splash->stylesheet.rules.size(), 2u);
-    const engine::ui::CssRule* image_rule = find_rule_declaring(splash->stylesheet, "animation-duration");
+    ASSERT_EQ(splash->image_stylesheet.rules.size(), 1u);
+    const engine::ui::CssRule* image_rule = find_rule_declaring(splash->image_stylesheet, "animation-duration");
     ASSERT_NE(image_rule, nullptr);
     EXPECT_EQ(decl_value(*image_rule, "animation-duration"), "2s");
     EXPECT_FLOAT_EQ(splash->total_duration, 2.0f);
@@ -91,7 +93,7 @@ TEST(Splash, ImageRuleIsAbsoluteAndCenteredAtEightyPercentNotStretched) {
     const auto splash = engine::ui::build_splash_document(config, kValidImageSize);
     ASSERT_TRUE(splash.has_value());
 
-    const engine::ui::CssRule* image_rule = find_rule_declaring(splash->stylesheet, "animation-name");
+    const engine::ui::CssRule* image_rule = find_rule_declaring(splash->image_stylesheet, "animation-name");
     ASSERT_NE(image_rule, nullptr);
     // Aspect ratio comes from the canvas's reference_size (below) being fit to the real window
     // preserving aspect (UiFit::ScaleWithScreenSize); the image itself is a fixed, centered 80%
@@ -103,7 +105,7 @@ TEST(Splash, ImageRuleIsAbsoluteAndCenteredAtEightyPercentNotStretched) {
     EXPECT_EQ(decl_value(*image_rule, "height"), "80%");
 }
 
-TEST(Splash, RootHasConstantOpaqueBlackBackdropNotAnimated) {
+TEST(Splash, BackdropIsConstantOpaqueBlackNotAnimatedAndCoversWholeWindowOnItsOwnCanvas) {
     engine::SplashScreen config;
     config.image = engine::AssetId{kSplashImageGuid};
 
@@ -113,17 +115,19 @@ TEST(Splash, RootHasConstantOpaqueBlackBackdropNotAnimated) {
     // The game underneath is already running (on_start already fired) by the time this spawns,
     // so the backdrop must be opaque and NOT share the image's fade animation - otherwise the
     // game would show through during the image's own fade-in/out instead of it appearing "from
-    // black". EngineRuntime is responsible for despawning the whole entity once total_duration
+    // black". run_splash_timers is responsible for despawning both entities once total_duration
     // elapses, since nothing here makes this backdrop go away on its own.
-    const engine::ui::CssRule* root_rule = find_rule_declaring(splash->stylesheet, "background");
+    const engine::ui::CssRule* root_rule = find_rule_declaring(splash->backdrop_stylesheet, "background");
     ASSERT_NE(root_rule, nullptr);
     EXPECT_EQ(decl_value(*root_rule, "background"), "#000000");
     EXPECT_TRUE(decl_value(*root_rule, "animation-name").empty());
 
-    const engine::ui::Element& root = splash->document.root;
+    // No Image child here - the backdrop is a separate UiFit::FillWindow canvas from the image's
+    // own UiFit::ScaleWithScreenSize canvas (show_splash), which is what lets the backdrop cover
+    // the whole window regardless of the image's aspect ratio instead of letterboxing with it.
+    const engine::ui::Element& root = splash->backdrop_document.root;
     EXPECT_FALSE(root.class_name.empty());
-    ASSERT_EQ(root.children.size(), 1u);
-    EXPECT_EQ(root.children.front().kind, engine::ui::ElementKind::Image);
+    EXPECT_TRUE(root.children.empty());
 }
 
 TEST(Splash, ReferenceSizePreservesImageAspectRatioWithTenPercentMargin) {
@@ -149,7 +153,7 @@ TEST(Splash, GeneratedXmlContainsOneImageReferencingConfiguredAsset) {
     ASSERT_TRUE(splash.has_value());
 
     const engine::ui::Element* image =
-            engine::ui::find_by_kind(splash->document.root, engine::ui::ElementKind::Image);
+            engine::ui::find_by_kind(splash->image_document.root, engine::ui::ElementKind::Image);
     ASSERT_NE(image, nullptr);
     ASSERT_TRUE(image->source.has_value());
     EXPECT_EQ(*image->source, config.image);
@@ -180,7 +184,7 @@ TEST(Splash, UnresolvedImageSizeBuildsNothing) {
     EXPECT_FALSE(engine::ui::build_splash_document(config, glm::vec2{100.0f, 0.0f}).has_value());
 }
 
-TEST(Splash, SpawnsExactlyOneCanvasWhenEnabledAndNoneWhenDisabled) {
+TEST(Splash, SpawnsBackdropAndImageCanvasesWhenEnabledAndNoneWhenDisabled) {
     {
         engine::ecs::World world;
         engine::SplashScreen config;
@@ -190,12 +194,24 @@ TEST(Splash, SpawnsExactlyOneCanvasWhenEnabledAndNoneWhenDisabled) {
         ASSERT_TRUE(entity.has_value());
         ASSERT_TRUE(world.valid(*entity));
 
-        int count = 0;
+        // Two canvases, not one (see show_splash): an opaque UiFit::FillWindow backdrop and a
+        // UiFit::ScaleWithScreenSize image layer drawn above it, each with its own SplashTimer so
+        // both despawn on the same frame.
+        std::vector<const engine::ui::UiCanvas*> canvases;
         for (engine::ecs::Entity e : world.view<engine::ui::UiCanvas>()) {
-            (void) e;
-            ++count;
+            canvases.push_back(&world.get<engine::ui::UiCanvas>(e));
+            EXPECT_NE(world.try_get<engine::ui::SplashTimer>(e), nullptr);
         }
-        EXPECT_EQ(count, 1);
+        ASSERT_EQ(canvases.size(), 2u);
+        EXPECT_EQ(std::ranges::count_if(canvases, [](const auto* c) { return c->fit == engine::ui::UiFit::FillWindow; }), 1);
+        EXPECT_EQ(
+                std::ranges::count_if(
+                        canvases, [](const auto* c) { return c->fit == engine::ui::UiFit::ScaleWithScreenSize; }),
+                1);
+
+        // The returned entity is the backdrop: UiFit::FillWindow, no reference_size needed.
+        const auto& backdrop_canvas = world.get<engine::ui::UiCanvas>(*entity);
+        EXPECT_EQ(backdrop_canvas.fit, engine::ui::UiFit::FillWindow);
 
         const auto* timer = world.try_get<engine::ui::SplashTimer>(*entity);
         ASSERT_NE(timer, nullptr);
