@@ -574,6 +574,36 @@ TEST(Mvvm, WindowSizeForSecondaryWindowReadsWindowSizesCtx) {
     EXPECT_EQ(size.height, 240);
 }
 
+TEST(Mvvm, PointerForPrimaryReadsUiPointerCtx) {
+    engine::ecs::World world;
+    world.ctx<engine::ui::UiPointer>().position = {12.0f, 34.0f};
+    world.ctx<engine::ui::UiPointer>().down = true;
+
+    const engine::ui::UiPointer& pointer = engine::ui::pointer_for(world, engine::kPrimaryWindow);
+    EXPECT_EQ(pointer.position, (glm::vec2{12.0f, 34.0f}));
+    EXPECT_TRUE(pointer.down);
+}
+
+TEST(Mvvm, PointerForSecondaryWindowIsIsolatedFromPrimary) {
+    engine::ecs::World world;
+    const engine::WindowId other{7};
+    world.ctx<engine::ui::UiPointer>().position = {12.0f, 34.0f};
+    world.ctx<engine::ui::UiPointer>().down = true;
+
+    // Never written for `other` — must not see the primary's position/down state.
+    const engine::ui::UiPointer& pointer = engine::ui::pointer_for(world, other);
+    EXPECT_EQ(pointer.position, (glm::vec2{0.0f, 0.0f}));
+    EXPECT_FALSE(pointer.down);
+
+    engine::ui::pointer_for(world, other).position = {5.0f, 6.0f};
+    engine::ui::pointer_for(world, other).down = true;
+
+    EXPECT_EQ(engine::ui::pointer_for(world, other).position, (glm::vec2{5.0f, 6.0f}));
+    EXPECT_TRUE(engine::ui::pointer_for(world, other).down);
+    // The primary's own pointer must be untouched by writes aimed at `other`.
+    EXPECT_EQ(world.ctx<engine::ui::UiPointer>().position, (glm::vec2{12.0f, 34.0f}));
+}
+
 TEST(Mvvm, FillWindowCanvasesEachFollowTheirOwnWindowSize) {
     engine::ecs::World world;
     const engine::WindowId secondary{9};
