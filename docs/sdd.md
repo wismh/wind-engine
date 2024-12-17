@@ -2421,6 +2421,42 @@ uninstall). Not covered by a dedicated `engine_tests` case for the actual hit-te
 `WindowSystem.ClickThroughAppliedDefaultsToFalse`/`ClickThroughAppliedStaysFalseWithoutWindow`
 (`tests/window_style_test.cpp`) cover the pure getter and its no-window no-op contract instead.
 
+**Bug found (and fixed): the whole game visibly froze for as long as any window was being
+dragged.** Not specific to click-through or drag regions — reported separately, but same root area.
+On Windows, a `WM_NCLBUTTONDOWN` with `HTCAPTION` (whether from a real OS titlebar on a bordered
+window, or from `window_drag_hit_test`'s `SDL_HITTEST_DRAGGABLE` on a borderless one) makes
+`DefWindowProc` enter its own modal move/size loop, and the calling thread blocks inside it until
+the mouse button is released — standard Win32 behavior, confirmed from `WM_ENTERSIZEMOVE`'s handler
+in `SDL_windowsevents.c`. `EngineRuntime::run()` (`src/core/engine_runtime.cpp`) is a classic
+`while (app.running) tick_loop();` loop built on `SDL_PollEvent` (`poll_events()`), not SDL3's
+`SDL_AppIterate`/main-callbacks model (confirmed: nothing in this codebase defines
+`SDL_MAIN_USE_CALLBACKS` or calls `SDL_AppIterate`/`SDL_AppInit`) — so `tick_loop()` simply never
+runs again until the drag ends, and the whole game (any window, not just an overlay one) visibly
+freezes for that whole duration. SDL3 itself already ticks a `WM_TIMER`
+(`SetTimer(hwnd, ..., USER_TIMER_MINIMUM, NULL)`, ~10ms) while inside that modal loop specifically
+so `SDL_AppIterate`-based apps keep rendering during a drag/resize — irrelevant to this engine,
+which doesn't use that model. Fixed via the general escape hatch SDL exposes for exactly this,
+`SDL_SetWindowsMessageHook` (`SDL3/SDL_system.h`, called for every message while the modal loop is
+active): `WindowManager`'s constructor (`src/render/opengl/window_manager.cpp`) installs
+`windows_message_hook` once (a process-global single-slot hook — one `WindowManager` per
+`EngineRuntime`, one `EngineRuntime` per process, so installing it once here is enough; safe before
+`SDL_Init` since the SDL-side function just stores two globals), which calls
+`WindowManager::draw_all()` on every `WM_TIMER` seen while the hook is armed. This is a
+**visual-only** redraw, deliberately not a reentrant `tick_loop()`: `draw_all()` re-executes each
+window's *already-recorded* `CommandBuffer` (confirmed `CommandBuffer::clear()`'s only call site,
+`src/ecs/systems.cpp`, runs once per real tick, so calling `draw()` again without a new tick just
+re-presents the previous frame, not a blank one) rather than running
+`game.on_update()`/`on_fixed_update()` again from inside a nested call stack still inside
+`SDL_PollEvent` — that would need reentrant `FixedStepClock`/`world.flush_events()` behavior this
+class was never designed for, and keeps game logic (timers, animation state) correctly paused for
+the drag's duration rather than ticking unboundedly fast once it resumes. `WindowManager` gained a
+non-defaulted destructor (declared unconditionally, not just under `_WIN32`, so implicit
+move-constructor/assignment behavior doesn't silently differ by platform — `windows_message_hook`
+needs clearing there before `this` goes away, since it's the hook's `userdata`) that clears the
+hook via `SDL_SetWindowsMessageHook(nullptr, nullptr)`. Not covered by a dedicated `engine_tests`
+case: exercising it needs a real HWND actually being dragged, out of scope per §12.3, same boundary
+as the rest of this section's Win32-only pieces.
+
 **Primary window's own `WindowSize` had no equivalent backfill.** The paragraph above fixes a
 *secondary* window's missing `WindowSizes` entry; the primary window had the same class of bug for
 `world.ctx<ui::WindowSize>()` (§4.7), just never noticed because most primary windows get resized
