@@ -27,11 +27,13 @@ class HudViewModel final : public engine::ui::ViewModel {
 public:
     engine::ui::Bindable<std::string> title;
     engine::ui::Bindable<std::string> restart_label;
+    engine::ui::Bindable<float> fraction;
     engine::ui::RelayCommand restart;
 
     HudViewModel() {
         property(engine::ui::intern("title"), title);
         property(engine::ui::intern("restart_label"), restart_label);
+        property(engine::ui::intern("fraction"), fraction);
         command(engine::ui::intern("restart"), restart);
     }
 };
@@ -104,6 +106,43 @@ TEST(UiXml, OnClickAttributeIsNotAnApi) {
     EXPECT_FALSE(engine::ui::is_bound(button->command_binding));
     EXPECT_EQ(button->text, "Go");
     EXPECT_EQ(button->command, nullptr);
+}
+
+TEST(UiXml, DragAttributeParsesOnAnyElementKind) {
+    HudViewModel vm;
+    const auto parsed = engine::ui::parse_xml(
+            R"(<Canvas><Stack drag="{binding fraction}" drag-orientation="vertical"/></Canvas>)", nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Element* stack = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Stack);
+    ASSERT_NE(stack, nullptr);
+    EXPECT_EQ(stack->drag_binding, engine::ui::intern("fraction"));
+    EXPECT_EQ(stack->drag_orientation, engine::ui::StackDirection::Vertical);
+}
+
+TEST(UiXml, DragOrientationDefaultsHorizontal) {
+    HudViewModel vm;
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack drag="{binding fraction}"/></Canvas>)", nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Element* stack = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Stack);
+    ASSERT_NE(stack, nullptr);
+    EXPECT_EQ(stack->drag_orientation, engine::ui::StackDirection::Horizontal);
+}
+
+TEST(UiXml, DragLiteralValueIsFatal) {
+    RecordingFatalError fatal;
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack drag="0.5"/></Canvas>)", &fatal);
+    EXPECT_FALSE(parsed.has_value());
+    EXPECT_EQ(parsed.error(), engine::ui::UiError::MissingBinding);
+    EXPECT_GE(fatal.call_count, 1);
+}
+
+TEST(UiXml, DragUnregisteredBindingIsFatal) {
+    HudViewModel vm;
+    RecordingFatalError fatal;
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack drag="{binding nope}"/></Canvas>)", &fatal, &vm);
+    EXPECT_FALSE(parsed.has_value());
+    EXPECT_EQ(parsed.error(), engine::ui::UiError::MissingBinding);
+    EXPECT_GE(fatal.call_count, 1);
 }
 
 TEST(UiXml, ImageWithSliceParses) {
