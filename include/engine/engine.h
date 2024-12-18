@@ -29,6 +29,7 @@
 #include <engine/render/material.h>
 #include <engine/render/renderable.h>
 #include <engine/render/shader_adapt.h>
+#include <engine/render/sprite.h>
 #include <engine/builtin_ids.h>
 #include <engine/resources/asset_guid.h>
 #include <engine/resources/asset_id.h>
