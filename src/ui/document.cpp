@@ -416,6 +416,11 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
     if (auto result = require_property(element.items_source_binding); !result) {
         return result;
     }
+    for (const CustomPropertyBinding& custom : element.custom_property_bindings) {
+        if (auto result = require_property(custom.binding); !result) {
+            return result;
+        }
+    }
 
     if (is_bound(element.command_binding) && !in_template) {
         ICommand* command = vm.find_command(element.command_binding);
@@ -448,6 +453,13 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
             return std::unexpected(UiError::MissingBinding);
         }
         element.source = *value;
+    }
+    for (const CustomPropertyBinding& custom : element.custom_property_bindings) {
+        if (auto value = vm.read_property_string(custom.binding)) {
+            element.custom_properties[custom.name] = *value;
+        } else {
+            element.custom_properties.erase(custom.name);
+        }
     }
 
     const bool nested_template = in_template || element.kind == ElementKind::ItemTemplate;
