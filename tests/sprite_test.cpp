@@ -381,4 +381,93 @@ TEST(Sprite, AutomaticMeshAndMaterialResolutionWithAssets) {
     EXPECT_EQ(cmd3->material->texture(0), tex_b);
 }
 
+TEST(Sprite, DefaultTilingAndOffset) {
+    const engine::render::Sprite sprite;
+    EXPECT_FLOAT_EQ(sprite.tiling.x, 1.0f);
+    EXPECT_FLOAT_EQ(sprite.tiling.y, 1.0f);
+    EXPECT_FLOAT_EQ(sprite.offset.x, 0.0f);
+    EXPECT_FLOAT_EQ(sprite.offset.y, 0.0f);
+
+    engine::ecs::World world;
+    spawn_camera(world);
+
+    const auto mesh = std::make_shared<FakeMesh>();
+    const auto mat = std::make_shared<FakeMaterial>();
+
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::Transform>(entity, engine::Transform{});
+    world.emplace<engine::render::Sprite>(entity, engine::render::Sprite{
+            .mesh = mesh,
+            .material = mat,
+    });
+
+    engine::render::CommandBuffer commands;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    world.run(engine::ecs::Schedule::Frame);
+
+    ASSERT_EQ(commands.size(), 1u);
+    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[0]);
+    ASSERT_NE(cmd, nullptr);
+    EXPECT_FLOAT_EQ(cmd->uv_scale.x, 1.0f);
+    EXPECT_FLOAT_EQ(cmd->uv_scale.y, 1.0f);
+    EXPECT_FLOAT_EQ(cmd->uv_offset.x, 0.0f);
+    EXPECT_FLOAT_EQ(cmd->uv_offset.y, 0.0f);
+}
+
+TEST(Sprite, CustomTilingAndOffset) {
+    engine::ecs::World world;
+    spawn_camera(world);
+
+    const auto mesh = std::make_shared<FakeMesh>();
+    const auto mat = std::make_shared<FakeMaterial>();
+
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::Transform>(entity, engine::Transform{});
+    world.emplace<engine::render::Sprite>(entity, engine::render::Sprite{
+            .tiling = {4.0f, 2.5f},
+            .offset = {0.1f, 0.2f},
+            .mesh = mesh,
+            .material = mat,
+    });
+
+    engine::render::CommandBuffer commands;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    world.run(engine::ecs::Schedule::Frame);
+
+    ASSERT_EQ(commands.size(), 1u);
+    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[0]);
+    ASSERT_NE(cmd, nullptr);
+    EXPECT_FLOAT_EQ(cmd->uv_scale.x, 4.0f);
+    EXPECT_FLOAT_EQ(cmd->uv_scale.y, 2.5f);
+    EXPECT_FLOAT_EQ(cmd->uv_offset.x, 0.1f);
+    EXPECT_FLOAT_EQ(cmd->uv_offset.y, 0.2f);
+}
+
+TEST(Sprite, RenderableHasDefaultUvScaleAndOffset) {
+    engine::ecs::World world;
+    spawn_camera(world);
+
+    const auto mesh = std::make_shared<FakeMesh>();
+    const auto mat = std::make_shared<FakeMaterial>();
+
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::Transform>(entity, engine::Transform{});
+    world.emplace<engine::render::Renderable>(entity, engine::render::Renderable{
+            .mesh = mesh,
+            .material = mat,
+    });
+
+    engine::render::CommandBuffer commands;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    world.run(engine::ecs::Schedule::Frame);
+
+    ASSERT_EQ(commands.size(), 1u);
+    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[0]);
+    ASSERT_NE(cmd, nullptr);
+    EXPECT_FLOAT_EQ(cmd->uv_scale.x, 1.0f);
+    EXPECT_FLOAT_EQ(cmd->uv_scale.y, 1.0f);
+    EXPECT_FLOAT_EQ(cmd->uv_offset.x, 0.0f);
+    EXPECT_FLOAT_EQ(cmd->uv_offset.y, 0.0f);
+}
+
 }

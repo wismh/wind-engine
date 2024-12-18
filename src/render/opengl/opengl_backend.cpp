@@ -51,6 +51,8 @@ void execute_draw_mesh(const CmdDrawMesh& cmd) {
     shader->set_mat4("uView", cmd.view);
     shader->set_mat4("uProjection", cmd.projection);
     shader->set_vec4("uColor", cmd.material->color() * cmd.color);
+    shader->set_vec2("uUvScale", cmd.uv_scale);
+    shader->set_vec2("uUvOffset", cmd.uv_offset);
     shader->set_int("uTexture", 0);
 
     if (const auto texture = std::dynamic_pointer_cast<OpenGLTexture>(cmd.material->texture(0))) {
