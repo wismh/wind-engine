@@ -20,6 +20,7 @@ struct BindBinder {
     std::vector<std::pair<std::string, BindBinder>> nested;
 };
 
-[[nodiscard]] std::expected<BindBinder, UiError> scan_bind_tree(std::string_view xml);
+[[nodiscard]] std::expected<BindBinder, UiError> scan_bind_tree(
+        std::string_view xml, const UiIncludeResolver& resolve_include = {});
 
 }
