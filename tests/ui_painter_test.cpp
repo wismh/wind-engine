@@ -41,6 +41,7 @@ struct PaintCall {
     glm::vec2 transform_center{};
     float rotation_radians = 0.0f;
     float transform_scale = 1.0f;
+    engine::ui::BoxInsets insets{};
 };
 
 class FakePainter final : public engine::ui::IUiPainter {
@@ -85,6 +86,11 @@ public:
 
     void image(engine::AssetId texture, const engine::render::Rect& rect) override {
         calls.push_back(PaintCall{.op = "image", .rect = rect, .texture = texture});
+    }
+
+    void image_nine_slice(engine::AssetId texture, const engine::render::Rect& rect,
+            const engine::ui::BoxInsets& insets) override {
+        calls.push_back(PaintCall{.op = "image_nine_slice", .rect = rect, .texture = texture, .insets = insets});
     }
 
     glm::vec2 measure_text(std::string_view text, engine::AssetId, float size) override {
@@ -183,6 +189,15 @@ constexpr float kFakeFontSize = 16.0f;
 [[nodiscard]] const PaintCall* find_image(const FakePainter& painter, engine::AssetId texture) {
     for (const PaintCall& call : painter.calls) {
         if (call.op == "image" && call.texture == texture) {
+            return &call;
+        }
+    }
+    return nullptr;
+}
+
+[[nodiscard]] const PaintCall* find_nine_slice(const FakePainter& painter, engine::AssetId texture) {
+    for (const PaintCall& call : painter.calls) {
+        if (call.op == "image_nine_slice" && call.texture == texture) {
             return &call;
         }
     }
@@ -1270,4 +1285,96 @@ TEST(UiPainter, OnlyTopmostOverlappingButtonGetsHovered) {
     // in document order - it alone gets :hover, "front" does not (they geometrically overlap).
     EXPECT_TRUE(back.hovered);
     EXPECT_FALSE(front.hovered);
+}
+
+TEST(UiPainter, BackgroundImageWithSlicePaintsNineSlice) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack class="panel"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .panel {
+            width: 120;
+            height: 80;
+            background-image: c1a1c2d3e4f5678901234567890abc0a;
+            background-slice: 10 12 14 16;
+        }
+    )");
+
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 200.f}});
+
+    const PaintCall* nine_slice = find_nine_slice(painter, kHoverImage);
+    ASSERT_NE(nine_slice, nullptr);
+    EXPECT_EQ(find_image(painter, kHoverImage), nullptr);
+    EXPECT_FLOAT_EQ(nine_slice->rect.w, 120.f);
+    EXPECT_FLOAT_EQ(nine_slice->rect.h, 80.f);
+    EXPECT_FLOAT_EQ(nine_slice->insets.top, 10.f);
+    EXPECT_FLOAT_EQ(nine_slice->insets.right, 12.f);
+    EXPECT_FLOAT_EQ(nine_slice->insets.bottom, 14.f);
+    EXPECT_FLOAT_EQ(nine_slice->insets.left, 16.f);
+}
+
+TEST(UiPainter, ImageElementWithSlicePaintsNineSlice) {
+    auto parsed = engine::ui::parse_xml(
+            R"(<Canvas><Image source="c1a1c2d3e4f5678901234567890abc0a" slice="8 12"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css("Image { width: 64; height: 64; }");
+
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 100.f, 100.f}});
+
+    const PaintCall* nine_slice = find_nine_slice(painter, kHoverImage);
+    ASSERT_NE(nine_slice, nullptr);
+    EXPECT_EQ(find_image(painter, kHoverImage), nullptr);
+    EXPECT_FLOAT_EQ(nine_slice->rect.w, 64.f);
+    EXPECT_FLOAT_EQ(nine_slice->rect.h, 64.f);
+    EXPECT_FLOAT_EQ(nine_slice->insets.top, 8.f);
+    EXPECT_FLOAT_EQ(nine_slice->insets.right, 12.f);
+    EXPECT_FLOAT_EQ(nine_slice->insets.bottom, 8.f);
+    EXPECT_FLOAT_EQ(nine_slice->insets.left, 12.f);
+}
+
+TEST(UiPainter, ImageElementInheritsBackgroundSliceFromCss) {
+    auto parsed = engine::ui::parse_xml(
+            R"(<Canvas><Image class="box" source="c1a1c2d3e4f5678901234567890abc0a"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(".box { width: 100; height: 100; background-slice: 15; }");
+
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 200.f}});
+
+    const PaintCall* nine_slice = find_nine_slice(painter, kHoverImage);
+    ASSERT_NE(nine_slice, nullptr);
+    EXPECT_FLOAT_EQ(nine_slice->insets.top, 15.f);
+    EXPECT_FLOAT_EQ(nine_slice->insets.right, 15.f);
+    EXPECT_FLOAT_EQ(nine_slice->insets.bottom, 15.f);
+    EXPECT_FLOAT_EQ(nine_slice->insets.left, 15.f);
+}
+
+TEST(UiPainter, NineSliceScalesWithUiScale) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack class="panel"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .panel {
+            width: 100;
+            height: 100;
+            background-image: c1a1c2d3e4f5678901234567890abc0a;
+            background-slice: 10;
+        }
+    )");
+
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 200.f}, .ui_scale = 2.0f});
+
+    const PaintCall* nine_slice = find_nine_slice(painter, kHoverImage);
+    ASSERT_NE(nine_slice, nullptr);
+    EXPECT_FLOAT_EQ(nine_slice->rect.w, 200.f);
+    EXPECT_FLOAT_EQ(nine_slice->rect.h, 200.f);
+    EXPECT_FLOAT_EQ(nine_slice->insets.top, 20.f);
+    EXPECT_FLOAT_EQ(nine_slice->insets.right, 20.f);
+    EXPECT_FLOAT_EQ(nine_slice->insets.bottom, 20.f);
+    EXPECT_FLOAT_EQ(nine_slice->insets.left, 20.f);
 }

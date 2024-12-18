@@ -49,6 +49,7 @@ bool is_known_property(std::string_view name) {
             "justify-content",
             "text-align",
             "background-image",
+            "background-slice",
             "border-radius",
             "border-width",
             "border-color",
@@ -244,6 +245,15 @@ void parse_declarations(std::string_view body, std::vector<CssDeclaration>& decl
             if (value != "none" && !AssetId::parse(value)) {
                 warnings.emplace_back(
                         "background-image value must be none or a 32-hex AssetId, not a filename: " + decl.value);
+            }
+        } else if (decl.property == "background-slice") {
+            if (css_length::contains_var(decl.value)) {
+                warnings.emplace_back("var() is not supported");
+                continue;
+            }
+            if (!css_length::parse_insets(decl.value).has_value()) {
+                warnings.emplace_back("invalid background-slice: " + decl.value);
+                continue;
             }
         } else if (is_length_property(decl.property)) {
             const bool padding_like = decl.property == "padding" || decl.property == "margin";
