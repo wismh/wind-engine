@@ -78,6 +78,22 @@ albedo = "cccccccccccccccccccccccccccccccc"
     EXPECT_FALSE(desc.has_value());
 }
 
+TEST(Material, OverrideSetVec4ReplacesExistingByName) {
+    engine::render::MaterialOverride override;
+    override.set_vec4("uFoo", glm::vec4{1.0f, 0.0f, 0.0f, 1.0f});
+    override.set_vec4("uFoo", glm::vec4{0.0f, 1.0f, 0.0f, 1.0f});
+
+    ASSERT_EQ(override.vec4_params.size(), 1u);
+    EXPECT_EQ(override.vec4_params[0].first, "uFoo");
+    expect_vec4(override.vec4_params[0].second, {0.0f, 1.0f, 0.0f, 1.0f});
+
+    override.set_vec4("uBar", glm::vec4{0.0f, 0.0f, 1.0f, 1.0f});
+
+    ASSERT_EQ(override.vec4_params.size(), 2u);
+    EXPECT_EQ(override.vec4_params[1].first, "uBar");
+    expect_vec4(override.vec4_params[1].second, {0.0f, 0.0f, 1.0f, 1.0f});
+}
+
 TEST(Material, InstanceColorMultiplies) {
     const auto material = std::make_shared<FakeMaterial>(glm::vec4{1.0f, 0.5f, 0.25f, 1.0f});
     engine::render::Renderable renderable;
