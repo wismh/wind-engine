@@ -180,12 +180,20 @@ struct Element {
     BindingId command_binding{};
     BindingId source_binding{};
     BindingId items_source_binding{};
+    // {binding path} target for a `drag="{binding ...}"` attribute (any element kind, not just
+    // Button) — writes a [0,1] fraction along the element's own rect while the pointer drags it
+    // (canvas.cpp handle_pointer/update_drag). Unset (is_bound() false) means the element isn't a
+    // drag target.
+    BindingId drag_binding{};
     std::optional<AssetId> source;
     std::optional<LengthInsets> slice;
     std::vector<CustomPropertyBinding> custom_property_bindings;
     std::unordered_map<std::string, std::string> custom_properties;
 
     StackDirection direction = StackDirection::Vertical;
+    // Which axis `drag_binding` reads pointer position along — independent of `direction` (a Stack
+    // used as a drag track isn't necessarily laying its children out along the same axis).
+    StackDirection drag_orientation = StackDirection::Horizontal;
     Length gap{};
     LengthInsets padding{};
     LengthInsets margin{};
@@ -265,10 +273,11 @@ void layout(UiDocument& document, const render::Rect& canvas_rect);
 // element's hit area is slightly generous at its corners.
 [[nodiscard]] render::Rect hit_bounds(const Element& element);
 
-// Topmost Button under (x, y): prunes by hit_bounds() containment, visits siblings in reverse
-// stacking order (highest z-index / last-drawn first), returns the first Button found or
-// nullptr. Shared by click resolution (canvas.cpp) and hover resolution (paint.cpp) so both
-// agree on which element is "on top."
+// Topmost interactive element under (x, y): prunes by hit_bounds() containment, visits siblings
+// in reverse stacking order (highest z-index / last-drawn first), returns the first element that
+// is a Button, or has a bound `command` or `drag` (any element kind), or nullptr. Shared by click
+// resolution (canvas.cpp) and hover resolution (paint.cpp) so both agree on which element is "on
+// top."
 [[nodiscard]] Element* hit_test(Element& root, float x, float y);
 
 }

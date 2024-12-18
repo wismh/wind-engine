@@ -127,6 +127,31 @@ std::expected<void, UiError> assign_command_binding(Element& element, const char
     return {};
 }
 
+// Any element kind may declare `drag="{binding path}"` — a literal is rejected the same way
+// assign_command_binding rejects a literal `command`, since a drag target with nowhere to write
+// its [0,1] fraction back to would be meaningless.
+std::expected<void, UiError> assign_drag_binding(Element& element, const char* attr, IFatalError* fatal,
+        const ViewModel* vm, bool in_template) {
+    if (attr == nullptr) {
+        return {};
+    }
+    const auto binding = try_parse_binding(attr);
+    if (!binding) {
+        report(fatal, "UI drag must be a {binding} path");
+        return std::unexpected(UiError::MissingBinding);
+    }
+    if (binding->empty()) {
+        report(fatal, "UI binding is missing a registered name");
+        return std::unexpected(UiError::MissingBinding);
+    }
+    element.drag_binding = intern(*binding);
+    if (vm != nullptr && !in_template && !vm->has_property(element.drag_binding)) {
+        report(fatal, "UI binding name is not registered: " + *binding);
+        return std::unexpected(UiError::MissingBinding);
+    }
+    return {};
+}
+
 std::expected<void, UiError> parse_source(Element& element, const char* attr, IFatalError* fatal, const ViewModel* vm,
         bool in_template) {
     if (attr == nullptr) {
@@ -235,6 +260,13 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
     }
     if (auto result = assign_command_binding(element, xml->Attribute("command"), fatal, vm, in_template); !result) {
         return std::unexpected(result.error());
+    }
+    if (auto result = assign_drag_binding(element, xml->Attribute("drag"), fatal, vm, in_template); !result) {
+        return std::unexpected(result.error());
+    }
+    if (const char* drag_orientation = xml->Attribute("drag-orientation")) {
+        const std::string_view value = trim(drag_orientation);
+        element.drag_orientation = value == "vertical" ? StackDirection::Vertical : StackDirection::Horizontal;
     }
     if (auto result = parse_source(element, xml->Attribute("source"), fatal, vm, in_template); !result) {
         return std::unexpected(result.error());
@@ -381,6 +413,7 @@ void collect_bind_element(const tinyxml2::XMLElement* xml, BindBinder& binder, c
     add_bind_attr(binder, xml->Attribute("text"), false);
     add_bind_attr(binder, xml->Attribute("content"), false);
     add_bind_attr(binder, xml->Attribute("command"), true);
+    add_bind_attr(binder, xml->Attribute("drag"), false);
     add_bind_attr(binder, xml->Attribute("source"), false);
     add_bind_attr(binder, xml->Attribute("items_source"), false);
     add_bind_custom_properties(binder, xml);
