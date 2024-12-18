@@ -309,3 +309,127 @@ TEST(ParticleSystemRender, ParticleEmitterSortsBetweenSpritesByLayer) {
     EXPECT_TRUE(std::holds_alternative<engine::render::CmdDrawParticles>(commands[1]));
     EXPECT_TRUE(std::holds_alternative<engine::render::CmdDrawMesh>(commands[2]));
 }
+
+TEST(Curve, EvaluateLinearClampsExtremes) {
+    engine::render::Curve<float> curve{{
+            {0.0f, 10.0f},
+            {1.0f, 20.0f},
+    }};
+
+    EXPECT_FLOAT_EQ(curve.evaluate(-1.0f), 10.0f);
+    EXPECT_FLOAT_EQ(curve.evaluate(0.0f), 10.0f);
+    EXPECT_NEAR(curve.evaluate(0.5f), 15.0f, 0.001f);
+    EXPECT_FLOAT_EQ(curve.evaluate(1.0f), 20.0f);
+    EXPECT_FLOAT_EQ(curve.evaluate(2.0f), 20.0f);
+}
+
+TEST(Curve, EvaluateMultiPointSmoothstep) {
+    engine::render::Curve<float> curve{{
+            {0.0f, 0.0f, engine::render::KeyInterpolation::Smooth},
+            {0.5f, 10.0f, engine::render::KeyInterpolation::Smooth},
+            {1.0f, 0.0f, engine::render::KeyInterpolation::Linear},
+    }};
+
+    EXPECT_FLOAT_EQ(curve.evaluate(0.0f), 0.0f);
+    EXPECT_NEAR(curve.evaluate(0.5f), 10.0f, 0.001f);
+    EXPECT_FLOAT_EQ(curve.evaluate(1.0f), 0.0f);
+    // Smoothstep at quarter-way: s = 0.5 * 0.5 * (3 - 1) = 0.5 -> 5.0f
+    EXPECT_NEAR(curve.evaluate(0.25f), 5.0f, 0.01f);
+}
+
+TEST(Curve, EvaluateStepInterpolation) {
+    engine::render::Curve<float> curve{{
+            {0.0f, 5.0f, engine::render::KeyInterpolation::Step},
+            {0.5f, 15.0f, engine::render::KeyInterpolation::Step},
+            {1.0f, 25.0f, engine::render::KeyInterpolation::Step},
+    }};
+
+    EXPECT_FLOAT_EQ(curve.evaluate(0.2f), 5.0f);
+    EXPECT_FLOAT_EQ(curve.evaluate(0.5f), 15.0f);
+    EXPECT_FLOAT_EQ(curve.evaluate(0.8f), 15.0f);
+    EXPECT_FLOAT_EQ(curve.evaluate(1.0f), 25.0f);
+}
+
+TEST(ParticleEmitter, SizeCurveSwellsAndShrinksNonLinearly) {
+    engine::render::ParticleEmitter emitter;
+    emitter.emission_rate = 0.0f;
+    emitter.lifetime_min = 2.0f;
+    emitter.lifetime_max = 2.0f;
+    emitter.size_start_min = {10.0f, 10.0f};
+    emitter.size_start_max = {10.0f, 10.0f};
+
+    // Curve: starts at 0 scale, peaks at 2.0x scale at t = 0.5, shrinks to 0.1x at t = 1.0
+    emitter.size_curve = engine::render::Curve<float>{{
+            {0.0f, 0.0f, engine::render::KeyInterpolation::Linear},
+            {0.5f, 2.0f, engine::render::KeyInterpolation::Linear},
+            {1.0f, 0.1f, engine::render::KeyInterpolation::Linear},
+    }};
+
+    emitter.burst(1);
+    engine::render::update_emitter(emitter, 0.0001f);
+    ASSERT_EQ(emitter.active_count(), 1u);
+
+    // Initial size should be ~0
+    EXPECT_NEAR(emitter.particles[0].size.x, 0.0f, 0.01f);
+
+    // Advance to 50% lifetime (1.0s elapsed)
+    engine::render::update_emitter(emitter, 1.0f);
+    ASSERT_EQ(emitter.active_count(), 1u);
+    // At t = 0.5, size should be 10 * 2.0 = 20.0f (swelled)
+    EXPECT_NEAR(emitter.particles[0].size.x, 20.0f, 0.1f);
+
+    // Advance to near end of lifetime (total 1.95s elapsed out of 2.0s -> t = ~0.975)
+    engine::render::update_emitter(emitter, 0.95f);
+    ASSERT_EQ(emitter.active_count(), 1u);
+    // Size should now have shrunk back down (near 10 * 0.1 = 1.0f)
+    EXPECT_LT(emitter.particles[0].size.x, 2.0f);
+    EXPECT_GT(emitter.particles[0].size.x, 0.5f);
+}
+
+TEST(ParticleEmitter, ColorAndAlphaCurvesAnimateCustomGradients) {
+    engine::render::ParticleEmitter emitter;
+    emitter.emission_rate = 0.0f;
+    emitter.lifetime_min = 4.0f;
+    emitter.lifetime_max = 4.0f;
+
+    // Multi-stop color curve
+    emitter.color_curve = engine::render::Curve<glm::vec4>{{
+            {0.0f, {1.0f, 0.0f, 0.0f, 1.0f}}, // Red
+            {0.5f, {0.0f, 1.0f, 0.0f, 1.0f}}, // Green
+            {1.0f, {0.0f, 0.0f, 1.0f, 1.0f}}, // Blue
+    }};
+
+    // Custom alpha curve that fades in, holds, and fades out
+    emitter.alpha_curve = engine::render::Curve<float>{{
+            {0.0f, 0.0f},
+            {0.25f, 1.0f},
+            {0.75f, 1.0f},
+            {1.0f, 0.0f},
+    }};
+
+    emitter.burst(1);
+    engine::render::update_emitter(emitter, 0.0001f);
+    ASSERT_EQ(emitter.active_count(), 1u);
+
+    // At spawn: Red color, transparent alpha
+    EXPECT_NEAR(emitter.particles[0].color.r, 1.0f, 0.01f);
+    EXPECT_NEAR(emitter.particles[0].color.a, 0.0f, 0.01f);
+
+    // Advance to 1.0s (t = 0.25): alpha should be fully opaque (1.0)
+    engine::render::update_emitter(emitter, 1.0f);
+    ASSERT_EQ(emitter.active_count(), 1u);
+    EXPECT_NEAR(emitter.particles[0].color.a, 1.0f, 0.01f);
+
+    // Advance to 2.0s total (t = 0.5): Green color
+    engine::render::update_emitter(emitter, 1.0f);
+    ASSERT_EQ(emitter.active_count(), 1u);
+    EXPECT_NEAR(emitter.particles[0].color.g, 1.0f, 0.05f);
+    EXPECT_NEAR(emitter.particles[0].color.r, 0.0f, 0.05f);
+
+    // Advance to 4.0s total (t ~ 1.0): Blue color, 0 alpha
+    engine::render::update_emitter(emitter, 1.99f);
+    ASSERT_EQ(emitter.active_count(), 1u);
+    EXPECT_NEAR(emitter.particles[0].color.b, 1.0f, 0.05f);
+    EXPECT_NEAR(emitter.particles[0].color.a, 0.0f, 0.05f);
+}
+
