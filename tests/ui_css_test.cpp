@@ -116,6 +116,35 @@ TEST(UiCss, PositionAndInsetsParseAsKnownProperties) {
     EXPECT_NE(find_declaration(*badge, "left"), nullptr);
 }
 
+TEST(UiCss, VarReferenceInLengthPropertyParsesWithoutWarning) {
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css(
+            ".popup { position: absolute; top: var(--spawn-y); left: var(--spawn-x, 0); width: var(--w); }",
+            warnings);
+    ASSERT_TRUE(sheet.has_value());
+    EXPECT_TRUE(warnings.empty());
+
+    const engine::ui::CssRule* popup = find_class_rule(*sheet, "popup");
+    ASSERT_NE(popup, nullptr);
+    const engine::ui::CssDeclaration* top = find_declaration(*popup, "top");
+    ASSERT_NE(top, nullptr);
+    EXPECT_EQ(top->value, "var(--spawn-y)");
+    const engine::ui::CssDeclaration* left = find_declaration(*popup, "left");
+    ASSERT_NE(left, nullptr);
+    EXPECT_EQ(left->value, "var(--spawn-x, 0)");
+}
+
+TEST(UiCss, VarReferenceInBackgroundSliceParsesWithoutWarning) {
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css(".panel { background-slice: var(--slice); }", warnings);
+    ASSERT_TRUE(sheet.has_value());
+    EXPECT_TRUE(warnings.empty());
+
+    const engine::ui::CssRule* panel = find_class_rule(*sheet, "panel");
+    ASSERT_NE(panel, nullptr);
+    EXPECT_NE(find_declaration(*panel, "background-slice"), nullptr);
+}
+
 TEST(UiCss, TransformParsesAsKnownProperty) {
     std::vector<std::string> warnings;
     const auto sheet = engine::ui::parse_css(".spin { transform: rotate(45) scale(1.5); }", warnings);
