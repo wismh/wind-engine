@@ -23,6 +23,8 @@
 #include <engine/ui/splash.h>
 #include <engine/ui/stylesheet.h>
 
+#include "ui/ui_refs.h"
+
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
@@ -486,6 +488,25 @@ void run_ui_render(ecs::World& world, const EngineSystemDeps& deps) {
                 target->clear();
             }
         }
+
+        // Lazily loads into this canvas's window atlas whatever its document/stylesheet actually
+        // reference, instead of the old Engine::init behavior of preloading the entire asset
+        // catalog up front (see ui/ui_refs.h). builtin::font_ui is ensured unconditionally — it's
+        // the fallback for any element with no font-family at all.
+        if (canvas.document != nullptr) {
+            if (deps.ensure_ui_font) {
+                deps.ensure_ui_font(canvas.window, builtin::font_ui);
+                for (const AssetId id : ui::collect_referenced_fonts(*canvas.document, canvas.stylesheet)) {
+                    deps.ensure_ui_font(canvas.window, id);
+                }
+            }
+            if (deps.ensure_ui_image) {
+                for (const AssetId id : ui::collect_referenced_images(*canvas.document, canvas.stylesheet)) {
+                    deps.ensure_ui_image(canvas.window, id);
+                }
+            }
+        }
+
         target->push(render::CmdDrawUI{
                 space.layout_rect,
                 canvas.document,
