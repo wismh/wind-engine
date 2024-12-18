@@ -72,6 +72,9 @@ std::optional<ImporterKind> importer_from_extension(const std::filesystem::path&
     if (ext == ".ttf") {
         return ImporterKind::Font;
     }
+    if (ext == ".anim") {
+        return ImporterKind::Animation;
+    }
     return std::nullopt;
 }
 
