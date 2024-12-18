@@ -8,6 +8,7 @@
 #include <glm/vec4.hpp>
 
 #include <memory>
+#include <optional>
 #include <variant>
 
 namespace engine::ui {
@@ -35,6 +36,7 @@ struct CmdDrawMesh {
     glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
     glm::vec2 uv_scale{1.0f, 1.0f};
     glm::vec2 uv_offset{0.0f, 0.0f};
+    std::optional<MaterialOverride> material_override;
 };
 
 struct CmdDrawUI {
