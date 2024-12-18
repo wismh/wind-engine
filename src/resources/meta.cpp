@@ -137,6 +137,105 @@ std::expected<void, MetaError> apply_optional_texture(const toml::table& table, 
         }
         texture.layout = *parsed;
     }
+    if (const toml::node* ppu_node = table.get("pixels_per_unit")) {
+        const auto ppu = node_as_float(*ppu_node);
+        if (!ppu || *ppu <= 0.0f) {
+            return std::unexpected(MetaError::InvalidField);
+        }
+        texture.pixels_per_unit = *ppu;
+    }
+    if (const toml::node* sprites_node = table.get("sprites")) {
+        const toml::array* const arr = sprites_node->as_array();
+        if (arr == nullptr) {
+            return std::unexpected(MetaError::InvalidField);
+        }
+        for (const toml::node& sprite_elem : *arr) {
+            const toml::table* const sprite_tab = sprite_elem.as_table();
+            if (sprite_tab == nullptr) {
+                return std::unexpected(MetaError::InvalidField);
+            }
+            const auto name = (*sprite_tab)["name"].value<std::string>();
+            if (!name || name->empty()) {
+                return std::unexpected(MetaError::InvalidField);
+            }
+            SpriteMeta sprite_meta;
+            sprite_meta.name = *name;
+
+            const toml::node* const rect_node = sprite_tab->get("rect");
+            if (rect_node != nullptr) {
+                if (const toml::table* const rect_tab = rect_node->as_table()) {
+                    const auto x = (*rect_tab)["x"].value<std::int64_t>();
+                    const auto y = (*rect_tab)["y"].value<std::int64_t>();
+                    const auto w = (*rect_tab)["w"].value<std::int64_t>();
+                    const auto h = (*rect_tab)["h"].value<std::int64_t>();
+                    if (!x || !y || !w || !h || *w <= 0 || *h <= 0) {
+                        return std::unexpected(MetaError::InvalidField);
+                    }
+                    sprite_meta.rect = SpriteRect{
+                            static_cast<int>(*x), static_cast<int>(*y), static_cast<int>(*w), static_cast<int>(*h)};
+                } else if (const toml::array* const rect_arr = rect_node->as_array()) {
+                    if (rect_arr->size() != 4) {
+                        return std::unexpected(MetaError::InvalidField);
+                    }
+                    const auto x = rect_arr->get(0)->value<std::int64_t>();
+                    const auto y = rect_arr->get(1)->value<std::int64_t>();
+                    const auto w = rect_arr->get(2)->value<std::int64_t>();
+                    const auto h = rect_arr->get(3)->value<std::int64_t>();
+                    if (!x || !y || !w || !h || *w <= 0 || *h <= 0) {
+                        return std::unexpected(MetaError::InvalidField);
+                    }
+                    sprite_meta.rect = SpriteRect{
+                            static_cast<int>(*x), static_cast<int>(*y), static_cast<int>(*w), static_cast<int>(*h)};
+                } else {
+                    return std::unexpected(MetaError::InvalidField);
+                }
+            } else {
+                const auto x = (*sprite_tab)["x"].value<std::int64_t>();
+                const auto y = (*sprite_tab)["y"].value<std::int64_t>();
+                const auto w = (*sprite_tab)["w"].value<std::int64_t>();
+                const auto h = (*sprite_tab)["h"].value<std::int64_t>();
+                if (x && y && w && h && *w > 0 && *h > 0) {
+                    sprite_meta.rect = SpriteRect{
+                            static_cast<int>(*x), static_cast<int>(*y), static_cast<int>(*w), static_cast<int>(*h)};
+                } else {
+                    return std::unexpected(MetaError::InvalidField);
+                }
+            }
+
+            if (const toml::node* const pivot_node = sprite_tab->get("pivot")) {
+                if (const toml::table* const pivot_tab = pivot_node->as_table()) {
+                    const auto px = node_as_float(*pivot_tab->get("x"));
+                    const auto py = node_as_float(*pivot_tab->get("y"));
+                    if (!px || !py) {
+                        return std::unexpected(MetaError::InvalidField);
+                    }
+                    sprite_meta.pivot = glm::vec2{*px, *py};
+                } else if (const toml::array* const pivot_arr = pivot_node->as_array()) {
+                    if (pivot_arr->size() != 2) {
+                        return std::unexpected(MetaError::InvalidField);
+                    }
+                    const auto px = node_as_float(*pivot_arr->get(0));
+                    const auto py = node_as_float(*pivot_arr->get(1));
+                    if (!px || !py) {
+                        return std::unexpected(MetaError::InvalidField);
+                    }
+                    sprite_meta.pivot = glm::vec2{*px, *py};
+                } else {
+                    return std::unexpected(MetaError::InvalidField);
+                }
+            }
+
+            if (const toml::node* const sprite_ppu_node = sprite_tab->get("pixels_per_unit")) {
+                const auto sprite_ppu = node_as_float(*sprite_ppu_node);
+                if (!sprite_ppu || *sprite_ppu <= 0.0f) {
+                    return std::unexpected(MetaError::InvalidField);
+                }
+                sprite_meta.pixels_per_unit = *sprite_ppu;
+            }
+
+            texture.sprites.push_back(std::move(sprite_meta));
+        }
+    }
     return {};
 }
 
@@ -351,6 +450,17 @@ std::string CookedCatalog::serialize() const {
             os << "filter = \"" << filter_to_string(entry.texture.filter) << "\"\n";
             os << "wrap = \"" << wrap_to_string(entry.texture.wrap) << "\"\n";
             os << "layout = \"" << layout_to_string(entry.texture.layout) << "\"\n";
+            os << "pixels_per_unit = " << entry.texture.pixels_per_unit << "\n";
+            for (const SpriteMeta& sprite : entry.texture.sprites) {
+                os << "\n[[assets.sprites]]\n";
+                os << "name = \"" << sprite.name << "\"\n";
+                os << "rect = { x = " << sprite.rect.x << ", y = " << sprite.rect.y
+                   << ", w = " << sprite.rect.w << ", h = " << sprite.rect.h << " }\n";
+                os << "pivot = [" << sprite.pivot.x << ", " << sprite.pivot.y << "]\n";
+                if (sprite.pixels_per_unit) {
+                    os << "pixels_per_unit = " << *sprite.pixels_per_unit << "\n";
+                }
+            }
         }
         if (entry.importer == ImporterKind::Audio) {
             os << "bank = \"" << bank_to_string(entry.audio.bank) << "\"\n";
