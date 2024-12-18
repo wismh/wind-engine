@@ -29,6 +29,12 @@ public:
     [[nodiscard]] bool has_command(BindingId id) const;
     [[nodiscard]] std::optional<std::string> read_property_string(BindingId id) const;
     [[nodiscard]] std::optional<AssetId> read_property_asset_id(BindingId id) const;
+    [[nodiscard]] std::optional<float> read_property_float(BindingId id) const;
+    // Writes through to the Bindable<T> registered for `id`, if T is arithmetic (populated by
+    // property<T>() below). Returns false and leaves the property untouched when `id` isn't
+    // registered or was registered with a non-arithmetic T (e.g. Bindable<std::string>) — the
+    // same graceful no-op this codebase already uses for other malformed/unsupported bindings.
+    bool write_property_float(BindingId id, float value);
     [[nodiscard]] std::vector<ViewModel*> read_item_source(BindingId id) const;
     [[nodiscard]] ICommand* find_command(BindingId id);
     [[nodiscard]] const ICommand* find_command(BindingId id) const;
@@ -46,6 +52,8 @@ private:
         void* bindable = nullptr;
         std::string (*to_string)(void*) = nullptr;
         AssetId (*read_asset_id)(void*) = nullptr;
+        float (*read_float)(void*) = nullptr;
+        void (*write_float)(void*, float) = nullptr;
         std::vector<ViewModel*> (*items)(void*) = nullptr;
     };
 
@@ -70,6 +78,14 @@ void ViewModel::property(BindingId id, Bindable<T>& bindable) {
     if constexpr (std::is_same_v<T, AssetId>) {
         ref.read_asset_id = [](void* ptr) -> AssetId {
             return static_cast<Bindable<AssetId>*>(ptr)->get();
+        };
+    }
+    if constexpr (std::is_arithmetic_v<T>) {
+        ref.read_float = [](void* ptr) -> float {
+            return static_cast<float>(static_cast<Bindable<T>*>(ptr)->get());
+        };
+        ref.write_float = [](void* ptr, float value) {
+            static_cast<Bindable<T>*>(ptr)->set(static_cast<T>(value));
         };
     }
     properties_.insert_or_assign(id, ref);
