@@ -215,6 +215,12 @@ struct Element {
     bool disabled = false;
     std::vector<Element> children;
     std::vector<Element> generated_items;
+    // Identity of the ViewModel* a generated_items entry was cloned for (opaque — never
+    // dereferenced, only compared). Lets bind_element's ItemsControl reconciliation reuse the same
+    // Element across frames for an item still in items_source, instead of rebuilding from the
+    // static ItemTemplate every frame — which would otherwise reset animation_elapsed and any other
+    // per-instance runtime state each frame. Unset (nullptr) on every non-generated Element.
+    const void* generated_owner = nullptr;
 };
 
 struct UiDocument {
