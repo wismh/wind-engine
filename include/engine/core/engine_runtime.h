@@ -39,9 +39,12 @@ public:
     [[nodiscard]] std::optional<WindowId> open_window(const WindowDesc& desc);
     void close_window(WindowId id);
     void set_window_icon(const render::TextureDesc& desc);
-    [[nodiscard]] bool load_ui_font(const Font& font);
-    [[nodiscard]] bool add_font(AssetId id, const Font& font);
-    [[nodiscard]] bool add_image(AssetId id, const render::TextureDesc& desc);
+    // Registers a font/image with `id`'s window's own NanoVG atlas — false if that window has no
+    // live canvas yet. Idempotent: a second call for the same (window, asset) pair is a cheap
+    // no-op (NanoVgPainter checks its own cache first). builtin::font_ui is special-cased to also
+    // become that atlas's fallback font (NanoVgPainter::load_ui_font), same as before.
+    [[nodiscard]] bool add_font_for_window(WindowId id, AssetId asset, const Font& font);
+    [[nodiscard]] bool add_image_for_window(WindowId id, AssetId asset, const render::TextureDesc& desc);
     void shutdown();
 
     [[nodiscard]] int run(IGame& game, InputSystem& input, IAudioSystem* audio,
