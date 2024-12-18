@@ -736,6 +736,8 @@ public:
 
 **DataContext** on `UiCanvas` is inherited by children (WPF). `ItemsControl` sets the item as DataContext for each cloned `ItemTemplate`. Nested VMs are `Bindable<std::shared_ptr<ViewModel>>` if needed.
 
+`ItemsControl` re-binds every frame (§4.3 Bind phase), matching `items_source` against `generated_items` **by `ViewModel*` identity**, not index: an item still present reuses (re-binds in place) its previous frame's `Element`(s), a new item clones fresh from `ItemTemplate`, a removed item's `Element`(s) are dropped. This is why `@keyframes`/`animation_elapsed` (see below) work correctly on repeated items even as the list is reordered, grown, or shrunk — rebuilding from the static template every frame would otherwise reset any per-instance runtime state (`Element::animation_elapsed`) to its default each frame.
+
 **Phase `Bind`:** copy registered values into the instance tree (text, content, `can_execute` → `:disabled`). One-way, every frame is acceptable in v1 (no dirty-rect requirement). `Bindable::set` from Fixed is visible next Frame Bind.
 
 **Commands:** `UiInputSystem` on hit calls `ICommand::execute()` if `can_execute()`. That is the **only** UI → game path. `execute` may `EventWriter::send` or set other `Bindable`s. It must not include glad, touch `UIElement*`, or call `CommandBuffer`.
