@@ -50,6 +50,26 @@ struct CmdDrawUI {
     float ui_scale = 1.0f;           // layout-space -> real-pixel scale
 };
 
-using Command = std::variant<CmdDrawMesh, CmdDrawUI>;
+struct ParticleInstance {
+    glm::vec3 position{0.0f};
+    float rotation = 0.0f;
+    glm::vec2 size{1.0f, 1.0f};
+    glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
+    glm::vec2 uv_scale{1.0f, 1.0f};
+    glm::vec2 uv_offset{0.0f, 0.0f};
+
+    constexpr bool operator==(const ParticleInstance&) const noexcept = default;
+};
+
+struct CmdDrawParticles {
+    std::shared_ptr<IMesh> mesh;
+    std::shared_ptr<IMaterial> material;
+    std::vector<ParticleInstance> instances;
+    glm::mat4 view{1.0f};
+    glm::mat4 projection{1.0f};
+    BlendMode blend = BlendMode::Alpha;
+};
+
+using Command = std::variant<CmdDrawMesh, CmdDrawUI, CmdDrawParticles>;
 
 }
