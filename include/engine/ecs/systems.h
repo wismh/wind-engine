@@ -32,4 +32,6 @@ struct EngineSystemDeps {
 
 void register_engine_systems(ecs::World& world, EngineSystemDeps deps = {});
 
+void run_sprite_animations(ecs::World& world);
+
 }
