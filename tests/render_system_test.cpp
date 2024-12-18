@@ -42,6 +42,7 @@
 namespace {
 
 class FakeMesh final : public engine::render::IMesh {};
+class FakeTexture final : public engine::render::ITexture {};
 
 class FakeMaterial final : public engine::render::IMaterial {
 public:
@@ -234,6 +235,39 @@ TEST(RenderSystem, SortThenPushMesh) {
     ASSERT_TRUE(std::holds_alternative<engine::render::CmdDrawMesh>(commands[1]));
     EXPECT_EQ(std::get<engine::render::CmdDrawMesh>(commands[0]).mesh, mesh_low);
     EXPECT_EQ(std::get<engine::render::CmdDrawMesh>(commands[1]).mesh, mesh_high);
+}
+
+TEST(RenderSystem, MaterialOverridePropagatesToCommand) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_camera(world);
+
+    const auto mesh = std::make_shared<FakeMesh>();
+    const auto material = std::make_shared<FakeMaterial>();
+    const auto override_texture = std::make_shared<FakeTexture>();
+
+    engine::render::MaterialOverride override;
+    override.albedo = override_texture;
+    override.set_vec4("uFlashAmount", glm::vec4{1.0f, 1.0f, 1.0f, 0.75f});
+
+    engine::render::Renderable renderable = make_renderable(mesh, material, 0);
+    renderable.material_override = override;
+
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::Transform>(entity, engine::Transform{});
+    world.emplace<engine::render::Renderable>(entity, renderable);
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    ASSERT_EQ(commands.size(), 1u);
+    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands[0]);
+    ASSERT_NE(cmd, nullptr);
+    ASSERT_TRUE(cmd->material_override.has_value());
+    EXPECT_EQ(cmd->material_override->albedo, override_texture);
+    ASSERT_EQ(cmd->material_override->vec4_params.size(), 1u);
+    EXPECT_EQ(cmd->material_override->vec4_params[0].first, "uFlashAmount");
+    EXPECT_EQ(cmd->material_override->vec4_params[0].second, (glm::vec4{1.0f, 1.0f, 1.0f, 0.75f}));
 }
 
 TEST(RenderSystem, MissingMeshOrMaterialIsFatal) {
