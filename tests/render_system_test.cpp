@@ -193,6 +193,7 @@ public:
     void set_font(engine::AssetId, float) override {}
     void fill_text(std::string_view, glm::vec2, glm::vec4, engine::ui::UiAlign, engine::ui::UiAlign) override {}
     void image(engine::AssetId, const engine::render::Rect&) override {}
+    void image_nine_slice(engine::AssetId, const engine::render::Rect&, const engine::ui::BoxInsets&) override {}
     glm::vec2 measure_text(std::string_view text, engine::AssetId, float size) override {
         return {static_cast<float>(text.size()) * size * 0.5f, size};
     }

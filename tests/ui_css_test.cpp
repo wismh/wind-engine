@@ -226,3 +226,36 @@ TEST(UiCss, AdjacentSiblingCombinatorWarns) {
     EXPECT_TRUE(sheet->rules.empty());
 }
 
+TEST(UiCss, BackgroundSliceIsKnownProperty) {
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css(R"(
+        .panel {
+            background-slice: 12;
+            background-slice: 8 16;
+            background-slice: 10 12 14 16;
+        }
+    )",
+            warnings);
+    ASSERT_TRUE(sheet.has_value());
+    EXPECT_TRUE(warnings.empty());
+    const engine::ui::CssRule* panel = find_class_rule(*sheet, "panel");
+    ASSERT_NE(panel, nullptr);
+    ASSERT_EQ(panel->declarations.size(), 3u);
+    EXPECT_EQ(panel->declarations[0].property, "background-slice");
+    EXPECT_EQ(panel->declarations[0].value, "12");
+}
+
+TEST(UiCss, InvalidBackgroundSliceWarns) {
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css(R"(
+        .panel {
+            background-slice: invalid-val;
+            background-slice: 1 2 3 4 5;
+        }
+    )",
+            warnings);
+    ASSERT_TRUE(sheet.has_value());
+    EXPECT_FALSE(warnings.empty());
+    EXPECT_TRUE(warning_mentions(warnings, "invalid background-slice"));
+}
+
