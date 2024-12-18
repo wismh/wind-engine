@@ -14,6 +14,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace engine::ui {
@@ -158,6 +159,15 @@ constexpr float kDefaultFontSize = 16.0f;
     return resolve_length(font_size, percent_basis, kDefaultFontSize);
 }
 
+// A `var-<name>="{binding path}"` XML attribute: resolved every frame in bind_element into
+// Element::custom_properties, then substituted for `var(--<name>)` references in CSS declarations
+// (paint.cpp) — lets a stylesheet property (color, position, ...) read arbitrary VM data without a
+// dedicated `_binding` field per property.
+struct CustomPropertyBinding {
+    std::string name;
+    BindingId binding{};
+};
+
 struct Element {
     ElementKind kind = ElementKind::Canvas;
     std::string id;
@@ -172,6 +182,8 @@ struct Element {
     BindingId items_source_binding{};
     std::optional<AssetId> source;
     std::optional<LengthInsets> slice;
+    std::vector<CustomPropertyBinding> custom_property_bindings;
+    std::unordered_map<std::string, std::string> custom_properties;
 
     StackDirection direction = StackDirection::Vertical;
     Length gap{};
