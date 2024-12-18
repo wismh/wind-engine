@@ -11,6 +11,7 @@
 #include <engine/resources/fatal_error.h>
 #include <engine/resources/font.h>
 #include <engine/resources/meta.h>
+#include <engine/resources/sprite_sheet.h>
 #include <engine/ui/binding_id.h>
 #include <engine/ui/document.h>
 #include <engine/ui/stylesheet.h>
@@ -54,6 +55,25 @@ color_space = "srgb"
 filter = "linear"
 wrap = "clamp"
 layout = "single"
+)";
+constexpr std::string_view kSpriteSheetToml = R"(
+guid = "a1b2c3d4e5f6789012345678901234ab"
+importer = "texture"
+color_space = "srgb"
+filter = "nearest"
+wrap = "clamp"
+layout = "multiple"
+pixels_per_unit = 16.0
+
+[[sprites]]
+name = "idle_0"
+rect = { x = 0, y = 0, w = 16, h = 16 }
+pivot = [0.5, 0.0]
+
+[[sprites]]
+name = "idle_1"
+rect = [16, 0, 16, 16]
+pixels_per_unit = 32.0
 )";
 constexpr std::string_view kAudioToml = R"(
 guid = "b1c2d3e4f567890123456789012345ab"
@@ -135,7 +155,14 @@ bool load_builtin_catalog(engine::AssetsDb& db) {
 
 class DummyMesh final : public engine::render::IMesh {};
 class DummyShader final : public engine::render::IShader {};
-class DummyTexture final : public engine::render::ITexture {};
+class DummyTexture final : public engine::render::ITexture {
+public:
+    int w = 0;
+    int h = 0;
+    explicit DummyTexture(int width = 0, int height = 0) : w(width), h(height) {}
+    int width() const noexcept override { return w; }
+    int height() const noexcept override { return h; }
+};
 
 class FakeGraphicFactory final : public engine::render::IGraphicFactory {
 public:
@@ -166,7 +193,7 @@ public:
     std::shared_ptr<engine::render::ITexture> create_texture(const engine::render::TextureDesc& desc) override {
         ++texture_calls;
         last_texture = desc;
-        last_texture_obj = std::make_shared<DummyTexture>();
+        last_texture_obj = std::make_shared<DummyTexture>(desc.width, desc.height);
         return last_texture_obj;
     }
 };
@@ -191,6 +218,149 @@ TEST(Assets, ParseTextureTomlMeta) {
     EXPECT_EQ(engine::parse_asset_meta("importer = \"texture\"\n").error(), engine::MetaError::MissingGuid);
     EXPECT_EQ(engine::parse_asset_meta("guid = \"a1b2c3d4e5f6789012345678901234ab\"\n").error(),
             engine::MetaError::MissingImporter);
+}
+
+TEST(Assets, ParseSpriteSheetTomlMeta) {
+    const auto parsed = engine::parse_asset_meta(kSpriteSheetToml);
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(parsed->guid.hex(), kTextureGuid);
+    EXPECT_EQ(parsed->importer, engine::ImporterKind::Texture);
+    EXPECT_EQ(parsed->texture.color_space, engine::ColorSpace::Srgb);
+    EXPECT_EQ(parsed->texture.filter, engine::FilterMode::Nearest);
+    EXPECT_EQ(parsed->texture.wrap, engine::WrapMode::Clamp);
+    EXPECT_EQ(parsed->texture.layout, engine::TextureLayout::Multiple);
+    EXPECT_FLOAT_EQ(parsed->texture.pixels_per_unit, 16.0f);
+    ASSERT_EQ(parsed->texture.sprites.size(), 2u);
+
+    EXPECT_EQ(parsed->texture.sprites[0].name, "idle_0");
+    EXPECT_EQ(parsed->texture.sprites[0].rect.x, 0);
+    EXPECT_EQ(parsed->texture.sprites[0].rect.y, 0);
+    EXPECT_EQ(parsed->texture.sprites[0].rect.w, 16);
+    EXPECT_EQ(parsed->texture.sprites[0].rect.h, 16);
+    EXPECT_FLOAT_EQ(parsed->texture.sprites[0].pivot.x, 0.5f);
+    EXPECT_FLOAT_EQ(parsed->texture.sprites[0].pivot.y, 0.0f);
+    EXPECT_FALSE(parsed->texture.sprites[0].pixels_per_unit.has_value());
+
+    EXPECT_EQ(parsed->texture.sprites[1].name, "idle_1");
+    EXPECT_EQ(parsed->texture.sprites[1].rect.x, 16);
+    EXPECT_EQ(parsed->texture.sprites[1].rect.y, 0);
+    EXPECT_EQ(parsed->texture.sprites[1].rect.w, 16);
+    EXPECT_EQ(parsed->texture.sprites[1].rect.h, 16);
+    EXPECT_FLOAT_EQ(parsed->texture.sprites[1].pivot.x, 0.5f);
+    EXPECT_FLOAT_EQ(parsed->texture.sprites[1].pivot.y, 0.5f);
+    ASSERT_TRUE(parsed->texture.sprites[1].pixels_per_unit.has_value());
+    EXPECT_FLOAT_EQ(*parsed->texture.sprites[1].pixels_per_unit, 32.0f);
+}
+
+TEST(Assets, CookedCatalogSpriteSheetRoundtrip) {
+    const engine::AssetId guid{kTextureGuid};
+    engine::CookedCatalog catalog;
+    engine::CatalogEntry entry{guid, "textures/sheet.png", engine::ImporterKind::Texture};
+    entry.texture.layout = engine::TextureLayout::Multiple;
+    entry.texture.pixels_per_unit = 24.0f;
+    entry.texture.sprites.push_back(engine::SpriteMeta{
+            .name = "walk_0",
+            .rect = {0, 0, 32, 32},
+            .pivot = {0.5f, 0.5f},
+            .pixels_per_unit = 24.0f,
+    });
+    catalog.add(std::move(entry));
+
+    const auto serialized = catalog.serialize();
+    const auto loaded = engine::parse_cooked_catalog(serialized);
+    ASSERT_TRUE(loaded.has_value());
+    const engine::CatalogEntry* found = loaded->find(guid);
+    ASSERT_NE(found, nullptr);
+    EXPECT_EQ(found->texture.layout, engine::TextureLayout::Multiple);
+    EXPECT_FLOAT_EQ(found->texture.pixels_per_unit, 24.0f);
+    ASSERT_EQ(found->texture.sprites.size(), 1u);
+    EXPECT_EQ(found->texture.sprites[0].name, "walk_0");
+    EXPECT_EQ(found->texture.sprites[0].rect.w, 32);
+    EXPECT_EQ(found->texture.sprites[0].rect.h, 32);
+    EXPECT_FLOAT_EQ(found->texture.sprites[0].pivot.x, 0.5f);
+    EXPECT_FLOAT_EQ(found->texture.sprites[0].pivot.y, 0.5f);
+    ASSERT_TRUE(found->texture.sprites[0].pixels_per_unit.has_value());
+    EXPECT_FLOAT_EQ(*found->texture.sprites[0].pixels_per_unit, 24.0f);
+}
+
+TEST(Assets, GetSpriteSingleAndMultiple) {
+    TempTree tree;
+    write_bytes(tree.path / "single.png", kPng1x1Red, sizeof(kPng1x1Red));
+    write_bytes(tree.path / "sheet.png", kPng1x1Red, sizeof(kPng1x1Red));
+
+    const engine::AssetId single_id{"11111111111111111111111111111111"};
+    const engine::AssetId sheet_id{"22222222222222222222222222222222"};
+
+    engine::CookedCatalog catalog;
+    {
+        engine::CatalogEntry entry{single_id, "single.png", engine::ImporterKind::Texture};
+        entry.texture.layout = engine::TextureLayout::Single;
+        entry.texture.pixels_per_unit = 50.0f;
+        catalog.add(std::move(entry));
+    }
+    {
+        engine::CatalogEntry entry{sheet_id, "sheet.png", engine::ImporterKind::Texture};
+        entry.texture.layout = engine::TextureLayout::Multiple;
+        entry.texture.pixels_per_unit = 16.0f;
+        entry.texture.sprites.push_back(engine::SpriteMeta{
+                .name = "sub_0",
+                .rect = {0, 0, 1, 1},
+                .pivot = {0.5f, 0.0f},
+        });
+        catalog.add(std::move(entry));
+    }
+
+    FakeGraphicFactory factory;
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+    db.set_catalog(std::move(catalog));
+    db.set_root(tree.path);
+    db.set_graphic_factory(&factory);
+
+    // Single sprite by id (empty name):
+    auto single_sprite = db.try_get_sprite(single_id);
+    ASSERT_TRUE(single_sprite.has_value());
+    EXPECT_NE(single_sprite->texture, nullptr);
+    EXPECT_FLOAT_EQ(single_sprite->tiling.x, 1.0f);
+    EXPECT_FLOAT_EQ(single_sprite->tiling.y, 1.0f);
+    EXPECT_FLOAT_EQ(single_sprite->offset.x, 0.0f);
+    EXPECT_FLOAT_EQ(single_sprite->offset.y, 0.0f);
+    EXPECT_FLOAT_EQ(single_sprite->pixel_size.x, 1.0f);
+    EXPECT_FLOAT_EQ(single_sprite->pixel_size.y, 1.0f);
+    EXPECT_FLOAT_EQ(single_sprite->pixels_per_unit, 50.0f);
+
+    // Multiple sprite without name fails:
+    auto sheet_no_name = db.try_get_sprite(sheet_id);
+    EXPECT_FALSE(sheet_no_name.has_value());
+    EXPECT_EQ(sheet_no_name.error(), engine::AssetError::NotFound);
+
+    // Multiple sprite with invalid name fails:
+    auto sheet_bad_name = db.try_get_sprite(sheet_id, "nonexistent");
+    EXPECT_FALSE(sheet_bad_name.has_value());
+    EXPECT_EQ(sheet_bad_name.error(), engine::AssetError::NotFound);
+
+    // Multiple sprite with valid name succeeds:
+    auto sheet_sprite = db.try_get_sprite(sheet_id, "sub_0");
+    ASSERT_TRUE(sheet_sprite.has_value());
+    EXPECT_NE(sheet_sprite->texture, nullptr);
+    EXPECT_FLOAT_EQ(sheet_sprite->tiling.x, 1.0f);
+    EXPECT_FLOAT_EQ(sheet_sprite->tiling.y, 1.0f);
+    EXPECT_FLOAT_EQ(sheet_sprite->offset.x, 0.0f);
+    EXPECT_FLOAT_EQ(sheet_sprite->offset.y, 0.0f);
+    EXPECT_FLOAT_EQ(sheet_sprite->pixel_size.x, 1.0f);
+    EXPECT_FLOAT_EQ(sheet_sprite->pixel_size.y, 1.0f);
+    EXPECT_FLOAT_EQ(sheet_sprite->pixels_per_unit, 16.0f);
+    EXPECT_FLOAT_EQ(sheet_sprite->pivot.x, 0.5f);
+    EXPECT_FLOAT_EQ(sheet_sprite->pivot.y, 0.0f);
+
+    // Can also get SpriteSheet directly:
+    auto sheet_res = db.try_get<engine::SpriteSheet>(sheet_id);
+    ASSERT_TRUE(sheet_res.has_value());
+    EXPECT_TRUE((*sheet_res)->contains("sub_0"));
+    EXPECT_FALSE((*sheet_res)->contains("unknown"));
+    auto sprite_from_sheet = (*sheet_res)->get("sub_0");
+    ASSERT_TRUE(sprite_from_sheet.has_value());
+    EXPECT_EQ(sprite_from_sheet->texture, (*sheet_res)->texture);
 }
 
 TEST(Assets, ParseAudioTomlMeta) {
