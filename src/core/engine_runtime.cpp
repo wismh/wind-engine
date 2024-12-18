@@ -278,7 +278,7 @@ void EngineRuntime::begin_loop(IGame& game, InputSystem& input, IAudioSystem* au
     impl_->loop_shutdown = LoopShutdown{};
 
     // Mirrors Host's constructor (src/core/host.cpp): a secondary window's WindowSizes entry gets
-    // backfilled every tick_loop() (see the loop below), but the primary window's ctx<WindowSize>()
+    // backfilled every tick_loop() (see the loop below), but the primary window's WindowSizes entry
     // had no equivalent — it stayed {0,0} until the first real SDL_EVENT_WINDOW_RESIZED, which a
     // fixed-size primary window that's never resized at startup never fires. That left
     // FillWindow/ScaleWithScreenSize canvases sized to {0,0} for on_start() and every frame before
@@ -532,9 +532,7 @@ std::filesystem::path EngineRuntime::assets_root() const {
 
 void EngineRuntime::write_window_size(ecs::World& world, bool send_event) {
     const glm::ivec2 size = drawable_size();
-    ui::WindowSize& ctx = world.ctx<ui::WindowSize>();
-    ctx.width = size.x;
-    ctx.height = size.y;
+    world.ctx<ui::WindowSizes>().sizes[kPrimaryWindow] = ui::WindowSize{size.x, size.y};
     if (send_event) {
         ecs::EventWriter<ui::WindowResizeEvent>{world}.send(
                 ui::WindowResizeEvent{.window = kPrimaryWindow, .width = size.x, .height = size.y});
