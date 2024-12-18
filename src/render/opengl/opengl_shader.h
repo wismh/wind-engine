@@ -31,9 +31,9 @@ public:
         return program_ != 0;
     }
 
-private:
     [[nodiscard]] int uniform_location(std::string_view name) const;
 
+private:
     unsigned int program_ = 0;
 };
 
