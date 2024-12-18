@@ -35,9 +35,6 @@ render::Rect scaled_fit_rect(glm::vec2 reference_size, float window_width, float
 }
 
 WindowSize window_size_for(ecs::World& world, WindowId id) {
-    if (id == kPrimaryWindow) {
-        return world.ctx<WindowSize>();
-    }
     const WindowSizes& sizes = world.ctx<WindowSizes>();
     const auto it = sizes.sizes.find(id);
     return it == sizes.sizes.end() ? WindowSize{} : it->second;
@@ -82,9 +79,7 @@ void apply_canvas_fit(ecs::World& world) {
 }
 
 void begin_frame(ecs::World& world) {
-    auto& consumed = world.ctx<MouseConsumed>();
-    consumed.value = false;
-    consumed.consumed_windows.clear();
+    world.ctx<MouseConsumed>().consumed_windows.clear();
     apply_canvas_fit(world);
 }
 
@@ -149,11 +144,7 @@ Element* resolve_pointer_hit(ecs::World& world, float x, float y, WindowId windo
         return nullptr;
     }
 
-    auto& consumed = world.ctx<MouseConsumed>();
-    if (window == kPrimaryWindow) {
-        consumed.value = true;
-    }
-    consumed.consumed_windows.insert(window);
+    world.ctx<MouseConsumed>().consumed_windows.insert(window);
     *out_canvas = &canvas;
     return button;
 }

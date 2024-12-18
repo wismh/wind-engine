@@ -54,8 +54,7 @@ void spawn_camera(engine::ecs::World& world) {
     world.emplace<engine::Transform>(camera, engine::Transform{.position = {0.0f, 0.0f, 10.0f}});
     world.emplace<engine::Camera>(camera, engine::Camera{.ortho_size = 5.0f});
     world.ctx<engine::ActiveCamera>().entity = camera;
-    world.ctx<engine::ui::WindowSize>().width = 800;
-    world.ctx<engine::ui::WindowSize>().height = 600;
+    world.ctx<engine::ui::WindowSizes>().sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
 }
 
 }
