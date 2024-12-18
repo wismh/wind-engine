@@ -33,6 +33,8 @@ struct CmdDrawMesh {
     glm::mat4 view{1.0f};
     glm::mat4 projection{1.0f};
     glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
+    glm::vec2 uv_scale{1.0f, 1.0f};
+    glm::vec2 uv_offset{0.0f, 0.0f};
 };
 
 struct CmdDrawUI {

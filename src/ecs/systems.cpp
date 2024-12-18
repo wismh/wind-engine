@@ -198,6 +198,8 @@ struct DrawItem {
     std::shared_ptr<render::IMaterial> material;
     glm::mat4 model{1.0f};
     glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
+    glm::vec2 uv_scale{1.0f, 1.0f};
+    glm::vec2 uv_offset{0.0f, 0.0f};
     int layer = 0;
     int order_in_layer = 0;
     ecs::Entity entity;
@@ -260,6 +262,8 @@ void run_render(ecs::World& world, const EngineSystemDeps& deps) {
                 .material = r.material,
                 .model = model_matrix(transform),
                 .color = r.color,
+                .uv_scale = {1.0f, 1.0f},
+                .uv_offset = {0.0f, 0.0f},
                 .layer = r.layer,
                 .order_in_layer = r.order_in_layer,
                 .entity = entity,
@@ -319,6 +323,8 @@ void run_render(ecs::World& world, const EngineSystemDeps& deps) {
                 .material = std::move(material),
                 .model = model,
                 .color = s.color,
+                .uv_scale = s.tiling,
+                .uv_offset = s.offset,
                 .layer = s.layer,
                 .order_in_layer = s.order_in_layer,
                 .entity = entity,
@@ -335,6 +341,8 @@ void run_render(ecs::World& world, const EngineSystemDeps& deps) {
         cmd.view = view;
         cmd.projection = projection;
         cmd.color = item.color;
+        cmd.uv_scale = item.uv_scale;
+        cmd.uv_offset = item.uv_offset;
         deps.commands->push(std::move(cmd));
     }
 }
