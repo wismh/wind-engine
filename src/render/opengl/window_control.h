@@ -1,5 +1,6 @@
 #pragma once
 
+#include "desktop_overlay_policy.h"
 #include "window_manager.h"
 #include "window_system.h"
 
@@ -8,13 +9,13 @@
 namespace engine {
 
 // Thin adapter so a game can request IWindowControl through DI (§4.2) instead of reaching into
-// EngineRuntime directly. Holds a reference, not ownership — WindowManager outlives this for the
-// lifetime of EngineRuntime (see EngineRuntime::Impl). open_window/close_window are the first
-// WindowId-addressed methods here (§21.7); every other method still means kPrimaryWindow only,
-// forwarded through windows_->primary_window().
+// EngineRuntime directly. Holds references, not ownership — both WindowManager and
+// DesktopOverlayPolicy outlive this for the lifetime of EngineRuntime (see EngineRuntime::Impl).
+// open_window/close_window are the first WindowId-addressed methods here (§21.7); every other
+// method still means kPrimaryWindow only, forwarded through windows_->primary_window().
 class WindowControlImpl final : public IWindowControl {
 public:
-    explicit WindowControlImpl(WindowManager& windows) : windows_(&windows) {}
+    WindowControlImpl(WindowManager& windows, DesktopOverlayPolicy& overlay) : windows_(&windows), overlay_(&overlay) {}
 
     void set_borderless(bool borderless, WindowId window) override {
         if (WindowSystem* target = windows_->window(window)) {
@@ -44,6 +45,14 @@ public:
         if (WindowSystem* target = windows_->window(window)) {
             target->set_click_through_enabled(enabled);
         }
+    }
+
+    void set_overlay_mode(OverlayMode mode) override {
+        overlay_->set_mode(mode);
+    }
+
+    [[nodiscard]] OverlayMode overlay_mode() const override {
+        return overlay_->mode();
     }
 
     void set_drag_region(std::optional<render::Rect> region, WindowId window) override {
@@ -83,6 +92,7 @@ public:
 
 private:
     WindowManager* windows_;
+    DesktopOverlayPolicy* overlay_;
 };
 
 }

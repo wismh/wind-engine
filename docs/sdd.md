@@ -2420,6 +2420,16 @@ before initial layout and canvas sizing execute.
   tick callback is set, and is safely unhooked when overlays close or the loop exits. Standard games run a clean,
   straightforward frame loop without OS message interception overhead.
 
+**`OverlayMode` is public (wind-106).** `OverlayMode` (Auto/AlwaysEnabled/AlwaysDisabled) lives in the public
+`include/engine/core/window_control.h`, next to `IWindowControl` (§21.3), not only inside the private
+`DesktopOverlayPolicy`. `IWindowControl::set_overlay_mode()`/`overlay_mode()` forward to the same
+`DesktopOverlayPolicy` instance `EngineRuntime` already owns. Before this, `AlwaysDisabled` existed but was
+reachable only by constructing `DesktopOverlayPolicy` directly — not from game code, which only ever sees it
+through DI as `IWindowControl`. A game that wants a plain alpha-blended window with none of the desktop-overlay
+hooks above (not a click-through desktop overlay) now calls `set_overlay_mode(OverlayMode::AlwaysDisabled)`
+before opening its transparent window; `Auto` (the default) keeps inferring overlay-hood from window
+transparency exactly as before.
+
 ### 21.8 Testing
 
 Same split as every other feature in this SDD (§12.2/§12.3): the platform calls
