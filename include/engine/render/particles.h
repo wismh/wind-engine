@@ -1,6 +1,7 @@
 #pragma once
 
 #include <engine/ecs/entity.h>
+#include <engine/render/curve.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
 
@@ -36,6 +37,7 @@ struct Particle {
     float angular_velocity = 0.0f;
     float age = 0.0f;
     float lifetime = 1.0f;
+    glm::vec2 base_size{1.0f, 1.0f};
     glm::vec2 start_size{1.0f, 1.0f};
     glm::vec2 end_size{0.0f, 0.0f};
     glm::vec4 start_color{1.0f, 1.0f, 1.0f, 1.0f};
@@ -65,6 +67,13 @@ struct ParticleEmitter {
     glm::vec2 size_end_max{0.0f, 0.0f};
     glm::vec4 color_start{1.0f, 1.0f, 1.0f, 1.0f};
     glm::vec4 color_end{1.0f, 1.0f, 1.0f, 0.0f};
+
+    // Custom animation curves (evaluated over normalized lifetime t in [0, 1]).
+    // When non-empty, these curves override the default linear start/end values.
+    Curve<float> size_curve;          // Uniform scale multiplier over lifetime
+    Curve<glm::vec2> size_curve_xy;   // Non-uniform XY scale multiplier over lifetime
+    Curve<glm::vec4> color_curve;     // Color gradient over lifetime
+    Curve<float> alpha_curve;         // Opacity / alpha curve over lifetime
 
     // Rotation (radians)
     float rotation_min = 0.0f;
