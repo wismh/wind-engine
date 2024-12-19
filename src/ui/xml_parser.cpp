@@ -33,6 +33,24 @@ void report(IFatalError* fatal, std::string_view message) {
     }
 }
 
+std::vector<std::string> split_classes(std::string_view value) {
+    std::vector<std::string> classes;
+    std::size_t pos = 0;
+    while (pos < value.size()) {
+        while (pos < value.size() && std::isspace(static_cast<unsigned char>(value[pos])) != 0) {
+            ++pos;
+        }
+        std::size_t begin = pos;
+        while (pos < value.size() && std::isspace(static_cast<unsigned char>(value[pos])) == 0) {
+            ++pos;
+        }
+        if (pos > begin) {
+            classes.emplace_back(value.substr(begin, pos - begin));
+        }
+    }
+    return classes;
+}
+
 std::optional<ElementKind> kind_from_tag(const char* name) {
     if (name == nullptr) {
         return std::nullopt;
@@ -231,7 +249,7 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
         element.id = id;
     }
     if (const char* cls = xml->Attribute("class")) {
-        element.class_name = cls;
+        element.classes = split_classes(cls);
     }
     if (const char* name_attr = xml->Attribute("name")) {
         element.name = name_attr;
