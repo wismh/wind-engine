@@ -50,6 +50,14 @@ struct ComputedStyle {
     Length border_radius{};
     Length border_width{};
     glm::vec4 border_color{0.0f, 0.0f, 0.0f, 0.0f};
+    // Line endpoints, offsets from the element's own layout_rect origin. Only meaningful when
+    // element.kind == ElementKind::Line.
+    Length x1{};
+    Length y1{};
+    Length x2{};
+    Length y2{};
+    Length stroke_width{2.0f, LengthUnit::Px};
+    glm::vec4 stroke{0.0f, 0.0f, 0.0f, 1.0f};
     Length font_size{kDefaultFontSize, LengthUnit::Px};
     AssetId font_family = builtin::font_ui;
     std::string animation_name;
@@ -96,6 +104,8 @@ const char* kind_name(ElementKind kind) {
             return "ItemsControl";
         case ElementKind::ItemTemplate:
             return "ItemTemplate";
+        case ElementKind::Line:
+            return "Line";
     }
     return "";
 }
@@ -433,6 +443,30 @@ void apply_declaration(ComputedStyle& style, const CssDeclaration& decl) {
     } else if (decl.property == "border-color") {
         if (const auto color = parse_color(decl.value)) {
             style.border_color = *color;
+        }
+    } else if (decl.property == "x1") {
+        if (const auto length = css_length::parse_length(decl.value)) {
+            style.x1 = *length;
+        }
+    } else if (decl.property == "y1") {
+        if (const auto length = css_length::parse_length(decl.value)) {
+            style.y1 = *length;
+        }
+    } else if (decl.property == "x2") {
+        if (const auto length = css_length::parse_length(decl.value)) {
+            style.x2 = *length;
+        }
+    } else if (decl.property == "y2") {
+        if (const auto length = css_length::parse_length(decl.value)) {
+            style.y2 = *length;
+        }
+    } else if (decl.property == "stroke") {
+        if (const auto color = parse_color(decl.value)) {
+            style.stroke = *color;
+        }
+    } else if (decl.property == "stroke-width") {
+        if (const auto width = css_length::parse_length(decl.value)) {
+            style.stroke_width = *width;
         }
     } else if (decl.property == "font-size") {
         if (const auto size = css_length::parse_length(decl.value)) {
@@ -790,6 +824,16 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
     }
     if (border_width > 0.0f && style.border_color.a > 0.0f) {
         painter.stroke_rounded_rect(screen_rect, screen_border_radius, screen_border_width, style.border_color);
+    }
+    if (element.kind == ElementKind::Line) {
+        const float x1 = resolve_length(style.x1, parent_content.x, font_size);
+        const float y1 = resolve_length(style.y1, parent_content.y, font_size);
+        const float x2 = resolve_length(style.x2, parent_content.x, font_size);
+        const float y2 = resolve_length(style.y2, parent_content.y, font_size);
+        const float stroke_width = resolve_length(style.stroke_width, parent_content.x, font_size);
+        const glm::vec2 from{screen_rect.x + x1 * input.ui_scale, screen_rect.y + y1 * input.ui_scale};
+        const glm::vec2 to{screen_rect.x + x2 * input.ui_scale, screen_rect.y + y2 * input.ui_scale};
+        painter.draw_line(from, to, style.stroke, stroke_width * input.ui_scale);
     }
 
     if (element.kind == ElementKind::Label || element.kind == ElementKind::Button) {

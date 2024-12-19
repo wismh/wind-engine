@@ -71,6 +71,16 @@ TEST(UiXml, ParseValidCanvasStackLabelButton) {
     EXPECT_EQ(root.children[0].children[1].content_binding, engine::ui::intern("restart_label"));
 }
 
+TEST(UiXml, ParseLineElement) {
+    const auto parsed = engine::ui::parse_xml("<Canvas><Line class=\"edge\"/></Canvas>");
+    ASSERT_TRUE(parsed.has_value());
+
+    const engine::ui::Element& root = parsed->root;
+    ASSERT_EQ(root.children.size(), 1u);
+    EXPECT_EQ(root.children[0].kind, engine::ui::ElementKind::Line);
+    EXPECT_EQ(root.children[0].class_name, "edge");
+}
+
 TEST(UiXml, UnknownElementIsFatal) {
     RecordingFatalError fatal;
     const auto parsed = engine::ui::parse_xml("<Canvas><Nope/></Canvas>", &fatal);
