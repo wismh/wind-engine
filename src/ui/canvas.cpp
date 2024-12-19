@@ -259,4 +259,12 @@ void update_pointer_hover(ecs::World& world, float x, float y, WindowId window) 
     (void) resolve_pointer_hit(world, x, y, window);
 }
 
+ecs::Entity spawn_canvas(ecs::World& world, UiCanvas canvas, UiDocument document, std::optional<Stylesheet> stylesheet) {
+    canvas.document.reset();
+    const ecs::Entity entity = world.create();
+    world.emplace<UiCanvas>(entity, std::move(canvas));
+    world.emplace<UiInstance>(entity, UiInstance{std::move(document), std::move(stylesheet)});
+    return entity;
+}
+
 }

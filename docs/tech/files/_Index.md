@@ -52,6 +52,7 @@ Hubs: [[Home]] · [[architecture/Overview]] · [[build/Pipeline]]
 | `include/engine/resources/meta.h` | [[include.engine.resources.meta.h]] | [[modules/Resources]] |
 | `include/engine/ui/bindable.h` | [[include.engine.ui.bindable.h]] | [[modules/UI]] |
 | `include/engine/ui/binding_id.h` | [[include.engine.ui.binding_id.h]] | [[modules/UI]] |
+| `include/engine/ui/builder.h` | [[include.engine.ui.builder.h]] | [[modules/UI]] |
 | `include/engine/ui/canvas.h` | [[include.engine.ui.canvas.h]] | [[modules/UI]] |
 | `include/engine/ui/command.h` | [[include.engine.ui.command.h]] | [[modules/UI]] |
 | `include/engine/ui/document.h` | [[include.engine.ui.document.h]] | [[modules/UI]] |
@@ -102,6 +103,7 @@ Hubs: [[Home]] · [[architecture/Overview]] · [[build/Pipeline]]
 | `src/resources/png_decode.cpp` | [[src.resources.png_decode.cpp]] | [[modules/Resources]] |
 | `src/resources/stb_image.h` | [[src.resources.stb_image.h]] | [[modules/Resources]] |
 | `src/ui/bind_scan.h` | [[src.ui.bind_scan.h]] | [[modules/UI]] |
+| `src/ui/builder.cpp` | [[src.ui.builder.cpp]] | [[modules/UI]] |
 | `src/ui/canvas.cpp` | [[src.ui.canvas.cpp]] | [[modules/UI]] |
 | `src/ui/css_parser.cpp` | [[src.ui.css_parser.cpp]] | [[modules/UI]] |
 | `src/ui/document.cpp` | [[src.ui.document.cpp]] | [[modules/UI]] |
@@ -126,6 +128,7 @@ Hubs: [[Home]] · [[architecture/Overview]] · [[build/Pipeline]]
 | `tests/render_system_test.cpp` | [[tests.render_system_test.cpp]] | [[modules/ECS]] |
 | `tests/sort_test.cpp` | [[tests.sort_test.cpp]] | [[modules/Render]] |
 | `tests/time_test.cpp` | [[tests.time_test.cpp]] | [[modules/Core]] |
+| `tests/ui_builder_test.cpp` | [[tests.ui_builder_test.cpp]] | [[modules/UI]] |
 | `tests/ui_css_test.cpp` | [[tests.ui_css_test.cpp]] | [[modules/UI]] |
 | `tests/ui_painter_test.cpp` | [[tests.ui_painter_test.cpp]] | [[modules/UI]] |
 | `tests/ui_xml_test.cpp` | [[tests.ui_xml_test.cpp]] | [[modules/UI]] |

@@ -105,27 +105,20 @@ std::optional<ecs::Entity> show_splash(
     // the window's aspect ratio - see build_splash_document. kSplashCanvasOrder/+1 keeps both
     // above any order a game plausibly picks for its own UI while ordering the image above the
     // backdrop.
-    const ecs::Entity backdrop = world.create();
     UiCanvas backdrop_canvas;
     backdrop_canvas.fit = UiFit::FillWindow;
     backdrop_canvas.order = kSplashCanvasOrder;
     backdrop_canvas.window = window;
-    world.emplace<UiCanvas>(backdrop, backdrop_canvas);
-    // canvas.document/data_context are left at their defaults so they match UiInstance's
-    // freshly-constructed loaded_document/loaded_data_context - otherwise run_bind's
-    // instance_needs_rebuild() sees a mismatch and clone_document() overwrites this in-memory
-    // document by trying (and failing) to load canvas.document from the asset catalog.
-    world.emplace<UiInstance>(backdrop, UiInstance{splash->backdrop_document, splash->backdrop_stylesheet});
+    const ecs::Entity backdrop =
+            spawn_canvas(world, backdrop_canvas, splash->backdrop_document, splash->backdrop_stylesheet);
     world.emplace<SplashTimer>(backdrop, SplashTimer{.total_duration = splash->total_duration});
 
-    const ecs::Entity image = world.create();
     UiCanvas image_canvas;
     image_canvas.fit = UiFit::ScaleWithScreenSize;
     image_canvas.reference_size = splash->reference_size;
     image_canvas.order = kSplashCanvasOrder + 1;
     image_canvas.window = window;
-    world.emplace<UiCanvas>(image, image_canvas);
-    world.emplace<UiInstance>(image, UiInstance{splash->image_document, splash->image_stylesheet});
+    const ecs::Entity image = spawn_canvas(world, image_canvas, splash->image_document, splash->image_stylesheet);
     // Same total_duration, started this same frame: run_splash_timers ages both by identical
     // per-frame delta_time, so they always cross total_duration and despawn on the same frame -
     // no explicit link between the two entities is needed to keep them in sync.

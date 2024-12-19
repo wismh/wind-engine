@@ -16,7 +16,7 @@ tags: [feature]
 
 `asset_codegen` scans `importer = "ui"` XML (`ui::scan_bind_tree`, [[src.ui.bind_scan.h]]) and emits a binder struct per document — e.g. `assets::ui::Hud` with `static constexpr BindingId title = intern("title")` per path and a `template<typename T> static void bind(T& vm)` that calls `vm.property(title, vm.title)` / `vm.command(...)`. Two paths interning to the same `BindingId` fails codegen. Games write the `ViewModel` subclass by hand (`Bindable<T>` members) and call the generated `Hud::bind(*this)` — codegen never generates `ViewModel` classes or `Bindable<T>` fields. See [[src.resources.codegen.cpp]], [[build/Asset Codegen]].
 
-`run_bind` ([[src.ecs.systems.cpp]]) rebuilds `UiInstance` from the document when it or its data context changes, reapplies bindings each frame, and lazily `try_get<Stylesheet>` for the merged sheet (primary + `extra_stylesheets`).
+`run_bind` ([[src.ecs.systems.cpp]]) clones `UiInstance` from AssetsDb only when `UiCanvas::document` is set and that id changed. Canvases with no document id (`ui::spawn_canvas`) are never cloned; Bind only reapplies bindings. Asset stylesheet ids still merge via `try_get<Stylesheet>` when present; an empty id list does not wipe an in-memory authored sheet.
 
 ## Layout
 
@@ -32,17 +32,24 @@ Canvas/Button/Label children (non-stack) still overlay the same content rect, bu
 
 `run_ui_render` sorts canvases by `order` (low first = behind) and pushes `CmdDrawUI`. Within a canvas, `paint_element` stable-sorts each set of siblings by `z_index` (low first = behind, same convention, tie-broken by document order) before recursing — [[src.ui.document.cpp]] `child_stacking_order()`, shared with hit-testing so paint order and click/hover order always agree. A non-identity `transform: rotate()`/`scale()` calls `IUiPainter::apply_transform(center, radians, scale)` once, right after `scissor()` and before painting the element's own visuals and children — `layout_rect` itself is never transformed (paint-time only, same pattern as `ScaleWithScreenSize`'s letterbox scale), and children inherit the transform for free through NanoVG's own transform stack since `restore()` (already bracketing the element) undoes it, needing no separate "un-apply" call.
 
+## Builder
+
+[[src.ui.builder.cpp]] / [[include.engine.ui.builder.h]]: `ui::Node` owns an `Element`; factories match XML tags; `add` moves children; `make_document` requires a Canvas root. Bindings are `intern` ids (no XML codegen). Spawn with [[include.engine.ui.canvas.h]] `spawn_canvas`. Tests: [[tests.ui_builder_test.cpp]].
+
 ## Files
 
 - [[include.engine.ui.document.h]]
+- [[include.engine.ui.builder.h]]
 - [[include.engine.ui.binding_id.h]]
 - [[src.ui.xml_parser.cpp]]
+- [[src.ui.builder.cpp]]
 - [[src.ui.css_parser.cpp]]
 - [[src.ui.document.cpp]]
 - [[src.ui.paint.cpp]]
 - [[include.engine.ui.view_model.h]]
 - [[src.resources.codegen.cpp]]
 - [[tests.ui_xml_test.cpp]]
+- [[tests.ui_builder_test.cpp]]
 - [[tests.ui_css_test.cpp]]
 - [[tests.ui_painter_test.cpp]]
 - [[tests.assets_test.cpp]]

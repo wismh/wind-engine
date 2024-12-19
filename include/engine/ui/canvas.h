@@ -22,7 +22,10 @@ enum class UiFit {
 };
 
 struct UiCanvas {
-    AssetId document;
+    // If set, Bind clones `UiInstance` from AssetsDb when this id changes. If unset, the live
+    // tree is `UiInstance` (C++ builder, splash); Bind only reapplies bindings. Style and input
+    // do not care which way the tree was created.
+    std::optional<AssetId> document;
     std::optional<AssetId> stylesheet;
     std::vector<AssetId> extra_stylesheets;
     std::shared_ptr<ViewModel> data_context;
@@ -32,6 +35,11 @@ struct UiCanvas {
     int order = 0;
     WindowId window = kPrimaryWindow;   // which window's size drives this canvas's rect (SDD §21.6)
 };
+
+// Spawns a canvas whose live tree is `document` (optional in-memory stylesheet). Clears
+// `canvas.document` so Bind will not replace the instance from AssetsDb.
+[[nodiscard]] ecs::Entity spawn_canvas(ecs::World& world, UiCanvas canvas, UiDocument document,
+        std::optional<Stylesheet> stylesheet = {});
 
 // Maps a canvas's `rect` + `fit` to the coordinate space layout/hit-test should run in:
 // FillWindow/Fixed lay out directly in `rect` (real pixels, offset {0,0}, scale 1).
