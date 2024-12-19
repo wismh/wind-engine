@@ -12,7 +12,7 @@ namespace engine {
 #if defined(_WIN32)
 namespace {
 
-// SDD §21.7 fix: WIN_WindowProc (external/SDL3/src/video/windows/SDL_windowsevents.c) maps
+// WIN_WindowProc (external/SDL3/src/video/windows/SDL_windowsevents.c) maps
 // SDL_HITTEST_NORMAL to HTCLIENT unconditionally once any SDL_HitTest callback is installed, and
 // never falls through to DefWindowProc for that message. DefWindowProc is the only place that
 // inspects WS_EX_TRANSPARENT and would return HTTRANSPARENT for it (the mechanism
@@ -101,12 +101,12 @@ bool WindowSystem::create(const WindowDesc& desc) {
     if (desc.position) {
         SDL_SetWindowPosition(window_, desc.position->x, desc.position->y);
     }
-    // SDD §21.7: a drag-region click is handled manually (begin_drag_if_in_region()) instead of
+    // a drag-region click is handled manually (begin_drag_if_in_region()) instead of
     // being routed through the OS's own HTCAPTION/modal-loop drag, so nothing needs SDL to know
     // about drag_region_ at the hit-testing level at all. is_in_drag_region() exists as a plain,
     // directly-called geometry check.
 #if defined(_WIN32)
-    // SDD §21.7 fix (see win32_hit_test_wndproc's doc comment above): subclass on top of SDL's own
+    // Subclass on top of SDL's own
     // WIN_WindowProc so WM_NCHITTEST can resolve to HTTRANSPARENT for click-through, which SDL's
     // own hit-test dispatch can never produce. GWLP_USERDATA is free for a normal top-level window
     // — SDL only ever uses it for its message-box dialogs and tray-icon windows (SDL_windowsmessagebox.c,
@@ -117,7 +117,7 @@ bool WindowSystem::create(const WindowDesc& desc) {
     if (HWND hwnd = static_cast<HWND>(
                 SDL_GetPointerProperty(SDL_GetWindowProperties(window_), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
             hwnd != nullptr) {
-        // SDD §21.4: WS_EX_TRANSPARENT alone does not give real, OS-delivered click-through on a
+        // WS_EX_TRANSPARENT alone does not give real, OS-delivered click-through on a
         // DWM-composited window (one using SDL_WINDOW_TRANSPARENT + DwmEnableBlurBehindWindow, not
         // the classic WS_EX_LAYERED alpha-blend path): with WS_EX_TRANSPARENT set but WS_EX_LAYERED
         // never added, WM_NCHITTEST answers HTTRANSPARENT correctly but the real click still doesn't
@@ -195,7 +195,7 @@ void WindowSystem::update_click_through(bool pointer_hit_something) {
     if (window_ == nullptr) {
         return;
     }
-    // SDD §21.4/§21.7: the drag region must count as "hit" for this decision too, not just
+    // the drag region must count as "hit" for this decision too, not just
     // MouseConsumed from UI hit-testing — otherwise WS_EX_TRANSPARENT stays applied for the whole
     // time the pointer sits in the drag region (a game's drag strip is not necessarily backed by an
     // actual UI widget that would set MouseConsumed on its own). That matters because real click

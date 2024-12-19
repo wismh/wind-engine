@@ -33,7 +33,7 @@ struct UiCanvas {
     glm::vec2 reference_size{0.0f, 0.0f};  // design resolution; required when fit == ScaleWithScreenSize
     UiFit fit = UiFit::FillWindow;
     int order = 0;
-    WindowId window = kPrimaryWindow;   // which window's size drives this canvas's rect (SDD §21.6)
+    WindowId window = kPrimaryWindow;   // which window's size drives this canvas's rect
 };
 
 // Spawns a canvas whose live tree is `document` (optional in-memory stylesheet). Clears
@@ -84,7 +84,7 @@ struct WindowResizeEvent {
     int height = 0;
 };
 
-// Purely informational (SDD §21.7): the engine never quits or destroys a window on its own when
+// Purely informational: the engine never quits or destroys a window on its own when
 // the OS reports a close request — a game system reads this in its own schedule and decides
 // (quit, confirm dialog, ignore, or call IWindowControl::close_window for a secondary window).
 struct WindowCloseRequestedEvent {
@@ -132,7 +132,7 @@ struct UiPointers {
 
 // Centralizes the "primary reads ctx<UiPointer>(), everything else reads ctx<UiPointers>()" branch
 // (same shape as window_size_for) so a pointer move/click in one window never leaks its position or
-// down-state into another window's hover/press paint state (SDD §21.6).
+// down-state into another window's hover/press paint state.
 [[nodiscard]] UiPointer& pointer_for(ecs::World& world, WindowId id);
 
 [[nodiscard]] constexpr bool rect_contains(const render::Rect& rect, float x, float y) noexcept {
@@ -143,12 +143,12 @@ void begin_frame(ecs::World& world);
 void apply_canvas_fit(ecs::World& world);
 // `window` (default kPrimaryWindow, trailing so every pre-existing call site keeps compiling
 // unchanged) restricts hit-testing to canvases whose UiCanvas::window matches — a canvas assigned
-// to a different window never receives this pointer event's click (SDD §21.6).
+// to a different window never receives this pointer event's click.
 void handle_pointer(ecs::World& world, float x, float y, WindowId window = kPrimaryWindow);
 // Same hit test as handle_pointer() (and updates MouseConsumed the same way) but never executes a
 // command — for MouseEvent::Kind::Move, where re-running a bound element's command on every hover
 // pixel would be wrong. Without this, MouseConsumed only ever reflects the pointer's position at
-// the last click, so click_through (SDD §21.4) stays wrong for every frame the pointer merely
+// the last click, so click_through stays wrong for every frame the pointer merely
 // moves over (or off of) a UI element without clicking.
 void update_pointer_hover(ecs::World& world, float x, float y, WindowId window = kPrimaryWindow);
 

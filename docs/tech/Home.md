@@ -16,7 +16,7 @@ flowchart LR
   M --> Files["[[files/_Index]]"]
 ```
 
-1. **[[architecture/Overview|Architecture]]** — what exists, who owns it, how it connects.
+1. **[[architecture/Overview|Architecture]]** — what exists, who owns it, how it connects. Rules: [[architecture/Principles]], [[architecture/Scope]], [[architecture/Boundaries]].
 2. **Modules** — what each area can do and how it is built:
    - [[modules/Core]]
    - [[modules/ECS]]
@@ -24,20 +24,12 @@ flowchart LR
    - [[modules/Render]]
    - [[modules/UI]]
    - [[modules/Audio]]
-3. **Features** — implementation walkthroughs:
-   - [[features/Init and Loop]]
-   - [[features/ECS World]]
-   - [[features/Events]]
-   - [[features/Time]]
-   - [[features/Assets]]
-   - [[features/Materials and Sort]]
-   - [[features/OpenGL]]
+   - [[modules/Haptics]]
+3. **Features** — implementation walkthroughs (as-built):
    - [[features/UI Markup]]
    - [[features/UI Input]]
-   - [[features/Audio]]
-   - [[features/Camera and Physics]]
    - [[features/Input Mapper]]
-   - [[features/Logging]]
+   - [[features/Windowing]]
 4. **[[build/Pipeline|Build pipeline]]** — configure → codegen → compile → copy assets → run.
 5. **[[files/_Index|File index]]** — every first-party `.h` / `.cpp` / tool / test.
 
@@ -46,6 +38,8 @@ flowchart LR
 - [[architecture/Runtime Loop]]
 - [[architecture/Module Map]]
 - [[architecture/Boundaries]]
+- [[architecture/Principles]]
+- [[architecture/Scope]]
 
 ## Build shortcuts
 
