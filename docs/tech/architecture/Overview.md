@@ -4,7 +4,7 @@ tags: [architecture]
 
 # Architecture overview
 
-Wind is a **static C++23 library**: a small, embeddable 2D game engine. The product name is Wind; the CMake target and namespace are `engine`.
+Wind is a **static C++23 library**: a 2D game engine for production titles. The product name is Wind; the CMake target and namespace are `engine`.
 
 Public API lives in `include/engine/` (`#include <engine/…>`). Implementation and private headers live in `src/`. Third party is git submodules under `external/` (no FetchContent, no EnTT).
 
@@ -12,9 +12,9 @@ Public API lives in `include/engine/` (`#include <engine/…>`). Implementation 
 
 | Slice | Question | Start here |
 | --- | --- | --- |
-| Architectural | What are the modules and how do they meet? | this note, [[architecture/Module Map]], [[architecture/Runtime Loop]] |
+| Architectural | What are the rules, modules, and how they meet? | [[architecture/Principles]], [[architecture/Scope]], this note, [[architecture/Module Map]] |
 | Modular | What can a module do, and how is it coded? | [[modules/Core]] … [[modules/Audio]] |
-| Detailed | How is a feature implemented? | [[features/Init and Loop]] |
+| Detailed | How is a feature implemented? | [[features/UI Markup]], [[features/Windowing]] |
 | Build | How does a binary appear on disk? | [[build/Pipeline]] |
 
 ## What a game sees
@@ -57,8 +57,6 @@ Windowed host: [[include.engine.core.engine.h|Engine&lt;GameT&gt;]] in [[include
 | [[modules/UI]]        | XML + C++ builder, CSS, layout, hit-test, MVVM           | World sprites                    |
 | [[modules/Audio]]     | SFX pool, music A/B, looping handles                     | File GUIDs (those are Resources) |
 
-How they connect: [[architecture/Module Map]]. What stays out of public headers: [[architecture/Boundaries]].
+How they connect: [[architecture/Module Map]]. What stays out of public headers: [[architecture/Boundaries]]. Product rules: [[architecture/Principles]], [[architecture/Scope]].
 
-## Related spec
-
-SDD §3 (layout), §4 (host), §5 (DI). Code wins over this vault if they drift; vault should be updated with the code.
+If this vault disagrees with code, **code wins** — update the note in the same change.

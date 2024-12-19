@@ -17,9 +17,7 @@ Host, time, input polling, logging, fatal errors, and (when windowed) `Engine<Ga
   `AssetsDb` (after the catalog + texture/`UiImage` preload loop) and forwards the
   `render::TextureDesc` to `EngineRuntime::set_window_icon()`. Unset (`std::nullopt`) leaves the
   OS/window-manager default icon alone.
-- `IGame::splash_screen()` — `SplashScreen{enabled, image, fade_in/hold/fade_out_seconds}`,
-  defaulting to the builtin `splash_wind` image (§20.1–§20.2). Contract only so far; `Host::tick`
-  does not yet draw it (§20.3, tracked separately).
+- `IGame::splash_screen()` — `SplashScreen{enabled, image, fade_in/hold/fade_out_seconds}`, defaulting to builtin `splash_wind`. The engine does **not** auto-show it. A game calls `ui::show_splash(world, config, image_size, window)` (typically from `on_start`). That spawns two canvases (opaque `FillWindow` backdrop + letterboxed `ScaleWithScreenSize` image) with `SplashTimer`; both despawn when the timer elapses. Ages with `Time::delta_time` (Frame), including while paused.
 
 ## How it is implemented
 
@@ -59,6 +57,9 @@ Host, time, input polling, logging, fatal errors, and (when windowed) `Engine<Ga
 - [[include.engine.core.platform.h]]
 - [[include.engine.core.web_loop.h]]
 - [[include.engine.core.app_lifecycle.h]]
+- [[include.engine.ui.splash.h]]
+- [[include.engine.core.window_desc.h]]
+- [[include.engine.core.window_control.h]]
 
 ## Tests
 
@@ -68,4 +69,5 @@ Host, time, input polling, logging, fatal errors, and (when windowed) `Engine<Ga
 
 - [[architecture/Runtime Loop]]
 - [[architecture/Module Map]]
+- [[features/Windowing]]
 - [[build/CMake]]

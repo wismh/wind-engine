@@ -19,6 +19,8 @@
 #include <engine/resources/meta.h>
 #include <engine/ui/canvas.h>
 
+#include "ui/painter.h"
+
 #include <chrono>
 #include <cstdint>
 #include <fstream>
@@ -135,7 +137,7 @@ std::filesystem::path android_runtime_assets_root(const std::filesystem::path& b
 struct EngineRuntime::Impl {
     std::shared_ptr<render::OpenGLFactory> factory = std::make_shared<render::OpenGLFactory>();
     std::shared_ptr<render::OpenGLRenderBackend> backend = std::make_shared<render::OpenGLRenderBackend>();
-    // Owns the primary window plus any secondary ones opened later (SDD §21.5). The primary slot
+    // Owns the primary window plus any secondary ones opened later. The primary slot
     // exists from construction (see WindowManager's constructor) so window_control below — and
     // commands_ptr()/canvas_ptr() further down — have something valid to bind to even though no
     // real window exists yet at this point in Engine<GameT>::init()'s DI graph construction.
@@ -273,6 +275,14 @@ void EngineRuntime::begin_loop(IGame& game, InputSystem& input, IAudioSystem* au
     // FillWindow/ScaleWithScreenSize canvases sized to {0,0} for on_start() and every frame before
     // any resize. write_window_size() reads the just-created primary window's real drawable size.
     write_window_size(game.world(), false);
+    game.world().ctx<ui::UiLayoutPainters>().resolve = [this](WindowId id) -> ui::IUiPainter* {
+        render::OpenGLCanvas* const canvas = impl_->windows.canvas(id);
+        if (canvas == nullptr) {
+            return nullptr;
+        }
+        canvas->make_current();
+        return canvas->ui_painter();
+    };
     game.on_start();
     ui::apply_canvas_fit(game.world());
     game.world().ctx<ApplicationState>().running = true;
@@ -301,14 +311,14 @@ void EngineRuntime::tick_loop() {
     // DesktopOverlayPolicy polls OS cursor for transparent click-through windows if an overlay is active.
     impl_->overlay_policy.poll_cursor(impl_->windows, *impl_->loop_input);
 
-    // Backfills a WindowSizes entry for any secondary window that has none yet (SDD §21.7) — a
+    // Backfills a WindowSizes entry for any secondary window that has none yet — a
     // freshly opened window has no drawable size in ui::WindowSizes until its first real
     // SDL_EVENT_WINDOW_RESIZED/PIXEL_SIZE_CHANGED event, which isn't guaranteed to fire
     // immediately after creation; without this, a FillWindow/ScaleWithScreenSize canvas targeting
     // it sizes itself to {0,0} for however many frames that takes. Only fills in *missing*
     // entries — never overwrites one a real resize event already kept current. Lives here (not in
-    // WindowControlImpl/WindowManager) to keep the rendering/OS layer free of ecs::World& (§3.4/
-    // §4.2) — this is the one place in EngineRuntime that already has both `impl_->windows` and
+    // WindowControlImpl/WindowManager) to keep the rendering/OS layer free of ecs::World& —
+    // this is the one place in EngineRuntime that already has both `impl_->windows` and
     // `world` in scope.
     {
         ui::WindowSizes& sizes = world.ctx<ui::WindowSizes>();
@@ -401,6 +411,9 @@ void EngineRuntime::reentrant_tick() {
 void EngineRuntime::end_loop() {
     impl_->overlay_policy.sync_modal_loop_hook(impl_->windows, nullptr);
     IGame* const game = impl_->loop_game;
+    if (game != nullptr) {
+        game->world().ctx<ui::UiLayoutPainters>().resolve = {};
+    }
     impl_->loop_game = nullptr;
     impl_->loop_input = nullptr;
     impl_->loop_audio = nullptr;
@@ -495,7 +508,7 @@ std::filesystem::path EngineRuntime::assets_root() const {
     return android_runtime_assets_root(base_path());
 #endif
     // Do not drop an empty SDL_GetBasePath(): on web that still maps to /assets
-    // (SDD-WIND-WEB-001 §5). Native empty base stays empty via the helper.
+    // (web loop: empty SDL_GetBasePath still maps to /assets). Native empty base stays empty via the helper.
     return default_assets_root(base_path());
 }
 
@@ -530,8 +543,8 @@ void EngineRuntime::poll_events(ecs::World& world, InputSystem& input, Applicati
             case SDL_EVENT_WINDOW_RESIZED:
             case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED: {
                 // write_window_size() always meant "the primary window's size" — resolving which
-                // window actually resized (rather than assuming primary unconditionally) is the
-                // §21.6 fix; defaulting to kPrimaryWindow on a failed lookup is defensive (e.g. a
+                // window actually resized (rather than assuming primary unconditionally).
+                // Defaulting to kPrimaryWindow on a failed lookup is defensive (e.g. a
                 // stray event for a window that already closed).
                 const WindowId resized = impl_->windows.find_by_sdl_id(event.window.windowID).value_or(kPrimaryWindow);
                 if (resized == kPrimaryWindow) {
@@ -546,7 +559,7 @@ void EngineRuntime::poll_events(ecs::World& world, InputSystem& input, Applicati
                 break;
             }
             case SDL_EVENT_WINDOW_CLOSE_REQUESTED: {
-                // Purely informational (SDD §21.7 — product decision): the engine never quits or
+                // Purely informational: the engine never quits or
                 // destroys anything here on its own. A game system reads WindowCloseRequestedEvent
                 // in its own schedule and decides (quit, confirm dialog, ignore, close just this
                 // window via IWindowControl::close_window).
@@ -568,7 +581,7 @@ void EngineRuntime::poll_events(ecs::World& world, InputSystem& input, Applicati
             case SDL_EVENT_MOUSE_BUTTON_UP: {
                 const WindowId window_id = impl_->windows.find_by_sdl_id(event.button.windowID).value_or(kPrimaryWindow);
                 WindowSystem* window = impl_->windows.window(window_id);
-                // SDD §21.7: a left-button-down inside the window's drag region starts a
+                // a left-button-down inside the window's drag region starts a
                 // manually-implemented drag (WindowSystem::begin_drag_if_in_region()) instead of
                 // ever reaching the OS's native HTCAPTION/modal-loop path — consumed here exactly
                 // like the old OS-native drag consumed it (the app never saw a button-down for an

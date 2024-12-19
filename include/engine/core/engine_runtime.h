@@ -33,9 +33,8 @@ public:
 
     [[nodiscard]] bool init_video();
     [[nodiscard]] bool create_window(const WindowDesc& desc);
-    // Secondary windows (SDD §21.5): share GL resources with the primary window, get drawn/swapped
-    // every frame alongside it. No per-window UI/render routing yet (§21.6) — a freshly opened
-    // window is just cleared each frame until that phase lands.
+    // Secondary windows share GL resources with the primary; each is drawn/swapped every frame.
+    // UI canvases target a WindowId; world Renderables still draw only into kPrimaryWindow.
     [[nodiscard]] std::optional<WindowId> open_window(const WindowDesc& desc);
     void close_window(WindowId id);
     void set_window_icon(const render::TextureDesc& desc);
@@ -52,7 +51,7 @@ public:
 
     [[nodiscard]] render::CommandBuffer& commands();
     [[nodiscard]] render::ICanvas& canvas();
-    // Additive (§21.6): the CommandBuffer for any live window, primary or secondary — nullptr if
+    // The CommandBuffer for any live window, primary or secondary — nullptr if
     // `id` has no live window. Exposed as a plain WindowId -> CommandBuffer* lookup (rather than
     // leaking WindowManager, which stays src-private) so Engine<GameT>::init() can wire
     // EngineSystemDeps::commands_for_window without widening this header's dependencies.
@@ -80,7 +79,7 @@ private:
     void end_loop();
     static void main_loop_thunk(void* self);
 
-    // Windows-only (SDD §21.7): registered with WindowManager as its modal-loop tick
+    // Windows-only: registered with WindowManager as its modal-loop tick
     // callback for as long as the loop is running (begin_loop()..end_loop()), so game logic and
     // rendering keep advancing in real time while the user is dragging/resizing a window, not just
     // redrawing the last frame. See its .cpp doc comment for why this is safe to call reentrantly

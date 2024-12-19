@@ -18,14 +18,14 @@ namespace engine {
 // Owns one {WindowSystem, CommandBuffer, OpenGLCanvas} triple per live WindowId, all sharing the
 // one IRenderBackend/IGraphicFactory-produced GL objects EngineRuntime already owns — texture,
 // mesh, and shader GL object ids stay valid across the whole GL share group once contexts share,
-// so AssetsDb/IGraphicFactory stay single-instance (SDD §21.5). Every window gets its own
-// OpenGLCanvas + NanoVgPainter (§21.6) — routing which UiCanvas/CommandBuffer target which window
+// so AssetsDb/IGraphicFactory stay single-instance. Every window gets its own
+// OpenGLCanvas + NanoVgPainter — routing which UiCanvas/CommandBuffer target which window
 // is EngineSystemDeps::commands_for_window's job (engine/ecs/systems.h), not this class's.
 class WindowManager {
 public:
     explicit WindowManager(render::IRenderBackend& backend);
     // Declared (not defaulted) so it can clear the Win32 modal-loop tick hook installed by the
-    // constructor (SDD §21.7) on Windows; a no-op body elsewhere. Declaring it unconditionally
+    // constructor on Windows; a no-op body elsewhere. Declaring it unconditionally
     // (rather than only under _WIN32) keeps move-special-member behavior identical across
     // platforms — a destructor guarded by #if would silently suppress the implicit move
     // ctor/assignment on Windows only.
@@ -59,14 +59,14 @@ public:
     // Draws + swaps every live window (OpenGLCanvas::draw() already swaps at the end).
     void draw_all();
 
-    // Resolves an SDL window id (from an SDL_Event's windowID field, §21.6) back to the WindowId
+    // Resolves an SDL window id (from an SDL_Event's windowID field) back to the WindowId
     // that owns it. Linear scan over live windows — window counts are always tiny, so a scan per
-    // event is fine and not worth indexing.
+    // event is fine.
     [[nodiscard]] std::optional<WindowId> find_by_sdl_id(SDL_WindowID sdl_id) const;
 
     // Visits every live (window.window() != nullptr) window other than kPrimaryWindow — mirrors
     // draw_all()'s liveness check. Used by EngineRuntime::tick_loop() to backfill a freshly opened
-    // secondary window's WindowSizes entry (SDD §21.7) before that window's first real resize
+    // secondary window's WindowSizes entry before that window's first real resize
     // event, if any, arrives.
     void for_each_secondary_window(const std::function<void(WindowId, WindowSystem&)>& fn);
 
@@ -75,8 +75,7 @@ public:
     void for_each_window(const std::function<void(WindowId, const WindowSystem&)>& fn) const;
 
     // Called on every WM_TIMER seen while a Windows modal move/size loop is active — a no-op on
-    // other platforms and a no-op here until someone sets it (SDD §21.7 "game freezes during any
-    // window drag" fix: a full reentrant tick, not just a redraw).
+    // other platforms and a no-op here until someone sets it.
     // EngineRuntime::begin_loop() supplies the actual callback once its own loop state
     // (IGame&, FixedStepClock, ecs::World&) exists.
     void set_modal_loop_tick_callback(std::function<void()> callback);

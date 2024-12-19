@@ -97,8 +97,10 @@ struct PointerHit {
 
 // Shared by handle_pointer() and update_pointer_hover(): finds the topmost element under (x, y),
 // rebuilding bindings/layout the same way for both so a hover hit test sees the exact same
-// element a click at that position would. Sets MouseConsumed as a side effect whenever it finds a
-// hit (matching the previous handle_pointer() behavior) — both callers want that.
+// element a click at that position would. Layout uses the window's IUiPainter when registered
+// (UiLayoutPainters) so hug text metrics match paint_document; otherwise the CPU fallback.
+// Sets MouseConsumed as a side effect whenever it finds a hit (matching the previous
+// handle_pointer() behavior) — both callers want that.
 std::optional<PointerHit> resolve_pointer_hit(ecs::World& world, float x, float y, WindowId window) {
     std::vector<CanvasHit> hits;
     {
@@ -144,7 +146,7 @@ std::optional<PointerHit> resolve_pointer_hit(ecs::World& world, float x, float 
     const float media_width = space.reference_space ? space.layout_rect.w : static_cast<float>(size.width);
     const float media_height = space.reference_space ? space.layout_rect.h : static_cast<float>(size.height);
     apply_layout_style(instance->document.root, sheet, media_width, media_height);
-    layout(instance->document, space.layout_rect);
+    layout(instance->document, space.layout_rect, layout_painter_for(world, window));
 
     Element* hit =
             hit_test(instance->document.root, (x - space.offset.x) / space.scale, (y - space.offset.y) / space.scale);
@@ -160,7 +162,7 @@ std::optional<PointerHit> resolve_pointer_hit(ecs::World& world, float x, float 
 // window-space (x, y) into the drag's layout-space rect (the same `(v - offset) / scale` transform
 // resolve_pointer_hit() applies before hit-testing) and returns the clamped [0,1] fraction along
 // `orientation`'s axis of `rect`. No min/max/step — remapping a raw fraction into a domain-specific
-// range belongs to the game's ViewModel, not the engine (see docs/sdd.md).
+    // range belongs to the game's ViewModel, not the engine.
 float compute_drag_fraction(StackDirection orientation, const render::Rect& rect, glm::vec2 space_offset,
         float space_scale, float x, float y) {
     const float local_x = (x - space_offset.x) / space_scale;
