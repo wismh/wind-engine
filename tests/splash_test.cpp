@@ -126,7 +126,7 @@ TEST(Splash, BackdropIsConstantOpaqueBlackNotAnimatedAndCoversWholeWindowOnItsOw
     // own UiFit::ScaleWithScreenSize canvas (show_splash), which is what lets the backdrop cover
     // the whole window regardless of the image's aspect ratio instead of letterboxing with it.
     const engine::ui::Element& root = splash->backdrop_document.root;
-    EXPECT_FALSE(root.class_name.empty());
+    EXPECT_FALSE(root.classes.empty());
     EXPECT_TRUE(root.children.empty());
 }
 
