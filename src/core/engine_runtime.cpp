@@ -610,6 +610,15 @@ void EngineRuntime::poll_events(ecs::World& world, InputSystem& input, Applicati
                         glm::vec2{event.motion.xrel, event.motion.yrel});
                 break;
             }
+            case SDL_EVENT_MOUSE_WHEEL: {
+                const WindowId window_id = impl_->windows.find_by_sdl_id(event.wheel.windowID).value_or(kPrimaryWindow);
+                float wheel_y = event.wheel.y;
+                if (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) {
+                    wheel_y = -wheel_y;
+                }
+                input.handle_mouse_wheel(window_id, glm::vec2{event.wheel.mouse_x, event.wheel.mouse_y}, wheel_y);
+                break;
+            }
             case SDL_EVENT_WINDOW_FOCUS_LOST: {
                 // Safety net: if a button-up ever gets missed (e.g. focus stolen mid-drag
                 // by another app), don't leave the mouse captured and the window stuck "dragging"

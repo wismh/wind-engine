@@ -83,6 +83,9 @@ std::optional<ElementKind> kind_from_tag(const char* name) {
     if (tag == "Component") {
         return ElementKind::Component;
     }
+    if (tag == "Viewport") {
+        return ElementKind::Viewport;
+    }
     return std::nullopt;
 }
 
@@ -192,6 +195,28 @@ std::expected<void, UiError> assign_drag_binding(Element& element, const char* a
     }
     element.drag_binding = intern(*binding);
     if (vm != nullptr && !in_template && !vm->has_property(element.drag_binding)) {
+        report(fatal, "UI binding name is not registered: " + *binding);
+        return std::unexpected(UiError::MissingBinding);
+    }
+    return {};
+}
+
+std::expected<void, UiError> assign_required_property_binding(BindingId& dest, const char* attr, std::string_view what,
+        IFatalError* fatal, const ViewModel* vm, bool in_template) {
+    if (attr == nullptr) {
+        return {};
+    }
+    const auto binding = try_parse_binding(attr);
+    if (!binding) {
+        report(fatal, std::string("UI ") + std::string(what) + " must be a {binding} path");
+        return std::unexpected(UiError::MissingBinding);
+    }
+    if (binding->empty()) {
+        report(fatal, "UI binding is missing a registered name");
+        return std::unexpected(UiError::MissingBinding);
+    }
+    dest = intern(*binding);
+    if (vm != nullptr && !in_template && !vm->has_property(dest)) {
         report(fatal, "UI binding name is not registered: " + *binding);
         return std::unexpected(UiError::MissingBinding);
     }
@@ -311,6 +336,21 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
         return std::unexpected(result.error());
     }
     if (auto result = assign_drag_binding(element, xml->Attribute("drag"), fatal, vm, in_template); !result) {
+        return std::unexpected(result.error());
+    }
+    if (auto result = assign_required_property_binding(element.pan_x_binding, xml->Attribute("pan-x"), "pan-x", fatal, vm,
+                in_template);
+            !result) {
+        return std::unexpected(result.error());
+    }
+    if (auto result = assign_required_property_binding(element.pan_y_binding, xml->Attribute("pan-y"), "pan-y", fatal, vm,
+                in_template);
+            !result) {
+        return std::unexpected(result.error());
+    }
+    if (auto result = assign_required_property_binding(element.zoom_binding, xml->Attribute("zoom"), "zoom", fatal, vm,
+                in_template);
+            !result) {
         return std::unexpected(result.error());
     }
     if (const char* drag_orientation = xml->Attribute("drag-orientation")) {
@@ -463,6 +503,9 @@ void collect_bind_element(const tinyxml2::XMLElement* xml, BindBinder& binder, c
     add_bind_attr(binder, xml->Attribute("content"), false);
     add_bind_attr(binder, xml->Attribute("command"), true);
     add_bind_attr(binder, xml->Attribute("drag"), false);
+    add_bind_attr(binder, xml->Attribute("pan-x"), false);
+    add_bind_attr(binder, xml->Attribute("pan-y"), false);
+    add_bind_attr(binder, xml->Attribute("zoom"), false);
     add_bind_attr(binder, xml->Attribute("source"), false);
     add_bind_attr(binder, xml->Attribute("items_source"), false);
     add_bind_custom_properties(binder, xml);
