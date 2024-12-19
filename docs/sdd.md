@@ -29,7 +29,7 @@ A small real-time 2D engine (**Wind**): window, input, ECS, command-buffer rende
 
 - Lifecycle: init, main loop, shutdown.
 - Window, GL context, input actions, mouse → UI.
-- One `ecs::World` (no Node scene graph). UI is an ECS component (`UiCanvas` + XML document + ViewModel), not a parallel tree and not a C++ widget graph built in game code.
+- One `ecs::World` (no scene-graph `Node`). UI is an ECS component (`UiCanvas` + `UiDocument` instance + ViewModel), not a parallel widget graph and not `onClick` in game code. The document may come from XML or from the C++ builder (§8).
 - Homemade ECS with **EnTT as API/implementation reference only** (not a dependency): generational entities, `try_get`, views.
 - Render abstractions + OpenGL 3.3 backend: **materials**, instance tint, **layer sort**; NanoVG executes `CmdDrawUI` from the bound XML tree.
 - AssetsDb + GUID catalog: sidecar TOML `.meta`, `asset_guid` + `asset_codegen` (see §10).
@@ -70,9 +70,9 @@ A small real-time 2D engine (**Wind**): window, input, ECS, command-buffer rende
 | `AssetId`       | 32-char lowercase hex GUID, strong type                                            |
 | `try_get` / `get`| Optional vs fatal asset lookup (see §10.7)                                         |
 | `IMaterial`     | Shader + texture slots + blend + default color (see §6.2)                          |
-| `ViewModel`     | Game C++ MVVM object; XML binds to registered names (see §8)                       |
+| `ViewModel`     | Game C++ MVVM object; XML and the C++ builder bind to registered names (see §8)    |
 | `ICommand`      | UI → VM (WPF command), not `onClick` lambdas in game code                          |
-| `UiDocument`    | Parsed XML view (`importer = "ui"`)                                                |
+| `UiDocument`    | `Element` tree from XML (`importer = "ui"`) or `ui::make_document` (§8.2.1)        |
 | `StyleSheet`    | Parsed custom CSS (`importer = "css"`)                                             |
 | `WindowId`      | Strong handle for one OS window; `kPrimaryWindow` is the game's first window (see §21) |
 | `WindowDesc` / `WindowStyle` | Public, GL/SDL-free description of a window's title/size/position and borderless/always-on-top/transparent flags (§21.2) |
@@ -99,7 +99,7 @@ A small real-time 2D engine (**Wind**): window, input, ECS, command-buffer rende
 8. **Reusable across games.** Window title/size come from `IGame`; audio and render APIs stay game-agnostic.
 9. **Test the engine, not the games built with it.** Logic that will be shared (ECS, events, commands, audio policy, meta/catalog, input, camera, fixed-step loop) has GoogleTest coverage in this repo. Gameplay stays in the game repo.
 10. **Simulation is fixed-step.** Frame time drives present and audio fades; gameplay/physics tick at a constant `fixed_delta_time` (§4.4).
-11. **UI is markup + style + VM.** Games do not build `UIElement` trees in C++. XML + custom CSS + `ViewModel` / `ICommand` (see §8).
+11. **UI is document + style + VM.** XML assets and the C++ `ui::Node` builder both produce the same `Element` tree. Style is CSS. UI → game is `ViewModel` / `ICommand` only — no `onClick` (see §8).
 12. **Draw with materials, then sort.** `Renderable` is mesh + material + layer, not ad-hoc shader/texture pointers with undefined order (§6).
 
 
@@ -111,7 +111,7 @@ A small real-time 2D engine (**Wind**): window, input, ECS, command-buffer rende
 - JSON/ScriptableObject sound banks in C++ (`GameSounds { … }` with hardcoded volume). Volume/pitch live in audio `.meta`.
 - Pitch re-roll every looping-SFX cycle (Lumenwake `LateUpdate` trick) — API may appear later.
 - Sharing one process between multiple games (multiple `IGame` instances). Multiple **windows** for one running game is in scope — see §21.
-- Building or mutating visual trees from game C++ as the supported UI API (tests may construct trees).
+- A C++ widget graph (`new Label()`, `onClick` lambdas, `MeasureOverride`). Games may build the **same** `Element` tree the XML parser produces via `ui::Node` / `make_document` / `spawn_canvas` (§8.2.1).
 - Transform parenting, scene-graph matrices, or auto Y-sort unless a later `sort_mode` is added.
 - Per-pixel (framebuffer-alpha) click-through. v1 click-through is bounding-box hit-test only (§21.4).
 
@@ -193,7 +193,7 @@ target_include_directories(engine
 
 A game `target_link_libraries(… PRIVATE engine)` therefore sees **only** `include/`. It cannot `#include` a file that lives under `src/`. There is **no** `include/engine/detail/` on the public path — putting “please don’t use this” headers under `include/` is not a facade.
 
-**Public (`include/engine/`):** `engine.h` (umbrella), `igame.h`, `log.h` (facade, not spdlog), ECS (`world.h`, `entity.h`, components games spawn), `Time`, `Events<T>` / `EventReader` / `EventWriter`, `Command` / `CommandBuffer`, `ICanvas` / `IGraphicFactory` / `IMesh` / `IShader` / `ITexture` / **`IMaterial`**, `UiCanvas` / `ViewModel` / `Bindable` / `ICommand`, `AssetsDb`, `IAudioSystem` / `Sound`, `IFatalError`, `builtin_ids.h`. Games include these (or the umbrella).
+**Public (`include/engine/`):** `engine.h` (umbrella), `igame.h`, `log.h` (facade, not spdlog), ECS (`world.h`, `entity.h`, components games spawn), `Time`, `Events<T>` / `EventReader` / `EventWriter`, `Command` / `CommandBuffer`, `ICanvas` / `IGraphicFactory` / `IMesh` / `IShader` / `ITexture` / **`IMaterial`**, `UiCanvas` / `ui::Node` / `make_document` / `spawn_canvas` / `ViewModel` / `Bindable` / `ICommand`, `AssetsDb`, `IAudioSystem` / `Sound`, `IFatalError`, `builtin_ids.h`. Games include these (or the umbrella).
 
 **Private (`src/…`, never installed, never PUBLIC):** OpenGL/glad types, NanoVG context, SDL window/GL bootstrap, mixer tracks, Loop internals, importers, XML/CSS parsers, cooked-catalog parser. `OpenGLCanvas::draw` executes commands here.
 
@@ -252,7 +252,7 @@ main
 | Log       | `core/log.h`               | Public facade; spdlog behind it                    |
 | ECS       | `ecs/`                     | World, generational entities, views, engine systems |
 | Render    | `render/`                  | Commands, camera, materials, sort, OpenGL backend  |
-| UI        | `ui/`                      | XML + CSS + MVVM; `UiCanvas` draws into a Rect     |
+| UI        | `ui/`                      | XML + C++ builder + CSS + MVVM; `UiCanvas` draws into a Rect |
 | Resources | `resources/`               | AssetsDb, cooked catalog, TOML `.meta` (§10)       |
 | Audio     | `audio/`                   | `IAudioSystem` (see §11)                           |
 | Haptics   | `haptics/`                 | `IHaptics` (see §18)                               |
@@ -288,7 +288,7 @@ ecs::World
   entity Player     + Transform + Renderable + …
 ```
 
-Widget buttons are **not** ECS entities. The visual tree is the **instance** of an XML document under `UiCanvas` (WPF visual tree vs view-model). Layout (flex, gap) lives in markup + CSS, not in the registry.
+Widget buttons are **not** ECS entities. The visual tree is the **instance** of a `UiDocument` under `UiCanvas` (WPF visual tree vs view-model), whether that document was parsed from XML or built with `ui::Node`. Layout (flex, gap) lives in markup + CSS, not in the registry. `ui::Node` is a builder value that owns an `Element`; it is not a scene-graph `Node`.
 
 World-space labels later: same `UiCanvas`, `rect` written each frame from `Transform` + `Camera::WorldToScreen` (`fit = Fixed`). No second graph.
 
@@ -416,7 +416,7 @@ A `Renderable` of raw `{ mesh, shader, texture }` has **undefined draw order** a
 Commands (`std::variant`):
 
 - `CmdDrawMesh` — mesh + **material** + model/view/projection + instance `color`.
-- `CmdDrawUI` — bound XML instance tree, clipped to `UiCanvas.rect`.
+- `CmdDrawUI` — bound `UiDocument` instance tree, clipped to `UiCanvas.rect`.
 
 ```cpp
 struct CmdDrawMesh {
@@ -567,13 +567,13 @@ Erase-from-vector pools that do not fix up indices, and raw `uint32_t` handles w
 
 ## 8. UI (XML + CSS + MVVM)
 
-NanoVG (GL3) draws the **instance** of a markup document. This is not a C++ `Layout`/`Label` tree with `onClick` lambdas, and not one ECS entity per widget.
+NanoVG (GL3) draws the **instance** of a `UiDocument`. This is not a C++ `Layout`/`Label` tree with `onClick` lambdas, and not one ECS entity per widget. XML (`parse_xml`) and the C++ builder (`ui::Node` / `make_document`) are two frontends into the same `Element` tree; layout, bind, paint, and hit-test are shared.
 
 WPF split, mapped to this engine:
 
 | WPF | This engine |
 | --- | --- |
-| XAML | XML document asset (`importer = "ui"`) |
+| XAML | XML document asset (`importer = "ui"`) **or** `ui::Node` builder (§8.2.1) |
 | ResourceDictionary / Style | custom CSS asset (`importer = "css"`) |
 | `DataContext` + `{binding}` | `ViewModel` + `Bindable<T>` registered by name |
 | `ICommand` / `RelayCommand` | `ICommand` / `RelayCommand` |
@@ -588,7 +588,7 @@ enum class UiFit { FillWindow, Fixed, ScaleWithScreenSize };
 struct Rect { float x, y, w, h; };  // screen pixels, origin top-left (SDL)
 
 struct UiCanvas {
-    AssetId document;                       // .xml
+    std::optional<AssetId> document;        // catalog template; unset = live `UiInstance` is canonical
     std::optional<AssetId> stylesheet;      // .css; else xml `stylesheet` attr
     std::vector<AssetId> extra_stylesheets; // after xml + stylesheet; later file wins at equal spec
     std::shared_ptr<ui::ViewModel> data_context;
@@ -601,9 +601,13 @@ struct UiCanvas {
 
 `ScaleWithScreenSize` is the Unity `PanelSettings`-style "Scale With Screen Size" fit: layout, hit-testing, and painting all run in fixed `reference_size` design units (same XML/CSS as any other canvas — px means design px), and the engine derives one uniform `scale = min(window.w/reference_size.x, window.h/reference_size.y)` plus a centering `offset`, applied only at the paint/hit-test boundary (`ui::canvas_layout_space`). This keeps a pixel-art canvas laid out at its authored resolution (e.g. 576×696) and pixel-perfect at any window size, letterboxed rather than stretched. Use `FillWindow`/`Fixed` when the document's own CSS should react to the real window size instead (e.g. `%`-based responsive HUDs).
 
-Spawn: `emplace<UiCanvas>(hud, { .document = assets::ui::hud, .data_context = hudVm })`. Game code does **not** `make_shared<Layout>()` or set `onClick`.
+Spawn (catalog): `emplace<UiCanvas>(hud, { .document = assets::ui::hud, .data_context = hudVm })`. Bind clones `UiInstance` from `AssetsDb` when `document` **changes**. A `DataContext` pointer change only rebinds; it does not discard the instance.
 
-The runtime tree is owned by the UI module (cached instance per canvas). Reloading XML every frame is forbidden; rebuild when `document` / stylesheet / `DataContext` pointer changes.
+Spawn (in-memory): `ui::spawn_canvas(world, canvas, document, optional stylesheet)` — clears `canvas.document` so Bind will not replace the tree. Same bind/layout/paint/hit-test as a catalog canvas.
+
+Game code does **not** `make_shared<Layout>()` or set `onClick`. Style is still CSS (class / id / `var-*`); `Element::width` and friends are cascade **outputs** and are overwritten every layout — there is no inline `width()` / `color()` on the builder until a dedicated authoring layer exists.
+
+The runtime tree lives in `UiInstance`. Reloading XML every frame is forbidden.
 
 Hit-test: mouse minus `rect` origin. Fonts: `get` + `importer = "font"`; CSS `font-family` names a font **AssetId** (hex) or a builtin name (`default`).
 
@@ -652,7 +656,21 @@ Unknown tags / empty `{binding}` / intern hash collision of two paths: **`asset_
 
 **Forbidden in XML:** filenames, `onClick`, inline GL, script. Asset refs are 32-hex GUIDs (or bindings that yield `AssetId`).
 
-Building the same tree in C++ is allowed **only in `engine_tests`**.
+### 8.2.1 C++ builder
+
+`include/engine/ui/builder.h`. `ui::canvas()` / `stack()` / `label()` / `button()` / `image()` / `items_control()` / `item_template()` / `line()` return a `ui::Node` that owns an `Element` by value. `add` **moves** a child in; do not keep `Element*` across sibling `add` calls (`vector` may reallocate). `make_document` requires a `Canvas` root (`UiError::InvalidMarkup` otherwise). Attributes match the XML parser (`with_class`, `{binding}` via `text_bind` / `command_bind` / `drag_bind` / `var`, Stack `direction`/`gap`, canvas `stylesheet` AssetId). `ItemTemplate src=` includes are XML-only; C++ adds children on `item_template()` instead.
+
+```cpp
+auto hud = ui::stack().with_class("hud");
+hud.add(ui::label().text_bind(intern("title")));
+auto doc = ui::make_document(ui::canvas().add(std::move(hud)));
+ui::UiCanvas canvas;
+canvas.data_context = hudVm;
+canvas.fit = ui::UiFit::Fixed;
+ui::spawn_canvas(world, canvas, std::move(*doc));
+```
+
+This is not `x:Class` code-behind and not a polymorphic widget SDK (no `MeasureOverride`, no visual children created from a C++ control class).
 
 ### 8.3 Custom CSS
 
@@ -1157,6 +1175,7 @@ Prefer **pure logic** and fakes over GPU/mixer. Extract policy (gain, pool, AABB
 | Materials | parse `.mat` TOML; missing shader GUID fails codegen; instance color multiplies |
 | UiCanvas | FillWindow rect on resize; ScaleWithScreenSize letterboxed rect + design-space hit-test on resize; widget hit (Button) for MouseConsumed; order; MouseConsumed reset each frame |
 | UI XML/CSS | parse subset; unknown element fatal; `{binding}` missing name fatal; CSS unknown prop warn |
+| UI builder | `make_document` Canvas root; tree matches `parse_xml` for the same HUD; `spawn_canvas` clears `document` so Bind does not clone from AssetsDb |
 | MVVM | property/command registration; OneWay bind updates label text; Button click calls ICommand; onClick API absent |
 | Loop / Time | fixed-step accumulator; cap at `kMaxFixedSteps`; **paused** → 0 Fixed steps, accumulator frozen |
 | Physics | integrate velocity with `fixed_delta_time`; AABB overlap; `CollisionEvent` on enter, not every stay frame |
@@ -1240,7 +1259,7 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 6. `external/googletest`, `external/tomlplusplus`, `tests/`, `engine_tests` (§12). No EnTT package.
 7. GUID `AssetsDb`: TOML `.meta`, `asset_guid` + `asset_codegen`, `get` / `try_get` (§10).
 8. Bevy-style `Events<T>` (§9), not an immediate-callback bus. Homemade ECS with an EnTT-like API (§7).
-9. No `Node` / `NodeEcs` / `NodeUI`. UI = `UiCanvas` + XML document + ViewModel (§4.3, §8). No `onClick` lambdas.
+9. No `Node` / `NodeEcs` / `NodeUI` **scene graph**. UI = `UiCanvas` + `UiDocument` + ViewModel (§4.3, §8). Document from XML or `ui::Node` builder. No `onClick` lambdas.
 10. Fixed timestep Loop + `IGame::on_fixed_update` + `Schedule` / `Phase` (§4.4–§4.5). No variable `dt` into physics.
 11. No `CmdCustomDraw`. `CmdDrawMesh` carries `IMaterial`, not shader+texture (§6).
 12. Public `include/engine/` vs private `src/` headers; glm PUBLIC, SDL/glad/spdlog/NanoVG not (§3.4).
@@ -1268,7 +1287,7 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 8. `asset_codegen` never writes `.meta`. Missing sidecar is a **failed build**, not a random GUID in CI.
 9. ECS is homemade, EnTT-shaped. **Do not add EnTT as a submodule.** Do not keep a Node graph beside World. No `Transform` parent in v1.
 10. Simulation uses `fixed_delta_time` on `Schedule::Fixed`. One-shot clicks run on `Schedule::Frame`, `Phase::Game` (§4.4–§4.5).
-11. UI markup is XML + CSS assets. Games do not build visual trees in C++ (tests excepted).
+11. UI documents are XML assets and/or the C++ `ui::Node` builder into the same `Element` tree. Style is CSS. Games do not build a parallel widget graph or `onClick` handlers (§8.2.1).
 12. All engine APIs: **main thread only**.
 13. `MouseConsumed` is cleared at the start of each Loop iteration, not at the end.
 14. No engine code assumes a single global window. Rendering and input for a `UiCanvas` (and, in v1, all world `Renderable`s) go through its `WindowId`; a `ctx<T>()` singleton that used to mean "the window" is a `WindowId`-keyed map instead (`WindowSizes`, §4.7/§21).
@@ -1634,10 +1653,8 @@ that already exists:
   and XML as small formatted strings from the config and feed them through the existing
   `ui::parse_xml` / `parse_css`, the same functions already used everywhere else text markup
   becomes a `Document`/`Stylesheet`, rather than hand-assembling `Element`/`Keyframes` structs.
-  §16 rule 11 ("games do not build visual trees in C++") is about the API surface exposed to game
-  authors — the engine procedurally generating its *own* one fixed internal splash document from
-  a config struct is a narrow, documented exception to that rule, not a pattern games are meant to
-  copy.
+  Games that want a C++ tree use `ui::Node` / `make_document` (§8.2.1); splash keeps formatted
+  XML/CSS strings because the keyframe percentages come from runtime config.
 - Spawned by `ui::show_splash` (§20.1) — gated on `config.enabled` — as **two** entities, not one:
   a backdrop `UiCanvas{fit = UiFit::FillWindow, order = kSplashCanvasOrder, window}` +
   `UiInstance{backdrop_document, backdrop_stylesheet}` + `SplashTimer{total_duration}`, and an
@@ -1648,10 +1665,9 @@ that already exists:
   game plausibly picks for its own UI. A game typically calls `show_splash` right where the old
   auto-trigger used to fire (around `on_start()`, after `Engine::init()`'s catalog load has
   finished, so `AssetsDb` can resolve the builtin/game splash image on demand — see §21.9 for when
-  the image itself actually loads), but the call site is entirely the game's choice now — §20.1. `world.create()` +
-  `world.emplace<ui::UiCanvas>(...)` + `world.emplace<ui::UiInstance>(...)` is the existing spawn
-  pattern — see `spawn_button_canvas` in `tests/mvvm_test.cpp` for a working example of building a
-  `UiCanvas` + `UiInstance{parsed_document}` pair from a `parse_xml` result. `run_ui_render`
+  the image itself actually loads), but the call site is entirely the game's choice now — §20.1.
+  Both entities are created with `ui::spawn_canvas` (no catalog `document` id) so Bind never clones from
+  the catalog. `run_ui_render`
   (`src/ecs/systems.cpp`, the existing `Phase::UiRender` system) already walks every
   `UiCanvas`/`UiInstance` entity and pushes its draw calls through the same `CommandBuffer` →
   render-backend path everything else uses — no `ICanvas`/`OpenGLCanvas` changes needed, and no
@@ -1689,16 +1705,9 @@ that already exists:
   dimensions, not something `build_splash_document` can know on its own — the caller resolves it
   via `AssetsDb::get<render::TextureDesc>(config.image)` and passes it into `ui::show_splash`
   (§20.1); the engine keeps no `AssetId → glm::vec2` cache of its own for this.
-- One divergence from `spawn_button_canvas`'s literal shape: that test never runs `Phase::Bind`,
-  so it can set `canvas.document` to an arbitrary/dummy `AssetId` without consequence. In the real
-  loop, `run_bind` (`src/ecs/systems.cpp`) runs every frame and calls `clone_document` — which
-  replaces `UiInstance` with a fresh `assets.get<UiDocument>(canvas.document)` — whenever
-  `instance_needs_rebuild` sees `UiInstance::loaded_document != UiCanvas::document` (plus
-  stylesheet/data-context). Both splash documents only exist in memory, so each canvas's
-  `document` and `data_context` must stay at their defaults (matching `UiInstance`'s
-  equally-defaulted `loaded_document`/`loaded_data_context`) to keep that check a no-op —
-  otherwise the in-memory document gets silently clobbered by a failed asset lookup on the very
-  next frame.
+- Canvases with no `document` GUID (`ui::spawn_canvas`, splash) are not cloned from `AssetsDb`.
+  Bind replaces `UiInstance` only when `canvas.document` changes. Changing `DataContext` always
+  rebinds in place. An empty asset-stylesheet id list does not wipe an authored in-memory sheet.
 - **The game underneath is already running while the splash shows, so the backdrop needs a
   constant opaque background, and it must be explicitly despawned when it's over** — this was
   wrong in the first implementation, caught by the game visibly flashing behind the splash for its
