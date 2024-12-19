@@ -121,3 +121,20 @@ TEST(Audio, InvalidLoopingHandleNoOp) {
     EXPECT_EQ(audio.looping_track_count(), acquired);
     EXPECT_EQ(audio.sfx_play_count(), 0);
 }
+
+TEST(Audio, BusVolumeAffectsPlayingTracks) {
+    engine::AudioSystem audio;
+    ASSERT_TRUE(audio.init());
+
+    audio.play_music(make_sound(1.f), true, 0.f);
+    EXPECT_FLOAT_EQ(audio.music_slot_gain(0), 1.f);
+
+    audio.set_music_volume(0.4f);
+    EXPECT_FLOAT_EQ(audio.music_slot_gain(0), 0.4f);
+
+    audio.set_master_volume(0.5f);
+    EXPECT_FLOAT_EQ(audio.music_slot_gain(0), 0.2f);
+
+    audio.set_music_volume(0.f);
+    EXPECT_FLOAT_EQ(audio.music_slot_gain(0), 0.f);
+}
