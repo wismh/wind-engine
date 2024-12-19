@@ -190,6 +190,7 @@ public:
         had_fill = true;
     }
     void stroke_rounded_rect(const engine::render::Rect&, float, float, glm::vec4) override {}
+    void draw_line(glm::vec2, glm::vec2, glm::vec4, float) override {}
     void set_font(engine::AssetId, float) override {}
     void fill_text(std::string_view, glm::vec2, glm::vec4, engine::ui::UiAlign, engine::ui::UiAlign) override {}
     void image(engine::AssetId, const engine::render::Rect&) override {}
