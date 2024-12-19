@@ -5,6 +5,7 @@
 #include <engine/resources/fatal_error.h>
 #include <engine/ui/binding_id.h>
 #include <engine/ui/command.h>
+#include <engine/ui/paint.h>
 #include <engine/ui/stylesheet.h>
 #include <engine/ui/view_model.h>
 
@@ -37,6 +38,7 @@ enum class ElementKind {
     ItemsControl,
     ItemTemplate,
     Line,
+    Component,
 };
 
 enum class StackDirection {
@@ -186,6 +188,9 @@ struct Element {
     // (canvas.cpp handle_pointer/update_drag). Unset (is_bound() false) means the element isn't a
     // drag target.
     BindingId drag_binding{};
+    // {binding path} target for `paint="{binding ...}"` (any element kind). Unset means no custom
+    // draw; `IPaint*` is filled in bind_element like `command`.
+    BindingId paint_binding{};
     std::optional<AssetId> source;
     std::optional<LengthInsets> slice;
     std::vector<CustomPropertyBinding> custom_property_bindings;
@@ -219,6 +224,7 @@ struct Element {
 
     render::Rect layout_rect{};
     ICommand* command = nullptr;
+    IPaint* paint = nullptr;
     bool hovered = false;
     bool pressed = false;
     bool disabled = false;

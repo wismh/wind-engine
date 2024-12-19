@@ -80,6 +80,9 @@ std::optional<ElementKind> kind_from_tag(const char* name) {
     if (tag == "Line") {
         return ElementKind::Line;
     }
+    if (tag == "Component") {
+        return ElementKind::Component;
+    }
     return std::nullopt;
 }
 
@@ -142,6 +145,28 @@ std::expected<void, UiError> assign_command_binding(Element& element, const char
     }
     element.command_binding = intern(*binding);
     if (vm != nullptr && !in_template && !vm->has_command(element.command_binding)) {
+        report(fatal, "UI binding name is not registered: " + *binding);
+        return std::unexpected(UiError::MissingBinding);
+    }
+    return {};
+}
+
+std::expected<void, UiError> assign_paint_binding(Element& element, const char* attr, IFatalError* fatal,
+        const ViewModel* vm, bool in_template) {
+    if (attr == nullptr) {
+        return {};
+    }
+    const auto binding = try_parse_binding(attr);
+    if (!binding) {
+        report(fatal, "UI paint must be a {binding} path");
+        return std::unexpected(UiError::MissingBinding);
+    }
+    if (binding->empty()) {
+        report(fatal, "UI binding is missing a registered name");
+        return std::unexpected(UiError::MissingBinding);
+    }
+    element.paint_binding = intern(*binding);
+    if (vm != nullptr && !in_template && !vm->has_paint(element.paint_binding)) {
         report(fatal, "UI binding name is not registered: " + *binding);
         return std::unexpected(UiError::MissingBinding);
     }
@@ -280,6 +305,9 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
         return std::unexpected(result.error());
     }
     if (auto result = assign_command_binding(element, xml->Attribute("command"), fatal, vm, in_template); !result) {
+        return std::unexpected(result.error());
+    }
+    if (auto result = assign_paint_binding(element, xml->Attribute("paint"), fatal, vm, in_template); !result) {
         return std::unexpected(result.error());
     }
     if (auto result = assign_drag_binding(element, xml->Attribute("drag"), fatal, vm, in_template); !result) {
