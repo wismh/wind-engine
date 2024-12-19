@@ -646,7 +646,7 @@ slider, a custom scrollbar) out of ordinary elements instead of a dedicated widg
 
 WPF-shaped `{binding path}` (path = registered snake_case name). `mode=one_way` default (VM → view). There is no `mode=two_way` on ordinary attributes (`text`, `source`, ...) — the one write-back path is the `drag` attribute (§8.6), which always writes through `ViewModel::write_property_float`.
 
-`id` / `class` / `name` attributes: CSS hooks. `name` is not FindName-from-game; games do not reach into the tree.
+`id` / `class` / `name` attributes: CSS hooks. `class` accepts a space-separated list of tokens (`class="hud title"`), each matched independently by `.class`/`Element.class` selectors — same as browser CSS. `name` is not FindName-from-game; games do not reach into the tree.
 
 Unknown tags / empty `{binding}` / intern hash collision of two paths: **`asset_codegen` fails the build**, and load-time is still fatal on `get`. Binding identifiers are `BindingId` via `constexpr intern(path)`. Codegen emits `assets::ui::Hud::bind(vm)` on a binder struct (not a generated ViewModel class). Handwritten `intern("x")` remains valid for tests and extra properties.
 
