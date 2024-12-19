@@ -21,11 +21,17 @@
 namespace engine::ui {
 namespace {
 
+enum class BackgroundRepeat {
+    NoRepeat,
+    Repeat,
+};
+
 struct ComputedStyle {
     glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
     glm::vec4 background{0.0f, 0.0f, 0.0f, 0.0f};
     std::optional<AssetId> background_image;
     std::optional<LengthInsets> background_slice;
+    BackgroundRepeat background_repeat = BackgroundRepeat::NoRepeat;
     float opacity = 1.0f;
     bool visible = true;
     Length gap{};
@@ -176,6 +182,14 @@ PositionMode parse_position(std::string_view raw) {
         return PositionMode::Absolute;
     }
     return PositionMode::Static;
+}
+
+BackgroundRepeat parse_background_repeat(std::string_view raw) {
+    const std::string_view value = trim(raw);
+    if (value == "repeat") {
+        return BackgroundRepeat::Repeat;
+    }
+    return BackgroundRepeat::NoRepeat;
 }
 
 struct ParsedTransform {
@@ -367,6 +381,8 @@ void apply_declaration(ComputedStyle& style, const CssDeclaration& decl) {
         if (const auto insets = css_length::parse_insets(decl.value)) {
             style.background_slice = *insets;
         }
+    } else if (decl.property == "background-repeat") {
+        style.background_repeat = parse_background_repeat(decl.value);
     } else if (decl.property == "opacity") {
         style.opacity = std::strtof(decl.value.c_str(), nullptr);
     } else if (decl.property == "visibility") {
@@ -766,6 +782,8 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
                     slice.left * input.ui_scale,
             };
             painter.image_nine_slice(*style.background_image, screen_rect, screen_slice);
+        } else if (style.background_repeat == BackgroundRepeat::Repeat) {
+            painter.image_repeat(*style.background_image, screen_rect);
         } else {
             painter.image(*style.background_image, screen_rect);
         }
