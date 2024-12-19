@@ -29,12 +29,18 @@ public:
     engine::ui::Bindable<std::string> title;
     engine::ui::Bindable<std::string> restart_label;
     engine::ui::Bindable<float> fraction;
+    engine::ui::Bindable<float> pan_x;
+    engine::ui::Bindable<float> pan_y;
+    engine::ui::Bindable<float> zoom;
     engine::ui::RelayCommand restart;
 
     HudViewModel() {
         property(engine::ui::intern("title"), title);
         property(engine::ui::intern("restart_label"), restart_label);
         property(engine::ui::intern("fraction"), fraction);
+        property(engine::ui::intern("pan_x"), pan_x);
+        property(engine::ui::intern("pan_y"), pan_y);
+        property(engine::ui::intern("zoom"), zoom);
         command(engine::ui::intern("restart"), restart);
     }
 };
@@ -70,6 +76,34 @@ TEST(UiXml, ParseValidCanvasStackLabelButton) {
     EXPECT_EQ(root.children[0].children[1].kind, engine::ui::ElementKind::Button);
     EXPECT_EQ(root.children[0].children[1].command_binding, engine::ui::intern("restart"));
     EXPECT_EQ(root.children[0].children[1].content_binding, engine::ui::intern("restart_label"));
+}
+
+TEST(UiXml, ParseViewportCameraBindings) {
+    HudViewModel vm;
+    const auto parsed = engine::ui::parse_xml(
+            R"(<Canvas><Viewport pan-x="{binding pan_x}" pan-y="{binding pan_y}" zoom="{binding zoom}"/></Canvas>)",
+            nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Element* viewport = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Viewport);
+    ASSERT_NE(viewport, nullptr);
+    EXPECT_EQ(viewport->pan_x_binding, engine::ui::intern("pan_x"));
+    EXPECT_EQ(viewport->pan_y_binding, engine::ui::intern("pan_y"));
+    EXPECT_EQ(viewport->zoom_binding, engine::ui::intern("zoom"));
+}
+
+TEST(UiXml, ViewportLiteralPanIsFatal) {
+    RecordingFatalError fatal;
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Viewport pan-x="10"/></Canvas>)", &fatal);
+    EXPECT_FALSE(parsed.has_value());
+    EXPECT_EQ(parsed.error(), engine::ui::UiError::MissingBinding);
+    EXPECT_GE(fatal.call_count, 1);
+}
+
+TEST(UiXml, ScanBindTreeResolvesViewportCameraBindings) {
+    const auto binder = engine::ui::scan_bind_tree(
+            R"(<Canvas><Viewport pan-x="{binding pan_x}" pan-y="{binding pan_y}" zoom="{binding zoom}"/></Canvas>)");
+    ASSERT_TRUE(binder.has_value());
+    ASSERT_EQ(binder->members.size(), 3u);
 }
 
 TEST(UiXml, ParseLineElement) {

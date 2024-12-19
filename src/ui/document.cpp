@@ -417,6 +417,15 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
     if (auto result = require_property(element.items_source_binding); !result) {
         return result;
     }
+    if (auto result = require_property(element.pan_x_binding); !result) {
+        return result;
+    }
+    if (auto result = require_property(element.pan_y_binding); !result) {
+        return result;
+    }
+    if (auto result = require_property(element.zoom_binding); !result) {
+        return result;
+    }
     for (const CustomPropertyBinding& custom : element.custom_property_bindings) {
         if (auto result = require_property(custom.binding); !result) {
             return result;
@@ -465,6 +474,21 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
             return std::unexpected(UiError::MissingBinding);
         }
         element.source = *value;
+    }
+    if (is_bound(element.pan_x_binding)) {
+        if (auto value = vm.read_property_float(element.pan_x_binding)) {
+            element.pan_x = *value;
+        }
+    }
+    if (is_bound(element.pan_y_binding)) {
+        if (auto value = vm.read_property_float(element.pan_y_binding)) {
+            element.pan_y = *value;
+        }
+    }
+    if (is_bound(element.zoom_binding)) {
+        if (auto value = vm.read_property_float(element.zoom_binding)) {
+            element.zoom = *value > 0.0f ? std::clamp(*value, kViewportMinZoom, kViewportMaxZoom) : 1.0f;
+        }
     }
     for (const CustomPropertyBinding& custom : element.custom_property_bindings) {
         if (auto value = vm.read_property_string(custom.binding)) {
@@ -619,24 +643,61 @@ Element* hit_test(Element& element, float x, float y) {
     if (!rect_contains(hit_bounds(element), x, y)) {
         return nullptr;
     }
+    float child_x = x;
+    float child_y = y;
+    if (element.kind == ElementKind::Viewport) {
+        const glm::vec2 inverted = inverse_viewport_pointer(element, glm::vec2{x, y});
+        child_x = inverted.x;
+        child_y = inverted.y;
+    }
     // child_stacking_order() is ascending (paint order); iterating its result back-to-front
     // visits the topmost (highest z-index / last-drawn) sibling first.
     std::vector<Element*> children = child_stacking_order(element.children);
     for (auto it = children.rbegin(); it != children.rend(); ++it) {
-        if (Element* nested = hit_test(**it, x, y)) {
+        if (Element* nested = hit_test(**it, child_x, child_y)) {
             return nested;
         }
     }
     std::vector<Element*> generated = child_stacking_order(element.generated_items);
     for (auto it = generated.rbegin(); it != generated.rend(); ++it) {
-        if (Element* nested = hit_test(**it, x, y)) {
+        if (Element* nested = hit_test(**it, child_x, child_y)) {
             return nested;
         }
     }
-    if (element.kind == ElementKind::Button || is_bound(element.command_binding) || is_bound(element.drag_binding)) {
+    if (element.kind == ElementKind::Button || is_bound(element.command_binding) || is_bound(element.drag_binding) ||
+            has_viewport_camera(element)) {
         return &element;
     }
     return nullptr;
+}
+
+void find_viewport_at_impl(Element& element, float x, float y, Element*& found) {
+    if (element.kind == ElementKind::ItemTemplate) {
+        return;
+    }
+    float child_x = x;
+    float child_y = y;
+    if (element.kind == ElementKind::Viewport) {
+        if (!rect_contains(element.layout_rect, x, y)) {
+            return;
+        }
+        found = &element;
+        const glm::vec2 inverted = inverse_viewport_pointer(element, glm::vec2{x, y});
+        child_x = inverted.x;
+        child_y = inverted.y;
+    }
+    for (Element* child : child_stacking_order(element.children)) {
+        find_viewport_at_impl(*child, child_x, child_y, found);
+    }
+    for (Element* child : child_stacking_order(element.generated_items)) {
+        find_viewport_at_impl(*child, child_x, child_y, found);
+    }
+}
+
+Element* find_viewport_at(Element& root, float x, float y) {
+    Element* found = nullptr;
+    find_viewport_at_impl(root, x, y, found);
+    return found;
 }
 
 Element* find_by_kind(Element& root, ElementKind kind) {
