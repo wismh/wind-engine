@@ -50,6 +50,7 @@ bool is_known_property(std::string_view name) {
             "text-align",
             "background-image",
             "background-slice",
+            "background-repeat",
             "border-radius",
             "border-width",
             "border-color",

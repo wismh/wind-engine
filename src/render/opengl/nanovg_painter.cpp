@@ -95,8 +95,13 @@ bool NanoVgPainter::add_image(AssetId id, const TextureDesc& desc) {
     if (impl_->images.contains(key)) {
         return true;
     }
-    const int nvg_id =
-            nvgCreateImageRGBA(impl_->vg, desc.width, desc.height, 0, desc.rgba.data());
+    // Every image is created wrapping (REPEATX/REPEATY) rather than clamping. This is a no-op for
+    // every non-tiled draw: image()/image_nine_slice() always size the nvgImagePattern extent to
+    // exactly match the filled rect, so texture coordinates never leave [0,1] and the GL wrap mode
+    // never becomes visible. image_repeat() is the only caller that relies on it, by making the
+    // pattern extent smaller than the filled rect so sampling wraps into repeated tiles.
+    const int nvg_id = nvgCreateImageRGBA(
+            impl_->vg, desc.width, desc.height, NVG_IMAGE_REPEATX | NVG_IMAGE_REPEATY, desc.rgba.data());
     if (nvg_id <= 0) {
         return false;
     }
@@ -250,6 +255,25 @@ void NanoVgPainter::image(AssetId texture, const Rect& rect) {
     }
     const NVGpaint paint =
             nvgImagePattern(impl_->vg, rect.x, rect.y, rect.w, rect.h, 0.0f, it->second.nvg_id, 1.0f);
+    nvgBeginPath(impl_->vg);
+    nvgRect(impl_->vg, rect.x, rect.y, rect.w, rect.h);
+    nvgFillPaint(impl_->vg, paint);
+    nvgFill(impl_->vg);
+}
+
+void NanoVgPainter::image_repeat(AssetId texture, const Rect& rect) {
+    if (impl_->vg == nullptr) {
+        return;
+    }
+    const auto it = impl_->images.find(std::string(texture.hex()));
+    if (it == impl_->images.end() || it->second.width <= 0 || it->second.height <= 0) {
+        return;
+    }
+    // Pattern extent = the texture's own pixel size (not `rect`), anchored at rect's origin, so
+    // filling `rect` (almost always larger) samples past [0,1] and wraps into repeated tiles.
+    const NVGpaint paint = nvgImagePattern(impl_->vg, rect.x, rect.y,
+            static_cast<float>(it->second.width), static_cast<float>(it->second.height), 0.0f, it->second.nvg_id,
+            1.0f);
     nvgBeginPath(impl_->vg);
     nvgRect(impl_->vg, rect.x, rect.y, rect.w, rect.h);
     nvgFillPaint(impl_->vg, paint);
