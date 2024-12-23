@@ -224,6 +224,25 @@ TEST(UiCss, BackgroundRepeatIsKnownProperty) {
     EXPECT_EQ(background_repeat->value, "repeat");
 }
 
+TEST(UiCss, LinePropertiesAreKnown) {
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css(
+            ".x { x1: 0; y1: 0; x2: 40; y2: 40; stroke: #ff0000; stroke-width: 3; }", warnings);
+    ASSERT_TRUE(sheet.has_value());
+    EXPECT_FALSE(warning_mentions(warnings, "x1"));
+    EXPECT_FALSE(warning_mentions(warnings, "y1"));
+    EXPECT_FALSE(warning_mentions(warnings, "x2"));
+    EXPECT_FALSE(warning_mentions(warnings, "y2"));
+    EXPECT_FALSE(warning_mentions(warnings, "stroke"));
+    ASSERT_EQ(sheet->rules.size(), 1u);
+    const engine::ui::CssDeclaration* x2 = find_declaration(sheet->rules[0], "x2");
+    ASSERT_NE(x2, nullptr);
+    EXPECT_EQ(x2->value, "40");
+    const engine::ui::CssDeclaration* stroke_width = find_declaration(sheet->rules[0], "stroke-width");
+    ASSERT_NE(stroke_width, nullptr);
+    EXPECT_EQ(stroke_width->value, "3");
+}
+
 TEST(UiCss, BackgroundImageFilenameWarns) {
     std::vector<std::string> warnings;
     const auto sheet = engine::ui::parse_css("Button { background-image: hover.png; }", warnings);
