@@ -21,15 +21,16 @@ namespace {
 // SDL3 already ticks a WM_TIMER (USER_TIMER_MINIMUM, i.e. ~10ms) while inside that modal loop
 // (see WM_ENTERSIZEMOVE in SDL_windowsevents.c) purely to drive its own SDL_AppIterate-based main
 // loop, which this engine doesn't use — but SDL_SetWindowsMessageHook (SDL_system.h), called for
-// every message while the modal loop is active, gives any app a way to piggyback on it. This
-// redraws every live window's *already-recorded* frame (WindowManager::draw_all() re-executes the
-// last CommandBuffer without clearing it, see CommandBuffer::clear()'s one call site in
-// systems.cpp) on each such tick — visual-only, no game_.on_update()/on_fixed_update() reentrancy
-// into the game loop, which would need EngineRuntime state (FixedStepClock, world.flush_events())
-// this class deliberately never touches (SDD §21.4 "platform calls stay behind WindowManager").
+// every message while the modal loop is active, gives any app a way to piggyback on it. What
+// actually runs on each tick isn't this class's business (SDD §3.4/§4.2 — stays ECS-free) —
+// EngineRuntime::begin_loop() supplies it via set_modal_loop_tick_callback() (wind-89: a full
+// reentrant game tick, not just a redraw — see EngineRuntime::reentrant_tick()'s doc comment for
+// why that's safe here specifically).
 bool windows_message_hook(void* userdata, MSG* msg) {
     if (msg != nullptr && msg->message == WM_TIMER) {
-        static_cast<WindowManager*>(userdata)->draw_all();
+        if (const auto& callback = static_cast<WindowManager*>(userdata)->modal_loop_tick_callback()) {
+            callback();
+        }
     }
     // Must always return true: SDL_windowsevents.c drops the message entirely (WIN_WindowProc
     // returns 0 without further processing) whenever a Windows message hook returns false.
@@ -51,6 +52,9 @@ WindowManager::WindowManager(render::IRenderBackend& backend) : backend_(&backen
     // A process-global single-slot hook (SDL keeps exactly one), so this only ever needs
     // installing once per WindowManager (one per EngineRuntime, one EngineRuntime per process).
     // Safe before SDL_Init(SDL_INIT_VIDEO): SDL_SetWindowsMessageHook just stores two globals.
+    // modal_loop_tick_callback_ is still empty at this point (WindowManager is constructed well
+    // before EngineRuntime::begin_loop() runs) — the hook is a harmless no-op until that call sets
+    // it, per its own null check.
     SDL_SetWindowsMessageHook(&windows_message_hook, this);
 #endif
 }

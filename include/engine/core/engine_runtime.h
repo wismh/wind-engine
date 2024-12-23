@@ -77,6 +77,14 @@ private:
     void end_loop();
     static void main_loop_thunk(void* self);
 
+    // Windows-only (SDD §21.7/wind-89): registered with WindowManager as its modal-loop tick
+    // callback for as long as the loop is running (begin_loop()..end_loop()), so game logic and
+    // rendering keep advancing in real time while the user is dragging/resizing a window, not just
+    // redrawing the last frame. See its .cpp doc comment for why this is safe to call reentrantly
+    // from inside SDL_PollEvent() specifically (it deliberately never touches
+    // world.flush_events()/poll_events() — those stay tick_loop()-only).
+    void reentrant_tick();
+
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

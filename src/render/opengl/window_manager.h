@@ -24,11 +24,11 @@ namespace engine {
 class WindowManager {
 public:
     explicit WindowManager(render::IRenderBackend& backend);
-    // Declared (not defaulted) so it can clear the Win32 modal-loop redraw hook installed by the
-    // constructor (SDD §21.7 "game freezes during any window drag" fix) on Windows; a no-op body
-    // elsewhere. Declaring it unconditionally (rather than only under _WIN32) keeps
-    // move-special-member behavior identical across platforms — a destructor guarded by #if would
-    // silently suppress the implicit move ctor/assignment on Windows only.
+    // Declared (not defaulted) so it can clear the Win32 modal-loop tick hook installed by the
+    // constructor (SDD §21.7) on Windows; a no-op body elsewhere. Declaring it unconditionally
+    // (rather than only under _WIN32) keeps move-special-member behavior identical across
+    // platforms — a destructor guarded by #if would silently suppress the implicit move
+    // ctor/assignment on Windows only.
     ~WindowManager();
 
     [[nodiscard]] bool create_primary_window(const WindowDesc& desc);
@@ -70,6 +70,20 @@ public:
     // event, if any, arrives.
     void for_each_secondary_window(const std::function<void(WindowId, WindowSystem&)>& fn);
 
+    // Called on every WM_TIMER seen while a Windows modal move/size loop is active — a no-op on
+    // other platforms and a no-op here until someone sets it (SDD §21.7 "game freezes during any
+    // window drag" fix, extended by wind-89 to a full reentrant tick, not just a redraw).
+    // WindowManager only knows *that* something should run on this tick, never *what* — it stays
+    // ECS-free (SDD §3.4/§4.2); EngineRuntime::begin_loop() supplies the actual callback once its
+    // own loop state (IGame&, FixedStepClock, ecs::World&) exists.
+    void set_modal_loop_tick_callback(std::function<void()> callback) {
+        modal_loop_tick_callback_ = std::move(callback);
+    }
+
+    [[nodiscard]] const std::function<void()>& modal_loop_tick_callback() const noexcept {
+        return modal_loop_tick_callback_;
+    }
+
 private:
     struct Entry {
         WindowSystem window;
@@ -86,6 +100,7 @@ private:
     // never dangle (see their doc comments above).
     std::unordered_map<WindowId, std::unique_ptr<Entry>> windows_;
     std::uint32_t next_id_ = 1;   // 0 is kPrimaryWindow, reserved
+    std::function<void()> modal_loop_tick_callback_;
 };
 
 }
