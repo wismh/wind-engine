@@ -36,6 +36,7 @@ enum class ElementKind {
     Image,
     ItemsControl,
     ItemTemplate,
+    Line,
 };
 
 enum class StackDirection {
