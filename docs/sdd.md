@@ -2537,22 +2537,91 @@ which doesn't use that model. Fixed via the general escape hatch SDL exposes for
 active): `WindowManager`'s constructor (`src/render/opengl/window_manager.cpp`) installs
 `windows_message_hook` once (a process-global single-slot hook — one `WindowManager` per
 `EngineRuntime`, one `EngineRuntime` per process, so installing it once here is enough; safe before
-`SDL_Init` since the SDL-side function just stores two globals), which calls
-`WindowManager::draw_all()` on every `WM_TIMER` seen while the hook is armed. This is a
-**visual-only** redraw, deliberately not a reentrant `tick_loop()`: `draw_all()` re-executes each
-window's *already-recorded* `CommandBuffer` (confirmed `CommandBuffer::clear()`'s only call site,
+`SDL_Init` since the SDL-side function just stores two globals), which calls a registered callback
+(see the wind-89 writeup below — originally just `WindowManager::draw_all()`, a **visual-only**
+redraw) on every `WM_TIMER` seen while the hook is armed. **Superseded by wind-89 below**: the
+original fix here was deliberately *not* a reentrant `tick_loop()` — `draw_all()` re-executed each
+window's already-recorded `CommandBuffer` (confirmed `CommandBuffer::clear()`'s only call site,
 `src/ecs/systems.cpp`, runs once per real tick, so calling `draw()` again without a new tick just
 re-presents the previous frame, not a blank one) rather than running
 `game.on_update()`/`on_fixed_update()` again from inside a nested call stack still inside
-`SDL_PollEvent` — that would need reentrant `FixedStepClock`/`world.flush_events()` behavior this
-class was never designed for, and keeps game logic (timers, animation state) correctly paused for
-the drag's duration rather than ticking unboundedly fast once it resumes. `WindowManager` gained a
-non-defaulted destructor (declared unconditionally, not just under `_WIN32`, so implicit
-move-constructor/assignment behavior doesn't silently differ by platform — `windows_message_hook`
-needs clearing there before `this` goes away, since it's the hook's `userdata`) that clears the
-hook via `SDL_SetWindowsMessageHook(nullptr, nullptr)`. Not covered by a dedicated `engine_tests`
-case: exercising it needs a real HWND actually being dragged, out of scope per §12.3, same boundary
-as the rest of this section's Win32-only pieces.
+`SDL_PollEvent`, which "would need reentrant `FixedStepClock`/`world.flush_events()` behavior this
+class was never designed for" (this section's own words, until wind-89 actually built that
+behavior — `world.flush_events()` specifically turned out to still need staying tick_loop()-only,
+everything else didn't). `WindowManager` gained a non-defaulted destructor (declared
+unconditionally, not just under `_WIN32`, so implicit move-constructor/assignment behavior doesn't
+silently differ by platform — the hook needs clearing there before `this` goes away, since it's the
+hook's `userdata`) that clears the hook via `SDL_SetWindowsMessageHook(nullptr, nullptr)`. Not
+covered by a dedicated `engine_tests` case: exercising it needs a real HWND actually being dragged,
+out of scope per §12.3, same boundary as the rest of this section's Win32-only pieces.
+
+**Feature added (wind-89, `td-over`): the visual-only redraw above became a real reentrant game
+tick, so simulation (wave timers, enemy AI, animation) keeps advancing in real time during a
+drag/resize, not just the picture.** Requested by `td-over` (an idle auto-battler, where pausing
+simulation for however long the player holds the overlay's drag strip is a real gameplay problem,
+not just cosmetic) after the visual-only fix above shipped. Two changes:
+
+`WindowManager` no longer hardcodes what runs on its Win32 modal-loop hook — `draw_all()` was
+`EngineRuntime`'s business to begin with, and `EngineRuntime` is the only place with the `IGame&`/
+`ecs::World&`/`FixedStepClock` this needs. `set_modal_loop_tick_callback(std::function<void()>)`
+(`src/render/opengl/window_manager.h`) lets a caller register what runs on `WM_TIMER`, keeping
+`WindowManager` itself ECS-free (§3.4/§4.2) — same shape as the pre-existing
+`for_each_secondary_window` callback parameter. `EngineRuntime::begin_loop()` registers
+`[this] { reentrant_tick(); }`; `end_loop()` clears it back to empty (a null/empty `std::function`
+is `windows_message_hook`'s no-op case — harmless if a stray `WM_TIMER` arrives outside
+`begin_loop()`/`end_loop()`'s span, which shouldn't happen but costs nothing to guard).
+
+`EngineRuntime::reentrant_tick()` (`src/core/engine_runtime.cpp`) is `tick_loop()`'s tail —
+`ui::begin_frame(world)`, `FixedStepClock::advance()` + `on_fixed_update()` the returned number of
+times, `on_update()`, `update_click_through()`, `draw_all()` — **minus** `world.flush_events()` and
+`poll_events()`, deliberately:
+
+- `poll_events()` is pointless here: real OS input isn't flowing through `SDL_PollEvent` while this
+  hook is even reachable (that's the whole reason it exists) — this callback receives Windows
+  messages directly instead.
+- `world.flush_events()` is the one piece that turned out to still need to stay outer-`tick_loop()`
+  only, and this is the crux of the whole feature: `Events<T>::update()` (`include/engine/ecs/events.h`)
+  ages `previous_` into oblivion and promotes `current_` into `previous_`. The outer `tick_loop()`
+  (`engine_runtime.cpp`) calls `world.flush_events()` once, immediately before `poll_events()` — so
+  by the time this hook can first fire (nested inside that very `poll_events()` call), the outer
+  frame's own flush has *already run*, but none of the outer frame's own systems (which read what
+  that flush just promoted into `previous_`) have executed yet — that happens later, once
+  `poll_events()` eventually returns and `tick_loop()` resumes past it. A second, reentrant
+  `flush_events()` call from inside `reentrant_tick()` would clear `previous_` out from under those
+  not-yet-run systems, silently dropping events they were counting on seeing this cycle. Omitting it
+  here doesn't cost same-tick event delivery either: `EventReader<T>::begin()`/`end()` (`events.h`)
+  index into `previous_`/`current_` fresh at every construction rather than requiring a prior
+  `update()` — a system inside `reentrant_tick()` that sends an event and a later system (same
+  reentrant tick, or the next one) that reads it via a fresh `EventReader`/`EventCursor`
+  construction sees it correctly regardless; `flush_events()` is only about aging *across* frame
+  boundaries, which the outer real tick's own call already does for everything sent since the last
+  real frame.
+- The secondary-window `WindowSizes`/font backfill block in `tick_loop()` is also skipped here —
+  cosmetic (a newly opened secondary window's canvas sizes one frame later than usual, only if that
+  window happens to open in the exact same span a drag is already in progress), not worth the extra
+  complexity in this callback.
+
+Both `tick_loop()` and `reentrant_tick()` read and advance the *same* `impl_->loop_last` and the
+same `FixedStepClock` (`impl_->loop_clock`) — there's no separate clock for the reentrant path.
+`real_dt` is measured against whichever of the two last ran, and every `reentrant_tick()` call
+updates `loop_last` again before returning — so no matter how many times `WM_TIMER` fires during one
+drag (~every 10ms), `tick_loop()`'s own `real_dt` once the drag ends and it resumes is just the
+small remainder since the *last* `reentrant_tick()` call, never a multi-second catch-up burst — the
+`td-over` request specifically named this as the failure mode to avoid, and it's avoided by
+construction (small, frequent `real_dt` values in, not one large one after the fact) rather than by
+clamping. `FixedStepClock::advance()` (`src/core/fixed_step.cpp`) independently clamps any single
+call's `real_dt` to 0.25s and caps steps at 8 per call (discarding, not deferring, any leftover past
+that) regardless of who's calling it, so even an unusually long gap between two `reentrant_tick()`
+calls — or between the last one and `tick_loop()`'s own resumption — can't run away either.
+
+Not covered by a dedicated `engine_tests` case: same real-HWND/real-drag boundary as the rest of
+this section (§12.3) — `world.flush_events()`'s ordering relative to a mid-`poll_events()` reentrant
+call isn't something a headless test can exercise. **Merged to `main` on `td-over`'s explicit
+request, ahead of the live-gameplay confirmation every other Win32-only fix in this section got
+before merging** — the reasoning above (flush/poll omission, shared `loop_last`/`FixedStepClock`)
+is believed correct but, unlike the rest of §21.7, has not yet been watched working against a real
+drag with waves/enemies live. If `td-over` hits dropped events, corrupted state, or burst catch-up
+after dragging with this merged, that is the first place to look.
 
 **Primary window's own `WindowSize` had no equivalent backfill.** The paragraph above fixes a
 *secondary* window's missing `WindowSizes` entry; the primary window had the same class of bug for
