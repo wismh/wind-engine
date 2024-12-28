@@ -172,7 +172,7 @@ struct CustomPropertyBinding {
 struct Element {
     ElementKind kind = ElementKind::Canvas;
     std::string id;
-    std::string class_name;
+    std::vector<std::string> classes;
     std::string name;
 
     std::string text;

@@ -265,16 +265,20 @@ std::optional<float> parse_seconds(std::string_view raw) {
     return std::nullopt;
 }
 
+bool has_class(const Element& element, const std::string& class_name) {
+    return std::ranges::find(element.classes, class_name) != element.classes.end();
+}
+
 bool compound_matches(const CssSelector& selector, const Element& element) {
     switch (selector.type) {
         case CssSelectorType::Element:
             return kind_name(element.kind) == selector.element;
         case CssSelectorType::Class:
-            return element.class_name == selector.class_name;
+            return has_class(element, selector.class_name);
         case CssSelectorType::Id:
             return element.id == selector.id;
         case CssSelectorType::ElementClass:
-            return kind_name(element.kind) == selector.element && element.class_name == selector.class_name;
+            return kind_name(element.kind) == selector.element && has_class(element, selector.class_name);
     }
     return false;
 }
