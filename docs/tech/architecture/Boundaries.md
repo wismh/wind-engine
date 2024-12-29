@@ -18,7 +18,7 @@ Games include `<engine/…>` only. `IUiPainter` is **not** public ([[src.ui.pain
 ## Forbidden (SDD + playbook)
 
 - EnTT as a dependency.
-- `onClick`, `CmdCustomDraw`, `EventBus`, `Node*`.
+- `onClick`, `CmdCustomDraw`, `EventBus`, scene-graph `Node*` (`NodeEcs` / `NodeUI`). `ui::Node` is the UI builder.
 - `#include` glad / SDL in tests (except what already lives behind `ENGINE_WITH_WINDOW` in production code).
 - Regenerating [[include.engine.builtin_ids.h|builtin GUIDs]].
 - Building the whole engine in one session.
