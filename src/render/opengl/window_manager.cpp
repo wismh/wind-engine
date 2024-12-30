@@ -28,8 +28,11 @@ namespace {
 // why that's safe here specifically).
 bool windows_message_hook(void* userdata, MSG* msg) {
     if (msg != nullptr && msg->message == WM_TIMER) {
-        if (const auto& callback = static_cast<WindowManager*>(userdata)->modal_loop_tick_callback()) {
-            callback();
+        auto* self = static_cast<WindowManager*>(userdata);
+        if (const auto& callback = self->modal_loop_tick_callback()) {
+            // wind-90: msg->hwnd is the window actually being live-moved/resized right now — see
+            // set_modal_loop_tick_callback's doc comment for why the callback wants to know this.
+            callback(self->find_by_native_handle(msg->hwnd));
         }
     }
     // Must always return true: SDL_windowsevents.c drops the message entirely (WIN_WindowProc
@@ -193,6 +196,25 @@ std::optional<WindowId> WindowManager::find_by_sdl_id(SDL_WindowID sdl_id) const
     return std::nullopt;
 }
 
+std::optional<WindowId> WindowManager::find_by_native_handle(void* native_handle) const {
+    if (native_handle == nullptr) {
+        return std::nullopt;
+    }
+    for (const auto& [id, entry] : windows_) {
+        SDL_Window* sdl_window = entry->window.window();
+        if (sdl_window == nullptr) {
+            continue;
+        }
+        // SDL_PROP_WINDOW_WIN32_HWND_POINTER simply isn't set on non-Windows platforms — this
+        // query returns nullptr there, so the comparison below just never matches, no #if needed.
+        void* hwnd = SDL_GetPointerProperty(SDL_GetWindowProperties(sdl_window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
+        if (hwnd != nullptr && hwnd == native_handle) {
+            return id;
+        }
+    }
+    return std::nullopt;
+}
+
 void WindowManager::for_each_secondary_window(const std::function<void(WindowId, WindowSystem&)>& fn) {
     for (auto& [id, entry] : windows_) {
         if (id != kPrimaryWindow && entry->window.window() != nullptr) {
@@ -201,12 +223,15 @@ void WindowManager::for_each_secondary_window(const std::function<void(WindowId,
     }
 }
 
-void WindowManager::draw_all() {
+void WindowManager::draw_all(std::optional<WindowId> skip) {
     // The primary slot's canvas object always exists (constructor), even before
     // create_primary_window() ever succeeds — gating on window.window() rather than on canvas
     // non-null avoids issuing raw GL calls through an OpenGLCanvas that was never init()'d (no GL
     // context, no loaded entry points).
     for (auto& [id, entry] : windows_) {
+        if (skip == id) {
+            continue;
+        }
         if (entry->canvas && entry->window.window() != nullptr) {
             entry->canvas->draw();
         }
