@@ -82,8 +82,11 @@ private:
     // rendering keep advancing in real time while the user is dragging/resizing a window, not just
     // redrawing the last frame. See its .cpp doc comment for why this is safe to call reentrantly
     // from inside SDL_PollEvent() specifically (it deliberately never touches
-    // world.flush_events()/poll_events() — those stay tick_loop()-only).
-    void reentrant_tick();
+    // world.flush_events()/poll_events() — those stay tick_loop()-only). `dragged_window` is
+    // whichever live window (if any) owns the HWND actually being live-moved/resized on this exact
+    // tick (wind-90) — its own draw/swap is skipped for the tick, since that call was observed to
+    // block long enough (for an opaque window specifically) to stall the entire reentrant tick.
+    void reentrant_tick(std::optional<WindowId> dragged_window);
 
     struct Impl;
     std::unique_ptr<Impl> impl_;
