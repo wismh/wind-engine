@@ -12,8 +12,8 @@ namespace engine::ui {
 
 // Ages toward total_duration; the entity is destroyed once elapsed >= total_duration (an engine
 // system does this — see register_engine_systems). Uses Time::delta_time (not a fixed-step tick),
-// matching every other UI animation in this engine (SDD §20.3) — it keeps advancing even while
-// ApplicationState::paused, same as before this change (Schedule::Frame always runs, §4.6).
+// matching every other UI animation in this engine — it keeps advancing even while
+// ApplicationState::paused, same as before this change (Schedule::Frame always runs).
 struct SplashTimer {
     float elapsed = 0.0f;
     float total_duration = 0.0f;
@@ -29,7 +29,7 @@ struct SplashTimer {
 // is the configured image's real decoded pixel size (get it from
 // AssetsDb::get<render::TextureDesc>(config.image) — width/height — the caller already has
 // AssetsDb via DI, same as loading any other texture). Returns nullopt when there's nothing to
-// show: config.enabled is false, or the underlying document couldn't be built (SDD §20.3 — e.g.
+// show: config.enabled is false, or the underlying document couldn't be built (e.g.
 // all-zero durations, unresolved image size). Both entities carry UiCanvas + UiInstance +
 // SplashTimer and are despawned automatically once SplashTimer.total_duration elapses (they
 // always cross that threshold on the same frame, since both start at elapsed = 0 with the same
