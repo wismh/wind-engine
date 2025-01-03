@@ -435,6 +435,17 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
         element.disabled = !command->can_execute();
     }
 
+    if (is_bound(element.paint_binding) && !in_template) {
+        IPaint* paint = vm.find_paint(element.paint_binding);
+        if (paint == nullptr) {
+            if (fatal != nullptr) {
+                fatal->report("UI binding name is not registered");
+            }
+            return std::unexpected(UiError::MissingBinding);
+        }
+        element.paint = paint;
+    }
+
     if (is_bound(element.text_binding)) {
         if (auto value = vm.read_property_string(element.text_binding)) {
             element.text = *value;
