@@ -7,7 +7,7 @@ aliases: [include/engine/ui/view_model.h, view_model.h]
 
 Module: [[modules/UI]]
 
-Register `Property` / `Command`; lookup by `BindingId` ([[include.engine.ui.binding_id.h]]), not name. `property`/`command` are the public surface generated `bind(vm)` calls into.
+Register `Property` / `Command` / `IPaint`; lookup by `BindingId` ([[include.engine.ui.binding_id.h]]), not name. `property`/`command`/`paint` are the public surface.
 
 See [[src.ui.view_model.cpp]].
 

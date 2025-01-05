@@ -8,12 +8,12 @@
 
 namespace engine {
 
-// Identifies one live OS window (SDD §21.5). enum class gets std::hash and == for free since
+// Identifies one live OS window. enum class gets std::hash and == for free since
 // C++14 (LWG 2148), so this works as an unordered_map key with no extra machinery.
 enum class WindowId : std::uint32_t {};
 inline constexpr WindowId kPrimaryWindow{0};
 
-// Create-time-only flags (SDD §21.2): transparent in particular can't be toggled on an existing
+// Create-time-only flags: transparent in particular can't be toggled on an existing
 // SDL window, so a game that wants to switch from an opaque window to a transparent one opens a
 // second window rather than mutating this struct after create().
 struct WindowStyle {
