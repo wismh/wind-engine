@@ -7,7 +7,7 @@ aliases: [src/render/opengl/nanovg_painter.cpp, nanovg_painter.cpp]
 
 Module: [[modules/Render]]
 
-NanoVG `IUiPainter`. Fonts in memory. `image()` draws via `nvgImagePattern` against an `AssetId`-keyed image map (`add_image` uploads with `nvgCreateImageRGBA`, called from Init for `ImporterKind::Texture`/`UiImage` catalog entries).
+NanoVG `IUiPainter`. Fonts in memory. `scissor` is `nvgIntersectScissor`. `apply_view` scales about origin then translates `zoom * pan`. `image()` draws via `nvgImagePattern` against an `AssetId`-keyed image map (`add_image` uploads with `nvgCreateImageRGBA`, called from Init for `ImporterKind::Texture`/`UiImage` catalog entries).
 
 See [[features/OpenGL]], [[features/UI Markup]].
 

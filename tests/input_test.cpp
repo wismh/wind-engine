@@ -257,6 +257,20 @@ TEST(Input, MouseDownMoveUp) {
     EXPECT_TRUE(read_input(world).empty());
 }
 
+TEST(Input, MouseWheelEmitsWheelEvent) {
+    engine::ecs::World world;
+    engine::InputSystem input{world};
+    const glm::vec2 pos{12.f, 34.f};
+    input.handle_mouse_wheel(engine::kPrimaryWindow, pos, 1.5f);
+
+    const std::vector<engine::MouseEvent> events = read_mouse(world);
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].kind, engine::MouseEvent::Kind::Wheel);
+    EXPECT_EQ(events[0].position, pos);
+    EXPECT_FLOAT_EQ(events[0].wheel_y, 1.5f);
+    EXPECT_TRUE(read_input(world).empty());
+}
+
 TEST(Input, BoundLeftMouseEmitsMouseAndInput) {
     engine::ecs::World world;
     engine::InputSystem input{world};
