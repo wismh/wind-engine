@@ -163,7 +163,14 @@ void NanoVgPainter::apply_transform(glm::vec2 center, float rotation_radians, fl
 
 void NanoVgPainter::scissor(const Rect& rect) {
     if (impl_->vg != nullptr) {
-        nvgScissor(impl_->vg, rect.x, rect.y, rect.w, rect.h);
+        nvgIntersectScissor(impl_->vg, rect.x, rect.y, rect.w, rect.h);
+    }
+}
+
+void NanoVgPainter::apply_view(glm::vec2 origin, glm::vec2 pan, float zoom) {
+    apply_transform(origin, 0.0f, zoom);
+    if (impl_->vg != nullptr) {
+        nvgTranslate(impl_->vg, zoom * pan.x, zoom * pan.y);
     }
 }
 

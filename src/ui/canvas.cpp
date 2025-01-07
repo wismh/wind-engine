@@ -5,6 +5,7 @@
 #include "painter.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <vector>
 
@@ -95,13 +96,15 @@ struct PointerHit {
     UiCanvasSpace space{};
 };
 
-// Shared by handle_pointer() and update_pointer_hover(): finds the topmost element under (x, y),
-// rebuilding bindings/layout the same way for both so a hover hit test sees the exact same
-// element a click at that position would. Layout uses the window's IUiPainter when registered
-// (UiLayoutPainters) so hug text metrics match paint_document; otherwise the CPU fallback.
-// Sets MouseConsumed as a side effect whenever it finds a hit (matching the previous
-// handle_pointer() behavior) — both callers want that.
-std::optional<PointerHit> resolve_pointer_hit(ecs::World& world, float x, float y, WindowId window) {
+struct PreparedCanvas {
+    UiCanvas* canvas = nullptr;
+    UiInstance* instance = nullptr;
+    ecs::Entity entity{};
+    UiCanvasSpace space{};
+    glm::vec2 layout_pointer{};
+};
+
+std::optional<PreparedCanvas> prepare_top_canvas(ecs::World& world, float x, float y, WindowId window) {
     std::vector<CanvasHit> hits;
     {
         auto view = world.view<UiCanvas>();
@@ -148,14 +151,29 @@ std::optional<PointerHit> resolve_pointer_hit(ecs::World& world, float x, float 
     apply_layout_style(instance->document.root, sheet, media_width, media_height);
     layout(instance->document, space.layout_rect, layout_painter_for(world, window));
 
-    Element* hit =
-            hit_test(instance->document.root, (x - space.offset.x) / space.scale, (y - space.offset.y) / space.scale);
+    const glm::vec2 layout_pointer{(x - space.offset.x) / space.scale, (y - space.offset.y) / space.scale};
+    return PreparedCanvas{&canvas, instance, entity, space, layout_pointer};
+}
+
+// Shared by handle_pointer() and update_pointer_hover(): finds the topmost element under (x, y),
+// rebuilding bindings/layout the same way for both so a hover hit test sees the exact same
+// element a click at that position would. Layout uses the window's IUiPainter when registered
+// (UiLayoutPainters) so hug text metrics match paint_document; otherwise the CPU fallback.
+// Sets MouseConsumed as a side effect whenever it finds a hit (matching the previous
+// handle_pointer() behavior) — both callers want that.
+std::optional<PointerHit> resolve_pointer_hit(ecs::World& world, float x, float y, WindowId window) {
+    const std::optional<PreparedCanvas> prepared = prepare_top_canvas(world, x, y, window);
+    if (!prepared) {
+        return std::nullopt;
+    }
+
+    Element* hit = hit_test(prepared->instance->document.root, prepared->layout_pointer.x, prepared->layout_pointer.y);
     if (hit == nullptr) {
         return std::nullopt;
     }
 
     world.ctx<MouseConsumed>().consumed_windows.insert(window);
-    return PointerHit{hit, &canvas, entity, space};
+    return PointerHit{hit, prepared->canvas, prepared->entity, prepared->space};
 }
 
 // Shared axis math for handle_pointer()'s drag-start and update_drag()'s continuation: maps a
@@ -181,7 +199,18 @@ void handle_pointer(ecs::World& world, float x, float y, WindowId window) {
         return;
     }
 
-    if (is_bound(hit->element->drag_binding) && hit->canvas->data_context) {
+    if (hit->element->kind == ElementKind::Viewport && has_viewport_camera(*hit->element) && hit->canvas->data_context) {
+        world.ctx<UiActivePans>().pans[window] = ActivePan{
+                hit->entity,
+                hit->element->pan_x_binding,
+                hit->element->pan_y_binding,
+                hit->element->zoom_binding,
+                glm::vec2{x, y},
+                hit->space.offset,
+                hit->space.scale,
+                hit->element->generated_owner,
+        };
+    } else if (is_bound(hit->element->drag_binding) && hit->canvas->data_context) {
         // A drag-bound element generated inside an ItemsControl/ItemTemplate has its `drag`
         // binding registered on the *item* ViewModel (Element::generated_owner, freshly resolved
         // by the apply_bindings() resolve_pointer_hit() just ran), not the canvas's own
@@ -255,6 +284,99 @@ void update_drag(ecs::World& world, float x, float y, WindowId window) {
 
 void end_drag(ecs::World& world, WindowId window) {
     world.ctx<UiActiveDrags>().drags.erase(window);
+}
+
+ViewModel* pan_target(ecs::World& world, const ActivePan& pan, UiCanvas& canvas) {
+    if (pan.owner == nullptr) {
+        return canvas.data_context.get();
+    }
+    UiInstance* instance = world.try_get<UiInstance>(pan.canvas_entity);
+    if (instance == nullptr) {
+        return nullptr;
+    }
+    (void) apply_bindings(instance->document, *canvas.data_context, nullptr);
+    if (find_by_generated_owner(instance->document.root, pan.owner) == nullptr) {
+        return nullptr;
+    }
+    return static_cast<ViewModel*>(const_cast<void*>(pan.owner));
+}
+
+void update_pan(ecs::World& world, float x, float y, WindowId window) {
+    auto& pans = world.ctx<UiActivePans>().pans;
+    const auto it = pans.find(window);
+    if (it == pans.end()) {
+        return;
+    }
+    ActivePan& pan = it->second;
+    UiCanvas* canvas = world.try_get<UiCanvas>(pan.canvas_entity);
+    if (canvas == nullptr || !canvas->data_context) {
+        pans.erase(it);
+        return;
+    }
+    ViewModel* target = pan_target(world, pan, *canvas);
+    if (target == nullptr) {
+        pans.erase(it);
+        return;
+    }
+
+    float zoom = 1.0f;
+    if (is_bound(pan.zoom_binding)) {
+        zoom = viewport_zoom(target->read_property_float(pan.zoom_binding).value_or(1.0f));
+    }
+    const float scale = pan.space_scale * zoom;
+    const glm::vec2 delta{(x - pan.last_pointer.x) / scale, (y - pan.last_pointer.y) / scale};
+    pan.last_pointer = glm::vec2{x, y};
+    if (is_bound(pan.pan_x_binding)) {
+        const float current = target->read_property_float(pan.pan_x_binding).value_or(0.0f);
+        target->write_property_float(pan.pan_x_binding, current + delta.x);
+    }
+    if (is_bound(pan.pan_y_binding)) {
+        const float current = target->read_property_float(pan.pan_y_binding).value_or(0.0f);
+        target->write_property_float(pan.pan_y_binding, current + delta.y);
+    }
+}
+
+void end_pan(ecs::World& world, WindowId window) {
+    world.ctx<UiActivePans>().pans.erase(window);
+}
+
+void handle_wheel(ecs::World& world, float x, float y, float wheel_y, WindowId window) {
+    if (wheel_y == 0.0f) {
+        return;
+    }
+    const std::optional<PreparedCanvas> prepared = prepare_top_canvas(world, x, y, window);
+    if (!prepared || !prepared->canvas->data_context) {
+        return;
+    }
+    Element* viewport = find_viewport_at(
+            prepared->instance->document.root, prepared->layout_pointer.x, prepared->layout_pointer.y);
+    if (viewport == nullptr || !is_bound(viewport->zoom_binding)) {
+        return;
+    }
+
+    ViewModel* target = viewport->generated_owner != nullptr
+            ? static_cast<ViewModel*>(const_cast<void*>(viewport->generated_owner))
+            : prepared->canvas->data_context.get();
+    const float z = viewport_zoom(target->read_property_float(viewport->zoom_binding).value_or(viewport->zoom));
+    const float new_z = std::clamp(z * std::pow(kViewportZoomStep, wheel_y), kViewportMinZoom, kViewportMaxZoom);
+    const glm::vec2 origin{viewport->layout_rect.x, viewport->layout_rect.y};
+    const glm::vec2 d = prepared->layout_pointer - origin;
+    glm::vec2 pan{viewport->pan_x, viewport->pan_y};
+    if (is_bound(viewport->pan_x_binding)) {
+        pan.x = target->read_property_float(viewport->pan_x_binding).value_or(pan.x);
+    }
+    if (is_bound(viewport->pan_y_binding)) {
+        pan.y = target->read_property_float(viewport->pan_y_binding).value_or(pan.y);
+    }
+    const glm::vec2 new_pan = d * (1.0f / new_z - 1.0f / z) + pan;
+    target->write_property_float(viewport->zoom_binding, new_z);
+    if (is_bound(viewport->pan_x_binding)) {
+        target->write_property_float(viewport->pan_x_binding, new_pan.x);
+    }
+    if (is_bound(viewport->pan_y_binding)) {
+        target->write_property_float(viewport->pan_y_binding, new_pan.y);
+    }
+    world.ctx<MouseConsumed>().consumed_windows.insert(window);
 }
 
 void update_pointer_hover(ecs::World& world, float x, float y, WindowId window) {

@@ -31,6 +31,9 @@ public:
     Node& command_bind(BindingId id);
     Node& paint_bind(BindingId id);
     Node& drag_bind(BindingId id);
+    Node& pan_x_bind(BindingId id);
+    Node& pan_y_bind(BindingId id);
+    Node& zoom_bind(BindingId id);
     Node& drag_orientation(StackDirection orientation);
     Node& source(AssetId id);
     Node& source_bind(BindingId id);
@@ -56,6 +59,7 @@ private:
     friend Node item_template();
     friend Node line();
     friend Node component();
+    friend Node viewport();
     friend std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal);
 
     explicit Node(ElementKind kind);
@@ -73,6 +77,7 @@ private:
 [[nodiscard]] Node item_template();
 [[nodiscard]] Node line();
 [[nodiscard]] Node component();
+[[nodiscard]] Node viewport();
 
 [[nodiscard]] std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal = nullptr);
 

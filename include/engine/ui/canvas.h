@@ -122,6 +122,23 @@ struct UiActiveDrags {
     std::unordered_map<WindowId, ActiveDrag> drags;
 };
 
+// In-progress Viewport pan (empty-background drag). Separate from ActiveDrag: this writes 2D pan
+// from pointer delta, not a [0,1] fraction along one axis.
+struct ActivePan {
+    ecs::Entity canvas_entity{};
+    BindingId pan_x_binding{};
+    BindingId pan_y_binding{};
+    BindingId zoom_binding{};
+    glm::vec2 last_pointer{};
+    glm::vec2 space_offset{0.0f, 0.0f};
+    float space_scale = 1.0f;
+    const void* owner = nullptr;
+};
+
+struct UiActivePans {
+    std::unordered_map<WindowId, ActivePan> pans;
+};
+
 // Only ever holds entries for windows OTHER than kPrimaryWindow — mirrors WindowSizes above:
 // the primary's pointer stays authoritative in the existing ctx<UiPointer>() singleton, unchanged,
 // so every pre-existing single-window call site keeps working with zero modification. A window
@@ -158,7 +175,12 @@ void update_pointer_hover(ecs::World& world, float x, float y, WindowId window =
 // if no drag is active for this window (e.g. the Move didn't follow a Down on a `drag`-bound
 // element).
 void update_drag(ecs::World& world, float x, float y, WindowId window = kPrimaryWindow);
-// Ends the in-progress drag (if any) for `window`. Called on pointer-up.
 void end_drag(ecs::World& world, WindowId window = kPrimaryWindow);
+
+void update_pan(ecs::World& world, float x, float y, WindowId window = kPrimaryWindow);
+void end_pan(ecs::World& world, WindowId window = kPrimaryWindow);
+
+// Wheel zoom-to-cursor on the innermost Viewport under (x, y). No-op if zoom is unbound.
+void handle_wheel(ecs::World& world, float x, float y, float wheel_y, WindowId window = kPrimaryWindow);
 
 }

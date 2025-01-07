@@ -7,7 +7,7 @@ aliases: [include/engine/core/input_system.h, input_system.h]
 
 Module: [[modules/Core]]
 
-`ActionId`, `Control` (`ControlKind` + code), `InputEvent`, `MouseEvent`, intern/bind/unbind/remap-query table, handlers. No SDL types.
+`ActionId`, `Control` (`ControlKind` + code), `InputEvent`, `MouseEvent` (`Down`/`Up`/`Move`/`Wheel`), intern/bind/unbind/remap-query table, handlers. No SDL types.
 
 See [[features/Input Mapper]], [[include.engine.core.key_code.h]].
 
