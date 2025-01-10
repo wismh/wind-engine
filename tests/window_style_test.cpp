@@ -196,6 +196,21 @@ TEST(WindowSystem, SetDragRegionIsNoopWithoutWindow) {
     window.set_drag_region(std::nullopt);
 }
 
+TEST(WindowSystem, IsInDragRegionChecksBoundsCorrectly) {
+    engine::WindowSystem window;
+    EXPECT_FALSE(window.is_in_drag_region(glm::vec2{10, 10}));
+    window.set_drag_region(engine::render::Rect{10, 20, 100, 50});
+    EXPECT_TRUE(window.is_in_drag_region(glm::vec2{10, 20}));
+    EXPECT_TRUE(window.is_in_drag_region(glm::vec2{50, 40}));
+    EXPECT_TRUE(window.is_in_drag_region(glm::vec2{109.9f, 69.9f}));
+    EXPECT_FALSE(window.is_in_drag_region(glm::vec2{9.9f, 20}));
+    EXPECT_FALSE(window.is_in_drag_region(glm::vec2{10, 19.9f}));
+    EXPECT_FALSE(window.is_in_drag_region(glm::vec2{110, 50}));
+    EXPECT_FALSE(window.is_in_drag_region(glm::vec2{50, 70}));
+    window.set_drag_region(std::nullopt);
+    EXPECT_FALSE(window.is_in_drag_region(glm::vec2{50, 40}));
+}
+
 TEST(WindowSystem, IsDraggingDefaultsToFalse) {
     engine::WindowSystem window;
     EXPECT_FALSE(window.is_dragging());

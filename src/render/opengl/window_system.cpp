@@ -43,10 +43,7 @@ LRESULT CALLBACK win32_hit_test_wndproc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
         POINT pt{static_cast<LONG>(static_cast<short>(LOWORD(lParam))),
                 static_cast<LONG>(static_cast<short>(HIWORD(lParam)))};
         if (ScreenToClient(hwnd, &pt)) {
-            const SDL_Point area{static_cast<int>(pt.x), static_cast<int>(pt.y)};
-            // window_drag_hit_test ignores its `window` parameter (only reads drag_region_ off
-            // `self`), so passing nullptr here is safe — same call SDL itself makes internally.
-            if (window_drag_hit_test(nullptr, &area, self) == SDL_HITTEST_NORMAL) {
+            if (!self->is_in_drag_region(glm::vec2{static_cast<float>(pt.x), static_cast<float>(pt.y)})) {
                 return HTTRANSPARENT;
             }
         }
@@ -142,10 +139,10 @@ bool WindowSystem::create(const WindowDesc& desc) {
             const LONG_PTR ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED);
             SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+            win32_prev_wndproc_ = reinterpret_cast<void*>(
+                    SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&win32_hit_test_wndproc)));
         }
-        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
-        win32_prev_wndproc_ = reinterpret_cast<void*>(
-                SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&win32_hit_test_wndproc)));
     }
 #endif
     return true;
@@ -217,10 +214,7 @@ void WindowSystem::update_click_through(bool pointer_hit_something) {
     // failed, because the window was still marked transparent when the actual mouse-down landed.
     bool effective_hit = pointer_hit_something;
     if (const std::optional<glm::vec2> cursor = cursor_client_position()) {
-        const SDL_Point point{static_cast<int>(cursor->x), static_cast<int>(cursor->y)};
-        // window_drag_hit_test ignores its `window` parameter (only reads drag_region_ off
-        // `this`), so passing nullptr here is safe — same call win32_hit_test_wndproc makes.
-        if (window_drag_hit_test(nullptr, &point, this) == SDL_HITTEST_DRAGGABLE) {
+        if (is_in_drag_region(*cursor)) {
             effective_hit = true;
         }
     }
@@ -285,13 +279,7 @@ std::optional<glm::vec2> WindowSystem::cursor_client_position() const {
 }
 
 bool WindowSystem::begin_drag_if_in_region(glm::vec2 window_local_pos) {
-    if (window_ == nullptr) {
-        return false;
-    }
-    const SDL_Point point{static_cast<int>(window_local_pos.x), static_cast<int>(window_local_pos.y)};
-    // window_drag_hit_test ignores its `window` parameter (only reads drag_region_ off `this`), so
-    // passing nullptr here is safe — same call win32_hit_test_wndproc already makes.
-    if (window_drag_hit_test(nullptr, &point, this) != SDL_HITTEST_DRAGGABLE) {
+    if (window_ == nullptr || !is_in_drag_region(window_local_pos)) {
         return false;
     }
     float global_x = 0.0f;
@@ -357,16 +345,14 @@ bool should_be_click_through(bool click_through_enabled, bool window_is_transpar
     return click_through_enabled && window_is_transparent && !pointer_hit_something;
 }
 
-SDL_HitTestResult window_drag_hit_test(SDL_Window* /*window*/, const SDL_Point* area, void* data) {
-    const auto* self = static_cast<const WindowSystem*>(data);
-    if (self == nullptr || area == nullptr || !self->drag_region_) {
-        return SDL_HITTEST_NORMAL;
+bool WindowSystem::is_in_drag_region(glm::vec2 point) const noexcept {
+    if (!drag_region_) {
+        return false;
     }
-    const render::Rect& region = *self->drag_region_;
-    const bool inside = static_cast<float>(area->x) >= region.x && static_cast<float>(area->y) >= region.y &&
-                         static_cast<float>(area->x) < (region.x + region.w) &&
-                         static_cast<float>(area->y) < (region.y + region.h);
-    return inside ? SDL_HITTEST_DRAGGABLE : SDL_HITTEST_NORMAL;
+    const render::Rect& region = *drag_region_;
+    return point.x >= region.x && point.y >= region.y &&
+           point.x < (region.x + region.w) &&
+           point.y < (region.y + region.h);
 }
 
 SDL_Surface* make_icon_surface(const render::TextureDesc& desc) {
