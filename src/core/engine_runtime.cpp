@@ -405,6 +405,18 @@ void EngineRuntime::reentrant_tick() {
     }
     game.on_update();
     impl_->overlay_policy.update_click_through(impl_->windows, world.ctx<ui::MouseConsumed>());
+    const auto& focus_state = world.ctx<ui::UiFocusState>();
+    impl_->windows.for_each_window([&](WindowId id, WindowSystem& window) {
+        const auto it = focus_state.focused.find(id);
+        const bool wants_text = it != focus_state.focused.end() && it->second.element != nullptr;
+        if (wants_text != window.is_text_input_active()) {
+            if (wants_text) {
+                window.start_text_input();
+            } else {
+                window.stop_text_input();
+            }
+        }
+    });
     impl_->windows.draw_all();
 }
 
@@ -568,15 +580,20 @@ void EngineRuntime::poll_events(ecs::World& world, InputSystem& input, Applicati
                 break;
             }
             case SDL_EVENT_KEY_DOWN:
-            case SDL_EVENT_KEY_UP:
-                if (!event.key.repeat) {
-                    const auto code = static_cast<KeyCode>(static_cast<std::uint32_t>(event.key.scancode));
-                    input.handle_key(code, event.key.down);
-                    if (event.key.down && code == KeyCode::AcBack) {
-                        apply_android_back(app);
-                    }
+            case SDL_EVENT_KEY_UP: {
+                const auto code = static_cast<KeyCode>(static_cast<std::uint32_t>(event.key.scancode));
+                const WindowId window_id = impl_->windows.find_by_sdl_id(event.key.windowID).value_or(kPrimaryWindow);
+                input.handle_key(code, event.key.down, event.key.repeat, window_id);
+                if (event.key.down && !event.key.repeat && code == KeyCode::AcBack) {
+                    apply_android_back(app);
                 }
                 break;
+            }
+            case SDL_EVENT_TEXT_INPUT: {
+                const WindowId window_id = impl_->windows.find_by_sdl_id(event.text.windowID).value_or(kPrimaryWindow);
+                input.handle_text_input(event.text.text != nullptr ? event.text.text : "", window_id);
+                break;
+            }
             case SDL_EVENT_MOUSE_BUTTON_DOWN:
             case SDL_EVENT_MOUSE_BUTTON_UP: {
                 const WindowId window_id = impl_->windows.find_by_sdl_id(event.button.windowID).value_or(kPrimaryWindow);

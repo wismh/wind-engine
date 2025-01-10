@@ -42,6 +42,7 @@ enum class ElementKind {
     Line,
     Component,
     Viewport,
+    TextInput,
 };
 
 enum class StackDirection {
@@ -241,6 +242,9 @@ struct Element {
     bool hovered = false;
     bool pressed = false;
     bool disabled = false;
+    bool focused = false;
+    std::size_t caret_position = 0;
+    float caret_blink_timer = 0.0f;
     std::vector<Element> children;
     std::vector<Element> generated_items;
     // Identity of the ViewModel* a generated_items entry was cloned for (opaque — never

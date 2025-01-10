@@ -66,6 +66,18 @@ struct MouseEvent {
     float wheel_y = 0.f;
 };
 
+struct KeyEvent {
+    WindowId window = kPrimaryWindow;
+    KeyCode key = KeyCode::Unknown;
+    bool down = false;
+    bool repeat = false;
+};
+
+struct TextInputEvent {
+    WindowId window = kPrimaryWindow;
+    std::string text;
+};
+
 [[nodiscard]] inline glm::vec2 denormalize_touch(glm::vec2 normalized, glm::ivec2 drawable) {
     const float width = static_cast<float>(drawable.x < 0 ? 0 : drawable.x);
     const float height = static_cast<float>(drawable.y < 0 ? 0 : drawable.y);
@@ -98,7 +110,8 @@ public:
     [[nodiscard]] ActionId bound_action(MouseButton button) const;
     [[nodiscard]] std::vector<Control> controls_for(ActionId action) const;
 
-    void handle_key(KeyCode key, bool down);
+    void handle_key(KeyCode key, bool down, bool repeat = false, WindowId window = kPrimaryWindow);
+    void handle_text_input(std::string_view text, WindowId window = kPrimaryWindow);
     void handle_mouse_button(WindowId window, MouseButton button, bool down, glm::vec2 position);
     void handle_mouse_move(WindowId window, glm::vec2 position, glm::vec2 relative);
     void handle_mouse_wheel(WindowId window, glm::vec2 position, float wheel_y);

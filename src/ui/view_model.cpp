@@ -47,6 +47,15 @@ bool ViewModel::write_property_float(BindingId id, float value) {
     return true;
 }
 
+bool ViewModel::write_property_string(BindingId id, std::string_view value) {
+    const auto it = properties_.find(id);
+    if (it == properties_.end() || it->second.write_string == nullptr) {
+        return false;
+    }
+    it->second.write_string(it->second.bindable, value);
+    return true;
+}
+
 std::vector<ViewModel*> ViewModel::read_item_source(BindingId id) const {
     const auto it = properties_.find(id);
     if (it == properties_.end() || it->second.items == nullptr) {
