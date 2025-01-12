@@ -64,6 +64,13 @@ void run_input(ecs::World& world) {
             ui::handle_wheel(world, event.position.x, event.position.y, event.wheel_y, event.window);
         }
     }
+    for (const KeyEvent& event : ecs::EventReader<KeyEvent>{world, world.ctx<ecs::EventCursor<KeyEvent>>()}) {
+        ui::handle_key(world, event.key, event.down, event.repeat, event.window);
+    }
+    for (const TextInputEvent& event :
+            ecs::EventReader<TextInputEvent>{world, world.ctx<ecs::EventCursor<TextInputEvent>>()}) {
+        ui::handle_text_input(world, event.text, event.window);
+    }
 }
 
 // Mirrors the deleted EngineRuntime::tick_loop() splash-aging block: ages every SplashTimer by
