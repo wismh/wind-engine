@@ -371,3 +371,43 @@ TEST(UiTextInput, CssFocusPseudoClassMatches) {
             engine::ui::UiPaintInput{.canvas_rect = canvas_rect, .delta_time = 0.1f});
     EXPECT_GT(painter.lines_drawn, 0); // Caret drawn when focused
 }
+
+TEST(UiTextInput, CssTypeSelectorMatches) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<CardViewModel>();
+    auto parsed = engine::ui::parse_xml(
+            R"(<Canvas width="200" height="200"><TextInput id="word" text="{binding word}"/></Canvas>)",
+            nullptr, vm.get());
+    ASSERT_TRUE(parsed.has_value());
+
+    std::vector<std::string> warnings;
+    auto sheet = engine::ui::parse_css("TextInput { color: #ff0000; } TextInput:focus { color: #00ff00; }", warnings);
+    ASSERT_TRUE(sheet.has_value());
+
+    const engine::render::Rect canvas_rect{0.0f, 0.0f, 200.0f, 200.0f};
+    engine::ui::UiCanvas canvas;
+    canvas.rect = canvas_rect;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    canvas.data_context = vm;
+
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+    world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{*parsed, *sheet});
+
+    engine::ui::UiInstance& instance = world.get<engine::ui::UiInstance>(entity);
+    FakePainter painter;
+
+    // Unfocused
+    engine::ui::paint_document(instance.document, &*sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = canvas_rect});
+    EXPECT_EQ(painter.lines_drawn, 0);
+
+    // Focused
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 20.0f, 10.0f);
+    EXPECT_TRUE(instance.document.root.children[0].focused);
+
+    engine::ui::paint_document(instance.document, &*sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = canvas_rect, .delta_time = 0.1f});
+    EXPECT_GT(painter.lines_drawn, 0);
+}
