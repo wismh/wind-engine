@@ -70,6 +70,9 @@ public:
     // event, if any, arrives.
     void for_each_secondary_window(const std::function<void(WindowId, WindowSystem&)>& fn);
 
+    // Visits every live (window.window() != nullptr) window, including kPrimaryWindow.
+    void for_each_window(const std::function<void(WindowId, WindowSystem&)>& fn);
+
     // Called on every WM_TIMER seen while a Windows modal move/size loop is active — a no-op on
     // other platforms and a no-op here until someone sets it (SDD §21.7 "game freezes during any
     // window drag" fix, extended by wind-89 to a full reentrant tick, not just a redraw).

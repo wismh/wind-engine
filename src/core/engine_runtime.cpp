@@ -315,11 +315,13 @@ void EngineRuntime::tick_loop() {
     // overlay apps use for this reason — instead of relying only on whichever motion events the OS
     // chose to deliver. Gated to when click-through could actually be engaged (kPrimaryWindow-only,
     // SDD §21.4) so every other window/game pays nothing extra here.
-    if (WindowSystem& primary = impl_->windows.primary_window(); primary.click_through_enabled() && primary.is_transparent()) {
-        if (const std::optional<glm::vec2> cursor = primary.cursor_client_position()) {
-            impl_->loop_input->handle_mouse_move(kPrimaryWindow, *cursor, glm::vec2{0.0f, 0.0f});
+    impl_->windows.for_each_window([&](WindowId id, WindowSystem& window) {
+        if (window.click_through_enabled() && window.is_transparent()) {
+            if (const std::optional<glm::vec2> cursor = window.cursor_client_position()) {
+                impl_->loop_input->handle_mouse_move(id, *cursor, glm::vec2{0.0f, 0.0f});
+            }
         }
-    }
+    });
 
     // Backfills a WindowSizes entry for any secondary window that has none yet (SDD §21.7) — a
     // freshly opened window has no drawable size in ui::WindowSizes until its first real
@@ -377,7 +379,10 @@ void EngineRuntime::tick_loop() {
         game.on_fixed_update();
     }
     game.on_update();
-    impl_->windows.primary_window().update_click_through(world.ctx<ui::MouseConsumed>().value);
+    const auto& mouse_consumed = world.ctx<ui::MouseConsumed>();
+    impl_->windows.for_each_window([&](WindowId id, WindowSystem& window) {
+        window.update_click_through(mouse_consumed.consumed_for(id));
+    });
     impl_->windows.draw_all();
 }
 
@@ -435,7 +440,10 @@ void EngineRuntime::reentrant_tick() {
         game.on_fixed_update();
     }
     game.on_update();
-    impl_->windows.primary_window().update_click_through(world.ctx<ui::MouseConsumed>().value);
+    const auto& mouse_consumed = world.ctx<ui::MouseConsumed>();
+    impl_->windows.for_each_window([&](WindowId id, WindowSystem& window) {
+        window.update_click_through(mouse_consumed.consumed_for(id));
+    });
     impl_->windows.draw_all();
 }
 
