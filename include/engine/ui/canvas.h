@@ -9,6 +9,7 @@
 #include <memory>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace engine::ui {
@@ -46,6 +47,14 @@ struct UiCanvasSpace {
 
 struct MouseConsumed {
     bool value = false;
+    std::unordered_set<WindowId> consumed_windows;
+
+    [[nodiscard]] bool consumed_for(WindowId window = kPrimaryWindow) const noexcept {
+        if (window == kPrimaryWindow) {
+            return value;
+        }
+        return consumed_windows.contains(window);
+    }
 };
 
 struct WindowSize {

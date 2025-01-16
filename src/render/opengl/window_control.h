@@ -40,8 +40,10 @@ public:
         }
     }
 
-    void set_click_through_enabled(bool enabled) override {
-        windows_->primary_window().set_click_through_enabled(enabled);
+    void set_click_through_enabled(bool enabled, WindowId window) override {
+        if (WindowSystem* target = windows_->window(window)) {
+            target->set_click_through_enabled(enabled);
+        }
     }
 
     void set_drag_region(std::optional<render::Rect> region, WindowId window) override {
