@@ -89,6 +89,9 @@ std::optional<ElementKind> kind_from_tag(const char* name) {
     if (tag == "TextInput") {
         return ElementKind::TextInput;
     }
+    if (tag == "ScrollView") {
+        return ElementKind::ScrollView;
+    }
     return std::nullopt;
 }
 
@@ -308,7 +311,11 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
         element.name = name_attr;
     }
 
-    if (element.kind == ElementKind::Stack) {
+    if (element.kind == ElementKind::Stack || element.kind == ElementKind::ScrollView) {
+        if (element.kind == ElementKind::ScrollView) {
+            element.overflow_y = Overflow::Auto;
+            element.direction = StackDirection::Vertical;
+        }
         if (const char* direction = xml->Attribute("direction")) {
             const std::string_view dir = trim(direction);
             if (dir == "horizontal" || dir == "row") {
@@ -320,6 +327,28 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
         if (const char* gap = xml->Attribute("gap")) {
             element.gap = Length{std::strtof(gap, nullptr), LengthUnit::Px};
         }
+    }
+
+    auto parse_overflow_attr = [](const char* attr) -> std::optional<Overflow> {
+        if (attr == nullptr) {
+            return std::nullopt;
+        }
+        const std::string_view val = trim(attr);
+        if (val == "hidden") return Overflow::Hidden;
+        if (val == "scroll") return Overflow::Scroll;
+        if (val == "auto") return Overflow::Auto;
+        if (val == "visible") return Overflow::Visible;
+        return std::nullopt;
+    };
+    if (auto ov = parse_overflow_attr(xml->Attribute("overflow"))) {
+        element.overflow_x = *ov;
+        element.overflow_y = *ov;
+    }
+    if (auto ov = parse_overflow_attr(xml->Attribute("overflow-x"))) {
+        element.overflow_x = *ov;
+    }
+    if (auto ov = parse_overflow_attr(xml->Attribute("overflow-y"))) {
+        element.overflow_y = *ov;
     }
 
     if (auto result = assign_property_binding(element.text_binding, element.text, xml->Attribute("text"), fatal, vm,
@@ -353,6 +382,16 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
     }
     if (auto result = assign_required_property_binding(element.zoom_binding, xml->Attribute("zoom"), "zoom", fatal, vm,
                 in_template);
+            !result) {
+        return std::unexpected(result.error());
+    }
+    if (auto result = assign_required_property_binding(element.scroll_x_binding, xml->Attribute("scroll-x"), "scroll-x",
+                fatal, vm, in_template);
+            !result) {
+        return std::unexpected(result.error());
+    }
+    if (auto result = assign_required_property_binding(element.scroll_y_binding, xml->Attribute("scroll-y"), "scroll-y",
+                fatal, vm, in_template);
             !result) {
         return std::unexpected(result.error());
     }
