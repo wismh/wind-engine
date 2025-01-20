@@ -72,15 +72,14 @@ public:
 
     // Visits every live (window.window() != nullptr) window, including kPrimaryWindow.
     void for_each_window(const std::function<void(WindowId, WindowSystem&)>& fn);
+    void for_each_window(const std::function<void(WindowId, const WindowSystem&)>& fn) const;
 
     // Called on every WM_TIMER seen while a Windows modal move/size loop is active — a no-op on
     // other platforms and a no-op here until someone sets it (SDD §21.7 "game freezes during any
     // window drag" fix, extended by wind-89 to a full reentrant tick, not just a redraw).
     // EngineRuntime::begin_loop() supplies the actual callback once its own loop state
     // (IGame&, FixedStepClock, ecs::World&) exists.
-    void set_modal_loop_tick_callback(std::function<void()> callback) {
-        modal_loop_tick_callback_ = std::move(callback);
-    }
+    void set_modal_loop_tick_callback(std::function<void()> callback);
 
     [[nodiscard]] const std::function<void()>& modal_loop_tick_callback() const noexcept {
         return modal_loop_tick_callback_;
