@@ -1,9 +1,11 @@
 #include <gtest/gtest.h>
 
+#include <engine/core/input_system.h>
 #include <engine/igame.h>
 #include <engine/ui/canvas.h>
 
 #if defined(ENGINE_WITH_WINDOW)
+#include "render/opengl/desktop_overlay_policy.h"
 #include "render/opengl/opengl_backend.h"
 #include "render/opengl/window_control.h"
 #include "render/opengl/window_manager.h"
@@ -331,6 +333,75 @@ TEST(WindowManager, ForEachWindowVisitsNothingOnFreshManager) {
     int calls = 0;
     manager.for_each_window([&](engine::WindowId, engine::WindowSystem&) { ++calls; });
     EXPECT_EQ(calls, 0);
+}
+
+TEST(WindowManager, ForEachWindowConstOverloadWorks) {
+    engine::render::OpenGLRenderBackend backend;
+    const engine::WindowManager manager{backend};
+    int calls = 0;
+    manager.for_each_window([&](engine::WindowId, const engine::WindowSystem&) { ++calls; });
+    EXPECT_EQ(calls, 0);
+}
+
+TEST(DesktopOverlayPolicy, DefaultsToAutoMode) {
+    const engine::DesktopOverlayPolicy policy;
+    EXPECT_EQ(policy.mode(), engine::OverlayMode::Auto);
+}
+
+TEST(DesktopOverlayPolicy, ReportsNoActiveOverlayWhenNoWindowsLive) {
+    engine::render::OpenGLRenderBackend backend;
+    const engine::WindowManager manager{backend};
+    const engine::DesktopOverlayPolicy policy;
+    EXPECT_FALSE(policy.has_active_overlay(manager));
+}
+
+TEST(DesktopOverlayPolicy, ModeOverridesDetection) {
+    engine::render::OpenGLRenderBackend backend;
+    const engine::WindowManager manager{backend};
+    engine::DesktopOverlayPolicy policy;
+
+    policy.set_mode(engine::OverlayMode::AlwaysEnabled);
+    EXPECT_TRUE(policy.has_active_overlay(manager));
+
+    policy.set_mode(engine::OverlayMode::AlwaysDisabled);
+    EXPECT_FALSE(policy.has_active_overlay(manager));
+
+    policy.set_mode(engine::OverlayMode::Auto);
+    EXPECT_FALSE(policy.has_active_overlay(manager));
+}
+
+TEST(DesktopOverlayPolicy, PollAndClickThroughAreNoopWhenInactive) {
+    engine::render::OpenGLRenderBackend backend;
+    engine::WindowManager manager{backend};
+    engine::DesktopOverlayPolicy policy;
+    engine::InputSystem input;
+    const engine::ui::MouseConsumed consumed;
+
+    // No-op without active overlay; must not crash.
+    policy.poll_cursor(manager, input);
+    policy.update_click_through(manager, consumed);
+}
+
+TEST(DesktopOverlayPolicy, SyncModalLoopHookInstallsOnlyWhenActive) {
+    engine::render::OpenGLRenderBackend backend;
+    engine::WindowManager manager{backend};
+    engine::DesktopOverlayPolicy policy;
+
+    int tick_count = 0;
+    const auto callback = [&tick_count] { ++tick_count; };
+
+    // When inactive (Auto mode with no live windows), hook callback is not installed.
+    policy.sync_modal_loop_hook(manager, callback);
+    EXPECT_FALSE(manager.modal_loop_tick_callback());
+
+    // When forced active, hook callback is installed.
+    policy.set_mode(engine::OverlayMode::AlwaysEnabled);
+    policy.sync_modal_loop_hook(manager, callback);
+    EXPECT_TRUE(manager.modal_loop_tick_callback());
+
+    // Clearing callback uninstalls the hook.
+    policy.sync_modal_loop_hook(manager, nullptr);
+    EXPECT_FALSE(manager.modal_loop_tick_callback());
 }
 
 #endif
