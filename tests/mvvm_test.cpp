@@ -110,11 +110,9 @@ public:
 };
 
 constexpr engine::AssetId kIconGuid{"c1a1c2d3e4f5678901234567890abc09"};
-constexpr std::string_view kDummyGuid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 engine::ui::UiCanvas make_canvas(engine::render::Rect rect, int order = 0) {
     engine::ui::UiCanvas canvas;
-    canvas.document = engine::AssetId{kDummyGuid};
     canvas.rect = rect;
     canvas.fit = engine::ui::UiFit::Fixed;
     canvas.order = order;

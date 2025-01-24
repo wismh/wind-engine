@@ -1,4 +1,4 @@
-#include <gtest/gtest.h>
+﻿#include <gtest/gtest.h>
 
 #include <engine/audio/audio_system.h>
 #include <engine/audio/events.h>
@@ -438,7 +438,7 @@ TEST(RenderSystem, UiPointerDoesNotLeakAcrossWindows) {
     const auto& draw_b = std::get<engine::render::CmdDrawUI>(commands_b[0]);
     EXPECT_EQ(draw_a.pointer, (glm::vec2{40.0f, 40.0f}));
     EXPECT_TRUE(draw_a.pointer_down);
-    // Window B never received a click — its pointer must stay at rest, not mirror window A's.
+    // Window B never received a click â€” its pointer must stay at rest, not mirror window A's.
     EXPECT_EQ(draw_b.pointer, (glm::vec2{0.0f, 0.0f}));
     EXPECT_FALSE(draw_b.pointer_down);
 }
@@ -554,6 +554,205 @@ TEST(RenderSystem, BindPhaseSkipsCloneWhenAssetsNull) {
 
     world.run(engine::ecs::Schedule::Frame);
     EXPECT_EQ(world.try_get<engine::ui::UiInstance>(entity), nullptr);
+}
+
+TEST(RenderSystem, BindPhaseInMemoryInstanceDoesNotCloneFromAssets) {
+    constexpr std::string_view kHudGuid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1";
+
+    TempDir tree;
+    write_ui_asset(tree.path / "hud.xml", R"(<Canvas><Label text="FromAsset"/></Canvas>)", kHudGuid);
+
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kHudGuid}, "hud.xml", engine::ImporterKind::Ui});
+    write_file(tree.path / "catalog.toml", catalog.serialize());
+
+    RecordingFatalError fatal;
+    engine::AssetsDb db(fatal);
+    const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
+    ASSERT_TRUE(loaded.has_value());
+
+    auto vm = std::make_shared<TitleViewModel>();
+    vm->title.set("Hello");
+    const auto parsed =
+            engine::ui::parse_xml(R"(<Canvas><Label class="runtime" text="{binding title}"/></Canvas>)", nullptr, vm.get());
+    ASSERT_TRUE(parsed.has_value());
+
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.fatal = &fatal, .assets = &db});
+
+    engine::ui::UiCanvas canvas;
+    canvas.data_context = vm;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+    world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{*parsed});
+
+    world.run(engine::ecs::Schedule::Frame);
+    const engine::ui::UiInstance* instance = world.try_get<engine::ui::UiInstance>(entity);
+    ASSERT_NE(instance, nullptr);
+    const engine::ui::Element* label =
+            engine::ui::find_by_kind(instance->document.root, engine::ui::ElementKind::Label);
+    ASSERT_NE(label, nullptr);
+    EXPECT_EQ(label->text, "Hello");
+    ASSERT_EQ(label->classes.size(), 1u);
+    EXPECT_EQ(label->classes[0], "runtime");
+}
+
+TEST(RenderSystem, BindPhaseSpawnCanvasDoesNotCloneFromAssets) {
+    constexpr std::string_view kHudGuid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1";
+
+    TempDir tree;
+    write_ui_asset(tree.path / "hud.xml", R"(<Canvas><Label text="FromAsset"/></Canvas>)", kHudGuid);
+
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kHudGuid}, "hud.xml", engine::ImporterKind::Ui});
+    write_file(tree.path / "catalog.toml", catalog.serialize());
+
+    RecordingFatalError fatal;
+    engine::AssetsDb db(fatal);
+    const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
+    ASSERT_TRUE(loaded.has_value());
+
+    auto vm = std::make_shared<TitleViewModel>();
+    vm->title.set("Hello");
+    const auto parsed =
+            engine::ui::parse_xml(R"(<Canvas><Label class="spawned" text="{binding title}"/></Canvas>)", nullptr, vm.get());
+    ASSERT_TRUE(parsed.has_value());
+
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.fatal = &fatal, .assets = &db});
+
+    engine::ui::UiCanvas canvas;
+    canvas.document = engine::AssetId{kHudGuid};
+    canvas.data_context = vm;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    const engine::ecs::Entity entity = engine::ui::spawn_canvas(world, canvas, *parsed);
+
+    world.run(engine::ecs::Schedule::Frame);
+    EXPECT_FALSE(world.get<engine::ui::UiCanvas>(entity).document.has_value());
+    const engine::ui::UiInstance* instance = world.try_get<engine::ui::UiInstance>(entity);
+    ASSERT_NE(instance, nullptr);
+    const engine::ui::Element* label =
+            engine::ui::find_by_kind(instance->document.root, engine::ui::ElementKind::Label);
+    ASSERT_NE(label, nullptr);
+    EXPECT_EQ(label->text, "Hello");
+    ASSERT_EQ(label->classes.size(), 1u);
+    EXPECT_EQ(label->classes[0], "spawned");
+}
+
+TEST(RenderSystem, BindPhaseCatalogRebindsWithoutReplacingTreeWhenDataContextChanges) {
+    constexpr std::string_view kHudGuid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1";
+
+    TempDir tree;
+    write_ui_asset(tree.path / "hud.xml", R"(<Canvas><Label class="keep" text="{binding title}"/></Canvas>)", kHudGuid);
+
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kHudGuid}, "hud.xml", engine::ImporterKind::Ui});
+    write_file(tree.path / "catalog.toml", catalog.serialize());
+
+    RecordingFatalError fatal;
+    engine::AssetsDb db(fatal);
+    const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
+    ASSERT_TRUE(loaded.has_value());
+
+    auto first = std::make_shared<TitleViewModel>();
+    first->title.set("Hello");
+    auto second = std::make_shared<TitleViewModel>();
+    second->title.set("World");
+
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.fatal = &fatal, .assets = &db});
+
+    engine::ui::UiCanvas canvas;
+    canvas.document = engine::AssetId{kHudGuid};
+    canvas.data_context = first;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+
+    world.run(engine::ecs::Schedule::Frame);
+    engine::ui::Element* label = engine::ui::find_by_kind(
+            world.get<engine::ui::UiInstance>(entity).document.root, engine::ui::ElementKind::Label);
+    ASSERT_NE(label, nullptr);
+    label->classes.push_back("stamped");
+
+    world.get<engine::ui::UiCanvas>(entity).data_context = second;
+    world.run(engine::ecs::Schedule::Frame);
+
+    label = engine::ui::find_by_kind(
+            world.get<engine::ui::UiInstance>(entity).document.root, engine::ui::ElementKind::Label);
+    ASSERT_NE(label, nullptr);
+    EXPECT_EQ(label->text, "World");
+    ASSERT_EQ(label->classes.size(), 2u);
+    EXPECT_EQ(label->classes[1], "stamped");
+}
+
+TEST(RenderSystem, BindPhaseWithoutDocumentDoesNotLoadFromAssets) {
+    constexpr std::string_view kHudGuid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1";
+
+    TempDir tree;
+    write_ui_asset(tree.path / "hud.xml", R"(<Canvas><Label text="FromAsset"/></Canvas>)", kHudGuid);
+
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kHudGuid}, "hud.xml", engine::ImporterKind::Ui});
+    write_file(tree.path / "catalog.toml", catalog.serialize());
+
+    RecordingFatalError fatal;
+    engine::AssetsDb db(fatal);
+    const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
+    ASSERT_TRUE(loaded.has_value());
+
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.fatal = &fatal, .assets = &db});
+
+    engine::ui::UiCanvas canvas;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+
+    world.run(engine::ecs::Schedule::Frame);
+    EXPECT_EQ(world.try_get<engine::ui::UiInstance>(entity), nullptr);
+}
+
+TEST(RenderSystem, BindPhaseInMemoryKeepsAuthoredStylesheetWhenNoAssetSheets) {
+    constexpr std::string_view kHudGuid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1";
+
+    TempDir tree;
+    write_ui_asset(tree.path / "hud.xml", R"(<Canvas><Label text="FromAsset"/></Canvas>)", kHudGuid);
+
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kHudGuid}, "hud.xml", engine::ImporterKind::Ui});
+    write_file(tree.path / "catalog.toml", catalog.serialize());
+
+    RecordingFatalError fatal;
+    engine::AssetsDb db(fatal);
+    const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
+    ASSERT_TRUE(loaded.has_value());
+
+    std::vector<std::string> warnings;
+    auto parsed_sheet = engine::ui::parse_css("Label { color: #ff0000; }\n", warnings);
+    ASSERT_TRUE(parsed_sheet.has_value());
+
+    auto vm = std::make_shared<TitleViewModel>();
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Label text="Hi"/></Canvas>)", nullptr, vm.get());
+    ASSERT_TRUE(parsed.has_value());
+
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.fatal = &fatal, .assets = &db});
+
+    engine::ui::UiCanvas canvas;
+    canvas.data_context = vm;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+    world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{*parsed, *parsed_sheet});
+
+    world.run(engine::ecs::Schedule::Frame);
+    const engine::ui::UiInstance* instance = world.try_get<engine::ui::UiInstance>(entity);
+    ASSERT_NE(instance, nullptr);
+    ASSERT_TRUE(instance->stylesheet.has_value());
+    ASSERT_EQ(instance->stylesheet->rules.size(), 1u);
+    EXPECT_EQ(instance->stylesheet->rules[0].selector.element, "Label");
 }
 
 TEST(RenderSystem, BindXmlStylesheetWhenExtrasEmpty) {
