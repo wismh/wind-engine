@@ -158,7 +158,7 @@ TEST(Scaffold, EngineAddGameEmbedsWindowsIconResource) {
     ASSERT_NE(icon_dir_ref, std::string::npos);
     EXPECT_LT(icon_dir_ref, icon_rc);  // same block, not some unrelated later mention
 
-    // Must not leak into the platform blocks owned by the other icon rows (§19.2): the Windows
+    // Must not leak into the platform blocks owned by the other icon rows: the Windows
     // block precedes engine_prepare_runtime, and the Emscripten/Android wiring for engine_add_game
     // follows it, so icon.rc must land strictly before engine_target_web_preload's call site.
     const auto web_preload = cmake.find("engine_target_web_preload(${target})");
@@ -183,7 +183,7 @@ TEST(Scaffold, EngineAddGameBundlesMacIcon) {
     const std::string cmake = slurp(root / "CMakeLists.txt");
     ASSERT_FALSE(cmake.empty());
     // The macOS block must consume the shared ENGINE_GAME_ICON_DIR / icon.icns output rather than
-    // re-invoking icon_codegen (SDD §19.2) — a second add_custom_command would race the shared one.
+    // re-invoking icon_codegen — a second add_custom_command would race the shared one.
     const auto apple_block = cmake.find("if(APPLE AND _icon_dir)");
     ASSERT_NE(apple_block, std::string::npos);
     const auto apple_block_end = cmake.find("endif()", apple_block);
@@ -261,7 +261,7 @@ TEST(Scaffold, EngineAddGameCopiesWebFavicon) {
     const std::string cmake = slurp(root / "CMakeLists.txt");
     ASSERT_FALSE(cmake.empty());
 
-    // The favicon copy must consume the shared ENGINE_GAME_ICON_DIR output (§19.2), not
+    // The favicon copy must consume the shared ENGINE_GAME_ICON_DIR output, not
     // re-invoke icon_codegen, and must live inside engine_add_game's EMSCRIPTEN block rather
     // than e.g. the ANDROID block, so it stays a no-op on every other platform.
     const std::size_t emscripten_block = cmake.find("if(EMSCRIPTEN)\n        include(\"${ENGINE_CMAKE_DIR}/cmake/web/link_flags.cmake\")");
@@ -352,7 +352,7 @@ TEST(Scaffold, AndroidGradleThreadsHostIconCodegen) {
     };
     const std::string gradle = slurp(root / "cmake" / "android" / "app" / "build.gradle");
     ASSERT_FALSE(gradle.empty());
-    // Cross-compiling for Android needs a native icon_codegen (SDD §19.3) the same way it needs a
+    // Cross-compiling for Android needs a native icon_codegen the same way it needs a
     // native asset_codegen — mirror the existing ENGINE_HOST_ASSET_CODEGEN passthrough exactly.
     EXPECT_NE(gradle.find("ENGINE_HOST_ICON_CODEGEN"), std::string::npos);
     EXPECT_NE(gradle.find("-DENGINE_HOST_ICON_CODEGEN="), std::string::npos);
@@ -374,7 +374,7 @@ TEST(Scaffold, AndroidGradleSetsAppNameManifestPlaceholder) {
             slurp(root / "cmake" / "android" / "app" / "src" / "main" / "AndroidManifest.xml");
     ASSERT_FALSE(gradle.empty());
     ASSERT_FALSE(manifest.empty());
-    // app_name is a manifestPlaceholder, not a values/strings.xml resource overlay (SDD §19.4) —
+    // app_name is a manifestPlaceholder, not a values/strings.xml resource overlay —
     // a second res.srcDirs entry declaring string/app_name would hard-fail AAPT2 as a duplicate.
     EXPECT_NE(gradle.find("ENGINE_ANDROID_APP_NAME"), std::string::npos);
     EXPECT_NE(gradle.find("manifestPlaceholders"), std::string::npos);
@@ -392,7 +392,7 @@ TEST(Scaffold, AndroidResIncludesDefaultLauncherIcon) {
     const std::filesystem::path res = root / "cmake" / "android" / "app" / "src" / "main" / "res";
     // android:icon="@mipmap/ic_launcher" is unconditional in the manifest and has no
     // manifestPlaceholder equivalent, so an unresolved reference is a hard AAPT2 link error, not
-    // a graceful fallback — the engine must ship its own default set (SDD §19.4) so a game with no
+    // a graceful fallback — the engine must ship its own default set so a game with no
     // icon.png/ENGINE_ANDROID_RES_DIR overlay still builds.
     for (const char* density : {"mipmap-mdpi", "mipmap-hdpi", "mipmap-xhdpi", "mipmap-xxhdpi", "mipmap-xxxhdpi"}) {
         EXPECT_TRUE(std::filesystem::is_regular_file(res / density / "ic_launcher.png")) << density;

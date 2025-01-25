@@ -12,7 +12,7 @@ Git submodules. Engine CMake owns these targets. **Do not add EnTT.** Do not use
 | `tinyxml2` | https://github.com/leethomason/tinyxml2.git |
 | `spdlog` | https://github.com/gabime/spdlog.git |
 
-## Required when `ENGINE_WITH_WINDOW=ON` (slice 8)
+## Required when `ENGINE_WITH_WINDOW=ON`
 
 | Dir | Repo |
 | --- | --- |
@@ -23,10 +23,10 @@ Git submodules. Engine CMake owns these targets. **Do not add EnTT.** Do not use
 
 Include nanovg as `external/nanovg/src`.
 
-## Required when `ENGINE_WITH_AUDIO=ON` (slice 16)
+## Required when `ENGINE_WITH_AUDIO=ON`
 
 | Dir | Repo |
 | --- | --- |
 | `SDL_mixer` | https://github.com/libsdl-org/SDL_mixer.git (`release-3.2.4`) |
 
-WAV only; OGG off (SDD §2.3).
+WAV only; OGG off (see `docs/tech/architecture/Principles.md`).

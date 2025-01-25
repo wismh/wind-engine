@@ -26,7 +26,7 @@ public:
 
     // with_ui_painter=false skips constructing a NanoVgPainter for this canvas entirely (used by
     // callers that only ever push CmdDrawMesh, never CmdDrawUI, into this window's buffer). Every
-    // real window — primary or secondary — passes the default `true` today (SDD §21.6): each
+    // real window — primary or secondary — passes the default `true` today: each
     // OpenGLCanvas owns its own NanoVgPainter, and draw() re-arms the one shared
     // OpenGLRenderBackend::ui_painter_ pointer to *this* canvas's painter immediately before its
     // own execute() call, so "last window's draw() wins" is scoped to that single instant rather
@@ -35,6 +35,10 @@ public:
     [[nodiscard]] bool load_ui_font(const Font& font);
     [[nodiscard]] bool add_font(AssetId id, const Font& font);
     [[nodiscard]] bool add_image(AssetId id, const TextureDesc& desc);
+    void make_current();
+    [[nodiscard]] ui::IUiPainter* ui_painter() const noexcept {
+        return ui_painter_.get();
+    }
     void draw() override;
 
     [[nodiscard]] SDL_GLContext native_context() const noexcept {
