@@ -287,7 +287,7 @@ TEST(Mvvm, ButtonClickSkippedWhenCannotExecute) {
 }
 
 TEST(Mvvm, HoverSetsMouseConsumedWithoutExecutingCommand) {
-    // SDD §21.4: click_through must not engage while the pointer merely hovers a UI element
+    // click_through must not engage while the pointer merely hovers a UI element
     // (no click yet) — update_pointer_hover has to set MouseConsumed the same way handle_pointer
     // does, but never invoke the hit element's command.
     engine::ecs::World world;

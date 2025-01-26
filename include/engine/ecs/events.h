@@ -13,7 +13,7 @@ class World;
 template<typename T>
 class EventReader;
 
-// A persistent per-reader position into an Events<T> queue (SDD §9). Bevy gives every system
+// A persistent per-reader position into an Events<T> queue. Bevy gives every system
 // parameter its own EventReader<T> with its own cursor, kept alive across frames by the
 // framework; this engine's systems are plain std::function<void(World&)> closures with no such
 // slot, so the cursor needs an explicit, caller-owned home instead — typically

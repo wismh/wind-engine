@@ -1,4 +1,4 @@
-# Builtin assets (SDD §10.8)
+# Builtin assets
 
 Default unlit shader, unit quad, unlit material, and UI font.
 

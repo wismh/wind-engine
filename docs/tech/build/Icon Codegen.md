@@ -45,7 +45,7 @@ Mirrors `asset_codegen`/`asset_guid`: `ENGINE_HOST_ICON_CODEGEN` cache var suppl
 
 ## macOS packaging (`.icns` bundle)
 
-On `APPLE`, `engine_add_game` also sets `MACOSX_BUNDLE ON` on the game target and, when `ENGINE_GAME_ICON_DIR` is set, adds the shared `icon.icns` output as a source with `MACOSX_PACKAGE_LOCATION "Resources"` plus `MACOSX_BUNDLE_ICON_FILE "icon.icns"` — the two CMake target properties the default `Info.plist` template (`MacOSXBundleInfo.plist.in`) substitutes into `CFBundleIconFile` and copies the file into `<app>.app/Contents/Resources/`. No macOS preset exists in this repo to build/run the bundle (SDD §17).
+On `APPLE`, `engine_add_game` also sets `MACOSX_BUNDLE ON` on the game target and, when `ENGINE_GAME_ICON_DIR` is set, adds the shared `icon.icns` output as a source with `MACOSX_PACKAGE_LOCATION "Resources"` plus `MACOSX_BUNDLE_ICON_FILE "icon.icns"` — the two CMake target properties the default `Info.plist` template (`MacOSXBundleInfo.plist.in`) substitutes into `CFBundleIconFile` and copies the file into `<app>.app/Contents/Resources/`. No macOS preset exists in this repo to build/run the bundle ([[architecture/Scope]]).
 
 ## Web favicon
 

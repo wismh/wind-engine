@@ -51,7 +51,7 @@ void run_input(ecs::World& world) {
             pointer.down = false;
             ui::end_drag(world, event.window);
         } else if (event.kind == MouseEvent::Kind::Move) {
-            // Keeps MouseConsumed (SDD §21.4 click-through) current on hover, not just on click —
+            // Keeps MouseConsumed current on hover, not just on click —
             // without this, a window that only recomputes it on Down never learns the pointer
             // moved off (or onto) a UI element between clicks.
             ui::update_pointer_hover(world, event.position.x, event.position.y, event.window);

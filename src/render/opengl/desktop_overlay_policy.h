@@ -16,7 +16,7 @@ struct MouseConsumed;
 // Encapsulates desktop overlay specific behavior (cursor polling for click-through windows,
 // per-window WS_EX_TRANSPARENT updates, and Win32 modal loop message hook synchronization)
 // so the primary game loop remains standard, deterministic, and free of overlay overhead
-// when running standard or opaque games (SDD §21.7).
+// when running standard or opaque games.
 class DesktopOverlayPolicy {
 public:
     explicit DesktopOverlayPolicy(OverlayMode mode = OverlayMode::Auto) noexcept
