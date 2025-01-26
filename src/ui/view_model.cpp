@@ -10,6 +10,10 @@ bool ViewModel::has_command(BindingId id) const {
     return commands_.contains(id);
 }
 
+bool ViewModel::has_paint(BindingId id) const {
+    return paints_.contains(id);
+}
+
 std::optional<std::string> ViewModel::read_property_string(BindingId id) const {
     const auto it = properties_.find(id);
     if (it == properties_.end() || it->second.to_string == nullptr) {
@@ -69,6 +73,26 @@ const ICommand* ViewModel::find_command(BindingId id) const {
 
 void ViewModel::command(BindingId id, ICommand& command) {
     commands_.insert_or_assign(id, &command);
+}
+
+IPaint* ViewModel::find_paint(BindingId id) {
+    const auto it = paints_.find(id);
+    if (it == paints_.end()) {
+        return nullptr;
+    }
+    return it->second;
+}
+
+const IPaint* ViewModel::find_paint(BindingId id) const {
+    const auto it = paints_.find(id);
+    if (it == paints_.end()) {
+        return nullptr;
+    }
+    return it->second;
+}
+
+void ViewModel::paint(BindingId id, IPaint& paint) {
+    paints_.insert_or_assign(id, &paint);
 }
 
 }

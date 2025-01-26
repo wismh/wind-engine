@@ -75,6 +75,11 @@ Node& Node::command_bind(BindingId id) {
     return *this;
 }
 
+Node& Node::paint_bind(BindingId id) {
+    element_.paint_binding = id;
+    return *this;
+}
+
 Node& Node::drag_bind(BindingId id) {
     element_.drag_binding = id;
     return *this;
@@ -171,6 +176,10 @@ Node item_template() {
 
 Node line() {
     return Node(ElementKind::Line);
+}
+
+Node component() {
+    return Node(ElementKind::Component);
 }
 
 std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal) {
