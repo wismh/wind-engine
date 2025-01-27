@@ -116,6 +116,19 @@ TEST(UiBuilder, CommandBindIsHitTargetAfterLayout) {
     EXPECT_EQ(hit->kind, engine::ui::ElementKind::Button);
 }
 
+TEST(UiBuilder, ViewportCameraBindsMatchXml) {
+    const auto built = engine::ui::make_document(engine::ui::canvas().add(engine::ui::viewport()
+                                                                               .pan_x_bind(engine::ui::intern("pan_x"))
+                                                                               .pan_y_bind(engine::ui::intern("pan_y"))
+                                                                               .zoom_bind(engine::ui::intern("zoom"))));
+    ASSERT_TRUE(built.has_value());
+    const engine::ui::Element* viewport = engine::ui::find_by_kind(built->root, engine::ui::ElementKind::Viewport);
+    ASSERT_NE(viewport, nullptr);
+    EXPECT_EQ(viewport->pan_x_binding, engine::ui::intern("pan_x"));
+    EXPECT_EQ(viewport->pan_y_binding, engine::ui::intern("pan_y"));
+    EXPECT_EQ(viewport->zoom_binding, engine::ui::intern("zoom"));
+}
+
 TEST(UiBuilder, AddPreservesChildOrder) {
     auto row = engine::ui::stack();
     row.add(engine::ui::label().text("a"));

@@ -234,6 +234,18 @@ void InputSystem::handle_mouse_move(WindowId window, glm::vec2 position, glm::ve
     });
 }
 
+void InputSystem::handle_mouse_wheel(WindowId window, glm::vec2 position, float wheel_y) {
+    if (world_ == nullptr) {
+        return;
+    }
+    ecs::EventWriter<MouseEvent>{*world_}.send(MouseEvent{
+            .window = window,
+            .kind = MouseEvent::Kind::Wheel,
+            .position = position,
+            .wheel_y = wheel_y,
+    });
+}
+
 void InputSystem::handle_touch(std::uint32_t finger_id, bool down, glm::vec2 position) {
     if (world_ == nullptr) {
         return;
