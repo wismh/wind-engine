@@ -950,3 +950,101 @@ TEST(Mvvm, HandlePointerOnlyHitTestsCanvasesOnItsOwnWindow) {
     EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
 }
 
+class ViewportViewModel final : public engine::ui::ViewModel {
+public:
+    int clicks = 0;
+    engine::ui::Bindable<float> pan_x;
+    engine::ui::Bindable<float> pan_y;
+    engine::ui::Bindable<float> zoom;
+    engine::ui::RelayCommand click;
+
+    ViewportViewModel() {
+        property(engine::ui::intern("pan_x"), pan_x);
+        property(engine::ui::intern("pan_y"), pan_y);
+        property(engine::ui::intern("zoom"), zoom);
+        command(engine::ui::intern("click"), click);
+        click = [this] { ++clicks; };
+        zoom.set(1.0f);
+    }
+};
+
+engine::ecs::Entity spawn_viewport_canvas(engine::ecs::World& world, std::shared_ptr<ViewportViewModel> vm,
+        engine::render::Rect rect) {
+    const auto parsed = engine::ui::parse_xml(
+            R"(<Canvas><Viewport pan-x="{binding pan_x}" pan-y="{binding pan_y}" zoom="{binding zoom}">
+                 <Button command="{binding click}" content="Go"/>
+               </Viewport></Canvas>)",
+            nullptr, vm.get());
+    EXPECT_TRUE(parsed.has_value());
+    std::vector<std::string> warnings;
+    auto sheet = engine::ui::parse_css(R"(
+        Viewport { width: 100; height: 100; }
+        Button { width: 20; height: 20; position: absolute; left: 80; top: 80; }
+    )",
+            warnings);
+    EXPECT_TRUE(sheet.has_value());
+    const engine::ecs::Entity entity = world.create();
+    engine::ui::UiCanvas canvas = make_canvas(rect, 0);
+    canvas.data_context = vm;
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+    world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{*parsed, std::move(*sheet)});
+    return entity;
+}
+
+TEST(Mvvm, ViewportBackgroundDragWritesPan) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<ViewportViewModel>();
+    spawn_viewport_canvas(world, vm, {0.0f, 0.0f, 100.0f, 100.0f});
+
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 10.0f, 10.0f);
+    engine::ui::update_pan(world, 20.0f, 14.0f);
+
+    EXPECT_FLOAT_EQ(vm->pan_x.get(), 10.0f);
+    EXPECT_FLOAT_EQ(vm->pan_y.get(), 4.0f);
+    EXPECT_EQ(vm->clicks, 0);
+    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+}
+
+TEST(Mvvm, ViewportButtonDownDoesNotPan) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<ViewportViewModel>();
+    spawn_viewport_canvas(world, vm, {0.0f, 0.0f, 100.0f, 100.0f});
+
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 90.0f, 90.0f);
+    engine::ui::update_pan(world, 100.0f, 90.0f);
+
+    EXPECT_FLOAT_EQ(vm->pan_x.get(), 0.0f);
+    EXPECT_FLOAT_EQ(vm->pan_y.get(), 0.0f);
+    EXPECT_EQ(vm->clicks, 1);
+}
+
+TEST(Mvvm, ViewportWheelZoomsTowardCursor) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<ViewportViewModel>();
+    spawn_viewport_canvas(world, vm, {0.0f, 0.0f, 100.0f, 100.0f});
+
+    engine::ui::begin_frame(world);
+    engine::ui::handle_wheel(world, 10.0f, 10.0f, 1.0f);
+
+    const float z = engine::ui::kViewportZoomStep;
+    EXPECT_FLOAT_EQ(vm->zoom.get(), z);
+    EXPECT_NEAR(vm->pan_x.get(), 10.0f * (1.0f / z - 1.0f), 1e-5f);
+    EXPECT_NEAR(vm->pan_y.get(), 10.0f * (1.0f / z - 1.0f), 1e-5f);
+    EXPECT_EQ(vm->clicks, 0);
+    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+}
+
+TEST(Mvvm, ViewportWheelOverButtonStillZooms) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<ViewportViewModel>();
+    spawn_viewport_canvas(world, vm, {0.0f, 0.0f, 100.0f, 100.0f});
+
+    engine::ui::begin_frame(world);
+    engine::ui::handle_wheel(world, 90.0f, 90.0f, 1.0f);
+
+    EXPECT_FLOAT_EQ(vm->zoom.get(), engine::ui::kViewportZoomStep);
+    EXPECT_EQ(vm->clicks, 0);
+}
+

@@ -42,6 +42,9 @@ struct PaintCall {
     glm::vec2 transform_center{};
     float rotation_radians = 0.0f;
     float transform_scale = 1.0f;
+    glm::vec2 view_origin{};
+    glm::vec2 view_pan{};
+    float view_zoom = 1.0f;
     engine::ui::BoxInsets insets{};
     glm::vec2 line_from{};
     glm::vec2 line_to{};
@@ -63,6 +66,11 @@ public:
         calls.push_back(PaintCall{
                 .op = "transform", .transform_center = center, .rotation_radians = rotation_radians,
                 .transform_scale = scale});
+    }
+
+    void apply_view(glm::vec2 origin, glm::vec2 pan, float zoom) override {
+        calls.push_back(PaintCall{
+                .op = "view", .view_origin = origin, .view_pan = pan, .view_zoom = zoom});
     }
 
     void set_opacity(float opacity) override {
@@ -1858,4 +1866,57 @@ TEST(UiPainter, NineSliceScalesWithUiScale) {
     EXPECT_FLOAT_EQ(nine_slice->insets.right, 20.f);
     EXPECT_FLOAT_EQ(nine_slice->insets.bottom, 20.f);
     EXPECT_FLOAT_EQ(nine_slice->insets.left, 20.f);
+}
+
+TEST(UiPainter, ViewportAppliesViewAfterOwnScissorThenPaintsChildren) {
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Viewport class="tree">
+            <Label class="node" text="N"/>
+          </Viewport>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    engine::ui::Element* viewport = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Viewport);
+    ASSERT_NE(viewport, nullptr);
+    viewport->pan_x = 10.0f;
+    viewport->zoom = 2.0f;
+
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .tree { width: 100; height: 100; background: #111111; }
+        .node { width: 20; height: 20; position: absolute; left: 80; top: 0; background: #ffffff; }
+    )");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    std::size_t view_index = painter.calls.size();
+    for (std::size_t i = 0; i < painter.calls.size(); ++i) {
+        if (painter.calls[i].op == "view") {
+            view_index = i;
+            break;
+        }
+    }
+    ASSERT_LT(view_index, painter.calls.size());
+    EXPECT_FLOAT_EQ(painter.calls[view_index].view_origin.x, 0.0f);
+    EXPECT_FLOAT_EQ(painter.calls[view_index].view_origin.y, 0.0f);
+    EXPECT_FLOAT_EQ(painter.calls[view_index].view_pan.x, 10.0f);
+    EXPECT_FLOAT_EQ(painter.calls[view_index].view_zoom, 2.0f);
+
+    bool viewport_scissor_before_view = false;
+    for (std::size_t i = 0; i < view_index; ++i) {
+        if (painter.calls[i].op == "scissor" && painter.calls[i].rect.w == 100.0f && painter.calls[i].rect.h == 100.0f) {
+            viewport_scissor_before_view = true;
+        }
+    }
+    EXPECT_TRUE(viewport_scissor_before_view);
+
+    bool child_scissor_after_view = false;
+    for (std::size_t i = view_index + 1; i < painter.calls.size(); ++i) {
+        if (painter.calls[i].op == "scissor" && painter.calls[i].rect.x == 80.0f) {
+            child_scissor_after_view = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(child_scissor_after_view);
 }
