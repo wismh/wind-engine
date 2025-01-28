@@ -413,6 +413,18 @@ struct Element {
     mutable StyleCacheEntry style_cache_layout_;
     mutable StyleCacheEntry style_cache_paint_;
 
+    // Persists the last known real (non-spacer) row height for ItemsControl virtualization
+    // (bind_element, document.cpp) across frames, independent of whether last frame's
+    // generated_items happened to contain a samplable row. A per-frame sample alone is not
+    // enough once a wrapping ScrollView can scroll this ItemsControl entirely out of view: the
+    // visible window then holds zero real rows (one spacer standing in for all of them), so
+    // there is nothing to sample, yet row height hasn't actually become unknown. Without this
+    // cache, several such frames in a row would each fail eligibility and fall back to full
+    // generation, defeating virtualization for exactly the scrolled-off-screen case this exists
+    // to cover. `mutable` for the same reason as the caches above: read from a `const Element&`,
+    // and it survives frames on a generated_owner Element like the rest of its runtime state.
+    mutable std::optional<float> virtualization_row_height_cache;
+
     std::vector<Element> children;
     std::vector<Element> generated_items;
     // Identity of the ViewModel* a generated_items entry was cloned for (opaque — never
