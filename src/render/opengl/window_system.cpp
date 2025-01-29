@@ -191,6 +191,22 @@ void WindowSystem::resize(glm::ivec2 size) {
     }
 }
 
+void WindowSystem::start_text_input() {
+    if (window_ != nullptr) {
+        SDL_StartTextInput(window_);
+    }
+}
+
+void WindowSystem::stop_text_input() {
+    if (window_ != nullptr) {
+        SDL_StopTextInput(window_);
+    }
+}
+
+bool WindowSystem::is_text_input_active() const {
+    return window_ != nullptr && SDL_TextInputActive(window_);
+}
+
 void WindowSystem::update_click_through(bool pointer_hit_something) {
     if (window_ == nullptr) {
         return;
