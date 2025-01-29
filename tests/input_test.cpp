@@ -25,6 +25,22 @@ std::vector<engine::MouseEvent> read_mouse(engine::ecs::World& world) {
     return events;
 }
 
+std::vector<engine::KeyEvent> read_key(engine::ecs::World& world) {
+    std::vector<engine::KeyEvent> events;
+    for (const engine::KeyEvent& event : engine::ecs::EventReader<engine::KeyEvent>{world}) {
+        events.push_back(event);
+    }
+    return events;
+}
+
+std::vector<engine::TextInputEvent> read_text_input(engine::ecs::World& world) {
+    std::vector<engine::TextInputEvent> events;
+    for (const engine::TextInputEvent& event : engine::ecs::EventReader<engine::TextInputEvent>{world}) {
+        events.push_back(event);
+    }
+    return events;
+}
+
 }
 
 TEST(Input, InternSameNameTwiceEqual) {
@@ -97,6 +113,39 @@ TEST(Input, UnboundKeyIgnored) {
 
     EXPECT_TRUE(read_input(world).empty());
     EXPECT_FALSE(input.is_held(jump));
+}
+
+TEST(Input, KeyEventEmittedRegardlessOfBinding) {
+    engine::ecs::World world;
+    engine::InputSystem input{world};
+    input.handle_key(engine::KeyCode::Backspace, true);
+    input.handle_key(engine::KeyCode::Backspace, true, true);
+    input.handle_key(engine::KeyCode::Backspace, false);
+
+    const std::vector<engine::KeyEvent> events = read_key(world);
+    ASSERT_EQ(events.size(), 3u);
+    EXPECT_EQ(events[0].key, engine::KeyCode::Backspace);
+    EXPECT_TRUE(events[0].down);
+    EXPECT_FALSE(events[0].repeat);
+
+    EXPECT_EQ(events[1].key, engine::KeyCode::Backspace);
+    EXPECT_TRUE(events[1].down);
+    EXPECT_TRUE(events[1].repeat);
+
+    EXPECT_EQ(events[2].key, engine::KeyCode::Backspace);
+    EXPECT_FALSE(events[2].down);
+    EXPECT_FALSE(events[2].repeat);
+}
+
+TEST(Input, TextInputEventEmittedWithUtf8) {
+    engine::ecs::World world;
+    engine::InputSystem input{world};
+    input.handle_text_input("Привіт");
+
+    const std::vector<engine::TextInputEvent> events = read_text_input(world);
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].text, "Привіт");
+    EXPECT_EQ(events[0].window, engine::kPrimaryWindow);
 }
 
 TEST(Input, DownUpAndHeld) {
