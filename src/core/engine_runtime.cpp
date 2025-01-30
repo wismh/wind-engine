@@ -51,6 +51,26 @@ MouseButton mouse_button_from_sdl(Uint8 button) {
     }
 }
 
+// Starts/stops each window's SDL text-input (IME/composition) session to match whether
+// UiFocusState currently has a focused element for it. Without this, SDL_EVENT_TEXT_INPUT never
+// fires — a focused TextInput blinks its caret (that's driven by UiFocusState alone) but typing
+// produces nothing, since regular key presses reach the app as SDL_EVENT_KEY_DOWN/UP either way
+// and only SDL_StartTextInput's composition session turns those into SDL_EVENT_TEXT_INPUT.
+void sync_text_input_activation(WindowManager& windows, ecs::World& world) {
+    const auto& focus_state = world.ctx<ui::UiFocusState>();
+    windows.for_each_window([&](WindowId id, WindowSystem& window) {
+        const auto it = focus_state.focused.find(id);
+        const bool wants_text = it != focus_state.focused.end() && it->second.element != nullptr;
+        if (wants_text != window.is_text_input_active()) {
+            if (wants_text) {
+                window.start_text_input();
+            } else {
+                window.stop_text_input();
+            }
+        }
+    });
+}
+
 #if defined(__ANDROID__)
 bool copy_sdl_io_file(const char* sdl_path, const std::filesystem::path& dest) {
     SDL_IOStream* io = SDL_IOFromFile(sdl_path, "rb");
@@ -346,6 +366,7 @@ void EngineRuntime::tick_loop() {
     }
     game.on_update();
     impl_->overlay_policy.update_click_through(impl_->windows, world.ctx<ui::MouseConsumed>());
+    sync_text_input_activation(impl_->windows, world);
     impl_->windows.draw_all();
 }
 
@@ -405,18 +426,7 @@ void EngineRuntime::reentrant_tick() {
     }
     game.on_update();
     impl_->overlay_policy.update_click_through(impl_->windows, world.ctx<ui::MouseConsumed>());
-    const auto& focus_state = world.ctx<ui::UiFocusState>();
-    impl_->windows.for_each_window([&](WindowId id, WindowSystem& window) {
-        const auto it = focus_state.focused.find(id);
-        const bool wants_text = it != focus_state.focused.end() && it->second.element != nullptr;
-        if (wants_text != window.is_text_input_active()) {
-            if (wants_text) {
-                window.start_text_input();
-            } else {
-                window.stop_text_input();
-            }
-        }
-    });
+    sync_text_input_activation(impl_->windows, world);
     impl_->windows.draw_all();
 }
 
