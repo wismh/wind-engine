@@ -811,6 +811,66 @@ const Element* find_by_kind_const(const Element& root, ElementKind kind) {
 
 }
 
+// wind-129 layout dirty-gate. See Element's layout_dirty_check_* fields (document.h) for WHY these
+// are the only inputs layout ever depends on. Recurses element.children (skipping ItemTemplate,
+// same as bind_element/layout_element above — a template's own subtree never itself gets laid out)
+// plus element.generated_items (ItemsControl-generated rows/spacers), and for every element visited:
+//   - compares element.text against layout_dirty_check_text
+//   - compares element.custom_properties against layout_dirty_check_custom_properties
+//   - compares the current sequence of generated_items[*].generated_owner against
+//     layout_dirty_check_generated_owners (order and count matter: a reorder or a window shift is
+//     itself a layout-relevant change even when the set of owners is unchanged)
+// then unconditionally overwrites all three cached copies with the current values — regardless of
+// whether this element compared equal — so next frame's comparison is always against the most
+// recent real state, never against a stale "first ever seen" snapshot. The traversal never
+// short-circuits on finding a change: every element's cache must be refreshed every call, so the
+// "changed" result is only ever OR-accumulated into a local, not used to skip visiting the rest of
+// the tree. layout_dirty_check_initialized is false only before the very first call on a given
+// Element (fresh construction or ItemsControl clone), which forces that first call to report
+// "changed" — there is nothing yet to compare against.
+bool layout_state_changed(Element& element) {
+    bool changed = false;
+
+    if (!element.layout_dirty_check_initialized || element.text != element.layout_dirty_check_text) {
+        changed = true;
+    }
+    element.layout_dirty_check_text = element.text;
+
+    if (!element.layout_dirty_check_initialized ||
+            element.custom_properties != element.layout_dirty_check_custom_properties) {
+        changed = true;
+    }
+    element.layout_dirty_check_custom_properties = element.custom_properties;
+
+    std::vector<const void*> current_owners;
+    current_owners.reserve(element.generated_items.size());
+    for (const Element& item : element.generated_items) {
+        current_owners.push_back(item.generated_owner);
+    }
+    if (!element.layout_dirty_check_initialized || current_owners != element.layout_dirty_check_generated_owners) {
+        changed = true;
+    }
+    element.layout_dirty_check_generated_owners = std::move(current_owners);
+
+    element.layout_dirty_check_initialized = true;
+
+    for (Element& child : element.children) {
+        if (child.kind == ElementKind::ItemTemplate) {
+            continue;
+        }
+        if (layout_state_changed(child)) {
+            changed = true;
+        }
+    }
+    for (Element& item : element.generated_items) {
+        if (layout_state_changed(item)) {
+            changed = true;
+        }
+    }
+
+    return changed;
+}
+
 std::expected<void, UiError> apply_bindings(UiDocument& document, ViewModel& data_context, IFatalError* fatal) {
     return bind_element(document.root, data_context, fatal, false);
 }

@@ -164,8 +164,33 @@ std::optional<PreparedCanvas> prepare_top_canvas(
         }
         const float media_width = space.reference_space ? space.layout_rect.w : static_cast<float>(size.width);
         const float media_height = space.reference_space ? space.layout_rect.h : static_cast<float>(size.height);
-        apply_layout_style(instance->document.root, sheet, media_width, media_height);
-        layout(instance->document, space.layout_rect, layout_painter_for(world, window));
+        IUiPainter* layout_painter = layout_painter_for(world, window);
+
+        UiDocument& document = instance->document;
+        // wind-129 layout dirty-gate. layout_state_changed() MUST run unconditionally (never as a
+        // trailing operand of a short-circuiting `||`, where it would simply not be called once an
+        // earlier operand is already true) — it has a side effect (refreshes the per-Element cache
+        // copies it compares against), and skipping that refresh this frame would leave next
+        // frame's comparison against a stale copy: a spurious "changed" at best, or — if the stale
+        // copy happens to equal the new value — a false "unchanged" that freezes layout for real.
+        const bool per_element_changed = layout_state_changed(document.root);
+        const std::uint64_t sheet_generation = sheet != nullptr ? sheet->generation : 0;
+        const bool layout_dirty = per_element_changed || !document.layout_computed_once ||
+                document.last_canvas_layout_rect != space.layout_rect || document.last_media_width != media_width ||
+                document.last_media_height != media_height || document.last_layout_sheet != sheet ||
+                document.last_layout_sheet_generation != sheet_generation ||
+                document.last_layout_painter != static_cast<const void*>(layout_painter);
+        if (layout_dirty) {
+            apply_layout_style(document.root, sheet, media_width, media_height);
+            layout(document, space.layout_rect, layout_painter);
+            document.layout_computed_once = true;
+            document.last_canvas_layout_rect = space.layout_rect;
+            document.last_media_width = media_width;
+            document.last_media_height = media_height;
+            document.last_layout_sheet = sheet;
+            document.last_layout_sheet_generation = sheet_generation;
+            document.last_layout_painter = layout_painter;
+        }
         if (batch != nullptr) {
             batch->mark(entity);
         }
