@@ -71,6 +71,20 @@ struct ComputedStyle {
     std::optional<Length> inset_left;
     float rotation_deg = 0.0f;
     float scale = 1.0f;
+    Overflow overflow_x = Overflow::Visible;
+    Overflow overflow_y = Overflow::Visible;
+    bool has_overflow_x = false;
+    bool has_overflow_y = false;
+    std::optional<Length> scrollbar_width;
+    bool has_scrollbar_width = false;
+    glm::vec4 scrollbar_track_color{0.0f, 0.0f, 0.0f, 0.0f};
+    bool has_scrollbar_track_color = false;
+    glm::vec4 scrollbar_thumb_color{0.4f, 0.4f, 0.4f, 0.8f};
+    bool has_scrollbar_thumb_color = false;
+    glm::vec4 scrollbar_thumb_hover_color{0.6f, 0.6f, 0.6f, 1.0f};
+    bool has_scrollbar_thumb_hover_color = false;
+    Length scrollbar_border_radius{4.0f, LengthUnit::Px};
+    bool has_scrollbar_border_radius = false;
     // Cascaded `--name: value;` declarations, keyed without the leading `--`. Consulted by
     // resolve_var() when a declaration's value is `var(--name)` and the element itself has no
     // matching entry in Element::custom_properties (per-instance, VM-bound — takes priority).
@@ -113,6 +127,8 @@ const char* kind_name(ElementKind kind) {
             return "Viewport";
         case ElementKind::TextInput:
             return "TextInput";
+        case ElementKind::ScrollView:
+            return "ScrollView";
     }
     return "";
 }
@@ -515,6 +531,85 @@ void apply_declaration(ComputedStyle& style, const CssDeclaration& decl) {
         const ParsedTransform transform = parse_transform(decl.value);
         style.rotation_deg = transform.rotation_deg;
         style.scale = transform.scale;
+    } else if (decl.property == "overflow") {
+        auto parse_overflow = [](std::string_view val) -> Overflow {
+            const std::string_view t = trim(val);
+            if (t == "hidden") return Overflow::Hidden;
+            if (t == "scroll") return Overflow::Scroll;
+            if (t == "auto") return Overflow::Auto;
+            return Overflow::Visible;
+        };
+        style.overflow_x = parse_overflow(decl.value);
+        style.overflow_y = style.overflow_x;
+        style.has_overflow_x = true;
+        style.has_overflow_y = true;
+    } else if (decl.property == "overflow-x") {
+        auto parse_overflow = [](std::string_view val) -> Overflow {
+            const std::string_view t = trim(val);
+            if (t == "hidden") return Overflow::Hidden;
+            if (t == "scroll") return Overflow::Scroll;
+            if (t == "auto") return Overflow::Auto;
+            return Overflow::Visible;
+        };
+        style.overflow_x = parse_overflow(decl.value);
+        style.has_overflow_x = true;
+    } else if (decl.property == "overflow-y") {
+        auto parse_overflow = [](std::string_view val) -> Overflow {
+            const std::string_view t = trim(val);
+            if (t == "hidden") return Overflow::Hidden;
+            if (t == "scroll") return Overflow::Scroll;
+            if (t == "auto") return Overflow::Auto;
+            return Overflow::Visible;
+        };
+        style.overflow_y = parse_overflow(decl.value);
+        style.has_overflow_y = true;
+    } else if (decl.property == "scrollbar-width") {
+        const std::string_view val = trim(decl.value);
+        style.has_scrollbar_width = true;
+        if (val == "none") {
+            style.scrollbar_width = Length{0.0f, LengthUnit::Px};
+        } else if (val == "thin") {
+            style.scrollbar_width = Length{4.0f, LengthUnit::Px};
+        } else if (val == "auto") {
+            style.scrollbar_width = Length{8.0f, LengthUnit::Px};
+        } else if (const auto len = css_length::parse_length(decl.value)) {
+            style.scrollbar_width = *len;
+        }
+    } else if (decl.property == "scrollbar-color") {
+        const std::string_view val = trim(decl.value);
+        if (val != "auto") {
+            const auto space = val.find(' ');
+            if (space != std::string_view::npos) {
+                if (const auto thumb = parse_color(val.substr(0, space))) {
+                    style.scrollbar_thumb_color = *thumb;
+                    style.has_scrollbar_thumb_color = true;
+                }
+                if (const auto track = parse_color(val.substr(space + 1))) {
+                    style.scrollbar_track_color = *track;
+                    style.has_scrollbar_track_color = true;
+                }
+            }
+        }
+    } else if (decl.property == "scrollbar-thumb-color") {
+        if (const auto col = parse_color(decl.value)) {
+            style.scrollbar_thumb_color = *col;
+            style.has_scrollbar_thumb_color = true;
+        }
+    } else if (decl.property == "scrollbar-track-color") {
+        if (const auto col = parse_color(decl.value)) {
+            style.scrollbar_track_color = *col;
+            style.has_scrollbar_track_color = true;
+        }
+    } else if (decl.property == "scrollbar-thumb-hover-color") {
+        if (const auto col = parse_color(decl.value)) {
+            style.scrollbar_thumb_hover_color = *col;
+            style.has_scrollbar_thumb_hover_color = true;
+        }
+    } else if (decl.property == "scrollbar-border-radius") {
+        if (const auto radius = css_length::parse_length(decl.value)) {
+            style.scrollbar_border_radius = *radius;
+            style.has_scrollbar_border_radius = true;
+        }
     }
 }
 
@@ -735,6 +830,27 @@ void apply_layout_style(Element& element, const Stylesheet* sheet, std::vector<c
     element.inset_left = style.inset_left;
     element.rotation_deg = style.rotation_deg;
     element.scale = style.scale;
+    if (style.has_overflow_x) {
+        element.overflow_x = style.overflow_x;
+    }
+    if (style.has_overflow_y) {
+        element.overflow_y = style.overflow_y;
+    }
+    if (style.has_scrollbar_width) {
+        element.scrollbar_width = style.scrollbar_width;
+    }
+    if (style.has_scrollbar_track_color) {
+        element.scrollbar_track_color = style.scrollbar_track_color;
+    }
+    if (style.has_scrollbar_thumb_color) {
+        element.scrollbar_thumb_color = style.scrollbar_thumb_color;
+    }
+    if (style.has_scrollbar_thumb_hover_color) {
+        element.scrollbar_thumb_hover_color = style.scrollbar_thumb_hover_color;
+    }
+    if (style.has_scrollbar_border_radius) {
+        element.scrollbar_border_radius = style.scrollbar_border_radius;
+    }
     ancestors.push_back(&element);
     for (Element& child : element.children) {
         apply_layout_style(child, sheet, ancestors, window_width, window_height);
@@ -932,11 +1048,17 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
     };
     ancestors.push_back(&element);
     const bool viewport_camera = element.kind == ElementKind::Viewport;
+    const bool has_scroll = (element.scroll_x != 0.0f || element.scroll_y != 0.0f);
     if (viewport_camera) {
         painter.save();
         const glm::vec2 origin{screen_rect.x, screen_rect.y};
         const glm::vec2 pan{element.pan_x * input.ui_scale, element.pan_y * input.ui_scale};
         painter.apply_view(origin, pan, viewport_zoom(element.zoom));
+    } else if (has_scroll) {
+        painter.save();
+        const glm::vec2 origin{screen_rect.x, screen_rect.y};
+        const glm::vec2 pan{-element.scroll_x * input.ui_scale, -element.scroll_y * input.ui_scale};
+        painter.apply_view(origin, pan, 1.0f);
     }
     if (element.kind == ElementKind::ItemsControl) {
         for (Element* child : child_stacking_order(element.generated_items)) {
@@ -947,10 +1069,30 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
             paint_element(*child, sheet, painter, ancestors, child_content, input);
         }
     }
-    if (viewport_camera) {
+    if (viewport_camera || has_scroll) {
         painter.restore();
     }
     ancestors.pop_back();
+
+    if (is_scrollable_y(element)) {
+        const render::Rect track = scrollbar_track_rect(element, input.ui_scale);
+        const render::Rect thumb = scrollbar_thumb_rect(element, input.ui_scale);
+        if (track.w > 0.0f && track.h > 0.0f) {
+            const render::Rect screen_track = scale_rect(track, input.ui_offset, input.ui_scale);
+            const render::Rect screen_thumb = scale_rect(thumb, input.ui_offset, input.ui_scale);
+            const float radius =
+                    resolve_length(element.scrollbar_border_radius, parent_content.x, font_size) * input.ui_scale;
+            if (element.scrollbar_track_color.a > 0.0f) {
+                painter.fill_rounded_rect(screen_track, radius, element.scrollbar_track_color);
+            }
+            if (element.scrollbar_thumb_color.a > 0.0f) {
+                const glm::vec4 thumb_color = (element.scrollbar_thumb_hovered || element.scrollbar_dragging)
+                        ? element.scrollbar_thumb_hover_color
+                        : element.scrollbar_thumb_color;
+                painter.fill_rounded_rect(screen_thumb, radius, thumb_color);
+            }
+        }
+    }
 
     painter.restore();
 }
