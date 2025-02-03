@@ -1226,7 +1226,7 @@ Runtime: `build/bin/<Config>/` with game `assets/` **and** `assets/engine/` (bui
 - Excluding an interactive control's bounds from a window's drag region (§21.7) — `set_drag_region`
   takes a raw rect with no hole-punching; a `Button` placed inside it is unclickable (`HTCAPTION`
   swallows the click before the engine sees it) and the game must shrink/notch the rect itself.
-- GL-window transparency (§21.2) has never been visually verified against a real display, engine-side included — distinct from the existing "Windows-only, Linux/macOS untested" item above: even the validated Windows path has only been confirmed correct by reading source (`WindowSystem::create`'s `SDL_GL_ALPHA_SIZE` request, SDL's own `DwmEnableBlurBehindWindow` call), never by rendering an actual transparent window on an actual screen — this repo has no sample game and no GPU/display in CI or in the sandbox these changes were made in (§12.3). A downstream game (`td-over`) originally reported a transparent primary window rendering opaque black; investigating that report live (actually running the game, `GetWindowLongPtr` inspection, temporary diagnostic logging) found two real, unrelated bugs before transparency itself could even be exercised: the borderless-titlebar issue fixed in §21.2 above, and — the actual root cause of "nothing renders at all" — the downstream game's own `on_update()` override never called `world_.run(Schedule::Fixed/Frame)` (or `GameBase::on_update()`), so every engine-registered system (`Phase::Render`/`UiRender` included) silently never ran, for either window, regardless of transparency. With that fixed on the game side, transparency itself is still unconfirmed either way — still open.
+- GL-window transparency (§21.2) has never been visually verified against a real display, engine-side included — distinct from the existing "Windows-only, Linux/macOS untested" item above: even the validated Windows path has only been confirmed correct by reading source (`WindowSystem::create`'s `SDL_GL_ALPHA_SIZE` request, SDL's own `DwmEnableBlurBehindWindow` call), never by rendering an actual transparent window on an actual screen — this repo has no sample game and no GPU/display in CI or in the sandbox these changes were made in (§12.3). An early downstream companion game originally reported a transparent primary window rendering opaque black; investigating that report live found two unrelated issues before transparency itself could be exercised: the borderless-titlebar issue fixed in §21.2 above, and — the root cause of "nothing renders at all" — the game's own `on_update()` override omitted calling `world_.run(Schedule::Fixed/Frame)` (or `GameBase::on_update()`), so engine-registered systems silently never ran. With that addressed downstream, transparency itself is still unconfirmed either way — still open.
 
 ---
 
@@ -1748,9 +1748,9 @@ enum class WindowId : std::uint32_t {};
 inline constexpr WindowId kPrimaryWindow{0};
 ```
 
-**`resizable = false` also removes `WS_MAXIMIZEBOX` on Windows, for free.** A downstream game
-(`td-over`) reported a double-click inside a `set_drag_region()` region (§21.7) maximizing its
-fixed-size overlay window. Root cause: `WindowSystem::create()` used to pass `SDL_WINDOW_RESIZABLE`
+**`resizable = false` also removes `WS_MAXIMIZEBOX` on Windows, for free.** Double-clicking
+inside a `set_drag_region()` region (§21.7) previously maximized a fixed-size overlay window.
+Root cause: `WindowSystem::create()` used to pass `SDL_WINDOW_RESIZABLE`
 unconditionally, and SDL's Windows backend (`GetWindowStyle()`,
 `external/SDL3/src/video/windows/SDL_windowswindow.c`) only adds `WS_MAXIMIZEBOX` when that flag is
 set (`if (window->flags & SDL_WINDOW_RESIZABLE) { style |= STYLE_RESIZABLE; }` —
@@ -1783,11 +1783,10 @@ backend defaults a borderless window to `STYLE_BORDERLESS_WINDOWED` (`WS_POPUP |
 WS_SYSMENU | WS_MINIMIZEBOX`, `external/SDL3/src/video/windows/SDL_windowswindow.c`,
 `GetWindowStyle()`) — i.e. Windows still draws a titlebar — deliberately, so a borderless window
 keeps acting like a normal desktop citizen (shows in the taskbar, respects the work area). A
-desktop-overlay window wants the opposite: no titlebar, no system menu, at all. This was found by
-actually running a downstream game (`td-over`) and inspecting its live windows via
-`GetWindowLongPtr(hwnd, GWL_STYLE)` — the "borderless" primary window's real style was
-`0x96CF0000`, which includes `WS_CAPTION`/`WS_SYSMENU`, confirming the titlebar seen on screen was
-not a rendering artifact. `WindowSystem::create()` (`src/render/opengl/window_system.cpp`) now
+desktop-overlay window wants the opposite: no titlebar, no system menu, at all. When
+inspecting a live borderless window via `GetWindowLongPtr(hwnd, GWL_STYLE)`, the default style is
+`0x96CF0000`, which includes `WS_CAPTION`/`WS_SYSMENU`, confirming the titlebar drawn by the OS is
+due to SDL3's default. `WindowSystem::create()` (`src/render/opengl/window_system.cpp`) now
 sets the (public-API-less, raw-string) hint before creating a borderless window:
 ```cpp
 if (desc.style.borderless) {
@@ -1830,8 +1829,8 @@ Validated on Windows only for v1 (DWM composites unconditionally since Windows 8
 is untested here — same "not blocking, not regressed against" status as the macOS icon path in
 §17.
 
-**Known report, not yet fixed:** a downstream game (`td-over`) reported a primary window created
-with `borderless = true, transparent = true` rendering opaque black instead of see-through.
+**Known report, not yet fixed:** a primary window created
+with `borderless = true, transparent = true` was reported rendering opaque black instead of see-through.
 Re-reading the whole pipeline end to end for this found nothing incorrect on paper:
 `window_style_flags()` ORs `SDL_WINDOW_BORDERLESS`/`SDL_WINDOW_TRANSPARENT` independently (no
 masking bug when both are set together), `WindowSystem::create()` requests `SDL_GL_ALPHA_SIZE = 8`
@@ -2145,7 +2144,7 @@ it, so a canvas assigned to a different window never receives another window's c
 (`src/ecs/systems.cpp`) passes `event.window` through on every `MouseEvent::Kind::Down`.
 
 **Bug found (and fixed): a background window's first click was swallowed by SDL, not the engine.**
-Reported by `td-over`: clicking a `Button` in any window that wasn't the OS-focused window did
+Clicking a `Button` in any window that was not the OS-focused window previously did
 nothing — the same click that raised/focused the window never registered as a press; the next
 click (now that the window already had focus) worked normally, reading to a user as "the button
 didn't work." `EngineRuntime::poll_events`/`init_video()` never set
@@ -2162,8 +2161,8 @@ Applies process-wide, not per-window — set once at video init, before any wind
 secondary) is created. Not covered by a dedicated `engine_tests` case: it's an SDL hint with no
 observable effect without a real OS window/focus model, out of scope per §12.3.
 
-**Bug found (and fixed): hover/pressed visuals leaked across windows.** Reported by `td-over`:
-moving the mouse over window A visually hovered a `Button` in window B that happened to sit at the
+**Bug found (and fixed): hover/pressed visuals leaked across windows.** Moving the mouse
+over window A visually hovered a `Button` in window B that happened to sit at the
 same local pixel offset within its own window. `handle_pointer`/`update_pointer_hover` above
 already filter correctly by `canvas.window` for click execution and `MouseConsumed` — this bug was
 one level downstream, at paint time. `run_input` used to write every `MouseEvent`'s
@@ -2251,9 +2250,8 @@ windows entirely.
 per frame (unchanged from §21.5); each window's `draw()` call now also re-arms the shared UI painter
 pointer to its own painter and pushes its own `CommandBuffer`'s `CmdDrawUI` commands through it.
 
-**A freshly opened secondary window's `NanoVgPainter` starts with no font loaded — a downstream
-bug (`td-over`, the first real-world exercise of this feature), fixed with the same
-cache-and-replay shape §21.7 already uses for `WindowSizes`.** Every `OpenGLCanvas` — primary or
+**A freshly opened secondary window's `NanoVgPainter` starts with no font loaded — fixed with
+the same cache-and-replay shape §21.7 already uses for `WindowSizes`.** Every `OpenGLCanvas` — primary or
 secondary — owns its *own* `NanoVgPainter` with its own font atlas (§21.6 above), but
 `EngineRuntime::load_ui_font`/`add_font` only ever called
 `impl_->windows.canvas_ptr(kPrimaryWindow)->load_ui_font(...)`/`add_font(...)`: nothing loaded any
@@ -2339,476 +2337,90 @@ liveness check (skip `kPrimaryWindow`, skip any entry whose `window.window() == 
 already wrote is never touched by it.
 
 **Borderless window dragging.** Borderless windows have no OS-drawn titlebar to drag by.
-**Superseded by wind-92 (see the writeup further down this section)**: through wind-91,
-`WindowSystem::create()` installed an `SDL_SetWindowHitTest` callback **unconditionally, on every
-window** — not just borderless ones — that answered `SDL_HITTEST_DRAGGABLE` inside `drag_region_`,
-which Windows turned into `HTCAPTION` and dragged natively via `DefWindowProc`'s own modal loop.
-wind-92 replaced that with a manually-implemented drag (`WindowSystem::begin_drag_if_in_region()`)
-that never enters that modal loop at all, so `SDL_SetWindowHitTest` is no longer called — the
-paragraph below describes what's still true of the mechanism regardless: it reads `WindowSystem`'s
-`std::optional<render::Rect> drag_region_` member live on every check, so
+Rather than delegating dragging to the OS's native HTCAPTION hit-test mechanism (which enters
+DefWindowProc's synchronous modal move loop and stalls message processing on Windows),
+Wind implements custom borderless window dragging directly in WindowSystem:
 
-```cpp
-void WindowSystem::set_drag_region(std::optional<render::Rect> region);   // src/render/opengl/window_system.h
-```
+`cpp
+void WindowSystem::set_drag_region(std::optional<render::Rect> region);
+bool WindowSystem::begin_drag_if_in_region(glm::vec2 window_local_pos);
+void WindowSystem::update_drag();
+void WindowSystem::end_drag();
+bool WindowSystem::is_in_drag_region(glm::vec2 point) const noexcept;
+`
 
-just updates that stored value. The callback itself,
+set_drag_region stores a client-coordinate rectangle (
+ender::Rect) defining the draggable
+portion of the window. IWindowControl::set_drag_region(std::optional<render::Rect>, WindowId window = kPrimaryWindow)
+(§21.3) forwards to the specified window.
+When an SDL_EVENT_MOUSE_BUTTON_DOWN arrives on left click, EngineRuntime::poll_events() calls
+egin_drag_if_in_region(client_pos). If the click falls inside the configured drag region:
+1. SDL_CaptureMouse(true) is called so mouse movement continues delivering even when the cursor leaves the window.
+2. The initial global cursor position (SDL_GetGlobalMouseState) and window position (SDL_GetWindowPosition) are recorded.
+3. Subsequent SDL_EVENT_MOUSE_MOTION events call update_drag(), shifting the window via SDL_SetWindowPosition.
+4. The drag concludes on SDL_EVENT_MOUSE_BUTTON_UP via end_drag(), releasing mouse capture.
+   SDL_EVENT_WINDOW_FOCUS_LOST also calls end_drag() as a safety net to prevent orphaned capture.
+5. The initiating click is treated as consumed, preventing downstream UI elements or input systems from triggering.
 
-```cpp
-SDL_HitTestResult window_drag_hit_test(SDL_Window* window, const SDL_Point* area, void* data);
-```
+**Known limitation: interactive elements inside the drag region.** Because is_in_drag_region() is a
+geometric containment test evaluated before UI dispatch in poll_events(), buttons placed inside
+a drag region cannot receive clicks. Games must notch or shrink their drag rectangle to leave interactive
+controls (e.g. custom close or minimize buttons) outside the drag region.
 
-(kept in its original `SDL_HitTest`-matching signature purely out of convenience — no longer
-registered as one since wind-92, see its own doc comment, `src/render/opengl/window_system.h`/`.cpp`)
-casts `data` back to the owning `WindowSystem*` and returns `SDL_HITTEST_DRAGGABLE` if
-`drag_region_` is set and contains `area->x`/`area->y` (window-client pixels — the same coordinate
-space `render::Rect` already uses for `UiCanvas.rect`, e.g. a title-bar canvas's rect), else
-`SDL_HITTEST_NORMAL`. Still called directly as a plain geometry check by
-`begin_drag_if_in_region()` and by the click-through exclusion (§21.4). `drag_region_` is reset in
-`destroy()` alongside `transparent_`/`click_through_applied_`.
-`IWindowControl::set_drag_region(std::optional<render::Rect>, WindowId window = kPrimaryWindow)`
-(§21.3 — `WindowId`-addressed like the interface's other style methods) forwards to
-`windows_->window(window)->set_drag_region(region)`, a no-op if `window` has no live SDL window.
+**Click-through and Win32 subclassing.** When click-through is enabled on a transparent window (§21.4),
+unoccupied areas must pass mouse clicks through to the underlying desktop or windows:
+1. On Windows, WindowSystem::create() subclasses transparent windows (SetWindowLongPtrW(hwnd, GWLP_WNDPROC, ...)),
+   installing win32_hit_test_wndproc and saving the previous window procedure in win32_prev_wndproc_.
+2. win32_hit_test_wndproc intercepts WM_NCHITTEST:
+   - If click-through is applied (click_through_applied()) and the cursor point lies *outside* the window's
+     drag_region_, it immediately returns HTTRANSPARENT, allowing the OS to route input to underlying windows.
+   - If the cursor lies inside drag_region_, or click-through is inactive, it forwards to the original
+     window procedure via CallWindowProcW.
+3. To ensure Windows DWM compositing honors HTTRANSPARENT input routing, WindowSystem::apply_click_through()
+   pairs WS_EX_TRANSPARENT with WS_EX_LAYERED, initialized with SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)
+   to maintain defined blend state without altering DWM whole-window alpha compositing.
+4. update_click_through() excludes the drag region from click-through application so that drag handles remain
+   interactable even if unbacked by an active UI widget.
 
-**Known limitation (`td-over`): an interactive element inside the drag region is unclickable —
-still true after wind-92, mechanism changed but the outcome didn't.** `window_drag_hit_test` is a
-plain rectangle-containment test with no knowledge of what's drawn inside that rectangle. Through
-wind-91, a click inside it was reported to the OS as `SDL_HITTEST_DRAGGABLE` (→ `HTCAPTION` →
-non-client `WM_NCLBUTTONDOWN`), so SDL never emitted `SDL_EVENT_MOUSE_BUTTON_DOWN`/`_UP` for it and
-the engine never saw it. wind-92 removed that OS-level mechanism (see below), but
-`EngineRuntime::poll_events()` still checks `begin_drag_if_in_region()` *before* ever forwarding a
-button-down to `InputSystem`/the UI hit-test pipeline — so a click inside the drag region still
-never reaches a `Button` sitting there, same practical outcome, just decided by our own code now
-instead of the OS. A custom titlebar with a close `Button` placed inside its own drag `Stack` is
-the exact failure `td-over` hit: "put a close button next to your drag handle" is the obvious
-pattern for a borderless window's custom titlebar, and it silently breaks — no click event reaches
-the app at all, for any command that `Button` is bound to. `set_drag_region`'s doc comment
-(`include/engine/core/window_control.h`) says this loudly: a game must shrink or notch its drag
-rect around any interactive control's bounds itself. Still not fixed in code: doing so would need
-either per-point exclusion rects threaded through `window_drag_hit_test`, or checking a UI hit-test
-result *before* `begin_drag_if_in_region()` decides — `EngineRuntime::poll_events()` has no such
-hit-test access today, and wiring it in is a larger design change than a doc-comment warning,
-deferred (§17).
+**Synthetic cursor polling (cursor_client_position).** Because Windows stops delivering WM_MOUSEMOVE
+messages to an HWND once its coordinates resolve to HTTRANSPARENT, relying solely on OS motion events causes
+a deadlock: the first frame the cursor enters empty space, click-through activates, permanently suppressing
+subsequent motion messages and preventing UI hover re-evaluation.
+To solve this, WindowSystem::cursor_client_position() polls the true cursor position using SDL_GetGlobalMouseState
+minus window coordinates. DesktopOverlayPolicy uses this to synthesize motion updates through InputSystem
+each tick, ensuring buttons reliably regain hover and focus when the cursor returns.
 
-**Bug found (and fixed, `td-over`): a drag region silently broke real click-through everywhere on
-the window, not just inside itself.** `WindowSystem::create()` installs `window_drag_hit_test` via
-`SDL_SetWindowHitTest` unconditionally (above). Confirmed from
-`external/SDL3/src/video/windows/SDL_windowsevents.c`'s `WIN_WindowProc`: once a window has any
-`hit_test` callback at all, its `WM_NCHITTEST` handler maps `SDL_HITTEST_NORMAL` straight to
-`HTCLIENT` and returns — `DefWindowProc` is never reached for that message. `DefWindowProc` is the
-only place that inspects `WS_EX_TRANSPARENT` and would answer `HTTRANSPARENT` for it, which is
-exactly the mechanism §21.4's `apply_click_through` relies on. So the moment any drag region is set
-(effectively always, once a game's overlay HUD sets one), real OS-level click-through stopped
-working across the *entire* window — not only inside the drag rect — regardless of
-`click_through_enabled`/`is_transparent`/pointer position. `SDL_HitTestResult`
-(`external/SDL3/include/SDL3/SDL_video.h`) has no `HTTRANSPARENT`-equivalent value, so this isn't
-fixable through the public `SDL_HitTest` callback alone — reported upstream
-(`libsdl-org/SDL`, no public issue number to cite). Fixed by subclassing the HWND on top of SDL's
-own `WIN_WindowProc` (already installed by `SDL_CreateWindow` — see `WIN_CreateWindow` in
-`SDL_windowswindow.c`): `WindowSystem::create()` now also calls `SetWindowLongPtrW(hwnd,
-GWLP_WNDPROC, &win32_hit_test_wndproc)` right after `SDL_SetWindowHitTest`, saving the previous
-value (SDL's own `WIN_WindowProc`) into `win32_prev_wndproc_` (`src/render/opengl/window_system.h`,
-stored as `void*` so the header still never needs `<windows.h>` — §16 rule 15 — the `.cpp` casts
-both ways) and stashing `this` in `GWLP_USERDATA` (confirmed unused by SDL for a normal
-`SDL_CreateWindow`-created window — it only touches that slot for its own message-box dialogs and
-tray-icon windows, `SDL_windowsmessagebox.c`/`SDL_tray.c`; a normal window's own SDL bookkeeping
-lives in a window *property*, `"SDL_WindowData"`, read via `WIN_GetWindowDataFromHWND`, untouched
-here). `win32_hit_test_wndproc` (`src/render/opengl/window_system.cpp`, anonymous namespace)
-intercepts only `WM_NCHITTEST`: when `WindowSystem::click_through_applied()` (new getter, mirrors
-`click_through_enabled()`) is true and the point — converted screen-to-client itself, matching what
-SDL's own handler does — falls *outside* the drag region (checked by calling the existing
-`window_drag_hit_test` directly, so the rect test isn't duplicated), it returns `HTTRANSPARENT`
-straight away, bypassing SDL for that one message. Every other case, including inside the drag
-region, delegates via `CallWindowProcW` to the saved original proc — deliberately, rather than
-reimplementing `HTCAPTION` itself, so SDL's own button-state-aware choice between `HTCAPTION` and
-`HTCLIENT` for `SDL_HITTEST_DRAGGABLE` (`WIN_WindowProc`'s `WM_NCHITTEST` case, "If the mouse
-button state is something other than none or left button down, return HTCLIENT, or Windows will
-eat the button press") keeps working unchanged. `destroy()` resets `win32_prev_wndproc_` to
-`nullptr` alongside `transparent_`/`click_through_applied_`/`drag_region_` (the HWND itself is
-destroyed there, so the subclass installed on it goes away with it — nothing to explicitly
-uninstall). Not covered by a dedicated `engine_tests` case for the actual hit-test override itself
-— needs a real HWND, out of scope per §12.3, same boundary as `apply_click_through` already had;
-`WindowSystem.ClickThroughAppliedDefaultsToFalse`/`ClickThroughAppliedStaysFalseWithoutWindow`
-(`tests/window_style_test.cpp`) cover the pure getter and its no-window no-op contract instead.
-(wind-92 note: `SDL_SetWindowHitTest` is no longer called at all as of wind-92 further down this
-section, so "delegates... to SDL's own window_drag_hit_test callback" above no longer applies to
-the drag-region case specifically — see wind-92's writeup for what replaced it. The click-through
-`HTTRANSPARENT` mechanism described here is unaffected.)
+**Modal drag loop & reentrant tick (bordered windows & OS sizing).** Bordered windows dragged by their native
+OS titlebar or resized via WS_THICKFRAME borders enter DefWindowProc's synchronous modal loop on Windows,
+which blocks EngineRuntime::tick_loop().
+To prevent simulation freezing during native moves/resizes:
+1. WindowManager provides set_modal_loop_tick_callback(std::function<void()>).
+2. When an active overlay is present, DesktopOverlayPolicy::sync_modal_loop_hook installs windows_message_hook
+   via SDL_SetWindowsMessageHook.
+3. On incoming WM_TIMER messages (~10ms cadence from SDL3's timer in modal loops), the hook triggers
+   EngineRuntime::reentrant_tick().
+4. 
+eentrant_tick() advances FixedStepClock with the measured delta time and executes on_fixed_update(),
+   on_update(), and draw_all().
+5. Crucially, 
+eentrant_tick() omits world.flush_events() (preserving event buffers for outer systems that
+   have not yet executed for the frame) and poll_events() (since modal OS loops dispatch messages directly).
 
-**Regression found (and fixed, `td-over`): the click-through fix above made real Win32
-click-through work for the first time — which broke every button, permanently, the first frame the
-pointer left one.** Diagnosed by `td-over`: `WindowSystem::update_click_through()` (§21.4) only
-ever recomputes `click_through_applied_` from `world.ctx<ui::MouseConsumed>().value`, which itself
-only updates in reaction to a *real* `SDL_EVENT_MOUSE_MOTION` — `poll_events()` ->
-`InputSystem::handle_mouse_move()` -> `run_input()`'s `Move` case -> `ui::update_pointer_hover()`
-(`src/ecs/systems.cpp`/`src/ui/canvas.cpp`). Before the fix above, this was harmless because real
-OS-level click-through never actually engaged (that was the whole bug) — `WM_NCHITTEST` always
-resolved to `HTCLIENT` via SDL regardless of `WS_EX_TRANSPARENT`, so Windows kept delivering every
-`WM_MOUSEMOVE` unconditionally, and `MouseConsumed` stayed fresh no matter where the pointer was.
-Once real click-through actually started working, that stopped being true: `WS_EX_TRANSPARENT`
-causes Windows' own hit-test/routing machinery to *stop delivering mouse messages for a point once
-it resolves to `HTTRANSPARENT`* — Windows just keeps testing the window(s) underneath instead of
-this one — and `win32_hit_test_wndproc` decides *every* point outside the drag region purely from
-the last frame's (already-stale) `click_through_applied()`, with no per-point knowledge of where
-the actual UI buttons are. Concretely: the first frame the pointer sat over empty space,
-`click_through_applied_` latched `true`; from then on `win32_hit_test_wndproc` answered
-`HTTRANSPARENT` for literally every point outside the drag region, including a point the pointer
-later moved onto that was actually a button — so no new `WM_MOUSEMOVE` (and no new
-`SDL_EVENT_MOUSE_MOTION`) was ever delivered to this window again, `MouseConsumed` could never be
-recomputed from the pointer's true position, and the window got permanently stuck treating
-everything outside the drag region as click-through, buttons included: exactly a deadlock, the OS
-mechanism click-through depends on (real mouse-message delivery) is the same mechanism its own
-"click-through engaged" state now silently suppresses. Fixed by no longer relying on the OS to
-*choose* to deliver a motion event at all: `WindowSystem::cursor_client_position()`
-(`src/render/opengl/window_system.h`/`.cpp`) polls the true OS cursor position directly every tick
-— `SDL_GetGlobalMouseState` (works regardless of window focus/message delivery) minus
-`SDL_GetWindowPosition`, assuming the window's OS position is its client-area origin, true for the
-borderless windows this exists for. `EngineRuntime::tick_loop()` calls it right after
-`poll_events()`, but only when `primary.click_through_enabled() && primary.is_transparent()`
-(kPrimaryWindow-only, matching click-through's own §21.4 scope — every other window/game pays
-nothing extra here), and feeds the result through the exact same
-`InputSystem::handle_mouse_move()` -> `MouseEvent` -> `run_input()` -> `update_pointer_hover()`
-pipeline a real motion event already used — same technique other click-through overlay apps (RTSS,
-Discord overlay) use, for the same reason. `WindowSystem.CursorClientPositionIsNulloptWithoutWindow`
-(`tests/window_style_test.cpp`) covers the no-window no-op contract; the actual OS polling, like
-the rest of this section's Win32-only pieces, needs a real window and isn't covered by
-`engine_tests` (§12.3).
+**Primary window initial WindowSize backfill.** EngineRuntime::begin_loop() calls
+write_window_size(game.world(), false) immediately before game.on_start(). This ensures that fixed-size
+overlays or windows that do not receive an immediate OS resize event have valid dimensions in ctx<WindowSize>()
+before initial layout and canvas sizing execute.
 
-**Regression found (and fixed, `td-over`, 3 rounds): the fix above made `WM_NCHITTEST` answer
-correctly, but that alone still didn't get a real click delivered — two more attempts each traded
-one working thing for another before landing on the actual fix.** Isolated with
-`samples/overlay_probe` (a temporary, throwaway SDL3-only repro, `ENGINE_BUILD_SAMPLES`, since none
-of this is reachable from `engine_tests` per §12.3 — no real HWND, no real desktop, no real mouse)
-because none of it could be diagnosed from source reading alone.
+**Desktop overlay policy isolation.** All overlay-specific behaviors are isolated into DesktopOverlayPolicy:
+- DesktopOverlayPolicy manages whether desktop overlay behaviors (synthetic cursor polling, click-through
+  updates, and modal message hooking) are active.
+- For standard opaque games and fullscreen applications, DesktopOverlayPolicy::has_active_overlay()
+  evaluates to alse, causing overlay routines to become zero-cost no-ops.
+- SDL_SetWindowsMessageHook is dynamically registered only when an active overlay is running and an active
+  tick callback is set, and is safely unhooked when overlays close or the loop exits. Standard games run a clean,
+  straightforward frame loop without OS message interception overhead.
 
-*Round 1.* `td-over` confirmed via a direct `SendMessage(hwnd, WM_NCHITTEST, ...)` that
-`win32_hit_test_wndproc` answers `HTTRANSPARENT` exactly where expected — but a real mouse click at
-that same screen point still didn't reach Explorer underneath. Suspected `WS_EX_TRANSPARENT` alone
-being insufficient for a *DWM-composited* window (this window's transparency comes from
-`DwmEnableBlurBehindWindow`, not the classic `WS_EX_LAYERED` alpha-blend path — see §21.2/§21.4's
-now-corrected "Mechanism" paragraph) — most reference click-through-overlay implementations pair
-`WS_EX_TRANSPARENT` with `WS_EX_LAYERED`, contrary to this engine's original (wrong) reasoning.
-
-*Round 2.* Adding bare `WS_EX_LAYERED` (`overlay_probe`'s `L` key) made real click-through pass
-through correctly — confirming Round 1's hypothesis — but broke the drag region *and, with it,
-keyboard focus* entirely: a temporary diagnostic logger (`wind88_log`, `%TEMP%\wind88_diagnostic.log`
-+ stdout, `window_manager.cpp`/`window_system.cpp`, removed again once this concluded) showed 118
-correct `HTCAPTION` hits for the drag region before adding `WS_EX_LAYERED`, and exactly 0 after,
-with the same cursor motion pattern. Root cause: `WS_EX_LAYERED` without ever calling
-`SetLayeredWindowAttributes`/`UpdateLayeredWindow` leaves its alpha/blend state undefined, and
-Windows then appears to treat the *entire* window as input-transparent — not just the points
-`win32_hit_test_wndproc` actually answers `HTTRANSPARENT` for. No click ever reached the window
-again, for any point, which is also why keyboard input stopped working: a window that never
-receives a real click never gets activated/focused. Fixed by "arming" the layered style once,
-right after adding it, with `SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)` — full opacity on
-the classic GDI blend path; the real visual transparency still comes from DWM above, untouched by
-this call.
-
-*Round 3.* With `WS_EX_LAYERED` armed, the *drag region* still didn't work, even though the
-diagnostic log now showed it correctly answering `HTCAPTION` 698 times with 0 `HTTRANSPARENT` hits
-inside it — i.e., `win32_hit_test_wndproc`'s per-point logic was, and always had been, correct. The
-missing piece: `overlay_probe`'s stand-in for `update_click_through()`'s decision only ever
-excluded its fake *button* from "should be click-through", never the drag region — so
-`WS_EX_TRANSPARENT` (unlike `WS_EX_LAYERED`) stayed *applied* almost the entire time the pointer
-sat in the drag region, because nothing ever told it not to. That revealed the actual governing
-rule: **real click delivery for this layered+transparent composited window depends on whether
-`WS_EX_TRANSPARENT` is set on the window *at all*, at the instant the real click lands — not on
-`win32_hit_test_wndproc`'s correct per-point `WM_NCHITTEST` answer**, which DWM's real input
-routing for a composited window apparently doesn't consult as granularly as the public Win32 API
-implies it should. Fixed by making `WindowSystem::update_click_through()` treat the pointer sitting
-inside `drag_region_` as a hit too (via `cursor_client_position()` above + the existing
-`window_drag_hit_test`, reused rather than duplicating the rect test — same as
-`win32_hit_test_wndproc` already does), regardless of `MouseConsumed`: a game's drag strip is not
-guaranteed to be backed by an actual UI widget that would set `MouseConsumed` on its own, and
-click-through must never be *applied* while the pointer is there, not just correctly *answered
-about* there. Confirmed fixed end to end by `td-over`: real click-through, real dragging, and
-keyboard focus all work simultaneously now.
-
-Not covered by a dedicated `engine_tests` case for any of this — same real-HWND/real-DWM boundary
-as the rest of this section (§12.3); `samples/overlay_probe` and the temporary log lines were
-removed once `td-over` confirmed the fix, per the "temporary, not part of the shipped engine"
-warning at the top of that file.
-
-**Bug found (and fixed): the whole game visibly froze for as long as any window was being
-dragged.** Not specific to click-through or drag regions — reported separately, but same root area.
-On Windows, a `WM_NCLBUTTONDOWN` with `HTCAPTION` (whether from a real OS titlebar on a bordered
-window, or from `window_drag_hit_test`'s `SDL_HITTEST_DRAGGABLE` on a borderless one) makes
-`DefWindowProc` enter its own modal move/size loop, and the calling thread blocks inside it until
-the mouse button is released — standard Win32 behavior, confirmed from `WM_ENTERSIZEMOVE`'s handler
-in `SDL_windowsevents.c`. `EngineRuntime::run()` (`src/core/engine_runtime.cpp`) is a classic
-`while (app.running) tick_loop();` loop built on `SDL_PollEvent` (`poll_events()`), not SDL3's
-`SDL_AppIterate`/main-callbacks model (confirmed: nothing in this codebase defines
-`SDL_MAIN_USE_CALLBACKS` or calls `SDL_AppIterate`/`SDL_AppInit`) — so `tick_loop()` simply never
-runs again until the drag ends, and the whole game (any window, not just an overlay one) visibly
-freezes for that whole duration. SDL3 itself already ticks a `WM_TIMER`
-(`SetTimer(hwnd, ..., USER_TIMER_MINIMUM, NULL)`, ~10ms) while inside that modal loop specifically
-so `SDL_AppIterate`-based apps keep rendering during a drag/resize — irrelevant to this engine,
-which doesn't use that model. Fixed via the general escape hatch SDL exposes for exactly this,
-`SDL_SetWindowsMessageHook` (`SDL3/SDL_system.h`, called for every message while the modal loop is
-active): `WindowManager`'s constructor (`src/render/opengl/window_manager.cpp`) installs
-`windows_message_hook` once (a process-global single-slot hook — one `WindowManager` per
-`EngineRuntime`, one `EngineRuntime` per process, so installing it once here is enough; safe before
-`SDL_Init` since the SDL-side function just stores two globals), which calls a registered callback
-(see the wind-89 writeup below — originally just `WindowManager::draw_all()`, a **visual-only**
-redraw) on every `WM_TIMER` seen while the hook is armed. **Superseded by wind-89 below**: the
-original fix here was deliberately *not* a reentrant `tick_loop()` — `draw_all()` re-executed each
-window's already-recorded `CommandBuffer` (confirmed `CommandBuffer::clear()`'s only call site,
-`src/ecs/systems.cpp`, runs once per real tick, so calling `draw()` again without a new tick just
-re-presents the previous frame, not a blank one) rather than running
-`game.on_update()`/`on_fixed_update()` again from inside a nested call stack still inside
-`SDL_PollEvent`, which "would need reentrant `FixedStepClock`/`world.flush_events()` behavior this
-class was never designed for" (this section's own words, until wind-89 actually built that
-behavior — `world.flush_events()` specifically turned out to still need staying tick_loop()-only,
-everything else didn't). `WindowManager` gained a non-defaulted destructor (declared
-unconditionally, not just under `_WIN32`, so implicit move-constructor/assignment behavior doesn't
-silently differ by platform — the hook needs clearing there before `this` goes away, since it's the
-hook's `userdata`) that clears the hook via `SDL_SetWindowsMessageHook(nullptr, nullptr)`. Not
-covered by a dedicated `engine_tests` case: exercising it needs a real HWND actually being dragged,
-out of scope per §12.3, same boundary as the rest of this section's Win32-only pieces.
-
-**Feature added (wind-89, `td-over`): the visual-only redraw above became a real reentrant game
-tick, so simulation (wave timers, enemy AI, animation) keeps advancing in real time during a
-drag/resize, not just the picture.** Requested by `td-over` (an idle auto-battler, where pausing
-simulation for however long the player holds the overlay's drag strip is a real gameplay problem,
-not just cosmetic) after the visual-only fix above shipped. Two changes:
-
-`WindowManager` no longer hardcodes what runs on its Win32 modal-loop hook — `draw_all()` was
-`EngineRuntime`'s business to begin with, and `EngineRuntime` is the only place with the `IGame&`/
-`ecs::World&`/`FixedStepClock` this needs. `set_modal_loop_tick_callback(std::function<void()>)`
-(`src/render/opengl/window_manager.h`) lets a caller register what runs on `WM_TIMER`, keeping
-`WindowManager` itself ECS-free (§3.4/§4.2) — same shape as the pre-existing
-`for_each_secondary_window` callback parameter. `EngineRuntime::begin_loop()` registers
-`[this] { reentrant_tick(); }`; `end_loop()` clears it back to empty (a null/empty `std::function`
-is `windows_message_hook`'s no-op case — harmless if a stray `WM_TIMER` arrives outside
-`begin_loop()`/`end_loop()`'s span, which shouldn't happen but costs nothing to guard).
-
-`EngineRuntime::reentrant_tick()` (`src/core/engine_runtime.cpp`) is `tick_loop()`'s tail —
-`ui::begin_frame(world)`, `FixedStepClock::advance()` + `on_fixed_update()` the returned number of
-times, `on_update()`, `update_click_through()`, `draw_all()` — **minus** `world.flush_events()` and
-`poll_events()`, deliberately:
-
-- `poll_events()` is pointless here: real OS input isn't flowing through `SDL_PollEvent` while this
-  hook is even reachable (that's the whole reason it exists) — this callback receives Windows
-  messages directly instead.
-- `world.flush_events()` is the one piece that turned out to still need to stay outer-`tick_loop()`
-  only, and this is the crux of the whole feature: `Events<T>::update()` (`include/engine/ecs/events.h`)
-  ages `previous_` into oblivion and promotes `current_` into `previous_`. The outer `tick_loop()`
-  (`engine_runtime.cpp`) calls `world.flush_events()` once, immediately before `poll_events()` — so
-  by the time this hook can first fire (nested inside that very `poll_events()` call), the outer
-  frame's own flush has *already run*, but none of the outer frame's own systems (which read what
-  that flush just promoted into `previous_`) have executed yet — that happens later, once
-  `poll_events()` eventually returns and `tick_loop()` resumes past it. A second, reentrant
-  `flush_events()` call from inside `reentrant_tick()` would clear `previous_` out from under those
-  not-yet-run systems, silently dropping events they were counting on seeing this cycle. Omitting it
-  here doesn't cost same-tick event delivery either: `EventReader<T>::begin()`/`end()` (`events.h`)
-  index into `previous_`/`current_` fresh at every construction rather than requiring a prior
-  `update()` — a system inside `reentrant_tick()` that sends an event and a later system (same
-  reentrant tick, or the next one) that reads it via a fresh `EventReader`/`EventCursor`
-  construction sees it correctly regardless; `flush_events()` is only about aging *across* frame
-  boundaries, which the outer real tick's own call already does for everything sent since the last
-  real frame.
-- The secondary-window `WindowSizes`/font backfill block in `tick_loop()` is also skipped here —
-  cosmetic (a newly opened secondary window's canvas sizes one frame later than usual, only if that
-  window happens to open in the exact same span a drag is already in progress), not worth the extra
-  complexity in this callback.
-
-Both `tick_loop()` and `reentrant_tick()` read and advance the *same* `impl_->loop_last` and the
-same `FixedStepClock` (`impl_->loop_clock`) — there's no separate clock for the reentrant path.
-`real_dt` is measured against whichever of the two last ran, and every `reentrant_tick()` call
-updates `loop_last` again before returning — so no matter how many times `WM_TIMER` fires during one
-drag (~every 10ms), `tick_loop()`'s own `real_dt` once the drag ends and it resumes is just the
-small remainder since the *last* `reentrant_tick()` call, never a multi-second catch-up burst — the
-`td-over` request specifically named this as the failure mode to avoid, and it's avoided by
-construction (small, frequent `real_dt` values in, not one large one after the fact) rather than by
-clamping. `FixedStepClock::advance()` (`src/core/fixed_step.cpp`) independently clamps any single
-call's `real_dt` to 0.25s and caps steps at 8 per call (discarding, not deferring, any leftover past
-that) regardless of who's calling it, so even an unusually long gap between two `reentrant_tick()`
-calls — or between the last one and `tick_loop()`'s own resumption — can't run away either.
-
-Not covered by a dedicated `engine_tests` case: same real-HWND/real-drag boundary as the rest of
-this section (§12.3) — `world.flush_events()`'s ordering relative to a mid-`poll_events()` reentrant
-call isn't something a headless test can exercise. **Merged to `main` on `td-over`'s explicit
-request, ahead of the live-gameplay confirmation every other Win32-only fix in this section got
-before merging** — the reasoning above (flush/poll omission, shared `loop_last`/`FixedStepClock`)
-is believed correct but, unlike the rest of §21.7, has not yet been watched working against a real
-drag with waves/enemies live. If `td-over` hits dropped events, corrupted state, or burst catch-up
-after dragging with this merged, that is the first place to look.
-
-**Regression found (and fixed, `td-over`, wind-90): the reentrant tick above was smooth for the
-transparent primary overlay, but dragging an opaque secondary window stalled everything —
-including simulation that has nothing to do with that window.** Reported immediately after wind-89
-merged: dragging the primary overlay kept real time flowing exactly as intended, but dragging
-`td-over`'s `workshop`/`settings` (ordinary opaque borderless secondary windows) made the whole
-game lag/near-freeze *while that specific drag was in progress*. `game.on_update()` for the
-overlay's own scene never stops running while a secondary window like `workshop` is open (nothing
-in `td-over`'s `open_workshop()` hides the overlay HUD), so both cases run the identical
-`reentrant_tick()` work — the only difference is *which* window the OS is actively live-moving.
-Suspected (`td-over`'s hypothesis, not yet independently root-caused further) `OpenGLCanvas::draw()`'s
-`SDL_GL_SwapWindow` call: observed to block for the DWM compositor to catch up specifically for
-whichever window is being live-moved/resized *right now*, and worse for an ordinary opaque window
-than for the transparent, `DwmEnableBlurBehindWindow`-composited primary overlay — which would
-explain why `reentrant_tick()`'s entire ~10ms budget (game logic included, even though logic itself
-never touches `SwapWindow`) was getting eaten by one window's draw call.
-
-Fixed by having `reentrant_tick()` skip draw/swap for whichever window is the one actually being
-dragged, resolved from the Win32 message itself rather than guessed: `windows_message_hook`
-(`window_manager.cpp`) now resolves `msg->hwnd` via the new
-`WindowManager::find_by_native_handle(void* native_handle)` (mirrors `find_by_sdl_id`, but keyed by
-the platform-native handle — `void*` in the header so it stays `<windows.h>`-free, §16 rule 15;
-`SDL_PROP_WINDOW_WIN32_HWND_POINTER` is simply never set on non-Windows platforms, so this is safe
-to call unconditionally everywhere, no `#if defined(_WIN32)` needed on the caller's side) and passes
-the resulting `std::optional<WindowId>` into the registered callback —
-`set_modal_loop_tick_callback` took `std::function<void()>` before, now
-`std::function<void(std::optional<WindowId>)>`, still opaque to `WindowManager` itself (§3.4/§4.2 —
-it resolves *which* window, never *what* runs or *why*). `EngineRuntime::reentrant_tick()` forwards
-it straight into `WindowManager::draw_all(std::optional<WindowId> skip = std::nullopt)`'s new `skip`
-parameter (default preserves `tick_loop()`'s own unconditional-full-redraw call unchanged). The
-skipped window's own content simply doesn't redraw again until either the drag ends (`tick_loop()`
-resumes its normal unconditional `draw_all()`) or a different window becomes the active one — an
-accepted trade-off (a window not redrawing while the OS is actively moving it around the screen is
-common elsewhere, e.g. many apps), not the same class of problem as the visual freeze wind-89 fixed,
-which affected every window regardless of which one (if any) was even being dragged.
-
-`WindowManager.FindByNativeHandleReturnsNulloptWithNoLiveWindows` (`tests/window_style_test.cpp`)
-covers the no-live-window contract (`nullptr` and a non-null-but-unmatched pointer both correctly
-`std::nullopt`, including on non-Windows builds where the property is simply never set) and
-`draw_all(skip)` on an empty manager still not crashing; the actual HWND resolution and
-selective-skip behavior, like the rest of this section, needs a real drag and isn't covered by
-`engine_tests` (§12.3). Also not yet independently confirmed further than `td-over`'s own
-diagnosis — if the lag persists after this, the `SDL_GL_SwapWindow`-blocks-on-DWM hypothesis itself
-needs measuring directly (`td-over`'s own suggestion), not just working around by skipping it.
-
-**Regression found (and fixed, `td-over`, wind-91): the wind-90 skip broke the one drag case that
-had been perfect.** Dragging the primary overlay itself — transparent, so per wind-90's own
-hypothesis its `SDL_GL_SwapWindow` was never the slow one — got its own redraw skipped too, same as
-any other dragged window. Simulation never actually stopped (`on_fixed_update()`/`on_update()` keep
-running exactly as wind-89 intended), but the overlay is the only thing the player is looking at
-while dragging it, so a frozen picture reads as "the game stopped" regardless — a purely visual
-regression with no corresponding benefit, since an already-fast swap had nothing to gain from being
-skipped. Fixed in `EngineRuntime::reentrant_tick()`: the dragged window is now only passed to
-`draw_all()`'s `skip` parameter when `WindowSystem::is_transparent()` is false for it — matching
-the actual suspected mechanism (opaque-window swap blocking) instead of "whichever window happens
-to be dragged, regardless of type". `td-over` also reports `workshop`/`settings` dragging is
-*still* not fully smooth even with wind-90's skip active — i.e. skipping just the dragged window's
-own swap didn't fully explain the stall, hinting DWM may serialize composition more broadly during
-any live move/resize than just the one window's own `Present` call. Not re-investigated with real
-measurements yet in this fix — it only undoes the overlay regression; `td-over`'s own suggested next
-step (measure `canvas->draw()`/`SDL_GL_SwapWindow` duration per window during a live drag, dragged
-window vs. the rest, to confirm or rule out whole-composition serialization) is still open.
-
-**Root cause found, and the whole mechanism replaced (`td-over`, wind-92): the bottleneck was never
-`SDL_GL_SwapWindow` — it was `WM_TIMER` delivery itself stalling for up to ~550ms during an opaque
-secondary window's drag, confirmed to be specific to that window's message queue, not the thread or
-process.** `td-over` measured `canvas->draw()` directly (a temporary diagnostic build, `wind_swap_log`
-+ `%TEMP%\wind_swap_timing.log`, removed once this concluded): it never exceeded ~12ms, for any
-window, dragged or not — ruling out wind-90/91's swap-blocking hypothesis outright. The real signal
-was in the *gaps between* `WM_TIMER`-triggered `draw_all()` calls: near-perfect ~15–16ms spacing
-while dragging the transparent primary overlay, but a long tail of 31–547ms gaps specific to
-dragging an *opaque* secondary window (`workshop`/`settings`) — `WM_TIMER` itself just wasn't
-arriving on schedule, not our own code taking long once it did. To settle whether that meant the
-whole thread (and therefore any background-thread mitigation) was blocked too, `td-over` added a
-Windows multimedia timer (`timeSetEvent`) — its callback runs on a separate, winmm-owned thread,
-entirely outside any window's message queue — logging its own tick to the same file. It kept a
-gap-free ~16ms cadence through the exact spans where `WM_TIMER` had 400+ms gaps: conclusive proof
-the stall is specific to *this window's message-queue processing* (very likely DWM synchronously
-live-capturing an opaque window's thumbnail on every move step, serialized through the thread that
-owns that HWND) — not the thread or process being genuinely descheded.
-
-Two ways forward from that finding: drive `reentrant_tick()` from the multimedia-timer thread
-instead of (or alongside) `WM_TIMER`, or stop entering the OS's modal loop for a drag-region drag
-at all. The former is real, working multithreading — `ecs::World`, the ECS systems, and GL context
-handling have zero concurrency protection today, so doing it safely means a mutex whose scope
-specifically excludes the exact span where the main thread is blocked inside `SDL_PollEvent()`
-(narrowing `poll_events()`'s locked region to just its per-event `switch` bodies, not the blocking
-`SDL_PollEvent()` call that wraps them) — worked out as a concrete, correct design, but a
-first-of-its-kind, permanent addition to the engine's threading model, not a bounded bug fix. Given
-the choice, `td-over` picked the latter — see the paragraph below.
-
-**Fix (wind-92): drag-region drags no longer enter the OS's modal loop at all, so none of this
-section's `WM_TIMER`/reentrant-tick machinery is even reached for them anymore.** `WindowSystem::create()`
-no longer calls `SDL_SetWindowHitTest` — `window_drag_hit_test` (above) is now only ever called
-directly, as a plain geometry check, never registered with SDL. `WindowSystem::begin_drag_if_in_region()`
-(`window_system.h`/`.cpp`) starts a manually-implemented drag instead: `SDL_CaptureMouse(true)` so
-motion keeps arriving even once the cursor leaves the window's bounds, remembers the cursor's and
-window's starting position (`SDL_GetGlobalMouseState`/`SDL_GetWindowPosition`), and
-`update_drag()`/`end_drag()` do the rest through ordinary `SDL_SetWindowPosition` calls — no
-`HTCAPTION`, no `DefWindowProc` modal loop, no reentrancy of any kind. `EngineRuntime::poll_events()`
-calls it on a left-button-down (`SDL_EVENT_MOUSE_BUTTON_DOWN`) inside the window's drag region,
-`WindowSystem::update_drag()` on `SDL_EVENT_MOUSE_MOTION` while `is_dragging()`, and `end_drag()` on
-the matching button-up — plus, as a safety net, on `SDL_EVENT_WINDOW_FOCUS_LOST` for the dragging
-window, so a drag can never get stuck active (mouse still captured) if a button-up is somehow
-missed (focus stolen mid-drag by another app). A drag-region click is fully consumed the same way
-an `HTCAPTION` click always was — the app never sees a button-down for it either way. As a side
-effect, `win32_hit_test_wndproc`'s delegation to the saved original `WIN_WindowProc` now falls all
-the way through to `DefWindowProc`'s own default per-style hit-testing whenever click-through isn't
-active, since `window->hit_test` is never set anymore — restoring a *bordered* window's real OS
-titlebar to native recognition instead of the SDL_HITTEST_NORMAL-always-means-HTCLIENT override any
-installed hit_test callback used to impose on every point regardless of style (§21.7's original
-"Borderless window dragging" writeup already assumed titlebar dragging "just worked" for a bordered
-window; this is the point where that assumption is actually true again).
-
-This does **not** help a bordered window's real OS titlebar drag or a live-resize via
-`WS_THICKFRAME` borders — both still enter the true OS modal loop regardless, so
-`EngineRuntime::reentrant_tick()`/the Win32 modal-loop hook (`WindowManager::set_modal_loop_tick_callback`)
-remain load-bearing for those, unchanged. `WindowSystem.IsDraggingDefaultsToFalse`/
-`ManualDragApiIsNoopWithoutWindow` (`tests/window_style_test.cpp`) cover the pure defaults and the
-no-window no-op contract; the actual drag behavior — real mouse capture, real window movement, real
-focus-loss recovery — needs a real HWND and a real mouse, out of scope for `engine_tests` per §12.3,
-same boundary as the rest of this section. Not yet confirmed against a real drag by `td-over` at the
-time this was written.
-
-**Primary window's own `WindowSize` had no equivalent backfill.** The paragraph above fixes a
-*secondary* window's missing `WindowSizes` entry; the primary window had the same class of bug for
-`world.ctx<ui::WindowSize>()` (§4.7), just never noticed because most primary windows get resized
-at least once during startup on most platforms. `EngineRuntime::begin_loop()`
-(`src/core/engine_runtime.cpp`) used to call `game.on_start()` without ever calling
-`write_window_size()` first — only `tick_loop()`'s per-frame secondary-window backfill (above)
-wrote anything, and it explicitly skips `kPrimaryWindow`. A primary window that's never resized
-before its first frame (typical for a fixed-size overlay) left `ctx<WindowSize>()` at its
-default-constructed `{0, 0}` through `on_start()` and every frame until an actual
-`SDL_EVENT_WINDOW_RESIZED` arrived, if one ever did — breaking `FillWindow`/`ScaleWithScreenSize`
-canvas sizing for exactly that window. `Host` (`src/core/host.cpp`), the headless test harness used
-by `engine_tests`, already got this right — its constructor calls `write_window_size()` before
-`game_->on_start()` — which is why the bug was invisible to `engine_tests` despite `Host` and
-`EngineRuntime` being meant to behave the same way here. Fixed by mirroring `Host`: `begin_loop()`
-now calls `write_window_size(game.world(), false)` (reading the just-created primary window's real
-`drawable_size()`, more accurate than `Host`'s use of the *requested* `primary_window().size` since
-it reflects DPI scaling) immediately before `game.on_start()`. Not covered by a dedicated
-`engine_tests` case: exercising it needs a real primary `SDL_Window`, out of scope per §12.3, same
-boundary as the rest of `EngineRuntime`'s window-loop code — build + the existing suite not
-regressing is the signal, same as the font-replay fix earlier in this section.
-
-**Overlay cleanup and symmetry (wind-93):** Following wind-92's removal of modal-loop drag handoff,
-several remnants and asymmetries left behind by the rapid iteration across wind-88 through wind-92 were
-cleaned up:
-- The selective `draw_all(skip)` parameter and `WindowManager::find_by_native_handle()` — originally added
-  in wind-90/91 under the disproved hypothesis that `SDL_GL_SwapWindow` was blocking during modal drags —
-  were removed; `draw_all()` now unconditionally draws and swaps all live windows, and
-  `reentrant_tick()`/`modal_loop_tick_callback` no longer track or resolve a `dragged_window`.
-- `window_drag_hit_test()`'s C-style `SDL_HitTestResult` callback signature and `friend` declaration
-  (a remnant from when it was registered via `SDL_SetWindowHitTest`) were replaced with a clean, typed
-  member method `WindowSystem::is_in_drag_region(glm::vec2 point) const noexcept`.
-- Win32 subclassing via `win32_hit_test_wndproc` is now restricted to transparent windows only
-  (`if (transparent_)`), avoiding useless message hooking on ordinary opaque windows.
-- Click-through asymmetry between primary and secondary windows was eliminated:
-  `IWindowControl::set_click_through_enabled(bool enabled, WindowId window = kPrimaryWindow)` now accepts
-  a `WindowId`, `ui::MouseConsumed` tracks consumed windows via `consumed_for(WindowId)`, and
-  `EngineRuntime::tick_loop()`/`reentrant_tick()` query and update click-through across all live windows
-  via `WindowManager::for_each_window()`.
-
-**Desktop overlay policy isolation (wind-94):** Addressing the SDD-WIND-001 audit recommendation
-(preventing desktop overlay edge cases from permanently defining the engine's default frame loop),
-all overlay-specific behaviors were isolated into `DesktopOverlayPolicy`:
-- `DesktopOverlayPolicy` encapsulates OS cursor polling (`poll_cursor`), click-through updates
-  (`update_click_through`), and Win32 modal message hook registration (`sync_modal_loop_hook`).
-- For standard opaque games and fullscreen games, `DesktopOverlayPolicy::has_active_overlay()`
-  evaluates to `false`, rendering cursor polling and click-through updates instant no-ops.
-- `WindowManager` no longer unconditionally installs `SDL_SetWindowsMessageHook` at process startup;
-  the hook is dynamically registered only when `DesktopOverlayPolicy::sync_modal_loop_hook` detects
-  an active overlay and a valid tick callback, and unhooked when overlays cease to exist or when the
-  game loop exits.
-- Standard games thus execute a clean, predictable, standard game loop without paying for Win32
-  message interception or synthetic polling.
+*(For detailed empirical investigation logs, diagnostic timings, and historical development notes from early overlay integration, see [docs/tech/td-over-overlay-diary.md](tech/td-over-overlay-diary.md).)*
 
 ### 21.8 Testing
 
