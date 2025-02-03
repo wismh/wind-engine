@@ -23,7 +23,7 @@ namespace {
 // loop, which this engine doesn't use — but SDL_SetWindowsMessageHook (SDL_system.h), called for
 // every message while the modal loop is active, gives any app a way to piggyback on it. What
 // actually runs on each tick isn't this class's business (SDD §3.4/§4.2 — stays ECS-free) —
-// EngineRuntime::begin_loop() supplies it via set_modal_loop_tick_callback() (wind-89: a full
+// EngineRuntime::begin_loop() supplies it via set_modal_loop_tick_callback() (a full
 // reentrant game tick, not just a redraw — see EngineRuntime::reentrant_tick()'s doc comment for
 // why that's safe here specifically).
 bool windows_message_hook(void* userdata, MSG* msg) {
@@ -59,8 +59,8 @@ void WindowManager::set_modal_loop_tick_callback(std::function<void()> callback)
     modal_loop_tick_callback_ = std::move(callback);
 #if defined(_WIN32)
     if (modal_loop_tick_callback_) {
-        // SDD §21.7 / wind-94: only hook into Windows messages when a modal loop tick callback is
-        // actually active (e.g. desktop overlay mode), avoiding process-global message interception
+        // SDD §21.7: only hook into Windows messages when a modal loop tick callback is actually
+        // active (e.g. desktop overlay mode), avoiding process-global message interception
         // overhead for normal games.
         SDL_SetWindowsMessageHook(&windows_message_hook, this);
     } else {

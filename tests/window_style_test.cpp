@@ -237,7 +237,7 @@ TEST(WindowSystem, IsDraggingDefaultsToFalse) {
 
 TEST(WindowSystem, ManualDragApiIsNoopWithoutWindow) {
     engine::WindowSystem window;
-    // No SDL_Init(SDL_INIT_VIDEO), no window created (SDD §12.3/wind-92): begin_drag_if_in_region()
+    // No SDL_Init(SDL_INIT_VIDEO), no window created (SDD §12.3): begin_drag_if_in_region()
     // must refuse (no window to check a region against, let alone capture the mouse for) rather
     // than crash; update_drag()/end_drag() must stay no-ops too.
     window.set_drag_region(engine::render::Rect{0, 0, 100, 32});
