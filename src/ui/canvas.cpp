@@ -376,6 +376,16 @@ void handle_pointer_impl(ecs::World& world, float x, float y, WindowId window, U
         }
     }
 
+    if (!clicked_scrollbar && hit->element->kind == ElementKind::Checkbox) {
+        hit->element->checked = !hit->element->checked;
+        if (is_bound(hit->element->checked_binding) && hit->canvas->data_context) {
+            ViewModel* target = hit->element->generated_owner != nullptr
+                    ? static_cast<ViewModel*>(const_cast<void*>(hit->element->generated_owner))
+                    : hit->canvas->data_context.get();
+            target->write_property_float(hit->element->checked_binding, hit->element->checked ? 1.0f : 0.0f);
+        }
+    }
+
     if (!clicked_scrollbar && hit->element->kind != ElementKind::TextInput) {
         ICommand* command = hit->element->command;
         if (command == nullptr && is_bound(hit->element->command_binding) && hit->canvas->data_context) {
@@ -820,6 +830,12 @@ void handle_key(ecs::World& world, KeyCode key, bool down, bool /*repeat*/, Wind
             target = element->generated_owner != nullptr
                     ? static_cast<ViewModel*>(const_cast<void*>(element->generated_owner))
                     : canvas->data_context.get();
+        }
+        if (element->kind == ElementKind::Checkbox) {
+            element->checked = !element->checked;
+            if (is_bound(element->checked_binding) && target != nullptr) {
+                target->write_property_float(element->checked_binding, element->checked ? 1.0f : 0.0f);
+            }
         }
         ICommand* command = element->command;
         if (command == nullptr && is_bound(element->command_binding) && target != nullptr) {
