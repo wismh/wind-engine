@@ -33,6 +33,8 @@ public:
     Node& drag_bind(BindingId id);
     Node& checked(bool value);
     Node& checked_bind(BindingId id);
+    Node& allow_copy(bool value);
+    Node& allow_paste(bool value);
     Node& pan_x_bind(BindingId id);
     Node& pan_y_bind(BindingId id);
     Node& zoom_bind(BindingId id);
