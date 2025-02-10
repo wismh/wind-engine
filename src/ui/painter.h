@@ -61,6 +61,14 @@ void apply_layout_style(
 void layout(UiDocument& document, const render::Rect& canvas_rect, IUiPainter* painter);
 void paint_document(UiDocument& document, const Stylesheet* stylesheet, IUiPainter& painter, const UiPaintInput& input);
 
+// wind-129 layout dirty-gate (document.cpp): true if any layout-relevant field changed anywhere in
+// `element`'s subtree (text, custom_properties, or ItemsControl generated_owner sequence) since the
+// last call on the same Element(s) — see Element's layout_dirty_check_* fields (document.h) for why
+// this narrow set is exactly what layout depends on. Not yet wired into prepare_top_canvas/
+// paint_document; declared here (like apply_layout_style/layout above) purely so tests linking
+// against `engine` can call it without a second public entry point.
+[[nodiscard]] bool layout_state_changed(Element& element);
+
 // Per-window painter used by hit-test layout so hug text metrics match paint_document.
 // Unset / empty resolve keeps the CPU fallback (engine_tests, windows with no UI painter).
 struct UiLayoutPainters {
