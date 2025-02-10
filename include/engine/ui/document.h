@@ -258,6 +258,10 @@ struct ComputedStyle {
     bool has_scrollbar_thumb_hover_color = false;
     Length scrollbar_border_radius{4.0f, LengthUnit::Px};
     bool has_scrollbar_border_radius = false;
+    // TextInput-only: highlight painted behind selected text (paint.cpp), not a scrollbar
+    // property — grouped with the other optionally-cascaded colors above for consistency.
+    glm::vec4 selection_color{0.2f, 0.4f, 0.9f, 0.35f};
+    bool has_selection_color = false;
     // Cascaded `--name: value;` declarations, keyed without the leading `--`. Consulted by
     // resolve_var() when a declaration's value is `var(--name)` and the element itself has no
     // matching entry in Element::custom_properties (per-instance, VM-bound — takes priority).
@@ -354,6 +358,7 @@ struct Element {
     glm::vec4 scrollbar_thumb_color{0.4f, 0.4f, 0.4f, 0.8f};
     glm::vec4 scrollbar_thumb_hover_color{0.6f, 0.6f, 0.6f, 1.0f};
     Length scrollbar_border_radius{4.0f, LengthUnit::Px};
+    glm::vec4 selection_color{0.2f, 0.4f, 0.9f, 0.35f};
     bool scrollbar_thumb_hovered = false;
     bool scrollbar_dragging = false;
     std::optional<AssetId> source;
@@ -401,16 +406,28 @@ struct Element {
     bool checked = false;
     std::size_t caret_position = 0;
     float caret_blink_timer = 0.0f;
-    // TextInput-only: whole-field select-all state (Ctrl+A). Not a partial anchor/extent range —
-    // there is no click-drag or Shift+Arrow range selection yet. Any edit (typing, Backspace,
-    // Delete, unmodified Left/Right, Home/End) or focus loss clears it (canvas.cpp).
-    bool selected_all = false;
+    // TextInput-only: the fixed end of an in-progress selection; caret_position is the live end.
+    // unset = no selection. A real (non-collapsed) selection is
+    // selection_anchor.has_value() && *selection_anchor != caret_position, spanning
+    // [min(*selection_anchor, caret_position), max(...)). Set by Ctrl+A (0..text.size()),
+    // pointer-down (click == drag-select start), and Shift+Left/Right/Home/End (armed from the
+    // caret before it moves). Any unmodified caret move/edit or focus loss clears it (canvas.cpp).
+    std::optional<std::size_t> selection_anchor;
     // TextInput-only: per-field clipboard lock, XML `allow-copy`/`allow-paste` (literal only, no
     // {binding} — a static field capability, not runtime-toggled state like `checked`). Mirrors
     // the web's per-event copy/cut/paste interception: independent flags, not one on/off switch.
     // Cut is gated by allow_copy (it reads before deleting), not allow_paste.
     bool allow_copy = true;
     bool allow_paste = true;
+    // TextInput-only: this element's real-screen-pixel text metrics as last painted (paint.cpp's
+    // TextInput block) — the resolved font size (after em/%) and the text's x-origin (after
+    // padding + text-align). canvas.cpp's click-to-caret-index reads these back instead of
+    // re-resolving CSS length units itself, so a click can never land somewhere paint.cpp would
+    // have drawn the caret differently. 0 until the element has painted at least once (e.g. a
+    // click on the very first frame, or a headless build with no painter) — click handling falls
+    // back to placing the caret at the end of the text in that case.
+    float painted_font_size_px = 0.0f;
+    float painted_content_origin_x = 0.0f;
     // Memoizes measure_element_text (document.cpp) across frames: when `text`/`font_family`/the
     // resolved `font_size` passed to IUiPainter::measure_text still match the last real-painter
     // measurement, layout reuses `text_measure_cache_result` instead of re-shaping glyphs. Populated
