@@ -19,6 +19,7 @@ class FakePainter final : public engine::ui::IUiPainter {
 public:
     int lines_drawn = 0;
     int texts_filled = 0;
+    int rounded_rects_filled = 0;
 
     void save() override {}
     void restore() override {}
@@ -26,7 +27,7 @@ public:
     void apply_transform(glm::vec2, float, float) override {}
     void apply_view(glm::vec2, glm::vec2, float) override {}
     void set_opacity(float) override {}
-    void fill_rounded_rect(const engine::render::Rect&, float, glm::vec4) override {}
+    void fill_rounded_rect(const engine::render::Rect&, float, glm::vec4) override { ++rounded_rects_filled; }
     void stroke_rounded_rect(const engine::render::Rect&, float, float, glm::vec4) override {}
     void draw_line(glm::vec2, glm::vec2, glm::vec4, float) override { ++lines_drawn; }
     void set_font(engine::AssetId, float) override {}
@@ -492,14 +493,16 @@ TEST(UiTextInput, CtrlAThenCtrlCCopiesWholeFieldToClipboard) {
     ASSERT_NE(fx.focused, nullptr);
 
     press_ctrl(fx.world, engine::KeyCode::A);
-    EXPECT_TRUE(fx.focused->selected_all);
+    ASSERT_TRUE(fx.focused->selection_anchor.has_value());
+    EXPECT_EQ(*fx.focused->selection_anchor, 0u);
+    EXPECT_EQ(fx.focused->caret_position, 5u);
 
     press_ctrl(fx.world, engine::KeyCode::C);
     EXPECT_EQ(*fx.clipboard_storage, "hello");
     EXPECT_EQ(fx.focused->text, "hello"); // copy does not mutate the field
 }
 
-TEST(UiTextInput, CtrlCWithoutSelectAllIsNoOp) {
+TEST(UiTextInput, CtrlCWithoutSelectionIsNoOp) {
     ClipboardFixture fx("hello");
     ASSERT_NE(fx.focused, nullptr);
     *fx.clipboard_storage = "unchanged";
@@ -518,22 +521,22 @@ TEST(UiTextInput, CtrlAThenCtrlXCutsWholeField) {
     EXPECT_EQ(*fx.clipboard_storage, "hello");
     EXPECT_EQ(fx.focused->text, "");
     EXPECT_EQ(fx.focused->caret_position, 0u);
-    EXPECT_FALSE(fx.focused->selected_all);
+    EXPECT_FALSE(fx.focused->selection_anchor.has_value());
     EXPECT_EQ(fx.vm->word.get(), "");
 }
 
 TEST(UiTextInput, CtrlVPastesAtCaretWithoutSelection) {
     ClipboardFixture fx("ac");
     ASSERT_NE(fx.focused, nullptr);
+    // No painter registered (headless) -> the focusing click fell back to caret == text.size().
+    ASSERT_EQ(fx.focused->caret_position, 2u);
     *fx.clipboard_storage = "b";
 
-    // Caret starts at 0 (bound text, never typed) — Right once lands it between 'a' and 'c'.
-    engine::ui::handle_key(fx.world, engine::KeyCode::Right, true);
     press_ctrl(fx.world, engine::KeyCode::V);
 
-    EXPECT_EQ(fx.focused->text, "abc");
-    EXPECT_EQ(fx.focused->caret_position, 2u);
-    EXPECT_EQ(fx.vm->word.get(), "abc");
+    EXPECT_EQ(fx.focused->text, "acb");
+    EXPECT_EQ(fx.focused->caret_position, 3u);
+    EXPECT_EQ(fx.vm->word.get(), "acb");
 }
 
 TEST(UiTextInput, CtrlAThenCtrlVReplacesWholeField) {
@@ -546,8 +549,85 @@ TEST(UiTextInput, CtrlAThenCtrlVReplacesWholeField) {
 
     EXPECT_EQ(fx.focused->text, "bye");
     EXPECT_EQ(fx.focused->caret_position, 3u);
-    EXPECT_FALSE(fx.focused->selected_all);
+    EXPECT_FALSE(fx.focused->selection_anchor.has_value());
     EXPECT_EQ(fx.vm->word.get(), "bye");
+}
+
+TEST(UiTextInput, CtrlCWithPartialSelectionCopiesOnlyThatRange) {
+    ClipboardFixture fx("hello");
+    ASSERT_NE(fx.focused, nullptr);
+    // Caret starts at text.size() (5, headless click fallback). Shift+Left twice selects "lo".
+    engine::ui::handle_key(fx.world, engine::KeyCode::LShift, true);
+    engine::ui::handle_key(fx.world, engine::KeyCode::Left, true);
+    engine::ui::handle_key(fx.world, engine::KeyCode::Left, true);
+    engine::ui::handle_key(fx.world, engine::KeyCode::LShift, false);
+    ASSERT_TRUE(fx.focused->selection_anchor.has_value());
+    EXPECT_EQ(*fx.focused->selection_anchor, 5u);
+    EXPECT_EQ(fx.focused->caret_position, 3u);
+
+    press_ctrl(fx.world, engine::KeyCode::C);
+    EXPECT_EQ(*fx.clipboard_storage, "lo");
+    EXPECT_EQ(fx.focused->text, "hello"); // copy never mutates
+}
+
+TEST(UiTextInput, TypingWithPartialSelectionReplacesExactlyThatRange) {
+    ClipboardFixture fx("hello");
+    ASSERT_NE(fx.focused, nullptr);
+    // Select "lo" (see above), then type over it.
+    engine::ui::handle_key(fx.world, engine::KeyCode::LShift, true);
+    engine::ui::handle_key(fx.world, engine::KeyCode::Left, true);
+    engine::ui::handle_key(fx.world, engine::KeyCode::Left, true);
+    engine::ui::handle_key(fx.world, engine::KeyCode::LShift, false);
+
+    engine::ui::handle_text_input(fx.world, "!!");
+
+    EXPECT_EQ(fx.focused->text, "hel!!");
+    EXPECT_EQ(fx.focused->caret_position, 5u);
+    EXPECT_FALSE(fx.focused->selection_anchor.has_value());
+    EXPECT_EQ(fx.vm->word.get(), "hel!!");
+}
+
+TEST(UiTextInput, BackspaceWithPartialSelectionErasesExactlyThatRange) {
+    ClipboardFixture fx("hello");
+    ASSERT_NE(fx.focused, nullptr);
+    engine::ui::handle_key(fx.world, engine::KeyCode::LShift, true);
+    engine::ui::handle_key(fx.world, engine::KeyCode::Left, true);
+    engine::ui::handle_key(fx.world, engine::KeyCode::Left, true);
+    engine::ui::handle_key(fx.world, engine::KeyCode::LShift, false);
+
+    engine::ui::handle_key(fx.world, engine::KeyCode::Backspace, true);
+
+    EXPECT_EQ(fx.focused->text, "hel");
+    EXPECT_EQ(fx.focused->caret_position, 3u);
+    EXPECT_FALSE(fx.focused->selection_anchor.has_value());
+}
+
+TEST(UiTextInput, ShiftLeftThenPlainLeftCollapsesToSelectionStart) {
+    ClipboardFixture fx("hello");
+    ASSERT_NE(fx.focused, nullptr);
+    engine::ui::handle_key(fx.world, engine::KeyCode::LShift, true);
+    engine::ui::handle_key(fx.world, engine::KeyCode::Left, true);
+    engine::ui::handle_key(fx.world, engine::KeyCode::Left, true);
+    engine::ui::handle_key(fx.world, engine::KeyCode::LShift, false);
+    ASSERT_TRUE(fx.focused->selection_anchor.has_value());
+
+    // Plain (unshifted) Left collapses to the selection's start, not one more char left.
+    engine::ui::handle_key(fx.world, engine::KeyCode::Left, true);
+    EXPECT_EQ(fx.focused->caret_position, 3u);
+    EXPECT_FALSE(fx.focused->selection_anchor.has_value());
+}
+
+TEST(UiTextInput, MouseDownThenMoveSelectsARange) {
+    ClipboardFixture fx("hello");
+    ASSERT_NE(fx.focused, nullptr);
+
+    // No painter (headless) -> both the initial click and the drag-move fall back to
+    // caret == text.size(); confirm the drag path still runs (anchor stays put at 5, caret
+    // stays clamped at 5) rather than crashing or silently no-op-ing while the button is down.
+    engine::ui::pointer_for(fx.world, engine::kPrimaryWindow).down = true;
+    engine::ui::update_text_selection(fx.world, 5.0f);
+    EXPECT_EQ(fx.focused->caret_position, 5u);
+    EXPECT_EQ(*fx.focused->selection_anchor, 5u);
 }
 
 TEST(UiTextInput, AllowCopyFalseBlocksCopyAndCut) {
@@ -587,15 +667,15 @@ TEST(UiTextInput, ReleasingCtrlThenPressingCTypesLiteralLetter) {
     EXPECT_EQ(*fx.clipboard_storage, "not-this");
 }
 
-TEST(UiTextInput, FocusLossClearsSelectAll) {
+TEST(UiTextInput, FocusLossClearsSelection) {
     ClipboardFixture fx("hello");
     ASSERT_NE(fx.focused, nullptr);
 
     press_ctrl(fx.world, engine::KeyCode::A);
-    EXPECT_TRUE(fx.focused->selected_all);
+    EXPECT_TRUE(fx.focused->selection_anchor.has_value());
 
     engine::ui::handle_key(fx.world, engine::KeyCode::Escape, true);
-    EXPECT_FALSE(fx.focused->selected_all);
+    EXPECT_FALSE(fx.focused->selection_anchor.has_value());
 
     // Re-focus without Ctrl+A again: Ctrl+C must be a no-op.
     engine::ui::begin_frame(fx.world);
@@ -603,4 +683,96 @@ TEST(UiTextInput, FocusLossClearsSelectAll) {
     *fx.clipboard_storage = "";
     press_ctrl(fx.world, engine::KeyCode::C);
     EXPECT_EQ(*fx.clipboard_storage, "");
+}
+
+TEST(UiTextInput, ClickPositionsCaretAtNearestGlyphBoundary) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<CardViewModel>();
+    vm->word.set("ac");
+    auto parsed = engine::ui::parse_xml(
+            R"(<Canvas width="200" height="200"><TextInput id="word" text="{binding word}" width="100" height="30"/></Canvas>)",
+            nullptr, vm.get());
+    ASSERT_TRUE(parsed.has_value());
+
+    auto sheet = test_sheet();
+    const engine::render::Rect canvas_rect{0.0f, 0.0f, 200.0f, 200.0f};
+    engine::ui::UiCanvas canvas;
+    canvas.rect = canvas_rect;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    canvas.data_context = vm;
+
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+    world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{*parsed, sheet});
+
+    FakePainter painter;
+    world.ctx<engine::ui::UiLayoutPainters>().resolve = [&](engine::WindowId) -> engine::ui::IUiPainter* {
+        return &painter;
+    };
+
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 20.0f, 15.0f); // no metrics painted yet -> fallback focus click
+    engine::ui::Element* focused = engine::ui::focused_element(world);
+    ASSERT_NE(focused, nullptr);
+    EXPECT_EQ(focused->caret_position, 2u); // fallback: end of "ac"
+
+    engine::ui::UiInstance& instance = world.get<engine::ui::UiInstance>(entity);
+    engine::ui::paint_document(
+            instance.document, &sheet, painter, engine::ui::UiPaintInput{.canvas_rect = canvas_rect});
+    ASSERT_GT(focused->painted_font_size_px, 0.0f);
+
+    // Click exactly at the boundary after 'a' (painted_content_origin_x + width("a")) — the
+    // production caret_index_for_click() search must land on index 1, not 0 or 2.
+    const float width_a =
+            painter.measure_text("a", focused->font_family, focused->painted_font_size_px).x;
+    const float click_x = focused->painted_content_origin_x + width_a;
+
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, click_x, 15.0f);
+    EXPECT_EQ(focused->caret_position, 1u);
+    EXPECT_EQ(*focused->selection_anchor, 1u); // a plain click clears any selection
+}
+
+TEST(UiTextInput, SelectionHighlightOnlyPaintedWhenARealSelectionExists) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<CardViewModel>();
+    vm->word.set("hello");
+    auto parsed = engine::ui::parse_xml(
+            R"(<Canvas width="200" height="200"><TextInput id="word" text="{binding word}" width="100" height="30"/></Canvas>)",
+            nullptr, vm.get());
+    ASSERT_TRUE(parsed.has_value());
+
+    auto sheet = test_sheet();
+    const engine::render::Rect canvas_rect{0.0f, 0.0f, 200.0f, 200.0f};
+    engine::ui::UiCanvas canvas;
+    canvas.rect = canvas_rect;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    canvas.data_context = vm;
+
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+    world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{*parsed, sheet});
+
+    FakePainter painter;
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 20.0f, 15.0f);
+    engine::ui::Element* focused = engine::ui::focused_element(world);
+    ASSERT_NE(focused, nullptr);
+
+    engine::ui::UiInstance& instance = world.get<engine::ui::UiInstance>(entity);
+
+    // No selection yet: only the caret (a line), no highlight rect.
+    engine::ui::paint_document(
+            instance.document, &sheet, painter, engine::ui::UiPaintInput{.canvas_rect = canvas_rect});
+    EXPECT_EQ(painter.rounded_rects_filled, 0);
+
+    // Ctrl+A selects the whole field: the next paint must fill a highlight rect.
+    engine::ui::handle_key(world, engine::KeyCode::LCtrl, true);
+    engine::ui::handle_key(world, engine::KeyCode::A, true);
+    engine::ui::handle_key(world, engine::KeyCode::LCtrl, false);
+    ASSERT_TRUE(focused->selection_anchor.has_value());
+
+    engine::ui::paint_document(
+            instance.document, &sheet, painter, engine::ui::UiPaintInput{.canvas_rect = canvas_rect});
+    EXPECT_EQ(painter.rounded_rects_filled, 1);
 }
