@@ -85,6 +85,16 @@ Node& Node::drag_bind(BindingId id) {
     return *this;
 }
 
+Node& Node::checked(bool value) {
+    element_.checked = value;
+    return *this;
+}
+
+Node& Node::checked_bind(BindingId id) {
+    element_.checked_binding = id;
+    return *this;
+}
+
 Node& Node::pan_x_bind(BindingId id) {
     element_.pan_x_binding = id;
     return *this;
@@ -236,6 +246,10 @@ Node scroll_view() {
     node.direction(StackDirection::Vertical);
     node.overflow_y(Overflow::Auto);
     return node;
+}
+
+Node checkbox() {
+    return Node(ElementKind::Checkbox);
 }
 
 std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal) {
