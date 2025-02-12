@@ -1032,6 +1032,30 @@ TEST(UiPainter, DisabledButtonAppliesOpacity) {
     EXPECT_TRUE(saw_disabled_opacity);
 }
 
+TEST(UiPainter, CheckedPseudoClassUsesPseudoBackground) {
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        Checkbox { width: 20; height: 20; background: #111111; }
+        Checkbox:checked { background: #333333; }
+    )");
+
+    auto unchecked = engine::ui::parse_xml(R"(<Canvas><Checkbox/></Canvas>)");
+    ASSERT_TRUE(unchecked.has_value());
+    FakePainter idle;
+    engine::ui::paint_document(
+            *unchecked, &sheet, idle, engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 100.f, 100.f}});
+    const PaintCall* idle_fill = idle.find("fill_rect");
+    ASSERT_NE(idle_fill, nullptr);
+    EXPECT_NEAR(idle_fill->color.r, 0x11 / 255.0f, 0.01f);
+
+    auto checked = engine::ui::parse_xml(R"(<Canvas><Checkbox checked="true"/></Canvas>)");
+    ASSERT_TRUE(checked.has_value());
+    FakePainter on;
+    engine::ui::paint_document(*checked, &sheet, on, engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 100.f, 100.f}});
+    const PaintCall* on_fill = on.find("fill_rect");
+    ASSERT_NE(on_fill, nullptr);
+    EXPECT_NEAR(on_fill->color.r, 0x33 / 255.0f, 0.01f);
+}
+
 TEST(UiPainter, ItemsControlPaintsItemDataContext) {
     BoardVm board;
     auto a = std::make_shared<CellVm>();

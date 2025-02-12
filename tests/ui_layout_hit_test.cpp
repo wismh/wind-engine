@@ -12,6 +12,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #if defined(NANOVG_H) || defined(NANOVG_GL_H) || defined(NANOVG_GL3)
@@ -51,6 +52,15 @@ public:
     void image_nine_slice(engine::AssetId, const engine::render::Rect&, const engine::ui::BoxInsets&) override {}
     glm::vec2 measure_text(std::string_view text, engine::AssetId, float size) override {
         return {static_cast<float>(text.size()) * size * 0.5f, 8.0f};
+    }
+};
+
+class CheckboxViewModel final : public engine::ui::ViewModel {
+public:
+    engine::ui::Bindable<bool> agree;
+
+    CheckboxViewModel() {
+        property(engine::ui::intern("agree"), agree);
     }
 };
 
@@ -159,6 +169,46 @@ TEST(UiLayoutHit, PointerLayoutMatchesPaintWhenPainterRegistered) {
     EXPECT_FLOAT_EQ(hit_button->layout_rect.y, paint_rect.y);
     EXPECT_FLOAT_EQ(hit_button->layout_rect.w, paint_rect.w);
     EXPECT_FLOAT_EQ(hit_button->layout_rect.h, paint_rect.h);
+}
+
+TEST(UiLayoutHit, CheckboxClickTogglesCheckedAndWritesBackToViewModel) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<CheckboxViewModel>();
+    auto parsed =
+            engine::ui::parse_xml(R"(<Canvas><Checkbox checked="{binding agree}"/></Canvas>)", nullptr, vm.get());
+    ASSERT_TRUE(parsed.has_value());
+
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css("Checkbox { width: 20; height: 20; }", warnings);
+    ASSERT_TRUE(sheet.has_value());
+
+    const engine::render::Rect canvas_rect{0.0f, 0.0f, 100.0f, 100.0f};
+    engine::ui::UiCanvas canvas;
+    canvas.rect = canvas_rect;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    canvas.data_context = vm;
+
+    engine::ui::UiInstance instance_data{*parsed};
+    instance_data.stylesheet = *sheet;
+
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+    world.emplace<engine::ui::UiInstance>(entity, std::move(instance_data));
+
+    engine::ui::begin_frame(world);
+    EXPECT_FALSE(vm->agree.get());
+    engine::ui::handle_pointer(world, 5.0f, 5.0f);
+    EXPECT_TRUE(vm->agree.get());
+
+    const engine::ui::UiInstance& instance = world.get<engine::ui::UiInstance>(entity);
+    const engine::ui::Element* box =
+            engine::ui::find_by_kind(instance.document.root, engine::ui::ElementKind::Checkbox);
+    ASSERT_NE(box, nullptr);
+    EXPECT_TRUE(box->checked);
+
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 5.0f, 5.0f);
+    EXPECT_FALSE(vm->agree.get());
 }
 
 TEST(UiLayoutHit, ViewportPanDoesNotMoveLayoutRect) {

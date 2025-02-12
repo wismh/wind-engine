@@ -92,6 +92,9 @@ std::optional<ElementKind> kind_from_tag(const char* name) {
     if (tag == "ScrollView") {
         return ElementKind::ScrollView;
     }
+    if (tag == "Checkbox") {
+        return ElementKind::Checkbox;
+    }
     return std::nullopt;
 }
 
@@ -201,6 +204,33 @@ std::expected<void, UiError> assign_drag_binding(Element& element, const char* a
     }
     element.drag_binding = intern(*binding);
     if (vm != nullptr && !in_template && !vm->has_property(element.drag_binding)) {
+        report(fatal, "UI binding name is not registered: " + *binding);
+        return std::unexpected(UiError::MissingBinding);
+    }
+    return {};
+}
+
+// `checked` (Checkbox only) may be a literal `"true"`/`"false"` (seeds Element::checked once, no
+// VM tie — same as Button's `content` working without a `command`) or a `{binding path}` for
+// two-way sync, unlike `drag`/`command`/`paint` which reject a literal outright: those have no
+// meaningful unbound behavior, but a checkbox's local toggle state is meaningful even standalone.
+std::expected<void, UiError> assign_checked_attribute(
+        Element& element, const char* attr, IFatalError* fatal, const ViewModel* vm, bool in_template) {
+    if (attr == nullptr) {
+        return {};
+    }
+    const auto binding = try_parse_binding(attr);
+    if (!binding) {
+        const std::string_view value = trim(attr);
+        element.checked = value == "true" || value == "1";
+        return {};
+    }
+    if (binding->empty()) {
+        report(fatal, "UI binding is missing a registered name");
+        return std::unexpected(UiError::MissingBinding);
+    }
+    element.checked_binding = intern(*binding);
+    if (vm != nullptr && !in_template && !vm->has_property(element.checked_binding)) {
         report(fatal, "UI binding name is not registered: " + *binding);
         return std::unexpected(UiError::MissingBinding);
     }
@@ -368,6 +398,9 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
         return std::unexpected(result.error());
     }
     if (auto result = assign_drag_binding(element, xml->Attribute("drag"), fatal, vm, in_template); !result) {
+        return std::unexpected(result.error());
+    }
+    if (auto result = assign_checked_attribute(element, xml->Attribute("checked"), fatal, vm, in_template); !result) {
         return std::unexpected(result.error());
     }
     if (auto result = assign_required_property_binding(element.pan_x_binding, xml->Attribute("pan-x"), "pan-x", fatal, vm,
@@ -545,6 +578,7 @@ void collect_bind_element(const tinyxml2::XMLElement* xml, BindBinder& binder, c
     add_bind_attr(binder, xml->Attribute("content"), false);
     add_bind_attr(binder, xml->Attribute("command"), true);
     add_bind_attr(binder, xml->Attribute("drag"), false);
+    add_bind_attr(binder, xml->Attribute("checked"), false);
     add_bind_attr(binder, xml->Attribute("pan-x"), false);
     add_bind_attr(binder, xml->Attribute("pan-y"), false);
     add_bind_attr(binder, xml->Attribute("zoom"), false);

@@ -32,6 +32,7 @@ public:
     engine::ui::Bindable<float> pan_x;
     engine::ui::Bindable<float> pan_y;
     engine::ui::Bindable<float> zoom;
+    engine::ui::Bindable<bool> agree;
     engine::ui::RelayCommand restart;
 
     HudViewModel() {
@@ -41,6 +42,7 @@ public:
         property(engine::ui::intern("pan_x"), pan_x);
         property(engine::ui::intern("pan_y"), pan_y);
         property(engine::ui::intern("zoom"), zoom);
+        property(engine::ui::intern("agree"), agree);
         command(engine::ui::intern("restart"), restart);
     }
 };
@@ -194,6 +196,48 @@ TEST(UiXml, DragUnregisteredBindingIsFatal) {
     HudViewModel vm;
     RecordingFatalError fatal;
     const auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack drag="{binding nope}"/></Canvas>)", &fatal, &vm);
+    EXPECT_FALSE(parsed.has_value());
+    EXPECT_EQ(parsed.error(), engine::ui::UiError::MissingBinding);
+    EXPECT_GE(fatal.call_count, 1);
+}
+
+TEST(UiXml, CheckboxLiteralAttributeSeedsCheckedWithNoBinding) {
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Checkbox checked="true"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Element* box = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Checkbox);
+    ASSERT_NE(box, nullptr);
+    EXPECT_TRUE(box->checked);
+    EXPECT_FALSE(engine::ui::is_bound(box->checked_binding));
+}
+
+TEST(UiXml, CheckboxWithoutCheckedAttributeDefaultsUnchecked) {
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Checkbox/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Element* box = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Checkbox);
+    ASSERT_NE(box, nullptr);
+    EXPECT_FALSE(box->checked);
+}
+
+TEST(UiXml, CheckboxBindingAttributeParsesAndReadsInitialValue) {
+    HudViewModel vm;
+    vm.agree.set(true);
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Checkbox checked="{binding agree}"/></Canvas>)", nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Element* box = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Checkbox);
+    ASSERT_NE(box, nullptr);
+    EXPECT_EQ(box->checked_binding, engine::ui::intern("agree"));
+
+    engine::ui::UiDocument document = *parsed;
+    ASSERT_TRUE(engine::ui::apply_bindings(document, vm).has_value());
+    const engine::ui::Element* bound = engine::ui::find_by_kind(document.root, engine::ui::ElementKind::Checkbox);
+    ASSERT_NE(bound, nullptr);
+    EXPECT_TRUE(bound->checked);
+}
+
+TEST(UiXml, CheckboxUnregisteredBindingIsFatal) {
+    HudViewModel vm;
+    RecordingFatalError fatal;
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Checkbox checked="{binding nope}"/></Canvas>)", &fatal, &vm);
     EXPECT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::MissingBinding);
     EXPECT_GE(fatal.call_count, 1);
