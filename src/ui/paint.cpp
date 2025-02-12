@@ -550,6 +550,11 @@ void apply_declaration(ComputedStyle& style, const CssDeclaration& decl) {
             style.scrollbar_border_radius = *radius;
             style.has_scrollbar_border_radius = true;
         }
+    } else if (decl.property == "selection-color") {
+        if (const auto col = parse_color(decl.value)) {
+            style.selection_color = *col;
+            style.has_selection_color = true;
+        }
     }
 }
 
@@ -602,15 +607,6 @@ CssDeclaration resolve_var(const CssDeclaration& decl, const Element& element, c
         return CssDeclaration{decl.property, std::string(*ref->fallback)};
     }
     return CssDeclaration{decl.property, std::string{}};
-}
-
-render::Rect scale_rect(const render::Rect& rect, glm::vec2 offset, float scale) {
-    return render::Rect{
-            offset.x + rect.x * scale,
-            offset.y + rect.y * scale,
-            rect.w * scale,
-            rect.h * scale,
-    };
 }
 
 bool media_matches(const std::optional<MediaQuery>& media, float window_width, float window_height) {
@@ -882,6 +878,9 @@ void apply_layout_style(Element& element, const Stylesheet* sheet, std::vector<c
     if (style.has_scrollbar_border_radius) {
         element.scrollbar_border_radius = style.scrollbar_border_radius;
     }
+    if (style.has_selection_color) {
+        element.selection_color = style.selection_color;
+    }
     ancestors.push_back(&element);
     for (Element& child : element.children) {
         apply_layout_style(child, sheet, ancestors, window_width, window_height);
@@ -1028,12 +1027,7 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
                 std::max(0.0f, screen_rect.w - (padding.left + padding.right) * input.ui_scale),
                 std::max(0.0f, screen_rect.h - (padding.top + padding.bottom) * input.ui_scale),
         };
-        float x = content.x;
-        if (style.text_align == UiAlign::Center) {
-            x = content.x + content.w * 0.5f;
-        } else if (style.text_align == UiAlign::End) {
-            x = content.x + content.w;
-        }
+        const float x = text_align_origin_x(content.x, content.w, style.text_align);
         float y = content.y;
         if (style.align_items == UiAlign::Center) {
             y = content.y + content.h * 0.5f;
@@ -1043,21 +1037,46 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
         if (!element.text.empty()) {
             painter.fill_text(element.text, glm::vec2{x, y}, style.color, style.text_align, style.align_items);
         }
+        if (element.kind == ElementKind::TextInput) {
+            // Cached regardless of focus: a click that *focuses* an unfocused TextInput still
+            // needs last frame's metrics to place the caret (see Element::painted_font_size_px).
+            element.painted_font_size_px = font_size * input.ui_scale;
+            element.painted_content_origin_x = x;
+        }
         if (element.kind == ElementKind::TextInput && element.focused) {
+            float glyph_y = content.y;
+            if (style.align_items == UiAlign::Center) {
+                glyph_y = content.y + std::max(0.0f, content.h - font_size * input.ui_scale) * 0.5f;
+            } else if (style.align_items == UiAlign::End) {
+                glyph_y = content.y + std::max(0.0f, content.h - font_size * input.ui_scale);
+            }
+            const float glyph_h = font_size * input.ui_scale;
+
+            // Highlight behind the text, drawn whenever a real (non-collapsed) selection exists —
+            // unlike the caret below, not gated on the blink phase.
+            if (element.selection_anchor && *element.selection_anchor != element.caret_position) {
+                const std::size_t sel_start = std::min(*element.selection_anchor, element.text.size());
+                const std::size_t sel_end =
+                        std::min(std::max(*element.selection_anchor, element.caret_position), element.text.size());
+                const float start_w =
+                        painter.measure_text(std::string_view(element.text).substr(0, sel_start), style.font_family,
+                                font_size * input.ui_scale)
+                                .x;
+                const float end_w =
+                        painter.measure_text(std::string_view(element.text).substr(0, sel_end), style.font_family,
+                                font_size * input.ui_scale)
+                                .x;
+                painter.fill_rounded_rect(
+                        render::Rect{x + start_w, glyph_y, end_w - start_w, glyph_h}, 0.0f, element.selection_color);
+            }
+
             element.caret_blink_timer += input.delta_time;
             if (std::fmod(element.caret_blink_timer, 1.0f) < 0.5f) {
                 const std::size_t caret_pos = std::min(element.caret_position, element.text.size());
                 const std::string_view prefix = std::string_view(element.text).substr(0, caret_pos);
                 const float text_w = painter.measure_text(prefix, style.font_family, font_size * input.ui_scale).x;
                 const float caret_x = x + text_w;
-                float caret_y = content.y;
-                if (style.align_items == UiAlign::Center) {
-                    caret_y = content.y + std::max(0.0f, content.h - font_size * input.ui_scale) * 0.5f;
-                } else if (style.align_items == UiAlign::End) {
-                    caret_y = content.y + std::max(0.0f, content.h - font_size * input.ui_scale);
-                }
-                painter.draw_line(glm::vec2{caret_x, caret_y},
-                        glm::vec2{caret_x, caret_y + font_size * input.ui_scale}, style.color,
+                painter.draw_line(glm::vec2{caret_x, glyph_y}, glm::vec2{caret_x, glyph_y + glyph_h}, style.color,
                         1.0f * input.ui_scale);
             }
         }

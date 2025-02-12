@@ -80,6 +80,7 @@ bool is_known_property(std::string_view name) {
             "scrollbar-track-color",
             "scrollbar-thumb-hover-color",
             "scrollbar-border-radius",
+            "selection-color",
     };
     for (const std::string_view known : kKnown) {
         if (known == name) {
