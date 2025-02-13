@@ -1,5 +1,6 @@
 #include <engine/core/engine_runtime.h>
 
+#include "render/opengl/clipboard.h"
 #include "render/opengl/desktop_overlay_policy.h"
 #include "render/opengl/opengl_runtime.h"
 #include "render/opengl/window_control.h"
@@ -545,6 +546,16 @@ void EngineRuntime::write_window_size(ecs::World& world, bool send_event) {
 }
 
 void EngineRuntime::poll_events(ecs::World& world, InputSystem& input, ApplicationState& app) {
+    // Installed once, lazily, the first time a world with SDL actually available reaches here —
+    // simpler than threading this through Engine<GameT>::init()'s DI graph, and a clipboard
+    // function pointer never changes once set, unlike sync_text_input_activation() below which
+    // re-syncs every tick because focus does change.
+    if (!world.ctx<ui::UiClipboard>().set_text) {
+        world.ctx<ui::UiClipboard>() = ui::UiClipboard{
+                .set_text = &sdl_clipboard_set_text,
+                .get_text = &sdl_clipboard_get_text,
+        };
+    }
     SDL_Event event{};
     while (SDL_PollEvent(&event)) {
         switch (event.type) {

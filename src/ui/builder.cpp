@@ -95,6 +95,16 @@ Node& Node::checked_bind(BindingId id) {
     return *this;
 }
 
+Node& Node::allow_copy(bool value) {
+    element_.allow_copy = value;
+    return *this;
+}
+
+Node& Node::allow_paste(bool value) {
+    element_.allow_paste = value;
+    return *this;
+}
+
 Node& Node::pan_x_bind(BindingId id) {
     element_.pan_x_binding = id;
     return *this;
