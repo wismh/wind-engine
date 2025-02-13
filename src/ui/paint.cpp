@@ -1055,7 +1055,8 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
             // Highlight behind the text, drawn whenever a real (non-collapsed) selection exists —
             // unlike the caret below, not gated on the blink phase.
             if (element.selection_anchor && *element.selection_anchor != element.caret_position) {
-                const std::size_t sel_start = std::min(*element.selection_anchor, element.text.size());
+                const std::size_t sel_start =
+                        std::min(std::min(*element.selection_anchor, element.caret_position), element.text.size());
                 const std::size_t sel_end =
                         std::min(std::max(*element.selection_anchor, element.caret_position), element.text.size());
                 const float start_w =
