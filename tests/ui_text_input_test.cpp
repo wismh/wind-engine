@@ -20,6 +20,7 @@ public:
     int lines_drawn = 0;
     int texts_filled = 0;
     int rounded_rects_filled = 0;
+    engine::render::Rect last_rounded_rect{};
 
     void save() override {}
     void restore() override {}
@@ -27,7 +28,10 @@ public:
     void apply_transform(glm::vec2, float, float) override {}
     void apply_view(glm::vec2, glm::vec2, float) override {}
     void set_opacity(float) override {}
-    void fill_rounded_rect(const engine::render::Rect&, float, glm::vec4) override { ++rounded_rects_filled; }
+    void fill_rounded_rect(const engine::render::Rect& rect, float, glm::vec4) override {
+        ++rounded_rects_filled;
+        last_rounded_rect = rect;
+    }
     void stroke_rounded_rect(const engine::render::Rect&, float, float, glm::vec4) override {}
     void draw_line(glm::vec2, glm::vec2, glm::vec4, float) override { ++lines_drawn; }
     void set_font(engine::AssetId, float) override {}
@@ -775,4 +779,56 @@ TEST(UiTextInput, SelectionHighlightOnlyPaintedWhenARealSelectionExists) {
     engine::ui::paint_document(
             instance.document, &sheet, painter, engine::ui::UiPaintInput{.canvas_rect = canvas_rect});
     EXPECT_EQ(painter.rounded_rects_filled, 1);
+}
+
+// Regression: paint.cpp's highlight rect used to compute sel_start as
+// min(*selection_anchor, text.size()) instead of min(*selection_anchor, caret_position) — correct
+// (and visible) only when anchor < caret (selecting left-to-right). Selecting right-to-left
+// (Shift+Left shrinking the caret below the anchor) left sel_start == sel_end, a zero-width rect
+// that never rendered even though the selection itself (copy/paste, etc.) was otherwise correct.
+TEST(UiTextInput, SelectionHighlightRendersRightToLeftToo) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<CardViewModel>();
+    vm->word.set("hello");
+    auto parsed = engine::ui::parse_xml(
+            R"(<Canvas width="200" height="200"><TextInput id="word" text="{binding word}" width="100" height="30"/></Canvas>)",
+            nullptr, vm.get());
+    ASSERT_TRUE(parsed.has_value());
+
+    auto sheet = test_sheet();
+    const engine::render::Rect canvas_rect{0.0f, 0.0f, 200.0f, 200.0f};
+    engine::ui::UiCanvas canvas;
+    canvas.rect = canvas_rect;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    canvas.data_context = vm;
+
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+    world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{*parsed, sheet});
+
+    FakePainter painter;
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 20.0f, 15.0f);
+    engine::ui::Element* focused = engine::ui::focused_element(world);
+    ASSERT_NE(focused, nullptr);
+    ASSERT_EQ(focused->caret_position, 5u); // headless fallback: click lands at end of "hello"
+
+    // Shift+Left twice: anchor arms at 5 (the caret's position before the first move) and stays
+    // there while caret_position drops to 3 -> anchor(5) > caret(3), a right-to-left selection.
+    engine::ui::handle_key(world, engine::KeyCode::LShift, true);
+    engine::ui::handle_key(world, engine::KeyCode::Left, true);
+    engine::ui::handle_key(world, engine::KeyCode::Left, true);
+    engine::ui::handle_key(world, engine::KeyCode::LShift, false);
+    ASSERT_TRUE(focused->selection_anchor.has_value());
+    ASSERT_EQ(*focused->selection_anchor, 5u);
+    ASSERT_EQ(focused->caret_position, 3u);
+
+    engine::ui::UiInstance& instance = world.get<engine::ui::UiInstance>(entity);
+    engine::ui::paint_document(
+            instance.document, &sheet, painter, engine::ui::UiPaintInput{.canvas_rect = canvas_rect});
+
+    EXPECT_EQ(painter.rounded_rects_filled, 1);
+    const float expected_width = painter.measure_text("lo", focused->font_family, focused->painted_font_size_px).x;
+    EXPECT_GT(painter.last_rounded_rect.w, 0.0f);
+    EXPECT_FLOAT_EQ(painter.last_rounded_rect.w, expected_width);
 }
