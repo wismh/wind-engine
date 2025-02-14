@@ -218,10 +218,11 @@ void set_focus(ecs::World& world, WindowId window, ecs::Entity canvas_entity, El
 void clear_focus(ecs::World& world, WindowId window = kPrimaryWindow);
 [[nodiscard]] Element* focused_element(ecs::World& world, WindowId window = kPrimaryWindow);
 
-// Physically-held-right-now state for the two modifier keys clipboard shortcuts care about.
-// Tracked here (not in InputSystem/KeyEvent) so ui::handle_key stays the single place that turns
-// raw LCtrl/RCtrl/LShift/RShift key events into a usable "is Ctrl down" query, with no SDL
-// involved and no change to the plain physical-key-event shape of KeyEvent.
+// Physically-held-right-now state for the two modifier keys TextInput cares about: Ctrl for the
+// clipboard shortcuts, Shift for extending a selection with Left/Right/Home/End. Tracked here (not
+// in InputSystem/KeyEvent) so ui::handle_key stays the single place that turns raw LCtrl/RCtrl/
+// LShift/RShift key events into a usable "is Ctrl/Shift down" query, with no SDL involved and no
+// change to the plain physical-key-event shape of KeyEvent.
 struct UiModifiers {
     bool ctrl = false;
     bool shift = false;
@@ -243,5 +244,14 @@ struct UiClipboard {
 
 void handle_key(ecs::World& world, KeyCode key, bool down, bool repeat = false, WindowId window = kPrimaryWindow);
 void handle_text_input(ecs::World& world, std::string_view text, WindowId window = kPrimaryWindow);
+
+// Drag-select continuation: call on every pointer Move while the button is still down (pointer_for
+// (world, window).down). A no-op unless the window's currently-focused element (UiFocusState) is a
+// TextInput — moves its caret_position to the glyph under `x`, leaving selection_anchor at wherever
+// the drag started (set by handle_pointer() on the initial Down), so the two diverge into a real
+// range exactly like a mouse drag in any other text field. No re-hit-test: unlike a
+// `drag="{binding}"` slider (ActiveDrag), this only ever mutates the already-focused Element's own
+// fields, so UiFocusState's element pointer is all it needs — see canvas.cpp.
+void update_text_selection(ecs::World& world, float x, WindowId window = kPrimaryWindow);
 
 }
