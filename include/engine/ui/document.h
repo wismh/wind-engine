@@ -401,6 +401,16 @@ struct Element {
     bool checked = false;
     std::size_t caret_position = 0;
     float caret_blink_timer = 0.0f;
+    // TextInput-only: whole-field select-all state (Ctrl+A). Not a partial anchor/extent range —
+    // there is no click-drag or Shift+Arrow range selection yet. Any edit (typing, Backspace,
+    // Delete, unmodified Left/Right, Home/End) or focus loss clears it (canvas.cpp).
+    bool selected_all = false;
+    // TextInput-only: per-field clipboard lock, XML `allow-copy`/`allow-paste` (literal only, no
+    // {binding} — a static field capability, not runtime-toggled state like `checked`). Mirrors
+    // the web's per-event copy/cut/paste interception: independent flags, not one on/off switch.
+    // Cut is gated by allow_copy (it reads before deleting), not allow_paste.
+    bool allow_copy = true;
+    bool allow_paste = true;
     // Memoizes measure_element_text (document.cpp) across frames: when `text`/`font_family`/the
     // resolved `font_size` passed to IUiPainter::measure_text still match the last real-painter
     // measurement, layout reuses `text_measure_cache_result` instead of re-shaping glyphs. Populated

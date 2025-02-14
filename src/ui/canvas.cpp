@@ -722,6 +722,24 @@ std::size_t next_utf8_char(std::string_view s, std::size_t pos) {
     return pos;
 }
 
+// Shared by handle_text_input/handle_key's Backspace/Delete/Ctrl+X/Ctrl+V paths — every one of
+// them ends with "if bound, push element->text back to the ViewModel."
+void write_text_binding(ecs::World& world, ecs::Entity canvas_entity, Element* element) {
+    if (!is_bound(element->text_binding)) {
+        return;
+    }
+    UiCanvas* canvas = world.try_get<UiCanvas>(canvas_entity);
+    if (canvas == nullptr || !canvas->data_context) {
+        return;
+    }
+    ViewModel* target = element->generated_owner != nullptr
+            ? static_cast<ViewModel*>(const_cast<void*>(element->generated_owner))
+            : canvas->data_context.get();
+    if (target != nullptr) {
+        target->write_property_string(element->text_binding, element->text);
+    }
+}
+
 }
 
 void clear_focus(ecs::World& world, WindowId window) {
@@ -731,6 +749,7 @@ void clear_focus(ecs::World& world, WindowId window) {
         if (it->second.element != nullptr) {
             it->second.element->focused = false;
             it->second.element->caret_blink_timer = 0.0f;
+            it->second.element->selected_all = false;
         }
         focus_map.erase(it);
     }
@@ -743,11 +762,13 @@ void set_focus(ecs::World& world, WindowId window, ecs::Entity canvas_entity, El
         if (it->second.element != nullptr) {
             it->second.element->focused = false;
             it->second.element->caret_blink_timer = 0.0f;
+            it->second.element->selected_all = false;
         }
     }
     if (element != nullptr) {
         element->focused = true;
         element->caret_blink_timer = 0.0f;
+        element->selected_all = false;
         if (element->caret_position > element->text.size()) {
             element->caret_position = element->text.size();
         }
@@ -783,24 +804,30 @@ void handle_text_input(ecs::World& world, std::string_view text, WindowId window
     if (element->caret_position > element->text.size()) {
         element->caret_position = element->text.size();
     }
+    if (element->selected_all) {
+        element->text.clear();
+        element->caret_position = 0;
+        element->selected_all = false;
+    }
     element->text.insert(element->caret_position, text);
     element->caret_position += text.size();
     element->caret_blink_timer = 0.0f;
 
-    if (is_bound(element->text_binding)) {
-        UiCanvas* canvas = world.try_get<UiCanvas>(it->second.canvas_entity);
-        if (canvas != nullptr && canvas->data_context) {
-            ViewModel* target = element->generated_owner != nullptr
-                    ? static_cast<ViewModel*>(const_cast<void*>(element->generated_owner))
-                    : canvas->data_context.get();
-            if (target != nullptr) {
-                target->write_property_string(element->text_binding, element->text);
-            }
-        }
-    }
+    write_text_binding(world, it->second.canvas_entity, element);
 }
 
 void handle_key(ecs::World& world, KeyCode key, bool down, bool /*repeat*/, WindowId window) {
+    // Ctrl/Shift are tracked here, not in InputSystem/KeyEvent, and on both down and up so a
+    // release is never missed — an element losing focus (or nothing ever being focused) while
+    // Ctrl is held must not leave UiModifierState stuck reporting it held forever.
+    if (key == KeyCode::LCtrl || key == KeyCode::RCtrl) {
+        world.ctx<UiModifierState>().modifiers[window].ctrl = down;
+        return;
+    }
+    if (key == KeyCode::LShift || key == KeyCode::RShift) {
+        world.ctx<UiModifierState>().modifiers[window].shift = down;
+        return;
+    }
     if (!down) {
         return;
     }
@@ -847,9 +874,75 @@ void handle_key(ecs::World& world, KeyCode key, bool down, bool /*repeat*/, Wind
         return;
     }
 
+    const bool ctrl = world.ctx<UiModifierState>().modifiers[window].ctrl;
+
+    if (ctrl && key == KeyCode::A) {
+        element->selected_all = true;
+        element->caret_blink_timer = 0.0f;
+        return;
+    }
+
+    if (ctrl && key == KeyCode::C) {
+        if (element->selected_all && element->allow_copy) {
+            UiClipboard& clipboard = world.ctx<UiClipboard>();
+            if (clipboard.set_text) {
+                clipboard.set_text(element->text);
+            }
+        }
+        return;
+    }
+
+    // Cut is copy-then-delete: it needs allow_copy (read permission), not allow_paste.
+    if (ctrl && key == KeyCode::X) {
+        if (element->selected_all && element->allow_copy) {
+            UiClipboard& clipboard = world.ctx<UiClipboard>();
+            if (clipboard.set_text) {
+                clipboard.set_text(element->text);
+            }
+            element->text.clear();
+            element->caret_position = 0;
+            element->selected_all = false;
+            element->caret_blink_timer = 0.0f;
+            write_text_binding(world, it->second.canvas_entity, element);
+        }
+        return;
+    }
+
+    if (ctrl && key == KeyCode::V) {
+        if (element->allow_paste) {
+            UiClipboard& clipboard = world.ctx<UiClipboard>();
+            if (clipboard.get_text) {
+                if (const std::optional<std::string> pasted = clipboard.get_text(); pasted.has_value()) {
+                    if (element->selected_all) {
+                        element->text.clear();
+                        element->caret_position = 0;
+                        element->selected_all = false;
+                    }
+                    element->text.insert(element->caret_position, *pasted);
+                    element->caret_position += pasted->size();
+                    element->caret_blink_timer = 0.0f;
+                    write_text_binding(world, it->second.canvas_entity, element);
+                }
+            }
+        }
+        return;
+    }
+
+    // Whole-field select-all (Ctrl+A) is the only selection this widget has today — no partial
+    // anchor/extent range yet (wind clipboard plan Phase B). Every key below that moves the caret
+    // or edits text collapses it first: Left/Home go to the selection's start (0), Right/End go
+    // to its end (text.size()), Backspace/Delete/typed text (handle_text_input) replace the whole
+    // field, same as if the user had erased it by hand.
     bool text_changed = false;
+    const bool had_selection = element->selected_all;
     if (key == KeyCode::Backspace) {
-        if (element->caret_position > 0) {
+        if (had_selection) {
+            element->text.clear();
+            element->caret_position = 0;
+            element->selected_all = false;
+            element->caret_blink_timer = 0.0f;
+            text_changed = true;
+        } else if (element->caret_position > 0) {
             const std::size_t prev = prev_utf8_char(element->text, element->caret_position);
             element->text.erase(prev, element->caret_position - prev);
             element->caret_position = prev;
@@ -857,36 +950,39 @@ void handle_key(ecs::World& world, KeyCode key, bool down, bool /*repeat*/, Wind
             text_changed = true;
         }
     } else if (key == KeyCode::Delete) {
-        if (element->caret_position < element->text.size()) {
+        if (had_selection) {
+            element->text.clear();
+            element->caret_position = 0;
+            element->selected_all = false;
+            element->caret_blink_timer = 0.0f;
+            text_changed = true;
+        } else if (element->caret_position < element->text.size()) {
             const std::size_t next = next_utf8_char(element->text, element->caret_position);
             element->text.erase(element->caret_position, next - element->caret_position);
             element->caret_blink_timer = 0.0f;
             text_changed = true;
         }
     } else if (key == KeyCode::Left) {
-        element->caret_position = prev_utf8_char(element->text, element->caret_position);
+        element->caret_position = had_selection ? 0 : prev_utf8_char(element->text, element->caret_position);
+        element->selected_all = false;
         element->caret_blink_timer = 0.0f;
     } else if (key == KeyCode::Right) {
-        element->caret_position = next_utf8_char(element->text, element->caret_position);
+        element->caret_position =
+                had_selection ? element->text.size() : next_utf8_char(element->text, element->caret_position);
+        element->selected_all = false;
         element->caret_blink_timer = 0.0f;
     } else if (key == KeyCode::Home) {
         element->caret_position = 0;
+        element->selected_all = false;
         element->caret_blink_timer = 0.0f;
     } else if (key == KeyCode::End) {
         element->caret_position = element->text.size();
+        element->selected_all = false;
         element->caret_blink_timer = 0.0f;
     }
 
-    if (text_changed && is_bound(element->text_binding)) {
-        UiCanvas* canvas = world.try_get<UiCanvas>(it->second.canvas_entity);
-        if (canvas != nullptr && canvas->data_context) {
-            ViewModel* target = element->generated_owner != nullptr
-                    ? static_cast<ViewModel*>(const_cast<void*>(element->generated_owner))
-                    : canvas->data_context.get();
-            if (target != nullptr) {
-                target->write_property_string(element->text_binding, element->text);
-            }
-        }
+    if (text_changed) {
+        write_text_binding(world, it->second.canvas_entity, element);
     }
 }
 
