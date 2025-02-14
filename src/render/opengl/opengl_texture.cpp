@@ -1,5 +1,7 @@
 #include "opengl_texture.h"
 
+#include <cstring>
+
 namespace engine::render {
 namespace {
 
@@ -21,8 +23,33 @@ GLenum gl_wrap(WrapMode wrap) {
 
 }
 
+std::vector<std::uint8_t> flip_image_vertically(
+        std::span<const std::uint8_t> rgba, int width, int height) {
+    if (width <= 0 || height <= 0) {
+        return {};
+    }
+    const std::size_t required =
+            static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4;
+    if (rgba.size() < required) {
+        return {};
+    }
+    std::vector<std::uint8_t> flipped(required);
+    const std::size_t row_bytes = static_cast<std::size_t>(width) * 4;
+    for (int y = 0; y < height; ++y) {
+        const std::size_t src_offset = static_cast<std::size_t>(y) * row_bytes;
+        const std::size_t dst_offset = static_cast<std::size_t>(height - 1 - y) * row_bytes;
+        std::memcpy(flipped.data() + dst_offset, rgba.data() + src_offset, row_bytes);
+    }
+    return flipped;
+}
+
 OpenGLTexture::OpenGLTexture(const TextureDesc& desc) {
     if (desc.width <= 0 || desc.height <= 0 || desc.rgba.empty()) {
+        return;
+    }
+
+    const auto flipped = flip_image_vertically(desc.rgba, desc.width, desc.height);
+    if (flipped.empty()) {
         return;
     }
 
@@ -37,7 +64,7 @@ OpenGLTexture::OpenGLTexture(const TextureDesc& desc) {
 #else
             GL_RGBA,
 #endif
-            desc.width, desc.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, desc.rgba.data());
+            desc.width, desc.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, flipped.data());
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap);
