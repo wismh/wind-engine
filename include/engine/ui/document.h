@@ -195,6 +195,34 @@ enum class BackgroundRepeat {
     Repeat,
 };
 
+enum class GradientKind {
+    Linear,
+    Radial,
+    Conic,
+};
+
+// One color-stop in a Gradient. `percent` (0-100) is nullopt when the stylesheet omitted it —
+// resolved to an even spread across the stop list at parse time (see parse_gradient, paint.cpp),
+// not at paint time, so a painter only ever sees fully-resolved percentages.
+struct GradientStop {
+    glm::vec4 color{};
+    std::optional<float> percent;
+};
+
+// `background`/`background-image: linear-gradient()|radial-gradient()|conic-gradient()`. `angle_deg`
+// only applies to Linear (CSS convention: 0deg = to top, clockwise). Conic has no native NanoVG
+// paint (nvgImagePattern is affine-only) and is rendered by baking a small texture cached by this
+// struct's content — see IUiPainter::fill_rounded_rect_gradient / NanoVgPainter. That makes it a
+// fit for a background that changes rarely (a handful of stylesheet classes/pseudo-states), not for
+// a value animated every frame — that would rebake a GPU texture every frame. A live,
+// continuously-animated ring should instead be drawn imperatively through IPaint/IDrawList
+// (paint.h/draw_list.h), not by swapping this value's stops every frame.
+struct Gradient {
+    GradientKind kind = GradientKind::Linear;
+    float angle_deg = 180.0f;
+    std::vector<GradientStop> stops;
+};
+
 // The fully-cascaded result of matching an Element against a Stylesheet (paint.cpp's
 // compute_style()). Lives here rather than as a paint.cpp-private type only so Element can cache
 // it (see StyleCacheEntry below) without a public header including a private one — every field
@@ -204,6 +232,9 @@ struct ComputedStyle {
     glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
     glm::vec4 background{0.0f, 0.0f, 0.0f, 0.0f};
     std::optional<AssetId> background_image;
+    // Alternate value for the same background-image layer as `background_image` — a stylesheet
+    // sets exactly one of the two (parse_gradient tried first in apply_declaration, paint.cpp).
+    std::optional<Gradient> background_gradient;
     std::optional<LengthInsets> background_slice;
     BackgroundRepeat background_repeat = BackgroundRepeat::NoRepeat;
     float opacity = 1.0f;
