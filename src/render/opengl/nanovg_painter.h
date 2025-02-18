@@ -34,6 +34,7 @@ public:
     void apply_view(glm::vec2 origin, glm::vec2 pan, float zoom) override;
     void set_opacity(float opacity) override;
     void fill_rounded_rect(const Rect& rect, float radius, glm::vec4 color) override;
+    void fill_rounded_rect_gradient(const Rect& rect, float radius, const ui::Gradient& gradient) override;
     void stroke_rounded_rect(const Rect& rect, float radius, float width, glm::vec4 color) override;
     void draw_line(glm::vec2 from, glm::vec2 to, glm::vec4 color, float width) override;
     void set_font(AssetId font, float size) override;
@@ -45,6 +46,12 @@ public:
     [[nodiscard]] glm::vec2 measure_text(std::string_view text, AssetId font, float size) override;
 
 private:
+    // Bakes (or reuses a cached bake of) a small angular-ramp texture for a conic gradient — NanoVG
+    // has no native conic/angular paint (nvgImagePattern is affine-only), unlike linear/radial which
+    // map straight onto nvgLinearGradient/nvgRadialGradient in fill_rounded_rect_gradient. Returns
+    // the NanoVG image id, or <= 0 if baking failed (no vg context).
+    [[nodiscard]] int ensure_conic_texture(const ui::Gradient& gradient);
+
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
