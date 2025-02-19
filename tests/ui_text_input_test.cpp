@@ -32,6 +32,7 @@ public:
         ++rounded_rects_filled;
         last_rounded_rect = rect;
     }
+    void fill_rounded_rect_gradient(const engine::render::Rect&, float, const engine::ui::Gradient&) override {}
     void stroke_rounded_rect(const engine::render::Rect&, float, float, glm::vec4) override {}
     void draw_line(glm::vec2, glm::vec2, glm::vec4, float) override { ++lines_drawn; }
     void set_font(engine::AssetId, float) override {}

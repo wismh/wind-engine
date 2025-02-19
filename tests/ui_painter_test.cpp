@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -48,6 +49,7 @@ struct PaintCall {
     engine::ui::BoxInsets insets{};
     glm::vec2 line_from{};
     glm::vec2 line_to{};
+    std::optional<engine::ui::Gradient> gradient;
 };
 
 class FakePainter final : public engine::ui::IUiPainter {
@@ -79,6 +81,11 @@ public:
 
     void fill_rounded_rect(const engine::render::Rect& rect, float radius, glm::vec4 color) override {
         calls.push_back(PaintCall{.op = "fill_rect", .rect = rect, .color = color, .radius = radius});
+    }
+
+    void fill_rounded_rect_gradient(
+            const engine::render::Rect& rect, float radius, const engine::ui::Gradient& gradient) override {
+        calls.push_back(PaintCall{.op = "fill_rect_gradient", .rect = rect, .radius = radius, .gradient = gradient});
     }
 
     void stroke_rounded_rect(const engine::render::Rect& rect, float radius, float width, glm::vec4 color) override {
@@ -1917,6 +1924,111 @@ TEST(UiPainter, BackgroundImageWithSlicePaintsNineSlice) {
     EXPECT_FLOAT_EQ(nine_slice->insets.right, 12.f);
     EXPECT_FLOAT_EQ(nine_slice->insets.bottom, 14.f);
     EXPECT_FLOAT_EQ(nine_slice->insets.left, 16.f);
+}
+
+TEST(UiPainter, LinearGradientBackgroundPaintsGradientInsteadOfColorOrImage) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack class="panel"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .panel { width: 100; height: 50; background: linear-gradient(90deg, #ff0000, #0000ff); }
+    )");
+
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 200.f}});
+
+    EXPECT_EQ(painter.count("fill_rect"), 0);
+    EXPECT_EQ(find_image(painter, kHoverImage), nullptr);
+    const PaintCall* gradient_call = painter.find("fill_rect_gradient");
+    ASSERT_NE(gradient_call, nullptr);
+    ASSERT_TRUE(gradient_call->gradient.has_value());
+    const engine::ui::Gradient& gradient = *gradient_call->gradient;
+    EXPECT_EQ(gradient.kind, engine::ui::GradientKind::Linear);
+    EXPECT_FLOAT_EQ(gradient.angle_deg, 90.0f);
+    ASSERT_EQ(gradient.stops.size(), 2u);
+    EXPECT_FLOAT_EQ(gradient.stops[0].color.r, 1.0f);
+    EXPECT_FLOAT_EQ(gradient.stops[0].color.b, 0.0f);
+    ASSERT_TRUE(gradient.stops[0].percent.has_value());
+    EXPECT_FLOAT_EQ(*gradient.stops[0].percent, 0.0f);
+    EXPECT_FLOAT_EQ(gradient.stops[1].color.r, 0.0f);
+    EXPECT_FLOAT_EQ(gradient.stops[1].color.b, 1.0f);
+    ASSERT_TRUE(gradient.stops[1].percent.has_value());
+    EXPECT_FLOAT_EQ(*gradient.stops[1].percent, 100.0f);
+}
+
+TEST(UiPainter, LinearGradientDefaultsToTopToBottomAngleWhenOmitted) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack class="panel"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet =
+            must_parse_css(".panel { width: 40; height: 40; background: linear-gradient(#ffffff, #000000); }");
+
+    FakePainter painter;
+    engine::ui::paint_document(
+            *parsed, &sheet, painter, engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 200.f}});
+
+    const PaintCall* gradient_call = painter.find("fill_rect_gradient");
+    ASSERT_NE(gradient_call, nullptr);
+    ASSERT_TRUE(gradient_call->gradient.has_value());
+    EXPECT_FLOAT_EQ(gradient_call->gradient->angle_deg, 180.0f);
+}
+
+TEST(UiPainter, RadialGradientOnBackgroundImageParses) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack class="panel"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(
+            ".panel { width: 40; height: 40; background-image: radial-gradient(#111111, #eeeeee); }");
+
+    FakePainter painter;
+    engine::ui::paint_document(
+            *parsed, &sheet, painter, engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 200.f}});
+
+    const PaintCall* gradient_call = painter.find("fill_rect_gradient");
+    ASSERT_NE(gradient_call, nullptr);
+    ASSERT_TRUE(gradient_call->gradient.has_value());
+    EXPECT_EQ(gradient_call->gradient->kind, engine::ui::GradientKind::Radial);
+    ASSERT_EQ(gradient_call->gradient->stops.size(), 2u);
+}
+
+TEST(UiPainter, ConicGradientHardStopShorthandProducesFourStops) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack class="ring"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .ring {
+            width: 40; height: 40;
+            background: conic-gradient(#4caf50 0% 42%, #333333 42% 100%);
+        }
+    )");
+
+    FakePainter painter;
+    engine::ui::paint_document(
+            *parsed, &sheet, painter, engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 200.f}});
+
+    const PaintCall* gradient_call = painter.find("fill_rect_gradient");
+    ASSERT_NE(gradient_call, nullptr);
+    ASSERT_TRUE(gradient_call->gradient.has_value());
+    const engine::ui::Gradient& gradient = *gradient_call->gradient;
+    EXPECT_EQ(gradient.kind, engine::ui::GradientKind::Conic);
+    ASSERT_EQ(gradient.stops.size(), 4u);
+    EXPECT_FLOAT_EQ(*gradient.stops[0].percent, 0.0f);
+    EXPECT_FLOAT_EQ(*gradient.stops[1].percent, 42.0f);
+    EXPECT_FLOAT_EQ(*gradient.stops[2].percent, 42.0f);
+    EXPECT_FLOAT_EQ(*gradient.stops[3].percent, 100.0f);
+    EXPECT_FLOAT_EQ(gradient.stops[0].color.g, gradient.stops[1].color.g);
+    EXPECT_FLOAT_EQ(gradient.stops[2].color.r, gradient.stops[3].color.r);
+}
+
+TEST(UiPainter, InvalidGradientSyntaxFallsBackToNoBackgroundWithoutCrashing) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack class="panel"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(
+            ".panel { width: 40; height: 40; background: linear-gradient(notacolor, alsofake); }");
+
+    FakePainter painter;
+    engine::ui::paint_document(
+            *parsed, &sheet, painter, engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 200.f}});
+
+    EXPECT_EQ(painter.find("fill_rect_gradient"), nullptr);
+    EXPECT_EQ(painter.count("fill_rect"), 0);
 }
 
 TEST(UiPainter, ImageElementWithSlicePaintsNineSlice) {
