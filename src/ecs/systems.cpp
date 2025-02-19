@@ -10,8 +10,10 @@
 #include <engine/ecs/physics.h>
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/transform.h>
+#include <engine/builtin_ids.h>
 #include <engine/render/command_buffer.h>
 #include <engine/render/renderable.h>
+#include <engine/render/sprite.h>
 #include <engine/resources/assets_db.h>
 #include <engine/resources/fatal_error.h>
 #include <engine/ui/canvas.h>
@@ -187,14 +189,44 @@ void report_fatal(IFatalError* fatal, std::string_view message) {
     }
 }
 
+struct SpriteMaterialCache {
+    std::unordered_map<const render::ITexture*, std::shared_ptr<render::IMaterial>> materials;
+};
+
+struct DrawItem {
+    std::shared_ptr<render::IMesh> mesh;
+    std::shared_ptr<render::IMaterial> material;
+    glm::mat4 model{1.0f};
+    glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
+    int layer = 0;
+    int order_in_layer = 0;
+    ecs::Entity entity;
+};
+
+inline bool draw_item_less(const DrawItem& a, const DrawItem& b) {
+    if (a.layer != b.layer) {
+        return a.layer < b.layer;
+    }
+    if (a.order_in_layer != b.order_in_layer) {
+        return a.order_in_layer < b.order_in_layer;
+    }
+    const render::IMaterial* const mat_a = a.material.get();
+    const render::IMaterial* const mat_b = b.material.get();
+    if (mat_a != mat_b) {
+        return std::less<>{}(mat_a, mat_b);
+    }
+    return a.entity.index < b.entity.index;
+}
+
 void run_render(ecs::World& world, const EngineSystemDeps& deps) {
     if (deps.commands == nullptr) {
         return;
     }
     deps.commands->clear();
 
-    auto entities = world.view<render::Renderable, Transform>();
-    if (entities.begin() == entities.end()) {
+    auto renderables = world.view<render::Renderable, Transform>();
+    auto sprites = world.view<render::Sprite, Transform>();
+    if (renderables.begin() == renderables.end() && sprites.begin() == sprites.end()) {
         return;
     }
 
@@ -214,25 +246,95 @@ void run_render(ecs::World& world, const EngineSystemDeps& deps) {
     const glm::mat4 view = view_matrix(*camera_transform);
     const glm::mat4 projection = projection_matrix(*camera, window);
 
-    std::vector<render::RenderableItem> items;
-    for (ecs::Entity entity : entities) {
-        items.push_back(render::RenderableItem{entities.get<render::Renderable>(entity), entity});
-    }
-    render::sort_renderables(items);
+    std::vector<DrawItem> items;
 
-    for (const render::RenderableItem& item : items) {
-        if (!item.renderable.mesh || !item.renderable.material) {
+    for (ecs::Entity entity : renderables) {
+        const auto& r = renderables.get<render::Renderable>(entity);
+        if (!r.mesh || !r.material) {
             report_fatal(deps.fatal, "Renderable is missing mesh or material");
             continue;
         }
-        const Transform& transform = world.get<Transform>(item.entity);
+        const Transform& transform = world.get<Transform>(entity);
+        items.push_back(DrawItem{
+                .mesh = r.mesh,
+                .material = r.material,
+                .model = model_matrix(transform),
+                .color = r.color,
+                .layer = r.layer,
+                .order_in_layer = r.order_in_layer,
+                .entity = entity,
+        });
+    }
+
+    std::shared_ptr<render::IMesh> default_quad;
+    std::shared_ptr<render::IShader> default_shader;
+    std::shared_ptr<render::IMaterial> default_unlit;
+    if (deps.assets != nullptr) {
+        if (auto mesh_res = deps.assets->try_get<render::IMesh>(builtin::mesh_quad)) {
+            default_quad = std::move(*mesh_res);
+        }
+        if (auto shader_res = deps.assets->try_get<render::IShader>(builtin::shader_unlit)) {
+            default_shader = std::move(*shader_res);
+        }
+        if (auto mat_res = deps.assets->try_get<render::IMaterial>(builtin::material_unlit)) {
+            default_unlit = std::move(*mat_res);
+        }
+    }
+
+    auto& cache = world.ctx<SpriteMaterialCache>();
+
+    for (ecs::Entity entity : sprites) {
+        if (world.try_get<render::Renderable>(entity) != nullptr) {
+            continue;
+        }
+        const auto& s = sprites.get<render::Sprite>(entity);
+        std::shared_ptr<render::IMesh> mesh = s.mesh ? s.mesh : default_quad;
+        std::shared_ptr<render::IMaterial> material;
+        if (s.material != nullptr) {
+            material = s.material;
+        } else if (s.texture != nullptr) {
+            auto it = cache.materials.find(s.texture.get());
+            if (it != cache.materials.end()) {
+                material = it->second;
+            } else if (default_shader != nullptr) {
+                material = std::make_shared<render::Material>(
+                        default_shader, s.texture, glm::vec4{1.0f, 1.0f, 1.0f, 1.0f}, render::BlendMode::Alpha);
+                cache.materials[s.texture.get()] = material;
+            }
+        } else {
+            material = default_unlit;
+        }
+
+        if (!mesh || !material) {
+            report_fatal(deps.fatal, "Sprite is missing mesh or material");
+            continue;
+        }
+        const Transform& transform = world.get<Transform>(entity);
+        glm::mat4 model = model_matrix(transform);
+        if (s.flip_x || s.flip_y) {
+            model = glm::scale(model, glm::vec3{s.flip_x ? -1.0f : 1.0f, s.flip_y ? -1.0f : 1.0f, 1.0f});
+        }
+        items.push_back(DrawItem{
+                .mesh = std::move(mesh),
+                .material = std::move(material),
+                .model = model,
+                .color = s.color,
+                .layer = s.layer,
+                .order_in_layer = s.order_in_layer,
+                .entity = entity,
+        });
+    }
+
+    std::stable_sort(items.begin(), items.end(), draw_item_less);
+
+    for (const DrawItem& item : items) {
         render::CmdDrawMesh cmd;
-        cmd.mesh = item.renderable.mesh;
-        cmd.material = item.renderable.material;
-        cmd.model = model_matrix(transform);
+        cmd.mesh = item.mesh;
+        cmd.material = item.material;
+        cmd.model = item.model;
         cmd.view = view;
         cmd.projection = projection;
-        cmd.color = item.renderable.color;
+        cmd.color = item.color;
         deps.commands->push(std::move(cmd));
     }
 }
