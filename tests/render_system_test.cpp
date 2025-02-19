@@ -190,6 +190,7 @@ public:
         last_fill = color;
         had_fill = true;
     }
+    void fill_rounded_rect_gradient(const engine::render::Rect&, float, const engine::ui::Gradient&) override {}
     void stroke_rounded_rect(const engine::render::Rect&, float, float, glm::vec4) override {}
     void draw_line(glm::vec2, glm::vec2, glm::vec4, float) override {}
     void set_font(engine::AssetId, float) override {}
