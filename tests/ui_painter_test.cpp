@@ -50,6 +50,9 @@ struct PaintCall {
     glm::vec2 line_from{};
     glm::vec2 line_to{};
     std::optional<engine::ui::Gradient> gradient;
+    glm::vec2 arc_center{};
+    float arc_start_angle = 0.0f;
+    float arc_end_angle = 0.0f;
 };
 
 class FakePainter final : public engine::ui::IUiPainter {
@@ -95,6 +98,13 @@ public:
     void draw_line(glm::vec2 from, glm::vec2 to, glm::vec4 color, float width) override {
         calls.push_back(
                 PaintCall{.op = "line", .color = color, .width = width, .line_from = from, .line_to = to});
+    }
+
+    void stroke_arc(glm::vec2 center, float radius, float start_angle, float end_angle, float width,
+            glm::vec4 color) override {
+        calls.push_back(PaintCall{
+                .op = "arc", .color = color, .radius = radius, .width = width, .arc_center = center,
+                .arc_start_angle = start_angle, .arc_end_angle = end_angle});
     }
 
     void set_font(engine::AssetId font, float size) override {

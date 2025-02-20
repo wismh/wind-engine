@@ -42,9 +42,19 @@ struct LineCall {
     float width = 0.0f;
 };
 
+struct ArcCall {
+    glm::vec2 center{};
+    float radius = 0.0f;
+    float start_angle = 0.0f;
+    float end_angle = 0.0f;
+    float width = 0.0f;
+    glm::vec4 color{};
+};
+
 class FakePainter final : public engine::ui::IUiPainter {
 public:
     std::vector<LineCall> lines;
+    std::vector<ArcCall> arcs;
 
     void save() override {}
     void restore() override {}
@@ -57,6 +67,10 @@ public:
     void stroke_rounded_rect(const engine::render::Rect&, float, float, glm::vec4) override {}
     void draw_line(glm::vec2 from, glm::vec2 to, glm::vec4 color, float width) override {
         lines.push_back(LineCall{from, to, color, width});
+    }
+    void stroke_arc(glm::vec2 center, float radius, float start_angle, float end_angle, float width,
+            glm::vec4 color) override {
+        arcs.push_back(ArcCall{center, radius, start_angle, end_angle, width, color});
     }
     void set_font(engine::AssetId, float) override {}
     void fill_text(std::string_view, glm::vec2, glm::vec4, engine::ui::UiAlign, engine::ui::UiAlign) override {}
