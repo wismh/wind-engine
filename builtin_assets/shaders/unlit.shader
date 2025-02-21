@@ -10,9 +10,11 @@
         uniform mat4 uModel;
         uniform mat4 uView;
         uniform mat4 uProjection;
+        uniform vec2 uUvScale;
+        uniform vec2 uUvOffset;
 
         void main() {
-            vUV = aUV;
+            vUV = aUV * uUvScale + uUvOffset;
             gl_Position = uProjection * uView * uModel * vec4(aPosition, 1.0);
         }
     </vertex>
