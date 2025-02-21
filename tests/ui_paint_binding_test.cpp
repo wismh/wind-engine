@@ -93,6 +93,19 @@ public:
     }
 };
 
+class RingVm final : public engine::ui::ViewModel {
+public:
+    engine::ui::RelayPaint plot;
+
+    RingVm() {
+        plot = [](engine::ui::IDrawList& list, const engine::render::Rect& content) {
+            const glm::vec4 color{0.0f, 1.0f, 0.0f, 1.0f};
+            list.arc({content.w * 0.5f, content.h * 0.5f}, 10.0f, 0.0f, 1.5f, color, 3.0f);
+        };
+        paint(engine::ui::intern("plot"), plot);
+    }
+};
+
 engine::ui::Stylesheet must_parse_css(std::string_view css) {
     std::vector<std::string> warnings;
     auto sheet = engine::ui::parse_css(css, warnings);
@@ -151,6 +164,30 @@ TEST(UiPaintBinding, PaintDrawsLineInLocalContentCoordinates) {
     EXPECT_FLOAT_EQ(painter.lines[0].to.y, 80.0f);
     EXPECT_FLOAT_EQ(painter.lines[0].width, 4.0f);
     EXPECT_EQ(painter.lines[0].color, (glm::vec4{1.0f, 0.0f, 0.0f, 1.0f}));
+}
+
+TEST(UiPaintBinding, PaintDrawsArcInLocalContentCoordinatesWithScaledRadiusAndWidth) {
+    RingVm vm;
+    auto parsed = engine::ui::parse_xml(
+            R"(<Canvas><Component class="chart" paint="{binding plot}"/></Canvas>)", nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+
+    const engine::ui::Stylesheet sheet = must_parse_css(".chart { width: 100; height: 50; padding: 10; }");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}, .ui_scale = 2.0f});
+
+    // content box is 80x30 local px at screen origin (10,10)*2 = (20,20); local center (40,15) maps
+    // to screen (20,20) + (40,15)*2 = (100,50). Radius/width scale by ui_scale, angles do not.
+    ASSERT_EQ(painter.arcs.size(), 1u);
+    EXPECT_FLOAT_EQ(painter.arcs[0].center.x, 100.0f);
+    EXPECT_FLOAT_EQ(painter.arcs[0].center.y, 50.0f);
+    EXPECT_FLOAT_EQ(painter.arcs[0].radius, 20.0f);
+    EXPECT_FLOAT_EQ(painter.arcs[0].width, 6.0f);
+    EXPECT_FLOAT_EQ(painter.arcs[0].start_angle, 0.0f);
+    EXPECT_FLOAT_EQ(painter.arcs[0].end_angle, 1.5f);
+    EXPECT_EQ(painter.arcs[0].color, (glm::vec4{0.0f, 1.0f, 0.0f, 1.0f}));
 }
 
 TEST(UiPaintBinding, UnregisteredPaintIsMissingBinding) {
