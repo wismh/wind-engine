@@ -19,6 +19,7 @@ assets/
     meshes/quad.mesh
     materials/unlit.mat
     fonts/ui.ttf
+    fonts/math.otf
 ```
 
 `EngineRuntime::assets_root()` is `<base>/assets`. Init loads:
