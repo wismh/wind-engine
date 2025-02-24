@@ -900,6 +900,17 @@ TEST(Assets, GetFontWithoutFactory) {
     EXPECT_EQ(*again, font);
 }
 
+TEST(Assets, GetBuiltinMathFontIsOpenTypeCff) {
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+    ASSERT_TRUE(load_builtin_catalog(db));
+
+    const auto font = db.get<engine::Font>(engine::builtin::font_math);
+    ASSERT_NE(font, nullptr);
+    ASSERT_GE(font->bytes.size(), 4u);
+    EXPECT_EQ(std::string(font->bytes.begin(), font->bytes.begin() + 4), "OTTO");
+}
+
 TEST(Assets, CorruptPngIsCorrupt) {
     TempTree tree;
     write_file(tree.path / "textures" / "bad.png", "not-a-png");
