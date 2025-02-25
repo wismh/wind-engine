@@ -28,8 +28,18 @@ public:
         return id_ != 0;
     }
 
+    [[nodiscard]] int width() const noexcept override {
+        return width_;
+    }
+
+    [[nodiscard]] int height() const noexcept override {
+        return height_;
+    }
+
 private:
     unsigned int id_ = 0;
+    int width_ = 0;
+    int height_ = 0;
 };
 
 }

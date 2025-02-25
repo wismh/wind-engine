@@ -470,4 +470,65 @@ TEST(Sprite, RenderableHasDefaultUvScaleAndOffset) {
     EXPECT_FLOAT_EQ(cmd->uv_offset.y, 0.0f);
 }
 
+TEST(Sprite, ScalingWithPixelsPerUnit) {
+    engine::ecs::World world;
+    spawn_camera(world);
+
+    const auto mesh = std::make_shared<FakeMesh>();
+    const auto mat = std::make_shared<FakeMaterial>();
+
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::Transform>(entity, engine::Transform{.position = {0.0f, 0.0f, 0.0f}, .scale = {1.0f, 1.0f, 1.0f}});
+    world.emplace<engine::render::Sprite>(entity, engine::render::Sprite{
+            .pixel_size = {32.0f, 16.0f},
+            .pixels_per_unit = 16.0f,
+            .pivot = {0.5f, 0.5f},
+            .mesh = mesh,
+            .material = mat,
+    });
+
+    engine::render::CommandBuffer commands;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    world.run(engine::ecs::Schedule::Frame);
+
+    ASSERT_EQ(commands.size(), 1u);
+    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[0]);
+    ASSERT_NE(cmd, nullptr);
+    // World size is 32/16 = 2.0 on X, 16/16 = 1.0 on Y
+    EXPECT_FLOAT_EQ(cmd->model[0][0], 2.0f);
+    EXPECT_FLOAT_EQ(cmd->model[1][1], 1.0f);
+    // Pivot 0.5, 0.5 -> center at 0, 0
+    EXPECT_FLOAT_EQ(cmd->model[3][0], 0.0f);
+    EXPECT_FLOAT_EQ(cmd->model[3][1], 0.0f);
 }
+
+TEST(Sprite, PivotOffsetShiftsModelPosition) {
+    engine::ecs::World world;
+    spawn_camera(world);
+
+    const auto mesh = std::make_shared<FakeMesh>();
+    const auto mat = std::make_shared<FakeMaterial>();
+
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::Transform>(entity, engine::Transform{.position = {5.0f, 5.0f, 0.0f}});
+    world.emplace<engine::render::Sprite>(entity, engine::render::Sprite{
+            .pixel_size = {32.0f, 32.0f},
+            .pixels_per_unit = 16.0f, // world size = 2.0 x 2.0
+            .pivot = {0.5f, 0.0f},   // bottom center: shift Y by (0.5 - 0.0) * 2.0 = +1.0
+            .mesh = mesh,
+            .material = mat,
+    });
+
+    engine::render::CommandBuffer commands;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    world.run(engine::ecs::Schedule::Frame);
+
+    ASSERT_EQ(commands.size(), 1u);
+    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[0]);
+    ASSERT_NE(cmd, nullptr);
+    EXPECT_FLOAT_EQ(cmd->model[3][0], 5.0f);
+    EXPECT_FLOAT_EQ(cmd->model[3][1], 6.0f); // 5.0 + 1.0 = 6.0
+}
+
+}
+

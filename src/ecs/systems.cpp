@@ -315,6 +315,12 @@ void run_render(ecs::World& world, const EngineSystemDeps& deps) {
         }
         const Transform& transform = world.get<Transform>(entity);
         glm::mat4 model = model_matrix(transform);
+        if (s.pixel_size.x > 0.0f && s.pixel_size.y > 0.0f && s.pixels_per_unit > 0.0f) {
+            const glm::vec2 world_size = s.pixel_size / s.pixels_per_unit;
+            const glm::vec3 pivot_offset{(0.5f - s.pivot.x) * world_size.x, (0.5f - s.pivot.y) * world_size.y, 0.0f};
+            model = glm::translate(model, pivot_offset);
+            model = glm::scale(model, glm::vec3{world_size.x, world_size.y, 1.0f});
+        }
         if (s.flip_x || s.flip_y) {
             model = glm::scale(model, glm::vec3{s.flip_x ? -1.0f : 1.0f, s.flip_y ? -1.0f : 1.0f, 1.0f});
         }
