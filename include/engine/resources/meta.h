@@ -4,6 +4,7 @@
 
 #include <expected>
 #include <filesystem>
+#include <glm/vec2.hpp>
 #include <span>
 #include <string>
 #include <string_view>
@@ -59,11 +60,32 @@ enum class AudioBank {
     Music,
 };
 
+struct SpriteRect {
+    int x = 0;
+    int y = 0;
+    int w = 0;
+    int h = 0;
+
+    constexpr auto operator<=>(const SpriteRect&) const noexcept = default;
+    constexpr bool operator==(const SpriteRect&) const noexcept = default;
+};
+
+struct SpriteMeta {
+    std::string name;
+    SpriteRect rect{};
+    glm::vec2 pivot{0.5f, 0.5f};
+    std::optional<float> pixels_per_unit{};
+
+    bool operator==(const SpriteMeta&) const noexcept = default;
+};
+
 struct TextureImportSettings {
     ColorSpace color_space = ColorSpace::Srgb;
     FilterMode filter = FilterMode::Linear;
     WrapMode wrap = WrapMode::Clamp;
     TextureLayout layout = TextureLayout::Single;
+    float pixels_per_unit = 100.0f;
+    std::vector<SpriteMeta> sprites{};
 };
 
 struct AudioImportSettings {

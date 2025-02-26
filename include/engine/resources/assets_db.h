@@ -1,5 +1,6 @@
 #pragma once
 
+#include <engine/render/sprite.h>
 #include <engine/resources/asset_id.h>
 #include <engine/resources/fatal_error.h>
 #include <engine/resources/meta.h>
@@ -59,6 +60,9 @@ public:
 
     template<typename T>
     [[nodiscard]] std::shared_ptr<T> get(AssetId id);
+
+    [[nodiscard]] std::expected<render::Sprite, AssetError> try_get_sprite(AssetId id, std::string_view name = "");
+    [[nodiscard]] render::Sprite get_sprite(AssetId id, std::string_view name = "");
 
 private:
     struct CacheKey {
