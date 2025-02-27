@@ -10,14 +10,44 @@
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
 
+#include <cstdint>
 #include <functional>
+#include <span>
 #include <string_view>
 
+namespace engine::ui::math {
+class MathFont;
+}
+
 namespace engine::ui {
+
+// One segment of a filled path. A `Move` starts a new contour (the previous one closes implicitly, like a
+// glyph outline); `Quad` curves through control point `c1`, `Cubic` through `c1` and `c2`. All coordinates
+// are real pixels.
+struct PathSegment {
+    enum class Kind : std::uint8_t {
+        Move,
+        Line,
+        Quad,
+        Cubic,
+    };
+
+    Kind kind = Kind::Move;
+    glm::vec2 p{};
+    glm::vec2 c1{};
+    glm::vec2 c2{};
+};
 
 class IUiPainter {
 public:
     virtual ~IUiPainter() = default;
+
+    // The OpenType MATH font `<Math>` formulas are laid out and drawn with, or nullptr until the painter has been
+    // given one (layout then falls back to a rough size, like text measured without a painter). Layout reads
+    // glyph metrics from it directly, so formula sizes do not depend on a GPU.
+    [[nodiscard]] virtual const math::MathFont* math_font() const {
+        return nullptr;
+    }
 
     virtual void save() = 0;
     virtual void restore() = 0;
@@ -38,6 +68,11 @@ public:
     // See IDrawList::arc (draw_list.h) for the angle convention (radians, 0 = 12 o'clock, clockwise).
     virtual void stroke_arc(
             glm::vec2 center, float radius, float start_angle, float end_angle, float width, glm::vec4 color) = 0;
+    // Fills `path` in one go. A contour wound the same way as the path's largest contour is solid; one wound
+    // the opposite way is a hole cut out of what it sits in (how font outlines encode counters like the inside
+    // of an `o`), whatever the font's own outer-contour direction is. Overlapping solid contours of one path
+    // union, which is why every glyph of a formula can share a single path.
+    virtual void fill_path(std::span<const PathSegment> path, glm::vec4 color) = 0;
     virtual void set_font(AssetId font, float size) = 0;
     virtual void fill_text(std::string_view text, glm::vec2 position, glm::vec4 color, UiAlign horizontal,
             UiAlign vertical) = 0;
@@ -59,6 +94,11 @@ struct UiPaintInput {
     glm::vec2 ui_offset{0.0f, 0.0f};  // canvas_rect-space -> real-pixel offset (identity for FillWindow/Fixed)
     float ui_scale = 1.0f;           // canvas_rect-space -> real-pixel scale
 };
+
+// Identity of the math font `painter` (possibly null) would lay formulas out with, for the layout dirty-gate.
+[[nodiscard]] inline const void* math_font_identity(const IUiPainter* painter) noexcept {
+    return painter != nullptr ? static_cast<const void*>(painter->math_font()) : nullptr;
+}
 
 void apply_layout_style(
         Element& root, const Stylesheet* sheet, float window_width = 0.0f, float window_height = 0.0f);
