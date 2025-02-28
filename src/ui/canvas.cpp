@@ -239,7 +239,8 @@ std::optional<PreparedCanvas> prepare_top_canvas(
                 document.last_canvas_layout_rect != space.layout_rect || document.last_media_width != media_width ||
                 document.last_media_height != media_height || document.last_layout_sheet != sheet ||
                 document.last_layout_sheet_generation != sheet_generation ||
-                document.last_layout_painter != static_cast<const void*>(layout_painter);
+                document.last_layout_painter != static_cast<const void*>(layout_painter) ||
+                document.last_layout_math_font != math_font_identity(layout_painter);
         if (layout_dirty) {
             apply_layout_style(document.root, sheet, media_width, media_height);
             layout(document, space.layout_rect, layout_painter);
@@ -250,6 +251,7 @@ std::optional<PreparedCanvas> prepare_top_canvas(
             document.last_layout_sheet = sheet;
             document.last_layout_sheet_generation = sheet_generation;
             document.last_layout_painter = layout_painter;
+            document.last_layout_math_font = math_font_identity(layout_painter);
         }
         if (batch != nullptr) {
             batch->mark(entity);
