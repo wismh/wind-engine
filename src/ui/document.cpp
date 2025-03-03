@@ -1,6 +1,7 @@
 #include <engine/ui/document.h>
 
 #include "painter.h"
+#include "math/math_element.h"
 
 #include <engine/ui/canvas.h>  // rect_contains
 
@@ -132,6 +133,19 @@ struct ResolvedBox {
     return fallback_measure_text(element.text, font_size);
 }
 
+// A Math element's formula size. Needs the painter's math font (glyph metrics, no GPU); without one — the
+// painter-less layout used by tests, or a window whose font has not been registered yet — it is a rough
+// text-like size, and the layout dirty-gate (UiDocument::last_layout_math_font) relays out once the font arrives.
+[[nodiscard]] glm::vec2 measure_math(const Element& element, IUiPainter* painter, float font_size) {
+    if (painter != nullptr) {
+        if (const math::MathFont* font = painter->math_font()) {
+            const math::MathLayout& layout = math::element_layout(element, *font, font_size);
+            return {layout.width, layout.height()};
+        }
+    }
+    return fallback_measure_text(element.text, font_size);
+}
+
 [[nodiscard]] float clamp_axis(std::optional<float> specified, std::optional<float> min_size, float hug) {
     float value = specified.value_or(hug);
     if (min_size) {
@@ -176,6 +190,13 @@ void collect_layout_children(ElementT& element, std::vector<Out*>& children) {
         return {
                 box.padding.left + text_w + box.padding.right,
                 box.padding.top + text_h + box.padding.bottom,
+        };
+    }
+    if (element.kind == ElementKind::Math) {
+        const glm::vec2 formula = measure_math(element, painter, box.font_size);
+        return {
+                box.padding.left + formula.x + box.padding.right,
+                box.padding.top + formula.y + box.padding.bottom,
         };
     }
     if (element.kind == ElementKind::Image) {

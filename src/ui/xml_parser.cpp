@@ -95,6 +95,9 @@ std::optional<ElementKind> kind_from_tag(const char* name) {
     if (tag == "Checkbox") {
         return ElementKind::Checkbox;
     }
+    if (tag == "Math") {
+        return ElementKind::Math;
+    }
     return std::nullopt;
 }
 
@@ -401,6 +404,16 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
             !result) {
         return std::unexpected(result.error());
     }
+    if (element.kind == ElementKind::Math) {
+        // The formula source rides the same text/binding plumbing as a Label's text, so the layout dirty-gate
+        // that already compares `text` covers it.
+        if (auto result = assign_property_binding(element.text_binding, element.text, xml->Attribute("formula"), fatal,
+                    vm, in_template);
+                !result) {
+            return std::unexpected(result.error());
+        }
+        assign_bool_attribute(element.math_display, xml->Attribute("display"));
+    }
     if (auto result = assign_command_binding(element, xml->Attribute("command"), fatal, vm, in_template); !result) {
         return std::unexpected(result.error());
     }
@@ -588,6 +601,7 @@ void collect_bind_element(const tinyxml2::XMLElement* xml, BindBinder& binder, c
         std::vector<std::string>& include_stack) {
     add_bind_attr(binder, xml->Attribute("text"), false);
     add_bind_attr(binder, xml->Attribute("content"), false);
+    add_bind_attr(binder, xml->Attribute("formula"), false);
     add_bind_attr(binder, xml->Attribute("command"), true);
     add_bind_attr(binder, xml->Attribute("drag"), false);
     add_bind_attr(binder, xml->Attribute("checked"), false);
