@@ -52,6 +52,9 @@ std::optional<ImporterKind> parse_importer(std::string_view value) {
     if (value == "css") {
         return ImporterKind::Css;
     }
+    if (value == "animation") {
+        return ImporterKind::Animation;
+    }
     return std::nullopt;
 }
 
@@ -408,6 +411,8 @@ std::string_view to_string(ImporterKind kind) noexcept {
             return "ui";
         case ImporterKind::Css:
             return "css";
+        case ImporterKind::Animation:
+            return "animation";
     }
     return "texture";
 }

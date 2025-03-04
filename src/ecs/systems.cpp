@@ -11,6 +11,7 @@
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/transform.h>
 #include <engine/builtin_ids.h>
+#include <engine/render/animation.h>
 #include <engine/render/command_buffer.h>
 #include <engine/render/renderable.h>
 #include <engine/render/sprite.h>
@@ -430,12 +431,56 @@ void run_ui_render(ecs::World& world, const EngineSystemDeps& deps) {
 
 }
 
+void run_sprite_animations(ecs::World& world) {
+    const float dt = world.ctx<Time>().delta_time;
+    auto view = world.view<render::SpriteAnimator, render::Sprite>();
+    for (ecs::Entity entity : view) {
+        auto& anim = view.get<render::SpriteAnimator>(entity);
+        auto& sprite = view.get<render::Sprite>(entity);
+
+        if (!anim.playing || !anim.clip || anim.clip->frames.empty() || anim.speed <= 0.0f) {
+            continue;
+        }
+
+        const auto& frames = anim.clip->frames;
+        if (anim.current_frame >= frames.size()) {
+            anim.current_frame = 0;
+            anim.elapsed = 0.0f;
+        }
+
+        anim.elapsed += dt * anim.speed;
+
+        while (anim.elapsed >= frames[anim.current_frame].duration) {
+            anim.elapsed -= frames[anim.current_frame].duration;
+            anim.current_frame++;
+            if (anim.current_frame >= frames.size()) {
+                if (anim.clip->loop) {
+                    anim.current_frame = 0;
+                } else {
+                    anim.current_frame = frames.size() - 1;
+                    anim.playing = false;
+                    break;
+                }
+            }
+        }
+
+        const auto& current_frame = frames[anim.current_frame];
+        sprite.texture = current_frame.sprite.texture;
+        sprite.tiling = current_frame.sprite.tiling;
+        sprite.offset = current_frame.sprite.offset;
+        sprite.pixel_size = current_frame.sprite.pixel_size;
+        sprite.pixels_per_unit = current_frame.sprite.pixels_per_unit;
+        sprite.pivot = current_frame.sprite.pivot;
+    }
+}
+
 void register_engine_systems(ecs::World& world, EngineSystemDeps deps) {
     world.ctx<EngineSystemsRegistered>().value = true;
 
     world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics, [](ecs::World& w) { run_physics(w); });
     world.add_system(ecs::Schedule::Frame, ecs::Phase::Input, [](ecs::World& w) { run_input(w); });
     world.add_system(ecs::Schedule::Frame, ecs::Phase::Input, [](ecs::World& w) { run_splash_timers(w); });
+    world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World& w) { run_sprite_animations(w); });
     world.add_system(ecs::Schedule::Frame, ecs::Phase::Bind, [deps](ecs::World& w) { run_bind(w, deps); });
     world.add_system(ecs::Schedule::Frame, ecs::Phase::Audio, [deps](ecs::World& w) { run_audio(w, deps); });
     world.add_system(ecs::Schedule::Frame, ecs::Phase::Render, [deps](ecs::World& w) { run_render(w, deps); });
