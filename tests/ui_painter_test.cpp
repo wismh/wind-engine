@@ -1321,7 +1321,7 @@ TEST(UiPainter, LabelsHugDifferentTextWidths) {
 TEST(UiPainter, WidthClampsUsedSize) {
     auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="title" text="HelloWorld!"/></Canvas>)");
     ASSERT_TRUE(parsed.has_value());
-    const engine::ui::Stylesheet sheet = must_parse_css(".title { width: 80; background: #ffffff; }");
+    const engine::ui::Stylesheet sheet = must_parse_css(".title { width: 80; white-space: nowrap; background: #ffffff; }");
     FakePainter painter;
     engine::ui::paint_document(*parsed, &sheet, painter,
             engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
@@ -1757,6 +1757,165 @@ TEST(UiPainter, MediaMinWidthAppliesAfterResize) {
     const PaintCall* fill = find_fill_at(wide, title->layout_rect);
     ASSERT_NE(fill, nullptr);
     EXPECT_FLOAT_EQ(fill->rect.w, 200.0f);
+}
+
+namespace {
+
+// FakePainter measures `chars * size * 0.5` wide, so a 10-char label at font-size 10 hugs 50 wide.
+float laid_out_label_width(const char* css) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="t" text="HelloWorld"/></Canvas>)");
+    EXPECT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(css);
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 400.f, 200.f}});
+    const engine::ui::Element* label = find_class(parsed->root, "t");
+    EXPECT_NE(label, nullptr);
+    return label != nullptr ? label->layout_rect.w : -1.0f;
+}
+
+}  // namespace
+
+TEST(UiPainter, MaxWidthCapsHugWidth) {
+    EXPECT_FLOAT_EQ(laid_out_label_width(".t { font-size: 10; }"), 50.0f);
+    EXPECT_FLOAT_EQ(laid_out_label_width(".t { font-size: 10; max-width: 30; }"), 30.0f);
+    EXPECT_FLOAT_EQ(laid_out_label_width(".t { font-size: 10; max-width: 80; }"), 50.0f);
+}
+
+TEST(UiPainter, MaxWidthCapsExplicitWidthAndMinWidthWinsOverMax) {
+    EXPECT_FLOAT_EQ(laid_out_label_width(".t { font-size: 10; width: 100; max-width: 30; }"), 30.0f);
+    EXPECT_FLOAT_EQ(laid_out_label_width(".t { font-size: 10; max-width: 30; min-width: 40; }"), 40.0f);
+}
+
+TEST(UiPainter, WhiteSpaceDefaultsToNormalAndParsesNowrap) {
+    const auto white_space_of = [](const char* css) {
+        auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="t" text="Hi"/></Canvas>)");
+        EXPECT_TRUE(parsed.has_value());
+        const engine::ui::Stylesheet sheet = must_parse_css(css);
+        FakePainter painter;
+        engine::ui::paint_document(*parsed, &sheet, painter,
+                engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 400.f, 200.f}});
+        const engine::ui::Element* label = find_class(parsed->root, "t");
+        EXPECT_NE(label, nullptr);
+        return label != nullptr ? label->white_space : engine::ui::WhiteSpace::NoWrap;
+    };
+    EXPECT_EQ(white_space_of(".t { color: #ffffff; }"), engine::ui::WhiteSpace::Normal);
+    EXPECT_EQ(white_space_of(".t { white-space: normal; }"), engine::ui::WhiteSpace::Normal);
+    EXPECT_EQ(white_space_of(".t { white-space: nowrap; }"), engine::ui::WhiteSpace::NoWrap);
+    EXPECT_EQ(white_space_of(".t { white-space: nowrap; } .t { white-space: normal; }"),
+            engine::ui::WhiteSpace::Normal);
+}
+
+namespace {
+
+// Paints `xml` with `css` on a 400x400 canvas and returns every fill_text call, in order. Fonts in these tests are
+// 10px, so FakePainter makes a character 5px wide: "hello world" (55) wraps into "hello" / "world" below that.
+std::vector<PaintCall> painted_texts(std::string_view xml, std::string_view css, float ui_scale = 1.0f) {
+    auto parsed = engine::ui::parse_xml(xml);
+    EXPECT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(css);
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 400.f, 400.f}, .ui_scale = ui_scale});
+    std::vector<PaintCall> texts;
+    for (const PaintCall& call : painter.calls) {
+        if (call.op == "text") {
+            texts.push_back(call);
+        }
+    }
+    return texts;
+}
+
+constexpr std::string_view kWrappedLabelXml =
+        R"(<Canvas><Stack class="box"><Label class="t" text="hello world"/></Stack></Canvas>)";
+
+}  // namespace
+
+TEST(UiPainter, WrappedLabelPaintsOneTextCallPerRow) {
+    const auto texts = painted_texts(kWrappedLabelXml, ".box { width: 50; } .t { font-size: 10; }");
+    ASSERT_EQ(texts.size(), 2u);
+    EXPECT_EQ(texts[0].text, "hello");
+    EXPECT_EQ(texts[1].text, "world");
+    EXPECT_FLOAT_EQ(texts[0].position.x, texts[1].position.x);
+    EXPECT_FLOAT_EQ(texts[1].position.y - texts[0].position.y, 10.0f);
+    EXPECT_EQ(texts[0].vertical, engine::ui::UiAlign::Start);
+    EXPECT_EQ(texts[1].vertical, engine::ui::UiAlign::Start);
+}
+
+TEST(UiPainter, NowrapLabelPaintsOneTextCall) {
+    const auto texts =
+            painted_texts(kWrappedLabelXml, ".box { width: 50; } .t { font-size: 10; white-space: nowrap; }");
+    ASSERT_EQ(texts.size(), 1u);
+    EXPECT_EQ(texts[0].text, "hello world");
+}
+
+TEST(UiPainter, LabelThatFitsStillPaintsAsOneCallWithItsAlignItems) {
+    const auto texts = painted_texts(kWrappedLabelXml,
+            ".box { width: 100; } .t { font-size: 10; width: 100; height: 40; align-items: center; }");
+    ASSERT_EQ(texts.size(), 1u);
+    EXPECT_EQ(texts[0].text, "hello world");
+    EXPECT_FLOAT_EQ(texts[0].position.y, 20.0f);
+    EXPECT_EQ(texts[0].vertical, engine::ui::UiAlign::Center);
+}
+
+TEST(UiPainter, WrappedLabelBlockIsCenteredVerticallyByAlignItems) {
+    const auto texts = painted_texts(
+            kWrappedLabelXml, ".t { font-size: 10; width: 50; height: 100; align-items: center; }");
+    ASSERT_EQ(texts.size(), 2u);
+    // Two rows of 10 in a 100-tall content box start at (100 - 20) / 2.
+    EXPECT_FLOAT_EQ(texts[0].position.y, 40.0f);
+    EXPECT_FLOAT_EQ(texts[1].position.y, 50.0f);
+}
+
+TEST(UiPainter, WrappedLabelBlockSitsAtTheBottomForAlignItemsEnd) {
+    const auto texts =
+            painted_texts(kWrappedLabelXml, ".t { font-size: 10; width: 50; height: 100; align-items: end; }");
+    ASSERT_EQ(texts.size(), 2u);
+    EXPECT_FLOAT_EQ(texts[0].position.y, 80.0f);
+    EXPECT_FLOAT_EQ(texts[1].position.y, 90.0f);
+}
+
+TEST(UiPainter, WrappedLabelRowsFollowTextAlign) {
+    const auto texts = painted_texts(
+            kWrappedLabelXml, ".t { font-size: 10; width: 50; text-align: center; }");
+    ASSERT_EQ(texts.size(), 2u);
+    EXPECT_FLOAT_EQ(texts[0].position.x, 25.0f);
+    EXPECT_FLOAT_EQ(texts[1].position.x, 25.0f);
+    EXPECT_EQ(texts[0].horizontal, engine::ui::UiAlign::Center);
+}
+
+TEST(UiPainter, WrappedLabelPaddingInsetsTheRows) {
+    const auto texts = painted_texts(kWrappedLabelXml, ".t { font-size: 10; width: 60; padding: 5; }");
+    ASSERT_EQ(texts.size(), 2u);
+    EXPECT_FLOAT_EQ(texts[0].position.x, 5.0f);
+    EXPECT_FLOAT_EQ(texts[0].position.y, 5.0f);
+    EXPECT_FLOAT_EQ(texts[1].position.y, 15.0f);
+}
+
+TEST(UiPainter, WrappedLabelKeepsLayoutRowsWhenUiScaleChangesTheFont) {
+    const auto texts = painted_texts(kWrappedLabelXml, ".box { width: 50; } .t { font-size: 10; }", 2.0f);
+    ASSERT_EQ(texts.size(), 2u);
+    EXPECT_EQ(texts[0].text, "hello");
+    EXPECT_EQ(texts[1].text, "world");
+    EXPECT_FLOAT_EQ(texts[1].position.y - texts[0].position.y, 20.0f);
+}
+
+TEST(UiPainter, LabelNewlineStartsANewRow) {
+    const auto texts =
+            painted_texts(R"(<Canvas><Label class="t" text="ab&#10;&#10;cde"/></Canvas>)", ".t { font-size: 10; }");
+    // The blank row between them is a row with nothing to draw.
+    ASSERT_EQ(texts.size(), 2u);
+    EXPECT_EQ(texts[0].text, "ab");
+    EXPECT_EQ(texts[1].text, "cde");
+    EXPECT_FLOAT_EQ(texts[1].position.y - texts[0].position.y, 20.0f);
+}
+
+TEST(UiPainter, WrappedButtonPaintsRows) {
+    const auto texts = painted_texts(R"(<Canvas><Button class="t" content="hello world"/></Canvas>)",
+            ".t { font-size: 10; width: 50; }");
+    ASSERT_EQ(texts.size(), 2u);
+    EXPECT_EQ(texts[0].text, "hello");
+    EXPECT_EQ(texts[1].text, "world");
 }
 
 TEST(UiPainter, ScaleWithScreenSizeTransformsRectAndFontSize) {
