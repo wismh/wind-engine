@@ -168,6 +168,7 @@ struct Element {
     BindingId source_binding{};
     BindingId items_source_binding{};
     std::optional<AssetId> source;
+    std::optional<LengthInsets> slice;
 
     StackDirection direction = StackDirection::Vertical;
     Length gap{};
