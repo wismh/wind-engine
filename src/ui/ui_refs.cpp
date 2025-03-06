@@ -20,6 +20,10 @@ void collect_element_images(const Element& element, std::set<AssetId>& out) {
 }
 
 void collect_element_fonts(const Element& element, std::set<AssetId>& out) {
+    // A formula is always set in the builtin math font, whatever `font-family` says.
+    if (element.kind == ElementKind::Math) {
+        out.insert(builtin::font_math);
+    }
     if (element.font_family != AssetId{} && element.font_family != builtin::font_ui) {
         out.insert(element.font_family);
     }
