@@ -653,4 +653,37 @@ glm::vec2 NanoVgPainter::measure_text(std::string_view text, AssetId font, float
     return {std::max(0.0f, bounds[2] - bounds[0]), std::max(0.0f, bounds[3] - bounds[1])};
 }
 
+ui::TextBlock NanoVgPainter::break_lines(std::string_view text, AssetId font, float size, float max_width) {
+    if (impl_->vg == nullptr) {
+        return IUiPainter::break_lines(text, font, size, max_width);
+    }
+    ui::TextBlock block;
+    nvgSave(impl_->vg);
+    set_font(font, size);
+    nvgTextAlign(impl_->vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
+    float ascender = 0.0f;
+    float descender = 0.0f;
+    nvgTextMetrics(impl_->vg, &ascender, &descender, &block.line_height);
+    // nvgTextBreakLines walks a char range; `z` owns it so the row pointers map back to byte offsets in `text`.
+    const std::string z(text);
+    const char* const begin = z.c_str();
+    const char* const end = begin + z.size();
+    constexpr int kRowsPerCall = 32;
+    NVGtextRow rows[kRowsPerCall];
+    const char* cursor = begin;
+    while (cursor < end) {
+        const int count = nvgTextBreakLines(impl_->vg, cursor, end, max_width, rows, kRowsPerCall);
+        if (count <= 0) {
+            break;
+        }
+        for (int i = 0; i < count; ++i) {
+            block.lines.push_back({static_cast<std::size_t>(rows[i].start - begin),
+                    static_cast<std::size_t>(rows[i].end - begin), rows[i].width});
+        }
+        cursor = rows[count - 1].next;
+    }
+    nvgRestore(impl_->vg);
+    return block;
+}
+
 }
