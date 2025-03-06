@@ -1,6 +1,7 @@
 #include <engine/ui/document.h>
 
 #include "ui/bind_scan.h"
+#include "ui/css_length.h"
 
 #include <tinyxml2.h>
 
@@ -203,6 +204,14 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
     }
     if (auto result = parse_source(element, xml->Attribute("source"), fatal, vm, in_template); !result) {
         return std::unexpected(result.error());
+    }
+    if (const char* slice_attr = xml->Attribute("slice")) {
+        const auto insets = css_length::parse_insets(slice_attr);
+        if (!insets) {
+            report(fatal, "UI element slice must be 1 to 4 lengths: " + std::string(slice_attr));
+            return std::unexpected(UiError::InvalidMarkup);
+        }
+        element.slice = *insets;
     }
     if (auto result = assign_property_binding(element.items_source_binding, element.text, xml->Attribute("items_source"),
                 fatal, vm, in_template);

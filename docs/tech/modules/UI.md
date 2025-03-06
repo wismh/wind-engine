@@ -50,7 +50,7 @@ XML + custom CSS + C++ MVVM. UI is an ECS component (`UiCanvas` + `UiInstance`),
   despawn on the same frame.
 - [[src.resources.codegen.cpp]] — for `importer = "ui"` XML, emits a binder struct (e.g. `assets::ui::Hud::bind(vm)`) with one `constexpr BindingId` per `{binding}` path; fails the build on an intern collision. `ViewModel` subclasses and `Bindable<T>` members stay hand-written.
 
-NanoVG implementation: [[src.render.opengl.nanovg_painter.cpp]] — `Image` and CSS `background-image` both paint via `IUiPainter::image(AssetId, Rect)`, backed by an `AssetId`-keyed NanoVG image map populated at Init from `ImporterKind::Texture`/`UiImage` catalog entries.
+NanoVG implementation: [[src.render.opengl.nanovg_painter.cpp]] — `Image` and CSS `background-image` paint via `IUiPainter::image(AssetId, Rect)` or `IUiPainter::image_nine_slice(AssetId, Rect, BoxInsets)` when `background-slice` or XML `<Image slice="...">` is specified, backed by an `AssetId`-keyed NanoVG image map populated at Init from `ImporterKind::Texture`/`UiImage` catalog entries.
 
 Font faces: builtin UI font plus every catalog `ImporterKind::Font` registered in Init ([[features/Init and Loop]]).
 

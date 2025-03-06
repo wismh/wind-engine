@@ -602,7 +602,7 @@ v1 elements:
 | `Stack` | flex-like box: `direction` horizontal/vertical, `gap`, `align` |
 | `Label` | text |
 | `Button` | hit-target; `command` binding |
-| `Image` | `source` = texture/ui_image AssetId or `{binding}` |
+| `Image` | `source` = texture/ui_image AssetId or `{binding}`; optional `slice` (1–4 lengths for 9-slice) |
 | `ItemsControl` | repeats `ItemTemplate` over `items_source` |
 
 ```xml
@@ -642,7 +642,7 @@ Not browser CSS. Engine parser in `src/` (no libcss). File + `.meta` `importer =
 
 **Properties (v1)** — ignore unknown with a **warn** (do not fail the whole sheet):
 
-`color`, `background`, `opacity`, `visibility`, `width`, `height`, `min-width`, `min-height`, `padding` (1–4), `margin` (1–4), `gap`, `flex-direction`, `align-items`, `justify-content`, `border-radius`, `border-width`, `border-color`, `font-size`, `font-family`, `animation-name`, `animation-duration`, `z-index`, `position`, `top`, `right`, `bottom`, `left`, `transform`.
+`color`, `background`, `background-image`, `background-slice` (1–4 lengths for 9-slice), `opacity`, `visibility`, `width`, `height`, `min-width`, `min-height`, `padding` (1–4), `margin` (1–4), `gap`, `flex-direction`, `align-items`, `justify-content`, `border-radius`, `border-width`, `border-color`, `font-size`, `font-family`, `animation-name`, `animation-duration`, `z-index`, `position`, `top`, `right`, `bottom`, `left`, `transform`.
 
 `justify-content` accepts `start` (default), `center`, `end`/`flex-end`, and `space-between` (first
 child flush to the stack's start, last flush to its end, leftover space split evenly across the

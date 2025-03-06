@@ -103,3 +103,25 @@ TEST(UiXml, OnClickAttributeIsNotAnApi) {
     EXPECT_EQ(button->command, nullptr);
 }
 
+TEST(UiXml, ImageWithSliceParses) {
+    const auto parsed = engine::ui::parse_xml(
+            R"(<Canvas><Image source="a0e1b2c3d4f5678901234567890abc05" slice="10 12 14 16"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Element* img = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Image);
+    ASSERT_NE(img, nullptr);
+    ASSERT_TRUE(img->slice.has_value());
+    EXPECT_FLOAT_EQ(img->slice->top.value, 10.f);
+    EXPECT_FLOAT_EQ(img->slice->right.value, 12.f);
+    EXPECT_FLOAT_EQ(img->slice->bottom.value, 14.f);
+    EXPECT_FLOAT_EQ(img->slice->left.value, 16.f);
+}
+
+TEST(UiXml, InvalidSliceIsFatal) {
+    RecordingFatalError fatal;
+    const auto parsed = engine::ui::parse_xml(
+            R"(<Canvas><Image source="a0e1b2c3d4f5678901234567890abc05" slice="bad-slice"/></Canvas>)", &fatal);
+    EXPECT_FALSE(parsed.has_value());
+    EXPECT_EQ(parsed.error(), engine::ui::UiError::InvalidMarkup);
+    EXPECT_GE(fatal.call_count, 1);
+}
+
