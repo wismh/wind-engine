@@ -37,6 +37,7 @@ bool is_known_property(std::string_view name) {
             "background",
             "opacity",
             "visibility",
+            "display",
             "width",
             "height",
             "min-width",
