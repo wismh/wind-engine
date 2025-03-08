@@ -1,6 +1,7 @@
 #include "painter.h"
 #include "css_length.h"
 #include "draw_list_adapter.h"
+#include "math/math_element.h"
 
 #include <engine/builtin_ids.h>
 #include <engine/ui/canvas.h>
@@ -66,6 +67,8 @@ const char* kind_name(ElementKind kind) {
             return "ScrollView";
         case ElementKind::Checkbox:
             return "Checkbox";
+        case ElementKind::Math:
+            return "Math";
     }
     return "";
 }
@@ -1192,6 +1195,19 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
         element.paint->paint(list, content_local);
     }
 
+    if (element.kind == ElementKind::Math) {
+        if (const math::MathFont* math_font = painter.math_font()) {
+            const render::Rect content{
+                    screen_rect.x + padding.left * input.ui_scale,
+                    screen_rect.y + padding.top * input.ui_scale,
+                    std::max(0.0f, screen_rect.w - (padding.left + padding.right) * input.ui_scale),
+                    std::max(0.0f, screen_rect.h - (padding.top + padding.bottom) * input.ui_scale),
+            };
+            math::paint_element(painter, *math_font, element, font_size, content, input.ui_scale, style.text_align,
+                    style.align_items, style.color);
+        }
+    }
+
     if (element.kind == ElementKind::Label || element.kind == ElementKind::Button ||
             element.kind == ElementKind::TextInput) {
         painter.set_font(style.font_family, font_size * input.ui_scale);
@@ -1343,7 +1359,8 @@ void paint_document(UiDocument& document, const Stylesheet* stylesheet, IUiPaint
             document.last_canvas_layout_rect != input.canvas_rect || document.last_media_width != input.window_width ||
             document.last_media_height != input.window_height || document.last_layout_sheet != stylesheet ||
             document.last_layout_sheet_generation != sheet_generation ||
-            document.last_layout_painter != static_cast<const void*>(&painter);
+            document.last_layout_painter != static_cast<const void*>(&painter) ||
+            document.last_layout_math_font != math_font_identity(&painter);
     if (layout_dirty) {
         apply_layout_style(document.root, stylesheet, input.window_width, input.window_height);
         layout(document, input.canvas_rect, &painter);
@@ -1353,6 +1370,7 @@ void paint_document(UiDocument& document, const Stylesheet* stylesheet, IUiPaint
         document.last_media_height = input.window_height;
         document.last_layout_sheet = stylesheet;
         document.last_layout_painter = &painter;
+        document.last_layout_math_font = math_font_identity(&painter);
         document.last_layout_sheet_generation = sheet_generation;
     }
     apply_interaction(document.root, input.pointer, input.pointer_down);
