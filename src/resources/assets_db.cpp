@@ -4,6 +4,7 @@
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
 #include <engine/resources/assets_db.h>
+#include <engine/loc/catalog.h>
 #include <engine/resources/font.h>
 #include <engine/resources/sprite_sheet.h>
 #include <engine/ui/document.h>
@@ -63,6 +64,9 @@ std::optional<ImporterKind> importer_for_type(const std::type_info& type) {
     }
     if (type == typeid(Sound)) {
         return ImporterKind::Audio;
+    }
+    if (type == typeid(loc::StringTable)) {
+        return ImporterKind::Strings;
     }
     return std::nullopt;
 }
@@ -200,6 +204,18 @@ std::expected<std::shared_ptr<void>, AssetError> load_cpu(
         auto font = std::make_shared<Font>();
         font->bytes.assign(bytes->begin(), bytes->end());
         return std::static_pointer_cast<void>(std::move(font));
+    }
+
+    if (type == typeid(loc::StringTable)) {
+        const auto bytes = read_all(path);
+        if (!bytes) {
+            return std::unexpected(AssetError::Corrupt);
+        }
+        auto parsed = loc::parse_string_table(*bytes);
+        if (!parsed) {
+            return std::unexpected(AssetError::Corrupt);
+        }
+        return std::static_pointer_cast<void>(std::make_shared<loc::StringTable>(std::move(*parsed)));
     }
 
     if (type == typeid(render::TextureDesc)) {
