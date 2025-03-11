@@ -64,6 +64,8 @@ public:
     [[nodiscard]] Element take() &&;
 
 private:
+    void assign_label(std::string_view value, bool allow_tr);
+
     friend Node canvas();
     friend Node stack();
     friend Node label();
@@ -84,6 +86,9 @@ private:
 
     Element element_{};
     std::optional<AssetId> stylesheet_;
+    // Set when `text` / `content` / `formula` is a malformed `{tr}`, or `formula` is a `{tr}` key.
+    // `add` bubbles the first error to the parent so `make_document` can reject the tree.
+    std::string error_;
 };
 
 [[nodiscard]] Node canvas();

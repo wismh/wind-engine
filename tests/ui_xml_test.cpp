@@ -431,3 +431,32 @@ TEST(UiXml, ScanBindTreeResolvesCustomPropertyAttribute) {
     EXPECT_FALSE(binder->members[0].is_command);
 }
 
+TEST(UiXml, TrAttributeStoresKeyAndBindingArg) {
+    const auto parsed = engine::ui::parse_xml(
+            R"(<Canvas><Label text="{tr hud.apples count={binding score}}"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Element& label = parsed->root.children[0];
+    EXPECT_EQ(label.tr_key, "hud.apples");
+    ASSERT_EQ(label.tr_args.size(), 1u);
+    EXPECT_EQ(label.tr_args[0].name, "count");
+    EXPECT_EQ(label.tr_args[0].binding, engine::ui::intern("score"));
+    EXPECT_FALSE(engine::ui::is_bound(label.text_binding));
+    EXPECT_TRUE(label.text.empty());
+}
+
+TEST(UiXml, TrAttributeRejectsMissingKey) {
+    RecordingFatalError fatal;
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Label text="{tr}"/></Canvas>)", &fatal);
+    ASSERT_FALSE(parsed.has_value());
+    EXPECT_EQ(parsed.error(), engine::ui::UiError::InvalidMarkup);
+    EXPECT_GE(fatal.call_count, 1);
+}
+
+TEST(UiXml, FormulaRejectsTr) {
+    RecordingFatalError fatal;
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Math formula="{tr menu.play}"/></Canvas>)", &fatal);
+    ASSERT_FALSE(parsed.has_value());
+    EXPECT_EQ(parsed.error(), engine::ui::UiError::InvalidMarkup);
+    EXPECT_NE(fatal.last_message.find("formula"), std::string::npos);
+}
+

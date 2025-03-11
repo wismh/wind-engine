@@ -75,6 +75,9 @@ std::optional<ImporterKind> importer_from_extension(const std::filesystem::path&
     if (ext == ".anim") {
         return ImporterKind::Animation;
     }
+    if (ext == ".strings") {
+        return ImporterKind::Strings;
+    }
     return std::nullopt;
 }
 

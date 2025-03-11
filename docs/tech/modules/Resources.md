@@ -13,6 +13,7 @@ GUID catalog, TOML `.meta`, `AssetsDb`, codegen. Games never load by filename.
 - Runtime loads the cooked catalog. `get<T>` is fatal via `IFatalError`; `try_get<T>` returns `AssetError` ([[include.engine.resources.assets_db.h]]).
 - Sprite sheets: `.meta` `layout = "single"` or `"multiple"` with `[[sprites]]`. `get_sprite(id, name)` / `try_get_sprite` resolve a named rect on the atlas (`SpriteSheet::get`); a single-layout texture also works as a one-sprite sheet ([[include.engine.resources.sprite_sheet.h]]).
 - `ASSETS_PATH` is the executable directory, not cwd.
+- String tables: `.strings` (TOML) with `importer = "strings"`. `get<loc::StringTable>`. Exactly one table in a tree has `source = true`; codegen checks every UI `{tr}` key against it ([[modules/Localization]]).
 
 ## Public headers
 
