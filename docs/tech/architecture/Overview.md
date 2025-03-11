@@ -55,6 +55,7 @@ Windowed host: [[include.engine.core.engine.h|Engine&lt;GameT&gt;]] in [[include
 | [[modules/Resources]] | `.meta`, catalog, codegen, `get`                         | Painting pixels                  |
 | [[modules/Render]]    | Materials, commands, sort, OpenGL/NanoVG backends        | Asset GUIDs, UI bind names       |
 | [[modules/UI]]        | XML + C++ builder, CSS, layout, hit-test, MVVM           | World sprites                    |
+| [[modules/Localization]] | String tables, `{tr}`, plural messages                | Which locale the player picked   |
 | [[modules/Audio]]     | SFX pool, music A/B, looping handles                     | File GUIDs (those are Resources) |
 
 How they connect: [[architecture/Module Map]]. What stays out of public headers: [[architecture/Boundaries]]. Product rules: [[architecture/Principles]], [[architecture/Scope]].
