@@ -19,6 +19,29 @@
 #include <vector>
 
 namespace engine::ui {
+
+// -1 keys `line-height: normal` (the font metric stays on the block). Any other value is the explicit
+// stride in design px. Parsed explicit values are > 0, so they do not collide with this sentinel.
+constexpr float kLineHeightNormalKey = -1.0f;
+
+[[nodiscard]] static float line_height_cache_key(const Element& element, float font_size) {
+    if (element.line_height.kind == LineHeightKind::Normal) {
+        return kLineHeightNormalKey;
+    }
+    return resolve_line_height(element.line_height, font_size, 0.0f);
+}
+
+// Replaces the font metric on `block` when `line-height` is set. Normal leaves the metric in place.
+static void apply_used_line_height(const Element& element, float font_size, TextBlock& block) {
+    if (element.line_height.kind == LineHeightKind::Normal) {
+        return;
+    }
+    const float used = resolve_line_height(element.line_height, font_size, block.line_height);
+    if (used > 0.0f) {
+        block.line_height = used;
+    }
+}
+
 namespace {
 
 constexpr float kDefaultImageSize = 32.0f;
@@ -165,8 +188,9 @@ struct ResolvedBox {
 
 // Label/Button text size when it may wrap (`white-space: normal`) at `wrap_width` (kUnboundedWidth = never by
 // width). Text that fits on one line and has no newline takes the single-line path above, so unwrapped labels cost
-// what they always did. Otherwise the rows come from IUiPainter::break_lines, memoized on `element` per width; the
-// painter-less layout breaks with the same rules over the rough per-character width.
+// what they always did. Otherwise the rows come from IUiPainter::break_lines, memoized on `element` per width and
+// per resolved line-height; an explicit `line-height` replaces the font's row stride. The painter-less layout
+// breaks with the same rules over the rough per-character width and uses font-size as that stride when normal.
 [[nodiscard]] glm::vec2 measure_element_text(
         const Element& element, IUiPainter* painter, float font_size, float wrap_width) {
     const glm::vec2 single = measure_element_text(element, painter, font_size);
@@ -176,6 +200,7 @@ struct ResolvedBox {
     if (single.x <= wrap_width && element.text.find('\n') == std::string::npos) {
         return single;
     }
+    const float stride_key = line_height_cache_key(element, font_size);
     const auto size_of = [](const TextBlock& block, glm::vec2 fallback) {
         if (block.lines.empty()) {
             return fallback;
@@ -191,18 +216,23 @@ struct ResolvedBox {
         block.line_height = font_size;
         block.lines = break_text_lines(element.text, wrap_width,
                 [font_size](std::string_view slice) { return fallback_measure_text(slice, font_size).x; });
+        apply_used_line_height(element, font_size, block);
         return size_of(block, single);
     }
     if (element.text_wrap_cache_valid && element.text_wrap_cache_width == wrap_width &&
             element.text_wrap_cache_font_size == font_size &&
-            element.text_wrap_cache_font_family == element.font_family && element.text_wrap_cache_text == element.text) {
+            element.text_wrap_cache_line_height == stride_key &&
+            element.text_wrap_cache_font_family == element.font_family &&
+            element.text_wrap_cache_text == element.text) {
         return element.text_wrap_cache_result;
     }
     TextBlock block = painter->break_lines(element.text, element.font_family, font_size, wrap_width);
+    apply_used_line_height(element, font_size, block);
     const glm::vec2 result = size_of(block, single);
     element.text_wrap_cache_text = element.text;
     element.text_wrap_cache_font_family = element.font_family;
     element.text_wrap_cache_font_size = font_size;
+    element.text_wrap_cache_line_height = stride_key;
     element.text_wrap_cache_width = wrap_width;
     element.text_wrap_cache_block = std::move(block);
     element.text_wrap_cache_result = result;
@@ -1078,6 +1108,7 @@ const TextBlock* wrapped_text_rows(
     constexpr float kEpsilon = 0.01f;
     const auto cache_matches_text = [&] {
         return element.text_wrap_cache_valid && element.text_wrap_cache_font_size == font_size &&
+                element.text_wrap_cache_line_height == line_height_cache_key(element, font_size) &&
                 element.text_wrap_cache_font_family == element.font_family &&
                 element.text_wrap_cache_text == element.text;
     };

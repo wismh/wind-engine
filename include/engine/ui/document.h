@@ -146,6 +146,21 @@ struct LengthInsets {
     Length left{};
 };
 
+// `line-height` for a Label/Button whose text breaks into rows. Normal keeps the font's own line
+// height. Factor is a unitless multiplier of the used font-size (a bare `1.5` is that multiplier).
+// Length is px, em, or %; em and % both resolve against this element's font-size.
+enum class LineHeightKind {
+    Normal,
+    Factor,
+    Length,
+};
+
+struct LineHeight {
+    LineHeightKind kind = LineHeightKind::Normal;
+    float factor = 0.0f;
+    Length length{};
+};
+
 constexpr float kDefaultFontSize = 16.0f;
 constexpr float kViewportMinZoom = 0.25f;
 constexpr float kViewportMaxZoom = 4.0f;
@@ -199,6 +214,20 @@ constexpr float kViewportZoomStep = 1.1f;
         return font_size.value * kDefaultFontSize;
     }
     return resolve_length(font_size, percent_basis, kDefaultFontSize);
+}
+
+// `metric` is the font's own line height, used when `line_height` is normal. A length's em and %
+// both resolve against `font_size` (a line-height percentage is of the font-size).
+[[nodiscard]] inline float resolve_line_height(const LineHeight& line_height, float font_size, float metric) noexcept {
+    switch (line_height.kind) {
+        case LineHeightKind::Normal:
+            return metric;
+        case LineHeightKind::Factor:
+            return line_height.factor * font_size;
+        case LineHeightKind::Length:
+            return resolve_length(line_height.length, font_size, font_size);
+    }
+    return metric;
 }
 
 // A `var-<name>="{binding path}"` XML attribute: resolved every frame in bind_element into
@@ -288,6 +317,7 @@ struct ComputedStyle {
     Length stroke_width{2.0f, LengthUnit::Px};
     glm::vec4 stroke{0.0f, 0.0f, 0.0f, 1.0f};
     Length font_size{kDefaultFontSize, LengthUnit::Px};
+    LineHeight line_height{};
     AssetId font_family = builtin::font_ui;
     std::string animation_name;
     float animation_duration = 0.0f;
@@ -442,6 +472,7 @@ struct Element {
     UiAlign text_align = UiAlign::Start;
     WhiteSpace white_space = WhiteSpace::Normal;
     Length font_size{kDefaultFontSize, LengthUnit::Px};
+    LineHeight line_height{};
     AssetId font_family{};
     float animation_elapsed = 0.0f;
     int z_index = 0;
@@ -513,11 +544,14 @@ struct Element {
     // Keyed separately from the single-line cache above because a hug pass and the final pass of one layout()
     // measure the same element at different widths; sharing one key would make every frame miss. Only filled for
     // text that actually needs breaking (wider than the width, or containing a newline); never by the painter-less
-    // fallback.
+    // fallback. `text_wrap_cache_line_height` is part of the key: -1 is `line-height: normal` (the font metric
+    // stays on `text_wrap_cache_block.line_height`); any other value is the explicit stride in design px that
+    // `text_wrap_cache_result.y` was measured with.
     mutable bool text_wrap_cache_valid = false;
     mutable std::string text_wrap_cache_text;
     mutable AssetId text_wrap_cache_font_family{};
     mutable float text_wrap_cache_font_size = 0.0f;
+    mutable float text_wrap_cache_line_height = -1.0f;
     mutable float text_wrap_cache_width = 0.0f;
     mutable TextBlock text_wrap_cache_block;
     mutable glm::vec2 text_wrap_cache_result{0.0f, 0.0f};
