@@ -72,6 +72,13 @@ struct Radical {
     std::optional<Row> index;
 };
 
+// `\vec x`: a combining mark (U+20D7 for `\vec`) centred over its base, at the base's MATH top-accent
+// attachment point when the base is a lone glyph and at the middle of the box otherwise.
+struct Accent {
+    char32_t mark = 0;
+    Row base;
+};
+
 // `base^sup_sub`. `base` is exactly one node (a Symbol, a Group, ...) — an empty Group for `^2` with
 // nothing before it. At least one of `subscript` / `superscript` is set.
 struct Scripts {
@@ -89,7 +96,7 @@ struct Delimited {
 };
 
 struct Node {
-    std::variant<Symbol, Text, OperatorName, Space, Group, Fraction, Radical, Scripts, Delimited> value;
+    std::variant<Symbol, Text, OperatorName, Space, Group, Fraction, Radical, Accent, Scripts, Delimited> value;
 };
 
 }

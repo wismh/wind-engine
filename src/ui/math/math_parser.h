@@ -44,7 +44,7 @@ struct ParseResult {
 };
 
 // Parses the supported TeX subset: letters/digits/operators, `{}` groups, `^` `_` and `'`, `\frac`,
-// `\sqrt[n]{}`, large operators with `\limits`/`\nolimits`, `\left...\right`, Greek letters, relation /
+// `\sqrt[n]{}`, `\vec`, large operators with `\limits`/`\nolimits`, `\left...\right`, Greek letters, relation /
 // binary / arrow symbols, `\text{}` / `\mathrm{}` / `\operatorname{}`, named functions (`\sin`, `\lim`,
 // ...), and spacing (`\,` `\:` `\;` `\!` `\quad` `\qquad`). `source` is UTF-8.
 [[nodiscard]] ParseResult parse_formula(std::string_view source);
@@ -61,6 +61,13 @@ struct CommandSymbol {
 };
 
 [[nodiscard]] std::span<const CommandSymbol> command_symbols();
+
+struct AccentCommand {
+    std::string_view name;  // without the backslash
+    char32_t mark;          // the combining mark drawn over the argument
+};
+
+[[nodiscard]] std::span<const AccentCommand> accent_commands();
 
 struct FunctionName {
     std::string_view name;  // `sin`, `lim`, ...; rendered upright as-is

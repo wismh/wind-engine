@@ -116,6 +116,9 @@ std::string dump(const Node& node) {
         std::string operator()(const Radical& r) const {
             return "(sqrt " + dump(r.radicand) + (r.index ? " index=" + dump(*r.index) : "") + ")";
         }
+        std::string operator()(const Accent& a) const {
+            return "(accent " + hex(a.mark) + " " + dump(a.base) + ")";
+        }
         std::string operator()(const Scripts& s) const {
             std::string out = "(scripts " + dump(s.base);
             if (s.subscript) {
@@ -262,6 +265,22 @@ TEST(MathParser, ParsesLargeOperatorsWithLimits) {
     EXPECT_EQ(parsed("\\prod_{k}"), "[(scripts [U+220F:op+lim] sub=[k])]");
 }
 
+TEST(MathParser, ParsesVectorAccents) {
+    EXPECT_EQ(parsed(R"(\vec E)"), "[(accent U+20D7 [E])]");
+    EXPECT_EQ(parsed(R"(\vec{F})"), "[(accent U+20D7 [F])]");
+    EXPECT_EQ(parsed(R"(\vec{AB})"), "[(accent U+20D7 [A B])]");
+    EXPECT_EQ(parsed(R"(\vec{x+y})"), "[(accent U+20D7 [x +:bin y])]");
+    // Like TeX the argument is one token, so what follows is not swallowed.
+    EXPECT_EQ(parsed(R"(\vec ab)"), "[(accent U+20D7 [a]) b]");
+    EXPECT_EQ(parsed(R"(m\vec a)"), "[m (accent U+20D7 [a])]");
+    EXPECT_EQ(parsed(R"(\vec\alpha)"), "[(accent U+20D7 [U+1D6FC])]");
+    // Scripts attach to the whole accented symbol, and an accent nests.
+    EXPECT_EQ(parsed(R"(\vec x_1)"), "[(scripts [(accent U+20D7 [x])] sub=[1])]");
+    EXPECT_EQ(parsed(R"(\vec{F}^2)"), "[(scripts [(accent U+20D7 [F])] sup=[2])]");
+    EXPECT_EQ(parsed(R"(\vec{\vec{x}})"), "[(accent U+20D7 [(accent U+20D7 [x])])]");
+    EXPECT_EQ(parsed(R"(\frac{\vec F}{q})"), "[(frac [(accent U+20D7 [F])] [q])]");
+}
+
 TEST(MathParser, ParsesNamedFunctions) {
     EXPECT_EQ(parsed("\\sin x"), "[fn:sin x]");
     EXPECT_EQ(parsed("\\log_2 n"), "[(scripts [fn:log] sub=[2]) n]");
@@ -394,6 +413,17 @@ TEST(MathParserErrors, MissingArgumentGivesAnEmptyRow) {
     EXPECT_EQ(script.errors[0].kind, ParseErrorKind::MissingArgument);
 }
 
+TEST(MathParserErrors, AccentWithoutAnArgument) {
+    const Recovered bare = recover(R"(\vec)");
+    EXPECT_EQ(bare.tree, "[(accent U+20D7 [])]");
+    ASSERT_EQ(bare.errors.size(), 1u);
+    EXPECT_EQ(bare.errors[0].kind, ParseErrorKind::MissingArgument);
+
+    const Recovered before_brace = recover(R"({\vec})");
+    ASSERT_EQ(before_brace.errors.size(), 1u);
+    EXPECT_EQ(before_brace.errors[0].kind, ParseErrorKind::MissingArgument);
+}
+
 TEST(MathParserErrors, LeftWithoutRight) {
     const Recovered r = recover("\\left( x");
     EXPECT_EQ(r.tree, "[(delim ( . [x])]");
@@ -510,6 +540,9 @@ TEST(MathParserTables, CommandNamesAreUnique) {
     for (const FunctionName& entry : function_names()) {
         EXPECT_TRUE(names.insert(entry.name).second) << "function collides with a command: \\" << entry.name;
     }
+    for (const AccentCommand& entry : accent_commands()) {
+        EXPECT_TRUE(names.insert(entry.name).second) << "accent collides with a command: \\" << entry.name;
+    }
 }
 
 // Every glyph the parser can hand to layout must exist in the shipped math font, or a formula would
@@ -526,6 +559,11 @@ TEST(MathParserTables, EveryEmittedCodepointExistsInTheBuiltinFont) {
         for (const char c : entry.name) {
             require(static_cast<char32_t>(c), std::string("\\") + std::string(entry.name));
         }
+    }
+    for (const AccentCommand& entry : accent_commands()) {
+        require(entry.mark, std::string("\\") + std::string(entry.name));
+        // The mark must also carry a top-accent attachment or layout falls back to its ink centre.
+        EXPECT_TRUE(stix().top_accent_attachment(stix().glyph_index(entry.mark)).has_value()) << entry.name;
     }
     for (char32_t c = U'a'; c <= U'z'; ++c) {
         const ParseResult result = parse_formula(std::string(1, static_cast<char>(c)));
