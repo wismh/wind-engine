@@ -23,6 +23,15 @@ class MathFont;
 
 namespace engine::ui {
 
+// Vertical metrics of a UI font at one size, in the same units as `measure_text`. `ascent` is the
+// distance from the baseline up to the top of the em box; `descent` is the distance from the
+// baseline down. `line_height` is the font's own row stride.
+struct TextFontMetrics {
+    float ascent = 0.0f;
+    float descent = 0.0f;
+    float line_height = 0.0f;
+};
+
 // One segment of a filled path. A `Move` starts a new contour (the previous one closes implicitly, like a
 // glyph outline); `Quad` curves through control point `c1`, `Cubic` through `c1` and `c2`. All coordinates
 // are real pixels.
@@ -84,6 +93,10 @@ public:
     virtual void image_repeat(AssetId texture, const render::Rect& rect) = 0;
     virtual void image_nine_slice(AssetId texture, const render::Rect& rect, const BoxInsets& insets) = 0;
     [[nodiscard]] virtual glm::vec2 measure_text(std::string_view text, AssetId font, float size) = 0;
+    // Ascent, descent and line height of `font` at `size`. The default splits `measure_text`'s height
+    // into a rough 80/20 ascent/descent; a backend with real font metrics overrides it. Inline math
+    // uses this so a formula and the surrounding letters share a baseline.
+    [[nodiscard]] virtual TextFontMetrics font_metrics(AssetId font, float size);
     // Breaks `text` into rows no wider than `max_width` at `font`/`size` (see break_text_lines). The default wraps
     // through measure_text, so a painter only overrides it to use its own shaper's line breaker.
     [[nodiscard]] virtual TextBlock break_lines(std::string_view text, AssetId font, float size, float max_width);

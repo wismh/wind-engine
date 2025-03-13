@@ -108,6 +108,12 @@ std::vector<TextLine> break_text_lines(
     return lines;
 }
 
+TextFontMetrics IUiPainter::font_metrics(AssetId font, float size) {
+    const float measured = measure_text("M", font, size).y;
+    const float line = measured > 0.0f ? measured : size;
+    return TextFontMetrics{line * 0.8f, line * 0.2f, line};
+}
+
 TextBlock IUiPainter::break_lines(std::string_view text, AssetId font, float size, float max_width) {
     TextBlock block;
     block.line_height = measure_text("M", font, size).y;
