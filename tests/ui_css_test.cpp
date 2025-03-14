@@ -200,6 +200,19 @@ TEST(UiCss, TextAlignIsKnownProperty) {
     EXPECT_EQ(text_align->value, "center");
 }
 
+TEST(UiCss, WhiteSpaceAndMaxWidthAreKnownProperties) {
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css(".x { white-space: nowrap; max-width: 120px; }", warnings);
+    ASSERT_TRUE(sheet.has_value());
+    EXPECT_FALSE(warning_mentions(warnings, "white-space"));
+    EXPECT_FALSE(warning_mentions(warnings, "max-width"));
+    ASSERT_EQ(sheet->rules.size(), 1u);
+    const engine::ui::CssDeclaration* white_space = find_declaration(sheet->rules[0], "white-space");
+    ASSERT_NE(white_space, nullptr);
+    EXPECT_EQ(white_space->value, "nowrap");
+    EXPECT_NE(find_declaration(sheet->rules[0], "max-width"), nullptr);
+}
+
 TEST(UiCss, BackgroundImageIsKnownProperty) {
     std::vector<std::string> warnings;
     const auto sheet = engine::ui::parse_css(
