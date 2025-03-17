@@ -48,6 +48,7 @@ public:
     void image_repeat(AssetId texture, const Rect& rect) override;
     void image_nine_slice(AssetId texture, const Rect& rect, const ui::BoxInsets& insets) override;
     [[nodiscard]] glm::vec2 measure_text(std::string_view text, AssetId font, float size) override;
+    [[nodiscard]] ui::TextFontMetrics font_metrics(AssetId font, float size) override;
     [[nodiscard]] ui::TextBlock break_lines(
             std::string_view text, AssetId font, float size, float max_width) override;
 
