@@ -99,8 +99,23 @@ void update_emitter(ParticleEmitter& emitter, float dt, const glm::mat4& transfo
             p.velocity += emitter.gravity * dt;
             p.position += p.velocity * dt;
             p.rotation += p.angular_velocity * dt;
-            p.color = glm::mix(p.start_color, p.end_color, t);
-            p.size = glm::mix(p.start_size, p.end_size, t);
+
+            if (!emitter.color_curve.empty()) {
+                p.color = emitter.color_curve.evaluate(t);
+            } else {
+                p.color = glm::mix(p.start_color, p.end_color, t);
+            }
+            if (!emitter.alpha_curve.empty()) {
+                p.color.a = emitter.alpha_curve.evaluate(t);
+            }
+
+            if (!emitter.size_curve_xy.empty()) {
+                p.size = p.base_size * emitter.size_curve_xy.evaluate(t);
+            } else if (!emitter.size_curve.empty()) {
+                p.size = p.base_size * emitter.size_curve.evaluate(t);
+            } else {
+                p.size = glm::mix(p.start_size, p.end_size, t);
+            }
             ++i;
         }
     }
@@ -168,13 +183,29 @@ void update_emitter(ParticleEmitter& emitter, float dt, const glm::mat4& transfo
         p.rotation = rand_range(emitter.rotation_min, emitter.rotation_max);
         p.angular_velocity = rand_range(emitter.angular_velocity_min, emitter.angular_velocity_max);
 
-        p.start_size = rand_vec2(emitter.size_start_min, emitter.size_start_max);
+        p.base_size = rand_vec2(emitter.size_start_min, emitter.size_start_max);
+        p.start_size = p.base_size;
         p.end_size = rand_vec2(emitter.size_end_min, emitter.size_end_max);
-        p.size = p.start_size;
 
-        p.start_color = emitter.color_start;
-        p.end_color = emitter.color_end;
-        p.color = p.start_color;
+        if (!emitter.size_curve_xy.empty()) {
+            p.size = p.base_size * emitter.size_curve_xy.evaluate(0.0f);
+        } else if (!emitter.size_curve.empty()) {
+            p.size = p.base_size * emitter.size_curve.evaluate(0.0f);
+        } else {
+            p.size = p.start_size;
+        }
+
+        if (!emitter.color_curve.empty()) {
+            p.color = emitter.color_curve.evaluate(0.0f);
+        } else {
+            p.start_color = emitter.color_start;
+            p.end_color = emitter.color_end;
+            p.color = p.start_color;
+        }
+
+        if (!emitter.alpha_curve.empty()) {
+            p.color.a = emitter.alpha_curve.evaluate(0.0f);
+        }
 
         emitter.particles.push_back(std::move(p));
     }
