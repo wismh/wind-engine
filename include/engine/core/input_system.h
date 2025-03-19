@@ -64,6 +64,8 @@ struct MouseEvent {
     glm::vec2 relative{};
     MouseButton button = MouseButton::None;
     float wheel_y = 0.f;
+    // OS click count from the button event (1 single, 2 double, 3+ triple). Move and wheel stay 1.
+    std::uint8_t clicks = 1;
 };
 
 struct KeyEvent {
@@ -112,7 +114,8 @@ public:
 
     void handle_key(KeyCode key, bool down, bool repeat = false, WindowId window = kPrimaryWindow);
     void handle_text_input(std::string_view text, WindowId window = kPrimaryWindow);
-    void handle_mouse_button(WindowId window, MouseButton button, bool down, glm::vec2 position);
+    void handle_mouse_button(
+            WindowId window, MouseButton button, bool down, glm::vec2 position, std::uint8_t clicks = 1);
     void handle_mouse_move(WindowId window, glm::vec2 position, glm::vec2 relative);
     void handle_mouse_wheel(WindowId window, glm::vec2 position, float wheel_y);
     void handle_touch(std::uint32_t finger_id, bool down, glm::vec2 position);
