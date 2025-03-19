@@ -1,7 +1,9 @@
 #include "ui/text_select.h"
 
 #include "ui/inline_math.h"
+#include "ui/painter.h"
 
+#include <algorithm>
 #include <vector>
 
 namespace engine::ui {
@@ -131,14 +133,155 @@ TextRange word_range(std::string_view text, std::size_t index) {
     return expand(cps, at, kind);
 }
 
+namespace {
+
+[[nodiscard]] std::size_t next_utf8(std::string_view text, std::size_t pos) noexcept {
+    if (pos >= text.size()) {
+        return text.size();
+    }
+    ++pos;
+    while (pos < text.size() && (static_cast<unsigned char>(text[pos]) & 0xC0) == 0x80) {
+        ++pos;
+    }
+    return pos;
+}
+
+[[nodiscard]] std::vector<TextRange> formula_spans(std::string_view text) {
+    std::vector<TextRange> spans;
+    if (!text_has_inline_markup(text)) {
+        return spans;
+    }
+    const InlineSplit split = split_inline(text);
+    for (const InlinePiece& piece : split.pieces) {
+        if (piece.kind == InlinePiece::Kind::Math && piece.source_begin < piece.source_end) {
+            spans.push_back(TextRange{piece.source_begin, piece.source_end});
+        }
+    }
+    return spans;
+}
+
+}
+
+TextRange label_word_range(std::string_view text, std::size_t index) {
+    const std::vector<TextRange> spans = formula_spans(text);
+    for (const TextRange& span : spans) {
+        if (index >= span.begin && index < span.end) {
+            return span;
+        }
+    }
+    TextRange word = word_range(text, index);
+    for (const TextRange& span : spans) {
+        if (word.begin >= span.end || word.end <= span.begin) {
+            continue;
+        }
+        if (index < span.begin) {
+            word.end = std::min(word.end, span.begin);
+        } else if (index >= span.end) {
+            word.begin = std::max(word.begin, span.end);
+        }
+    }
+    if (word.begin > word.end) {
+        return TextRange{index, index};
+    }
+    return word;
+}
+
+std::optional<std::size_t> formula_step(std::string_view text, std::size_t index, bool backward) {
+    for (const TextRange& span : formula_spans(text)) {
+        if (backward) {
+            if (index > span.begin && index <= span.end) {
+                return span.begin;
+            }
+        } else if (index >= span.begin && index < span.end) {
+            return span.end;
+        }
+    }
+    return std::nullopt;
+}
+
+void paint_text_selection(IUiPainter& painter, const Element& element) {
+    if (!element.selection_anchor || *element.selection_anchor == element.caret_position ||
+            element.painted_font_size_px <= 0.0f) {
+        return;
+    }
+    const std::size_t sel_start =
+            std::min(std::min(*element.selection_anchor, element.caret_position), element.text.size());
+    const std::size_t sel_end =
+            std::min(std::max(*element.selection_anchor, element.caret_position), element.text.size());
+    if (sel_start >= sel_end) {
+        return;
+    }
+    for (const PaintedTextLine& line : element.painted_text_lines) {
+        if (line.end > element.text.size() || line.begin > line.end) {
+            continue;
+        }
+        if (line.atomic) {
+            if (sel_start <= line.begin && sel_end >= line.end && line.begin < line.end) {
+                painter.fill_rounded_rect(render::Rect{line.x, line.y, line.width, line.height}, 0.0f,
+                        element.selection_color);
+            }
+            continue;
+        }
+        const bool mapped = line.source_of_drawn.size() == line.drawn.size() + 1 && !line.drawn.empty();
+        if (!mapped) {
+            const std::size_t lo = std::max(sel_start, line.begin);
+            const std::size_t hi = std::min(sel_end, line.end);
+            if (lo >= hi) {
+                continue;
+            }
+            const std::string_view source = element.text;
+            const float start_w = painter.measure_text(source.substr(line.begin, lo - line.begin), element.font_family,
+                                                 element.painted_font_size_px)
+                                         .x;
+            const float end_w = painter.measure_text(source.substr(line.begin, hi - line.begin), element.font_family,
+                                               element.painted_font_size_px)
+                                       .x;
+            painter.fill_rounded_rect(
+                    render::Rect{line.x + start_w, line.y, std::max(0.0f, end_w - start_w), line.height}, 0.0f,
+                    element.selection_color);
+            continue;
+        }
+        std::size_t drawn_lo = 0;
+        std::size_t drawn_hi = 0;
+        bool any = false;
+        for (std::size_t pos = 0; pos < line.drawn.size();) {
+            const std::size_t next = std::min(next_utf8(line.drawn, pos), line.drawn.size());
+            if (next <= pos || next >= line.source_of_drawn.size()) {
+                break;
+            }
+            const std::size_t src_begin = line.source_of_drawn[pos];
+            const std::size_t src_end = line.source_of_drawn[next];
+            if (src_begin < sel_end && src_end > sel_start) {
+                if (!any) {
+                    drawn_lo = pos;
+                    any = true;
+                }
+                drawn_hi = next;
+            } else if (any) {
+                break;
+            }
+            pos = next;
+        }
+        if (!any || drawn_lo >= drawn_hi) {
+            continue;
+        }
+        const float start_w =
+                painter.measure_text(std::string_view(line.drawn).substr(0, drawn_lo), element.font_family,
+                             element.painted_font_size_px)
+                        .x;
+        const float end_w = painter.measure_text(std::string_view(line.drawn).substr(0, drawn_hi), element.font_family,
+                                           element.painted_font_size_px)
+                                   .x;
+        painter.fill_rounded_rect(render::Rect{line.x + start_w, line.y, std::max(0.0f, end_w - start_w), line.height},
+                0.0f, element.selection_color);
+    }
+}
+
 bool label_text_selectable(const Element& element) noexcept {
     if (element.kind != ElementKind::Label || element.disabled || element.user_select == UserSelect::None) {
         return false;
     }
     if (is_bound(element.command_binding) || is_bound(element.drag_binding)) {
-        return false;
-    }
-    if (element.user_select == UserSelect::Text && text_has_inline_markup(element.text)) {
         return false;
     }
     return true;

@@ -3,6 +3,7 @@
 #include "draw_list_adapter.h"
 #include "inline_math.h"
 #include "math/math_element.h"
+#include "text_select.h"
 
 #include <engine/builtin_ids.h>
 #include <engine/ui/canvas.h>
@@ -1224,35 +1225,6 @@ std::vector<PaintedTextLine> label_glyph_lines(IUiPainter& painter, const Elemen
     return lines;
 }
 
-void paint_label_selection(IUiPainter& painter, const Element& element) {
-    if (!element.selection_anchor || *element.selection_anchor == element.caret_position ||
-            element.painted_font_size_px <= 0.0f) {
-        return;
-    }
-    const std::size_t sel_start =
-            std::min(std::min(*element.selection_anchor, element.caret_position), element.text.size());
-    const std::size_t sel_end =
-            std::min(std::max(*element.selection_anchor, element.caret_position), element.text.size());
-    if (sel_start >= sel_end) {
-        return;
-    }
-    for (const PaintedTextLine& line : element.painted_text_lines) {
-        const std::size_t lo = std::max(sel_start, line.begin);
-        const std::size_t hi = std::min(sel_end, line.end);
-        if (lo >= hi || line.end > element.text.size()) {
-            continue;
-        }
-        const float start_w = painter.measure_text(std::string_view(element.text).substr(line.begin, lo - line.begin),
-                                             element.font_family, element.painted_font_size_px)
-                                     .x;
-        const float end_w = painter.measure_text(std::string_view(element.text).substr(line.begin, hi - line.begin),
-                                           element.font_family, element.painted_font_size_px)
-                                   .x;
-        painter.fill_rounded_rect(render::Rect{line.x + start_w, line.y, std::max(0.0f, end_w - start_w), line.height},
-                0.0f, element.selection_color);
-    }
-}
-
 void clear_interaction(Element& element) {
     element.hovered = false;
     element.pressed = false;
@@ -1415,15 +1387,14 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
             const float content_width = std::max(0.0f, element.layout_rect.w - padding.left - padding.right);
             rows = wrapped_text_rows(element, painter, font_size, content_width);
         }
-        if (element.kind == ElementKind::Label) {
-            // Highlight before the glyphs. Inline formulas have no per-glyph map, so they keep no rows
-            // (user-select: all still copies the source; it just has nothing to paint a caret against).
-            const bool cache_glyphs = element.user_select != UserSelect::None && !inline_math;
-            if (cache_glyphs) {
+        if (element.kind == ElementKind::Label && !inline_math) {
+            // Highlight before the glyphs. An inline label caches its own boxes inside paint_label_inline,
+            // one per segment, and draws that highlight before its glyphs.
+            if (element.user_select != UserSelect::None) {
                 element.painted_font_size_px = font_size * input.ui_scale;
                 element.painted_text_lines = label_glyph_lines(painter, element, rows, content, x, y,
                         element.painted_font_size_px, input.ui_scale, style.text_align, style.align_items);
-                paint_label_selection(painter, element);
+                paint_text_selection(painter, element);
             } else {
                 element.painted_text_lines.clear();
             }
