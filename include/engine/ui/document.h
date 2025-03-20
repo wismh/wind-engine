@@ -248,6 +248,8 @@ struct ComputedStyle {
     BackgroundRepeat background_repeat = BackgroundRepeat::NoRepeat;
     float opacity = 1.0f;
     bool visible = true;
+    // `display: none`: the element and its subtree take no part in layout, paint or hit-testing.
+    bool display_none = false;
     Length gap{};
     bool has_gap = false;
     StackDirection direction = StackDirection::Vertical;
@@ -435,6 +437,10 @@ struct Element {
     std::optional<Length> inset_left;
     float rotation_deg = 0.0f;
     float scale = 1.0f;
+    // Pseudo-less copies of ComputedStyle::visible / display_none (apply_layout_style), read by layout and
+    // hit-testing. `visibility: hidden` keeps the element's space; `display: none` removes it from layout.
+    bool visible = true;
+    bool display_none = false;
 
     render::Rect layout_rect{};
     ICommand* command = nullptr;
