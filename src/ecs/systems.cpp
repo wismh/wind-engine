@@ -11,6 +11,7 @@
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/transform.h>
 #include <engine/builtin_ids.h>
+#include <engine/loc/catalog.h>
 #include <engine/render/animation.h>
 #include <engine/render/command_buffer.h>
 #include <engine/render/particles.h>
@@ -185,7 +186,7 @@ void run_bind(ecs::World& world, const EngineSystemDeps& deps) {
         if (instance == nullptr) {
             continue;
         }
-        (void) ui::apply_bindings(instance->document, *canvas.data_context);
+        (void) ui::apply_bindings(instance->document, *canvas.data_context, nullptr, &world.ctx<loc::Catalog>());
         if (deps.assets == nullptr) {
             continue;
         }

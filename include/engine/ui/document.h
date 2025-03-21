@@ -25,15 +25,26 @@
 #include <unordered_map>
 #include <vector>
 
+namespace engine::loc {
+class Catalog;
+}
+
 namespace engine::ui {
 
 enum class UiError {
     InvalidMarkup,
     UnknownElement,
     MissingBinding,
+    MissingString,
     ForbiddenContent,
     Io,
     CyclicInclude,
+};
+
+// One `{tr key name={binding path}}` argument. `binding` is interned like any other `{binding}`.
+struct TrArg {
+    std::string name;
+    BindingId binding{};
 };
 
 enum class ElementKind {
@@ -363,6 +374,10 @@ struct Element {
 
     std::string text;
     BindingId text_binding{};
+    // `{tr key}` or `{tr key name={binding path}}` on `text` / `content`. apply_bindings writes the
+    // resolved message into `text`. Empty means this element is not a translation.
+    std::string tr_key;
+    std::vector<TrArg> tr_args;
     BindingId content_binding{};
     BindingId command_binding{};
     // {binding path} target for a `checked="{binding ...}"` attribute (Checkbox only) — two-way:
@@ -642,7 +657,10 @@ using UiIncludeResolver = std::function<std::optional<std::string>(std::string_v
 [[nodiscard]] std::expected<UiDocument, UiError> parse_xml(std::string_view xml, IFatalError* fatal = nullptr,
         const ViewModel* data_context = nullptr, const UiIncludeResolver& resolve_include = {});
 
-std::expected<void, UiError> apply_bindings(UiDocument& document, ViewModel& data_context, IFatalError* fatal = nullptr);
+// `catalog` resolves `{tr}` keys. Null leaves a `{tr}` element's text as the key and, when `fatal`
+// is set, reports MissingString. Documents with no `{tr}` ignore it.
+std::expected<void, UiError> apply_bindings(UiDocument& document, ViewModel& data_context, IFatalError* fatal = nullptr,
+        const engine::loc::Catalog* catalog = nullptr);
 
 void layout(UiDocument& document, const render::Rect& canvas_rect);
 

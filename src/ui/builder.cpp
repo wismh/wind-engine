@@ -1,5 +1,7 @@
 #include <engine/ui/builder.h>
 
+#include "ui/tr_attr.h"
+
 #include <cctype>
 #include <utility>
 #include <vector>
@@ -50,33 +52,60 @@ Node& Node::with_name(std::string_view name) {
     return *this;
 }
 
-Node& Node::text(std::string_view value) {
+void Node::assign_label(std::string_view value, bool allow_tr) {
+    const TrParse parsed = parse_tr_attribute(value);
+    if (parsed.kind == TrParse::Kind::Error || (parsed.kind == TrParse::Kind::Ok && !allow_tr)) {
+        error_ = parsed.kind == TrParse::Kind::Ok ? "UI formula cannot be a {tr} key" : parsed.message;
+        return;
+    }
+    if (parsed.kind == TrParse::Kind::Ok) {
+        element_.text.clear();
+        element_.text_binding = {};
+        element_.content_binding = {};
+        element_.tr_key = parsed.key;
+        element_.tr_args = parsed.args;
+        error_.clear();
+        return;
+    }
+    element_.tr_key.clear();
+    element_.tr_args.clear();
     element_.text = std::string(value);
+    error_.clear();
+}
+
+Node& Node::text(std::string_view value) {
+    assign_label(value, true);
     return *this;
 }
 
 Node& Node::text_bind(BindingId id) {
     element_.text_binding = id;
+    element_.tr_key.clear();
+    element_.tr_args.clear();
     return *this;
 }
 
 Node& Node::content(std::string_view value) {
-    element_.text = std::string(value);
+    assign_label(value, true);
     return *this;
 }
 
 Node& Node::content_bind(BindingId id) {
     element_.content_binding = id;
+    element_.tr_key.clear();
+    element_.tr_args.clear();
     return *this;
 }
 
 Node& Node::formula(std::string_view value) {
-    element_.text = std::string(value);
+    assign_label(value, false);
     return *this;
 }
 
 Node& Node::formula_bind(BindingId id) {
     element_.text_binding = id;
+    element_.tr_key.clear();
+    element_.tr_args.clear();
     return *this;
 }
 
@@ -214,6 +243,9 @@ Node& Node::stylesheet(AssetId id) {
 }
 
 Node& Node::add(Node child) {
+    if (error_.empty()) {
+        error_ = std::move(child.error_);
+    }
     element_.children.push_back(std::move(child.element_));
     return *this;
 }
@@ -282,6 +314,10 @@ Node math_formula() {
 }
 
 std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal) {
+    if (!root.error_.empty()) {
+        report(fatal, root.error_);
+        return std::unexpected(UiError::InvalidMarkup);
+    }
     if (root.element_.kind != ElementKind::Canvas) {
         report(fatal, "UI document root must be a Canvas");
         return std::unexpected(UiError::InvalidMarkup);

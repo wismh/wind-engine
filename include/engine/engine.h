@@ -19,6 +19,7 @@
 #include <engine/ecs/world.h>
 #include <engine/haptics/haptics_system.h>
 #include <engine/igame.h>
+#include <engine/loc/catalog.h>
 #include <engine/log.h>
 #include <engine/render/backend.h>
 #include <engine/render/canvas.h>
