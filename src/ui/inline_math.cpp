@@ -1,5 +1,6 @@
 #include "ui/inline_math.h"
 
+#include "ui/text_select.h"
 #include "ui/math/math_layout.h"
 #include "ui/math/math_paint.h"
 #include "ui/math/math_parser.h"
@@ -29,15 +30,64 @@ namespace {
     return i + 1 < text.size() && text[i] == '\\' && text[i + 1] == ')';
 }
 
-void flush_text(std::string& buf, std::vector<InlinePiece>& pieces) {
-    if (buf.empty()) {
+// Drawn text accumulated while scanning the source. An escape `\\(` / `\\)` is the only place a drawn
+// byte is not `source_begin + offset`; until the first one the map stays empty.
+struct TextAccum {
+    std::string text;
+    std::size_t source_begin = 0;
+    bool any = false;
+    bool escaped = false;
+    std::vector<std::size_t> source_of_drawn;
+
+    void ensure_map() {
+        if (escaped) {
+            return;
+        }
+        escaped = true;
+        source_of_drawn.resize(text.size());
+        for (std::size_t i = 0; i < text.size(); ++i) {
+            source_of_drawn[i] = source_begin + i;
+        }
+    }
+
+    void append(char c, std::size_t source) {
+        if (!any) {
+            source_begin = source;
+            any = true;
+        }
+        if (escaped) {
+            source_of_drawn.push_back(source);
+        }
+        text.push_back(c);
+    }
+};
+
+void flush_text(TextAccum& buf, std::vector<InlinePiece>& pieces, std::size_t source_end) {
+    if (buf.text.empty()) {
+        buf = {};
         return;
     }
     InlinePiece piece;
     piece.kind = InlinePiece::Kind::Text;
-    piece.text = std::move(buf);
+    piece.text = std::move(buf.text);
+    piece.source_begin = buf.source_begin;
+    piece.source_end = source_end;
+    if (buf.escaped) {
+        buf.source_of_drawn.push_back(source_end);
+        piece.source_of_drawn = std::move(buf.source_of_drawn);
+    }
     pieces.push_back(std::move(piece));
-    buf.clear();
+    buf = {};
+}
+
+[[nodiscard]] std::size_t source_at(const InlinePiece& piece, std::size_t drawn) noexcept {
+    if (!piece.source_of_drawn.empty()) {
+        if (drawn >= piece.source_of_drawn.size()) {
+            return piece.source_end;
+        }
+        return piece.source_of_drawn[drawn];
+    }
+    return piece.source_begin + drawn;
 }
 
 [[nodiscard]] bool is_blank(char c) noexcept { return c == ' ' || c == '\t'; }
@@ -340,12 +390,13 @@ void store_cache(const Element& element, LabelInlineCache built) {
 
 InlineSplit split_inline(std::string_view text) {
     InlineSplit out;
-    std::string buf;
-    buf.reserve(text.size());
+    TextAccum buf;
+    buf.text.reserve(text.size());
     for (std::size_t i = 0; i < text.size();) {
         if (is_escaped_delim(text, i)) {
-            buf.push_back('\\');
-            buf.push_back(text[i + 2]);
+            buf.ensure_map();
+            buf.append('\\', i);
+            buf.append(text[i + 2], i + 2);
             i += 3;
             continue;
         }
@@ -369,21 +420,26 @@ InlineSplit split_inline(std::string_view text) {
             }
             if (!closed) {
                 out.unclosed = true;
-                buf.append(text.substr(i));
+                while (i < text.size()) {
+                    buf.append(text[i], i);
+                    ++i;
+                }
                 break;
             }
-            flush_text(buf, out.pieces);
+            flush_text(buf, out.pieces, i);
             InlinePiece piece;
             piece.kind = InlinePiece::Kind::Math;
             piece.text = std::move(formula);
+            piece.source_begin = i;
+            piece.source_end = j + 2;
             out.pieces.push_back(std::move(piece));
             i = j + 2;
             continue;
         }
-        buf.push_back(text[i]);
+        buf.append(text[i], i);
         ++i;
     }
-    flush_text(buf, out.pieces);
+    flush_text(buf, out.pieces, text.size());
     return out;
 }
 
@@ -609,7 +665,7 @@ glm::vec2 measure_label_inline(const Element& element, IUiPainter* painter, floa
     return {built.layout.width, built.layout.height};
 }
 
-void paint_label_inline(IUiPainter& painter, const Element& element, float font_size, float content_width,
+void paint_label_inline(IUiPainter& painter, Element& element, float font_size, float content_width,
                         const render::Rect& content, float ui_scale, UiAlign horizontal, UiAlign vertical,
                         glm::vec4 color) {
     constexpr float kEpsilon = 0.01f;
@@ -622,6 +678,9 @@ void paint_label_inline(IUiPainter& painter, const Element& element, float font_
         cache = stored_cache(element);
     }
     if (cache == nullptr || cache->layout.lines.empty()) {
+        if (element.kind == ElementKind::Label) {
+            element.painted_text_lines.clear();
+        }
         return;
     }
 
@@ -635,6 +694,18 @@ void paint_label_inline(IUiPainter& painter, const Element& element, float font_
     }
     top = std::max(top, content.y);
 
+    struct PlacedSeg {
+        std::size_t piece = 0;
+        std::size_t begin = 0;
+        std::size_t end = 0;
+        float x = 0.0f;
+        float y = 0.0f;
+        float width = 0.0f;
+        float height = 0.0f;
+        float baseline = 0.0f;
+        bool math = false;
+    };
+    std::vector<PlacedSeg> placed;
     const math::MathFont* math_font = painter.math_font();
     float y = top;
     for (const InlineLine& line : cache->layout.lines) {
@@ -646,28 +717,78 @@ void paint_label_inline(IUiPainter& painter, const Element& element, float font_
             line_left = content.x + content.w - line_w;
         }
         const float baseline = y + line.baseline * ui_scale;
+        const float row_h = line.height * ui_scale;
         for (const InlineSegment& seg : line.segments) {
             if (seg.piece >= cache->split.pieces.size()) {
                 continue;
             }
-            const float x = line_left + seg.x * ui_scale;
             const InlinePiece& piece = cache->split.pieces[seg.piece];
-            if (piece.kind == InlinePiece::Kind::Math) {
-                if (math_font != nullptr && seg.piece < cache->formulas.size()) {
-                    const math::MathLayout& formula = cache->formulas[seg.piece];
-                    math::paint_layout(painter, *math_font, formula,
-                            glm::vec2{x, baseline - formula.ascent * ui_scale}, ui_scale, color);
-                }
+            if (piece.kind != InlinePiece::Kind::Math && (seg.begin >= seg.end || seg.end > piece.text.size())) {
                 continue;
             }
-            if (seg.begin >= seg.end || seg.end > piece.text.size()) {
-                continue;
-            }
-            painter.fill_text(std::string_view(piece.text).substr(seg.begin, seg.end - seg.begin),
-                              glm::vec2{x, baseline - cache->metrics.ascent * ui_scale}, color, UiAlign::Start,
-                              UiAlign::Start);
+            PlacedSeg item;
+            item.piece = seg.piece;
+            item.begin = seg.begin;
+            item.end = seg.end;
+            item.x = line_left + seg.x * ui_scale;
+            item.y = y;
+            item.width = seg.width * ui_scale;
+            item.height = row_h;
+            item.baseline = baseline;
+            item.math = piece.kind == InlinePiece::Kind::Math;
+            placed.push_back(item);
         }
-        y += line.height * ui_scale;
+        y += row_h;
+    }
+
+    if (element.kind == ElementKind::Label) {
+        if (element.user_select == UserSelect::None) {
+            element.painted_text_lines.clear();
+        } else {
+            element.painted_font_size_px = font_size * ui_scale;
+            element.painted_text_lines.clear();
+            element.painted_text_lines.reserve(placed.size());
+            for (const PlacedSeg& item : placed) {
+                const InlinePiece& piece = cache->split.pieces[item.piece];
+                PaintedTextLine box;
+                box.x = item.x;
+                box.y = item.y;
+                box.width = item.width;
+                box.height = item.height;
+                if (item.math) {
+                    box.begin = piece.source_begin;
+                    box.end = piece.source_end;
+                    box.atomic = true;
+                } else {
+                    box.begin = source_at(piece, item.begin);
+                    box.end = source_at(piece, item.end);
+                    if (!piece.source_of_drawn.empty() && item.end < piece.source_of_drawn.size()) {
+                        box.drawn = piece.text.substr(item.begin, item.end - item.begin);
+                        box.source_of_drawn.assign(
+                                piece.source_of_drawn.begin() + static_cast<std::ptrdiff_t>(item.begin),
+                                piece.source_of_drawn.begin() + static_cast<std::ptrdiff_t>(item.end + 1));
+                    }
+                }
+                element.painted_text_lines.push_back(std::move(box));
+            }
+            // Highlight before the glyphs, from the boxes just cached.
+            paint_text_selection(painter, element);
+        }
+    }
+
+    for (const PlacedSeg& item : placed) {
+        const InlinePiece& piece = cache->split.pieces[item.piece];
+        if (item.math) {
+            if (math_font != nullptr && item.piece < cache->formulas.size()) {
+                const math::MathLayout& formula = cache->formulas[item.piece];
+                math::paint_layout(painter, *math_font, formula,
+                        glm::vec2{item.x, item.baseline - formula.ascent * ui_scale}, ui_scale, color);
+            }
+            continue;
+        }
+        painter.fill_text(std::string_view(piece.text).substr(item.begin, item.end - item.begin),
+                glm::vec2{item.x, item.baseline - cache->metrics.ascent * ui_scale}, color, UiAlign::Start,
+                UiAlign::Start);
     }
 }
 

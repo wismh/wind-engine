@@ -372,60 +372,116 @@ struct UiTextSelectGestures {
     std::unordered_map<WindowId, TextSelectGesture> by_window;
 };
 
-const PaintedTextLine* painted_line_at_y(const std::vector<PaintedTextLine>& lines, float y) {
-    const PaintedTextLine* nearest = nullptr;
-    float nearest_dist = 0.0f;
+// One box on the row under the pointer. Several segments share a y when the label has an inline formula.
+const PaintedTextLine* painted_segment_at(const std::vector<PaintedTextLine>& lines, float x, float y) {
+    if (lines.empty()) {
+        return nullptr;
+    }
+    const PaintedTextLine* row = nullptr;
+    float nearest_dy = 0.0f;
+    bool row_contains = false;
     for (const PaintedTextLine& line : lines) {
-        if (y >= line.y && y < line.y + std::max(line.height, 0.0f)) {
-            return &line;
-        }
-        const float mid = line.y + line.height * 0.5f;
-        const float dist = std::abs(y - mid);
-        if (nearest == nullptr || dist < nearest_dist) {
-            nearest = &line;
-            nearest_dist = dist;
+        const float height = std::max(line.height, 0.0f);
+        const bool inside = y >= line.y && y < line.y + height;
+        const float dy = std::abs(y - (line.y + height * 0.5f));
+        if (inside && !row_contains) {
+            row = &line;
+            row_contains = true;
+            nearest_dy = dy;
+        } else if (!row_contains && (row == nullptr || dy < nearest_dy)) {
+            row = &line;
+            nearest_dy = dy;
         }
     }
-    return nearest;
+    if (row == nullptr) {
+        return nullptr;
+    }
+    constexpr float kRowEpsilon = 0.01f;
+    const PaintedTextLine* best = nullptr;
+    float best_dist = 0.0f;
+    bool best_interior = false;
+    for (const PaintedTextLine& line : lines) {
+        if (std::abs(line.y - row->y) > kRowEpsilon) {
+            continue;
+        }
+        const float right = line.x + line.width;
+        const bool interior = line.width > 0.0f && x > line.x && x < right;
+        float dist = 0.0f;
+        if (x < line.x) {
+            dist = line.x - x;
+        } else if (x > right) {
+            dist = x - right;
+        }
+        const bool closer = best == nullptr || (interior && !best_interior) ||
+                            (interior == best_interior && dist < best_dist) ||
+                            (interior == best_interior && dist == best_dist && line.atomic && best != nullptr &&
+                                    !best->atomic);
+        if (closer) {
+            best = &line;
+            best_dist = dist;
+            best_interior = interior;
+        }
+    }
+    return best;
 }
 
-std::size_t label_index_for_click(
+struct LabelPointerHit {
+    std::size_t index = 0;
+    // Set when the pointer is over a formula box, so a word gesture takes that source span even
+    // after the caret has snapped to one of its edges.
+    std::optional<TextRange> formula;
+};
+
+LabelPointerHit label_pointer_hit(
         ecs::World& world, const Element& element, float click_x, float click_y, WindowId window) {
+    LabelPointerHit hit;
+    hit.index = element.text.size();
     if (element.painted_text_lines.empty() || element.painted_font_size_px <= 0.0f) {
-        return element.text.size();
+        return hit;
     }
     IUiPainter* painter = layout_painter_for(world, window);
     if (painter == nullptr) {
-        return element.text.size();
+        return hit;
     }
-    const PaintedTextLine* line = painted_line_at_y(element.painted_text_lines, click_y);
+    const PaintedTextLine* line = painted_segment_at(element.painted_text_lines, click_x, click_y);
     if (line == nullptr) {
-        return element.text.size();
+        return hit;
     }
+    if (line->atomic) {
+        hit.formula = TextRange{line->begin, line->end};
+        hit.index = !(line->width > 0.0f) || click_x >= line->x + line->width * 0.5f ? line->end : line->begin;
+        return hit;
+    }
+    const bool mapped = line->source_of_drawn.size() == line->drawn.size() + 1 && !line->drawn.empty();
+    const std::string_view slice = mapped ? std::string_view(line->drawn)
+                                          : std::string_view(element.text).substr(line->begin, line->end - line->begin);
     if (click_x <= line->x) {
-        return line->begin;
+        hit.index = mapped ? line->source_of_drawn.front() : line->begin;
+        return hit;
     }
-    std::size_t pos = line->begin;
+    std::size_t pos = 0;
     float measured_w = 0.0f;
-    while (pos < line->end && pos < element.text.size()) {
-        const std::size_t next = std::min(next_utf8_char(element.text, pos), line->end);
+    while (pos < slice.size()) {
+        const std::size_t next = std::min(next_utf8_char(slice, pos), slice.size());
         if (next <= pos) {
             break;
         }
-        const std::string_view prefix = std::string_view(element.text).substr(line->begin, next - line->begin);
-        const float next_w = painter->measure_text(prefix, element.font_family, element.painted_font_size_px).x;
+        const float next_w =
+                painter->measure_text(slice.substr(0, next), element.font_family, element.painted_font_size_px).x;
         if ((click_x - line->x) < (measured_w + next_w) * 0.5f) {
-            return pos;
+            hit.index = mapped ? line->source_of_drawn[pos] : line->begin + pos;
+            return hit;
         }
         pos = next;
         measured_w = next_w;
     }
-    return line->end;
+    hit.index = mapped ? line->source_of_drawn.back() : line->end;
+    return hit;
 }
 
 std::size_t text_index_for_click(ecs::World& world, const Element& element, float x, float y, WindowId window) {
     if (element.kind == ElementKind::Label) {
-        return label_index_for_click(world, element, x, y, window);
+        return label_pointer_hit(world, element, x, y, window).index;
     }
     return caret_index_for_click(world, element, x, window);
 }
@@ -448,8 +504,16 @@ void place_text_selection(ecs::World& world, WindowId window, ecs::Entity entity
         element.caret_position = element.text.size();
         gesture = TextSelectGesture{TextSelectUnit::All, 0, element.text.size()};
     } else if (clicks >= 2) {
-        const std::size_t index = text_index_for_click(world, element, x, y, window);
-        const TextRange word = word_range(element.text, index);
+        std::size_t index = 0;
+        TextRange word;
+        if (element.kind == ElementKind::Label) {
+            const LabelPointerHit hit = label_pointer_hit(world, element, x, y, window);
+            index = hit.index;
+            word = hit.formula ? *hit.formula : label_word_range(element.text, index);
+        } else {
+            index = caret_index_for_click(world, element, x, window);
+            word = word_range(element.text, index);
+        }
         if (kept) {
             const std::size_t edge = index >= *kept ? word.end : word.begin;
             element.selection_anchor = *kept;
@@ -481,13 +545,24 @@ void extend_text_selection(ecs::World& world, Element& element, float x, float y
     if (unit == TextSelectUnit::All) {
         return;
     }
-    const std::size_t index = text_index_for_click(world, element, x, y, window);
-    if (unit == TextSelectUnit::Word && it != gestures.end()) {
-        const TextRange word = word_range(element.text, index);
-        element.selection_anchor = std::min(it->second.origin_begin, word.begin);
-        element.caret_position = std::max(it->second.origin_end, word.end);
+    if (element.kind == ElementKind::Label) {
+        const LabelPointerHit hit = label_pointer_hit(world, element, x, y, window);
+        if (unit == TextSelectUnit::Word && it != gestures.end()) {
+            const TextRange word = hit.formula ? *hit.formula : label_word_range(element.text, hit.index);
+            element.selection_anchor = std::min(it->second.origin_begin, word.begin);
+            element.caret_position = std::max(it->second.origin_end, word.end);
+        } else {
+            element.caret_position = hit.index;
+        }
     } else {
-        element.caret_position = index;
+        const std::size_t index = caret_index_for_click(world, element, x, window);
+        if (unit == TextSelectUnit::Word && it != gestures.end()) {
+            const TextRange word = word_range(element.text, index);
+            element.selection_anchor = std::min(it->second.origin_begin, word.begin);
+            element.caret_position = std::max(it->second.origin_end, word.end);
+        } else {
+            element.caret_position = index;
+        }
     }
     element.caret_blink_timer = 0.0f;
 }
@@ -1193,6 +1268,11 @@ void handle_key(ecs::World& world, KeyCode key, bool down, bool /*repeat*/, Wind
         }
         if (!shift && has_selection) {
             element->caret_position = selection_start;
+        } else if (const std::optional<std::size_t> jumped =
+                           element->kind == ElementKind::Label
+                                   ? formula_step(element->text, element->caret_position, true)
+                                   : std::nullopt) {
+            element->caret_position = *jumped;
         } else {
             element->caret_position = prev_utf8_char(element->text, element->caret_position);
         }
@@ -1206,6 +1286,11 @@ void handle_key(ecs::World& world, KeyCode key, bool down, bool /*repeat*/, Wind
         }
         if (!shift && has_selection) {
             element->caret_position = selection_end;
+        } else if (const std::optional<std::size_t> jumped =
+                           element->kind == ElementKind::Label
+                                   ? formula_step(element->text, element->caret_position, false)
+                                   : std::nullopt) {
+            element->caret_position = *jumped;
         } else {
             element->caret_position = next_utf8_char(element->text, element->caret_position);
         }
