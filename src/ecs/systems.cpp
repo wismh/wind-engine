@@ -549,13 +549,48 @@ void run_sprite_animations(ecs::World& world) {
 void run_particles(ecs::World& world) {
     const float dt = world.ctx<Time>().delta_time;
     auto view = world.view<render::ParticleEmitter>();
+
+    bool any_collisions = false;
+    for (ecs::Entity entity : view) {
+        if (view.get<render::ParticleEmitter>(entity).collision_enabled) {
+            any_collisions = true;
+            break;
+        }
+    }
+
+    std::vector<render::ParticleCollider> colliders;
+    if (any_collisions) {
+        world.view<Transform, BoxCollider>().each([&](const Transform& transform, const BoxCollider& box) {
+            if (!box.is_trigger) {
+                colliders.push_back(render::ParticleCollider{
+                        .shape = render::ParticleCollider::Shape::Box,
+                        .position = transform.position,
+                        .box_size = box.size,
+                        .circle_radius = 0.0f,
+                        .layer = box.layer,
+                });
+            }
+        });
+        world.view<Transform, CircleCollider>().each([&](const Transform& transform, const CircleCollider& circle) {
+            if (!circle.is_trigger) {
+                colliders.push_back(render::ParticleCollider{
+                        .shape = render::ParticleCollider::Shape::Circle,
+                        .position = transform.position,
+                        .box_size = glm::vec3{0.0f},
+                        .circle_radius = circle.radius,
+                        .layer = circle.layer,
+                });
+            }
+        });
+    }
+
     for (ecs::Entity entity : view) {
         auto& emitter = view.get<render::ParticleEmitter>(entity);
         glm::mat4 model{1.0f};
         if (const auto* transform = world.try_get<Transform>(entity)) {
             model = model_matrix(*transform);
         }
-        render::update_emitter(emitter, dt, model);
+        render::update_emitter(emitter, dt, model, colliders);
     }
 }
 
