@@ -77,7 +77,7 @@ function(engine_require_file rel)
         message(FATAL_ERROR
             "Missing ${rel} (git submodule not cloned?). From the engine repo run:\n"
             "  git submodule update --init --recursive\n"
-            "WINDOW deps: external/SDL3, external/glad, external/nanovg, external/boost_di.\n"
+            "WINDOW deps: external/SDL3, external/glad, external/nanovg.\n"
             "AUDIO deps: external/SDL3, external/SDL_mixer.\n"
             "See external/README.md")
     endif()
@@ -422,7 +422,6 @@ endfunction()
 if(ENGINE_WITH_WINDOW)
     engine_add_sdl3()
     engine_require_file(external/nanovg/src/nanovg.c)
-    engine_require_file(external/boost_di/include/boost/di.hpp)
 
     if(NOT ENGINE_WITH_GLES)
         if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/glad/CMakeLists.txt")
@@ -458,9 +457,6 @@ if(ENGINE_WITH_WINDOW)
         "${CMAKE_CURRENT_SOURCE_DIR}/src/core/sdl_fatal_error.cpp")
     target_compile_definitions(engine PUBLIC ENGINE_WITH_WINDOW=1)
     target_include_directories(engine
-        PUBLIC
-            "${CMAKE_CURRENT_SOURCE_DIR}/external/boost_di/include"
-            "${CMAKE_CURRENT_SOURCE_DIR}/external/boost_di/extension/include"
         PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}/src/render/opengl"
             "${CMAKE_CURRENT_SOURCE_DIR}/external/nanovg/src")

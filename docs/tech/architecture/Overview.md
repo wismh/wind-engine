@@ -50,7 +50,7 @@ Windowed host: [[include.engine.core.engine.h|Engine&lt;GameT&gt;]] in [[include
 
 | Module                | Owns                                                     | Does not own                     |
 | --------------------- | -------------------------------------------------------- | -------------------------------- |
-| [[modules/Core]]      | Loop, time, input poll, DI, fatal errors, log            | Gameplay, GPU objects            |
+| [[modules/Core]]      | Loop, time, input poll, composition root, fatal errors, log | Gameplay, GPU objects            |
 | [[modules/ECS]]       | Entities, views, schedules, events, camera, AABB physics | OpenGL, XML                      |
 | [[modules/Resources]] | `.meta`, catalog, codegen, `get`                         | Painting pixels                  |
 | [[modules/Render]]    | Materials, commands, sort, OpenGL/NanoVG backends        | Asset GUIDs, UI bind names       |

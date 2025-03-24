@@ -45,9 +45,8 @@ public:
 
     // Ungated: valid whenever a slot for `id` exists at all, regardless of SDL/GL liveness. The
     // primary slot always exists (see constructor), so these are non-null for kPrimaryWindow from
-    // the moment the manager is constructed — EngineRuntime needs that to bind
-    // commands_ptr()/canvas_ptr() into its DI graph, which happens before create_window() is ever
-    // called (Engine<GameT>::init(), engine.h).
+    // the moment the manager is constructed — Engine::init reads commands()/canvas() before
+    // create_window() runs.
     [[nodiscard]] std::shared_ptr<render::OpenGLCanvas> canvas_ptr(WindowId id);
     [[nodiscard]] std::shared_ptr<render::CommandBuffer> commands_ptr(WindowId id);
 
@@ -55,6 +54,7 @@ public:
     // Impl-construction time, before any window exists — its address must stay valid for
     // WindowManager's whole lifetime, which is exactly what the permanent primary slot guarantees.
     [[nodiscard]] WindowSystem& primary_window() noexcept;
+    [[nodiscard]] const WindowSystem& primary_window() const noexcept;
 
     // Draws + swaps every live window (OpenGLCanvas::draw() already swaps at the end).
     void draw_all();
@@ -65,9 +65,8 @@ public:
     [[nodiscard]] std::optional<WindowId> find_by_sdl_id(SDL_WindowID sdl_id) const;
 
     // Visits every live (window.window() != nullptr) window other than kPrimaryWindow — mirrors
-    // draw_all()'s liveness check. Used by EngineRuntime::tick_loop() to backfill a freshly opened
-    // secondary window's WindowSizes entry before that window's first real resize
-    // event, if any, arrives.
+    // draw_all()'s liveness check. SdlGlPresentation::poll uses this to backfill a freshly opened
+    // secondary window's WindowSizes entry before that window's first real resize event, if any, arrives.
     void for_each_secondary_window(const std::function<void(WindowId, WindowSystem&)>& fn);
 
     // Visits every live (window.window() != nullptr) window, including kPrimaryWindow.
@@ -76,8 +75,7 @@ public:
 
     // Called on every WM_TIMER seen while a Windows modal move/size loop is active — a no-op on
     // other platforms and a no-op here until someone sets it.
-    // EngineRuntime::begin_loop() supplies the actual callback once its own loop state
-    // (IGame&, FixedStepClock, ecs::World&) exists.
+    // SdlGlPresentation::attach_loop() supplies the callback once GameLoop is running.
     void set_modal_loop_tick_callback(std::function<void()> callback);
 
     [[nodiscard]] const std::function<void()>& modal_loop_tick_callback() const noexcept {

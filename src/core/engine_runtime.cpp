@@ -1,178 +1,16 @@
 #include <engine/core/engine_runtime.h>
 
-#include "render/opengl/clipboard.h"
-#include "render/opengl/desktop_overlay_policy.h"
-#include "render/opengl/opengl_runtime.h"
-#include "render/opengl/window_control.h"
-#include "render/opengl/window_manager.h"
+#include "core/game_loop.h"
+#include "render/opengl/sdl_gl_presentation.h"
 
-#include <engine/audio/audio_system.h>
-#include <engine/builtin_ids.h>
-#include <engine/core/app_lifecycle.h>
-#include <engine/core/fixed_step.h>
-#include <engine/core/key_code.h>
 #include <engine/core/platform.h>
-#include <engine/core/time.h>
-#include <engine/core/web_loop.h>
-#include <engine/ecs/events.h>
-#include <engine/ecs/world.h>
 #include <engine/resources/font.h>
-#include <engine/resources/meta.h>
-#include <engine/ui/canvas.h>
-
-#include "ui/painter.h"
-
-#include <chrono>
-#include <cstdint>
-#include <fstream>
-#include <memory>
-#include <optional>
-#include <string>
-#include <system_error>
-#include <utility>
-#include <vector>
-
-#if defined(__EMSCRIPTEN__)
-#include <emscripten.h>
-#endif
 
 namespace engine {
-namespace {
-
-MouseButton mouse_button_from_sdl(Uint8 button) {
-    switch (button) {
-        case SDL_BUTTON_LEFT:
-            return MouseButton::Left;
-        case SDL_BUTTON_MIDDLE:
-            return MouseButton::Middle;
-        case SDL_BUTTON_RIGHT:
-            return MouseButton::Right;
-        default:
-            return MouseButton::None;
-    }
-}
-
-// Starts/stops each window's SDL text-input (IME/composition) session to match whether
-// UiFocusState currently has a focused element for it. Without this, SDL_EVENT_TEXT_INPUT never
-// fires — a focused TextInput blinks its caret (that's driven by UiFocusState alone) but typing
-// produces nothing, since regular key presses reach the app as SDL_EVENT_KEY_DOWN/UP either way
-// and only SDL_StartTextInput's composition session turns those into SDL_EVENT_TEXT_INPUT.
-void sync_text_input_activation(WindowManager& windows, ecs::World& world) {
-    const auto& focus_state = world.ctx<ui::UiFocusState>();
-    windows.for_each_window([&](WindowId id, WindowSystem& window) {
-        const auto it = focus_state.focused.find(id);
-        const bool wants_text = it != focus_state.focused.end() && it->second.element != nullptr;
-        if (wants_text != window.is_text_input_active()) {
-            if (wants_text) {
-                window.start_text_input();
-            } else {
-                window.stop_text_input();
-            }
-        }
-    });
-}
-
-#if defined(__ANDROID__)
-bool copy_sdl_io_file(const char* sdl_path, const std::filesystem::path& dest) {
-    SDL_IOStream* io = SDL_IOFromFile(sdl_path, "rb");
-    if (io == nullptr) {
-        return false;
-    }
-    const Sint64 size = SDL_GetIOSize(io);
-    if (size < 0) {
-        SDL_CloseIO(io);
-        return false;
-    }
-    std::vector<char> buf(static_cast<std::size_t>(size));
-    if (size > 0 && SDL_ReadIO(io, buf.data(), static_cast<std::size_t>(size)) != static_cast<std::size_t>(size)) {
-        SDL_CloseIO(io);
-        return false;
-    }
-    SDL_CloseIO(io);
-    std::error_code ec;
-    std::filesystem::create_directories(dest.parent_path(), ec);
-    if (ec) {
-        return false;
-    }
-    std::ofstream out(dest, std::ios::binary);
-    if (!out) {
-        return false;
-    }
-    if (!buf.empty()) {
-        out.write(buf.data(), static_cast<std::streamsize>(buf.size()));
-    }
-    return static_cast<bool>(out);
-}
-
-// This SDL3 build has no Android-specific SDL_EnumerateDirectory/SDL_GetPathInfo backend
-// (see external/SDL3/src/filesystem/android/SDL_sysfilesystem.c — only GetBasePath/GetPrefPath
-// are implemented there), so directory enumeration over the packaged "assets://" tree never
-// finds anything on Android; it silently walks zero entries. SDL_IOFromFile() by exact name
-// does reach the APK's AAssetManager, though. So instead of enumerating, stage each asset the
-// cooked catalog already lists by its known relative path.
-void stage_catalog_assets(
-        const std::filesystem::path& catalog_file, const std::string& sdl_prefix, const std::filesystem::path& dest_root) {
-    std::ifstream in(catalog_file, std::ios::binary);
-    if (!in) {
-        return;
-    }
-    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    const auto parsed = parse_cooked_catalog(text);
-    if (!parsed) {
-        return;
-    }
-    for (const CatalogEntry& entry : parsed->entries()) {
-        copy_sdl_io_file((sdl_prefix + entry.relative_path).c_str(), dest_root / entry.relative_path);
-    }
-}
-
-std::filesystem::path android_runtime_assets_root(const std::filesystem::path& base) {
-    const char* storage = SDL_GetAndroidInternalStoragePath();
-    const std::filesystem::path internal = storage != nullptr ? std::filesystem::path{storage} : std::filesystem::path{};
-    const std::filesystem::path dest = default_assets_root(internal, Platform::Android);
-
-    std::error_code ec;
-    if (std::filesystem::exists(dest / "engine" / "catalog.toml", ec)) {
-        return dest;
-    }
-
-    const std::string generic = base.generic_string();
-    if (!base.empty() && generic.find("assets:") == std::string::npos && generic != "." && generic != "./") {
-        const std::filesystem::path src = default_assets_root(base, Platform::Native);
-        if (std::filesystem::is_directory(src, ec)) {
-            stage_android_assets(src, dest);
-            return dest;
-        }
-    }
-
-    copy_sdl_io_file("catalog.toml", dest / "catalog.toml");
-    copy_sdl_io_file("engine/catalog.toml", dest / "engine" / "catalog.toml");
-    stage_catalog_assets(dest / "catalog.toml", "", dest);
-    stage_catalog_assets(dest / "engine" / "catalog.toml", "engine/", dest / "engine");
-    return dest;
-}
-#endif
-
-}
 
 struct EngineRuntime::Impl {
-    std::shared_ptr<render::OpenGLFactory> factory = std::make_shared<render::OpenGLFactory>();
-    std::shared_ptr<render::OpenGLRenderBackend> backend = std::make_shared<render::OpenGLRenderBackend>();
-    // Owns the primary window plus any secondary ones opened later. The primary slot
-    // exists from construction (see WindowManager's constructor) so window_control below — and
-    // commands_ptr()/canvas_ptr() further down — have something valid to bind to even though no
-    // real window exists yet at this point in Engine<GameT>::init()'s DI graph construction.
-    WindowManager windows{*backend};
-    DesktopOverlayPolicy overlay_policy;
-    std::shared_ptr<WindowControlImpl> window_control = std::make_shared<WindowControlImpl>(windows, overlay_policy);
-    bool video_inited = false;
-    IGame* loop_game = nullptr;
-    InputSystem* loop_input = nullptr;
-    IAudioSystem* loop_audio = nullptr;
-    std::unique_ptr<FixedStepClock> loop_clock;
-    std::chrono::steady_clock::time_point loop_last{};
-    std::function<void()> host_dispose;
-    LoopShutdown loop_shutdown;
+    std::unique_ptr<IPresentation> presentation = make_sdl_gl_presentation();
+    GameLoop loop;
 };
 
 EngineRuntime::EngineRuntime() : impl_(std::make_unique<Impl>()) {}
@@ -182,510 +20,74 @@ EngineRuntime::~EngineRuntime() {
 }
 
 bool EngineRuntime::init_video() {
-    if (impl_->video_inited) {
-        return true;
-    }
-    if (!SDL_Init(SDL_INIT_VIDEO)) {
-        return false;
-    }
-    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
-    SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
-    // Without this, a click on a background window that also focuses it is swallowed by SDL at
-    // the OS level (its documented default is disabled) — no SDL_EVENT_MOUSE_BUTTON_DOWN fires for
-    // that click, so the first click into any non-focused window (primary or secondary) appears to
-    // do nothing until the user clicks again.
-    SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
-    impl_->video_inited = true;
-    return true;
+    return impl_->presentation->init_video();
 }
 
 bool EngineRuntime::create_window(const WindowDesc& desc) {
-    return impl_->windows.create_primary_window(desc);
-}
-
-std::optional<WindowId> EngineRuntime::open_window(const WindowDesc& desc) {
-    const auto id = impl_->windows.create_window(desc);
-    if (id.has_value() && impl_->loop_game != nullptr) {
-        impl_->overlay_policy.sync_modal_loop_hook(impl_->windows, [this] { reentrant_tick(); });
-    }
-    return id;
-}
-
-void EngineRuntime::close_window(WindowId id) {
-    impl_->windows.destroy_window(id);
-    if (impl_->loop_game != nullptr) {
-        impl_->overlay_policy.sync_modal_loop_hook(impl_->windows, [this] { reentrant_tick(); });
-    }
+    return impl_->presentation->create_primary(desc);
 }
 
 void EngineRuntime::set_window_icon(const render::TextureDesc& desc) {
-    impl_->windows.primary_window().set_icon(desc);
+    impl_->presentation->set_icon(desc);
 }
 
 bool EngineRuntime::add_font_for_window(WindowId id, AssetId asset, const Font& font) {
-    render::OpenGLCanvas* const canvas = impl_->windows.canvas(id);
-    WindowSystem* const window = impl_->windows.window(id);
-    if (canvas == nullptr || window == nullptr) {
-        return false;
-    }
-    // Whatever GL context was left current by the *previous* frame's draw_all() (window draw
-    // order there is unordered) is not guaranteed to be this window's own — NanoVG's
-    // add_font/load_ui_font need the right context bound before they touch GL.
-    SDL_GL_MakeCurrent(window->window(), canvas->native_context());
-    if (asset == builtin::font_ui) {
-        return canvas->load_ui_font(font);
-    }
-    return canvas->add_font(asset, font);
+    return impl_->presentation->add_font(id, asset, font);
 }
 
 bool EngineRuntime::add_image_for_window(WindowId id, AssetId asset, const render::TextureDesc& desc) {
-    render::OpenGLCanvas* const canvas = impl_->windows.canvas(id);
-    WindowSystem* const window = impl_->windows.window(id);
-    if (canvas == nullptr || window == nullptr) {
-        return false;
-    }
-    SDL_GL_MakeCurrent(window->window(), canvas->native_context());
-    return canvas->add_image(asset, desc);
+    return impl_->presentation->add_image(id, asset, desc);
 }
 
 void EngineRuntime::shutdown() {
-    if (impl_ == nullptr) {
+    if (impl_ == nullptr || impl_->presentation == nullptr) {
         return;
     }
-    impl_->windows.shutdown();
-    if (impl_->video_inited) {
-        SDL_Quit();
-        impl_->video_inited = false;
-    }
+    impl_->presentation->shutdown();
 }
 
 int EngineRuntime::run(IGame& game, InputSystem& input, IAudioSystem* audio, std::function<void()> host_dispose) {
-    impl_->host_dispose = std::move(host_dispose);
-    begin_loop(game, input, audio);
-
-    const MainLoopPolicy policy{default_loop_kind()};
-#if defined(__EMSCRIPTEN__)
-    if (policy.uses_request_animation_frame()) {
-        emscripten_set_main_loop_arg(&EngineRuntime::main_loop_thunk, this, 0, 1);
-        return 0;
-    }
-#else
-    (void)policy;
-#endif
-
-    ApplicationState& app = game.world().ctx<ApplicationState>();
-    while (app.running) {
-        tick_loop();
-    }
-    end_loop();
-    return 0;
-}
-
-void EngineRuntime::begin_loop(IGame& game, InputSystem& input, IAudioSystem* audio) {
-    impl_->loop_game = &game;
-    impl_->loop_input = &input;
-    impl_->loop_audio = audio;
-    impl_->loop_clock = std::make_unique<FixedStepClock>(game.world().ctx<Time>(), game.world().ctx<ApplicationState>());
-    impl_->loop_last = std::chrono::steady_clock::now();
-    impl_->loop_shutdown = LoopShutdown{};
-
-    // Mirrors Host's constructor (src/core/host.cpp): a secondary window's WindowSizes entry gets
-    // backfilled every tick_loop() (see the loop below), but the primary window's WindowSizes entry
-    // had no equivalent — it stayed {0,0} until the first real SDL_EVENT_WINDOW_RESIZED, which a
-    // fixed-size primary window that's never resized at startup never fires. That left
-    // FillWindow/ScaleWithScreenSize canvases sized to {0,0} for on_start() and every frame before
-    // any resize. write_window_size() reads the just-created primary window's real drawable size.
-    write_window_size(game.world(), false);
-    game.world().ctx<ui::UiLayoutPainters>().resolve = [this](WindowId id) -> ui::IUiPainter* {
-        render::OpenGLCanvas* const canvas = impl_->windows.canvas(id);
-        if (canvas == nullptr) {
-            return nullptr;
-        }
-        canvas->make_current();
-        return canvas->ui_painter();
-    };
-    game.on_start();
-    ui::apply_canvas_fit(game.world());
-    game.world().ctx<ApplicationState>().running = true;
-
-    // DesktopOverlayPolicy registers reentrant_tick() with WindowManager's Win32 modal-loop hook
-    // only when an active overlay is present, keeping the core loop standard and unhooked for normal games.
-    impl_->overlay_policy.sync_modal_loop_hook(impl_->windows, [this] { reentrant_tick(); });
-}
-
-void EngineRuntime::tick_loop() {
-    if (impl_->loop_game == nullptr || impl_->loop_input == nullptr || impl_->loop_clock == nullptr) {
-        return;
-    }
-    IGame& game = *impl_->loop_game;
-    ecs::World& world = game.world();
-    Time& time = world.ctx<Time>();
-    ApplicationState& app = world.ctx<ApplicationState>();
-
-    const auto now = std::chrono::steady_clock::now();
-    const float real_dt = std::chrono::duration<float>(now - impl_->loop_last).count();
-    impl_->loop_last = now;
-
-    world.flush_events();
-    poll_events(world, *impl_->loop_input, app);
-
-    // DesktopOverlayPolicy polls OS cursor for transparent click-through windows if an overlay is active.
-    impl_->overlay_policy.poll_cursor(impl_->windows, *impl_->loop_input);
-
-    // Backfills a WindowSizes entry for any secondary window that has none yet — a
-    // freshly opened window has no drawable size in ui::WindowSizes until its first real
-    // SDL_EVENT_WINDOW_RESIZED/PIXEL_SIZE_CHANGED event, which isn't guaranteed to fire
-    // immediately after creation; without this, a FillWindow/ScaleWithScreenSize canvas targeting
-    // it sizes itself to {0,0} for however many frames that takes. Only fills in *missing*
-    // entries — never overwrites one a real resize event already kept current. Lives here (not in
-    // WindowControlImpl/WindowManager) to keep the rendering/OS layer free of ecs::World& —
-    // this is the one place in EngineRuntime that already has both `impl_->windows` and
-    // `world` in scope.
-    {
-        ui::WindowSizes& sizes = world.ctx<ui::WindowSizes>();
-        bool backfilled = false;
-        impl_->windows.for_each_secondary_window([&](WindowId id, WindowSystem& window) {
-            if (!sizes.sizes.contains(id)) {
-                const glm::ivec2 size = window.drawable_size();
-                sizes.sizes[id] = ui::WindowSize{size.x, size.y};
-                backfilled = true;
-            }
-        });
-        if (backfilled) {
-            ui::apply_canvas_fit(world);
-        }
-    }
-
-    ui::begin_frame(world);
-
-    const int steps = impl_->loop_clock->advance(real_dt);
-    if (impl_->loop_audio != nullptr) {
-        impl_->loop_audio->update(time.delta_time);
-    }
-    for (int i = 0; i < steps; ++i) {
-        game.on_fixed_update();
-    }
-    game.on_update();
-    impl_->overlay_policy.update_click_through(impl_->windows, world.ctx<ui::MouseConsumed>());
-    sync_text_input_activation(impl_->windows, world);
-    impl_->windows.draw_all();
-}
-
-void EngineRuntime::reentrant_tick() {
-    // Called from WindowManager's Win32 modal-loop hook (window_manager.cpp), itself firing on
-    // WM_TIMER (~10ms, USER_TIMER_MINIMUM) while the user is dragging or resizing a window — the outer tick_loop() -> poll_events() -> SDL_PollEvent() call further up this
-    // exact call stack (single thread, genuinely nested/reentrant, not concurrent) is paused
-    // inside the OS's own modal move/size loop for as long as that continues. Deliberately not
-    // identical to tick_loop():
-    //
-    //   - No world.flush_events() here. Events<T>::update() (ecs/events.h) ages previous_ into
-    //     oblivion and promotes current_ into previous_; the outer tick_loop() already called it
-    //     once for this real frame (the line right before poll_events()) before pausing here, so
-    //     calling it *again* would clear out previous_ contents the outer frame's own systems —
-    //     which haven't run yet; that happens once poll_events() eventually returns — are still
-    //     depending on reading once execution resumes there. This reentrant tick doesn't need its
-    //     own flush anyway: EventReader<T>::begin()/end() (events.h) index into previous_/current_
-    //     fresh at every call rather than requiring a prior update(), so a system here that sends
-    //     an event and a later system (same reentrant tick, or the next one) that reads it via a
-    //     fresh EventReader/EventCursor construction sees it correctly with no flush involved —
-    //     flushing is only about *aging across frame boundaries*, not same-tick delivery.
-    //   - No poll_events(). Real OS input isn't flowing through SDL_PollEvent right now anyway —
-    //     that's the entire reason this hook exists — and this callback receives Windows messages
-    //     directly, so there's nothing for it to poll.
-    //   - No secondary-window WindowSizes backfill (tick_loop()'s block right after
-    //     poll_events()) — a cosmetic one-frame-late edge case if a new window happens to open in
-    //     the exact same frame a drag starts, not worth the extra complexity here. (UI font/image
-    //     residency doesn't need an equivalent here: run_ui_render, ecs/systems.cpp, ensures both
-    //     every Frame regardless of which loop called it.)
-    //
-    // real_dt is measured against the exact same impl_->loop_last tick_loop() itself advances, and
-    // updated every call here too — so no matter how many times this fires during one drag,
-    // tick_loop()'s own real_dt once the drag ends and it resumes is just the small remainder since
-    // the *last* reentrant_tick() call, never a multi-second "catch-up burst". FixedStepClock's own
-    // accumulator (fixed_step.cpp) independently clamps any single call's real_dt to 0.25s and caps
-    // steps at 8 (discarding, not deferring, any leftover past that) regardless of caller, so even
-    // an unusually long gap between two calls can't run away either.
-    if (impl_->loop_game == nullptr || impl_->loop_clock == nullptr) {
-        return;
-    }
-    IGame& game = *impl_->loop_game;
-    ecs::World& world = game.world();
-    Time& time = world.ctx<Time>();
-
-    const auto now = std::chrono::steady_clock::now();
-    const float real_dt = std::chrono::duration<float>(now - impl_->loop_last).count();
-    impl_->loop_last = now;
-
-    ui::begin_frame(world);
-
-    const int steps = impl_->loop_clock->advance(real_dt);
-    if (impl_->loop_audio != nullptr) {
-        impl_->loop_audio->update(time.delta_time);
-    }
-    for (int i = 0; i < steps; ++i) {
-        game.on_fixed_update();
-    }
-    game.on_update();
-    impl_->overlay_policy.update_click_through(impl_->windows, world.ctx<ui::MouseConsumed>());
-    sync_text_input_activation(impl_->windows, world);
-    impl_->windows.draw_all();
-}
-
-void EngineRuntime::end_loop() {
-    impl_->overlay_policy.sync_modal_loop_hook(impl_->windows, nullptr);
-    IGame* const game = impl_->loop_game;
-    if (game != nullptr) {
-        game->world().ctx<ui::UiLayoutPainters>().resolve = {};
-    }
-    impl_->loop_game = nullptr;
-    impl_->loop_input = nullptr;
-    impl_->loop_audio = nullptr;
-    impl_->loop_clock.reset();
-
-    const std::function<void()> on_quit = game == nullptr ? std::function<void()>{}
-                                                          : std::function<void()>{[game] { game->on_quit(); }};
-    impl_->loop_shutdown.complete(on_quit, impl_->host_dispose);
-}
-
-void EngineRuntime::main_loop_thunk(void* self) {
-    auto* runtime = static_cast<EngineRuntime*>(self);
-    if (runtime == nullptr || runtime->impl_ == nullptr) {
-#if defined(__EMSCRIPTEN__)
-        emscripten_cancel_main_loop();
-#endif
-        return;
-    }
-    runtime->tick_loop();
-    if (runtime->impl_->loop_game == nullptr) {
-#if defined(__EMSCRIPTEN__)
-        emscripten_cancel_main_loop();
-#endif
-        return;
-    }
-    if (!runtime->impl_->loop_game->world().ctx<ApplicationState>().running) {
-#if defined(__EMSCRIPTEN__)
-        emscripten_cancel_main_loop();
-#endif
-        runtime->end_loop();
-    }
+    return impl_->loop.run(*impl_->presentation, game, input, audio, std::move(host_dispose));
 }
 
 render::CommandBuffer& EngineRuntime::commands() {
-    return *impl_->windows.commands_ptr(kPrimaryWindow);
+    return impl_->presentation->commands();
 }
 
 render::ICanvas& EngineRuntime::canvas() {
-    return *impl_->windows.canvas_ptr(kPrimaryWindow);
+    return impl_->presentation->canvas();
 }
 
 render::CommandBuffer* EngineRuntime::commands_for_window(WindowId id) {
-    return impl_->windows.commands(id);
+    return impl_->presentation->commands_for(id);
 }
 
 render::IGraphicFactory& EngineRuntime::factory() {
-    return *impl_->factory;
+    return impl_->presentation->factory();
 }
 
 render::IRenderBackend& EngineRuntime::backend() {
-    return *impl_->backend;
+    return impl_->presentation->backend();
 }
 
-std::shared_ptr<render::CommandBuffer> EngineRuntime::commands_ptr() const {
-    return impl_->windows.commands_ptr(kPrimaryWindow);
-}
-
-std::shared_ptr<render::ICanvas> EngineRuntime::canvas_ptr() const {
-    return impl_->windows.canvas_ptr(kPrimaryWindow);
-}
-
-std::shared_ptr<render::IGraphicFactory> EngineRuntime::factory_ptr() const {
-    return impl_->factory;
-}
-
-std::shared_ptr<render::IRenderBackend> EngineRuntime::backend_ptr() const {
-    return impl_->backend;
-}
-
-std::shared_ptr<IWindowControl> EngineRuntime::window_control_ptr() const {
-    return impl_->window_control;
+IWindowControl& EngineRuntime::window_control() {
+    return impl_->presentation->window_control();
 }
 
 void* EngineRuntime::native_window() const {
-    return impl_->windows.primary_window().window();
-}
-
-glm::ivec2 EngineRuntime::drawable_size() const {
-    return impl_->windows.primary_window().drawable_size();
+    return impl_->presentation->native_window();
 }
 
 std::filesystem::path EngineRuntime::base_path() const {
-    const char* base = SDL_GetBasePath();
-    if (base == nullptr) {
-        return {};
-    }
-    return std::filesystem::path(base);
+    return impl_->presentation->base_path();
 }
 
 std::filesystem::path EngineRuntime::assets_root() const {
-#if defined(__ANDROID__)
-    return android_runtime_assets_root(base_path());
-#endif
-    // Do not drop an empty SDL_GetBasePath(): on web that still maps to /assets
-    // (web loop: empty SDL_GetBasePath still maps to /assets). Native empty base stays empty via the helper.
-    return default_assets_root(base_path());
+    return runtime_assets_root(base_path());
 }
 
 void EngineRuntime::write_window_size(ecs::World& world, bool send_event) {
-    const glm::ivec2 size = drawable_size();
-    world.ctx<ui::WindowSizes>().sizes[kPrimaryWindow] = ui::WindowSize{size.x, size.y};
-    if (send_event) {
-        ecs::EventWriter<ui::WindowResizeEvent>{world}.send(
-                ui::WindowResizeEvent{.window = kPrimaryWindow, .width = size.x, .height = size.y});
-    }
-    ui::apply_canvas_fit(world);
-}
-
-void EngineRuntime::poll_events(ecs::World& world, InputSystem& input, ApplicationState& app) {
-    // Installed once, lazily, the first time a world with SDL actually available reaches here —
-    // simpler than threading this through Engine<GameT>::init()'s DI graph, and a clipboard
-    // function pointer never changes once set, unlike sync_text_input_activation() below which
-    // re-syncs every tick because focus does change.
-    if (!world.ctx<ui::UiClipboard>().set_text) {
-        world.ctx<ui::UiClipboard>() = ui::UiClipboard{
-                .set_text = &sdl_clipboard_set_text,
-                .get_text = &sdl_clipboard_get_text,
-        };
-    }
-    SDL_Event event{};
-    while (SDL_PollEvent(&event)) {
-        switch (event.type) {
-            case SDL_EVENT_QUIT:
-                app.quit();
-                break;
-            case SDL_EVENT_WILL_ENTER_BACKGROUND:
-            case SDL_EVENT_DID_ENTER_BACKGROUND:
-                apply_app_lifecycle(app, AppLifecycleEvent::WillEnterBackground);
-                break;
-            case SDL_EVENT_WILL_ENTER_FOREGROUND:
-            case SDL_EVENT_DID_ENTER_FOREGROUND:
-                apply_app_lifecycle(app, AppLifecycleEvent::DidEnterForeground);
-                break;
-            case SDL_EVENT_TERMINATING:
-                apply_app_lifecycle(app, AppLifecycleEvent::Terminating);
-                break;
-            case SDL_EVENT_WINDOW_RESIZED:
-            case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED: {
-                // write_window_size() always meant "the primary window's size" — resolving which
-                // window actually resized (rather than assuming primary unconditionally).
-                // Defaulting to kPrimaryWindow on a failed lookup is defensive (e.g. a
-                // stray event for a window that already closed).
-                const WindowId resized = impl_->windows.find_by_sdl_id(event.window.windowID).value_or(kPrimaryWindow);
-                if (resized == kPrimaryWindow) {
-                    write_window_size(world, true);
-                } else if (WindowSystem* secondary = impl_->windows.window(resized)) {
-                    const glm::ivec2 size = secondary->drawable_size();
-                    world.ctx<ui::WindowSizes>().sizes[resized] = ui::WindowSize{size.x, size.y};
-                    ecs::EventWriter<ui::WindowResizeEvent>{world}.send(
-                            ui::WindowResizeEvent{.window = resized, .width = size.x, .height = size.y});
-                    ui::apply_canvas_fit(world);
-                }
-                break;
-            }
-            case SDL_EVENT_WINDOW_CLOSE_REQUESTED: {
-                // Purely informational: the engine never quits or
-                // destroys anything here on its own. A game system reads WindowCloseRequestedEvent
-                // in its own schedule and decides (quit, confirm dialog, ignore, close just this
-                // window via IWindowControl::close_window).
-                const WindowId closed = impl_->windows.find_by_sdl_id(event.window.windowID).value_or(kPrimaryWindow);
-                ecs::EventWriter<ui::WindowCloseRequestedEvent>{world}.send(ui::WindowCloseRequestedEvent{.window = closed});
-                break;
-            }
-            case SDL_EVENT_KEY_DOWN:
-            case SDL_EVENT_KEY_UP: {
-                const auto code = static_cast<KeyCode>(static_cast<std::uint32_t>(event.key.scancode));
-                const WindowId window_id = impl_->windows.find_by_sdl_id(event.key.windowID).value_or(kPrimaryWindow);
-                input.handle_key(code, event.key.down, event.key.repeat, window_id);
-                if (event.key.down && !event.key.repeat && code == KeyCode::AcBack) {
-                    apply_android_back(app);
-                }
-                break;
-            }
-            case SDL_EVENT_TEXT_INPUT: {
-                const WindowId window_id = impl_->windows.find_by_sdl_id(event.text.windowID).value_or(kPrimaryWindow);
-                input.handle_text_input(event.text.text != nullptr ? event.text.text : "", window_id);
-                break;
-            }
-            case SDL_EVENT_MOUSE_BUTTON_DOWN:
-            case SDL_EVENT_MOUSE_BUTTON_UP: {
-                const WindowId window_id = impl_->windows.find_by_sdl_id(event.button.windowID).value_or(kPrimaryWindow);
-                WindowSystem* window = impl_->windows.window(window_id);
-                // a left-button-down inside the window's drag region starts a
-                // manually-implemented drag (WindowSystem::begin_drag_if_in_region()) instead of
-                // ever reaching the OS's native HTCAPTION/modal-loop path — consumed here exactly
-                // like the old OS-native drag consumed it (the app never saw a button-down for an
-                // HTCAPTION click either). The matching button-up ends it the same way.
-                if (window != nullptr) {
-                    if (event.button.down && event.button.button == SDL_BUTTON_LEFT &&
-                            window->begin_drag_if_in_region(glm::vec2{event.button.x, event.button.y})) {
-                        break;
-                    }
-                    if (!event.button.down && event.button.button == SDL_BUTTON_LEFT && window->is_dragging()) {
-                        window->end_drag();
-                        break;
-                    }
-                }
-                input.handle_mouse_button(window_id, mouse_button_from_sdl(event.button.button), event.button.down,
-                        glm::vec2{event.button.x, event.button.y}, event.button.clicks);
-                break;
-            }
-            case SDL_EVENT_MOUSE_MOTION: {
-                const WindowId window_id = impl_->windows.find_by_sdl_id(event.motion.windowID).value_or(kPrimaryWindow);
-                if (WindowSystem* window = impl_->windows.window(window_id); window != nullptr && window->is_dragging()) {
-                    window->update_drag();
-                    break;
-                }
-                input.handle_mouse_move(window_id, glm::vec2{event.motion.x, event.motion.y},
-                        glm::vec2{event.motion.xrel, event.motion.yrel});
-                break;
-            }
-            case SDL_EVENT_MOUSE_WHEEL: {
-                const WindowId window_id = impl_->windows.find_by_sdl_id(event.wheel.windowID).value_or(kPrimaryWindow);
-                float wheel_y = event.wheel.y;
-                if (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) {
-                    wheel_y = -wheel_y;
-                }
-                input.handle_mouse_wheel(window_id, glm::vec2{event.wheel.mouse_x, event.wheel.mouse_y}, wheel_y);
-                break;
-            }
-            case SDL_EVENT_WINDOW_FOCUS_LOST: {
-                // Safety net: if a button-up ever gets missed (e.g. focus stolen mid-drag
-                // by another app), don't leave the mouse captured and the window stuck "dragging"
-                // forever.
-                const WindowId window_id = impl_->windows.find_by_sdl_id(event.window.windowID).value_or(kPrimaryWindow);
-                if (WindowSystem* window = impl_->windows.window(window_id); window != nullptr && window->is_dragging()) {
-                    window->end_drag();
-                }
-                break;
-            }
-            case SDL_EVENT_FINGER_DOWN:
-            case SDL_EVENT_FINGER_UP: {
-                const glm::ivec2 size = drawable_size();
-                const glm::vec2 pos = denormalize_touch({event.tfinger.x, event.tfinger.y}, size);
-                input.handle_touch(static_cast<std::uint32_t>(event.tfinger.fingerID),
-                        event.type == SDL_EVENT_FINGER_DOWN, pos);
-                break;
-            }
-            case SDL_EVENT_FINGER_MOTION: {
-                const glm::ivec2 size = drawable_size();
-                const glm::vec2 pos = denormalize_touch({event.tfinger.x, event.tfinger.y}, size);
-                const glm::vec2 rel = denormalize_touch({event.tfinger.dx, event.tfinger.dy}, size);
-                input.handle_touch_move(static_cast<std::uint32_t>(event.tfinger.fingerID), pos, rel);
-                break;
-            }
-            default:
-                break;
-        }
-    }
+    impl_->presentation->publish_primary_size(world, send_event);
 }
 
 }

@@ -54,7 +54,7 @@ TEST(Platform, WebAssetsRootIsPackagedMount) {
 }
 
 TEST(Platform, EngineRuntimeEmptyBaseFollowsHelperNotShortCircuit) {
-    // EngineRuntime::assets_root() must call default_assets_root(base) even when
+    // runtime_assets_root() must call default_assets_root(base) even when
     // SDL_GetBasePath() is empty. A native `if (base.empty()) return {}` would
     // fatal Engine::init on Emscripten ("Assets root is missing").
     const std::filesystem::path empty_sdl_base{};
