@@ -486,6 +486,60 @@ std::size_t text_index_for_click(ecs::World& world, const Element& element, floa
     return caret_index_for_click(world, element, x, window);
 }
 
+// Window pixels moved into the space `painted_text_lines` were cached in. Those boxes are
+// layout * scale + offset with no scroll pan; paint shifts them later with apply_view. Walk the
+// same ancestor scroll and Viewport inverse `hit_test` uses, then scale back. The element's own
+// scroll is left out: its text is drawn before its own apply_view. A missing path keeps the
+// window point, so an unscrolled label is unchanged.
+glm::vec2 pointer_in_painted_space(ecs::World& world, WindowId window, const Element& element, float x, float y) {
+    const auto& focus_map = world.ctx<UiFocusState>().focused;
+    const auto focused = focus_map.find(window);
+    if (focused == focus_map.end() || focused->second.element != &element) {
+        return {x, y};
+    }
+    UiCanvas* canvas = world.try_get<UiCanvas>(focused->second.canvas_entity);
+    UiInstance* instance = world.try_get<UiInstance>(focused->second.canvas_entity);
+    if (canvas == nullptr || instance == nullptr) {
+        return {x, y};
+    }
+    const UiCanvasSpace space = canvas_layout_space(canvas->rect, canvas->fit, canvas->reference_size);
+    if (space.scale == 0.0f) {
+        return {x, y};
+    }
+    Element& root = instance->document.root;
+    if (&element == &root) {
+        return {x, y};
+    }
+    const std::vector<std::size_t> path = find_element_path(root, &element);
+    if (path.empty()) {
+        return {x, y};
+    }
+    glm::vec2 layout{(x - space.offset.x) / space.scale, (y - space.offset.y) / space.scale};
+    Element* node = &root;
+    for (const std::size_t step : path) {
+        if (node->kind == ElementKind::Viewport) {
+            layout = inverse_viewport_pointer(*node, layout);
+        } else if (node->scroll_x != 0.0f || node->scroll_y != 0.0f) {
+            layout.x += node->scroll_x;
+            layout.y += node->scroll_y;
+        }
+        Element* child = nullptr;
+        if ((step & 0x80000000ULL) != 0) {
+            const std::size_t index = step & ~0x80000000ULL;
+            if (index < node->generated_items.size()) {
+                child = &node->generated_items[index];
+            }
+        } else if (step < node->children.size()) {
+            child = &node->children[step];
+        }
+        if (child == nullptr) {
+            return {x, y};
+        }
+        node = child;
+    }
+    return {layout.x * space.scale + space.offset.x, layout.y * space.scale + space.offset.y};
+}
+
 void place_text_selection(ecs::World& world, WindowId window, ecs::Entity entity, Element& element, float x, float y,
         std::uint8_t clicks) {
     const bool shift = world.ctx<UiModifierState>().modifiers[window].shift && element.focused;
@@ -495,6 +549,7 @@ void place_text_selection(ecs::World& world, WindowId window, ecs::Entity entity
     }
     // set_focus clears selection_anchor, including on the element we are about to select.
     set_focus(world, window, entity, &element);
+    const glm::vec2 painted = pointer_in_painted_space(world, window, element, x, y);
 
     const bool select_all =
             clicks >= 3 || (element.kind == ElementKind::Label && element.user_select == UserSelect::All);
@@ -507,11 +562,11 @@ void place_text_selection(ecs::World& world, WindowId window, ecs::Entity entity
         std::size_t index = 0;
         TextRange word;
         if (element.kind == ElementKind::Label) {
-            const LabelPointerHit hit = label_pointer_hit(world, element, x, y, window);
+            const LabelPointerHit hit = label_pointer_hit(world, element, painted.x, painted.y, window);
             index = hit.index;
             word = hit.formula ? *hit.formula : label_word_range(element.text, index);
         } else {
-            index = caret_index_for_click(world, element, x, window);
+            index = caret_index_for_click(world, element, painted.x, window);
             word = word_range(element.text, index);
         }
         if (kept) {
@@ -525,7 +580,7 @@ void place_text_selection(ecs::World& world, WindowId window, ecs::Entity entity
             gesture = TextSelectGesture{TextSelectUnit::Word, word.begin, word.end};
         }
     } else {
-        const std::size_t index = text_index_for_click(world, element, x, y, window);
+        const std::size_t index = text_index_for_click(world, element, painted.x, painted.y, window);
         if (kept) {
             element.selection_anchor = *kept;
             element.caret_position = index;
@@ -545,8 +600,9 @@ void extend_text_selection(ecs::World& world, Element& element, float x, float y
     if (unit == TextSelectUnit::All) {
         return;
     }
+    const glm::vec2 painted = pointer_in_painted_space(world, window, element, x, y);
     if (element.kind == ElementKind::Label) {
-        const LabelPointerHit hit = label_pointer_hit(world, element, x, y, window);
+        const LabelPointerHit hit = label_pointer_hit(world, element, painted.x, painted.y, window);
         if (unit == TextSelectUnit::Word && it != gestures.end()) {
             const TextRange word = hit.formula ? *hit.formula : label_word_range(element.text, hit.index);
             element.selection_anchor = std::min(it->second.origin_begin, word.begin);
@@ -555,7 +611,7 @@ void extend_text_selection(ecs::World& world, Element& element, float x, float y
             element.caret_position = hit.index;
         }
     } else {
-        const std::size_t index = caret_index_for_click(world, element, x, window);
+        const std::size_t index = caret_index_for_click(world, element, painted.x, window);
         if (unit == TextSelectUnit::Word && it != gestures.end()) {
             const TextRange word = word_range(element.text, index);
             element.selection_anchor = std::min(it->second.origin_begin, word.begin);
