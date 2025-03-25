@@ -9,12 +9,30 @@
 
 namespace engine {
 
+// Selects whether desktop-overlay behaviors run at all (SDD §21.7): synthetic cursor polling for
+// click-through windows, per-window WS_EX_TRANSPARENT sync, and the Win32 modal-loop reentrant
+// tick hook. Auto (the default) infers this from whether any live window is transparent — a game
+// that wants an alpha-blended window without any of those OS hooks sets AlwaysDisabled; one that
+// wants them running even before a transparent window exists yet sets AlwaysEnabled. Engine-wide,
+// not per-window: one policy backs every window a game opens.
+enum class OverlayMode {
+    Auto,
+    AlwaysEnabled,
+    AlwaysDisabled
+};
+
 // Runtime window control a game asks for through DI (SDD §4.2 — no service locator), backed by
 // EngineRuntime's window(s). borderless/always_on_top can change after creation; transparent
 // cannot (WindowStyle in window_desc.h, §21.2) so it has no setter here.
 class IWindowControl {
 public:
     virtual ~IWindowControl() = default;
+
+    // See OverlayMode above. Call before opening a transparent window if the game needs
+    // AlwaysDisabled from the start — Auto would otherwise activate overlay hooks the instant that
+    // window is created.
+    virtual void set_overlay_mode(OverlayMode mode) = 0;
+    [[nodiscard]] virtual OverlayMode overlay_mode() const = 0;
 
     // `window` (default kPrimaryWindow, trailing so every pre-existing call site keeps compiling
     // and behaving unchanged) generalizes these to the secondary windows opened via open_window()
