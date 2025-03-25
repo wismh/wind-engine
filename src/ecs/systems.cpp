@@ -88,9 +88,8 @@ void run_input(ecs::World& world) {
     }
 }
 
-// Mirrors the deleted EngineRuntime::tick_loop() splash-aging block: ages every SplashTimer by
-// real Time::delta_time and destroys the entity once elapsed crosses total_duration. Calling
-// world.destroy() while iterating this view is safe — World::destroy() defers to
+// Ages every SplashTimer by real Time::delta_time and destroys the entity once elapsed crosses
+// total_duration. Calling world.destroy() while iterating this view is safe — World::destroy() defers to
 // pending_destroy_ for the lifetime of any live View (World::view_depth_), flushed once the view
 // backing this range-for goes out of scope, same as every other view-based system in this file.
 void run_splash_timers(ecs::World& world) {
