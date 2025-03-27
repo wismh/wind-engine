@@ -40,6 +40,7 @@ public:
     // create_primary_window()/create_window() has succeeded for that id.
     [[nodiscard]] bool has_window(WindowId id) const;
     [[nodiscard]] WindowSystem* window(WindowId id);
+    [[nodiscard]] const WindowSystem* window(WindowId id) const;
     [[nodiscard]] render::OpenGLCanvas* canvas(WindowId id);
     [[nodiscard]] render::CommandBuffer* commands(WindowId id);
 
