@@ -240,7 +240,7 @@ TEST(UiItemsControlVirtualization, ReconciliationPreservedForItemsStayingInWindo
         }
     }
     ASSERT_NE(row3, nullptr);
-    row3->animation_elapsed = 0.42f;
+    row3->animation_players.push_back(engine::ui::AnimationRuntime{.name = "keep", .elapsed = 0.42f});
 
     // Scroll down by one row stride: the window shifts by ~1 row but still overlaps heavily, and
     // row 3 stays inside it.
@@ -257,7 +257,8 @@ TEST(UiItemsControlVirtualization, ReconciliationPreservedForItemsStayingInWindo
         }
     }
     ASSERT_NE(row3, nullptr) << "row 3 should still be inside the window after a 1-row scroll";
-    EXPECT_FLOAT_EQ(row3->animation_elapsed, 0.42f);
+    ASSERT_EQ(row3->animation_players.size(), 1u);
+    EXPECT_FLOAT_EQ(row3->animation_players[0].elapsed, 0.42f);
 }
 
 TEST(UiItemsControlVirtualization, FallbackWithoutOverflowYGeneratesAllItems) {

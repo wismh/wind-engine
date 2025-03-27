@@ -1,4 +1,5 @@
 #include "css_length.h"
+#include "style_anim.h"
 
 #include <engine/resources/asset_id.h>
 #include <engine/ui/stylesheet.h>
@@ -61,8 +62,17 @@ bool is_known_property(std::string_view name) {
             "font-size",
             "line-height",
             "font-family",
+            "animation",
             "animation-name",
             "animation-duration",
+            "animation-delay",
+            "animation-timing-function",
+            "animation-iteration-count",
+            "transition",
+            "transition-property",
+            "transition-duration",
+            "transition-delay",
+            "transition-timing-function",
             "z-index",
             "position",
             "top",
@@ -264,6 +274,10 @@ void parse_declarations(std::string_view body, std::vector<CssDeclaration>& decl
         }
         if (!is_known_property(decl.property)) {
             warnings.emplace_back("unknown CSS property: " + decl.property);
+        } else if (is_motion_declaration(decl.property)) {
+            for (std::string& warning : validate_motion_value(decl.property, decl.value)) {
+                warnings.push_back(std::move(warning));
+            }
         } else if (decl.property == "background-image") {
             const std::string_view value = trim(decl.value);
             if (value != "none" && !AssetId::parse(value)) {
