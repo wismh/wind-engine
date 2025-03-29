@@ -73,7 +73,7 @@ engine_add_game(my_game src/main.cpp)
 # optional: engine_add_web_game(my_game src/main.cpp)  # fatal if not Emscripten
 ```
 
-On Emscripten, `engine_add_game` emits `my_game.html` / `.js` / `.wasm` / `.data`, preloads `assets/` at `/assets`, and links WebGL2 (`USE_WEBGL2`, `FULL_ES3`, `ALLOW_MEMORY_GROWTH`). Override the HTML shell with `-DENGINE_WEB_SHELL=/path/to/shell.html`.
+On Emscripten, `engine_add_game` emits `my_game.html` / `.js` / `.wasm` / `.data`, preloads `assets/` at `/assets`, and links WebGL2 (`USE_WEBGL2`, `FULL_ES3`, `ALLOW_MEMORY_GROWTH`). Override the HTML shell with `-DENGINE_WEB_SHELL=/path/to/shell.html`. `engine_add_sdl3` mounts IndexedDB at `/storage` so `user_data_directory` survives a reload; the browser flushes that write over the next few frames.
 
 4. Serve over HTTP (file:// often blocks WASM):
 

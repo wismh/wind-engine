@@ -4,6 +4,8 @@
 #include <engine/engine.h>
 
 #include <filesystem>
+#include <string_view>
+#include <system_error>
 
 TEST(Platform, NativeDefaultsOnThisBuild) {
     EXPECT_EQ(engine::current_platform(), engine::Platform::Native);
@@ -106,4 +108,67 @@ TEST(Platform, AndroidAssetsRoot) {
     EXPECT_TRUE(engine::default_assets_root({}, engine::Platform::Android).empty());
     EXPECT_EQ(engine::default_assets_root(std::filesystem::path{"/data/app"}, engine::Platform::Android),
             std::filesystem::path{"/data/app"} / "assets");
+}
+
+TEST(Platform, AndroidUserDataSitsBesideStagedAssets) {
+    const std::filesystem::path internal{"/data/user/0/org.game/files"};
+    const std::filesystem::path user = engine::android_user_data_directory(internal);
+    const std::filesystem::path assets = engine::default_assets_root(internal, engine::Platform::Android);
+    EXPECT_EQ(user, internal / "user");
+    EXPECT_EQ(assets, internal / "assets");
+    EXPECT_NE(user, assets);
+}
+
+namespace {
+
+void expect_invalid_user_data_name(std::string_view organization, std::string_view application) {
+    const auto result = engine::user_data_directory(organization, application);
+    ASSERT_FALSE(result) << organization << " / " << application;
+    EXPECT_EQ(result.error(), std::make_error_code(std::errc::invalid_argument));
+}
+
+}
+
+TEST(Platform, UserDataDirectoryRejectsBadNames) {
+    expect_invalid_user_data_name("", "Game");
+    expect_invalid_user_data_name("Studio", "");
+    expect_invalid_user_data_name(" ", "Game");
+    expect_invalid_user_data_name("Studio ", "Game");
+    expect_invalid_user_data_name(" Studio", "Game");
+    expect_invalid_user_data_name("A/B", "Game");
+    expect_invalid_user_data_name("Studio", "A\\B");
+    expect_invalid_user_data_name("Studio", "..");
+    expect_invalid_user_data_name(".", "Game");
+    expect_invalid_user_data_name("Studio", "Game?");
+    expect_invalid_user_data_name("Studio", "Game:");
+    expect_invalid_user_data_name("Studio", "App.");
+    expect_invalid_user_data_name("CON", "Game");
+    expect_invalid_user_data_name("Studio", "aux");
+    expect_invalid_user_data_name("Studio", "Com1");
+    expect_invalid_user_data_name("Studio", "lpt9");
+    expect_invalid_user_data_name("Studio", "CON.txt");
+    expect_invalid_user_data_name("NUL", "Game");
+    const char lone_continuation[] = {'\x80'};
+    expect_invalid_user_data_name("Studio", std::string_view(lone_continuation, 1));
+    const char truncated[] = {'\xC3'};
+    expect_invalid_user_data_name("Studio", std::string_view(truncated, 1));
+    const char overlong[] = {'\xC0', '\x80'};
+    expect_invalid_user_data_name("Studio", std::string_view(overlong, 2));
+}
+
+TEST(Platform, UserDataDirectoryHeadlessDoesNotTouchTheFilesystem) {
+#if defined(ENGINE_WITH_WINDOW) && ENGINE_WITH_WINDOW
+    GTEST_SKIP() << "windowed build would create a real pref directory";
+#else
+    const auto accept = [](std::string_view organization, std::string_view application) {
+        const auto result = engine::user_data_directory(organization, application);
+        ASSERT_FALSE(result) << organization << " / " << application;
+        EXPECT_EQ(result.error(), std::make_error_code(std::errc::function_not_supported));
+    };
+    accept("Studio", "Tic Tac Toe");
+    accept("Studio", "Game-Name");
+    accept("org_name", "Game.txt");
+    accept("Студія", "Гра");
+    accept(".hidden", "My.Game");
+#endif
 }
