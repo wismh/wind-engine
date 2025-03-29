@@ -20,6 +20,8 @@ Within a canvas, `hit_test` visits siblings topmost-first — the reverse of `ch
 
 If `can_execute()`, `Execute()`.
 
+A bound `command` sets `disabled` from `!can_execute()` on every bind, so a Button matches `:disabled` while the command cannot run. `TextInput` is the exception: its command is Enter-to-submit, and `handle_text_input` / `handle_key` ignore a disabled element, so tying `disabled` to `can_execute()` would lock an empty field that the command itself requires to be non-empty. Return still executes only when `can_execute()` is true.
+
 A hit on a **Checkbox** additionally flips its `checked` bool (before command dispatch, so a bound `command` still fires too) and writes it back through `checked="{binding}"` if bound — same `generated_owner`-aware target resolution (item VM inside an `ItemsControl` vs. the canvas `data_context`) as `drag`/`scroll-y` write-back. `KeyCode::Return` on the focused element mirrors this.
 
 `begin_frame` resets `MouseConsumed` and reapplies FillWindow rects.

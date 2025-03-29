@@ -655,6 +655,8 @@ struct Element {
     IPaint* paint = nullptr;
     bool hovered = false;
     bool pressed = false;
+    // Bound command sets this from !can_execute() on every bind, except TextInput (Enter-to-submit
+    // must stay typeable when the command is not yet executable). :disabled follows this flag.
     bool disabled = false;
     bool focused = false;
     // Checkbox-only runtime state, toggled by canvas.cpp on click/Enter and matched by the CSS
