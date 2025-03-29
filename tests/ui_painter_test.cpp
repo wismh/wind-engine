@@ -1831,6 +1831,31 @@ constexpr std::string_view kWrappedLabelXml =
 
 }  // namespace
 
+TEST(UiPainter, LineHeightStepsWrappedRows) {
+    const auto texts =
+            painted_texts(kWrappedLabelXml, ".box { width: 50; } .t { font-size: 10; line-height: 1.5; }");
+    ASSERT_EQ(texts.size(), 2u);
+    EXPECT_EQ(texts[0].text, "hello");
+    EXPECT_EQ(texts[1].text, "world");
+    EXPECT_FLOAT_EQ(texts[1].position.y - texts[0].position.y, 15.0f);
+    EXPECT_EQ(texts[0].vertical, engine::ui::UiAlign::Start);
+}
+
+TEST(UiPainter, LineHeightStepsWrappedRowsWhenTheScreenIsScaled) {
+    const auto texts = painted_texts(
+            kWrappedLabelXml, ".box { width: 50; } .t { font-size: 10; line-height: 24px; }", 2.0f);
+    ASSERT_EQ(texts.size(), 2u);
+    EXPECT_FLOAT_EQ(texts[1].position.y - texts[0].position.y, 48.0f);
+}
+
+TEST(UiPainter, LineHeightRecentersTheWrappedBlock) {
+    const auto texts = painted_texts(kWrappedLabelXml,
+            ".t { font-size: 10; width: 50; height: 100; align-items: center; line-height: 1.5; }");
+    ASSERT_EQ(texts.size(), 2u);
+    EXPECT_FLOAT_EQ(texts[0].position.y, 35.0f);
+    EXPECT_FLOAT_EQ(texts[1].position.y, 50.0f);
+}
+
 TEST(UiPainter, WrappedLabelPaintsOneTextCallPerRow) {
     const auto texts = painted_texts(kWrappedLabelXml, ".box { width: 50; } .t { font-size: 10; }");
     ASSERT_EQ(texts.size(), 2u);

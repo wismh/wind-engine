@@ -200,6 +200,18 @@ TEST(UiCss, TextAlignIsKnownProperty) {
     EXPECT_EQ(text_align->value, "center");
 }
 
+TEST(UiCss, LineHeightIsKnownProperty) {
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css(".x { line-height: 1.5; frobnicate: 1; }", warnings);
+    ASSERT_TRUE(sheet.has_value());
+    EXPECT_FALSE(warning_mentions(warnings, "line-height"));
+    EXPECT_TRUE(warning_mentions(warnings, "frobnicate"));
+    ASSERT_EQ(sheet->rules.size(), 1u);
+    const engine::ui::CssDeclaration* line_height = find_declaration(sheet->rules[0], "line-height");
+    ASSERT_NE(line_height, nullptr);
+    EXPECT_EQ(line_height->value, "1.5");
+}
+
 TEST(UiCss, WhiteSpaceAndMaxWidthAreKnownProperties) {
     std::vector<std::string> warnings;
     const auto sheet = engine::ui::parse_css(".x { white-space: nowrap; max-width: 120px; }", warnings);
