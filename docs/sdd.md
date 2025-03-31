@@ -2106,24 +2106,30 @@ contexts.
 **`UiCanvas.window`** (`include/engine/ui/canvas.h`, default `kPrimaryWindow`) says which window's
 size drives a canvas's `rect` and which window's pointer events can hit-test it.
 
-**Sizing stays split, not unified.** `ui::WindowSize` (a plain `{width, height}`) keeps meaning
-exactly what it always meant — "the primary window's drawable size," read from
-`world.ctx<WindowSize>()` — with zero changes to its type or to any of the roughly a dozen
-pre-existing `world.ctx<engine::ui::WindowSize>().width = …`-style direct writes across
-`tests/mvvm_test.cpp`, `tests/render_system_test.cpp`, and `tests/host_test.cpp`; rewriting every
-one of those for a purely additive feature would have been churn with no behavior change for any of
-them. A new type carries every *other* window's size instead:
+**Sizing is unified, one map for every window (wind-107).** `ui::WindowSize` is still a plain
+`{width, height}` value type, but there is exactly one place that stores one per window:
 
 ```cpp
 struct WindowSizes {
-    std::unordered_map<WindowId, WindowSize> sizes;   // never holds a kPrimaryWindow entry
+    std::unordered_map<WindowId, WindowSize> sizes;   // kPrimaryWindow included like any other window
 };
 
-WindowSize window_size_for(ecs::World& world, WindowId id);   // id == kPrimaryWindow ? ctx<WindowSize>()
-                                                                // : ctx<WindowSizes>().sizes[id], default {0,0}
+WindowSize window_size_for(ecs::World& world, WindowId id);   // ctx<WindowSizes>().sizes[id], default {0,0}
 ```
 
-`window_size_for` centralizes that branch so `apply_canvas_fit` and `run_ui_render` (below) don't
+An earlier revision of this phase kept a separate `ctx<WindowSize>()` singleton for the primary
+window's size specifically so the roughly two dozen pre-existing `world.ctx<WindowSize>().width = …`
+writes across `tests/mvvm_test.cpp`, `tests/render_system_test.cpp`, `tests/animation_test.cpp`,
+`tests/particle_test.cpp`, `tests/sprite_test.cpp`, and `tests/host_test.cpp` (plus
+`src/ecs/systems.cpp`, `src/core/host.cpp`) kept compiling unchanged — a compatibility shim, not an
+architectural need, and one this codebase does not carry (no external consumers, no shipped
+releases; see CLAUDE.md's Compatibility section). It was removed: every one of those call sites now
+goes through `window_size_for(world, kPrimaryWindow)` (reads) or
+`ctx<WindowSizes>().sizes[kPrimaryWindow] = …` (writes), same as any other `WindowId`.
+`MouseConsumed` (§21.4/§21.6 below) drops the equivalent `value` bool the same way, for the same
+reason.
+
+`window_size_for` centralizes the map lookup so `apply_canvas_fit` and `run_ui_render` (below) don't
 duplicate it. A `WindowId` with no entry yet in `WindowSizes` (never resized since the window was
 created) resolves to `{0, 0}` rather than being an error — matching how a freshly-created window has
 no drawable size until its first resize event arrives.
