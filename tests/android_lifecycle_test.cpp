@@ -33,8 +33,16 @@ TEST(AndroidLifecycle, BackQuitsInV1) {
     EXPECT_TRUE(engine::android_back_quits());
     engine::ApplicationState app;
     app.running = true;
-    engine::apply_android_back(app);
+    engine::apply_android_back(app, false);
     EXPECT_FALSE(app.running);
+}
+
+TEST(AndroidLifecycle, BackWithActiveTextInputDoesNotQuit) {
+    engine::ApplicationState app;
+    app.running = true;
+    engine::apply_android_back(app, true);
+    EXPECT_TRUE(app.running);
+    EXPECT_FALSE(app.paused);
 }
 
 TEST(AndroidLifecycle, PauseThenResumeKeepsRunning) {
