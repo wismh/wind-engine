@@ -639,18 +639,37 @@ void NanoVgPainter::image_nine_slice(AssetId texture, const Rect& rect, const ui
     }
 }
 
+// Widths and metrics are in the caller's user units at `size`. NanoVG divides them by the
+// current transform, so a CSS scale (the help window opens through scale(0)) quantizes every
+// glyph to a zero advance. Inline math caches that line, and the formula stays on top of the
+// letters until the string changes.
+struct UnscaledTextScope {
+    NVGcontext* vg = nullptr;
+
+    explicit UnscaledTextScope(NVGcontext* context) : vg(context) {
+        nvgSave(vg);
+        nvgResetTransform(vg);
+    }
+
+    ~UnscaledTextScope() {
+        nvgRestore(vg);
+    }
+
+    UnscaledTextScope(const UnscaledTextScope&) = delete;
+    UnscaledTextScope& operator=(const UnscaledTextScope&) = delete;
+};
+
 ui::TextFontMetrics NanoVgPainter::font_metrics(AssetId font, float size) {
     if (impl_->vg == nullptr) {
         return ui::IUiPainter::font_metrics(font, size);
     }
-    nvgSave(impl_->vg);
+    const UnscaledTextScope unscaled(impl_->vg);
     set_font(font, size);
     nvgTextAlign(impl_->vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
     float ascender = 0.0f;
     float descender = 0.0f;
     float line_height = 0.0f;
     nvgTextMetrics(impl_->vg, &ascender, &descender, &line_height);
-    nvgRestore(impl_->vg);
     if (line_height <= 0.0f && ascender <= 0.0f) {
         return ui::IUiPainter::font_metrics(font, size);
     }
@@ -665,14 +684,16 @@ glm::vec2 NanoVgPainter::measure_text(std::string_view text, AssetId font, float
     if (impl_->vg == nullptr) {
         return {static_cast<float>(text.size()) * size * 0.5f, size};
     }
-    nvgSave(impl_->vg);
+    const UnscaledTextScope unscaled(impl_->vg);
     set_font(font, size);
     nvgTextAlign(impl_->vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
     const std::string z(text);
     float bounds[4] = {};
-    nvgTextBounds(impl_->vg, 0.0f, 0.0f, z.c_str(), nullptr, bounds);
-    nvgRestore(impl_->vg);
-    return {std::max(0.0f, bounds[2] - bounds[0]), std::max(0.0f, bounds[3] - bounds[1])};
+    // Advance, not the ink box: a trailing space has no ink, and the next run (an inline formula)
+    // would otherwise start inside the last letter.
+    const float advance = nvgTextBounds(impl_->vg, 0.0f, 0.0f, z.c_str(), nullptr, bounds);
+    const float height = std::max(0.0f, bounds[3] - bounds[1]);
+    return {std::max(0.0f, advance), height > 0.0f ? height : size};
 }
 
 ui::TextBlock NanoVgPainter::break_lines(std::string_view text, AssetId font, float size, float max_width) {
@@ -680,7 +701,7 @@ ui::TextBlock NanoVgPainter::break_lines(std::string_view text, AssetId font, fl
         return IUiPainter::break_lines(text, font, size, max_width);
     }
     ui::TextBlock block;
-    nvgSave(impl_->vg);
+    const UnscaledTextScope unscaled(impl_->vg);
     set_font(font, size);
     nvgTextAlign(impl_->vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
     float ascender = 0.0f;
@@ -704,7 +725,6 @@ ui::TextBlock NanoVgPainter::break_lines(std::string_view text, AssetId font, fl
         }
         cursor = rows[count - 1].next;
     }
-    nvgRestore(impl_->vg);
     return block;
 }
 
