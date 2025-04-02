@@ -102,7 +102,7 @@ struct PathCall {
     glm::vec4 color{};
 };
 
-class RecordingPainter final : public engine::ui::IUiPainter {
+class RecordingPainter : public engine::ui::IUiPainter {
 public:
     std::vector<TextCall> texts;
     std::vector<PathCall> paths;
@@ -590,4 +590,50 @@ TEST(UiInlineMath, LineHeightIsAMinimumStrideForAShortFormula) {
     engine::ui::layout(document, {0.f, 0.f, 400.f, 200.f}, &painter);
     EXPECT_NEAR(only_child(document).layout_rect.h, line_h, 0.05f);
     EXPECT_NEAR(only_child(document).layout_rect.w, formula.width, 0.05f);
+}
+
+// First paint measures every run as zero wide (what NanoVG returns under CSS scale(0)). The next
+// paint, with real widths, must place the formula after the text instead of reusing that line.
+class CollapseThenMeasurePainter final : public RecordingPainter {
+public:
+    bool collapse = true;
+
+    glm::vec2 measure_text(std::string_view text, engine::AssetId font, float size) override {
+        if (collapse) {
+            return {0.0f, size};
+        }
+        return RecordingPainter::measure_text(text, font, size);
+    }
+};
+
+TEST(UiInlineMath, ZeroWidthMeasureIsNotReused) {
+    CollapseThenMeasurePainter painter;
+    const engine::ui::Stylesheet sheet = must_parse_css("Label { width: 300px; height: 40px; font-size: 20px; }");
+    engine::ui::UiDocument document = must_parse(R"xml(<Canvas><Label text="A \(x\)"/></Canvas>)xml");
+    const engine::ui::UiPaintInput input{
+            .canvas_rect = {0.f, 0.f, 400.f, 200.f},
+            .window_width = 400.f,
+            .window_height = 200.f,
+    };
+    const auto min_glyph_x = [](const std::vector<PathCall>& paths) {
+        float x = 1.0e9f;
+        for (const PathCall& path : paths) {
+            for (const engine::ui::PathSegment& segment : path.segments) {
+                x = std::min(x, segment.p.x);
+            }
+        }
+        return x;
+    };
+    engine::ui::paint_document(document, &sheet, painter, input);
+    ASSERT_FALSE(painter.paths.empty());
+    EXPECT_LT(min_glyph_x(painter.paths), 5.0f);
+
+    painter.collapse = false;
+    painter.paths.clear();
+    painter.texts.clear();
+    engine::ui::paint_document(document, &sheet, painter, input);
+    ASSERT_FALSE(painter.paths.empty());
+    const float recovered_x = min_glyph_x(painter.paths);
+    // "A " is 2 * 20 * 0.5. A reused zero-width line would still draw the formula at x ≈ 0.
+    EXPECT_GT(recovered_x, 15.0f);
 }
