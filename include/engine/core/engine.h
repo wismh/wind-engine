@@ -140,30 +140,16 @@ bool Engine<GameT>::init() {
             return false;
         }
     }
-    if (!runtime_.load_ui_font(*assets_->get<Font>(builtin::font_ui))) {
+    // Only builtin::font_ui loads eagerly here — it's the fallback for any UI element with no
+    // font-family at all. Every other font, and every UI image, is loaded lazily: run_ui_render
+    // (ecs/systems.cpp) resolves what a drawn canvas's document/stylesheet actually reference each
+    // frame and calls EngineSystemDeps::ensure_ui_font/ensure_ui_image below, instead of this
+    // walking the whole catalog and pushing every Font/Texture/UiImage entry into the NanoVG atlas
+    // regardless of whether anything ever draws it.
+    if (!runtime_.add_font_for_window(kPrimaryWindow, builtin::font_ui, *assets_->get<Font>(builtin::font_ui))) {
         fatal_->report("Failed to load UI font");
         runtime_.shutdown();
         return false;
-    }
-    for (const CatalogEntry& entry : assets_->catalog().entries()) {
-        if (entry.importer != ImporterKind::Font || entry.guid == builtin::font_ui) {
-            continue;
-        }
-        if (!runtime_.add_font(entry.guid, *assets_->get<Font>(entry.guid))) {
-            fatal_->report("Failed to load UI font");
-            runtime_.shutdown();
-            return false;
-        }
-    }
-    for (const CatalogEntry& entry : assets_->catalog().entries()) {
-        if (entry.importer != ImporterKind::Texture && entry.importer != ImporterKind::UiImage) {
-            continue;
-        }
-        if (!runtime_.add_image(entry.guid, *assets_->get<render::TextureDesc>(entry.guid))) {
-            fatal_->report("Failed to load UI image");
-            runtime_.shutdown();
-            return false;
-        }
     }
 
     if (const std::optional<AssetId> icon_id = game_->window_icon(); icon_id.has_value()) {
@@ -177,6 +163,12 @@ bool Engine<GameT>::init() {
             .assets = assets_.get(),
             .audio = audio_.get(),
             .commands_for_window = [this](WindowId id) { return runtime_.commands_for_window(id); },
+            .ensure_ui_image = [this](WindowId window, AssetId id) {
+                (void)runtime_.add_image_for_window(window, id, *assets_->get<render::TextureDesc>(id));
+            },
+            .ensure_ui_font = [this](WindowId window, AssetId id) {
+                (void)runtime_.add_font_for_window(window, id, *assets_->get<Font>(id));
+            },
     });
     ui::apply_canvas_fit(game_->world());
 

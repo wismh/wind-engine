@@ -1324,9 +1324,10 @@ default icon. The source is a plain PNG in the game's `assets/` (importer `Textu
 calls `SDL_SetWindowIcon`; `EngineRuntime::set_window_icon` wraps it the same way
 `create_window` wraps `WindowSystem::create`.
 
-Call site: `Engine::init`, **after** `assets_->load_catalog(...)`, alongside the existing
-texture/`UiImage` preload loop — not at `create_window` time, because the catalog is not loaded
-yet when the window is created.
+Call site: `Engine::init`, **after** `assets_->load_catalog(...)` — not at `create_window` time,
+because the catalog is not loaded yet when the window is created. (Before §21.9, this sat
+alongside a texture/`UiImage` preload loop that has since been removed; the icon load itself
+never depended on that loop, so it is unaffected.)
 
 | Platform | Behavior |
 | --- | --- |
@@ -1519,9 +1520,11 @@ engine-owned runtime image:
 - `include/engine/builtin_ids.h`: `builtin::splash_wind`, the 5th well-known GUID, added to
   `ids` / `count()`. Existing four GUIDs are **not** renumbered (§10.8: never regenerate).
 - `importer = "ui_image"`, not `"texture"`: it's drawn through the same NanoVG image path UI
-  images already use, which `Engine::init()`'s existing preload loop (the one that already walks
-  `Texture`/`UiImage` catalog entries into `runtime_.add_image`) picks up automatically — no new
-  loading code needed, the splash is just another entry in the engine's own builtin catalog.
+  images already use. As of §21.9, that path is loaded lazily — `run_ui_render` resolves it the
+  same way it resolves any other `Element::source`, because `build_splash_document` writes
+  `config.image.hex()` straight into the `<Image source="...">` attribute (`src/ui/splash.cpp`) —
+  no special-casing needed, the splash asset is just another `AssetId` a document happens to
+  reference.
 - Source art: an AI-generated "made with WindEngine" mark, cleaned up before committing —the
   original export had a broken alpha channel (jagged, never fully opaque, from a bad
   background-removal pass) sitting over otherwise-clean RGB; flattened to opaque RGB fixed it
@@ -1568,9 +1571,9 @@ that already exists:
   (`order` sorts ascending in `run_ui_render`, so the higher `order` paints last, i.e. on top —
   see the letterboxing bullet below for why these can't be one canvas). Both above every order a
   game plausibly picks for its own UI. A game typically calls `show_splash` right where the old
-  auto-trigger used to fire (around `on_start()`, after `Engine::init()`'s catalog/image-preload
-  loop has finished, so the builtin/game splash image is already resolved through `AssetsDb`), but
-  the call site is entirely the game's choice now — §20.1. `world.create()` +
+  auto-trigger used to fire (around `on_start()`, after `Engine::init()`'s catalog load has
+  finished, so `AssetsDb` can resolve the builtin/game splash image on demand — see §21.9 for when
+  the image itself actually loads), but the call site is entirely the game's choice now — §20.1. `world.create()` +
   `world.emplace<ui::UiCanvas>(...)` + `world.emplace<ui::UiInstance>(...)` is the existing spawn
   pattern — see `spawn_button_canvas` in `tests/mvvm_test.cpp` for a working example of building a
   `UiCanvas` + `UiInstance{parsed_document}` pair from a `parse_xml` result. `run_ui_render`
@@ -1651,10 +1654,12 @@ that already exists:
 
 ### 20.4 Open question — not v1
 
-Fixed durations assume `Engine::init()`'s synchronous catalog/font/image loading (already
-finished before the splash phase even starts) is the only thing worth covering. Tying the splash
-to real load completion instead of a timer is a possible follow-up, not implemented here — same
-status as the deferred items in §17.
+Fixed durations assume loading the splash image itself is the only thing worth covering, and that
+it's effectively instant relative to the fade timings — true whether that load happens at
+`Engine::init()` (pre-§21.9) or lazily on the splash canvas's first `run_ui_render` pass (§21.9):
+either way it's a synchronous, already-cooked local read, finished well within one frame. Tying
+the splash to real load completion instead of a timer is a possible follow-up, not implemented
+here — same status as the deferred items in §17.
 
 ### 20.5 Testing
 
@@ -2293,6 +2298,13 @@ current unconditionally at the top of every draw), then calls `canvas->load_ui_f
 signal for this phase, consistent with how much of this windowing feature area has already been
 verified.
 
+**Superseded by §21.9.** The `ui_font`/`fonts`/`fonts_replayed_for` cache-and-replay described
+above, and the `Engine::init()` texture/`UiImage` preload loop it complemented, are gone —
+replaced by `run_ui_render` resolving each canvas's actual document/stylesheet references every
+frame, for every window uniformly (no separate secondary-window backfill needed). Kept here as
+the historical record of why per-window font residency needed solving at all; §21.9 is the
+current mechanism.
+
 ### 21.7 Secondary window lifecycle
 
 **Closing is event-based, not automatic — a deliberate product decision, not an oversight.**
@@ -2473,4 +2485,87 @@ logic and gets a `tests/windowing_test.cpp` case:
   path, so one test shape (`tests/window_style_test.cpp`) covers both.
 - `justify-content: space-between` (§8.3): three fixed-width children in a row land flush-start,
   evenly spaced, flush-end; a single child stays flush-start (`tests/ui_painter_test.cpp`).
+
+### 21.9 Lazy, per-window UI font/image residency
+
+**Problem this replaces.** `Engine::init()` used to walk the *entire* cooked catalog on startup —
+every `Font` entry into the primary `NanoVgPainter`, every `Texture`/`UiImage` entry into its
+image atlas — regardless of whether any UI document ever referenced them. A `Texture`-importer
+entry is also, ordinarily, a gameplay sprite consumed through the `render::ITexture`/`IMaterial`
+path (§6, §10); this loop decoded and GPU-uploaded it a *second* time into an atlas that, for most
+such entries, never drew from it. `AssetsDb` also has no unload/evict API (§10), so none of this
+was ever freed — memory grew with catalog size, not working set, which blocks world streaming and
+DLC-sized catalogs. Fonts, meanwhile, were only ever pushed into the *primary* window's canvas at
+init; a secondary window's independent `NanoVgPainter`/atlas (§21.6) started empty and needed its
+own bespoke `fonts_replayed_for` cache-and-replay backfill in `tick_loop()` to catch up, and
+`UiImage` entries had no equivalent backfill at all — a secondary window's UI images simply never
+appeared.
+
+**Mechanism.** `Engine::init()` now loads only `builtin::font_ui` eagerly (unconditionally, into
+the primary window — it's the fallback for any element with no `font-family` at all, and on a
+document's very first paint `Element::font_family` hasn't been resolved to it yet; see below).
+Every other font, and every UI image, loads lazily, driven by `run_ui_render`
+(`src/ecs/systems.cpp`, the existing `Phase::UiRender` system) — for each drawn `CanvasDraw`, once
+its target window's `CommandBuffer` is confirmed live:
+
+```cpp
+if (deps.ensure_ui_font) {
+    deps.ensure_ui_font(canvas.window, builtin::font_ui);
+    for (AssetId id : ui::collect_referenced_fonts(*canvas.document, canvas.stylesheet)) {
+        deps.ensure_ui_font(canvas.window, id);
+    }
+}
+if (deps.ensure_ui_image) {
+    for (AssetId id : ui::collect_referenced_images(*canvas.document, canvas.stylesheet)) {
+        deps.ensure_ui_image(canvas.window, id);
+    }
+}
+```
+
+`ui::collect_referenced_images`/`collect_referenced_fonts` (`src/ui/ui_refs.h`, private, pure
+CPU/no GL) walk the document's `Element` tree (`source` / `font_family`, recursively over
+`children` + `generated_items`) and the stylesheet's `background-image` / `font-family`
+declarations, returning every `AssetId` that document/stylesheet *could* paint — not just what's
+visible this instant, since which CSS rules match can change frame to frame (hover, disabled, a
+class toggled by a binding) and re-scanning per canvas per frame is cheap enough not to need that
+precision. This runs every `Phase::UiRender` pass regardless of which loop drove it
+(`tick_loop()`/`reentrant_tick()`/`main_loop_thunk`), so unlike the old `fonts_replayed_for`
+backfill it needs no special-casing for the Win32 reentrant modal-loop tick (§21.6's
+`reentrant_tick` doc comment used to call skipping that backfill there "a cosmetic one-frame-late
+edge case" — with this mechanism there's nothing to skip).
+
+`EngineSystemDeps::ensure_ui_font`/`ensure_ui_image` (`include/engine/ecs/systems.h`) are
+`std::function<void(WindowId, AssetId)>`, wired in `Engine::init()` to
+`EngineRuntime::add_font_for_window`/`add_image_for_window`
+(`include/engine/core/engine_runtime.h`) via `assets_->get<Font>(id)`/`get<TextureDesc>(id)` — a
+miss or type mismatch is fatal through `AssetsDb::get`, same as everywhere else that call is used
+(§16: "Fatal vs warn"). Those two `EngineRuntime` methods replace the old primary-only
+`add_font`/`add_image`/`load_ui_font`: each looks up `id`'s window via `WindowManager::canvas`/
+`window` (`nullptr` on either — not live yet — is a no-op `false`, not fatal, retried next frame
+automatically since `run_ui_render` calls it again), makes that window's GL context current
+(same reason §21.6 needed to: `draw_all()`'s per-window context order is unordered, so whatever was
+left current by the *previous* frame's draw is not guaranteed to be this window's own), and
+special-cases `asset == builtin::font_ui` to call `canvas->load_ui_font(...)` (which also sets the
+atlas's fallback font) instead of plain `add_font`. `NanoVgPainter::add_font`/`add_image`
+(`src/render/opengl/nanovg_painter.cpp`) were already idempotent — a repeat call for an
+already-cached `AssetId` is a cheap map lookup — so calling `ensure_ui_font`/`ensure_ui_image`
+unconditionally every frame per drawn canvas costs nothing once everything it needs is loaded.
+
+**Net effect.** A gameplay-only `Texture` entry never referenced by any UI document is never
+touched by this path at all — no double GPU upload, no atlas slot. A secondary window's UI images
+now appear (previously: never); its fonts now arrive through the same mechanism as everything
+else instead of a bespoke backfill. Content that references a genuinely missing/mistyped `AssetId`
+now fails fatally the first frame it's drawn, rather than silently never appearing — this is a
+behavior change from the old preload loop (which only ever touched catalog entries that already
+existed) but matches the `AssetsDb::get` policy (§16) every other asset consumer already follows.
+
+**Testing.** `ui::collect_referenced_images`/`collect_referenced_fonts` are pure CPU/no-GL and
+covered directly (`tests/ui_refs_test.cpp`): nested `Element::source`/`font_family` via
+`children`/`generated_items`, stylesheet `background-image`/`font-family` declarations including
+`background-image: none`, `builtin::font_ui` excluded from the font set, and a
+paint-pass-resolved (not just XML-literal) `font_family` value still being picked up. The
+`EngineRuntime`/`run_ui_render` wiring itself is not covered by a dedicated new test — same
+§12.3 reasoning as §21.6: the payoff (an atlas actually gaining a font/image) needs a real GL
+context; build + the existing suite (`ctest`) not regressing, across both the headless (`vs`) and
+windowed (`vs-window`) presets, is the signal here.
 
