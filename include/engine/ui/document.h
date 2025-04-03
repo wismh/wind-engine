@@ -565,6 +565,10 @@ struct Element {
     // the right deleter; a cache entry is never mutated, only replaced, so Elements cloned from one template
     // (which copy this pointer) can share it safely.
     mutable std::shared_ptr<void> math_cache;
+    // Label/Button text that contains inline `\(...\)`: the laid-out runs. Opaque, like `math_cache`,
+    // because the concrete type lives under src/ui. Replaced, never mutated, so an Element cloned from
+    // a template can share the pointer until its own text is measured.
+    mutable std::shared_ptr<void> inline_cache;
 
     // Memoizes compute_style() (paint.cpp), one slot per allow_pseudo variant — see
     // StyleCacheEntry's comment above for what invalidates a hit. `mutable` for the same reason as
