@@ -5,6 +5,7 @@
 #include <engine/ecs/world.h>
 
 #include <cstddef>
+#include <functional>
 #include <optional>
 #include <unordered_map>
 #include <vector>
@@ -24,6 +25,10 @@ namespace engine::ui {
 
     struct UiInspector {
         bool enabled = false;
+        // The inspector's own window. Empty while the inspector is off. Game windows are never this.
+        std::optional<WindowId> panel_window;
+        // Which game window's pick the panel's detail block shows. Updated on every pick.
+        WindowId detail_window = kPrimaryWindow;
         std::unordered_map<WindowId, InspectorPick> selection;
     };
 
@@ -32,14 +37,22 @@ namespace engine::ui {
         WindowId window = kPrimaryWindow;
     };
 
-    // Spawns or destroys the per-window panel. Does not bind a key; the game calls this.
+    // Installed by the windowed presentation. Empty in headless tests: the panel still gets a
+    // canvas and a WindowSizes entry, and no OS window is opened.
+    struct InspectorWindowHost {
+        std::function<std::optional<WindowId>(const WindowDesc &)> open;
+        std::function<void(WindowId)> close;
+    };
+
+    // Opens or closes the inspector window and its canvas. Does not bind a key; the game calls this.
     void set_inspector_enabled(ecs::World &world, bool enabled);
 
     [[nodiscard]] bool inspector_enabled(ecs::World &world);
 
     [[nodiscard]] InspectorPick inspector_selection(ecs::World &world, WindowId window = kPrimaryWindow);
 
-    // Places one Fixed panel per live window. Called from begin_frame.
+    // Opens the inspector window if it is not up yet, and keeps its canvas filling that window.
+    // Called from begin_frame. A close request for that window turns the inspector off.
     void sync_inspector_frames(ecs::World &world);
 
     // Rebuilds the panel's tree and the selected element's text. Called at the start of Bind,
