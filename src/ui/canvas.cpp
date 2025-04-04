@@ -5,10 +5,12 @@
 
 #include "painter.h"
 #include "ui/input_batch.h"
+#include "ui/text_select.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <unordered_map>
 #include <vector>
 
 namespace engine::ui {
@@ -356,22 +358,156 @@ Element* resolve_element_path(Element& root, const std::vector<std::size_t>& pat
 
 namespace {
 
-void handle_pointer_impl(ecs::World& world, float x, float y, WindowId window, UiInputBatchCache* batch) {
+enum class TextSelectUnit : std::uint8_t { Character, Word, All };
+
+// Lives only for the gesture that started on pointer-down. A word drag unions this seed range with
+// the word under the pointer; All does not shrink. Cleared by the next pointer-down, not stored on Element.
+struct TextSelectGesture {
+    TextSelectUnit unit = TextSelectUnit::Character;
+    std::size_t origin_begin = 0;
+    std::size_t origin_end = 0;
+};
+
+struct UiTextSelectGestures {
+    std::unordered_map<WindowId, TextSelectGesture> by_window;
+};
+
+const PaintedTextLine* painted_line_at_y(const std::vector<PaintedTextLine>& lines, float y) {
+    const PaintedTextLine* nearest = nullptr;
+    float nearest_dist = 0.0f;
+    for (const PaintedTextLine& line : lines) {
+        if (y >= line.y && y < line.y + std::max(line.height, 0.0f)) {
+            return &line;
+        }
+        const float mid = line.y + line.height * 0.5f;
+        const float dist = std::abs(y - mid);
+        if (nearest == nullptr || dist < nearest_dist) {
+            nearest = &line;
+            nearest_dist = dist;
+        }
+    }
+    return nearest;
+}
+
+std::size_t label_index_for_click(
+        ecs::World& world, const Element& element, float click_x, float click_y, WindowId window) {
+    if (element.painted_text_lines.empty() || element.painted_font_size_px <= 0.0f) {
+        return element.text.size();
+    }
+    IUiPainter* painter = layout_painter_for(world, window);
+    if (painter == nullptr) {
+        return element.text.size();
+    }
+    const PaintedTextLine* line = painted_line_at_y(element.painted_text_lines, click_y);
+    if (line == nullptr) {
+        return element.text.size();
+    }
+    if (click_x <= line->x) {
+        return line->begin;
+    }
+    std::size_t pos = line->begin;
+    float measured_w = 0.0f;
+    while (pos < line->end && pos < element.text.size()) {
+        const std::size_t next = std::min(next_utf8_char(element.text, pos), line->end);
+        if (next <= pos) {
+            break;
+        }
+        const std::string_view prefix = std::string_view(element.text).substr(line->begin, next - line->begin);
+        const float next_w = painter->measure_text(prefix, element.font_family, element.painted_font_size_px).x;
+        if ((click_x - line->x) < (measured_w + next_w) * 0.5f) {
+            return pos;
+        }
+        pos = next;
+        measured_w = next_w;
+    }
+    return line->end;
+}
+
+std::size_t text_index_for_click(ecs::World& world, const Element& element, float x, float y, WindowId window) {
+    if (element.kind == ElementKind::Label) {
+        return label_index_for_click(world, element, x, y, window);
+    }
+    return caret_index_for_click(world, element, x, window);
+}
+
+void place_text_selection(ecs::World& world, WindowId window, ecs::Entity entity, Element& element, float x, float y,
+        std::uint8_t clicks) {
+    const bool shift = world.ctx<UiModifierState>().modifiers[window].shift && element.focused;
+    std::optional<std::size_t> kept;
+    if (shift) {
+        kept = element.selection_anchor.value_or(element.caret_position);
+    }
+    // set_focus clears selection_anchor, including on the element we are about to select.
+    set_focus(world, window, entity, &element);
+
+    const bool select_all =
+            clicks >= 3 || (element.kind == ElementKind::Label && element.user_select == UserSelect::All);
+    auto& gesture = world.ctx<UiTextSelectGestures>().by_window[window];
+    if (select_all) {
+        element.selection_anchor = 0;
+        element.caret_position = element.text.size();
+        gesture = TextSelectGesture{TextSelectUnit::All, 0, element.text.size()};
+    } else if (clicks >= 2) {
+        const std::size_t index = text_index_for_click(world, element, x, y, window);
+        const TextRange word = word_range(element.text, index);
+        if (kept) {
+            const std::size_t edge = index >= *kept ? word.end : word.begin;
+            element.selection_anchor = *kept;
+            element.caret_position = edge;
+            gesture = TextSelectGesture{TextSelectUnit::Word, std::min(*kept, edge), std::max(*kept, edge)};
+        } else {
+            element.selection_anchor = word.begin;
+            element.caret_position = word.end;
+            gesture = TextSelectGesture{TextSelectUnit::Word, word.begin, word.end};
+        }
+    } else {
+        const std::size_t index = text_index_for_click(world, element, x, y, window);
+        if (kept) {
+            element.selection_anchor = *kept;
+            element.caret_position = index;
+        } else {
+            element.selection_anchor = index;
+            element.caret_position = index;
+        }
+        gesture = TextSelectGesture{TextSelectUnit::Character, index, index};
+    }
+    element.caret_blink_timer = 0.0f;
+}
+
+void extend_text_selection(ecs::World& world, Element& element, float x, float y, WindowId window) {
+    const auto& gestures = world.ctx<UiTextSelectGestures>().by_window;
+    const auto it = gestures.find(window);
+    const TextSelectUnit unit = it == gestures.end() ? TextSelectUnit::Character : it->second.unit;
+    if (unit == TextSelectUnit::All) {
+        return;
+    }
+    const std::size_t index = text_index_for_click(world, element, x, y, window);
+    if (unit == TextSelectUnit::Word && it != gestures.end()) {
+        const TextRange word = word_range(element.text, index);
+        element.selection_anchor = std::min(it->second.origin_begin, word.begin);
+        element.caret_position = std::max(it->second.origin_end, word.end);
+    } else {
+        element.caret_position = index;
+    }
+    element.caret_blink_timer = 0.0f;
+}
+
+void handle_pointer_impl(ecs::World& world, float x, float y, WindowId window, UiInputBatchCache* batch,
+        bool primary_button, std::uint8_t clicks) {
     const std::optional<PointerHit> hit = resolve_pointer_hit(world, x, y, window, batch);
     if (!hit) {
-        clear_focus(world, window);
+        // Right-click does not move focus, so a selection stays put.
+        if (primary_button) {
+            clear_focus(world, window);
+        }
         return;
     }
 
-    if (hit->element->kind == ElementKind::TextInput) {
-        set_focus(world, window, hit->entity, hit->element);
-        // Click places the caret and starts a possible drag-select: anchor == caret for now (no
-        // selection), diverging only if update_text_selection() moves caret_position on a later
-        // Move while the button stays down.
-        const std::size_t index = caret_index_for_click(world, *hit->element, x, window);
-        hit->element->caret_position = index;
-        hit->element->selection_anchor = index;
-    } else {
+    const bool text_input = hit->element->kind == ElementKind::TextInput;
+    const bool selectable_label = label_text_selectable(*hit->element);
+    if ((text_input || selectable_label) && primary_button) {
+        place_text_selection(world, window, hit->entity, *hit->element, x, y, clicks);
+    } else if (primary_button && !text_input && !selectable_label) {
         clear_focus(world, window);
     }
 
@@ -472,24 +608,27 @@ void handle_pointer_impl(ecs::World& world, float x, float y, WindowId window, U
 
 }
 
-void handle_pointer(ecs::World& world, float x, float y, WindowId window) {
-    handle_pointer_impl(world, x, y, window, nullptr);
+void handle_pointer(ecs::World& world, float x, float y, WindowId window, bool primary_button, std::uint8_t clicks) {
+    handle_pointer_impl(world, x, y, window, nullptr, primary_button, clicks);
 }
 
-void handle_pointer_for_run_input(ecs::World& world, float x, float y, WindowId window, UiInputBatchCache& batch) {
-    handle_pointer_impl(world, x, y, window, &batch);
+void handle_pointer_for_run_input(ecs::World& world, float x, float y, WindowId window, UiInputBatchCache& batch,
+        bool primary_button, std::uint8_t clicks) {
+    handle_pointer_impl(world, x, y, window, &batch, primary_button, clicks);
 }
 
-void update_text_selection(ecs::World& world, float x, WindowId window) {
+void update_text_selection(ecs::World& world, float x, float y, WindowId window) {
     if (!pointer_for(world, window).down) {
         return;
     }
     Element* element = focused_element(world, window);
-    if (element == nullptr || element->kind != ElementKind::TextInput || element->disabled) {
+    if (element == nullptr || element->disabled) {
         return;
     }
-    element->caret_position = caret_index_for_click(world, *element, x, window);
-    element->caret_blink_timer = 0.0f;
+    if (element->kind != ElementKind::TextInput && !label_text_selectable(*element)) {
+        return;
+    }
+    extend_text_selection(world, *element, x, y, window);
 }
 
 namespace {
@@ -856,7 +995,7 @@ void handle_text_input(ecs::World& world, std::string_view text, WindowId window
         return;
     }
     Element* element = it->second.element;
-    if (element->disabled) {
+    if (element->disabled || element->kind != ElementKind::TextInput) {
         return;
     }
 
@@ -941,6 +1080,8 @@ void handle_key(ecs::World& world, KeyCode key, bool down, bool /*repeat*/, Wind
 
     const bool ctrl = world.ctx<UiModifierState>().modifiers[window].ctrl;
     const bool shift = world.ctx<UiModifierState>().modifiers[window].shift;
+    // A selectable Label copies and moves the caret, but never inserts, deletes, cuts, or pastes.
+    const bool editable = element->kind == ElementKind::TextInput;
     // The real (non-collapsed) selection right now, if any — [selection_start, selection_end).
     // Frozen for the rest of this call; every branch below either reads it or ends by `return`ing
     // (Ctrl+A/C/X/V) before it would go stale.
@@ -968,7 +1109,8 @@ void handle_key(ecs::World& world, KeyCode key, bool down, bool /*repeat*/, Wind
     }
 
     // Cut is copy-then-delete: it needs allow_copy (read permission), not allow_paste.
-    if (ctrl && key == KeyCode::X) {
+    // A Label has nothing to delete, so the whole chord is ignored (the clipboard stays put).
+    if (editable && ctrl && key == KeyCode::X) {
         if (has_selection && element->allow_copy) {
             UiClipboard& clipboard = world.ctx<UiClipboard>();
             if (clipboard.set_text) {
@@ -983,7 +1125,7 @@ void handle_key(ecs::World& world, KeyCode key, bool down, bool /*repeat*/, Wind
         return;
     }
 
-    if (ctrl && key == KeyCode::V) {
+    if (editable && ctrl && key == KeyCode::V) {
         if (element->allow_paste) {
             UiClipboard& clipboard = world.ctx<UiClipboard>();
             if (clipboard.get_text) {
@@ -1012,6 +1154,9 @@ void handle_key(ecs::World& world, KeyCode key, bool down, bool /*repeat*/, Wind
     // toward (Left/Home -> start, Right/End -> end) instead of moving by one more character —
     // matching every other text editor's convention.
     bool text_changed = false;
+    if (!editable && (key == KeyCode::Backspace || key == KeyCode::Delete)) {
+        return;
+    }
     if (key == KeyCode::Backspace) {
         // Reset unconditionally, not only in the has_selection branch: left set, a stale anchor
         // equal to the pre-erase caret_position would wrongly reappear as a "selection" once the

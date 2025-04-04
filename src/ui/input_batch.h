@@ -30,6 +30,7 @@
 #include <engine/ecs/world.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 namespace engine::ui {
@@ -76,7 +77,8 @@ struct UiInputBatchCache {
 // Batch-aware counterparts of the public functions of the same name in <engine/ui/canvas.h>.
 // Only run_input() (src/ecs/systems.cpp) calls these; `batch` must outlive the call and should be
 // a local variable scoped to exactly one run_input() invocation — never a ctx<>() resource.
-void handle_pointer_for_run_input(ecs::World& world, float x, float y, WindowId window, UiInputBatchCache& batch);
+void handle_pointer_for_run_input(ecs::World& world, float x, float y, WindowId window, UiInputBatchCache& batch,
+        bool primary_button = true, std::uint8_t clicks = 1);
 void update_pointer_hover_for_run_input(
         ecs::World& world, float x, float y, WindowId window, UiInputBatchCache& batch);
 void handle_wheel_for_run_input(
