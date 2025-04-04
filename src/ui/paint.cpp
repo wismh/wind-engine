@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <format>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -1617,6 +1618,41 @@ namespace engine::ui {
         painter.stroke_rounded_rect(border, 0.0f, std::max(1.0f, input.ui_scale), stroke);
     }
 
+    std::string format_layout_px(float value) {
+        const float nearest = std::round(value);
+        if (std::abs(value - nearest) < 0.05f) {
+            return std::format("{}", static_cast<long long>(std::llround(nearest)));
+        }
+        return std::format("{:.1f}", value);
+    }
+
+    void paint_inspector_badge(IUiPainter &painter, const Element &element, const LayoutBoxes &boxes,
+                               const UiPaintInput &input, bool selected) {
+        const std::string line = inspector_element_tag(element) + "  " + format_layout_px(boxes.border.w) + " × " +
+                                 format_layout_px(boxes.border.h);
+        constexpr float kFont = 12.0f;
+        constexpr float kPadX = 6.0f;
+        constexpr float kPadY = 3.0f;
+        constexpr float kGap = 4.0f;
+        const glm::vec2 text = painter.measure_text(line, builtin::font_ui, kFont);
+        const float width = text.x + kPadX * 2.0f;
+        const float height = text.y + kPadY * 2.0f;
+        float x = boxes.border.x;
+        float y = boxes.border.y - kGap - height;
+        if (y < input.canvas_rect.y) {
+            y = boxes.border.y + boxes.border.h + kGap;
+        }
+        const float min_x = input.canvas_rect.x;
+        const float max_x = std::max(min_x, input.canvas_rect.x + input.canvas_rect.w - width);
+        x = std::clamp(x, min_x, max_x);
+        const render::Rect badge = scale_rect(render::Rect{x, y, width, height}, input.ui_offset, input.ui_scale);
+        const glm::vec4 fill = selected ? glm::vec4{0.12f, 0.32f, 0.20f, 0.96f} : glm::vec4{0.16f, 0.28f, 0.45f, 0.96f};
+        painter.fill_rounded_rect(badge, 4.0f * input.ui_scale, fill);
+        painter.set_font(builtin::font_ui, kFont * input.ui_scale);
+        const glm::vec2 text_pos{badge.x + kPadX * input.ui_scale, badge.y + badge.h * 0.5f};
+        painter.fill_text(line, text_pos, glm::vec4{0.95f, 0.97f, 1.0f, 1.0f}, UiAlign::Start, UiAlign::Center);
+    }
+
     void paint_inspector_overlay(Element &root, IUiPainter &painter, const UiPaintInput &input) {
         if (!input.inspector_hover && !input.inspector_selection) {
             return;
@@ -1631,18 +1667,31 @@ namespace engine::ui {
                 selected_boxes = layout_boxes(root, *resolved);
             }
         }
+        const Element *badge_element = nullptr;
+        LayoutBoxes badge_boxes;
+        bool badge_selected = false;
         if (input.inspector_hover) {
             const VisualHit hit = hit_test_visual(root, input.pointer.x, input.pointer.y);
             if (hit.element != nullptr && hit.element != selected) {
                 paint_layout_boxes(painter, hit.boxes, input, glm::vec4{1.0f, 0.55f, 0.15f, 0.28f},
                                    glm::vec4{0.55f, 0.75f, 0.25f, 0.22f}, glm::vec4{0.25f, 0.55f, 1.0f, 0.28f},
                                    glm::vec4{0.25f, 0.55f, 1.0f, 0.95f});
+                badge_element = hit.element;
+                badge_boxes = hit.boxes;
             }
         }
         if (selected != nullptr) {
             paint_layout_boxes(painter, selected_boxes, input, glm::vec4{0.15f, 0.75f, 0.35f, 0.22f},
                                glm::vec4{0.15f, 0.75f, 0.35f, 0.16f}, glm::vec4{0.15f, 0.85f, 0.4f, 0.28f},
                                glm::vec4{0.15f, 0.9f, 0.4f, 1.0f});
+            if (badge_element == nullptr) {
+                badge_element = selected;
+                badge_boxes = selected_boxes;
+                badge_selected = true;
+            }
+        }
+        if (badge_element != nullptr) {
+            paint_inspector_badge(painter, *badge_element, badge_boxes, input, badge_selected);
         }
     }
 
