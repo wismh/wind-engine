@@ -193,6 +193,10 @@ namespace engine::ui {
     // content-box x/width and cascaded text-align — the same three-way branch paint.cpp's TextInput
     // block and canvas.cpp's click-to-caret-index both need. Shared so they can never compute it
     // differently and disagree about where a click's index falls versus where the caret renders.
+    // Kind, then `#id` when set, then `.class` for each class. Shared by the inspector tree and the
+    // on-canvas badge.
+    [[nodiscard]] std::string inspector_element_tag(const Element &element);
+
     [[nodiscard]] inline float text_align_origin_x(float content_x, float content_w, UiAlign text_align) noexcept {
         if (text_align == UiAlign::Center) {
             return content_x + content_w * 0.5f;
