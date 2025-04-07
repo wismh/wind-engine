@@ -8,6 +8,7 @@
 #include <engine/ui/document.h>
 #include <engine/ui/view_model.h>
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -183,7 +184,10 @@ void apply_canvas_fit(ecs::World& world);
 // `window` (default kPrimaryWindow, trailing so every pre-existing call site keeps compiling
 // unchanged) restricts hit-testing to canvases whose UiCanvas::window matches — a canvas assigned
 // to a different window never receives this pointer event's click.
-void handle_pointer(ecs::World& world, float x, float y, WindowId window = kPrimaryWindow);
+// `primary_button` is the left button. A right-click does not place a caret or clear a selection.
+// `clicks` is the OS click count (1 single, 2 word, 3+ the whole text).
+void handle_pointer(ecs::World& world, float x, float y, WindowId window = kPrimaryWindow, bool primary_button = true,
+        std::uint8_t clicks = 1);
 // Same hit test as handle_pointer() (and updates MouseConsumed the same way) but never executes a
 // command — for MouseEvent::Kind::Move, where re-running a bound element's command on every hover
 // pixel would be wrong. Without this, MouseConsumed only ever reflects the pointer's position at
@@ -247,11 +251,12 @@ void handle_text_input(ecs::World& world, std::string_view text, WindowId window
 
 // Drag-select continuation: call on every pointer Move while the button is still down (pointer_for
 // (world, window).down). A no-op unless the window's currently-focused element (UiFocusState) is a
-// TextInput — moves its caret_position to the glyph under `x`, leaving selection_anchor at wherever
-// the drag started (set by handle_pointer() on the initial Down), so the two diverge into a real
-// range exactly like a mouse drag in any other text field. No re-hit-test: unlike a
-// `drag="{binding}"` slider (ActiveDrag), this only ever mutates the already-focused Element's own
-// fields, so UiFocusState's element pointer is all it needs — see canvas.cpp.
-void update_text_selection(ecs::World& world, float x, WindowId window = kPrimaryWindow);
+// TextInput or a selectable Label. Moves caret_position to the glyph under (x, y), leaving
+// selection_anchor at wherever the drag started (set by handle_pointer() on the initial Down).
+// A word gesture (double-click) snaps that live end to word boundaries; `user-select: all` and a
+// triple-click do not shrink. No re-hit-test: unlike a `drag="{binding}"` slider (ActiveDrag), this
+// only ever mutates the already-focused Element's own fields, so UiFocusState's element pointer is
+// all it needs — see canvas.cpp.
+void update_text_selection(ecs::World& world, float x, float y, WindowId window = kPrimaryWindow);
 
 }

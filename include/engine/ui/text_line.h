@@ -19,4 +19,16 @@ struct TextBlock {
     float line_height = 0.0f;
 };
 
+// One painted row of a selectable Label, in the same real pixels the glyphs were drawn with. `x`/`y` is the
+// top-left of the glyphs after text-align and align-items, not the content box. Click-to-index and the
+// selection highlight both read this so a click cannot land somewhere the glyphs were not drawn.
+struct PaintedTextLine {
+    std::size_t begin = 0;
+    std::size_t end = 0;
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+};
+
 }

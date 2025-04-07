@@ -635,7 +635,7 @@ void EngineRuntime::poll_events(ecs::World& world, InputSystem& input, Applicati
                     }
                 }
                 input.handle_mouse_button(window_id, mouse_button_from_sdl(event.button.button), event.button.down,
-                        glm::vec2{event.button.x, event.button.y});
+                        glm::vec2{event.button.x, event.button.y}, event.button.clicks);
                 break;
             }
             case SDL_EVENT_MOUSE_MOTION: {

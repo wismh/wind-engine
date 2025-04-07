@@ -55,7 +55,8 @@ void run_input(ecs::World& world) {
         }
         if (event.kind == MouseEvent::Kind::Down) {
             pointer.down = true;
-            ui::handle_pointer_for_run_input(world, event.position.x, event.position.y, event.window, input_batch);
+            ui::handle_pointer_for_run_input(world, event.position.x, event.position.y, event.window, input_batch,
+                    event.button == MouseButton::Left, event.clicks);
         } else if (event.kind == MouseEvent::Kind::Up) {
             pointer.down = false;
             ui::end_drag(world, event.window);
@@ -70,10 +71,9 @@ void run_input(ecs::World& world) {
             // the dragged element's bounds (real drag UX) — a no-op when no drag is active.
             ui::update_drag_for_run_input(world, event.position.x, event.position.y, event.window, input_batch);
             ui::update_pan_for_run_input(world, event.position.x, event.position.y, event.window, input_batch);
-            // Extends a TextInput drag-select while the button stays down — a no-op unless the
-            // focused element is a TextInput (ui::UiFocusState); no batch needed, it never touches
-            // bindings/layout, only the already-focused Element's own caret_position.
-            ui::update_text_selection(world, event.position.x, event.window);
+            // Extends a TextInput or selectable-Label drag-select while the button stays down.
+            // No batch needed: it never touches bindings/layout, only the focused Element.
+            ui::update_text_selection(world, event.position.x, event.position.y, event.window);
         } else if (event.kind == MouseEvent::Kind::Wheel) {
             ui::handle_wheel_for_run_input(
                     world, event.position.x, event.position.y, event.wheel_y, event.window, input_batch);

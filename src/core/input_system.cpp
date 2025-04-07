@@ -224,7 +224,8 @@ void InputSystem::handle_text_input(std::string_view text, WindowId window) {
     });
 }
 
-void InputSystem::handle_mouse_button(WindowId window, MouseButton button, bool down, glm::vec2 position) {
+void InputSystem::handle_mouse_button(
+        WindowId window, MouseButton button, bool down, glm::vec2 position, std::uint8_t clicks) {
     if (world_ == nullptr) {
         return;
     }
@@ -233,6 +234,7 @@ void InputSystem::handle_mouse_button(WindowId window, MouseButton button, bool 
             .kind = down ? MouseEvent::Kind::Down : MouseEvent::Kind::Up,
             .position = position,
             .button = button,
+            .clicks = clicks,
     });
     if (button == MouseButton::None) {
         return;
