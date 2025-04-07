@@ -1,5 +1,6 @@
 #pragma once
 
+#include <engine/ecs/entity.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
 
@@ -57,6 +58,9 @@ namespace engine::render {
         bool inspector_selection = false;
         std::vector<std::size_t> inspector_selection_path;
         const void *inspector_selection_owner = nullptr;
+        // Which canvas this draw is. The UI profiler attributes paint to it. Empty for a draw that
+        // has no canvas. Present in every configuration so the command layout does not change.
+        ecs::Entity canvas{};
     };
 
     struct ParticleInstance {

@@ -22,10 +22,12 @@
 #include <engine/ui/canvas.h>
 #include <engine/ui/document.h>
 #include <engine/ui/inspector.h>
+#include <engine/ui/profiler.h>
 #include <engine/ui/splash.h>
 #include <engine/ui/stylesheet.h>
 
 #include "ui/input_batch.h"
+#include "ui/profile.h"
 #include "ui/ui_refs.h"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -175,6 +177,9 @@ namespace engine {
         }
 
         void run_bind(ecs::World &world, const EngineSystemDeps &deps) {
+#if defined(ENGINE_UI_PROFILER)
+            ui::profiler_attach(world);
+#endif
             auto view = world.view<ui::UiCanvas>();
             for (ecs::Entity entity: view) {
                 ui::UiCanvas &canvas = view.get<ui::UiCanvas>(entity);
@@ -188,12 +193,18 @@ namespace engine {
                 if (instance == nullptr) {
                     continue;
                 }
-                (void) ui::apply_bindings(instance->document, *canvas.data_context, nullptr,
-                                          &world.ctx<loc::Catalog>());
+                {
+                    ENGINE_UI_PROFILE(entity, Bindings);
+                    (void) ui::apply_bindings(instance->document, *canvas.data_context, nullptr,
+                                              &world.ctx<loc::Catalog>());
+                }
                 if (deps.assets == nullptr) {
                     continue;
                 }
-                load_merged_stylesheets(*instance, canvas, *deps.assets);
+                {
+                    ENGINE_UI_PROFILE(entity, Stylesheets);
+                    load_merged_stylesheets(*instance, canvas, *deps.assets);
+                }
             }
         }
 
@@ -486,6 +497,10 @@ namespace engine {
             if (deps.commands == nullptr) {
                 return;
             }
+#if defined(ENGINE_UI_PROFILER)
+            ui::profiler_attach(world);
+#endif
+            ENGINE_UI_PROFILE_SHARED(CommandBuild);
 
             const Time &time = world.ctx<Time>();
             std::vector<CanvasDraw> canvases;
@@ -567,6 +582,7 @@ namespace engine {
                         window_width,      window_height,
                         space.offset,      space.scale,
                 };
+                cmd.canvas = canvas.entity;
                 if (ui::inspector_enabled(world) && world.try_get<ui::InspectorPanel>(canvas.entity) == nullptr) {
                     if (const auto hover = hover_by_window.find(canvas.window); hover != hover_by_window.end() &&
                                                                                 hover->second.has_value() &&
@@ -686,6 +702,7 @@ namespace engine {
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_sprite_animations(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_particles(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Bind, [](ecs::World &w) { ui::sync_inspector_content(w); });
+        world.add_system(ecs::Schedule::Frame, ecs::Phase::Bind, [](ecs::World &w) { ui::sync_profiler_content(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Bind, [deps](ecs::World &w) { run_bind(w, deps); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Audio, [deps](ecs::World &w) { run_audio(w, deps); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Render, [deps](ecs::World &w) { run_render(w, deps); });
