@@ -2,6 +2,7 @@
 
 #include <toml++/toml.hpp>
 
+#include <algorithm>
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
@@ -10,6 +11,17 @@
 #include <string_view>
 
 namespace engine::render {
+
+void MaterialOverride::set_vec4(std::string_view name, const glm::vec4& value) {
+    const auto it = std::find_if(vec4_params.begin(), vec4_params.end(),
+            [name](const auto& param) { return param.first == name; });
+    if (it != vec4_params.end()) {
+        it->second = value;
+    } else {
+        vec4_params.emplace_back(std::string(name), value);
+    }
+}
+
 namespace {
 
 bool is_hex_guid(std::string_view value) {

@@ -266,6 +266,7 @@ void run_render(ecs::World& world, const EngineSystemDeps& deps) {
         cmd.color = r.color;
         cmd.uv_scale = {1.0f, 1.0f};
         cmd.uv_offset = {0.0f, 0.0f};
+        cmd.material_override = r.material_override;
 
         const render::IMaterial* mat_ptr = r.material.get();
         items.push_back(DrawItem{
@@ -341,6 +342,7 @@ void run_render(ecs::World& world, const EngineSystemDeps& deps) {
         cmd.color = s.color;
         cmd.uv_scale = s.tiling;
         cmd.uv_offset = s.offset;
+        cmd.material_override = s.material_override;
 
         const render::IMaterial* mat_ptr = material.get();
         items.push_back(DrawItem{
