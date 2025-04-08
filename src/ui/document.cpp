@@ -790,18 +790,16 @@ namespace engine::ui {
             }
 
             if (is_bound(element.text_binding)) {
-                if (auto value = vm.read_property_string(element.text_binding)) {
-                    element.text = *value;
-                }
+                (void) vm.assign_property_string(element.text_binding, element.text);
             }
             if (is_bound(element.content_binding)) {
-                if (auto value = vm.read_property_string(element.content_binding)) {
-                    element.text = *value;
-                }
+                (void) vm.assign_property_string(element.content_binding, element.text);
             }
             if (!element.tr_key.empty() && !in_template) {
                 if (catalog == nullptr) {
-                    element.text = element.tr_key;
+                    if (element.text != element.tr_key) {
+                        element.text = element.tr_key;
+                    }
                     if (fatal != nullptr) {
                         fatal->report("missing string key \"" + element.tr_key + "\"");
                         return std::unexpected(UiError::MissingString);
@@ -819,8 +817,10 @@ namespace engine::ui {
                             args.push_back(engine::loc::Arg{arg.name, std::string_view{held.back()}});
                         }
                     }
-                    const engine::loc::Translated translated = catalog->text(element.tr_key, args);
-                    element.text = translated.text;
+                    engine::loc::Translated translated = catalog->text(element.tr_key, args);
+                    if (element.text != translated.text) {
+                        element.text = std::move(translated.text);
+                    }
                     if (translated.missing_from_source && fatal != nullptr) {
                         fatal->report("missing string key \"" + element.tr_key + "\"");
                         return std::unexpected(UiError::MissingString);
@@ -868,10 +868,14 @@ namespace engine::ui {
                 }
             }
             for (const CustomPropertyBinding &custom: element.custom_property_bindings) {
-                if (auto value = vm.read_property_string(custom.binding)) {
-                    element.custom_properties[custom.name] = *value;
-                } else {
-                    element.custom_properties.erase(custom.name);
+                const auto existing = element.custom_properties.find(custom.name);
+                if (existing == element.custom_properties.end()) {
+                    std::string value;
+                    if (vm.assign_property_string(custom.binding, value)) {
+                        element.custom_properties.emplace(custom.name, std::move(value));
+                    }
+                } else if (!vm.assign_property_string(custom.binding, existing->second)) {
+                    element.custom_properties.erase(existing);
                 }
             }
 
@@ -956,21 +960,9 @@ namespace engine::ui {
                         }
                     }
 
-                    // Reconcile by ViewModel* identity instead of clearing+rebuilding from the static
-                    // ItemTemplate every frame: an item still present in items_source (and still inside
-                    // the generated window) reuses (re-binds in place) its previous Element(s),
-                    // preserving motion clocks and any other per-instance runtime state across
-                    // frames. Only a genuinely new item is cloned fresh from the template; an item no
-                    // longer in items_source, or no longer inside the window, simply isn't claimed and
-                    // its old Element(s) are dropped when `previous_by_owner` goes out of scope. Spacer
-                    // Elements (generated_owner == nullptr) never match a real item and are always
-                    // dropped and rebuilt fresh below — they carry no runtime state worth preserving.
-                    std::unordered_map<const void *, std::vector<Element>> previous_by_owner;
-                    for (Element &old: element.generated_items) {
-                        previous_by_owner[old.generated_owner].push_back(std::move(old));
-                    }
-                    element.generated_items.clear();
-
+                    // Decide the window before moving any Element. When generated_items is already that
+                    // window, the rows are bound in place. A different set still reconciles by
+                    // ViewModel* below, so a surviving row keeps its motion clocks.
                     const std::vector<ViewModel *> items = vm.read_item_source(element.items_source_binding);
                     std::size_t window_first = 0;
                     std::size_t window_last = items.empty() ? 0 : items.size() - 1;
@@ -1053,21 +1045,123 @@ namespace engine::ui {
                         }
                     }
 
-                    if (leading_spacer_h > 0.0f) {
-                        Element spacer;
-                        spacer.kind = ElementKind::Canvas;
-                        spacer.height = Length{leading_spacer_h, LengthUnit::Px};
-                        spacer.is_virtualization_spacer = true;
-                        element.generated_items.push_back(std::move(spacer));
-                    }
-                    for (std::size_t i = window_first; !window_empty && !items.empty() && i <= window_last; ++i) {
-                        ViewModel *item = items[i];
-                        if (item == nullptr) {
-                            continue;
+                    const auto is_spacer = [](const Element &row) {
+                        return row.is_virtualization_spacer && row.generated_owner == nullptr;
+                    };
+                    const auto generated_window_matches = [&] {
+                        std::size_t index = 0;
+                        const std::vector<Element> &rows = element.generated_items;
+                        if (leading_spacer_h > 0.0f) {
+                            if (index >= rows.size() || !is_spacer(rows[index])) {
+                                return false;
+                            }
+                            ++index;
                         }
-                        if (const auto reused = previous_by_owner.find(item);
-                            reused != previous_by_owner.end() && reused->second.size() == expected_count) {
-                            for (Element &clone: reused->second) {
+                        if (!window_empty && !items.empty()) {
+                            for (std::size_t i = window_first; i <= window_last; ++i) {
+                                ViewModel *item = items[i];
+                                if (item == nullptr) {
+                                    continue;
+                                }
+                                for (std::size_t n = 0; n < expected_count; ++n) {
+                                    if (index >= rows.size() || rows[index].is_virtualization_spacer ||
+                                        rows[index].generated_owner != item) {
+                                        return false;
+                                    }
+                                    ++index;
+                                }
+                            }
+                        }
+                        if (trailing_spacer_h > 0.0f) {
+                            if (index >= rows.size() || !is_spacer(rows[index])) {
+                                return false;
+                            }
+                            ++index;
+                        }
+                        return index == rows.size();
+                    };
+                    const auto write_spacer_height = [](Element &spacer, float height) {
+                        if (spacer.height && spacer.height->unit == LengthUnit::Px && spacer.height->calc.empty() &&
+                            spacer.height->value == height) {
+                            return;
+                        }
+                        spacer.height = Length{height, LengthUnit::Px};
+                    };
+                    if (generated_window_matches()) {
+                        std::size_t index = 0;
+                        if (leading_spacer_h > 0.0f) {
+                            write_spacer_height(element.generated_items[index++], leading_spacer_h);
+                        }
+                        if (!window_empty && !items.empty()) {
+                            for (std::size_t i = window_first; i <= window_last; ++i) {
+                                ViewModel *item = items[i];
+                                if (item == nullptr) {
+                                    continue;
+                                }
+                                for (std::size_t n = 0; n < expected_count; ++n) {
+                                    if (auto result = bind_element(element.generated_items[index++], *item, fatal,
+                                                                   false, child_scroll_context, catalog);
+                                        !result) {
+                                        return result;
+                                    }
+                                }
+                            }
+                        }
+                        if (trailing_spacer_h > 0.0f) {
+                            write_spacer_height(element.generated_items[index], trailing_spacer_h);
+                        }
+                    } else {
+                        // A changed set. An item still in the window reuses its Element (motion clocks
+                        // included). A new item is cloned from the template. Spacers are rebuilt; they
+                        // carry no runtime state.
+                        std::unordered_map<const void *, std::vector<Element>> previous_by_owner;
+                        for (Element &old: element.generated_items) {
+                            previous_by_owner[old.generated_owner].push_back(std::move(old));
+                        }
+                        element.generated_items.clear();
+
+                        if (leading_spacer_h > 0.0f) {
+                            Element spacer;
+                            spacer.kind = ElementKind::Canvas;
+                            spacer.height = Length{leading_spacer_h, LengthUnit::Px};
+                            spacer.is_virtualization_spacer = true;
+                            element.generated_items.push_back(std::move(spacer));
+                        }
+                        for (std::size_t i = window_first; !window_empty && !items.empty() && i <= window_last; ++i) {
+                            ViewModel *item = items[i];
+                            if (item == nullptr) {
+                                continue;
+                            }
+                            if (const auto reused = previous_by_owner.find(item);
+                                reused != previous_by_owner.end() && reused->second.size() == expected_count) {
+                                for (Element &clone: reused->second) {
+                                    if (auto result =
+                                                bind_element(clone, *item, fatal, false, child_scroll_context, catalog);
+                                        !result) {
+                                        return result;
+                                    }
+                                    element.generated_items.push_back(std::move(clone));
+                                }
+                                previous_by_owner.erase(reused);
+                                continue;
+                            }
+                            if (tmpl->children.empty()) {
+                                Element clone = *tmpl;
+                                clone.kind = ElementKind::Stack;
+                                clone.children.clear();
+                                clone.generated_owner = item;
+                                if (auto result =
+                                            bind_element(clone, *item, fatal, false, child_scroll_context, catalog);
+                                    !result) {
+                                    return result;
+                                }
+                                element.generated_items.push_back(std::move(clone));
+                                continue;
+                            }
+                            for (const Element &node: tmpl->children) {
+                                Element clone = node;
+                                clone.generated_items.clear();
+                                clone.generated_owner = item;
                                 if (auto result =
                                             bind_element(clone, *item, fatal, false, child_scroll_context, catalog);
                                     !result) {
@@ -1075,38 +1169,14 @@ namespace engine::ui {
                                 }
                                 element.generated_items.push_back(std::move(clone));
                             }
-                            previous_by_owner.erase(reused);
-                            continue;
                         }
-                        if (tmpl->children.empty()) {
-                            Element clone = *tmpl;
-                            clone.kind = ElementKind::Stack;
-                            clone.children.clear();
-                            clone.generated_owner = item;
-                            if (auto result = bind_element(clone, *item, fatal, false, child_scroll_context, catalog);
-                                !result) {
-                                return result;
-                            }
-                            element.generated_items.push_back(std::move(clone));
-                            continue;
+                        if (trailing_spacer_h > 0.0f) {
+                            Element spacer;
+                            spacer.kind = ElementKind::Canvas;
+                            spacer.height = Length{trailing_spacer_h, LengthUnit::Px};
+                            spacer.is_virtualization_spacer = true;
+                            element.generated_items.push_back(std::move(spacer));
                         }
-                        for (const Element &node: tmpl->children) {
-                            Element clone = node;
-                            clone.generated_items.clear();
-                            clone.generated_owner = item;
-                            if (auto result = bind_element(clone, *item, fatal, false, child_scroll_context, catalog);
-                                !result) {
-                                return result;
-                            }
-                            element.generated_items.push_back(std::move(clone));
-                        }
-                    }
-                    if (trailing_spacer_h > 0.0f) {
-                        Element spacer;
-                        spacer.kind = ElementKind::Canvas;
-                        spacer.height = Length{trailing_spacer_h, LengthUnit::Px};
-                        spacer.is_virtualization_spacer = true;
-                        element.generated_items.push_back(std::move(spacer));
                     }
                 }
             }
