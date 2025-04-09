@@ -1008,24 +1008,26 @@ namespace engine::ui {
             cache.style = std::move(style);
         }
 
-        // Memoized compute_style(): apply_layout_style() and paint_element() are the only two callers,
-        // with allow_pseudo false and true respectively, so they land in independent StyleCacheEntry
-        // slots on the element (style_cache_layout_ / style_cache_paint_) and can never invalidate each
-        // other. See StyleCacheEntry's doc comment (document.h) for exactly what a hit requires.
+        // Returns the pre-motion cascade stored on the element. apply_layout_style() calls with
+        // allow_pseudo false and paint / advance_tree with true, so they land in independent
+        // StyleCacheEntry slots and never invalidate each other. See StyleCacheEntry (document.h) for
+        // what a hit requires.
         //
-        // Not cached at all: advance_motion(). It runs before paint and writes Element::motion_shown;
-        // paint_element() applies that on top of compute_style(), so a cached cascade stays pre-motion.
-        ComputedStyle compute_style(const Element &element, const Stylesheet *sheet, bool allow_pseudo,
-                                    const std::vector<const Element *> &ancestors, float window_width,
-                                    float window_height) {
+        // advance_tree steps clocks only when the paint slot misses, a transition is still running, an
+        // animation has not reached its end (delay included), or a held sample's parent basis changed.
+        // A quiet hit leaves the cache and any held sample in place. paint_element() copies this style
+        // only when motion_shown is non-empty; the copy stays pre-motion until apply_motion_shown().
+        const ComputedStyle &compute_style(const Element &element, const Stylesheet *sheet, bool allow_pseudo,
+                                           const std::vector<const Element *> &ancestors, float window_width,
+                                           float window_height) {
             StyleCacheEntry &cache = allow_pseudo ? element.style_cache_paint_ : element.style_cache_layout_;
             if (style_cache_hits(cache, element, sheet, ancestors, window_width, window_height)) {
                 return cache.style;
             }
             ComputedStyle style =
                     compute_style_uncached(element, sheet, allow_pseudo, ancestors, window_width, window_height);
-            style_cache_store(cache, element, sheet, ancestors, window_width, window_height, style);
-            return style;
+            style_cache_store(cache, element, sheet, ancestors, window_width, window_height, std::move(style));
+            return cache.style;
         }
 
         BoxInsets resolve_insets(const LengthInsets &insets, glm::vec2 parent_content, float em_basis) {
@@ -1053,7 +1055,7 @@ namespace engine::ui {
                 // transparent background, so nothing is drawn.
                 return;
             }
-            const ComputedStyle style = compute_style(element, sheet, false, ancestors, window_width, window_height);
+            const ComputedStyle &style = compute_style(element, sheet, false, ancestors, window_width, window_height);
             element.visible = style.visible;
             element.display_none = style.display_none;
             if (style.display_none) {
@@ -1233,9 +1235,18 @@ namespace engine::ui {
                 return;
             }
 
-            ComputedStyle style =
+            const ComputedStyle &cached =
                     compute_style(element, sheet, true, ancestors, input.window_width, input.window_height);
-            apply_motion_shown(element, style);
+            // Quiet elements keep the cached cascade. A held sample (running transition, finished
+            // @keyframes) is the only reason to copy and overlay.
+            std::optional<ComputedStyle> overlay;
+            const ComputedStyle *used = &cached;
+            if (!element.motion_shown.empty()) {
+                overlay.emplace(cached);
+                apply_motion_shown(element, *overlay);
+                used = &(*overlay);
+            }
+            const ComputedStyle &style = *used;
             if (!style.visible || style.display_none) {
                 return;
             }
@@ -1426,13 +1437,53 @@ namespace engine::ui {
                                                   element.selection_color);
                     }
 
+                    const std::size_t committed_caret = std::min(element.caret_position, element.text.size());
+                    const float committed_w =
+                            painter.measure_text(std::string_view(element.text).substr(0, committed_caret),
+                                                 style.font_family, glyph_h)
+                                    .x;
+                    const float composition_x = x + committed_w;
+                    if (!element.composition.empty()) {
+                        const std::string_view composition = element.composition;
+                        painter.fill_text(composition, glm::vec2{composition_x, y}, style.color, UiAlign::Start,
+                                          style.align_items);
+                        const float composition_w = painter.measure_text(composition, style.font_family, glyph_h).x;
+                        const float underline_y = glyph_y + glyph_h;
+                        painter.draw_line(glm::vec2{composition_x, underline_y},
+                                          glm::vec2{composition_x + composition_w, underline_y}, style.color,
+                                          1.0f * input.ui_scale);
+                        if (element.composition_length > 0) {
+                            const std::size_t range_begin = utf8_byte_offset(composition, element.composition_start);
+                            std::size_t range_end = range_begin;
+                            for (int step = 0; step < element.composition_length; ++step) {
+                                if (range_end >= composition.size()) {
+                                    break;
+                                }
+                                range_end = next_utf8_char(composition, range_end);
+                            }
+                            const float range_start_w =
+                                    painter.measure_text(composition.substr(0, range_begin), style.font_family, glyph_h)
+                                            .x;
+                            const float range_end_w =
+                                    painter.measure_text(composition.substr(0, range_end), style.font_family, glyph_h)
+                                            .x;
+                            painter.fill_rounded_rect(
+                                    render::Rect{composition_x + range_start_w, glyph_y, range_end_w - range_start_w,
+                                                 glyph_h},
+                                    0.0f, element.selection_color);
+                        }
+                    }
+
                     element.caret_blink_timer += input.delta_time;
                     if (std::fmod(element.caret_blink_timer, 1.0f) < 0.5f) {
-                        const std::size_t caret_pos = std::min(element.caret_position, element.text.size());
-                        const std::string_view prefix = std::string_view(element.text).substr(0, caret_pos);
-                        const float text_w =
-                                painter.measure_text(prefix, style.font_family, font_size * input.ui_scale).x;
-                        const float caret_x = x + text_w;
+                        float caret_x = composition_x;
+                        if (!element.composition.empty()) {
+                            const std::size_t composition_caret =
+                                    utf8_byte_offset(element.composition, element.composition_start);
+                            const std::string_view composition_prefix =
+                                    std::string_view(element.composition).substr(0, composition_caret);
+                            caret_x += painter.measure_text(composition_prefix, style.font_family, glyph_h).x;
+                        }
                         painter.draw_line(glm::vec2{caret_x, glyph_y}, glm::vec2{caret_x, glyph_y + glyph_h},
                                           style.color, 1.0f * input.ui_scale);
                     }
@@ -1511,16 +1562,82 @@ namespace engine::ui {
             painter.restore();
         }
 
-        void advance_tree(Element &element, const Stylesheet *sheet, float dt, glm::vec2 parent_basis,
-                          std::vector<const Element *> &ancestors, float window_width, float window_height) {
+        // True while elapsed has not reached the end, including the delay before the first sample.
+        // animation_running() is false during that delay, so it cannot decide a skip.
+        bool animation_clock_pending(const AnimationRuntime &player) {
+            if (player.iterations < 0.0f) {
+                return true;
+            }
+            const float end = player.delay + player.duration * std::max(player.iterations, 0.0f);
+            return player.elapsed < end;
+        }
+
+        bool motion_clocks_idle(const Element &element) {
+            for (const AnimationRuntime &player: element.animation_players) {
+                if (animation_clock_pending(player)) {
+                    return false;
+                }
+            }
+            for (const TransitionRuntime &player: element.transition_players) {
+                if (player.running) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        bool held_motion_basis_matches(const Element &element, glm::vec2 basis) {
+            if (element.motion_shown.empty()) {
+                return true;
+            }
+            return element.motion_sample_basis_valid && element.motion_sample_basis.x == basis.x &&
+                   element.motion_sample_basis.y == basis.y;
+        }
+
+        // Layout fields and visuals, after apply_layout_style has written the cascade onto the element.
+        // Visuals are committed again here because that write clobbers transform, z-index, and the other
+        // non-layout fields a running sample already stored during the walk.
+        void commit_motion_after_layout_style(Element &element) {
             if (element.kind == ElementKind::ItemTemplate) {
                 return;
+            }
+            commit_motion_layout(element);
+            commit_motion_visuals(element);
+            for (Element &child: element.children) {
+                commit_motion_after_layout_style(child);
+            }
+            for (Element &child: element.generated_items) {
+                commit_motion_after_layout_style(child);
+            }
+        }
+
+        // Returns whether this element or a descendant changed a layout input. One walk also refreshes
+        // ItemsControl virtualization and commits visuals for elements that actually stepped.
+        bool advance_tree(Element &element, const Stylesheet *sheet, float dt, glm::vec2 parent_basis,
+                          std::vector<const Element *> &ancestors, float window_width, float window_height) {
+            if (element.kind == ElementKind::ItemTemplate) {
+                return false;
             }
             element.layout_inputs_changed = false;
             element.layout_descendant_inputs_changed = false;
             element.height_motion_active = false;
-            const ComputedStyle target = compute_style(element, sheet, true, ancestors, window_width, window_height);
-            advance_motion(element, target, sheet, dt, parent_basis);
+            const bool cache_hit = style_cache_hits(
+                    element.style_cache_paint_, element, sheet, ancestors, window_width, window_height);
+            const bool skip =
+                    cache_hit && motion_clocks_idle(element) && held_motion_basis_matches(element, parent_basis);
+            if (!skip) {
+                const ComputedStyle &target =
+                        cache_hit ? element.style_cache_paint_.style
+                                  : compute_style(element, sheet, true, ancestors, window_width, window_height);
+                advance_motion(element, target, sheet, dt, parent_basis);
+                if (element.motion_shown.empty()) {
+                    element.motion_sample_basis_valid = false;
+                } else {
+                    element.motion_sample_basis = parent_basis;
+                    element.motion_sample_basis_valid = true;
+                }
+                commit_motion_visuals(element);
+            }
             const float font_size = resolve_font_size(element.font_size, parent_basis.x);
             const BoxInsets padding = resolve_insets(element.padding, parent_basis, font_size);
             glm::vec2 child_basis{
@@ -1531,34 +1648,17 @@ namespace engine::ui {
                 child_basis = parent_basis;
             }
             ancestors.push_back(&element);
-            for (Element &child: element.children) {
-                advance_tree(child, sheet, dt, child_basis, ancestors, window_width, window_height);
-            }
-            for (Element &child: element.generated_items) {
-                advance_tree(child, sheet, dt, child_basis, ancestors, window_width, window_height);
-            }
-            ancestors.pop_back();
-        }
-
-        bool bubble_layout_motion(Element &element) {
-            if (element.kind == ElementKind::ItemTemplate) {
-                return false;
-            }
             bool descendant = false;
             for (Element &child: element.children) {
-                descendant = bubble_layout_motion(child) || descendant;
+                descendant = advance_tree(child, sheet, dt, child_basis, ancestors, window_width, window_height) ||
+                             descendant;
             }
             for (Element &child: element.generated_items) {
-                descendant = bubble_layout_motion(child) || descendant;
+                descendant = advance_tree(child, sheet, dt, child_basis, ancestors, window_width, window_height) ||
+                             descendant;
             }
+            ancestors.pop_back();
             element.layout_descendant_inputs_changed = descendant;
-            return element.layout_inputs_changed || descendant;
-        }
-
-        void refresh_virtualization(Element &element) {
-            if (element.kind == ElementKind::ItemTemplate) {
-                return;
-            }
             if (element.kind == ElementKind::ItemsControl) {
                 bool any = element.height_motion_active;
                 for (const Element &row: element.generated_items) {
@@ -1566,28 +1666,7 @@ namespace engine::ui {
                 }
                 element.suppress_item_virtualization = any;
             }
-            for (Element &child: element.children) {
-                refresh_virtualization(child);
-            }
-            for (Element &child: element.generated_items) {
-                refresh_virtualization(child);
-            }
-        }
-
-        void commit_motion_tree(Element &element, bool layout_fields) {
-            if (element.kind == ElementKind::ItemTemplate) {
-                return;
-            }
-            if (layout_fields) {
-                commit_motion_layout(element);
-            }
-            commit_motion_visuals(element);
-            for (Element &child: element.children) {
-                commit_motion_tree(child, layout_fields);
-            }
-            for (Element &child: element.generated_items) {
-                commit_motion_tree(child, layout_fields);
-            }
+            return element.layout_inputs_changed || descendant;
         }
 
     } // namespace
@@ -1743,20 +1822,15 @@ namespace engine::ui {
         {
             ENGINE_UI_PROFILE(input.canvas, Motion);
             std::vector<const Element *> motion_ancestors;
-            advance_tree(document.root, stylesheet, input.delta_time,
-                         glm::vec2{input.canvas_rect.w, input.canvas_rect.h}, motion_ancestors, input.window_width,
-                         input.window_height);
-            motion_layout = bubble_layout_motion(document.root);
-            refresh_virtualization(document.root);
-            if (!motion_layout) {
-                commit_motion_tree(document.root, false);
-            }
+            motion_layout = advance_tree(document.root, stylesheet, input.delta_time,
+                                         glm::vec2{input.canvas_rect.w, input.canvas_rect.h}, motion_ancestors,
+                                         input.window_width, input.window_height);
         }
         if (motion_layout) {
             {
                 ENGINE_UI_PROFILE(input.canvas, Layout);
                 apply_layout_style(document.root, stylesheet, input.window_width, input.window_height);
-                commit_motion_tree(document.root, true);
+                commit_motion_after_layout_style(document.root);
                 layout(document, input.canvas_rect, &painter, true);
                 stamp_layout();
             }

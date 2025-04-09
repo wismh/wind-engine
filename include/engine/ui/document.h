@@ -504,8 +504,8 @@ namespace engine::ui {
     struct Element;
 
     // Memoizes one compute_style() call (paint.cpp) for one Element + one allow_pseudo variant.
-    // apply_layout_style() always calls with allow_pseudo=false, paint_element() always with
-    // allow_pseudo=true — Element keeps one StyleCacheEntry per variant (style_cache_layout_ /
+    // apply_layout_style() always calls with allow_pseudo=false. paint_element() and the motion walk
+    // call with allow_pseudo=true — Element keeps one StyleCacheEntry per variant (style_cache_layout_ /
     // style_cache_paint_) rather than folding allow_pseudo into a single key, so a layout pass can
     // never read paint's :hover/:pressed-flavored result or vice versa.
     //
@@ -522,7 +522,8 @@ namespace engine::ui {
     //
     // Deliberately NOT part of the cached style: transition and @keyframes. compute_style() never
     // reads Element motion clocks, so a cached ComputedStyle is the pre-motion cascade. advance_motion()
-    // samples on top of that copy every frame, cache hit or miss.
+    // samples on top of that style when the cache misses or a clock still needs time. A quiet hit
+    // leaves the previous sample in place.
     struct StyleCacheEntry {
         bool valid = false;
         ComputedStyle style{};
@@ -623,11 +624,17 @@ namespace engine::ui {
         LineHeight line_height{};
         AssetId font_family{};
         // Motion clocks. Reconcile moves the Element, so these survive an ItemsControl row reuse.
-        // advance_motion() rebuilds `motion_shown` every frame from the clocks; layout reads
-        // `layout_inputs_changed` to decide which subtrees to re-pack.
+        // advance_motion() rebuilds `motion_shown` when the paint style cache misses, a clock is still
+        // running (animation delay included), or a held sample's parent basis changed. A quiet frame
+        // leaves the vectors alone. layout reads `layout_inputs_changed` to decide which subtrees to re-pack.
         std::vector<TransitionRuntime> transition_players;
         std::vector<AnimationRuntime> animation_players;
         std::vector<ShownMotion> motion_shown;
+        // Parent-content basis of the last sample that left `motion_shown` non-empty. A quiet frame
+        // with an empty `motion_shown` does not consult it; a held percentage keyframe does, so a
+        // parent resize re-resolves the pixels.
+        glm::vec2 motion_sample_basis{};
+        bool motion_sample_basis_valid = false;
         bool layout_inputs_changed = false;
         bool layout_descendant_inputs_changed = false;
         // True while a row-box property (height, padding, gap, font-size, ...) is still interpolating.

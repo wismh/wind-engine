@@ -472,15 +472,27 @@ TEST(UiCss, TransitionListRepeatsLastAndDropsExtras) {
     engine::ui::advance_motion(element, style, nullptr, 0.5f, glm::vec2{100.0f, 100.0f});
 
     const engine::ui::ShownMotion* opacity = find_shown(element, engine::ui::MotionProp::Opacity);
-    const engine::ui::ShownMotion* background = find_shown(element, engine::ui::MotionProp::Background);
-    const engine::ui::ShownMotion* color = find_shown(element, engine::ui::MotionProp::Color);
     ASSERT_NE(opacity, nullptr);
+    EXPECT_NEAR(opacity->value.number, 0.5f, 0.02f);
+    // The short duration list repeats its last value (0s), so both later properties snap to the goal.
+    // A transition already at its goal is not stored in motion_shown; the player still holds the snap.
+    EXPECT_EQ(find_shown(element, engine::ui::MotionProp::Background), nullptr);
+    EXPECT_EQ(find_shown(element, engine::ui::MotionProp::Color), nullptr);
+    const engine::ui::TransitionRuntime* background = nullptr;
+    const engine::ui::TransitionRuntime* color = nullptr;
+    for (const engine::ui::TransitionRuntime& player : element.transition_players) {
+        if (player.prop == engine::ui::MotionProp::Background) {
+            background = &player;
+        } else if (player.prop == engine::ui::MotionProp::Color) {
+            color = &player;
+        }
+    }
     ASSERT_NE(background, nullptr);
     ASSERT_NE(color, nullptr);
-    EXPECT_NEAR(opacity->value.number, 0.5f, 0.02f);
-    // The short duration list repeats its last value (0s), so both later properties snap.
-    EXPECT_NEAR(background->value.color.r, 1.0f, 0.02f);
-    EXPECT_NEAR(color->value.color.r, 1.0f, 0.02f);
+    EXPECT_FALSE(background->running);
+    EXPECT_FALSE(color->running);
+    EXPECT_NEAR(background->shown.color.r, 1.0f, 0.02f);
+    EXPECT_NEAR(color->shown.color.r, 1.0f, 0.02f);
 
     engine::ui::ComputedStyle extras;
     engine::ui::apply_motion_declaration(extras, "transition-property", "opacity, background");
