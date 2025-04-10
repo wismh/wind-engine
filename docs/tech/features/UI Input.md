@@ -41,6 +41,10 @@ move). `Escape` clears focus; `Return` toggles a focused Checkbox and/or execute
 No caret is drawn on a Label. Focusing one still sets `:focus`, so `Ctrl+C` has a target. A left
 click that misses clears focus and the selection.
 
+The SDL text-input session follows a focused enabled `TextInput` only. `sync_frame` passes that field's window-pixel rect and caret offset to `SDL_SetTextInputArea` before `SDL_StartTextInput`, and refreshes the area every frame the session stays up. A `\n` in text input submits the field and clears focus; physical Return submits and keeps focus.
+
+Desktop IME preedit (`SDL_EVENT_TEXT_EDITING`) is `Element::composition`, separate from the binding. An empty editing event clears it. `SDL_EVENT_TEXT_INPUT` commits its payload into the field and clears the preedit. While `composition` is non-empty, keys other than Escape and Return are ignored: Escape clears focus and drops the preedit, Return runs the bound command and drops the preedit without clearing focus. The Android SDL backend never emits `SDL_EVENT_TEXT_EDITING`, so Gboard is unchanged.
+
 Ctrl/Shift are tracked in `world.ctx<ui::UiModifierState>()`, keyed by `WindowId`, updated by
 `handle_key` special-casing `LCtrl`/`RCtrl`/`LShift`/`RShift` on both down **and** up — this stays
 inside the SDL-free `ui` module rather than widening `KeyEvent`.

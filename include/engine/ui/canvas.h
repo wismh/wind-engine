@@ -8,6 +8,7 @@
 #include <engine/ui/document.h>
 #include <engine/ui/view_model.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -58,6 +59,21 @@ struct UiCanvasSpace {
 };
 
 [[nodiscard]] UiCanvasSpace canvas_layout_space(const render::Rect& rect, UiFit fit, glm::vec2 reference_size);
+
+// Window pixels of a TextInput border box, and the caret's x offset from `rect.x`.
+struct TextInputScreenArea {
+    render::Rect rect{};
+    float cursor = 0.0f;
+};
+
+// `rect` is `boxes.border` mapped through `space`. `cursor` is the text-align origin plus
+// `prefix_width_layout`, mapped the same way, then `caret_window_x - rect.x` clamped to [0, rect.w].
+[[nodiscard]] TextInputScreenArea map_text_input_area(const LayoutBoxes& boxes, float prefix_width_layout,
+        UiAlign text_align, const UiCanvasSpace& space);
+
+// Enabled focused TextInput on a live canvas for `window`, else nullopt. Prefix width is
+// `measure_text` of the text before the caret in layout pixels when a layout painter is registered.
+[[nodiscard]] std::optional<TextInputScreenArea> focused_text_input_area(ecs::World& world, WindowId window);
 
 // One WindowId-keyed set, kPrimaryWindow included like any other window (wind-107) — there is no
 // separate "primary" flag; consumed_for(kPrimaryWindow) is just a lookup like any other id.
@@ -246,8 +262,48 @@ struct UiClipboard {
     std::function<std::optional<std::string>()> get_text;
 };
 
+// One UTF-8 code point forward. Shared by caret movement and IME composition painting.
+[[nodiscard]] inline std::size_t next_utf8_char(std::string_view text, std::size_t pos) {
+    if (pos >= text.size()) {
+        return text.size();
+    }
+    ++pos;
+    while (pos < text.size() && (static_cast<unsigned char>(text[pos]) & 0xC0) == 0x80) {
+        ++pos;
+    }
+    return pos;
+}
+
+[[nodiscard]] inline std::size_t prev_utf8_char(std::string_view text, std::size_t pos) {
+    if (pos == 0) {
+        return 0;
+    }
+    --pos;
+    while (pos > 0 && (static_cast<unsigned char>(text[pos]) & 0xC0) == 0x80) {
+        --pos;
+    }
+    return pos;
+}
+
+// Byte offset of code point `code_point`: that many next_utf8_char steps, clamped to text.size().
+// A negative index is the end of the string (composition_start below 0 puts the caret there).
+[[nodiscard]] inline std::size_t utf8_byte_offset(std::string_view text, int code_point) {
+    if (code_point < 0) {
+        return text.size();
+    }
+    std::size_t pos = 0;
+    for (int step = 0; step < code_point && pos < text.size(); ++step) {
+        pos = next_utf8_char(text, pos);
+    }
+    return pos;
+}
+
 void handle_key(ecs::World& world, KeyCode key, bool down, bool repeat = false, WindowId window = kPrimaryWindow);
 void handle_text_input(ecs::World& world, std::string_view text, WindowId window = kPrimaryWindow);
+// IME preedit for the focused enabled TextInput. Replaces Element::composition. Empty text clears
+// it. Leaves element->text, the caret, the selection, and the ViewModel alone.
+void handle_text_editing(ecs::World& world, std::string_view text, int start, int length,
+        WindowId window = kPrimaryWindow);
 
 // Drag-select continuation: call on every pointer Move while the button is still down (pointer_for
 // (world, window).down). A no-op unless the window's currently-focused element (UiFocusState) is a
