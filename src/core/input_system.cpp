@@ -224,6 +224,18 @@ void InputSystem::handle_text_input(std::string_view text, WindowId window) {
     });
 }
 
+void InputSystem::handle_text_editing(std::string_view text, int start, int length, WindowId window) {
+    if (world_ == nullptr) {
+        return;
+    }
+    ecs::EventWriter<TextEditingEvent>{*world_}.send(TextEditingEvent{
+            .window = window,
+            .text = std::string(text),
+            .start = start,
+            .length = length,
+    });
+}
+
 void InputSystem::handle_mouse_button(
         WindowId window, MouseButton button, bool down, glm::vec2 position, std::uint8_t clicks) {
     if (world_ == nullptr) {

@@ -87,6 +87,11 @@ namespace engine {
             for (const KeyEvent &event: ecs::EventReader<KeyEvent>{world, world.ctx<ecs::EventCursor<KeyEvent>>()}) {
                 ui::handle_key(world, event.key, event.down, event.repeat, event.window);
             }
+            // An IME commit is an empty TEXT_EDITING event, then TEXT_INPUT. Clear the preedit first.
+            for (const TextEditingEvent &event:
+                 ecs::EventReader<TextEditingEvent>{world, world.ctx<ecs::EventCursor<TextEditingEvent>>()}) {
+                ui::handle_text_editing(world, event.text, event.start, event.length, event.window);
+            }
             for (const TextInputEvent &event:
                  ecs::EventReader<TextInputEvent>{world, world.ctx<ecs::EventCursor<TextInputEvent>>()}) {
                 ui::handle_text_input(world, event.text, event.window);

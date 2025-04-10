@@ -80,6 +80,15 @@ struct TextInputEvent {
     std::string text;
 };
 
+// IME composition (SDL_EVENT_TEXT_EDITING). start and length are Unicode code points into text;
+// -1 means unset. The committed characters arrive later as TextInputEvent.
+struct TextEditingEvent {
+    WindowId window = kPrimaryWindow;
+    std::string text;
+    int start = -1;
+    int length = -1;
+};
+
 [[nodiscard]] inline glm::vec2 denormalize_touch(glm::vec2 normalized, glm::ivec2 drawable) {
     const float width = static_cast<float>(drawable.x < 0 ? 0 : drawable.x);
     const float height = static_cast<float>(drawable.y < 0 ? 0 : drawable.y);
@@ -114,6 +123,7 @@ public:
 
     void handle_key(KeyCode key, bool down, bool repeat = false, WindowId window = kPrimaryWindow);
     void handle_text_input(std::string_view text, WindowId window = kPrimaryWindow);
+    void handle_text_editing(std::string_view text, int start, int length, WindowId window = kPrimaryWindow);
     void handle_mouse_button(
             WindowId window, MouseButton button, bool down, glm::vec2 position, std::uint8_t clicks = 1);
     void handle_mouse_move(WindowId window, glm::vec2 position, glm::vec2 relative);

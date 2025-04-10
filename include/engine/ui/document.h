@@ -674,6 +674,12 @@ namespace engine::ui {
         // Button carries no built-in chrome of its own.
         bool checked = false;
         std::size_t caret_position = 0;
+        // IME preedit, kept off `text` so apply_bindings can refresh `text` from the ViewModel every
+        // frame and leave the preedit in place. composition_start and composition_length are Unicode
+        // code points into composition (SDL_TextEditingEvent); -1 means unset.
+        std::string composition;
+        int composition_start = -1;
+        int composition_length = -1;
         float caret_blink_timer = 0.0f;
         // TextInput and selectable Label: the fixed end of an in-progress selection; caret_position is
         // the live end. unset = no selection. A real (non-collapsed) selection is
