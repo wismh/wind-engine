@@ -181,6 +181,42 @@ TEST(Sprite, CustomMeshAndMaterialEmittedInCommands) {
     EXPECT_FLOAT_EQ(cmd->model[3][1], 2.0f);
 }
 
+TEST(Sprite, MaterialOverridePropagatesToCommand) {
+    engine::ecs::World world;
+    spawn_camera(world);
+
+    const auto mesh = std::make_shared<FakeMesh>();
+    const auto texture = std::make_shared<FakeTexture>();
+    const auto mat = std::make_shared<FakeMaterial>();
+    const auto override_texture = std::make_shared<FakeTexture>();
+
+    engine::render::MaterialOverride override;
+    override.albedo = override_texture;
+    override.set_vec4("uFlashAmount", glm::vec4{1.0f, 1.0f, 1.0f, 0.5f});
+
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::Transform>(entity, engine::Transform{});
+    world.emplace<engine::render::Sprite>(entity, engine::render::Sprite{
+            .texture = texture,
+            .mesh = mesh,
+            .material = mat,
+            .material_override = override,
+    });
+
+    engine::render::CommandBuffer commands;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    world.run(engine::ecs::Schedule::Frame);
+
+    ASSERT_EQ(commands.size(), 1u);
+    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[0]);
+    ASSERT_NE(cmd, nullptr);
+    ASSERT_TRUE(cmd->material_override.has_value());
+    EXPECT_EQ(cmd->material_override->albedo, override_texture);
+    ASSERT_EQ(cmd->material_override->vec4_params.size(), 1u);
+    EXPECT_EQ(cmd->material_override->vec4_params[0].first, "uFlashAmount");
+    EXPECT_EQ(cmd->material_override->vec4_params[0].second, (glm::vec4{1.0f, 1.0f, 1.0f, 0.5f}));
+}
+
 TEST(Sprite, FlipXAndFlipYNegateModelScale) {
     engine::ecs::World world;
     spawn_camera(world);
