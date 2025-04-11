@@ -35,7 +35,8 @@ Games include `<engine/…>` only. `IUiPainter` is **not** public ([[src.ui.pain
 | `ENGINE_WITH_GLES` | PUBLIC. ES 3.0 backend (no glad, NanoVG GLES3, shader adapt). Default ON when `EMSCRIPTEN` or `ANDROID`. |
 | `ENGINE_BUILD_TESTS` | Builds `engine_tests`; implies `ENGINE_WITH_GTEST`. Default ON at engine root, OFF when Wind is a subdirectory. |
 | `ENGINE_WITH_GTEST` | Vendors GoogleTest (`external/googletest`) without building `engine_tests` — set this alone so a game's own test target gets `GTest::gtest_main` without also compiling the engine's internal suite. Defaults to `ENGINE_BUILD_TESTS`. |
-| `ENGINE_UI_PROFILER` | PUBLIC on `engine`, Debug only. UI profiler scopes and window. Other configurations compile the call sites out; the public toggle is an inline no-op. See [[features/UI Profiler]]. |
+| `ENGINE_UI_PROFILER` | PUBLIC on `engine`, Debug and RelWithDebInfo. UI profiler scopes and window. Release and MinSizeRel compile the call sites out; the public toggle is an inline no-op. See [[features/UI Profiler]]. |
+| `ENGINE_CLI_SERVER` | PUBLIC on `engine`, Debug and RelWithDebInfo, and not on Emscripten or Android. Loopback server for `wind-cli`. Other configurations do not listen and do not write a descriptor. The host tool still builds and does not link `engine`. See [[features/CLI]]. |
 
 `IHaptics` has no `ENGINE_WITH_*` flag of its own — its Native/Web/Android split happens at
 compile time via `__EMSCRIPTEN__`/`__ANDROID__` inside `HapticsSystem`, not a build option.

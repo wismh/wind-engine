@@ -115,8 +115,13 @@ list(FILTER ENGINE_SOURCES EXCLUDE REGEX "sdl_fatal_error\\.cpp$")
 add_library(engine STATIC ${ENGINE_SOURCES})
 add_library(engine::engine ALIAS engine)
 
-# Debug only. Release, RelWithDebInfo, and MinSizeRel compile the profiler call sites out.
-target_compile_definitions(engine PUBLIC $<$<CONFIG:Debug>:ENGINE_UI_PROFILER>)
+# Debug and RelWithDebInfo. Release and MinSizeRel compile the profiler call sites out.
+target_compile_definitions(engine PUBLIC $<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:ENGINE_UI_PROFILER>)
+# Same configs, desktop only. The CLI server is a separate switch from the profiler.
+if(NOT EMSCRIPTEN AND NOT ANDROID)
+    target_compile_definitions(engine PUBLIC
+        $<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:ENGINE_CLI_SERVER>)
+endif()
 
 target_include_directories(engine
     PUBLIC
@@ -132,6 +137,11 @@ target_link_libraries(engine
         spdlog::spdlog
         tinyxml2::tinyxml2
         tomlplusplus::tomlplusplus)
+if(WIN32)
+    # cli_server.cpp (Debug / RelWithDebInfo) calls WinSock and the ACL APIs. A static
+    # library does not propagate PRIVATE link libs, so games that link engine need them PUBLIC.
+    target_link_libraries(engine PUBLIC ws2_32 advapi32)
+endif()
 
 if(CMAKE_CROSSCOMPILING)
     if(NOT ENGINE_HOST_ASSET_CODEGEN)
@@ -149,6 +159,12 @@ else()
 
     add_executable(asset_guid "${CMAKE_CURRENT_SOURCE_DIR}/tools/asset_guid/main.cpp")
     target_link_libraries(asset_guid PRIVATE engine)
+
+    # Host client. Does not link engine: it only speaks HTTP to a running game.
+    add_executable(wind-cli "${CMAKE_CURRENT_SOURCE_DIR}/tools/wind_cli/main.cpp")
+    if(WIN32)
+        target_link_libraries(wind-cli PRIVATE ws2_32)
+    endif()
 endif()
 
 if(CMAKE_CROSSCOMPILING)

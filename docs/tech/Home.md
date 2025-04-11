@@ -31,6 +31,7 @@ flowchart LR
    - [[features/UI Input]]
    - [[features/UI Inspector]]
    - [[features/UI Profiler]]
+   - [[features/CLI]]
    - [[features/Input Mapper]]
    - [[features/Windowing]]
 4. **[[build/Pipeline|Build pipeline]]** — configure → codegen → compile → copy assets → run.
@@ -43,6 +44,7 @@ flowchart LR
 - [[architecture/Boundaries]]
 - [[architecture/Principles]]
 - [[architecture/Scope]]
+- [[architecture/UI Performance Plan]]
 
 ## Build shortcuts
 
