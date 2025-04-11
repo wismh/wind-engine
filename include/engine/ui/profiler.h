@@ -22,7 +22,7 @@ namespace engine::ui {
     };
 
     // Opens or closes the profiler window. Does not bind a key; the game calls this.
-    // Without ENGINE_UI_PROFILER (every configuration except Debug) the call compiles away.
+    // Without ENGINE_UI_PROFILER (Release and MinSizeRel) the call compiles away.
 #if defined(ENGINE_UI_PROFILER)
     void set_ui_profiler_enabled(ecs::World &world, bool enabled);
 
