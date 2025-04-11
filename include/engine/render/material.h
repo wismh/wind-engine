@@ -8,6 +8,8 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace engine::render {
 
@@ -59,6 +61,18 @@ private:
     std::shared_ptr<ITexture> albedo_;
     glm::vec4 color_{1.0f, 1.0f, 1.0f, 1.0f};
     BlendMode blend_ = BlendMode::Alpha;
+};
+
+// Per-instance override of a material's texture(0) and/or named shader vec4 uniforms,
+// applied on top of the material a Renderable/Sprite already references (no new IMaterial needed
+// per unique texture or effect). Not a CmdCustomDraw-style callback: still data, consumed by the
+// existing named-uniform setters on the backend's shader.
+struct MaterialOverride {
+    std::shared_ptr<ITexture> albedo;
+    std::vector<std::pair<std::string, glm::vec4>> vec4_params;
+
+    // Replaces the value if `name` is already present, otherwise appends it.
+    void set_vec4(std::string_view name, const glm::vec4& value);
 };
 
 struct MaterialDesc {

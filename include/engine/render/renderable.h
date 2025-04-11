@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 
 namespace engine::render {
@@ -19,6 +20,7 @@ struct Renderable {
     glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
     int layer = 0;
     int order_in_layer = 0;
+    std::optional<MaterialOverride> material_override;
 
     [[nodiscard]] glm::vec4 tinted_color() const {
         const glm::vec4 material_color =
