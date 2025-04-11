@@ -229,6 +229,43 @@ TEST(InlineSplit, EscapedCloserInsideAFormulaStaysInTheSource) {
     EXPECT_FALSE(split.unclosed);
 }
 
+TEST(InlineSplit, SourceRangesCoverFormulasEscapesAndUnclosedText) {
+    const InlineSplit formula = engine::ui::split_inline(R"(a\(x\))");
+    ASSERT_EQ(formula.pieces.size(), 2u);
+    EXPECT_EQ(formula.pieces[0].source_begin, 0u);
+    EXPECT_EQ(formula.pieces[0].source_end, 1u);
+    EXPECT_TRUE(formula.pieces[0].source_of_drawn.empty());
+    EXPECT_EQ(formula.pieces[1].kind, InlinePiece::Kind::Math);
+    EXPECT_EQ(formula.pieces[1].source_begin, 1u);
+    EXPECT_EQ(formula.pieces[1].source_end, std::string(R"(a\(x\))").size());
+
+    const InlineSplit empty = engine::ui::split_inline(R"(\(\))");
+    ASSERT_EQ(empty.pieces.size(), 1u);
+    EXPECT_EQ(empty.pieces[0].source_begin, 0u);
+    EXPECT_EQ(empty.pieces[0].source_end, 4u);
+
+    const InlineSplit escaped = engine::ui::split_inline(R"(a\\(b)");
+    ASSERT_EQ(escaped.pieces.size(), 1u);
+    EXPECT_EQ(escaped.pieces[0].text, R"(a\(b)");
+    EXPECT_EQ(escaped.pieces[0].source_begin, 0u);
+    EXPECT_EQ(escaped.pieces[0].source_end, std::string(R"(a\\(b)").size());
+    ASSERT_EQ(escaped.pieces[0].source_of_drawn.size(), escaped.pieces[0].text.size() + 1);
+    EXPECT_EQ(escaped.pieces[0].source_of_drawn[0], 0u);
+    EXPECT_EQ(escaped.pieces[0].source_of_drawn[1], 1u);
+    EXPECT_EQ(escaped.pieces[0].source_of_drawn[2], 3u);
+    EXPECT_EQ(escaped.pieces[0].source_of_drawn[3], 4u);
+    EXPECT_EQ(escaped.pieces[0].source_of_drawn[4], 5u);
+
+    const std::string unclosed_src = R"(value \(x)";
+    const InlineSplit unclosed = engine::ui::split_inline(unclosed_src);
+    ASSERT_EQ(unclosed.pieces.size(), 1u);
+    EXPECT_TRUE(unclosed.unclosed);
+    EXPECT_EQ(unclosed.pieces[0].kind, InlinePiece::Kind::Text);
+    EXPECT_EQ(unclosed.pieces[0].source_begin, 0u);
+    EXPECT_EQ(unclosed.pieces[0].source_end, unclosed_src.size());
+    EXPECT_TRUE(unclosed.pieces[0].source_of_drawn.empty());
+}
+
 TEST(InlineSplit, UnclosedDelimiterStaysPlainText) {
     const InlineSplit split = engine::ui::split_inline(R"(value \(x)");
     EXPECT_TRUE(split.unclosed);

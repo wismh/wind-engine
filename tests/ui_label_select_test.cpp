@@ -364,19 +364,115 @@ TEST(LabelSelect, CommandOnLabelWinsOverUserSelect) {
     EXPECT_FALSE(fx.root().children[0].selection_anchor.has_value());
 }
 
-TEST(LabelSelect, InlineMathTextIsNotSelectableButAllCopiesTheSource) {
-    Fixture text;
-    text.setup(R"xml(<Canvas><Label id="t" text="a\(x\)"/></Canvas>)xml", kSelectable);
-    text.paint();
-    text.click(4.0f, 4.0f);
-    EXPECT_EQ(engine::ui::focused_element(text.world), nullptr);
+const engine::ui::PaintedTextLine* formula_box(const engine::ui::Element& label) {
+    for (const engine::ui::PaintedTextLine& line : label.painted_text_lines) {
+        if (line.atomic) {
+            return &line;
+        }
+    }
+    return nullptr;
+}
 
+TEST(LabelSelect, FormulaIsOneSourceSpanForClickDragAndCopy) {
+    Fixture fx;
+    fx.setup(R"xml(<Canvas><Label id="t" text="a\(x\)"/></Canvas>)xml", kSelectable);
+    fx.paint();
+    engine::ui::Element& label = fx.root().children[0];
+    const engine::ui::PaintedTextLine* formula = formula_box(label);
+    ASSERT_NE(formula, nullptr);
+    EXPECT_EQ(formula->begin, 1u);
+    EXPECT_EQ(formula->end, std::string(R"(a\(x\))").size());
+
+    fx.click(formula->x + 1.0f, formula->y + 1.0f);
+    EXPECT_EQ(engine::ui::focused_element(fx.world), &label);
+    EXPECT_EQ(label.caret_position, formula->begin);
+    EXPECT_TRUE(selected(label).empty());
+
+    fx.click(formula->x + formula->width - 1.0f, formula->y + 1.0f);
+    EXPECT_EQ(label.caret_position, formula->end);
+
+    fx.click(formula->x + formula->width * 0.5f, formula->y + 1.0f, 2);
+    EXPECT_EQ(selected(label), std::string(R"(a\(x\))").substr(1));
+    press(fx.world, engine::KeyCode::C, true);
+    EXPECT_EQ(*fx.clipboard, R"(\(x\))");
+
+    fx.click(1.0f, formula->y + 1.0f);
+    engine::ui::pointer_for(fx.world, engine::kPrimaryWindow).down = true;
+    engine::ui::update_text_selection(fx.world, formula->x + 1.0f, formula->y + 1.0f);
+    EXPECT_EQ(selected(fx.root().children[0]), "a");
+
+    engine::ui::update_text_selection(fx.world, formula->x + formula->width - 1.0f, formula->y + 1.0f);
+    EXPECT_EQ(selected(fx.root().children[0]), R"(a\(x\))");
+}
+
+TEST(LabelSelect, DoubleClickKeepsAWordBesideAFormulaAndDragTakesTheFormula) {
+    Fixture fx;
+    fx.setup(R"xml(<Canvas><Label id="t" text="hello \(x\)"/></Canvas>)xml", kSelectable);
+    fx.paint();
+    engine::ui::Element& label = fx.root().children[0];
+    ASSERT_FALSE(label.painted_text_lines.empty());
+    const engine::ui::PaintedTextLine text = label.painted_text_lines[0];
+    const engine::ui::PaintedTextLine* formula = formula_box(label);
+    ASSERT_NE(formula, nullptr);
+
+    fx.click(text.x + 1.0f, text.y + 1.0f, 2);
+    EXPECT_EQ(selected(label), "hello");
+
+    engine::ui::pointer_for(fx.world, engine::kPrimaryWindow).down = true;
+    engine::ui::update_text_selection(fx.world, formula->x + formula->width * 0.5f, formula->y + 1.0f);
+    EXPECT_EQ(selected(label), R"(hello \(x\))");
+}
+
+TEST(LabelSelect, ArrowsJumpAFormulaAndEmptyFormulaIsStillAWord) {
+    Fixture fx;
+    fx.setup(R"xml(<Canvas><Label id="t" text="a\(x\)"/></Canvas>)xml", kSelectable);
+    fx.paint();
+    const engine::ui::PaintedTextLine* formula = formula_box(fx.root().children[0]);
+    ASSERT_NE(formula, nullptr);
+    fx.click(formula->x + 1.0f, formula->y + 1.0f);
+    EXPECT_EQ(fx.root().children[0].caret_position, formula->begin);
+    press(fx.world, engine::KeyCode::Right);
+    EXPECT_EQ(fx.root().children[0].caret_position, formula->end);
+    press(fx.world, engine::KeyCode::Left);
+    EXPECT_EQ(fx.root().children[0].caret_position, formula->begin);
+    engine::ui::handle_key(fx.world, engine::KeyCode::LShift, true);
+    press(fx.world, engine::KeyCode::Right);
+    engine::ui::handle_key(fx.world, engine::KeyCode::LShift, false);
+    EXPECT_EQ(selected(fx.root().children[0]), R"(\(x\))");
+
+    Fixture empty;
+    empty.setup(R"xml(<Canvas><Label id="t" text="\(\)"/></Canvas>)xml", kSelectable);
+    empty.paint();
+    const engine::ui::PaintedTextLine* box = formula_box(empty.root().children[0]);
+    ASSERT_NE(box, nullptr);
+    empty.click(box->x, box->y + 1.0f, 2);
+    EXPECT_EQ(selected(empty.root().children[0]), R"(\(\))");
+}
+
+TEST(LabelSelect, EscapedDelimiterSelectsAsText) {
+    Fixture fx;
+    fx.setup(R"xml(<Canvas><Label id="t" text="a\\(b"/></Canvas>)xml", kSelectable);
+    fx.paint();
+    engine::ui::Element& label = fx.root().children[0];
+    ASSERT_EQ(label.painted_text_lines.size(), 1u);
+    EXPECT_FALSE(label.painted_text_lines[0].atomic);
+    const engine::ui::PaintedTextLine line = label.painted_text_lines[0];
+    fx.click(line.x + 17.0f, line.y + 1.0f);
+    EXPECT_EQ(label.caret_position, 3u);
+
+    fx.click(line.x + 1.0f, line.y + 1.0f);
+    engine::ui::pointer_for(fx.world, engine::kPrimaryWindow).down = true;
+    engine::ui::update_text_selection(fx.world, line.x + line.width - 1.0f, line.y + 1.0f);
+    EXPECT_EQ(selected(label), R"(a\\(b)");
+}
+
+TEST(LabelSelect, UserSelectAllStillCopiesFormulaSource) {
     Fixture all;
     all.setup(R"xml(<Canvas><Label id="t" text="a\(x\)"/></Canvas>)xml",
             "Label { user-select: all; width: 200px; font-size: 16px; }");
     all.paint();
     all.click(4.0f, 4.0f);
-    EXPECT_EQ(selected(all.root().children[0]), "a\\(x\\)");
+    EXPECT_EQ(selected(all.root().children[0]), R"(a\(x\))");
     press(all.world, engine::KeyCode::C, true);
-    EXPECT_EQ(*all.clipboard, "a\\(x\\)");
+    EXPECT_EQ(*all.clipboard, R"(a\(x\))");
 }

@@ -10,7 +10,7 @@ tags: [feature]
 
 ## Hit-test
 
-Canvases whose `rect` contains the point, sorted by `order` descending (higher = front). The top canvas is rebound and relaid out, then `hit_test` ([[src.ui.document.cpp]], shared with `paint.cpp`'s `:hover` resolution) looks for a **Button**, a **Checkbox**, any element with a bound `command` or `drag`, a Viewport with a camera binding, or a **Label** whose `user-select` is `text` or `all`. A plain Label/Stack/Image does not consume. A Label inside a Button or Checkbox is not its own hit (children are tested first, so `Label { user-select: text }` must not steal the control). A Label with a bound `command` or `drag` stays that hit and is not selectable. `user-select: text` on a Label whose text contains `\(` / `\)` is not a hit; `user-select: all` on that Label is, and copies the source string including the TeX.
+Canvases whose `rect` contains the point, sorted by `order` descending (higher = front). The top canvas is rebound and relaid out, then `hit_test` ([[src.ui.document.cpp]], shared with `paint.cpp`'s `:hover` resolution) looks for a **Button**, a **Checkbox**, any element with a bound `command` or `drag`, a Viewport with a camera binding, or a **Label** whose `user-select` is `text` or `all`. A plain Label/Stack/Image does not consume. A Label inside a Button or Checkbox is not its own hit (children are tested first, so `Label { user-select: text }` must not steal the control). A Label with a bound `command` or `drag` stays that hit and is not selectable. A Label whose text contains an inline formula is a hit too: the formula is one source span, `\(...\)` included, and the copy is that TeX.
 
 Entering a Viewport clips to its unpanned `layout_rect` and hit-tests children with the inverse camera (`O + (pointer - O) / Z - P`). Empty background therefore hits the Viewport (pan drag). A child Button still wins. Wheel zoom uses `find_viewport_at` so a node under the cursor still zooms its enclosing Viewport (writes `zoom` and pan so the content point stays put). Zoom is clamped to `[0.25, 4]`.
 
@@ -76,12 +76,19 @@ code point (CJK, emoji) is a one-character word.
 `paint.cpp` caches while it paints: per visual row, the UTF-8 byte range and the glyph box in
 screen pixels (left, top, width, height). `text-align` and `align-items` are already in that left
 edge, so a short centered row keeps its own glyph origin. Hit and highlight read only that cache.
-Vertical:
-the row under the pointer, or the nearest row when the pointer is between rows. Horizontal: the
+Vertical: the row under the pointer, or the nearest row when the pointer is between rows. Horizontal: the
 nearest UTF-8 boundary, from `measure_text` of that row's substring. Characters between visual rows
 (spaces the wrap dropped, and `\n`) are not highlighted, but they are part of the copied substring.
-Before the first paint the index falls back to `text.size()`, same as a TextInput. Inline-math
-labels cache no rows. The highlight is a `selection-color` rect per row, drawn before the glyphs.
+Before the first paint the index falls back to `text.size()`, same as a TextInput. The highlight is a
+`selection-color` rect per box, drawn before the glyphs.
+
+An inline formula is one atomic box on that cache (`split_inline` records the source span, including
+the `\(` `\)` delimiters). A click in the left half of the box places the caret before the opener and
+a click in the right half after the closer; drag, double-click, word-drag and Left/Right take the
+whole span, so the copied substring is well-formed TeX. A word of the surrounding text stops at the
+formula. `\\(` / `\\)` stay ordinary text; the painted box keeps a drawn-byte to source-byte map
+because the escape is shorter on screen than in the source. A string with neither delimiter never
+builds that split.
 
 Every other caret-moving or text-editing operation collapses/clears it: unshifted
 `Left`/`Home` move to the selection's start, `Right`/`End` to its end (instead of one more
