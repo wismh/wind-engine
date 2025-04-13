@@ -2,6 +2,7 @@
 
 #include "ui/painter.h"
 #include "ui/profile.h"
+#include "ui/profiler_chart.h"
 
 #include <engine/ecs/events.h>
 #include <engine/ecs/systems.h>
@@ -14,6 +15,7 @@
 
 #include <format>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -114,6 +116,24 @@ namespace {
     engine::ecs::Entity profiler_panel(engine::ecs::World &world) {
         engine::ecs::Entity found{};
         auto view = world.view<engine::ui::ProfilerPanel>();
+        for (engine::ecs::Entity entity: view) {
+            found = entity;
+        }
+        return found;
+    }
+
+    const engine::ui::ChartRect *find_stage(const engine::ui::ChartGeometry &geometry, int stage) {
+        for (const engine::ui::ChartRect &rect: geometry.rects) {
+            if (rect.mark == engine::ui::ChartMark::Stage && rect.stage == stage) {
+                return &rect;
+            }
+        }
+        return nullptr;
+    }
+
+    engine::ecs::Entity inspector_panel(engine::ecs::World &world) {
+        engine::ecs::Entity found{};
+        auto view = world.view<engine::ui::InspectorPanel>();
         for (engine::ecs::Entity entity: view) {
             found = entity;
         }
@@ -321,6 +341,128 @@ TEST(UiProfiler, CloseRequestDisablesAndClosesTheWindow) {
 
     engine::ui::begin_frame(world);
     EXPECT_EQ(closes, 1);
+}
+
+TEST(UiProfiler, ChartCeilingAndBudgetLine) {
+    EXPECT_DOUBLE_EQ(engine::ui::chart_ceiling_ms(0.1), 1.0);
+    EXPECT_DOUBLE_EQ(engine::ui::chart_ceiling_ms(2.0), 2.0);
+    EXPECT_DOUBLE_EQ(engine::ui::chart_ceiling_ms(20.0), 32.0);
+
+    engine::ui::ChartColumn quiet{};
+    quiet.stages_ns[0] = 100000;
+    const engine::ui::ChartGeometry quiet_geo =
+            engine::ui::build_chart(std::span<const engine::ui::ChartColumn>(&quiet, 1), 1, 120.0f, 100.0f, false);
+    EXPECT_DOUBLE_EQ(quiet_geo.ceiling_ms, 1.0);
+    const engine::ui::ChartRect *bar = find_stage(quiet_geo, 0);
+    ASSERT_NE(bar, nullptr);
+    EXPECT_FLOAT_EQ(bar->rect.h, 10.0f);
+    EXPECT_FALSE(quiet_geo.budget.visible);
+
+    engine::ui::ChartColumn spike{};
+    spike.stages_ns[0] = 20000000;
+    const engine::ui::ChartGeometry spike_geo =
+            engine::ui::build_chart(std::span<const engine::ui::ChartColumn>(&spike, 1), 1, 120.0f, 64.0f, false);
+    EXPECT_DOUBLE_EQ(spike_geo.ceiling_ms, 32.0);
+    ASSERT_TRUE(spike_geo.budget.visible);
+    const float y = 64.0f * static_cast<float>(1.0 - 16.7 / 32.0);
+    EXPECT_FLOAT_EQ(spike_geo.budget.from.y, y);
+    EXPECT_FLOAT_EQ(spike_geo.budget.to.y, y);
+    EXPECT_FLOAT_EQ(spike_geo.budget.from.x, 0.0f);
+    EXPECT_FLOAT_EQ(spike_geo.budget.to.x, 120.0f);
+}
+
+TEST(UiProfiler, ChartStacksTheLastSlotAndMarksASkippedLayout) {
+    engine::ui::ChartColumn column{};
+    column.stages_ns[3] = 2000000;
+    const engine::ui::ChartGeometry stacked =
+            engine::ui::build_chart(std::span<const engine::ui::ChartColumn>(&column, 1), 6, 120.0f, 100.0f, true);
+    EXPECT_DOUBLE_EQ(stacked.ceiling_ms, 2.0);
+    const engine::ui::ChartRect *layout = find_stage(stacked, 3);
+    ASSERT_NE(layout, nullptr);
+    EXPECT_FLOAT_EQ(layout->rect.x, 119.0f);
+    EXPECT_FLOAT_EQ(layout->rect.w, 1.0f);
+    EXPECT_FLOAT_EQ(layout->rect.h, 100.0f);
+    EXPECT_FLOAT_EQ(layout->rect.y, 0.0f);
+    EXPECT_EQ(find_stage(stacked, 0), nullptr);
+    EXPECT_FALSE(stacked.budget.visible);
+
+    engine::ui::ChartColumn skipped{};
+    skipped.layout_skipped = true;
+    const engine::ui::ChartGeometry tick =
+            engine::ui::build_chart(std::span<const engine::ui::ChartColumn>(&skipped, 1), 6, 120.0f, 100.0f, true);
+    EXPECT_EQ(find_stage(tick, 3), nullptr);
+    ASSERT_EQ(tick.rects.size(), 1u);
+    EXPECT_EQ(tick.rects[0].mark, engine::ui::ChartMark::LayoutSkip);
+    EXPECT_FLOAT_EQ(tick.rects[0].rect.h, 2.0f);
+    EXPECT_FLOAT_EQ(tick.rects[0].rect.y, 98.0f);
+    EXPECT_FLOAT_EQ(tick.rects[0].rect.x, 119.0f);
+}
+
+TEST(UiProfiler, ChartsBindAPaintCallback) {
+    engine::ecs::World world;
+    engine::ui::set_ui_profiler_enabled(world, true);
+    engine::ui::sync_profiler_content(world);
+    const engine::ecs::Entity panel = profiler_panel(world);
+    ASSERT_TRUE(world.valid(panel));
+    layout_instance(world, panel);
+    engine::ui::UiInstance &instance = world.get<engine::ui::UiInstance>(panel);
+    engine::ui::Element *chart = find_id(instance.document.root, "chart");
+    engine::ui::Element *shared = find_id(instance.document.root, "shared");
+    ASSERT_NE(chart, nullptr);
+    ASSERT_NE(shared, nullptr);
+    EXPECT_NE(chart->paint, nullptr);
+    EXPECT_NE(shared->paint, nullptr);
+    engine::ui::set_ui_profiler_enabled(world, false);
+}
+
+TEST(UiProfiler, InspectorSkipsTheProfilerWindow) {
+    engine::ecs::World world;
+    const engine::ecs::Entity hud = spawn_named(world, "hud", true);
+    engine::ui::set_inspector_enabled(world, true);
+    engine::ui::set_ui_profiler_enabled(world, true);
+
+    const engine::ecs::Entity panel = profiler_panel(world);
+    const engine::ecs::Entity inspector = inspector_panel(world);
+    ASSERT_TRUE(world.valid(panel));
+    ASSERT_TRUE(world.valid(inspector));
+    const engine::WindowId profiler_window = world.get<engine::ui::UiCanvas>(panel).window;
+    engine::ui::pointer_for(world, profiler_window).position = {20.0f, 20.0f};
+    EXPECT_FALSE(engine::ui::inspector_hover_canvas(world, profiler_window).has_value());
+
+    engine::ui::pointer_for(world, engine::kPrimaryWindow).position = {10.0f, 10.0f};
+    const std::optional<engine::ecs::Entity> hover = engine::ui::inspector_hover_canvas(world, engine::kPrimaryWindow);
+    ASSERT_TRUE(hover.has_value());
+    EXPECT_EQ(*hover, hud);
+
+    NullPainter painter;
+    paint_canvas(world, hud, painter);
+    engine::ui::begin_frame(world);
+    EXPECT_TRUE(engine::ui::profiler_canvas_sample(world, hud).layout_ran);
+
+    layout_instance(world, panel);
+    engine::ui::UiInstance &panel_instance = world.get<engine::ui::UiInstance>(panel);
+    engine::ui::Element *box = find_id(panel_instance.document.root, "pause");
+    ASSERT_NE(box, nullptr);
+    ASSERT_GT(box->layout_rect.w, 1.0f);
+    engine::ui::handle_pointer(world, box->layout_rect.x + box->layout_rect.w * 0.5f,
+                               box->layout_rect.y + box->layout_rect.h * 0.5f, profiler_window);
+    engine::ui::sync_profiler_content(world);
+    EXPECT_FALSE(engine::ui::inspector_selection(world, profiler_window).active);
+
+    paint_canvas(world, hud, painter);
+    engine::ui::begin_frame(world);
+    const engine::ui::ProfileSample held = engine::ui::profiler_canvas_sample(world, hud);
+    EXPECT_EQ(held.frames, 1);
+    EXPECT_TRUE(held.layout_ran);
+
+    engine::ui::sync_inspector_content(world);
+    layout_instance(world, inspector);
+    engine::ui::UiInstance &inspector_instance = world.get<engine::ui::UiInstance>(inspector);
+    EXPECT_NE(find_text(inspector_instance.document.root, "#hud"), nullptr);
+    EXPECT_EQ(find_text(inspector_instance.document.root, "#profiler"), nullptr);
+
+    engine::ui::set_ui_profiler_enabled(world, false);
+    engine::ui::set_inspector_enabled(world, false);
 }
 
 #else
