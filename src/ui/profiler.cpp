@@ -1,4 +1,5 @@
 #include "profile.h"
+#include "profiler_chart.h"
 
 #include <engine/ecs/events.h>
 #include <engine/log.h>
@@ -6,6 +7,7 @@
 #include <engine/ui/builder.h>
 #include <engine/ui/canvas.h>
 #include <engine/ui/inspector.h>
+#include <engine/ui/paint.h>
 #include <engine/ui/profiler.h>
 
 #include <algorithm>
@@ -28,8 +30,9 @@ namespace engine::ui {
 
         constexpr int kProfilerOrder = 10001;
         constexpr int kProfilerWindowWidth = 480;
-        constexpr int kProfilerWindowHeight = 640;
+        constexpr int kProfilerWindowHeight = 760;
         constexpr int kRingFrames = 120;
+        static_assert(kChartSlots == kRingFrames);
         // Headless tests have no ProfilerWindowHost. This id is never handed to the window manager.
         constexpr WindowId kHeadlessProfilerWindow{0xFFFFFFF1u};
 
@@ -240,23 +243,129 @@ namespace engine::ui {
             }
         };
 
+        constexpr int kCanvasStageCount = 6;
+        constexpr int kSharedStageCount = 2;
+
+        constexpr glm::vec4 kCanvasStageColor[] = {
+                {122.0f / 255.0f, 162.0f / 255.0f, 247.0f / 255.0f, 1.0f},
+                {187.0f / 255.0f, 154.0f / 255.0f, 247.0f / 255.0f, 1.0f},
+                {224.0f / 255.0f, 175.0f / 255.0f, 104.0f / 255.0f, 1.0f},
+                {247.0f / 255.0f, 118.0f / 255.0f, 142.0f / 255.0f, 1.0f},
+                {158.0f / 255.0f, 206.0f / 255.0f, 106.0f / 255.0f, 1.0f},
+                {125.0f / 255.0f, 207.0f / 255.0f, 255.0f / 255.0f, 1.0f},
+        };
+
+        constexpr glm::vec4 kSharedStageColor[] = {
+                {192.0f / 255.0f, 202.0f / 255.0f, 245.0f / 255.0f, 1.0f},
+                {255.0f / 255.0f, 158.0f / 255.0f, 100.0f / 255.0f, 1.0f},
+        };
+
+        constexpr glm::vec4 kLayoutSkipColor{92.0f / 255.0f, 99.0f / 255.0f, 112.0f / 255.0f, 1.0f};
+        constexpr glm::vec4 kBudgetColor{213.0f / 255.0f, 219.0f / 255.0f, 228.0f / 255.0f, 0.85f};
+
+        void columns_from_canvas(const Ring<CanvasFrame> &ring, std::vector<ChartColumn> &out) {
+            out.resize(static_cast<std::size_t>(ring.size));
+            if (ring.size == 0) {
+                return;
+            }
+            const int oldest = (ring.next - ring.size + kRingFrames) % kRingFrames;
+            for (int i = 0; i < ring.size; ++i) {
+                const CanvasFrame &frame = ring.frames[static_cast<std::size_t>((oldest + i) % kRingFrames)];
+                ChartColumn &column = out[static_cast<std::size_t>(i)];
+                column = {};
+                column.stages_ns[0] = frame.bindings_ns;
+                column.stages_ns[1] = frame.stylesheets_ns;
+                column.stages_ns[2] = frame.input_ns;
+                column.stages_ns[3] = frame.layout_ns;
+                column.stages_ns[4] = frame.motion_ns;
+                column.stages_ns[5] = frame.paint_ns;
+                column.layout_skipped = frame.saw_paint && !frame.layout_ran;
+            }
+        }
+
+        void columns_from_shared(const Ring<SharedFrame> &ring, std::vector<ChartColumn> &out) {
+            out.resize(static_cast<std::size_t>(ring.size));
+            if (ring.size == 0) {
+                return;
+            }
+            const int oldest = (ring.next - ring.size + kRingFrames) % kRingFrames;
+            for (int i = 0; i < ring.size; ++i) {
+                const SharedFrame &frame = ring.frames[static_cast<std::size_t>((oldest + i) % kRingFrames)];
+                ChartColumn &column = out[static_cast<std::size_t>(i)];
+                column = {};
+                column.stages_ns[0] = frame.begin_ns;
+                column.stages_ns[1] = frame.commands_ns;
+            }
+        }
+
+        void draw_chart(IDrawList &list, const render::Rect &content, const std::vector<ChartColumn> &columns,
+                        int stage_count, bool layout_ticks, const glm::vec4 *colors) {
+            const ChartGeometry geometry = build_chart(columns, stage_count, content.w, content.h, layout_ticks);
+            for (const ChartRect &mark: geometry.rects) {
+                if (mark.rect.w <= 0.0f || mark.rect.h <= 0.0f) {
+                    continue;
+                }
+                const glm::vec4 color = mark.mark == ChartMark::LayoutSkip ? kLayoutSkipColor : colors[mark.stage];
+                list.fill_rect(mark.rect, color);
+            }
+            if (geometry.budget.visible) {
+                list.line(geometry.budget.from, geometry.budget.to, kBudgetColor, 1.0f);
+            }
+        }
+
         class ProfilerModel final : public ViewModel {
         public:
             Bindable<bool> pause{false};
             Bindable<std::string> stats;
             BindableList<std::shared_ptr<ProfilerRow>> rows;
             std::map<ecs::Entity, std::shared_ptr<ProfilerRow>> cache;
+            ecs::World *world_ = nullptr;
 
             ProfilerModel() {
                 property(intern("pause"), pause);
                 property(intern("stats"), stats);
                 property(intern("rows"), rows);
                 stats.set("No frames yet");
+                chart_ = [this](IDrawList &list, const render::Rect &content) { paint_canvas_chart(list, content); };
+                shared_ = [this](IDrawList &list, const render::Rect &content) { paint_shared_chart(list, content); };
+                paint(intern("chart"), chart_);
+                paint(intern("shared"), shared_);
             }
+
+            void paint_canvas_chart(IDrawList &list, const render::Rect &content) {
+                if (world_ == nullptr) {
+                    return;
+                }
+                const ProfilerState &state = world_->ctx<ProfilerState>();
+                const auto found = state.rings.find(state.selected);
+                if (found == state.rings.end() || found->second.size == 0) {
+                    return;
+                }
+                columns_from_canvas(found->second, columns_);
+                draw_chart(list, content, columns_, kCanvasStageCount, true, kCanvasStageColor);
+            }
+
+            void paint_shared_chart(IDrawList &list, const render::Rect &content) {
+                if (world_ == nullptr) {
+                    return;
+                }
+                const ProfilerState &state = world_->ctx<ProfilerState>();
+                if (state.shared.size == 0) {
+                    return;
+                }
+                columns_from_shared(state.shared, columns_);
+                draw_chart(list, content, columns_, kSharedStageCount, false, kSharedStageColor);
+            }
+
+        private:
+            RelayPaint chart_;
+            RelayPaint shared_;
+            std::vector<ChartColumn> columns_;
         };
 
-        // Chrome inside #root, which has gap 6 (five gaps = 30): title 22, two .section at 14,
-        // pause row 22, stats 200. That is 272. The canvas list is the rest, at least 96px.
+        // Chrome inside #root, gap 6. Fixed siblings: title 22, two .section at 14, pause row 22,
+        // chart 120, legend 16, shared 32, stats 200 = 440. Eight gaps = 48. The canvas list
+        // subtracts 488 and keeps min-height 96px.
         constexpr std::string_view kProfilerCss = R"(
 #profiler { background: #121418; }
 #root { width: 100%; height: 100%; padding: 12px; gap: 6px; }
@@ -264,7 +373,7 @@ namespace engine::ui {
 .section { height: 14px; font-size: 11px; color: #8b93a3; font-family: default; }
 #canvases {
     width: 100%;
-    height: calc(100% - 302px);
+    height: calc(100% - 488px);
     min-height: 96px;
     background: #1a1d24;
     border-width: 1px;
@@ -303,6 +412,45 @@ namespace engine::ui {
 }
 .pause-box:checked { background: #1c4634; border-color: #3dba6a; }
 .pause-label { height: 22px; font-size: 13px; color: #e6ebf2; font-family: default; align-items: center; }
+#chart {
+    width: 100%;
+    height: 120px;
+    background: #1a1d24;
+    border-width: 1px;
+    border-color: #2e3440;
+    border-radius: 8px;
+}
+#shared {
+    width: 100%;
+    height: 32px;
+    background: #1a1d24;
+    border-width: 1px;
+    border-color: #2e3440;
+    border-radius: 8px;
+}
+.legend { width: 100%; height: 16px; gap: 8px; align-items: center; }
+.key { height: 16px; gap: 4px; align-items: center; }
+.swatch { width: 8px; height: 8px; border-radius: 2px; }
+.sw-bind { background: #7aa2f7; }
+.sw-style { background: #bb9af7; }
+.sw-input { background: #e0af68; }
+.sw-layout { background: #f7768e; }
+.sw-motion { background: #9ece6a; }
+.sw-paint { background: #7dcfff; }
+.key-name {
+    height: 16px;
+    font-size: 11px;
+    color: #8b93a3;
+    font-family: default;
+    align-items: center;
+    white-space: nowrap;
+}
+.w-bind { width: 32px; }
+.w-style { width: 36px; }
+.w-input { width: 34px; }
+.w-layout { width: 42px; }
+.w-motion { width: 46px; }
+.w-paint { width: 36px; }
 #stats {
     width: 100%;
     height: 200px;
@@ -336,12 +484,29 @@ namespace engine::ui {
             pause_row.add(std::move(pause_box));
             pause_row.add(label().with_class("pause-label").text("Pause"));
 
+            auto legend_key = [](std::string_view swatch, std::string_view name, std::string_view name_class) {
+                auto item = stack().with_class("key").direction(StackDirection::Horizontal);
+                item.add(component().with_class(swatch));
+                item.add(label().with_class(name_class).text(name));
+                return item;
+            };
+            auto legend = stack().with_id("legend").with_class("legend").direction(StackDirection::Horizontal);
+            legend.add(legend_key("swatch sw-bind", "bind", "key-name w-bind"));
+            legend.add(legend_key("swatch sw-style", "style", "key-name w-style"));
+            legend.add(legend_key("swatch sw-input", "input", "key-name w-input"));
+            legend.add(legend_key("swatch sw-layout", "layout", "key-name w-layout"));
+            legend.add(legend_key("swatch sw-motion", "motion", "key-name w-motion"));
+            legend.add(legend_key("swatch sw-paint", "paint", "key-name w-paint"));
+
             auto root_stack = stack().with_id("root").direction(StackDirection::Vertical);
             root_stack.add(label().with_id("title").text("UI Profiler"));
             root_stack.add(label().with_class("section").text("Canvases"));
             root_stack.add(std::move(canvases));
             root_stack.add(std::move(pause_row));
             root_stack.add(label().with_class("section").text("Frame"));
+            root_stack.add(component().with_id("chart").paint_bind(intern("chart")));
+            root_stack.add(std::move(legend));
+            root_stack.add(component().with_id("shared").paint_bind(intern("shared")));
             root_stack.add(label().with_id("stats").text_bind(intern("stats")));
 
             auto root = canvas().with_id("profiler");
@@ -440,6 +605,7 @@ namespace engine::ui {
                 return;
             }
             auto model = std::make_shared<ProfilerModel>();
+            model->world_ = &world;
             UiCanvas canvas;
             canvas.fit = UiFit::FillWindow;
             canvas.order = kProfilerOrder;
@@ -504,6 +670,7 @@ namespace engine::ui {
             if (model == nullptr) {
                 return;
             }
+            model->world_ = &world;
             ProfilerState &state = world.ctx<ProfilerState>();
             state.pause = model->pause.get();
 
@@ -953,9 +1120,7 @@ namespace engine::ui {
         return state.enabled && (state.shared.size > 0 || any_ring(state));
     }
 
-    std::string profiler_cli_json(ecs::World &world) {
-        return snapshot_json(world, world.ctx<ProfilerState>());
-    }
+    std::string profiler_cli_json(ecs::World &world) { return snapshot_json(world, world.ctx<ProfilerState>()); }
 
 } // namespace engine::ui
 

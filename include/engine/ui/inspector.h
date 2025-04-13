@@ -3,6 +3,7 @@
 #include <engine/core/window_desc.h>
 #include <engine/ecs/entity.h>
 #include <engine/ecs/world.h>
+#include <engine/ui/profiler.h>
 
 #include <cstddef>
 #include <functional>
@@ -62,8 +63,13 @@ namespace engine::ui {
     // before run_bind, and from set_inspector_enabled.
     void sync_inspector_content(ecs::World &world);
 
-    // Topmost non-panel canvas under the pointer. Null when the inspector is off, the pointer is
-    // over the panel, or no canvas contains it.
+    // Topmost canvas under the pointer that is not the inspector or the profiler. Null when the
+    // inspector is off, the pointer is over one of those panels, or no canvas contains it.
     [[nodiscard]] std::optional<ecs::Entity> inspector_hover_canvas(ecs::World &world, WindowId window);
+
+    // Pick, the tree, and the hover box skip the inspector panel and the profiler panel.
+    [[nodiscard]] inline bool inspector_skips_canvas(ecs::World &world, ecs::Entity canvas) {
+        return world.try_get<InspectorPanel>(canvas) != nullptr || world.try_get<ProfilerPanel>(canvas) != nullptr;
+    }
 
 } // namespace engine::ui
