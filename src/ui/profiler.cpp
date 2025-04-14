@@ -8,6 +8,7 @@
 #include <engine/ui/canvas.h>
 #include <engine/ui/inspector.h>
 #include <engine/ui/paint.h>
+#include <engine/ui/presentation.h>
 #include <engine/ui/profiler.h>
 
 #include <algorithm>
@@ -540,7 +541,7 @@ namespace engine::ui {
             if (host.open) {
                 return host.open(desc);
             }
-            world.ctx<WindowSizes>().sizes[kHeadlessProfilerWindow] =
+            presentation_of(world).sizes.sizes[kHeadlessProfilerWindow] =
                     WindowSize{kProfilerWindowWidth, kProfilerWindowHeight};
             return kHeadlessProfilerWindow;
         }
@@ -555,7 +556,7 @@ namespace engine::ui {
             if (id == kPrimaryWindow) {
                 return;
             }
-            world.ctx<WindowSizes>().sizes.erase(id);
+            presentation_of(world).sizes.sizes.erase(id);
             if (id == kHeadlessProfilerWindow) {
                 return;
             }

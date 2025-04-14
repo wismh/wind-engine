@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/modules/Resources.md
+
 #include <engine/resources/asset_id.h>
 
 #include <expected>

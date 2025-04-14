@@ -1,6 +1,6 @@
 # Wind
 
-A 2D C++ game engine for production titles. CMake target / C++ namespace: `engine`. Task codes: `wind-N`. Tech vault: [docs/tech/README.md](docs/tech/README.md) (start at [docs/tech/Home.md](docs/tech/Home.md)). Architecture: [Principles](docs/tech/architecture/Principles.md), [Scope](docs/tech/architecture/Scope.md), [Boundaries](docs/tech/architecture/Boundaries.md).
+A 2D C++ game engine for production titles. CMake target / C++ namespace: `engine`. Task codes: `wind-N`. Tech vault: [docs/tech/README.md](docs/tech/README.md). Architecture: [Principles](docs/tech/architecture/Principles.md), [Scope](docs/tech/architecture/Scope.md), [Boundaries](docs/tech/architecture/Boundaries.md).
 
 ## Build (library + tests)
 
@@ -138,6 +138,8 @@ cd external/engine/cmake/android
   -PENGINE_HOST_ASSET_CODEGEN=/path/to/native/asset_codegen
 ```
 
-Change `applicationId` / `namespace` (`org.windengine.app`) and `app_name` before shipping. v1 ABI is **arm64-v8a**, minSdk **21**. Mixer stays off on the `android-arm64` preset (`ENGINE_WITH_AUDIO=OFF`).
+Change `applicationId` / `namespace` (`org.windengine.app`) before shipping. The launcher label is `android:label="${appName}"`, set by `-PENGINE_ANDROID_APP_NAME` or the `ENGINE_ANDROID_APP_NAME` environment variable (default `Wind`). `res/values/strings.xml` still has `app_name`; the manifest does not reference it.
+
+v1 ABI is **arm64-v8a**, minSdk **21**. Mixer stays off on the `android-arm64` preset (`ENGINE_WITH_AUDIO=OFF`).
 
 Default `engine_tests` in this repo stay **headless native**; they do not boot `Engine::run`, EGL, or a mixer. An emulator/GPU golden is not a merge gate.

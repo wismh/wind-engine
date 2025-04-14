@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/modules/Core.md
+
 #include <engine/core/application_state.h>
 #include <engine/resources/fatal_error.h>
 

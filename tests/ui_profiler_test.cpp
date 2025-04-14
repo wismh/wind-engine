@@ -8,6 +8,7 @@
 #include <engine/ecs/systems.h>
 #include <engine/ecs/world.h>
 #include <engine/ui/canvas.h>
+#include <engine/ui/presentation.h>
 #include <engine/ui/document.h>
 #include <engine/ui/inspector.h>
 #include <engine/ui/profiler.h>
@@ -318,7 +319,7 @@ TEST(UiProfiler, HostOpensOneWindowAndDisableClosesIt) {
     const engine::ecs::Entity panel = profiler_panel(world);
     ASSERT_TRUE(world.valid(panel));
     EXPECT_EQ(world.get<engine::ui::UiCanvas>(panel).window, engine::WindowId{9});
-    EXPECT_FALSE(world.ctx<engine::ui::WindowSizes>().sizes.contains(engine::WindowId{9}));
+    EXPECT_FALSE(engine::ui::presentation_of(world).sizes.sizes.contains(engine::WindowId{9}));
 
     engine::ui::set_ui_profiler_enabled(world, false);
     EXPECT_EQ(closes, 1);

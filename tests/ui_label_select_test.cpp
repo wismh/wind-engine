@@ -5,6 +5,7 @@
 
 #include <engine/ecs/world.h>
 #include <engine/ui/canvas.h>
+#include <engine/ui/presentation.h>
 #include <engine/ui/document.h>
 #include <engine/ui/stylesheet.h>
 #include <engine/ui/view_model.h>
@@ -170,7 +171,7 @@ TEST(LabelSelect, UserSelectDefaultsToNoneAndUnknownValueStaysNone) {
 
     fx.click(4.0f, 4.0f);
     EXPECT_EQ(engine::ui::focused_element(fx.world), nullptr);
-    EXPECT_FALSE(fx.world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_FALSE(engine::ui::presentation_of(fx.world).mouse.consumed_for(engine::kPrimaryWindow));
 }
 
 TEST(LabelSelect, AbsentUserSelectDoesNotConsumeTheClick) {
@@ -179,7 +180,7 @@ TEST(LabelSelect, AbsentUserSelectDoesNotConsumeTheClick) {
     fx.paint();
     fx.click(4.0f, 4.0f);
     EXPECT_EQ(engine::ui::focused_element(fx.world), nullptr);
-    EXPECT_FALSE(fx.world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_FALSE(engine::ui::presentation_of(fx.world).mouse.consumed_for(engine::kPrimaryWindow));
 }
 
 TEST(LabelSelect, DragSelectsAByteRangeOnTheClickedLine) {
@@ -193,7 +194,7 @@ TEST(LabelSelect, DragSelectsAByteRangeOnTheClickedLine) {
     fx.click(line.x + 1.0f, line.y + 1.0f);
     EXPECT_EQ(label.caret_position, 0u);
     EXPECT_EQ(*label.selection_anchor, 0u);
-    EXPECT_TRUE(fx.world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_TRUE(engine::ui::presentation_of(fx.world).mouse.consumed_for(engine::kPrimaryWindow));
 
     engine::ui::pointer_for(fx.world, engine::kPrimaryWindow).down = true;
     engine::ui::update_text_selection(fx.world, line.x + 24.0f, line.y + 1.0f);

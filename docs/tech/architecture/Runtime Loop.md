@@ -1,0 +1,100 @@
+# Runtime loop
+
+Windowed games enter through `Engine<GameT>` (`include/engine/core/engine.h`). Headless tests use `Host` (`include/engine/core/host.h`), which shares `flush_worlds` and `simulate_worlds` (`src/core/frame_step.cpp`) and does not poll SDL. The process owns a `Worlds`. Each world has its own clock. The frame walks them in `add` order. Worlds do not share a command buffer, so that order does not change the picture.
+
+## `Engine::init`
+
+`init` returns true immediately when it has already succeeded.
+
+1. `runtime_.init_video()`. SDL video, inside `SdlGlPresentation`.
+2. `log::init(runtime_.base_path())`. File sink `<base>/game.log`.
+3. Construct `SdlFatalError`, `InputSystem`, `AssetsDb`, `AudioSystem`, `HapticsSystem`.
+4. Construct `Worlds`, then `GameT` with `EngineServices` (assets, input, audio, haptics, windows, graphics, backend, canvas, commands, worlds). `GameBase` calls `Worlds::add` for its world. Systems are not registered yet: the window and catalogs do not exist.
+5. `input_->set_router` to `Worlds::world_for`. Attach the fatal hook to `Worlds::application_state` and the native window.
+6. `runtime_.create_window(game_->primary_window())`. On failure, shut the runtime down and return false. Attach the fatal hook again so it sees the created window.
+7. `audio_->init()`, then `haptics_->init()`. Either failure shuts the runtime down.
+8. `assets_->set_graphic_factory` and `set_root(runtime_.assets_root())`. An empty root is fatal.
+9. Load `assets/engine/catalog.toml`. Failure is fatal.
+10. Load `assets/catalog.toml`. `MetaError::Io` (file absent) is ignored. Any other error is fatal.
+11. Load `builtin::font_ui` into the primary window's UI atlas. Other fonts and UI images load later, when `run_ui_render` sees them referenced.
+12. If `window_icon()` is set, `get<render::TextureDesc>` and `set_window_icon`.
+13. `set_deps`, `register_engine_systems` on the game world, `bind_window(kPrimaryWindow)`, `enable_ui`, `enable_audio`, `write_window_size` (sends a resize event), `ui::apply_canvas_fit`.
+
+`run` calls `runtime_.run`, then `dispose`. `dispose` disposes audio and haptics and shuts the runtime down. A second `dispose` is a no-op.
+
+## `GameLoop::begin`
+
+`EngineRuntime::run` starts `GameLoop` (`src/core/game_loop.cpp`).
+
+1. `presentation_->attach_loop` (layout painter, inspector and profiler window hosts on every UI world, modal-loop hook). Worlds created later with `enable_ui` get the same hosts.
+2. `game_->on_start()`.
+3. `ui::apply_canvas_fit` on every world that draws UI.
+4. `ApplicationState::running = true`.
+5. `cli::start()` when `ENGINE_CLI_SERVER` is defined. Otherwise the call is empty.
+
+Web (`Platform::Web`) then uses `emscripten_set_main_loop_arg` with `simulate_infinite_loop = 1`. Every other platform loops `tick` while `running` is true, then `end`.
+
+## One `tick`
+
+```mermaid
+flowchart TD
+  A["cli::begin_frame on the primary world"] --> B["flush every world"]
+  B --> C["poll: event window to its world"]
+  C --> D["simulate_worlds"]
+  D --> E["sync_frame"]
+  E --> F["draw_all"]
+  F --> G["cli::drain on the primary world"]
+```
+
+`cli::begin_frame` and `cli::drain` use the world bound to `kPrimaryWindow`. No binding means those calls are skipped. `reentrant_tick` is the same slice without flush and without poll. Windows calls it from inside `SDL_PollEvent` while a modal move or size loop is running. It shares the frame clock, so the frame that resumes after a drag does not replay the drag.
+
+### `simulate_worlds`
+
+1. `reset_pointer_frame` clears `Presentation.mouse` once. `begin_frame` on every world with UI. That fits canvases and syncs the inspector and profiler. It does not clear mouse consumption.
+
+   `run_input` calls `begin_frame` again when the frame schedule runs. Each call starts with `profiler_commit_frame`. Bind reads the rings after that second commit. The shared ring's last slot is this pre-schedule fit and inspector sync. `commands` from the previous tick are one shared slot earlier, in the same sample as the fit and inspector sync from that tick's `run_input`. The second commit does not push a canvas slot, so the canvas ring's last slot is the previous tick's input, bindings, stylesheets, layout, motion, and paint.
+2. `advance` every world's clock with the same `real_dt`. Wall dt is clamped to `kMaxFrameDt` (0.25s). While the process is not paused and that world is stepping, the clock runs up to `kMaxFixedSteps` (8) steps of `kFixed` (1/60s) and drops leftover accumulator past the cap.
+3. If audio is non-null, `audio->update` once with that clamped `real_dt`.
+4. For each world, in `add` order: `Schedule::Fixed` when it is stepping and the process is not paused. `Schedule::Frame` when it is stepping and either the process is not paused or a window is bound to it. An empty `ctx<BoundWindows>()` makes `run_render` return before any command-buffer clear. A non-empty list clears those buffers, then returns without pushing scene commands when the `Renderable`+`Transform`, `Sprite`+`Transform`, and `ParticleEmitter` views are all empty, when `ActiveCamera`'s entity is not valid, or when that entity has no `Camera` or `Transform` (fatal). The sorted list is pushed only after a live camera with both components, with `window_size_for` (`Presentation.sizes`) for that id. `run_ui_render` then writes UI.
+
+`Time` fields written by each clock: `delta_time`, `fixed_delta_time`, `alpha`, `accumulator`.
+
+### Schedules
+
+`register_engine_systems` is the player's composition: simulation, UI, and audio on that one world. It sets `ctx<EngineSystemsRegistered>`. `Worlds::add` registers simulation once `set_deps` has run. `enable_ui` and `enable_audio` add the other two, and can be called on more than one world.
+
+| Schedule | Phases that run | Engine systems |
+| --- | --- | --- |
+| `Fixed` | `Physics`, then `Game` | `run_physics` on `Physics` |
+| `Frame` | `Input`, `Game`, `Bind`, `Audio`, `Render`, `UiRender` | see below |
+
+Frame systems, in phase order:
+
+| Phase | System |
+| --- | --- |
+| `Input` | `run_input` calls `begin_frame`, then drains `MouseEvent` into UI |
+| `Input` | `run_splash_timers` (`Time::delta_time`, including while paused) |
+| `Game` | `run_sprite_animations` |
+| `Game` | `run_particles` |
+| `Bind` | `sync_inspector_content`, `sync_profiler_content`, `run_bind` |
+| `Audio` | `PlaySfxEvent` / `PlayMusicEvent` via `EventCursor`, then `get<Sound>` |
+| `Render` | `run_render`. An empty `ctx<BoundWindows>()` returns before a command-buffer clear. A non-empty list clears those buffers, then returns without scene commands when the `Renderable`+`Transform`, `Sprite`+`Transform`, and `ParticleEmitter` views are all empty, when `ActiveCamera`'s entity is not valid, or when that entity has no `Camera` or `Transform` (fatal). The sorted draws are pushed only after a live camera with both components, each with `window_size_for` |
+| `UiRender` | `run_ui_render` (`CmdDrawUI` per canvas, per window) |
+
+`Phase::Physics` is not a frame phase. `kFixedPhases` is Physics then Game. `kFramePhases` omits Physics.
+
+After simulate, `sync_frame` applies click-through from `Worlds::presentation().mouse` (the set the hit-test filled) and syncs text-input activation. `draw_all` executes each window's command buffer. `cli::drain` answers queries from the painted frame and arms a `click` for the next `begin_frame`.
+
+## `GameLoop::end`
+
+`cli::stop`, detach the presentation, then `LoopShutdown::complete`: `on_quit`, then the host dispose callback (`Engine::dispose`). On web, `run` does not return from the infinite main loop, so `end` is what still runs dispose when `running` becomes false.
+
+## `Host::tick`
+
+Used by tests. The game is already constructed with `Worlds`. The constructor registers systems, binds `kPrimaryWindow`, enables UI and audio, writes the primary window size, calls `on_start`, and applies canvas fit. Each `tick`: `flush_worlds`, `simulate_worlds`, `canvas.draw`. Destructor calls `on_quit`. No CLI, no SDL poll.
+
+## See also
+
+- [Core](../modules/Core.md)
+- [ECS](../modules/ECS.md)
+- [CMake](../build/CMake.md)

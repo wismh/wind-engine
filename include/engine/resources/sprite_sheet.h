@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/features/Assets.md
+
 #include <engine/render/graphics.h>
 #include <engine/render/sprite.h>
 #include <engine/resources/meta.h>

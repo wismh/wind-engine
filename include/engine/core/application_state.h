@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/modules/Core.md
+
 namespace engine {
 
 struct ApplicationState {
