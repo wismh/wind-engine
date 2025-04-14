@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/features/Assets.md
+
 #include <engine/render/sprite.h>
 #include <engine/resources/asset_id.h>
 #include <engine/resources/fatal_error.h>

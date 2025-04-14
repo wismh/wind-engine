@@ -1,10 +1,6 @@
----
-tags: [build]
----
+# Game consumer
 
-# Consuming Wind from a game
-
-Wind is a **git submodule** (e.g. `external/engine`, url `../engine`).
+A game keeps Wind as a git submodule, usually `external/engine`, and does not edit that checkout to add features. Change the engine repo, then move the pin.
 
 ```cmake
 add_subdirectory(external/engine)
@@ -13,89 +9,65 @@ engine_add_game(my_game
     src/game.cpp)
 ```
 
-`ENGINE_WITH_AUDIO` defaults **ON** for this subdirectory (same `_engine_is_root` split as
-`ENGINE_WITH_WINDOW`); `set(ENGINE_WITH_AUDIO OFF CACHE BOOL "" FORCE)` before `add_subdirectory`
-to leave the mixer out.
+At this point `ENGINE_WITH_WINDOW` and `ENGINE_WITH_AUDIO` default ON, and `ENGINE_BUILD_TESTS` defaults OFF. To drop the mixer:
 
-`engine_add_game`:
+```cmake
+set(ENGINE_WITH_AUDIO OFF CACHE BOOL "" FORCE)
+add_subdirectory(external/engine)
+```
 
-- `add_executable` + C++23 + MSVC warnings
-- `PRIVATE engine`
-- `include/` of the game if present
-- asset codegen + `target_include_directories` generated dir
-- packaging icon generation (`icon.png` → `.ico`/`.icns`/mipmaps/favicon) when present; on Windows, `icon.rc` embeds `icon.ico` into the target
-- `engine_prepare_runtime`
+The `FORCE` has to be set before `add_subdirectory`. `option()` will not replace a cache entry that already exists.
 
-`main.cpp` typically:
+`ENGINE_WITH_GTEST=ON` vendors GoogleTest for the game's own tests without compiling `engine_tests`.
+
+What `engine_add_game` adds (executable or Android `libmain`, C++23, asset cook, optional `icon.png`, runtime copy) is [CMake](CMake.md) and [Pipeline](Pipeline.md).
+
+## `main`
 
 ```cpp
 #include <engine/engine.h>
+
 #include <game/game.h>
+
 int main() {
     engine::Engine<game::Game> app;
-    if (!app.init()) return 1;
+    if (!app.init()) {
+        return 1;
+    }
     return app.run();
 }
 ```
 
-`Game` constructor takes `const EngineServices&` (`AssetsDb&`, `InputSystem&`, `IAudioSystem&`, …). `Engine<GameT>` requires that constructor. Prefer `GameBase` for tests that never boot `Engine`.
+`Game` is constructed from `const engine::EngineServices&`. `Engine<GameT>` does not compile without that constructor. `GameBase` is enough for a test that never calls `Engine::run`.
 
-Pin the submodule to a Wind `main` commit; do not develop features inside the nested copy — edit the engine repo directly, then pin.
+The game includes `<engine/…>` only. It does not add `engine/src` to its include path and does not include SDL, glad, or NanoVG.
 
-## Android per-game identity overlay
+## Android identity
 
-`cmake/android/app/` (manifest, `strings.xml`, `res/`) is an engine-owned template shared by every
-game that builds for Android — without an overlay, two games would collide on the same
-`app_name`, `applicationId`, and launcher icon. `cmake/android/app/build.gradle` resolves more
-`-P` properties, mirroring `ENGINE_ANDROID_ASSETS_OUT` — but **not all three identity pieces go
-through the same mechanism**; an earlier version of this doc claimed a single `res.srcDirs`
-overlay handled all of them, which a downstream game's real Gradle build proved wrong (AAPT2
-"Duplicate resources" on `strings.xml`):
+`cmake/android/app/` is the engine template (manifest, `strings.xml`, `res/`). Two games that ship it unchanged share `applicationId`, the display name, and the launcher icon. `build.gradle` reads these properties (a `-P` property or the same-named environment variable):
 
-- `ENGINE_ANDROID_APPLICATION_ID` — overrides `defaultConfig.applicationId`; defaults to
-  `org.windengine.app` when absent. Plain Gradle config.
-- `ENGINE_ANDROID_APP_NAME` — feeds `defaultConfig.manifestPlaceholders = [appName: gameAppName ?:
-  'Wind']`; the manifest's `<application>`/`<activity>` use `android:label="${appName}"`. **Not**
-  a `values/strings.xml` overlay: AGP only gives real override precedence to build-variant source
-  sets over `main` (a flavor or build type over it), not to multiple directories added to `main`'s
-  own `res.srcDirs` list — those are siblings, and AAPT2 hard-fails the build the moment two of
-  them declare the same `string/app_name`. `manifestPlaceholders` is manifest-merger territory,
-  not resource-merger territory, so it sidesteps the collision entirely.
-- `ENGINE_ANDROID_RES_DIR` — a directory the game supplies (`mipmap-*/ic_launcher.png`). Added to
-  `sourceSets.debug.res.srcDirs` **and** `sourceSets.release.res.srcDirs` — **not** `main`. The
-  engine's own `res/` now ships a default `mipmap-*/ic_launcher.png` (below), so a sibling entry
-  in `main.res.srcDirs` would hit the identical "Duplicate resources" collision `app_name` did;
-  build-variant source sets are the only place with real override precedence over `main`. The
-  committed engine template is never edited per game.
-- `ENGINE_HOST_ICON_CODEGEN` — threaded into `externalNativeBuild.cmake.arguments` alongside the
-  existing `ENGINE_HOST_ASSET_CODEGEN`, for the same reason: cross-compiling for Android needs a
-  native `icon_codegen` (§19.3 host tool) the same way it needs a native `asset_codegen`. Missing
-  until a downstream game's cross-compiling build hit `CMake Error: Cross-compiling builds need a
-  native icon_codegen`.
+| Property | Effect | Default |
+| --- | --- | --- |
+| `ENGINE_ANDROID_APPLICATION_ID` | `defaultConfig.applicationId` | `org.windengine.app` |
+| `ENGINE_ANDROID_APP_NAME` | manifest placeholder `appName` (`android:label="${appName}"`) | `Wind` |
+| `ENGINE_ANDROID_RES_DIR` | added to `sourceSets.debug.res.srcDirs` and `sourceSets.release.res.srcDirs` | empty |
+| `ENGINE_ANDROID_ASSETS_OUT` | `assets.srcDirs` and the CMake stage directory | `${buildDir}/wind-assets` |
+| `ENGINE_HOST_ASSET_CODEGEN` | passed through to the native CMake arguments | required when cross-compiling |
+| `ENGINE_HOST_ICON_CODEGEN` | same | required when cross-compiling |
 
-Because `AndroidManifest.xml`'s `<application>` carries `android:icon="@mipmap/ic_launcher"`
-unconditionally, and unlike `android:label` there is no `manifestPlaceholders` equivalent for a
-whole mipmap resource, a game that supplies no icon overlay has nothing for that reference to
-resolve against — an unresolved manifest resource reference is a hard AAPT2 link error, not a
-graceful fallback to a platform default. The engine ships its own default
-`mipmap-{m,h,xh,xxh,xxxh}dpi/ic_launcher.png` under `cmake/android/app/src/main/res/` specifically
-so the reference always resolves even without a per-game overlay.
+The app name is a manifest placeholder, not a second `values/strings.xml`. AGP only lets a build-variant source set override `main`. Two directories on `main.res.srcDirs` are siblings, and AAPT2 fails the build when both declare `string/app_name`.
 
-`engine_add_game`'s icon step (`icon.png` → `icon_codegen` → `ENGINE_GAME_ICON_DIR`, one
-`${target}_icons` target shared by every platform) already generates
-`<ENGINE_GAME_ICON_DIR>/mipmap-*/ic_launcher.png` for every game with an `icon.png`, but nothing
-copies that into `ENGINE_ANDROID_RES_DIR` automatically: Gradle resolves `res.srcDirs` at
-configuration time, before the CMake `externalNativeBuild` invocation that runs `icon_codegen` even
-starts, so there is no single-invocation way to feed one into the other. A game wires them today by
-pointing `ENGINE_ANDROID_RES_DIR` at a directory it populates itself (e.g. copying
-`<ENGINE_GAME_ICON_DIR>/mipmap-*` there as a pre-build step) — an automatic bridge between the two
-is a possible follow-up, not implemented here.
+The engine template ships `mipmap-*/ic_launcher.png` under `cmake/android/app/src/main/res/` because the manifest always references `@mipmap/ic_launcher`. A game overlay goes on the debug and release source sets, not on `main`, for the same duplicate-resource reason.
+
+`icon_codegen` writes `mipmap-*/ic_launcher.png` into `ENGINE_GAME_ICON_DIR` for a game that has `icon.png`. Gradle resolves `res.srcDirs` at configuration time, before that custom command runs, so nothing copies those PNGs into `ENGINE_ANDROID_RES_DIR` automatically. The game points `ENGINE_ANDROID_RES_DIR` at a directory it fills itself.
+
+ABI in the template is `arm64-v8a`. `minSdk` is 21. `compileSdk` and `targetSdk` are 35.
+
+## Web
+
+`engine_add_web_game` is `engine_add_game` after an Emscripten configure. Cook assets with a native `asset_codegen` first and pass `ENGINE_HOST_ASSET_CODEGEN`. The shell is `cmake/web/shell.html` unless `ENGINE_WEB_SHELL` is set. Preload paths are [Runtime Assets](Runtime Assets.md).
 
 ## See also
 
-- [[build/Pipeline]]
-- [[build/CMake]]
-- [[build/Icon Codegen]]
-- [[features/Init and Loop]]
-- [[include.engine.core.engine.h]]
-- [[include.engine.igame.h]]
+- [Icon Codegen](Icon Codegen.md)
+- [Principles](../architecture/Principles.md)

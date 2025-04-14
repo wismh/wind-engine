@@ -4,6 +4,7 @@
 #include <engine/ecs/events.h>
 #include <engine/ecs/world.h>
 #include <engine/ui/canvas.h>
+#include <engine/ui/presentation.h>
 
 #include <vector>
 
@@ -100,7 +101,8 @@ TEST(Input, KeyCodeAcBackEqualsSdlScancode) {
 
 TEST(Input, BindScancodeToAction) {
     engine::ecs::World world;
-    engine::InputSystem input{world};
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
     const engine::ActionId jump = input.intern("jump");
     input.bind(engine::KeyCode::A, jump);
     input.handle_key(engine::KeyCode::A, true);
@@ -114,7 +116,8 @@ TEST(Input, BindScancodeToAction) {
 
 TEST(Input, UnboundKeyIgnored) {
     engine::ecs::World world;
-    engine::InputSystem input{world};
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
     const engine::ActionId jump = input.intern("jump");
     input.handle_key(engine::KeyCode::A, true);
     input.handle_key(engine::KeyCode::A, false);
@@ -125,7 +128,8 @@ TEST(Input, UnboundKeyIgnored) {
 
 TEST(Input, KeyEventEmittedRegardlessOfBinding) {
     engine::ecs::World world;
-    engine::InputSystem input{world};
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
     input.handle_key(engine::KeyCode::Backspace, true);
     input.handle_key(engine::KeyCode::Backspace, true, true);
     input.handle_key(engine::KeyCode::Backspace, false);
@@ -147,7 +151,8 @@ TEST(Input, KeyEventEmittedRegardlessOfBinding) {
 
 TEST(Input, TextInputEventEmittedWithUtf8) {
     engine::ecs::World world;
-    engine::InputSystem input{world};
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
     input.handle_text_input("Привіт");
 
     const std::vector<engine::TextInputEvent> events = read_text_input(world);
@@ -158,7 +163,8 @@ TEST(Input, TextInputEventEmittedWithUtf8) {
 
 TEST(Input, TextEditingEventCopiesTextStartAndLength) {
     engine::ecs::World world;
-    engine::InputSystem input{world};
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
     std::string text = "при";
     input.handle_text_editing(text, 2, 1);
     text = "other";
@@ -173,7 +179,8 @@ TEST(Input, TextEditingEventCopiesTextStartAndLength) {
 
 TEST(Input, DownUpAndHeld) {
     engine::ecs::World world;
-    engine::InputSystem input{world};
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
     const engine::ActionId jump = input.intern("jump");
     input.bind(engine::KeyCode::A, jump);
 
@@ -199,7 +206,8 @@ TEST(Input, DownUpAndHeld) {
 
 TEST(Input, BindKeyNameMatchesIntern) {
     engine::ecs::World world;
-    engine::InputSystem input{world};
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
     const engine::ActionId jump = input.intern("jump");
     input.bind(engine::KeyCode::A, "jump");
     input.handle_key(engine::KeyCode::A, true);
@@ -214,7 +222,8 @@ TEST(Input, BindKeyNameMatchesIntern) {
 
 TEST(Input, RebindSpaceFromJumpToFire) {
     engine::ecs::World world;
-    engine::InputSystem input{world};
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
     const engine::ActionId jump = input.intern("jump");
     const engine::ActionId fire = input.intern("fire");
     input.bind(engine::KeyCode::Space, jump);
@@ -234,7 +243,8 @@ TEST(Input, RebindSpaceFromJumpToFire) {
 
 TEST(Input, UnbindWhileHeldSendsUp) {
     engine::ecs::World world;
-    engine::InputSystem input{world};
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
     const engine::ActionId jump = input.intern("jump");
     input.bind(engine::KeyCode::A, jump);
     input.handle_key(engine::KeyCode::A, true);
@@ -271,7 +281,8 @@ TEST(Input, ControlsForStableOrder) {
 
 TEST(Input, RebindHeldKeyReleasesOldAction) {
     engine::ecs::World world;
-    engine::InputSystem input{world};
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
     const engine::ActionId jump = input.intern("jump");
     const engine::ActionId fire = input.intern("fire");
     input.bind(engine::KeyCode::Space, jump);
@@ -299,7 +310,8 @@ TEST(Input, RebindHeldKeyReleasesOldAction) {
 
 TEST(Input, MouseDownMoveUp) {
     engine::ecs::World world;
-    engine::InputSystem input{world};
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
 
     const glm::vec2 down_pos{12.f, 34.f};
     const glm::vec2 move_pos{40.f, 50.f};
@@ -331,7 +343,8 @@ TEST(Input, MouseDownMoveUp) {
 
 TEST(Input, MouseWheelEmitsWheelEvent) {
     engine::ecs::World world;
-    engine::InputSystem input{world};
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
     const glm::vec2 pos{12.f, 34.f};
     input.handle_mouse_wheel(engine::kPrimaryWindow, pos, 1.5f);
 
@@ -345,7 +358,8 @@ TEST(Input, MouseWheelEmitsWheelEvent) {
 
 TEST(Input, BoundLeftMouseEmitsMouseAndInput) {
     engine::ecs::World world;
-    engine::InputSystem input{world};
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
     const engine::ActionId fire = input.intern("fire");
     input.bind(engine::MouseButton::Left, fire);
 
@@ -368,7 +382,8 @@ TEST(Input, BoundLeftMouseEmitsMouseAndInput) {
 
 TEST(Input, BoundLeftMouseHeldWhileDown) {
     engine::ecs::World world;
-    engine::InputSystem input{world};
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
     const engine::ActionId fire = input.intern("fire");
     input.bind(engine::MouseButton::Left, "fire");
     EXPECT_EQ(input.bound_action(engine::MouseButton::Left), fire);
@@ -382,7 +397,8 @@ TEST(Input, BoundLeftMouseHeldWhileDown) {
 
 TEST(Input, KeyAndLeftMouseShareHeldCount) {
     engine::ecs::World world;
-    engine::InputSystem input{world};
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
     const engine::ActionId fire = input.intern("fire");
     input.bind(engine::KeyCode::Space, fire);
     input.bind(engine::MouseButton::Left, fire);
@@ -403,13 +419,14 @@ TEST(Input, InputEventNotFilteredByMouseConsumed) {
     // MouseConsumed is already true. Phase::Game gameplay checks
     // world.ctx<ui::MouseConsumed>().consumed_for(kPrimaryWindow) before treating Fire as a world action.
     engine::ecs::World world;
-    world.ctx<engine::ui::MouseConsumed>().consumed_windows.insert(engine::kPrimaryWindow);
-    engine::InputSystem input{world};
+    engine::ui::presentation_of(world).mouse.consumed_windows.insert(engine::kPrimaryWindow);
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
     const engine::ActionId fire = input.intern("fire");
     input.bind(engine::MouseButton::Left, fire);
     input.handle_mouse_button(engine::kPrimaryWindow, engine::MouseButton::Left, true, {0.f, 0.f});
 
-    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_TRUE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
     ASSERT_EQ(read_mouse(world).size(), 1u);
     const std::vector<engine::InputEvent> events = read_input(world);
     ASSERT_EQ(events.size(), 1u);
@@ -432,7 +449,8 @@ TEST(Input, DenormalizeTouchZeroDrawable) {
 
 TEST(Input, TouchPrimaryMapsToLeftMouse) {
     engine::ecs::World world;
-    engine::InputSystem input{world};
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
 
     const glm::vec2 down_pos = engine::denormalize_touch({0.1f, 0.2f}, {100, 100});
     const glm::vec2 move_pos = engine::denormalize_touch({0.3f, 0.4f}, {100, 100});
@@ -462,7 +480,8 @@ TEST(Input, TouchPrimaryMapsToLeftMouse) {
 
 TEST(Input, ExtraFingerDoesNotEmitMouse) {
     engine::ecs::World world;
-    engine::InputSystem input{world};
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
 
     input.handle_touch(1, true, {10.f, 10.f});
     input.handle_touch(2, true, {20.f, 20.f});
@@ -481,7 +500,8 @@ TEST(Input, ExtraFingerDoesNotEmitMouse) {
 
 TEST(Input, ExtraFingerDoesNotStealPrimaryOnRelease) {
     engine::ecs::World world;
-    engine::InputSystem input{world};
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
     input.handle_touch(1, true, {1.f, 1.f});
     input.handle_touch(2, true, {2.f, 2.f});
     input.handle_touch(2, false, {2.f, 2.f});
@@ -497,7 +517,8 @@ TEST(Input, ExtraFingerDoesNotStealPrimaryOnRelease) {
 
 TEST(Input, BoundTouchControlEmitsInputEvent) {
     engine::ecs::World world;
-    engine::InputSystem input{world};
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
     const engine::ActionId tap = input.intern("tap");
     const engine::Control finger{engine::ControlKind::Touch, 4, 0};
     input.bind(finger, tap);
@@ -517,7 +538,8 @@ TEST(Input, BoundTouchControlEmitsInputEvent) {
 
 TEST(Input, UnboundExtraFingerIgnoredForActions) {
     engine::ecs::World world;
-    engine::InputSystem input{world};
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
     const engine::ActionId tap = input.intern("tap");
     input.handle_touch(9, true, {0.f, 0.f});
     input.handle_touch(9, false, {0.f, 0.f});

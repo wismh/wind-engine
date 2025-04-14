@@ -4,15 +4,18 @@
 #include <engine/audio/sound.h>
 #include <engine/core/host.h>
 #include <engine/core/time.h>
+#include <engine/core/worlds.h>
 #include <engine/ecs/events.h>
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/systems.h>
 #include <engine/ecs/world.h>
 #include <engine/igame.h>
 #include <engine/render/canvas.h>
+#include <engine/resources/fatal_error.h>
 #include <engine/ui/canvas.h>
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -26,14 +29,17 @@ public:
     }
 };
 
+class QuietFatal final : public engine::IFatalError {
+public:
+    void report(std::string_view) override {}
+};
+
 class DummyGame final : public engine::GameBase {
 public:
-    int draw_calls = 0;
-    int quit_calls = 0;
+    explicit DummyGame(engine::Worlds& worlds)
+        : engine::GameBase(worlds) {}
 
-    void on_draw() override {
-        ++draw_calls;
-    }
+    int quit_calls = 0;
 
     void on_quit() override {
         ++quit_calls;
@@ -42,6 +48,9 @@ public:
 
 class SequenceGame final : public engine::GameBase {
 public:
+    explicit SequenceGame(engine::Worlds& worlds)
+        : engine::GameBase(worlds) {}
+
     std::vector<std::string> seq;
     bool engine_registered_on_start = false;
     int game_ticks = 0;
@@ -58,6 +67,9 @@ public:
 
 class WindowSizeGame final : public engine::GameBase {
 public:
+    explicit WindowSizeGame(engine::Worlds& worlds)
+        : engine::GameBase(worlds) {}
+
     engine::ui::WindowSize seen{};
 
     engine::WindowDesc primary_window() const override {
@@ -71,6 +83,9 @@ public:
 
 class FillWindowGame final : public engine::GameBase {
 public:
+    explicit FillWindowGame(engine::Worlds& worlds)
+        : engine::GameBase(worlds) {}
+
     engine::ecs::Entity canvas_entity{};
 
     engine::WindowDesc primary_window() const override {
@@ -128,17 +143,21 @@ public:
 }
 
 TEST(Host, WorldOnIGame) {
-    DummyGame game;
+    QuietFatal fatal;
+    engine::Worlds worlds{fatal};
+    DummyGame game{worlds};
     FakeCanvas canvas;
-    engine::Host host{game, canvas};
+    engine::Host host{game, worlds, canvas};
 
     EXPECT_EQ(&game.world(), &host.world());
 }
 
 TEST(Host, RegisterEngineSystemsBeforeOnStart) {
-    SequenceGame game;
+    QuietFatal fatal;
+    engine::Worlds worlds{fatal};
+    SequenceGame game{worlds};
     FakeCanvas canvas;
-    engine::Host host{game, canvas};
+    engine::Host host{game, worlds, canvas};
 
     ASSERT_TRUE(game.engine_registered_on_start);
     ASSERT_EQ(game.seq, (std::vector<std::string>{"on_start"}));
@@ -188,22 +207,25 @@ TEST(Host, PhaseOrderFixed) {
 }
 
 TEST(Host, FakeCanvasDraw) {
-    DummyGame game;
+    QuietFatal fatal;
+    engine::Worlds worlds{fatal};
+    DummyGame game{worlds};
     FakeCanvas canvas;
-    engine::Host host{game, canvas};
+    engine::Host host{game, worlds, canvas};
 
     EXPECT_EQ(canvas.draw_count, 0);
 
     host.tick();
 
     EXPECT_EQ(canvas.draw_count, 1);
-    EXPECT_EQ(game.draw_calls, 0);
 }
 
 TEST(Host, WindowSizeWrittenBeforeOnStart) {
-    WindowSizeGame game;
+    QuietFatal fatal;
+    engine::Worlds worlds{fatal};
+    WindowSizeGame game{worlds};
     FakeCanvas canvas;
-    engine::Host host{game, canvas};
+    engine::Host host{game, worlds, canvas};
 
     EXPECT_EQ(game.seen.width, 800);
     EXPECT_EQ(game.seen.height, 600);
@@ -213,9 +235,11 @@ TEST(Host, WindowSizeWrittenBeforeOnStart) {
 }
 
 TEST(Host, ResizeWritesWindowSize) {
-    FillWindowGame game;
+    QuietFatal fatal;
+    engine::Worlds worlds{fatal};
+    FillWindowGame game{worlds};
     FakeCanvas canvas;
-    engine::Host host{game, canvas};
+    engine::Host host{game, worlds, canvas};
 
     const engine::ui::UiCanvas& before = host.world().get<engine::ui::UiCanvas>(game.canvas_entity);
     EXPECT_EQ(before.rect, (engine::render::Rect{0.0f, 0.0f, 640.0f, 480.0f}));
@@ -240,10 +264,12 @@ TEST(Host, ResizeWritesWindowSize) {
 }
 
 TEST(Host, AudioUpdateEveryFrame) {
-    DummyGame game;
+    QuietFatal fatal;
+    engine::Worlds worlds{fatal};
+    DummyGame game{worlds};
     FakeCanvas canvas;
     CountingAudio audio;
-    engine::Host host{game, canvas, &audio};
+    engine::Host host{game, worlds, canvas, &audio};
 
     host.tick(engine::kFixed);
     EXPECT_EQ(audio.update_count, 1);

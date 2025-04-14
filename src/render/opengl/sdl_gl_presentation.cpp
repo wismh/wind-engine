@@ -13,11 +13,13 @@
 #include <engine/core/app_lifecycle.h>
 #include <engine/core/input_system.h>
 #include <engine/core/key_code.h>
+#include <engine/core/worlds.h>
 #include <engine/ecs/events.h>
 #include <engine/ecs/world.h>
 #include <engine/resources/font.h>
 #include <engine/ui/canvas.h>
 #include <engine/ui/inspector.h>
+#include <engine/ui/presentation.h>
 #include <engine/ui/profiler.h>
 
 #include <SDL3/SDL.h>
@@ -48,9 +50,11 @@ MouseButton mouse_button_from_sdl(Uint8 button) {
 // Android reads window->text_input_rect inside ShowScreenKeyboard, which runs from Start, and
 // does not implement UpdateTextInputArea — so the rect is set before start on the transition
 // frame, and refreshed every frame the session stays up for desktop IMEs.
-void sync_text_input_activation(WindowManager& windows, ecs::World& world) {
+void sync_text_input_activation(WindowManager& windows, Worlds& worlds) {
     windows.for_each_window([&](WindowId id, WindowSystem& window) {
-        const std::optional<ui::TextInputScreenArea> area = ui::focused_text_input_area(world, id);
+        ecs::World* const world = worlds.world_for(id);
+        const std::optional<ui::TextInputScreenArea> area =
+                world != nullptr ? ui::focused_text_input_area(*world, id) : std::nullopt;
         if (area) {
             window.set_text_input_area(area->rect, static_cast<int>(std::lround(area->cursor)));
             if (!window.is_text_input_active()) {
@@ -168,68 +172,69 @@ public:
         return canvas->add_image(asset, desc);
     }
 
-    void poll(ecs::World& world, InputSystem& input, ApplicationState& app) override {
-        if (!world.ctx<ui::UiClipboard>().set_text) {
-            world.ctx<ui::UiClipboard>() = ui::UiClipboard{
-                    .set_text = &sdl_clipboard_set_text,
-                    .get_text = &sdl_clipboard_get_text,
-            };
-        }
+    void poll(Worlds& worlds, InputSystem& input) override {
+        worlds.each_world([](ecs::World& world) {
+            if (!world.ctx<ui::UiClipboard>().set_text) {
+                world.ctx<ui::UiClipboard>() = ui::UiClipboard{
+                        .set_text = &sdl_clipboard_set_text,
+                        .get_text = &sdl_clipboard_get_text,
+                };
+            }
+        });
         SDL_Event event{};
         while (SDL_PollEvent(&event)) {
-            dispatch(world, input, app, event);
+            dispatch(worlds, input, event);
         }
         overlay_.poll_cursor(windows_, input);
-        backfill_secondary_sizes(world);
+        backfill_secondary_sizes(worlds);
     }
 
-    void sync_frame(ecs::World& world) override {
-        overlay_.update_click_through(windows_, world.ctx<ui::MouseConsumed>());
-        sync_text_input_activation(windows_, world);
+    void sync_frame(Worlds& worlds) override {
+        overlay_.update_click_through(windows_, worlds.presentation().mouse);
+        sync_text_input_activation(windows_, worlds);
     }
 
     void draw_all() override {
         windows_.draw_all();
     }
 
-    void attach_loop(ecs::World& world, std::function<void()> reentrant_tick) override {
+    void attach_loop(Worlds& worlds, std::function<void()> reentrant_tick) override {
         loop_tick_ = std::move(reentrant_tick);
-        publish_primary_size(world, false);
-        world.ctx<ui::UiLayoutPainters>().resolve = [this](WindowId id) -> ui::IUiPainter* {
-            render::OpenGLCanvas* const canvas = windows_.canvas(id);
-            if (canvas == nullptr) {
-                return nullptr;
-            }
-            canvas->make_current();
-            return canvas->ui_painter();
-        };
-        world.ctx<ui::InspectorWindowHost>().open = [this](const WindowDesc& desc) {
-            return window_control_->open_window(desc);
-        };
-        world.ctx<ui::InspectorWindowHost>().close = [this](WindowId id) { window_control_->close_window(id); };
-        world.ctx<ui::ProfilerWindowHost>().open = [this](const WindowDesc& desc) {
-            return window_control_->open_window(desc);
-        };
-        world.ctx<ui::ProfilerWindowHost>().close = [this](WindowId id) { window_control_->close_window(id); };
+        publish_primary_size(worlds, false);
+        worlds.set_ui_installer([this](ecs::World& world) {
+            world.ctx<ui::UiLayoutPainters>().resolve = [this](WindowId id) -> ui::IUiPainter* {
+                render::OpenGLCanvas* const canvas = windows_.canvas(id);
+                if (canvas == nullptr) {
+                    return nullptr;
+                }
+                canvas->make_current();
+                return canvas->ui_painter();
+            };
+            world.ctx<ui::InspectorWindowHost>().open = [this](const WindowDesc& desc) {
+                return window_control_->open_window(desc);
+            };
+            world.ctx<ui::InspectorWindowHost>().close = [this](WindowId id) { window_control_->close_window(id); };
+            world.ctx<ui::ProfilerWindowHost>().open = [this](const WindowDesc& desc) {
+                return window_control_->open_window(desc);
+            };
+            world.ctx<ui::ProfilerWindowHost>().close = [this](WindowId id) { window_control_->close_window(id); };
+        });
         sync_modal_hook();
     }
 
-    void detach_loop(ecs::World& world) override {
+    void detach_loop(Worlds& worlds) override {
         loop_tick_ = nullptr;
         sync_modal_hook();
-        world.ctx<ui::UiLayoutPainters>().resolve = {};
-        world.ctx<ui::InspectorWindowHost>() = {};
-        world.ctx<ui::ProfilerWindowHost>() = {};
+        worlds.set_ui_installer(nullptr);
+        worlds.each_world([](ecs::World& world) {
+            world.ctx<ui::UiLayoutPainters>().resolve = {};
+            world.ctx<ui::InspectorWindowHost>() = {};
+            world.ctx<ui::ProfilerWindowHost>() = {};
+        });
     }
 
-    void publish_primary_size(ecs::World& world, bool send_event) override {
-        const glm::ivec2 size = drawable_size();
-        world.ctx<ui::WindowSizes>().sizes[kPrimaryWindow] = ui::WindowSize{size.x, size.y};
-        if (send_event) {
-            ecs::EventWriter<ui::WindowResizeEvent>{world}.send(
-                    ui::WindowResizeEvent{.window = kPrimaryWindow, .width = size.x, .height = size.y});
-        }
-        ui::apply_canvas_fit(world);
+    void publish_primary_size(Worlds& worlds, bool send_event) override {
+        publish_size(worlds, kPrimaryWindow, drawable_size(), send_event);
     }
 
 private:
@@ -241,22 +246,30 @@ private:
         }
     }
 
-    void backfill_secondary_sizes(ecs::World& world) {
-        ui::WindowSizes& sizes = world.ctx<ui::WindowSizes>();
-        bool backfilled = false;
-        windows_.for_each_secondary_window([&](WindowId id, WindowSystem& window) {
-            if (!sizes.sizes.contains(id)) {
-                const glm::ivec2 size = window.drawable_size();
-                sizes.sizes[id] = ui::WindowSize{size.x, size.y};
-                backfilled = true;
-            }
-        });
-        if (backfilled) {
-            ui::apply_canvas_fit(world);
+    void publish_size(Worlds& worlds, WindowId id, glm::ivec2 size, bool send_event) {
+        worlds.presentation().sizes.sizes[id] = ui::WindowSize{size.x, size.y};
+        ecs::World* const world = worlds.world_for(id);
+        if (world == nullptr) {
+            return;
         }
+        if (send_event) {
+            ecs::EventWriter<ui::WindowResizeEvent>{*world}.send(
+                    ui::WindowResizeEvent{.window = id, .width = size.x, .height = size.y});
+        }
+        ui::apply_canvas_fit(*world);
     }
 
-    void dispatch(ecs::World& world, InputSystem& input, ApplicationState& app, const SDL_Event& event) {
+    void backfill_secondary_sizes(Worlds& worlds) {
+        ui::WindowSizes& sizes = worlds.presentation().sizes;
+        windows_.for_each_secondary_window([&](WindowId id, WindowSystem& window) {
+            if (!sizes.sizes.contains(id)) {
+                publish_size(worlds, id, window.drawable_size(), false);
+            }
+        });
+    }
+
+    void dispatch(Worlds& worlds, InputSystem& input, const SDL_Event& event) {
+        ApplicationState& app = worlds.application_state();
         switch (event.type) {
             case SDL_EVENT_QUIT:
                 app.quit();
@@ -276,20 +289,18 @@ private:
             case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED: {
                 const WindowId resized = windows_.find_by_sdl_id(event.window.windowID).value_or(kPrimaryWindow);
                 if (resized == kPrimaryWindow) {
-                    publish_primary_size(world, true);
+                    publish_primary_size(worlds, true);
                 } else if (WindowSystem* secondary = windows_.window(resized)) {
-                    const glm::ivec2 size = secondary->drawable_size();
-                    world.ctx<ui::WindowSizes>().sizes[resized] = ui::WindowSize{size.x, size.y};
-                    ecs::EventWriter<ui::WindowResizeEvent>{world}.send(
-                            ui::WindowResizeEvent{.window = resized, .width = size.x, .height = size.y});
-                    ui::apply_canvas_fit(world);
+                    publish_size(worlds, resized, secondary->drawable_size(), true);
                 }
                 break;
             }
             case SDL_EVENT_WINDOW_CLOSE_REQUESTED: {
                 const WindowId closed = windows_.find_by_sdl_id(event.window.windowID).value_or(kPrimaryWindow);
-                ecs::EventWriter<ui::WindowCloseRequestedEvent>{world}.send(
-                        ui::WindowCloseRequestedEvent{.window = closed});
+                if (ecs::World* const world = worlds.world_for(closed)) {
+                    ecs::EventWriter<ui::WindowCloseRequestedEvent>{*world}.send(
+                            ui::WindowCloseRequestedEvent{.window = closed});
+                }
                 break;
             }
             case SDL_EVENT_KEY_DOWN:
@@ -301,7 +312,9 @@ private:
                     const WindowSystem* window = windows_.window(window_id);
                     const bool text_input_active = window != nullptr && window->is_text_input_active();
                     if (text_input_active) {
-                        ui::clear_focus(world, window_id);
+                        if (ecs::World* const world = worlds.world_for(window_id)) {
+                            ui::clear_focus(*world, window_id);
+                        }
                     }
                     apply_android_back(app, text_input_active);
                 }

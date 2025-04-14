@@ -1,21 +1,8 @@
----
-tags: [architecture]
----
-
 # Architecture overview
 
-Wind is a **static C++23 library**: a 2D game engine for production titles. The product name is Wind; the CMake target and namespace are `engine`.
+Wind is a static C++23 library: a 2D game engine for production titles. The product name is Wind. The CMake target and namespace are `engine`.
 
 Public API lives in `include/engine/` (`#include <engine/…>`). Implementation and private headers live in `src/`. Third party is git submodules under `external/` (no FetchContent, no EnTT).
-
-## Layers of this vault
-
-| Slice | Question | Start here |
-| --- | --- | --- |
-| Architectural | What are the rules, modules, and how they meet? | [[architecture/Principles]], [[architecture/Scope]], this note, [[architecture/Module Map]] |
-| Modular | What can a module do, and how is it coded? | [[modules/Core]] … [[modules/Audio]] |
-| Detailed | How is a feature implemented? | [[features/UI Markup]], [[features/Windowing]] |
-| Build | How does a binary appear on disk? | [[build/Pipeline]] |
 
 ## What a game sees
 
@@ -24,7 +11,7 @@ flowchart TB
   Game["Game : IGame / GameBase"]
   World["ecs::World"]
   Assets["AssetsDb"]
-  UI["UiCanvas + document/CSS + ViewModel"]
+  UI["UiCanvas + document + CSS + ViewModel"]
   Cmd["CommandBuffer"]
   GL["OpenGL + NanoVG"]
 
@@ -36,28 +23,29 @@ flowchart TB
   Cmd --> GL
 ```
 
-- Lifecycle: [[include.engine.igame.h|IGame]] / [[include.engine.igame.h|GameBase]].
-- Data: one [[include.engine.ecs.world.h|World]] (entities + `ctx` resources + systems).
-- Assets: GUID catalog, `get<T>` / `try_get<T>` ([[features/Assets]]).
-- UI: XML and/or `ui::Node` builder + stylesheet + MVVM, not `onClick` trees ([[features/UI Markup]]).
-- Draw: `Renderable` + `Transform` → sort → `CmdDrawMesh`; UI → `CmdDrawUI` ([[features/Materials and Sort]]).
+- Lifecycle: `IGame` and `GameBase` in `include/engine/igame.h`.
+- Data: `Worlds` holds any number of `ecs::World` (entities, `ctx` resources, systems). Each world has its own time. `ApplicationState` is one per process.
+- Assets: GUID catalog, `get<T>` / `try_get<T>`. See [Assets](../features/Assets.md).
+- UI: XML and/or `ui::Node`, a stylesheet, and MVVM. See [UI Markup](../features/UI Markup.md).
+- Draw: `Renderable` or `Sprite` plus `Transform`, then sort, then `CmdDrawMesh`. Particles are `CmdDrawParticles`. UI is `CmdDrawUI`. See [Materials and Sort](../features/Materials and Sort.md).
 
-Windowed host: [[include.engine.core.engine.h|Engine&lt;GameT&gt;]] in [[include.engine.engine.h|engine.h]] (only if `ENGINE_WITH_WINDOW`). Headless `engine_tests` never call `Engine::run`.
+The windowed host is `Engine<GameT>` in `include/engine/core/engine.h`, included from `include/engine/engine.h` only when `ENGINE_WITH_WINDOW` is set. Headless `engine_tests` do not call `Engine::run`.
 
-
+`kApiEpoch` in `include/engine/engine.h` is `4`. `api_epoch()` returns that constant (`src/core/api_epoch.cpp`).
 
 ## Module responsibilities
 
-| Module                | Owns                                                     | Does not own                     |
-| --------------------- | -------------------------------------------------------- | -------------------------------- |
-| [[modules/Core]]      | Loop, time, input poll, composition root, fatal errors, log | Gameplay, GPU objects            |
-| [[modules/ECS]]       | Entities, views, schedules, events, camera, AABB physics | OpenGL, XML                      |
-| [[modules/Resources]] | `.meta`, catalog, codegen, `get`                         | Painting pixels                  |
-| [[modules/Render]]    | Materials, commands, sort, OpenGL/NanoVG backends        | Asset GUIDs, UI bind names       |
-| [[modules/UI]]        | XML + C++ builder, CSS, layout, hit-test, MVVM           | World sprites                    |
-| [[modules/Localization]] | String tables, `{tr}`, plural messages                | Which locale the player picked   |
-| [[modules/Audio]]     | SFX pool, music A/B, looping handles                     | File GUIDs (those are Resources) |
+| Module | Owns | Does not own |
+| --- | --- | --- |
+| [Core](../modules/Core.md) | Loop, time, input poll, composition root, fatal errors, log, window control | Gameplay, GPU objects |
+| [ECS](../modules/ECS.md) | Entities, views, schedules, events, camera, AABB and circle physics | OpenGL, XML |
+| [Resources](../modules/Resources.md) | `.meta`, catalog, codegen, `get` | Painting pixels |
+| [Render](../modules/Render.md) | Materials, commands, sort, OpenGL and NanoVG backends | Asset GUIDs, UI bind names |
+| [UI](../modules/UI.md) | XML and C++ builder, CSS, layout, hit-test, MVVM | World sprites |
+| [Localization](../modules/Localization.md) | String tables, `{tr}`, plural messages | Which locale the player picked |
+| [Audio](../modules/Audio.md) | SFX pool, music A/B, looping handles | File GUIDs (those are Resources) |
+| [Haptics](../modules/Haptics.md) | Vibration duration and intensity | A CMake feature flag |
 
-How they connect: [[architecture/Module Map]]. What stays out of public headers: [[architecture/Boundaries]]. Product rules: [[architecture/Principles]], [[architecture/Scope]].
+How they connect: [Module Map](Module Map.md). What stays out of public headers: [Boundaries](Boundaries.md). Product rules: [Principles](Principles.md), [Scope](Scope.md).
 
-If this vault disagrees with code, **code wins** — update the note in the same change.
+If a page disagrees with code, code wins and the page should be updated in the same change.
