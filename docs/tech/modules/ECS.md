@@ -29,7 +29,7 @@ Pools are a sparse index, a packed entity list, and a dense component array (`in
 | `Fixed` | `Physics`, `Game` |
 | `Frame` | `Input`, `Game`, `Bind`, `Audio`, `Render`, `UiRender` |
 
-`Phase::Physics` exists on the enum and is not a frame phase. Game code that needs a one-shot click uses `Schedule::Frame` and `Phase::Game`. Physics uses `fixed_delta_time`. Which systems the engine registers: [Runtime Loop](../architecture/Runtime Loop.md).
+`Phase::Physics` exists on the enum and is not a frame phase. Game code that needs a one-shot click uses `Schedule::Frame` and `Phase::Game`. Physics uses `fixed_delta_time`. Which systems the engine registers: [Runtime Loop](../architecture/Runtime%20Loop.md).
 
 ## Events
 
@@ -91,4 +91,4 @@ There is no contact solver, no response impulse, and no Z test. Overlap state is
 
 - [Principles](../architecture/Principles.md)
 - [Core](Core.md)
-- [Materials and Sort](../features/Materials and Sort.md)
+- [Materials and Sort](../features/Materials%20and%20Sort.md)

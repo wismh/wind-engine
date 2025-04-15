@@ -44,4 +44,4 @@ Test counters (`is_active`, `last_duration_seconds`, `last_intensity`, `vibrate_
 ## See also
 
 - [Core](Core.md)
-- [Runtime Loop](../architecture/Runtime Loop.md)
+- [Runtime Loop](../architecture/Runtime%20Loop.md)

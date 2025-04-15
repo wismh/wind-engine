@@ -65,9 +65,9 @@ ABI in the template is `arm64-v8a`. `minSdk` is 21. `compileSdk` and `targetSdk`
 
 ## Web
 
-`engine_add_web_game` is `engine_add_game` after an Emscripten configure. Cook assets with a native `asset_codegen` first and pass `ENGINE_HOST_ASSET_CODEGEN`. The shell is `cmake/web/shell.html` unless `ENGINE_WEB_SHELL` is set. Preload paths are [Runtime Assets](Runtime Assets.md).
+`engine_add_web_game` is `engine_add_game` after an Emscripten configure. Cook assets with a native `asset_codegen` first and pass `ENGINE_HOST_ASSET_CODEGEN`. The shell is `cmake/web/shell.html` unless `ENGINE_WEB_SHELL` is set. Preload paths are [Runtime Assets](Runtime%20Assets.md).
 
 ## See also
 
-- [Icon Codegen](Icon Codegen.md)
+- [Icon Codegen](Icon%20Codegen.md)
 - [Principles](../architecture/Principles.md)
