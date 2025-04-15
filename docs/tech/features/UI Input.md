@@ -76,6 +76,11 @@ code point (CJK, emoji) is a one-character word.
 `paint.cpp` caches while it paints: per visual row, the UTF-8 byte range and the glyph box in
 screen pixels (left, top, width, height). `text-align` and `align-items` are already in that left
 edge, so a short centered row keeps its own glyph origin. Hit and highlight read only that cache.
+A click is not compared to those boxes in raw window pixels. Ancestor scroll, and a Viewport
+camera, are applied first — the same shift `hit_test` uses to enter the child — and the point is
+scaled back into the cached box pixels. The highlight stays inside the paint-time pan, so it
+already sits on the visible row. The element's own scroll is not part of that mapping; its text
+is drawn before its own pan. A TextInput caret uses the same mapped x.
 Vertical: the row under the pointer, or the nearest row when the pointer is between rows. Horizontal: the
 nearest UTF-8 boundary, from `measure_text` of that row's substring. Characters between visual rows
 (spaces the wrap dropped, and `\n`) are not highlighted, but they are part of the copied substring.
