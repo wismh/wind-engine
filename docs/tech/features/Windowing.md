@@ -45,7 +45,7 @@ World `Renderable`, `Sprite`, and `ParticleEmitter` draws go to every id in `ctx
 
 The OS close button sends `WindowCloseRequestedEvent`. The engine does not quit and does not destroy a game window because of it. The game reads the event.
 
-The inspector window and the profiler window are the exception: a close request for that tool window turns the tool off, and the engine closes it. The event is still delivered. The primary window is not closed that way. See [UI Inspector](UI Inspector.md) and [UI Profiler](UI Profiler.md).
+The inspector window and the profiler window are the exception: a close request for that tool window turns the tool off, and the engine closes it. The event is still delivered. The primary window is not closed that way. See [UI Inspector](UI%20Inspector.md) and [UI Profiler](UI%20Profiler.md).
 
 ## Overlay and click-through
 
@@ -84,5 +84,5 @@ Public headers do not include SDL.
 ## See also
 
 - [Core](../modules/Core.md)
-- [Runtime Loop](../architecture/Runtime Loop.md)
+- [Runtime Loop](../architecture/Runtime%20Loop.md)
 - [Scope](../architecture/Scope.md)

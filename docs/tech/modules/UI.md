@@ -2,7 +2,7 @@
 
 XML and the C++ `ui::Node` builder produce one `Element` tree. Style is a CSS subset. A `ViewModel` supplies properties, `ICommand`, and `IPaint`. There is no `onClick` and no second widget graph.
 
-Walkthroughs: [UI Markup](../features/UI Markup.md), [UI Input](../features/UI Input.md), [UI Inspector](../features/UI Inspector.md), [UI Profiler](../features/UI Profiler.md).
+Walkthroughs: [UI Markup](../features/UI%20Markup.md), [UI Input](../features/UI%20Input.md), [UI Inspector](../features/UI%20Inspector.md), [UI Profiler](../features/UI%20Profiler.md).
 
 ## Canvas
 
@@ -101,7 +101,7 @@ Stack main axis is the child's used size (explicit size, otherwise hug), plus ma
 
 A layout dirty gate (`layout_state_changed`) compares `text`, `custom_properties`, and the generated-item owner list with the previous values. On the prepare path, `canvas.cpp` skips `layout()` when that compare is clean, `layout_computed_once` is set, and the canvas layout rect, media width, media height, stylesheet pointer, stylesheet generation, layout painter, and math-font identity all match the last layout. The copies are still stored every call.
 
-`ItemsControl` virtualization (vertical, one template root, a fixed pixel row height) builds a window of rows plus spacers. `suppress_item_virtualization` turns it off. Variable-height windows and tree collapse are not this path. See [UI Performance Plan](../architecture/UI Performance Plan.md).
+`ItemsControl` virtualization (vertical, one template root, a fixed pixel row height) builds a window of rows plus spacers. `suppress_item_virtualization` turns it off. Variable-height windows and tree collapse are not this path. See [UI Performance Plan](../architecture/UI%20Performance%20Plan.md).
 
 ## Style
 
@@ -166,19 +166,19 @@ The stylesheet parser still warns when `background-image` is not `none` or an `A
 
 `run_bind` clones from `AssetsDb` only when `UiCanvas::document` is set and the id changed. Stylesheet asset ids merge via `try_get<Stylesheet>`. An empty id list does not wipe a sheet authored in memory.
 
-Generated binders (`asset_codegen`) emit `static constexpr BindingId` members and `bind(vm)` that calls `vm.property` / `vm.command` using the member names. The game writes the `ViewModel` subclass. See [Asset Codegen](../build/Asset Codegen.md).
+Generated binders (`asset_codegen`) emit `static constexpr BindingId` members and `bind(vm)` that calls `vm.property` / `vm.command` using the member names. The game writes the `ViewModel` subclass. See [Asset Codegen](../build/Asset%20Codegen.md).
 
 `ICommand` is `can_execute` and `execute`. `RelayCommand` stores `std::function`. `IPaint::paint` receives an `IDrawList` and the content rect, after CSS chrome and before children. `IDrawList` is local content pixels: line, fill and stroke rect, arc, font, text, image. Games do not call NanoVG.
 
 ## Input
 
-Pointer, wheel, keys, text, and IME enter as ECS events from [Input Mapper](../features/Input Mapper.md). `run_input` drains `MouseEvent` for the frame. Direct calls (`handle_pointer`, `handle_key`, `handle_text_input`, …) exist on `canvas.h` for tests and for code outside that system.
+Pointer, wheel, keys, text, and IME enter as ECS events from [Input Mapper](../features/Input%20Mapper.md). `run_input` drains `MouseEvent` for the frame. Direct calls (`handle_pointer`, `handle_key`, `handle_text_input`, …) exist on `canvas.h` for tests and for code outside that system.
 
 `MouseConsumed::consumed_windows` is a set of `WindowId` on the process `Presentation`. `reset_pointer_frame` clears it at the start of `simulate_worlds`. `begin_frame` does not. A hit inserts the window into `presentation_of(world).mouse`. `sync_frame` reads that same object for click-through. `world.ctx<ui::MouseConsumed>()` does not see the hits. See [Windowing](../features/Windowing.md).
 
 `UiInputBatchCache` (`src/ui/input_batch.h`) lives on `run_input`'s stack. The first touch of a canvas in that call binds and lays out. Later mouse events in the same call reuse it. The public `handle_*` functions do not use the cache.
 
-Details: [UI Input](../features/UI Input.md).
+Details: [UI Input](../features/UI%20Input.md).
 
 ## Paint
 

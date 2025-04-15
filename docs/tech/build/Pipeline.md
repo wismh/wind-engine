@@ -26,7 +26,7 @@ Both are custom commands with `DEPENDS` on the tool and a `GLOB_RECURSE` of the 
 
 `asset_guid` is a separate executable. Nothing in the default build runs it.
 
-If the game has `icon.png` at the directory that called `engine_add_game`, `icon_codegen` writes `generated/<game>/icons/`. See [Icon Codegen](Icon Codegen.md).
+If the game has `icon.png` at the directory that called `engine_add_game`, `icon_codegen` writes `generated/<game>/icons/`. See [Icon Codegen](Icon%20Codegen.md).
 
 ## 3. Compile
 
@@ -44,15 +44,15 @@ If the game has `icon.png` at the directory that called `engine_add_game`, `icon
 4. If the target has `ENGINE_GAME_CATALOG`, copy it to `<exe>/assets/catalog.toml`.
 5. On Android, if `ENGINE_ANDROID_ASSETS_OUT` is set, copy that `assets/` tree there for Gradle.
 
-Web does not rely on that copy for the page load. `engine_target_web_preload` adds `--preload-file` mappings onto `/assets` and `/assets/engine`, including the cooked catalogs. See [Runtime Assets](Runtime Assets.md).
+Web does not rely on that copy for the page load. `engine_target_web_preload` adds `--preload-file` mappings onto `/assets` and `/assets/engine`, including the cooked catalogs. See [Runtime Assets](Runtime%20Assets.md).
 
 ## 5. Run
 
-A windowed `main` constructs `Engine<Game>`, calls `init`, then `run`. `init` loads `assets/engine/catalog.toml` and then `assets/catalog.toml`. The frame order is [Runtime Loop](../architecture/Runtime Loop.md).
+A windowed `main` constructs `Engine<Game>`, calls `init`, then `run`. `init` loads `assets/engine/catalog.toml` and then `assets/catalog.toml`. The frame order is [Runtime Loop](../architecture/Runtime%20Loop.md).
 
 `engine_tests` is the headless binary. `ctest` discovers it with `gtest_discover_tests` on desktop. Emscripten links it with the web flags. Android configures the suite and does not treat a device run as a merge gate.
 
 ## See also
 
-- [Asset Codegen](Asset Codegen.md)
-- [Game Consumer](Game Consumer.md)
+- [Asset Codegen](Asset%20Codegen.md)
+- [Game Consumer](Game%20Consumer.md)
