@@ -16,6 +16,7 @@ Normative rules. If a change fights these, the change is wrong. As-built detail 
 10. **Simulation is fixed-step.** Frame time drives present and audio fades. Gameplay and physics tick at a constant `fixed_delta_time`.
 11. **UI is document + style + view-model.** XML and the C++ `ui::Node` builder produce the same `Element` tree. Style is CSS. UI to game is `ViewModel` / `ICommand` only. No `onClick`.
 12. **Draw with materials, then sort.** `Renderable` is mesh + material + layer, not ad-hoc shader and texture pointers with undefined order.
+13. **The editor hosts, the game is a guest.** In the editor the game is a module loaded on Play and unloaded on Stop. Nothing built from game code (systems, components, view-models, commands, `std::function`) outlives the game's worlds. Engine tools such as the UI Inspector and UI Profiler live in the editor, not in the game.
 
 ## Do not regress
 
@@ -37,6 +38,7 @@ Normative rules. If a change fights these, the change is wrong. As-built detail 
 
 ## Constraints
 
+- An exported game links `engine` statically. `engine` is a shared library only in the editor build (`ENGINE_EDITOR`), and a game module must be built against the same engine build as the editor that loads it.
 - CMake 3.16 or newer (`cmake_minimum_required` in `CMakeLists.txt`). C++23 (MSVC, clang, or gcc).
 - SDL3 and SDL3_mixer. This mixer build enables WAV only. FLAC, Vorbis, MP3, MIDI, Opus, and the other `SDLMIXER_*` formats are OFF.
 - Desktop GL is OpenGL 3.3 Core via glad. Shaders are GLSL 330 wrapped in XML `.shader`. Web is WebGL2. Android is GLES 3.0. `shader_adapt` rewrites GLSL 330 to GLSL 300 ES when the GLES profile is on.
