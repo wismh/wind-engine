@@ -30,7 +30,9 @@ If the game has `icon.png` at the directory that called `engine_add_game`, `icon
 
 ## 3. Compile
 
-`engine` is a static library. Sources are every `src/**/*.cpp` except `src/render/opengl/**`, `engine_runtime.cpp`, `engine_instantiate.cpp`, and `sdl_fatal_error.cpp`. Those four are added only when `ENGINE_WITH_WINDOW` is ON.
+`engine_build_id` writes `<engine/build_id.h>` for the configuration being built. See [CMake](CMake.md#build-id).
+
+`engine` is a static library. With `ENGINE_EDITOR` it is a shared library (`engine.dll` on Windows). Sources are every `src/**/*.cpp` except `src/render/opengl/**`, `engine_runtime.cpp`, `engine_instantiate.cpp`, and `sdl_fatal_error.cpp`. Those four are added only when `ENGINE_WITH_WINDOW` is ON.
 
 `engine_add_game` adds the game executable (or, on Android, a shared library named `main`) and makes it depend on the codegen targets. The generated directory is a PRIVATE include.
 
@@ -43,6 +45,8 @@ If the game has `icon.png` at the directory that called `engine_add_game`, `icon
 3. Copy the cooked engine `catalog.toml` over that tree's catalog.
 4. If the target has `ENGINE_GAME_CATALOG`, copy it to `<exe>/assets/catalog.toml`.
 5. On Android, if `ENGINE_ANDROID_ASSETS_OUT` is set, copy that `assets/` tree there for Gradle.
+
+In the editor build on Windows it first copies `engine.dll` beside the target.
 
 Web does not rely on that copy for the page load. `engine_target_web_preload` adds `--preload-file` mappings onto `/assets` and `/assets/engine`, including the cooked catalogs. See [Runtime Assets](Runtime%20Assets.md).
 

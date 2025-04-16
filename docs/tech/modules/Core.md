@@ -82,7 +82,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 
 | File | Role |
 | --- | --- |
-| `src/core/api_epoch.cpp` | `api_epoch()` returns `kApiEpoch` |
+| `src/core/build_info.cpp` | `build_id()` returns `kBuildId` as compiled into `engine` |
 | `src/core/fixed_step.cpp` | accumulator |
 | `src/core/host.cpp` | fake-canvas host |
 | `src/core/input_system.cpp` | bind table and event enqueue |
@@ -109,15 +109,17 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 
 ## Public headers
 
-`include/engine/engine.h` is the umbrella. It also includes `core/engine.h` when `ENGINE_WITH_WINDOW` is set. `kApiEpoch` is 4.
+`include/engine/engine.h` is the umbrella. It also includes `core/engine.h` when `ENGINE_WITH_WINDOW` is set.
 
 - `include/engine/igame.h`
 - `include/engine/log.h`
 - `include/engine/core/application_state.h`
 - `include/engine/core/app_lifecycle.h`
+- `include/engine/core/build_info.h`
 - `include/engine/core/engine.h`
 - `include/engine/core/engine_runtime.h`
 - `include/engine/core/engine_services.h`
+- `include/engine/core/export.h`
 - `include/engine/core/fixed_step.h`
 - `include/engine/core/host.h`
 - `include/engine/core/input_system.h`
