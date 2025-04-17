@@ -64,7 +64,7 @@ flowchart TB
 
 ## Init wiring
 
-`Engine::init` is a header-only template in `include/engine/core/engine.h`. The order is [Runtime Loop](Runtime%20Loop.md).
+`Engine::init` is a thin template in `include/engine/core/engine.h` over the non-template `EngineHost` (`src/core/engine_host.cpp`), which builds every service. The order is [Runtime Loop](Runtime%20Loop.md).
 
 ## Data that crosses modules
 

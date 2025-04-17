@@ -20,25 +20,21 @@ The `FORCE` has to be set before `add_subdirectory`. `option()` will not replace
 
 `ENGINE_WITH_GTEST=ON` vendors GoogleTest for the game's own tests without compiling `engine_tests`.
 
-What `engine_add_game` adds (executable or Android `libmain`, C++23, asset cook, optional `icon.png`, runtime copy) is [CMake](CMake.md) and [Pipeline](Pipeline.md).
+What `engine_add_game` adds (executable, Android `libmain`, or the editor's game module; C++23, asset cook, optional `icon.png`, runtime copy) is [CMake](CMake.md) and [Pipeline](Pipeline.md).
 
 ## `main`
 
 ```cpp
-#include <engine/engine.h>
+#include <engine/game_entry.h>
 
 #include <game/game.h>
 
-int main() {
-    engine::Engine<game::Game> app;
-    if (!app.init()) {
-        return 1;
-    }
-    return app.run();
-}
+ENGINE_GAME(game::Game)
 ```
 
-`Game` is constructed from `const engine::EngineServices&`. `Engine<GameT>` does not compile without that constructor. `GameBase` is enough for a test that never calls `Engine::run`.
+`ENGINE_GAME` expands to `main` running `Engine<game::Game>`. Under the editor build it expands to the module exports instead. See [Core](../modules/Core.md).
+
+`Game` is constructed from `const engine::EngineServices&`. `ENGINE_GAME` and `Engine<GameT>` do not compile without that constructor. `GameBase` is enough for a test that never calls `Engine::run`.
 
 The game includes `<engine/…>` only. It does not add `engine/src` to its include path and does not include SDL, glad, or NanoVG.
 

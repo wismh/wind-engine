@@ -32,7 +32,7 @@ GPU objects are `IMesh`, `IShader`, `ITexture` created by `IGraphicFactory` from
 
 ## World draw
 
-`run_render` (`src/ecs/systems.cpp`) reads `ctx<BoundWindows>().ids`. `Worlds::bind_window` appends an id. `Worlds::unbind_window` removes one. `GameLoop` does not call `bind_window`. `Engine::init` and the `Host` constructor bind `kPrimaryWindow`.
+`run_render` (`src/ecs/systems.cpp`) reads `ctx<BoundWindows>().ids`. `Worlds::bind_window` appends an id. `Worlds::unbind_window` removes one. `GameLoop` does not call `bind_window`. `EngineHost::attach_game` and the `Host` constructor bind `kPrimaryWindow`.
 
 An empty list returns before any command buffer is cleared and before the camera check. The function clears `ctx<WindowClears>()` first. That set only records which buffers were cleared this frame.
 

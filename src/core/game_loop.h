@@ -2,6 +2,7 @@
 
 #include "core/presentation.h"
 
+#include <engine/core/run_hooks.h>
 #include <engine/core/web_loop.h>
 #include <engine/core/worlds.h>
 
@@ -11,13 +12,12 @@
 namespace engine {
 
 class IAudioSystem;
-class IGame;
 class InputSystem;
 
 // Frame clock and present order. Knows IPresentation, not SDL or OpenGL.
 class GameLoop {
 public:
-    [[nodiscard]] int run(IPresentation& presentation, IGame& game, Worlds& worlds, InputSystem& input,
+    [[nodiscard]] int run(IPresentation& presentation, RunHooks hooks, Worlds& worlds, InputSystem& input,
             IAudioSystem* audio, std::function<void()> host_dispose);
 
 private:
@@ -29,7 +29,7 @@ private:
     static void main_loop_thunk(void* self);
 
     IPresentation* presentation_ = nullptr;
-    IGame* game_ = nullptr;
+    RunHooks hooks_;
     Worlds* worlds_ = nullptr;
     InputSystem* input_ = nullptr;
     IAudioSystem* audio_ = nullptr;

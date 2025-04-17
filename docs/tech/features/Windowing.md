@@ -39,7 +39,7 @@ Further windows: `EngineServices::windows` is `IWindowControl`.
 
 `UiCanvas::window` selects which size and which pointer events that canvas uses. A canvas on another window does not see them.
 
-World `Renderable`, `Sprite`, and `ParticleEmitter` draws go to every id in `ctx<BoundWindows>()`. The sorted list is shared. Each window's projection uses `window_size_for` (`Presentation.sizes`) on that window's command buffer. An empty list draws nothing. `Engine::init` and the `Host` constructor bind `kPrimaryWindow`. The frame loop does not call `bind_window`. UI for a window is drawn by the world that owns it, after that world's clear and meshes.
+World `Renderable`, `Sprite`, and `ParticleEmitter` draws go to every id in `ctx<BoundWindows>()`. The sorted list is shared. Each window's projection uses `window_size_for` (`Presentation.sizes`) on that window's command buffer. An empty list draws nothing. `EngineHost::attach_game` and the `Host` constructor bind `kPrimaryWindow`. The frame loop does not call `bind_window`. UI for a window is drawn by the world that owns it, after that world's clear and meshes.
 
 ## Close
 
