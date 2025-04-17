@@ -76,7 +76,7 @@ public:
         return click_through_applied_;
     }
 
-    // Called once per frame from EngineRuntime::tick_loop() with this frame's UiInputSystem hit
+    // Called once per frame from SdlGlPresentation::sync_frame with this frame's UiInputSystem hit
     // result. No-op without a window (no real window in engine_tests).
     void update_click_through(bool pointer_hit_something);
 
