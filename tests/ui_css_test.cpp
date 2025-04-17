@@ -51,6 +51,15 @@ bool warning_mentions(const std::vector<std::string>& warnings, std::string_view
 
 }
 
+TEST(UiCss, StylesheetGenerationIsFreshPerConstructionAndKeptByCopy) {
+    const engine::ui::Stylesheet first;
+    const engine::ui::Stylesheet second;
+    EXPECT_GT(second.generation, first.generation);
+    const engine::ui::Stylesheet copy = second;
+    EXPECT_EQ(copy.generation, second.generation);
+    EXPECT_GT(engine::ui::next_stylesheet_generation(), second.generation);
+}
+
 TEST(UiCss, ParseClassAndElementRules) {
     std::vector<std::string> warnings;
     const auto sheet = engine::ui::parse_css(R"(
