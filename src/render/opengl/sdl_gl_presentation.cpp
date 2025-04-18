@@ -69,7 +69,7 @@ void sync_text_input_activation(WindowManager& windows, Worlds& worlds) {
 class SdlGlPresentation final : public IPresentation {
 public:
     SdlGlPresentation() : windows_(*backend_) {
-        window_control_ = std::make_unique<WindowControlImpl>(windows_, overlay_);
+        window_control_ = std::make_unique<WindowControlImpl>(windows_, overlay_, dialogs_);
         window_control_->set_on_windows_changed([this] { sync_modal_hook(); });
     }
 
@@ -162,6 +162,14 @@ public:
         return canvas->add_font(asset, font);
     }
 
+    bool reset_ui_cache(WindowId id) override {
+        render::OpenGLCanvas* const canvas = windows_.canvas(id);
+        if (canvas == nullptr) {
+            return false;
+        }
+        return canvas->reset_ui_painter();
+    }
+
     bool add_image(WindowId id, AssetId asset, const render::TextureDesc& desc) override {
         render::OpenGLCanvas* const canvas = windows_.canvas(id);
         WindowSystem* const window = windows_.window(id);
@@ -187,6 +195,7 @@ public:
         }
         overlay_.poll_cursor(windows_, input);
         backfill_secondary_sizes(worlds);
+        dialogs_->deliver(worlds);
     }
 
     void sync_frame(Worlds& worlds) override {
@@ -399,6 +408,7 @@ private:
     std::shared_ptr<render::OpenGLRenderBackend> backend_ = std::make_shared<render::OpenGLRenderBackend>();
     WindowManager windows_;
     DesktopOverlayPolicy overlay_;
+    std::shared_ptr<FileDialogQueue> dialogs_ = std::make_shared<FileDialogQueue>();
     std::unique_ptr<WindowControlImpl> window_control_;
     bool video_inited_ = false;
     std::function<void()> loop_tick_;
