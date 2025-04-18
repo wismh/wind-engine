@@ -1,9 +1,13 @@
 #include <engine/core/engine.h>
+#include <engine/core/engine_services.h>
 #include <engine/igame.h>
 
 namespace {
 
-class WindowSmokeGame final : public engine::GameBase {};
+class WindowSmokeGame final : public engine::GameBase {
+public:
+    explicit WindowSmokeGame(const engine::EngineServices&) {}
+};
 
 }
 

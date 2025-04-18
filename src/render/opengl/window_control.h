@@ -6,14 +6,21 @@
 
 #include <engine/core/window_control.h>
 
+#include <functional>
+
 namespace engine {
 
-// Thin adapter so a game can request IWindowControl through DI instead of reaching into
-// EngineRuntime directly. Holds references, not ownership — both WindowManager and
-// DesktopOverlayPolicy outlive this for the lifetime of EngineRuntime (see EngineRuntime::Impl).
+// Thin adapter so a game asks for IWindowControl through EngineServices. Holds references, not
+// ownership — WindowManager and DesktopOverlayPolicy outlive this for the presentation's lifetime.
+// on_windows_changed_ re-arms the modal-loop hook after open/close; that used to live only on
+// EngineRuntime::open_window, which games never call.
 class WindowControlImpl final : public IWindowControl {
 public:
     WindowControlImpl(WindowManager& windows, DesktopOverlayPolicy& overlay) : windows_(&windows), overlay_(&overlay) {}
+
+    void set_on_windows_changed(std::function<void()> callback) {
+        on_windows_changed_ = std::move(callback);
+    }
 
     void set_borderless(bool borderless, WindowId window) override {
         if (WindowSystem* target = windows_->window(window)) {
@@ -60,11 +67,18 @@ public:
     }
 
     std::optional<WindowId> open_window(const WindowDesc& desc) override {
-        return windows_->create_window(desc);
+        const auto id = windows_->create_window(desc);
+        if (on_windows_changed_) {
+            on_windows_changed_();
+        }
+        return id;
     }
 
     void close_window(WindowId id) override {
         windows_->destroy_window(id);
+        if (on_windows_changed_) {
+            on_windows_changed_();
+        }
     }
 
     [[nodiscard]] render::Rect usable_display_bounds(int display_index) const override {
@@ -91,6 +105,7 @@ public:
 private:
     WindowManager* windows_;
     DesktopOverlayPolicy* overlay_;
+    std::function<void()> on_windows_changed_;
 };
 
 }
