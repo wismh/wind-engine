@@ -116,6 +116,12 @@ std::string ui_markup_message(const std::string& relative, ui::UiError err) {
         case ui::UiError::InvalidMarkup:
             msg += " (invalid XML)";
             break;
+        case ui::UiError::Io:
+            msg += " (ItemTemplate src could not be read)";
+            break;
+        case ui::UiError::CyclicInclude:
+            msg += " (ItemTemplate src forms an include cycle)";
+            break;
     }
     return msg;
 }
@@ -282,7 +288,15 @@ std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::p
                 return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to read " + file.generic_string()});
             }
             const std::string xml_text((std::istreambuf_iterator<char>(xml_in)), std::istreambuf_iterator<char>());
-            auto binds = ui::scan_bind_tree(xml_text);
+            const std::filesystem::path base_dir = file.parent_path();
+            const ui::UiIncludeResolver resolve_include = [base_dir](std::string_view src) -> std::optional<std::string> {
+                std::ifstream include_in(base_dir / std::string(src), std::ios::binary);
+                if (!include_in) {
+                    return std::nullopt;
+                }
+                return std::string((std::istreambuf_iterator<char>(include_in)), std::istreambuf_iterator<char>());
+            };
+            auto binds = ui::scan_bind_tree(xml_text, resolve_include);
             if (!binds) {
                 return std::unexpected(CodegenError{CodegenErrorKind::UiMarkup, ui_markup_message(relative, binds.error())});
             }

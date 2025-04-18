@@ -5,10 +5,12 @@
 
 #include <tinyxml2.h>
 
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace engine::ui {
 namespace {
@@ -153,7 +155,7 @@ std::expected<void, UiError> parse_source(Element& element, const char* attr, IF
 }
 
 std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, IFatalError* fatal, const ViewModel* vm,
-        bool in_template) {
+        bool in_template, const UiIncludeResolver& resolve_include, std::vector<std::string>& include_stack) {
     const auto kind = kind_from_tag(xml->Name());
     if (!kind) {
         std::string message = "unknown UI element: ";
@@ -219,10 +221,48 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
         return std::unexpected(result.error());
     }
 
+    if (element.kind == ElementKind::ItemTemplate) {
+        if (const char* src = xml->Attribute("src")) {
+            if (xml->FirstChildElement() != nullptr) {
+                report(fatal, std::string("ItemTemplate with src must not declare inline children: ") + src);
+                return std::unexpected(UiError::InvalidMarkup);
+            }
+            const std::string key(src);
+            if (!resolve_include) {
+                report(fatal, "ItemTemplate src is not supported in this context: " + key);
+                return std::unexpected(UiError::Io);
+            }
+            if (std::find(include_stack.begin(), include_stack.end(), key) != include_stack.end()) {
+                report(fatal, "ItemTemplate src forms an include cycle: " + key);
+                return std::unexpected(UiError::CyclicInclude);
+            }
+            const auto text = resolve_include(key);
+            if (!text) {
+                report(fatal, "ItemTemplate src could not be read: " + key);
+                return std::unexpected(UiError::Io);
+            }
+            tinyxml2::XMLDocument included_doc;
+            if (included_doc.Parse(text->data(), text->size()) != tinyxml2::XML_SUCCESS ||
+                    included_doc.RootElement() == nullptr) {
+                report(fatal, "ItemTemplate src is not valid XML: " + key);
+                return std::unexpected(UiError::InvalidMarkup);
+            }
+            include_stack.push_back(key);
+            auto included = parse_element(
+                    included_doc.RootElement(), fatal, vm, /*in_template=*/true, resolve_include, include_stack);
+            include_stack.pop_back();
+            if (!included) {
+                return std::unexpected(included.error());
+            }
+            element.children.push_back(std::move(*included));
+            return element;
+        }
+    }
+
     const bool nested_template = in_template || element.kind == ElementKind::ItemTemplate;
     for (const tinyxml2::XMLElement* child = xml->FirstChildElement(); child != nullptr;
             child = child->NextSiblingElement()) {
-        auto parsed = parse_element(child, fatal, vm, nested_template);
+        auto parsed = parse_element(child, fatal, vm, nested_template, resolve_include, include_stack);
         if (!parsed) {
             return std::unexpected(parsed.error());
         }
@@ -261,7 +301,37 @@ BindBinder& nested_binder(BindBinder& binder, const std::string& items_path) {
     return binder.nested.back().second;
 }
 
-void collect_bind_element(const tinyxml2::XMLElement* xml, BindBinder& binder) {
+void collect_bind_element(const tinyxml2::XMLElement* xml, BindBinder& binder, const UiIncludeResolver& resolve_include,
+        std::vector<std::string>& include_stack);
+
+// Resolves and scans an `<ItemTemplate src="...">` reference the same way parse_element does.
+// scan_bind_tree already re-parses the whole tree via parse_xml first, which validates every
+// include (missing file, cycle, invalid XML) — so a failure here is silently skipped rather than
+// reported a second time.
+void collect_bind_include(const char* src, BindBinder& binder, const UiIncludeResolver& resolve_include,
+        std::vector<std::string>& include_stack) {
+    if (!resolve_include) {
+        return;
+    }
+    const std::string key(src);
+    if (std::find(include_stack.begin(), include_stack.end(), key) != include_stack.end()) {
+        return;
+    }
+    const auto text = resolve_include(key);
+    if (!text) {
+        return;
+    }
+    tinyxml2::XMLDocument doc;
+    if (doc.Parse(text->data(), text->size()) != tinyxml2::XML_SUCCESS || doc.RootElement() == nullptr) {
+        return;
+    }
+    include_stack.push_back(key);
+    collect_bind_element(doc.RootElement(), binder, resolve_include, include_stack);
+    include_stack.pop_back();
+}
+
+void collect_bind_element(const tinyxml2::XMLElement* xml, BindBinder& binder, const UiIncludeResolver& resolve_include,
+        std::vector<std::string>& include_stack) {
     add_bind_attr(binder, xml->Attribute("text"), false);
     add_bind_attr(binder, xml->Attribute("content"), false);
     add_bind_attr(binder, xml->Attribute("command"), true);
@@ -280,17 +350,22 @@ void collect_bind_element(const tinyxml2::XMLElement* xml, BindBinder& binder) {
 
     for (const tinyxml2::XMLElement* child = xml->FirstChildElement(); child != nullptr;
             child = child->NextSiblingElement()) {
-        if (kind_from_tag(child->Name()) == ElementKind::ItemTemplate) {
-            collect_bind_element(child, nested_binder(binder, items_path));
-        } else {
-            collect_bind_element(child, binder);
+        const bool is_item_template = kind_from_tag(child->Name()) == ElementKind::ItemTemplate;
+        BindBinder& target = is_item_template ? nested_binder(binder, items_path) : binder;
+        if (is_item_template) {
+            if (const char* src = child->Attribute("src")) {
+                collect_bind_include(src, target, resolve_include, include_stack);
+                continue;
+            }
         }
+        collect_bind_element(child, target, resolve_include, include_stack);
     }
 }
 
 }
 
-std::expected<UiDocument, UiError> parse_xml(std::string_view xml, IFatalError* fatal, const ViewModel* data_context) {
+std::expected<UiDocument, UiError> parse_xml(std::string_view xml, IFatalError* fatal, const ViewModel* data_context,
+        const UiIncludeResolver& resolve_include) {
     tinyxml2::XMLDocument doc;
     const tinyxml2::XMLError parsed = doc.Parse(xml.data(), xml.size());
     if (parsed != tinyxml2::XML_SUCCESS || doc.RootElement() == nullptr) {
@@ -298,7 +373,8 @@ std::expected<UiDocument, UiError> parse_xml(std::string_view xml, IFatalError* 
         return std::unexpected(UiError::InvalidMarkup);
     }
 
-    auto root = parse_element(doc.RootElement(), fatal, data_context, false);
+    std::vector<std::string> include_stack;
+    auto root = parse_element(doc.RootElement(), fatal, data_context, false, resolve_include, include_stack);
     if (!root) {
         return std::unexpected(root.error());
     }
@@ -316,8 +392,8 @@ std::expected<UiDocument, UiError> parse_xml(std::string_view xml, IFatalError* 
     return document;
 }
 
-std::expected<BindBinder, UiError> scan_bind_tree(std::string_view xml) {
-    const auto parsed = parse_xml(xml, nullptr, nullptr);
+std::expected<BindBinder, UiError> scan_bind_tree(std::string_view xml, const UiIncludeResolver& resolve_include) {
+    const auto parsed = parse_xml(xml, nullptr, nullptr, resolve_include);
     if (!parsed) {
         return std::unexpected(parsed.error());
     }
@@ -328,7 +404,8 @@ std::expected<BindBinder, UiError> scan_bind_tree(std::string_view xml) {
     }
 
     BindBinder binder;
-    collect_bind_element(doc.RootElement(), binder);
+    std::vector<std::string> include_stack;
+    collect_bind_element(doc.RootElement(), binder, resolve_include, include_stack);
     return binder;
 }
 
