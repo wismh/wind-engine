@@ -52,7 +52,7 @@ Web does not rely on that copy for the page load. `engine_target_web_preload` ad
 
 ## 5. Run
 
-A windowed `main` constructs `Engine<Game>`, calls `init`, then `run`. `init` loads `assets/engine/catalog.toml` and then `assets/catalog.toml`. The frame order is [Runtime Loop](../architecture/Runtime%20Loop.md).
+A windowed game declares `ENGINE_GAME(Game)`. Its `main` constructs `Engine<Game>`, calls `init`, then `run`. `init` loads `assets/engine/catalog.toml` and then `assets/catalog.toml`. The frame order is [Runtime Loop](../architecture/Runtime%20Loop.md).
 
 `engine_tests` is the headless binary. `ctest` discovers it with `gtest_discover_tests` on desktop. Emscripten links it with the web flags. Android configures the suite and does not treat a device run as a merge gate.
 

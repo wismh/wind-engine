@@ -28,7 +28,7 @@ Two catalogs are loaded, in order:
 | `<assets>/engine/catalog.toml` | `<assets>/engine` | fatal |
 | `<assets>/catalog.toml` | `<assets>` | ignored (`MetaError::Io` only) |
 
-A second `load_catalog` adds entries. It does not replace the engine catalog.
+A second `load_catalog` adds entries. It does not replace the engine catalog. `unload_catalog(files_root)` removes one root's entries and their cached assets again. See [Resources](../modules/Resources.md).
 
 Where `<assets>` is: [Runtime Assets](../build/Runtime%20Assets.md).
 

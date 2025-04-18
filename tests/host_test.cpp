@@ -138,6 +138,7 @@ public:
     void set_master_volume(float) override {}
     void set_music_volume(float) override {}
     void set_sfx_volume(float) override {}
+    void stop_all() override {}
 };
 
 }
