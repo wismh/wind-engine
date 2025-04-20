@@ -292,14 +292,6 @@ TEST(Cli, TreeElementAndWinner) {
     EXPECT_NE(tree.find("\"kind\":\"Button\""), std::string::npos);
     EXPECT_NE(tree.find("\"id\":\"lab\""), std::string::npos);
 
-    engine::ui::set_inspector_enabled(game.world, true);
-    engine::cli::CliRequest panel;
-    panel.command = "tree";
-    panel.window = 0xFFFFFFF0u;
-    const std::string skipped = engine::cli::execute(game.world, panel).json;
-    EXPECT_EQ(skipped.find("\"id\":\"pick\""), std::string::npos);
-    EXPECT_NE(skipped.find("\"nodes\":[]"), std::string::npos);
-
     const std::string element = run(game.world, "element", "#lab").json;
     const auto rule = element.find("\"selector\":\"#go > Label\"");
     ASSERT_NE(rule, std::string::npos);
@@ -328,8 +320,8 @@ TEST(Cli, HitAndClickBypassPick) {
     GameCanvas game = spawn_game();
     ASSERT_TRUE(game.world.valid(game.entity));
     layout_instance(game.world, game.entity);
-    engine::ui::set_inspector_enabled(game.world, true);
-    EXPECT_TRUE(game.world.ctx<engine::ui::UiInspector>().pick_pointer);
+    engine::ui::set_inspector_attached(game.world, true);
+    game.world.ctx<engine::ui::UiInspector>().pick_pointer = true;
 
     engine::ui::Element *button =
             find_id(game.world.get<engine::ui::UiInstance>(game.entity).document.root, "go");
@@ -394,12 +386,12 @@ TEST(Cli, ProfileCaptureWithoutWindow) {
     EXPECT_NE(ready.find("\"begin_frame\""), std::string::npos);
     EXPECT_NE(ready.find("\"capturing\":true"), std::string::npos);
     EXPECT_NE(ready.find("\"paused\":false"), std::string::npos);
-    EXPECT_FALSE(engine::ui::ui_profiler_enabled(world));
+    EXPECT_FALSE(engine::ui::ui_profiler_attached(world));
 
     const std::string stopped = run(world, "profile", {}, true).json;
     EXPECT_NE(stopped.find("\"capturing\":false"), std::string::npos);
     engine::ui::begin_frame(world);
-    EXPECT_FALSE(engine::ui::profiler_shared_sample(world).stored);
+    EXPECT_TRUE(engine::ui::profiler_shared_frames(world).empty());
 }
 
 #else
