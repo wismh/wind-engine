@@ -2,12 +2,15 @@
 
 // docs/tech/features/Windowing.md
 
+#include <engine/core/file_dialog.h>
 #include <engine/core/window_desc.h>
 #include <engine/render/commands.h>
 
 #include <glm/vec2.hpp>
 
 #include <optional>
+#include <string_view>
+#include <vector>
 
 namespace engine {
 
@@ -41,6 +44,7 @@ public:
     // below — a settings window can now toggle its own always_on_top or reposition
     // itself, not just the primary. A `window` with no live SDL window (not yet opened, or already
     // closed) makes these a no-op, same contract as calling them before the primary window exists.
+    virtual void set_title(std::string_view title, WindowId window = kPrimaryWindow) = 0;
     virtual void set_borderless(bool borderless, WindowId window = kPrimaryWindow) = 0;
     virtual void set_always_on_top(bool always_on_top, WindowId window = kPrimaryWindow) = 0;
     virtual void set_position(glm::ivec2 position, WindowId window = kPrimaryWindow) = 0;
@@ -79,6 +83,15 @@ public:
     // (include/engine/ui/canvas.h) for how a game learns a window's close button was clicked.
     virtual std::optional<WindowId> open_window(const WindowDesc& desc) = 0;
     virtual void close_window(WindowId id) = 0;
+
+    // Every live window, kPrimaryWindow included once it exists. Order is unspecified.
+    [[nodiscard]] virtual std::vector<WindowId> open_windows() const = 0;
+
+    // Shows the platform's open-file dialog, modal to `owner` where the platform supports it, and
+    // returns at once. The answer arrives later as a FileDialogResultEvent (file_dialog.h) in the
+    // world bound to `owner`, during the poll of some later frame. An empty `filters` list shows every
+    // file.
+    virtual FileDialogRequest request_open_file(WindowId owner, std::vector<FileFilter> filters) = 0;
 
     // The display's usable area in screen pixels — the full display bounds minus OS chrome
     // (Windows taskbar, macOS menu bar/dock) — so a game can place a fixed-size overlay flush

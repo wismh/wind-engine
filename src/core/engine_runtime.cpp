@@ -39,6 +39,10 @@ bool EngineRuntime::add_image_for_window(WindowId id, AssetId asset, const rende
     return impl_->presentation->add_image(id, asset, desc);
 }
 
+bool EngineRuntime::reset_ui_cache(WindowId id) {
+    return impl_->presentation->reset_ui_cache(id);
+}
+
 void EngineRuntime::shutdown() {
     if (impl_ == nullptr || impl_->presentation == nullptr) {
         return;

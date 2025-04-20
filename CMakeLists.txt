@@ -133,6 +133,7 @@ list(FILTER ENGINE_SOURCES EXCLUDE REGEX "engine_runtime\\.cpp$")
 list(FILTER ENGINE_SOURCES EXCLUDE REGEX "engine_host\\.cpp$")
 list(FILTER ENGINE_SOURCES EXCLUDE REGEX "engine_instantiate\\.cpp$")
 list(FILTER ENGINE_SOURCES EXCLUDE REGEX "sdl_fatal_error\\.cpp$")
+list(FILTER ENGINE_SOURCES EXCLUDE REGEX "game_module\\.cpp$")
 
 add_library(engine ${_engine_library_kind} ${ENGINE_SOURCES})
 add_library(engine::engine ALIAS engine)
@@ -287,12 +288,21 @@ function(engine_prepare_runtime target)
             VERBATIM)
     endif()
 
+    # ENGINE_RUNTIME_ASSETS_DIR puts the target's own assets and catalog in assets/<dir>/ instead of
+    # assets/. The editor uses assets/editor/, so a game module in the same bin/ keeps assets/ to itself.
+    get_property(_runtime_assets_dir TARGET ${target} PROPERTY ENGINE_RUNTIME_ASSETS_DIR)
+    if(_runtime_assets_dir)
+        set(_engine_app_assets_out "$<TARGET_FILE_DIR:${target}>/assets/${_runtime_assets_dir}")
+    else()
+        set(_engine_app_assets_out "$<TARGET_FILE_DIR:${target}>/assets")
+    endif()
+
     set(_engine_game_assets "${CMAKE_CURRENT_SOURCE_DIR}/assets")
     if(EXISTS "${_engine_game_assets}")
         add_custom_command(TARGET ${target} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${_engine_game_assets}"
-                "$<TARGET_FILE_DIR:${target}>/assets"
+                "${_engine_app_assets_out}"
             COMMENT "Copy game assets beside ${target}"
             VERBATIM)
     endif()
@@ -312,7 +322,7 @@ function(engine_prepare_runtime target)
         add_custom_command(TARGET ${target} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${_game_catalog}"
-                "$<TARGET_FILE_DIR:${target}>/assets/catalog.toml"
+                "${_engine_app_assets_out}/catalog.toml"
             COMMENT "Install cooked game catalog for ${target}"
             VERBATIM)
     endif()
@@ -329,34 +339,16 @@ function(engine_prepare_runtime target)
     endif()
 endfunction()
 
-# Windowed game: executable + C++23 + asset_codegen + runtime asset copy.
-# Call after add_subdirectory(external/engine). Remaining args are sources.
-# Under ENGINE_EDITOR the game is a shared module instead (ENGINE_GAME_MODULE, see <engine/game_entry.h>)
-# that the editor loads on Play. It lands in the same bin/ directory, beside assets/ and engine.dll.
-function(engine_add_game target)
-    if(NOT ARGN)
-        message(FATAL_ERROR "engine_add_game(${target}): pass at least one source file")
+# Everything engine_add_game does once the target exists, shared with the editor (editor/CMakeLists.txt):
+# C++23, MSVC warnings, bin/ output, the engine link, include/, cooked assets/ (asset_ids.h and
+# catalog.toml), icon.png, the runtime copy beside the output, and the web and Android link steps. Reads
+# include/, assets/, and icon.png from the calling directory. An executable gets the console rule below;
+# a shared module in the editor build gets /PDBALTPATH.
+function(engine_configure_app target)
+    if(NOT TARGET ${target})
+        message(FATAL_ERROR "engine_configure_app: target '${target}' does not exist")
     endif()
-    if(NOT TARGET engine)
-        message(FATAL_ERROR "engine_add_game: add_subdirectory the Wind engine first")
-    endif()
-    if(NOT ENGINE_WITH_WINDOW)
-        message(FATAL_ERROR
-            "engine_add_game(${target}): ENGINE_WITH_WINDOW is OFF. "
-            "It defaults ON when Wind is a subdirectory.")
-    endif()
-
-    if(ANDROID)
-        add_library(${target} SHARED ${ARGN})
-        set_target_properties(${target} PROPERTIES OUTPUT_NAME main)
-    elseif(ENGINE_EDITOR)
-        # ENGINE_GAME expands to the wind_create_game / wind_destroy_game / wind_game_build_id exports.
-        add_library(${target} SHARED ${ARGN})
-        target_compile_definitions(${target} PRIVATE ENGINE_GAME_MODULE=1)
-        set_target_properties(${target} PROPERTIES PREFIX "")
-    else()
-        add_executable(${target} ${ARGN})
-    endif()
+    get_target_property(_type ${target} TYPE)
     if(APPLE)
         # Package as a .app bundle so MACOSX_BUNDLE_ICON_FILE / MACOSX_PACKAGE_LOCATION below
         # take effect; ignored by CMake on non-Apple platforms either way.
@@ -374,7 +366,7 @@ function(engine_add_game target)
         set_target_properties(${target} PROPERTIES
             LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
     endif()
-    if(ENGINE_EDITOR)
+    if(ENGINE_EDITOR AND _type STREQUAL "SHARED_LIBRARY")
         # A .dll is a RUNTIME output, a .so a LIBRARY output: both go where the executable would. The
         # import library nobody links against stays out of bin/.
         if(NOT CMAKE_LIBRARY_OUTPUT_DIRECTORY)
@@ -389,13 +381,13 @@ function(engine_add_game target)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8)
     endif()
-    if(WIN32 AND MSVC AND ENGINE_EDITOR)
+    if(WIN32 AND MSVC AND ENGINE_EDITOR AND _type STREQUAL "SHARED_LIBRARY")
         # The editor loads a copy of the module with its .pdb beside it. Embed only the PDB file name
         # so the debugger finds that copy and the original stays unlocked for the next build. This is
         # what /PDBALTPATH:%_PDB% means; the Visual Studio generator escapes a literal % in link
         # options, so the name comes from the generator expression instead.
         target_link_options(${target} PRIVATE "/PDBALTPATH:$<TARGET_PDB_FILE_NAME:${target}>")
-    elseif(WIN32 AND MSVC)
+    elseif(WIN32 AND MSVC AND _type STREQUAL "EXECUTABLE")
         # Release-ish configs hide the console window (players shouldn't see a terminal); Debug
         # keeps it so spdlog output is visible live. /ENTRY:mainCRTStartup keeps the ordinary
         # int main(int, char**) entry point instead of requiring a WinMain — the CRT startup
@@ -435,7 +427,7 @@ function(engine_add_game target)
     set(_icon "${CMAKE_CURRENT_SOURCE_DIR}/icon.png")
     if(EXISTS "${_icon}")
         if(NOT TARGET icon_codegen)
-            message(FATAL_ERROR "engine_add_game(${target}): icon.png present but icon_codegen is not a target")
+            message(FATAL_ERROR "engine_configure_app(${target}): icon.png present but icon_codegen is not a target")
         endif()
         set(_icon_gen "${CMAKE_CURRENT_BINARY_DIR}/generated/${target}/icons")
         set(_icon_outputs
@@ -502,6 +494,37 @@ function(engine_add_game target)
         # see engine boundary rules), so alias it at link time instead.
         target_link_options(${target} PRIVATE "SHELL:-Wl,--defsym=SDL_main=main")
     endif()
+endfunction()
+
+# Windowed game: executable + C++23 + asset_codegen + runtime asset copy.
+# Call after add_subdirectory(external/engine). Remaining args are sources.
+# Under ENGINE_EDITOR the game is a shared module instead (ENGINE_GAME_MODULE, see <engine/game_entry.h>)
+# that the editor loads on Play. It lands in the same bin/ directory, beside assets/ and engine.dll.
+function(engine_add_game target)
+    if(NOT ARGN)
+        message(FATAL_ERROR "engine_add_game(${target}): pass at least one source file")
+    endif()
+    if(NOT TARGET engine)
+        message(FATAL_ERROR "engine_add_game: add_subdirectory the Wind engine first")
+    endif()
+    if(NOT ENGINE_WITH_WINDOW)
+        message(FATAL_ERROR
+            "engine_add_game(${target}): ENGINE_WITH_WINDOW is OFF. "
+            "It defaults ON when Wind is a subdirectory.")
+    endif()
+
+    if(ANDROID)
+        add_library(${target} SHARED ${ARGN})
+        set_target_properties(${target} PROPERTIES OUTPUT_NAME main)
+    elseif(ENGINE_EDITOR)
+        # ENGINE_GAME expands to the wind_create_game / wind_destroy_game / wind_game_build_id exports.
+        add_library(${target} SHARED ${ARGN})
+        target_compile_definitions(${target} PRIVATE ENGINE_GAME_MODULE=1)
+        set_target_properties(${target} PROPERTIES PREFIX "")
+    else()
+        add_executable(${target} ${ARGN})
+    endif()
+    engine_configure_app(${target})
 endfunction()
 
 function(engine_add_web_game target)
@@ -582,6 +605,7 @@ if(ENGINE_WITH_WINDOW)
         "${CMAKE_CURRENT_SOURCE_DIR}/src/core/engine_runtime.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/core/engine_host.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/core/engine_instantiate.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/core/game_module.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/core/sdl_fatal_error.cpp")
     target_compile_definitions(engine PUBLIC ENGINE_WITH_WINDOW=1)
     target_include_directories(engine
@@ -672,6 +696,36 @@ if(ENGINE_BUILD_TESTS)
         "ENGINE_BUILTIN_ASSETS_DIR=\"${_engine_builtin_assets}\""
         "ENGINE_SOURCE_DIR=\"${_engine_source_dir}\"")
     engine_prepare_runtime(engine_tests)
+    if(ENGINE_EDITOR)
+        # Game modules for tests/game_module_test.cpp and editor/tests/play_session_test.cpp, built from
+        # tests/fixtures/game_module/ like a game module: as is, with another build id, and without
+        # wind_destroy_game. They load into a process that already holds engine.dll, so they need no
+        # copy of it beside them.
+        foreach(_variant IN ITEMS ok wrong_build_id no_destroy)
+            set(_fixture wind_fixture_game_${_variant})
+            add_library(${_fixture} SHARED "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/game_module/fixture_game.cpp")
+            target_link_libraries(${_fixture} PRIVATE engine)
+            set_target_properties(${_fixture} PROPERTIES
+                PREFIX ""
+                CXX_STANDARD 23
+                CXX_STANDARD_REQUIRED ON
+                CXX_EXTENSIONS OFF
+                RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/test_fixtures"
+                LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/test_fixtures"
+                ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+            if(MSVC)
+                target_link_options(${_fixture} PRIVATE "/PDBALTPATH:$<TARGET_PDB_FILE_NAME:${_fixture}>")
+            endif()
+            add_dependencies(engine_tests ${_fixture})
+        endforeach()
+        target_compile_definitions(wind_fixture_game_wrong_build_id PRIVATE FIXTURE_WRONG_BUILD_ID=1)
+        target_compile_definitions(wind_fixture_game_no_destroy PRIVATE FIXTURE_NO_DESTROY=1)
+        set(ENGINE_FIXTURE_GAME_DEFINES
+            "WIND_FIXTURE_GAME=\"$<TARGET_FILE:wind_fixture_game_ok>\""
+            "WIND_FIXTURE_GAME_WRONG_BUILD_ID=\"$<TARGET_FILE:wind_fixture_game_wrong_build_id>\""
+            "WIND_FIXTURE_GAME_NO_DESTROY=\"$<TARGET_FILE:wind_fixture_game_no_destroy>\"")
+        target_compile_definitions(engine_tests PRIVATE ${ENGINE_FIXTURE_GAME_DEFINES})
+    endif()
     if(EMSCRIPTEN)
         include("${ENGINE_CMAKE_DIR}/cmake/web/link_flags.cmake")
         engine_target_web_link_options(engine_tests)
@@ -681,4 +735,10 @@ if(ENGINE_BUILD_TESTS)
     else()
         gtest_discover_tests(engine_tests DISCOVERY_MODE PRE_TEST)
     endif()
+endif()
+
+# The editor host. Built whenever ENGINE_EDITOR is ON, also when Wind is a game's subdirectory, so the
+# editor lands in the game's bin/ beside the game module.
+if(ENGINE_EDITOR)
+    add_subdirectory(editor)
 endif()

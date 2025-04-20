@@ -13,13 +13,23 @@ ctest --test-dir build -C Debug --output-on-failure
 
 SDL / OpenGL / NanoVG stay behind `ENGINE_WITH_WINDOW` (default **OFF** in this repo; local preset `vs-window`). Mixer stays behind `ENGINE_WITH_AUDIO` (default **OFF**; local preset `vs-audio`). `engine_tests` never calls `Engine::run` and never opens a mixer device.
 
-Editor build: `ENGINE_EDITOR=ON` makes `engine` a shared library (`engine.dll` beside the executables). The `vs-editor` preset turns it on with the window backend and builds to `build-editor`:
+Editor build: `ENGINE_EDITOR=ON` makes `engine` a shared library (`engine.dll` beside the executables) and builds the editor, `wind_editor`. The `vs-editor` preset turns it on with the window and audio backends and builds to `build-editor`:
 
 ```bash
 cmake --preset vs-editor
 cmake --build build-editor --config Debug
 ctest --test-dir build-editor -C Debug --output-on-failure
 ```
+
+Run the editor with a game module. A game repo configured with `ENGINE_EDITOR=ON` builds its game as `bin/<config>/<game>.dll` and builds `wind_editor.exe` beside it. The game must be built against the same engine build as the editor that loads it (the editor refuses another build id):
+
+```bash
+build-editor/bin/Debug/wind_editor.exe                              # opens a file dialog: pick the game .dll
+build-editor/bin/Debug/wind_editor.exe --game path/to/my_game.dll   # no dialog
+build-editor/bin/Debug/wind_editor.exe --game path/to/my_game.dll --play
+```
+
+Play loads a copy of the module and runs the game in the "Game" window. Stop unloads it, so the game can be rebuilt while the editor stays open. See [Editor](docs/tech/features/Editor.md).
 
 Exported games, web, and Android stay on the static library. See [CMake](docs/tech/build/CMake.md#editor-build).
 

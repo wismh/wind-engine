@@ -27,6 +27,8 @@ Further windows: `EngineServices::windows` is `IWindowControl`.
 
 - `open_window` returns `nullopt` when it cannot create one (no primary yet, no video).
 - `close_window` is mechanical.
+- `open_windows` lists every live window, `kPrimaryWindow` included. The order is unspecified.
+- `set_title` changes a window's title.
 - `set_position`, `resize`, `position`, `size` use screen coordinates. `position` and `size` are `nullopt` when that window is not open.
 - `size()` is the client size in screen pixels. It is not the drawable size on `Presentation::sizes`.
 - A call for an id that is not open is a no-op.
@@ -46,6 +48,16 @@ World `Renderable`, `Sprite`, and `ParticleEmitter` draws go to every id in `ctx
 The OS close button sends `WindowCloseRequestedEvent`. The engine does not quit and does not destroy a game window because of it. The game reads the event.
 
 The inspector window and the profiler window are the exception: a close request for that tool window turns the tool off, and the engine closes it. The event is still delivered. The primary window is not closed that way. See [UI Inspector](UI%20Inspector.md) and [UI Profiler](UI%20Profiler.md).
+
+## Open-file dialog
+
+`request_open_file(owner, filters)` shows the platform open-file dialog (`SDL_ShowOpenFileDialog`), modal to `owner` where the platform supports it, and returns a `FileDialogRequest` at once. `FileFilter` (`include/engine/core/file_dialog.h`) is a display name and a pattern: extensions without dots, separated by `;` (`"dll"`, `"png;jpg"`), or `*`. An empty list shows every file.
+
+SDL may call back on another thread. The answer goes into a `FileDialogQueue` (`src/core/file_dialog_queue.h`) under a mutex. `poll` delivers it after the SDL events of that frame: one `FileDialogResultEvent{request, path}` to the world bound to `owner`. `path` is empty when the user cancelled or the dialog failed. An answer whose owner has no world by then is dropped. The queue is shared with the SDL callback, so a dialog still open at shutdown does not write into freed memory.
+
+## Editor windows
+
+In the editor (`wind_editor`, see [Editor](Editor.md)) the editor window is a secondary window bound to the editor's world. `kPrimaryWindow` belongs to the game. Between plays no world is bound to it, so no system writes its command buffer and `draw_all` clears it to black and presents it. `EngineHost::detach_game` clears that buffer on Stop, because its `CmdDrawUI` entries point into the game world's documents. It also resets the window's NanoVG context (`EngineRuntime::reset_ui_cache`, `OpenGLCanvas::reset_ui_painter`), so fonts and images of the last game do not stay registered for the next build.
 
 ## Overlay and click-through
 
@@ -80,6 +92,8 @@ Public headers do not include SDL.
 ## Tests
 
 `tests/window_style_test.cpp` and `tests/window_icon_test.cpp` do not call `SDL_Init(SDL_INIT_VIDEO)`. A live display is out of `engine_tests`. See [Boundaries](../architecture/Boundaries.md).
+
+`tests/file_dialog_test.cpp` drives `FileDialogQueue` without a dialog: an answer completed on another thread reaches the owner's world on `deliver`, once; cancel is an empty path; two requests keep their own owners; an owner without a world drops the answer.
 
 ## See also
 
