@@ -30,12 +30,25 @@ TEST(PrimaryWindow, DefaultsMatchSdd) {
     EXPECT_FALSE(desc.style.always_on_top);
     EXPECT_FALSE(desc.style.transparent);
     EXPECT_TRUE(desc.style.resizable);
+    EXPECT_FALSE(desc.style.maximized);
 }
 
 #if defined(ENGINE_WITH_WINDOW)
 
 TEST(WindowStyleFlags, DefaultStyleIsResizableOnly) {
     EXPECT_EQ(engine::window_style_flags(engine::WindowStyle{}), SDL_WINDOW_RESIZABLE);
+}
+
+TEST(WindowStyleFlags, MaximizedSetsMaximizedBit) {
+    const engine::WindowStyle style{.maximized = true};
+    EXPECT_EQ(engine::window_style_flags(style), SDL_WINDOW_RESIZABLE | SDL_WINDOW_MAXIMIZED);
+}
+
+TEST(WindowStyleFlags, MaximizedWithoutResizableStillSetsTheBit) {
+    // The mapper does not drop the bit. SDL_MaximizeWindow ignores it later unless the window
+    // is also resizable; that refusal is not observable without a display.
+    const engine::WindowStyle style{.resizable = false, .maximized = true};
+    EXPECT_EQ(engine::window_style_flags(style), SDL_WINDOW_MAXIMIZED);
 }
 
 TEST(WindowStyleFlags, NotResizableClearsResizableBit) {

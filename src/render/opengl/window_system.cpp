@@ -344,6 +344,9 @@ SDL_WindowFlags window_style_flags(const WindowStyle& style) {
     if (style.transparent) {
         flags |= SDL_WINDOW_TRANSPARENT;
     }
+    if (style.maximized) {
+        flags |= SDL_WINDOW_MAXIMIZED;
+    }
     return flags;
 }
 
