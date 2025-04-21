@@ -159,6 +159,10 @@ WindowSystem* WindowManager::window(WindowId id) {
     return has_window(id) ? &windows_.at(id)->window : nullptr;
 }
 
+const WindowSystem* WindowManager::window(WindowId id) const {
+    return has_window(id) ? &windows_.at(id)->window : nullptr;
+}
+
 render::OpenGLCanvas* WindowManager::canvas(WindowId id) {
     return has_window(id) ? windows_.at(id)->canvas.get() : nullptr;
 }

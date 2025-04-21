@@ -250,6 +250,11 @@ TEST(WindowSystem, IsDraggingDefaultsToFalse) {
     EXPECT_FALSE(window.is_dragging());
 }
 
+TEST(WindowSystem, PositionIsNulloptWithoutWindow) {
+    engine::WindowSystem window;
+    EXPECT_FALSE(window.position().has_value());
+}
+
 TEST(WindowSystem, ManualDragApiIsNoopWithoutWindow) {
     engine::WindowSystem window;
     // No SDL_Init(SDL_INIT_VIDEO), no window created: begin_drag_if_in_region()
@@ -286,6 +291,25 @@ TEST(WindowControlImpl, UsableDisplayBoundsIsNoopWithoutVideo) {
     (void) control_ref.usable_display_bounds(0);
     (void) control_ref.usable_display_bounds(-1);
     (void) control_ref.usable_display_bounds(99);
+}
+
+TEST(WindowControlImpl, PositionAndSizeAreNulloptWithoutWindow) {
+    engine::render::OpenGLRenderBackend backend;
+    engine::WindowManager windows{backend};
+    engine::DesktopOverlayPolicy overlay;
+    engine::WindowControlImpl control{windows, overlay};
+    engine::IWindowControl& control_ref = control;
+    const engine::WindowId missing{7};
+
+    EXPECT_FALSE(control_ref.position().has_value());
+    EXPECT_FALSE(control_ref.size().has_value());
+    EXPECT_FALSE(control_ref.position(missing).has_value());
+    EXPECT_FALSE(control_ref.size(missing).has_value());
+
+    // No open window: the per-window query is the primary-display fallback, and must not crash
+    // when video was never initialized.
+    EXPECT_EQ(control_ref.usable_display_bounds_for_window(), control_ref.usable_display_bounds(0));
+    EXPECT_EQ(control_ref.usable_display_bounds_for_window(missing), control_ref.usable_display_bounds(0));
 }
 
 TEST(WindowControlImpl, OverlayModeDefaultsToAutoAndForwardsToPolicy) {
