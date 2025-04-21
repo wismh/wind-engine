@@ -418,3 +418,34 @@ TEST(Scaffold, AndroidResIncludesDefaultLauncherIcon) {
     GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
 #endif
 }
+
+TEST(Scaffold, AndroidGradleOverlaysPerGameManifest) {
+#ifdef ENGINE_SOURCE_DIR
+    const std::filesystem::path root{ENGINE_SOURCE_DIR};
+    const auto slurp = [](const std::filesystem::path& path) {
+        std::ifstream in(path);
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    };
+    const std::string gradle = slurp(root / "cmake" / "android" / "app" / "build.gradle");
+    const std::string cmake = slurp(root / "CMakeLists.txt");
+    ASSERT_FALSE(gradle.empty());
+    ASSERT_FALSE(cmake.empty());
+
+    // Game-supplied manifest (e.g. adding custom permissions, services, or tools:node="remove")
+    // is merged over the engine's main AndroidManifest.xml by registering manifest.srcFile
+    // on debug and release sourceSets.
+    EXPECT_NE(gradle.find("ENGINE_ANDROID_MANIFEST"), std::string::npos);
+    EXPECT_NE(gradle.find("gameManifest"), std::string::npos);
+    const auto debug_block = gradle.find("debug {");
+    ASSERT_NE(debug_block, std::string::npos);
+    EXPECT_NE(gradle.find("manifest.srcFile gameManifest", debug_block), std::string::npos);
+
+    // CMake engine_configure_app auto-detects android/AndroidManifest.xml or AndroidManifest.xml
+    // and exposes it as the ENGINE_GAME_ANDROID_MANIFEST target property.
+    EXPECT_NE(cmake.find("ENGINE_GAME_ANDROID_MANIFEST"), std::string::npos);
+    EXPECT_NE(cmake.find("android/AndroidManifest.xml"), std::string::npos);
+#else
+    GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
+#endif
+}
+
