@@ -42,7 +42,7 @@ Before step 1, record three scenes with [UI Profiler](../features/UI%20Profiler.
 2. Editor inspector, about 3k nodes.
 3. Strategy HUD with at least one running animation and several bound numbers.
 
-For each scene, on a Debug build with the profiler window open, record:
+For each scene, on a Debug build with the game playing in the editor and its Profiler tab open, record:
 
 - CPU ms of a quiet frame (nothing in the view-model changed, pointer still).
 - CPU ms of a frame that changes one bound value.

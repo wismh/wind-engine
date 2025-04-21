@@ -104,15 +104,20 @@ bool EditorApp::start(const EditorOptions& options) {
             .fit = engine::ui::UiFit::FillWindow,
             .window = window_,
     });
+    panels_.emplace(*toolbar_);
+    panels_->spawn(*world_, window_);
     world_->add_system(engine::ecs::Schedule::Frame, engine::ecs::Phase::Game,
             [this](engine::ecs::World& world) { read_events(world); });
+    // Game, not Bind: run_bind of this world (registered by enable_ui) must see this frame's copy.
+    world_->add_system(engine::ecs::Schedule::Frame, engine::ecs::Phase::Game,
+            [this](engine::ecs::World& world) { panels_->frame(world); });
 
     const std::filesystem::path live = live_root();
     const std::size_t purged = engine::purge_game_module_copies(live);
     if (purged > 0) {
         engine::log::info("Editor: removed " + std::to_string(purged) + " stale game module copies");
     }
-    play_host_.emplace(host_);
+    play_host_.emplace(host_, *panels_);
     session_.emplace(services, *play_host_, live, kIdleGameWindow);
     toolbar_->show_playing(false);
 

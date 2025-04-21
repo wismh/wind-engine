@@ -42,7 +42,7 @@ Windowed games enter through `ENGINE_GAME` (`include/engine/game_entry.h`), whic
 
 `EngineRuntime::run` starts `GameLoop` (`src/core/game_loop.cpp`).
 
-1. `presentation_->attach_loop` (layout painter, inspector and profiler window hosts on every UI world, modal-loop hook). Worlds created later with `enable_ui` get the same hosts.
+1. `presentation_->attach_loop` (layout painter on every UI world, modal-loop hook). Worlds created later with `enable_ui` get the same painter.
 2. `RunHooks::on_start`.
 3. `ui::apply_canvas_fit` on every world that draws UI.
 4. `ApplicationState::running = true`.
@@ -67,9 +67,9 @@ flowchart TD
 
 ### `simulate_worlds`
 
-1. `reset_pointer_frame` clears `Presentation.mouse` once. `begin_frame` on every world with UI. That fits canvases and syncs the inspector and profiler. It does not clear mouse consumption.
+1. `reset_pointer_frame` clears `Presentation.mouse` once. `begin_frame` on every world with UI. That fits canvases. It does not clear mouse consumption.
 
-   `run_input` calls `begin_frame` again when the frame schedule runs. Each call starts with `profiler_commit_frame`. Bind reads the rings after that second commit. The shared ring's last slot is this pre-schedule fit and inspector sync. `commands` from the previous tick are one shared slot earlier, in the same sample as the fit and inspector sync from that tick's `run_input`. The second commit does not push a canvas slot, so the canvas ring's last slot is the previous tick's input, bindings, stylesheets, layout, motion, and paint.
+   `run_input` calls `begin_frame` again when the frame schedule runs. Each call starts with `profiler_commit_frame`. The second commit does not push a canvas slot, so a canvas slot is one whole tick: input, bindings, stylesheets, layout, motion, and paint. The shared ring alternates between the pre-schedule fit and the `run_input` fit with that tick's `commands`. See [UI Profiler](../features/UI%20Profiler.md).
 2. `advance` every world's clock with the same `real_dt`. Wall dt is clamped to `kMaxFrameDt` (0.25s). While the process is not paused and that world is stepping, the clock runs up to `kMaxFixedSteps` (8) steps of `kFixed` (1/60s) and drops leftover accumulator past the cap.
 3. If audio is non-null, `audio->update` once with that clamped `real_dt`.
 4. For each world, in `add` order: `Schedule::Fixed` when it is stepping and the process is not paused. `Schedule::Frame` when it is stepping and either the process is not paused or a window is bound to it. An empty `ctx<BoundWindows>()` makes `run_render` return before any command-buffer clear. A non-empty list clears those buffers, then returns without pushing scene commands when the `Renderable`+`Transform`, `Sprite`+`Transform`, and `ParticleEmitter` views are all empty, when `ActiveCamera`'s entity is not valid, or when that entity has no `Camera` or `Transform` (fatal). The sorted list is pushed only after a live camera with both components, with `window_size_for` (`Presentation.sizes`) for that id. `run_ui_render` then writes UI.
@@ -93,10 +93,10 @@ Frame systems, in phase order:
 | `Input` | `run_splash_timers` (`Time::delta_time`, including while paused) |
 | `Game` | `run_sprite_animations` |
 | `Game` | `run_particles` |
-| `Bind` | `sync_inspector_content`, `sync_profiler_content`, `run_bind` |
+| `Bind` | `run_bind` |
 | `Audio` | `PlaySfxEvent` / `PlayMusicEvent` via `EventCursor`, then `get<Sound>` |
 | `Render` | `run_render`. An empty `ctx<BoundWindows>()` returns before a command-buffer clear. A non-empty list clears those buffers, then returns without scene commands when the `Renderable`+`Transform`, `Sprite`+`Transform`, and `ParticleEmitter` views are all empty, when `ActiveCamera`'s entity is not valid, or when that entity has no `Camera` or `Transform` (fatal). The sorted draws are pushed only after a live camera with both components, each with `window_size_for` |
-| `UiRender` | `run_ui_render` (`CmdDrawUI` per canvas, per window) |
+| `UiRender` | `run_ui_render` (`CmdDrawUI` per canvas, per window; `inspector_retarget` first while the inspector is attached) |
 
 `Phase::Physics` is not a frame phase. `kFixedPhases` is Physics then Game. `kFramePhases` omits Physics.
 

@@ -7,6 +7,8 @@ namespace editor {
 Toolbar::Toolbar() : view_model_(std::make_shared<EditorViewModel>()) {
     view_model_->chooseGame.bind_to<Toolbar, &Toolbar::choose_game, &Toolbar::can_choose_game>(*this);
     view_model_->togglePlay.bind_to<Toolbar, &Toolbar::toggle_play, &Toolbar::can_toggle_play>(*this);
+    view_model_->showInspector.bind_to<Toolbar, &Toolbar::show_inspector>(*this);
+    view_model_->showProfiler.bind_to<Toolbar, &Toolbar::show_profiler>(*this);
     view_model_->gamePath = std::string("No game chosen");
 }
 
@@ -20,6 +22,14 @@ void Toolbar::choose_game() {
 
 void Toolbar::toggle_play() {
     request_ = playing_ ? EditorRequest::Stop : EditorRequest::Play;
+}
+
+void Toolbar::show_inspector() {
+    show_tab(EditorTab::Inspector);
+}
+
+void Toolbar::show_profiler() {
+    show_tab(EditorTab::Profiler);
 }
 
 bool Toolbar::can_choose_game() const {
@@ -49,6 +59,16 @@ void Toolbar::show_playing(bool playing) {
 
 EditorRequest Toolbar::take_request() {
     return std::exchange(request_, EditorRequest::None);
+}
+
+EditorTab Toolbar::active_tab() const {
+    return tab_;
+}
+
+void Toolbar::show_tab(EditorTab tab) {
+    tab_ = tab;
+    view_model_->inspectorTab = tab == EditorTab::Inspector;
+    view_model_->profilerTab = tab == EditorTab::Profiler;
 }
 
 }

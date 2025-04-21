@@ -1,5 +1,7 @@
 #include "engine_host_play.h"
 
+#include "editor_panels.h"
+
 #include <engine/core/engine_host.h>
 #include <engine/resources/meta.h>
 
@@ -28,7 +30,9 @@ std::string_view meta_error_text(engine::MetaError error) {
 
 }
 
-EngineHostPlay::EngineHostPlay(engine::EngineHost& host) : host_(&host) {}
+EngineHostPlay::EngineHostPlay(engine::EngineHost& host, EditorPanels& panels)
+    : host_(&host)
+    , panels_(&panels) {}
 
 std::expected<void, std::string> EngineHostPlay::load_catalog(const std::filesystem::path& assets_dir) {
     const auto loaded = host_->load_catalog(assets_dir);
@@ -48,6 +52,14 @@ void EngineHostPlay::attach(engine::IGame& game) {
 
 void EngineHostPlay::detach() {
     host_->detach_game();
+}
+
+void EngineHostPlay::attach_tools(engine::ecs::World& game_world) {
+    panels_->attach(game_world);
+}
+
+void EngineHostPlay::detach_tools() {
+    panels_->detach();
 }
 
 }
