@@ -47,6 +47,7 @@ The game includes `<engine/…>` only. It does not add `engine/src` to its inclu
 | `ENGINE_ANDROID_APPLICATION_ID` | `defaultConfig.applicationId` | `org.windengine.app` |
 | `ENGINE_ANDROID_APP_NAME` | manifest placeholder `appName` (`android:label="${appName}"`) | `Wind` |
 | `ENGINE_ANDROID_RES_DIR` | added to `sourceSets.debug.res.srcDirs` and `sourceSets.release.res.srcDirs` | empty |
+| `ENGINE_ANDROID_MANIFEST` | game manifest overlay (`sourceSets.{debug,release}.manifest.srcFile`) | empty |
 | `ENGINE_ANDROID_ASSETS_OUT` | `assets.srcDirs` and the CMake stage directory | `${buildDir}/wind-assets` |
 | `ENGINE_HOST_ASSET_CODEGEN` | passed through to the native CMake arguments | required when cross-compiling |
 | `ENGINE_HOST_ICON_CODEGEN` | same | required when cross-compiling |
@@ -56,6 +57,8 @@ The app name is a manifest placeholder, not a second `values/strings.xml`. AGP o
 The engine template ships `mipmap-*/ic_launcher.png` under `cmake/android/app/src/main/res/` because the manifest always references `@mipmap/ic_launcher`. A game overlay goes on the debug and release source sets, not on `main`, for the same duplicate-resource reason.
 
 `icon_codegen` writes `mipmap-*/ic_launcher.png` into `ENGINE_GAME_ICON_DIR` for a game that has `icon.png`. Gradle resolves `res.srcDirs` at configuration time, before that custom command runs, so nothing copies those PNGs into `ENGINE_ANDROID_RES_DIR` automatically. The game points `ENGINE_ANDROID_RES_DIR` at a directory it fills itself.
+
+A game supplies its own manifest additions (extra `<uses-permission>`, `<queries>`, services, or `tools:node="remove"`) by putting `android/AndroidManifest.xml` (or `AndroidManifest.xml`) next to its `CMakeLists.txt` (detected by `engine_configure_app` as `ENGINE_GAME_ANDROID_MANIFEST`) or by setting `ENGINE_ANDROID_MANIFEST`. AGP's standard Manifest Merger merges that overlay over the engine template.
 
 ABI in the template is `arm64-v8a`. `minSdk` is 21. `compileSdk` and `targetSdk` are 35.
 
