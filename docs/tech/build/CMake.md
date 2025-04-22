@@ -1,6 +1,6 @@
 # CMake
 
-Root file: `CMakeLists.txt`. Minimum version 3.20 (the build id step uses `$<CONFIG>` in a custom command output). Language C and CXX. `CMAKE_CXX_STANDARD` is 23 with extensions OFF.
+Root file: `CMakeLists.txt`. Minimum version 3.20 (the build id step uses `$<CONFIG>` in a custom command output). Language C and CXX. `CMAKE_CXX_STANDARD` is 23 with extensions OFF. The game functions (`engine_add_game` and the rest) live in `cmake/wind_game.cmake`, which the root file includes. See [Game functions](#game-functions).
 
 The library target is `engine`. Alias: `engine::engine`. It is static. With `ENGINE_EDITOR` it is shared.
 
@@ -17,7 +17,7 @@ The library target is `engine`. Alias: `engine::engine`. It is static. With `ENG
 | `ENGINE_WITH_WEB` | ON if `EMSCRIPTEN`, else OFF | same | `PUBLIC` |
 | `ENGINE_WITH_ANDROID` | ON if `ANDROID`, else OFF | same | `PUBLIC` |
 | `ENGINE_WITH_GLES` | ON if `EMSCRIPTEN` or `ANDROID`, else OFF | same | `PUBLIC`. No glad |
-| `ENGINE_EDITOR` | OFF | OFF | Shared `engine`. Needs `ENGINE_WITH_WINDOW`. Fatal on Emscripten and Android |
+| `ENGINE_EDITOR` | OFF | configure error | Shared `engine`, the editor, the SDK install rules. Needs `ENGINE_WITH_WINDOW`. Fatal on Emscripten and Android. In a game tree it is fatal and points at `WIND_EDITOR_SDK` |
 
 `ENGINE_UI_PROFILER` and `ENGINE_CLI_SERVER` are not options. They are generator expressions on Debug and RelWithDebInfo. The CLI define is also omitted for Emscripten and Android. See [Boundaries](../architecture/Boundaries.md).
 
@@ -29,6 +29,7 @@ Cache paths:
 | `ENGINE_HOST_ICON_CODEGEN` | Native `icon_codegen` when cross-compiling |
 | `ENGINE_WEB_SHELL` | HTML shell. Empty uses `cmake/web/shell.html` |
 | `ENGINE_ANDROID_ASSETS_OUT` | Directory Gradle packs. Empty stages only beside `libmain.so` |
+| `WIND_EDITOR_SDK` | Installed editor SDK. Set in a game tree, it switches the configure to [SDK mode](#sdk-mode). Fatal at the engine root |
 
 ## Presets
 
@@ -56,7 +57,10 @@ Build preset `tests` builds `engine_tests` from the `vs` configure.
 - `CMAKE_POSITION_INDEPENDENT_CODE` is ON, so the static libraries linked into the shared engine are position independent.
 - `engine_prepare_runtime` copies `engine.dll` beside its target on Windows.
 - `engine_add_game` builds the game as a shared module, not an executable. See below.
-- `editor/` is added: `wind_editor`, and with tests also `wind_editor_tests`. This happens when Wind is a game's subdirectory too, so the editor lands in the game's `bin/` beside the module. See [Editor](../features/Editor.md).
+- `editor/` is added: `wind_editor`, and with tests also `wind_editor_tests`. See [Editor](../features/Editor.md).
+- The install rules of the [editor SDK](#editor-sdk) are defined.
+
+`ENGINE_EDITOR` is an engine-repo option. A game tree that sets it without `WIND_EDITOR_SDK` fails the configure with a message that points at the SDK. A game builds its editor module in [SDK mode](#sdk-mode).
 
 `WINDOWS_EXPORT_ALL_SYMBOLS` exports functions, not data. Mutable state a module must share stays in a `.cpp` behind an `ENGINE_API` function. See [Boundaries](../architecture/Boundaries.md).
 
@@ -87,6 +91,21 @@ Windows also links `ws2_32` and `advapi32` PUBLIC, because `cli_server.cpp` uses
 
 `engine_add_sdl3` on Emscripten forces `SDL_EMSCRIPTEN_PERSISTENT_PATH` to `/storage` so `user_data_directory` is not an in-memory `/libsdl`.
 
+## Game functions
+
+`cmake/wind_game.cmake` defines `engine_prepare_runtime`, `engine_configure_app`, `engine_add_game`, `engine_add_web_game`, and `engine_add_android_game`. The root `CMakeLists.txt` includes it in the source build. The SDK installs the same file, and `wind_sdk.cmake` includes it in SDK mode.
+
+The functions run in the calling directory's scope, so what they need from the engine is in cache variables both contexts set:
+
+| Variable | Source build | SDK mode |
+| --- | --- | --- |
+| `ENGINE_FROM_SDK` | OFF | ON |
+| `ENGINE_BUILTIN_ASSETS_DIR` | `builtin_assets/` | `<sdk>/bin/assets/engine` |
+| `ENGINE_COOKED_CATALOG` | `<build>/generated/engine/catalog.toml`, cooked by the target `engine_builtin_catalog` | `<sdk>/bin/assets/engine/catalog.toml`, already cooked |
+| `ENGINE_CMAKE_DIR` | engine source tree | engine source tree (the game's submodule) |
+
+`engine`, `asset_codegen`, and `icon_codegen` are targets in both: built in the source build, imported in SDK mode.
+
 ## `engine_add_game`
 
 Call it after `add_subdirectory` of this repo. At least one source file. `ENGINE_WITH_WINDOW` must be ON (the subdirectory default). It creates the target (table below) and hands it to `engine_configure_app`.
@@ -94,7 +113,7 @@ Call it after `add_subdirectory` of this repo. At least one source file. `ENGINE
 | Platform | Target |
 | --- | --- |
 | Desktop | `add_executable` |
-| Desktop, `ENGINE_EDITOR` | `add_library` SHARED, `PRIVATE ENGINE_GAME_MODULE=1`, no `lib` prefix |
+| Desktop, `ENGINE_EDITOR` or SDK mode | `add_library` SHARED, `PRIVATE ENGINE_GAME_MODULE=1`, no `lib` prefix |
 | Android | `add_library` SHARED, `OUTPUT_NAME` `main`, plus `--defsym=SDL_main=main` and `SDL3::SDL3main` when that target exists |
 | Apple | `MACOSX_BUNDLE` ON |
 
@@ -102,12 +121,12 @@ Call it after `add_subdirectory` of this repo. At least one source file. `ENGINE
 
 The game's source calls `ENGINE_GAME(GameClass)` from `<engine/game_entry.h>` instead of writing `main`. The executable gets `main`. The module gets the exports the editor resolves. See [Core](../modules/Core.md).
 
-### Game module (`ENGINE_EDITOR`)
+### Game module (`ENGINE_EDITOR` or SDK mode)
 
 - The `.dll` lands where the executable would: `RUNTIME_OUTPUT_DIRECTORY` `bin/` (a `.so` uses `LIBRARY_OUTPUT_DIRECTORY` `bin/`). The import library goes to `lib/`. The `.pdb` sits beside the `.dll`.
 - MSVC links with `/PDBALTPATH:<name>.pdb` (`$<TARGET_PDB_FILE_NAME>`), the same as `/PDBALTPATH:%_PDB%`. The module records only the PDB file name, so a debugger finds the PDB beside a copy of the module. The literal `%_PDB%` is not used because the Visual Studio generator escapes `%` in link options.
 - No `/SUBSYSTEM` or `/ENTRY` flags. The icon `.rc` is still compiled in. It is harmless in a `.dll`.
-- Asset codegen and `engine_prepare_runtime` run as for the executable, so `bin/assets/catalog.toml`, `bin/assets/engine/`, and `engine.dll` sit beside the module.
+- Asset codegen and `engine_prepare_runtime` run as for the executable, so `bin/assets/catalog.toml` and the game's assets sit beside the module. In the source build `bin/assets/engine/` and `engine.dll` are copied there too. In SDK mode they are not: the editor that loads the module has its own `engine.dll` and `assets/engine/`, and Play reads only `<module dir>/assets/`.
 
 The game links `engine` PRIVATE. If the game has an `include/` directory it is PRIVATE too. `engine/src` is not on the game's include path.
 
@@ -130,6 +149,50 @@ Asset and icon steps: [Pipeline](Pipeline.md). Web adds `cmake/web/link_flags.cm
 
 With `ENGINE_BUILD_TESTS` the root also builds three fixture modules from `tests/fixtures/game_module/fixture_game.cpp` into `test_fixtures/`: `wind_fixture_game_ok`, `wind_fixture_game_wrong_build_id` (`FIXTURE_WRONG_BUILD_ID`), and `wind_fixture_game_no_destroy` (`FIXTURE_NO_DESTROY`). They link `engine` and use `/PDBALTPATH` like a game module. `engine_tests` and `wind_editor_tests` depend on them and get their paths as `WIND_FIXTURE_GAME`, `WIND_FIXTURE_GAME_WRONG_BUILD_ID`, and `WIND_FIXTURE_GAME_NO_DESTROY` (`$<TARGET_FILE:...>`).
 
+## Editor SDK
+
+With `ENGINE_EDITOR` the root defines install rules. `cmake --install build-editor --config Release --prefix out/sdk` (`/out/` is gitignored) writes one configuration:
+
+```
+out/sdk/
+  bin/
+    wind_editor.exe  engine.dll  asset_codegen.exe  icon_codegen.exe  (+ their .pdb when the config makes them)
+    assets/engine/   builtin_assets/ and the cooked catalog.toml
+    assets/editor/   editor/assets/ and the editor's cooked catalog.toml
+  lib/engine.lib
+  include/
+    engine/**        public headers and the generated engine/build_id.h of that configuration
+    glm/**           glm headers (*.h, *.hpp, *.inl)
+  cmake/
+    wind_sdk.cmake   imported targets
+    wind_game.cmake  game functions
+```
+
+The `.pdb` rules are `OPTIONAL`: Release links without `/DEBUG` today, so a Release SDK has none. The binaries need only system DLLs and the VC++ runtime (SDL3, SDL3_mixer, glad, nanovg, spdlog, tinyxml2, and tomlplusplus are static inside `engine.dll`). tinyxml2 is added `EXCLUDE_FROM_ALL` so its own install rules stay out of the SDK.
+
+`wind_sdk.cmake` is generated per configuration from `cmake/wind_sdk.cmake.in` with `file(GENERATE)`, so it holds the evaluated values of the installed configuration, not generator expressions a game would evaluate against its own configuration. It finds the SDK root from its own location (the SDK can move), sets the cache entries of [Game functions](#game-functions) plus `WIND_EDITOR_SDK_DIR` and `WIND_SDK_CONFIG` (for example `Release`), checks that the files it imports exist, and defines:
+
+| Target | What |
+| --- | --- |
+| `engine` (`engine::engine`) | `SHARED IMPORTED GLOBAL`. `IMPORTED_LOCATION` `bin/engine.dll` and `IMPORTED_IMPLIB` `lib/engine.lib`, without a configuration suffix, so every game configuration uses them. `INTERFACE_INCLUDE_DIRECTORIES` `include/`. `INTERFACE_COMPILE_DEFINITIONS` the SDK's `PUBLIC` defines for its configuration (Release today: `ENGINE_SHARED=1`, `ENGINE_WITH_WINDOW=1`; a Debug SDK adds `ENGINE_UI_PROFILER` and `ENGINE_CLI_SERVER`). `cxx_std_23`. Links `glm::glm`, and `ws2_32` and `advapi32` on Windows |
+| `glm::glm` | `INTERFACE IMPORTED GLOBAL` on `include/` |
+| `asset_codegen`, `icon_codegen` | `IMPORTED GLOBAL` executables in `bin/`. They load `engine.dll` from beside themselves |
+
+Then it includes `wind_game.cmake`.
+
+## SDK mode
+
+A game sets the cache path `WIND_EDITOR_SDK` (in practice in its `CMakeUserPresets.json`, see [Game Consumer](Game%20Consumer.md#editor-module)). Its `CMakeLists.txt` stays the same: `add_subdirectory(external/engine)`, then `engine_add_game`. The engine's root `CMakeLists.txt` then
+
+1. fails when `${WIND_EDITOR_SDK}/cmake/wind_sdk.cmake` does not exist, with the commands that make the SDK,
+2. includes it,
+3. adds `external/googletest` (shared CRT, `enable_testing`, `include(GoogleTest)`) when `ENGINE_WITH_GTEST` is ON, so the game's tests still build,
+4. returns.
+
+No engine source, host tool, editor, fixture module, or `engine_tests` is configured, and `ENGINE_EDITOR` is not read. `engine_add_game` builds the module only, into `bin/<config>/` with `assets/catalog.toml` and the game's assets. The headers, `build_id.h`, and `engine.lib` are the SDK's, so the module's `kBuildId` is the SDK's by construction.
+
+The game still gets every configuration of its generator. Only a module built in the SDK's configuration is safe to load: a Debug module uses the debug CRT against a Release `engine.dll`. Build the game with `--config Release` against a Release SDK.
+
 ## Tests
 
 `engine_tests` globs `tests/*_test.cpp`, links `engine` and `GTest::gtest_main`, and adds `src/` as a PRIVATE include so a test can reach a private header. With the window flag it also links SDL3 and, unless GLES, glad.
@@ -143,6 +206,8 @@ Compile definitions: `ENGINE_BUILTIN_ASSETS_DIR`, `ENGINE_SOURCE_DIR`.
 Not cross-compiling: `asset_codegen`, `asset_guid` (link `engine`), `wind-cli` (does not link `engine`; WinSock on Windows), `icon_codegen` (links `engine` and adds `src/` so it can include `resources/icon_codegen.h`).
 
 Cross-compiling: `asset_codegen` and `icon_codegen` are `IMPORTED` from the host-path cache variables. `asset_guid` and `wind-cli` are not built in that configure.
+
+`tests/cmake_sanity_test.cpp` also checks the CMake text: the icon, favicon, and Android manifest rules in `cmake/wind_game.cmake`, and that SDK mode returns before the `engine` target exists and imports `engine` and the tools.
 
 ## See also
 

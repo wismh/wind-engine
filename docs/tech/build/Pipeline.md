@@ -46,7 +46,7 @@ If the game has `icon.png` at the directory that called `engine_add_game`, `icon
 4. If the target has `ENGINE_GAME_CATALOG`, copy it to `<exe>/assets/catalog.toml`.
 5. On Android, if `ENGINE_ANDROID_ASSETS_OUT` is set, copy that `assets/` tree there for Gradle.
 
-In the editor build on Windows it first copies `engine.dll` beside the target.
+In the editor build on Windows it first copies `engine.dll` beside the target. A game module built against the editor SDK ([SDK mode](CMake.md#sdk-mode)) gets only steps 1 and 4: the editor that loads it brings `engine.dll` and `assets/engine/`. In SDK mode `asset_codegen` and `icon_codegen` are the SDK's executables and the engine catalog is already cooked.
 
 Web does not rely on that copy for the page load. `engine_target_web_preload` adds `--preload-file` mappings onto `/assets` and `/assets/engine`, including the cooked catalogs. See [Runtime Assets](Runtime%20Assets.md).
 
