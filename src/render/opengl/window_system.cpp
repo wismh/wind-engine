@@ -271,6 +271,18 @@ glm::ivec2 WindowSystem::size() const {
     return {width, height};
 }
 
+std::optional<glm::ivec2> WindowSystem::position() const {
+    if (window_ == nullptr) {
+        return std::nullopt;
+    }
+    int x = 0;
+    int y = 0;
+    if (!SDL_GetWindowPosition(window_, &x, &y)) {
+        return std::nullopt;
+    }
+    return glm::ivec2{x, y};
+}
+
 std::optional<glm::vec2> WindowSystem::cursor_client_position() const {
     if (window_ == nullptr) {
         return std::nullopt;
