@@ -21,12 +21,19 @@ cmake --build build-editor --config Debug
 ctest --test-dir build-editor -C Debug --output-on-failure
 ```
 
-Run the editor with a game module. A game repo configured with `ENGINE_EDITOR=ON` builds its game as `bin/<config>/<game>.dll` and builds `wind_editor.exe` beside it. The game must be built against the same engine build as the editor that loads it (the editor refuses another build id):
+Editor SDK: install one configuration of the editor build (`/out/` is gitignored). It holds `wind_editor.exe`, `engine.dll`, the host tools, their assets, `engine.lib`, the public headers with that build's `build_id.h`, and the CMake files a game builds its module with:
 
 ```bash
-build-editor/bin/Debug/wind_editor.exe                              # opens a file dialog: pick the game .dll
-build-editor/bin/Debug/wind_editor.exe --game path/to/my_game.dll   # no dialog
-build-editor/bin/Debug/wind_editor.exe --game path/to/my_game.dll --play
+cmake --build build-editor --config Release
+cmake --install build-editor --config Release --prefix out/sdk
+```
+
+A game builds its module against the SDK: configure it with `-DWIND_EDITOR_SDK=<absolute path to out/sdk>`, usually from its `CMakeUserPresets.json` (see [Game Consumer](docs/tech/build/Game%20Consumer.md#editor-module)). That configure compiles no engine and gives `bin/<config>/<game>.dll` with its `assets/`. `ENGINE_EDITOR=ON` in a game tree is a configure error. The editor refuses a module built against another build id:
+
+```bash
+out/sdk/bin/wind_editor.exe                              # opens a file dialog: pick the game .dll
+out/sdk/bin/wind_editor.exe --game path/to/my_game.dll   # no dialog
+out/sdk/bin/wind_editor.exe --game path/to/my_game.dll --play
 ```
 
 Play loads a copy of the module and runs the game in the "Game" window. Stop unloads it, so the game can be rebuilt while the editor stays open. See [Editor](docs/tech/features/Editor.md).
