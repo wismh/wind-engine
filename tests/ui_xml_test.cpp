@@ -245,6 +245,25 @@ TEST(UiXml, ItemTemplateSrcIndirectCycleIsFatal) {
     EXPECT_EQ(parsed.error(), engine::ui::UiError::CyclicInclude);
 }
 
+TEST(UiXml, CustomPropertyAttributeParsesAsBinding) {
+    HudViewModel vm;
+    const auto parsed =
+            engine::ui::parse_xml(R"(<Canvas><Label var-tint="{binding title}"/></Canvas>)", nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Element& label = parsed->root.children.at(0);
+    ASSERT_EQ(label.custom_property_bindings.size(), 1u);
+    EXPECT_EQ(label.custom_property_bindings[0].name, "tint");
+    EXPECT_EQ(label.custom_property_bindings[0].binding, engine::ui::intern("title"));
+}
+
+TEST(UiXml, CustomPropertyWithoutBindingIsFatal) {
+    RecordingFatalError fatal;
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Label var-tint="red"/></Canvas>)", &fatal);
+    EXPECT_FALSE(parsed.has_value());
+    EXPECT_EQ(parsed.error(), engine::ui::UiError::ForbiddenContent);
+    EXPECT_GE(fatal.call_count, 1);
+}
+
 TEST(UiXml, ScanBindTreeResolvesBindingsInsideIncludedTemplate) {
     const engine::ui::UiIncludeResolver resolve = [](std::string_view src) -> std::optional<std::string> {
         if (src == "row.xml") {
@@ -264,5 +283,14 @@ TEST(UiXml, ScanBindTreeResolvesBindingsInsideIncludedTemplate) {
     EXPECT_FALSE(item_binder.members[0].is_command);
     EXPECT_EQ(item_binder.members[1].path, "click");
     EXPECT_TRUE(item_binder.members[1].is_command);
+}
+
+TEST(UiXml, ScanBindTreeResolvesCustomPropertyAttribute) {
+    const auto binder =
+            engine::ui::scan_bind_tree(R"(<Canvas><Label var-tint="{binding tint}"/></Canvas>)");
+    ASSERT_TRUE(binder.has_value());
+    ASSERT_EQ(binder->members.size(), 1u);
+    EXPECT_EQ(binder->members[0].path, "tint");
+    EXPECT_FALSE(binder->members[0].is_command);
 }
 

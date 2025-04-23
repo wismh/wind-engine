@@ -124,6 +124,13 @@ public:
     TitleVm() { property(engine::ui::intern("title"), title); }
 };
 
+class TintVm final : public engine::ui::ViewModel {
+public:
+    engine::ui::Bindable<std::string> tint{"#00ff00"};
+
+    TintVm() { property(engine::ui::intern("tint"), tint); }
+};
+
 class CellVm final : public engine::ui::ViewModel {
 public:
     engine::ui::Bindable<std::string> mark;
@@ -262,6 +269,97 @@ TEST(UiPainter, FontFamilyGuidFromCss) {
     EXPECT_FLOAT_EQ(font->font_size, 24.0f);
     EXPECT_EQ(font->font, hud_font);
     EXPECT_NE(font->font, engine::builtin::font_ui);
+}
+
+TEST(UiPainter, CustomPropertyFromVmDrivesCssVarReference) {
+    TintVm vm;
+    auto parsed =
+            engine::ui::parse_xml(R"(<Canvas><Label class="tinted" var-tint="{binding tint}" text="hi"/></Canvas>)",
+                    nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+
+    const engine::ui::Stylesheet sheet = must_parse_css(".tinted { color: var(--tint); }");
+    FakePainter painter;
+    engine::ui::paint_document(
+            *parsed, &sheet, painter, engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    const PaintCall* text = painter.find("text");
+    ASSERT_NE(text, nullptr);
+    EXPECT_FLOAT_EQ(text->color.g, 1.0f);
+    EXPECT_FLOAT_EQ(text->color.r, 0.0f);
+}
+
+TEST(UiPainter, CustomPropertyReResolvesEveryFrameFromLiveVmValue) {
+    TintVm vm;
+    auto parsed =
+            engine::ui::parse_xml(R"(<Canvas><Label class="tinted" var-tint="{binding tint}" text="hi"/></Canvas>)",
+                    nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(".tinted { color: var(--tint); }");
+
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+    FakePainter first_frame;
+    engine::ui::paint_document(
+            *parsed, &sheet, first_frame, engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+    EXPECT_FLOAT_EQ(first_frame.find("text")->color.g, 1.0f);
+
+    vm.tint.set("#ff0000");
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+    FakePainter second_frame;
+    engine::ui::paint_document(
+            *parsed, &sheet, second_frame, engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+    EXPECT_FLOAT_EQ(second_frame.find("text")->color.r, 1.0f);
+    EXPECT_FLOAT_EQ(second_frame.find("text")->color.g, 0.0f);
+}
+
+TEST(UiPainter, CascadedCustomPropertyResolvesWithoutXmlBinding) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="tinted" text="hi"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+
+    const engine::ui::Stylesheet sheet = must_parse_css(".tinted { --tint: #0000ff; color: var(--tint); }");
+    FakePainter painter;
+    engine::ui::paint_document(
+            *parsed, &sheet, painter, engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    const PaintCall* text = painter.find("text");
+    ASSERT_NE(text, nullptr);
+    EXPECT_FLOAT_EQ(text->color.b, 1.0f);
+    EXPECT_FLOAT_EQ(text->color.r, 0.0f);
+}
+
+TEST(UiPainter, ElementCustomPropertyOverridesCascadedDefault) {
+    TintVm vm;
+    auto parsed =
+            engine::ui::parse_xml(R"(<Canvas><Label class="tinted" var-tint="{binding tint}" text="hi"/></Canvas>)",
+                    nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+
+    const engine::ui::Stylesheet sheet = must_parse_css(".tinted { --tint: #0000ff; color: var(--tint); }");
+    FakePainter painter;
+    engine::ui::paint_document(
+            *parsed, &sheet, painter, engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    const PaintCall* text = painter.find("text");
+    ASSERT_NE(text, nullptr);
+    EXPECT_FLOAT_EQ(text->color.g, 1.0f);
+    EXPECT_FLOAT_EQ(text->color.b, 0.0f);
+}
+
+TEST(UiPainter, UnresolvedCustomPropertyFallsBackToVarFallback) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="tinted" text="hi"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+
+    const engine::ui::Stylesheet sheet = must_parse_css(".tinted { color: var(--tint, #ff0000); }");
+    FakePainter painter;
+    engine::ui::paint_document(
+            *parsed, &sheet, painter, engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
+
+    const PaintCall* text = painter.find("text");
+    ASSERT_NE(text, nullptr);
+    EXPECT_FLOAT_EQ(text->color.r, 1.0f);
+    EXPECT_FLOAT_EQ(text->color.g, 0.0f);
 }
 
 TEST(UiPainter, PaddingInsetsLabelText) {
