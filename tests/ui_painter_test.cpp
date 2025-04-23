@@ -1162,7 +1162,7 @@ TEST(UiPainter, ItemsControlPreservesAnimationElapsedAcrossFrames) {
     ASSERT_EQ(count_partial_opacities(first), 1);
 
     // Frame 2: another 0.5s. If bind_element rebuilt generated_items from the static ItemTemplate
-    // instead of reusing the previous Element for this same ViewModel*, animation_elapsed would
+    // instead of reusing the previous Element for this same ViewModel*, the animation player would
     // reset to 0 every frame and the item would still show a partial ~0.5 here instead of having
     // reached the end of the animation (elapsed 0.5+0.5 = 1.0, no more partial-opacity calls).
     ASSERT_TRUE(engine::ui::apply_bindings(*parsed, board).has_value());
@@ -2342,4 +2342,228 @@ TEST(UiPainter, ViewportAppliesViewAfterOwnScissorThenPaintsChildren) {
         }
     }
     EXPECT_TRUE(child_scissor_after_view);
+}
+
+void paint_frame(engine::ui::UiDocument& document, const engine::ui::Stylesheet& sheet, FakePainter& painter,
+        glm::vec2 pointer, float delta_time) {
+    painter.calls.clear();
+    engine::ui::paint_document(document, &sheet, painter,
+            engine::ui::UiPaintInput{
+                    .canvas_rect = {0.0f, 0.0f, 400.0f, 400.0f}, .pointer = pointer, .delta_time = delta_time});
+}
+
+TEST(UiPainter, HoverBackgroundTransitionReachesMidpoint) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Button class="btn" content="X"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        Button.btn { width: 80px; height: 40px; background: #000000; transition: background 1s linear; }
+        Button.btn:hover { background: #ffffff; }
+    )");
+    FakePainter painter;
+    paint_frame(*parsed, sheet, painter, glm::vec2{1000.0f, 1000.0f}, 0.0f);
+    paint_frame(*parsed, sheet, painter, glm::vec2{10.0f, 10.0f}, 0.5f);
+
+    const PaintCall* fill = painter.find("fill_rect");
+    ASSERT_NE(fill, nullptr);
+    EXPECT_NEAR(fill->color.r, 0.5f, 0.02f);
+    EXPECT_NEAR(fill->color.g, 0.5f, 0.02f);
+    EXPECT_NEAR(fill->color.b, 0.5f, 0.02f);
+}
+
+TEST(UiPainter, HoverBackgroundTransitionRetargetsFromShownValue) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Button class="btn" content="X"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        Button.btn { width: 80px; height: 40px; background: #000000; transition: background 1s linear; }
+        Button.btn:hover { background: #ffffff; }
+    )");
+    FakePainter painter;
+    paint_frame(*parsed, sheet, painter, glm::vec2{1000.0f, 1000.0f}, 0.0f);
+    paint_frame(*parsed, sheet, painter, glm::vec2{10.0f, 10.0f}, 0.5f);
+    const PaintCall* mid = painter.find("fill_rect");
+    ASSERT_NE(mid, nullptr);
+    EXPECT_NEAR(mid->color.r, 0.5f, 0.02f);
+
+    paint_frame(*parsed, sheet, painter, glm::vec2{1000.0f, 1000.0f}, 0.0f);
+    const PaintCall* held = painter.find("fill_rect");
+    ASSERT_NE(held, nullptr);
+    EXPECT_NEAR(held->color.r, 0.5f, 0.02f);
+
+    paint_frame(*parsed, sheet, painter, glm::vec2{1000.0f, 1000.0f}, 0.5f);
+    const PaintCall* back = painter.find("fill_rect");
+    ASSERT_NE(back, nullptr);
+    EXPECT_NEAR(back->color.r, 0.25f, 0.02f);
+}
+
+TEST(UiPainter, TransitionDelayHoldsStartValue) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Button class="btn" content="X"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        Button.btn { width: 80px; height: 40px; background: #000000; transition: background 1s linear 0.5s; }
+        Button.btn:hover { background: #ffffff; }
+    )");
+    FakePainter painter;
+    paint_frame(*parsed, sheet, painter, glm::vec2{1000.0f, 1000.0f}, 0.0f);
+    paint_frame(*parsed, sheet, painter, glm::vec2{10.0f, 10.0f}, 0.25f);
+    const PaintCall* held = painter.find("fill_rect");
+    ASSERT_NE(held, nullptr);
+    EXPECT_NEAR(held->color.r, 0.0f, 0.02f);
+
+    paint_frame(*parsed, sheet, painter, glm::vec2{10.0f, 10.0f}, 0.5f);
+    const PaintCall* started = painter.find("fill_rect");
+    ASSERT_NE(started, nullptr);
+    EXPECT_NEAR(started->color.r, 0.25f, 0.02f);
+}
+
+TEST(UiPainter, EaseInIsNotLinearAtMidpoint) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Button class="box" content="X"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .box { width: 40px; height: 40px; opacity: 0; background: #ffffff; transition: opacity 1s ease-in; }
+        .box:hover { opacity: 1; }
+    )");
+    FakePainter painter;
+    paint_frame(*parsed, sheet, painter, glm::vec2{1000.0f, 1000.0f}, 0.0f);
+    paint_frame(*parsed, sheet, painter, glm::vec2{10.0f, 10.0f}, 0.5f);
+
+    float shown = 1.0f;
+    for (const PaintCall& call : painter.calls) {
+        if (call.op == "opacity") {
+            shown = std::min(shown, call.opacity);
+        }
+    }
+    EXPECT_LT(shown, 0.45f);
+    EXPECT_GT(shown, 0.0f);
+}
+
+TEST(UiPainter, DisplayTransitionSnapsAtHalfwayAndShiftsSibling) {
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Stack class="col">
+            <Button class="a" content="A"/>
+            <Stack class="b"/>
+          </Stack>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .col { flex-direction: column; }
+        .a { width: 40px; height: 40px; background: #ff0000; transition: display 1s linear; }
+        .a:hover { display: none; }
+        .b { width: 40px; height: 20px; background: #00ff00; }
+    )");
+    FakePainter painter;
+    paint_frame(*parsed, sheet, painter, glm::vec2{1000.0f, 1000.0f}, 0.0f);
+    const engine::ui::Element* sibling = find_class(parsed->root, "b");
+    ASSERT_NE(sibling, nullptr);
+    EXPECT_FLOAT_EQ(sibling->layout_rect.y, 40.0f);
+
+    paint_frame(*parsed, sheet, painter, glm::vec2{10.0f, 10.0f}, 0.4f);
+    EXPECT_FLOAT_EQ(sibling->layout_rect.y, 40.0f);
+
+    paint_frame(*parsed, sheet, painter, glm::vec2{10.0f, 10.0f}, 0.2f);
+    EXPECT_FLOAT_EQ(sibling->layout_rect.y, 0.0f);
+}
+
+TEST(UiPainter, LayoutMotionMovesOnlyTheShiftedChain) {
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Stack class="page">
+            <Stack class="row">
+              <Stack class="prev"/>
+              <Stack class="wide"/>
+              <Stack class="after"/>
+            </Stack>
+            <Stack class="col">
+              <Stack class="above"/>
+              <Stack class="tall"/>
+              <Stack class="below"/>
+            </Stack>
+            <Stack class="cousin"/>
+          </Stack>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .page { flex-direction: column; }
+        .row { flex-direction: row; width: 300px; height: 80px; }
+        .prev { width: 40px; height: 40px; background: #111111; }
+        .after { width: 40px; height: 40px; background: #111111; }
+        .wide { width: 10px; height: 40px; background: #222222; animation: widen 1s linear; }
+        .col { width: 100px; height: 200px; flex-direction: column; }
+        .above { width: 40px; height: 40px; background: #333333; }
+        .below { width: 40px; height: 40px; background: #333333; }
+        .tall { width: 40px; height: 10px; background: #444444; animation: grow 1s linear; }
+        .cousin { width: 10px; height: 10px; background: #555555; }
+        @keyframes widen { from { width: 10px; } to { width: 50px; } }
+        @keyframes grow { from { height: 10px; } to { height: 50px; } }
+    )");
+    FakePainter painter;
+    paint_frame(*parsed, sheet, painter, glm::vec2{1000.0f, 1000.0f}, 0.0f);
+    const engine::ui::Element* prev = find_class(parsed->root, "prev");
+    const engine::ui::Element* wide = find_class(parsed->root, "wide");
+    const engine::ui::Element* after = find_class(parsed->root, "after");
+    const engine::ui::Element* above = find_class(parsed->root, "above");
+    const engine::ui::Element* tall = find_class(parsed->root, "tall");
+    const engine::ui::Element* below = find_class(parsed->root, "below");
+    const engine::ui::Element* col = find_class(parsed->root, "col");
+    const engine::ui::Element* cousin = find_class(parsed->root, "cousin");
+    ASSERT_NE(prev, nullptr);
+    ASSERT_NE(wide, nullptr);
+    ASSERT_NE(after, nullptr);
+    ASSERT_NE(above, nullptr);
+    ASSERT_NE(tall, nullptr);
+    ASSERT_NE(below, nullptr);
+    ASSERT_NE(col, nullptr);
+    ASSERT_NE(cousin, nullptr);
+    EXPECT_FLOAT_EQ(prev->layout_rect.x, 0.0f);
+    EXPECT_FLOAT_EQ(wide->layout_rect.w, 10.0f);
+    EXPECT_FLOAT_EQ(after->layout_rect.x, 50.0f);
+    EXPECT_FLOAT_EQ(above->layout_rect.y, 80.0f);
+    EXPECT_FLOAT_EQ(tall->layout_rect.h, 10.0f);
+    EXPECT_FLOAT_EQ(below->layout_rect.y, 130.0f);
+    EXPECT_FLOAT_EQ(col->layout_rect.h, 200.0f);
+    EXPECT_FLOAT_EQ(cousin->layout_rect.y, 280.0f);
+    const engine::render::Rect prev_rect = prev->layout_rect;
+    const engine::render::Rect above_rect = above->layout_rect;
+    const engine::render::Rect cousin_rect = cousin->layout_rect;
+    const float col_y = col->layout_rect.y;
+
+    paint_frame(*parsed, sheet, painter, glm::vec2{1000.0f, 1000.0f}, 0.5f);
+    EXPECT_FLOAT_EQ(wide->layout_rect.w, 30.0f);
+    EXPECT_FLOAT_EQ(after->layout_rect.x, 70.0f);
+    EXPECT_FLOAT_EQ(prev->layout_rect.x, prev_rect.x);
+    EXPECT_FLOAT_EQ(prev->layout_rect.y, prev_rect.y);
+    EXPECT_FLOAT_EQ(tall->layout_rect.h, 30.0f);
+    EXPECT_FLOAT_EQ(below->layout_rect.y, 150.0f);
+    EXPECT_FLOAT_EQ(above->layout_rect.x, above_rect.x);
+    EXPECT_FLOAT_EQ(above->layout_rect.y, above_rect.y);
+    EXPECT_FLOAT_EQ(col->layout_rect.y, col_y);
+    EXPECT_FLOAT_EQ(col->layout_rect.h, 200.0f);
+    EXPECT_FLOAT_EQ(cousin->layout_rect.x, cousin_rect.x);
+    EXPECT_FLOAT_EQ(cousin->layout_rect.y, cousin_rect.y);
+}
+
+TEST(UiPainter, KeyframeOverridesTransitionOnSameProperty) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack class="fade"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+        .fade {
+            width: 40px;
+            height: 40px;
+            opacity: 0;
+            animation: fade 1s linear;
+            transition: opacity 1s linear;
+        }
+    )");
+    FakePainter painter;
+    paint_frame(*parsed, sheet, painter, glm::vec2{0.0f, 0.0f}, 0.5f);
+    float shown = 1.0f;
+    for (const PaintCall& call : painter.calls) {
+        if (call.op == "opacity") {
+            shown = std::min(shown, call.opacity);
+        }
+    }
+    EXPECT_NEAR(shown, 0.5f, 0.02f);
 }
