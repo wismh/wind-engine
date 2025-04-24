@@ -1,12 +1,16 @@
 # Writes <engine/build_id.h> with kBuildId and kBuildIdCStr. Run as a build step from CMakeLists.txt:
-#   cmake -DINCLUDE_DIR=... -DOUT=... -DSTAMP=... -DCOMPILER=... -DCONFIG=... -DDEFINES=a|b|c -P build_id.cmake
+#   cmake -DINCLUDE_DIR=... -DOUT=... -DSTAMP=... -DCOMPILER=... -DCONFIG=... -DDEFINES=a|b|c -DDEBUG_CRT=0|1
+#         -P build_id.cmake
 # The id is a hash over every public header (path relative to INCLUDE_DIR plus content, sorted by
 # path), the compiler id and version, the configuration, and the engine's PUBLIC compile definitions.
 # A game module bakes kBuildId; the editor compares it with engine::build_id() from engine.dll.
+# DEBUG_CRT is 1 when the engine links the MSVC debug CRT (/MDd) in this configuration. The header records it and
+# the matching _ITERATOR_DEBUG_LEVEL as ENGINE_BUILD_DEBUG_CRT and ENGINE_BUILD_ITERATOR_DEBUG_LEVEL, which
+# <engine/game_entry.h> compares with a game module's own CRT.
 # OUT is rewritten only when its content changes, so an unchanged id does not recompile anything.
 # STAMP is always touched: it is the custom command's output and keeps the step up to date.
 
-foreach(_var INCLUDE_DIR OUT STAMP COMPILER CONFIG)
+foreach(_var INCLUDE_DIR OUT STAMP COMPILER CONFIG DEBUG_CRT)
     if(NOT DEFINED ${_var})
         message(FATAL_ERROR "build_id.cmake: -D${_var}=... is required")
     endif()
@@ -33,6 +37,14 @@ foreach(_header IN LISTS _headers)
     string(APPEND _input "header=${_header}:${_hash}\n")
 endforeach()
 
+if(DEBUG_CRT)
+    set(_debug_crt 1)
+    set(_iterator_debug_level 2)
+else()
+    set(_debug_crt 0)
+    set(_iterator_debug_level 0)
+endif()
+
 string(SHA256 _id "${_input}")
 string(SUBSTRING "${_id}" 0 16 _id)
 
@@ -50,6 +62,11 @@ inline constexpr char kBuildIdCStr[] = \"${_id}\";
 inline constexpr std::string_view kBuildId = kBuildIdCStr;
 
 }
+
+// The MSVC C runtime of this engine build: 1 with the debug CRT (/MDd), and the _ITERATOR_DEBUG_LEVEL that goes
+// with it. A game module must match both (<engine/game_entry.h>). Always 0 off MSVC.
+#define ENGINE_BUILD_DEBUG_CRT ${_debug_crt}
+#define ENGINE_BUILD_ITERATOR_DEBUG_LEVEL ${_iterator_debug_level}
 ")
 
 set(_old "")
