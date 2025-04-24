@@ -49,6 +49,9 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/ecs/world.h` | `World` and `View` declarations | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/world.inl` | Pool and view template bodies | [ECS](../modules/ECS.md) |
 | `include/engine/haptics/haptics_system.h` | `IHaptics` and `HapticsSystem` | [Haptics](../modules/Haptics.md) |
+| `include/engine/net/http_call.h` | `HttpCall`: one owned request, `take`, `cancel` | [Net](../modules/Net.md) |
+| `include/engine/net/http_client.h` | `IHttpClient` and `HttpClient` | [Net](../modules/Net.md) |
+| `include/engine/net/http_request.h` | `HttpRequest`, `HttpResponse`, `HttpError`, `HttpResult` | [Net](../modules/Net.md) |
 | `include/engine/loc/catalog.h` | `StringTable` parse and `Catalog` | [Localization](../modules/Localization.md) |
 | `include/engine/render/.gitkeep` | Keeps the directory in Git | [Render](../modules/Render.md) |
 | `include/engine/render/animation.h` | Sprite clip, animator, animation TOML | [Render](../modules/Render.md) |
@@ -236,7 +239,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ui/math/math_stretch.cpp` | Glyph stretch for tall delimiters | [UI](../modules/UI.md) |
 | `src/ui/math/math_stretch.h` | Stretch API | [UI](../modules/UI.md) |
 
-## `src/audio/`, `src/haptics/`, `src/loc/`
+## `src/audio/`, `src/haptics/`, `src/net/`, `src/loc/`
 
 | Path | What it does | Page |
 | --- | --- | --- |
@@ -246,6 +249,21 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/audio/fake_mixer.h` | In-memory tracks for tests and the no-audio build | [Audio](../modules/Audio.md) |
 | `src/haptics/fake_haptics.h` | Records vibrate and cancel on every backend | [Haptics](../modules/Haptics.md) |
 | `src/haptics/haptics_system.cpp` | No-op, `navigator.vibrate`, or Android JNI | [Haptics](../modules/Haptics.md) |
+| `src/net/android_http.cpp` | `AndroidHttp`: `HttpURLConnection` through JNI | [Net](../modules/Net.md) |
+| `src/net/android_http.h` | Android backend API | [Net](../modules/Net.md) |
+| `src/net/http_call.cpp` | `HttpCall` ownership and cancel | [Net](../modules/Net.md) |
+| `src/net/http_call_state.h` | State shared by a call, the queue, and the backend | [Net](../modules/Net.md) |
+| `src/net/http_client.cpp` | `HttpClient`: backend choice, `send`, `poll`, `dispose` | [Net](../modules/Net.md) |
+| `src/net/http_completions.cpp` | Finished results handed to calls on the main thread | [Net](../modules/Net.md) |
+| `src/net/http_completions.h` | Completion queue API | [Net](../modules/Net.md) |
+| `src/net/http_parse.cpp` | URL check, method names, raw headers, `HttpResponse::header` | [Net](../modules/Net.md) |
+| `src/net/http_parse.h` | `HttpUrl` and the parse functions | [Net](../modules/Net.md) |
+| `src/net/http_worker_pool.cpp` | Threads for blocking backends | [Net](../modules/Net.md) |
+| `src/net/http_worker_pool.h` | Worker pool API | [Net](../modules/Net.md) |
+| `src/net/web_fetch.cpp` | `emscripten_fetch` backend | [Net](../modules/Net.md) |
+| `src/net/web_fetch.h` | Web backend API | [Net](../modules/Net.md) |
+| `src/net/winhttp_session.cpp` | `WinHttpSession`: WinHTTP backend | [Net](../modules/Net.md) |
+| `src/net/winhttp_session.h` | Windows backend API | [Net](../modules/Net.md) |
 | `src/loc/catalog.cpp` | Table parse, lookup, warn-once, pseudo | [Localization](../modules/Localization.md) |
 | `src/loc/format.cpp` | `{name}` and plural message format | [Localization](../modules/Localization.md) |
 | `src/loc/format.h` | Format API | [Localization](../modules/Localization.md) |
@@ -276,6 +294,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/game_module_test.cpp` | `load_game_module` against the fixture modules (editor build) | [Core](../modules/Core.md) |
 | `tests/game_loop_test.cpp` | `RunHooks` order and frame-end restart with a fake presentation | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `tests/haptics_test.cpp` | Clamp, no-op, and the fake counters | [Haptics](../modules/Haptics.md) |
+| `tests/http_test.cpp` | `HttpCall` ownership, completion queue, worker pool, URL and header parsing, `HttpClient` without a socket | [Net](../modules/Net.md) |
 | `tests/host_test.cpp` | `Host` tick and system registration | [Core](../modules/Core.md) |
 | `tests/icon_codegen_test.cpp` | ICO, ICNS, and PNG sizes in memory | [Icon Codegen](../build/Icon%20Codegen.md) |
 | `tests/input_test.cpp` | Bind, hold, touch synthesis, `reset` | [Input Mapper](../features/Input%20Mapper.md) |

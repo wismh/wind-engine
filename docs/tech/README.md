@@ -39,6 +39,7 @@ Product name: Wind. CMake target and C++ namespace: `engine`. Build instructions
 | [Localization](modules/Localization.md) | String tables and `{tr}` |
 | [Audio](modules/Audio.md) | SFX pool, music, looping handles |
 | [Haptics](modules/Haptics.md) | Duration and intensity vibration |
+| [Net](modules/Net.md) | HTTP requests owned by the caller |
 
 ## Features
 

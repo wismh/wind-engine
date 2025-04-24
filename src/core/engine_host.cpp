@@ -9,6 +9,8 @@
 #include <engine/core/worlds.h>
 #include <engine/ecs/systems.h>
 #include <engine/haptics/haptics_system.h>
+#include <engine/log.h>
+#include <engine/net/http_client.h>
 #include <engine/igame.h>
 #include <engine/log.h>
 #include <engine/resources/assets_db.h>
@@ -27,6 +29,7 @@ struct EngineHost::Impl {
     std::unique_ptr<InputSystem> input;
     std::unique_ptr<IAudioSystem> audio;
     std::unique_ptr<IHaptics> haptics;
+    std::unique_ptr<HttpClient> http;
     std::unique_ptr<Worlds> worlds;
     std::optional<EngineServices> services;
     bool initialized = false;
@@ -54,12 +57,14 @@ bool EngineHost::init() {
     impl_->assets = std::make_unique<AssetsDb>(*impl_->fatal);
     impl_->audio = std::make_unique<AudioSystem>();
     impl_->haptics = std::make_unique<HapticsSystem>();
+    impl_->http = std::make_unique<HttpClient>();
     impl_->worlds = std::make_unique<Worlds>(*impl_->fatal);
     impl_->services.emplace(EngineServices{
             .assets = *impl_->assets,
             .input = *impl_->input,
             .audio = *impl_->audio,
             .haptics = *impl_->haptics,
+            .http = *impl_->http,
             .windows = runtime.window_control(),
             .graphics = runtime.factory(),
             .backend = runtime.backend(),
@@ -100,6 +105,10 @@ bool EngineHost::open_primary(const WindowDesc& desc) {
     if (!impl_->audio->init() || !impl_->haptics->init()) {
         dispose();
         return false;
+    }
+    // A game without the network still runs: every request then answers HttpError::Unsupported.
+    if (!impl_->http->init()) {
+        log::warn("HTTP client failed to start");
     }
 
     AssetsDb& assets = *impl_->assets;
@@ -197,7 +206,8 @@ int EngineHost::run(RunHooks hooks) {
         return 1;
     }
     const int result = impl_->runtime.run(
-            std::move(hooks), *impl_->worlds, *impl_->input, impl_->audio.get(), [this] { dispose(); });
+            std::move(hooks), *impl_->worlds, *impl_->input, impl_->audio.get(), impl_->http.get(),
+            [this] { dispose(); });
     dispose();
     return result;
 }
@@ -208,6 +218,7 @@ void EngineHost::dispose() {
     }
     impl_->audio->dispose();
     impl_->haptics->dispose();
+    impl_->http->dispose();
     impl_->runtime.shutdown();
     impl_->initialized = false;
     impl_->opened = false;
