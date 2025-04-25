@@ -121,6 +121,8 @@ The engine template ships `mipmap-*/ic_launcher.png` under `cmake/android/app/sr
 
 A game supplies its own manifest additions (extra `<uses-permission>`, `<queries>`, services, or `tools:node="remove"`) by putting `android/AndroidManifest.xml` (or `AndroidManifest.xml`) next to its `CMakeLists.txt` (detected by `engine_configure_app` as `ENGINE_GAME_ANDROID_MANIFEST`) or by setting `ENGINE_ANDROID_MANIFEST`. AGP's standard Manifest Merger merges that overlay over the engine template.
 
+The template already asks for `INTERNET` (HTTP, [Net](../modules/Net.md)) and `VIBRATE` (haptics). From API 28 Android blocks cleartext `http://`; a game that talks to a plain-HTTP server sets `android:usesCleartextTraffic="true"` or a `networkSecurityConfig` on `<application>` in its overlay.
+
 ABI in the template is `arm64-v8a`. `minSdk` is 21. `compileSdk` and `targetSdk` are 35.
 
 ## Web

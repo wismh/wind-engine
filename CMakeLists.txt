@@ -269,9 +269,9 @@ target_link_libraries(engine
         tinyxml2::tinyxml2
         tomlplusplus::tomlplusplus)
 if(WIN32)
-    # cli_server.cpp (ENGINE_CLI_SERVER) calls WinSock and the ACL APIs. A static
-    # library does not propagate PRIVATE link libs, so games that link engine need them PUBLIC.
-    target_link_libraries(engine PUBLIC ws2_32 advapi32)
+    # cli_server.cpp (ENGINE_CLI_SERVER) calls WinSock and the ACL APIs; src/net/winhttp_session.cpp calls
+    # WinHTTP. A static library does not propagate PRIVATE link libs, so games that link engine need them PUBLIC.
+    target_link_libraries(engine PUBLIC ws2_32 advapi32 winhttp)
 endif()
 
 if(CMAKE_CROSSCOMPILING)
