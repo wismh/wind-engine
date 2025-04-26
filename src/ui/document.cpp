@@ -760,7 +760,14 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
             return std::unexpected(UiError::MissingBinding);
         }
         element.command = command;
-        element.disabled = !command->can_execute();
+        // A TextInput commonly carries a command only for Enter-to-submit (canvas.cpp handle_key's
+        // Return case). Disabling the field whenever that command cannot execute yet (for example
+        // because this same field is still empty) makes it permanently untypeable: handle_text_input
+        // and handle_key both bail out on a disabled element, so it can never receive the keystroke
+        // that would make the command executable. Buttons still grey out; only TextInput is exempt.
+        if (element.kind != ElementKind::TextInput) {
+            element.disabled = !command->can_execute();
+        }
     }
 
     if (is_bound(element.paint_binding) && !in_template) {
