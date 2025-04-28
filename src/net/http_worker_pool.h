@@ -1,5 +1,7 @@
 #pragma once
 
+#include "net/http_completions.h"
+
 #include <engine/net/http_request.h>
 
 #include <condition_variable>
@@ -11,9 +13,6 @@
 #include <vector>
 
 namespace engine {
-
-class HttpCompletions;
-struct HttpCallState;
 
 // Runs blocking transfers (WinHTTP, HttpURLConnection) off the main thread. A call cancelled while queued
 // never starts. A result of a call cancelled while running is dropped.

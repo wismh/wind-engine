@@ -12,7 +12,7 @@ namespace engine {
 
 // Shared by one HttpCall, the client's completion queue, and the backend running the transfer.
 //
-// `result` is main-thread only: HttpCompletions::deliver writes it, HttpCall reads it.
+// `result` is main-thread only: CallCompletions::deliver writes it, HttpCall reads it.
 // `cancel` runs on the main thread. A backend thread brackets its blocking work with
 // `begin_transfer` / `end_transfer`, and `cancel` runs the abort it registered in between.
 struct HttpCallState {
