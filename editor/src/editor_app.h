@@ -41,7 +41,7 @@ private:
     void on_quit();
 
     void choose_game();
-    void take_dialog_answer(const std::optional<std::filesystem::path>& path);
+    void take_dialog_answer(const engine::FileDialogResult& answer);
     void play();
     void stop(std::string status);
 
@@ -56,8 +56,7 @@ private:
     engine::WindowId window_{};
 
     std::filesystem::path game_path_;
-    std::optional<engine::FileDialogRequest> dialog_;
-    std::optional<std::optional<std::filesystem::path>> dialog_answer_;
+    engine::FileDialogCall dialog_;
     bool play_at_start_ = false;
     bool close_requested_ = false;
     bool quitting_ = false;

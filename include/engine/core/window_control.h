@@ -88,10 +88,10 @@ public:
     [[nodiscard]] virtual std::vector<WindowId> open_windows() const = 0;
 
     // Shows the platform's open-file dialog, modal to `owner` where the platform supports it, and
-    // returns at once. The answer arrives later as a FileDialogResultEvent (file_dialog.h) in the
-    // world bound to `owner`, during the poll of some later frame. An empty `filters` list shows every
-    // file.
-    virtual FileDialogRequest request_open_file(WindowId owner, std::vector<FileFilter> filters) = 0;
+    // returns at once. The caller owns the returned call (file_dialog.h); its answer becomes visible
+    // during the poll of some later frame. Dropping the call drops the answer, but the dialog stays open
+    // until the user closes it. An empty `filters` list shows every file.
+    [[nodiscard]] virtual FileDialogCall request_open_file(WindowId owner, std::vector<FileFilter> filters) = 0;
 
     // The display's usable area in screen pixels — the full display bounds minus OS chrome
     // (Windows taskbar, macOS menu bar/dock) — so a game can place a fixed-size overlay flush

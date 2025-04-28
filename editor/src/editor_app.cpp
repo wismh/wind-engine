@@ -135,13 +135,6 @@ bool EditorApp::start(const EditorOptions& options) {
 }
 
 void EditorApp::read_events(engine::ecs::World& world) {
-    for (const engine::FileDialogResultEvent& event : engine::ecs::EventReader<engine::FileDialogResultEvent>{
-                 world, world.ctx<engine::ecs::EventCursor<engine::FileDialogResultEvent>>()}) {
-        if (dialog_ && event.request == *dialog_) {
-            dialog_.reset();
-            dialog_answer_ = event.path;
-        }
-    }
     for (const engine::ui::WindowCloseRequestedEvent& event :
             engine::ecs::EventReader<engine::ui::WindowCloseRequestedEvent>{
                     world, world.ctx<engine::ecs::EventCursor<engine::ui::WindowCloseRequestedEvent>>()}) {
@@ -166,10 +159,8 @@ void EditorApp::on_frame_end() {
         app.quit();
         return;
     }
-    if (dialog_answer_) {
-        const std::optional<std::filesystem::path> answer = std::move(*dialog_answer_);
-        dialog_answer_.reset();
-        take_dialog_answer(answer);
+    if (const std::optional<engine::FileDialogResult> answer = dialog_.take()) {
+        take_dialog_answer(*answer);
     }
     switch (toolbar_->take_request()) {
         case EditorRequest::None:
@@ -194,7 +185,7 @@ void EditorApp::on_quit() {
 }
 
 void EditorApp::choose_game() {
-    if (dialog_) {
+    if (dialog_.pending()) {
         return;
     }
     std::vector<engine::FileFilter> filters{
@@ -203,14 +194,14 @@ void EditorApp::choose_game() {
     dialog_ = host_.services().windows.request_open_file(window_, std::move(filters));
 }
 
-void EditorApp::take_dialog_answer(const std::optional<std::filesystem::path>& path) {
-    if (!path) {
+void EditorApp::take_dialog_answer(const engine::FileDialogResult& answer) {
+    if (!answer.path) {
         if (game_path_.empty()) {
             toolbar_->show_status("No game chosen. Press Choose game.");
         }
         return;
     }
-    game_path_ = *path;
+    game_path_ = *answer.path;
     toolbar_->show_game(game_path_);
     toolbar_->show_status("Ready. Press Play.");
     engine::log::info("Editor: game " + path_text(game_path_));

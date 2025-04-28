@@ -4,7 +4,7 @@
 #include "window_manager.h"
 #include "window_system.h"
 
-#include "core/file_dialog_queue.h"
+#include "core/file_dialog_state.h"
 
 #include <engine/core/window_control.h>
 
@@ -21,7 +21,8 @@ namespace engine {
 // EngineRuntime::open_window, which games never call.
 class WindowControlImpl final : public IWindowControl {
 public:
-    WindowControlImpl(WindowManager& windows, DesktopOverlayPolicy& overlay, std::shared_ptr<FileDialogQueue> dialogs)
+    WindowControlImpl(WindowManager& windows, DesktopOverlayPolicy& overlay,
+            std::shared_ptr<FileDialogCompletions> dialogs)
         : windows_(&windows)
         , overlay_(&overlay)
         , dialogs_(std::move(dialogs)) {}
@@ -118,13 +119,13 @@ public:
         return ids;
     }
 
-    FileDialogRequest request_open_file(WindowId owner, std::vector<FileFilter> filters) override {
-        const FileDialogRequest request = dialogs_->begin(owner);
+    FileDialogCall request_open_file(WindowId owner, std::vector<FileFilter> filters) override {
+        auto state = std::make_shared<FileDialogState>();
         // SDL reads the filter array until the callback runs, possibly on another thread, so the strings
         // and the array live in this heap block until then.
         auto call = std::make_unique<DialogCall>();
         call->dialogs = dialogs_;
-        call->request = request;
+        call->state = state;
         call->filters = std::move(filters);
         call->sdl_filters.reserve(call->filters.size());
         for (const FileFilter& filter : call->filters) {
@@ -134,7 +135,7 @@ public:
         const int count = static_cast<int>(call->sdl_filters.size());
         const SDL_DialogFileFilter* const list = count > 0 ? call->sdl_filters.data() : nullptr;
         SDL_ShowOpenFileDialog(&on_open_file, call.release(), parent, list, count, nullptr, false);
-        return request;
+        return FileDialogCall{std::move(state)};
     }
 
     [[nodiscard]] render::Rect usable_display_bounds(int display_index) const override {
@@ -188,26 +189,26 @@ public:
 
 private:
     struct DialogCall {
-        std::shared_ptr<FileDialogQueue> dialogs;
-        FileDialogRequest request{};
+        std::shared_ptr<FileDialogCompletions> dialogs;
+        std::shared_ptr<FileDialogState> state;
         std::vector<FileFilter> filters;
         std::vector<SDL_DialogFileFilter> sdl_filters;
     };
 
-    // SDL may call this on its dialog thread. The queue is shared, so it outlives a presentation that
-    // shut down while the dialog was still open.
+    // SDL may call this on its dialog thread, so it only pushes into the queue. The queue and the state are
+    // shared, so they outlive a presentation that shut down, or a call dropped, while the dialog was open.
     static void SDLCALL on_open_file(void* userdata, const char* const* files, int) {
         const std::unique_ptr<DialogCall> call(static_cast<DialogCall*>(userdata));
         std::optional<std::filesystem::path> path;
         if (files != nullptr && files[0] != nullptr) {
             path = std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(files[0])));
         }
-        call->dialogs->complete(call->request, std::move(path));
+        call->dialogs->push(std::move(call->state), FileDialogResult{.path = std::move(path)});
     }
 
     WindowManager* windows_;
     DesktopOverlayPolicy* overlay_;
-    std::shared_ptr<FileDialogQueue> dialogs_;
+    std::shared_ptr<FileDialogCompletions> dialogs_;
     std::function<void()> on_windows_changed_;
 };
 

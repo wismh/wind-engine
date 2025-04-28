@@ -119,7 +119,7 @@ TEST(WindowControlImpl, DelegatesWithoutCrashingWithoutWindow) {
     engine::render::OpenGLRenderBackend backend;
     engine::WindowManager windows{backend};
     engine::DesktopOverlayPolicy overlay;
-    engine::WindowControlImpl control{windows, overlay, std::make_shared<engine::FileDialogQueue>()};
+    engine::WindowControlImpl control{windows, overlay, std::make_shared<engine::FileDialogCompletions>()};
     engine::IWindowControl& control_ref = control;
     control_ref.set_borderless(true);
     control_ref.set_always_on_top(true);
@@ -146,7 +146,7 @@ TEST(WindowControlImpl, WindowIdAddressedMethodsDefaultToPrimary) {
     engine::render::OpenGLRenderBackend backend;
     engine::WindowManager windows{backend};
     engine::DesktopOverlayPolicy overlay;
-    engine::WindowControlImpl control{windows, overlay, std::make_shared<engine::FileDialogQueue>()};
+    engine::WindowControlImpl control{windows, overlay, std::make_shared<engine::FileDialogCompletions>()};
     engine::IWindowControl& control_ref = control;
     control_ref.set_borderless(true);
     control_ref.set_always_on_top(true);
@@ -162,7 +162,7 @@ TEST(WindowControlImpl, WindowIdAddressedMethodsAreNoopForUnknownWindow) {
     engine::render::OpenGLRenderBackend backend;
     engine::WindowManager windows{backend};
     engine::DesktopOverlayPolicy overlay;
-    engine::WindowControlImpl control{windows, overlay, std::make_shared<engine::FileDialogQueue>()};
+    engine::WindowControlImpl control{windows, overlay, std::make_shared<engine::FileDialogCompletions>()};
     engine::IWindowControl& control_ref = control;
     const engine::WindowId secondary{7};
     control_ref.set_title("Tool", secondary);
@@ -304,7 +304,7 @@ TEST(WindowControlImpl, UsableDisplayBoundsIsNoopWithoutVideo) {
     engine::render::OpenGLRenderBackend backend;
     engine::WindowManager windows{backend};
     engine::DesktopOverlayPolicy overlay;
-    engine::WindowControlImpl control{windows, overlay, std::make_shared<engine::FileDialogQueue>()};
+    engine::WindowControlImpl control{windows, overlay, std::make_shared<engine::FileDialogCompletions>()};
     engine::IWindowControl& control_ref = control;
     (void) control_ref.usable_display_bounds();
     (void) control_ref.usable_display_bounds(0);
@@ -316,7 +316,7 @@ TEST(WindowControlImpl, PositionAndSizeAreNulloptWithoutWindow) {
     engine::render::OpenGLRenderBackend backend;
     engine::WindowManager windows{backend};
     engine::DesktopOverlayPolicy overlay;
-    engine::WindowControlImpl control{windows, overlay, std::make_shared<engine::FileDialogQueue>()};
+    engine::WindowControlImpl control{windows, overlay, std::make_shared<engine::FileDialogCompletions>()};
     engine::IWindowControl& control_ref = control;
     const engine::WindowId missing{7};
 
@@ -339,7 +339,7 @@ TEST(WindowControlImpl, OverlayModeDefaultsToAutoAndForwardsToPolicy) {
     engine::render::OpenGLRenderBackend backend;
     engine::WindowManager windows{backend};
     engine::DesktopOverlayPolicy overlay;
-    engine::WindowControlImpl control{windows, overlay, std::make_shared<engine::FileDialogQueue>()};
+    engine::WindowControlImpl control{windows, overlay, std::make_shared<engine::FileDialogCompletions>()};
     engine::IWindowControl& control_ref = control;
 
     EXPECT_EQ(control_ref.overlay_mode(), engine::OverlayMode::Auto);
