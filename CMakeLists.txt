@@ -401,6 +401,13 @@ function(engine_add_android_game target)
 endfunction()
 
 function(engine_add_sdl3)
+    # user_data_directory on web is SDL_GetPrefPath under this mount. SDL links idbfs.js and
+    # syncs IndexedDB before main when the path is non-empty. FORCE: an earlier empty cache
+    # value would leave saves in MEMFS (/libsdl), which disappears on reload.
+    if(EMSCRIPTEN)
+        set(SDL_EMSCRIPTEN_PERSISTENT_PATH "/storage" CACHE STRING
+            "IDBFS mount for SDL_GetPrefPath; Wind user_data_directory writes here" FORCE)
+    endif()
     if(TARGET SDL3::SDL3)
         return()
     endif()
