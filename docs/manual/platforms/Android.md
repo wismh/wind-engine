@@ -14,7 +14,7 @@ Wind games compile to Android using the Android NDK, CMake, and Gradle, producin
 
 ## 2. Project Setup
 
-Wind provides an Android project template located in `external/engine/cmake/android/app`. In your game repository's `build.gradle`, set the key properties:
+Wind provides an Android project template located in `cmake/android/app` of the engine source (`<sdk>/source/cmake/android/app`; an Android build adds that source with `add_subdirectory`, see [Game Consumer](../../tech/build/Game%20Consumer.md#standalone-executable)). In your game repository's `build.gradle`, set the key properties:
 
 ```groovy
 // build.gradle / gradle.properties

@@ -1,6 +1,6 @@
 # Game functions: engine_prepare_runtime, engine_configure_app, engine_add_game, engine_add_web_game,
 # engine_add_android_game. Included by the engine's root CMakeLists.txt (source build) and by an installed
-# editor SDK's wind_sdk.cmake (SDK mode, WIND_EDITOR_SDK). docs/tech/build/CMake.md
+# editor SDK's WindConfig.cmake (SDK mode, find_package(Wind)). docs/tech/build/CMake.md
 #
 # The functions run in the calling directory's scope, so everything they read from the engine is a cache
 # variable that both contexts set:
@@ -11,7 +11,7 @@
 # The source build also defines the target `engine_builtin_catalog`, which cooks ENGINE_COOKED_CATALOG. In
 # the SDK the catalog is already cooked under bin/assets/engine/.
 
-# SDK mode only, called by wind_sdk.cmake: check the game's configurations against the SDK's and give DebugGame its
+# SDK mode only, called by WindConfig.cmake: check the game's configurations against the SDK's and give DebugGame its
 # flags. A module shares the C runtime with the SDK's engine.dll, so:
 #   Release (any non-Debug) SDK: the configurations DebugGame and Release, both /MD. Debug, RelWithDebInfo, and
 #     MinSizeRel are refused. CMake has no flags for DebugGame, so the CMAKE_<LANG>_FLAGS_DEBUGGAME and
@@ -341,15 +341,15 @@ function(engine_configure_app target)
 endfunction()
 
 # Windowed game: executable + C++23 + asset_codegen + runtime asset copy.
-# Call after add_subdirectory(external/engine). Remaining args are sources.
-# Under ENGINE_EDITOR, and always in SDK mode (WIND_EDITOR_SDK), the game is a shared module instead
+# Call after find_package(Wind) (or, for a static build, add_subdirectory of the engine source). Remaining args are
+# sources. Under ENGINE_EDITOR, and always in SDK mode, the game is a shared module instead
 # (ENGINE_GAME_MODULE, see <engine/game_entry.h>) that the editor loads on Play.
 function(engine_add_game target)
     if(NOT ARGN)
         message(FATAL_ERROR "engine_add_game(${target}): pass at least one source file")
     endif()
     if(NOT TARGET engine)
-        message(FATAL_ERROR "engine_add_game: add_subdirectory the Wind engine first")
+        message(FATAL_ERROR "engine_add_game: find_package(Wind) first")
     endif()
     if(NOT ENGINE_FROM_SDK AND NOT ENGINE_WITH_WINDOW)
         message(FATAL_ERROR

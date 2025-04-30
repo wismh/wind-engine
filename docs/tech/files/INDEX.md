@@ -282,7 +282,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/builtin_test.cpp` | Frozen builtin ids and files | [Resources](../modules/Resources.md) |
 | `tests/camera_test.cpp` | Ortho matrices and screen/world | [ECS](../modules/ECS.md) |
 | `tests/cli_server_test.cpp` | Descriptor, HTTP, and commands without `GameLoop` | [CLI](../features/CLI.md) |
-| `tests/cmake_sanity_test.cpp` | Public headers compile, build id, CMake file checks (game functions, SDK mode) | [CMake](../build/CMake.md) |
+| `tests/cmake_sanity_test.cpp` | Public headers compile, build id, CMake file checks (game functions, SDK package) | [CMake](../build/CMake.md) |
 | `tests/command_buffer_test.cpp` | Push and iterate the three command types | [Render](../modules/Render.md) |
 | `tests/ecs_test.cpp` | Create, destroy, views, deferred destroy | [ECS](../modules/ECS.md) |
 | `tests/events_test.cpp` | Double buffer and cursors | [ECS](../modules/ECS.md) |
@@ -360,7 +360,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | --- | --- | --- |
 | `cmake/build_id.cmake` | Writes `<engine/build_id.h>`: the build id and the engine's CRT macros | [CMake](../build/CMake.md#build-id) |
 | `cmake/wind_game.cmake` | `engine_add_game`, `engine_configure_app`, `engine_prepare_runtime`, web and Android variants, `engine_sdk_configurations` (SDK mode: `DebugGame` and `Release`) | [CMake](../build/CMake.md#game-functions) |
-| `cmake/wind_sdk.cmake.in` | Template of the editor SDK's `wind_sdk.cmake`: imported `engine`, `glm::glm`, tools | [CMake](../build/CMake.md#editor-sdk) |
+| `cmake/WindConfig.cmake.in` | Template of the editor SDK's `WindConfig.cmake` (`find_package(Wind)`): imported `engine`, `glm::glm`, tools, GoogleTest | [CMake](../build/CMake.md#editor-sdk) |
+| `cmake/sdk_manifest.cmake` | Install step that writes the SDK's `sdk.toml` (version, commit, dirty, config, build id) | [CMake](../build/CMake.md#editor-sdk) |
 
 ## `editor/`
 
