@@ -20,6 +20,7 @@ The editor is in progress. See [Editor Plan](Editor%20Plan.md). Today `wind_edit
 - `Engine::init` passes engine services to the game constructor as `EngineServices`.
 - Per-user writable directory (`user_data_directory`) for saves and settings. The game owns the file format and when to write.
 - HTTP and HTTPS requests (`IHttpClient`) on Windows, Android, and Web. The caller owns each request as an `HttpCall`.
+- Child processes (`IProcessLauncher`) on Windows: a tool whose output lines and exit the caller owns as a `ProcessCall`, ended with everything it started on cancel, and independent programs (`launch`). The editor builds games with it.
 - GoogleTest suite for engine logic (`engine_tests`).
 
 ## Backlog
