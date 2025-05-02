@@ -68,7 +68,7 @@ Any failure unloads the copy and deletes its directory. `GameModuleError` is the
 
 ## `EngineHost`
 
-`include/engine/core/engine_host.h`, `src/core/engine_host.cpp`. Window builds only. It owns `EngineRuntime`, `SdlFatalError`, `AssetsDb`, `InputSystem`, `AudioSystem`, `HapticsSystem`, `HttpClient`, and `Worlds`. `Engine<GameT>` sits on it. The editor ([Editor](../features/Editor.md)) sits on it too.
+`include/engine/core/engine_host.h`, `src/core/engine_host.cpp`. Window builds only. It owns `EngineRuntime`, `SdlFatalError`, `AssetsDb`, `InputSystem`, `AudioSystem`, `HapticsSystem`, `HttpClient`, `ProcessLauncher` ([Process](Process.md)), and `Worlds`. `Engine<GameT>` sits on it. The editor ([Editor](../features/Editor.md)) sits on it too.
 
 | Call | Does |
 | --- | --- |
@@ -81,8 +81,8 @@ Any failure unloads the copy and deletes its directory. `GameModuleError` is the
 | `unload_catalog(dir)` | `AssetsDb::unload_catalog(dir)`. Pass the same path `load_catalog` got |
 | `attach_game(game)` | window icon, `bind_window(kPrimaryWindow)`, `enable_ui`, `enable_audio`, publish the window size with a resize event, `ui::apply_canvas_fit` |
 | `detach_game()` | the window half of undoing `attach_game`: `unbind_window(kPrimaryWindow)`, clear its command buffer, reset its UI painter and register `builtin::font_ui` again, clear its drag region and click-through, overlay mode back to `Auto`, `ApplicationState::paused` false. The editor calls it on Stop |
-| `run(hooks)` | `EngineRuntime::run` with `RunHooks` and the `HttpClient` the loop polls, then `dispose`. Returns 1 before a successful `open_primary` |
-| `dispose()` | disposes audio, haptics, and HTTP and shuts the runtime down. Also run by the destructor. A second call is a no-op |
+| `run(hooks)` | `EngineRuntime::run` with `RunHooks` and the `HttpClient` and `ProcessLauncher` the loop polls, then `dispose`. Returns 1 before a successful `open_primary` |
+| `dispose()` | disposes audio, haptics, HTTP, and the process launcher (ending the programs its calls still own) and shuts the runtime down. Also run by the destructor. A second call is a no-op |
 
 `set_deps` registers simulation systems on worlds that already exist and on every later `Worlds::add`. `enable_ui` and `enable_audio` add the rest. Each registration is guarded by its `ctx` flag, so a world never gets a system twice, whether it was added before or after `set_deps`.
 

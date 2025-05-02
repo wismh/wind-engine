@@ -52,6 +52,9 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/net/http_call.h` | `HttpCall`: one owned request, `take`, `cancel` | [Net](../modules/Net.md) |
 | `include/engine/net/http_client.h` | `IHttpClient` and `HttpClient` | [Net](../modules/Net.md) |
 | `include/engine/net/http_request.h` | `HttpRequest`, `HttpResponse`, `HttpError`, `HttpResult` | [Net](../modules/Net.md) |
+| `include/engine/process/process_call.h` | `ProcessCall`: one owned child, `take_output`, `take`, `cancel` | [Process](../modules/Process.md) |
+| `include/engine/process/process_desc.h` | `ProcessDesc`, `ProcessVariable`, `ProcessExit`, `ProcessError`, `ProcessResult` | [Process](../modules/Process.md) |
+| `include/engine/process/process_launcher.h` | `IProcessLauncher` and `ProcessLauncher` | [Process](../modules/Process.md) |
 | `include/engine/loc/catalog.h` | `StringTable` parse and `Catalog` | [Localization](../modules/Localization.md) |
 | `include/engine/render/.gitkeep` | Keeps the directory in Git | [Render](../modules/Render.md) |
 | `include/engine/render/animation.h` | Sprite clip, animator, animation TOML | [Render](../modules/Render.md) |
@@ -265,6 +268,15 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/net/web_fetch.h` | Web backend API | [Net](../modules/Net.md) |
 | `src/net/winhttp_session.cpp` | `WinHttpSession`: WinHTTP backend | [Net](../modules/Net.md) |
 | `src/net/winhttp_session.h` | Windows backend API | [Net](../modules/Net.md) |
+| `src/process/line_splitter.cpp` | `LineSplitter`: output bytes to lines | [Process](../modules/Process.md) |
+| `src/process/line_splitter.h` | `LineSplitter` API | [Process](../modules/Process.md) |
+| `src/process/process_call.cpp` | `ProcessCall` ownership and cancel | [Process](../modules/Process.md) |
+| `src/process/process_call_state.h` | State shared by a call, the launcher, and the reader thread | [Process](../modules/Process.md) |
+| `src/process/process_command_line.cpp` | Windows argument quoting, command line, environment merge | [Process](../modules/Process.md) |
+| `src/process/process_command_line.h` | Their API | [Process](../modules/Process.md) |
+| `src/process/process_launcher.cpp` | `ProcessLauncher`: backend choice, `run`, `launch`, `poll`, `dispose` | [Process](../modules/Process.md) |
+| `src/process/windows_process.cpp` | Windows backend: pipe, job object, reader thread, `launch` | [Process](../modules/Process.md) |
+| `src/process/windows_process.h` | Windows backend API | [Process](../modules/Process.md) |
 | `src/loc/catalog.cpp` | Table parse, lookup, warn-once, pseudo | [Localization](../modules/Localization.md) |
 | `src/loc/format.cpp` | `{name}` and plural message format | [Localization](../modules/Localization.md) |
 | `src/loc/format.h` | Format API | [Localization](../modules/Localization.md) |
@@ -308,6 +320,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/particle_test.cpp` | Emitter step and curves | [Render](../modules/Render.md) |
 | `tests/physics_test.cpp` | Overlap enter, stay, exit | [ECS](../modules/ECS.md) |
 | `tests/platform_test.cpp` | Assets root and `user_data_directory` names | [Core](../modules/Core.md) |
+| `tests/process_test.cpp` | Line cutting, quoting, environment, `ProcessCall` ownership, and real `cmd.exe` children on Windows (output, exit, cancel, leftovers) | [Process](../modules/Process.md) |
 | `tests/render_system_test.cpp` | `run_render` sort; unset camera skips, missing components fatal | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `tests/shader_adapt_test.cpp` | GLSL 300 ES rewrite | [Render](../modules/Render.md) |
 | `tests/sort_test.cpp` | `renderable_less` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
