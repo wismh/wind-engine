@@ -1,0 +1,14 @@
+<Canvas>
+  <Stack class="panel" direction="vertical">
+    <Stack class="option-row" direction="horizontal">
+      <Label class="summary" text="{binding summary}"/>
+    </Stack>
+    <ScrollView class="box log" scroll-y="{binding logScroll}">
+      <ItemsControl class="rows" items_source="{binding lines}">
+        <ItemTemplate>
+          <Label class="log-line" text="{binding text}" var-tone="{binding tone}"/>
+        </ItemTemplate>
+      </ItemsControl>
+    </ScrollView>
+  </Stack>
+</Canvas>

@@ -123,7 +123,7 @@ A drag starts only when `drag` is bound and `data_context` is set. It writes a 0
 
 A pan starts only on a Viewport with a camera binding when `data_context` is set. `pan-x` and `pan-y` take deltas in layout pixels. A later move drops that pan if `data_context` is gone.
 
-Scroll, drag, and pan write through `generated_owner` when that pointer is set, otherwise the canvas `data_context`. Scroll bindings (`scroll-x`, `scroll-y`) are written that way, including from a scrollbar drag. Wheel scroll still updates `scroll_x` / `scroll_y` on the element when `data_context` is null. Only the binding write is skipped.
+Scroll, drag, and pan write through `generated_owner` when that pointer is set, otherwise the canvas `data_context`. Scroll bindings (`scroll-x`, `scroll-y`) are read into the element clamped to `[0, max_scroll]` of the last layout, so a view-model may ask for the end with any value past it; the view-model keeps its own value, and a list that grew is clamped to its new extent on the next frame. They are written that way, including from a scrollbar drag. Wheel scroll still updates `scroll_x` / `scroll_y` on the element when `data_context` is null. Only the binding write is skipped.
 
 ## Tests
 
