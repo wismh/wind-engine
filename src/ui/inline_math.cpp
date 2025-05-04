@@ -316,6 +316,24 @@ struct LabelInlineCache {
            cache.nowrap == (element.white_space != WhiteSpace::Normal) && cache.font == painter.math_font();
 }
 
+// A non-empty text run measured as zero wide. That happens when the painter's transform scale is 0
+// (or the font is not in the atlas yet): the formula is then placed at the start of the line, and
+// keeping the cache paints it on top of the letters after the scale returns to 1.
+[[nodiscard]] bool collapsed_text(const LabelInlineCache& cache) {
+    for (const InlineLine& line : cache.layout.lines) {
+        for (const InlineSegment& seg : line.segments) {
+            if (seg.piece >= cache.split.pieces.size() ||
+                cache.split.pieces[seg.piece].kind == InlinePiece::Kind::Math) {
+                continue;
+            }
+            if (seg.end > seg.begin && seg.width <= 0.0f) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 [[nodiscard]] LabelInlineCache build_label_inline(const Element& element, IUiPainter* painter, float font_size,
                                                   float wrap_width, bool warn) {
     LabelInlineCache cache;
@@ -652,7 +670,7 @@ InlineLayout layout_inline(const std::vector<InlinePiece>& pieces, float max_wid
 glm::vec2 measure_label_inline(const Element& element, IUiPainter* painter, float font_size, float wrap_width) {
     if (painter != nullptr) {
         if (const LabelInlineCache* cache = stored_cache(element);
-            cache != nullptr && cache_keys_match(*cache, element, *painter, font_size) &&
+            cache != nullptr && !collapsed_text(*cache) && cache_keys_match(*cache, element, *painter, font_size) &&
             (cache->nowrap || cache->wrap_width == wrap_width)) {
             return {cache->layout.width, cache->layout.height};
         }
@@ -670,7 +688,8 @@ void paint_label_inline(IUiPainter& painter, Element& element, float font_size, 
                         glm::vec4 color) {
     constexpr float kEpsilon = 0.01f;
     const LabelInlineCache* cache = stored_cache(element);
-    const bool reusable = cache != nullptr && cache_keys_match(*cache, element, painter, font_size) &&
+    const bool reusable = cache != nullptr && !collapsed_text(*cache) &&
+                          cache_keys_match(*cache, element, painter, font_size) &&
                           (cache->nowrap || (cache->wrap_width + kEpsilon >= content_width &&
                                              cache->layout.width <= content_width + kEpsilon));
     if (!reusable) {
