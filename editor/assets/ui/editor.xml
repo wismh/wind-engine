@@ -1,16 +1,17 @@
 <Canvas>
   <Stack class="editor" direction="vertical">
     <Stack class="toolbar" direction="horizontal">
-      <Button class="tool-button" command="{binding chooseGame}" content="Choose game…"/>
+      <Button class="tool-button" command="{binding openProject}" content="Open project…"/>
       <Button class="play-button" command="{binding togglePlay}" checked="{binding isPlaying}" content="{binding playLabel}"/>
       <Stack class="info" direction="vertical">
         <Label class="status" text="{binding statusText}"/>
-        <Label class="path" text="{binding gamePath}"/>
+        <Label class="path" text="{binding projectText}"/>
       </Stack>
     </Stack>
     <Stack class="tabs" direction="horizontal">
       <Button class="tab" command="{binding showInspector}" checked="{binding inspectorTab}" content="Inspector"/>
       <Button class="tab" command="{binding showProfiler}" checked="{binding profilerTab}" content="Profiler"/>
+      <Button class="tab" command="{binding showBuild}" checked="{binding buildTab}" content="Build"/>
     </Stack>
     <!-- The active panel is its own canvas over this area (EditorPanels). -->
     <Stack class="content"/>

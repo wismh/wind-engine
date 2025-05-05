@@ -365,6 +365,9 @@ function(engine_add_game target)
         add_library(${target} SHARED ${ARGN})
         target_compile_definitions(${target} PRIVATE ENGINE_GAME_MODULE=1)
         set_target_properties(${target} PROPERTIES PREFIX "")
+        # Where the module of each configuration lands, for the editor that builds and loads it: one line, the
+        # absolute path, in <build>/wind/<target>.<config>.module. Written when CMake generates, so before a build.
+        file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/wind/${target}.$<CONFIG>.module" CONTENT "$<TARGET_FILE:${target}>")
         if(ENGINE_FROM_SDK AND MSVC)
             # The CRT of the SDK's engine.dll, whatever the game's directory sets (engine_sdk_configurations has
             # the DebugGame flags). The Release module gets symbols, like the SDK: /Zi, and /DEBUG with /OPT:REF
