@@ -247,22 +247,18 @@ void parse_declarations(std::string_view body, std::vector<CssDeclaration>& decl
                         "background-image value must be none or a 32-hex AssetId, not a filename: " + decl.value);
             }
         } else if (decl.property == "background-slice") {
-            if (css_length::contains_var(decl.value)) {
-                warnings.emplace_back("var() is not supported");
-                continue;
-            }
-            if (!css_length::parse_insets(decl.value).has_value()) {
+            // A var() reference can't be syntax-checked until it's resolved against a live
+            // Element::custom_properties / cascaded --name value at paint time (paint.cpp
+            // resolve_var + apply_declaration) — skip eager validation here, same as any
+            // non-length property (color, opacity, ...) already does for var().
+            if (!css_length::contains_var(decl.value) && !css_length::parse_insets(decl.value).has_value()) {
                 warnings.emplace_back("invalid background-slice: " + decl.value);
                 continue;
             }
         } else if (is_length_property(decl.property)) {
             const bool padding_like = decl.property == "padding" || decl.property == "margin";
-            if (css_length::contains_var(decl.value)) {
-                warnings.emplace_back("var() is not supported");
-                continue;
-            }
             const bool has_calc = decl.value.find("calc") != std::string::npos;
-            if (has_calc) {
+            if (has_calc && !css_length::contains_var(decl.value)) {
                 const bool ok = padding_like ? css_length::parse_insets(decl.value).has_value()
                                              : css_length::parse_length(decl.value).has_value();
                 if (!ok) {
