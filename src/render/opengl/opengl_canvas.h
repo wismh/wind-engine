@@ -39,6 +39,9 @@ public:
     // next frame registers what its canvases reference again, the builtin UI font included.
     [[nodiscard]] bool reset_ui_painter();
     void make_current();
+    // Sets this context's swap interval: vsync on (adaptive where the driver has it, else plain) or off. False
+    // without a context or when the driver refuses the interval.
+    [[nodiscard]] bool set_vsync(bool on);
     [[nodiscard]] ui::IUiPainter* ui_painter() const noexcept {
         return ui_painter_.get();
     }
