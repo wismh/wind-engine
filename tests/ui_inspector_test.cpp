@@ -3,6 +3,7 @@
 #include "ui/element_path.h"
 #include "ui/painter.h"
 
+#include <engine/ecs/events.h>
 #include <engine/ecs/world.h>
 #include <engine/ui/canvas.h>
 #include <engine/ui/document.h>
@@ -148,7 +149,9 @@ namespace {
             ASSERT_TRUE(engine::ui::apply_bindings(instance.document, *canvas.data_context).has_value());
         }
         const engine::ui::Stylesheet *sheet = instance.stylesheet ? &*instance.stylesheet : nullptr;
-        engine::ui::apply_layout_style(instance.document.root, sheet, 800.0f, 600.0f);
+        const engine::ui::WindowSize size = engine::ui::window_size_for(world, canvas.window);
+        engine::ui::apply_layout_style(instance.document.root, sheet, static_cast<float>(size.width),
+                                       static_cast<float>(size.height));
         engine::ui::layout(instance.document, canvas.rect);
     }
 
@@ -355,6 +358,13 @@ TEST(UiInspector, ClickOnLabelSelectsItAndSkipsTheCommand) {
     ASSERT_NE(winner, nullptr);
     EXPECT_NE(winner->text.find("#go"), std::string::npos);
     EXPECT_EQ(winner->text.find(":hover"), std::string::npos);
+
+    engine::ui::handle_pointer(game.world, 700.0f, 10.0f);
+    EXPECT_EQ(game.vm->clicks, 0);
+    const engine::ui::InspectorPick edge = engine::ui::inspector_selection(game.world);
+    EXPECT_TRUE(edge.active);
+    EXPECT_TRUE(edge.path.empty());
+    EXPECT_EQ(edge.canvas, game.entity);
 }
 
 TEST(UiInspector, ClickOnPanelRunsTheRowCommand) {
@@ -362,6 +372,12 @@ TEST(UiInspector, ClickOnPanelRunsTheRowCommand) {
     engine::ui::set_inspector_enabled(game.world, true);
     const engine::ecs::Entity panel = inspector_panel(game.world);
     ASSERT_TRUE(game.world.valid(panel));
+    const engine::ui::UiCanvas &panel_canvas = game.world.get<engine::ui::UiCanvas>(panel);
+    EXPECT_NE(panel_canvas.window, engine::kPrimaryWindow);
+    EXPECT_EQ(panel_canvas.fit, engine::ui::UiFit::FillWindow);
+    EXPECT_TRUE(game.world.ctx<engine::ui::WindowSizes>().sizes.contains(panel_canvas.window));
+    EXPECT_FLOAT_EQ(game.world.get<engine::ui::UiCanvas>(game.entity).rect.w, 800.0f);
+    const engine::WindowId panel_window = panel_canvas.window;
     layout_instance(game.world, panel);
     engine::ui::UiInstance &panel_instance = game.world.get<engine::ui::UiInstance>(panel);
     engine::ui::Element *row = find_text(panel_instance.document.root, "Label #lab");
@@ -371,8 +387,10 @@ TEST(UiInspector, ClickOnPanelRunsTheRowCommand) {
     const float x = row->layout_rect.x + row->layout_rect.w * 0.5f;
     const float y = row->layout_rect.y + row->layout_rect.h * 0.5f;
 
-    engine::ui::handle_pointer(game.world, x, y);
+    engine::ui::handle_pointer(game.world, x, y, panel_window);
     EXPECT_EQ(game.vm->clicks, 0);
+    EXPECT_FALSE(game.world.ctx<engine::ui::MouseConsumed>().consumed_for());
+    EXPECT_TRUE(game.world.ctx<engine::ui::MouseConsumed>().consumed_for(panel_window));
     const engine::ui::InspectorPick pick = engine::ui::inspector_selection(game.world);
     EXPECT_TRUE(pick.active);
     engine::ui::UiInstance &game_instance = game.world.get<engine::ui::UiInstance>(game.entity);
@@ -418,4 +436,54 @@ TEST(UiInspector, OverlayDrawsHoverAndSelectionOnceWhenTheyMatch) {
     EXPECT_EQ(painter.strokes, 1);
     EXPECT_NEAR(painter.last_stroke.y, 0.9f, 0.01f);
     EXPECT_NEAR(painter.last_stroke.z, 0.4f, 0.01f);
+}
+
+TEST(UiInspector, HostOpensOneWindowAndDisableClosesIt) {
+    GameCanvas game = spawn_game({0.0f, 0.0f, 800.0f, 600.0f});
+    int opens = 0;
+    int closes = 0;
+    std::string title;
+    game.world.ctx<engine::ui::InspectorWindowHost>().open = [&](const engine::WindowDesc &desc) {
+        ++opens;
+        title = desc.title;
+        return engine::WindowId{9};
+    };
+    game.world.ctx<engine::ui::InspectorWindowHost>().close = [&](engine::WindowId id) {
+        ++closes;
+        EXPECT_EQ(id, engine::WindowId{9});
+    };
+
+    engine::ui::set_inspector_enabled(game.world, true);
+    EXPECT_EQ(opens, 1);
+    EXPECT_EQ(title, "UI Inspector");
+    const engine::ecs::Entity panel = inspector_panel(game.world);
+    ASSERT_TRUE(game.world.valid(panel));
+    EXPECT_EQ(game.world.get<engine::ui::UiCanvas>(panel).window, engine::WindowId{9});
+    EXPECT_FALSE(game.world.ctx<engine::ui::WindowSizes>().sizes.contains(engine::WindowId{9}));
+
+    engine::ui::set_inspector_enabled(game.world, false);
+    EXPECT_EQ(closes, 1);
+    EXPECT_FALSE(engine::ui::inspector_enabled(game.world));
+    EXPECT_FALSE(game.world.valid(inspector_panel(game.world)));
+    EXPECT_FALSE(game.world.ctx<engine::ui::UiInspector>().panel_window.has_value());
+}
+
+TEST(UiInspector, CloseRequestDisablesAndClosesTheWindow) {
+    GameCanvas game = spawn_game({0.0f, 0.0f, 800.0f, 600.0f});
+    int closes = 0;
+    game.world.ctx<engine::ui::InspectorWindowHost>().open = [](const engine::WindowDesc &) {
+        return engine::WindowId{9};
+    };
+    game.world.ctx<engine::ui::InspectorWindowHost>().close = [&](engine::WindowId) { ++closes; };
+
+    engine::ui::set_inspector_enabled(game.world, true);
+    engine::ecs::EventWriter<engine::ui::WindowCloseRequestedEvent>{game.world}.send(
+            engine::ui::WindowCloseRequestedEvent{.window = engine::WindowId{9}});
+    engine::ui::begin_frame(game.world);
+    EXPECT_FALSE(engine::ui::inspector_enabled(game.world));
+    EXPECT_EQ(closes, 1);
+    EXPECT_FALSE(game.world.valid(inspector_panel(game.world)));
+
+    engine::ui::begin_frame(game.world);
+    EXPECT_EQ(closes, 1);
 }

@@ -18,7 +18,7 @@ String tables addressed by `AssetId`, resolved into UI text at bind time. The ga
 - `run_bind` and the pointer path in `canvas.cpp` pass `&world.ctx<loc::Catalog>()`. The resolved string is written to `Element::text`, so the layout dirty-gate sees a locale change as a text change.
 - `set_pseudo(true)` wraps the finished string in `[` `]` and appends `~` so layout tests can catch overflow.
 
-Numbers inside `#` and `{count}` are plain decimal digits, with no grouping. The UI font must contain the glyphs: builtin `font_ui` (Tiny5) is not a Cyrillic face. Point `font-family` at a font asset that has the code points. NanoVG draws left to right and does not shape Arabic, Hebrew, or Indic.
+Numbers inside `#` and `{count}` are plain decimal digits, with no grouping. Builtin `font_ui` is Inter, which covers Latin, Greek, and Cyrillic. A face that lacks a code point still needs its own `font-family`. NanoVG draws left to right and does not shape Arabic, Hebrew, or Indic.
 
 ## Public headers
 

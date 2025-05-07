@@ -17,6 +17,7 @@
 #include <engine/ecs/world.h>
 #include <engine/resources/font.h>
 #include <engine/ui/canvas.h>
+#include <engine/ui/inspector.h>
 
 #include <SDL3/SDL.h>
 
@@ -195,6 +196,10 @@ public:
             canvas->make_current();
             return canvas->ui_painter();
         };
+        world.ctx<ui::InspectorWindowHost>().open = [this](const WindowDesc& desc) {
+            return window_control_->open_window(desc);
+        };
+        world.ctx<ui::InspectorWindowHost>().close = [this](WindowId id) { window_control_->close_window(id); };
         sync_modal_hook();
     }
 
@@ -202,6 +207,7 @@ public:
         loop_tick_ = nullptr;
         sync_modal_hook();
         world.ctx<ui::UiLayoutPainters>().resolve = {};
+        world.ctx<ui::InspectorWindowHost>() = {};
     }
 
     void publish_primary_size(ecs::World& world, bool send_event) override {
