@@ -512,37 +512,48 @@ namespace engine::cli {
             }
         }
 
-        void dispatch(ecs::World &world, Job &job, bool begin) {
+        void dispatch(const CliFrame &frame, Job &job, bool begin) {
             if (job_done(job)) {
                 return;
             }
             const CliRequest request = parse_request(job.body);
             if (!request.error.empty()) {
-                finish(job, 200, execute(world, request).json);
+                finish(job, 200, error_json(request.error));
                 return;
             }
-            if (begin) {
-                if (job.phase != Phase::ClickArmed) {
-                    return;
-                }
-                const CliResponse response = execute(world, request);
-                {
-                    std::lock_guard lock(job.mutex);
-                    if (job.done) {
-                        return;
-                    }
-                    job.response = response.json;
-                    job.phase = Phase::ClickDone;
+            if (!is_ui_command(request.command)) {
+                if (!begin) {
+                    finish(job, 200, execute_host(frame.host, request));
                 }
                 return;
             }
             if (job.phase == Phase::ClickDone) {
-                std::string body;
-                {
-                    std::lock_guard lock(job.mutex);
-                    body = job.response;
+                if (!begin) {
+                    std::string body;
+                    {
+                        std::lock_guard lock(job.mutex);
+                        body = job.response;
+                    }
+                    finish(job, 200, std::move(body));
                 }
-                finish(job, 200, std::move(body));
+                return;
+            }
+            if (begin && job.phase != Phase::ClickArmed) {
+                return;
+            }
+            ecs::World *const world = frame.world_for ? frame.world_for(WindowId{request.window}) : nullptr;
+            if (world == nullptr) {
+                finish(job, 200, error_json(std::format("no world on window {}", request.window)));
+                return;
+            }
+            if (begin) {
+                const CliResponse response = execute(*world, request);
+                std::lock_guard lock(job.mutex);
+                if (job.done) {
+                    return;
+                }
+                job.response = response.json;
+                job.phase = Phase::ClickDone;
                 return;
             }
             if (job.phase == Phase::ClickArmed) {
@@ -553,7 +564,7 @@ namespace engine::cli {
                 return;
             }
             if (request.command == "profile" && !request.stop) {
-                const CliResponse response = execute(world, request);
+                const CliResponse response = execute(*world, request);
                 if (response.pending) {
                     job.phase = Phase::ProfileWait;
                     return;
@@ -561,7 +572,7 @@ namespace engine::cli {
                 finish(job, 200, response.json);
                 return;
             }
-            finish(job, 200, execute(world, request).json);
+            finish(job, 200, execute(*world, request).json);
         }
 
     } // namespace
@@ -581,7 +592,7 @@ namespace engine::cli {
 #endif
     }
 
-    void start() {
+    void start(std::string_view kind) {
         Server &self = server();
         if (self.running.load()) {
             return;
@@ -644,8 +655,9 @@ namespace engine::cli {
         }
         const unsigned port = ntohs(bound.sin_port);
         const std::filesystem::path file = directory / (std::to_string(process_id()) + ".json");
-        const std::string json = std::format("{{\"pid\":{},\"port\":{},\"token\":\"{}\",\"exe\":\"{}\"}}", process_id(),
-                                              port, token, json_escape(executable_path()));
+        const std::string json = std::format(
+                "{{\"pid\":{},\"port\":{},\"token\":\"{}\",\"exe\":\"{}\",\"kind\":\"{}\"}}", process_id(), port,
+                token, json_escape(executable_path()), json_escape(kind.empty() ? std::string_view("game") : kind));
         if (!write_private(file, json)) {
             close_socket(listen);
             log::error("wind-cli server: could not write the descriptor");
@@ -694,7 +706,7 @@ namespace engine::cli {
 #endif
     }
 
-    void begin_frame(ecs::World &world) {
+    void begin_frame(const CliFrame &frame) {
         Server &self = server();
         if (!self.running.load()) {
             return;
@@ -705,11 +717,11 @@ namespace engine::cli {
             jobs = self.jobs;
         }
         for (const std::shared_ptr<Job> &job: jobs) {
-            dispatch(world, *job, true);
+            dispatch(frame, *job, true);
         }
     }
 
-    void drain(ecs::World &world) {
+    void drain(const CliFrame &frame) {
         Server &self = server();
         if (!self.running.load()) {
             return;
@@ -720,7 +732,7 @@ namespace engine::cli {
             jobs = self.jobs;
         }
         for (const std::shared_ptr<Job> &job: jobs) {
-            dispatch(world, *job, false);
+            dispatch(frame, *job, false);
         }
         std::lock_guard lock(self.mutex);
         self.jobs.erase(std::remove_if(self.jobs.begin(), self.jobs.end(),

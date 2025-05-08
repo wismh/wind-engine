@@ -19,6 +19,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/core/application_state.h` | `running` and `paused` | [Core](../modules/Core.md) |
 | `include/engine/core/bound_windows.h` | Windows bound to one world | [Windowing](../features/Windowing.md) |
 | `include/engine/core/build_info.h` | `build_id()` and the generated `kBuildId` | [CMake](../build/CMake.md) |
+| `include/engine/core/cli_commands.h` | `CliCommand`, `CliReply`, `CliCommands`: a host's own `wind-cli` commands | [CLI](../features/CLI.md#host-commands) |
 | `include/engine/core/engine.h` | `Engine<GameT>::init`, `run`, `dispose` over `EngineHost` | [Core](../modules/Core.md) |
 | `include/engine/core/engine_host.h` | `EngineHost`: services, primary window, catalogs, game attach and detach, run | [Core](../modules/Core.md) |
 | `include/engine/core/engine_runtime.h` | Windowed presentation and `GameLoop` owner | [Core](../modules/Core.md) |
@@ -31,7 +32,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/core/input_system.h` | `ActionId` bindings and input events | [Input Mapper](../features/Input%20Mapper.md) |
 | `include/engine/core/key_code.h` | `KeyCode` values matching SDL scancodes | [Input Mapper](../features/Input%20Mapper.md) |
 | `include/engine/core/platform.h` | Platform, assets root, `user_data_directory` | [Core](../modules/Core.md) |
-| `include/engine/core/run_hooks.h` | `RunHooks`: `on_start`, `on_frame_end`, `on_quit` | [Runtime Loop](../architecture/Runtime%20Loop.md) |
+| `include/engine/core/run_hooks.h` | `RunHooks`: `on_start`, `on_frame_end`, `on_quit`, `cli` | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `include/engine/core/sdl_fatal_error.h` | SDL message-box `IFatalError` | [Core](../modules/Core.md) |
 | `include/engine/core/time.h` | `Time` and the 60 Hz constants | [Core](../modules/Core.md) |
 | `include/engine/core/web_loop.h` | `MainLoopPolicy` and `LoopShutdown` | [Core](../modules/Core.md) |
@@ -127,7 +128,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/core/sdl_fatal_error.cpp` | Message box and quit | [Core](../modules/Core.md) |
 | `src/core/web_loop.cpp` | RAF vs blocking policy, ordered shutdown | [Core](../modules/Core.md) |
 | `src/core/worlds.cpp` | Add, destroy, bind, per-world clocks | [Core](../modules/Core.md) |
-| `src/cli/cli_commands.cpp` | JSON for `tree`, `element`, `hit`, `click`, `profile` | [CLI](../features/CLI.md) |
+| `src/cli/cli_commands.cpp` | JSON for `tree`, `element`, `hit`, `click`, `profile`, and host replies | [CLI](../features/CLI.md) |
 | `src/cli/cli_server.cpp` | Loopback accept thread and descriptor file | [CLI](../features/CLI.md) |
 | `src/cli/cli_server.h` | Server API used by `GameLoop` | [CLI](../features/CLI.md) |
 
@@ -304,19 +305,20 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/audio_test.cpp` | Pool, music fade, looping handles, `stop_all` without opening a device | [Audio](../modules/Audio.md) |
 | `tests/builtin_test.cpp` | Frozen builtin ids and files | [Resources](../modules/Resources.md) |
 | `tests/camera_test.cpp` | Ortho matrices and screen/world | [ECS](../modules/ECS.md) |
-| `tests/cli_server_test.cpp` | Descriptor, HTTP, and commands without `GameLoop` | [CLI](../features/CLI.md) |
+| `tests/cli_server_test.cpp` | Descriptor, HTTP, window routing, host commands, and UI commands without `GameLoop` | [CLI](../features/CLI.md) |
 | `tests/cmake_sanity_test.cpp` | Public headers compile, build id, CMake file checks (game functions, SDK package) | [CMake](../build/CMake.md) |
 | `tests/command_buffer_test.cpp` | Push and iterate the three command types | [Render](../modules/Render.md) |
 | `tests/ecs_test.cpp` | Create, destroy, views, deferred destroy | [ECS](../modules/ECS.md) |
 | `tests/events_test.cpp` | Double buffer and cursors | [ECS](../modules/ECS.md) |
 | `tests/file_dialog_test.cpp` | `FileDialogCall` delivery, cancel, and ownership | [Windowing](../features/Windowing.md) |
+| `tests/fixtures/cli_client.h` | Loopback client: this process's descriptor and `POST /exec` | [CLI](../features/CLI.md) |
 | `tests/fixtures/fake_services.h` | Headless `EngineServices` fakes for tests that create a game | [Core](../modules/Core.md) |
 | `tests/fixtures/game_module/fixture_game.cpp` | Fixture game module, built three ways in the editor build | [Core](../modules/Core.md) |
 | `tests/fixtures/game_module/fixture_log.h` | `FixtureLog` the fixture game writes into | [Core](../modules/Core.md) |
 | `tests/frame_pacing_test.cpp` | Vsync window choice, refresh period, limiter period, `FrameLimiter` schedule | [Windowing](../features/Windowing.md#frame-pacing) |
 | `tests/game_entry_test.cpp` | `ENGINE_GAME` module exports and build id (window builds) | [Core](../modules/Core.md) |
 | `tests/game_module_test.cpp` | `load_game_module` against the fixture modules (editor build) | [Core](../modules/Core.md) |
-| `tests/game_loop_test.cpp` | `RunHooks` order and frame-end restart with a fake presentation | [Runtime Loop](../architecture/Runtime%20Loop.md) |
+| `tests/game_loop_test.cpp` | `RunHooks` order, frame-end restart, and `RunHooks::cli` without a primary world, with a fake presentation | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `tests/haptics_test.cpp` | Clamp, no-op, and the fake counters | [Haptics](../modules/Haptics.md) |
 | `tests/http_test.cpp` | `HttpCall` ownership, completion queue, worker pool, URL and header parsing, `HttpClient` without a socket | [Net](../modules/Net.md) |
 | `tests/host_test.cpp` | `Host` tick and system registration | [Core](../modules/Core.md) |
@@ -378,7 +380,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tools/asset_guid/main.cpp` | `asset_guid` CLI | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `tools/asset_guid/README.md` | One-page usage | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `tools/icon_codegen/main.cpp` | `icon_codegen` CLI | [Icon Codegen](../build/Icon%20Codegen.md) |
-| `tools/wind_cli/main.cpp` | Host client for the loopback server | [CLI](../features/CLI.md) |
+| `tools/wind_cli/main.cpp` | Host client for the loopback server, and `launch` of the editor beside it | [CLI](../features/CLI.md) |
 
 ## `cmake/`
 
@@ -416,6 +418,8 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/build_view_model.h` | `BuildViewModel` | [Editor](../features/Editor.md) |
 | `editor/src/editor_app.cpp` | Start, SDK and project, build and play, frame-end transitions, quit | [Editor](../features/Editor.md) |
 | `editor/src/editor_app.h` | `EditorApp` | [Editor](../features/Editor.md) |
+| `editor/src/editor_cli.cpp` | `state`, `play`, `stop`, `open` for `wind-cli` | [Editor](../features/Editor.md#wind-cli) |
+| `editor/src/editor_cli.h` | `EditorCli`, `EditorFacts` | [Editor](../features/Editor.md#wind-cli) |
 | `editor/src/editor_options.cpp` | `--project` and `--play` | [Editor](../features/Editor.md) |
 | `editor/src/editor_options.h` | `EditorOptions` | [Editor](../features/Editor.md) |
 | `editor/src/editor_panels.cpp` | Panel canvases, tab placement, refresh, attach and detach | [Editor](../features/Editor.md) |
@@ -452,6 +456,7 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/toolbar.cpp` | Button methods, tabs, and shown state | [Editor](../features/Editor.md) |
 | `editor/src/toolbar.h` | `Toolbar`, `EditorRequest`, `RunState` | [Editor](../features/Editor.md) |
 | `editor/tests/build_panel_test.cpp` | Log tones, first error, scroll, line cap | [Editor](../features/Editor.md) |
+| `editor/tests/editor_cli_test.cpp` | `EditorCli` replies and the requests it records | [Editor](../features/Editor.md#wind-cli) |
 | `editor/tests/editor_options_test.cpp` | `--project` and `--play` | [Editor](../features/Editor.md) |
 | `editor/tests/editor_panels_test.cpp` | Tabs and panel canvas placement, attach and detach | [Editor](../features/Editor.md) |
 | `editor/tests/inspector_panel_test.cpp` | Inspector view-models against a headless world | [UI Inspector](../features/UI%20Inspector.md) |

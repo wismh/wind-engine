@@ -2,6 +2,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 #include <charconv>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -11,6 +12,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #if defined(_WIN32)
@@ -150,9 +152,23 @@ bool parse_string(std::string_view &in, std::string &out) {
             out += esc;
         } else if (esc == 'n') {
             out += '\n';
+        } else if (esc == 'r') {
+            out += '\r';
+        } else if (esc == 't') {
+            out += '\t';
+        } else if (esc == 'b') {
+            out += '\b';
+        } else if (esc == 'f') {
+            out += '\f';
         } else if (esc == 'u' && in.size() >= 4) {
+            unsigned code = 0;
+            const auto [ptr, ec] = std::from_chars(in.data(), in.data() + 4, code, 16);
+            if (ec != std::errc{} || ptr != in.data() + 4) {
+                return false;
+            }
             in.remove_prefix(4);
-            out += '?';
+            // The server escapes only control characters this way; other text arrives as UTF-8.
+            out += code < 0x80 ? static_cast<char>(code) : '?';
         } else {
             return false;
         }
@@ -206,6 +222,8 @@ struct Instance {
     int port = 0;
     std::string token;
     std::string exe;
+    // "editor" or "game". A descriptor written before the field existed is a game.
+    std::string kind;
 };
 
 std::vector<Instance> live_instances() {
@@ -224,6 +242,7 @@ std::vector<Instance> live_instances() {
         const std::optional<std::int64_t> port = json_int(json, "port");
         const std::optional<std::string> token = json_string(json, "token");
         const std::optional<std::string> exe = json_string(json, "exe");
+        const std::optional<std::string> kind = json_string(json, "kind");
         if (!pid || !port || !token || *pid < 0 || *port <= 0 || *port > 65535) {
             continue;
         }
@@ -233,29 +252,38 @@ std::vector<Instance> live_instances() {
             continue;
         }
         found.push_back(Instance{static_cast<std::uint32_t>(*pid), static_cast<int>(*port), *token,
-                                 exe ? *exe : std::string{}});
+                                 exe ? *exe : std::string{}, kind ? *kind : std::string("game")});
     }
     return found;
 }
 
-std::optional<Instance> pick_instance(const std::vector<Instance> &instances, bool has_pid, std::uint32_t pid) {
+// `editor`: only instances of kind "editor" count, so a standalone game beside the editor does not need --pid.
+std::optional<Instance> pick_instance(const std::vector<Instance> &all, bool has_pid, std::uint32_t pid, bool editor) {
+    std::vector<Instance> instances;
+    for (const Instance &instance: all) {
+        if (!editor || instance.kind == "editor") {
+            instances.push_back(instance);
+        }
+    }
+    // A UI command reaches a game or an editor that plays one.
+    const char *what = editor ? "editor" : "game or editor";
     if (has_pid) {
         for (const Instance &instance: instances) {
             if (instance.pid == pid) {
                 return instance;
             }
         }
-        std::cerr << "no game with pid " << pid << "\n";
+        std::cerr << "no " << what << " with pid " << pid << "\n";
         return std::nullopt;
     }
     if (instances.empty()) {
-        std::cerr << "no game is listening\n";
+        std::cerr << "no " << what << " is listening\n";
         return std::nullopt;
     }
     if (instances.size() > 1) {
-        std::cerr << "more than one game is listening; pass --pid\n";
+        std::cerr << "more than one " << what << " is listening; pass --pid\n";
         for (const Instance &instance: instances) {
-            std::cerr << instance.pid << " " << instance.exe << "\n";
+            std::cerr << instance.pid << " " << instance.kind << " " << instance.exe << "\n";
         }
         return std::nullopt;
     }
@@ -270,8 +298,8 @@ std::string status_json(const std::vector<Instance> &instances) {
             out += ',';
         }
         first = false;
-        out += std::format("{{\"pid\":{},\"port\":{},\"exe\":\"{}\"}}", instance.pid, instance.port,
-                           json_escape(instance.exe));
+        out += std::format("{{\"pid\":{},\"port\":{},\"kind\":\"{}\",\"exe\":\"{}\"}}", instance.pid, instance.port,
+                           json_escape(instance.kind), json_escape(instance.exe));
     }
     out += "]}";
     return out;
@@ -357,14 +385,190 @@ bool http_exchange(const Instance &instance, std::string_view body, std::string 
     return true;
 }
 
+std::string utf8(const std::filesystem::path &path) {
+    const std::u8string text = path.u8string();
+    return {reinterpret_cast<const char *>(text.data()), text.size()};
+}
+
+// The `result` value of a reply `{"ok":...,"result":X}`, which the server always writes last; "null" without one.
+std::string result_of(std::string_view body) {
+    const std::size_t at = body.find("\"result\":");
+    if (at == std::string_view::npos || body.empty() || body.back() != '}') {
+        return "null";
+    }
+    const std::size_t begin = at + std::string_view("\"result\":").size();
+    return std::string(body.substr(begin, body.size() - begin - 1));
+}
+
+// The directory wind-cli runs from. In an SDK that is `<sdk>/bin`, beside `wind_editor`.
+std::filesystem::path own_directory() {
+#if defined(_WIN32)
+    std::wstring path(32768, L'\0');
+    const DWORD length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+    path.resize(length);
+    return std::filesystem::path(path).parent_path();
+#else
+    std::error_code error;
+    return std::filesystem::read_symlink("/proc/self/exe", error).parent_path();
+#endif
+}
+
+std::filesystem::path default_editor() {
+#if defined(_WIN32)
+    return own_directory() / "wind_editor.exe";
+#else
+    return own_directory() / "wind_editor";
+#endif
+}
+
+// `argument` is a project directory or its wind_project.toml, relative to the current directory or absolute.
+std::optional<std::filesystem::path> project_directory(std::string_view argument) {
+    std::error_code error;
+    std::filesystem::path directory = std::filesystem::absolute(std::filesystem::path(argument), error);
+    if (error) {
+        std::cerr << "bad project path " << argument << "\n";
+        return std::nullopt;
+    }
+    if (directory.filename() == "wind_project.toml") {
+        directory = directory.parent_path();
+    }
+    const std::filesystem::path canonical = std::filesystem::weakly_canonical(directory, error);
+    if (!error) {
+        directory = canonical;
+    }
+    if (!std::filesystem::is_regular_file(directory / "wind_project.toml", error)) {
+        std::cerr << "no wind_project.toml in " << utf8(directory) << "\n";
+        return std::nullopt;
+    }
+    return directory;
+}
+
+#if defined(_WIN32)
+// One argv entry for the child's CommandLineToArgvW rules.
+std::wstring quote_argument(const std::wstring &argument) {
+    if (!argument.empty() && argument.find_first_of(L" \t\n\v\"") == std::wstring::npos) {
+        return argument;
+    }
+    std::wstring out = L"\"";
+    std::size_t backslashes = 0;
+    for (const wchar_t c: argument) {
+        if (c == L'\\') {
+            ++backslashes;
+            continue;
+        }
+        out.append(c == L'"' ? backslashes * 2 + 1 : backslashes, L'\\');
+        out += c;
+        backslashes = 0;
+    }
+    out.append(backslashes * 2, L'\\');
+    out += L'"';
+    return out;
+}
+#endif
+
+// Starts the editor on its own, the way the launcher does: detached, in the editor's directory. Its pid, or
+// nullopt after printing why.
+std::optional<std::uint32_t> start_editor(const std::filesystem::path &editor, const std::filesystem::path &project,
+                                          bool play) {
+#if defined(_WIN32)
+    std::wstring command = L"\"" + editor.wstring() + L"\" --project " + quote_argument(project.wstring());
+    if (play) {
+        command += L" --play";
+    }
+    const std::wstring directory = editor.parent_path().wstring();
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION info{};
+    const DWORD flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP;
+    const auto create = [&](DWORD extra) {
+        return CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, flags | extra, nullptr,
+                              directory.c_str(), &startup, &info);
+    };
+    // Leave this terminal's job so the editor outlives it; a job that does not allow that refuses with
+    // ERROR_ACCESS_DENIED, and the editor then starts inside it.
+    BOOL created = create(CREATE_BREAKAWAY_FROM_JOB);
+    if (!created && GetLastError() == ERROR_ACCESS_DENIED) {
+        created = create(0);
+    }
+    if (!created) {
+        std::cerr << "could not start " << utf8(editor) << " (error " << GetLastError() << ")\n";
+        return std::nullopt;
+    }
+    const std::uint32_t pid = info.dwProcessId;
+    CloseHandle(info.hThread);
+    CloseHandle(info.hProcess);
+    return pid;
+#else
+    (void) editor;
+    (void) project;
+    (void) play;
+    std::cerr << "launch is not supported on this platform\n";
+    return std::nullopt;
+#endif
+}
+
+// The started editor's descriptor, once its loop runs. Nullopt when it exits first or the timeout passes.
+std::optional<Instance> wait_for_descriptor(std::uint32_t pid, std::chrono::seconds timeout) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+        for (const Instance &instance: live_instances()) {
+            if (instance.pid == pid) {
+                return instance;
+            }
+        }
+        if (!process_alive(pid)) {
+            std::cerr << "the editor exited before it listened (pid " << pid << "); see its game.log\n";
+            return std::nullopt;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    std::cerr << "the editor did not listen within " << timeout.count() << " s (pid " << pid << ")\n";
+    return std::nullopt;
+}
+
+// Polls `state` until the editor plays (true) or is idle again (false: the build or Play failed, or the game quit
+// already). `last` is the last state reply.
+bool wait_for_play(const Instance &instance, std::chrono::seconds timeout, std::string &last) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (true) {
+        if (!http_exchange(instance, "{\"command\":\"state\"}", last)) {
+            return false;
+        }
+        const std::optional<std::string> run = json_string(last, "run");
+        if (!run) {
+            return false;
+        }
+        if (*run == "playing") {
+            return true;
+        }
+        if (*run == "idle") {
+            return false;
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            std::cerr << "still " << *run << " after " << timeout.count() << " s\n";
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    }
+}
+
 void usage() {
     std::cerr << "usage: wind-cli status\n"
+                 "       wind-cli launch <project> [--play [--wait [S]]] [--editor PATH]\n"
+                 "       wind-cli state [--pid N]\n"
+                 "       wind-cli play [--wait [S]] [--pid N]\n"
+                 "       wind-cli stop [--pid N]\n"
+                 "       wind-cli open <project> [--pid N]\n"
                  "       wind-cli tree [--window N] [--pid N]\n"
                  "       wind-cli element <selector> [--window N] [--pid N]\n"
                  "       wind-cli hit <x> <y> [--window N] [--pid N]\n"
                  "       wind-cli click <selector> [--window N] [--pid N]\n"
                  "       wind-cli profile [stop] [--pid N]\n";
 }
+
+constexpr std::chrono::seconds kListenTimeout{30};
+// A first build of a game can take minutes.
+constexpr std::chrono::seconds kDefaultWait{600};
 
 } // namespace
 
@@ -374,7 +578,15 @@ int main(int argc, char **argv) {
     bool has_window = false;
     std::uint32_t window = 0;
     bool stop = false;
+    bool play = false;
+    bool wait = false;
+    std::uint32_t wait_seconds = static_cast<std::uint32_t>(kDefaultWait.count());
+    std::optional<std::filesystem::path> editor;
     std::vector<std::string> positionals;
+    const auto parse_uint = [](std::string_view text, std::uint32_t &out) {
+        const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), out);
+        return ec == std::errc{} && ptr == text.data() + text.size();
+    };
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
         const auto take_uint = [&](std::uint32_t &out) {
@@ -382,14 +594,7 @@ int main(int argc, char **argv) {
                 return false;
             }
             ++i;
-            std::uint32_t value = 0;
-            const std::string_view text = argv[i];
-            const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), value);
-            if (ec != std::errc{} || ptr != text.data() + text.size()) {
-                return false;
-            }
-            out = value;
-            return true;
+            return parse_uint(argv[i], out);
         };
         if (arg == "--pid") {
             if (!take_uint(pid)) {
@@ -405,6 +610,22 @@ int main(int argc, char **argv) {
             has_window = true;
         } else if (arg == "--stop") {
             stop = true;
+        } else if (arg == "--play") {
+            play = true;
+        } else if (arg == "--wait") {
+            wait = true;
+            std::uint32_t seconds = 0;
+            if (i + 1 < argc && parse_uint(argv[i + 1], seconds)) {
+                wait_seconds = seconds;
+                ++i;
+            }
+        } else if (arg == "--editor") {
+            if (i + 1 >= argc) {
+                usage();
+                return 2;
+            }
+            ++i;
+            editor = std::filesystem::path(argv[i]);
         } else if (arg.starts_with('-')) {
             usage();
             return 2;
@@ -417,6 +638,12 @@ int main(int argc, char **argv) {
         return 2;
     }
     const std::string &command = positionals[0];
+    const bool editor_command = command == "state" || command == "play" || command == "stop" || command == "open";
+    if ((play && command != "launch") || (editor && command != "launch") ||
+        (wait && !(command == "play" || (command == "launch" && play)))) {
+        usage();
+        return 2;
+    }
 
     const std::vector<Instance> instances = live_instances();
     if (command == "status") {
@@ -424,7 +651,46 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-    const std::optional<Instance> instance = pick_instance(instances, has_pid, pid);
+    if (command == "launch") {
+        if (positionals.size() != 2) {
+            usage();
+            return 2;
+        }
+        const std::optional<std::filesystem::path> project = project_directory(positionals[1]);
+        if (!project) {
+            return 1;
+        }
+        const std::filesystem::path program = editor ? std::filesystem::absolute(*editor) : default_editor();
+        if (!std::filesystem::is_regular_file(program)) {
+            std::cerr << "no editor at " << utf8(program) << "; pass --editor\n";
+            return 1;
+        }
+        const std::optional<std::uint32_t> started = start_editor(program, *project, play);
+        if (!started) {
+            return 1;
+        }
+        const std::optional<Instance> instance = wait_for_descriptor(*started, kListenTimeout);
+        if (!instance) {
+            return 1;
+        }
+        const std::string launched = std::format("\"pid\":{},\"port\":{}", instance->pid, instance->port);
+        if (!wait) {
+            std::cout << "{\"ok\":true,\"result\":{" << launched << "}}\n";
+            return 0;
+        }
+        std::string last;
+        const bool playing = wait_for_play(*instance, std::chrono::seconds(wait_seconds), last);
+        if (playing) {
+            std::cout << "{\"ok\":true,\"result\":{" << launched << ",\"state\":" << result_of(last) << "}}\n";
+            return 0;
+        }
+        const std::string status = json_string(last, "status").value_or("the editor did not play");
+        std::cout << "{\"ok\":false,\"error\":\"" << json_escape(status) << "\",\"result\":{" << launched
+                  << ",\"state\":" << result_of(last) << "}}\n";
+        return 1;
+    }
+
+    const std::optional<Instance> instance = pick_instance(instances, has_pid, pid, editor_command);
     if (!instance) {
         return 1;
     }
@@ -466,7 +732,19 @@ int main(int argc, char **argv) {
         if (stop) {
             body += ",\"stop\":true";
         }
-    } else if (command == "tree") {
+    } else if (command == "open") {
+        if (positionals.size() != 2) {
+            usage();
+            return 2;
+        }
+        std::error_code error;
+        const std::filesystem::path path = std::filesystem::absolute(std::filesystem::path(positionals[1]), error);
+        if (error) {
+            std::cerr << "bad project path " << positionals[1] << "\n";
+            return 1;
+        }
+        body += ",\"path\":\"" + json_escape(utf8(path)) + "\"";
+    } else if (command == "tree" || command == "state" || command == "play" || command == "stop") {
         if (positionals.size() != 1) {
             usage();
             return 2;
@@ -480,6 +758,11 @@ int main(int argc, char **argv) {
     std::string response;
     if (!http_exchange(*instance, body, response)) {
         return 1;
+    }
+    if (command == "play" && wait && response.starts_with("{\"ok\":true")) {
+        const bool playing = wait_for_play(*instance, std::chrono::seconds(wait_seconds), response);
+        std::cout << response << "\n";
+        return playing ? 0 : 1;
     }
     std::cout << response << "\n";
     return response.starts_with("{\"ok\":true") ? 0 : 1;
