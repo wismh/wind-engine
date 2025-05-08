@@ -78,7 +78,11 @@ bool WindowManager::create_primary_window(const WindowDesc& desc) {
     if (!entry.window.create(desc)) {
         return false;
     }
-    return entry.canvas->init(/*with_ui_painter=*/true);
+    if (!entry.canvas->init(/*with_ui_painter=*/true)) {
+        return false;
+    }
+    init_swap_interval(kPrimaryWindow, entry);
+    return true;
 }
 
 std::optional<WindowId> WindowManager::create_window(const WindowDesc& desc) {
@@ -110,11 +114,15 @@ std::optional<WindowId> WindowManager::create_window(const WindowDesc& desc) {
     }
 
     const WindowId id{next_id_++};
+    init_swap_interval(id, *entry);
     windows_[id] = std::move(entry);
     return id;
 }
 
 void WindowManager::destroy_window(WindowId id) {
+    if (vsync_window_ == id) {
+        vsync_window_.reset();
+    }
     if (id == kPrimaryWindow) {
         // The primary slot is permanent infrastructure (see the constructor): whether a game may
         // close its own primary window at all is a lifecycle *policy* question,
@@ -132,6 +140,7 @@ void WindowManager::destroy_window(WindowId id) {
 
 void WindowManager::shutdown() {
     set_modal_loop_tick_callback(nullptr);
+    vsync_window_.reset();
     // Secondary windows are fully torn down and forgotten. The primary slot is reset in
     // place via destroy_window() rather than erased, so a later create_window()/
     // create_primary_window() call still works and this manager's already-handed-out primary
@@ -223,16 +232,83 @@ void WindowManager::for_each_window(const std::function<void(WindowId, const Win
     }
 }
 
+void WindowManager::init_swap_interval(WindowId id, Entry& entry) {
+    // A recreated primary has a new context with the driver's default interval, so the vsync window is chosen
+    // again on the next frame.
+    if (vsync_window_ == id) {
+        vsync_window_.reset();
+    }
+#if defined(__EMSCRIPTEN__)
+    // SDL's Emscripten swap interval sets the main loop's timing; GameLoop already runs on requestAnimationFrame.
+    entry.vsync_supported = false;
+#else
+    entry.vsync_supported = entry.canvas->set_vsync(false);
+#endif
+}
+
+std::optional<WindowId> WindowManager::sync_vsync_window() {
+    pacing_.clear();
+    for (const auto& [id, entry] : windows_) {
+        if (entry->window.window() != nullptr) {
+            pacing_.push_back(PacingWindow{
+                    .id = id,
+                    .presentable = entry->window.is_presentable(),
+                    .vsync_supported = entry->vsync_supported,
+            });
+        }
+    }
+    const std::optional<WindowId> chosen = vsync_ ? choose_vsync_window(pacing_) : std::nullopt;
+    if (chosen == vsync_window_) {
+        return vsync_window_;
+    }
+    if (vsync_window_) {
+        if (render::OpenGLCanvas* const previous = canvas(*vsync_window_)) {
+            (void)previous->set_vsync(false);
+        }
+        vsync_window_.reset();
+    }
+    if (chosen) {
+        Entry& entry = *windows_.at(*chosen);
+        if (entry.canvas->set_vsync(true)) {
+            vsync_window_ = chosen;
+        } else {
+            entry.vsync_supported = false;
+        }
+    }
+    return vsync_window_;
+}
+
+void WindowManager::wait_for_next_frame(bool vsync_waited) {
+#if defined(__EMSCRIPTEN__)
+    (void)vsync_waited;
+#else
+    const std::optional<std::chrono::nanoseconds> period =
+            limiter_period(vsync_, vsync_waited, max_fps_, primary_window().refresh_rate());
+    if (!period) {
+        return;
+    }
+    const std::chrono::nanoseconds wait = limiter_.wait_after(FrameLimiter::Clock::now(), *period);
+    if (wait > std::chrono::nanoseconds::zero()) {
+        SDL_DelayPrecise(static_cast<Uint64>(wait.count()));
+    }
+#endif
+}
+
 void WindowManager::draw_all() {
     // The primary slot's canvas object always exists (constructor), even before
     // create_primary_window() ever succeeds — gating on window.window() rather than on canvas
     // non-null avoids issuing raw GL calls through an OpenGLCanvas that was never init()'d (no GL
     // context, no loaded entry points).
+    const std::optional<WindowId> vsync = sync_vsync_window();
     for (auto& [id, entry] : windows_) {
-        if (entry->canvas && entry->window.window() != nullptr) {
+        if (id != vsync && entry->canvas && entry->window.window() != nullptr) {
             entry->canvas->draw();
         }
     }
+    if (vsync) {
+        windows_.at(*vsync)->canvas->draw();
+    }
+    wait_for_next_frame(vsync.has_value());
 }
 
 }
