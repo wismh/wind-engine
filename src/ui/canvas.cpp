@@ -596,7 +596,9 @@ namespace engine::ui {
                             pick.path = find_element_path(prepared->instance->document.root, visual.element);
                             pick.generated_owner = path_generated_owner(prepared->instance->document.root, pick.path);
                             pick.active = true;
-                            world.ctx<UiInspector>().selection[window] = std::move(pick);
+                            UiInspector &inspector = world.ctx<UiInspector>();
+                            inspector.detail_window = window;
+                            inspector.selection[window] = std::move(pick);
                             world.ctx<MouseConsumed>().consumed_windows.insert(window);
                             return;
                         }
