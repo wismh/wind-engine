@@ -35,6 +35,7 @@ Windowed games enter through `ENGINE_GAME` (`include/engine/game_entry.h`), whic
 | `on_start` | in `GameLoop::begin`, after `attach_loop`, before the first frame |
 | `on_frame_end` | last in every `tick`, after `cli::drain`. Web runs `tick` from the main-loop callback, so it is called there too. Not called from `reentrant_tick` |
 | `on_quit` | once, in `GameLoop::end`, before the host dispose callback |
+| `cli` | `CliCommands` (`<engine/core/cli_commands.h>`): the descriptor `kind` passed to `cli::start`, and `handle`, called from `cli::drain` for a command the engine does not answer. A game leaves it empty. See [CLI](../features/CLI.md#host-commands) |
 
 `on_frame_end` may set `ApplicationState::running` back to true. The loop reads `running` after the hook, so the loop goes on. The editor uses this to stop a game that quit and keep running itself.
 
@@ -46,7 +47,7 @@ Windowed games enter through `ENGINE_GAME` (`include/engine/game_entry.h`), whic
 2. `RunHooks::on_start`.
 3. `ui::apply_canvas_fit` on every world that draws UI.
 4. `ApplicationState::running = true`.
-5. `cli::start()` when `ENGINE_CLI_SERVER` is defined. Otherwise the call is empty.
+5. `cli::start(hooks.cli.kind)` when `ENGINE_CLI_SERVER` is defined. Otherwise the call is empty. The descriptor is written here, after `on_start`.
 
 Web (`Platform::Web`) then uses `emscripten_set_main_loop_arg` with `simulate_infinite_loop = 1`. Every other platform loops `tick` while `running` is true, then `end`.
 
@@ -54,18 +55,18 @@ Web (`Platform::Web`) then uses `emscripten_set_main_loop_arg` with `simulate_in
 
 ```mermaid
 flowchart TD
-  A["cli::begin_frame on the primary world"] --> B["flush every world"]
+  A["cli::begin_frame"] --> B["flush every world"]
   B --> C["poll: event window to its world"]
   C --> C2["HttpClient::poll: finished requests to their calls"]
   C2 --> C3["ProcessLauncher::poll: output lines and exits to their calls"]
   C3 --> D["simulate_worlds"]
   D --> E["sync_frame"]
   E --> F["draw_all, then wait for the next frame"]
-  F --> G["cli::drain on the primary world"]
+  F --> G["cli::drain"]
   G --> H["RunHooks::on_frame_end"]
 ```
 
-`cli::begin_frame` and `cli::drain` use the world bound to `kPrimaryWindow`. No binding means those calls are skipped. `reentrant_tick` is the same slice without flush, without either poll, and without `on_frame_end`, so HTTP results wait for the frame after the drag. Windows calls it from inside `SDL_PollEvent` while a modal move or size loop is running. It shares the frame clock, so the frame that resumes after a drag does not replay the drag.
+`cli::begin_frame` and `cli::drain` run every frame, with or without a world on `kPrimaryWindow`. Each request looks up the world bound to its own window at that moment (`Worlds::world_for`), so a world that Play or Stop swaps in `on_frame_end` is found the next frame. Host commands go to `RunHooks::cli`. `reentrant_tick` is the same slice without flush, without either poll, and without `on_frame_end`, so HTTP results wait for the frame after the drag. Windows calls it from inside `SDL_PollEvent` while a modal move or size loop is running. It shares the frame clock, so the frame that resumes after a drag does not replay the drag.
 
 ### `simulate_worlds`
 
