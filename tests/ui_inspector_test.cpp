@@ -35,7 +35,10 @@ namespace {
     public:
         int fills = 0;
         int strokes = 0;
+        int texts = 0;
         glm::vec4 last_stroke{};
+        engine::render::Rect last_fill{};
+        std::string last_text;
 
         void save() override {}
         void restore() override {}
@@ -43,7 +46,10 @@ namespace {
         void apply_transform(glm::vec2, float, float) override {}
         void apply_view(glm::vec2, glm::vec2, float) override {}
         void set_opacity(float) override {}
-        void fill_rounded_rect(const engine::render::Rect &, float, glm::vec4) override { ++fills; }
+        void fill_rounded_rect(const engine::render::Rect &rect, float, glm::vec4) override {
+            ++fills;
+            last_fill = rect;
+        }
         void fill_rounded_rect_gradient(const engine::render::Rect &, float, const engine::ui::Gradient &) override {}
         void stroke_rounded_rect(const engine::render::Rect &, float, float, glm::vec4 color) override {
             ++strokes;
@@ -53,7 +59,10 @@ namespace {
         void stroke_arc(glm::vec2, float, float, float, float, glm::vec4) override {}
         void fill_path(std::span<const engine::ui::PathSegment>, glm::vec4) override {}
         void set_font(engine::AssetId, float) override {}
-        void fill_text(std::string_view, glm::vec2, glm::vec4, engine::ui::UiAlign, engine::ui::UiAlign) override {}
+        void fill_text(std::string_view text, glm::vec2, glm::vec4, engine::ui::UiAlign, engine::ui::UiAlign) override {
+            ++texts;
+            last_text = std::string(text);
+        }
         void image(engine::AssetId, const engine::render::Rect &) override {}
         void image_repeat(engine::AssetId, const engine::render::Rect &) override {}
         void image_nine_slice(engine::AssetId, const engine::render::Rect &, const engine::ui::BoxInsets &) override {}
@@ -425,17 +434,96 @@ TEST(UiInspector, OverlayDrawsHoverAndSelectionOnceWhenTheyMatch) {
     input.window_height = 100.0f;
     input.inspector_hover = true;
     engine::ui::paint_document(document, nullptr, painter, input);
-    EXPECT_EQ(painter.fills, 3);
+    EXPECT_EQ(painter.fills, 4);
     EXPECT_EQ(painter.strokes, 1);
+    EXPECT_EQ(painter.texts, 1);
+    EXPECT_EQ(painter.last_text, "Canvas  100 × 100");
+    EXPECT_GT(painter.last_fill.y, 100.0f);
+    EXPECT_GE(painter.last_fill.x, 0.0f);
 
     painter.fills = 0;
     painter.strokes = 0;
+    painter.texts = 0;
     input.inspector_selection = true;
     engine::ui::paint_document(document, nullptr, painter, input);
-    EXPECT_EQ(painter.fills, 3);
+    EXPECT_EQ(painter.fills, 4);
     EXPECT_EQ(painter.strokes, 1);
+    EXPECT_EQ(painter.texts, 1);
+    EXPECT_EQ(painter.last_text, "Canvas  100 × 100");
     EXPECT_NEAR(painter.last_stroke.y, 0.9f, 0.01f);
     EXPECT_NEAR(painter.last_stroke.z, 0.4f, 0.01f);
+}
+
+TEST(UiInspector, ElementTagJoinsKindIdAndClasses) {
+    engine::ui::Element stack;
+    stack.kind = engine::ui::ElementKind::Stack;
+    stack.classes = {"right-panel", "white"};
+    EXPECT_EQ(engine::ui::inspector_element_tag(stack), "Stack.right-panel.white");
+    stack.id = "hud";
+    EXPECT_EQ(engine::ui::inspector_element_tag(stack), "Stack#hud.right-panel.white");
+}
+
+TEST(UiInspector, BadgeFollowsHoverAndPrintsATenth) {
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack id="hud" class="right-panel white"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css("#hud { width: 128.5px; height: 40px; margin: 0; }\n", warnings);
+    ASSERT_TRUE(sheet.has_value());
+    engine::ui::UiDocument document = *parsed;
+    CountingPainter painter;
+    engine::ui::UiPaintInput input;
+    input.canvas_rect = {0.0f, 0.0f, 200.0f, 200.0f};
+    input.pointer = {10.0f, 10.0f};
+    input.window_width = 200.0f;
+    input.window_height = 200.0f;
+    input.inspector_hover = true;
+    input.inspector_selection = true;
+    engine::ui::paint_document(document, &*sheet, painter, input);
+    EXPECT_EQ(painter.texts, 1);
+    EXPECT_EQ(painter.last_text, "Stack#hud.right-panel.white  128.5 × 40");
+    EXPECT_EQ(painter.fills, 7);
+    engine::ui::Element *hud = find_id(document.root, "hud");
+    ASSERT_NE(hud, nullptr);
+    EXPECT_GT(painter.last_fill.y, hud->layout_rect.y + hud->layout_rect.h);
+}
+
+TEST(UiInspector, PickOffLetsTheButtonRun) {
+    GameCanvas game = spawn_game({0.0f, 0.0f, 800.0f, 600.0f});
+    layout_instance(game.world, game.entity);
+    engine::ui::set_inspector_enabled(game.world, true);
+    game.world.ctx<engine::ui::UiInspector>().pick_pointer = false;
+    engine::ui::UiInstance &instance = game.world.get<engine::ui::UiInstance>(game.entity);
+    engine::ui::Element *button = find_id(instance.document.root, "go");
+    ASSERT_NE(button, nullptr);
+    const float x = button->layout_rect.x + button->layout_rect.w * 0.5f;
+    const float y = button->layout_rect.y + button->layout_rect.h * 0.5f;
+
+    engine::ui::handle_pointer(game.world, x, y);
+    EXPECT_EQ(game.vm->clicks, 1);
+    EXPECT_FALSE(engine::ui::inspector_selection(game.world).active);
+}
+
+TEST(UiInspector, PickCheckboxClearsTheFlag) {
+    GameCanvas game = spawn_game({0.0f, 0.0f, 800.0f, 600.0f});
+    engine::ui::set_inspector_enabled(game.world, true);
+    EXPECT_TRUE(game.world.ctx<engine::ui::UiInspector>().pick_pointer);
+    const engine::ecs::Entity panel = inspector_panel(game.world);
+    ASSERT_TRUE(game.world.valid(panel));
+    const engine::WindowId panel_window = game.world.get<engine::ui::UiCanvas>(panel).window;
+    layout_instance(game.world, panel);
+    engine::ui::UiInstance &panel_instance = game.world.get<engine::ui::UiInstance>(panel);
+    engine::ui::Element *box = find_id(panel_instance.document.root, "pick");
+    ASSERT_NE(box, nullptr);
+    ASSERT_GT(box->layout_rect.w, 1.0f);
+    const float x = box->layout_rect.x + box->layout_rect.w * 0.5f;
+    const float y = box->layout_rect.y + box->layout_rect.h * 0.5f;
+
+    engine::ui::handle_pointer(game.world, x, y, panel_window);
+    engine::ui::sync_inspector_content(game.world);
+    EXPECT_FALSE(game.world.ctx<engine::ui::UiInspector>().pick_pointer);
+
+    engine::ui::set_inspector_enabled(game.world, false);
+    EXPECT_TRUE(game.world.ctx<engine::ui::UiInspector>().pick_pointer);
 }
 
 TEST(UiInspector, HostOpensOneWindowAndDisableClosesIt) {
