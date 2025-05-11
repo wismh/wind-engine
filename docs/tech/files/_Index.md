@@ -60,6 +60,7 @@ Hubs: [[Home]] · [[architecture/Overview]] · [[build/Pipeline]]
 | `include/engine/ui/draw_list.h` | [[include.engine.ui.draw_list.h]] | [[modules/UI]] |
 | `include/engine/ui/inspector.h` | [[include.engine.ui.inspector.h]] | [[modules/UI]] |
 | `include/engine/ui/paint.h` | [[include.engine.ui.paint.h]] | [[modules/UI]] |
+| `include/engine/ui/profiler.h` | [[include.engine.ui.profiler.h]] | [[modules/UI]] |
 | `include/engine/ui/stylesheet.h` | [[include.engine.ui.stylesheet.h]] | [[modules/UI]] |
 | `include/engine/ui/view_model.h` | [[include.engine.ui.view_model.h]] | [[modules/UI]] |
 | `src/audio/audio_system.cpp` | [[src.audio.audio_system.cpp]] | [[modules/Audio]] |
@@ -123,6 +124,8 @@ Hubs: [[Home]] · [[architecture/Overview]] · [[build/Pipeline]]
 | `src/ui/inspector.cpp` | [[src.ui.inspector.cpp]] | [[modules/UI]] |
 | `src/ui/paint.cpp` | [[src.ui.paint.cpp]] | [[modules/UI]] |
 | `src/ui/painter.h` | [[src.ui.painter.h]] | [[modules/UI]] |
+| `src/ui/profile.h` | [[src.ui.profile.h]] | [[modules/UI]] |
+| `src/ui/profiler.cpp` | [[src.ui.profiler.cpp]] | [[modules/UI]] |
 | `src/ui/view_model.cpp` | [[src.ui.view_model.cpp]] | [[modules/UI]] |
 | `src/ui/xml_parser.cpp` | [[src.ui.xml_parser.cpp]] | [[modules/UI]] |
 | `tests/assets_test.cpp` | [[tests.assets_test.cpp]] | [[modules/Resources]] |
@@ -147,6 +150,7 @@ Hubs: [[Home]] · [[architecture/Overview]] · [[build/Pipeline]]
 | `tests/ui_inspector_test.cpp` | [[tests.ui_inspector_test.cpp]] | [[modules/UI]] |
 | `tests/ui_paint_binding_test.cpp` | [[tests.ui_paint_binding_test.cpp]] | [[modules/UI]] |
 | `tests/ui_painter_test.cpp` | [[tests.ui_painter_test.cpp]] | [[modules/UI]] |
+| `tests/ui_profiler_test.cpp` | [[tests.ui_profiler_test.cpp]] | [[modules/UI]] |
 | `tests/ui_xml_test.cpp` | [[tests.ui_xml_test.cpp]] | [[modules/UI]] |
 | `tools/asset_codegen/main.cpp` | [[tools.asset_codegen.main.cpp]] | [[modules/Resources]] |
 | `tools/asset_guid/main.cpp` | [[tools.asset_guid.main.cpp]] | [[modules/Resources]] |

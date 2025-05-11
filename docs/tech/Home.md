@@ -30,6 +30,7 @@ flowchart LR
    - [[features/UI Markup]]
    - [[features/UI Input]]
    - [[features/UI Inspector]]
+   - [[features/UI Profiler]]
    - [[features/Input Mapper]]
    - [[features/Windowing]]
 4. **[[build/Pipeline|Build pipeline]]** — configure → codegen → compile → copy assets → run.

@@ -118,6 +118,8 @@ namespace engine::ui {
         bool inspector_selection = false;
         std::vector<std::size_t> inspector_selection_path;
         const void *inspector_selection_owner = nullptr;
+        // Copied from CmdDrawUI. Empty when the draw is not a canvas the profiler should time.
+        ecs::Entity canvas{};
     };
 
     // Identity of the math font `painter` (possibly null) would lay formulas out with, for the layout dirty-gate.
