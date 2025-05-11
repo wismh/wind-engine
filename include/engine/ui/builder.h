@@ -39,6 +39,10 @@ public:
     Node& drag_bind(BindingId id);
     Node& checked(bool value);
     Node& checked_bind(BindingId id);
+    // Popup only (see `<Popup open="..." placement="...">`).
+    Node& open(bool value);
+    Node& open_bind(BindingId id);
+    Node& placement(PopupPlacement value);
     Node& allow_copy(bool value);
     Node& allow_paste(bool value);
     Node& pan_x_bind(BindingId id);
@@ -82,6 +86,7 @@ private:
     friend Node scroll_view();
     friend Node checkbox();
     friend Node math_formula();
+    friend Node popup();
     friend std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal);
 
     explicit Node(ElementKind kind);
@@ -107,6 +112,7 @@ private:
 [[nodiscard]] Node scroll_view();
 [[nodiscard]] Node checkbox();
 [[nodiscard]] Node math_formula();
+[[nodiscard]] Node popup();
 
 [[nodiscard]] std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal = nullptr);
 

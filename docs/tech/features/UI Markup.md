@@ -12,14 +12,15 @@ Unknown tags call `IFatalError` when one was passed and return `UiError::Unknown
 | `formula` | literal or `{binding}`. `{tr}` is rejected |
 | `command`, `paint`, `drag`, `pan-x`, `pan-y`, `zoom`, `scroll-x`, `scroll-y` | `{binding}` only |
 | `source` | 32 lowercase hex, or `{binding}`. Not a filename |
-| `checked` | Trimmed `true` or `1` sets it. Any other non-binding literal, including `false` and `0`, sets it false and is not an error. Or `{binding}` |
+| `checked`, `open` on `Popup` | Trimmed `true` or `1` sets it. Any other non-binding literal, including `false` and `0`, sets it false and is not an error. Or `{binding}` |
+| `placement` on `Popup` | `bottom-start`, `bottom-end`, `top-start`, `top-end`, `right-start`, `right-end`, `left-start`, `left-end`. Anything else is `UiError::InvalidMarkup` |
 | `items_source` | `{binding}`, or a literal copied into `Element::text`. The binding stays unbound. Parsed after `text`, so the literal replaces it |
 | `display` on `Math` | bool literal |
 | `allow-copy`, `allow-paste` | bool literals. Default true. Not bindings |
 | `stylesheet` | on the root element, a CSS asset id |
 | `src` on `ItemTemplate` | another XML document. A cycle is `UiError::CyclicInclude` |
 | `var-<name>` | `{binding}` only, interned to a `BindingId`. A literal is `UiError::ForbiddenContent` |
-| `gap` | `strtof` of the attribute, stored as px. `Stack` and `ScrollView` only |
+| `gap` | `strtof` of the attribute, stored as px. `Stack`, `ScrollView`, and `Popup` only |
 | `overflow` | `visible`, `hidden`, `scroll`, `auto`. Sets both axes. Any other token is not applied |
 | `overflow-x`, `overflow-y` | the same tokens for one axis, after `overflow`. Any other token does not change that axis |
 | `drag-orientation` | `vertical`, otherwise horizontal |
@@ -35,7 +36,7 @@ An attribute that is still unknown is ignored. `var-` with an empty name is igno
 
 `Label` and `Button` text may contain `\(...\)`. `\\(` and `\\)` are the literals `\(` and `\)`. An unclosed `\(` stays plain text. A display formula is `<Math display="true">`.
 
-`ScrollView` starts as a vertical stack with `overflow-y: auto`. `Stack` direction defaults to vertical. `horizontal` and `row` are the horizontal tokens.
+`ScrollView` starts as a vertical stack with `overflow-y: auto`. `Stack` and `Popup` direction default to vertical. `horizontal` and `row` are the horizontal tokens.
 
 ## Style sheet
 
@@ -92,6 +93,8 @@ Non-stack children (Canvas, Button, Label) overlay the same content rect. Each c
 
 `position: absolute` is taken out of flow. The containing block is the nearest `relative` or `absolute` ancestor, otherwise the canvas. Both opposite insets and no explicit size stretch that axis. `position: relative` stays in flow and is then offset by `top`/`left` (or the negation of `bottom`/`right`). Siblings were packed against the pre-offset size.
 
+`Popup` is out of flow too. It hugs its content and is laid out at its parent's top-left; where it is shown is worked out later. See [UI](../modules/UI.md#popup).
+
 `z-index` and `transform` do not change layout.
 
 `layout_state_changed` compares text, custom properties, and the generated-owner list. A clean compare can skip `layout()` after the first successful layout. The comparison copies are still written every call.
@@ -110,15 +113,15 @@ Non-stack children (Canvas, Button, Label) overlay the same content rect. Each c
 
 `background-image` and `Image` `source` both call `IUiPainter::image`. `Viewport` paints its chrome, then `apply_view` for children.
 
-`run_ui_render` sorts canvases by `order` (low behind) and pushes `CmdDrawUI`.
+`run_ui_render` sorts canvases by `order` (low behind) and pushes `CmdDrawUI`. A canvas with an open `Popup` gets a second command with `popup_layer` after every canvas's first, which draws only its popups, clipped by the window.
 
 ## Builder
 
-`ui::Node` factories match the XML tags (`stack()`, `label()`, `viewport()`, …). `add` moves a child. `make_document` requires a `Canvas` root. `spawn_canvas` puts the tree on a world and clears `UiCanvas::document`.
+`ui::Node` factories match the XML tags (`stack()`, `label()`, `viewport()`, `popup()`, …). `add` moves a child. `make_document` requires a `Canvas` root. `spawn_canvas` puts the tree on a world and clears `UiCanvas::document`.
 
 ## Tests
 
-`tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/assets_test.cpp`.
+`tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_popup_test.cpp`, `tests/assets_test.cpp`.
 
 ## See also
 

@@ -64,6 +64,11 @@ namespace engine::render {
         // Which canvas this draw is, set only while its world is the one the UI profiler records. Paint
         // is attributed to it. Present in every configuration so the command layout does not change.
         ecs::Entity canvas{};
+        // The window in layout space: where this canvas's popups may go. Empty means `rect`.
+        Rect popup_bounds{};
+        // Second command for the same canvas, pushed after every canvas of the window: draws only its open
+        // popups, above everything else in the window.
+        bool popup_layer = false;
     };
 
     struct ParticleInstance {

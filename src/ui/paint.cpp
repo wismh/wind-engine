@@ -4,6 +4,7 @@
 #include "inline_math.h"
 #include "math/math_element.h"
 #include "painter.h"
+#include "popup.h"
 #include "profile.h"
 #include "style_anim.h"
 #include "text_select.h"
@@ -75,6 +76,8 @@ namespace engine::ui {
                     return "Checkbox";
                 case ElementKind::Math:
                     return "Math";
+                case ElementKind::Popup:
+                    return "Popup";
             }
             return "";
         }
@@ -1525,13 +1528,18 @@ namespace engine::ui {
                 const glm::vec2 pan{-element.scroll_x * input.ui_scale, -element.scroll_y * input.ui_scale};
                 painter.apply_view(origin, pan, 1.0f);
             }
+            // A Popup is not painted with its anchor: paint_popup_layer draws the open ones above every canvas.
             if (element.kind == ElementKind::ItemsControl) {
                 for (Element *child: child_stacking_order(element.generated_items)) {
-                    paint_element(*child, sheet, painter, ancestors, child_content, input);
+                    if (child->kind != ElementKind::Popup) {
+                        paint_element(*child, sheet, painter, ancestors, child_content, input);
+                    }
                 }
             } else {
                 for (Element *child: child_stacking_order(element.children)) {
-                    paint_element(*child, sheet, painter, ancestors, child_content, input);
+                    if (child->kind != ElementKind::Popup) {
+                        paint_element(*child, sheet, painter, ancestors, child_content, input);
+                    }
                 }
             }
             if (viewport_camera || has_scroll) {
@@ -1777,8 +1785,44 @@ namespace engine::ui {
 
     void apply_style_declaration(ComputedStyle &style, const CssDeclaration &decl) { apply_declaration(style, decl); }
 
+    namespace {
+
+        render::Rect popup_room(const UiPaintInput &input) {
+            return input.popup_bounds.w > 0.0f && input.popup_bounds.h > 0.0f ? input.popup_bounds : input.canvas_rect;
+        }
+
+        // The open popups of a document already laid out and placed by its base pass this frame, clipped only
+        // by the window. The inspector boxes follow them so a picked menu item is not drawn under its menu.
+        void paint_popup_layer(UiDocument &document, const Stylesheet *stylesheet, IUiPainter &painter,
+                               const UiPaintInput &input) {
+            std::vector<OpenPopup> popups = open_popups(document.root);
+            if (popups.empty()) {
+                return;
+            }
+#if defined(ENGINE_UI_PROFILER)
+            profiler_begin_paint(input.canvas);
+#endif
+            ENGINE_UI_PROFILE(input.canvas, Paint);
+            painter.save();
+            painter.scissor(scale_rect(popup_room(input), input.ui_offset, input.ui_scale));
+            for (OpenPopup &open: popups) {
+                painter.save();
+                painter.apply_view(glm::vec2{0.0f, 0.0f}, open.popup->popup_offset * input.ui_scale, 1.0f);
+                paint_element(*open.popup, stylesheet, painter, open.ancestors, open.parent_content, input);
+                painter.restore();
+            }
+            paint_inspector_overlay(document.root, painter, input);
+            painter.restore();
+        }
+
+    } // namespace
+
     void paint_document(UiDocument &document, const Stylesheet *stylesheet, IUiPainter &painter,
                         const UiPaintInput &input) {
+        if (input.popup_layer) {
+            paint_popup_layer(document, stylesheet, painter, input);
+            return;
+        }
 #if defined(ENGINE_UI_PROFILER)
         profiler_begin_paint(input.canvas);
 #endif
@@ -1819,6 +1863,8 @@ namespace engine::ui {
             }
             layout_ran = true;
         }
+        // Every frame, not only after layout: scroll and a Viewport camera move anchors without a relayout.
+        place_popups(document.root, popup_room(input));
         apply_interaction(document.root, input.pointer, input.pointer_down);
 
         bool motion_layout = false;
@@ -1838,6 +1884,7 @@ namespace engine::ui {
                 stamp_layout();
             }
             layout_ran = true;
+            place_popups(document.root, popup_room(input));
         }
 
         {
@@ -1847,7 +1894,10 @@ namespace engine::ui {
             std::vector<const Element *> ancestors;
             paint_element(document.root, stylesheet, painter, ancestors,
                           glm::vec2{input.canvas_rect.w, input.canvas_rect.h}, input);
-            paint_inspector_overlay(document.root, painter, input);
+            // With a popup open the boxes are drawn by the popup layer, above it.
+            if (!has_open_popup(document.root)) {
+                paint_inspector_overlay(document.root, painter, input);
+            }
             painter.restore();
         }
 #if defined(ENGINE_UI_PROFILER)
