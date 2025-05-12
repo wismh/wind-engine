@@ -1,0 +1,10 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "editor",
+      "binaryDir": "${sourceDir}/build-editor",
+      "cacheVariables": { "CMAKE_CONFIGURATION_TYPES": "DebugGame;Release" }
+    }
+  ]
+}
