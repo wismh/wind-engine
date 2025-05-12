@@ -57,6 +57,26 @@ public:
     }
 };
 
+class DragViewModel final : public engine::ui::ViewModel {
+public:
+    engine::ui::Bindable<float> fraction;
+
+    DragViewModel() { property(engine::ui::intern("fraction"), fraction); }
+};
+
+class DragAndClickViewModel final : public engine::ui::ViewModel {
+public:
+    int clicks = 0;
+    engine::ui::Bindable<float> fraction;
+    engine::ui::RelayCommand click;
+
+    DragAndClickViewModel() {
+        property(engine::ui::intern("fraction"), fraction);
+        command(engine::ui::intern("click"), click);
+        click = [this] { ++clicks; };
+    }
+};
+
 class RecordingFatalError final : public engine::IFatalError {
 public:
     int call_count = 0;
@@ -90,6 +110,21 @@ engine::ecs::Entity spawn_button_canvas(engine::ecs::World& world, std::shared_p
         engine::render::Rect rect, int order) {
     const auto parsed = engine::ui::parse_xml(R"(<Canvas><Button command="{binding click}" content="Go"/></Canvas>)", nullptr,
             vm.get());
+    EXPECT_TRUE(parsed.has_value());
+    const engine::ecs::Entity entity = world.create();
+    engine::ui::UiCanvas canvas = make_canvas(rect, order);
+    canvas.data_context = vm;
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+    world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{*parsed});
+    return entity;
+}
+
+// A bare <Image>, with no `source`, still hugs to a 32x32 default box (document.cpp
+// kDefaultImageSize) placed at the canvas origin — enough to hit-test against without needing a
+// stylesheet to give it an explicit size. `xml` must declare its own root <Canvas>...</Canvas>.
+engine::ecs::Entity spawn_canvas(engine::ecs::World& world, std::shared_ptr<engine::ui::ViewModel> vm,
+        std::string_view xml, engine::render::Rect rect, int order = 0) {
+    const auto parsed = engine::ui::parse_xml(xml, nullptr, vm.get());
     EXPECT_TRUE(parsed.has_value());
     const engine::ecs::Entity entity = world.create();
     engine::ui::UiCanvas canvas = make_canvas(rect, order);
@@ -355,6 +390,168 @@ TEST(Mvvm, HigherOrderCanvasWinsHitTest) {
     EXPECT_EQ(front->clicks, 1);
     EXPECT_EQ(back->clicks, 0);
     EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+}
+
+TEST(Mvvm, WriteAndReadPropertyFloatRoundTripOnArithmeticProperty) {
+    HudViewModel vm;
+    EXPECT_TRUE(vm.write_property_float(engine::ui::intern("score"), 42.0f));
+    EXPECT_EQ(vm.score.get(), 42);
+    ASSERT_TRUE(vm.read_property_float(engine::ui::intern("score")).has_value());
+    EXPECT_FLOAT_EQ(*vm.read_property_float(engine::ui::intern("score")), 42.0f);
+}
+
+TEST(Mvvm, WritePropertyFloatNoOpsOnNonArithmeticProperty) {
+    HudViewModel vm;
+    vm.title.set("unchanged");
+    EXPECT_FALSE(vm.write_property_float(engine::ui::intern("title"), 1.0f));
+    EXPECT_EQ(vm.title.get(), "unchanged");
+    EXPECT_FALSE(vm.read_property_float(engine::ui::intern("title")).has_value());
+}
+
+TEST(Mvvm, WritePropertyFloatNoOpsOnUnregisteredBinding) {
+    HudViewModel vm;
+    EXPECT_FALSE(vm.write_property_float(engine::ui::intern("nope"), 1.0f));
+}
+
+TEST(Mvvm, UnboundImageDoesNotConsume) {
+    // The widened hit_test() (Button, or any kind with a bound command/drag) must not turn a
+    // plain, uninteractive Image into a hit-target just because it now hugs to a nonzero default
+    // size — MouseConsumed should stay exactly as false as it already is for an unbound Label.
+    engine::ecs::World world;
+    auto vm = std::make_shared<DragViewModel>();
+    spawn_canvas(world, vm, R"(<Canvas><Image/></Canvas>)", {0.0f, 0.0f, 100.0f, 100.0f});
+
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 8.0f, 8.0f);
+
+    EXPECT_FALSE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+}
+
+TEST(Mvvm, ImageWithCommandFiresOnClick) {
+    // Proves the hit_test() generalization isn't drag-specific: a plain Image (not a Button) with
+    // a bound `command` is now a real hit-target too.
+    engine::ecs::World world;
+    auto vm = std::make_shared<ClickViewModel>();
+    spawn_canvas(world, vm, R"(<Canvas><Image command="{binding click}"/></Canvas>)", {0.0f, 0.0f, 100.0f, 100.0f});
+
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 8.0f, 8.0f);
+
+    EXPECT_EQ(vm->clicks, 1);
+    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+}
+
+TEST(Mvvm, DragDownWritesClampedFractionAlongHorizontalAxis) {
+    // The Image's default 32x32 hug box sits at the canvas origin (document.cpp
+    // kDefaultImageSize); clicking at local x=8 is 8/32 of the way across it.
+    engine::ecs::World world;
+    auto vm = std::make_shared<DragViewModel>();
+    spawn_canvas(world, vm, R"(<Canvas><Image drag="{binding fraction}"/></Canvas>)", {0.0f, 0.0f, 100.0f, 100.0f});
+
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 8.0f, 8.0f);
+
+    EXPECT_FLOAT_EQ(vm->fraction.get(), 0.25f);
+    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+}
+
+TEST(Mvvm, DragVerticalOrientationUsesYAxis) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<DragViewModel>();
+    spawn_canvas(world, vm, R"(<Canvas><Image drag="{binding fraction}" drag-orientation="vertical"/></Canvas>)",
+            {0.0f, 0.0f, 100.0f, 100.0f});
+
+    engine::ui::begin_frame(world);
+    // x near the far edge is ignored on the vertical axis; y = half the 32px box.
+    engine::ui::handle_pointer(world, 30.0f, 16.0f);
+
+    EXPECT_FLOAT_EQ(vm->fraction.get(), 0.5f);
+}
+
+TEST(Mvvm, DragContinuesTrackingAfterPointerLeavesElementBounds) {
+    // The key behavior distinguishing update_drag() from plain hit-testing: the drag keeps
+    // updating from its captured start geometry even once (x, y) is nowhere near the element.
+    engine::ecs::World world;
+    auto vm = std::make_shared<DragViewModel>();
+    spawn_canvas(world, vm, R"(<Canvas><Image drag="{binding fraction}"/></Canvas>)", {0.0f, 0.0f, 100.0f, 100.0f});
+
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 8.0f, 8.0f);
+    ASSERT_FLOAT_EQ(vm->fraction.get(), 0.25f);
+
+    engine::ui::update_drag(world, 5000.0f, 5000.0f);
+    EXPECT_FLOAT_EQ(vm->fraction.get(), 1.0f);
+
+    engine::ui::update_drag(world, -5000.0f, -5000.0f);
+    EXPECT_FLOAT_EQ(vm->fraction.get(), 0.0f);
+}
+
+TEST(Mvvm, EndDragStopsFurtherUpdates) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<DragViewModel>();
+    spawn_canvas(world, vm, R"(<Canvas><Image drag="{binding fraction}"/></Canvas>)", {0.0f, 0.0f, 100.0f, 100.0f});
+
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 8.0f, 8.0f);
+    ASSERT_FLOAT_EQ(vm->fraction.get(), 0.25f);
+
+    engine::ui::end_drag(world);
+    engine::ui::update_drag(world, 5000.0f, 5000.0f);
+
+    EXPECT_FLOAT_EQ(vm->fraction.get(), 0.25f);
+}
+
+TEST(Mvvm, UpdateDragIsNoOpWithoutAPriorDown) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<DragViewModel>();
+    spawn_canvas(world, vm, R"(<Canvas><Image drag="{binding fraction}"/></Canvas>)", {0.0f, 0.0f, 100.0f, 100.0f});
+
+    engine::ui::begin_frame(world);
+    engine::ui::update_drag(world, 8.0f, 8.0f);
+
+    EXPECT_FLOAT_EQ(vm->fraction.get(), 0.0f);
+}
+
+TEST(Mvvm, DragAndCommandBothBoundBothFireOnSameDown) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<DragAndClickViewModel>();
+    spawn_canvas(world, vm, R"(<Canvas><Image command="{binding click}" drag="{binding fraction}"/></Canvas>)",
+            {0.0f, 0.0f, 100.0f, 100.0f});
+
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 8.0f, 8.0f);
+
+    EXPECT_EQ(vm->clicks, 1);
+    EXPECT_FLOAT_EQ(vm->fraction.get(), 0.25f);
+}
+
+TEST(Mvvm, DragIsIsolatedPerWindow) {
+    engine::ecs::World world;
+    const engine::WindowId window_a = engine::kPrimaryWindow;
+    const engine::WindowId window_b{5};
+
+    auto vm_a = std::make_shared<DragViewModel>();
+    const engine::ecs::Entity entity_a =
+            spawn_canvas(world, vm_a, R"(<Canvas><Image drag="{binding fraction}"/></Canvas>)",
+                    {0.0f, 0.0f, 100.0f, 100.0f});
+    world.get<engine::ui::UiCanvas>(entity_a).window = window_a;
+
+    auto vm_b = std::make_shared<DragViewModel>();
+    const engine::ecs::Entity entity_b =
+            spawn_canvas(world, vm_b, R"(<Canvas><Image drag="{binding fraction}"/></Canvas>)",
+                    {0.0f, 0.0f, 100.0f, 100.0f});
+    world.get<engine::ui::UiCanvas>(entity_b).window = window_b;
+
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 8.0f, 8.0f, window_a);
+    engine::ui::handle_pointer(world, 16.0f, 8.0f, window_b);
+
+    ASSERT_FLOAT_EQ(vm_a->fraction.get(), 0.25f);
+    ASSERT_FLOAT_EQ(vm_b->fraction.get(), 0.5f);
+
+    engine::ui::update_drag(world, 32.0f, 8.0f, window_a);
+    EXPECT_FLOAT_EQ(vm_a->fraction.get(), 1.0f);
+    EXPECT_FLOAT_EQ(vm_b->fraction.get(), 0.5f);
 }
 
 TEST(Mvvm, ElementZIndexWinsHitTestWithinSameCanvas) {
