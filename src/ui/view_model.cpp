@@ -22,6 +22,15 @@ std::optional<std::string> ViewModel::read_property_string(BindingId id) const {
     return it->second.to_string(it->second.bindable);
 }
 
+bool ViewModel::assign_property_string(BindingId id, std::string& dest) const {
+    const auto it = properties_.find(id);
+    if (it == properties_.end() || it->second.store_string == nullptr) {
+        return false;
+    }
+    it->second.store_string(it->second.bindable, dest);
+    return true;
+}
+
 std::optional<AssetId> ViewModel::read_property_asset_id(BindingId id) const {
     const auto it = properties_.find(id);
     if (it == properties_.end() || it->second.read_asset_id == nullptr) {
