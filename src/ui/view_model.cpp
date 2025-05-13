@@ -26,6 +26,23 @@ std::optional<AssetId> ViewModel::read_property_asset_id(BindingId id) const {
     return it->second.read_asset_id(it->second.bindable);
 }
 
+std::optional<float> ViewModel::read_property_float(BindingId id) const {
+    const auto it = properties_.find(id);
+    if (it == properties_.end() || it->second.read_float == nullptr) {
+        return std::nullopt;
+    }
+    return it->second.read_float(it->second.bindable);
+}
+
+bool ViewModel::write_property_float(BindingId id, float value) {
+    const auto it = properties_.find(id);
+    if (it == properties_.end() || it->second.write_float == nullptr) {
+        return false;
+    }
+    it->second.write_float(it->second.bindable, value);
+    return true;
+}
+
 std::vector<ViewModel*> ViewModel::read_item_source(BindingId id) const {
     const auto it = properties_.find(id);
     if (it == properties_.end() || it->second.items == nullptr) {

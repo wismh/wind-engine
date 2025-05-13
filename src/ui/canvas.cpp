@@ -85,13 +85,21 @@ void begin_frame(ecs::World& world) {
 
 namespace {
 
+// Shared result of resolve_pointer_hit(): everything a caller needs to both resolve this hit
+// (command/drag lookup) and, for handle_pointer()'s drag case, capture enough geometry to keep
+// tracking the drag on later Move events without re-hit-testing.
+struct PointerHit {
+    Element* element = nullptr;
+    UiCanvas* canvas = nullptr;
+    ecs::Entity entity{};
+    UiCanvasSpace space{};
+};
+
 // Shared by handle_pointer() and update_pointer_hover(): finds the topmost element under (x, y),
 // rebuilding bindings/layout the same way for both so a hover hit test sees the exact same
 // element a click at that position would. Sets MouseConsumed as a side effect whenever it finds a
-// hit (matching the previous handle_pointer() behavior) — both callers want that. `out_canvas`
-// receives the owning canvas (needed by handle_pointer() to resolve a command binding); left
-// untouched on a miss.
-Element* resolve_pointer_hit(ecs::World& world, float x, float y, WindowId window, UiCanvas** out_canvas) {
+// hit (matching the previous handle_pointer() behavior) — both callers want that.
+std::optional<PointerHit> resolve_pointer_hit(ecs::World& world, float x, float y, WindowId window) {
     std::vector<CanvasHit> hits;
     {
         auto view = world.view<UiCanvas>();
@@ -107,7 +115,7 @@ Element* resolve_pointer_hit(ecs::World& world, float x, float y, WindowId windo
         }
     }
     if (hits.empty()) {
-        return nullptr;
+        return std::nullopt;
     }
 
     std::stable_sort(hits.begin(), hits.end(), [](const CanvasHit& a, const CanvasHit& b) {
@@ -121,7 +129,7 @@ Element* resolve_pointer_hit(ecs::World& world, float x, float y, WindowId windo
     UiCanvas& canvas = world.get<UiCanvas>(entity);
     UiInstance* instance = world.try_get<UiInstance>(entity);
     if (instance == nullptr) {
-        return nullptr;
+        return std::nullopt;
     }
 
     const Stylesheet* sheet = nullptr;
@@ -138,38 +146,85 @@ Element* resolve_pointer_hit(ecs::World& world, float x, float y, WindowId windo
     apply_layout_style(instance->document.root, sheet, media_width, media_height);
     layout(instance->document, space.layout_rect);
 
-    Element* button =
+    Element* hit =
             hit_test(instance->document.root, (x - space.offset.x) / space.scale, (y - space.offset.y) / space.scale);
-    if (button == nullptr) {
-        return nullptr;
+    if (hit == nullptr) {
+        return std::nullopt;
     }
 
     world.ctx<MouseConsumed>().consumed_windows.insert(window);
-    *out_canvas = &canvas;
-    return button;
+    return PointerHit{hit, &canvas, entity, space};
+}
+
+// Shared axis math for handle_pointer()'s drag-start and update_drag()'s continuation: maps a
+// window-space (x, y) into the drag's layout-space rect (the same `(v - offset) / scale` transform
+// resolve_pointer_hit() applies before hit-testing) and returns the clamped [0,1] fraction along
+// `orientation`'s axis of `rect`. No min/max/step — remapping a raw fraction into a domain-specific
+// range belongs to the game's ViewModel, not the engine (see docs/sdd.md).
+float compute_drag_fraction(StackDirection orientation, const render::Rect& rect, glm::vec2 space_offset,
+        float space_scale, float x, float y) {
+    const float local_x = (x - space_offset.x) / space_scale;
+    const float local_y = (y - space_offset.y) / space_scale;
+    const float t = orientation == StackDirection::Horizontal
+            ? (rect.w > 0.0f ? (local_x - rect.x) / rect.w : 0.0f)
+            : (rect.h > 0.0f ? (local_y - rect.y) / rect.h : 0.0f);
+    return std::clamp(t, 0.0f, 1.0f);
 }
 
 }
 
 void handle_pointer(ecs::World& world, float x, float y, WindowId window) {
-    UiCanvas* canvas = nullptr;
-    Element* button = resolve_pointer_hit(world, x, y, window, &canvas);
-    if (button == nullptr) {
+    const std::optional<PointerHit> hit = resolve_pointer_hit(world, x, y, window);
+    if (!hit) {
         return;
     }
 
-    ICommand* command = button->command;
-    if (command == nullptr && is_bound(button->command_binding) && canvas->data_context) {
-        command = canvas->data_context->find_command(button->command_binding);
+    if (is_bound(hit->element->drag_binding) && hit->canvas->data_context) {
+        const float fraction = compute_drag_fraction(hit->element->drag_orientation, hit->element->layout_rect,
+                hit->space.offset, hit->space.scale, x, y);
+        hit->canvas->data_context->write_property_float(hit->element->drag_binding, fraction);
+        world.ctx<UiActiveDrags>().drags[window] = ActiveDrag{
+                hit->entity,
+                hit->element->drag_binding,
+                hit->element->layout_rect,
+                hit->space.offset,
+                hit->space.scale,
+                hit->element->drag_orientation,
+        };
+    }
+
+    ICommand* command = hit->element->command;
+    if (command == nullptr && is_bound(hit->element->command_binding) && hit->canvas->data_context) {
+        command = hit->canvas->data_context->find_command(hit->element->command_binding);
     }
     if (command != nullptr && command->can_execute()) {
         command->execute();
     }
 }
 
+void update_drag(ecs::World& world, float x, float y, WindowId window) {
+    auto& drags = world.ctx<UiActiveDrags>().drags;
+    const auto it = drags.find(window);
+    if (it == drags.end()) {
+        return;
+    }
+    const ActiveDrag& drag = it->second;
+    UiCanvas* canvas = world.try_get<UiCanvas>(drag.canvas_entity);
+    if (canvas == nullptr || !canvas->data_context) {
+        drags.erase(it);
+        return;
+    }
+    const float fraction =
+            compute_drag_fraction(drag.orientation, drag.rect, drag.space_offset, drag.space_scale, x, y);
+    canvas->data_context->write_property_float(drag.value_binding, fraction);
+}
+
+void end_drag(ecs::World& world, WindowId window) {
+    world.ctx<UiActiveDrags>().drags.erase(window);
+}
+
 void update_pointer_hover(ecs::World& world, float x, float y, WindowId window) {
-    UiCanvas* canvas = nullptr;
-    (void) resolve_pointer_hit(world, x, y, window, &canvas);
+    (void) resolve_pointer_hit(world, x, y, window);
 }
 
 }

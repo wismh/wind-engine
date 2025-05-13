@@ -292,7 +292,7 @@ Widget buttons are **not** ECS entities. The visual tree is the **instance** of 
 
 World-space labels later: same `UiCanvas`, `rect` written each frame from `Transform` + `Camera::WorldToScreen` (`fit = Fixed`). No second graph.
 
-Mouse: `UiInputSystem` (phase `Input`) hit-tests canvases **front-to-back** (`UiCanvas::order`, then entity index). Only the front canvas whose `rect` contains the pointer is considered; a miss on that canvas does not fall through for `ICommand`. `MouseConsumed` is true only on a **widget hit** (v1: `Button`); empty chrome / labels / Image do not consume. The bound `ICommand` runs if `can_execute()` (see §8.5). Gameplay click systems in `Phase::Game` must respect `MouseConsumed`.
+Mouse: `UiInputSystem` (phase `Input`) hit-tests canvases **front-to-back** (`UiCanvas::order`, then entity index). Only the front canvas whose `rect` contains the pointer is considered; a miss on that canvas does not fall through for `ICommand`. `MouseConsumed` is true only on a **widget hit**: `Button`, or any element kind with a bound `command` or `drag` (§7 below); empty chrome / labels / a plain unbound Image do not consume. The bound `ICommand` runs if `can_execute()` (see §8.5). Gameplay click systems in `Phase::Game` must respect `MouseConsumed`.
 
 There is **no** `Transform` parent. A turret that must follow a tank is a game concern in v1 (copy position in a system) until a `Parent` component exists.
 
@@ -622,6 +622,11 @@ v1 elements:
 | `Image` | `source` = texture/ui_image AssetId or `{binding}`; optional `slice` (1–4 lengths for 9-slice) |
 | `ItemsControl` | repeats `ItemTemplate` over `items_source` |
 
+`command` and `drag` (§8.6) aren't `Button`-exclusive: any element tag accepts either attribute,
+and doing so makes that element a hit-target too (§4.3, §8.5) — the game can build a clickable
+`Image`/`Stack` without wrapping it in a `Button`, and compose its own draggable controls (a
+slider, a custom scrollbar) out of ordinary elements instead of a dedicated widget.
+
 ```xml
 <Canvas stylesheet="b0a1c2d3e4f5678901234567890abcde">
   <Stack class="hud" direction="vertical">
@@ -639,7 +644,7 @@ v1 elements:
 
 `ItemTemplate` markup reuse: `<ItemTemplate src="relative/path.xml"/>` splices in another file's single root element as if it were written inline — `src` is a relative filesystem path resolved by the importer/codegen against the referencing document's own directory (not an AssetId; the fragment has no independent GUID and games cannot load it as a `UiCanvas::document`). Includes may nest; a cycle or unreadable/invalid file fails the build the same as any other markup error. This is authoring-time DRY only — it carries no data parameterization, unlike a real `ControlTemplate` (§8, not v1).
 
-WPF-shaped `{binding path}` (path = registered snake_case name). `mode=one_way` default (VM → view). `mode=two_way` reserved (sliders); not required in v1.
+WPF-shaped `{binding path}` (path = registered snake_case name). `mode=one_way` default (VM → view). There is no `mode=two_way` on ordinary attributes (`text`, `source`, ...) — the one write-back path is the `drag` attribute (§8.6), which always writes through `ViewModel::write_property_float`.
 
 `id` / `class` / `name` attributes: CSS hooks. `name` is not FindName-from-game; games do not reach into the tree.
 
@@ -752,9 +757,58 @@ A `std::function<void()> onClick` on a widget is **not** part of the public API.
 
 `UiInputSystem` hit-tests canvases **front-to-back** (`UiCanvas::order`, then entity index). Only the front canvas whose `rect` contains the pointer is considered; a miss on that canvas does not fall through to a lower canvas for `ICommand`.
 
-`MouseConsumed` is true only on a **widget hit**. v1 hit-target is `Button` (including when `can_execute` is false). Labels, empty Stack, Image without a command, and empty canvas chrome (FillWindow or Fixed) do not consume. Canvas-rect containment alone does not consume.
+`MouseConsumed` is true only on a **widget hit**: `Button` (including when `can_execute` is false), or any element kind with a bound `command` or `drag` (§8.6). Labels, empty Stack, and an Image/Stack with neither `command` nor `drag` bound, plus empty canvas chrome (FillWindow or Fixed), do not consume. Canvas-rect containment alone does not consume.
 
 `InputSystem` does not filter `InputEvent` on `MouseConsumed` (UI has not run at poll). Gameplay in `Phase::Game` still reads the flag before treating mouse-bound Fire / world picks as a world action.
+
+### 8.6 `drag` — building custom controls (sliders, scrollbars, ...)
+
+There is **no** built-in `Slider`. A ready-made widget would have to bake in one visual metaphor
+(a moving handle on a track) and a matching fixed CSS vocabulary for it — a game wanting a
+different look (a growing fill-bar, say) would be stuck. Instead the engine exposes the two
+primitives a slider actually needs, on any element:
+
+- **`drag="{binding path}"`** (must be a `{binding}`, like `command` — a literal is rejected at
+  parse time): marks the element's own rect as a drag region. Pointer-down inside it writes a
+  clamped `[0, 1]` fraction — position along the rect — into the bound property via
+  `ViewModel::write_property_float`; the drag keeps tracking pointer-move even once the cursor
+  leaves the element's bounds (captured start geometry, not a re-hit-test each frame), until
+  pointer-up. `drag-orientation="horizontal"` (default) or `"vertical"` picks the axis.
+- **Two-way float binding**: `ViewModel::property(id, Bindable<T>&)` for arithmetic `T` now also
+  registers a `write_float`, so `write_property_float(id, value)` writes through to that
+  `Bindable<T>`. `read_property_float` reads it back — the same `Bindable` a normal `{binding}`
+  attribute elsewhere in the tree already reads one-way, so an external change to it (game code
+  setting volume from a settings menu) shows up in the drag-bound control too, same as any other
+  `{binding}`.
+
+There is deliberately no `min`/`max`/`step` on `drag` — remapping the `[0,1]` fraction into a
+domain range (and any snapping) is the game's `ViewModel`'s job, the same way it already owns
+formatting a number for a `var-<name>` custom property (below). No drag-start/drag-end
+notification either — the game treats "the bound value changed" as its interaction signal.
+
+Everything else a slider needs already exists and needed no changes: `background` /
+`background-image` / `background-slice` are unconditional on every element kind (any `Stack`/
+`Image` can be a fully-textured track or thumb), and `var-<name>="{binding path}"` +
+`left`/`width`/`top`/`height: var(--name)` already resolves an arbitrary VM string property into
+any CSS length — the `ViewModel` formats the drag fraction however the layout needs (`"42%"`,
+`"120px"`, ...).
+
+```xml
+<Stack class="volume-track" drag="{binding volume_fraction}">
+  <Image class="volume-fill" var-w="{binding volume_fraction_pct}"/>
+</Stack>
+```
+```css
+.volume-track { width: 200px; height: 8px; background-image: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; background-slice: 4; }
+.volume-track:hover { background-image: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb; }
+.volume-fill { height: 100%; background-image: cccccccccccccccccccccccccccccccc; background-slice: 4; }
+```
+A different composition (a small `position: absolute` `Image` whose `left` follows `var(--t)`
+instead of a growing fill) gives a handle-on-a-track look with the exact same two primitives — no
+engine change either way. Known limitation, not specific to `drag`: CSS pseudo-classes only ever
+match a rule's own subject, never an ancestor in the selector chain, so `.volume-track:pressed
+.volume-fill { ... }` is not expressible — a child that should restyle while its ancestor is
+pressed/dragging needs its own `var-<name>` binding to a VM-computed state instead.
 
 ---
 
