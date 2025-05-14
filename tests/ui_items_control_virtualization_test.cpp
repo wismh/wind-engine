@@ -31,6 +31,31 @@ public:
     RowVm() = default;
 };
 
+class TitledRowVm final : public engine::ui::ViewModel {
+public:
+    engine::ui::Bindable<std::string> title;
+
+    TitledRowVm() { property(engine::ui::intern("title"), title); }
+};
+
+class TitledListVm final : public engine::ui::ViewModel {
+public:
+    engine::ui::BindableList<std::shared_ptr<TitledRowVm>> items;
+
+    TitledListVm() { property(engine::ui::intern("items"), items); }
+};
+
+[[nodiscard]] std::vector<std::shared_ptr<TitledRowVm>> make_titled_rows(std::size_t count) {
+    std::vector<std::shared_ptr<TitledRowVm>> rows;
+    rows.reserve(count);
+    for (std::size_t i = 0; i < count; ++i) {
+        auto row = std::make_shared<TitledRowVm>();
+        row->title.set("row");
+        rows.push_back(std::move(row));
+    }
+    return rows;
+}
+
 class ListVm final : public engine::ui::ViewModel {
 public:
     engine::ui::BindableList<std::shared_ptr<RowVm>> items;
@@ -259,6 +284,121 @@ TEST(UiItemsControlVirtualization, ReconciliationPreservedForItemsStayingInWindo
     ASSERT_NE(row3, nullptr) << "row 3 should still be inside the window after a 1-row scroll";
     ASSERT_EQ(row3->animation_players.size(), 1u);
     EXPECT_FLOAT_EQ(row3->animation_players[0].elapsed, 0.42f);
+}
+
+TEST(UiItemsControlVirtualization, StableWindowKeepsTheRowAndShowsNewText) {
+    constexpr std::size_t kCount = 500;
+    TitledListVm vm;
+    std::vector<std::shared_ptr<TitledRowVm>> rows = make_titled_rows(kCount);
+    rows[0]->title.set("before");
+    vm.items.set(rows);
+
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <ItemsControl class="list" items_source="{binding items}">
+            <ItemTemplate><Canvas class="row"><Label text="{binding title}"/></Canvas></ItemTemplate>
+          </ItemsControl>
+        </Canvas>
+    )",
+            nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(kEligibleCss);
+    run_frame(*parsed, vm, sheet);
+    run_frame(*parsed, vm, sheet);
+    engine::ui::Element* items = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::ItemsControl);
+    ASSERT_NE(items, nullptr);
+    ASSERT_LT(items->generated_items.size(), kCount);
+
+    engine::ui::Element* row0 = nullptr;
+    engine::ui::Element* spacer = nullptr;
+    for (engine::ui::Element& e : items->generated_items) {
+        if (e.generated_owner == rows[0].get()) {
+            row0 = &e;
+        } else if (e.is_virtualization_spacer) {
+            spacer = &e;
+        }
+    }
+    ASSERT_NE(row0, nullptr);
+    ASSERT_NE(spacer, nullptr);
+    ASSERT_TRUE(spacer->height.has_value());
+    ASSERT_FALSE(row0->children.empty());
+    row0->animation_players.push_back(engine::ui::AnimationRuntime{.name = "keep", .elapsed = 0.42f});
+    const engine::ui::Element* stable_row = row0;
+    const float spacer_height = spacer->height->value;
+    spacer->height = engine::ui::Length{1.0f, engine::ui::LengthUnit::Px};
+    rows[0]->title.set("next");
+
+    run_frame(*parsed, vm, sheet);
+    items = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::ItemsControl);
+    ASSERT_NE(items, nullptr);
+    row0 = nullptr;
+    spacer = nullptr;
+    for (engine::ui::Element& e : items->generated_items) {
+        if (e.generated_owner == rows[0].get()) {
+            row0 = &e;
+        } else if (e.is_virtualization_spacer) {
+            spacer = &e;
+        }
+    }
+    ASSERT_EQ(row0, stable_row);
+    ASSERT_EQ(row0->animation_players.size(), 1u);
+    EXPECT_FLOAT_EQ(row0->animation_players[0].elapsed, 0.42f);
+    ASSERT_FALSE(row0->children.empty());
+    EXPECT_EQ(row0->children[0].text, "next");
+    ASSERT_NE(spacer, nullptr);
+    ASSERT_TRUE(spacer->height.has_value());
+    EXPECT_FLOAT_EQ(spacer->height->value, spacer_height);
+
+    const std::vector<const void*> owners_before_scroll = real_item_owners(*items);
+    items->scroll_y = kRowStride;
+    run_frame(*parsed, vm, sheet);
+    items = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::ItemsControl);
+    ASSERT_NE(items, nullptr);
+    EXPECT_NE(real_item_owners(*items), owners_before_scroll);
+    row0 = nullptr;
+    for (engine::ui::Element& e : items->generated_items) {
+        if (e.generated_owner == rows[0].get()) {
+            row0 = &e;
+            break;
+        }
+    }
+    ASSERT_NE(row0, nullptr);
+    ASSERT_EQ(row0->animation_players.size(), 1u);
+    EXPECT_FLOAT_EQ(row0->animation_players[0].elapsed, 0.42f);
+}
+
+TEST(UiItemsControlVirtualization, StableFullListKeepsTheRow) {
+    TitledListVm vm;
+    std::vector<std::shared_ptr<TitledRowVm>> rows = make_titled_rows(3);
+    rows[1]->title.set("before");
+    vm.items.set(std::move(rows));
+
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <ItemsControl items_source="{binding items}">
+            <ItemTemplate><Label text="{binding title}"/></ItemTemplate>
+          </ItemsControl>
+        </Canvas>
+    )",
+            nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+    engine::ui::Element* items = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::ItemsControl);
+    ASSERT_NE(items, nullptr);
+    ASSERT_EQ(items->generated_items.size(), 3u);
+    engine::ui::Element* row = &items->generated_items[1];
+    const engine::ui::Element* stable_row = row;
+    row->animation_players.push_back(engine::ui::AnimationRuntime{.name = "keep", .elapsed = 0.25f});
+    vm.items.get()[1]->title.set("after");
+
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+    items = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::ItemsControl);
+    ASSERT_NE(items, nullptr);
+    ASSERT_EQ(items->generated_items.size(), 3u);
+    EXPECT_EQ(&items->generated_items[1], stable_row);
+    ASSERT_EQ(items->generated_items[1].animation_players.size(), 1u);
+    EXPECT_FLOAT_EQ(items->generated_items[1].animation_players[0].elapsed, 0.25f);
+    EXPECT_EQ(items->generated_items[1].text, "after");
 }
 
 TEST(UiItemsControlVirtualization, FallbackWithoutOverflowYGeneratesAllItems) {

@@ -276,6 +276,47 @@ TEST(Mvvm, OneWayBindUpdatesLabelText) {
     EXPECT_EQ(engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Label)->text, "World");
 }
 
+TEST(Mvvm, AssignsBoundTextOnlyWhenItChanges) {
+    HudViewModel vm;
+    const std::string same = "abcdefghijklmnopqrstuvwxyz";
+    vm.title.set(same);
+    vm.score.set(0);
+
+    auto parsed = engine::ui::parse_xml(
+            R"(<Canvas><Label text="{binding title}" var-tint="{binding title}"/><Label text="{binding score}"/></Canvas>)",
+            nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+    engine::ui::Element& title = parsed->root.children[0];
+    engine::ui::Element& score = parsed->root.children[1];
+    EXPECT_EQ(title.text, same);
+    EXPECT_EQ(title.custom_properties.at("tint"), same);
+    EXPECT_EQ(score.text, "0");
+    const char* title_buffer = title.text.data();
+    const char* tint_buffer = title.custom_properties.at("tint").data();
+
+    vm.title.set(std::string(same));
+    vm.score.set(0);
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+    EXPECT_EQ(title.text, same);
+    EXPECT_EQ(title.text.data(), title_buffer);
+    EXPECT_EQ(title.custom_properties.at("tint"), same);
+    EXPECT_EQ(title.custom_properties.at("tint").data(), tint_buffer);
+    EXPECT_EQ(score.text, "0");
+
+    vm.title.set("World");
+    vm.score.set(7);
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+    EXPECT_EQ(title.text, "World");
+    EXPECT_EQ(title.custom_properties.at("tint"), "World");
+    EXPECT_EQ(score.text, std::to_string(7));
+
+    vm.title.set("");
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+    EXPECT_TRUE(title.text.empty());
+    EXPECT_EQ(title.custom_properties.at("tint"), "");
+}
+
 TEST(Mvvm, ButtonClickExecutesWhenCanExecute) {
     engine::ecs::World world;
     auto vm = std::make_shared<ClickViewModel>();

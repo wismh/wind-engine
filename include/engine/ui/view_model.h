@@ -30,6 +30,10 @@ public:
     [[nodiscard]] bool has_command(BindingId id) const;
     [[nodiscard]] bool has_paint(BindingId id) const;
     [[nodiscard]] std::optional<std::string> read_property_string(BindingId id) const;
+    // Copies the property into `dest` only when the text differs. A `Bindable<std::string>` is compared
+    // in place. A number formatted as text is formatted first, then copied only when that text differs.
+    // Returns false when `id` is not a string-producing property and leaves `dest` unchanged.
+    bool assign_property_string(BindingId id, std::string& dest) const;
     [[nodiscard]] std::optional<AssetId> read_property_asset_id(BindingId id) const;
     [[nodiscard]] std::optional<float> read_property_float(BindingId id) const;
     // Writes through to the Bindable<T> registered for `id`, if T is arithmetic (populated by
@@ -59,6 +63,7 @@ private:
     struct PropertyRef {
         void* bindable = nullptr;
         std::string (*to_string)(void*) = nullptr;
+        void (*store_string)(void*, std::string&) = nullptr;
         AssetId (*read_asset_id)(void*) = nullptr;
         float (*read_float)(void*) = nullptr;
         void (*write_float)(void*, float) = nullptr;
@@ -85,6 +90,27 @@ void ViewModel::property(BindingId id, Bindable<T>& bindable) {
             return {};
         }
     };
+    if constexpr (std::is_same_v<T, std::string>) {
+        ref.store_string = [](void* ptr, std::string& dest) {
+            const std::string& value = static_cast<Bindable<std::string>*>(ptr)->get();
+            if (dest != value) {
+                dest = value;
+            }
+        };
+    } else if constexpr (std::is_arithmetic_v<T>) {
+        ref.store_string = [](void* ptr, std::string& dest) {
+            std::string formatted = std::to_string(static_cast<Bindable<T>*>(ptr)->get());
+            if (dest != formatted) {
+                dest = std::move(formatted);
+            }
+        };
+    } else {
+        ref.store_string = [](void*, std::string& dest) {
+            if (!dest.empty()) {
+                dest.clear();
+            }
+        };
+    }
     if constexpr (std::is_same_v<T, std::string>) {
         ref.write_string = [](void* ptr, std::string_view value) {
             static_cast<Bindable<std::string>*>(ptr)->set(std::string(value));
