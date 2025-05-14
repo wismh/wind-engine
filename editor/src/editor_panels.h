@@ -4,8 +4,11 @@
 #include "inspector_panel.h"
 #include "profiler_panel.h"
 
+#include <engine/core/input_system.h>
 #include <engine/core/window_desc.h>
 #include <engine/ecs/entity.h>
+#include <engine/ecs/events.h>
+#include <engine/render/commands.h>
 
 namespace engine::ecs {
 class World;
@@ -38,8 +41,9 @@ public:
     // First step of Stop: detach the Inspector and Profiler and drop everything they copied from the game.
     void detach();
 
-    // Editor world, Phase::Game (before Bind): places the canvases for the active tab and refreshes the
-    // visible panel, so this frame's bindings see this frame's copy.
+    // Editor world, Phase::Game (before Bind): places the canvases for the active tab, gives tree keys to
+    // the Inspector while the pointer is over it, and refreshes the visible panel, so this frame's bindings
+    // see this frame's copy.
     void frame(engine::ecs::World& world);
 
     [[nodiscard]] InspectorPanel& inspector();
@@ -47,6 +51,10 @@ public:
     [[nodiscard]] BuildPanel& build();
 
 private:
+    // Arrow, Home, and End presses (repeats too) on the editor window while the pointer is inside `panel`.
+    // Every frame reads the queue, so a key pressed elsewhere is not replayed later.
+    void read_tree_keys(engine::ecs::World& world, const engine::render::Rect& panel, bool inspector_shown);
+
     const Toolbar* toolbar_;
     InspectorPanel inspector_;
     ProfilerPanel profiler_;
@@ -55,6 +63,8 @@ private:
     engine::ecs::Entity profiler_canvas_{};
     engine::ecs::Entity build_canvas_{};
     engine::WindowId window_{};
+    // Its own cursor: the UI's run_input reads KeyEvent through the world's.
+    engine::ecs::EventCursor<engine::KeyEvent> key_cursor_;
 };
 
 }

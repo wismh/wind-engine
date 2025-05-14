@@ -369,65 +369,50 @@ namespace engine::ui {
             return sources;
         }
 
-        struct WalkState {
-            const UiInspector *inspector = nullptr;
-            WindowId window = kPrimaryWindow;
+        // One element on the way down the tree: where it is from the canvas root (`path`) and from its
+        // nearest generated row (`relative`, `owner`), which is what its row key is made of.
+        struct InspectorNode {
+            const Element *element = nullptr;
             ecs::Entity canvas{};
-            const InspectorPick *pick = nullptr;
-            bool show_window = false;
-            std::vector<InspectorTreeRow> *rows = nullptr;
+            WindowId window = kPrimaryWindow;
+            std::vector<std::size_t> path;
+            std::vector<std::size_t> relative;
+            const void *owner = nullptr;
         };
 
-        void walk_element(const Element &element, const WalkState &state, std::vector<std::size_t> path,
-                          std::vector<std::size_t> relative, const void *owner, int depth) {
-            InspectorTreeRow row;
-            row.key.canvas = state.canvas;
-            row.key.owner = reinterpret_cast<std::uintptr_t>(owner);
-            row.key.relative = std::move(relative);
-            row.pick.canvas = state.canvas;
-            row.pick.path = path;
-            row.pick.generated_owner = owner;
-            row.pick.active = true;
-            row.window = state.window;
-            row.depth = depth;
-            row.has_children = !element.children.empty() || !element.generated_items.empty();
-            row.expanded = !row.has_children || !state.inspector->collapsed.contains(row.key);
-            row.selected = state.pick != nullptr && state.pick->active && state.pick->canvas == state.canvas &&
-                           state.pick->path == path;
-            row.label = element_label(element);
-            if (depth == 0 && state.show_window) {
-                row.label.insert(0, std::format("[{}] ", static_cast<std::uint32_t>(state.window)));
+        struct InspectorTreeSource {
+            [[nodiscard]] InspectorRowKey key(const InspectorNode &node) const {
+                return InspectorRowKey{node.canvas, reinterpret_cast<std::uintptr_t>(node.owner), node.relative};
             }
-            const bool descend = row.expanded;
-            const std::vector<std::size_t> base_relative = row.key.relative;
-            state.rows->push_back(std::move(row));
 
-            if (!descend) {
-                return;
+            [[nodiscard]] bool has_children(const InspectorNode &node) const {
+                return !node.element->children.empty() || !node.element->generated_items.empty();
             }
-            for (std::size_t i = 0; i < element.children.size(); ++i) {
-                std::vector<std::size_t> child_path = path;
-                child_path.push_back(i);
-                std::vector<std::size_t> child_relative = base_relative;
-                child_relative.push_back(i);
-                walk_element(element.children[i], state, std::move(child_path), std::move(child_relative), owner,
-                             depth + 1);
-            }
-            for (std::size_t i = 0; i < element.generated_items.size(); ++i) {
-                const Element &item = element.generated_items[i];
-                std::vector<std::size_t> child_path = path;
-                child_path.push_back(i | kGeneratedPathBit);
-                const void *child_owner = owner;
-                std::vector<std::size_t> child_relative = base_relative;
-                if (item.generated_owner != nullptr) {
-                    child_owner = item.generated_owner;
-                    child_relative.clear();
-                } else {
-                    child_relative.push_back(i | kGeneratedPathBit);
+
+            template<typename Emit>
+            void for_each_child(const InspectorNode &node, Emit &&emit) const {
+                const Element &element = *node.element;
+                for (std::size_t i = 0; i < element.children.size(); ++i) {
+                    InspectorNode child{&element.children[i], node.canvas, node.window, node.path, node.relative,
+                                        node.owner};
+                    child.path.push_back(i);
+                    child.relative.push_back(i);
+                    emit(child);
                 }
-                walk_element(item, state, std::move(child_path), std::move(child_relative), child_owner, depth + 1);
+                for (std::size_t i = 0; i < element.generated_items.size(); ++i) {
+                    const Element &item = element.generated_items[i];
+                    InspectorNode child{&item, node.canvas, node.window, node.path, node.relative, node.owner};
+                    child.path.push_back(i | kGeneratedPathBit);
+                    if (item.generated_owner != nullptr) {
+                        child.owner = item.generated_owner;
+                        child.relative.clear();
+                    } else {
+                        child.relative.push_back(i | kGeneratedPathBit);
+                    }
+                    emit(child);
+                }
             }
-        }
+        };
 
         // The picked element, its canvas tree, and that canvas's window size. Null when the pick is
         // inactive or its element is gone.
@@ -542,22 +527,37 @@ namespace engine::ui {
         for (const CanvasSource &source: sources) {
             windows.insert(source.window);
         }
-        std::erase_if(inspector.collapsed, [&world](const InspectorRowKey &key) {
-            return world.try_get<UiInstance>(key.canvas) == nullptr;
-        });
+        inspector.expansion.retain(
+                [&world](const InspectorRowKey &key) { return world.try_get<UiInstance>(key.canvas) != nullptr; });
 
-        WalkState state;
-        state.inspector = &inspector;
-        state.show_window = windows.size() > 1;
-        state.rows = &rows;
+        std::vector<InspectorNode> roots;
+        roots.reserve(sources.size());
         for (const CanvasSource &source: sources) {
-            const UiInstance &instance = world.get<UiInstance>(source.entity);
-            state.canvas = source.entity;
-            state.window = source.window;
-            const auto pick_it = inspector.selection.find(source.window);
-            state.pick = pick_it != inspector.selection.end() ? &pick_it->second : nullptr;
-            walk_element(instance.document.root, state, {}, {}, nullptr, 0);
+            roots.push_back(InspectorNode{&world.get<UiInstance>(source.entity).document.root, source.entity,
+                                          source.window});
         }
+        const bool show_window = windows.size() > 1;
+        const InspectorTreeSource tree_source;
+        (void) flatten_tree(roots, inspector.expansion, tree_source,
+                            [&](const InspectorNode &node, const TreeRowInfo &info) {
+                                InspectorTreeRow row;
+                                row.key = tree_source.key(node);
+                                row.pick.canvas = node.canvas;
+                                row.pick.path = node.path;
+                                row.pick.generated_owner = node.owner;
+                                row.pick.active = true;
+                                row.window = node.window;
+                                row.tree = info;
+                                const auto pick_it = inspector.selection.find(node.window);
+                                row.selected = pick_it != inspector.selection.end() && pick_it->second.active &&
+                                               pick_it->second.canvas == node.canvas &&
+                                               pick_it->second.path == node.path;
+                                row.label = element_label(*node.element);
+                                if (info.depth == 0 && show_window) {
+                                    row.label.insert(0, std::format("[{}] ", static_cast<std::uint32_t>(node.window)));
+                                }
+                                rows.push_back(std::move(row));
+                            });
         return rows;
     }
 
@@ -576,9 +576,7 @@ namespace engine::ui {
         if (!inspector.attached) {
             return;
         }
-        if (inspector.collapsed.erase(key) == 0) {
-            inspector.collapsed.insert(key);
-        }
+        inspector.expansion.toggle(key);
     }
 
     std::string inspector_detail(ecs::World &world, const InspectorPick &pick) {
