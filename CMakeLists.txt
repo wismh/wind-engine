@@ -598,6 +598,9 @@ if(ENGINE_EDITOR)
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/wind_game.cmake"
         DESTINATION cmake)
 
+    # Project templates the launcher copies for a new project, so a project starts from this version's API.
+    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/templates/" DESTINATION templates)
+
     # sdk.toml last: version, commit, dirty, configuration, and build id of what was just installed.
     install(CODE "
         set(WIND_SDK_SOURCE_DIR \"${CMAKE_CURRENT_SOURCE_DIR}\")

@@ -105,6 +105,10 @@ public:
     // until the user closes it. An empty `filters` list shows every file.
     [[nodiscard]] virtual FileDialogCall request_open_file(WindowId owner, std::vector<FileFilter> filters) = 0;
 
+    // The platform's choose-folder dialog, the same way: the answer's `path` is the chosen directory.
+    // `start` is the directory it opens in; empty, or one that does not exist, leaves that to the platform.
+    [[nodiscard]] virtual FileDialogCall request_open_folder(WindowId owner, std::filesystem::path start) = 0;
+
     // The display's usable area in screen pixels — the full display bounds minus OS chrome
     // (Windows taskbar, macOS menu bar/dock) — so a game can place a fixed-size overlay flush
     // against a screen edge without hardcoding a platform-specific work-area query itself.

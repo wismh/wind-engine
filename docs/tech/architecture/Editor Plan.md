@@ -197,7 +197,7 @@ Building while the game plays is allowed: the editor runs a copy from `live/<n>/
 - SDKs: scanned from one install directory, plus Locate for a dev SDK such as `out/sdk`.
 - Later: new project from a template, download of SDK releases.
 
-As built (wind-179): Add picks the project's `wind_project.toml` through the existing open-file dialog instead of a new folder dialog, and Locate picks an SDK's `sdk.toml`. Installed SDKs are `<user data>/sdks/*`. The preset is `vs-launcher` (`ENGINE_LAUNCHER`). See [Launcher](../features/Launcher.md).
+As built (wind-179): Add picks the project's `wind_project.toml` through the existing open-file dialog instead of a new folder dialog, and Locate picks an SDK's `sdk.toml`. Installed SDKs are `%LOCALAPPDATA%/Programs/Wind/Sdks/*` (wind-183), on an SDKs page beside Projects with a per-row menu to forget a located SDK or delete an installed one. New project (wind-183) copies the SDK's `templates/empty/` with a name, a location (`request_open_folder`), and the SDK picked, then opens it. The preset is `vs-launcher` (`ENGINE_LAUNCHER`). See [Launcher](../features/Launcher.md).
 
 ### Tasks
 
