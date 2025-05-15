@@ -180,9 +180,16 @@ void handle_pointer(ecs::World& world, float x, float y, WindowId window) {
     }
 
     if (is_bound(hit->element->drag_binding) && hit->canvas->data_context) {
+        // A drag-bound element generated inside an ItemsControl/ItemTemplate has its `drag`
+        // binding registered on the *item* ViewModel (Element::generated_owner, freshly resolved
+        // by the apply_bindings() resolve_pointer_hit() just ran), not the canvas's own
+        // data_context — writing to data_context there would silently no-op forever.
+        ViewModel* target = hit->element->generated_owner != nullptr
+                ? static_cast<ViewModel*>(const_cast<void*>(hit->element->generated_owner))
+                : hit->canvas->data_context.get();
         const float fraction = compute_drag_fraction(hit->element->drag_orientation, hit->element->layout_rect,
                 hit->space.offset, hit->space.scale, x, y);
-        hit->canvas->data_context->write_property_float(hit->element->drag_binding, fraction);
+        target->write_property_float(hit->element->drag_binding, fraction);
         world.ctx<UiActiveDrags>().drags[window] = ActiveDrag{
                 hit->entity,
                 hit->element->drag_binding,
@@ -190,6 +197,7 @@ void handle_pointer(ecs::World& world, float x, float y, WindowId window) {
                 hit->space.offset,
                 hit->space.scale,
                 hit->element->drag_orientation,
+                hit->element->generated_owner,
         };
     }
 
@@ -214,9 +222,33 @@ void update_drag(ecs::World& world, float x, float y, WindowId window) {
         drags.erase(it);
         return;
     }
+
+    ViewModel* target = canvas->data_context.get();
+    if (drag.owner != nullptr) {
+        // Re-resolve which item ViewModel `drag.owner` still identifies, if any, *this frame* —
+        // re-binding first (wind-112-style ItemsControl reconciliation refreshes every live
+        // Element::generated_owner from the current items_source) so the identity check below
+        // compares against up-to-date data, not whatever the tree happened to hold on the frame
+        // the drag started. The item may have been removed from the game's list since then; if
+        // so there's nothing left to write to, and continuing to poke a stale pointer would be a
+        // use-after-free, so the drag simply ends instead.
+        UiInstance* instance = world.try_get<UiInstance>(drag.canvas_entity);
+        if (instance == nullptr) {
+            drags.erase(it);
+            return;
+        }
+        (void) apply_bindings(instance->document, *canvas->data_context, nullptr);
+        const Element* owner_element = find_by_generated_owner(instance->document.root, drag.owner);
+        if (owner_element == nullptr) {
+            drags.erase(it);
+            return;
+        }
+        target = static_cast<ViewModel*>(const_cast<void*>(drag.owner));
+    }
+
     const float fraction =
             compute_drag_fraction(drag.orientation, drag.rect, drag.space_offset, drag.space_scale, x, y);
-    canvas->data_context->write_property_float(drag.value_binding, fraction);
+    target->write_property_float(drag.value_binding, fraction);
 }
 
 void end_drag(ecs::World& world, WindowId window) {
