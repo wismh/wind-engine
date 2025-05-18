@@ -17,10 +17,17 @@ namespace {
 
 class FakePainter final : public engine::ui::IUiPainter {
 public:
+    struct DrawnLine {
+        glm::vec2 from{};
+        glm::vec2 to{};
+    };
+
     int lines_drawn = 0;
     int texts_filled = 0;
     int rounded_rects_filled = 0;
     engine::render::Rect last_rounded_rect{};
+    std::vector<std::string> filled_texts;
+    std::vector<DrawnLine> drawn_lines;
 
     void save() override {}
     void restore() override {}
@@ -34,17 +41,24 @@ public:
     }
     void fill_rounded_rect_gradient(const engine::render::Rect&, float, const engine::ui::Gradient&) override {}
     void stroke_rounded_rect(const engine::render::Rect&, float, float, glm::vec4) override {}
-    void draw_line(glm::vec2, glm::vec2, glm::vec4, float) override { ++lines_drawn; }
+    void draw_line(glm::vec2 from, glm::vec2 to, glm::vec4, float) override {
+        ++lines_drawn;
+        drawn_lines.push_back(DrawnLine{from, to});
+    }
     void stroke_arc(glm::vec2, float, float, float, float, glm::vec4) override {}
     void fill_path(std::span<const engine::ui::PathSegment>, glm::vec4) override {}
     void set_font(engine::AssetId, float) override {}
-    void fill_text(std::string_view, glm::vec2, glm::vec4, engine::ui::UiAlign, engine::ui::UiAlign) override {
+    void fill_text(std::string_view text, glm::vec2, glm::vec4, engine::ui::UiAlign, engine::ui::UiAlign) override {
         ++texts_filled;
+        filled_texts.emplace_back(text);
     }
     void image(engine::AssetId, const engine::render::Rect&) override {}
     void image_repeat(engine::AssetId, const engine::render::Rect&) override {}
     void image_nine_slice(engine::AssetId, const engine::render::Rect&, const engine::ui::BoxInsets&) override {}
+    float last_measure_size = 0.0f;
+
     glm::vec2 measure_text(std::string_view text, engine::AssetId, float size) override {
+        last_measure_size = size;
         return {static_cast<float>(text.size()) * size * 0.5f, size};
     }
 };
@@ -408,9 +422,13 @@ TEST(UiTextInput, ReturnKeyExecutesCommand) {
     engine::ui::handle_pointer(world, 20.0f, 15.0f);
     EXPECT_EQ(vm->submits, 0);
 
-    // Press Return
+    // Press Return. The field stays focused; only a '\n' text event clears it.
     engine::ui::handle_key(world, engine::KeyCode::Return, true);
     EXPECT_EQ(vm->submits, 1);
+    engine::ui::Element* focused = engine::ui::focused_element(world);
+    ASSERT_NE(focused, nullptr);
+    EXPECT_EQ(focused->kind, engine::ui::ElementKind::TextInput);
+    EXPECT_TRUE(focused->focused);
 }
 
 TEST(UiTextInput, CssFocusPseudoClassMatches) {
@@ -890,4 +908,421 @@ TEST(UiTextInput, SelectionHighlightRendersRightToLeftToo) {
     const float expected_width = painter.measure_text("lo", focused->font_family, focused->painted_font_size_px).x;
     EXPECT_GT(painter.last_rounded_rect.w, 0.0f);
     EXPECT_FLOAT_EQ(painter.last_rounded_rect.w, expected_width);
+}
+
+TEST(UiTextInput, MapTextInputAreaScalesBorderAndCaret) {
+    engine::ui::LayoutBoxes boxes;
+    boxes.border = {10.0f, 20.0f, 100.0f, 30.0f};
+    boxes.content = {14.0f, 24.0f, 92.0f, 22.0f};
+    engine::ui::UiCanvasSpace space;
+    space.offset = {8.0f, 16.0f};
+    space.scale = 2.0f;
+
+    const engine::ui::TextInputScreenArea area =
+            engine::ui::map_text_input_area(boxes, 12.0f, engine::ui::UiAlign::Start, space);
+    EXPECT_FLOAT_EQ(area.rect.x, 28.0f);
+    EXPECT_FLOAT_EQ(area.rect.y, 56.0f);
+    EXPECT_FLOAT_EQ(area.rect.w, 200.0f);
+    EXPECT_FLOAT_EQ(area.rect.h, 60.0f);
+    // Caret layout x is 14 + 12. Window x is 8 + 26 * 2. Cursor is that minus rect.x.
+    EXPECT_FLOAT_EQ(area.cursor, 32.0f);
+
+    const engine::ui::TextInputScreenArea centered =
+            engine::ui::map_text_input_area(boxes, 12.0f, engine::ui::UiAlign::Center, space);
+    EXPECT_FLOAT_EQ(centered.rect.x, area.rect.x);
+    EXPECT_FLOAT_EQ(centered.cursor, 124.0f);
+
+    const engine::ui::TextInputScreenArea past_end =
+            engine::ui::map_text_input_area(boxes, 10000.0f, engine::ui::UiAlign::Start, space);
+    EXPECT_FLOAT_EQ(past_end.cursor, past_end.rect.w);
+}
+
+TEST(UiTextInput, ScrolledTextInputMapsToWindowPixels) {
+    auto parsed = engine::ui::parse_xml(
+            R"(<Canvas>
+                <Stack id="scroller" width="200" height="100">
+                    <TextInput id="field" width="80" height="24"/>
+                </Stack>
+            </Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+
+    const engine::render::Rect screen{40.0f, 20.0f, 800.0f, 600.0f};
+    const glm::vec2 reference{400.0f, 300.0f};
+    engine::ui::UiCanvas canvas;
+    canvas.rect = screen;
+    canvas.fit = engine::ui::UiFit::ScaleWithScreenSize;
+    canvas.reference_size = reference;
+    canvas.window = engine::kPrimaryWindow;
+
+    engine::ecs::World world;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+    world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{std::move(*parsed)});
+
+    engine::ui::UiInstance& instance = world.get<engine::ui::UiInstance>(entity);
+    ASSERT_FALSE(instance.document.root.children.empty());
+    engine::ui::Element& scroller = instance.document.root.children[0];
+    ASSERT_EQ(scroller.kind, engine::ui::ElementKind::Stack);
+    ASSERT_FALSE(scroller.children.empty());
+    engine::ui::Element& field = scroller.children[0];
+    ASSERT_EQ(field.kind, engine::ui::ElementKind::TextInput);
+    scroller.width = engine::ui::Length{200.0f, engine::ui::LengthUnit::Px};
+    scroller.height = engine::ui::Length{100.0f, engine::ui::LengthUnit::Px};
+    field.width = engine::ui::Length{80.0f, engine::ui::LengthUnit::Px};
+    field.height = engine::ui::Length{24.0f, engine::ui::LengthUnit::Px};
+
+    const engine::ui::UiCanvasSpace space =
+            engine::ui::canvas_layout_space(screen, canvas.fit, canvas.reference_size);
+    engine::ui::layout(instance.document, space.layout_rect);
+
+    ASSERT_FLOAT_EQ(field.layout_rect.x, 0.0f);
+    ASSERT_FLOAT_EQ(field.layout_rect.y, 0.0f);
+    ASSERT_FLOAT_EQ(field.layout_rect.w, 80.0f);
+    ASSERT_FLOAT_EQ(field.layout_rect.h, 24.0f);
+
+    scroller.scroll_x = 12.0f;
+    scroller.scroll_y = 30.0f;
+    engine::ui::set_focus(world, engine::kPrimaryWindow, entity, &field);
+
+    const engine::ui::LayoutBoxes boxes = engine::ui::layout_boxes(instance.document.root, field);
+    EXPECT_FLOAT_EQ(boxes.border.x, -12.0f);
+    EXPECT_FLOAT_EQ(boxes.border.y, -30.0f);
+    EXPECT_FLOAT_EQ(boxes.border.w, 80.0f);
+    EXPECT_FLOAT_EQ(boxes.border.h, 24.0f);
+
+    const std::optional<engine::ui::TextInputScreenArea> area =
+            engine::ui::focused_text_input_area(world, engine::kPrimaryWindow);
+    ASSERT_TRUE(area.has_value());
+    // scale = 800/400 = 2, offset = (40, 20). Window rect is the scrolled border, not the layout rect.
+    EXPECT_FLOAT_EQ(area->rect.x, 16.0f);
+    EXPECT_FLOAT_EQ(area->rect.y, -40.0f);
+    EXPECT_FLOAT_EQ(area->rect.w, 160.0f);
+    EXPECT_FLOAT_EQ(area->rect.h, 48.0f);
+    EXPECT_FLOAT_EQ(area->cursor, 0.0f);
+    EXPECT_NE(area->rect.w, boxes.border.w);
+}
+
+TEST(UiTextInput, TextInputAreaMeasuresPrefixInLayoutPixels) {
+    auto parsed = engine::ui::parse_xml(
+            R"(<Canvas><TextInput id="field" width="80" height="24" text="ab"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+
+    const engine::render::Rect screen{40.0f, 20.0f, 800.0f, 600.0f};
+    const glm::vec2 reference{400.0f, 300.0f};
+    engine::ui::UiCanvas canvas;
+    canvas.rect = screen;
+    canvas.fit = engine::ui::UiFit::ScaleWithScreenSize;
+    canvas.reference_size = reference;
+
+    engine::ecs::World world;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+    world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{std::move(*parsed)});
+
+    engine::ui::UiInstance& instance = world.get<engine::ui::UiInstance>(entity);
+    engine::ui::layout(instance.document, {0.0f, 0.0f, reference.x, reference.y});
+    engine::ui::Element* field = engine::ui::find_by_kind(instance.document.root, engine::ui::ElementKind::TextInput);
+    ASSERT_NE(field, nullptr);
+    field->font_size = {20.0f, engine::ui::LengthUnit::Px};
+    field->text = "ab";
+    field->caret_position = 2;
+    engine::ui::set_focus(world, engine::kPrimaryWindow, entity, field);
+
+    FakePainter painter;
+    world.ctx<engine::ui::UiLayoutPainters>().resolve = [&painter](engine::WindowId) { return &painter; };
+
+    const std::optional<engine::ui::TextInputScreenArea> area =
+            engine::ui::focused_text_input_area(world, engine::kPrimaryWindow);
+    ASSERT_TRUE(area.has_value());
+    EXPECT_FLOAT_EQ(painter.last_measure_size, 20.0f);
+    // FakePainter width is glyph count * size * 0.5. Canvas scale is 2 and must not be in that size.
+    EXPECT_FLOAT_EQ(area->cursor, 40.0f);
+}
+
+TEST(UiTextInput, OnlyEnabledTextInputMapsScreenArea) {
+    auto parsed = engine::ui::parse_xml(
+            R"(<Canvas>
+                <Label id="cap" text="Hello" width="80" height="20"/>
+                <TextInput id="field" width="80" height="24"/>
+            </Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+
+    engine::ui::UiCanvas canvas;
+    canvas.rect = {0.0f, 0.0f, 200.0f, 200.0f};
+    canvas.fit = engine::ui::UiFit::Fixed;
+
+    engine::ecs::World world;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+    world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{std::move(*parsed)});
+    engine::ui::UiInstance& instance = world.get<engine::ui::UiInstance>(entity);
+
+    engine::ui::Element* label = engine::ui::find_by_kind(instance.document.root, engine::ui::ElementKind::Label);
+    engine::ui::Element* field = engine::ui::find_by_kind(instance.document.root, engine::ui::ElementKind::TextInput);
+    ASSERT_NE(label, nullptr);
+    ASSERT_NE(field, nullptr);
+
+    EXPECT_FALSE(engine::ui::focused_text_input_area(world, engine::kPrimaryWindow).has_value());
+
+    engine::ui::set_focus(world, engine::kPrimaryWindow, entity, label);
+    EXPECT_FALSE(engine::ui::focused_text_input_area(world, engine::kPrimaryWindow).has_value());
+
+    field->disabled = true;
+    engine::ui::set_focus(world, engine::kPrimaryWindow, entity, field);
+    EXPECT_FALSE(engine::ui::focused_text_input_area(world, engine::kPrimaryWindow).has_value());
+
+    field->disabled = false;
+    EXPECT_TRUE(engine::ui::focused_text_input_area(world, engine::kPrimaryWindow).has_value());
+}
+
+TEST(UiTextInput, NewlineSubmitsAndClearsFocus) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<CardViewModel>();
+    auto parsed = engine::ui::parse_xml(
+            R"(<Canvas width="200" height="200"><TextInput id="word" text="{binding word}" command="{binding submit}" width="100" height="30"/></Canvas>)",
+            nullptr, vm.get());
+    ASSERT_TRUE(parsed.has_value());
+
+    engine::ui::UiCanvas canvas;
+    canvas.rect = {0.0f, 0.0f, 200.0f, 200.0f};
+    canvas.fit = engine::ui::UiFit::Fixed;
+    canvas.data_context = vm;
+
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+    world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{*parsed, test_sheet()});
+
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 20.0f, 15.0f);
+    engine::ui::Element* focused = engine::ui::focused_element(world);
+    ASSERT_NE(focused, nullptr);
+    EXPECT_EQ(focused->text, "cat");
+
+    engine::ui::handle_text_input(world, "\n");
+    EXPECT_EQ(vm->submits, 1);
+    EXPECT_EQ(focused->text, "cat");
+    EXPECT_EQ(vm->word.get(), "cat");
+    EXPECT_EQ(engine::ui::focused_element(world), nullptr);
+    EXPECT_FALSE(focused->focused);
+}
+
+TEST(UiTextInput, NewlineInsertsPrefixThenSubmits) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<CardViewModel>();
+    std::string text_at_submit;
+    vm->submit = [vm, &text_at_submit] {
+        ++vm->submits;
+        text_at_submit = vm->word.get();
+    };
+    auto parsed = engine::ui::parse_xml(
+            R"(<Canvas width="200" height="200"><TextInput id="word" text="{binding word}" command="{binding submit}" width="100" height="30"/></Canvas>)",
+            nullptr, vm.get());
+    ASSERT_TRUE(parsed.has_value());
+
+    engine::ui::UiCanvas canvas;
+    canvas.rect = {0.0f, 0.0f, 200.0f, 200.0f};
+    canvas.fit = engine::ui::UiFit::Fixed;
+    canvas.data_context = vm;
+
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+    world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{*parsed, test_sheet()});
+
+    ASSERT_TRUE(engine::ui::apply_bindings(world.get<engine::ui::UiInstance>(entity).document, *vm).has_value());
+    engine::ui::Element* field =
+            engine::ui::find_by_kind(world.get<engine::ui::UiInstance>(entity).document.root,
+                                     engine::ui::ElementKind::TextInput);
+    ASSERT_NE(field, nullptr);
+    field->text = "";
+    field->caret_position = 0;
+    engine::ui::set_focus(world, engine::kPrimaryWindow, entity, field);
+
+    engine::ui::handle_text_input(world, "hi\n");
+    EXPECT_EQ(field->text, "hi");
+    EXPECT_EQ(vm->word.get(), "hi");
+    EXPECT_EQ(text_at_submit, "hi");
+    EXPECT_EQ(vm->submits, 1);
+    EXPECT_EQ(engine::ui::focused_element(world), nullptr);
+    EXPECT_FALSE(field->focused);
+}
+
+namespace {
+
+struct FocusedTextInput {
+    engine::ecs::World world;
+    std::shared_ptr<CardViewModel> vm = std::make_shared<CardViewModel>();
+    engine::ecs::Entity entity{};
+    engine::ui::Element* field = nullptr;
+    const engine::ui::Stylesheet* sheet = nullptr;
+
+    explicit FocusedTextInput(bool command = false) {
+        std::string xml = R"(<Canvas width="200" height="200"><TextInput id="word" text="{binding word}")";
+        if (command) {
+            xml += R"( command="{binding submit}")";
+        }
+        xml += R"( width="100" height="30"/></Canvas>)";
+        auto parsed = engine::ui::parse_xml(xml, nullptr, vm.get());
+        EXPECT_TRUE(parsed.has_value());
+        if (!parsed.has_value()) {
+            return;
+        }
+        engine::ui::UiCanvas canvas;
+        canvas.rect = {0.0f, 0.0f, 200.0f, 200.0f};
+        canvas.fit = engine::ui::UiFit::Fixed;
+        canvas.data_context = vm;
+        entity = world.create();
+        world.emplace<engine::ui::UiCanvas>(entity, canvas);
+        world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{std::move(*parsed), test_sheet()});
+        engine::ui::UiInstance& instance = world.get<engine::ui::UiInstance>(entity);
+        EXPECT_TRUE(engine::ui::apply_bindings(instance.document, *vm).has_value());
+        field = engine::ui::find_by_kind(instance.document.root, engine::ui::ElementKind::TextInput);
+        sheet = instance.stylesheet.has_value() ? &instance.stylesheet.value() : nullptr;
+        if (field == nullptr) {
+            return;
+        }
+        engine::ui::set_focus(world, engine::kPrimaryWindow, entity, field);
+        field->caret_position = field->text.size();
+    }
+};
+
+bool painted_horizontal_line(const FakePainter& painter) {
+    for (const FakePainter::DrawnLine& line : painter.drawn_lines) {
+        if (line.from.y == line.to.y && line.from.x != line.to.x) {
+            return true;
+        }
+    }
+    return false;
+}
+
+}
+
+TEST(UiTextInput, PreeditStaysOffTheBinding) {
+    FocusedTextInput fx;
+    ASSERT_NE(fx.field, nullptr);
+    EXPECT_EQ(fx.field->text, "cat");
+    const std::size_t caret = fx.field->caret_position;
+    fx.field->selection_anchor = 1;
+
+    engine::ui::handle_text_editing(fx.world, "при", 1, 2);
+
+    EXPECT_EQ(fx.field->composition, "при");
+    EXPECT_EQ(fx.field->composition_start, 1);
+    EXPECT_EQ(fx.field->composition_length, 2);
+    EXPECT_EQ(fx.field->text, "cat");
+    EXPECT_EQ(fx.vm->word.get(), "cat");
+    EXPECT_EQ(fx.field->caret_position, caret);
+    EXPECT_EQ(fx.field->selection_anchor, 1u);
+
+    engine::ui::UiInstance& instance = fx.world.get<engine::ui::UiInstance>(fx.entity);
+    ASSERT_TRUE(engine::ui::apply_bindings(instance.document, *fx.vm).has_value());
+    EXPECT_EQ(fx.field->composition, "при");
+    EXPECT_EQ(fx.field->composition_start, 1);
+    EXPECT_EQ(fx.field->composition_length, 2);
+    EXPECT_EQ(fx.field->text, "cat");
+    EXPECT_EQ(fx.vm->word.get(), "cat");
+}
+
+TEST(UiTextInput, EmptyEditingClearsComposition) {
+    FocusedTextInput fx;
+    ASSERT_NE(fx.field, nullptr);
+    engine::ui::handle_text_editing(fx.world, "при", 1, 1);
+    engine::ui::handle_text_editing(fx.world, "", 0, 3);
+
+    EXPECT_TRUE(fx.field->composition.empty());
+    EXPECT_EQ(fx.field->composition_start, -1);
+    EXPECT_EQ(fx.field->composition_length, -1);
+    EXPECT_EQ(fx.field->text, "cat");
+    EXPECT_EQ(fx.vm->word.get(), "cat");
+}
+
+TEST(UiTextInput, CompositionStartIsCodePoints) {
+    FocusedTextInput fx;
+    ASSERT_NE(fx.field, nullptr);
+    engine::ui::handle_text_editing(fx.world, "при", 2, -1);
+
+    EXPECT_EQ(fx.field->composition, "при");
+    EXPECT_EQ(fx.field->composition.size(), 6u);
+    EXPECT_EQ(fx.field->composition_start, 2);
+    // Code point 2 is byte 4. A byte index of 2 would land inside U+0440.
+    EXPECT_EQ(engine::ui::utf8_byte_offset(fx.field->composition, 2), 4u);
+}
+
+TEST(UiTextInput, TextInputCommitsAndClearsPreedit) {
+    FocusedTextInput fx;
+    ASSERT_NE(fx.field, nullptr);
+    engine::ui::handle_text_editing(fx.world, "при", 2, -1);
+    engine::ui::handle_text_input(fx.world, "й");
+
+    EXPECT_TRUE(fx.field->composition.empty());
+    EXPECT_EQ(fx.field->composition_start, -1);
+    EXPECT_EQ(fx.field->composition_length, -1);
+    EXPECT_EQ(fx.field->text, "catй");
+    EXPECT_EQ(fx.vm->word.get(), "catй");
+}
+
+TEST(UiTextInput, KeysWhileComposingLeaveTextAndCaret) {
+    FocusedTextInput fx;
+    ASSERT_NE(fx.field, nullptr);
+    engine::ui::handle_text_editing(fx.world, "при", 1, -1);
+    const std::size_t caret = fx.field->caret_position;
+
+    engine::ui::handle_key(fx.world, engine::KeyCode::Backspace, true);
+    engine::ui::handle_key(fx.world, engine::KeyCode::Left, true);
+    EXPECT_EQ(fx.field->text, "cat");
+    EXPECT_EQ(fx.field->caret_position, caret);
+    EXPECT_EQ(fx.field->composition, "при");
+    EXPECT_EQ(fx.vm->word.get(), "cat");
+
+    engine::ui::handle_key(fx.world, engine::KeyCode::Escape, true);
+    EXPECT_EQ(engine::ui::focused_element(fx.world), nullptr);
+    EXPECT_FALSE(fx.field->focused);
+    EXPECT_TRUE(fx.field->composition.empty());
+    EXPECT_EQ(fx.field->composition_start, -1);
+    EXPECT_EQ(fx.field->composition_length, -1);
+    EXPECT_EQ(fx.field->text, "cat");
+    EXPECT_EQ(fx.vm->word.get(), "cat");
+}
+
+TEST(UiTextInput, ReturnWhileComposingRunsCommandAndDropsPreedit) {
+    FocusedTextInput fx(true);
+    ASSERT_NE(fx.field, nullptr);
+    std::string seen;
+    fx.vm->submit = [vm = fx.vm, &seen] {
+        ++vm->submits;
+        seen = vm->word.get();
+    };
+    engine::ui::handle_text_editing(fx.world, "при", 0, -1);
+
+    engine::ui::handle_key(fx.world, engine::KeyCode::Return, true);
+
+    EXPECT_EQ(fx.vm->submits, 1);
+    EXPECT_EQ(seen, "cat");
+    EXPECT_EQ(engine::ui::focused_element(fx.world), fx.field);
+    EXPECT_TRUE(fx.field->focused);
+    EXPECT_TRUE(fx.field->composition.empty());
+    EXPECT_EQ(fx.field->composition_start, -1);
+    EXPECT_EQ(fx.field->composition_length, -1);
+    EXPECT_EQ(fx.field->text, "cat");
+    EXPECT_EQ(fx.vm->word.get(), "cat");
+}
+
+TEST(UiTextInput, CompositionPaintsTextAndUnderline) {
+    FocusedTextInput fx;
+    ASSERT_NE(fx.field, nullptr);
+    engine::ui::handle_text_editing(fx.world, "й", -1, -1);
+
+    FakePainter painter;
+    engine::ui::UiInstance& instance = fx.world.get<engine::ui::UiInstance>(fx.entity);
+    engine::ui::paint_document(instance.document, fx.sheet, painter,
+                               engine::ui::UiPaintInput{.canvas_rect = {0.0f, 0.0f, 200.0f, 200.0f},
+                                                        .delta_time = 0.1f});
+
+    bool saw_preedit = false;
+    for (const std::string& text : painter.filled_texts) {
+        if (text == "й") {
+            saw_preedit = true;
+        }
+    }
+    EXPECT_TRUE(saw_preedit);
+    EXPECT_TRUE(painted_horizontal_line(painter));
 }
