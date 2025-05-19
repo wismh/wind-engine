@@ -1,5 +1,6 @@
 #include "window_system.h"
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 
@@ -192,13 +193,36 @@ void WindowSystem::resize(glm::ivec2 size) {
 }
 
 void WindowSystem::start_text_input() {
-    if (window_ != nullptr) {
-        SDL_StartTextInput(window_);
+    if (window_ == nullptr) {
+        return;
     }
+    // Single-line text. Do not set SDL_HINT_RETURN_KEY_HIDES_IME: that hint swallows Enter inside
+    // SDL's Android JNI, so the field never sees a submit.
+    const SDL_PropertiesID props = SDL_CreateProperties();
+    if (props != 0) {
+        SDL_SetBooleanProperty(props, SDL_PROP_TEXTINPUT_MULTILINE_BOOLEAN, false);
+        SDL_SetNumberProperty(props, SDL_PROP_TEXTINPUT_TYPE_NUMBER, static_cast<Sint64>(SDL_TEXTINPUT_TYPE_TEXT));
+    }
+    SDL_StartTextInputWithProperties(window_, props);
+    SDL_DestroyProperties(props);
+}
+
+void WindowSystem::set_text_input_area(render::Rect rect, int cursor) {
+    if (window_ == nullptr) {
+        return;
+    }
+    const SDL_Rect area{
+            static_cast<int>(std::lround(rect.x)),
+            static_cast<int>(std::lround(rect.y)),
+            static_cast<int>(std::lround(rect.w)),
+            static_cast<int>(std::lround(rect.h)),
+    };
+    SDL_SetTextInputArea(window_, &area, cursor);
 }
 
 void WindowSystem::stop_text_input() {
     if (window_ != nullptr) {
+        SDL_ClearComposition(window_);
         SDL_StopTextInput(window_);
     }
 }

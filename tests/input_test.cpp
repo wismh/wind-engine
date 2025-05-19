@@ -41,6 +41,14 @@ std::vector<engine::TextInputEvent> read_text_input(engine::ecs::World& world) {
     return events;
 }
 
+std::vector<engine::TextEditingEvent> read_text_editing(engine::ecs::World& world) {
+    std::vector<engine::TextEditingEvent> events;
+    for (const engine::TextEditingEvent& event : engine::ecs::EventReader<engine::TextEditingEvent>{world}) {
+        events.push_back(event);
+    }
+    return events;
+}
+
 }
 
 TEST(Input, InternSameNameTwiceEqual) {
@@ -145,6 +153,21 @@ TEST(Input, TextInputEventEmittedWithUtf8) {
     const std::vector<engine::TextInputEvent> events = read_text_input(world);
     ASSERT_EQ(events.size(), 1u);
     EXPECT_EQ(events[0].text, "Привіт");
+    EXPECT_EQ(events[0].window, engine::kPrimaryWindow);
+}
+
+TEST(Input, TextEditingEventCopiesTextStartAndLength) {
+    engine::ecs::World world;
+    engine::InputSystem input{world};
+    std::string text = "при";
+    input.handle_text_editing(text, 2, 1);
+    text = "other";
+
+    const std::vector<engine::TextEditingEvent> events = read_text_editing(world);
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].text, "при");
+    EXPECT_EQ(events[0].start, 2);
+    EXPECT_EQ(events[0].length, 1);
     EXPECT_EQ(events[0].window, engine::kPrimaryWindow);
 }
 
