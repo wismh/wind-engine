@@ -633,4 +633,30 @@ const Element* find_by_kind(const Element& root, ElementKind kind) {
     return find_by_kind_const(root, kind);
 }
 
+// Finds the (non-template) Element bind_element() most recently stamped with this exact
+// generated_owner identity — i.e. the live generated clone of a specific ItemsControl item, right
+// now, in this already-rebound tree. `owner` must come from a *freshly* re-applied bind pass (see
+// canvas.cpp update_drag()): generated_owner is only ever safe to compare, never to hold onto
+// across frames without this kind of same-frame revalidation (wind-112's reconciliation relies on
+// the same rule) — a stale owner simply won't be found if the item is gone.
+Element* find_by_generated_owner(Element& root, const void* owner) {
+    if (owner == nullptr) {
+        return nullptr;
+    }
+    if (root.generated_owner == owner) {
+        return &root;
+    }
+    for (Element& child : root.children) {
+        if (Element* found = find_by_generated_owner(child, owner)) {
+            return found;
+        }
+    }
+    for (Element& child : root.generated_items) {
+        if (Element* found = find_by_generated_owner(child, owner)) {
+            return found;
+        }
+    }
+    return nullptr;
+}
+
 }

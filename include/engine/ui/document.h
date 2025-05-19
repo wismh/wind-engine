@@ -261,6 +261,14 @@ void layout(UiDocument& document, const render::Rect& canvas_rect);
 [[nodiscard]] Element* find_by_kind(Element& root, ElementKind kind);
 [[nodiscard]] const Element* find_by_kind(const Element& root, ElementKind kind);
 
+// Finds the generated Element currently stamped with this exact Element::generated_owner value
+// (see that field's comment) — used by canvas.cpp's drag write-back to re-resolve which item
+// ViewModel a drag started inside an ItemsControl/ItemTemplate still belongs to, on every frame of
+// the drag, rather than holding a ViewModel* across frames without revalidating it. `owner ==
+// nullptr` always returns nullptr (no Element is ever a "generated" root with a null owner in a
+// way that should match).
+[[nodiscard]] Element* find_by_generated_owner(Element& root, const void* owner);
+
 // Sibling paint/hit-test order: stable sort by z_index ascending (low first = behind, matching
 // UiCanvas::order), tie-broken by document order. z_index == 0 everywhere (the default) leaves
 // order unchanged. Paint iterates this forward; hit-testing iterates it in reverse (topmost
