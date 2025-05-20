@@ -67,6 +67,9 @@ Hubs: [[Home]] · [[architecture/Overview]] · [[build/Pipeline]]
 | `src/audio/clip.cpp` | [[src.audio.clip.cpp]] | [[modules/Audio]] |
 | `src/audio/clip.h` | [[src.audio.clip.h]] | [[modules/Audio]] |
 | `src/audio/fake_mixer.h` | [[src.audio.fake_mixer.h]] | [[modules/Audio]] |
+| `src/cli/cli_commands.cpp` | [[src.cli.cli_commands.cpp]] | [[modules/UI]] |
+| `src/cli/cli_server.cpp` | [[src.cli.cli_server.cpp]] | [[modules/Core]] |
+| `src/cli/cli_server.h` | [[src.cli.cli_server.h]] | [[modules/Core]] |
 | `src/core/api_epoch.cpp` | [[src.core.api_epoch.cpp]] | [[modules/Core]] |
 | `src/core/engine_instantiate.cpp` | [[src.core.engine_instantiate.cpp]] | [[modules/Core]] |
 | `src/core/engine_runtime.cpp` | [[src.core.engine_runtime.cpp]] | [[modules/Core]] |
@@ -132,6 +135,7 @@ Hubs: [[Home]] · [[architecture/Overview]] · [[build/Pipeline]]
 | `tests/audio_test.cpp` | [[tests.audio_test.cpp]] | [[modules/Audio]] |
 | `tests/builtin_test.cpp` | [[tests.builtin_test.cpp]] | [[modules/Resources]] |
 | `tests/camera_test.cpp` | [[tests.camera_test.cpp]] | [[modules/ECS]] |
+| `tests/cli_server_test.cpp` | [[tests.cli_server_test.cpp]] | [[modules/UI]] |
 | `tests/cmake_sanity_test.cpp` | [[tests.cmake_sanity_test.cpp]] | [[modules/Core]] |
 | `tests/command_buffer_test.cpp` | [[tests.command_buffer_test.cpp]] | [[modules/Render]] |
 | `tests/ecs_test.cpp` | [[tests.ecs_test.cpp]] | [[modules/ECS]] |
@@ -154,3 +158,4 @@ Hubs: [[Home]] · [[architecture/Overview]] · [[build/Pipeline]]
 | `tests/ui_xml_test.cpp` | [[tests.ui_xml_test.cpp]] | [[modules/UI]] |
 | `tools/asset_codegen/main.cpp` | [[tools.asset_codegen.main.cpp]] | [[modules/Resources]] |
 | `tools/asset_guid/main.cpp` | [[tools.asset_guid.main.cpp]] | [[modules/Resources]] |
+| `tools/wind_cli/main.cpp` | [[tools.wind_cli.main.cpp]] | [[modules/Core]] |
