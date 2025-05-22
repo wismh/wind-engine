@@ -807,7 +807,7 @@ namespace engine::ui {
             {
                 auto view = world.view<UiCanvas>();
                 for (ecs::Entity entity: view) {
-                    if (world.try_get<InspectorPanel>(entity) != nullptr) {
+                    if (inspector_skips_canvas(world, entity)) {
                         continue;
                     }
                     const UiCanvas &source = view.get<UiCanvas>(entity);
@@ -1001,7 +1001,7 @@ namespace engine::ui {
             best_order = canvas.order;
             best_index = entity.index;
         }
-        if (!any || world.try_get<InspectorPanel>(best) != nullptr) {
+        if (!any || inspector_skips_canvas(world, best)) {
             return std::nullopt;
         }
         return best;

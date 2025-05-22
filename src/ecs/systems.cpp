@@ -588,7 +588,7 @@ namespace engine {
                         space.offset,      space.scale,
                 };
                 cmd.canvas = canvas.entity;
-                if (ui::inspector_enabled(world) && world.try_get<ui::InspectorPanel>(canvas.entity) == nullptr) {
+                if (ui::inspector_enabled(world) && !ui::inspector_skips_canvas(world, canvas.entity)) {
                     if (const auto hover = hover_by_window.find(canvas.window); hover != hover_by_window.end() &&
                                                                                 hover->second.has_value() &&
                                                                                 *hover->second == canvas.entity) {
