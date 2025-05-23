@@ -668,10 +668,10 @@ namespace engine::ui {
         void handle_pointer_impl(ecs::World &world, float x, float y, WindowId window, UiInputBatchCache *batch,
                                  bool primary_button, std::uint8_t clicks) {
             // Inspect mode picks the deepest element and does not run the game's command, drag, or focus.
-            // The inspector panel is a normal canvas, so its own buttons still execute.
+            // The inspector panel and the profiler panel stay on the normal path, so their buttons still execute.
             if (primary_button && inspector_enabled(world) && world.ctx<UiInspector>().pick_pointer) {
                 if (const std::optional<PreparedCanvas> prepared = prepare_top_canvas(world, x, y, window, batch)) {
-                    if (world.try_get<InspectorPanel>(prepared->entity) == nullptr) {
+                    if (!inspector_skips_canvas(world, prepared->entity)) {
                         const VisualHit visual =
                                 hit_test_visual(prepared->instance->document.root, prepared->layout_pointer.x,
                                                 prepared->layout_pointer.y);
