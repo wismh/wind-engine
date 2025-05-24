@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/modules/UI.md
+
 #include <engine/resources/asset_id.h>
 #include <engine/ui/bindable.h>
 #include <engine/ui/binding_id.h>

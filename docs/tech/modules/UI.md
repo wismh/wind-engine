@@ -1,113 +1,251 @@
----
-tags: [module]
----
-
 # UI
 
-XML + custom CSS + C++ MVVM, plus an imperative `ui::Node` builder into the same `Element` tree. UI is an ECS component (`UiCanvas` + `UiInstance`), not a C++ widget graph and not a `Layout`/`onClick` tree.
+XML and the C++ `ui::Node` builder produce one `Element` tree. Style is a CSS subset. A `ViewModel` supplies properties, `ICommand`, and `IPaint`. There is no `onClick` and no second widget graph.
 
-## Capabilities
+Walkthroughs: [UI Markup](../features/UI Markup.md), [UI Input](../features/UI Input.md), [UI Inspector](../features/UI Inspector.md), [UI Profiler](../features/UI Profiler.md).
 
-- Two document frontends: XML (`parse_xml`) and [[include.engine.ui.builder.h]] (`ui::Node` / `make_document`). Same tags/bindings; style remains CSS (no inline `width()` on the builder).
-- `std::optional<AssetId> document` on `UiCanvas`. If set, Bind clones from `AssetsDb` when the id changes. If unset, `UiInstance` is canonical (`ui::spawn_canvas` clears the id). Bind/layout/paint do not care how the tree was created.
-- `{binding path}` on `text` / `content` / `formula` / `command` / `paint` / `source` / `items_source` / `pan-x` / `pan-y` / `zoom` / `checked`, interned to a `BindingId` ([[include.engine.ui.binding_id.h]]) at parse time — not a runtime string lookup.
-- `{tr key}` and `{tr key name={binding path}}` on `text` / `content` (XML and `ui::Node::text` / `content`). `apply_bindings` resolves them through `world.ctx<loc::Catalog>()` into `Element::text`, so a locale change dirties layout through the existing text comparison. `formula` rejects `{tr}`. See [[modules/Localization]].
-- CSS: element / class / id / `E.c`, descendant `A B`, child `A > B` (no `+`/`~`, no `,` grouping); `:hover` `:pressed` `:disabled` `:focus` `:checked`; units px/`%`/`em` + `calc(+ - * /)`; `@media (min-width|min-height: N)`; `@keyframes` and `transition` (numbers, colors, resolved px lengths, `rotate`/`scale`; keywords snap when eased progress reaches 0.5). Longhands and the `transition` / `animation` shorthands carry duration, delay, easing (`linear` by default, also `ease` / `ease-in` / `ease-out` / `ease-in-out`), and `animation-iteration-count` (`N` or `infinite`; a finite animation holds its end). On one property `@keyframes` wins over `transition`.
-- Applied style: color, background, background-image, opacity, visibility, display (`none` only), width, height, min-width, max-width, min-height, gap, flex-direction, padding, margin, justify-content, align-items, text-align, white-space, user-select, border-*, font-size, line-height, font-family (AssetId hex or `default`), animation-name, animation-duration, animation, animation-delay, animation-timing-function, animation-iteration-count, transition, transition-property, transition-duration, transition-delay, transition-timing-function, z-index, position, top/right/bottom/left, transform. `display: none` removes the element and its subtree from layout (no space, no gap), paint and hit-testing; `visibility: hidden` keeps the space but is also skipped by hit-testing. Other `display` values are ignored.
-- `background`/`background-image: linear-gradient()|radial-gradient()|conic-gradient()` ([[src.ui.paint.cpp]] `parse_gradient`, `ComputedStyle::background_gradient`) — hex-color 2-stop linear/radial map straight onto NanoVG's native `nvgLinearGradient`/`nvgRadialGradient`; conic has no native NanoVG paint, so `NanoVgPainter` bakes a small angular-ramp texture cached by gradient content ([[src.render.opengl.nanovg_painter.cpp]] `ensure_conic_texture`) — fine for a background that changes rarely (a few classes/pseudo-states), not for a value animated every frame (that would rebake a GPU texture every frame). A live, continuously-animated ring should be drawn imperatively through `IPaint`/`IDrawList` instead. Not a general CSS `<gradient>` grammar: no `to <side>` keyword angles, no rgba()/named colors, no N-stop linear/radial (conic alone allows N stops, since it bakes regardless of stop count).
-- `z-index` (sibling-local stacking order), `position: relative|absolute` (against the nearest positioned ancestor or the canvas root), `transform: rotate() scale()` (paint-time only, about the element's own center) — see [[include.engine.ui.document.h]] `PositionMode` ([[features/UI Markup]]). Rotated hit-test uses an AABB, not an oriented rect.
-- `white-space: normal | nowrap` on `Label` / `Button` text (default **`normal`**, wind-139): `normal` wraps at the content-box width (greedy word wrap, a word wider than the row splits by character, `\n` always breaks and a blank line stays a row), `nowrap` keeps one row and does not honour `\n`. The width is explicit `width`, else what the container can give (parent content width less margins; a hug-sized ancestor passes its own container's width down, so `Stack > Stack > Label` wraps too), capped by `max-width` and lifted by `min-width` (CSS order), less padding. Horizontal stacks do not split the width between siblings — the label sees the whole stack width — so give a label in a row a `width` or `max-width`. A wrapped label hugs its widest row. `TextInput` stays one row.
-- `line-height` on a `Label` / `Button` that breaks into rows (default **`normal`**): the distance between row tops when `white-space: normal` and the text wraps or contains `\n`. `normal` keeps the font's own line height. A unitless number (`1.5`) multiplies the used font-size; a bare number on this property is that multiplier, while `font-size: 16` stays pixels. `px` and `em` are lengths (`em` is this element's font-size); `%` is of the font-size. The value replaces the row stride, so hug height is the row count times that stride and paint steps row tops by the same stride. A line that fits on its own, `white-space: nowrap`, `TextInput`, and `Math` keep the height they already had. A Label or Button whose text contains an inline formula is the exception: there `line-height` is a minimum row stride, including a single row and `nowrap`, and a formula taller than that stride grows only its own row (the extra stride sits below the shared baseline). It applies only to elements the selector matches, same as `font-size`.
-- Inline formula in `Label` / `Button` `text` / `content`: a `\(...\)` pair in the resolved string (after `{binding}` and `{tr}`) is one text-style formula on the same line as the letters around it. Several pairs are allowed. An empty `\(\)` has no width. Spaces around a pair are text; the engine adds no gap of its own. `\\(` and `\\)` are the literals `\(` and `\)` and do not open or close a formula. An unclosed `\(` warns once and the tail, opener included, stays plain text. A TeX error inside a closed pair is not fatal: the recovered tree is drawn and one `log::warn` names the first problem, same as `<Math>`. `\n` outside a pair breaks the row; `\n` inside a pair stays in the formula source (the TeX parser already treats it as space). `<` in an attribute is still `&lt;`. `TextInput` stays one plain string (caret and selection are byte offsets). A string with neither `\(` nor `\)` keeps the plain measure and `fill_text` path. `color` and `font-size` are the formula's fill and em size; `font-family` does not apply (always STIX Two Math). There is no per-formula color or size. The formula is one unbreakable box: if it does not fit the current row it moves whole, and a box wider than the row sits alone and may stick out. `white-space: nowrap` is still one row and ignores `\n`. The row baseline is shared: the distance from the row top to the baseline is the max of the text font's ascent and the ascents of the formulas on that row, and the descent is the same max. `text-align` aligns the whole row width; `align-items` places the block in the content box and never above its top. `collect_referenced_fonts` requests `builtin::font_math` when that resolved text contains `\(` (a lone `\)` does not). Until the font is registered the box is the same rough size as `<Math>` (`source length * font-size / 2`), and `UiDocument::last_layout_math_font` relayouts the frame the font arrives. A display formula stays `<Math display="true">`.
-- `ICommand` / `RelayCommand` — only UI → game path. A bound command sets `disabled` from `!can_execute()` each bind, except `TextInput` (Enter-to-submit must stay typeable). See [[features/UI Input]].
-- `IPaint` / `RelayPaint` / `IDrawList` — named VM paint into a layout hole after CSS chrome; private [[src.ui.draw_list_adapter.h]] maps local content px onto `IUiPainter`. `IUiPainter` stays private. `IDrawList::arc(center, radius, start_angle, end_angle, color, width)` strokes a ring-segment (radians, 0 = 12 o'clock, clockwise — same convention as a conic-gradient background above) via NanoVG's native `nvgArc`, no texture bake — this is the imperative tool for a circular progress ring that's redrawn every frame, where a conic-gradient background would mean rebaking a GPU texture each frame.
-- `user-select: none | text | all` (default **`none`**, not inherited). `text` makes a plain `Label` a pointer hit: left-click sets a collapsed range, drag extends by character, double-click selects a word and further drag snaps by words, triple-click selects the whole string, Shift+click extends, Ctrl+A selects all, Ctrl+C copies. `all` selects the whole string on one click and drag does not shrink it. No caret is drawn. Typing, Backspace, Delete, Ctrl+X and Ctrl+V do not change a Label. A Label inside a Button or Checkbox, or one with `command` or `drag`, is not selectable. An inline formula is one source span (`\(...\)`, copied as TeX); `\\(` stays ordinary text. A string with neither delimiter does not build that split. Highlight rects come from the glyph boxes cached at paint time and are drawn before the glyphs. See [[features/UI Input]].
-- Hit-test canvases by `order` (front first); within a canvas, siblings resolve topmost-first by the same `z-index` stacking order paint uses ([[src.ui.document.cpp]] `hit_test`). A hit is a **Button**, a **Checkbox**, any element with a bound `command` or `drag`, a `<Viewport>` with a pan/zoom binding, or a `Label` with `user-select: text|all` (the bullet above). Label/Stack/Canvas/Image without those do not consume. `:hover`/`:pressed` follow that same single topmost hit. `hit_test_visual` is the same walk without that interactive filter (deepest visible element, plus margin/border/content boxes). The inspector picks with it. See [[features/UI Inspector]]. `FillWindow` copies window size into `rect`. `ScaleWithScreenSize` (Unity `PanelSettings`-style) keeps layout/paint/hit-test in fixed `reference_size` design units and lets the engine derive one uniform letterbox `scale` + `offset` from `rect` — pixel-perfect scaling for a fixed pixel-art canvas at any window size, see [[include.engine.ui.canvas.h]] `canvas_layout_space`.
-- `<Checkbox>` is a small (20px hug, like `Image`'s 32px) interactive primitive with its own runtime `checked` bool, toggled by canvas.cpp on click or Enter and matched by CSS `:checked` — the checked/unchecked look is ordinary cascaded `background`/`border`/`background-image`, not a built-in drawn mark, so it composes with any stylesheet the same way Button's chrome does. `checked="{binding path}"` is two-way (bind_element reads it every frame, click/Enter write it back via `write_property_float` — bool rides the arithmetic float path like every other bool `ViewModel` property); a literal `checked="true"`/`"false"` just seeds the initial state with no `ViewModel` tie, unlike `drag`/`command` which reject a literal outright.
-- `<Viewport>` is a paint-time 2D camera (pan/zoom bindings, empty-background pan drag, wheel zoom-to-cursor). `layout_rect` of children does not move. Ancestor clip uses intersecting scissor (`nvgIntersectScissor`); hit-test inverts the same camera and clips to the Viewport's unpanned box. Tooltips that must escape the clip belong on another `UiCanvas`.
+## Canvas
 
-## How it is implemented
+A `UiCanvas` is a component on an entity (`include/engine/ui/canvas.h`).
 
-- [[src.ui.xml_parser.cpp]] — tinyxml2; interns `{binding}` paths to `BindingId` via [[src.ui.bind_scan.h]].
-- [[src.ui.builder.cpp]] — `ui::Node` factories/`add`/`make_document`; root must be Canvas.
-- [[src.ui.canvas.cpp]] — begin_frame, handle_pointer, handle_wheel, apply_canvas_fit, canvas_layout_space, `spawn_canvas`. Pointer hit-test relayouts through `layout_painter_for` ([[src.ui.painter.h]] `UiLayoutPainters`) so hug text uses the same measurer as `paint_document`. Viewport pan uses `UiActivePans` (pointer delta), not 1D `ActiveDrag`. While the inspector is on, a left click on a canvas that is not the inspector or the profiler is picked with `hit_test_visual` and returns before focus, drag, and command. `begin_frame` also keeps the inspector window up (`sync_inspector_frames`). The profiler window sync (`sync_profiler_frames`) runs after that timed section. See [[features/UI Profiler]].
-- [[src.ui.css_parser.cpp]] — combinators, units, `calc()`, `@media`, `@keyframes`; unknown property → warning string, not fatal.
-- [[src.ui.element_path.h]] — child-index path shared by scrollbar drag and the inspector. A `generated_items` step sets `kGeneratedPathBit`.
-- [[src.ui.inspector.cpp]] — the inspector window, its tree, and the selected element's computed style and matched rules. See [[features/UI Inspector]].
-- [[src.ui.profile.h]] — `ENGINE_UI_PROFILE`. A scope under `ENGINE_UI_PROFILER`; `((void)0)` otherwise, so the arguments are not evaluated.
-- [[src.ui.profiler.cpp]] — the profiler window, the canvas list, and the 120-frame rings. CLI capture records while the window is closed. See [[features/UI Profiler]].
-- [[src.cli.cli_commands.cpp]] — `tree`, `element`, `hit`, `click`, and `profile` for [[features/CLI]]. Same inspector detail, after paint when the socket server drains.
-- [[src.ui.document.cpp]] — real content-box layout (padding/margin/gap/width/height/min-* affect sizing; Stack packs by used size + `justify-content`/`align-items`), bindings by `BindingId`; `position: absolute` children are split out of the packing/cursor loop and resolved against a threaded `containing_block` instead; `child_stacking_order()` (z-index sort) and `hit_test()`/`hit_bounds()` (topmost-first, AABB for rotated/scaled elements) are exported here and shared by paint.cpp and canvas.cpp. `hit_test_visual` / `layout_boxes` use that walk and map scroll and Viewport into canvas space: border is `hit_bounds`, margin expands it, content insets it by padding (border width does not).
-- `ItemsControl` (`bind_element`, [[src.ui.document.cpp]]): when `generated_items` is already this frame's window (the same owners, in order, with the same spacers), those rows are bound in place and stay at the same addresses. A different set — scroll, insert, remove, reorder — reconciles by `ViewModel*` identity so a surviving item keeps its Element (motion clocks `transition_players` / `animation_players`, style/text-measure caches) and only a new item is cloned from the `ItemTemplate`. When it is eligible, it instead generates only the visible window of rows plus a small overscan, flanked by up to two invisible "spacer" Elements (plain `Canvas`, no class/id, height = skipped-row count × row stride) that stand in for the scrolled-past rows so the unmodified `layout_stack` packing places the real rows at the right Y and computes the same `max_scroll_y` a full generation would. Eligibility requires `direction: vertical`, exactly one root Element in `ItemTemplate` with a fixed px `height`, and fixed px/absent `gap` — plus a scrolled viewport to window against, resolved as `effective_context`: the `ItemsControl` itself if it scrolls vertically (`overflow-y: scroll|auto`), otherwise the nearest scrollable ancestor at any nesting depth, threaded down through `bind_element`'s `scroll_context` parameter (updated to the current element whenever it `is_scrollable_y`, so the innermost scrollable ancestor always wins over an outer one) — `effective_context` must itself pack vertically. When `effective_context` is an ancestor rather than the `ItemsControl` itself, its `scroll_y`/viewport height apply through an `offset` (the `ItemsControl`'s absolute `layout_rect.y` minus `effective_context`'s — `layout_rect` is always absolute/canvas-space regardless of nesting depth, and unaffected by scroll since scroll is a paint-time transform, so this one subtraction is exact with any number of intermediate wrapper Elements and needs no direct-parent requirement); for the self-scrolling case the offset is definitionally `0`. If the resulting window would be empty — the `ItemsControl` scrolled entirely outside `effective_context`'s viewport while other content in it stays visible, only reachable when `effective_context` is an ancestor — it generates zero real rows and a single spacer covering the whole list (`N × row_height + (N-1) × gap`), preserving the same total-used-height invariant so a sibling that follows the `ItemsControl` (e.g. a footer) still lands where full generation would have put it. Row height can only be sampled from an already-styled generated row from a *previous* frame (a raw `ItemTemplate` never receives a CSS-resolved `height` — `apply_layout_style` skips its subtree); to survive the entirely-empty-window case (where no generated row is left to sample) it is cached persistently on the `ItemsControl` Element (`Element::virtualization_row_height_cache`) rather than re-derived every frame, refreshed whenever a live sample is available. Virtualization only engages starting the second frame after eligibility holds (self-correcting, like `max_scroll_y`/`layout_rect.h` staleness elsewhere in bind order). Falls back to full generation (unchanged) for a horizontal list, a multi-root `ItemTemplate`, a row without a fixed px `height`, an `ItemsControl` with no scrollable context at all (neither itself nor any ancestor), or while `suppress_item_virtualization` is set because a row-box property (`display`, `height`, `min-height`, `padding`, `margin`, `gap`, `font-size`, `line-height`) is still interpolating. That flag is written at the end of `paint_document` and read on the next bind.
-- Layout dirty-gate (`UiDocument`, [[include.engine.ui.document.h]]; `layout_state_changed()`, [[src.ui.document.cpp]]): `prepare_top_canvas` ([[src.ui.canvas.cpp]]) skips `apply_layout_style`+`layout()` for a frame where nothing layout-relevant changed, and it does not advance transition or `@keyframes` clocks, so a size animation is not wiped or stepped there. `paint_document` ([[src.ui.paint.cpp]]) uses the same structural check; on a structural frame it lays the whole document out before hit-testing, then always runs `apply_interaction` and walks motion once from `UiPaintInput::delta_time`. An element steps its clocks only when the paint style cache misses, a transition is still running, an animation has not reached its end (delay included), or a held sample's parent basis changed; a quiet hit leaves the cached cascade and any held sample in place. When a shown layout input changed, it calls `apply_layout_style` and a partial `layout()` that skips an unchanged subtree, slides a flow subtree whose size stayed put, and stops at a parent whose width and height are both fixed. Opacity and color do not enter that pass. Hit-testing during a size animation uses the previous frame's `layout_rect`s. `apply_bindings()` itself is never skipped (still reads every bound property every frame — no push notifications in `Bindable<T>`/`ViewModel`); only the CSS cascade + `layout_stack` packing arithmetic after it is gated. `layout_state_changed()` walks `children`/`generated_items` comparing `Element::text`/`custom_properties`/the `generated_items[*].generated_owner` sequence against `layout_dirty_check_*` copies (exact comparison, not a hash) — the only fields layout ever reads, since `apply_layout_style` always resolves style with `allow_pseudo=false` (a pseudo-class does not change those cascaded fields; a `transition` or `@keyframes` sampled with `allow_pseudo=true` can, via `Element::layout_inputs_changed`) and `intrinsic_size`/`compute_used` never read `source`/`pan_x`/`pan_y`/`zoom`/motion clocks/`caret_blink_timer`; scroll position's only layout effect is indirect, through which `ItemsControl` rows get generated, already covered by the `generated_owner` sequence check. It always runs (never short-circuited out of a `||` chain — it has the side effect of refreshing those copies) before combining with `UiDocument`'s "whole-document" triggers: `layout_computed_once` (bootstrap), canvas geometry, window size (`@media`), stylesheet identity+`generation`, and which `IUiPainter` (or none — the CPU-fallback path) last measured hug text, since a real painter's shaped metrics differ from the fallback's. Paint itself is never gated by this — `paint_element` applies the shown motion values on top of the cascade, and `caret_blink_timer` still runs, every frame regardless of whether layout was skipped.
-- [[src.ui.paint.cpp]] — cascade (incl. `@media`), interaction flags (topmost-hit-only via `hit_test()`), text position from justify/align/text-align, transition and `@keyframes` sampling ([[src.ui.style_anim.cpp]]), `z-index` sibling sort before recursing into children, `IUiPainter::apply_transform` for non-identity rotation/scale, `IUiPainter::apply_view` for Viewport camera, calls `IUiPainter`. After background/border, invokes `Element::paint` (`IPaint`) if bound. `match_style_rules` is that cascade's match list (last entry wins). `paint_document` draws the inspector hover and selection boxes after the tree, still inside the canvas scissor, when `UiPaintInput` carries them. When the profiler is on, the same function times layout, motion, and paint on `UiPaintInput::canvas`.
-- [[src.ui.view_model.cpp]] — `property_`/`command_`/`paints_` maps keyed by `BindingId`, not name.
-- [[src.ui.painter.h]] — private painter interface plus `UiLayoutPainters` (WindowId → `IUiPainter*` for hit-test layout). `IUiPainter::break_lines(text, font, size, max_width)` returns a `TextBlock` (rows as byte ranges of the text + widths, and `line_height`); the default implementation wraps through `measure_text`, `NanoVgPainter` overrides it with `nvgTextBreakLines` + `nvgTextMetrics`. `IUiPainter::font_metrics` returns ascent, descent and line height at a size (ascent above the baseline, descent below). The default derives them from `measure_text("M")` (ascent 80% of that height, descent the rest); `NanoVgPainter` reads `nvgTextMetrics` (ascender positive, descender negative). Inline math uses these so a formula and the surrounding letters share a baseline.
-- `src/ui/text_wrap.{h,cpp}` + public `include/engine/ui/text_line.h` (wind-139) — `break_text_lines(text, max_width, width_of)`: the engine's own greedy wrapper with the same rules as `nvgTextBreakLines`, used by the default `break_lines` and by painter-less layout; `TextLine` / `TextBlock` are public because `Element` caches them. [[src.ui.document.cpp]] threads `avail_x` (width the container can offer) through `intrinsic_size` / `compute_used` (`kUnboundedWidth` when nothing bounds it) and `measure_element_text(..., wrap_width)` keeps the single-line fast path for text that fits and has no `\n`; wrapped rows are memoized per width and resolved `line-height` in `Element::text_wrap_cache_*` (an explicit value replaces the font stride on the cached block; hug height is the row count times that stride) (separate from `text_measure_cache_*`, because a hug pass and the final pass of one layout measure the same element at different widths). Paint draws the cached rows (`wrapped_text_rows`) — never re-breaks at the scaled font size, so rows and the height layout reserved cannot disagree.
-- `src/ui/inline_math.{h,cpp}` — `split_inline` / `layout_inline` turn a Label/Button string that contains `\(` or `\)` into runs and rows. A formula is one unbreakable box; text still wraps by word and, past that, by UTF-8 character. `line-height` is a minimum stride and the row baseline is the max of the text ascent and the formulas on that row. `measure_label_inline` / `paint_label_inline` are the measure and paint path for that string; `measure_element_text` keeps the plain path when the string has neither delimiter. The laid-out runs are cached on `Element::inline_cache` (opaque `shared_ptr<void>`, replaced never mutated, keyed by text, font, size, wrap width, resolved line-height, nowrap, and the math font). A painter-less measure does not fill the cache. Paint reuses a cache built at a wider wrap when the block still fits, and does not reuse one whose text runs measured zero-wide (that line would keep a formula on top of the letters). `NanoVgPainter` measures, breaks, and reads font metrics with the transform reset, because NanoVG divides those results by the current CSS scale — the help window's first painted frame is `scale(0)`. `measure_text` returns the advance, not the ink box, so a trailing space before a formula stays in the gap. Text is `fill_text` with its top at `baseline - text ascent`; a formula is `paint_layout` with its top at `baseline - formula ascent`, both in the label color. Layout is design px; paint multiplies by `ui_scale`.
-- [[src.ui.draw_list_adapter.h]] — private `IDrawList` over `IUiPainter`.
-- `src/ui/math/math_font.{h,cpp}` (wind-137, formula rendering groundwork) — `MathFont::load(bytes)` parses an OpenType MATH font: cmap, glyph metrics and outlines through the vendored `src/resources/stb_truetype.h` (TrueType and CFF; compiled `STBTT_STATIC` because NanoVG's fontstash already carries a non-static copy), plus the `MATH` table — `MathConstants` (all 51 MathValueRecords + the percent/height fields), per-glyph italics correction and top-accent attachment, vertical/horizontal size variants and `GlyphAssembly` parts. Every value is in font design units (`units_per_em()`, y up); no size, no GPU, no NanoVG, so formula layout built on it stays headless-testable. The `MATH` parser bounds-checks every read (`Reader`); stb_truetype itself is not hardened, so only catalog fonts go in. Errors: `InvalidFont` / `MissingMathTable` (an ordinary text font) / `MalformedMathTable`. The builtin math font is `builtin::font_math` (`fonts/math.otf`, STIX Two Math 2.0.2, SIL OFL).
-- `src/ui/math/math_ast.h` + `math_parser.{h,cpp}` — `parse_formula(utf8)` turns the supported TeX subset into a `Row` of `Node`s (`std::variant`: `Symbol` / `Text` / `OperatorName` / `Space` / `Group` / `Fraction` / `Radical` / `Scripts` / `Delimited`). Supported: letters (mapped to Mathematical Italic, `h` -> U+210E), digits, `+ - * = < > : ( ) [ ] , ; ! / |`, raw Unicode (kept as an ordinary symbol), `{}` groups, `^` `_` `'` (primes), `\frac`, `\sqrt[n]{}`, `\vec`, large operators with `\limits` / `\nolimits`, `\left...\right`, Greek, binary/relation/arrow/misc symbol commands, `\text` / `\mathrm` / `\operatorname`, named functions (`\sin` ... `\lim`), and spacing (`\,` `\:` `\;` `\!` `\quad` `\qquad`). Every `Symbol` carries a TeX atom class (`MathClass`) for layout's inter-atom spacing; script, `\frac` and `\sqrt` arguments take one token or a `{group}` like TeX (`\frac12`, `x^2y`). Parsing is total: `ParseResult::root` is always drawable and `errors` lists what was off (`ParseErrorKind` + byte offset; an unknown command comes out as its own source text, a missing `}` closes at the end, nesting is capped at 64). Accents go through one table (`accent_commands()`, a command plus the combining mark it draws; only `\vec` = U+20D7 so far, so `\hat` / `\bar` / `\dot` are one row each). Not yet: matrices, line breaks, accents other than `\vec`, `\binom`, `\color`, macros. The command/function tables are exposed (`command_symbols()`, `function_names()`) so a test checks every emitted code point exists in the builtin font.
-- `src/ui/math/math_layout.{h,cpp}` + `math_stretch.{h,cpp}` — `layout_formula(row, font, {font_size, display})` turns the AST into a backend-neutral `MathLayout`: `width` / `ascent` / `descent` plus `PlacedGlyph{glyph, origin, scale}` and `PlacedRule{position, size}` lists, y-down with the origin at the box's top-left (baseline at `y = ascent`; a painter maps a font point `(gx, gy)` to `origin + (gx * scale, -gy * scale)`). No GPU, no NanoVG, no font access after layout, so it is testable headless. TeX Appendix G driven by the font's MATH constants: four styles (display / text / script / scriptscript, `script_percent_scale_down` / `script_script_percent_scale_down`) with cramped variants for denominators, radicands and subscripts; atom spacing from the TeXbook table (Ord/Op/Bin/Rel/Open/Close/Punct/Inner, medium/thick spaces dropped at script level, a Bin with nothing sensible on its left or before a Rel/Close/Punct demoted to Ord so `-b` is unary); fractions (shifts and bar gaps from the `fraction_*` constants, display variants in display style, parts one level smaller, `\nulldelimiterspace` padding); scripts (sup/sub shifts, `sub_superscript_gap_min`, drops from the base's edges unless the base is a lone glyph); large operators (display style takes the larger size variant, every operator glyph centred on the axis, limits stacked above/below in display style for sum/product/`\lim` and beside for integrals, `\limits` / `\nolimits` override); radicals (sign chosen by size variant or assembly, bar and gap from `radical_*`, index at scriptscript size raised by `radical_degree_bottom_raise_percent`); accents (`\vec`: the combining mark centred on the base glyph's MATH top-accent attachment, or on the box middle for a composite base, lifted by `base ascent - accent_base_height` when the base is taller than that so it clears capitals by the same gap it leaves over lower-case letters; the box keeps the base's width, so an accent never pushes its neighbours, and an accented symbol is an Ord atom for spacing and takes scripts as a whole); `\left...\right` (TeX rule 19 sizing, delimiters centred on the axis, null delimiter = fixed space). **Italic correction follows the OpenType convention, not TeX's:** a glyph's advance already covers its overhang (STIX's display integral has ink to x=957 inside advance 1032), so box width is the plain advance, a superscript starts at the advance and a subscript at `advance - italic correction`; adding it to the width like TeX's kern would push everything after an integral half an em away. `stretch_vertical(font, codepoint, min_size)` picks the smallest size variant at least `min_size`, else builds the glyph assembly (every non-extender part once, extenders repeated until the stack reaches the size at the tightest overlap, then one shared overlap widened within what every joint's connectors allow so the result lands on the size; between two extender-count bands no overlap can hit the target, so it overshoots by less than one extender, as TeX/MathML do), else settles for the largest variant. Not yet: horizontal stretching (wide accents, braces over/under), script-style glyph variants (`ssty`, so a prime in a superscript is just the U+2032 glyph shrunk), kerning (`MathKernInfo`), `\binom`, multi-line.
-- `IUiPainter::fill_path(std::span<const PathSegment>, color)` ([[src.ui.painter.h]], private like the rest of `IUiPainter`; deliberately **not** on the public `IDrawList`) fills move/line/quad/cubic contours in real pixels in one call. A contour wound like the path's largest contour is solid, one wound the other way is a hole — the font-outline convention, independent of whether the font is TrueType (clockwise outers) or CFF (counter-clockwise). `NanoVgPainter::fill_path` ([[src.render.opengl.nanovg_painter.cpp]]) has to restate that intent to NanoVG: it forces every sub-path to its declared winding (solid = CCW by default), so left alone it would fill every counter (`o`, `8`, `a`); the painter computes each contour's shoelace sign and calls `nvgPathWinding(NVG_SOLID | NVG_HOLE)` per contour. `src/ui/math/math_paint.{h,cpp}` `paint_layout(painter, font, layout, origin, scale, color)` is the bridge from a `MathLayout`: all glyph outlines of a formula become one `fill_path` (outlines come from `MathFont::outline_cached`, one fill however many glyphs; assembled delimiters overlap their parts, which is fine because same-way contours union), every rule one square `fill_rounded_rect`. Verified end to end with a real hidden-window GL context (throwaway test, not kept: GPU stays out of `engine_tests`): counters render open, edges anti-aliased, display lists match a software rasterization.
-- `<Math formula="..." display="true|false"/>` renders a TeX formula (ui::Node: `math_formula().formula("...").math_display(true)`; the builder factory is not called `math()` because `engine::ui::math` is a namespace). `formula` is the TeX source, literal or `{binding path}` — it rides the same `Element::text` / `text_binding` plumbing as a Label's text, so the layout dirty-gate that compares `text` already covers a formula that changes. `display` is a literal flag: true = display style (roomier fractions, large-operator limits above and below), false (default) = text style. Style comes from CSS like any text: `font-size` is the em size, `color` the fill, `padding` / `margin` / `width` / `height` as usual, and `text-align` / `align-items` place the formula inside a box larger than it; `font-family` is ignored (a formula is always set in the builtin STIX Two Math, `builtin::font_math`). Supported TeX is the subset in `src/ui/math/math_parser.cpp` (see the math bullets below). A formula with parse errors is **not** fatal: the parser's recovered tree is drawn (an unknown command shows as its own source text, a missing `}` closes at the end) and one `log::warn` per rebuild names the first problem — unlike a missing `{binding}` name, which stays fatal as for every element.
-- How a `<Math>` gets its font and size: `IUiPainter::math_font()` ([[src.ui.painter.h]], default nullptr) exposes a parsed `MathFont`. `NanoVgPainter::add_font(builtin::font_math, font)` builds it from the bytes the engine already hands over, and keeps the font out of NanoVG (formulas are glyph outlines through `fill_path`, never text); `collect_referenced_fonts` ([[src.ui.ui_refs.h]]) adds `font_math` for a `Math` element, and for a `Label` or `Button` whose resolved text contains `\(`. The existing per-frame `ensure_ui_font` loads it lazily and only when used. `intrinsic_size` ([[src.ui.document.cpp]]) lays the formula out from that font's glyph metrics — no GPU, so headless tests get exact sizes with a painter that merely returns a `MathFont`. With no painter or no math font yet it falls back to a rough text-like size (`source length * size / 2`), and `UiDocument::last_layout_math_font` makes the dirty-gate relayout the frame the font arrives (otherwise a formula measured on the very first frame would keep its fallback size forever). The laid-out `MathLayout` is cached on the element (`Element::math_cache`, opaque `shared_ptr<void>` because document.h is public; key = text, font size, display flag, font; entries are replaced, never mutated, so ItemsControl rows cloned from one template can share one safely). Paint (`paint_element`, `src/ui/math/math_element.cpp`) reuses that cached layout at the design font size and maps it to real pixels with `ui_scale`, so a canvas rescale never rebuilds it.
-- [[src.ui.splash.h]] — `ui::show_splash(world, config, image_size, window)` is a plain function a
-  game calls explicitly (not engine-auto-triggered); `build_splash_document(config, image_size)`
-  turns `SplashScreen`'s config into **two** in-memory documents, not one, via the same
-  `parse_xml`/`parse_css` every other document goes through (no hand-built `Element`/`Keyframes`
-  structs): a backdrop (`background: #000000`, no `animation-name` — constant, not faded — plus no
-  children) and an image (fixed `position:absolute; left/top:10%; width/height:80%` `Image`, not
-  `100%` — stretching would ignore the image's aspect ratio — animated via a 4-stop `@keyframes`
-  opacity, plus `reference_size = image_size / 0.8`). `show_splash` spawns them via
-  `ui::spawn_canvas` (no catalog document id) as two entities —
-  backdrop `UiCanvas{fit=FillWindow, order=1000, window}` + `UiInstance`, image
-  `UiCanvas{fit=ScaleWithScreenSize, reference_size, order=1001, window}` + `UiInstance`, both
-  above every other canvas — because a single `ScaleWithScreenSize` canvas would letterbox the
-  backdrop along with the image, leaving the game's own UI visible in the gap whenever the
-  window's aspect ratio doesn't match the image's. `ScaleWithScreenSize`'s existing
-  contain-fit letterboxes the image canvas into the real window preserving the image's aspect
-  ratio, so the fixed 80% image box lands with a minimum 10% margin on every edge; `FillWindow`
-  always makes the backdrop canvas's `rect` the full real window, so its opaque background covers
-  the letterbox gap the image canvas leaves. `image_size` comes from
-  `AssetsDb::get<render::TextureDesc>(config.image)`, resolved by the caller. Both entities carry
-  a `SplashTimer{elapsed, total_duration}`; the engine system `run_splash_timers`
-  (`src/ecs/systems.cpp`, registered by `register_engine_systems`) ages every `SplashTimer` by
-  `Time::delta_time` each frame and `world.destroy()`s its entity once `elapsed >=
-  total_duration` — both entities start together with the same `total_duration`, so they always
-  despawn on the same frame.
-- [[src.resources.codegen.cpp]] — for `importer = "ui"` XML, emits a binder struct (e.g. `assets::ui::Hud::bind(vm)`) with one `constexpr BindingId` per `{binding}` path; fails the build on an intern collision. `ViewModel` subclasses and `Bindable<T>` members stay hand-written.
+| Field | Role |
+| --- | --- |
+| `document` | When set, Bind clones `UiInstance` from `AssetsDb` if this id changed |
+| `stylesheet`, `extra_stylesheets` | Asset ids merged in Bind |
+| `data_context` | `shared_ptr<ViewModel>` |
+| `rect` | Window pixels after fit |
+| `reference_size` | Design resolution. Defaults to `{0,0}`. `ScaleWithScreenSize` uses it only when both sides are positive |
+| `fit` | `FillWindow` (default), `Fixed`, or `ScaleWithScreenSize` |
+| `order` | Paint and hit-test order. Low is behind |
+| `window` | Which `WindowId` sizes this canvas. Default `kPrimaryWindow` |
 
-NanoVG implementation: [[src.render.opengl.nanovg_painter.cpp]] — `Image` and CSS `background-image` paint via `IUiPainter::image(AssetId, Rect)` or `IUiPainter::image_nine_slice(AssetId, Rect, BoxInsets)` when `background-slice` or XML `<Image slice="...">` is specified, backed by an `AssetId`-keyed NanoVG image map populated at Init from `ImporterKind::Texture`/`UiImage` catalog entries.
+`spawn_canvas` copies an in-memory `UiDocument` onto `UiInstance` and clears `canvas.document`, so Bind will not replace that tree from the catalog.
 
-Font faces: builtin UI font (Inter, `font_ui`) plus every catalog `ImporterKind::Font` registered in Init ([[features/Init and Loop]]).
+`apply_canvas_fit` runs from `begin_frame` and after a resize.
+
+| `UiFit` | Layout space |
+| --- | --- |
+| `FillWindow` | `rect` is the window. Layout is in those pixels |
+| `Fixed` | `rect` is left as authored. Layout is in those pixels |
+| `ScaleWithScreenSize` | Both sides of `reference_size` positive: layout is that design box, letterboxed into `rect` (`offset` is the `rect` origin, `scale` is `rect.w / reference_size.x`). Otherwise `rect` is the full window, and layout is that rect at offset `{0,0}` and scale `1` |
+
+## Documents
+
+`ElementKind` (`include/engine/ui/document.h`):
+
+| Tag | Kind |
+| --- | --- |
+| `Canvas` | Root. `make_document` / XML parse require it |
+| `Stack` | Packs children on `direction` (`vertical` default, `horizontal` / `row`) |
+| `ScrollView` | Stack that defaults to vertical and `overflow-y: auto` |
+| `Label` | Text |
+| `Button` | Text plus `command` |
+| `Image` | `source` asset |
+| `Checkbox` | `checked` literal or binding |
+| `TextInput` | Editable string |
+| `ItemsControl` | Clones `ItemTemplate` from `items_source` |
+| `ItemTemplate` | The row. `src` includes another XML document |
+| `Line` | Segment `x1,y1`–`x2,y2` |
+| `Viewport` | Nested clip and camera (`pan-x`, `pan-y`, `zoom`). Not a document root |
+| `Component` | Empty layout hole |
+| `Math` | TeX in `formula`. `display="true"` is display style |
+
+Unknown tags are `UiError::UnknownElement` and fatal when an `IFatalError` is passed.
+
+Common attributes: `id`, `class` (space-separated), `name`. A custom property is only `var-<name>="{binding}"` (`parse_custom_properties` in `src/ui/xml_parser.cpp`), interned to a `BindingId`. A literal on that attribute is `UiError::ForbiddenContent`. `var-` with an empty name is ignored.
+
+`Node::var` (`src/ui/builder.cpp`) is the builder path. An empty name or an unbound id does nothing.
+
+`parse_element` also reads:
+
+- `gap`: `strtof` of the attribute, stored as px. `Stack` and `ScrollView` only. `Node::gap` is the builder.
+- `overflow` sets both axes. `overflow-x` and `overflow-y` then set one axis. Tokens are `visible`, `hidden`, `scroll`, and `auto`. Any other token is not applied. `Node::overflow`, `overflow_x`, and `overflow_y` are the builder.
+- `drag-orientation`: `vertical`, otherwise horizontal. `Node::drag_orientation` is the builder.
+- `slice`: 1 to 4 lengths (`px`, `%`, `em`, or `calc()`; a bare number is px). One value is every side, two are block and inline, three are top / horizontal / bottom, four are top, right, bottom, left. Anything else is `UiError::InvalidMarkup`. On an `Image`, `element.slice` is the nine-slice. If it is unset, paint uses CSS `background-slice`. If that is unset too, the image is not sliced. `Node::slice` is the builder.
+
+An attribute that is still unknown is ignored.
+
+`text` and `content` accept a literal, `{binding path}`, `{tr key}`, or `{tr key name={binding path}}`. The same attribute is not both `{tr}` and `{binding}`. `formula` rejects `{tr}`.
+
+`command`, `paint`, `drag`, `pan-x`, `pan-y`, `zoom`, `scroll-x`, and `scroll-y` must be `{binding}` when present. `source` is 32 hex or `{binding}`, never a filename. `checked` is a literal or `{binding}`. A trimmed `true` or `1` sets it. Any other non-binding literal, including `false` and `0`, sets it false and is not an error.
+
+`stylesheet` on the root element is a CSS asset id. `ItemTemplate src` includes another document. A cycle is `UiError::CyclicInclude`.
+
+`ui::Node` (`include/engine/ui/builder.h`) builds the same `Element`. Factories match the tags. Bindings are `intern` ids. There is no codegen for a builder tree. `spawn_canvas` is how it goes on a world.
+
+Inline math: a `Label` or `Button` string may contain `\(...\)`. `\\(` and `\\)` are the two-character literals. An unclosed `\(` stays plain text. A display formula stays `<Math display="true">`.
+
+## Layout
+
+`src/ui/document.cpp` lays out a content box.
+
+Lengths are `px`, `%` (of the parent content box), `em`, and `calc()` with `+ - * /`. A `font-size` of `em`, including `em` inside a `font-size` `calc()`, multiplies by 16 (`kDefaultFontSize` in `resolve_font_size`). A percent `font-size`, including inside that `calc()`, uses the parent content width. Other lengths use the resolved font size as the `em` basis.
+
+Stack main axis is the child's used size (explicit size, otherwise hug), plus margin and gap. Hug is text metrics for Label and Button, a default image size for Image, and a default checkbox size for Checkbox, then raised by `min-width` / `min-height`. `max-width` caps used width. `min-width` still wins over `max-width`.
+
+`justify-content` places children on the main axis (`start`, `center`, `end`, `space-between`). `align-items` is the cross axis. `text-align` moves glyphs inside the content box and does not change the stack.
+
+`white-space: normal` (the default) wraps at the width the element may take. `\n` breaks a row. `nowrap` keeps one row. A wrapped label's height is the row count times `line-height` (or the font's own line height when `line-height` is `normal`). A `\(...\)` is one unbreakable box on the row.
+
+`display: none` drops the element and its subtree from layout, paint, and hit-testing. `visibility: hidden` keeps the space.
+
+`position`:
+
+| Value | Layout |
+| --- | --- |
+| `static` | In flow |
+| `relative` | In flow, then nudged by `top` / `left` (or the negation of `bottom` / `right`). Siblings stay packed against the pre-offset size |
+| `absolute` | Out of flow. Containing block is the nearest `relative` or `absolute` ancestor, else the canvas. Both opposite insets and no explicit size stretch the box |
+
+`z-index`, `transform`, and opacity do not change layout sizes.
+
+A layout dirty gate (`layout_state_changed`) compares `text`, `custom_properties`, and the generated-item owner list with the previous values. On the prepare path, `canvas.cpp` skips `layout()` when that compare is clean, `layout_computed_once` is set, and the canvas layout rect, media width, media height, stylesheet pointer, stylesheet generation, layout painter, and math-font identity all match the last layout. The copies are still stored every call.
+
+`ItemsControl` virtualization (vertical, one template root, a fixed pixel row height) builds a window of rows plus spacers. `suppress_item_virtualization` turns it off. Variable-height windows and tree collapse are not this path. See [UI Performance Plan](../architecture/UI Performance Plan.md).
+
+## Style
+
+`src/ui/css_parser.cpp` parses a subset. An unknown property warns and stays on the rule. Unknown at-rules warn.
+
+Selectors: type (`Label`), class (`.c`), id (`#id`), type-and-class (`Label.c`), descendant (`A B`), child (`A > B`). `+`, `~`, and comma grouping are rejected. Pseudo-classes: `:hover`, `:pressed`, `:disabled`, `:focus`, `:checked`.
+
+At-rules: `@media (min-width: N)` and `(min-height: N)`, `@keyframes`. `transition` is a property, not an at-rule.
+
+Known properties:
+
+- Box: `width`, `height`, `min-width`, `max-width`, `min-height`, `padding`, `margin`, `gap`, `display`, `visibility`, `position`, `top`, `right`, `bottom`, `left`, `z-index`
+- Flex-like: `flex-direction`, `align-items`, `justify-content`
+- Text: `color`, `text-align`, `white-space`, `user-select`, `font-size`, `line-height`, `font-family`, `selection-color`
+- Paint: `background`, `background-image`, `background-slice`, `background-repeat`, `opacity`, `border-radius`, `border-width`, `border-color`, `transform`
+- Motion: `animation`, `animation-name`, `animation-duration`, `animation-delay`, `animation-timing-function`, `animation-iteration-count`, `transition`, `transition-property`, `transition-duration`, `transition-delay`, `transition-timing-function`
+- Line: `x1`, `y1`, `x2`, `y2`, `stroke`, `stroke-width`
+- Scroll: `overflow`, `overflow-x`, `overflow-y`, `scrollbar-width`, `scrollbar-color`, `scrollbar-thumb-color`, `scrollbar-track-color`, `scrollbar-thumb-hover-color`, `scrollbar-border-radius`
+
+Styles do not inherit:
+
+- `compute_style_uncached` starts from a fresh `ComputedStyle` and does not copy the parent.
+- Color, `font-size`, and `font-family` do not inherit. Defaults are white, 16px, and `builtin::font_ui`.
+
+`user-select` is `none` (default), `text`, or `all`. Buttons ignore it. An unknown value stays `none`.
+
+Cascade specificity (`compound_specificity` in `src/ui/paint.cpp`) is the sum of every compound in the chain, including ancestors. A compound scores element 1, class 2, element-and-class 3, or id 4. A pseudo-class on that compound adds 10. Two class compounds score 4, the same as one id. One `:hover` beats an id. Equal scores keep the later rule.
+
+`@media` is re-checked against the size passed into layout and paint. A `ScaleWithScreenSize` canvas with both `reference_size` sides positive uses the design box (`reference_size`). Otherwise the width and height come from `window_size_for` (`Presentation.sizes`). `:hover` is the single topmost hit, not every rect that contains the pointer.
+
+A stylesheet `--name: value` is stored in `compute_style_uncached` even though `is_known_property` warned that the name is unknown. `var(--name)` and `var(--name, fallback)` substitute at cascade time, and only when the whole value is that call. The element's bound value wins over the sheet. No match and no fallback becomes an empty string. Any other unknown property does not change computed style.
+
+`transition` and `@keyframes` interpolate numbers, colors, resolved px lengths, and `rotate` / `scale`. Keywords snap at eased progress 0.5. `@keyframes` wins on a property that also has a `transition`. The clock advances once per `paint_document` from `delta_time`. A layout property re-packs the chain that moved. Hit geometry during that animation is the previous frame's rects (`src/ui/style_anim.cpp`).
+
+### Value grammar
+
+`parse_color` (`src/ui/paint.cpp`) accepts only `#rgb`, `#rrggbb`, and `#rrggbbaa`.
+
+`background` is one of those colors, or a gradient. `background-image` is a gradient, `none`, or a 32-hex `AssetId`.
+
+- `linear-gradient` takes an optional angle, then stops. The angle is `N` or `Ndeg`. An omitted angle is 180 degrees. `to <side>` is not accepted.
+- `radial-gradient` and `conic-gradient` take stops only. No shape and no position.
+- A gradient needs at least two hex stops. A stop may have one percent, or a second percent as a hard stop. A missing percent is spaced by index across 0–100.
+
+The stylesheet parser still warns when `background-image` is not `none` or an `AssetId`, including a gradient. The declaration stays, and paint accepts the gradient.
+
+`background-repeat` defaults to no-repeat. The only token that tiles is `repeat`.
+
+`transition-timing-function` and `animation-timing-function` (`parse_easing` in `src/ui/style_anim.cpp`) are `linear`, `ease`, `ease-in`, `ease-out`, or `ease-in-out`. `cubic-bezier` is rejected.
+
+`transform` is `rotate(N)` or `rotate(Ndeg)`, and `scale(N)`, about the element center. Both may appear in one value.
+
+## Bindings
+
+`BindingId` is an FNV-1a hash of the path (`include/engine/ui/binding_id.h`). Zero means unbound. Two different paths that hash equal fail codegen (`CodegenErrorKind::Collision`).
+
+`Bindable<T>` stores a value. `set` does not publish a version. `BindableList::get()` returns a mutable `vector&`, so a list can change with no signal.
+
+`ViewModel::property`, `command`, and `paint` register those objects by `BindingId`. `assign_property_string` writes only when the formatted text differs. `write_property_float` / `write_property_string` write back when the registered type matches. Arithmetic types format with `std::to_string`.
+
+`apply_bindings` (`src/ui/document.cpp`) resolves properties, commands, and paint against the view-model, then `{tr}` against a `Catalog` pointer. A bound command sets `disabled` from `!can_execute()`, except on `TextInput`. `ItemsControl` clones its template per list item.
+
+`run_bind` clones from `AssetsDb` only when `UiCanvas::document` is set and the id changed. Stylesheet asset ids merge via `try_get<Stylesheet>`. An empty id list does not wipe a sheet authored in memory.
+
+Generated binders (`asset_codegen`) emit `static constexpr BindingId` members and `bind(vm)` that calls `vm.property` / `vm.command` using the member names. The game writes the `ViewModel` subclass. See [Asset Codegen](../build/Asset Codegen.md).
+
+`ICommand` is `can_execute` and `execute`. `RelayCommand` stores `std::function`. `IPaint::paint` receives an `IDrawList` and the content rect, after CSS chrome and before children. `IDrawList` is local content pixels: line, fill and stroke rect, arc, font, text, image. Games do not call NanoVG.
+
+## Input
+
+Pointer, wheel, keys, text, and IME enter as ECS events from [Input Mapper](../features/Input Mapper.md). `run_input` drains `MouseEvent` for the frame. Direct calls (`handle_pointer`, `handle_key`, `handle_text_input`, …) exist on `canvas.h` for tests and for code outside that system.
+
+`MouseConsumed::consumed_windows` is a set of `WindowId` on the process `Presentation`. `reset_pointer_frame` clears it at the start of `simulate_worlds`. `begin_frame` does not. A hit inserts the window into `presentation_of(world).mouse`. `sync_frame` reads that same object for click-through. `world.ctx<ui::MouseConsumed>()` does not see the hits. See [Windowing](../features/Windowing.md).
+
+`UiInputBatchCache` (`src/ui/input_batch.h`) lives on `run_input`'s stack. The first touch of a canvas in that call binds and lays out. Later mouse events in the same call reuse it. The public `handle_*` functions do not use the cache.
+
+Details: [UI Input](../features/UI Input.md).
+
+## Paint
+
+`paint_element` (`src/ui/paint.cpp`) stable-sorts siblings by `z-index` (low behind, document order on ties) through `child_stacking_order`. Hit-testing uses the same function.
+
+Per-element scissor is `nvgIntersectScissor`. `overflow` and `Viewport` clip. A non-identity `transform` calls `apply_transform` around the element's own visuals and its children. `layout_rect` stays axis-aligned.
+
+`Viewport` paints chrome unpanned, then `apply_view` so children see `displayed = origin + zoom * (layout - origin + pan)`. Pan and zoom are bound floats.
+
+`background-image` and `Image` `source` both call `IUiPainter::image(AssetId, rect)`. `run_ui_render` collects referenced images and fonts (`src/ui/ui_refs.h`) and calls `ensure_ui_image` / `ensure_ui_font`. `builtin::font_ui` is ensured even when no element names it.
+
+`CmdDrawUI` carries the document, stylesheet, pointer, `delta_time`, the width and height used for `@media`, letterbox offset and scale, and optional inspector paths. A `ScaleWithScreenSize` canvas with both `reference_size` sides positive supplies that width and height from the design box (`reference_size`). Otherwise those values come from `window_size_for` (`Presentation.sizes`).
+
+NanoVG is `src/render/opengl/nanovg_painter.cpp`, only in a windowed build. Tests use a recording `IUiPainter`.
+
+## Text
+
+`src/ui/text_wrap.cpp` breaks rows. `src/ui/text_select.cpp` maps clicks to caret indexes using the boxes paint stored (`PaintedTextLine` in `include/engine/ui/text_line.h`). `TextInput` also has `allow-copy` and `allow-paste`. The clipboard is `ctx<UiClipboard>`, filled by the SDL presentation.
+
+## Math
+
+`src/ui/math/` parses a TeX subset into an AST (`parse_formula` in `src/ui/math/math_parser.h`), lays it out with the OpenType MATH table of `builtin::font_math`, stretches glyphs, and paints outlines. `src/ui/math/math_element.cpp` is the `Math` element. `src/ui/inline_math.cpp` splits `\(...\)` inside label text. The math font is not loaded in `Engine::init`. `run_ui_render` uploads it when a formula references it.
+
+The subset is:
+
+- Letters and digits. A Latin letter becomes math italic. `h` is U+210E. Digits stay upright.
+- Operators, `{}` groups, `^`, `_`, and `'`.
+- `\frac`, `\sqrt[n]{}`, and `\vec`. The accent table is only `\vec`.
+- Large operators `\sum`, `\prod`, `\coprod`, `\int`, `\iint`, `\iiint`, `\oint`, `\bigcup`, `\bigcap`, `\bigvee`, `\bigwedge`, `\bigoplus`, `\bigotimes`, with `\limits` and `\nolimits`. Integrals do not take limits in display style; the others do, until `\limits` or `\nolimits` overrides that.
+- `\left`…`\right`.
+- Greek letters (lowercase italic, uppercase upright), and relation, binary, and arrow symbols.
+- `\text{}`, `\mathrm{}`, and `\operatorname{}`.
+- Upright names from `kFunctionNames`: `sin`, `cos`, `tan`, `cot`, `sec`, `csc`, `arcsin`, `arccos`, `arctan`, `sinh`, `cosh`, `tanh`, `coth`, `log`, `ln`, `lg`, `exp`, `arg`, `deg`, `dim`, `ker`, `hom`, `lim`, `limsup`, `liminf`, `max`, `min`, `sup`, `inf`, `det`, `gcd`, `Pr`. From `lim` onward, those names take limits in display style.
+- Spacing: `\,`, `\:`, `\;`, `\!`, `\quad`, `\qquad`, and a backslash followed by a space.
+
+Parsing does not fail the document. `ParseResult::root` is always laid out. A rejected command is drawn as its source text. `errors` lists `ParseErrorKind`.
+
+## Splash
+
+`ui::show_splash` (`include/engine/ui/splash.h`) spawns two canvases on the given window: an opaque `FillWindow` backdrop and a `ScaleWithScreenSize` image. Both carry `SplashTimer`. `run_splash_timers` ages them with `Time::delta_time`, including while paused, and destroys them when `elapsed` passes `fade_in + hold + fade_out`. `nullopt` when `enabled` is false or the document cannot be built. The engine does not call `show_splash` itself. `image_size` is the decoded pixel size of `config.image`.
+
+## Inspector and profiler
+
+Public toggles are `set_inspector_enabled` and `set_ui_profiler_enabled`. Neither binds a key. The profiler functions compile to no-ops without `ENGINE_UI_PROFILER`. See the feature pages.
 
 ## Public headers
 
-- [[include.engine.ui.document.h]]
-- [[include.engine.ui.builder.h]]
-- [[include.engine.ui.stylesheet.h]]
-- [[include.engine.ui.canvas.h]]
-- [[include.engine.ui.inspector.h]]
-- [[include.engine.ui.profiler.h]]
-- [[include.engine.ui.view_model.h]]
-- [[include.engine.ui.bindable.h]]
-- [[include.engine.ui.binding_id.h]]
-- [[include.engine.ui.command.h]]
-- [[include.engine.ui.paint.h]]
-- [[include.engine.ui.draw_list.h]]
+- `include/engine/ui/document.h`
+- `include/engine/ui/builder.h`
+- `include/engine/ui/canvas.h`
+- `include/engine/ui/stylesheet.h`
+- `include/engine/ui/view_model.h`
+- `include/engine/ui/bindable.h`
+- `include/engine/ui/binding_id.h`
+- `include/engine/ui/command.h`
+- `include/engine/ui/paint.h`
+- `include/engine/ui/draw_list.h`
+- `include/engine/ui/text_line.h`
+- `include/engine/ui/splash.h`
+- `include/engine/ui/inspector.h`
+- `include/engine/ui/profiler.h`
 
 ## Tests
 
-[[tests.ui_xml_test.cpp]] · [[tests.ui_builder_test.cpp]] · [[tests.ui_paint_binding_test.cpp]] · [[tests.ui_css_test.cpp]] · [[tests.mvvm_test.cpp]] · [[tests.ui_painter_test.cpp]] · [[tests.assets_test.cpp]] (codegen) · [[tests.splash_test.cpp]] · tests/ui_items_control_virtualization_test.cpp (ItemsControl virtualization) · tests/ui_layout_dirty_gate_test.cpp (layout dirty-gate) · tests/ui_loc_test.cpp (`{tr}` bind) · tests/ui_math_font_test.cpp (MATH font parsing) · tests/ui_math_parser_test.cpp (TeX subset parser) · tests/ui_math_stretch_test.cpp (delimiter variants/assembly) · tests/ui_math_layout_test.cpp (formula layout) · tests/ui_math_paint_test.cpp (paint_layout over a recording painter) · tests/ui_math_element_test.cpp (`<Math>`: markup, layout, cache, dirty-gate, paint) · tests/ui_inline_math_test.cpp (inline `\(...\)` in Label/Button: split, wrap, baseline, font collect, paint) · tests/ui_label_select_test.cpp (Label `user-select`: word bounds, drag, wrap, clipboard, click-through) · tests/ui_inspector_test.cpp (visual hit, element path, pick vs command, matched rules, overlay boxes) · tests/ui_profiler_test.cpp (recording, layout skip, pause, canvas list, window) · [[tests.cli_server_test.cpp]] (tree, element, click past pick, loopback auth, profile capture)
+`tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_items_control_virtualization_test.cpp`, `tests/ui_text_wrap_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_refs_test.cpp`, `tests/ui_loc_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_inline_math_test.cpp`, `tests/ui_math_parser_test.cpp`, `tests/ui_math_layout_test.cpp`, `tests/ui_math_paint_test.cpp`, `tests/ui_math_font_test.cpp`, `tests/ui_math_stretch_test.cpp`, `tests/ui_math_element_test.cpp`, `tests/splash_test.cpp`, `tests/ui_inspector_test.cpp`, `tests/ui_profiler_test.cpp`.
 
 ## See also
 
-- [[features/UI Markup]]
-- [[features/UI Input]]
-- [[features/UI Inspector]]
-- [[features/UI Profiler]]
-- [[features/CLI]]
-- [[architecture/UI Performance Plan]]
-- [[modules/ECS]]
-- [[build/Asset Codegen]]
+- [Localization](Localization.md)
+- [Principles](../architecture/Principles.md)

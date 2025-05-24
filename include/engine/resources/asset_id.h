@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/modules/Resources.md
+
 #include <array>
 #include <cstddef>
 #include <optional>

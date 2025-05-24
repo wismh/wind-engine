@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/modules/Core.md
+
 #include <filesystem>
 #include <string_view>
 

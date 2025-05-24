@@ -6,7 +6,8 @@ namespace {
 
 class WindowSmokeGame final : public engine::GameBase {
 public:
-    explicit WindowSmokeGame(const engine::EngineServices&) {}
+    explicit WindowSmokeGame(const engine::EngineServices& services)
+        : engine::GameBase(services.worlds) {}
 };
 
 }

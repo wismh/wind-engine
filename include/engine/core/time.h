@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/modules/Core.md
+
 namespace engine {
 
 inline constexpr float kFixed = 1.0f / 60.0f;

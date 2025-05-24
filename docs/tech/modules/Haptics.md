@@ -1,50 +1,47 @@
----
-tags: [module]
----
-
 # Haptics
 
-Device vibration, duration + intensity only. One frontend API — the active backend (no-op /
-Web `navigator.vibrate` / Android JNI `Vibrator`) is fully hidden from game code.
+Device vibration: duration and intensity only. One frontend, `IHaptics`. The backend is chosen at compile time inside `HapticsSystem`. There is no `ENGINE_WITH_HAPTICS` option and no third-party library.
 
-## Capabilities
+## API
 
-- `vibrate(duration_seconds, intensity = 1.0)` — one-shot, fire-and-forget.
-- `cancel()` — stop an in-progress vibration.
-- `is_supported()` — a genuine **runtime** capability check (device has a vibrator motor /
-  browser actually implements `navigator.vibrate`), never a "compiled for platform X" guess.
-- Intensity is honored as real amplitude only on Android API 26+; everywhere else (Native, Web,
-  older Android) it degrades to an on/off gate — see [[include.engine.haptics.haptics_system.h]]
-  for the full per-platform table.
+`include/engine/haptics/haptics_system.h`
 
-## How it is implemented
+| Call | Contract |
+| --- | --- |
+| `init` / `dispose` | `Engine::init` calls `haptics_->init()` and, on failure, shuts the runtime down and returns false. `haptics_->dispose()` runs from `Engine::dispose`, and only after `initialized_` was set |
+| `vibrate(duration_seconds, intensity = 1)` | Fire-and-forget. Intensity is clamped to `[0, 1]` |
+| `cancel` | Stops a vibration already running |
+| `is_supported` | Runtime capability, not "this binary was compiled for Android" |
 
-- [[include.engine.haptics.haptics_system.h]] — `IHaptics` + `HapticsSystem`.
-- [[src.haptics.haptics_system.cpp]] — backend dispatch lives *inside* `HapticsSystem::Impl`,
-  branched by `#if defined(__EMSCRIPTEN__)` / `#elif defined(__ANDROID__)` / `#else`, not by a
-  CMake option (haptics has no third-party library to opt into). Web uses an `EM_JS` shim
-  around `navigator.vibrate`; Android resolves `Context.getSystemService("vibrator")` via JNI
-  (`SDL_GetAndroidJNIEnv()` / `SDL_GetAndroidActivity()`) once in `init()` and caches global
-  refs; Native is a true no-op.
-- [[src.haptics.fake_haptics.h]] — always-on state tracker (mirrors `audio::FakeMixer`'s role):
-  real backend calls run *alongside* it, never instead of it, so tests never need a device or
-  browser.
-- No `update(float dt)`: unlike audio's wall-clock fades, vibration calls are fire-and-forget
-  and timed by the OS/browser, so nothing needs ticking every frame.
+`duration_seconds <= 0` or clamped intensity `<= 0` requests nothing. A vibration already running keeps running. `vibrate` does not cancel.
 
-## Public headers
+There is no `update(dt)`. The OS or the browser times the pulse.
 
-- [[include.engine.haptics.haptics_system.h]]
+Test counters (`is_active`, `last_duration_seconds`, `last_intensity`, `vibrate_call_count`, `cancel_call_count`) read the fake model, not a motor.
+
+## Backends
+
+`src/haptics/haptics_system.cpp` branches inside `Impl`:
+
+| Build | Behavior |
+| --- | --- |
+| `__EMSCRIPTEN__` | `EM_JS` around `navigator.vibrate(ms)`. Any intensity above 0 is full strength. `is_supported` checks that the function exists (Firefox removed it; Safari and iOS never had it) |
+| `__ANDROID__` | JNI `Context.getSystemService("vibrator")` once in `init`. API 26+ uses `VibrationEffect.createOneShot` (real amplitude). API 21–25 uses `vibrate(long)` and ignores amplitude |
+| Otherwise | No-op. `is_supported()` is false |
+
+`src/haptics/fake_haptics.h` records the request on every backend, including the real ones, so tests do not need a device.
+
+`haptics_has_amplitude_control(Platform::Android)` is the compile-time simplification in `platform.h`. It does not know the API 26 check.
+
+## Public header
+
+`include/engine/haptics/haptics_system.h`
 
 ## Tests
 
-[[tests.haptics_test.cpp]] — fake state model, no device/browser. Plus
-[[tests.platform_test.cpp]]'s `HapticsAmplitudeControl` case and
-[[tests.cmake_sanity_test.cpp]]'s `AndroidManifestDeclaresVibratePermission` regression check
-for the `android.permission.VIBRATE` manifest entry.
+`tests/haptics_test.cpp`
 
 ## See also
 
-- [[modules/Audio]]
-- [[modules/Core]]
-- [[architecture/Boundaries]]
+- [Core](Core.md)
+- [Runtime Loop](../architecture/Runtime Loop.md)

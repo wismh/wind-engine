@@ -1,59 +1,59 @@
----
-tags: [build]
----
-
 # Icon codegen
 
-Host tool for turning one master PNG into the icon files each platform packaging step wants. `engine_add_game` runs it once per game target (gated on `icon.png` existing, § CMake below) and records the output directory on the `ENGINE_GAME_ICON_DIR` target property; per-platform consumers (Windows `.rc`, Web favicon, Android, macOS bundle) read that property instead of invoking the tool themselves.
+One master PNG becomes the icon files each packager wants. `engine_add_game` runs it when `icon.png` exists next to the `CMakeLists.txt` that called the function, and stores the output directory in the target property `ENGINE_GAME_ICON_DIR`. Windows, macOS, Android, and the web shell read that property. They do not invoke the tool again.
 
-## `icon_codegen`
-
-[[tools.icon_codegen.main.cpp]] links `engine` and calls [[src.resources.icon_codegen.cpp]]:
+## Tool
 
 ```
 icon_codegen <input.png> <output_dir>
 ```
 
-Validates the input decodes as PNG ([[src.resources.png_decode.cpp|decode_png_rgba]]), is square, and is at least 1024x1024 — anything else is a build-time error (`IconCodegenErrorKind::Decode` / `NotSquare` / `TooSmall`), not a silent fallback. From the validated master it resizes down (never up) and writes into `output_dir`:
+`tools/icon_codegen/main.cpp` links `engine` and calls `icon_codegen_write` (`src/resources/icon_codegen.h`). The header is private, so the executable adds `src/` to its include path.
 
-- `icon.ico` — Windows ICO container, sizes 16/32/48/256.
-- `icon.icns` — macOS ICNS container, `icp4`/`icp5`/`icp6`/`ic07`/`ic08`/`ic09`/`ic10` (16 up to 1024).
-- `mipmap-{m,h,xh,xxh,xxxh}dpi/ic_launcher.png` — Android launcher baseline (48/72/96/144/192).
-- `favicon.png` — 256x256.
+The PNG must decode, be square, and be at least 1024×1024 (`kIconCodegenMinSize`). Otherwise the build fails. There is no upscale.
 
-Resize is `stbir_resize_uint8_linear` from vendored `stb_image_resize2.h`; each output size is encoded independently via `stbi_write_png_to_mem` from vendored `stb_image_write.h` (same family, same author, as the already-vendored `stb_image.h`).
+| `IconCodegenErrorKind` | When |
+| --- | --- |
+| `Decode` | not a PNG `decode_png_rgba` can read |
+| `NotSquare` | width differs from height |
+| `TooSmall` | a side is under 1024 |
+| `Io` | an output file could not be written |
 
-## `.ico` container
+Outputs under `output_dir`, each resized with `stbir_resize_uint8_linear` (`src/resources/stb_image_resize2.h`) and encoded with `stbi_write_png_to_mem` (`stb_image_write.h`):
 
-`ICONDIR` (reserved=0, type=1, count=N) + N `ICONDIRENTRY` records (width/height as `u8`, 0 meaning 256; planes=1; bitCount=32; `bytesInRes`/`imageOffset` into the trailing blob region), followed by each size's PNG bytes back to back. Modern Windows accepts PNG-encoded ICONDIRENTRY payloads directly (Vista+), so there's no BMP/DIB path to hand-roll.
+| File | Sizes |
+| --- | --- |
+| `icon.ico` | 16, 32, 48, 256 |
+| `icon.icns` | `icp4` 16, `icp5` 32, `icp6` 48, `ic07` 128, `ic08` 256, `ic09` 512, `ic10` 1024 |
+| `mipmap-mdpi/ic_launcher.png` | 48 |
+| `mipmap-hdpi/ic_launcher.png` | 72 |
+| `mipmap-xhdpi/ic_launcher.png` | 96 |
+| `mipmap-xxhdpi/ic_launcher.png` | 144 |
+| `mipmap-xxxhdpi/ic_launcher.png` | 192 |
+| `favicon.png` | 256 |
 
-## `.icns` container
+## Containers
 
-8-byte header (`'icns'` + big-endian `u32` total length) then chunks: 4-byte OSType tag + big-endian `u32` chunk length (length includes the 8-byte chunk header) + raw PNG payload. The plain-PNG OSType table (`icp4`=16, `icp5`=32, `icp6`=48, `ic07`=128, `ic08`=256, `ic09`=512, `ic10`=1024) was checked against the Apple Icon Image format reference before hardcoding — a wrong 4-byte tag would silently produce a file Finder/iconutil can't read.
+ICO: `ICONDIR` (reserved 0, type 1, count N), then N `ICONDIRENTRY` records (width and height as `u8`, 0 meaning 256, planes 1, bit count 32), then each size's PNG bytes. Vista and later accept a PNG payload in the entry. There is no BMP path.
 
-## Testability
+ICNS: 8-byte header (`icns` plus a big-endian total length), then chunks of a 4-byte OSType, a big-endian chunk length that includes the 8-byte header, and the PNG.
 
-The library functions (`icon_resize_rgba`, `icon_encode_png`, `icon_encode_ico`, `icon_encode_icns`, `icon_codegen_write`) are plain functions in `engine` — [[icon_codegen_test.cpp]] calls them directly (decoding the embedded PNG blobs back out with `decode_png_rgba` to check pixel dimensions) rather than shelling out to the built executable.
+## How each platform consumes it
 
-## CMake
+| Platform | What CMake does |
+| --- | --- |
+| Windows | `file(GENERATE)` writes `generated/<target>/icon.rc` with `IDI_ICON1 ICON "<dir>/icon.ico"` (forward slashes) and adds it as a source. The `.ico` does not exist at configure time, so the gate is the target property, not `EXISTS` |
+| Apple | `MACOSX_BUNDLE` ON. `icon.icns` is a source with `MACOSX_PACKAGE_LOCATION` `Resources` and `MACOSX_BUNDLE_ICON_FILE` `icon.icns`. This repo has no macOS preset |
+| Web | POST_BUILD copies `favicon.png` beside the target. `cmake/web/shell.html` links `href="favicon.png"` |
+| Android | The mipmaps are generated. Gradle does not pick them up by itself. See [Game Consumer](Game Consumer.md) |
 
-Mirrors `asset_codegen`/`asset_guid`: `ENGINE_HOST_ICON_CODEGEN` cache var supplies a native binary when `CMAKE_CROSSCOMPILING` (imported as `IMPORTED GLOBAL` + `IMPORTED_LOCATION`); otherwise `add_executable(icon_codegen ...)` links `engine` directly. Unlike the asset tools, `icon_codegen`'s library logic lives under `src/resources` (private) rather than `include/engine`, so the target additionally gets `engine`'s private `src/` include dir so `main.cpp` can reach `resources/icon_codegen.h`.
+Cross-compiles import `icon_codegen` from `ENGINE_HOST_ICON_CODEGEN`. A missing path is a configure error.
 
-## Windows packaging (`.rc`/`.ico`)
+## Tests
 
-`engine_add_game` reads `ENGINE_GAME_ICON_DIR` (set by the shared `icon_codegen` block above) and, `WIN32 AND` that property is set, `file(GENERATE)`s a tiny `icon.rc` under `generated/<target>/icon.rc` containing `IDI_ICON1 ICON "<icon dir>/icon.ico"`, then `target_sources(${target} PRIVATE ...)`s it. Forward slashes in the path sidestep `rc.exe`'s backslash-escaping rules. `icon.ico` itself doesn't exist at configure time — `icon_codegen` writes it at build time — so the gate is the target property set by the earlier block, not `EXISTS icon.ico`. No-op when `WIN32` is false or the game supplied no `icon.png`.
-
-## macOS packaging (`.icns` bundle)
-
-On `APPLE`, `engine_add_game` also sets `MACOSX_BUNDLE ON` on the game target and, when `ENGINE_GAME_ICON_DIR` is set, adds the shared `icon.icns` output as a source with `MACOSX_PACKAGE_LOCATION "Resources"` plus `MACOSX_BUNDLE_ICON_FILE "icon.icns"` — the two CMake target properties the default `Info.plist` template (`MacOSXBundleInfo.plist.in`) substitutes into `CFBundleIconFile` and copies the file into `<app>.app/Contents/Resources/`. No macOS preset exists in this repo to build/run the bundle ([[architecture/Scope]]).
-
-## Web favicon
-
-Inside `engine_add_game`'s `EMSCRIPTEN` branch, a `POST_BUILD` step copies `${ENGINE_GAME_ICON_DIR}/favicon.png` beside the target's `.html`/`.js`/`.wasm` output (same `$<TARGET_FILE_DIR:${target}>` idiom `engine_prepare_runtime` uses for assets) — a no-op when the game has no `icon.png`. [[cmake.web.shell.html]] references it with `<link rel="icon" type="image/png" href="favicon.png">`.
+`tests/icon_codegen_test.cpp` calls `icon_resize_rgba`, `icon_encode_png`, `icon_encode_ico`, `icon_encode_icns`, and `icon_codegen_write` in process and decodes the PNG blobs back with `decode_png_rgba`. It does not spawn the executable.
 
 ## See also
 
-- [[build/Asset Codegen]]
-- [[build/Game Consumer]]
-- [[modules/Resources]]
-- [[src.resources.icon_codegen.cpp]]
+- [Asset Codegen](Asset Codegen.md)
+- [CMake](CMake.md)

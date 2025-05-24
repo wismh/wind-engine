@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/features/CLI.md
+
 #include <engine/ecs/world.h>
 
 #include <cstdint>

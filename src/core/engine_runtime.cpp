@@ -46,8 +46,9 @@ void EngineRuntime::shutdown() {
     impl_->presentation->shutdown();
 }
 
-int EngineRuntime::run(IGame& game, InputSystem& input, IAudioSystem* audio, std::function<void()> host_dispose) {
-    return impl_->loop.run(*impl_->presentation, game, input, audio, std::move(host_dispose));
+int EngineRuntime::run(IGame& game, Worlds& worlds, InputSystem& input, IAudioSystem* audio,
+        std::function<void()> host_dispose) {
+    return impl_->loop.run(*impl_->presentation, game, worlds, input, audio, std::move(host_dispose));
 }
 
 render::CommandBuffer& EngineRuntime::commands() {
@@ -86,8 +87,8 @@ std::filesystem::path EngineRuntime::assets_root() const {
     return runtime_assets_root(base_path());
 }
 
-void EngineRuntime::write_window_size(ecs::World& world, bool send_event) {
-    impl_->presentation->publish_primary_size(world, send_event);
+void EngineRuntime::write_window_size(Worlds& worlds, bool send_event) {
+    impl_->presentation->publish_primary_size(worlds, send_event);
 }
 
 }
