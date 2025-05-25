@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/modules/UI.md
+
 #include <engine/render/commands.h>
 #include <engine/resources/asset_id.h>
 

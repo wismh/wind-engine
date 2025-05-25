@@ -2,28 +2,43 @@
 
 #include <engine/audio/audio_system.h>
 #include <engine/core/time.h>
+#include <engine/ecs/schedule.h>
 #include <engine/ecs/world.h>
 #include <engine/ui/canvas.h>
+#include <engine/ui/presentation.h>
+
+#include <algorithm>
 
 namespace engine {
 
-void flush_game_events(IGame& game) {
-    game.world().flush_events();
+void flush_worlds(Worlds& worlds) {
+    worlds.each_world([](ecs::World& world) { world.flush_events(); });
 }
 
-void simulate_game_frame(IGame& game, IAudioSystem* audio, FixedStepClock& clock, float real_dt) {
-    ecs::World& world = game.world();
-    Time& time = world.ctx<Time>();
-    ui::begin_frame(world);
-
-    const int steps = clock.advance(real_dt);
+void simulate_worlds(Worlds& worlds, IAudioSystem* audio, float real_dt) {
+    ui::reset_pointer_frame(worlds.presentation());
+    worlds.each([](ecs::World& world, FixedStepClock&, bool, bool ui) {
+        if (ui) {
+            ui::begin_frame(world);
+        }
+    });
+    worlds.advance_clocks(real_dt);
     if (audio != nullptr) {
-        audio->update(time.delta_time);
+        audio->update(std::clamp(real_dt, 0.0f, kMaxFrameDt));
     }
-    for (int i = 0; i < steps; ++i) {
-        game.on_fixed_update();
-    }
-    game.on_update();
+
+    const bool paused = worlds.application_state().paused;
+    worlds.each([&](ecs::World& world, FixedStepClock&, bool stepping, bool) {
+        if (stepping && !paused) {
+            const int steps = worlds.pending_steps(world);
+            for (int i = 0; i < steps; ++i) {
+                world.run(ecs::Schedule::Fixed);
+            }
+        }
+        if (stepping && (!paused || worlds.has_window(world))) {
+            world.run(ecs::Schedule::Frame);
+        }
+    });
 }
 
 }

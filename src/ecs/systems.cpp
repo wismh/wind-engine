@@ -4,6 +4,7 @@
 #include <engine/audio/events.h>
 #include <engine/audio/sound.h>
 #include <engine/builtin_ids.h>
+#include <engine/core/bound_windows.h>
 #include <engine/core/input_system.h>
 #include <engine/core/time.h>
 #include <engine/ecs/camera.h>
@@ -20,6 +21,7 @@
 #include <engine/resources/assets_db.h>
 #include <engine/resources/fatal_error.h>
 #include <engine/ui/canvas.h>
+#include <engine/ui/presentation.h>
 #include <engine/ui/document.h>
 #include <engine/ui/inspector.h>
 #include <engine/ui/profiler.h>
@@ -37,6 +39,7 @@
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
+#include <variant>
 #include <vector>
 
 namespace engine {
@@ -273,11 +276,47 @@ namespace engine {
             return a.entity.index < b.entity.index;
         }
 
-        void run_render(ecs::World &world, const EngineSystemDeps &deps) {
-            if (deps.commands == nullptr) {
+        struct WindowClears {
+            std::unordered_set<WindowId> ids;
+        };
+
+        render::CommandBuffer *command_buffer_for(const EngineSystemDeps &deps, WindowId id) {
+            if (deps.commands_for_window) {
+                if (render::CommandBuffer *buffer = deps.commands_for_window(id)) {
+                    return buffer;
+                }
+            }
+            return id == kPrimaryWindow ? deps.commands : nullptr;
+        }
+
+        void clear_window_buffer(ecs::World &world, render::CommandBuffer *buffer, WindowId id) {
+            if (buffer == nullptr) {
                 return;
             }
-            deps.commands->clear();
+            if (world.ctx<WindowClears>().ids.insert(id).second) {
+                buffer->clear();
+            }
+        }
+
+        void apply_camera(render::Command &command, const glm::mat4 &view, const glm::mat4 &projection) {
+            if (auto *mesh = std::get_if<render::CmdDrawMesh>(&command)) {
+                mesh->view = view;
+                mesh->projection = projection;
+            } else if (auto *particles = std::get_if<render::CmdDrawParticles>(&command)) {
+                particles->view = view;
+                particles->projection = projection;
+            }
+        }
+
+        void run_render(ecs::World &world, const EngineSystemDeps &deps) {
+            world.ctx<WindowClears>().ids.clear();
+            const std::vector<WindowId> &windows = world.ctx<BoundWindows>().ids;
+            if (windows.empty()) {
+                return;
+            }
+            for (const WindowId id: windows) {
+                clear_window_buffer(world, command_buffer_for(deps, id), id);
+            }
 
             auto renderables = world.view<render::Renderable, Transform>();
             auto sprites = world.view<render::Sprite, Transform>();
@@ -299,9 +338,8 @@ namespace engine {
                 return;
             }
 
-            const ui::WindowSize window = ui::window_size_for(world, kPrimaryWindow);
             const glm::mat4 view = view_matrix(*camera_transform);
-            const glm::mat4 projection = projection_matrix(*camera, window);
+            const glm::mat4 projection{1.0f};
 
             std::vector<DrawItem> items;
 
@@ -481,8 +519,17 @@ namespace engine {
 
             std::stable_sort(items.begin(), items.end(), draw_item_less);
 
-            for (DrawItem &item: items) {
-                deps.commands->push(std::move(item.command));
+            for (const WindowId id: windows) {
+                render::CommandBuffer *buffer = command_buffer_for(deps, id);
+                if (buffer == nullptr) {
+                    continue;
+                }
+                const glm::mat4 window_projection = projection_matrix(*camera, ui::window_size_for(world, id));
+                for (const DrawItem &item: items) {
+                    render::Command command = item.command;
+                    apply_camera(command, view, window_projection);
+                    buffer->push(std::move(command));
+                }
             }
         }
 
@@ -499,7 +546,7 @@ namespace engine {
         };
 
         void run_ui_render(ecs::World &world, const EngineSystemDeps &deps) {
-            if (deps.commands == nullptr) {
+            if (deps.commands == nullptr && !deps.commands_for_window) {
                 return;
             }
 #if defined(ENGINE_UI_PROFILER)
@@ -539,11 +586,6 @@ namespace engine {
                     hover_by_window.emplace(canvas.window, ui::inspector_hover_canvas(world, canvas.window));
                 }
             }
-            // Tracks which non-primary CommandBuffers this call has already cleared — a target window's
-            // buffer needs clearing once per frame before anything is pushed into it (the primary's is
-            // already cleared by run_render), and this set is function-local so it naturally resets every
-            // invocation with no state to carry across frames.
-            std::unordered_set<WindowId> cleared_windows;
             for (const CanvasDraw &canvas: canvases) {
                 const ui::UiPointer &pointer = ui::pointer_for(world, canvas.window);
                 const ui::WindowSize size = ui::window_size_for(world, canvas.window);
@@ -551,16 +593,11 @@ namespace engine {
                 const float window_width = space.reference_space ? space.layout_rect.w : static_cast<float>(size.width);
                 const float window_height =
                         space.reference_space ? space.layout_rect.h : static_cast<float>(size.height);
-                render::CommandBuffer *target = deps.commands;
-                if (canvas.window != kPrimaryWindow) {
-                    target = deps.commands_for_window ? deps.commands_for_window(canvas.window) : nullptr;
-                    if (target == nullptr) {
-                        continue;
-                    }
-                    if (cleared_windows.insert(canvas.window).second) {
-                        target->clear();
-                    }
+                render::CommandBuffer *target = command_buffer_for(deps, canvas.window);
+                if (target == nullptr) {
+                    continue;
                 }
+                clear_window_buffer(world, target, canvas.window);
 
                 // Lazily loads into this canvas's window atlas whatever its document/stylesheet actually
                 // reference, instead of the old Engine::init behavior of preloading the entire asset
@@ -698,20 +735,43 @@ namespace engine {
         }
     }
 
-    void register_engine_systems(ecs::World &world, EngineSystemDeps deps) {
-        world.ctx<EngineSystemsRegistered>().value = true;
-
+    void register_simulation_systems(ecs::World &world, EngineSystemDeps deps) {
+        if (world.ctx<SimulationSystemsRegistered>().value) {
+            return;
+        }
+        world.ctx<SimulationSystemsRegistered>().value = true;
         world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics, [](ecs::World &w) { run_physics(w); });
-        world.add_system(ecs::Schedule::Frame, ecs::Phase::Input, [](ecs::World &w) { run_input(w); });
-        world.add_system(ecs::Schedule::Frame, ecs::Phase::Input, [](ecs::World &w) { run_splash_timers(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_sprite_animations(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_particles(w); });
+        world.add_system(ecs::Schedule::Frame, ecs::Phase::Render, [deps](ecs::World &w) { run_render(w, deps); });
+    }
+
+    void register_ui_systems(ecs::World &world, EngineSystemDeps deps) {
+        if (world.ctx<UiSystemsRegistered>().value) {
+            return;
+        }
+        world.ctx<UiSystemsRegistered>().value = true;
+        world.add_system(ecs::Schedule::Frame, ecs::Phase::Input, [](ecs::World &w) { run_input(w); });
+        world.add_system(ecs::Schedule::Frame, ecs::Phase::Input, [](ecs::World &w) { run_splash_timers(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Bind, [](ecs::World &w) { ui::sync_inspector_content(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Bind, [](ecs::World &w) { ui::sync_profiler_content(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Bind, [deps](ecs::World &w) { run_bind(w, deps); });
-        world.add_system(ecs::Schedule::Frame, ecs::Phase::Audio, [deps](ecs::World &w) { run_audio(w, deps); });
-        world.add_system(ecs::Schedule::Frame, ecs::Phase::Render, [deps](ecs::World &w) { run_render(w, deps); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::UiRender, [deps](ecs::World &w) { run_ui_render(w, deps); });
+    }
+
+    void register_audio_systems(ecs::World &world, EngineSystemDeps deps) {
+        if (world.ctx<AudioSystemsRegistered>().value) {
+            return;
+        }
+        world.ctx<AudioSystemsRegistered>().value = true;
+        world.add_system(ecs::Schedule::Frame, ecs::Phase::Audio, [deps](ecs::World &w) { run_audio(w, deps); });
+    }
+
+    void register_engine_systems(ecs::World &world, EngineSystemDeps deps) {
+        world.ctx<EngineSystemsRegistered>().value = true;
+        register_simulation_systems(world, deps);
+        register_ui_systems(world, deps);
+        register_audio_systems(world, deps);
     }
 
 } // namespace engine

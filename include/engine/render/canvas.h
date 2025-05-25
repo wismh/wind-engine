@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/modules/Render.md
+
 namespace engine::render {
 
 class ICanvas {

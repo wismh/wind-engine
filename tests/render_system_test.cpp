@@ -17,6 +17,8 @@
 #include <engine/resources/fatal_error.h>
 #include <engine/resources/meta.h>
 #include <engine/ui/canvas.h>
+#include <engine/core/bound_windows.h>
+#include <engine/ui/presentation.h>
 #include <engine/ui/document.h>
 #include <engine/ui/stylesheet.h>
 #include <engine/ui/view_model.h>
@@ -89,7 +91,8 @@ void spawn_camera(engine::ecs::World& world) {
     world.emplace<engine::Transform>(camera, engine::Transform{});
     world.emplace<engine::Camera>(camera, engine::Camera{});
     world.ctx<engine::ActiveCamera>().entity = camera;
-    world.ctx<engine::ui::WindowSizes>().sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
+    engine::ui::presentation_of(world).sizes.sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
+    world.ctx<engine::BoundWindows>().ids = {engine::kPrimaryWindow};
 }
 
 engine::render::Renderable make_renderable(std::shared_ptr<engine::render::IMesh> mesh,
