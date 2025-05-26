@@ -2,7 +2,7 @@
 
 Command buffer, materials, sprites, particles, and the OpenGL backend. Games never include glad or call `gl*`.
 
-Draw order and `.mat` files: [Materials and Sort](../features/Materials and Sort.md).
+Draw order and `.mat` files: [Materials and Sort](../features/Materials%20and%20Sort.md).
 
 ## Commands
 
@@ -26,7 +26,7 @@ There is no custom-draw callback on the variant.
 
 Instance tint is `material.color * instance.color` (`multiply_instance_color`). `Renderable::color` and `Sprite::color` are that instance color. Default is white, so the material color is unchanged.
 
-`parse_material` reads a `.mat` TOML into `MaterialDesc` (`shader` and `[textures].albedo` are hex `AssetId` strings, plus blend and color; [Materials and Sort](../features/Materials and Sort.md)). Default blend in the desc is `Opaque`. The C++ `Material` constructor defaults blend to `Alpha` when the caller does not pass one.
+`parse_material` reads a `.mat` TOML into `MaterialDesc` (`shader` and `[textures].albedo` are hex `AssetId` strings, plus blend and color; [Materials and Sort](../features/Materials%20and%20Sort.md)). Default blend in the desc is `Opaque`. The C++ `Material` constructor defaults blend to `Alpha` when the caller does not pass one.
 
 GPU objects are `IMesh`, `IShader`, `ITexture` created by `IGraphicFactory` from `MeshDesc`, `ShaderDesc`, and `TextureDesc`.
 
@@ -142,5 +142,5 @@ GPU pixels stay out of `engine_tests`. See [Boundaries](../architecture/Boundari
 
 ## See also
 
-- [Materials and Sort](../features/Materials and Sort.md)
+- [Materials and Sort](../features/Materials%20and%20Sort.md)
 - [ECS](ECS.md)

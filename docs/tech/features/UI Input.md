@@ -1,6 +1,6 @@
 # UI input
 
-Pointer and keys become ECS events in [Input Mapper](Input Mapper.md). `run_input` (Frame / Input) is what turns those events into focus, commands, and text edits. The functions on `include/engine/ui/canvas.h` are the same operations for a test that does not go through `run_input`.
+Pointer and keys become ECS events in [Input Mapper](Input%20Mapper.md). `run_input` (Frame / Input) is what turns those events into focus, commands, and text edits. The functions on `include/engine/ui/canvas.h` are the same operations for a test that does not go through `run_input`.
 
 ## Pointer path
 
@@ -61,7 +61,7 @@ A Checkbox hit flips `checked` before the command. `write_property_float` of `1`
 
 Return toggles `checked` only when the focused element is a Checkbox, then runs the command. `binding_target` is null without a `data_context`, so that float write uses the same guard. A click calls `clear_focus`. `set_focus` is only used for a TextInput or a selectable Label, so a click does not leave the Checkbox focused.
 
-While the inspector is on and `pick_pointer` is set, a left click on a game canvas uses `hit_test_visual`, records the path, inserts the window into `Presentation.mouse`, and returns before focus, drag, and `execute()`. Wheel is not intercepted. See [UI Inspector](UI Inspector.md).
+While the inspector is on and `pick_pointer` is set, a left click on a game canvas uses `hit_test_visual`, records the path, inserts the window into `Presentation.mouse`, and returns before focus, drag, and `execute()`. Wheel is not intercepted. See [UI Inspector](UI%20Inspector.md).
 
 ## Keyboard and text
 
@@ -131,6 +131,6 @@ Scroll, drag, and pan write through `generated_owner` when that pointer is set, 
 
 ## See also
 
-- [UI Markup](UI Markup.md)
+- [UI Markup](UI%20Markup.md)
 - [UI](../modules/UI.md)
 - [Windowing](Windowing.md)
