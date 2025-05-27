@@ -223,6 +223,52 @@ struct AudioSystem::Impl {
         play_mix_track(it->second, clip_for(sound, device), gain, ratio, true);
     }
 #endif
+
+    void update_music_gains() {
+        for (audio::FakeTrack& track : mixer.music) {
+            if (!track.playing) {
+                continue;
+            }
+            const float target = music_gain(track.voice_volume);
+            if (track.fading) {
+                if (!track.stop_when_fade_done) {
+                    track.fade_to = target;
+                }
+            } else {
+                track.gain = target;
+            }
+        }
+#ifdef ENGINE_WITH_AUDIO
+        apply_mix();
+#endif
+    }
+
+    void update_sfx_gains() {
+        for (audio::FakeTrack& track : mixer.sfx) {
+            if (!track.playing) {
+                continue;
+            }
+            if (!track.fading) {
+                track.gain = sfx_gain(track.voice_volume);
+            }
+        }
+        for (auto& [id, track] : mixer.looping) {
+            if (!track.playing) {
+                continue;
+            }
+            const float target = sfx_gain(track.voice_volume);
+            if (track.fading) {
+                if (!track.stop_when_fade_done) {
+                    track.fade_to = target;
+                }
+            } else {
+                track.gain = target;
+            }
+        }
+#ifdef ENGINE_WITH_AUDIO
+        apply_mix();
+#endif
+    }
 };
 
 AudioSystem::AudioSystem()
@@ -422,14 +468,18 @@ void AudioSystem::release_looping_sfx(LoopingSfxHandle handle, float fade_out) {
 
 void AudioSystem::set_master_volume(float volume) {
     impl_->master = clamp01(volume);
+    impl_->update_music_gains();
+    impl_->update_sfx_gains();
 }
 
 void AudioSystem::set_music_volume(float volume) {
     impl_->music_bus = clamp01(volume);
+    impl_->update_music_gains();
 }
 
 void AudioSystem::set_sfx_volume(float volume) {
     impl_->sfx_bus = clamp01(volume);
+    impl_->update_sfx_gains();
 }
 
 int AudioSystem::sfx_pool_size() const {
