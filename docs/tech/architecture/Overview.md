@@ -26,8 +26,8 @@ flowchart TB
 - Lifecycle: `IGame` and `GameBase` in `include/engine/igame.h`.
 - Data: `Worlds` holds any number of `ecs::World` (entities, `ctx` resources, systems). Each world has its own time. `ApplicationState` is one per process.
 - Assets: GUID catalog, `get<T>` / `try_get<T>`. See [Assets](../features/Assets.md).
-- UI: XML and/or `ui::Node`, a stylesheet, and MVVM. See [UI Markup](../features/UI Markup.md).
-- Draw: `Renderable` or `Sprite` plus `Transform`, then sort, then `CmdDrawMesh`. Particles are `CmdDrawParticles`. UI is `CmdDrawUI`. See [Materials and Sort](../features/Materials and Sort.md).
+- UI: XML and/or `ui::Node`, a stylesheet, and MVVM. See [UI Markup](../features/UI%20Markup.md).
+- Draw: `Renderable` or `Sprite` plus `Transform`, then sort, then `CmdDrawMesh`. Particles are `CmdDrawParticles`. UI is `CmdDrawUI`. See [Materials and Sort](../features/Materials%20and%20Sort.md).
 
 The windowed host is `Engine<GameT>` in `include/engine/core/engine.h`, included from `include/engine/engine.h` only when `ENGINE_WITH_WINDOW` is set. Headless `engine_tests` do not call `Engine::run`.
 
@@ -46,6 +46,6 @@ The windowed host is `Engine<GameT>` in `include/engine/core/engine.h`, included
 | [Audio](../modules/Audio.md) | SFX pool, music A/B, looping handles | File GUIDs (those are Resources) |
 | [Haptics](../modules/Haptics.md) | Vibration duration and intensity | A CMake feature flag |
 
-How they connect: [Module Map](Module Map.md). What stays out of public headers: [Boundaries](Boundaries.md). Product rules: [Principles](Principles.md), [Scope](Scope.md).
+How they connect: [Module Map](Module%20Map.md). What stays out of public headers: [Boundaries](Boundaries.md). Product rules: [Principles](Principles.md), [Scope](Scope.md).
 
 If a page disagrees with code, code wins and the page should be updated in the same change.

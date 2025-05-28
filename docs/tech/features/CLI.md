@@ -121,7 +121,7 @@ Without `ENGINE_UI_PROFILER`, `profile` returns `"UI profiler is not in this bui
 
 ## See also
 
-- [UI Inspector](UI Inspector.md)
-- [UI Profiler](UI Profiler.md)
+- [UI Inspector](UI%20Inspector.md)
+- [UI Profiler](UI%20Profiler.md)
 - [Boundaries](../architecture/Boundaries.md)
 - [Core](../modules/Core.md)
