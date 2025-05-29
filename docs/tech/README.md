@@ -12,19 +12,20 @@ Product name: Wind. CMake target and C++ namespace: `engine`. Build instructions
 4. A module page is the reference for that area. A feature page is a walkthrough of one subsystem. A build page is how a binary and its assets get onto disk.
 5. [File index](files/INDEX.md) lists every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`.
 
-[UI Performance Plan](architecture/UI%20Performance%20Plan.md) is a plan, not a description of the current engine.
+[UI Performance Plan](architecture/UI%20Performance%20Plan.md) and [Editor Plan](architecture/Editor%20Plan.md) are plans, not descriptions of the current engine.
 
 ## Architecture
 
 | Page | What it is |
 | --- | --- |
 | [Principles](architecture/Principles.md) | Normative rules |
-| [Scope](architecture/Scope.md) | In scope, out of scope, backlog |
+| [Scope](architecture/Scope.md) | In scope, backlog, names |
 | [Boundaries](architecture/Boundaries.md) | Public headers, compile flags, what `engine_tests` may do |
 | [Overview](architecture/Overview.md) | What a game sees |
 | [Module Map](architecture/Module%20Map.md) | Who talks to whom |
 | [Runtime Loop](architecture/Runtime%20Loop.md) | Init and one frame |
 | [UI Performance Plan](architecture/UI%20Performance%20Plan.md) | Planned UI work, labeled as a plan |
+| [Editor Plan](architecture/Editor%20Plan.md) | Planned editor host and game module, labeled as a plan |
 
 ## Modules
 
