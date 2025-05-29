@@ -465,6 +465,9 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
 
     const bool nested_template = in_template || element.kind == ElementKind::ItemTemplate;
     for (Element& child : element.children) {
+        if (element.generated_owner != nullptr && child.generated_owner == nullptr) {
+            child.generated_owner = element.generated_owner;
+        }
         if (auto result = bind_element(child, vm, fatal, nested_template); !result) {
             return result;
         }
