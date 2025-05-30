@@ -88,6 +88,10 @@ public:
         calls.push_back(PaintCall{.op = "image", .rect = rect, .texture = texture});
     }
 
+    void image_repeat(engine::AssetId texture, const engine::render::Rect& rect) override {
+        calls.push_back(PaintCall{.op = "image_repeat", .rect = rect, .texture = texture});
+    }
+
     void image_nine_slice(engine::AssetId texture, const engine::render::Rect& rect,
             const engine::ui::BoxInsets& insets) override {
         calls.push_back(PaintCall{.op = "image_nine_slice", .rect = rect, .texture = texture, .insets = insets});
@@ -207,6 +211,15 @@ constexpr float kFakeFontSize = 16.0f;
 [[nodiscard]] const PaintCall* find_image(const FakePainter& painter, engine::AssetId texture) {
     for (const PaintCall& call : painter.calls) {
         if (call.op == "image" && call.texture == texture) {
+            return &call;
+        }
+    }
+    return nullptr;
+}
+
+[[nodiscard]] const PaintCall* find_image_repeat(const FakePainter& painter, engine::AssetId texture) {
+    for (const PaintCall& call : painter.calls) {
+        if (call.op == "image_repeat" && call.texture == texture) {
             return &call;
         }
     }
@@ -715,6 +728,46 @@ TEST(UiPainter, BackgroundImageNoneSkipsPaint) {
             engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 80.f, 40.f}, .pointer = {10.f, 10.f}});
     EXPECT_EQ(find_image(hover, kHoverImage), nullptr);
     EXPECT_EQ(hover.count("image"), 0);
+}
+
+TEST(UiPainter, BackgroundRepeatDispatchesToImageRepeat) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack class="wall"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .wall {
+            width: 120;
+            height: 80;
+            background-image: c1a1c2d3e4f5678901234567890abc0a;
+            background-repeat: repeat;
+        }
+    )");
+
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 200.f}});
+
+    const PaintCall* repeated = find_image_repeat(painter, kHoverImage);
+    ASSERT_NE(repeated, nullptr);
+    EXPECT_EQ(find_image(painter, kHoverImage), nullptr);
+    EXPECT_FLOAT_EQ(repeated->rect.w, 120.f);
+    EXPECT_FLOAT_EQ(repeated->rect.h, 80.f);
+}
+
+TEST(UiPainter, BackgroundRepeatDefaultsToNoRepeat) {
+    // Regression guard: adding `background_repeat` to ComputedStyle must not change the existing
+    // background-image call for every element that never sets the new property.
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack class="wall"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .wall { width: 120; height: 80; background-image: c1a1c2d3e4f5678901234567890abc0a; }
+    )");
+
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 200.f}});
+
+    ASSERT_NE(find_image(painter, kHoverImage), nullptr);
+    EXPECT_EQ(find_image_repeat(painter, kHoverImage), nullptr);
 }
 
 TEST(UiPainter, BackgroundImageFilenameDoesNotPaint) {
