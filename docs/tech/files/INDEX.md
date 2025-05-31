@@ -6,7 +6,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`. 
 
 | Path | What it does | Page |
 | --- | --- | --- |
-| `include/engine/engine.h` | Umbrella include and `kApiEpoch` | [Core](../modules/Core.md) |
+| `include/engine/engine.h` | Umbrella include | [Core](../modules/Core.md) |
 | `include/engine/igame.h` | `IGame`, `GameBase`, `SplashScreen` | [Core](../modules/Core.md) |
 | `include/engine/log.h` | `log::init`, `info`, `warn`, `error` | [Core](../modules/Core.md) |
 | `include/engine/builtin_ids.h` | Frozen builtin `AssetId` values | [Resources](../modules/Resources.md) |
@@ -17,9 +17,11 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`. 
 | `include/engine/core/app_lifecycle.h` | Pause, resume, terminate, Android back | [Core](../modules/Core.md) |
 | `include/engine/core/application_state.h` | `running` and `paused` | [Core](../modules/Core.md) |
 | `include/engine/core/bound_windows.h` | Windows bound to one world | [Windowing](../features/Windowing.md) |
+| `include/engine/core/build_info.h` | `build_id()` and the generated `kBuildId` | [CMake](../build/CMake.md) |
 | `include/engine/core/engine.h` | `Engine<GameT>::init`, `run`, `dispose` | [Core](../modules/Core.md) |
 | `include/engine/core/engine_runtime.h` | Windowed presentation and `GameLoop` owner | [Core](../modules/Core.md) |
 | `include/engine/core/engine_services.h` | References passed into the game constructor | [Core](../modules/Core.md) |
+| `include/engine/core/export.h` | `ENGINE_API` export and import macro | [CMake](../build/CMake.md) |
 | `include/engine/core/fixed_step.h` | `FixedStepClock` | [Core](../modules/Core.md) |
 | `include/engine/core/host.h` | Headless tick host for tests | [Core](../modules/Core.md) |
 | `include/engine/core/input_system.h` | `ActionId` bindings and input events | [Input Mapper](../features/Input%20Mapper.md) |
@@ -86,8 +88,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`. 
 
 | Path | What it does | Page |
 | --- | --- | --- |
-| `src/core/api_epoch.cpp` | `api_epoch()` returns `kApiEpoch` | [Core](../modules/Core.md) |
 | `src/core/app_lifecycle.cpp` | Applies lifecycle events to `ApplicationState` | [Core](../modules/Core.md) |
+| `src/core/build_info.cpp` | `build_id()` returns the engine's `kBuildId` | [CMake](../build/CMake.md) |
 | `src/core/engine_instantiate.cpp` | Explicit `Engine<WindowSmokeGame>` instantiation | [Core](../modules/Core.md) |
 | `src/core/engine_runtime.cpp` | `EngineRuntime` pimpl over the presentation | [Core](../modules/Core.md) |
 | `src/core/fixed_step.cpp` | Accumulator and step cap | [Core](../modules/Core.md) |
@@ -201,6 +203,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`. 
 | `src/ui/splash.h` | Splash document structs used by `show_splash` | [UI](../modules/UI.md) |
 | `src/ui/style_anim.cpp` | Sample `transition` and `@keyframes` | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/style_anim.h` | Motion clock types | [UI Markup](../features/UI%20Markup.md) |
+| `src/ui/stylesheet.cpp` | `next_stylesheet_generation` counter, one per engine | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/text_select.cpp` | Word ranges and selection edits | [UI Input](../features/UI%20Input.md) |
 | `src/ui/text_select.h` | Selection helpers | [UI Input](../features/UI%20Input.md) |
 | `src/ui/text_wrap.cpp` | Break a string into rows | [UI](../modules/UI.md) |
@@ -253,7 +256,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`. 
 | `tests/builtin_test.cpp` | Frozen builtin ids and files | [Resources](../modules/Resources.md) |
 | `tests/camera_test.cpp` | Ortho matrices and screen/world | [ECS](../modules/ECS.md) |
 | `tests/cli_server_test.cpp` | Descriptor, HTTP, and commands without `GameLoop` | [CLI](../features/CLI.md) |
-| `tests/cmake_sanity_test.cpp` | Public headers and the API epoch compile | [CMake](../build/CMake.md) |
+| `tests/cmake_sanity_test.cpp` | Public headers compile, build id, CMake file checks | [CMake](../build/CMake.md) |
 | `tests/command_buffer_test.cpp` | Push and iterate the three command types | [Render](../modules/Render.md) |
 | `tests/ecs_test.cpp` | Create, destroy, views, deferred destroy | [ECS](../modules/ECS.md) |
 | `tests/events_test.cpp` | Double buffer and cursors | [ECS](../modules/ECS.md) |
@@ -277,7 +280,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`. 
 | `tests/sprite_test.cpp` | Sprite sheet UVs and `get_sprite` | [Assets](../features/Assets.md) |
 | `tests/time_test.cpp` | Clamp, pause, and the step cap | [Core](../modules/Core.md) |
 | `tests/ui_builder_test.cpp` | `ui::Node` tree matches XML | [UI Markup](../features/UI%20Markup.md) |
-| `tests/ui_css_test.cpp` | Selectors, lengths, unknown properties | [UI Markup](../features/UI%20Markup.md) |
+| `tests/ui_css_test.cpp` | Selectors, lengths, unknown properties, stylesheet generation | [UI Markup](../features/UI%20Markup.md) |
 | `tests/ui_display_none_test.cpp` | `display: none` skips layout and hit-test | [UI Markup](../features/UI%20Markup.md) |
 | `tests/ui_inline_math_test.cpp` | `\(...\)` splits inside a label | [UI](../modules/UI.md) |
 | `tests/ui_input_batch_test.cpp` | One bind per canvas inside `run_input` | [UI Input](../features/UI%20Input.md) |
