@@ -8,6 +8,7 @@
 #include <engine/builtin_ids.h>
 #include <engine/core/app_lifecycle.h>
 #include <engine/core/application_state.h>
+#include <engine/core/build_info.h>
 #include <engine/core/fixed_step.h>
 #include <engine/core/host.h>
 #include <engine/core/input_system.h>
@@ -56,11 +57,3 @@
 #if defined(ENGINE_WITH_WINDOW)
 #include <engine/core/engine.h>
 #endif
-
-namespace engine {
-
-    inline constexpr int kApiEpoch = 4;
-
-    int api_epoch();
-
-} // namespace engine
