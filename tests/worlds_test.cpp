@@ -254,3 +254,54 @@ TEST(Worlds, BeginFrameDoesNotClearSharedMouseConsumption) {
 
     EXPECT_TRUE(worlds.presentation().mouse.consumed_for(engine::kPrimaryWindow));
 }
+
+TEST(Worlds, SystemsRegisterOnceWhetherTheWorldComesBeforeOrAfterSetDeps) {
+    ThrowingFatal fatal;
+    engine::Worlds worlds{fatal};
+    engine::render::CommandBuffer early_buffer;
+    engine::render::CommandBuffer late_buffer;
+    const engine::WindowId late_window{2};
+
+    // Same order as EngineHost: the game world exists before set_deps; a world added later
+    // registers on add. Both then get enable_ui and enable_audio, twice to prove idempotence.
+    engine::ecs::World& early = worlds.add();
+    engine::EngineSystemDeps deps;
+    deps.commands_for_window = [&](engine::WindowId id) -> engine::render::CommandBuffer* {
+        if (id == engine::kPrimaryWindow) {
+            return &early_buffer;
+        }
+        if (id == late_window) {
+            return &late_buffer;
+        }
+        return nullptr;
+    };
+    worlds.set_deps(deps);
+    worlds.set_deps(deps);
+    engine::ecs::World& late = worlds.add();
+    for (engine::ecs::World* world : {&early, &late}) {
+        worlds.enable_ui(*world);
+        worlds.enable_audio(*world);
+        worlds.enable_ui(*world);
+        worlds.enable_audio(*world);
+    }
+    worlds.bind_window(engine::kPrimaryWindow, early);
+    worlds.bind_window(late_window, late);
+    worlds.presentation().sizes.sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
+    worlds.presentation().sizes.sizes[late_window] = engine::ui::WindowSize{800, 600};
+
+    EXPECT_TRUE(early.ctx<engine::SimulationSystemsRegistered>().value);
+    EXPECT_TRUE(early.ctx<engine::UiSystemsRegistered>().value);
+    EXPECT_TRUE(early.ctx<engine::AudioSystemsRegistered>().value);
+    EXPECT_TRUE(late.ctx<engine::SimulationSystemsRegistered>().value);
+
+    const auto mesh = std::make_shared<FakeMesh>();
+    const auto material = std::make_shared<FakeMaterial>();
+    spawn_drawable(early, mesh, material);
+    spawn_drawable(late, mesh, material);
+
+    engine::simulate_worlds(worlds, nullptr, engine::kFixed);
+
+    // run_render registered twice would push the mesh twice.
+    EXPECT_EQ(early_buffer.size(), 1u);
+    EXPECT_EQ(late_buffer.size(), 1u);
+}

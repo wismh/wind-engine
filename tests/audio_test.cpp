@@ -138,3 +138,37 @@ TEST(Audio, BusVolumeAffectsPlayingTracks) {
     audio.set_music_volume(0.f);
     EXPECT_FLOAT_EQ(audio.music_slot_gain(0), 0.f);
 }
+
+TEST(Audio, StopAllSilencesEverythingAndKeepsVolumes) {
+    engine::AudioSystem audio;
+    ASSERT_TRUE(audio.init());
+    audio.set_master_volume(0.5f);
+
+    const engine::Sound sound = make_sound();
+    audio.play_sfx(sound);
+    audio.play_sfx(sound);
+    audio.play_music(sound, true, 0.f);
+    audio.play_music(sound, true, 1.f);
+    const engine::LoopingSfxHandle engine_hum = audio.create_looping_sfx();
+    audio.play_looping_sfx(engine_hum, sound);
+    ASSERT_EQ(audio.sfx_playing_count(), 2);
+    ASSERT_TRUE(audio.is_music_playing());
+    ASSERT_EQ(audio.looping_track_count(), 1);
+
+    audio.stop_all();
+
+    EXPECT_EQ(audio.sfx_playing_count(), 0);
+    EXPECT_FALSE(audio.is_music_playing());
+    EXPECT_FALSE(audio.music_slot_playing(0));
+    EXPECT_FALSE(audio.music_slot_playing(1));
+    EXPECT_EQ(audio.active_music_index(), 0);
+    EXPECT_EQ(audio.looping_track_count(), 0);
+
+    // The released handle is gone. A later game gets a working system with the volumes it left.
+    audio.play_looping_sfx(engine_hum, sound);
+    EXPECT_EQ(audio.looping_track_count(), 0);
+    audio.play_music(sound, true, 0.f);
+    EXPECT_FLOAT_EQ(audio.music_slot_gain(0), 0.5f);
+    audio.play_sfx(sound);
+    EXPECT_EQ(audio.sfx_playing_count(), 1);
+}

@@ -136,6 +136,10 @@ public:
     // Events for a window go to the world this returns. A null world drops the event.
     void set_router(std::function<ecs::World*(WindowId)> router);
 
+    // Forgets every binding, interned action, held control, and the primary touch finger. Sends no
+    // Up events. The router stays. The editor calls this on Stop, so the next game interns from 1 again.
+    void reset();
+
 private:
     [[nodiscard]] ecs::World* world_for(WindowId window) const;
     void apply_digital(Control control, bool down, WindowId window);

@@ -3,10 +3,10 @@
 // docs/tech/modules/Core.md
 
 #include <engine/core/input_system.h>
+#include <engine/core/run_hooks.h>
 #include <engine/core/window_control.h>
 #include <engine/core/window_desc.h>
 #include <engine/core/worlds.h>
-#include <engine/igame.h>
 #include <engine/render/backend.h>
 #include <engine/render/canvas.h>
 #include <engine/render/command_buffer.h>
@@ -41,7 +41,7 @@ public:
     [[nodiscard]] bool add_image_for_window(WindowId id, AssetId asset, const render::TextureDesc& desc);
     void shutdown();
 
-    [[nodiscard]] int run(IGame& game, Worlds& worlds, InputSystem& input, IAudioSystem* audio,
+    [[nodiscard]] int run(RunHooks hooks, Worlds& worlds, InputSystem& input, IAudioSystem* audio,
             std::function<void()> host_dispose = {});
 
     [[nodiscard]] render::CommandBuffer& commands();

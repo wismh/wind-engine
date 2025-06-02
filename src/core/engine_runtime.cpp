@@ -46,9 +46,9 @@ void EngineRuntime::shutdown() {
     impl_->presentation->shutdown();
 }
 
-int EngineRuntime::run(IGame& game, Worlds& worlds, InputSystem& input, IAudioSystem* audio,
+int EngineRuntime::run(RunHooks hooks, Worlds& worlds, InputSystem& input, IAudioSystem* audio,
         std::function<void()> host_dispose) {
-    return impl_->loop.run(*impl_->presentation, game, worlds, input, audio, std::move(host_dispose));
+    return impl_->loop.run(*impl_->presentation, std::move(hooks), worlds, input, audio, std::move(host_dispose));
 }
 
 render::CommandBuffer& EngineRuntime::commands() {
