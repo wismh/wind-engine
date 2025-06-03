@@ -6,36 +6,22 @@
 #error "engine::Engine requires ENGINE_WITH_WINDOW"
 #endif
 
-#include <engine/audio/audio_system.h>
-#include <engine/builtin_ids.h>
-#include <engine/core/application_state.h>
-#include <engine/core/engine_runtime.h>
+#include <engine/core/engine_host.h>
 #include <engine/core/engine_services.h>
-#include <engine/core/input_system.h>
-#include <engine/core/sdl_fatal_error.h>
-#include <engine/core/worlds.h>
-#include <engine/ecs/systems.h>
-#include <engine/haptics/haptics_system.h>
+#include <engine/core/run_hooks.h>
 #include <engine/igame.h>
-#include <engine/log.h>
-#include <engine/render/graphic_factory.h>
-#include <engine/resources/assets_db.h>
 #include <engine/resources/fatal_error.h>
-#include <engine/resources/font.h>
-#include <engine/resources/meta.h>
-#include <engine/ui/canvas.h>
 
 #include <concepts>
-#include <filesystem>
 #include <memory>
-#include <optional>
-#include <utility>
 
 namespace engine {
 
 template<typename GameT>
 concept EngineGame = std::derived_from<GameT, IGame> && std::constructible_from<GameT, const EngineServices&>;
 
+// Standalone windowed game: one `EngineHost` and one `GameT`. Games normally get this from
+// `ENGINE_GAME(GameClass)` in <engine/game_entry.h>.
 template<EngineGame GameT>
 class Engine {
 public:
@@ -52,14 +38,9 @@ public:
     void dispose();
 
 private:
-    EngineRuntime runtime_;
-    std::shared_ptr<IFatalError> fatal_;
-    std::shared_ptr<AssetsDb> assets_;
-    std::shared_ptr<InputSystem> input_;
-    std::shared_ptr<IAudioSystem> audio_;
-    std::shared_ptr<IHaptics> haptics_;
-    std::unique_ptr<Worlds> worlds_;
-    std::shared_ptr<IGame> game_;
+    // Declared after host_, so the game is destroyed first while the services it references live.
+    EngineHost host_;
+    std::unique_ptr<GameT> game_;
     bool initialized_ = false;
 };
 
@@ -68,130 +49,39 @@ bool Engine<GameT>::init() {
     if (initialized_) {
         return true;
     }
-    if (!runtime_.init_video()) {
+    if (!host_.init()) {
         return false;
     }
-    log::init(runtime_.base_path());
-
-    auto sdl_fatal = std::make_shared<SdlFatalError>();
-    fatal_ = sdl_fatal;
-    input_ = std::make_shared<InputSystem>();
-    assets_ = std::make_shared<AssetsDb>(*fatal_);
-    audio_ = std::make_shared<AudioSystem>();
-    haptics_ = std::make_shared<HapticsSystem>();
-    worlds_ = std::make_unique<Worlds>(*fatal_);
-    const EngineServices services{
-            .assets = *assets_,
-            .input = *input_,
-            .audio = *audio_,
-            .haptics = *haptics_,
-            .windows = runtime_.window_control(),
-            .graphics = runtime_.factory(),
-            .backend = runtime_.backend(),
-            .canvas = runtime_.canvas(),
-            .commands = runtime_.commands(),
-            .worlds = *worlds_,
-    };
-    game_ = std::make_shared<GameT>(services);
-
-    input_->set_router([this](WindowId id) { return worlds_->world_for(id); });
-    sdl_fatal->attach(worlds_->application_state(), runtime_.native_window());
-
-    if (!runtime_.create_window(game_->primary_window())) {
-        runtime_.shutdown();
+    game_ = std::make_unique<GameT>(host_.services());
+    if (!host_.open_primary(game_->primary_window())) {
         return false;
     }
-    sdl_fatal->attach(worlds_->application_state(), runtime_.native_window());
-
-    if (!audio_->init()) {
-        runtime_.shutdown();
+    if (!host_.load_game_catalog(host_.assets_root())) {
+        host_.fatal().report("Failed to load game catalog");
+        host_.dispose();
         return false;
     }
-    if (!haptics_->init()) {
-        runtime_.shutdown();
-        return false;
-    }
-
-    assets_->set_graphic_factory(&runtime_.factory());
-    const std::filesystem::path root = runtime_.assets_root();
-    if (root.empty()) {
-        fatal_->report("Assets root is missing");
-        runtime_.shutdown();
-        return false;
-    }
-    assets_->set_root(root);
-    if (!assets_->load_catalog(root / "engine" / "catalog.toml", root / "engine")) {
-        fatal_->report("Failed to load engine catalog");
-        runtime_.shutdown();
-        return false;
-    }
-    if (const auto loaded = assets_->load_catalog(root / "catalog.toml", root); !loaded) {
-        if (loaded.error() != MetaError::Io) {
-            fatal_->report("Failed to load game catalog");
-            runtime_.shutdown();
-            return false;
-        }
-    }
-    // Only builtin::font_ui loads eagerly here — it's the fallback for any UI element with no
-    // font-family at all. Every other font, and every UI image, is loaded lazily: run_ui_render
-    // resolves what a drawn canvas actually references and calls ensure_ui_font/ensure_ui_image.
-    if (!runtime_.add_font_for_window(kPrimaryWindow, builtin::font_ui, *assets_->get<Font>(builtin::font_ui))) {
-        fatal_->report("Failed to load UI font");
-        runtime_.shutdown();
-        return false;
-    }
-
-    if (const std::optional<AssetId> icon_id = game_->window_icon(); icon_id.has_value()) {
-        runtime_.set_window_icon(*assets_->get<render::TextureDesc>(*icon_id));
-    }
-
-    const EngineSystemDeps deps{
-            .commands = &runtime_.commands(),
-            .fatal = fatal_.get(),
-            .assets = assets_.get(),
-            .audio = audio_.get(),
-            .commands_for_window = [this](WindowId id) { return runtime_.commands_for_window(id); },
-            .ensure_ui_image = [this](WindowId window, AssetId id) {
-                (void)runtime_.add_image_for_window(window, id, *assets_->get<render::TextureDesc>(id));
-            },
-            .ensure_ui_font = [this](WindowId window, AssetId id) {
-                (void)runtime_.add_font_for_window(window, id, *assets_->get<Font>(id));
-            },
-    };
-    worlds_->set_deps(deps);
-    register_engine_systems(game_->world(), deps);
-    worlds_->bind_window(kPrimaryWindow, game_->world());
-    worlds_->enable_ui(game_->world());
-    worlds_->enable_audio(game_->world());
-    runtime_.write_window_size(*worlds_, true);
-    ui::apply_canvas_fit(game_->world());
-
+    host_.attach_game(*game_);
     initialized_ = true;
     return true;
 }
 
 template<EngineGame GameT>
 int Engine<GameT>::run() {
-    if (!initialized_ || !game_ || !input_) {
+    if (!initialized_) {
         return 1;
     }
-    const int result = runtime_.run(*game_, *worlds_, *input_, audio_.get(), [this] { dispose(); });
-    dispose();
-    return result;
+    GameT& game = *game_;
+    return host_.run(RunHooks{
+            .on_start = [&game] { game.on_start(); },
+            .on_frame_end = {},
+            .on_quit = [&game] { game.on_quit(); },
+    });
 }
 
 template<EngineGame GameT>
 void Engine<GameT>::dispose() {
-    if (!initialized_) {
-        return;
-    }
-    if (audio_) {
-        audio_->dispose();
-    }
-    if (haptics_) {
-        haptics_->dispose();
-    }
-    runtime_.shutdown();
+    host_.dispose();
     initialized_ = false;
 }
 

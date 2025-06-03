@@ -14,7 +14,7 @@ Wind is a high-performance 2D C++23 game engine tailored for production titles. 
 * [CMake Integration](getting-started/CMake-Integration.md) — `engine_add_game`, options, and build presets.
 
 ### 2. [Core Architecture](architecture/Game-Lifecycle.md)
-* [Game Lifecycle](architecture/Game-Lifecycle.md) — `Engine<Game>`, `EngineServices`, `on_start`, and `on_quit`.
+* [Game Lifecycle](architecture/Game-Lifecycle.md) — `ENGINE_GAME`, `Engine<Game>`, `EngineServices`, `on_start`, and `on_quit`.
 * [World & Time](architecture/World-and-Time.md) — Delta time, fixed simulation stepping (`FixedStepClock`), and pause handling.
 * [Saves & Filesystem](architecture/Saves-and-Filesystem.md) — Cross-platform persistent storage via `user_data_directory`.
 
