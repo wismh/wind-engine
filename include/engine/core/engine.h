@@ -56,7 +56,7 @@ bool Engine<GameT>::init() {
     if (!host_.open_primary(game_->primary_window())) {
         return false;
     }
-    if (!host_.load_game_catalog(host_.assets_root())) {
+    if (!host_.load_catalog(host_.assets_root())) {
         host_.fatal().report("Failed to load game catalog");
         host_.dispose();
         return false;

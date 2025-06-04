@@ -5,6 +5,7 @@
 #include <engine/core/engine_runtime.h>
 #include <engine/core/input_system.h>
 #include <engine/core/sdl_fatal_error.h>
+#include <engine/core/window_control.h>
 #include <engine/core/worlds.h>
 #include <engine/ecs/systems.h>
 #include <engine/haptics/haptics_system.h>
@@ -147,7 +148,7 @@ std::filesystem::path EngineHost::assets_root() const {
     return impl_->runtime.assets_root();
 }
 
-std::expected<void, MetaError> EngineHost::load_game_catalog(const std::filesystem::path& assets_dir) {
+std::expected<void, MetaError> EngineHost::load_catalog(const std::filesystem::path& assets_dir) {
     const auto loaded = impl_->assets->load_catalog(assets_dir / "catalog.toml", assets_dir);
     if (!loaded && loaded.error() == MetaError::Io) {
         return {};
@@ -155,7 +156,7 @@ std::expected<void, MetaError> EngineHost::load_game_catalog(const std::filesyst
     return loaded;
 }
 
-void EngineHost::unload_game_catalog(const std::filesystem::path& assets_dir) {
+void EngineHost::unload_catalog(const std::filesystem::path& assets_dir) {
     impl_->assets->unload_catalog(assets_dir);
 }
 
@@ -171,6 +172,24 @@ void EngineHost::attach_game(IGame& game) {
     worlds.enable_audio(world);
     runtime.write_window_size(worlds, true);
     ui::apply_canvas_fit(world);
+}
+
+void EngineHost::detach_game() {
+    EngineRuntime& runtime = impl_->runtime;
+    Worlds& worlds = *impl_->worlds;
+    worlds.unbind_window(kPrimaryWindow);
+    // Nothing redraws an unbound window's buffer, and its CmdDrawUI entries point into the game world's
+    // documents. The next draw_all would read them after that world is gone.
+    runtime.commands().clear();
+    IWindowControl& windows = runtime.window_control();
+    windows.set_drag_region(std::nullopt);
+    windows.set_click_through_enabled(false);
+    windows.set_overlay_mode(OverlayMode::Auto);
+    if (runtime.reset_ui_cache(kPrimaryWindow)) {
+        (void)runtime.add_font_for_window(
+                kPrimaryWindow, builtin::font_ui, *impl_->assets->get<Font>(builtin::font_ui));
+    }
+    worlds.application_state().paused = false;
 }
 
 int EngineHost::run(RunHooks hooks) {

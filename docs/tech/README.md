@@ -10,7 +10,7 @@ Product name: Wind. CMake target and C++ namespace: `engine`. Build instructions
 2. [Overview](architecture/Overview.md) and [Module Map](architecture/Module%20Map.md) say which area owns what.
 3. [Runtime Loop](architecture/Runtime%20Loop.md) is the frame order.
 4. A module page is the reference for that area. A feature page is a walkthrough of one subsystem. A build page is how a binary and its assets get onto disk.
-5. [File index](files/INDEX.md) lists every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`.
+5. [File index](files/INDEX.md) lists every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and `editor/`.
 
 [UI Performance Plan](architecture/UI%20Performance%20Plan.md) and [Editor Plan](architecture/Editor%20Plan.md) are plans, not descriptions of the current engine.
 
@@ -53,6 +53,7 @@ Product name: Wind. CMake target and C++ namespace: `engine`. Build instructions
 | [UI Inspector](features/UI%20Inspector.md) | Pick and tree panel |
 | [UI Profiler](features/UI%20Profiler.md) | Per-stage timings |
 | [CLI](features/CLI.md) | `wind-cli` loopback server |
+| [Editor](features/Editor.md) | `wind_editor`: choose a game module, Play, Stop |
 
 ## Build
 
