@@ -194,6 +194,18 @@ void NanoVgPainter::stroke_rounded_rect(const Rect& rect, float radius, float wi
     nvgStroke(impl_->vg);
 }
 
+void NanoVgPainter::draw_line(glm::vec2 from, glm::vec2 to, glm::vec4 color, float width) {
+    if (impl_->vg == nullptr) {
+        return;
+    }
+    nvgBeginPath(impl_->vg);
+    nvgMoveTo(impl_->vg, from.x, from.y);
+    nvgLineTo(impl_->vg, to.x, to.y);
+    nvgStrokeWidth(impl_->vg, width);
+    nvgStrokeColor(impl_->vg, to_nvg(color));
+    nvgStroke(impl_->vg);
+}
+
 void NanoVgPainter::set_font(AssetId font, float size) {
     if (impl_->vg == nullptr) {
         return;
