@@ -59,6 +59,9 @@ std::optional<ElementKind> kind_from_tag(const char* name) {
     if (tag == "ItemTemplate") {
         return ElementKind::ItemTemplate;
     }
+    if (tag == "Line") {
+        return ElementKind::Line;
+    }
     return std::nullopt;
 }
 
