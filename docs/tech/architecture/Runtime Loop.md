@@ -21,7 +21,7 @@ Windowed games enter through `ENGINE_GAME` (`include/engine/game_entry.h`), whic
    6. `Worlds::set_deps`. That registers simulation systems on the game world.
 
    Any failure disposes the host and `init` returns false.
-4. `EngineHost::load_game_catalog(assets_root())`: `assets/catalog.toml`. `MetaError::Io` (file absent) is success. Any other error is fatal.
+4. `EngineHost::load_catalog(assets_root())`: `assets/catalog.toml`. `MetaError::Io` (file absent) is success. Any other error is fatal.
 5. `EngineHost::attach_game(game)`: if `window_icon()` is set, `get<render::TextureDesc>` and `set_window_icon`. Then `bind_window(kPrimaryWindow)`, `enable_ui`, `enable_audio`, `write_window_size` (sends a resize event), `ui::apply_canvas_fit`.
 
 `run` calls `EngineHost::run` with `RunHooks` whose `on_start` and `on_quit` call the game. `EngineHost::run` calls `runtime.run`, then `dispose`. `dispose` disposes audio and haptics and shuts the runtime down. A second `dispose` is a no-op.
