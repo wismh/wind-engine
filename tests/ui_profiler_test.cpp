@@ -2,15 +2,12 @@
 
 #include "ui/painter.h"
 #include "ui/profile.h"
-#include "ui/profiler_chart.h"
 
-#include <engine/ecs/events.h>
 #include <engine/ecs/systems.h>
 #include <engine/ecs/world.h>
 #include <engine/ui/canvas.h>
-#include <engine/ui/presentation.h>
 #include <engine/ui/document.h>
-#include <engine/ui/inspector.h>
+#include <engine/ui/presentation.h>
 #include <engine/ui/profiler.h>
 #include <engine/ui/view_model.h>
 
@@ -19,6 +16,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #if defined(NANOVG_H) || defined(NANOVG_GL_H) || defined(NANOVG_GL3)
 #error "ui profiler tests must not include nvg headers"
@@ -52,41 +50,8 @@ namespace {
         }
     };
 
-    engine::ui::Element *find_id(engine::ui::Element &element, std::string_view id) {
-        if (element.id == id) {
-            return &element;
-        }
-        for (engine::ui::Element &child: element.children) {
-            if (engine::ui::Element *found = find_id(child, id)) {
-                return found;
-            }
-        }
-        for (engine::ui::Element &child: element.generated_items) {
-            if (engine::ui::Element *found = find_id(child, id)) {
-                return found;
-            }
-        }
-        return nullptr;
-    }
-
-    engine::ui::Element *find_text(engine::ui::Element &element, std::string_view needle) {
-        if (element.text.find(needle) != std::string::npos) {
-            return &element;
-        }
-        for (engine::ui::Element &child: element.children) {
-            if (engine::ui::Element *found = find_text(child, needle)) {
-                return found;
-            }
-        }
-        for (engine::ui::Element &child: element.generated_items) {
-            if (engine::ui::Element *found = find_text(child, needle)) {
-                return found;
-            }
-        }
-        return nullptr;
-    }
-
-    engine::ecs::Entity spawn_named(engine::ecs::World &world, std::string_view id, bool with_label) {
+    engine::ecs::Entity spawn_named(engine::ecs::World &world, std::string_view id, bool with_label,
+                                    engine::WindowId window = engine::kPrimaryWindow) {
         const std::string xml = with_label ? std::format(R"(<Canvas id="{}"><Label>Hi</Label></Canvas>)", id)
                                            : std::format(R"(<Canvas id="{}"/>)", id);
         const auto parsed = engine::ui::parse_xml(xml);
@@ -97,381 +62,233 @@ namespace {
         engine::ui::UiCanvas canvas;
         canvas.fit = engine::ui::UiFit::Fixed;
         canvas.rect = {0.0f, 0.0f, 120.0f, 80.0f};
+        canvas.window = window;
         canvas.data_context = std::make_shared<EmptyModel>();
         return engine::ui::spawn_canvas(world, std::move(canvas), *parsed);
     }
 
-    void layout_instance(engine::ecs::World &world, engine::ecs::Entity entity) {
-        engine::ui::UiInstance &instance = world.get<engine::ui::UiInstance>(entity);
-        engine::ui::UiCanvas &canvas = world.get<engine::ui::UiCanvas>(entity);
-        if (canvas.data_context) {
-            ASSERT_TRUE(engine::ui::apply_bindings(instance.document, *canvas.data_context).has_value());
-        }
-        const engine::ui::Stylesheet *sheet = instance.stylesheet ? &*instance.stylesheet : nullptr;
-        const engine::ui::WindowSize size = engine::ui::window_size_for(world, canvas.window);
-        engine::ui::apply_layout_style(instance.document.root, sheet, static_cast<float>(size.width),
-                                       static_cast<float>(size.height));
-        engine::ui::layout(instance.document, canvas.rect);
-    }
-
-    engine::ecs::Entity profiler_panel(engine::ecs::World &world) {
-        engine::ecs::Entity found{};
-        auto view = world.view<engine::ui::ProfilerPanel>();
-        for (engine::ecs::Entity entity: view) {
-            found = entity;
-        }
-        return found;
-    }
-
-    const engine::ui::ChartRect *find_stage(const engine::ui::ChartGeometry &geometry, int stage) {
-        for (const engine::ui::ChartRect &rect: geometry.rects) {
-            if (rect.mark == engine::ui::ChartMark::Stage && rect.stage == stage) {
-                return &rect;
-            }
-        }
-        return nullptr;
-    }
-
-    engine::ecs::Entity inspector_panel(engine::ecs::World &world) {
-        engine::ecs::Entity found{};
-        auto view = world.view<engine::ui::InspectorPanel>();
-        for (engine::ecs::Entity entity: view) {
-            found = entity;
-        }
-        return found;
-    }
-
-    void paint_canvas(engine::ecs::World &world, engine::ecs::Entity entity, NullPainter &painter) {
+    // What the backend does for a CmdDrawUI: `canvas` is the entity only while that world is profiled.
+    void paint_canvas(engine::ecs::World &world, engine::ecs::Entity entity, NullPainter &painter,
+                      engine::ecs::Entity timed) {
         engine::ui::UiInstance &instance = world.get<engine::ui::UiInstance>(entity);
         engine::ui::paint_document(instance.document, nullptr, painter,
                                    engine::ui::UiPaintInput{
                                            .canvas_rect = {0.0f, 0.0f, 120.0f, 80.0f},
                                            .window_width = 120.0f,
                                            .window_height = 80.0f,
-                                           .canvas = entity,
+                                           .canvas = timed,
                                    });
     }
+
+    void paint_canvas(engine::ecs::World &world, engine::ecs::Entity entity, NullPainter &painter) {
+        paint_canvas(world, entity, painter, entity);
+    }
+
+    // Detaches on scope exit so no test leaves the scopes pointing at a destroyed world.
+    struct Attached {
+        engine::ecs::World &world;
+
+        explicit Attached(engine::ecs::World &w) : world(w) { engine::ui::set_ui_profiler_attached(world, true); }
+        ~Attached() { engine::ui::set_ui_profiler_attached(world, false); }
+        Attached(const Attached &) = delete;
+        Attached &operator=(const Attached &) = delete;
+    };
 
 } // namespace
 
 #if defined(ENGINE_UI_PROFILER)
 
-TEST(UiProfiler, ClosedProfilerStoresNothing) {
+TEST(UiProfiler, DetachedWorldStoresNothing) {
     engine::ecs::World world;
     const engine::ecs::Entity hud = spawn_named(world, "hud", true);
     NullPainter painter;
     paint_canvas(world, hud, painter);
     engine::ui::begin_frame(world);
-    const engine::ui::ProfileSample sample = engine::ui::profiler_canvas_sample(world, hud);
-    EXPECT_FALSE(sample.stored);
-    EXPECT_EQ(sample.frames, 0);
-    EXPECT_FALSE(engine::ui::profiler_shared_sample(world).stored);
+    EXPECT_FALSE(engine::ui::ui_profiler_attached(world));
+    EXPECT_TRUE(engine::ui::profiler_frames(world, hud).empty());
+    EXPECT_TRUE(engine::ui::profiler_shared_frames(world).empty());
 }
 
-TEST(UiProfiler, BeginFrameIsStoredOnlyWhileOpen) {
+TEST(UiProfiler, BeginFrameIsStoredOnlyWhileAttached) {
     engine::ecs::World world;
-    engine::ui::set_ui_profiler_enabled(world, true);
+    engine::ui::set_ui_profiler_attached(world, true);
+    EXPECT_TRUE(engine::ui::ui_profiler_attached(world));
     engine::ui::begin_frame(world);
     engine::ui::begin_frame(world);
-    const engine::ui::ProfileSample shared = engine::ui::profiler_shared_sample(world);
-    EXPECT_TRUE(shared.stored);
-    EXPECT_GE(shared.frames, 1);
-    engine::ui::set_ui_profiler_enabled(world, false);
-    EXPECT_FALSE(engine::ui::profiler_shared_sample(world).stored);
-    EXPECT_FALSE(engine::ui::ui_profiler_enabled(world));
+    EXPECT_GE(engine::ui::profiler_shared_frames(world).size(), 1u);
+    engine::ui::set_ui_profiler_attached(world, false);
+    EXPECT_TRUE(engine::ui::profiler_shared_frames(world).empty());
+    EXPECT_FALSE(engine::ui::ui_profiler_attached(world));
 }
 
 TEST(UiProfiler, BindSamplesStayOnTheirCanvas) {
     engine::ecs::World world;
     const engine::ecs::Entity alpha = spawn_named(world, "alpha", false);
     const engine::ecs::Entity beta = spawn_named(world, "beta", false);
-    engine::ui::set_inspector_enabled(world, true);
-    engine::ui::set_ui_profiler_enabled(world, true);
-    const engine::ecs::Entity inspector = [&] {
-        engine::ecs::Entity found{};
-        auto view = world.view<engine::ui::InspectorPanel>();
-        for (engine::ecs::Entity entity: view) {
-            found = entity;
-        }
-        return found;
-    }();
-    const engine::ecs::Entity panel = profiler_panel(world);
-    ASSERT_TRUE(world.valid(inspector));
-    ASSERT_TRUE(world.valid(panel));
+    Attached attached{world};
 
     engine::register_engine_systems(world);
     world.run(engine::ecs::Schedule::Frame);
     engine::ui::begin_frame(world);
 
-    const engine::ui::ProfileSample alpha_sample = engine::ui::profiler_canvas_sample(world, alpha);
-    const engine::ui::ProfileSample beta_sample = engine::ui::profiler_canvas_sample(world, beta);
-    EXPECT_TRUE(alpha_sample.stored);
-    EXPECT_TRUE(alpha_sample.saw_bindings);
-    EXPECT_TRUE(beta_sample.stored);
-    EXPECT_TRUE(beta_sample.saw_bindings);
-    EXPECT_FALSE(engine::ui::profiler_canvas_sample(world, inspector).stored);
-    EXPECT_FALSE(engine::ui::profiler_canvas_sample(world, panel).stored);
-    engine::ui::set_ui_profiler_enabled(world, false);
-    EXPECT_FALSE(engine::ui::profiler_canvas_sample(world, alpha).stored);
+    const std::vector<engine::ui::ProfilerFrame> alpha_frames = engine::ui::profiler_frames(world, alpha);
+    const std::vector<engine::ui::ProfilerFrame> beta_frames = engine::ui::profiler_frames(world, beta);
+    ASSERT_FALSE(alpha_frames.empty());
+    EXPECT_TRUE(alpha_frames.back().saw_bindings);
+    ASSERT_FALSE(beta_frames.empty());
+    EXPECT_TRUE(beta_frames.back().saw_bindings);
+}
+
+TEST(UiProfiler, AnotherWorldsPassesStayOutOfTheProfiledWorld) {
+    engine::ecs::World game;
+    engine::ecs::World editor;
+    const engine::ecs::Entity hud = spawn_named(game, "hud", true);
+    const engine::ecs::Entity panel = spawn_named(editor, "panel", true);
+    ASSERT_EQ(hud, panel) << "the same entity in two worlds is what the scopes must not mix up";
+    Attached attached{game};
+    engine::register_engine_systems(editor);
+    NullPainter painter;
+
+    engine::ui::begin_frame(game);
+    editor.run(engine::ecs::Schedule::Frame);
+    paint_canvas(editor, panel, painter, engine::ecs::Entity{});
+    engine::ui::begin_frame(game);
+    EXPECT_TRUE(engine::ui::profiler_frames(game, hud).empty()) << "editor bind and paint went to the game";
+    EXPECT_FALSE(engine::ui::ui_profiler_attached(editor));
+    EXPECT_TRUE(engine::ui::profiler_frames(editor, panel).empty());
+
+    paint_canvas(game, hud, painter);
+    engine::ui::begin_frame(game);
+    const std::vector<engine::ui::ProfilerFrame> frames = engine::ui::profiler_frames(game, hud);
+    ASSERT_EQ(frames.size(), 1u);
+    EXPECT_TRUE(frames.back().saw_paint);
+    EXPECT_FALSE(frames.back().saw_bindings);
 }
 
 TEST(UiProfiler, PaintRecordsLayoutThenASkip) {
     engine::ecs::World world;
     const engine::ecs::Entity hud = spawn_named(world, "hud", true);
-    engine::ui::set_ui_profiler_enabled(world, true);
+    Attached attached{world};
     NullPainter painter;
     paint_canvas(world, hud, painter);
     engine::ui::begin_frame(world);
-    const engine::ui::ProfileSample first = engine::ui::profiler_canvas_sample(world, hud);
-    EXPECT_TRUE(first.stored);
-    EXPECT_TRUE(first.saw_paint);
-    EXPECT_TRUE(first.layout_ran);
-    EXPECT_GE(first.elements, 2);
-    EXPECT_EQ(first.generated, 0);
+    std::vector<engine::ui::ProfilerFrame> frames = engine::ui::profiler_frames(world, hud);
+    ASSERT_EQ(frames.size(), 1u);
+    EXPECT_TRUE(frames[0].saw_paint);
+    EXPECT_TRUE(frames[0].layout_ran);
+    EXPECT_FALSE(frames[0].layout_skipped());
+    EXPECT_GE(frames[0].elements, 2);
+    EXPECT_EQ(frames[0].generated, 0);
 
     paint_canvas(world, hud, painter);
     engine::ui::begin_frame(world);
-    const engine::ui::ProfileSample second = engine::ui::profiler_canvas_sample(world, hud);
-    EXPECT_EQ(second.frames, 2);
-    EXPECT_TRUE(second.saw_paint);
-    EXPECT_FALSE(second.layout_ran);
-    EXPECT_GE(second.elements, 2);
-
-    engine::ui::sync_profiler_content(world);
-    const engine::ecs::Entity panel = profiler_panel(world);
-    layout_instance(world, panel);
-    engine::ui::Element *stats = find_id(world.get<engine::ui::UiInstance>(panel).document.root, "stats");
-    ASSERT_NE(stats, nullptr);
-    EXPECT_NE(stats->text.find("skipped"), std::string::npos);
-    engine::ui::set_ui_profiler_enabled(world, false);
+    frames = engine::ui::profiler_frames(world, hud);
+    ASSERT_EQ(frames.size(), 2u);
+    EXPECT_TRUE(frames[1].saw_paint);
+    EXPECT_FALSE(frames[1].layout_ran);
+    EXPECT_TRUE(frames[1].layout_skipped());
+    EXPECT_GE(frames[1].elements, 2);
 }
 
-TEST(UiProfiler, PauseKeepsTheDisplayedFrame) {
+TEST(UiProfiler, PauseKeepsTheRings) {
     engine::ecs::World world;
     const engine::ecs::Entity hud = spawn_named(world, "hud", true);
-    engine::ui::set_ui_profiler_enabled(world, true);
+    Attached attached{world};
     NullPainter painter;
     paint_canvas(world, hud, painter);
     engine::ui::begin_frame(world);
-    EXPECT_TRUE(engine::ui::profiler_canvas_sample(world, hud).layout_ran);
+    ASSERT_EQ(engine::ui::profiler_frames(world, hud).size(), 1u);
 
-    const engine::ecs::Entity panel = profiler_panel(world);
-    layout_instance(world, panel);
-    engine::ui::UiInstance &panel_instance = world.get<engine::ui::UiInstance>(panel);
-    engine::ui::Element *box = find_id(panel_instance.document.root, "pause");
-    ASSERT_NE(box, nullptr);
-    ASSERT_GT(box->layout_rect.w, 1.0f);
-    const engine::WindowId panel_window = world.get<engine::ui::UiCanvas>(panel).window;
-    engine::ui::handle_pointer(world, box->layout_rect.x + box->layout_rect.w * 0.5f,
-                               box->layout_rect.y + box->layout_rect.h * 0.5f, panel_window);
-    engine::ui::sync_profiler_content(world);
-
+    engine::ui::set_profiler_paused(world, true);
+    EXPECT_TRUE(engine::ui::profiler_paused(world));
     paint_canvas(world, hud, painter);
     engine::ui::begin_frame(world);
-    const engine::ui::ProfileSample held = engine::ui::profiler_canvas_sample(world, hud);
-    EXPECT_EQ(held.frames, 1);
-    EXPECT_TRUE(held.layout_ran);
-    engine::ui::set_ui_profiler_enabled(world, false);
-    EXPECT_FALSE(world.valid(profiler_panel(world)));
+    const std::vector<engine::ui::ProfilerFrame> held = engine::ui::profiler_frames(world, hud);
+    ASSERT_EQ(held.size(), 1u);
+    EXPECT_TRUE(held[0].layout_ran);
+
+    engine::ui::set_profiler_paused(world, false);
+    paint_canvas(world, hud, painter);
+    engine::ui::begin_frame(world);
+    EXPECT_EQ(engine::ui::profiler_frames(world, hud).size(), 2u);
+
+    engine::ui::set_profiler_paused(world, true);
+    engine::ui::set_ui_profiler_attached(world, false);
+    EXPECT_FALSE(engine::ui::profiler_paused(world)) << "detaching clears Pause";
 }
 
-TEST(UiProfiler, RowClickSelectsThatCanvas) {
+TEST(UiProfiler, RingKeepsTheLastFramesOldestFirst) {
+    engine::ecs::World world;
+    Attached attached{world};
+    for (int i = 0; i < engine::ui::kProfilerRingFrames + 10; ++i) {
+        engine::ui::begin_frame(world);
+    }
+    const std::vector<engine::ui::ProfilerSharedFrame> frames = engine::ui::profiler_shared_frames(world);
+    EXPECT_EQ(frames.size(), static_cast<std::size_t>(engine::ui::kProfilerRingFrames));
+}
+
+TEST(UiProfiler, CanvasListSelectsTheFirstAndFollowsSelect) {
     engine::ecs::World world;
     const engine::ecs::Entity alpha = spawn_named(world, "alpha", false);
-    const engine::ecs::Entity beta = spawn_named(world, "beta", false);
-    engine::ui::set_ui_profiler_enabled(world, true);
+    const engine::ecs::Entity beta = spawn_named(world, "", false);
+    Attached attached{world};
+
+    std::vector<engine::ui::ProfilerCanvas> canvases = engine::ui::profiler_canvases(world);
+    ASSERT_EQ(canvases.size(), 2u);
+    EXPECT_EQ(canvases[0].label, "alpha");
+    EXPECT_EQ(canvases[1].label, "Canvas");
+    EXPECT_TRUE(canvases[0].selected);
     EXPECT_EQ(engine::ui::profiler_selected(world), alpha);
 
-    const engine::ecs::Entity panel = profiler_panel(world);
-    layout_instance(world, panel);
-    engine::ui::UiInstance &panel_instance = world.get<engine::ui::UiInstance>(panel);
-    engine::ui::Element *row = find_text(panel_instance.document.root, "beta");
-    ASSERT_NE(row, nullptr);
-    ASSERT_GT(row->layout_rect.w, 1.0f);
-    const engine::WindowId panel_window = world.get<engine::ui::UiCanvas>(panel).window;
-    engine::ui::handle_pointer(world, row->layout_rect.x + row->layout_rect.w * 0.5f,
-                               row->layout_rect.y + row->layout_rect.h * 0.5f, panel_window);
-    EXPECT_EQ(engine::ui::profiler_selected(world), beta);
-    engine::ui::set_ui_profiler_enabled(world, false);
+    engine::ui::profiler_select(world, beta);
+    canvases = engine::ui::profiler_canvases(world);
+    EXPECT_FALSE(canvases[0].selected);
+    EXPECT_TRUE(canvases[1].selected);
+
+    world.destroy(beta);
+    canvases = engine::ui::profiler_canvases(world);
+    ASSERT_EQ(canvases.size(), 1u);
+    EXPECT_TRUE(canvases[0].selected) << "a dead selection falls back to the first canvas";
+    EXPECT_EQ(engine::ui::profiler_selected(world), alpha);
 }
 
-TEST(UiProfiler, HostOpensOneWindowAndDisableClosesIt) {
+TEST(UiProfiler, CanvasListPrefixesWindowsWhenThereAreSeveral) {
     engine::ecs::World world;
-    int opens = 0;
-    int closes = 0;
-    std::string title;
-    bool resizable = false;
-    world.ctx<engine::ui::ProfilerWindowHost>().open = [&](const engine::WindowDesc &desc) {
-        ++opens;
-        title = desc.title;
-        resizable = desc.style.resizable;
-        return engine::WindowId{9};
-    };
-    world.ctx<engine::ui::ProfilerWindowHost>().close = [&](engine::WindowId id) {
-        ++closes;
-        EXPECT_EQ(id, engine::WindowId{9});
-    };
-
-    engine::ui::set_ui_profiler_enabled(world, true);
-    EXPECT_EQ(opens, 1);
-    EXPECT_EQ(title, "UI Profiler");
-    EXPECT_TRUE(resizable);
-    const engine::ecs::Entity panel = profiler_panel(world);
-    ASSERT_TRUE(world.valid(panel));
-    EXPECT_EQ(world.get<engine::ui::UiCanvas>(panel).window, engine::WindowId{9});
-    EXPECT_FALSE(engine::ui::presentation_of(world).sizes.sizes.contains(engine::WindowId{9}));
-
-    engine::ui::set_ui_profiler_enabled(world, false);
-    EXPECT_EQ(closes, 1);
-    EXPECT_FALSE(engine::ui::ui_profiler_enabled(world));
-    EXPECT_FALSE(world.valid(profiler_panel(world)));
+    (void) spawn_named(world, "hud", false);
+    (void) spawn_named(world, "tool", false, engine::WindowId{4});
+    Attached attached{world};
+    const std::vector<engine::ui::ProfilerCanvas> canvases = engine::ui::profiler_canvases(world);
+    ASSERT_EQ(canvases.size(), 2u);
+    EXPECT_EQ(canvases[0].label, "[0] hud");
+    EXPECT_EQ(canvases[1].label, "[4] tool");
+    EXPECT_EQ(canvases[1].window, engine::WindowId{4});
 }
 
-TEST(UiProfiler, CloseRequestDisablesAndClosesTheWindow) {
-    engine::ecs::World world;
-    int closes = 0;
-    world.ctx<engine::ui::ProfilerWindowHost>().open = [](const engine::WindowDesc &) { return engine::WindowId{9}; };
-    world.ctx<engine::ui::ProfilerWindowHost>().close = [&](engine::WindowId) { ++closes; };
-
-    engine::ui::set_ui_profiler_enabled(world, true);
-    engine::ecs::EventWriter<engine::ui::WindowCloseRequestedEvent>{world}.send(
-            engine::ui::WindowCloseRequestedEvent{.window = engine::WindowId{9}});
-    engine::ui::begin_frame(world);
-    EXPECT_FALSE(engine::ui::ui_profiler_enabled(world));
-    EXPECT_EQ(closes, 1);
-
-    engine::ui::begin_frame(world);
-    EXPECT_EQ(closes, 1);
-}
-
-TEST(UiProfiler, ChartCeilingAndBudgetLine) {
-    EXPECT_DOUBLE_EQ(engine::ui::chart_ceiling_ms(0.1), 1.0);
-    EXPECT_DOUBLE_EQ(engine::ui::chart_ceiling_ms(2.0), 2.0);
-    EXPECT_DOUBLE_EQ(engine::ui::chart_ceiling_ms(20.0), 32.0);
-
-    engine::ui::ChartColumn quiet{};
-    quiet.stages_ns[0] = 100000;
-    const engine::ui::ChartGeometry quiet_geo =
-            engine::ui::build_chart(std::span<const engine::ui::ChartColumn>(&quiet, 1), 1, 120.0f, 100.0f, false);
-    EXPECT_DOUBLE_EQ(quiet_geo.ceiling_ms, 1.0);
-    const engine::ui::ChartRect *bar = find_stage(quiet_geo, 0);
-    ASSERT_NE(bar, nullptr);
-    EXPECT_FLOAT_EQ(bar->rect.h, 10.0f);
-    EXPECT_FALSE(quiet_geo.budget.visible);
-
-    engine::ui::ChartColumn spike{};
-    spike.stages_ns[0] = 20000000;
-    const engine::ui::ChartGeometry spike_geo =
-            engine::ui::build_chart(std::span<const engine::ui::ChartColumn>(&spike, 1), 1, 120.0f, 64.0f, false);
-    EXPECT_DOUBLE_EQ(spike_geo.ceiling_ms, 32.0);
-    ASSERT_TRUE(spike_geo.budget.visible);
-    const float y = 64.0f * static_cast<float>(1.0 - 16.7 / 32.0);
-    EXPECT_FLOAT_EQ(spike_geo.budget.from.y, y);
-    EXPECT_FLOAT_EQ(spike_geo.budget.to.y, y);
-    EXPECT_FLOAT_EQ(spike_geo.budget.from.x, 0.0f);
-    EXPECT_FLOAT_EQ(spike_geo.budget.to.x, 120.0f);
-}
-
-TEST(UiProfiler, ChartStacksTheLastSlotAndMarksASkippedLayout) {
-    engine::ui::ChartColumn column{};
-    column.stages_ns[3] = 2000000;
-    const engine::ui::ChartGeometry stacked =
-            engine::ui::build_chart(std::span<const engine::ui::ChartColumn>(&column, 1), 6, 120.0f, 100.0f, true);
-    EXPECT_DOUBLE_EQ(stacked.ceiling_ms, 2.0);
-    const engine::ui::ChartRect *layout = find_stage(stacked, 3);
-    ASSERT_NE(layout, nullptr);
-    EXPECT_FLOAT_EQ(layout->rect.x, 119.0f);
-    EXPECT_FLOAT_EQ(layout->rect.w, 1.0f);
-    EXPECT_FLOAT_EQ(layout->rect.h, 100.0f);
-    EXPECT_FLOAT_EQ(layout->rect.y, 0.0f);
-    EXPECT_EQ(find_stage(stacked, 0), nullptr);
-    EXPECT_FALSE(stacked.budget.visible);
-
-    engine::ui::ChartColumn skipped{};
-    skipped.layout_skipped = true;
-    const engine::ui::ChartGeometry tick =
-            engine::ui::build_chart(std::span<const engine::ui::ChartColumn>(&skipped, 1), 6, 120.0f, 100.0f, true);
-    EXPECT_EQ(find_stage(tick, 3), nullptr);
-    ASSERT_EQ(tick.rects.size(), 1u);
-    EXPECT_EQ(tick.rects[0].mark, engine::ui::ChartMark::LayoutSkip);
-    EXPECT_FLOAT_EQ(tick.rects[0].rect.h, 2.0f);
-    EXPECT_FLOAT_EQ(tick.rects[0].rect.y, 98.0f);
-    EXPECT_FLOAT_EQ(tick.rects[0].rect.x, 119.0f);
-}
-
-TEST(UiProfiler, ChartsBindAPaintCallback) {
-    engine::ecs::World world;
-    engine::ui::set_ui_profiler_enabled(world, true);
-    engine::ui::sync_profiler_content(world);
-    const engine::ecs::Entity panel = profiler_panel(world);
-    ASSERT_TRUE(world.valid(panel));
-    layout_instance(world, panel);
-    engine::ui::UiInstance &instance = world.get<engine::ui::UiInstance>(panel);
-    engine::ui::Element *chart = find_id(instance.document.root, "chart");
-    engine::ui::Element *shared = find_id(instance.document.root, "shared");
-    ASSERT_NE(chart, nullptr);
-    ASSERT_NE(shared, nullptr);
-    EXPECT_NE(chart->paint, nullptr);
-    EXPECT_NE(shared->paint, nullptr);
-    engine::ui::set_ui_profiler_enabled(world, false);
-}
-
-TEST(UiProfiler, InspectorSkipsTheProfilerWindow) {
+TEST(UiProfiler, DetachDropsTheRingsUnlessCaptureIsOn) {
     engine::ecs::World world;
     const engine::ecs::Entity hud = spawn_named(world, "hud", true);
-    engine::ui::set_inspector_enabled(world, true);
-    engine::ui::set_ui_profiler_enabled(world, true);
-
-    const engine::ecs::Entity panel = profiler_panel(world);
-    const engine::ecs::Entity inspector = inspector_panel(world);
-    ASSERT_TRUE(world.valid(panel));
-    ASSERT_TRUE(world.valid(inspector));
-    const engine::WindowId profiler_window = world.get<engine::ui::UiCanvas>(panel).window;
-    engine::ui::pointer_for(world, profiler_window).position = {20.0f, 20.0f};
-    EXPECT_FALSE(engine::ui::inspector_hover_canvas(world, profiler_window).has_value());
-
-    engine::ui::pointer_for(world, engine::kPrimaryWindow).position = {10.0f, 10.0f};
-    const std::optional<engine::ecs::Entity> hover = engine::ui::inspector_hover_canvas(world, engine::kPrimaryWindow);
-    ASSERT_TRUE(hover.has_value());
-    EXPECT_EQ(*hover, hud);
-
     NullPainter painter;
+    engine::ui::set_ui_profiler_attached(world, true);
+    engine::ui::profiler_cli_set_capture(world, true);
     paint_canvas(world, hud, painter);
     engine::ui::begin_frame(world);
-    EXPECT_TRUE(engine::ui::profiler_canvas_sample(world, hud).layout_ran);
+    engine::ui::set_ui_profiler_attached(world, false);
+    EXPECT_EQ(engine::ui::profiler_frames(world, hud).size(), 1u) << "capture keeps the rings";
+    EXPECT_TRUE(engine::ui::profiler_cli_ready(world));
 
-    layout_instance(world, panel);
-    engine::ui::UiInstance &panel_instance = world.get<engine::ui::UiInstance>(panel);
-    engine::ui::Element *box = find_id(panel_instance.document.root, "pause");
-    ASSERT_NE(box, nullptr);
-    ASSERT_GT(box->layout_rect.w, 1.0f);
-    engine::ui::handle_pointer(world, box->layout_rect.x + box->layout_rect.w * 0.5f,
-                               box->layout_rect.y + box->layout_rect.h * 0.5f, profiler_window);
-    engine::ui::sync_profiler_content(world);
-    EXPECT_FALSE(engine::ui::inspector_selection(world, profiler_window).active);
-
-    paint_canvas(world, hud, painter);
-    engine::ui::begin_frame(world);
-    const engine::ui::ProfileSample held = engine::ui::profiler_canvas_sample(world, hud);
-    EXPECT_EQ(held.frames, 1);
-    EXPECT_TRUE(held.layout_ran);
-
-    engine::ui::sync_inspector_content(world);
-    layout_instance(world, inspector);
-    engine::ui::UiInstance &inspector_instance = world.get<engine::ui::UiInstance>(inspector);
-    EXPECT_NE(find_text(inspector_instance.document.root, "#hud"), nullptr);
-    EXPECT_EQ(find_text(inspector_instance.document.root, "#profiler"), nullptr);
-
-    engine::ui::set_ui_profiler_enabled(world, false);
-    engine::ui::set_inspector_enabled(world, false);
+    engine::ui::profiler_cli_set_capture(world, false);
+    EXPECT_TRUE(engine::ui::profiler_frames(world, hud).empty());
 }
 
 #else
 
-TEST(UiProfiler, ToggleIsANoOp) {
+TEST(UiProfiler, ReleaseApiIsANoOp) {
     engine::ecs::World world;
-    engine::ui::set_ui_profiler_enabled(world, true);
-    EXPECT_FALSE(engine::ui::ui_profiler_enabled(world));
+    engine::ui::set_ui_profiler_attached(world, true);
+    EXPECT_FALSE(engine::ui::kUiProfilerBuilt);
+    EXPECT_FALSE(engine::ui::ui_profiler_attached(world));
+    EXPECT_TRUE(engine::ui::profiler_canvases(world).empty());
+    EXPECT_TRUE(engine::ui::profiler_shared_frames(world).empty());
 }
 
 #endif

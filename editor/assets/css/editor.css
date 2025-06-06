@@ -1,4 +1,4 @@
-/* Wind Editor window. Dark, flat, one toolbar row over an empty content area. */
+/* Wind Editor window. Dark, flat: the toolbar, the tab strip, then the content area the panels cover. */
 
 Canvas {
   background: #1e1f22;
@@ -9,7 +9,7 @@ Canvas {
   height: 100%;
 }
 
-/* 56 px tall: .content below is calc(100% - 56px). */
+/* 56 px tall. See .tabs for the content offset. */
 .toolbar {
   width: 100%;
   height: 56;
@@ -84,8 +84,38 @@ Label {
   color: #8c9096;
 }
 
+/* 32 px tall. Toolbar plus tabs is 88 px: .content is calc(100% - 88px), and EditorPanels puts the panel
+   canvases at y = 88 (kPanelTop in editor/src/editor_panels.cpp). */
+.tabs {
+  width: 100%;
+  height: 32;
+  padding: 0 12;
+  gap: 2;
+  align-items: end;
+  background: #2b2d30;
+}
+
+Button.tab {
+  height: 28;
+  padding: 0 16;
+  border-radius: 6;
+  font-size: 13;
+  color: #8c9096;
+  background: #2b2d30;
+}
+
+Button.tab:hover {
+  color: #dfe1e5;
+  background: #34363a;
+}
+
+Button.tab:checked {
+  color: #ffffff;
+  background: #1e1f22;
+}
+
 .content {
   width: 100%;
-  height: calc(100% - 56px);
+  height: calc(100% - 88px);
   background: #1e1f22;
 }

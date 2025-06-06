@@ -32,7 +32,7 @@ Normative rules. If a change fights these, the change is wrong. As-built detail 
 10. Simulation uses `fixed_delta_time` on `Schedule::Fixed`. One-shot clicks run on `Schedule::Frame`, `Phase::Game`.
 11. UI documents are XML assets and/or `ui::Node` into the same `Element` tree. Games do not build a parallel widget graph.
 12. All engine APIs are main-thread only.
-13. `MouseConsumed` is cleared once at the start of each process frame (`ui::reset_pointer_frame`), not inside `ui::begin_frame` and not at the end of the frame. `begin_frame` still fits canvases and syncs the inspector and profiler.
+13. `MouseConsumed` is cleared once at the start of each process frame (`ui::reset_pointer_frame`), not inside `ui::begin_frame` and not at the end of the frame. `begin_frame` fits canvases and commits the profiler frame. It opens no tool window: the inspector and profiler panels are editor canvases in the editor's world.
 14. No engine code assumes a single global window. A `UiCanvas` is keyed by `WindowId`. A window belongs to one world. That world's meshes go to each of its windows. Window size, pointer, and mouse consumption live on the process `Presentation`, not in a world's `ctx`.
 15. Window, GL, and SDL platform calls stay behind `WindowManager` in `src/render/opengl/`. `#if defined(_WIN32)` branches do not leak a Win32 type into `include/`.
 

@@ -1,0 +1,36 @@
+<Canvas>
+  <Stack class="panel" direction="vertical">
+    <Stack class="option-row" direction="horizontal">
+      <Checkbox class="option-box" checked="{binding pause}"/>
+      <Label class="option-label" text="Pause"/>
+      <Label class="hint" text="{binding hint}"/>
+    </Stack>
+    <Stack class="columns" direction="horizontal">
+      <Stack class="column-left" direction="vertical">
+        <Label class="section" text="Canvases"/>
+        <ScrollView class="box tree">
+          <ItemsControl class="rows" items_source="{binding canvases}">
+            <ItemTemplate>
+              <Button class="canvas-row" command="{binding select}" content="{binding label}" var-row="{binding rowFill}"/>
+            </ItemTemplate>
+          </ItemsControl>
+        </ScrollView>
+      </Stack>
+      <Stack class="column-right" direction="vertical">
+        <Label class="section" text="{binding chartTitle}"/>
+        <Component class="chart" paint="{binding chart}"/>
+        <Stack class="legend" direction="horizontal">
+          <Stack class="key" direction="horizontal"><Component class="swatch sw-bind"/><Label class="key-name" text="bindings"/></Stack>
+          <Stack class="key" direction="horizontal"><Component class="swatch sw-style"/><Label class="key-name" text="stylesheets"/></Stack>
+          <Stack class="key" direction="horizontal"><Component class="swatch sw-input"/><Label class="key-name" text="input"/></Stack>
+          <Stack class="key" direction="horizontal"><Component class="swatch sw-layout"/><Label class="key-name" text="layout"/></Stack>
+          <Stack class="key" direction="horizontal"><Component class="swatch sw-motion"/><Label class="key-name" text="motion"/></Stack>
+          <Stack class="key" direction="horizontal"><Component class="swatch sw-paint"/><Label class="key-name" text="paint"/></Stack>
+          <Stack class="key" direction="horizontal"><Component class="swatch sw-skip"/><Label class="key-name" text="layout skipped"/></Stack>
+        </Stack>
+        <Component class="shared-chart" paint="{binding shared}"/>
+        <Label class="stats" text="{binding stats}"/>
+      </Stack>
+    </Stack>
+  </Stack>
+</Canvas>
