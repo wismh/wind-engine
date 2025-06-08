@@ -60,12 +60,12 @@ The JSON body is `{"command":"…"}` plus optional `selector`, `window`, `x`, an
 
 | Command | Result |
 | --- | --- |
-| `tree` | `result.nodes[]` for every canvas on that window except `InspectorPanel` and `ProfilerPanel` |
+| `tree` | `result.nodes[]` for every canvas on that window |
 | `element <selector>` | One element object (fields below) |
 | `hit <x> <y>` | That same object, or `"result":null` |
 | `click <selector>` | `executed`, and `reason` when it did not run |
-| `profile` | `result` timings below. `paused` is the panel pause |
-| `profile stop` | `result.capturing` is false. Clears CLI capture only. Does not close the profiler window |
+| `profile` | `result` timings below. `paused` is the editor panel's Pause |
+| `profile stop` | `result.capturing` is false. Clears CLI capture only. Does not detach the editor's profiler panel |
 
 `tree` nodes: `window`, `path`, `kind`, `id`, `classes`, `display` (`none` or `shown`), `border` `{x,y,w,h}`. `path` is the inspector's child-index array, including `kGeneratedPathBit`. An empty path is the canvas root.
 

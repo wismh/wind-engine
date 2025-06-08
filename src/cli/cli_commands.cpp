@@ -7,7 +7,6 @@
 #include <engine/ui/canvas.h>
 #include <engine/ui/command.h>
 #include <engine/ui/document.h>
-#include <engine/ui/inspector.h>
 #include <engine/ui/view_model.h>
 
 #include <algorithm>
@@ -21,10 +20,6 @@
 #include <string_view>
 #include <utility>
 #include <vector>
-
-#if defined(ENGINE_UI_PROFILER)
-#include <engine/ui/profiler.h>
-#endif
 
 namespace engine::cli {
     namespace {
@@ -437,18 +432,6 @@ namespace engine::cli {
             std::vector<std::size_t> path;
         };
 
-        bool is_tool_canvas(ecs::World &world, ecs::Entity entity) {
-            if (world.try_get<ui::InspectorPanel>(entity) != nullptr) {
-                return true;
-            }
-#if defined(ENGINE_UI_PROFILER)
-            if (world.try_get<ui::ProfilerPanel>(entity) != nullptr) {
-                return true;
-            }
-#endif
-            return false;
-        }
-
         void walk_elements(ui::Element &element, std::vector<std::size_t> path,
                            const std::function<void(ui::Element &, const std::vector<std::size_t> &)> &visit) {
             visit(element, path);
@@ -477,9 +460,6 @@ namespace engine::cli {
             std::vector<CanvasRef> sources;
             auto view = world.view<ui::UiCanvas>();
             for (ecs::Entity entity: view) {
-                if (is_tool_canvas(world, entity)) {
-                    continue;
-                }
                 ui::UiCanvas &canvas = view.get<ui::UiCanvas>(entity);
                 if (canvas.window != window) {
                     continue;

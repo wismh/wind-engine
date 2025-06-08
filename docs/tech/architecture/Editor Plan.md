@@ -1,6 +1,6 @@
 # Editor plan
 
-This is a plan. It is not a description of the engine as it runs today. wind-167 to wind-169 are done: `wind_editor` loads, plays, and stops a game module ([Editor](../features/Editor.md)). The UI Inspector and UI Profiler still open their own windows from the game ([UI Inspector](../features/UI%20Inspector.md), [UI Profiler](../features/UI%20Profiler.md)).
+This is a plan. It is not a description of the engine as it runs today. wind-167 to wind-170 are done: `wind_editor` loads, plays, inspects, profiles, and stops a game module ([Editor](../features/Editor.md), [UI Inspector](../features/UI%20Inspector.md), [UI Profiler](../features/UI%20Profiler.md)).
 
 ## Goal
 
@@ -69,12 +69,12 @@ Every start opens a file dialog for the module. `IWindowControl::request_open_fi
 
 The engine keeps the probe and works on any world:
 
-- Inspector: `UiInspector` state in the game world's `ctx`, pick click and hover box on game canvases, element path resolution, and new snapshot functions `inspector_tree`, `inspector_detail`, `inspector_rules`, plus `set_inspector_attached`.
-- Profiler: `ProfilerState` rings, `ENGINE_UI_PROFILE` scopes, `profiler_attach` and `profiler_commit_frame`, the CLI capture, plus snapshot functions `profiler_canvases` and `profiler_frames` and `set_ui_profiler_attached`.
+- Inspector: `UiInspector` state in the game world's `ctx`, pick click and hover box on game canvases, element path resolution, and snapshot functions `inspector_tree`, `inspector_select`, `inspector_toggle`, `inspector_detail`, `inspector_rules`, plus `set_inspector_attached`.
+- Profiler: `ProfilerState` rings, `ENGINE_UI_PROFILE` scopes, `profiler_attach` and `profiler_commit_frame`, the CLI capture, plus snapshot functions `profiler_canvases`, `profiler_frames`, `profiler_shared_frames`, `profiler_select`, `set_profiler_paused`, and `set_ui_profiler_attached`. Scopes record only passes over the attached world, so the editor's own canvases stay out.
 
 Removed from the engine: `InspectorWindowHost`, `ProfilerWindowHost`, `InspectorPanel`, `ProfilerPanel`, `inspector_skips_canvas`, `set_inspector_enabled`, `set_ui_profiler_enabled`, the window-opening part of `sync_*_frames`, the panel documents and models, the window-host lines of the UI installer, and the panel Bind systems.
 
-Moved to `editor/`: panel documents (XML and CSS), view-models, and the profiler chart as an `IPaint` drawn through `IDrawList`. The view-models read the world bound to `kPrimaryWindow` during the editor world's `Phase::Bind`. The Pick toggle writes `UiInspector::pick_pointer` in the game world.
+Moved to `editor/`: panel documents (XML and CSS), view-models, and the profiler chart as an `IPaint` drawn through `IDrawList`. The view-models read the world bound to `kPrimaryWindow` during the editor world's `Phase::Game`, before its Bind, so the same frame's bindings see them. The Pick toggle writes `UiInspector::pick_pointer` in the game world; pick starts off so the game gets its clicks.
 
 ## Tasks
 
@@ -84,7 +84,7 @@ Moved to `editor/`: panel documents (XML and CSS), view-models, and the profiler
 | wind-167 | `ENGINE_EDITOR`, shared `engine`, `ENGINE_API`, data audit, build id, `vs-editor` preset. `engine_tests` pass static and shared |
 | wind-168 | `EngineHost`, `RunHooks`, `ENGINE_GAME`, game module build, `InputSystem::reset`, `IAudioSystem::stop_all`, `AssetsDb::unload_catalog` |
 | wind-169 | Module loader, file dialog event, `wind_editor` with Play and Stop, module tests against a fixture module. Done |
-| wind-170 | Inspector and profiler split into engine probe and editor panels; feature, module, build, and README pages |
+| wind-170 | Inspector and profiler split into engine probe and editor panels; feature, module, build, and README pages. Done |
 
 ## Done when
 

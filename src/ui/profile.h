@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <string>
 
 namespace engine::ui {
 
@@ -23,8 +24,8 @@ namespace engine::ui {
 #if defined(ENGINE_UI_PROFILER)
     // Times from construction to destruction. `canvas` is read in the destructor, so a caller can
     // fill it in during the scope (prepare_top_canvas does, once it knows which canvas it hit).
-    // A tool canvas, an empty entity, or a profiler that is neither open nor CLI-capturing records
-    // nothing and does not read the clock.
+    // An empty entity, or a pass over a world that is not profiled, records nothing and does not read
+    // the clock.
     class UiProfileScope {
     public:
         UiProfileScope(const ecs::Entity &canvas, ProfileStage stage);
@@ -59,9 +60,17 @@ namespace engine::ui {
 #define ENGINE_UI_PROFILE_SHARED(stage)                                                                                \
     ::engine::ui::UiProfileSharedScope _profile_shared_##stage { ::engine::ui::ProfileStage::stage }
 
-    // Points the scopes at `world` while its profiler is on. A later paint in the same frame has no
-    // World of its own; the scopes write through this.
+    // Called at the start of each engine pass over `world` (begin_frame, input, bind, command build).
+    // Scopes until the next call record only when `world` is the profiled one: attached or captured by
+    // wind-cli. That keeps the editor's own canvases out of the game's rings.
     void profiler_attach(ecs::World &world);
+
+    // True while scopes record: the world of the current pass is the profiled one.
+    [[nodiscard]] bool profiler_recording();
+
+    // Paint has no World. run_ui_render leaves CmdDrawUI::canvas empty unless its world is profiled, so
+    // paint_document records exactly when `canvas` is set.
+    void profiler_begin_paint(const ecs::Entity &canvas);
 
     // Pushes the open frame into the rings, unless Pause is on (then the open frame is dropped).
     void profiler_commit_frame(ecs::World &world);
@@ -69,22 +78,8 @@ namespace engine::ui {
     // Counts elements after the paint timer and records whether layout ran. Not part of the paint time.
     void profiler_finish_paint(const ecs::Entity &canvas, const Element &root, bool layout_ran);
 
-    struct ProfileSample {
-        bool stored = false;
-        int frames = 0;
-        bool layout_ran = false;
-        bool saw_paint = false;
-        bool saw_bindings = false;
-        int elements = 0;
-        int generated = 0;
-    };
-
-    [[nodiscard]] ProfileSample profiler_canvas_sample(ecs::World &world, ecs::Entity canvas);
-    [[nodiscard]] ProfileSample profiler_shared_sample(ecs::World &world);
-    [[nodiscard]] ecs::Entity profiler_selected(ecs::World &world);
-
-    // CLI capture records the same rings as the open window, without opening it. `ready` is true
-    // once a frame committed while capture was on, the window already has samples, or Pause is on.
+    // CLI capture records the same rings as an attached panel, without one. `ready` is true once a
+    // frame committed while capture was on, an attached panel already has samples, or Pause is on.
     void profiler_cli_set_capture(ecs::World &world, bool on);
     [[nodiscard]] bool profiler_cli_ready(ecs::World &world);
     // Result object (not the ok/error envelope): paused, capturing, canvases, shared stages.

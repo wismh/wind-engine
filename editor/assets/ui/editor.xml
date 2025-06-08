@@ -8,7 +8,11 @@
         <Label class="path" text="{binding gamePath}"/>
       </Stack>
     </Stack>
-    <!-- Inspector and Profiler panels go here (wind-170). -->
+    <Stack class="tabs" direction="horizontal">
+      <Button class="tab" command="{binding showInspector}" checked="{binding inspectorTab}" content="Inspector"/>
+      <Button class="tab" command="{binding showProfiler}" checked="{binding profilerTab}" content="Profiler"/>
+    </Stack>
+    <!-- The active panel is its own canvas over this area (EditorPanels). -->
     <Stack class="content"/>
   </Stack>
 </Canvas>

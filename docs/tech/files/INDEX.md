@@ -80,10 +80,10 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/ui/command.h` | `ICommand` and `RelayCommand` | [UI](../modules/UI.md) |
 | `include/engine/ui/document.h` | `Element`, layout boxes, `UiDocument` | [UI Markup](../features/UI%20Markup.md) |
 | `include/engine/ui/draw_list.h` | `IDrawList` for `IPaint` | [UI](../modules/UI.md) |
-| `include/engine/ui/inspector.h` | Inspector toggle, pick, and panel tag | [UI Inspector](../features/UI%20Inspector.md) |
+| `include/engine/ui/inspector.h` | Inspector probe: attach, pick state, tree, select, toggle, detail, rules | [UI Inspector](../features/UI%20Inspector.md) |
 | `include/engine/ui/paint.h` | `IPaint` and `RelayPaint` | [UI](../modules/UI.md) |
 | `include/engine/ui/presentation.h` | Process window sizes, pointer, mouse consumption | [Windowing](../features/Windowing.md) |
-| `include/engine/ui/profiler.h` | Profiler toggle. No-op without the macro | [UI Profiler](../features/UI%20Profiler.md) |
+| `include/engine/ui/profiler.h` | Profiler probe: attach, canvases, frames, Pause. No-ops without the macro | [UI Profiler](../features/UI%20Profiler.md) |
 | `include/engine/ui/splash.h` | `show_splash` and `SplashTimer` | [UI](../modules/UI.md) |
 | `include/engine/ui/stylesheet.h` | Parsed CSS rules | [UI Markup](../features/UI%20Markup.md) |
 | `include/engine/ui/text_line.h` | Wrapped rows and painted selection boxes | [UI Input](../features/UI%20Input.md) |
@@ -202,12 +202,11 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ui/inline_math.cpp` | Split `\(...\)` out of label text | [UI](../modules/UI.md) |
 | `src/ui/inline_math.h` | Inline-math split API | [UI](../modules/UI.md) |
 | `src/ui/input_batch.h` | Per-`run_input` bind and layout cache | [UI Input](../features/UI%20Input.md) |
-| `src/ui/inspector.cpp` | Inspector panel document and pick | [UI Inspector](../features/UI%20Inspector.md) |
+| `src/ui/inspector.cpp` | Inspector probe: tree walk, detail text, matched rules, retarget | [UI Inspector](../features/UI%20Inspector.md) |
 | `src/ui/paint.cpp` | Cascade, paint, style cache | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/painter.h` | Private `IUiPainter` | [UI](../modules/UI.md) |
 | `src/ui/profile.h` | `ENGINE_UI_PROFILE` scopes | [UI Profiler](../features/UI%20Profiler.md) |
-| `src/ui/profiler.cpp` | Profiler window, rings, and charts | [UI Profiler](../features/UI%20Profiler.md) |
-| `src/ui/profiler_chart.h` | Chart geometry for the profiler `IPaint` | [UI Profiler](../features/UI%20Profiler.md) |
+| `src/ui/profiler.cpp` | Profiler rings, recording world, snapshots, CLI JSON | [UI Profiler](../features/UI%20Profiler.md) |
 | `src/ui/splash.cpp` | Build the two splash documents | [UI](../modules/UI.md) |
 | `src/ui/splash.h` | Splash document structs used by `show_splash` | [UI](../modules/UI.md) |
 | `src/ui/style_anim.cpp` | Sample `transition` and `@keyframes` | [UI Markup](../features/UI%20Markup.md) |
@@ -300,7 +299,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/ui_display_none_test.cpp` | `display: none` skips layout and hit-test | [UI Markup](../features/UI%20Markup.md) |
 | `tests/ui_inline_math_test.cpp` | `\(...\)` splits inside a label | [UI](../modules/UI.md) |
 | `tests/ui_input_batch_test.cpp` | One bind per canvas inside `run_input` | [UI Input](../features/UI%20Input.md) |
-| `tests/ui_inspector_test.cpp` | Pick, tree, and panel without a window | [UI Inspector](../features/UI%20Inspector.md) |
+| `tests/ui_inspector_test.cpp` | Pick, paths, tree, select, toggle, detail, rules, overlay | [UI Inspector](../features/UI%20Inspector.md) |
 | `tests/ui_items_control_virtualization_test.cpp` | Row window and spacers | [UI](../modules/UI.md) |
 | `tests/ui_label_select_test.cpp` | Label selection and copy | [UI Input](../features/UI%20Input.md) |
 | `tests/ui_layout_dirty_gate_test.cpp` | Skip layout when the gate is clean | [UI](../modules/UI.md) |
@@ -314,7 +313,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/ui_math_stretch_test.cpp` | Stretched delimiters | [UI](../modules/UI.md) |
 | `tests/ui_paint_binding_test.cpp` | `IPaint` draw order | [UI](../modules/UI.md) |
 | `tests/ui_painter_test.cpp` | Recording painter, no GL | [UI](../modules/UI.md) |
-| `tests/ui_profiler_test.cpp` | Profiler scopes and the no-op build | [UI Profiler](../features/UI%20Profiler.md) |
+| `tests/ui_profiler_test.cpp` | Profiler scopes, world isolation, rings, snapshots, and the no-op build | [UI Profiler](../features/UI%20Profiler.md) |
 | `tests/ui_refs_test.cpp` | Referenced images and fonts | [UI](../modules/UI.md) |
 | `tests/ui_scroll_test.cpp` | Scroll view and wheel | [UI Input](../features/UI%20Input.md) |
 | `tests/ui_text_input_test.cpp` | Caret, clipboard, IME | [UI Input](../features/UI%20Input.md) |
@@ -345,21 +344,51 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/CMakeLists.txt` | `wind_editor` and `wind_editor_tests` | [CMake](../build/CMake.md) |
 | `editor/assets/css/editor.css` | Editor window style | [Editor](../features/Editor.md) |
 | `editor/assets/css/editor.css.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
-| `editor/assets/ui/editor.xml` | Editor window: toolbar and empty content area | [Editor](../features/Editor.md) |
+| `editor/assets/css/panels.css` | Inspector and Profiler panel style | [Editor](../features/Editor.md) |
+| `editor/assets/css/panels.css.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/ui/editor.xml` | Editor window: toolbar, tab strip, content area | [Editor](../features/Editor.md) |
 | `editor/assets/ui/editor.xml.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/ui/inspector.xml` | Inspector tab: Pick, tree, Computed, Rules | [UI Inspector](../features/UI%20Inspector.md) |
+| `editor/assets/ui/inspector.xml.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/ui/profiler.xml` | Profiler tab: Pause, canvases, charts, numbers | [UI Profiler](../features/UI%20Profiler.md) |
+| `editor/assets/ui/profiler.xml.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
 | `editor/src/editor_app.cpp` | Start, frame-end transitions, quit | [Editor](../features/Editor.md) |
 | `editor/src/editor_app.h` | `EditorApp` | [Editor](../features/Editor.md) |
 | `editor/src/editor_options.cpp` | `--game` and `--play` | [Editor](../features/Editor.md) |
 | `editor/src/editor_options.h` | `EditorOptions` | [Editor](../features/Editor.md) |
+| `editor/src/editor_panels.cpp` | Panel canvases, tab placement, refresh, attach and detach | [Editor](../features/Editor.md) |
+| `editor/src/editor_panels.h` | `EditorPanels` | [Editor](../features/Editor.md) |
+| `editor/src/editor_tab.h` | `EditorTab` | [Editor](../features/Editor.md) |
 | `editor/src/editor_view_model.cpp` | Binds the view-model to `editor.xml` | [Editor](../features/Editor.md) |
 | `editor/src/editor_view_model.h` | `EditorViewModel` | [Editor](../features/Editor.md) |
-| `editor/src/engine_host_play.cpp` | `IPlayHost` over `EngineHost` | [Editor](../features/Editor.md) |
+| `editor/src/engine_host_play.cpp` | `IPlayHost` over `EngineHost` and `EditorPanels` | [Editor](../features/Editor.md) |
 | `editor/src/engine_host_play.h` | `EngineHostPlay` | [Editor](../features/Editor.md) |
+| `editor/src/inspector_panel.cpp` | Copies the inspector probe into the view-model | [UI Inspector](../features/UI%20Inspector.md) |
+| `editor/src/inspector_panel.h` | `InspectorPanel` | [UI Inspector](../features/UI%20Inspector.md) |
+| `editor/src/inspector_row_view_model.cpp` | Tree row text, twist, select and toggle methods | [UI Inspector](../features/UI%20Inspector.md) |
+| `editor/src/inspector_row_view_model.h` | `InspectorRowViewModel` | [UI Inspector](../features/UI%20Inspector.md) |
+| `editor/src/inspector_view_model.cpp` | Binds the view-model to `inspector.xml` | [UI Inspector](../features/UI%20Inspector.md) |
+| `editor/src/inspector_view_model.h` | `InspectorViewModel` | [UI Inspector](../features/UI%20Inspector.md) |
 | `editor/src/main.cpp` | `wind_editor` entry | [Editor](../features/Editor.md) |
 | `editor/src/method_command.h` | `MethodCommand`: an `ICommand` bound to one method | [Editor](../features/Editor.md) |
-| `editor/src/play_host.h` | `IPlayHost`: the window and catalog half of Play and Stop | [Editor](../features/Editor.md) |
+| `editor/src/play_host.h` | `IPlayHost`: the window, catalog, and panel half of Play and Stop | [Editor](../features/Editor.md) |
 | `editor/src/play_session.cpp` | Play and the Stop order | [Editor](../features/Editor.md) |
 | `editor/src/play_session.h` | `PlaySession` | [Editor](../features/Editor.md) |
-| `editor/src/toolbar.cpp` | Button methods and shown state | [Editor](../features/Editor.md) |
+| `editor/src/profiler_chart.h` | Stacked chart geometry | [UI Profiler](../features/UI%20Profiler.md) |
+| `editor/src/profiler_chart_paint.cpp` | Draws the chart through `IDrawList` | [UI Profiler](../features/UI%20Profiler.md) |
+| `editor/src/profiler_chart_paint.h` | `ProfilerChartPaint` | [UI Profiler](../features/UI%20Profiler.md) |
+| `editor/src/profiler_panel.cpp` | Copies the profiler rings into the view-model; the numbers | [UI Profiler](../features/UI%20Profiler.md) |
+| `editor/src/profiler_panel.h` | `ProfilerPanel` | [UI Profiler](../features/UI%20Profiler.md) |
+| `editor/src/profiler_row_view_model.cpp` | Canvas row and its select method | [UI Profiler](../features/UI%20Profiler.md) |
+| `editor/src/profiler_row_view_model.h` | `ProfilerRowViewModel` | [UI Profiler](../features/UI%20Profiler.md) |
+| `editor/src/profiler_view_model.cpp` | Binds the view-model to `profiler.xml` and registers the paints | [UI Profiler](../features/UI%20Profiler.md) |
+| `editor/src/profiler_view_model.h` | `ProfilerViewModel` | [UI Profiler](../features/UI%20Profiler.md) |
+| `editor/src/rule_line_view_model.cpp` | Binds a rule row | [UI Inspector](../features/UI%20Inspector.md) |
+| `editor/src/rule_line_view_model.h` | `RuleLineViewModel` | [UI Inspector](../features/UI%20Inspector.md) |
+| `editor/src/toolbar.cpp` | Button methods, tabs, and shown state | [Editor](../features/Editor.md) |
 | `editor/src/toolbar.h` | `Toolbar`, `EditorRequest` | [Editor](../features/Editor.md) |
+| `editor/tests/editor_panels_test.cpp` | Tabs and panel canvas placement, attach and detach | [Editor](../features/Editor.md) |
+| `editor/tests/inspector_panel_test.cpp` | Inspector view-models against a headless world | [UI Inspector](../features/UI%20Inspector.md) |
 | `editor/tests/play_session_test.cpp` | Play, Stop order, play again, refusals, against the fixture module | [Editor](../features/Editor.md) |
+| `editor/tests/profiler_chart_test.cpp` | Chart geometry and the chart paint | [UI Profiler](../features/UI%20Profiler.md) |
+| `editor/tests/profiler_panel_test.cpp` | Profiler view-model with and without frames | [UI Profiler](../features/UI%20Profiler.md) |
