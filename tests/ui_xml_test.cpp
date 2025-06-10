@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -61,7 +62,7 @@ TEST(UiXml, ParseValidCanvasStackLabelButton) {
     EXPECT_EQ(root.kind, engine::ui::ElementKind::Canvas);
     ASSERT_EQ(root.children.size(), 1u);
     EXPECT_EQ(root.children[0].kind, engine::ui::ElementKind::Stack);
-    EXPECT_EQ(root.children[0].class_name, "hud");
+    EXPECT_EQ(root.children[0].classes, std::vector<std::string>{"hud"});
     EXPECT_EQ(root.children[0].direction, engine::ui::StackDirection::Vertical);
     ASSERT_EQ(root.children[0].children.size(), 2u);
     EXPECT_EQ(root.children[0].children[0].kind, engine::ui::ElementKind::Label);
@@ -78,7 +79,16 @@ TEST(UiXml, ParseLineElement) {
     const engine::ui::Element& root = parsed->root;
     ASSERT_EQ(root.children.size(), 1u);
     EXPECT_EQ(root.children[0].kind, engine::ui::ElementKind::Line);
-    EXPECT_EQ(root.children[0].class_name, "edge");
+    EXPECT_EQ(root.children[0].classes, std::vector<std::string>{"edge"});
+}
+
+TEST(UiXml, ParseSpaceSeparatedClasses) {
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack class="hud  title bold"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+
+    const engine::ui::Element& root = parsed->root;
+    ASSERT_EQ(root.children.size(), 1u);
+    EXPECT_EQ(root.children[0].classes, (std::vector<std::string>{"hud", "title", "bold"}));
 }
 
 TEST(UiXml, UnknownElementIsFatal) {
@@ -192,7 +202,7 @@ TEST(UiXml, ItemTemplateSrcSplicesReferencedRootAsChild) {
     EXPECT_EQ(tmpl.kind, engine::ui::ElementKind::ItemTemplate);
     ASSERT_EQ(tmpl.children.size(), 1u);
     EXPECT_EQ(tmpl.children[0].kind, engine::ui::ElementKind::Label);
-    EXPECT_EQ(tmpl.children[0].class_name, "row");
+    EXPECT_EQ(tmpl.children[0].classes, std::vector<std::string>{"row"});
     EXPECT_EQ(tmpl.children[0].text, "hello");
 }
 
