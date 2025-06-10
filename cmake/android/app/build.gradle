@@ -28,6 +28,9 @@ def withAudio = project.hasProperty('ENGINE_WITH_AUDIO')
 def gameResDir = project.hasProperty('ENGINE_ANDROID_RES_DIR')
         ? file(ENGINE_ANDROID_RES_DIR).absolutePath
         : (System.getenv('ENGINE_ANDROID_RES_DIR') ?: '')
+def gameManifest = project.hasProperty('ENGINE_ANDROID_MANIFEST')
+        ? file(ENGINE_ANDROID_MANIFEST).absolutePath
+        : (System.getenv('ENGINE_ANDROID_MANIFEST') ?: '')
 def gameApplicationId = project.hasProperty('ENGINE_ANDROID_APPLICATION_ID')
         ? ENGINE_ANDROID_APPLICATION_ID
         : (System.getenv('ENGINE_ANDROID_APPLICATION_ID') ?: '')
@@ -95,6 +98,14 @@ android {
             }
             release {
                 res.srcDirs += [gameResDir]
+            }
+        }
+        if (gameManifest) {
+            debug {
+                manifest.srcFile gameManifest
+            }
+            release {
+                manifest.srcFile gameManifest
             }
         }
     }
