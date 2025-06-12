@@ -38,6 +38,63 @@ else()
 endif()
 set(ENGINE_CMAKE_DIR "${CMAKE_CURRENT_SOURCE_DIR}" CACHE INTERNAL "Wind engine source tree")
 
+function(engine_require_submodule dir)
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/${dir}/CMakeLists.txt")
+        message(FATAL_ERROR
+            "Missing submodule external/${dir}. From the engine repo run:\n"
+            "  git submodule update --init --recursive\n"
+            "See external/README.md")
+    endif()
+endfunction()
+
+function(engine_require_file rel)
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${rel}")
+        message(FATAL_ERROR
+            "Missing ${rel} (git submodule not cloned?). From the engine repo run:\n"
+            "  git submodule update --init --recursive\n"
+            "WINDOW deps: external/SDL3, external/glad, external/nanovg.\n"
+            "AUDIO deps: external/SDL3, external/SDL_mixer.\n"
+            "See external/README.md")
+    endif()
+endfunction()
+
+# SDK mode: a game builds its module against an installed editor SDK (`cmake --install build-editor`)
+# instead of compiling the engine. wind_sdk.cmake defines the imported `engine`, `glm::glm`,
+# `asset_codegen`, and `icon_codegen` targets and includes the SDK's wind_game.cmake. Nothing of the
+# engine, its tools, the editor, or engine_tests is built here. docs/tech/build/CMake.md
+set(WIND_EDITOR_SDK "" CACHE PATH
+    "Installed Wind editor SDK (out/sdk). Set in a game tree to build its module for wind_editor")
+if(WIND_EDITOR_SDK)
+    if(_engine_is_root)
+        message(FATAL_ERROR
+            "WIND_EDITOR_SDK is for a game that adds Wind with add_subdirectory. The engine repo builds the "
+            "SDK itself (preset vs-editor, then cmake --install). Clear WIND_EDITOR_SDK.")
+    endif()
+    if(NOT EXISTS "${WIND_EDITOR_SDK}/cmake/wind_sdk.cmake")
+        message(FATAL_ERROR
+            "WIND_EDITOR_SDK=${WIND_EDITOR_SDK} has no cmake/wind_sdk.cmake. Build and install the SDK from "
+            "the engine repo:\n"
+            "  cmake --preset vs-editor\n"
+            "  cmake --build build-editor --config Release\n"
+            "  cmake --install build-editor --config Release --prefix out/sdk\n"
+            "then set WIND_EDITOR_SDK to the absolute path of out/sdk. See README.md and "
+            "docs/tech/architecture/Editor Plan.md")
+    endif()
+    include("${WIND_EDITOR_SDK}/cmake/wind_sdk.cmake")
+    message(STATUS "Wind: SDK mode, ${WIND_SDK_CONFIG} SDK at ${WIND_EDITOR_SDK_DIR}")
+    if(ENGINE_WITH_GTEST)
+        engine_require_submodule(googletest)
+        set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+        set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+        set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
+        enable_testing()
+        add_subdirectory(external/googletest)
+        include(GoogleTest)
+    endif()
+    return()
+endif()
+set(ENGINE_FROM_SDK OFF CACHE INTERNAL "Wind engine imported from WIND_EDITOR_SDK")
+
 if(EMSCRIPTEN)
     set(_engine_web_default ON)
 else()
@@ -60,6 +117,13 @@ option(ENGINE_WITH_GLES "OpenGL ES 3.0 backend (no glad, NanoVG GLES3, shader ad
 # one engine. Exported games (this OFF) link engine statically. Desktop only.
 option(ENGINE_EDITOR "Editor build: shared engine library (engine.dll)" OFF)
 if(ENGINE_EDITOR)
+    if(NOT _engine_is_root)
+        message(FATAL_ERROR
+            "ENGINE_EDITOR is not a game option any more. A game builds its editor module against an "
+            "installed editor SDK: set WIND_EDITOR_SDK to it (for example in CMakeUserPresets.json). Make the "
+            "SDK in the engine repo with the vs-editor preset and cmake --install. See README.md and "
+            "docs/tech/architecture/Editor Plan.md")
+    endif()
     if(EMSCRIPTEN OR ANDROID)
         message(FATAL_ERROR
             "ENGINE_EDITOR is desktop only. Web and Android builds stay on the static engine; "
@@ -84,26 +148,6 @@ set(ENGINE_HOST_ICON_CODEGEN "" CACHE FILEPATH "Native icon_codegen when cross-c
 set(ENGINE_ANDROID_ASSETS_OUT "" CACHE PATH
     "Cooked APK assets directory shared with Gradle sourceSets (empty: stage beside libmain.so only)")
 
-function(engine_require_submodule dir)
-    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/${dir}/CMakeLists.txt")
-        message(FATAL_ERROR
-            "Missing submodule external/${dir}. From the engine repo run:\n"
-            "  git submodule update --init --recursive\n"
-            "See external/README.md")
-    endif()
-endfunction()
-
-function(engine_require_file rel)
-    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${rel}")
-        message(FATAL_ERROR
-            "Missing ${rel} (git submodule not cloned?). From the engine repo run:\n"
-            "  git submodule update --init --recursive\n"
-            "WINDOW deps: external/SDL3, external/glad, external/nanovg.\n"
-            "AUDIO deps: external/SDL3, external/SDL_mixer.\n"
-            "See external/README.md")
-    endif()
-endfunction()
-
 engine_require_submodule(glm)
 engine_require_submodule(tomlplusplus)
 engine_require_submodule(tinyxml2)
@@ -122,7 +166,8 @@ set(SPDLOG_INSTALL OFF CACHE BOOL "" FORCE)
 
 add_subdirectory(external/glm)
 add_subdirectory(external/tomlplusplus)
-add_subdirectory(external/tinyxml2)
+# EXCLUDE_FROM_ALL keeps tinyxml2's own install rules out of the editor SDK; engine still builds it.
+add_subdirectory(external/tinyxml2 EXCLUDE_FROM_ALL)
 add_subdirectory(external/spdlog)
 
 file(GLOB_RECURSE ENGINE_SOURCES CONFIGURE_DEPENDS
@@ -268,288 +313,9 @@ add_custom_command(
     VERBATIM)
 add_custom_target(engine_builtin_catalog DEPENDS "${ENGINE_COOKED_CATALOG}")
 
-# Copy assets/engine (builtins + cooked catalog) and, when present, the consumer's assets/
-# beside a runtime target. Games normally call `engine_add_game` instead of this directly.
-function(engine_prepare_runtime target)
-    if(NOT TARGET ${target})
-        message(FATAL_ERROR "engine_prepare_runtime: target '${target}' does not exist")
-    endif()
-    add_dependencies(${target} engine_builtin_catalog)
-
-    # Editor build on Windows: the loader looks for engine.dll beside the executable. A game's
-    # bin/ is not engine's output directory when Wind is a subdirectory, so copy it there.
-    get_target_property(_engine_type engine TYPE)
-    if(WIN32 AND _engine_type STREQUAL "SHARED_LIBRARY")
-        add_custom_command(TARGET ${target} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "$<TARGET_FILE:engine>"
-                "$<TARGET_FILE_DIR:${target}>"
-            COMMENT "Copy engine.dll beside ${target}"
-            VERBATIM)
-    endif()
-
-    # ENGINE_RUNTIME_ASSETS_DIR puts the target's own assets and catalog in assets/<dir>/ instead of
-    # assets/. The editor uses assets/editor/, so a game module in the same bin/ keeps assets/ to itself.
-    get_property(_runtime_assets_dir TARGET ${target} PROPERTY ENGINE_RUNTIME_ASSETS_DIR)
-    if(_runtime_assets_dir)
-        set(_engine_app_assets_out "$<TARGET_FILE_DIR:${target}>/assets/${_runtime_assets_dir}")
-    else()
-        set(_engine_app_assets_out "$<TARGET_FILE_DIR:${target}>/assets")
-    endif()
-
-    set(_engine_game_assets "${CMAKE_CURRENT_SOURCE_DIR}/assets")
-    if(EXISTS "${_engine_game_assets}")
-        add_custom_command(TARGET ${target} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${_engine_game_assets}"
-                "${_engine_app_assets_out}"
-            COMMENT "Copy game assets beside ${target}"
-            VERBATIM)
-    endif()
-
-    add_custom_command(TARGET ${target} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${ENGINE_BUILTIN_ASSETS_DIR}"
-            "$<TARGET_FILE_DIR:${target}>/assets/engine"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${ENGINE_COOKED_CATALOG}"
-            "$<TARGET_FILE_DIR:${target}>/assets/engine/catalog.toml"
-        COMMENT "Copy engine assets and cooked catalog beside ${target}"
-        VERBATIM)
-
-    get_property(_game_catalog TARGET ${target} PROPERTY ENGINE_GAME_CATALOG)
-    if(_game_catalog)
-        add_custom_command(TARGET ${target} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${_game_catalog}"
-                "${_engine_app_assets_out}/catalog.toml"
-            COMMENT "Install cooked game catalog for ${target}"
-            VERBATIM)
-    endif()
-
-    if(ANDROID AND ENGINE_ANDROID_ASSETS_OUT)
-        add_custom_command(TARGET ${target} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E make_directory
-                "${ENGINE_ANDROID_ASSETS_OUT}"
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "$<TARGET_FILE_DIR:${target}>/assets"
-                "${ENGINE_ANDROID_ASSETS_OUT}"
-            COMMENT "Stage cooked APK assets to ENGINE_ANDROID_ASSETS_OUT"
-            VERBATIM)
-    endif()
-endfunction()
-
-# Everything engine_add_game does once the target exists, shared with the editor (editor/CMakeLists.txt):
-# C++23, MSVC warnings, bin/ output, the engine link, include/, cooked assets/ (asset_ids.h and
-# catalog.toml), icon.png, the runtime copy beside the output, and the web and Android link steps. Reads
-# include/, assets/, and icon.png from the calling directory. An executable gets the console rule below;
-# a shared module in the editor build gets /PDBALTPATH.
-function(engine_configure_app target)
-    if(NOT TARGET ${target})
-        message(FATAL_ERROR "engine_configure_app: target '${target}' does not exist")
-    endif()
-    get_target_property(_type ${target} TYPE)
-    if(APPLE)
-        # Package as a .app bundle so MACOSX_BUNDLE_ICON_FILE / MACOSX_PACKAGE_LOCATION below
-        # take effect; ignored by CMake on non-Apple platforms either way.
-        set_target_properties(${target} PROPERTIES MACOSX_BUNDLE ON)
-    endif()
-    set_target_properties(${target} PROPERTIES
-        CXX_STANDARD 23
-        CXX_STANDARD_REQUIRED ON
-        CXX_EXTENSIONS OFF)
-    if(NOT CMAKE_RUNTIME_OUTPUT_DIRECTORY)
-        set_target_properties(${target} PROPERTIES
-            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
-    endif()
-    if(ANDROID)
-        set_target_properties(${target} PROPERTIES
-            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
-    endif()
-    if(ENGINE_EDITOR AND _type STREQUAL "SHARED_LIBRARY")
-        # A .dll is a RUNTIME output, a .so a LIBRARY output: both go where the executable would. The
-        # import library nobody links against stays out of bin/.
-        if(NOT CMAKE_LIBRARY_OUTPUT_DIRECTORY)
-            set_target_properties(${target} PROPERTIES
-                LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
-        endif()
-        if(NOT CMAKE_ARCHIVE_OUTPUT_DIRECTORY)
-            set_target_properties(${target} PROPERTIES
-                ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
-        endif()
-    endif()
-    if(MSVC)
-        target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8)
-    endif()
-    if(WIN32 AND MSVC AND ENGINE_EDITOR AND _type STREQUAL "SHARED_LIBRARY")
-        # The editor loads a copy of the module with its .pdb beside it. Embed only the PDB file name
-        # so the debugger finds that copy and the original stays unlocked for the next build. This is
-        # what /PDBALTPATH:%_PDB% means; the Visual Studio generator escapes a literal % in link
-        # options, so the name comes from the generator expression instead.
-        target_link_options(${target} PRIVATE "/PDBALTPATH:$<TARGET_PDB_FILE_NAME:${target}>")
-    elseif(WIN32 AND MSVC AND _type STREQUAL "EXECUTABLE")
-        # Release-ish configs hide the console window (players shouldn't see a terminal); Debug
-        # keeps it so spdlog output is visible live. /ENTRY:mainCRTStartup keeps the ordinary
-        # int main(int, char**) entry point instead of requiring a WinMain — the CRT startup
-        # routine mainCRTStartup already parses argv and calls main() either way, /SUBSYSTEM just
-        # controls whether the OS allocates a console for the process.
-        target_link_options(${target} PRIVATE
-            "$<$<NOT:$<CONFIG:Debug>>:/SUBSYSTEM:WINDOWS>"
-            "$<$<NOT:$<CONFIG:Debug>>:/ENTRY:mainCRTStartup>")
-    endif()
-    target_link_libraries(${target} PRIVATE engine)
-
-    set(_include "${CMAKE_CURRENT_SOURCE_DIR}/include")
-    if(EXISTS "${_include}")
-        target_include_directories(${target} PRIVATE "${_include}")
-    endif()
-
-    set(_assets "${CMAKE_CURRENT_SOURCE_DIR}/assets")
-    if(EXISTS "${_assets}")
-        set(_gen "${CMAKE_CURRENT_BINARY_DIR}/generated/${target}")
-        file(GLOB_RECURSE _asset_files CONFIGURE_DEPENDS "${_assets}/*")
-        add_custom_command(
-            OUTPUT "${_gen}/asset_ids.h" "${_gen}/catalog.toml"
-            COMMAND ${CMAKE_COMMAND} -E make_directory "${_gen}"
-            COMMAND asset_codegen "${_assets}" "${_gen}"
-            DEPENDS asset_codegen ${_asset_files}
-            COMMENT "Cook asset catalog for ${target}"
-            VERBATIM)
-        add_custom_target(${target}_assets DEPENDS
-            "${_gen}/asset_ids.h"
-            "${_gen}/catalog.toml")
-        add_dependencies(${target} ${target}_assets)
-        target_include_directories(${target} PRIVATE "${_gen}")
-        set_property(TARGET ${target} PROPERTY ENGINE_GAME_CATALOG "${_gen}/catalog.toml")
-        set_property(TARGET ${target} PROPERTY ENGINE_GAME_ASSETS "${_assets}")
-    endif()
-
-    set(_icon "${CMAKE_CURRENT_SOURCE_DIR}/icon.png")
-    if(EXISTS "${_icon}")
-        if(NOT TARGET icon_codegen)
-            message(FATAL_ERROR "engine_configure_app(${target}): icon.png present but icon_codegen is not a target")
-        endif()
-        set(_icon_gen "${CMAKE_CURRENT_BINARY_DIR}/generated/${target}/icons")
-        set(_icon_outputs
-            "${_icon_gen}/icon.ico"
-            "${_icon_gen}/icon.icns"
-            "${_icon_gen}/favicon.png"
-            "${_icon_gen}/mipmap-mdpi/ic_launcher.png"
-            "${_icon_gen}/mipmap-hdpi/ic_launcher.png"
-            "${_icon_gen}/mipmap-xhdpi/ic_launcher.png"
-            "${_icon_gen}/mipmap-xxhdpi/ic_launcher.png"
-            "${_icon_gen}/mipmap-xxxhdpi/ic_launcher.png")
-        add_custom_command(
-            OUTPUT ${_icon_outputs}
-            COMMAND icon_codegen "${_icon}" "${_icon_gen}"
-            DEPENDS icon_codegen "${_icon}"
-            COMMENT "Generate platform app icons for ${target}"
-            VERBATIM)
-        add_custom_target(${target}_icons DEPENDS ${_icon_outputs})
-        add_dependencies(${target} ${target}_icons)
-        set_property(TARGET ${target} PROPERTY ENGINE_GAME_ICON_DIR "${_icon_gen}")
-    endif()
-
-    set(_manifest "${CMAKE_CURRENT_SOURCE_DIR}/android/AndroidManifest.xml")
-    if(NOT EXISTS "${_manifest}")
-        set(_manifest "${CMAKE_CURRENT_SOURCE_DIR}/AndroidManifest.xml")
-    endif()
-    if(EXISTS "${_manifest}")
-        set_property(TARGET ${target} PROPERTY ENGINE_GAME_ANDROID_MANIFEST "${_manifest}")
-    endif()
-
-    get_property(_icon_dir TARGET ${target} PROPERTY ENGINE_GAME_ICON_DIR)
-    if(WIN32 AND _icon_dir)
-        # icon.ico does not exist at configure time (icon_codegen writes it at build time), so
-        # gate on the target property set above rather than EXISTS; forward slashes in the .rc
-        # path avoid fighting rc.exe's backslash-escaping rules.
-        set(_icon_rc "${CMAKE_CURRENT_BINARY_DIR}/generated/${target}/icon.rc")
-        file(GENERATE OUTPUT "${_icon_rc}" CONTENT "IDI_ICON1 ICON \"${_icon_dir}/icon.ico\"\n")
-        target_sources(${target} PRIVATE "${_icon_rc}")
-    endif()
-    if(APPLE AND _icon_dir)
-        # Consumes the shared icon_codegen output above (ENGINE_GAME_ICON_DIR) rather than
-        # re-invoking icon_codegen — a second add_custom_command writing icon.icns would race it.
-        set(_icns "${_icon_dir}/icon.icns")
-        set_source_files_properties("${_icns}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
-        target_sources(${target} PRIVATE "${_icns}")
-        set_target_properties(${target} PROPERTIES MACOSX_BUNDLE_ICON_FILE "icon.icns")
-    endif()
-
-    engine_prepare_runtime(${target})
-    if(EMSCRIPTEN)
-        include("${ENGINE_CMAKE_DIR}/cmake/web/link_flags.cmake")
-        engine_target_web_link_options(${target})
-        engine_target_web_preload(${target})
-        # Re-fetch rather than reuse the _icon_gen local above: it's only set when icon.png
-        # exists, and this block must stay a no-op otherwise.
-        get_property(_icon_dir TARGET ${target} PROPERTY ENGINE_GAME_ICON_DIR)
-        if(_icon_dir)
-            add_custom_command(TARGET ${target} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${_icon_dir}/favicon.png"
-                    "$<TARGET_FILE_DIR:${target}>/favicon.png"
-                COMMENT "Copy web favicon beside ${target}"
-                VERBATIM)
-        endif()
-    endif()
-    if(ANDROID AND TARGET SDL3::SDL3main)
-        target_link_libraries(${target} PRIVATE SDL3::SDL3main)
-    endif()
-    if(ANDROID)
-        # SDLActivity's nativeRunMain() dlsym()s "SDL_main" specifically; a game's plain
-        # int main() never gets renamed (no <SDL3/SDL_main.h> in game code, by design —
-        # see engine boundary rules), so alias it at link time instead.
-        target_link_options(${target} PRIVATE "SHELL:-Wl,--defsym=SDL_main=main")
-    endif()
-endfunction()
-
-# Windowed game: executable + C++23 + asset_codegen + runtime asset copy.
-# Call after add_subdirectory(external/engine). Remaining args are sources.
-# Under ENGINE_EDITOR the game is a shared module instead (ENGINE_GAME_MODULE, see <engine/game_entry.h>)
-# that the editor loads on Play. It lands in the same bin/ directory, beside assets/ and engine.dll.
-function(engine_add_game target)
-    if(NOT ARGN)
-        message(FATAL_ERROR "engine_add_game(${target}): pass at least one source file")
-    endif()
-    if(NOT TARGET engine)
-        message(FATAL_ERROR "engine_add_game: add_subdirectory the Wind engine first")
-    endif()
-    if(NOT ENGINE_WITH_WINDOW)
-        message(FATAL_ERROR
-            "engine_add_game(${target}): ENGINE_WITH_WINDOW is OFF. "
-            "It defaults ON when Wind is a subdirectory.")
-    endif()
-
-    if(ANDROID)
-        add_library(${target} SHARED ${ARGN})
-        set_target_properties(${target} PROPERTIES OUTPUT_NAME main)
-    elseif(ENGINE_EDITOR)
-        # ENGINE_GAME expands to the wind_create_game / wind_destroy_game / wind_game_build_id exports.
-        add_library(${target} SHARED ${ARGN})
-        target_compile_definitions(${target} PRIVATE ENGINE_GAME_MODULE=1)
-        set_target_properties(${target} PROPERTIES PREFIX "")
-    else()
-        add_executable(${target} ${ARGN})
-    endif()
-    engine_configure_app(${target})
-endfunction()
-
-function(engine_add_web_game target)
-    if(NOT EMSCRIPTEN)
-        message(FATAL_ERROR
-            "engine_add_web_game(${target}): configure with emcmake or the Emscripten toolchain")
-    endif()
-    engine_add_game(${target} ${ARGN})
-endfunction()
-
-function(engine_add_android_game target)
-    if(NOT ANDROID)
-        message(FATAL_ERROR
-            "engine_add_android_game(${target}): configure with the Android NDK toolchain")
-    endif()
-    engine_add_game(${target} ${ARGN})
-endfunction()
+# engine_prepare_runtime, engine_configure_app, engine_add_game and the web / Android variants. The
+# installed SDK carries the same file (install rules below).
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/wind_game.cmake")
 
 function(engine_add_sdl3)
     # user_data_directory on web is SDL_GetPrefPath under this mount. SDL links idbfs.js and
@@ -745,8 +511,39 @@ if(ENGINE_BUILD_TESTS)
     endif()
 endif()
 
-# The editor host. Built whenever ENGINE_EDITOR is ON, also when Wind is a game's subdirectory, so the
-# editor lands in the game's bin/ beside the game module.
+# The editor host and the SDK. ENGINE_EDITOR is ON only in the engine repo (vs-editor); a game builds its
+# module against the installed SDK instead (WIND_EDITOR_SDK above).
 if(ENGINE_EDITOR)
     add_subdirectory(editor)
+
+    # cmake --install build-editor --config <cfg> --prefix out/sdk: one configuration of the editor, the
+    # shared engine, and the host tools, plus what a game needs to build a module against them. Layout and
+    # wind_sdk.cmake: docs/tech/build/CMake.md.
+    set(_engine_tools_runtime wind_editor engine asset_codegen icon_codegen)
+    install(TARGETS ${_engine_tools_runtime}
+        RUNTIME DESTINATION bin
+        LIBRARY DESTINATION bin
+        ARCHIVE DESTINATION lib)
+    if(MSVC)
+        foreach(_tool IN LISTS _engine_tools_runtime)
+            install(FILES "$<TARGET_PDB_FILE:${_tool}>" DESTINATION bin OPTIONAL)
+        endforeach()
+    endif()
+    install(DIRECTORY "${ENGINE_BUILTIN_ASSETS_DIR}/" DESTINATION bin/assets/engine)
+    install(FILES "${ENGINE_COOKED_CATALOG}" DESTINATION bin/assets/engine)
+    get_property(_wind_editor_catalog TARGET wind_editor PROPERTY ENGINE_GAME_CATALOG)
+    get_property(_wind_editor_assets TARGET wind_editor PROPERTY ENGINE_GAME_ASSETS)
+    install(DIRECTORY "${_wind_editor_assets}/" DESTINATION bin/assets/editor)
+    install(FILES "${_wind_editor_catalog}" DESTINATION bin/assets/editor)
+
+    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/engine" DESTINATION include)
+    install(FILES "${_engine_build_id_dir}/engine/build_id.h" DESTINATION include/engine)
+    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/external/glm/glm" DESTINATION include
+        FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp" PATTERN "*.inl")
+
+    # wind_sdk.cmake bakes the installed configuration and engine's PUBLIC defines for it, evaluated here
+    # per configuration, so a game's own configuration never re-evaluates them.
+    set(_engine_sdk_file "${CMAKE_CURRENT_BINARY_DIR}/generated/sdk/$<CONFIG>/wind_sdk.cmake")
+    file(GENERATE OUTPUT "${_engine_sdk_file}" INPUT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/wind_sdk.cmake.in")
+    install(FILES "${_engine_sdk_file}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/wind_game.cmake" DESTINATION cmake)
 endif()

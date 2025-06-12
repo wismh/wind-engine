@@ -1,6 +1,19 @@
 # Editor
 
-`wind_editor` is the editor host. It is built only with `ENGINE_EDITOR` (preset `vs-editor`, or a game's `editor` preset), from `editor/`. It is an engine client like a game: it includes only `<engine/...>` and links the shared `engine`. It picks a game module, plays it in `kPrimaryWindow`, inspects and profiles its UI, and stops it. The plan is [Editor Plan](../architecture/Editor%20Plan.md).
+`wind_editor` is the editor host. It is built only in the engine repo with `ENGINE_EDITOR` (preset `vs-editor`), from `editor/`, and shipped to games as the editor SDK. It is an engine client like a game: it includes only `<engine/...>` and links the shared `engine`. It picks a game module, plays it in `kPrimaryWindow`, inspects and profiles its UI, and stops it. The plan is [Editor Plan](../architecture/Editor%20Plan.md).
+
+## Get the editor
+
+From the engine repo:
+
+```bash
+cmake --preset vs-editor
+cmake --build build-editor --config Release
+cmake --install build-editor --config Release --prefix out/sdk
+out/sdk/bin/wind_editor.exe --game path/to/my_game.dll --play
+```
+
+The SDK's `bin/` holds `wind_editor.exe`, `engine.dll`, `assets/engine/`, and `assets/editor/`, so it runs from there. The editor writes its `game.log` beside itself. A game builds its module against the same SDK (`WIND_EDITOR_SDK`, [Game Consumer](../build/Game%20Consumer.md#editor-module)), so the build ids match. Layout: [CMake](../build/CMake.md#editor-sdk).
 
 ## Start
 
@@ -83,7 +96,7 @@ An OS quit request (`SDL_EVENT_QUIT`) while playing looks the same as the game q
 
 ## Build layout
 
-The editor's assets and catalog land in `bin/assets/editor/` (`ENGINE_RUNTIME_ASSETS_DIR`, see [CMake](../build/CMake.md)). In a game repo's editor build, `wind_editor`, `engine.dll`, the game module, and the game's `assets/catalog.toml` share one `bin/`.
+The editor's assets and catalog land in `bin/assets/editor/` (`ENGINE_RUNTIME_ASSETS_DIR`, see [CMake](../build/CMake.md)), in `build-editor/bin/<config>/` and in the SDK's `bin/`. A game module built against the SDK sits in the game's own `bin/<config>/` with only its `assets/` beside it; Play loads `<module dir>/assets/catalog.toml`, and the engine's assets come from the editor's `bin/assets/engine/`.
 
 ## Limits
 
