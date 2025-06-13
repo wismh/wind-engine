@@ -4,7 +4,7 @@
 
 A command error is still HTTP 200 with `"ok":false`. Usage errors exit 2.
 
-Debug and RelWithDebInfo define `ENGINE_CLI_SERVER`, and not on Emscripten or Android. Release and MinSizeRel do not. Without the macro the game does not open a port and does not write a descriptor. `wind-cli` still builds. There is no header under `include/engine/`.
+Debug, RelWithDebInfo, and every configuration of the editor build (`ENGINE_EDITOR`, so the Release editor too) define `ENGINE_CLI_SERVER`, and not on Emscripten or Android. An exported game's Release and MinSizeRel do not. Without the macro the game does not open a port and does not write a descriptor. `wind-cli` still builds. There is no header under `include/engine/`.
 
 | File | Role |
 | --- | --- |
@@ -117,7 +117,7 @@ Selectors: `#id`, `.class`, or `path:` plus the tree path joined by `/`. `path:`
 
 `click` with `"executed":false` carries `reason`: `disabled`, `no command`, or `can_execute`.
 
-Without `ENGINE_UI_PROFILER`, `profile` returns `"UI profiler is not in this build"`.
+Without `ENGINE_UI_PROFILER` (an exported game's Release), `profile` returns `"UI profiler is not in this build"`.
 
 ## See also
 
