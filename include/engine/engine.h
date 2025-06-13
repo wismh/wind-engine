@@ -39,6 +39,7 @@
 #include <engine/resources/meta.h>
 #include <engine/ui/bindable.h>
 #include <engine/ui/binding_id.h>
+#include <engine/ui/builder.h>
 #include <engine/ui/canvas.h>
 #include <engine/ui/command.h>
 #include <engine/ui/document.h>
