@@ -15,8 +15,9 @@ class World;
 namespace editor {
 
 // The Profiler tab. Reads the engine's UI profiler rings of the game world (`engine/ui/profiler.h`) and
-// shows the canvas list, the selected canvas's stage chart, the shared chart, and the numbers. Without
-// ENGINE_UI_PROFILER (Release) it only shows a hint. Holds `this` in its rows, so it never moves.
+// shows the canvas list, the selected canvas's stage chart, the shared chart, and the numbers. The editor build
+// (ENGINE_EDITOR) has the profiler in every configuration, Release included. Holds `this` in its rows, so it
+// never moves.
 class ProfilerPanel {
 public:
     ProfilerPanel();

@@ -19,8 +19,11 @@ namespace editor {
 namespace {
 
 constexpr char kIdleHint[] = "Play the game to profile its UI.";
-constexpr char kNotBuiltHint[] = "The UI profiler is not in this build. Use Debug or RelWithDebInfo.";
 constexpr char kSelectedTitle[] = "Selected canvas";
+
+// ENGINE_EDITOR turns ENGINE_UI_PROFILER on in every configuration (CMakeLists.txt), so the editor always has
+// the rings to show.
+static_assert(engine::ui::kUiProfilerBuilt, "wind_editor needs ENGINE_UI_PROFILER; build it with ENGINE_EDITOR");
 
 constexpr std::string_view kStageNames[] = {"bindings", "stylesheets", "input", "layout", "motion", "paint"};
 static_assert(std::size(kStageNames) == engine::ui::kProfilerStageCount);
@@ -127,7 +130,7 @@ void ProfilerPanel::attach(engine::ecs::World& game) {
     engine::ui::set_ui_profiler_attached(game, true);
     pause_shown_ = engine::ui::profiler_paused(game);
     view_model_->pause = pause_shown_;
-    view_model_->hint = std::string(engine::ui::kUiProfilerBuilt ? "" : kNotBuiltHint);
+    view_model_->hint = std::string();
 }
 
 void ProfilerPanel::detach() {
@@ -148,9 +151,7 @@ void ProfilerPanel::refresh() {
     if (game_ == nullptr) {
         return;
     }
-    if constexpr (engine::ui::kUiProfilerBuilt) {
-        show_rings();
-    }
+    show_rings();
 }
 
 void ProfilerPanel::show_rings() {
@@ -213,7 +214,7 @@ void ProfilerPanel::show_idle() {
     view_model_->pause = false;
     view_model_->chartTitle = std::string(kSelectedTitle);
     view_model_->stats = std::string();
-    view_model_->hint = std::string(engine::ui::kUiProfilerBuilt ? kIdleHint : kNotBuiltHint);
+    view_model_->hint = std::string(kIdleHint);
 }
 
 }

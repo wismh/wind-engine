@@ -34,7 +34,20 @@ cmake --install build-editor --config Release --prefix out/sdk
 
 Then configure the game with the cache path `WIND_EDITOR_SDK` pointing at that SDK. The game's `CMakeLists.txt` does not change. `add_subdirectory(external/engine)` imports `engine`, `glm::glm`, `asset_codegen`, and `icon_codegen` from the SDK and compiles no engine, and `engine_add_game` builds a module (`bin/<config>/<game>.dll` with `assets/catalog.toml` beside it). `ENGINE_WITH_GTEST` still adds GoogleTest from the submodule. See [CMake](CMake.md#sdk-mode).
 
-The path is per machine, so it goes in the game's `CMakeUserPresets.json` (not committed), on top of a committed `editor` preset that sets only the generator and binary directory:
+The game builds in two configurations against the Release SDK: `DebugGame` (game code unoptimized with symbols and asserts, `/MD`) and `Release`. Both link the same Release `engine.dll`; Debug, RelWithDebInfo, and MinSizeRel are a configure error in SDK mode ([CMake](CMake.md#configurations)). The list has to be set before the game's `project()`, so the committed `editor` preset sets it with the generator and binary directory:
+
+```json
+{
+  "name": "editor",
+  "generator": "Visual Studio 18 2026",
+  "binaryDir": "${sourceDir}/build-editor",
+  "cacheVariables": {
+    "CMAKE_CONFIGURATION_TYPES": "DebugGame;Release"
+  }
+}
+```
+
+The SDK path is per machine, so it goes in the game's `CMakeUserPresets.json` (not committed), on top of that preset:
 
 ```json
 {
@@ -53,11 +66,22 @@ The path is per machine, so it goes in the game's `CMakeUserPresets.json` (not c
 
 ```bash
 cmake --preset editor-local
-cmake --build build-editor --config Release --target my_game
-C:/path/to/engine/out/sdk/bin/wind_editor.exe --game build-editor/bin/Release/my_game.dll --play
+cmake --build build-editor --config DebugGame --target my_game
+C:/path/to/engine/out/sdk/bin/wind_editor.exe --game build-editor/bin/DebugGame/my_game.dll --play
 ```
 
-Build the module in the SDK's configuration (Release). `ENGINE_EDITOR=ON` in a game tree without `WIND_EDITOR_SDK` is a configure error.
+`--config Release` builds the optimized module into `bin/Release/`. A build directory configured earlier with CMake's default configurations fails with a message: delete it and configure again. `ENGINE_EDITOR=ON` in a game tree without `WIND_EDITOR_SDK` is a configure error.
+
+A module built with the debug CRT (`/MDd` or `_DEBUG`) does not compile: `<engine/game_entry.h>` stops it with "Build it in DebugGame or Release against a Release SDK" ([CRT guard](CMake.md#crt-guard)). To step through engine code as well, install a Debug SDK (`--config Debug --prefix out/sdk-debug`) and point a second user preset at it with `"CMAKE_CONFIGURATION_TYPES": "Debug"`.
+
+Game code may test `ENGINE_EDITOR` only for tools (an editor-only overlay or cheat panel). Gameplay must not depend on it, or the game in the editor behaves unlike the exported game ([Principles](../architecture/Principles.md)).
+
+### Debugging game code
+
+The module and the SDK both carry `.pdb` files, in `DebugGame` and in `Release`. The editor loads a copy of the module from `live/<n>/` with its `.pdb` beside it, and the module records only the `.pdb` file name (`/PDBALTPATH`), so the debugger finds that copy.
+
+- Start under the debugger: open `build-editor/<game>.sln`, set the game target as the startup project, and in its Debugging properties set Command to `C:/path/to/engine/out/sdk/bin/wind_editor.exe` and Command Arguments to `--game $(TargetPath) --play`. Build `DebugGame` and press F5. Breakpoints in game code hit once Play loads the module.
+- Attach: start `wind_editor.exe` yourself, then Debug > Attach to Process > `wind_editor.exe`. Breakpoints bind when the module loads on Play.
 
 ## `main`
 
@@ -69,7 +93,7 @@ Build the module in the SDK's configuration (Release). `ENGINE_EDITOR=ON` in a g
 ENGINE_GAME(game::Game)
 ```
 
-`ENGINE_GAME` expands to `main` running `Engine<game::Game>`. Under the editor build it expands to the module exports instead. See [Core](../modules/Core.md).
+`ENGINE_GAME` expands to `main` running `Engine<game::Game>`. In a module build (SDK mode) it expands to the module exports instead and checks the CRT. See [Core](../modules/Core.md).
 
 `Game` is constructed from `const engine::EngineServices&`. `ENGINE_GAME` and `Engine<GameT>` do not compile without that constructor. `GameBase` is enough for a test that never calls `Engine::run`.
 

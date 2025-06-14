@@ -1,6 +1,6 @@
 # Editor plan
 
-This is a plan. It is not a description of the engine as it runs today. wind-167 to wind-170 are done: `wind_editor` loads, plays, inspects, profiles, and stops a game module ([Editor](../features/Editor.md), [UI Inspector](../features/UI%20Inspector.md), [UI Profiler](../features/UI%20Profiler.md)).
+This is a plan. It is not a description of the engine as it runs today. wind-167 to wind-173 are done: `wind_editor` loads, plays, inspects, profiles, and stops a game module ([Editor](../features/Editor.md), [UI Inspector](../features/UI%20Inspector.md), [UI Profiler](../features/UI%20Profiler.md)).
 
 ## Goal
 
@@ -91,7 +91,7 @@ Today `ENGINE_EDITOR` in a game repo builds a second `engine.dll` and a second `
 | `include/` | `engine/**` public headers, the generated `engine/build_id.h`, glm headers |
 | `cmake/` | `wind_sdk.cmake` (imported targets) and `wind_game.cmake` (game functions) |
 
-`wind_sdk.cmake` records `WIND_SDK_CONFIG` (Release) and defines imported targets: `engine` (shared, `INTERFACE_COMPILE_DEFINITIONS` fixed to the SDK's: `ENGINE_EDITOR`, `ENGINE_SHARED`, `ENGINE_WITH_WINDOW`, `ENGINE_UI_PROFILER`, `ENGINE_CLI_SERVER`), `glm::glm`, `asset_codegen`, `icon_codegen`. As of wind-172 the baked list is whatever the installed configuration has: a Release SDK carries `ENGINE_SHARED` and `ENGINE_WITH_WINDOW` only, and no `.pdb`, until wind-173.
+`wind_sdk.cmake` records `WIND_SDK_CONFIG` (Release) and defines imported targets: `engine` (shared, `INTERFACE_COMPILE_DEFINITIONS` fixed to the SDK's: `ENGINE_EDITOR`, `ENGINE_SHARED`, `ENGINE_WITH_WINDOW`, `ENGINE_UI_PROFILER`, `ENGINE_CLI_SERVER`), `glm::glm`, `asset_codegen`, `icon_codegen`. As built (wind-173) every configuration of the editor build carries all five, and the SDK's `bin/` has the `.pdb` files.
 
 `engine_add_game`, `engine_configure_app`, `engine_prepare_runtime` and their helpers move from the root `CMakeLists.txt` into `cmake/wind_game.cmake`. The source build and the SDK include the same file.
 
@@ -119,7 +119,7 @@ Under `ENGINE_EDITOR` the Release configuration of `engine`, `wind_editor`, and 
 
 ### DebugGame
 
-A game in SDK mode gets two configurations, `DebugGame` and `Release` (`CMAKE_CONFIGURATION_TYPES` in the `editor` preset). Both link the Release SDK.
+A game in SDK mode gets two configurations, `DebugGame` and `Release` (`CMAKE_CONFIGURATION_TYPES` in the `editor` preset). Both link the Release SDK. As built, `engine_sdk_configurations` (`cmake/wind_game.cmake`) fails the configure for any other configuration, and sets the `DebugGame` flags as cache defaults so every target of the game's tree (its tests and googletest too) gets them.
 
 | | `DebugGame` | `Release` |
 | --- | --- | --- |
@@ -127,9 +127,9 @@ A game in SDK mode gets two configurations, `DebugGame` and `Release` (`CMAKE_CO
 | CRT | `/MD` (`MSVC_RUNTIME_LIBRARY` MultiThreadedDLL) | `/MD` |
 | `_ITERATOR_DEBUG_LEVEL` | 0 | 0 |
 
-`engine_add_game` sets these per target, because a variable set inside `external/engine` does not reach the game's directory. Game asserts and `#if !defined(NDEBUG)` work in `DebugGame`. STL checks and the CRT debug heap need `/MDd`, which cannot load into a Release `engine.dll`; they stay out.
+`engine_add_game` sets the CRT and the Release extras per target, because a normal variable set inside `external/engine` does not reach the game's directory. The `DebugGame` flags are cache entries, which do. Game asserts and `#if !defined(NDEBUG)` work in `DebugGame`. STL checks and the CRT debug heap need `/MDd`, which cannot load into a Release `engine.dll`; they stay out.
 
-Guard: under `ENGINE_GAME_MODULE`, `<engine/game_entry.h>` fails to compile on MSVC when `_DEBUG` is defined or `_ITERATOR_DEBUG_LEVEL` is not 0, unless `WIND_SDK_CONFIG` is Debug. A wrong CRT is a compile error, not a crash on Play.
+Guard: under `ENGINE_GAME_MODULE`, `<engine/game_entry.h>` fails to compile on MSVC when `_DEBUG` or `_ITERATOR_DEBUG_LEVEL` differs from the engine's. As built, the engine's values are baked into the SDK's `<engine/build_id.h>` (`ENGINE_BUILD_DEBUG_CRT`, `ENGINE_BUILD_ITERATOR_DEBUG_LEVEL`), so a Debug SDK expects the debug CRT without a special case. A wrong CRT is a compile error, not a crash on Play.
 
 Debugging the engine itself: install a Debug SDK (`--config Debug --prefix out/sdk-debug`). `wind_sdk.cmake` then reports `WIND_SDK_CONFIG` Debug, and `engine_add_game` gives the game one configuration, `Debug`. `engine_tests` in Debug stays the main tool.
 
@@ -138,7 +138,7 @@ Debugging the engine itself: install a Debug SDK (`--config Debug --prefix out/s
 | Task | Content |
 | --- | --- |
 | wind-172 | `cmake/wind_game.cmake`, install rules and `wind_sdk.cmake`, SDK mode behind `WIND_EDITOR_SDK`, `ENGINE_EDITOR` in a game tree without the SDK is an error. Verified with the scratch smoke game against `out/sdk`. Done |
-| wind-173 | `ENGINE_EDITOR` define, profiler and CLI on in the editor's Release, Release with `.pdb`, `DebugGame` and `Release` for games in SDK mode, CRT guard in `game_entry.h`, the Principles rule. Verified: Release editor from the SDK plays a `DebugGame` module with the Profiler tab working, and breakpoints in game code hit |
+| wind-173 | `ENGINE_EDITOR` define, profiler and CLI on in the editor's Release, Release with `.pdb`, `DebugGame` and `Release` for games in SDK mode, CRT guard in `game_entry.h`, the Principles rule. Verified: Release editor from the SDK plays a `DebugGame` module with the Profiler tab working. Done |
 
 Game repos (`tic-tac-toe`, `electromagnetic-field`) switch their `editor` preset to `WIND_EDITOR_SDK` in their own change, after wind-173.
 
