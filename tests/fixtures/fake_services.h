@@ -9,6 +9,7 @@
 #include <engine/core/window_control.h>
 #include <engine/core/worlds.h>
 #include <engine/haptics/haptics_system.h>
+#include <engine/net/http_client.h>
 #include <engine/render/backend.h>
 #include <engine/render/canvas.h>
 #include <engine/render/command_buffer.h>
@@ -70,6 +71,20 @@ public:
     void dispose() override {}
     void vibrate(float, float) override {}
     void cancel() override {}
+    bool is_supported() const override {
+        return false;
+    }
+};
+
+class FakeHttp final : public engine::IHttpClient {
+public:
+    bool init() override {
+        return true;
+    }
+    void dispose() override {}
+    engine::HttpCall send(engine::HttpRequest) override {
+        return engine::HttpCall::resolved(std::unexpected(engine::HttpError::Unsupported));
+    }
     bool is_supported() const override {
         return false;
     }
@@ -190,6 +205,7 @@ struct Services {
                   .input = input,
                   .audio = audio,
                   .haptics = haptics,
+                  .http = http,
                   .windows = windows,
                   .graphics = graphics,
                   .backend = backend,
@@ -203,6 +219,7 @@ struct Services {
     engine::InputSystem input;
     FakeAudio audio;
     FakeHaptics haptics;
+    FakeHttp http;
     FakeWindowControl windows;
     FakeGraphicFactory graphics;
     FakeBackend backend;

@@ -20,10 +20,10 @@ namespace engine {
 class IFatalError;
 class IGame;
 
-// Owns every engine service of a windowed process: runtime, fatal hook, assets, input, audio, haptics,
+// Owns every engine service of a windowed process: runtime, fatal hook, assets, input, audio, haptics, HTTP,
 // and worlds. `Engine<GameT>` sits on it, and so does the editor host. Call in order: `init`, `open_primary`,
 // `load_catalog`, `attach_game`, `run`. The editor also calls `detach_game` and `unload_catalog` on Stop.
-// `dispose` (also run by the destructor and at the end of `run`) disposes audio and haptics and shuts the
+// `dispose` (also run by the destructor and at the end of `run`) disposes audio, haptics, and HTTP and shuts the
 // runtime down.
 class EngineHost {
 public:
@@ -38,7 +38,7 @@ public:
     [[nodiscard]] const EngineServices& services() const;
     [[nodiscard]] IFatalError& fatal();
 
-    // Creates `kPrimaryWindow`, starts audio and haptics, loads the engine catalog and
+    // Creates `kPrimaryWindow`, starts audio, haptics, and HTTP, loads the engine catalog and
     // `builtin::font_ui`, and hands the system deps to `Worlds`. A failure shuts the host down.
     [[nodiscard]] bool open_primary(const WindowDesc& desc);
 

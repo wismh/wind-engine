@@ -6,6 +6,7 @@
 #include <engine/core/application_state.h>
 #include <engine/core/platform.h>
 #include <engine/ecs/world.h>
+#include <engine/net/http_client.h>
 #include <engine/ui/canvas.h>
 
 #if defined(__EMSCRIPTEN__)
@@ -15,12 +16,13 @@
 namespace engine {
 
 int GameLoop::run(IPresentation& presentation, RunHooks hooks, Worlds& worlds, InputSystem& input,
-        IAudioSystem* audio, std::function<void()> host_dispose) {
+        IAudioSystem* audio, HttpClient* http, std::function<void()> host_dispose) {
     presentation_ = &presentation;
     hooks_ = std::move(hooks);
     worlds_ = &worlds;
     input_ = &input;
     audio_ = audio;
+    http_ = http;
     host_dispose_ = std::move(host_dispose);
     begin();
 
@@ -70,6 +72,9 @@ void GameLoop::tick() {
     }
     flush_worlds(*worlds_);
     presentation_->poll(*worlds_, *input_);
+    if (http_ != nullptr) {
+        http_->poll();
+    }
     simulate_worlds(*worlds_, audio_, real_dt);
     presentation_->sync_frame(*worlds_);
     presentation_->draw_all();
@@ -114,6 +119,7 @@ void GameLoop::end() {
     worlds_ = nullptr;
     input_ = nullptr;
     audio_ = nullptr;
+    http_ = nullptr;
 
     const std::function<void()> on_quit = std::move(hooks_.on_quit);
     hooks_ = RunHooks{};

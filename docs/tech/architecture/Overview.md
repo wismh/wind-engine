@@ -45,6 +45,7 @@ The windowed host is `Engine<GameT>` in `include/engine/core/engine.h`, included
 | [Localization](../modules/Localization.md) | String tables, `{tr}`, plural messages | Which locale the player picked |
 | [Audio](../modules/Audio.md) | SFX pool, music A/B, looping handles | File GUIDs (those are Resources) |
 | [Haptics](../modules/Haptics.md) | Vibration duration and intensity | A CMake feature flag |
+| [Net](../modules/Net.md) | HTTP requests and their calls | Which world reads the answer |
 
 How they connect: [Module Map](Module%20Map.md). What stays out of public headers: [Boundaries](Boundaries.md). Product rules: [Principles](Principles.md), [Scope](Scope.md).
 
