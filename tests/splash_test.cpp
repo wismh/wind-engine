@@ -203,6 +203,7 @@ TEST(Splash, SpawnsBackdropAndImageCanvasesWhenEnabledAndNoneWhenDisabled) {
             EXPECT_NE(world.try_get<engine::ui::SplashTimer>(e), nullptr);
         }
         ASSERT_EQ(canvases.size(), 2u);
+        EXPECT_TRUE(std::ranges::all_of(canvases, [](const auto* c) { return !c->document.has_value(); }));
         EXPECT_EQ(std::ranges::count_if(canvases, [](const auto* c) { return c->fit == engine::ui::UiFit::FillWindow; }), 1);
         EXPECT_EQ(
                 std::ranges::count_if(

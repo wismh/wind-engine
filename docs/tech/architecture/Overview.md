@@ -24,7 +24,7 @@ flowchart TB
   Game["Game : IGame / GameBase"]
   World["ecs::World"]
   Assets["AssetsDb"]
-  UI["UiCanvas + XML/CSS + ViewModel"]
+  UI["UiCanvas + document/CSS + ViewModel"]
   Cmd["CommandBuffer"]
   GL["OpenGL + NanoVG"]
 
@@ -39,7 +39,7 @@ flowchart TB
 - Lifecycle: [[include.engine.igame.h|IGame]] / [[include.engine.igame.h|GameBase]].
 - Data: one [[include.engine.ecs.world.h|World]] (entities + `ctx` resources + systems).
 - Assets: GUID catalog, `get<T>` / `try_get<T>` ([[features/Assets]]).
-- UI: markup + stylesheet + MVVM, not `onClick` trees ([[features/UI Markup]]).
+- UI: XML and/or `ui::Node` builder + stylesheet + MVVM, not `onClick` trees ([[features/UI Markup]]).
 - Draw: `Renderable` + `Transform` → sort → `CmdDrawMesh`; UI → `CmdDrawUI` ([[features/Materials and Sort]]).
 
 Windowed host: [[include.engine.core.engine.h|Engine&lt;GameT&gt;]] in [[include.engine.engine.h|engine.h]] (only if `ENGINE_WITH_WINDOW`). Headless `engine_tests` never call `Engine::run`.
@@ -54,7 +54,7 @@ Windowed host: [[include.engine.core.engine.h|Engine&lt;GameT&gt;]] in [[include
 | [[modules/ECS]]       | Entities, views, schedules, events, camera, AABB physics | OpenGL, XML                      |
 | [[modules/Resources]] | `.meta`, catalog, codegen, `get`                         | Painting pixels                  |
 | [[modules/Render]]    | Materials, commands, sort, OpenGL/NanoVG backends        | Asset GUIDs, UI bind names       |
-| [[modules/UI]]        | XML/CSS parse, layout, hit-test, MVVM                    | World sprites                    |
+| [[modules/UI]]        | XML + C++ builder, CSS, layout, hit-test, MVVM           | World sprites                    |
 | [[modules/Audio]]     | SFX pool, music A/B, looping handles                     | File GUIDs (those are Resources) |
 
 How they connect: [[architecture/Module Map]]. What stays out of public headers: [[architecture/Boundaries]].

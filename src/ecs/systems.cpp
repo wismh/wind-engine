@@ -80,17 +80,18 @@ void run_splash_timers(ecs::World& world) {
 }
 
 bool instance_needs_rebuild(const ui::UiInstance* instance, const ui::UiCanvas& canvas) {
+    if (!canvas.document.has_value()) {
+        return false;
+    }
     if (instance == nullptr) {
         return true;
     }
-    return instance->loaded_document != canvas.document || instance->loaded_stylesheet != canvas.stylesheet ||
-            instance->loaded_extra_stylesheets != canvas.extra_stylesheets ||
-            instance->loaded_data_context != canvas.data_context.get();
+    return instance->loaded_document != canvas.document;
 }
 
 void clone_document(ecs::World& world, ecs::Entity entity, ui::UiCanvas& canvas, AssetsDb& assets,
         ui::UiInstance*& instance) {
-    const std::shared_ptr<ui::UiDocument> document = assets.get<ui::UiDocument>(canvas.document);
+    const std::shared_ptr<ui::UiDocument> document = assets.get<ui::UiDocument>(*canvas.document);
     ui::UiInstance fresh;
     fresh.document = *document;
     fresh.loaded_document = canvas.document;
@@ -121,6 +122,15 @@ void load_merged_stylesheets(ui::UiInstance& instance, const ui::UiCanvas& canva
     if (instance.loaded_sheet_ids == wanted) {
         return;
     }
+    if (wanted.empty()) {
+        if (instance.stylesheet.has_value() && instance.loaded_sheet_ids.empty()) {
+            instance.loaded_sheet_ids = wanted;
+            return;
+        }
+        instance.stylesheet.reset();
+        instance.loaded_sheet_ids = wanted;
+        return;
+    }
     ui::Stylesheet merged;
     bool all_found = true;
     for (const AssetId& id : wanted) {
@@ -130,11 +140,7 @@ void load_merged_stylesheets(ui::UiInstance& instance, const ui::UiCanvas& canva
             all_found = false;
         }
     }
-    if (wanted.empty()) {
-        instance.stylesheet.reset();
-    } else {
-        instance.stylesheet = std::move(merged);
-    }
+    instance.stylesheet = std::move(merged);
     if (all_found) {
         instance.loaded_sheet_ids = wanted;
     }

@@ -240,7 +240,7 @@ struct UiDocument {
 struct UiInstance {
     UiDocument document;
     std::optional<Stylesheet> stylesheet;
-    AssetId loaded_document{};
+    std::optional<AssetId> loaded_document;
     std::optional<AssetId> loaded_stylesheet;
     std::vector<AssetId> loaded_extra_stylesheets;
     std::vector<AssetId> loaded_sheet_ids;
