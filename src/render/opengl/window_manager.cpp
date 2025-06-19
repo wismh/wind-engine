@@ -11,7 +11,7 @@ namespace engine {
 #if defined(_WIN32)
 namespace {
 
-// SDD §21.7 fix ("game doesn't update while dragging any window"): on Windows, the OS enters its
+// Fix ("game doesn't update while dragging any window"): on Windows, the OS enters its
 // own modal move/size loop inside DefWindowProc as soon as a WM_NCLBUTTONDOWN with HTCAPTION
 // arrives — whether HTCAPTION came from a real OS titlebar or from window_drag_hit_test's
 // SDL_HITTEST_DRAGGABLE — and the calling thread blocks inside it until the mouse button is
@@ -22,7 +22,7 @@ namespace {
 // (see WM_ENTERSIZEMOVE in SDL_windowsevents.c) purely to drive its own SDL_AppIterate-based main
 // loop, which this engine doesn't use — but SDL_SetWindowsMessageHook (SDL_system.h), called for
 // every message while the modal loop is active, gives any app a way to piggyback on it. What
-// actually runs on each tick isn't this class's business (SDD §3.4/§4.2 — stays ECS-free) —
+// actually runs on each tick isn't this class's business —
 // EngineRuntime::begin_loop() supplies it via set_modal_loop_tick_callback() (a full
 // reentrant game tick, not just a redraw — see EngineRuntime::reentrant_tick()'s doc comment for
 // why that's safe here specifically).
@@ -59,7 +59,7 @@ void WindowManager::set_modal_loop_tick_callback(std::function<void()> callback)
     modal_loop_tick_callback_ = std::move(callback);
 #if defined(_WIN32)
     if (modal_loop_tick_callback_) {
-        // SDD §21.7: only hook into Windows messages when a modal loop tick callback is actually
+        // only hook into Windows messages when a modal loop tick callback is actually
         // active (e.g. desktop overlay mode), avoiding process-global message interception
         // overhead for normal games.
         SDL_SetWindowsMessageHook(&windows_message_hook, this);
@@ -92,19 +92,18 @@ std::optional<WindowId> WindowManager::create_window(const WindowDesc& desc) {
         return std::nullopt;
     }
 
-    // A secondary window's GL context must share the primary's texture/mesh/shader objects
-    // (SDD §21.5). SDL_GL_CreateContext (called inside OpenGLCanvas::init() below) consults
+    // A secondary window's GL context must share the primary's texture/mesh/shader objects.
+    // SDL_GL_CreateContext (called inside OpenGLCanvas::init() below) consults
     // SDL_GL_SHARE_WITH_CURRENT_CONTEXT against whichever context is current *at that call*, so
     // the primary's context has to be made current here, immediately before init() runs.
     SDL_GL_MakeCurrent(primary->window.window(), primary->canvas->native_context());
     SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT, 1);
 
     entry->canvas = std::make_shared<render::OpenGLCanvas>(entry->window, *entry->commands, *backend_);
-    // with_ui_painter=true (SDD §21.6): OpenGLCanvas::draw() now re-arms OpenGLRenderBackend's
+    // with_ui_painter=true: OpenGLCanvas::draw() now re-arms OpenGLRenderBackend's
     // single shared ui_painter_ pointer to *its own* NanoVgPainter immediately before calling
     // execute(), every frame — so the "last window to init() wins" clobbering risk that used to
-    // block this (see the removed with_ui_painter=false comment, still described in SDD §21.5) no
-    // longer applies: whichever window's draw() ran last simply owns the pointer for the instant
+    // block this no longer applies: whichever window's draw() ran last simply owns the pointer for the instant
     // its own execute() call actually reads it.
     if (!entry->canvas->init(/*with_ui_painter=*/true)) {
         return std::nullopt;
@@ -118,8 +117,8 @@ std::optional<WindowId> WindowManager::create_window(const WindowDesc& desc) {
 void WindowManager::destroy_window(WindowId id) {
     if (id == kPrimaryWindow) {
         // The primary slot is permanent infrastructure (see the constructor): whether a game may
-        // close its own primary window at all is a lifecycle *policy* question deferred to §21.7,
-        // not decided by this mechanism-only method. Until that lands, this just tears down the
+        // close its own primary window at all is a lifecycle *policy* question,
+        // not decided by this mechanism-only method. Until a product rule lands, this just tears down the
         // OS window and GL context in place, leaving the slot ready for a later
         // create_primary_window() call, and leaving WindowControlImpl/commands_ptr()/canvas_ptr()
         // pointed at a still-valid (if inert) object.
@@ -133,8 +132,7 @@ void WindowManager::destroy_window(WindowId id) {
 
 void WindowManager::shutdown() {
     set_modal_loop_tick_callback(nullptr);
-    // Secondary windows have no long-lived external references in this phase (no per-window DI
-    // yet — that's §21.6), so they are fully torn down and forgotten. The primary slot is reset in
+    // Secondary windows are fully torn down and forgotten. The primary slot is reset in
     // place via destroy_window() rather than erased, so a later create_window()/
     // create_primary_window() call still works and this manager's already-handed-out primary
     // accessors stay valid — matching the idempotent-shutdown contract EngineRuntime promised

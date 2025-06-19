@@ -1,6 +1,6 @@
 # Wind
 
-A small, embeddable 2D C++ game engine. CMake target / C++ namespace: `engine`. Task codes: `wind-N`. Design of record: [docs/sdd.md](docs/sdd.md). Obsidian tech vault (architecture, modules, files, build): [docs/tech/README.md](docs/tech/README.md).
+A 2D C++ game engine for production titles. CMake target / C++ namespace: `engine`. Task codes: `wind-N`. Tech vault: [docs/tech/README.md](docs/tech/README.md) (start at [docs/tech/Home.md](docs/tech/Home.md)). Architecture: [Principles](docs/tech/architecture/Principles.md), [Scope](docs/tech/architecture/Scope.md), [Boundaries](docs/tech/architecture/Boundaries.md).
 
 ## Build (library + tests)
 

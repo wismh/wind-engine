@@ -99,14 +99,20 @@ bool OpenGLCanvas::add_image(AssetId id, const TextureDesc& desc) {
     return ui_painter_->add_image(id, desc);
 }
 
-void OpenGLCanvas::draw() {
-    // With 2+ live GL contexts (SDD §21.5, WindowManager) whichever context happens to still be
+void OpenGLCanvas::make_current() {
+    // With 2+ live GL contexts whichever context happens to still be
     // "current" from initialization order would otherwise receive every window's draw calls —
-    // silent visual corruption with no build/CI signal (§12.3, no GPU in engine_tests). Making
+    // silent visual corruption with no build/CI signal (no GPU in engine_tests). Making
     // this window's context current before touching any GL state is what makes draw_all() correct.
-    if (window_ != nullptr && context_ != nullptr) {
+    // Hit-test layout also measures text through this painter, so the same MakeCurrent is required
+    // before nvgTextBounds (otherwise a secondary window would measure against the wrong atlas).
+    if (window_ != nullptr && context_ != nullptr && window_->window() != nullptr) {
         SDL_GL_MakeCurrent(window_->window(), context_);
     }
+}
+
+void OpenGLCanvas::draw() {
+    make_current();
     if (window_ != nullptr) {
         const glm::ivec2 size = window_->drawable_size();
         if (size.x > 0 && size.y > 0) {
@@ -121,7 +127,7 @@ void OpenGLCanvas::draw() {
         ui_painter_->begin_frame(static_cast<float>(size.x), static_cast<float>(size.y));
     }
     // Re-arm the shared backend's UI painter pointer to *this* canvas's painter right before
-    // execute() reads it (SDD §21.6). With 2+ windows each owning its own NanoVgPainter,
+    // execute() reads it. With 2+ windows each owning its own NanoVgPainter,
     // OpenGLRenderBackend::execute() only ever reads whatever painter is currently set — never
     // something captured earlier — so doing this every frame, right here, is what makes each
     // window's CmdDrawUI commands paint through its own painter instead of whichever window
@@ -143,7 +149,7 @@ void OpenGLCanvas::draw() {
 void OpenGLCanvas::destroy_context() {
     // Only clear the shared backend_'s ui_painter_ if THIS canvas is the one that set it
     // (ui_painter_ != nullptr): backend_ is the one OpenGLRenderBackend shared by every window
-    // (SDD §21.5), so a secondary window's canvas — which never created a painter — would
+    //, so a secondary window's canvas — which never created a painter — would
     // otherwise null out the *primary* window's painter the instant its own init()/destructor
     // called this (init() always calls destroy_context() first, even on a brand-new canvas).
     if (ui_painter_ != nullptr) {
