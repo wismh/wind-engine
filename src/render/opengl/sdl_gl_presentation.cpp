@@ -193,7 +193,7 @@ public:
         }
         overlay_.poll_cursor(windows_, input);
         backfill_secondary_sizes(worlds);
-        dialogs_->deliver(worlds);
+        dialogs_->deliver();
     }
 
     void sync_frame(Worlds& worlds) override {
@@ -396,7 +396,7 @@ private:
     std::shared_ptr<render::OpenGLRenderBackend> backend_ = std::make_shared<render::OpenGLRenderBackend>();
     WindowManager windows_;
     DesktopOverlayPolicy overlay_;
-    std::shared_ptr<FileDialogQueue> dialogs_ = std::make_shared<FileDialogQueue>();
+    std::shared_ptr<FileDialogCompletions> dialogs_ = std::make_shared<FileDialogCompletions>();
     std::unique_ptr<WindowControlImpl> window_control_;
     bool video_inited_ = false;
     std::function<void()> loop_tick_;
