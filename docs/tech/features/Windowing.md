@@ -49,9 +49,11 @@ The OS close button sends `WindowCloseRequestedEvent`. The engine does not quit 
 
 ## Open-file dialog
 
-`request_open_file(owner, filters)` shows the platform open-file dialog (`SDL_ShowOpenFileDialog`), modal to `owner` where the platform supports it, and returns a `FileDialogRequest` at once. `FileFilter` (`include/engine/core/file_dialog.h`) is a display name and a pattern: extensions without dots, separated by `;` (`"dll"`, `"png;jpg"`), or `*`. An empty list shows every file.
+`request_open_file(owner, filters)` shows the platform open-file dialog (`SDL_ShowOpenFileDialog`), modal to `owner` where the platform supports it, and returns a `FileDialogCall` at once. `owner` is only the dialog's parent; no world is involved. `FileFilter` (`include/engine/core/file_dialog.h`) is a display name and a pattern: extensions without dots, separated by `;` (`"dll"`, `"png;jpg"`), or `*`. An empty list shows every file.
 
-SDL may call back on another thread. The answer goes into a `FileDialogQueue` (`src/core/file_dialog_queue.h`) under a mutex. `poll` delivers it after the SDL events of that frame: one `FileDialogResultEvent{request, path}` to the world bound to `owner`. `path` is empty when the user cancelled or the dialog failed. An answer whose owner has no world by then is dropped. The queue is shared with the SDL callback, so a dialog still open at shutdown does not write into freed memory.
+The caller owns the call, the same model as `HttpCall` ([Net](../modules/Net.md)). It is move-only. `pending()` is true until the answer is visible. `take()` returns the `FileDialogResult` once and empties the call. `path` is empty when the user cancelled or the dialog failed. `cancel()`, destroying the call, or move-assigning over it drops the answer. SDL cannot close the dialog from code, so it stays on screen until the user closes it. `FileDialogCall::resolved(result)` builds an answered call for fakes.
+
+SDL may call back on another thread. The callback pushes the answer and the call's `FileDialogState` (`src/core/file_dialog_state.h`) into `FileDialogCompletions` under a mutex and touches nothing else. `poll` delivers after the SDL events of that frame, so every system of that frame sees the same state, and drops answers of cancelled calls. `FileDialogCompletions` and `HttpCompletions` are the same template, `CallCompletions` (`src/core/call_completions.h`). The queue and the state are shared with the SDL callback, so a dialog still open at shutdown, or after its call was dropped, does not write into freed memory.
 
 ## Editor windows
 
@@ -91,7 +93,7 @@ Public headers do not include SDL.
 
 `tests/window_style_test.cpp` and `tests/window_icon_test.cpp` do not call `SDL_Init(SDL_INIT_VIDEO)`. A live display is out of `engine_tests`. See [Boundaries](../architecture/Boundaries.md).
 
-`tests/file_dialog_test.cpp` drives `FileDialogQueue` without a dialog: an answer completed on another thread reaches the owner's world on `deliver`, once; cancel is an empty path; two requests keep their own owners; an owner without a world drops the answer.
+`tests/file_dialog_test.cpp` drives `FileDialogCall` and `FileDialogCompletions` without a dialog: an answer pushed from another thread is visible only after `deliver`, and taken once; a user cancel is an answer without a path; each call gets its own answer; `cancel`, a destroyed call, and a call replaced by move assignment drop the answer; `resolved` and an empty call.
 
 ## See also
 

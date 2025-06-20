@@ -159,7 +159,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 | `src/core/worlds.cpp` | process worlds, window binding, per-world clocks |
 | `src/core/game_loop.cpp` | frame clock and `RunHooks`. Calls `IPresentation`, not SDL |
 | `src/core/web_loop.cpp` | `MainLoopPolicy`, `LoopShutdown` |
-| `src/core/file_dialog_queue.cpp` | open-file dialog answers from any thread to the owner window's world |
+| `src/core/file_dialog_call.cpp` | `FileDialogCall`, an owned open-file dialog; answers wait in `CallCompletions` (`src/core/call_completions.h`) |
 | `src/core/app_lifecycle.cpp` | pause, resume, terminate, Android back |
 | `src/cli/cli_server.cpp` | loopback server. The translation unit is empty without `ENGINE_CLI_SERVER` |
 
@@ -210,7 +210,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 
 ## Tests
 
-`tests/cmake_sanity_test.cpp`, `tests/host_test.cpp`, `tests/time_test.cpp`, `tests/input_test.cpp`, `tests/log_test.cpp`, `tests/platform_test.cpp`, `tests/web_loop_test.cpp`, `tests/android_lifecycle_test.cpp`, `tests/android_assets_test.cpp`, `tests/window_icon_test.cpp`, `tests/window_style_test.cpp`, `tests/cli_server_test.cpp`, `tests/worlds_test.cpp`, `tests/game_loop_test.cpp` (`RunHooks` order with a fake `IPresentation`), `tests/game_entry_test.cpp` (module exports, window builds only), `tests/game_module_test.cpp` (loader against the fixture modules, editor build only; skipped elsewhere), `tests/file_dialog_test.cpp` (`FileDialogQueue`).
+`tests/cmake_sanity_test.cpp`, `tests/host_test.cpp`, `tests/time_test.cpp`, `tests/input_test.cpp`, `tests/log_test.cpp`, `tests/platform_test.cpp`, `tests/web_loop_test.cpp`, `tests/android_lifecycle_test.cpp`, `tests/android_assets_test.cpp`, `tests/window_icon_test.cpp`, `tests/window_style_test.cpp`, `tests/cli_server_test.cpp`, `tests/worlds_test.cpp`, `tests/game_loop_test.cpp` (`RunHooks` order with a fake `IPresentation`), `tests/game_entry_test.cpp` (module exports, window builds only), `tests/game_module_test.cpp` (loader against the fixture modules, editor build only; skipped elsewhere), `tests/file_dialog_test.cpp` (`FileDialogCall`).
 
 ## See also
 
