@@ -65,4 +65,4 @@ Product name: Wind. CMake target and C++ namespace: `engine`. Build instructions
 | [Asset Codegen](build/Asset%20Codegen.md) | `asset_codegen` and `asset_guid` |
 | [Icon Codegen](build/Icon%20Codegen.md) | `icon.png` to platform icons |
 | [Runtime Assets](build/Runtime%20Assets.md) | Where the running process reads assets |
-| [Game Consumer](build/Game%20Consumer.md) | A game repo that `add_subdirectory`s Wind |
+| [Game Consumer](build/Game%20Consumer.md) | A game repo that builds against an installed SDK (`find_package(Wind)`) |

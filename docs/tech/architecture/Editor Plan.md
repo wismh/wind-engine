@@ -1,10 +1,10 @@
 # Editor plan
 
-This is a plan. It is not a description of the engine as it runs today. wind-167 to wind-173 are done: `wind_editor` loads, plays, inspects, profiles, and stops a game module ([Editor](../features/Editor.md), [UI Inspector](../features/UI%20Inspector.md), [UI Profiler](../features/UI%20Profiler.md)).
+This is a plan. It is not a description of the engine as it runs today. wind-167 to wind-173 and wind-176 are done: `wind_editor` loads, plays, inspects, profiles, and stops a game module ([Editor](../features/Editor.md), [UI Inspector](../features/UI%20Inspector.md), [UI Profiler](../features/UI%20Profiler.md)).
 
 ## Goal
 
-The editor becomes the main way to work with Wind. Later it owns the project list, starts the game build, and hosts every tool. The first version is a host executable, `wind_editor`. On start it asks for a built game module (`game.dll`). Play loads that module into the editor process and runs it in `kPrimaryWindow`. Stop unloads it completely. The UI Inspector and UI Profiler live only in the editor window.
+The editor becomes the main way to work with Wind. Later it owns the project list, starts the game build, and hosts every tool ([Next: projects, launcher, build on Play](#next-projects-launcher-build-on-play)). The first version is a host executable, `wind_editor`. On start it asks for a built game module (`game.dll`). Play loads that module into the editor process and runs it in `kPrimaryWindow`. Stop unloads it completely. The UI Inspector and UI Profiler live only in the editor window.
 
 ## Build modes
 
@@ -99,6 +99,8 @@ Today `ENGINE_EDITOR` in a game repo builds a second `engine.dll` and a second `
 
 The game's `CMakeLists.txt` does not change: it still calls `add_subdirectory(external/engine)`. When the cache variable `WIND_EDITOR_SDK` is set, the engine's root `CMakeLists.txt` includes `${WIND_EDITOR_SDK}/cmake/wind_sdk.cmake` and returns. It compiles no engine, no tools, and no editor. It still adds googletest from the submodule when `ENGINE_WITH_GTEST` is ON, so game tests build. Headers, `build_id.h`, `engine.lib`, and the game functions all come from the SDK, so the game's `kBuildId` is the SDK's by construction.
 
+As built since wind-176 the game has no submodule and calls `find_package(Wind)`; `WIND_EDITOR_SDK` is gone ([Next: projects, launcher, build on Play](#next-projects-launcher-build-on-play)).
+
 For now the path is set by hand per machine, in the game's `CMakeUserPresets.json` (not committed) on top of a committed `editor` preset. Later the editor starts the build and passes it.
 
 `engine_add_game` in SDK mode builds the module only. No `engine.dll` copy, no `assets/engine/` copy, no `wind_editor`. The module still lands in `bin/<config>/` with `assets/catalog.toml` and the game's assets beside it.
@@ -140,7 +142,69 @@ Debugging the engine itself: install a Debug SDK (`--config Debug --prefix out/s
 | wind-172 | `cmake/wind_game.cmake`, install rules and `wind_sdk.cmake`, SDK mode behind `WIND_EDITOR_SDK`, `ENGINE_EDITOR` in a game tree without the SDK is an error. Verified with the scratch smoke game against `out/sdk`. Done |
 | wind-173 | `ENGINE_EDITOR` define, profiler and CLI on in the editor's Release, Release with `.pdb`, `DebugGame` and `Release` for games in SDK mode, CRT guard in `game_entry.h`, the Principles rule. Verified: Release editor from the SDK plays a `DebugGame` module with the Profiler tab working. Done |
 
-Game repos (`tic-tac-toe`, `electromagnetic-field`) switch their `editor` preset to `WIND_EDITOR_SDK` in their own change, after wind-173.
+Game repos (`tic-tac-toe`, `electromagnetic-field`) were to switch their `editor` preset to `WIND_EDITOR_SDK` after wind-173; wind-176 replaced that with `find_package(Wind)`.
+
+## Next: projects, launcher, build on Play
+
+The editor is the only way to work with Wind. A game repo stops carrying the engine as a submodule: it finds an installed SDK, and that SDK's version is the game's engine version. A launcher lists projects and installed SDKs and starts the matching editor with the project. Play builds the game module and loads it. Export (standalone executable, Web, Android) is out of this plan.
+
+### One engine version, held by the SDK
+
+- `project(engine VERSION x.y.z)` in the engine's `CMakeLists.txt` is the engine version, semver. A release is a commit on `main` with that version and a `vx.y.z` tag, so an old SDK can be built again from its tag.
+- `cmake --install` writes `<sdk>/sdk.toml`: `version`, `commit`, `dirty` (uncommitted changes in the engine checkout), `config`, and `build_id`. It is the one file the launcher and the editor read to know an SDK; its keys only grow.
+- The build id stays the last check on Play.
+
+### A game finds the SDK
+
+The game's `CMakeLists.txt`:
+
+```cmake
+cmake_minimum_required(VERSION 3.20)
+project(my_game CXX)
+find_package(Wind REQUIRED)
+engine_add_game(my_game src/main.cpp src/game.cpp)
+```
+
+`<sdk>/cmake/WindConfig.cmake` is the old `wind_sdk.cmake`: imported `engine`, `glm::glm`, `asset_codegen`, `icon_codegen`, and now `GTest::gtest` and `GTest::gtest_main`, then the game functions and the configuration check. `WindConfigVersion.cmake` accepts only the exact version. The SDK is found through `CMAKE_PREFIX_PATH=<sdk>`: the editor passes it when it configures (wind-178); until then the game's `CMakeUserPresets.json` sets it. `WIND_EDITOR_SDK` and the SDK branch of the engine's root `CMakeLists.txt` go away.
+
+GoogleTest is built in the editor build with the SDK's CRT and installed into the SDK (`include/gtest/`, `lib/`, with the compile `.pdb` beside the libraries), so a game's tests need no submodule.
+
+### Engine source in the SDK
+
+`<sdk>/source/` holds the engine's build input: `CMakeLists.txt`, `cmake/`, `include/`, `src/`, `tools/`, `builtin_assets/`, and `external/` without git metadata. The editor does not use it. It is there so export can build the static engine from the exact version of the SDK, with `add_subdirectory(<sdk>/source wind)`; until export exists that line is also the manual way to build a standalone executable.
+
+### Child processes
+
+The editor and the launcher are engine clients and include only `<engine/...>`, so starting `cmake` or `wind_editor` is an engine API. `ProcessCall`, owned by the caller like `HttpCall` and `FileDialogCall`: executable, arguments, working directory, extra environment; output lines and the exit code become visible in `poll`. A detached start (the launcher starting an editor) has no call. Windows first; other platforms report `Unsupported`.
+
+### Project
+
+`wind_project.toml` in the game repo root marks a Wind project: `name`, `engine` (the version), `target` (the `engine_add_game` target). `wind_editor --project <dir>` replaces `--game`:
+
+1. Read `wind_project.toml`. An `engine` other than the editor's own `sdk.toml` version is refused with both versions.
+2. Play: configure `<dir>/build-editor` when it has no cache (`-DCMAKE_PREFIX_PATH=<own sdk>`, `-DCMAKE_CONFIGURATION_TYPES=DebugGame;Release`), then `cmake --build ... --config DebugGame --target <target>`, both through `ProcessCall`. The frame keeps running; the Build panel shows the output (`VSLANG=1033`, so MSBuild writes English). A failed build does not start the game.
+3. The module path comes from the CMake File API (codemodel), not a guessed `bin/<config>/` path. Then Play continues as today.
+
+Building while the game plays is allowed: the editor runs a copy from `live/<n>/`.
+
+### Launcher
+
+`wind_launcher` is a standalone Wind app built statically, not against any `engine.dll`, so it serves every SDK version. It keeps its list in `user_data_directory("Wind", "Launcher")`.
+
+- Projects: recent list, Add (folder dialog, `SDL_ShowOpenFolderDialog` behind `IWindowControl`), Open. Open starts the SDK whose `version` matches the project's `engine` with `--project`. No match: the project shows the version it needs.
+- SDKs: scanned from one install directory, plus Locate for a dev SDK such as `out/sdk`.
+- Later: new project from a template, download of SDK releases.
+
+### Tasks
+
+| Task | Content |
+| --- | --- |
+| wind-176 | Engine version, `sdk.toml`, `WindConfig.cmake` and `find_package(Wind)`, GoogleTest and the engine source in the SDK, `WIND_EDITOR_SDK` removed. Verified with a smoke game against an installed SDK: module and tests in `DebugGame` and `Release`, Play in the SDK's editor, `find_package(Wind 0.2.0)` refused, and a static executable with `add_subdirectory(<sdk>/source)`. Done |
+| wind-177 | `ProcessCall` in the engine (Windows) and tests |
+| wind-178 | `wind_project.toml`, `wind_editor --project`, configure and build on Play, Build panel |
+| wind-179 | `wind_launcher`: projects, SDKs, Open |
+
+Game repos drop the `external/engine` submodule for `find_package(Wind)` in their own change, after wind-176.
 
 ## Tasks
 

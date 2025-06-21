@@ -1,6 +1,6 @@
 # CMake
 
-Root file: `CMakeLists.txt`. Minimum version 3.20 (the build id step uses `$<CONFIG>` in a custom command output). Language C and CXX. `CMAKE_CXX_STANDARD` is 23 with extensions OFF. The game functions (`engine_add_game` and the rest) live in `cmake/wind_game.cmake`, which the root file includes. See [Game functions](#game-functions).
+Root file: `CMakeLists.txt`. Minimum version 3.20 (the build id step uses `$<CONFIG>` in a custom command output). `project(engine VERSION x.y.z)` is the engine version, semver; see [Version](#version). Language C and CXX. `CMAKE_CXX_STANDARD` is 23 with extensions OFF. The game functions (`engine_add_game` and the rest) live in `cmake/wind_game.cmake`, which the root file includes. See [Game functions](#game-functions).
 
 The library target is `engine`. Alias: `engine::engine`. It is static. With `ENGINE_EDITOR` it is shared.
 
@@ -17,7 +17,7 @@ The library target is `engine`. Alias: `engine::engine`. It is static. With `ENG
 | `ENGINE_WITH_WEB` | ON if `EMSCRIPTEN`, else OFF | same | `PUBLIC` |
 | `ENGINE_WITH_ANDROID` | ON if `ANDROID`, else OFF | same | `PUBLIC` |
 | `ENGINE_WITH_GLES` | ON if `EMSCRIPTEN` or `ANDROID`, else OFF | same | `PUBLIC`. No glad |
-| `ENGINE_EDITOR` | OFF | configure error | Shared `engine`, the editor, the SDK install rules. Needs `ENGINE_WITH_WINDOW`. Fatal on Emscripten and Android. In a game tree it is fatal and points at `WIND_EDITOR_SDK` |
+| `ENGINE_EDITOR` | OFF | configure error | Shared `engine`, the editor, the SDK install rules. Needs `ENGINE_WITH_WINDOW`. Fatal on Emscripten and Android. In a game tree it is fatal and points at `find_package(Wind)` |
 
 `ENGINE_UI_PROFILER` and `ENGINE_CLI_SERVER` are not options. Without `ENGINE_EDITOR` they are generator expressions on Debug and RelWithDebInfo. With `ENGINE_EDITOR` they are on in every configuration, so the Release editor and SDK have the Profiler tab and `wind-cli`. The CLI define is also omitted for Emscripten and Android. See [Boundaries](../architecture/Boundaries.md).
 
@@ -29,7 +29,6 @@ Cache paths:
 | `ENGINE_HOST_ICON_CODEGEN` | Native `icon_codegen` when cross-compiling |
 | `ENGINE_WEB_SHELL` | HTML shell. Empty uses `cmake/web/shell.html` |
 | `ENGINE_ANDROID_ASSETS_OUT` | Directory Gradle packs. Empty stages only beside `libmain.so` |
-| `WIND_EDITOR_SDK` | Installed editor SDK. Set in a game tree, it switches the configure to [SDK mode](#sdk-mode). Fatal at the engine root |
 
 ## Presets
 
@@ -61,9 +60,14 @@ Build preset `tests` builds `engine_tests` from the `vs` configure.
 - `engine_prepare_runtime` copies `engine.dll` beside its target on Windows.
 - `engine_add_game` builds the game as a shared module, not an executable. See below.
 - `editor/` is added: `wind_editor`, and with tests also `wind_editor_tests`. See [Editor](../features/Editor.md).
+- `ENGINE_WITH_GTEST` is forced ON: the SDK ships GoogleTest.
 - The install rules of the [editor SDK](#editor-sdk) are defined.
 
-`ENGINE_EDITOR` is an engine-repo option. A game tree that sets it without `WIND_EDITOR_SDK` fails the configure with a message that points at the SDK. A game builds its editor module in [SDK mode](#sdk-mode).
+`ENGINE_EDITOR` is an engine-repo option. A tree that adds Wind with `add_subdirectory` and sets it fails the configure with a message that points at the SDK. A game builds its editor module in [SDK mode](#sdk-mode).
+
+## Version
+
+`project(engine VERSION x.y.z)` in the root `CMakeLists.txt` is the engine version (`PROJECT_VERSION`), semver. The editor SDK records it in `sdk.toml` and `WindConfigVersion.cmake`. A release is a commit on `main` that sets the version, tagged `vx.y.z`, so an SDK of an old version can be built again from its tag. The version is not a build id input: two builds of one version from different commits still get different ids when a public header differs.
 
 `WINDOWS_EXPORT_ALL_SYMBOLS` exports functions, not data. Mutable state a module must share stays in a `.cpp` behind an `ENGINE_API` function. See [Boundaries](../architecture/Boundaries.md).
 
@@ -98,7 +102,7 @@ Windows also links `ws2_32`, `advapi32`, and `winhttp` PUBLIC, because `cli_serv
 
 ## Game functions
 
-`cmake/wind_game.cmake` defines `engine_prepare_runtime`, `engine_configure_app`, `engine_add_game`, `engine_add_web_game`, and `engine_add_android_game`. The root `CMakeLists.txt` includes it in the source build. The SDK installs the same file, and `wind_sdk.cmake` includes it in SDK mode.
+`cmake/wind_game.cmake` defines `engine_prepare_runtime`, `engine_configure_app`, `engine_add_game`, `engine_add_web_game`, and `engine_add_android_game`. The root `CMakeLists.txt` includes it in the source build. The SDK installs the same file, and `WindConfig.cmake` includes it in SDK mode.
 
 The functions run in the calling directory's scope, so what they need from the engine is in cache variables both contexts set:
 
@@ -107,13 +111,13 @@ The functions run in the calling directory's scope, so what they need from the e
 | `ENGINE_FROM_SDK` | OFF | ON |
 | `ENGINE_BUILTIN_ASSETS_DIR` | `builtin_assets/` | `<sdk>/bin/assets/engine` |
 | `ENGINE_COOKED_CATALOG` | `<build>/generated/engine/catalog.toml`, cooked by the target `engine_builtin_catalog` | `<sdk>/bin/assets/engine/catalog.toml`, already cooked |
-| `ENGINE_CMAKE_DIR` | engine source tree | engine source tree (the game's submodule) |
+| `ENGINE_CMAKE_DIR` | engine source tree | not set (only the web link step reads it) |
 
 `engine`, `asset_codegen`, and `icon_codegen` are targets in both: built in the source build, imported in SDK mode.
 
 ## `engine_add_game`
 
-Call it after `add_subdirectory` of this repo. At least one source file. `ENGINE_WITH_WINDOW` must be ON (the subdirectory default). It creates the target (table below) and hands it to `engine_configure_app`.
+Call it after `find_package(Wind)` (SDK mode) or `add_subdirectory` of the engine source (static build). At least one source file. In the source build `ENGINE_WITH_WINDOW` must be ON (the subdirectory default). It creates the target (table below) and hands it to `engine_configure_app`.
 
 | Platform | Target |
 | --- | --- |
@@ -169,33 +173,50 @@ out/sdk/
   include/
     engine/**        public headers and the generated engine/build_id.h of that configuration
     glm/**           glm headers (*.h, *.hpp, *.inl)
+    gtest/**         GoogleTest headers
+  lib/gtest.lib  gtest_main.lib  (+ gtest.pdb, gtest_main.pdb on MSVC)
   cmake/
-    wind_sdk.cmake   imported targets
-    wind_game.cmake  game functions
+    WindConfig.cmake         imported targets, game functions, configuration check
+    WindConfigVersion.cmake  accepts only this engine version
+    wind_game.cmake          game functions
+  source/          the engine's build input (see below)
+  sdk.toml         version, commit, dirty, config, build_id
 ```
 
 The `.pdb` rules are `OPTIONAL` (a configuration without symbols would have none), but every configuration of the editor build makes them: Debug and RelWithDebInfo by default, Release through `/Zi` and `/DEBUG`. So `bin/` holds `engine.pdb`, `wind_editor.pdb`, `asset_codegen.pdb`, and `icon_codegen.pdb`. The binaries need only system DLLs and the VC++ runtime (SDL3, SDL3_mixer, glad, nanovg, spdlog, tinyxml2, and tomlplusplus are static inside `engine.dll`). tinyxml2 is added `EXCLUDE_FROM_ALL` so its own install rules stay out of the SDK.
 
-`wind_sdk.cmake` is generated per configuration from `cmake/wind_sdk.cmake.in` with `file(GENERATE)`, so it holds the evaluated values of the installed configuration, not generator expressions a game would evaluate against its own configuration. It finds the SDK root from its own location (the SDK can move), sets the cache entries of [Game functions](#game-functions) plus `WIND_EDITOR_SDK_DIR` and `WIND_SDK_CONFIG` (for example `Release`), checks that the files it imports exist, and defines:
+GoogleTest is the editor build's own `gtest` and `gtest_main` (shared CRT, the SDK's configuration), so a game's tests need no submodule. Built with `/Zi`, their objects point at a compile `.pdb`; the SDK puts `gtest.pdb` and `gtest_main.pdb` beside the libraries, where the linker of a game's test looks for them, or every `/DEBUG` link warns LNK4099. The Debug compile `.pdb` is renamed from googletest's `gtestpdb_debug_postfix-NOTFOUND.pdb` (its name when `CMAKE_DEBUG_POSTFIX` is unset) to `gtest.pdb`.
+
+`source/` holds `CMakeLists.txt`, `cmake/`, `include/`, `src/`, `tools/`, `builtin_assets/`, and `external/` without `.git` and `.github`, about 120 MB. The editor and SDK mode do not use it. It builds the static engine of exactly this version: `add_subdirectory(<sdk>/source wind)` in a game's own configure. That is the input of the future export, and until then the way to build a standalone executable by hand ([Game Consumer](Game%20Consumer.md#standalone-executable)). Those files are installed without a line of output each (`CMAKE_INSTALL_MESSAGE NEVER`).
+
+`sdk.toml` is written last, by `cmake/sdk_manifest.cmake` from an `install(CODE)` step:
+
+```toml
+version = "0.1.0"                                   # project(engine VERSION)
+commit = "50c292f95fec1d06617eeb17409cee2b612691e2" # git rev-parse HEAD of the engine checkout
+dirty = false                                       # git status --porcelain was not empty
+config = "Release"
+build_id = "5266d5a5ebe5603e"                       # kBuildId of the installed configuration
+```
+
+It is how the launcher and the editor know an SDK ([Editor Plan](../architecture/Editor%20Plan.md#next-projects-launcher-build-on-play)); its keys are only added, never renamed. An SDK with `dirty = true` is not the build of its version's tag. The install fails without git.
+
+`WindConfig.cmake` is generated per configuration from `cmake/WindConfig.cmake.in` with `file(GENERATE)`, so it holds the evaluated values of the installed configuration, not generator expressions a game would evaluate against its own configuration. It finds the SDK root from its own location (the SDK can move), sets the cache entries of [Game functions](#game-functions) plus `WIND_SDK_DIR` and `WIND_SDK_CONFIG` (for example `Release`), checks that the files it imports exist, and defines:
 
 | Target | What |
 | --- | --- |
 | `engine` (`engine::engine`) | `SHARED IMPORTED GLOBAL`. `IMPORTED_LOCATION` `bin/engine.dll` and `IMPORTED_IMPLIB` `lib/engine.lib`, without a configuration suffix, so every game configuration uses them. `INTERFACE_INCLUDE_DIRECTORIES` `include/`. `INTERFACE_COMPILE_DEFINITIONS` the SDK's `PUBLIC` defines for its configuration: `ENGINE_SHARED=1`, `ENGINE_EDITOR=1`, `ENGINE_UI_PROFILER`, `ENGINE_CLI_SERVER`, `ENGINE_WITH_WINDOW=1` (the same in every configuration of the editor build). `cxx_std_23`. Links `glm::glm`, and `ws2_32` and `advapi32` on Windows |
 | `glm::glm` | `INTERFACE IMPORTED GLOBAL` on `include/` |
 | `asset_codegen`, `icon_codegen` | `IMPORTED GLOBAL` executables in `bin/`. They load `engine.dll` from beside themselves |
+| `GTest::gtest`, `GTest::gtest_main` | `STATIC IMPORTED GLOBAL` on `lib/`, includes `include/`; `gtest_main` links `gtest` |
 
-Then it includes `wind_game.cmake` and calls `engine_sdk_configurations()` ([Configurations](#configurations)).
+Then it includes CMake's `GoogleTest` module (`gtest_discover_tests`) and `wind_game.cmake`, prints `Wind <version>: <config> SDK at <dir>`, and calls `engine_sdk_configurations()` ([Configurations](#configurations)). `WindConfigVersion.cmake` comes from `write_basic_package_version_file` with `ExactVersion`, so `find_package(Wind 0.2.0)` refuses a 0.1.0 SDK and lists it.
 
 ## SDK mode
 
-A game sets the cache path `WIND_EDITOR_SDK` (in practice in its `CMakeUserPresets.json`, see [Game Consumer](Game%20Consumer.md#editor-module)). Its `CMakeLists.txt` stays the same: `add_subdirectory(external/engine)`, then `engine_add_game`. The engine's root `CMakeLists.txt` then
+A game's `CMakeLists.txt` calls `find_package(Wind REQUIRED)` after its `project()`, then `engine_add_game`. CMake finds `<sdk>/cmake/WindConfig.cmake` through `CMAKE_PREFIX_PATH=<sdk>` (or `Wind_DIR=<sdk>/cmake`): the editor will pass it when it configures a project; until then the game's `CMakeUserPresets.json` sets it ([Game Consumer](Game%20Consumer.md#editor-module)). The game repo has no engine submodule.
 
-1. fails when `${WIND_EDITOR_SDK}/cmake/wind_sdk.cmake` does not exist, with the commands that make the SDK,
-2. includes it,
-3. adds `external/googletest` (shared CRT, `enable_testing`, `include(GoogleTest)`) when `ENGINE_WITH_GTEST` is ON, so the game's tests still build,
-4. returns.
-
-No engine source, host tool, editor, fixture module, or `engine_tests` is configured, and `ENGINE_EDITOR` is not read. `engine_add_game` builds the module only, into `bin/<config>/` with `assets/catalog.toml` and the game's assets. The headers, `build_id.h`, and `engine.lib` are the SDK's, so the module's `kBuildId` is the SDK's by construction.
+No engine source, host tool, editor, fixture module, or `engine_tests` is configured. `engine_add_game` builds the module only, into `bin/<config>/` with `assets/catalog.toml` and the game's assets. The headers, `build_id.h`, and `engine.lib` are the SDK's, so the module's `kBuildId` is the SDK's by construction.
 
 ### Configurations
 
@@ -206,7 +227,7 @@ A module shares the C runtime, the heap, and STL objects with the SDK's `engine.
 | Release (any configuration but Debug) | `DebugGame` and `Release` | `/MD` in both |
 | Debug | `Debug` | `/MDd` |
 
-The list is `CMAKE_CONFIGURATION_TYPES` (Visual Studio, Ninja Multi-Config) or `CMAKE_BUILD_TYPE` (Ninja, Makefiles). A subset (only `Release`) is fine. It has to be set before the game's `project()`, which runs before Wind is added, so the game's `editor` preset sets it (`"CMAKE_CONFIGURATION_TYPES": "DebugGame;Release"`, see [Game Consumer](Game%20Consumer.md#editor-module)); the engine only checks it. CMake's default list (`Debug;Release;MinSizeRel;RelWithDebInfo`) fails: Debug would load the debug CRT into a release `engine.dll`.
+The list is `CMAKE_CONFIGURATION_TYPES` (Visual Studio, Ninja Multi-Config) or `CMAKE_BUILD_TYPE` (Ninja, Makefiles). A subset (only `Release`) is fine. It has to be set before the game's `project()`, which runs before `find_package(Wind)`, so the game's `editor` preset sets it (`"CMAKE_CONFIGURATION_TYPES": "DebugGame;Release"`, see [Game Consumer](Game%20Consumer.md#editor-module)); the engine only checks it. CMake's default list (`Debug;Release;MinSizeRel;RelWithDebInfo`) fails: Debug would load the debug CRT into a release `engine.dll`.
 
 | | `DebugGame` | `Release` |
 | --- | --- | --- |
@@ -215,7 +236,7 @@ The list is `CMAKE_CONFIGURATION_TYPES` (Visual Studio, Ninja Multi-Config) or `
 | `_ITERATOR_DEBUG_LEVEL` | 0 | 0 |
 | Other compilers | `-O0 -g` | CMake's |
 
-CMake has no flags for a configuration it does not know, so `engine_sdk_configurations` sets `CMAKE_C_FLAGS_DEBUGGAME`, `CMAKE_CXX_FLAGS_DEBUGGAME`, `CMAKE_EXE_LINKER_FLAGS_DEBUGGAME`, `CMAKE_SHARED_LINKER_FLAGS_DEBUGGAME`, `CMAKE_MODULE_LINKER_FLAGS_DEBUGGAME`, `CMAKE_STATIC_LINKER_FLAGS_DEBUGGAME`, and `CMAKE_MSVC_RUNTIME_LIBRARY` (`MultiThreadedDLL`) as cache defaults. Cache entries reach every directory of the game's tree, so the module, the game's own test executables, and googletest from the submodule all build `DebugGame` with the release CRT. The `/MD` in the flags covers targets whose directory has policy CMP0091 OLD (googletest asks for CMake 3.13) and so reads the runtime from the flags. A game can override the defaults in its preset. `DebugGame` is not in `DEBUG_CONFIGURATIONS`, so `debug`/`optimized` link items pick the release side. The `Release` extras are per target in `engine_add_game`, because `CMAKE_CXX_FLAGS_RELEASE` already exists in the game's cache.
+CMake has no flags for a configuration it does not know, so `engine_sdk_configurations` sets `CMAKE_C_FLAGS_DEBUGGAME`, `CMAKE_CXX_FLAGS_DEBUGGAME`, `CMAKE_EXE_LINKER_FLAGS_DEBUGGAME`, `CMAKE_SHARED_LINKER_FLAGS_DEBUGGAME`, `CMAKE_MODULE_LINKER_FLAGS_DEBUGGAME`, `CMAKE_STATIC_LINKER_FLAGS_DEBUGGAME`, and `CMAKE_MSVC_RUNTIME_LIBRARY` (`MultiThreadedDLL`) as cache defaults. Cache entries reach every directory of the game's tree, so the module and the game's own test executables all build `DebugGame` with the release CRT. The `/MD` in the flags covers targets whose directory has policy CMP0091 OLD and so reads the runtime from the flags. A game can override the defaults in its preset. `DebugGame` is not in `DEBUG_CONFIGURATIONS`, so `debug`/`optimized` link items pick the release side. The `Release` extras are per target in `engine_add_game`, because `CMAKE_CXX_FLAGS_RELEASE` already exists in the game's cache.
 
 Game asserts and `#if !defined(NDEBUG)` work in `DebugGame`. STL checks and the CRT debug heap need `/MDd`, so they need a Debug SDK.
 
@@ -239,7 +260,7 @@ Not cross-compiling: `asset_codegen`, `asset_guid` (link `engine`), `wind-cli` (
 
 Cross-compiling: `asset_codegen` and `icon_codegen` are `IMPORTED` from the host-path cache variables. `asset_guid` and `wind-cli` are not built in that configure.
 
-`tests/cmake_sanity_test.cpp` also checks the CMake text: the icon, favicon, and Android manifest rules in `cmake/wind_game.cmake`, and that SDK mode returns before the `engine` target exists, imports `engine` and the tools, and sets up `DebugGame`. It also checks that the editor build has the profiler and the CLI, and that `ENGINE_BUILD_DEBUG_CRT` and `ENGINE_BUILD_ITERATOR_DEBUG_LEVEL` describe the test binary's own CRT.
+`tests/cmake_sanity_test.cpp` also checks the CMake text: the icon, favicon, and Android manifest rules in `cmake/wind_game.cmake`, and that the root has no SDK branch, has a version, installs `WindConfig.cmake` with an exact-version file, `sdk.toml`, and `source/`, and that the config imports `engine`, the tools, and GoogleTest and sets up `DebugGame`. It also checks that the editor build has the profiler and the CLI, and that `ENGINE_BUILD_DEBUG_CRT` and `ENGINE_BUILD_ITERATOR_DEBUG_LEVEL` describe the test binary's own CRT.
 
 ## See also
 
