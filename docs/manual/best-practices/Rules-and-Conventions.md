@@ -1,16 +1,16 @@
 # Rules & Conventions
 
-To maintain a clean codebase and ensure seamless upgrades when updating the engine submodule, adhere to these coding standards.
+To maintain a clean codebase and ensure seamless upgrades when moving to a new engine SDK, adhere to these coding standards.
 
 ---
 
 ## 1. Engine Boundaries
 
 - **Includes:** Game code must include **only** `<engine/...>`.
-  - **Never** include engine private headers (`external/engine/src/...`).
+  - **Never** include engine private headers (`src/...` of the engine; the SDK's `include/` has only the public ones).
   - **Never** directly include third-party dependencies used by the engine (`SDL3`, `glad`, `NanoVG`, `spdlog`, `tinyxml2`, `SDL_mixer`).
 - **Main Thread Only:** Engine APIs (`World`, `AssetsDb`, `CommandBuffer`, `UiCanvas`) are not thread-safe and must be invoked exclusively from the main thread.
-- **Submodule Discipline:** Treat the `external/engine` submodule as a fixed pin. Do not commit engine edits directly inside your game repository.
+- **SDK Discipline:** Your game builds against an installed Wind SDK (`find_package(Wind)`); its version is your engine version. Never edit the SDK. An engine change goes to the engine repo and reaches the game as a new SDK.
 
 ---
 

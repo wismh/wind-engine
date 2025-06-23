@@ -6,10 +6,10 @@ The Wind engine provides the CMake helper `engine_add_game` to streamline target
 
 ## The `engine_add_game` Command
 
-In your `CMakeLists.txt`:
+In your `CMakeLists.txt`, after `find_package(Wind REQUIRED)` (the installed SDK, found through `CMAKE_PREFIX_PATH`):
 
 ```cmake
-add_subdirectory(external/engine)
+find_package(Wind REQUIRED)
 
 engine_add_game(my_game
     src/main.cpp
@@ -19,7 +19,7 @@ engine_add_game(my_game
 ```
 
 ### What `engine_add_game` Configures Automatically:
-1. **Target Type:** Creates an executable on desktop/web, or a shared library `libmain.so` on Android.
+1. **Target Type:** Against the SDK, a game module (`my_game.dll`) the editor loads on Play. In a standalone build from the SDK's engine source, an executable on desktop/web or `libmain.so` on Android.
 2. **C++ Standard:** Sets C++23 standard with compiler-specific optimizations and warning levels.
 3. **Asset Codegen (`<game>_assets`):** Registers custom commands that run `asset_codegen` over the game's `assets/` folder, producing:
    - `<build>/generated/<game>/asset_ids.h`
@@ -32,9 +32,9 @@ engine_add_game(my_game
 
 ## Configuration Options
 
-When configuring Wind as a submodule, several CMake options control features:
+These options apply to a standalone build, which adds the SDK's engine source with `add_subdirectory(<sdk>/source wind)` instead of `find_package` (until the editor exports games). Against the SDK they are fixed by the SDK.
 
-| Option | Default in Submodule | Description |
+| Option | Default as a subdirectory | Description |
 | --- | --- | --- |
 | `ENGINE_WITH_WINDOW` | `ON` | Windowing, SDL3, and OpenGL / WebGL2 render backend. |
 | `ENGINE_WITH_AUDIO` | `ON` | SDL_mixer audio system and SFX/Music playback. |
@@ -46,7 +46,7 @@ If your game does not need audio, override `ENGINE_WITH_AUDIO` **before** `add_s
 
 ```cmake
 set(ENGINE_WITH_AUDIO OFF CACHE BOOL "" FORCE)
-add_subdirectory(external/engine)
+add_subdirectory(path/to/sdk/source wind)
 ```
 
 > [!NOTE]
@@ -56,12 +56,11 @@ add_subdirectory(external/engine)
 
 ## Adding Game Unit Tests
 
-To write unit tests for your gameplay domain using GoogleTest:
+GoogleTest ships in the SDK, built with its runtime, so `find_package(Wind)` already gives `GTest::gtest_main` and `gtest_discover_tests`:
 
 ```cmake
-# Enable GoogleTest without compiling engine_tests
-set(ENGINE_WITH_GTEST ON CACHE BOOL "" FORCE)
-add_subdirectory(external/engine)
+find_package(Wind REQUIRED)
+enable_testing()
 
 # Your test executable
 add_executable(game_tests
@@ -69,41 +68,44 @@ add_executable(game_tests
     src/domain/inventory.cpp
 )
 target_link_libraries(game_tests PRIVATE GTest::gtest_main)
+gtest_discover_tests(game_tests DISCOVERY_MODE PRE_TEST)
 ```
+
+Run them with `ctest --test-dir build-editor -C DebugGame`.
 
 This keeps your unit test suite fast, deterministic, and free from engine dependencies.
 
 ---
 
-## Recommended `CMakePresets.json`
+## Recommended Presets
 
-Create a `CMakePresets.json` in your repository root:
+`CMakePresets.json` (committed). The configurations have to be set before `project()`: against a Release SDK only `DebugGame` and `Release` are allowed.
 
 ```json
 {
-  "version": 3,
+  "version": 6,
   "configurePresets": [
     {
-      "name": "dev",
-      "displayName": "Developer Build",
-      "generator": "Visual Studio 17 2022",
-      "binaryDir": "${sourceDir}/build"
-    },
-    {
-      "name": "ninja-dev",
-      "displayName": "Ninja Clang/GCC",
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build-ninja",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
-      }
+      "name": "editor",
+      "displayName": "Game module for the Wind editor",
+      "generator": "Visual Studio 18 2026",
+      "binaryDir": "${sourceDir}/build-editor",
+      "cacheVariables": { "CMAKE_CONFIGURATION_TYPES": "DebugGame;Release" }
     }
-  ],
-  "buildPresets": [
+  ]
+}
+```
+
+`CMakeUserPresets.json` (not committed) points at the SDK on this machine:
+
+```json
+{
+  "version": 6,
+  "configurePresets": [
     {
-      "name": "dev",
-      "configurePreset": "dev",
-      "configuration": "RelWithDebInfo"
+      "name": "editor-local",
+      "inherits": "editor",
+      "cacheVariables": { "CMAKE_PREFIX_PATH": "C:/path/to/wind-engine/out/sdk" }
     }
   ]
 }
@@ -112,8 +114,8 @@ Create a `CMakePresets.json` in your repository root:
 Then build from the command line:
 
 ```bash
-cmake --preset dev
-cmake --build --preset dev
+cmake --preset editor-local
+cmake --build build-editor --config DebugGame
 ```
 
 ---
