@@ -1,5 +1,7 @@
 #pragma once
 
+#include <engine/core/window_desc.h>
+#include <engine/ecs/world.h>
 #include <engine/render/commands.h>
 #include <engine/resources/asset_id.h>
 #include <engine/ui/document.h>
@@ -8,6 +10,7 @@
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
 
+#include <functional>
 #include <string_view>
 
 namespace engine::ui {
@@ -54,5 +57,19 @@ void apply_layout_style(
         Element& root, const Stylesheet* sheet, float window_width = 0.0f, float window_height = 0.0f);
 void layout(UiDocument& document, const render::Rect& canvas_rect, IUiPainter* painter);
 void paint_document(UiDocument& document, const Stylesheet* stylesheet, IUiPainter& painter, const UiPaintInput& input);
+
+// Per-window painter used by hit-test layout so hug text metrics match paint_document.
+// Unset / empty resolve keeps the CPU fallback (engine_tests, windows with no UI painter).
+struct UiLayoutPainters {
+    std::function<IUiPainter*(WindowId)> resolve;
+};
+
+[[nodiscard]] inline IUiPainter* layout_painter_for(ecs::World& world, WindowId window) {
+    const UiLayoutPainters& painters = world.ctx<UiLayoutPainters>();
+    if (!painters.resolve) {
+        return nullptr;
+    }
+    return painters.resolve(window);
+}
 
 }
