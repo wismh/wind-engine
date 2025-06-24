@@ -32,7 +32,39 @@ ENGINE_HOST_ICON_CODEGEN = "/path/to/native/icon_codegen"
 2. **Assets Staging:** The build packages cooked assets into Android's APK assets (`assets/`). At first launch, the engine stages them to internal storage so standard C++ `std::ifstream` streams can load them.
 3. **Graphics API:** Wind configures an OpenGL ES 3.0 context (`GraphicsProfile::Api::Gles3`).
 4. **App Lifecycle:** Pausing the app (home button, phone call) invokes lifecycle callbacks and pauses the simulation loop automatically.
-5. **Back Button:** Pressing the Android back button routes as a back action event.
+5. **Back Button:** The engine never quits on Back. The key arrives as `engine::KeyCode::AcBack`, like any other key, and your game decides what it does (see below).
+
+### The back button
+
+Bind `KeyCode::AcBack` to an action of your own and handle it like any other action: pop the current screen, and quit only from the root screen. If you do not bind it, Back does nothing.
+
+```cpp
+#include <engine/core/application_state.h>
+#include <engine/core/input_system.h>
+#include <engine/ecs/events.h>
+
+void MyGame::on_start() {
+    back_ = services_.input.intern("back");
+    services_.input.bind(engine::KeyCode::AcBack, back_);
+    services_.input.bind(engine::KeyCode::Escape, back_); // same action on desktop
+
+    world_.add_system(engine::ecs::Schedule::Frame, engine::ecs::Phase::Game, [this](engine::ecs::World& world) {
+        for (const engine::InputEvent& event : engine::ecs::EventReader<engine::InputEvent>{
+                     world, world.ctx<engine::ecs::EventCursor<engine::InputEvent>>()}) {
+            if (event.action != back_ || event.kind != engine::InputEvent::Kind::Down) {
+                continue;
+            }
+            if (screens_.size() > 1) {
+                pop_screen();
+            } else {
+                world.ctx<engine::ApplicationState>().quit();
+            }
+        }
+    });
+}
+```
+
+While a `TextInput` has the soft keyboard open, Back only closes the keyboard (the field loses focus). That press never reaches `InputSystem`, so the game does not also navigate back. The next press is delivered as usual.
 
 ---
 

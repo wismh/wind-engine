@@ -109,8 +109,8 @@ Lifecycle (`include/engine/core/app_lifecycle.h`):
 | `WillEnterBackground` | `paused = true` |
 | `DidEnterForeground` | `paused = false` |
 | `Terminating` | `quit()` |
-| Android back, text input inactive | `quit()` |
-| Android back, text input active | no change. The SDL poll path dismisses the field |
+
+The Android back key is not a lifecycle event. The engine never quits on it; it is `KeyCode::AcBack`, and the game binds it. See [Input Mapper](../features/Input%20Mapper.md#android-back).
 
 ## Platform and user data
 
@@ -160,7 +160,8 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 | `src/core/game_loop.cpp` | frame clock and `RunHooks`. Calls `IPresentation`, not SDL |
 | `src/core/web_loop.cpp` | `MainLoopPolicy`, `LoopShutdown` |
 | `src/core/file_dialog_call.cpp` | `FileDialogCall`, an owned open-file dialog; answers wait in `CallCompletions` (`src/core/call_completions.h`) |
-| `src/core/app_lifecycle.cpp` | pause, resume, terminate, Android back |
+| `src/core/app_lifecycle.cpp` | pause, resume, terminate |
+| `src/core/back_key_filter.cpp` | `BackKeyFilter`: whether an `AcBack` key event reaches `InputSystem` or only dismisses text input |
 | `src/cli/cli_server.cpp` | loopback server. The translation unit is empty without `ENGINE_CLI_SERVER` |
 
 ## Only with `ENGINE_WITH_WINDOW`
