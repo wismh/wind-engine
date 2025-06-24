@@ -43,6 +43,8 @@
 #include <engine/ui/canvas.h>
 #include <engine/ui/command.h>
 #include <engine/ui/document.h>
+#include <engine/ui/draw_list.h>
+#include <engine/ui/paint.h>
 #include <engine/ui/stylesheet.h>
 #include <engine/ui/view_model.h>
 
