@@ -9,6 +9,8 @@
 #include <engine/ui/stylesheet.h>
 #include <engine/ui/view_model.h>
 
+#include <glm/vec2.hpp>
+
 #include <cstddef>
 #include <expected>
 #include <functional>
@@ -39,6 +41,7 @@ enum class ElementKind {
     ItemTemplate,
     Line,
     Component,
+    Viewport,
 };
 
 enum class StackDirection {
@@ -111,6 +114,9 @@ struct LengthInsets {
 };
 
 constexpr float kDefaultFontSize = 16.0f;
+constexpr float kViewportMinZoom = 0.25f;
+constexpr float kViewportMaxZoom = 4.0f;
+constexpr float kViewportZoomStep = 1.1f;
 
 [[nodiscard]] inline float resolve_literal(float value, LengthUnit unit, float percent_basis, float em_basis) noexcept {
     switch (unit) {
@@ -191,6 +197,13 @@ struct Element {
     // {binding path} target for `paint="{binding ...}"` (any element kind). Unset means no custom
     // draw; `IPaint*` is filled in bind_element like `command`.
     BindingId paint_binding{};
+    // Viewport camera. Unbound axes stay pan 0 / zoom 1; gestures that need a missing binding no-op.
+    BindingId pan_x_binding{};
+    BindingId pan_y_binding{};
+    BindingId zoom_binding{};
+    float pan_x = 0.0f;
+    float pan_y = 0.0f;
+    float zoom = 1.0f;
     std::optional<AssetId> source;
     std::optional<LengthInsets> slice;
     std::vector<CustomPropertyBinding> custom_property_bindings;
@@ -290,9 +303,28 @@ void layout(UiDocument& document, const render::Rect& canvas_rect);
 
 // Topmost interactive element under (x, y): prunes by hit_bounds() containment, visits siblings
 // in reverse stacking order (highest z-index / last-drawn first), returns the first element that
-// is a Button, or has a bound `command` or `drag` (any element kind), or nullptr. Shared by click
-// resolution (canvas.cpp) and hover resolution (paint.cpp) so both agree on which element is "on
-// top."
+// is a Button, or has a bound `command` or `drag` (any element kind), or a Viewport with a camera
+// binding, or nullptr. Viewport camera inverses the pointer for descendants and clips to the
+// unpanned layout_rect. Shared by click resolution (canvas.cpp) and hover resolution (paint.cpp).
 [[nodiscard]] Element* hit_test(Element& root, float x, float y);
+
+[[nodiscard]] inline bool has_viewport_camera(const Element& element) noexcept {
+    return is_bound(element.pan_x_binding) || is_bound(element.pan_y_binding) || is_bound(element.zoom_binding);
+}
+
+[[nodiscard]] inline float viewport_zoom(float zoom) noexcept {
+    return zoom > 0.0f ? zoom : 1.0f;
+}
+
+// Inverse of the Viewport paint camera: displayed = O + Z * (layout - O + P).
+[[nodiscard]] inline glm::vec2 inverse_viewport_pointer(const Element& viewport, glm::vec2 pointer) noexcept {
+    const glm::vec2 origin{viewport.layout_rect.x, viewport.layout_rect.y};
+    const float z = viewport_zoom(viewport.zoom);
+    return origin + (pointer - origin) / z - glm::vec2{viewport.pan_x, viewport.pan_y};
+}
+
+// Innermost Viewport whose clip contains `pointer` after ancestor camera inverses. Used by wheel
+// zoom so a node under the cursor still zooms its enclosing Viewport.
+[[nodiscard]] Element* find_viewport_at(Element& root, float x, float y);
 
 }

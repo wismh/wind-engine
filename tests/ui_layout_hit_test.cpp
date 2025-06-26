@@ -6,10 +6,13 @@
 #include <engine/ui/binding_id.h>
 #include <engine/ui/canvas.h>
 #include <engine/ui/document.h>
+#include <engine/ui/stylesheet.h>
 #include <engine/ui/view_model.h>
 
 #include <memory>
+#include <string>
 #include <string_view>
+#include <vector>
 
 #if defined(NANOVG_H) || defined(NANOVG_GL_H) || defined(NANOVG_GL3)
 #error "ui layout hit tests must not include nvg headers"
@@ -36,6 +39,7 @@ public:
     void restore() override {}
     void scissor(const engine::render::Rect&) override {}
     void apply_transform(glm::vec2, float, float) override {}
+    void apply_view(glm::vec2, glm::vec2, float) override {}
     void set_opacity(float) override {}
     void fill_rounded_rect(const engine::render::Rect&, float, glm::vec4) override {}
     void stroke_rounded_rect(const engine::render::Rect&, float, float, glm::vec4) override {}
@@ -50,12 +54,41 @@ public:
     }
 };
 
+class ViewportCameraViewModel final : public engine::ui::ViewModel {
+public:
+    int clicks = 0;
+    engine::ui::Bindable<float> pan_x;
+    engine::ui::Bindable<float> pan_y;
+    engine::ui::Bindable<float> zoom;
+    engine::ui::RelayCommand click;
+
+    ViewportCameraViewModel() {
+        property(engine::ui::intern("pan_x"), pan_x);
+        property(engine::ui::intern("pan_y"), pan_y);
+        property(engine::ui::intern("zoom"), zoom);
+        command(engine::ui::intern("click"), click);
+        click = [this] { ++clicks; };
+        zoom.set(1.0f);
+    }
+};
+
+engine::ui::Stylesheet viewport_sheet() {
+    std::vector<std::string> warnings;
+    auto sheet = engine::ui::parse_css(R"(
+        Viewport { width: 100; height: 100; }
+        Button { width: 20; height: 20; position: absolute; left: 80; top: 80; }
+    )",
+            warnings);
+    EXPECT_TRUE(sheet.has_value());
+    return *sheet;
+}
+
 }
 
 TEST(UiLayoutHit, PointerLayoutMatchesPaintWhenPainterRegistered) {
     engine::ecs::World world;
     auto vm = std::make_shared<ClickViewModel>();
-    const auto parsed = engine::ui::parse_xml(
+    auto parsed = engine::ui::parse_xml(
             R"(<Canvas><Stack><Label text="Title"/><Button command="{binding click}" content="Go"/></Stack></Canvas>)",
             nullptr, vm.get());
     ASSERT_TRUE(parsed.has_value());
@@ -99,4 +132,57 @@ TEST(UiLayoutHit, PointerLayoutMatchesPaintWhenPainterRegistered) {
     EXPECT_FLOAT_EQ(hit_button->layout_rect.y, paint_rect.y);
     EXPECT_FLOAT_EQ(hit_button->layout_rect.w, paint_rect.w);
     EXPECT_FLOAT_EQ(hit_button->layout_rect.h, paint_rect.h);
+}
+
+TEST(UiLayoutHit, ViewportPanDoesNotMoveLayoutRect) {
+    ViewportCameraViewModel vm;
+    vm.zoom.set(1.0f);
+    auto parsed = engine::ui::parse_xml(
+            R"(<Canvas><Viewport pan-x="{binding pan_x}" pan-y="{binding pan_y}" zoom="{binding zoom}">
+                 <Button command="{binding click}" content="Go"/>
+               </Viewport></Canvas>)",
+            nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+    const engine::ui::Stylesheet sheet = viewport_sheet();
+    engine::ui::apply_layout_style(parsed->root, &sheet, 100.0f, 100.0f);
+    engine::ui::layout(*parsed, engine::render::Rect{0.0f, 0.0f, 100.0f, 100.0f});
+    const engine::ui::Element* button = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Button);
+    ASSERT_NE(button, nullptr);
+    const engine::render::Rect before = button->layout_rect;
+
+    vm.pan_x.set(-60.0f);
+    vm.zoom.set(2.0f);
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+    engine::ui::apply_layout_style(parsed->root, &sheet, 100.0f, 100.0f);
+    engine::ui::layout(*parsed, engine::render::Rect{0.0f, 0.0f, 100.0f, 100.0f});
+    const engine::ui::Element* after = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Button);
+    ASSERT_NE(after, nullptr);
+    EXPECT_EQ(after->layout_rect, before);
+}
+
+TEST(UiLayoutHit, ViewportHitTestInvertsPanAndClips) {
+    ViewportCameraViewModel vm;
+    vm.pan_x.set(-60.0f);
+    vm.zoom.set(1.0f);
+    auto parsed = engine::ui::parse_xml(
+            R"(<Canvas><Viewport pan-x="{binding pan_x}" pan-y="{binding pan_y}" zoom="{binding zoom}">
+                 <Button command="{binding click}" content="Go"/>
+               </Viewport></Canvas>)",
+            nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
+    const engine::ui::Stylesheet sheet = viewport_sheet();
+    engine::ui::apply_layout_style(parsed->root, &sheet, 100.0f, 100.0f);
+    engine::ui::layout(*parsed, engine::render::Rect{0.0f, 0.0f, 100.0f, 100.0f});
+
+    engine::ui::Element* inside = engine::ui::hit_test(parsed->root, 20.0f, 80.0f);
+    ASSERT_NE(inside, nullptr);
+    EXPECT_EQ(inside->kind, engine::ui::ElementKind::Button);
+
+    engine::ui::Element* empty = engine::ui::hit_test(parsed->root, 10.0f, 10.0f);
+    ASSERT_NE(empty, nullptr);
+    EXPECT_EQ(empty->kind, engine::ui::ElementKind::Viewport);
+
+    EXPECT_EQ(engine::ui::hit_test(parsed->root, 150.0f, 80.0f), nullptr);
 }

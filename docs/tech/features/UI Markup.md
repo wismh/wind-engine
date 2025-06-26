@@ -6,7 +6,7 @@ tags: [feature]
 
 ## Parse
 
-[[src.ui.xml_parser.cpp]]: tinyxml2, known tags only. `command` / `paint` / `drag` must be `{binding}`. `source` is 32-hex or binding, never a filename. `{binding path}` attributes (`text`/`content`/`command`/`paint`/`source`/`items_source`) are interned to a `BindingId` at parse time ([[include.engine.ui.binding_id.h]]), not stored as strings. `Component` is an empty layout hole.
+[[src.ui.xml_parser.cpp]]: tinyxml2, known tags only. `command` / `paint` / `drag` / `pan-x` / `pan-y` / `zoom` must be `{binding}`. `source` is 32-hex or binding, never a filename. `{binding path}` attributes (`text`/`content`/`command`/`paint`/`source`/`items_source`/`pan-x`/`pan-y`/`zoom`) are interned to a `BindingId` at parse time ([[include.engine.ui.binding_id.h]]), not stored as strings. `Component` is an empty layout hole. `Viewport` is a nested clip+camera (not a document root).
 
 [[src.ui.css_parser.cpp]]: selectors `E`, `.c`, `#id`, `E.c`, descendant `A B`, child `A > B` (no `+`/`~`, no `,` grouping), optional `:hover|:pressed|:disabled`. Known properties listed in parser; others warn. Units: px/`%`/`em`, `calc(+ - * /)`. `@media (min-width|min-height: N)` and `@keyframes` (opacity only) — see [[modules/UI]]. `z-index`, `position`/`top`/`right`/`bottom`/`left`, and `transform: rotate() scale()` are known properties too, parsed the same way but affecting layout/paint order rather than sizing — see Layout/Paint below.
 
@@ -32,9 +32,11 @@ Canvas/Button/Label children (non-stack) still overlay the same content rect, bu
 
 `run_ui_render` sorts canvases by `order` (low first = behind) and pushes `CmdDrawUI`. Within a canvas, `paint_element` stable-sorts each set of siblings by `z_index` (low first = behind, same convention, tie-broken by document order) before recursing — [[src.ui.document.cpp]] `child_stacking_order()`, shared with hit-testing so paint order and click/hover order always agree. A non-identity `transform: rotate()`/`scale()` calls `IUiPainter::apply_transform(center, radians, scale)` once, right after `scissor()` and before painting the element's own visuals and children — `layout_rect` itself is never transformed (paint-time only, same pattern as `ScaleWithScreenSize`'s letterbox scale), and children inherit the transform for free through NanoVG's own transform stack since `restore()` (already bracketing the element) undoes it, needing no separate "un-apply" call.
 
+Per-element `scissor` is `nvgIntersectScissor` (NanoVG save/restore keeps ancestor clip). `<Viewport>` paints chrome unpanned, then `apply_view(origin, pan, zoom)` matching `displayed = O + Z * (layout - O + P)` before children. Camera pan/zoom come from bound floats, not layout.
+
 ## Builder
 
-[[src.ui.builder.cpp]] / [[include.engine.ui.builder.h]]: `ui::Node` owns an `Element`; factories match XML tags (`component()`, `paint_bind`); `add` moves children; `make_document` requires a Canvas root. Bindings are `intern` ids (no XML codegen). Spawn with [[include.engine.ui.canvas.h]] `spawn_canvas`. Tests: [[tests.ui_builder_test.cpp]], [[tests.ui_paint_binding_test.cpp]].
+[[src.ui.builder.cpp]] / [[include.engine.ui.builder.h]]: `ui::Node` owns an `Element`; factories match XML tags (`component()`, `viewport()`, `paint_bind`); `add` moves children; `make_document` requires a Canvas root. Bindings are `intern` ids (no XML codegen). Spawn with [[include.engine.ui.canvas.h]] `spawn_canvas`. Tests: [[tests.ui_builder_test.cpp]], [[tests.ui_paint_binding_test.cpp]].
 
 ## Files
 
