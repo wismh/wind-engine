@@ -4,6 +4,7 @@
 #include <engine/ui/bindable.h>
 #include <engine/ui/binding_id.h>
 #include <engine/ui/command.h>
+#include <engine/ui/paint.h>
 
 #include <memory>
 #include <optional>
@@ -27,6 +28,7 @@ public:
 
     [[nodiscard]] bool has_property(BindingId id) const;
     [[nodiscard]] bool has_command(BindingId id) const;
+    [[nodiscard]] bool has_paint(BindingId id) const;
     [[nodiscard]] std::optional<std::string> read_property_string(BindingId id) const;
     [[nodiscard]] std::optional<AssetId> read_property_asset_id(BindingId id) const;
     [[nodiscard]] std::optional<float> read_property_float(BindingId id) const;
@@ -38,6 +40,8 @@ public:
     [[nodiscard]] std::vector<ViewModel*> read_item_source(BindingId id) const;
     [[nodiscard]] ICommand* find_command(BindingId id);
     [[nodiscard]] const ICommand* find_command(BindingId id) const;
+    [[nodiscard]] IPaint* find_paint(BindingId id);
+    [[nodiscard]] const IPaint* find_paint(BindingId id) const;
 
     template<typename T>
     void property(BindingId id, Bindable<T>& bindable);
@@ -46,6 +50,7 @@ public:
     void property(BindingId id, BindableList<std::shared_ptr<T>>& list);
 
     void command(BindingId id, ICommand& command);
+    void paint(BindingId id, IPaint& paint);
 
 private:
     struct PropertyRef {
@@ -59,6 +64,7 @@ private:
 
     std::unordered_map<BindingId, PropertyRef> properties_;
     std::unordered_map<BindingId, ICommand*> commands_;
+    std::unordered_map<BindingId, IPaint*> paints_;
 };
 
 template<typename T>

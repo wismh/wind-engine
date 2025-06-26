@@ -8,11 +8,9 @@
 
 namespace engine {
 
-// Thin adapter so a game can request IWindowControl through DI (§4.2) instead of reaching into
+// Thin adapter so a game can request IWindowControl through DI instead of reaching into
 // EngineRuntime directly. Holds references, not ownership — both WindowManager and
 // DesktopOverlayPolicy outlive this for the lifetime of EngineRuntime (see EngineRuntime::Impl).
-// open_window/close_window are the first WindowId-addressed methods here (§21.7); every other
-// method still means kPrimaryWindow only, forwarded through windows_->primary_window().
 class WindowControlImpl final : public IWindowControl {
 public:
     WindowControlImpl(WindowManager& windows, DesktopOverlayPolicy& overlay) : windows_(&windows), overlay_(&overlay) {}

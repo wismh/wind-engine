@@ -11,7 +11,7 @@
 namespace engine {
 
 // Three phases instead of one duration_seconds: fade-in and fade-out need to be timed
-// independently from the hold in the middle (SDD §20.1).
+// independently from the hold in the middle.
 struct SplashScreen {
     bool enabled = true;
     AssetId image = builtin::splash_wind;
@@ -24,9 +24,9 @@ class IGame {
 public:
     virtual ~IGame() = default;
 
-    // Replaces the older separate window_title()/window_size() pair (SDD §5, §21.2) — a breaking
-    // change made pre-1.0, not a compatibility shim. Only the primary window is declared up
-    // front; any further window is opened later through IWindowControl (§21.3).
+    // Replaces the older separate window_title()/window_size() pair — a breaking
+    // change, not a compatibility shim. Only the primary window is declared up
+    // front; any further window is opened later through IWindowControl.
     virtual WindowDesc primary_window() const {
         return {};
     }

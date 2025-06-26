@@ -41,20 +41,19 @@ public:
 
     // Current OS cursor position in this window's client pixels, queried directly
     // (SDL_GetGlobalMouseState + SDL_GetWindowPosition) rather than read from the last delivered
-    // SDL_EVENT_MOUSE_MOTION. SDD §21.7 regression fix: once click-through is actually applied
+    // SDL_EVENT_MOUSE_MOTION. Regression fix: once click-through is actually applied
     // (WS_EX_TRANSPARENT set), Windows stops delivering WM_MOUSEMOVE for any point that hit-tests
     // as HTTRANSPARENT — including a point that later moves onto a widget — so a caller that only
     // ever reacts to real motion events can never learn the pointer came back over something
-    // clickable. std::nullopt without a live window (§12.3). Assumes the window's OS position *is*
-    // its client-area origin, true for the borderless windows this exists for (SDD §21.7 — a
-    // bordered window's own titlebar drag doesn't need this workaround, see the caller).
+    // clickable. std::nullopt without a live window. Assumes the window's OS position *is*
+    // its client-area origin, true for the borderless windows this exists for.
     [[nodiscard]] std::optional<glm::vec2> cursor_client_position() const;
 
     [[nodiscard]] bool is_transparent() const noexcept {
         return transparent_;
     }
 
-    // Manual on/off a settings-menu checkbox binds to (§21.4); does not itself touch the OS
+    // Manual on/off a settings-menu checkbox binds to; does not itself touch the OS
     // window — update_click_through() applies it once per frame.
     void set_click_through_enabled(bool enabled) noexcept {
         click_through_enabled_ = enabled;
@@ -66,7 +65,7 @@ public:
 
     // True once apply_click_through(true) actually landed on the OS window (WS_EX_TRANSPARENT
     // currently set) — distinct from click_through_enabled(), the manual on/off toggle. The Win32
-    // hit-test hook (window_drag_hit_test's caller in window_system.cpp, SDD §21.7 fix) reads this
+    // hit-test hook (window_drag_hit_test's caller in window_system.cpp, fix) reads this
     // to decide whether a point outside the drag region should resolve to HTTRANSPARENT instead of
     // the HTCLIENT SDL would otherwise hardcode once any SDL_HitTest callback is installed.
     [[nodiscard]] bool click_through_applied() const noexcept {
@@ -74,11 +73,11 @@ public:
     }
 
     // Called once per frame from EngineRuntime::tick_loop() with this frame's UiInputSystem hit
-    // result. No-op without a window (§12.3 — no real window in engine_tests).
+    // result. No-op without a window (no real window in engine_tests).
     void update_click_through(bool pointer_hit_something);
 
-    // Marks a window-client-pixel region draggable (SDD §21.7) — needed for a borderless window,
-    // which has no OS titlebar to drag by. nullopt clears it. No-op without a window (§12.3).
+    // Marks a window-client-pixel region draggable — needed for a borderless window,
+    // which has no OS titlebar to drag by. nullopt clears it. No-op without a window.
     // Not routed through the OS's own drag mechanism (SDL_HITTEST_DRAGGABLE/HTCAPTION) — see
     // begin_drag_if_in_region()'s doc comment for why — so this purely updates the stored rect
     // that helper (and the click-through exclusion in update_click_through()/win32_hit_test_wndproc)
@@ -87,7 +86,7 @@ public:
         drag_region_ = region;
     }
 
-    // SDD §21.7: starts a manually-implemented drag if `window_local_pos` (client pixels, e.g. from
+    // starts a manually-implemented drag if `window_local_pos` (client pixels, e.g. from
     // an SDL_EVENT_MOUSE_BUTTON_DOWN's x/y) falls inside drag_region_, deliberately *without* ever
     // going through the OS's native HTCAPTION/DefWindowProc-modal-loop path. That path hands control
     // of the calling thread to DefWindowProc's own modal move loop until the mouse button is
@@ -100,12 +99,12 @@ public:
     // returns true if a drag actually started, in which case the caller should treat the triggering
     // click as fully consumed — the app never saw a button-down for an HTCAPTION click either. Still
     // doesn't help a *bordered* window's real OS titlebar or a live-resize via WS_THICKFRAME borders —
-    // both still enter the true OS modal loop regardless of anything here, so §21.7's reentrant-tick
+    // both still enter the true OS modal loop regardless of anything here, so the reentrant-tick
     // fixes remain load-bearing for those.
     [[nodiscard]] bool begin_drag_if_in_region(glm::vec2 window_local_pos);
 
     // Moves the window to track the cursor — call once per SDL_EVENT_MOUSE_MOTION while
-    // is_dragging() is true. No-op if not currently dragging or without a window (§12.3).
+    // is_dragging() is true. No-op if not currently dragging or without a window.
     void update_drag();
 
     // Ends a drag started by begin_drag_if_in_region(), releasing mouse capture. Safe to call even
@@ -132,11 +131,10 @@ private:
 #if defined(_WIN32)
 public:
     // Original SDL window procedure (WIN_WindowProc), captured by create() before it subclasses
-    // the HWND with win32_hit_test_wndproc (window_system.cpp, SDD §21.7 fix) on top of it — the
+    // the HWND with win32_hit_test_wndproc (window_system.cpp) on top of it — the
     // subclass needs it to delegate every message it doesn't special-case. Stored as void* (real
-    // type WNDPROC) purely so this header never needs <windows.h> (SDD §16 rule 15 — keeps
-    // windows.h macro pollution, e.g. min/max, out of every other TU that includes this private
-    // header); window_system.cpp does the cast both ways. Not a general-purpose accessor — read
+    // type WNDPROC) purely so this header never needs <windows.h>; window_system.cpp does the
+    // cast both ways. Not a general-purpose accessor — read
     // only by the free function installed as the HWND's GWLP_WNDPROC.
     [[nodiscard]] void* win32_prev_wndproc() const noexcept {
         return win32_prev_wndproc_;
@@ -153,8 +151,8 @@ private:
 // SDL_Init(SDL_INIT_VIDEO) or a real window.
 [[nodiscard]] SDL_WindowFlags window_style_flags(const WindowStyle& style);
 
-// Pure decision half of §21.4 click-through: bounding-box only, no per-pixel alpha sampling
-// (that needs a synced framebuffer readback, deferred — SDD §17).
+// Pure decision half of click-through: bounding-box only, no per-pixel alpha sampling
+// (that needs a synced framebuffer readback; not implemented).
 [[nodiscard]] bool should_be_click_through(
         bool click_through_enabled, bool window_is_transparent, bool pointer_hit_something) noexcept;
 

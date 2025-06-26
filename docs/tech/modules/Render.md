@@ -56,7 +56,7 @@ World draw is **not** in this folder: [[src.ecs.systems.cpp]] `run_render` build
 
 [[tests.command_buffer_test.cpp]] · [[tests.sort_test.cpp]] · [[tests.material_test.cpp]] · [[tests.render_system_test.cpp]] · [[tests.ui_painter_test.cpp]] (fake painter) · [[tests.window_icon_test.cpp]] (`make_icon_surface`, no real window)
 
-GPU pixels are out of `engine_tests` (SDD §12.3).
+GPU pixels are out of `engine_tests` ([[architecture/Boundaries]]).
 
 ## See also
 

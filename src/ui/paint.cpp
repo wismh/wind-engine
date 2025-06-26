@@ -1,5 +1,6 @@
 #include "painter.h"
 #include "css_length.h"
+#include "draw_list_adapter.h"
 
 #include <engine/builtin_ids.h>
 #include <engine/ui/canvas.h>
@@ -106,6 +107,8 @@ const char* kind_name(ElementKind kind) {
             return "ItemTemplate";
         case ElementKind::Line:
             return "Line";
+        case ElementKind::Component:
+            return "Component";
     }
     return "";
 }
@@ -838,6 +841,21 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
         const glm::vec2 from{screen_rect.x + x1 * input.ui_scale, screen_rect.y + y1 * input.ui_scale};
         const glm::vec2 to{screen_rect.x + x2 * input.ui_scale, screen_rect.y + y2 * input.ui_scale};
         painter.draw_line(from, to, style.stroke, stroke_width * input.ui_scale);
+    }
+
+    if (element.paint != nullptr) {
+        const render::Rect content_local{
+                0.0f,
+                0.0f,
+                std::max(0.0f, element.layout_rect.w - padding.left - padding.right),
+                std::max(0.0f, element.layout_rect.h - padding.top - padding.bottom),
+        };
+        const glm::vec2 origin{
+                screen_rect.x + padding.left * input.ui_scale,
+                screen_rect.y + padding.top * input.ui_scale,
+        };
+        DrawListAdapter list(painter, origin, input.ui_scale);
+        element.paint->paint(list, content_local);
     }
 
     if (element.kind == ElementKind::Label || element.kind == ElementKind::Button) {

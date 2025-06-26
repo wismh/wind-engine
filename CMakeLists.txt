@@ -121,7 +121,7 @@ target_include_directories(engine
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
-# glm is part of the public API (IGame, Transform). spdlog/tinyxml2/toml stay PRIVATE (SDD §3.4).
+# glm is part of the public API (IGame, Transform). spdlog/tinyxml2/toml stay PRIVATE.
 target_link_libraries(engine
     PUBLIC
         glm::glm
@@ -257,7 +257,7 @@ function(engine_add_game target)
     endif()
     if(APPLE)
         # Package as a .app bundle so MACOSX_BUNDLE_ICON_FILE / MACOSX_PACKAGE_LOCATION below
-        # (SDD §19.2) take effect; ignored by CMake on non-Apple platforms either way.
+        # take effect; ignored by CMake on non-Apple platforms either way.
         set_target_properties(${target} PROPERTIES MACOSX_BUNDLE ON)
     endif()
     set_target_properties(${target} PROPERTIES

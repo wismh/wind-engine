@@ -40,7 +40,7 @@ struct SplashDocument {
 // Builds the splash's two XML/CSS documents (backdrop + image, see SplashDocument) from `config`
 // and `image_size` (the configured image's actual decoded pixel dimensions - needed to keep its
 // aspect ratio rather than stretching it to fill the canvas) and runs them through the real
-// parse_xml/parse_css (SDD §20.3) instead of hand-assembling Element/Keyframes structs, so a
+// parse_xml/parse_css instead of hand-assembling Element/Keyframes structs, so a
 // malformed generated string fails the same way bad game-authored markup would. nullopt when
 // there is nothing to show: disabled, all three durations are non-positive (would otherwise
 // divide by zero building the keyframe percentages), or `image_size` is non-positive (the image's

@@ -72,15 +72,14 @@ TEST(WindowStyleFlags, NotResizableCombinesWithOtherFlags) {
 
 TEST(WindowSystem, IsTransparentDefaultsToFalse) {
     // Verifying it flips to true after a real create() needs SDL_Init(SDL_INIT_VIDEO) and a
-    // display/GPU, out of scope for engine_tests (SDD §12.3).
+    // display/GPU, out of scope for engine_tests.
     engine::WindowSystem window;
     EXPECT_FALSE(window.is_transparent());
 }
 
 TEST(WindowSystem, RuntimeSettersAreNoopWithoutWindow) {
     engine::WindowSystem window;
-    // No SDL_Init(SDL_INIT_VIDEO), no window created: must not crash (SDD §12.3 — no real
-    // window in engine_tests).
+    // No SDL_Init(SDL_INIT_VIDEO), no window created: must not crash.
     window.set_bordered(false);
     window.set_always_on_top(true);
     window.set_position({10, 20});
@@ -101,7 +100,7 @@ TEST(WindowControlImpl, DelegatesWithoutCrashingWithoutWindow) {
     control_ref.set_drag_region(engine::render::Rect{0, 0, 10, 10});
     control_ref.set_drag_region(std::nullopt);
 
-    // No SDL video, no primary window ever created (SDD §12.3): open_window must fail (nullopt),
+    // No SDL video, no primary window ever created: open_window must fail (nullopt),
     // same no-primary contract WindowManager::create_window already guarantees on its own — the
     // point here is only that going through IWindowControl doesn't crash, not a specific outcome.
     EXPECT_FALSE(control_ref.open_window(engine::WindowDesc{}).has_value());
@@ -112,7 +111,7 @@ TEST(WindowControlImpl, DelegatesWithoutCrashingWithoutWindow) {
 TEST(WindowControlImpl, WindowIdAddressedMethodsDefaultToPrimary) {
     // Every setter's default argument must resolve to kPrimaryWindow so every pre-existing
     // single-window call site (going through IWindowControl&, where the default lives) keeps
-    // behaving identically after §21.7's WindowId generalization (SDD §21.3).
+    // behaving identically after WindowId generalization.
     engine::render::OpenGLRenderBackend backend;
     engine::WindowManager windows{backend};
     engine::DesktopOverlayPolicy overlay;
@@ -182,7 +181,7 @@ TEST(WindowSystem, ClickThroughEnabledDefaultsToFalse) {
 
 TEST(WindowSystem, ClickThroughSetterAndUpdateAreNoopWithoutWindow) {
     engine::WindowSystem window;
-    // No SDL_Init(SDL_INIT_VIDEO), no window created: must not crash (SDD §12.3).
+    // No SDL_Init(SDL_INIT_VIDEO), no window created: must not crash.
     window.set_click_through_enabled(true);
     EXPECT_TRUE(window.click_through_enabled());
     window.update_click_through(false);
@@ -197,8 +196,8 @@ TEST(WindowSystem, ClickThroughAppliedDefaultsToFalse) {
 TEST(WindowSystem, ClickThroughAppliedStaysFalseWithoutWindow) {
     engine::WindowSystem window;
     // update_click_through()'s apply_click_through() call is itself a no-op without a real HWND
-    // (SDD §12.3), so click_through_applied() must never latch true from this alone — otherwise
-    // the SDD §21.7 Win32 hit-test hook (window_system.cpp) would treat a window that was never
+    //, so click_through_applied() must never latch true from this alone — otherwise
+    // the Win32 hit-test hook (window_system.cpp) would treat a window that was never
     // actually made click-through as if it were.
     window.set_click_through_enabled(true);
     window.update_click_through(/*pointer_hit_something=*/false);
@@ -207,13 +206,13 @@ TEST(WindowSystem, ClickThroughAppliedStaysFalseWithoutWindow) {
 
 TEST(WindowSystem, CursorClientPositionIsNulloptWithoutWindow) {
     engine::WindowSystem window;
-    // No SDL_Init(SDL_INIT_VIDEO), no window created: must not crash (SDD §12.3).
+    // No SDL_Init(SDL_INIT_VIDEO), no window created: must not crash.
     EXPECT_FALSE(window.cursor_client_position().has_value());
 }
 
 TEST(WindowSystem, SetDragRegionIsNoopWithoutWindow) {
     engine::WindowSystem window;
-    // No SDL_Init(SDL_INIT_VIDEO), no window created: must not crash (SDD §12.3/§21.7).
+    // No SDL_Init(SDL_INIT_VIDEO), no window created: must not crash.
     window.set_drag_region(engine::render::Rect{0, 0, 100, 32});
     window.set_drag_region(std::nullopt);
 }
@@ -240,7 +239,7 @@ TEST(WindowSystem, IsDraggingDefaultsToFalse) {
 
 TEST(WindowSystem, ManualDragApiIsNoopWithoutWindow) {
     engine::WindowSystem window;
-    // No SDL_Init(SDL_INIT_VIDEO), no window created (SDD §12.3): begin_drag_if_in_region()
+    // No SDL_Init(SDL_INIT_VIDEO), no window created: begin_drag_if_in_region()
     // must refuse (no window to check a region against, let alone capture the mouse for) rather
     // than crash; update_drag()/end_drag() must stay no-ops too.
     window.set_drag_region(engine::render::Rect{0, 0, 100, 32});
@@ -251,7 +250,7 @@ TEST(WindowSystem, ManualDragApiIsNoopWithoutWindow) {
 }
 
 // WindowManager's success path (a real primary window + a secondary window sharing its GL
-// context) needs a live display/GPU and is out of engine_tests scope (SDD §12.3), same boundary
+// context) needs a live display/GPU and is out of engine_tests scope, same boundary
 // every prior phase here has respected — only the no-SDL-video failure-path bookkeeping is
 // exercised below. Unlike WindowSystem's own create(), WindowManager::create_primary_window()
 // is not exercised at all here (not even for a "does it fail" assertion): SDL3's SDL_CreateWindow
@@ -259,10 +258,10 @@ TEST(WindowSystem, ManualDragApiIsNoopWithoutWindow) {
 // opposed to a CI box with none) it picks the native video driver rather than the dummy/offscreen
 // one this build also compiles in — actually calling create_primary_window() in this environment
 // was observed to open a real, visible OS window (SDL_GL_CreateContext and all, ~250ms instead of
-// the <1ms every other test here takes), which is exactly what §12.3 rules out.
+// the <1ms every other test here takes), which is exactly what engine_tests rules out.
 
 TEST(WindowControlImpl, UsableDisplayBoundsIsNoopWithoutVideo) {
-    // No SDL_Init(SDL_INIT_VIDEO) here (SDD §12.3): must not crash. The real, non-zero-bounds path
+    // No SDL_Init(SDL_INIT_VIDEO) here: must not crash. The real, non-zero-bounds path
     // needs a live display and is out of engine_tests scope, same boundary as every other real-SDL
     // query in this file.
     engine::render::OpenGLRenderBackend backend;
@@ -322,7 +321,7 @@ TEST(WindowManager, FreshManagerReportsNoLiveWindows) {
 TEST(WindowManager, DestroyShutdownAndDrawAllAreNoopOnEmptyManager) {
     engine::render::OpenGLRenderBackend backend;
     engine::WindowManager manager{backend};
-    // Must not crash: no SDL video, no window ever created (SDD §12.3).
+    // Must not crash: no SDL video, no window ever created.
     manager.destroy_window(engine::kPrimaryWindow);
     manager.destroy_window(engine::WindowId{7});
     manager.draw_all();
@@ -334,7 +333,7 @@ TEST(WindowManager, DestroyShutdownAndDrawAllAreNoopOnEmptyManager) {
 TEST(WindowManager, FindBySdlIdReturnsNulloptWithNoLiveWindows) {
     engine::render::OpenGLRenderBackend backend;
     engine::WindowManager manager{backend};
-    // No SDL video, no window ever created (SDD §12.3) — every slot (including the permanent
+    // No SDL video, no window ever created — every slot (including the permanent
     // primary one) has no real SDL_Window, so no SDL_WindowID value can match.
     EXPECT_FALSE(manager.find_by_sdl_id(0).has_value());
     EXPECT_FALSE(manager.find_by_sdl_id(1).has_value());
@@ -345,7 +344,7 @@ TEST(WindowManager, ForEachSecondaryWindowVisitsNothingOnFreshManager) {
     engine::render::OpenGLRenderBackend backend;
     engine::WindowManager manager{backend};
     // Fresh manager: the primary slot exists but has no live SDL window, and no secondary window
-    // was ever created — the callback must never fire (SDD §21.7).
+    // was ever created — the callback must never fire.
     int calls = 0;
     manager.for_each_secondary_window([&](engine::WindowId, engine::WindowSystem&) { ++calls; });
     EXPECT_EQ(calls, 0);
