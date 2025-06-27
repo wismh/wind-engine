@@ -10,6 +10,7 @@
 #include <engine/core/worlds.h>
 #include <engine/haptics/haptics_system.h>
 #include <engine/net/http_client.h>
+#include <engine/process/process_launcher.h>
 #include <engine/render/backend.h>
 #include <engine/render/canvas.h>
 #include <engine/render/command_buffer.h>
@@ -84,6 +85,20 @@ public:
     void dispose() override {}
     engine::HttpCall send(engine::HttpRequest) override {
         return engine::HttpCall::resolved(std::unexpected(engine::HttpError::Unsupported));
+    }
+    bool is_supported() const override {
+        return false;
+    }
+};
+
+class FakeProcesses final : public engine::IProcessLauncher {
+public:
+    void dispose() override {}
+    engine::ProcessCall run(engine::ProcessDesc) override {
+        return engine::ProcessCall::resolved(std::unexpected(engine::ProcessError::Unsupported));
+    }
+    std::expected<void, engine::ProcessError> launch(const engine::ProcessDesc&) override {
+        return std::unexpected(engine::ProcessError::Unsupported);
     }
     bool is_supported() const override {
         return false;
@@ -206,6 +221,7 @@ struct Services {
                   .audio = audio,
                   .haptics = haptics,
                   .http = http,
+                  .processes = processes,
                   .windows = windows,
                   .graphics = graphics,
                   .backend = backend,
@@ -220,6 +236,7 @@ struct Services {
     FakeAudio audio;
     FakeHaptics haptics;
     FakeHttp http;
+    FakeProcesses processes;
     FakeWindowControl windows;
     FakeGraphicFactory graphics;
     FakeBackend backend;
