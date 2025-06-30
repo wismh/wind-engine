@@ -6,11 +6,13 @@ tags: [feature]
 
 ## Pointer
 
-`run_input` copies `MouseEvent` into `UiPointer`, on Down calls `ui::handle_pointer` ([[src.ui.canvas.cpp]]).
+`run_input` copies `MouseEvent` into `UiPointer`, on Down calls `ui::handle_pointer` ([[src.ui.canvas.cpp]]). Wheel calls `ui::handle_wheel`. Up ends both `ActiveDrag` and `ActivePan`.
 
 ## Hit-test
 
-Canvases whose `rect` contains the point, sorted by `order` descending (higher = front). The top canvas is rebound and relaid out, then `hit_test` ([[src.ui.document.cpp]], shared with `paint.cpp`'s `:hover` resolution) looks for a **Button**, or any element with a bound `command` or `drag`; a plain Label/Stack/Image does not consume.
+Canvases whose `rect` contains the point, sorted by `order` descending (higher = front). The top canvas is rebound and relaid out, then `hit_test` ([[src.ui.document.cpp]], shared with `paint.cpp`'s `:hover` resolution) looks for a **Button**, or any element with a bound `command` or `drag`, or a Viewport with a camera binding; a plain Label/Stack/Image does not consume.
+
+Entering a Viewport clips to its unpanned `layout_rect` and hit-tests children with the inverse camera (`O + (pointer - O) / Z - P`). Empty background therefore hits the Viewport (pan drag). A child Button still wins. Wheel zoom uses `find_viewport_at` so a node under the cursor still zooms its enclosing Viewport (writes `zoom` and pan so the content point stays put). Zoom is clamped to `[0.25, 4]`.
 
 That relayout uses the same per-window `IUiPainter` as paint (`world.ctx<UiLayoutPainters>()`, set by `EngineRuntime` from each window's NanoVG painter after `MakeCurrent`). Hug text then matches glyphs. No painter registered (headless `engine_tests`, a window created without a UI painter) keeps the CPU fallback in [[src.ui.document.cpp]].
 

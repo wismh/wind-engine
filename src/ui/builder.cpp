@@ -85,6 +85,21 @@ Node& Node::drag_bind(BindingId id) {
     return *this;
 }
 
+Node& Node::pan_x_bind(BindingId id) {
+    element_.pan_x_binding = id;
+    return *this;
+}
+
+Node& Node::pan_y_bind(BindingId id) {
+    element_.pan_y_binding = id;
+    return *this;
+}
+
+Node& Node::zoom_bind(BindingId id) {
+    element_.zoom_binding = id;
+    return *this;
+}
+
 Node& Node::drag_orientation(StackDirection orientation) {
     element_.drag_orientation = orientation;
     return *this;
@@ -180,6 +195,10 @@ Node line() {
 
 Node component() {
     return Node(ElementKind::Component);
+}
+
+Node viewport() {
+    return Node(ElementKind::Viewport);
 }
 
 std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal) {

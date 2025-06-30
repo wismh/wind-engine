@@ -50,6 +50,7 @@ void run_input(ecs::World& world) {
         } else if (event.kind == MouseEvent::Kind::Up) {
             pointer.down = false;
             ui::end_drag(world, event.window);
+            ui::end_pan(world, event.window);
         } else if (event.kind == MouseEvent::Kind::Move) {
             // Keeps MouseConsumed current on hover, not just on click —
             // without this, a window that only recomputes it on Down never learns the pointer
@@ -58,6 +59,9 @@ void run_input(ecs::World& world) {
             // Keeps an in-progress `drag="{binding}"` tracking the pointer even once it has left
             // the dragged element's bounds (real drag UX) — a no-op when no drag is active.
             ui::update_drag(world, event.position.x, event.position.y, event.window);
+            ui::update_pan(world, event.position.x, event.position.y, event.window);
+        } else if (event.kind == MouseEvent::Kind::Wheel) {
+            ui::handle_wheel(world, event.position.x, event.position.y, event.wheel_y, event.window);
         }
     }
 }

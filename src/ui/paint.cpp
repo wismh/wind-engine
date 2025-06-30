@@ -109,6 +109,8 @@ const char* kind_name(ElementKind kind) {
             return "Line";
         case ElementKind::Component:
             return "Component";
+        case ElementKind::Viewport:
+            return "Viewport";
     }
     return "";
 }
@@ -905,6 +907,13 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
             std::max(0.0f, element.layout_rect.h - padding.top - padding.bottom),
     };
     ancestors.push_back(&element);
+    const bool viewport_camera = element.kind == ElementKind::Viewport;
+    if (viewport_camera) {
+        painter.save();
+        const glm::vec2 origin{screen_rect.x, screen_rect.y};
+        const glm::vec2 pan{element.pan_x * input.ui_scale, element.pan_y * input.ui_scale};
+        painter.apply_view(origin, pan, viewport_zoom(element.zoom));
+    }
     if (element.kind == ElementKind::ItemsControl) {
         for (Element* child : child_stacking_order(element.generated_items)) {
             paint_element(*child, sheet, painter, ancestors, child_content, input);
@@ -913,6 +922,9 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
         for (Element* child : child_stacking_order(element.children)) {
             paint_element(*child, sheet, painter, ancestors, child_content, input);
         }
+    }
+    if (viewport_camera) {
+        painter.restore();
     }
     ancestors.pop_back();
 
