@@ -186,3 +186,16 @@ TEST(UiLayoutHit, ViewportHitTestInvertsPanAndClips) {
 
     EXPECT_EQ(engine::ui::hit_test(parsed->root, 150.0f, 80.0f), nullptr);
 }
+
+TEST(UiLayoutHit, ViewportZoomKeepsContentUnderPointer) {
+    const glm::vec2 origin{24.0f, 16.0f};
+    const glm::vec2 pan{-8.0f, 12.0f};
+    const glm::vec2 pointer{70.0f, 55.0f};
+    const float z = 1.0f;
+    const float new_z = engine::ui::kViewportZoomStep;
+    const glm::vec2 layout = origin + (pointer - origin) / z - pan;
+    const glm::vec2 new_pan = engine::ui::viewport_pan_after_zoom(origin, pan, z, new_z, pointer);
+    const glm::vec2 displayed = engine::ui::viewport_to_display(origin, new_pan, new_z, layout);
+    EXPECT_NEAR(displayed.x, pointer.x, 1e-4f);
+    EXPECT_NEAR(displayed.y, pointer.y, 1e-4f);
+}

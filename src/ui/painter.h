@@ -27,8 +27,8 @@ public:
     // needed: restore() already undoes it, the same way a single scissor() call has no
     // matching "unscissor".
     virtual void apply_transform(glm::vec2 center, float rotation_radians, float scale) = 0;
-    // Paint-time Viewport camera: scale `zoom` about `origin`, then translate by `zoom * pan`.
-    // Matching hit-test inverse lives on Element (inverse_viewport_pointer).
+    // Paint-time Viewport camera: `displayed = origin + zoom * (layout - origin + pan)`.
+    // `pan` is in the same units as `origin` (not pre-multiplied by zoom).
     virtual void apply_view(glm::vec2 origin, glm::vec2 pan, float zoom) = 0;
     virtual void set_opacity(float opacity) = 0;
     virtual void fill_rounded_rect(const render::Rect& rect, float radius, glm::vec4 color) = 0;
