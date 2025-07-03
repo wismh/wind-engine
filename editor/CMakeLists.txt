@@ -5,6 +5,9 @@
 
 # Everything but main.cpp and the EditorApp shell, so wind_editor_tests compiles the same panels.
 set(_wind_editor_parts
+    src/build_line_view_model.cpp
+    src/build_panel.cpp
+    src/build_view_model.cpp
     src/editor_options.cpp
     src/editor_panels.cpp
     src/editor_view_model.cpp
@@ -17,6 +20,7 @@ set(_wind_editor_parts
     src/profiler_panel.cpp
     src/profiler_row_view_model.cpp
     src/profiler_view_model.cpp
+    src/project_build.cpp
     src/rule_line_view_model.cpp
     src/toolbar.cpp)
 
@@ -30,11 +34,14 @@ if(ENGINE_BUILD_TESTS)
     # and the panels' view-models against headless worlds. The view-models use wind_editor's generated
     # asset_ids.h.
     add_executable(wind_editor_tests
+        tests/build_panel_test.cpp
+        tests/editor_options_test.cpp
         tests/editor_panels_test.cpp
         tests/inspector_panel_test.cpp
         tests/play_session_test.cpp
         tests/profiler_chart_test.cpp
         tests/profiler_panel_test.cpp
+        tests/project_build_test.cpp
         ${_wind_editor_parts})
     set_target_properties(wind_editor_tests PROPERTIES
         CXX_STANDARD 23

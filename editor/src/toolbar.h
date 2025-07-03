@@ -3,7 +3,6 @@
 #include "editor_tab.h"
 #include "editor_view_model.h"
 
-#include <filesystem>
 #include <memory>
 #include <string>
 
@@ -13,12 +12,22 @@ namespace editor {
 // UI pass that ran the command.
 enum class EditorRequest {
     None,
-    ChooseGame,
+    OpenProject,
     Play,
     Stop,
 };
 
-// The editor window's top bar: Choose game, Play/Stop, status line, game path, and the Inspector/Profiler
+// What the Play button does now.
+enum class RunState {
+    // Play builds and starts the project.
+    Idle,
+    // A build is running; the button cancels it.
+    Building,
+    // The game runs; the button stops it.
+    Playing,
+};
+
+// The editor window's top bar: Open project, Play/Stop, status line, project line, and the Inspector/Profiler/Build
 // tab strip. Owns the view-model and the button methods. Holds `this` in its commands, so it never moves.
 class Toolbar {
 public:
@@ -29,16 +38,18 @@ public:
 
     [[nodiscard]] const std::shared_ptr<EditorViewModel>& view_model() const;
 
-    void choose_game();
+    void open_project();
     void toggle_play();
     void show_inspector();
     void show_profiler();
-    [[nodiscard]] bool can_choose_game() const;
+    void show_build();
+    [[nodiscard]] bool can_open_project() const;
     [[nodiscard]] bool can_toggle_play() const;
 
-    void show_game(const std::filesystem::path& module);
+    // The project line. `playable` enables Play: the project was read and fits this editor's SDK.
+    void show_project(std::string text, bool playable);
     void show_status(std::string text);
-    void show_playing(bool playing);
+    void show_state(RunState state);
 
     // The last request since the previous call, then None.
     [[nodiscard]] EditorRequest take_request();
@@ -51,8 +62,8 @@ private:
     std::shared_ptr<EditorViewModel> view_model_;
     EditorRequest request_ = EditorRequest::None;
     EditorTab tab_ = EditorTab::Inspector;
-    bool has_game_ = false;
-    bool playing_ = false;
+    RunState state_ = RunState::Idle;
+    bool playable_ = false;
 };
 
 }
