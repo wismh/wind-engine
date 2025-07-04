@@ -199,11 +199,29 @@ void InputSystem::apply_digital(Control control, bool down) {
     release_held(control, action);
 }
 
-void InputSystem::handle_key(KeyCode key, bool down) {
+void InputSystem::handle_key(KeyCode key, bool down, bool repeat, WindowId window) {
     if (world_ == nullptr) {
         return;
     }
-    apply_digital(key_control(key), down);
+    ecs::EventWriter<KeyEvent>{*world_}.send(KeyEvent{
+            .window = window,
+            .key = key,
+            .down = down,
+            .repeat = repeat,
+    });
+    if (!repeat) {
+        apply_digital(key_control(key), down);
+    }
+}
+
+void InputSystem::handle_text_input(std::string_view text, WindowId window) {
+    if (world_ == nullptr) {
+        return;
+    }
+    ecs::EventWriter<TextInputEvent>{*world_}.send(TextInputEvent{
+            .window = window,
+            .text = std::string(text),
+    });
 }
 
 void InputSystem::handle_mouse_button(WindowId window, MouseButton button, bool down, glm::vec2 position) {

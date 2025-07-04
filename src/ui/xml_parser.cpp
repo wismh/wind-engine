@@ -86,6 +86,9 @@ std::optional<ElementKind> kind_from_tag(const char* name) {
     if (tag == "Viewport") {
         return ElementKind::Viewport;
     }
+    if (tag == "TextInput") {
+        return ElementKind::TextInput;
+    }
     return std::nullopt;
 }
 
