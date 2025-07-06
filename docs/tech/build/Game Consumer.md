@@ -33,7 +33,7 @@ cmake --build build-editor --config Release
 cmake --install build-editor --config Release --prefix out/sdk
 ```
 
-Then open the project in that SDK's editor and press Play:
+Then open the project in that SDK's editor and press Play, from Wind Launcher (Add project, then Open: [Launcher](../features/Launcher.md)) or directly:
 
 ```bash
 C:/path/to/engine/out/sdk/bin/wind_editor.exe --project C:/path/to/my_game --play
