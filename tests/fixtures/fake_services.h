@@ -139,6 +139,18 @@ public:
     engine::OverlayMode overlay_mode() const override {
         return overlay;
     }
+    void set_vsync(bool enabled) override {
+        vsync_enabled = enabled;
+    }
+    bool vsync() const override {
+        return vsync_enabled;
+    }
+    void set_max_fps(int fps) override {
+        max_frames_per_second = fps > 0 ? fps : 0;
+    }
+    int max_fps() const override {
+        return max_frames_per_second;
+    }
     void set_title(std::string_view text, engine::WindowId window) override {
         if (window == engine::kPrimaryWindow) {
             title = std::string(text);
@@ -198,6 +210,8 @@ public:
     bool borderless = false;
     bool always_on_top = false;
     engine::OverlayMode overlay = engine::OverlayMode::Auto;
+    bool vsync_enabled = true;
+    int max_frames_per_second = 0;
     std::vector<std::string>* log = nullptr;
 
 private:

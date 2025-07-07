@@ -49,6 +49,11 @@ public:
     // Top-left in screen coordinates. nullopt without a live window, or if the platform query fails.
     [[nodiscard]] std::optional<glm::ivec2> position() const;
     [[nodiscard]] glm::ivec2 drawable_size() const;
+    // False while the window is hidden, minimized, or occluded: a vsync swap there may return at once instead of
+    // waiting for the display, so it cannot pace the frame. False without a live window.
+    [[nodiscard]] bool is_presentable() const;
+    // Refresh rate of the display the window is on, in Hz. 0 without a live window or when SDL does not know it.
+    [[nodiscard]] float refresh_rate() const;
 
     // Current OS cursor position in this window's client pixels, queried directly
     // (SDL_GetGlobalMouseState + SDL_GetWindowPosition) rather than read from the last delivered

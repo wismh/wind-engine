@@ -118,6 +118,18 @@ void OpenGLCanvas::make_current() {
     }
 }
 
+bool OpenGLCanvas::set_vsync(bool on) {
+    if (context_ == nullptr) {
+        return false;
+    }
+    make_current();
+    if (!on) {
+        return SDL_GL_SetSwapInterval(0);
+    }
+    // Adaptive (-1) swaps a frame that missed its vblank at once instead of waiting for the next one.
+    return SDL_GL_SetSwapInterval(-1) || SDL_GL_SetSwapInterval(1);
+}
+
 void OpenGLCanvas::draw() {
     make_current();
     if (window_ != nullptr) {

@@ -39,6 +39,18 @@ public:
     virtual void set_overlay_mode(OverlayMode mode) = 0;
     [[nodiscard]] virtual OverlayMode overlay_mode() const = 0;
 
+    // Frame pacing for the whole process, not per window. Vsync on (the default): one window's swap waits for
+    // the display, so frames run at its refresh rate. Off: no swap waits, and frames run as fast as they can
+    // unless max_fps caps them. Web runs on requestAnimationFrame and ignores both.
+    virtual void set_vsync(bool enabled) = 0;
+    [[nodiscard]] virtual bool vsync() const = 0;
+
+    // Most frames per second while no swap waits for vsync: vsync off, or on while every window is hidden or
+    // minimized (then the display's refresh rate is the limit, and a lower cap still applies). Ignored while
+    // a vsync swap paces the frame. 0, the default, is no cap; a negative value counts as 0.
+    virtual void set_max_fps(int fps) = 0;
+    [[nodiscard]] virtual int max_fps() const = 0;
+
     // `window` (default kPrimaryWindow, trailing so every pre-existing call site keeps compiling
     // and behaving unchanged) generalizes these to the secondary windows opened via open_window()
     // below — a settings window can now toggle its own always_on_top or reposition
