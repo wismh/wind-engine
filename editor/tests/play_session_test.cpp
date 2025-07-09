@@ -147,6 +147,8 @@ TEST(PlaySession, PlayLoadsTheGameAndAppliesItsWindow) {
     EXPECT_EQ(services.windows.title, "Fixture");
     EXPECT_EQ(services.windows.primary_size, glm::ivec2(320, 200));
     EXPECT_TRUE(services.windows.always_on_top);
+    EXPECT_FALSE(services.windows.vsync());
+    EXPECT_EQ(services.windows.max_fps(), 30);
     EXPECT_EQ(world_count(services.worlds), 3u);
     EXPECT_TRUE(services.input.find("fixture_jump").has_value());
     EXPECT_EQ(live.copies(), 1u);
@@ -178,6 +180,8 @@ TEST(PlaySession, StopTearsDownInOrderAndUnloadsTheModule) {
     EXPECT_FALSE(services.input.find("fixture_jump").has_value());
     EXPECT_EQ(services.windows.title, "Game");
     EXPECT_FALSE(services.windows.always_on_top);
+    EXPECT_TRUE(services.windows.vsync()) << "the game turned vsync off for the whole process";
+    EXPECT_EQ(services.windows.max_fps(), 0);
     EXPECT_EQ(live.copies(), 0u) << "the live copy is deleted on Stop";
 }
 

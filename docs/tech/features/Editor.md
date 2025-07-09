@@ -77,7 +77,7 @@ After a successful build, `PlaySession::play` (`editor/src/play_session.cpp`) wi
 
 1. `load_game_module(module, live_root)`: copy the module and its `.pdb` into `live/<n>/`, load the copy, resolve the three exports, compare the build id ([Core](../modules/Core.md)). An error is shown in the status line and the editor stays idle.
 2. `load_catalog(<module dir>/assets)`. An error unloads the module.
-3. Remember the worlds and windows that exist now.
+3. Remember the worlds and windows that exist now, and the frame pacing (`vsync`, `max_fps`): a game may change it for the whole process ([Windowing](Windowing.md#frame-pacing)).
 4. `wind_create_game(services)`.
 5. Apply the game's `primary_window()` to `kPrimaryWindow`: title, size, position when set, borderless, always on top. `transparent` cannot change after creation; the status line says so. `resizable` and `maximized` are not applied.
 6. `EngineHost::attach_game` (icon, bind, UI, audio, size), then `on_start`.
@@ -96,7 +96,7 @@ After a successful build, `PlaySession::play` (`editor/src/play_session.cpp`) wi
 7. `unload_catalog(<module dir>/assets)`.
 8. `wind_destroy_game`.
 9. Destroy the `GameModule`: unload the copy and delete `live/<n>/`.
-10. Put back the idle title and style of `kPrimaryWindow`. Its size stays.
+10. Put back the idle title and style of `kPrimaryWindow` (its size stays) and the frame pacing remembered at Play.
 
 `kPrimaryWindow` then has no world. `draw_all` clears it to black and presents it.
 
@@ -130,7 +130,7 @@ The editor's assets and catalog land in `bin/assets/editor/` (`ENGINE_RUNTIME_AS
 
 ## Tests
 
-`editor/tests/play_session_test.cpp` (`wind_editor_tests`) drives `PlaySession` with headless services (`tests/fixtures/fake_services.h`), a recording `IPlayHost`, and the fixture module: Play applies the window and attaches the game and then the tools to the game world, Stop runs in the order above (tools first, while the game world is still bound) and deletes the copy, Play again works, a wrong build id and a catalog error leave nothing behind, the destructor stops. `editor/tests/project_build_test.cpp` drives `ProjectBuild` with a scripted `IProcessLauncher`: configure then build of a fresh directory and the module record, a cache for this SDK skips configure, a cache for another SDK configures again, a Debug SDK builds Debug, a failed configure or build, CMake missing, no module record, and cancel. `build_panel_test.cpp` covers the tones, the first error, scrolling, and the line cap; `editor_options_test.cpp` the command line. `editor/tests/editor_panels_test.cpp` covers the tabs and canvas placement; `inspector_panel_test.cpp`, `profiler_panel_test.cpp`, and `profiler_chart_test.cpp` cover the panels. `wind_editor_tests` compiles every editor source except `main.cpp` and `editor_app.cpp`, with wind_editor's generated `asset_ids.h`. `tests/game_module_test.cpp` covers the loader.
+`editor/tests/play_session_test.cpp` (`wind_editor_tests`) drives `PlaySession` with headless services (`tests/fixtures/fake_services.h`), a recording `IPlayHost`, and the fixture module: Play applies the window and attaches the game and then the tools to the game world, Stop runs in the order above (tools first, while the game world is still bound), puts back the frame pacing the fixture changed, and deletes the copy, Play again works, a wrong build id and a catalog error leave nothing behind, the destructor stops. `editor/tests/project_build_test.cpp` drives `ProjectBuild` with a scripted `IProcessLauncher`: configure then build of a fresh directory and the module record, a cache for this SDK skips configure, a cache for another SDK configures again, a Debug SDK builds Debug, a failed configure or build, CMake missing, no module record, and cancel. `build_panel_test.cpp` covers the tones, the first error, scrolling, and the line cap; `editor_options_test.cpp` the command line. `editor/tests/editor_panels_test.cpp` covers the tabs and canvas placement; `inspector_panel_test.cpp`, `profiler_panel_test.cpp`, and `profiler_chart_test.cpp` cover the panels. `wind_editor_tests` compiles every editor source except `main.cpp` and `editor_app.cpp`, with wind_editor's generated `asset_ids.h`. `tests/game_module_test.cpp` covers the loader.
 
 ## See also
 
