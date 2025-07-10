@@ -149,6 +149,17 @@ void collect_layout_children(ElementT& element, std::vector<Out*>& children) {
                 box.padding.top + text.y + box.padding.bottom,
         };
     }
+    if (element.kind == ElementKind::TextInput) {
+        const glm::vec2 text = measure_element_text(element, painter, box.font_size);
+        constexpr float kDefaultTextInputWidth = 100.0f;
+        constexpr float kDefaultTextInputHeight = 24.0f;
+        const float text_w = std::max(text.x, kDefaultTextInputWidth);
+        const float text_h = std::max(text.y, kDefaultTextInputHeight);
+        return {
+                box.padding.left + text_w + box.padding.right,
+                box.padding.top + text_h + box.padding.bottom,
+        };
+    }
     if (element.kind == ElementKind::Image) {
         return {
                 box.padding.left + kDefaultImageSize + box.padding.right,
@@ -664,8 +675,8 @@ Element* hit_test(Element& element, float x, float y) {
             return nested;
         }
     }
-    if (element.kind == ElementKind::Button || is_bound(element.command_binding) || is_bound(element.drag_binding) ||
-            has_viewport_camera(element)) {
+    if (element.kind == ElementKind::Button || element.kind == ElementKind::TextInput ||
+            is_bound(element.command_binding) || is_bound(element.drag_binding) || has_viewport_camera(element)) {
         return &element;
     }
     return nullptr;

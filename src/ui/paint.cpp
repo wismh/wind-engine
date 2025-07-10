@@ -307,6 +307,9 @@ bool subject_matches(const CssSelector& selector, const Element& element, bool a
     if (selector.pseudo == "disabled") {
         return element.disabled;
     }
+    if (selector.pseudo == "focus") {
+        return element.focused;
+    }
     return false;
 }
 
@@ -860,28 +863,47 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
         element.paint->paint(list, content_local);
     }
 
-    if (element.kind == ElementKind::Label || element.kind == ElementKind::Button) {
+    if (element.kind == ElementKind::Label || element.kind == ElementKind::Button ||
+            element.kind == ElementKind::TextInput) {
+        painter.set_font(style.font_family, font_size * input.ui_scale);
+        const render::Rect content{
+                screen_rect.x + padding.left * input.ui_scale,
+                screen_rect.y + padding.top * input.ui_scale,
+                std::max(0.0f, screen_rect.w - (padding.left + padding.right) * input.ui_scale),
+                std::max(0.0f, screen_rect.h - (padding.top + padding.bottom) * input.ui_scale),
+        };
+        float x = content.x;
+        if (style.text_align == UiAlign::Center) {
+            x = content.x + content.w * 0.5f;
+        } else if (style.text_align == UiAlign::End) {
+            x = content.x + content.w;
+        }
+        float y = content.y;
+        if (style.align_items == UiAlign::Center) {
+            y = content.y + content.h * 0.5f;
+        } else if (style.align_items == UiAlign::End) {
+            y = content.y + content.h;
+        }
         if (!element.text.empty()) {
-            painter.set_font(style.font_family, font_size * input.ui_scale);
-            const render::Rect content{
-                    screen_rect.x + padding.left * input.ui_scale,
-                    screen_rect.y + padding.top * input.ui_scale,
-                    std::max(0.0f, screen_rect.w - (padding.left + padding.right) * input.ui_scale),
-                    std::max(0.0f, screen_rect.h - (padding.top + padding.bottom) * input.ui_scale),
-            };
-            float x = content.x;
-            if (style.text_align == UiAlign::Center) {
-                x = content.x + content.w * 0.5f;
-            } else if (style.text_align == UiAlign::End) {
-                x = content.x + content.w;
-            }
-            float y = content.y;
-            if (style.align_items == UiAlign::Center) {
-                y = content.y + content.h * 0.5f;
-            } else if (style.align_items == UiAlign::End) {
-                y = content.y + content.h;
-            }
             painter.fill_text(element.text, glm::vec2{x, y}, style.color, style.text_align, style.align_items);
+        }
+        if (element.kind == ElementKind::TextInput && element.focused) {
+            element.caret_blink_timer += input.delta_time;
+            if (std::fmod(element.caret_blink_timer, 1.0f) < 0.5f) {
+                const std::size_t caret_pos = std::min(element.caret_position, element.text.size());
+                const std::string_view prefix = std::string_view(element.text).substr(0, caret_pos);
+                const float text_w = painter.measure_text(prefix, style.font_family, font_size * input.ui_scale).x;
+                const float caret_x = x + text_w;
+                float caret_y = content.y;
+                if (style.align_items == UiAlign::Center) {
+                    caret_y = content.y + std::max(0.0f, content.h - font_size * input.ui_scale) * 0.5f;
+                } else if (style.align_items == UiAlign::End) {
+                    caret_y = content.y + std::max(0.0f, content.h - font_size * input.ui_scale);
+                }
+                painter.draw_line(glm::vec2{caret_x, caret_y},
+                        glm::vec2{caret_x, caret_y + font_size * input.ui_scale}, style.color,
+                        1.0f * input.ui_scale);
+            }
         }
     }
     if (element.kind == ElementKind::Image && element.source) {

@@ -196,7 +196,14 @@ float compute_drag_fraction(StackDirection orientation, const render::Rect& rect
 void handle_pointer(ecs::World& world, float x, float y, WindowId window) {
     const std::optional<PointerHit> hit = resolve_pointer_hit(world, x, y, window);
     if (!hit) {
+        clear_focus(world, window);
         return;
+    }
+
+    if (hit->element->kind == ElementKind::TextInput) {
+        set_focus(world, window, hit->entity, hit->element);
+    } else {
+        clear_focus(world, window);
     }
 
     if (hit->element->kind == ElementKind::Viewport && has_viewport_camera(*hit->element) && hit->canvas->data_context) {
@@ -232,12 +239,14 @@ void handle_pointer(ecs::World& world, float x, float y, WindowId window) {
         };
     }
 
-    ICommand* command = hit->element->command;
-    if (command == nullptr && is_bound(hit->element->command_binding) && hit->canvas->data_context) {
-        command = hit->canvas->data_context->find_command(hit->element->command_binding);
-    }
-    if (command != nullptr && command->can_execute()) {
-        command->execute();
+    if (hit->element->kind != ElementKind::TextInput) {
+        ICommand* command = hit->element->command;
+        if (command == nullptr && is_bound(hit->element->command_binding) && hit->canvas->data_context) {
+            command = hit->canvas->data_context->find_command(hit->element->command_binding);
+        }
+        if (command != nullptr && command->can_execute()) {
+            command->execute();
+        }
     }
 }
 
@@ -388,6 +397,196 @@ ecs::Entity spawn_canvas(ecs::World& world, UiCanvas canvas, UiDocument document
     world.emplace<UiCanvas>(entity, std::move(canvas));
     world.emplace<UiInstance>(entity, UiInstance{std::move(document), std::move(stylesheet)});
     return entity;
+}
+
+namespace {
+
+bool is_utf8_continuation(char c) {
+    return (static_cast<unsigned char>(c) & 0xC0) == 0x80;
+}
+
+std::size_t prev_utf8_char(std::string_view s, std::size_t pos) {
+    if (pos == 0) {
+        return 0;
+    }
+    --pos;
+    while (pos > 0 && is_utf8_continuation(s[pos])) {
+        --pos;
+    }
+    return pos;
+}
+
+std::size_t next_utf8_char(std::string_view s, std::size_t pos) {
+    if (pos >= s.size()) {
+        return s.size();
+    }
+    ++pos;
+    while (pos < s.size() && is_utf8_continuation(s[pos])) {
+        ++pos;
+    }
+    return pos;
+}
+
+}
+
+void clear_focus(ecs::World& world, WindowId window) {
+    auto& focus_map = world.ctx<UiFocusState>().focused;
+    const auto it = focus_map.find(window);
+    if (it != focus_map.end()) {
+        if (it->second.element != nullptr) {
+            it->second.element->focused = false;
+            it->second.element->caret_blink_timer = 0.0f;
+        }
+        focus_map.erase(it);
+    }
+}
+
+void set_focus(ecs::World& world, WindowId window, ecs::Entity canvas_entity, Element* element) {
+    auto& focus_map = world.ctx<UiFocusState>().focused;
+    const auto it = focus_map.find(window);
+    if (it != focus_map.end() && it->second.element != element) {
+        if (it->second.element != nullptr) {
+            it->second.element->focused = false;
+            it->second.element->caret_blink_timer = 0.0f;
+        }
+    }
+    if (element != nullptr) {
+        element->focused = true;
+        element->caret_blink_timer = 0.0f;
+        if (element->caret_position > element->text.size()) {
+            element->caret_position = element->text.size();
+        }
+        focus_map[window] = UiFocus{canvas_entity, element};
+    } else {
+        focus_map.erase(window);
+    }
+}
+
+Element* focused_element(ecs::World& world, WindowId window) {
+    auto& focus_map = world.ctx<UiFocusState>().focused;
+    const auto it = focus_map.find(window);
+    if (it == focus_map.end()) {
+        return nullptr;
+    }
+    return it->second.element;
+}
+
+void handle_text_input(ecs::World& world, std::string_view text, WindowId window) {
+    if (text.empty()) {
+        return;
+    }
+    auto& focus_map = world.ctx<UiFocusState>().focused;
+    const auto it = focus_map.find(window);
+    if (it == focus_map.end() || it->second.element == nullptr) {
+        return;
+    }
+    Element* element = it->second.element;
+    if (element->disabled) {
+        return;
+    }
+
+    if (element->caret_position > element->text.size()) {
+        element->caret_position = element->text.size();
+    }
+    element->text.insert(element->caret_position, text);
+    element->caret_position += text.size();
+    element->caret_blink_timer = 0.0f;
+
+    if (is_bound(element->text_binding)) {
+        UiCanvas* canvas = world.try_get<UiCanvas>(it->second.canvas_entity);
+        if (canvas != nullptr && canvas->data_context) {
+            ViewModel* target = element->generated_owner != nullptr
+                    ? static_cast<ViewModel*>(const_cast<void*>(element->generated_owner))
+                    : canvas->data_context.get();
+            if (target != nullptr) {
+                target->write_property_string(element->text_binding, element->text);
+            }
+        }
+    }
+}
+
+void handle_key(ecs::World& world, KeyCode key, bool down, bool /*repeat*/, WindowId window) {
+    if (!down) {
+        return;
+    }
+    auto& focus_map = world.ctx<UiFocusState>().focused;
+    const auto it = focus_map.find(window);
+    if (it == focus_map.end() || it->second.element == nullptr) {
+        return;
+    }
+    Element* element = it->second.element;
+    if (element->disabled) {
+        return;
+    }
+
+    if (element->caret_position > element->text.size()) {
+        element->caret_position = element->text.size();
+    }
+
+    if (key == KeyCode::Escape) {
+        clear_focus(world, window);
+        return;
+    }
+
+    if (key == KeyCode::Return) {
+        UiCanvas* canvas = world.try_get<UiCanvas>(it->second.canvas_entity);
+        ViewModel* target = nullptr;
+        if (canvas != nullptr && canvas->data_context) {
+            target = element->generated_owner != nullptr
+                    ? static_cast<ViewModel*>(const_cast<void*>(element->generated_owner))
+                    : canvas->data_context.get();
+        }
+        ICommand* command = element->command;
+        if (command == nullptr && is_bound(element->command_binding) && target != nullptr) {
+            command = target->find_command(element->command_binding);
+        }
+        if (command != nullptr && command->can_execute()) {
+            command->execute();
+        }
+        return;
+    }
+
+    bool text_changed = false;
+    if (key == KeyCode::Backspace) {
+        if (element->caret_position > 0) {
+            const std::size_t prev = prev_utf8_char(element->text, element->caret_position);
+            element->text.erase(prev, element->caret_position - prev);
+            element->caret_position = prev;
+            element->caret_blink_timer = 0.0f;
+            text_changed = true;
+        }
+    } else if (key == KeyCode::Delete) {
+        if (element->caret_position < element->text.size()) {
+            const std::size_t next = next_utf8_char(element->text, element->caret_position);
+            element->text.erase(element->caret_position, next - element->caret_position);
+            element->caret_blink_timer = 0.0f;
+            text_changed = true;
+        }
+    } else if (key == KeyCode::Left) {
+        element->caret_position = prev_utf8_char(element->text, element->caret_position);
+        element->caret_blink_timer = 0.0f;
+    } else if (key == KeyCode::Right) {
+        element->caret_position = next_utf8_char(element->text, element->caret_position);
+        element->caret_blink_timer = 0.0f;
+    } else if (key == KeyCode::Home) {
+        element->caret_position = 0;
+        element->caret_blink_timer = 0.0f;
+    } else if (key == KeyCode::End) {
+        element->caret_position = element->text.size();
+        element->caret_blink_timer = 0.0f;
+    }
+
+    if (text_changed && is_bound(element->text_binding)) {
+        UiCanvas* canvas = world.try_get<UiCanvas>(it->second.canvas_entity);
+        if (canvas != nullptr && canvas->data_context) {
+            ViewModel* target = element->generated_owner != nullptr
+                    ? static_cast<ViewModel*>(const_cast<void*>(element->generated_owner))
+                    : canvas->data_context.get();
+            if (target != nullptr) {
+                target->write_property_string(element->text_binding, element->text);
+            }
+        }
+    }
 }
 
 }

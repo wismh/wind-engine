@@ -60,6 +60,7 @@ private:
     friend Node line();
     friend Node component();
     friend Node viewport();
+    friend Node text_input();
     friend std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal);
 
     explicit Node(ElementKind kind);
@@ -78,6 +79,7 @@ private:
 [[nodiscard]] Node line();
 [[nodiscard]] Node component();
 [[nodiscard]] Node viewport();
+[[nodiscard]] Node text_input();
 
 [[nodiscard]] std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal = nullptr);
 
