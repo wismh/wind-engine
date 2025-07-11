@@ -18,7 +18,9 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace engine::cli {
@@ -133,17 +135,6 @@ namespace engine::cli {
             std::vector<char> fresh_{true};
             bool suppress_ = false;
         };
-
-        std::string error_json(std::string_view message) {
-            Json json;
-            json.begin_object();
-            json.key("ok");
-            json.boolean(false);
-            json.key("error");
-            json.string(message);
-            json.end_object();
-            return json.str();
-        }
 
         void skip_ws(std::string_view &in) {
             while (!in.empty() &&
@@ -955,6 +946,65 @@ namespace engine::cli {
 
     } // namespace
 
+    std::string error_json(std::string_view message) {
+        Json json;
+        json.begin_object();
+        json.key("ok");
+        json.boolean(false);
+        json.key("error");
+        json.string(message);
+        json.end_object();
+        return json.str();
+    }
+
+    bool is_ui_command(std::string_view command) {
+        return command == "tree" || command == "element" || command == "hit" || command == "click" ||
+               command == "profile";
+    }
+
+    std::string execute_host(const CliCommands *host, const CliRequest &request) {
+        if (!request.error.empty()) {
+            return error_json(request.error);
+        }
+        if (host == nullptr || !host->handle) {
+            return error_json("unknown command");
+        }
+        const std::optional<CliReply> reply = host->handle(CliCommand{request.command, request.path});
+        if (!reply) {
+            return error_json("unknown command");
+        }
+        if (!reply->ok) {
+            return error_json(reply->error);
+        }
+        Json json;
+        json.begin_object();
+        json.key("ok");
+        json.boolean(true);
+        json.key("result");
+        json.begin_object();
+        for (const auto &[name, value]: reply->result) {
+            json.key(name);
+            std::visit(
+                    [&json]<typename T>(const T &field) {
+                        if constexpr (std::is_same_v<T, std::monostate>) {
+                            json.null();
+                        } else if constexpr (std::is_same_v<T, bool>) {
+                            json.boolean(field);
+                        } else if constexpr (std::is_same_v<T, std::int64_t>) {
+                            json.integer(field);
+                        } else if constexpr (std::is_same_v<T, double>) {
+                            json.number(field);
+                        } else {
+                            json.string(field);
+                        }
+                    },
+                    value);
+        }
+        json.end_object();
+        json.end_object();
+        return json.str();
+    }
+
     CliRequest parse_request(std::string_view body) {
         CliRequest request;
         skip_ws(body);
@@ -984,7 +1034,7 @@ namespace engine::cli {
             }
             body.remove_prefix(1);
             skip_ws(body);
-            if (key == "command" || key == "selector") {
+            if (key == "command" || key == "selector" || key == "path") {
                 std::string value;
                 if (!parse_string(body, value)) {
                     request.error = "invalid request";
@@ -992,8 +1042,10 @@ namespace engine::cli {
                 }
                 if (key == "command") {
                     request.command = std::move(value);
-                } else {
+                } else if (key == "selector") {
                     request.selector = std::move(value);
+                } else {
+                    request.path = std::move(value);
                 }
                 continue;
             }
