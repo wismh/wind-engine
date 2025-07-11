@@ -111,6 +111,8 @@ const char* kind_name(ElementKind kind) {
             return "Component";
         case ElementKind::Viewport:
             return "Viewport";
+        case ElementKind::TextInput:
+            return "TextInput";
     }
     return "";
 }
