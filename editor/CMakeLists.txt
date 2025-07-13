@@ -8,6 +8,7 @@ set(_wind_editor_parts
     src/build_line_view_model.cpp
     src/build_panel.cpp
     src/build_view_model.cpp
+    src/editor_cli.cpp
     src/editor_options.cpp
     src/editor_panels.cpp
     src/editor_view_model.cpp
@@ -35,6 +36,7 @@ if(ENGINE_BUILD_TESTS)
     # asset_ids.h.
     add_executable(wind_editor_tests
         tests/build_panel_test.cpp
+        tests/editor_cli_test.cpp
         tests/editor_options_test.cpp
         tests/editor_panels_test.cpp
         tests/inspector_panel_test.cpp

@@ -1,6 +1,6 @@
 # Editor plan
 
-This is a plan. It is not a description of the engine as it runs today. wind-167 to wind-173 and wind-176 to wind-179 are done: `wind_editor` loads, plays, inspects, profiles, and stops a game module ([Editor](../features/Editor.md), [UI Inspector](../features/UI%20Inspector.md), [UI Profiler](../features/UI%20Profiler.md)).
+This is a plan. It is not a description of the engine as it runs today. wind-167 to wind-173, wind-176 to wind-179, and wind-181 are done: `wind_editor` loads, plays, inspects, profiles, and stops a game module ([Editor](../features/Editor.md), [UI Inspector](../features/UI%20Inspector.md), [UI Profiler](../features/UI%20Profiler.md)).
 
 ## Goal
 
@@ -207,6 +207,7 @@ As built (wind-179): Add picks the project's `wind_project.toml` through the exi
 | wind-177 | `ProcessCall` in the engine (Windows) and tests. As built: `IProcessLauncher` in `EngineServices::processes`, polled after HTTP; a job object per child, so cancel and the child's exit end everything it started ([Process](../modules/Process.md)). Done |
 | wind-178 | `wind_project.toml`, `wind_editor --project`, configure and build on Play, Build panel. Done |
 | wind-179 | `wind_launcher`: projects, SDKs, Open. Done |
+| wind-181 | `wind-cli` drives the editor: `launch <project> [--play --wait]`, `state`, `play [--wait]`, `stop`, `open`; descriptor `kind`; UI commands reach the world of their window and answer at once when it has none; `RunHooks::cli` for a host's own commands; `wind-cli` in the SDK's `bin/` ([CLI](../features/CLI.md#editor-commands)). Done |
 
 Game repos drop the `external/engine` submodule for `find_package(Wind)` in their own change, after wind-176.
 

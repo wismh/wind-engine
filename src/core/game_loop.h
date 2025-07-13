@@ -1,5 +1,6 @@
 #pragma once
 
+#include "cli/cli_server.h"
 #include "core/presentation.h"
 
 #include <engine/core/run_hooks.h>
@@ -28,6 +29,9 @@ private:
     void reentrant_tick();
     void end();
     [[nodiscard]] float consume_dt();
+    // The server reaches each window's world at the time of the call, so a world Play or Stop swapped in
+    // on_frame_end is found the next frame.
+    [[nodiscard]] cli::CliFrame cli_frame() const;
     static void main_loop_thunk(void* self);
 
     IPresentation* presentation_ = nullptr;

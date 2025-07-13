@@ -173,7 +173,7 @@ With `ENGINE_EDITOR` the root defines install rules. `cmake --install build-edit
 ```
 out/sdk/
   bin/
-    wind_editor.exe  engine.dll  asset_codegen.exe  icon_codegen.exe  (+ their .pdb when the config makes them)
+    wind_editor.exe  engine.dll  asset_codegen.exe  icon_codegen.exe  wind-cli.exe  (+ their .pdb when the config makes them)
     assets/engine/   builtin_assets/ and the cooked catalog.toml
     assets/editor/   editor/assets/ and the editor's cooked catalog.toml
   lib/engine.lib
@@ -190,7 +190,7 @@ out/sdk/
   sdk.toml         version, commit, dirty, config, build_id
 ```
 
-The `.pdb` rules are `OPTIONAL` (a configuration without symbols would have none), but every configuration of the editor build makes them: Debug and RelWithDebInfo by default, Release through `/Zi` and `/DEBUG`. So `bin/` holds `engine.pdb`, `wind_editor.pdb`, `asset_codegen.pdb`, and `icon_codegen.pdb`. The binaries need only system DLLs and the VC++ runtime (SDL3, SDL3_mixer, glad, nanovg, spdlog, tinyxml2, and tomlplusplus are static inside `engine.dll`). tinyxml2 is added `EXCLUDE_FROM_ALL` so its own install rules stay out of the SDK.
+The `.pdb` rules are `OPTIONAL` (a configuration without symbols would have none), but every configuration of the editor build makes them: Debug and RelWithDebInfo by default, Release through `/Zi` and `/DEBUG`. So `bin/` holds `engine.pdb`, `wind_editor.pdb`, `asset_codegen.pdb`, `icon_codegen.pdb`, and `wind-cli.pdb`. `wind-cli` sits beside `wind_editor` so its `launch` starts the editor of the same SDK ([CLI](../features/CLI.md#editor-commands)). The binaries need only system DLLs and the VC++ runtime (SDL3, SDL3_mixer, glad, nanovg, spdlog, tinyxml2, and tomlplusplus are static inside `engine.dll`). tinyxml2 is added `EXCLUDE_FROM_ALL` so its own install rules stay out of the SDK.
 
 GoogleTest is the editor build's own `gtest` and `gtest_main` (shared CRT, the SDK's configuration), so a game's tests need no submodule. Built with `/Zi`, their objects point at a compile `.pdb`; the SDK puts `gtest.pdb` and `gtest_main.pdb` beside the libraries, where the linker of a game's test looks for them, or every `/DEBUG` link warns LNK4099. The Debug compile `.pdb` is renamed from googletest's `gtestpdb_debug_postfix-NOTFOUND.pdb` (its name when `CMAKE_DEBUG_POSTFIX` is unset) to `gtest.pdb`.
 
