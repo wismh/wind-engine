@@ -120,6 +120,11 @@ namespace engine::ui {
         const void *inspector_selection_owner = nullptr;
         // Copied from CmdDrawUI. Empty unless the canvas's world is the one the UI profiler records.
         ecs::Entity canvas{};
+        // The window in canvas_rect space: where popups may go. Empty means canvas_rect.
+        render::Rect popup_bounds{};
+        // Paint only the open popups (and the inspector boxes when one is open), after every canvas of the
+        // window drew its base pass this frame.
+        bool popup_layer = false;
     };
 
     // Identity of the math font `painter` (possibly null) would lay formulas out with, for the layout dirty-gate.

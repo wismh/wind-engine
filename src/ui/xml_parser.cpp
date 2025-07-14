@@ -99,6 +99,9 @@ std::optional<ElementKind> kind_from_tag(const char* name) {
     if (tag == "Math") {
         return ElementKind::Math;
     }
+    if (tag == "Popup") {
+        return ElementKind::Popup;
+    }
     return std::nullopt;
 }
 
@@ -244,29 +247,70 @@ std::expected<void, UiError> assign_drag_binding(Element& element, const char* a
     return {};
 }
 
-// `checked` (Checkbox only) may be a literal `"true"`/`"false"` (seeds Element::checked once, no
+// `checked` (Checkbox) and `open` (Popup) may be a literal `"true"`/`"false"` (seeds the flag once, no
 // VM tie — same as Button's `content` working without a `command`) or a `{binding path}` for
 // two-way sync, unlike `drag`/`command`/`paint` which reject a literal outright: those have no
-// meaningful unbound behavior, but a checkbox's local toggle state is meaningful even standalone.
-std::expected<void, UiError> assign_checked_attribute(
-        Element& element, const char* attr, IFatalError* fatal, const ViewModel* vm, bool in_template) {
+// meaningful unbound behavior, but a checkbox's or popup's local state is meaningful even standalone.
+std::expected<void, UiError> assign_flag_attribute(bool& value, BindingId& binding_id, const char* attr,
+        IFatalError* fatal, const ViewModel* vm, bool in_template) {
     if (attr == nullptr) {
         return {};
     }
     const auto binding = try_parse_binding(attr);
     if (!binding) {
-        const std::string_view value = trim(attr);
-        element.checked = value == "true" || value == "1";
+        const std::string_view literal = trim(attr);
+        value = literal == "true" || literal == "1";
         return {};
     }
     if (binding->empty()) {
         report(fatal, "UI binding is missing a registered name");
         return std::unexpected(UiError::MissingBinding);
     }
-    element.checked_binding = intern(*binding);
-    if (vm != nullptr && !in_template && !vm->has_property(element.checked_binding)) {
+    binding_id = intern(*binding);
+    if (vm != nullptr && !in_template && !vm->has_property(binding_id)) {
         report(fatal, "UI binding name is not registered: " + *binding);
         return std::unexpected(UiError::MissingBinding);
+    }
+    return {};
+}
+
+std::optional<PopupPlacement> parse_placement(std::string_view value) {
+    constexpr std::pair<std::string_view, PopupPlacement> kPlacements[] = {
+            {"bottom-start", PopupPlacement::BottomStart},
+            {"bottom-end", PopupPlacement::BottomEnd},
+            {"top-start", PopupPlacement::TopStart},
+            {"top-end", PopupPlacement::TopEnd},
+            {"right-start", PopupPlacement::RightStart},
+            {"right-end", PopupPlacement::RightEnd},
+            {"left-start", PopupPlacement::LeftStart},
+            {"left-end", PopupPlacement::LeftEnd},
+    };
+    for (const auto& [name, placement] : kPlacements) {
+        if (value == name) {
+            return placement;
+        }
+    }
+    return std::nullopt;
+}
+
+// `open` and `placement` belong to a Popup and are ignored on any other element, like any unknown attribute.
+std::expected<void, UiError> assign_popup_attributes(
+        Element& element, const tinyxml2::XMLElement* xml, IFatalError* fatal, const ViewModel* vm, bool in_template) {
+    if (element.kind != ElementKind::Popup) {
+        return {};
+    }
+    if (auto result = assign_flag_attribute(
+                element.open, element.open_binding, xml->Attribute("open"), fatal, vm, in_template);
+            !result) {
+        return result;
+    }
+    if (const char* placement = xml->Attribute("placement")) {
+        const auto parsed = parse_placement(trim(placement));
+        if (!parsed) {
+            report(fatal, "UI Popup placement is not a known side: " + std::string(placement));
+            return std::unexpected(UiError::InvalidMarkup);
+        }
+        element.placement = *parsed;
     }
     return {};
 }
@@ -386,7 +430,7 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
         element.name = name_attr;
     }
 
-    if (element.kind == ElementKind::Stack || element.kind == ElementKind::ScrollView) {
+    if (packs_children(element.kind)) {
         if (element.kind == ElementKind::ScrollView) {
             element.overflow_y = Overflow::Auto;
             element.direction = StackDirection::Vertical;
@@ -455,7 +499,12 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
     if (auto result = assign_drag_binding(element, xml->Attribute("drag"), fatal, vm, in_template); !result) {
         return std::unexpected(result.error());
     }
-    if (auto result = assign_checked_attribute(element, xml->Attribute("checked"), fatal, vm, in_template); !result) {
+    if (auto result = assign_flag_attribute(
+                element.checked, element.checked_binding, xml->Attribute("checked"), fatal, vm, in_template);
+            !result) {
+        return std::unexpected(result.error());
+    }
+    if (auto result = assign_popup_attributes(element, xml, fatal, vm, in_template); !result) {
         return std::unexpected(result.error());
     }
     assign_bool_attribute(element.allow_copy, xml->Attribute("allow-copy"));
@@ -637,6 +686,7 @@ void collect_bind_element(const tinyxml2::XMLElement* xml, BindBinder& binder, c
     add_bind_attr(binder, xml->Attribute("command"), true);
     add_bind_attr(binder, xml->Attribute("drag"), false);
     add_bind_attr(binder, xml->Attribute("checked"), false);
+    add_bind_attr(binder, xml->Attribute("open"), false);
     add_bind_attr(binder, xml->Attribute("pan-x"), false);
     add_bind_attr(binder, xml->Attribute("pan-y"), false);
     add_bind_attr(binder, xml->Attribute("zoom"), false);
