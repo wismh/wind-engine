@@ -46,6 +46,8 @@ namespace engine::ui {
                     return "Checkbox";
                 case ElementKind::Math:
                     return "Math";
+                case ElementKind::Popup:
+                    return "Popup";
             }
             return "Element";
         }
@@ -292,6 +294,7 @@ namespace engine::ui {
             append_binding(text, "content", element.content_binding);
             append_binding(text, "command", element.command_binding);
             append_binding(text, "checked", element.checked_binding);
+            append_binding(text, "open", element.open_binding);
             append_binding(text, "source", element.source_binding);
             append_binding(text, "items", element.items_source_binding);
             append_binding(text, "drag", element.drag_binding);
