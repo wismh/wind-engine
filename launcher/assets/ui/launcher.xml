@@ -1,43 +1,108 @@
 <Canvas>
-  <Stack class="launcher" direction="vertical">
-    <Stack class="header" direction="horizontal">
+  <Stack class="launcher" direction="horizontal">
+    <Stack class="nav" direction="vertical">
       <Label class="title" text="Wind"/>
-      <Button class="tool-button" command="{binding addProject}" content="Add project…"/>
-      <Button class="tool-button" command="{binding locateSdk}" content="Locate editor…"/>
-      <Label class="status" text="{binding statusText}"/>
+      <Button class="nav-button" command="{binding showProjects}" checked="{binding projectsTab}" content="Projects"/>
+      <Button class="nav-button" command="{binding showSdks}" checked="{binding sdksTab}" content="SDKs"/>
     </Stack>
-    <Stack class="body" direction="vertical">
-      <Label class="section" text="Projects"/>
-      <ScrollView class="box projects">
-        <ItemsControl class="rows" items_source="{binding projects}">
-          <ItemTemplate>
-            <Stack class="row" direction="horizontal">
-              <Stack class="row-text" direction="vertical">
-                <Label class="name" text="{binding name}"/>
-                <Label class="path" text="{binding path}"/>
+    <Stack class="main" direction="vertical">
+      <Stack class="page" direction="vertical" var-display="{binding projectsDisplay}">
+        <Stack class="page-header projects-header" direction="horizontal">
+          <Stack class="heading" direction="vertical">
+            <Label class="page-title" text="Projects"/>
+          </Stack>
+          <Button class="tool-button add-button" command="{binding addProject}" content="Add existing…"/>
+          <Button class="tool-button new-button" command="{binding newProject}" content="New project…"/>
+        </Stack>
+        <ScrollView class="box">
+          <ItemsControl class="rows" items_source="{binding projects}">
+            <ItemTemplate>
+              <Stack class="row" direction="horizontal">
+                <Stack class="row-text" direction="vertical">
+                  <Label class="name" text="{binding name}"/>
+                  <Label class="path" text="{binding path}"/>
+                </Stack>
+                <Label class="engine" text="{binding engineText}" var-tone="{binding tone}"/>
+                <Button class="open-button" command="{binding open}" content="Open"/>
+                <Button class="small-button" command="{binding remove}" content="Remove"/>
               </Stack>
-              <Label class="engine" text="{binding engineText}" var-tone="{binding tone}"/>
-              <Button class="open-button" command="{binding open}" content="Open"/>
-              <Button class="small-button" command="{binding remove}" content="Remove"/>
-            </Stack>
-          </ItemTemplate>
-        </ItemsControl>
-      </ScrollView>
-      <Label class="section" text="Editors"/>
-      <ScrollView class="box sdks">
-        <ItemsControl class="rows" items_source="{binding sdks}">
-          <ItemTemplate>
-            <Stack class="row" direction="horizontal">
-              <Label class="version" text="{binding version}"/>
-              <Stack class="sdk-text" direction="vertical">
-                <Label class="name" text="{binding detail}"/>
-                <Label class="path" text="{binding path}"/>
+            </ItemTemplate>
+          </ItemsControl>
+        </ScrollView>
+      </Stack>
+      <Stack class="page" direction="vertical" var-display="{binding sdksDisplay}">
+        <Stack class="page-header sdks-header" direction="horizontal">
+          <Stack class="heading" direction="vertical">
+            <Label class="page-title" text="SDKs"/>
+            <Label class="path" text="{binding sdkFolderText}"/>
+          </Stack>
+          <Button class="tool-button folder-button" command="{binding showSdkFolder}" content="Open folder"/>
+          <Button class="tool-button locate-button" command="{binding locateSdk}" content="Locate…"/>
+        </Stack>
+        <ScrollView class="box">
+          <ItemsControl class="rows" items_source="{binding sdks}">
+            <ItemTemplate>
+              <Stack class="row" direction="horizontal">
+                <Label class="version" text="{binding version}"/>
+                <Stack class="sdk-text" direction="vertical">
+                  <Label class="name" text="{binding detail}"/>
+                  <Label class="path" text="{binding path}"/>
+                </Stack>
+                <Button class="more-button" command="{binding toggleMenu}" content="···">
+                  <Popup class="menu" open="{binding menuOpen}" placement="bottom-end">
+                    <Button class="menu-item" command="{binding show}" content="Show in Explorer"/>
+                    <Button class="menu-item" command="{binding remove}" content="{binding removeLabel}"/>
+                  </Popup>
+                  <Popup class="menu confirm" open="{binding confirmOpen}" placement="bottom-end">
+                    <Label class="confirm-text" text="{binding confirmText}"/>
+                    <Label class="confirm-path" text="{binding path}"/>
+                    <Stack class="confirm-buttons" direction="horizontal">
+                      <Button class="small-button" command="{binding cancelDelete}" content="Cancel"/>
+                      <Button class="danger-button" command="{binding confirmDelete}" content="Delete"/>
+                    </Stack>
+                  </Popup>
+                </Button>
               </Stack>
-              <Button class="small-button" command="{binding forget}" content="Forget"/>
-            </Stack>
-          </ItemTemplate>
-        </ItemsControl>
-      </ScrollView>
+            </ItemTemplate>
+          </ItemsControl>
+        </ScrollView>
+      </Stack>
+      <Stack class="page" direction="vertical" var-display="{binding newProjectDisplay}">
+        <Stack class="page-header" direction="horizontal">
+          <Stack class="heading" direction="vertical">
+            <Label class="page-title" text="New project"/>
+            <Label class="path" text="An empty game that opens one window, made from the SDK's template."/>
+          </Stack>
+        </Stack>
+        <Stack class="form" direction="vertical">
+          <Label class="field-label" text="Name"/>
+          <TextInput class="field" text="{binding newName}" command="{binding createProject}"/>
+          <Label class="field-label" text="Location"/>
+          <Stack class="field-row" direction="horizontal">
+            <TextInput class="field location-field" text="{binding newLocation}" command="{binding createProject}"/>
+            <Button class="tool-button browse-button" command="{binding browseLocation}" content="Browse…"/>
+          </Stack>
+          <Label class="field-label" text="SDK"/>
+          <Button class="field sdk-picker" command="{binding toggleSdkPicker}" content="{binding newSdkText}">
+            <Popup class="menu" open="{binding sdkPickerOpen}" placement="bottom-start">
+              <ItemsControl class="sdk-options" items_source="{binding sdkOptions}">
+                <ItemTemplate>
+                  <Button class="menu-item sdk-option" command="{binding pick}" checked="{binding selected}"
+                          content="{binding text}"/>
+                </ItemTemplate>
+              </ItemsControl>
+            </Popup>
+          </Button>
+          <Label class="hint" text="{binding newHint}" var-tone="{binding newHintTone}"/>
+          <Stack class="form-buttons" direction="horizontal">
+            <Button class="small-button" command="{binding cancelNewProject}" content="Cancel"/>
+            <Button class="open-button" command="{binding createProject}" content="Create"/>
+          </Stack>
+        </Stack>
+      </Stack>
+      <Stack class="status-bar" direction="horizontal">
+        <Label class="status" text="{binding statusText}"/>
+      </Stack>
     </Stack>
   </Stack>
 </Canvas>
