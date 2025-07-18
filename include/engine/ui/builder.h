@@ -40,6 +40,12 @@ public:
     Node& items_source_bind(BindingId id);
     Node& var(std::string_view name, BindingId id);
 
+    Node& overflow(Overflow value);
+    Node& overflow_x(Overflow value);
+    Node& overflow_y(Overflow value);
+    Node& scroll_x_bind(BindingId id);
+    Node& scroll_y_bind(BindingId id);
+
     Node& direction(StackDirection direction);
     Node& gap(float px);
     Node& slice(LengthInsets insets);
@@ -61,6 +67,7 @@ private:
     friend Node component();
     friend Node viewport();
     friend Node text_input();
+    friend Node scroll_view();
     friend std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal);
 
     explicit Node(ElementKind kind);
@@ -80,6 +87,7 @@ private:
 [[nodiscard]] Node component();
 [[nodiscard]] Node viewport();
 [[nodiscard]] Node text_input();
+[[nodiscard]] Node scroll_view();
 
 [[nodiscard]] std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal = nullptr);
 

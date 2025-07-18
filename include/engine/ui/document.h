@@ -10,6 +10,7 @@
 #include <engine/ui/view_model.h>
 
 #include <glm/vec2.hpp>
+#include <glm/vec4.hpp>
 
 #include <cstddef>
 #include <expected>
@@ -43,6 +44,14 @@ enum class ElementKind {
     Component,
     Viewport,
     TextInput,
+    ScrollView,
+};
+
+enum class Overflow {
+    Visible,
+    Hidden,
+    Scroll,
+    Auto,
 };
 
 enum class StackDirection {
@@ -205,6 +214,22 @@ struct Element {
     float pan_x = 0.0f;
     float pan_y = 0.0f;
     float zoom = 1.0f;
+    // Overflow and scrolling
+    Overflow overflow_x = Overflow::Visible;
+    Overflow overflow_y = Overflow::Visible;
+    BindingId scroll_x_binding{};
+    BindingId scroll_y_binding{};
+    float scroll_x = 0.0f;
+    float scroll_y = 0.0f;
+    float max_scroll_x = 0.0f;
+    float max_scroll_y = 0.0f;
+    std::optional<Length> scrollbar_width;
+    glm::vec4 scrollbar_track_color{0.0f, 0.0f, 0.0f, 0.0f};
+    glm::vec4 scrollbar_thumb_color{0.4f, 0.4f, 0.4f, 0.8f};
+    glm::vec4 scrollbar_thumb_hover_color{0.6f, 0.6f, 0.6f, 1.0f};
+    Length scrollbar_border_radius{4.0f, LengthUnit::Px};
+    bool scrollbar_thumb_hovered = false;
+    bool scrollbar_dragging = false;
     std::optional<AssetId> source;
     std::optional<LengthInsets> slice;
     std::vector<CustomPropertyBinding> custom_property_bindings;
@@ -344,5 +369,25 @@ void layout(UiDocument& document, const render::Rect& canvas_rect);
 // Innermost Viewport whose clip contains `pointer` after ancestor camera inverses. Used by wheel
 // zoom so a node under the cursor still zooms its enclosing Viewport.
 [[nodiscard]] Element* find_viewport_at(Element& root, float x, float y);
+
+[[nodiscard]] inline bool is_scrollable_y(const Element& element) noexcept {
+    return element.overflow_y == Overflow::Scroll ||
+            (element.overflow_y == Overflow::Auto && element.max_scroll_y > 0.0f);
+}
+
+[[nodiscard]] inline bool is_scrollable_x(const Element& element) noexcept {
+    return element.overflow_x == Overflow::Scroll ||
+            (element.overflow_x == Overflow::Auto && element.max_scroll_x > 0.0f);
+}
+
+[[nodiscard]] inline bool is_scrollable(const Element& element) noexcept {
+    return is_scrollable_y(element) || is_scrollable_x(element);
+}
+
+[[nodiscard]] render::Rect scrollbar_track_rect(const Element& element, float ui_scale = 1.0f) noexcept;
+[[nodiscard]] render::Rect scrollbar_thumb_rect(const Element& element, float ui_scale = 1.0f) noexcept;
+
+// Innermost scrollable container whose clip contains `pointer`. Used by wheel scrolling.
+[[nodiscard]] Element* find_scrollable_at(Element& root, float x, float y);
 
 }

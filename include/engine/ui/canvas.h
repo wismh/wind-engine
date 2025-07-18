@@ -140,6 +140,24 @@ struct UiActivePans {
     std::unordered_map<WindowId, ActivePan> pans;
 };
 
+struct ActiveScrollbarDrag {
+    ecs::Entity canvas_entity{};
+    std::vector<std::size_t> path;
+    const void* owner = nullptr;
+    float drag_start_pointer_y = 0.0f;
+    float drag_start_scroll_y = 0.0f;
+    float track_h = 0.0f;
+    float thumb_h = 0.0f;
+    float max_scroll_y = 0.0f;
+    glm::vec2 space_offset{0.0f, 0.0f};
+    float space_scale = 1.0f;
+    BindingId scroll_y_binding{};
+};
+
+struct UiActiveScrollbars {
+    std::unordered_map<WindowId, ActiveScrollbarDrag> drags;
+};
+
 // Only ever holds entries for windows OTHER than kPrimaryWindow — mirrors WindowSizes above:
 // the primary's pointer stays authoritative in the existing ctx<UiPointer>() singleton, unchanged,
 // so every pre-existing single-window call site keeps working with zero modification. A window

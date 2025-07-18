@@ -128,15 +128,41 @@ Node& Node::var(std::string_view name, BindingId id) {
     return *this;
 }
 
+Node& Node::overflow(Overflow value) {
+    element_.overflow_x = value;
+    element_.overflow_y = value;
+    return *this;
+}
+
+Node& Node::overflow_x(Overflow value) {
+    element_.overflow_x = value;
+    return *this;
+}
+
+Node& Node::overflow_y(Overflow value) {
+    element_.overflow_y = value;
+    return *this;
+}
+
+Node& Node::scroll_x_bind(BindingId id) {
+    element_.scroll_x_binding = id;
+    return *this;
+}
+
+Node& Node::scroll_y_bind(BindingId id) {
+    element_.scroll_y_binding = id;
+    return *this;
+}
+
 Node& Node::direction(StackDirection direction) {
-    if (element_.kind == ElementKind::Stack) {
+    if (element_.kind == ElementKind::Stack || element_.kind == ElementKind::ScrollView) {
         element_.direction = direction;
     }
     return *this;
 }
 
 Node& Node::gap(float px) {
-    if (element_.kind == ElementKind::Stack) {
+    if (element_.kind == ElementKind::Stack || element_.kind == ElementKind::ScrollView) {
         element_.gap = Length{px, LengthUnit::Px};
     }
     return *this;
@@ -203,6 +229,13 @@ Node viewport() {
 
 Node text_input() {
     return Node(ElementKind::TextInput);
+}
+
+Node scroll_view() {
+    Node node(ElementKind::ScrollView);
+    node.direction(StackDirection::Vertical);
+    node.overflow_y(Overflow::Auto);
+    return node;
 }
 
 std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal) {
