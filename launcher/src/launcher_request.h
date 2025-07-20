@@ -11,13 +11,18 @@ struct LauncherRequest {
         None,
         AddProject,
         LocateSdk,
+        ShowSdkFolder,
+        BrowseLocation,
+        CreateProject,
         Open,
         Remove,
-        Forget,
+        ShowSdk,
+        ForgetSdk,
+        DeleteSdk,
     };
 
     Kind kind = Kind::None;
-    // The project row (Open, Remove) or editor row (Forget).
+    // The project row (Open, Remove) or SDK row (ShowSdk, ForgetSdk, DeleteSdk).
     std::size_t index = 0;
 };
 

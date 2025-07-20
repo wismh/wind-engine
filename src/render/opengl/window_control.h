@@ -154,6 +154,21 @@ public:
         return FileDialogCall{std::move(state)};
     }
 
+    FileDialogCall request_open_folder(WindowId owner, std::filesystem::path start) override {
+        auto state = std::make_shared<FileDialogState>();
+        // SDL copies default_location before it returns; the call block only carries the answer's destination.
+        auto call = std::make_unique<DialogCall>();
+        call->dialogs = dialogs_;
+        call->state = state;
+        std::error_code error;
+        const std::u8string location =
+                !start.empty() && std::filesystem::is_directory(start, error) ? start.u8string() : std::u8string{};
+        SDL_Window* const parent = windows_->window(owner) != nullptr ? windows_->window(owner)->window() : nullptr;
+        SDL_ShowOpenFolderDialog(&on_open_file, call.release(), parent,
+                location.empty() ? nullptr : reinterpret_cast<const char*>(location.c_str()), false);
+        return FileDialogCall{std::move(state)};
+    }
+
     [[nodiscard]] render::Rect usable_display_bounds(int display_index) const override {
         SDL_DisplayID id = SDL_GetPrimaryDisplay();
         int count = 0;

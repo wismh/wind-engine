@@ -23,6 +23,10 @@ cmake --install build-editor --config Release --prefix out/sdk
 
 ---
 
+Shortcut: Wind Launcher's **New project…** writes sections 2 to 4 for you (an empty game with one window) from your SDK's template and opens it in the editor. Install the SDK where the launcher finds it, `%LOCALAPPDATA%\Programs\Wind\Sdks\<version>`, or Locate it on the launcher's SDKs page. The steps below are what that template contains.
+
+---
+
 ## 2. Setting Up the Repository
 
 Your game repository does not contain the engine. It finds the SDK when it configures:
@@ -178,7 +182,7 @@ ENGINE_GAME(game::MyGame)
 
 ## 5. Build and Run
 
-Open the project in the editor and play it (CMake must be on `PATH`). Wind Launcher does the same with a button: Add project, pick `wind_project.toml`, Locate editor for your SDK's `sdk.toml`, then Open. Or directly:
+Open the project in the editor and play it (CMake must be on `PATH`). Wind Launcher does the same with a button: Add project, pick `wind_project.toml`, then Open. The launcher finds SDKs installed in `%LOCALAPPDATA%\Programs\Wind\Sdks`; for one elsewhere (your own `out/sdk`), use Locate on the SDKs page and pick its `sdk.toml`. Or directly:
 
 ```bash
 C:/path/to/wind-engine/out/sdk/bin/wind_editor.exe --project . --play

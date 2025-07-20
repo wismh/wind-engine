@@ -1,6 +1,7 @@
 #include "sdk_catalog.h"
 
 #include "launcher_state.h"
+#include "user_paths.h"
 
 #include <algorithm>
 #include <charconv>
@@ -8,6 +9,12 @@
 
 namespace launcher {
 namespace {
+
+constexpr std::string_view kDeletingPrefix = ".deleting-";
+
+bool hidden(const std::filesystem::path& directory) {
+    return path_text(directory.filename()).starts_with('.');
+}
 
 std::string_view next_part(std::string_view& version) {
     const std::size_t dot = version.find('.');
@@ -43,13 +50,27 @@ int compare_versions(std::string_view a, std::string_view b) {
     return 0;
 }
 
+std::filesystem::path sdk_install_directory() {
+#if defined(_WIN32)
+    const std::filesystem::path local = environment_path("LOCALAPPDATA");
+    return local.empty() ? local : local / "Programs" / "Wind" / "Sdks";
+#else
+    if (const std::filesystem::path data = environment_path("XDG_DATA_HOME"); !data.empty()) {
+        return data / "Wind" / "Sdks";
+    }
+    const std::filesystem::path home = environment_path("HOME");
+    return home.empty() ? home : home / ".local" / "share" / "Wind" / "Sdks";
+#endif
+}
+
 std::vector<SdkEntry> find_sdks(const std::filesystem::path& install_dir,
         const std::vector<std::filesystem::path>& located, std::vector<std::string>& problems) {
     std::vector<SdkEntry> sdks;
     std::error_code error;
     if (!install_dir.empty() && std::filesystem::is_directory(install_dir, error)) {
         for (const std::filesystem::directory_entry& child : std::filesystem::directory_iterator(install_dir, error)) {
-            if (!child.is_directory(error) || !std::filesystem::exists(child.path() / engine::kSdkManifestFile, error)) {
+            if (!child.is_directory(error) || hidden(child.path()) ||
+                    !std::filesystem::exists(child.path() / engine::kSdkManifestFile, error)) {
                 continue;
             }
             if (auto manifest = engine::read_sdk_manifest(child.path())) {
@@ -83,6 +104,42 @@ const SdkEntry* sdk_for(const std::vector<SdkEntry>& sdks, std::string_view vers
     return found == sdks.end() ? nullptr : &*found;
 }
 
+std::expected<void, std::string> delete_sdk(const std::filesystem::path& root) {
+    std::error_code error;
+    if (!std::filesystem::is_directory(root, error)) {
+        return std::unexpected(path_text(root) + " is not there any more.");
+    }
+    const std::filesystem::path doomed = root.parent_path() / (std::string(kDeletingPrefix) + path_text(root.filename()));
+    std::filesystem::remove_all(doomed, error);
+    std::filesystem::rename(root, doomed, error);
+    if (error) {
+        return std::unexpected("Could not delete " + path_text(root) + ": " + error.message() +
+                ". Close the editor running from it and try again.");
+    }
+    std::filesystem::remove_all(doomed, error);
+    if (error) {
+        return std::unexpected("Deleted the SDK, but some files are still in use (" + error.message() +
+                "). The launcher removes " + path_text(doomed) + " when it starts.");
+    }
+    return {};
+}
+
+void remove_deleted_sdks(const std::filesystem::path& install_dir) {
+    std::error_code error;
+    if (install_dir.empty() || !std::filesystem::is_directory(install_dir, error)) {
+        return;
+    }
+    std::vector<std::filesystem::path> doomed;
+    for (const std::filesystem::directory_entry& child : std::filesystem::directory_iterator(install_dir, error)) {
+        if (path_text(child.path().filename()).starts_with(kDeletingPrefix)) {
+            doomed.push_back(child.path());
+        }
+    }
+    for (const std::filesystem::path& directory : doomed) {
+        std::filesystem::remove_all(directory, error);
+    }
+}
+
 std::filesystem::path editor_executable(const SdkEntry& sdk) {
 #if defined(_WIN32)
     return sdk.root / "bin" / "wind_editor.exe";
@@ -96,6 +153,25 @@ engine::ProcessDesc editor_launch(const SdkEntry& sdk, const std::filesystem::pa
             .program = editor_executable(sdk),
             .arguments = {"--project", path_text(project)},
             .working_directory = sdk.root / "bin",
+            .environment = {},
+    };
+}
+
+engine::ProcessDesc folder_launch(const std::filesystem::path& directory) {
+#if defined(_WIN32)
+    const std::filesystem::path program = "explorer";
+#elif defined(__APPLE__)
+    const std::filesystem::path program = "open";
+#else
+    const std::filesystem::path program = "xdg-open";
+#endif
+    std::filesystem::path native = directory;
+    native.make_preferred();
+    const std::u8string text = native.u8string();
+    return engine::ProcessDesc{
+            .program = program,
+            .arguments = {std::string(reinterpret_cast<const char*>(text.data()), text.size())},
+            .working_directory = {},
             .environment = {},
     };
 }
