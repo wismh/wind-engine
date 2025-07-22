@@ -4,7 +4,6 @@
 
 #include <asset_ids.h>
 
-#include <cstddef>
 #include <utility>
 
 namespace editor {
@@ -24,15 +23,9 @@ InspectorRowViewModel::InspectorRowViewModel(InspectorPanel& panel) : panel_(&pa
 
 void InspectorRowViewModel::show(engine::ui::InspectorTreeRow row) {
     row_ = std::move(row);
-    std::string text(static_cast<std::size_t>(row_.depth) * 2, ' ');
-    text += row_.label;
-    label = std::move(text);
-    if (!row_.has_children) {
-        twist = std::string(" ");
-    } else {
-        // Inter has these two triangles; the smaller U+25BE and U+25B8 draw as a box.
-        twist = std::string(row_.expanded ? "▼" : "▶");
-    }
+    label = row_.label;
+    depth = row_.tree.depth;
+    expanded = row_.tree.expanded;
     rowFill = std::string(row_.selected ? kSelectedFill : kPlainFill);
 }
 
@@ -49,7 +42,7 @@ void InspectorRowViewModel::toggle_row() {
 }
 
 bool InspectorRowViewModel::can_toggle_row() const {
-    return row_.has_children;
+    return row_.tree.has_children;
 }
 
 }

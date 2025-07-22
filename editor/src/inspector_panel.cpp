@@ -3,6 +3,7 @@
 #include <engine/ecs/world.h>
 
 #include <string>
+#include <vector>
 #include <utility>
 
 namespace editor {
@@ -73,6 +74,36 @@ void InspectorPanel::toggle(const engine::ui::InspectorRowKey& key) {
     if (game_ != nullptr) {
         engine::ui::inspector_toggle(*game_, key);
     }
+}
+
+std::optional<std::size_t> InspectorPanel::navigate(engine::ui::TreeNav nav) {
+    if (game_ == nullptr) {
+        return std::nullopt;
+    }
+    const std::vector<std::shared_ptr<InspectorRowViewModel>>& rows = view_model_->rows.get();
+    const engine::WindowId detail = game_->ctx<engine::ui::UiInspector>().detail_window;
+    std::vector<engine::ui::TreeRowInfo> infos;
+    infos.reserve(rows.size());
+    std::size_t current = engine::ui::kNoTreeRow;
+    for (std::size_t i = 0; i < rows.size(); ++i) {
+        const engine::ui::InspectorTreeRow& row = rows[i]->row();
+        infos.push_back(row.tree);
+        if (row.selected && (current == engine::ui::kNoTreeRow || row.window == detail)) {
+            current = i;
+        }
+    }
+    const engine::ui::TreeNavResult result = engine::ui::tree_navigate(infos, current, nav);
+    if (result.row == engine::ui::kNoTreeRow) {
+        return std::nullopt;
+    }
+    const engine::ui::InspectorTreeRow& target = rows[result.row]->row();
+    if (result.toggle) {
+        toggle(target.key);
+    }
+    if (result.row != current) {
+        select(target);
+    }
+    return result.row;
 }
 
 void InspectorPanel::show_rows() {

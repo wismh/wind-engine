@@ -69,7 +69,7 @@ The commands are `MethodCommand` (`editor/src/method_command.h`) bound to `Toolb
 
 ## Panels
 
-`EditorPanels` (`editor/src/editor_panels.cpp`) owns `InspectorPanel`, `ProfilerPanel`, and `BuildPanel`. One editor-world system in `Phase::Game` places the canvases and refreshes the visible panel. `Game`, not `Bind`: `run_bind` of the editor world must see this frame's copy. The active panel's canvas covers the window below `kPanelTop` (88px: the 56px toolbar and the 32px tab strip of `editor.css`). The others are `Fixed` with an empty rect, so they take no clicks. The Build panel is filled by the editor as a build runs, not refreshed.
+`EditorPanels` (`editor/src/editor_panels.cpp`) owns `InspectorPanel`, `ProfilerPanel`, and `BuildPanel`. One editor-world system in `Phase::Game` places the canvases, hands tree keys to the Inspector while the pointer is over it ([UI Inspector](UI%20Inspector.md#editor-panel)), and refreshes the visible panel. `Game`, not `Bind`: `run_bind` of the editor world must see this frame's copy. The active panel's canvas covers the window below `kPanelTop` (88px: the 56px toolbar and the 32px tab strip of `editor.css`). The others are `Fixed` with an empty rect, so they take no clicks. The Build panel is filled by the editor as a build runs, not refreshed.
 
 Each panel holds a pointer to the game world only between attach and detach. Its rows are plain copies of the engine's snapshot rows. Details: [UI Inspector](UI%20Inspector.md), [UI Profiler](UI%20Profiler.md).
 

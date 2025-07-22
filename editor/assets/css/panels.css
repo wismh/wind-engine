@@ -112,24 +112,36 @@ ItemsControl.rows {
   width: 100%;
 }
 
-/* Fixed 22 px rows: the tree is virtualized. */
+/* Fixed 22 px rows: the tree is virtualized. `--depth` is the row's tree depth. */
 .rowline {
   width: 100%;
   height: 22;
+  padding: 0 0 0 calc(var(--depth, 0) * 14px);
   border-radius: 4;
   background: var(--row, #00000000);
 }
 
-Button.twist {
-  width: 20;
-  height: 22;
-  margin: 0;
+/* builtin::tree_chevron, turned down while the node is expanded. A leaf's toggle is disabled. */
+Checkbox.expander {
+  width: 12;
+  height: 12;
+  margin: 5 4;
   padding: 0;
-  font-size: 11;
-  color: #9aa3b2;
   background: #00000000;
-  text-align: center;
-  align-items: center;
+  background-image: a0e1b2c3d4f5678901234567890abc07;
+  transition: transform 0.12s ease-out;
+}
+
+Checkbox.expander:checked {
+  transform: rotate(90deg);
+}
+
+Checkbox.expander:hover {
+  opacity: 0.75;
+}
+
+Checkbox.expander:disabled {
+  background-image: none;
 }
 
 Button.row {
@@ -155,11 +167,6 @@ Button.canvas-row {
   background: var(--row, #00000000);
   white-space: nowrap;
   align-items: center;
-}
-
-Button.twist:hover {
-  color: #ffffff;
-  background: #ffffff14;
 }
 
 Button.row:hover {
