@@ -22,74 +22,9 @@
 namespace engine::ui {
 namespace {
 
-enum class BackgroundRepeat {
-    NoRepeat,
-    Repeat,
-};
-
-struct ComputedStyle {
-    glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
-    glm::vec4 background{0.0f, 0.0f, 0.0f, 0.0f};
-    std::optional<AssetId> background_image;
-    std::optional<LengthInsets> background_slice;
-    BackgroundRepeat background_repeat = BackgroundRepeat::NoRepeat;
-    float opacity = 1.0f;
-    bool visible = true;
-    Length gap{};
-    bool has_gap = false;
-    StackDirection direction = StackDirection::Vertical;
-    bool has_direction = false;
-    LengthInsets padding{};
-    LengthInsets margin{};
-    std::optional<Length> width;
-    std::optional<Length> height;
-    std::optional<Length> min_width;
-    std::optional<Length> min_height;
-    UiAlign justify = UiAlign::Start;
-    UiAlign align_items = UiAlign::Start;
-    UiAlign text_align = UiAlign::Start;
-    Length border_radius{};
-    Length border_width{};
-    glm::vec4 border_color{0.0f, 0.0f, 0.0f, 0.0f};
-    // Line endpoints, offsets from the element's own layout_rect origin. Only meaningful when
-    // element.kind == ElementKind::Line.
-    Length x1{};
-    Length y1{};
-    Length x2{};
-    Length y2{};
-    Length stroke_width{2.0f, LengthUnit::Px};
-    glm::vec4 stroke{0.0f, 0.0f, 0.0f, 1.0f};
-    Length font_size{kDefaultFontSize, LengthUnit::Px};
-    AssetId font_family = builtin::font_ui;
-    std::string animation_name;
-    float animation_duration = 0.0f;
-    int z_index = 0;
-    PositionMode position = PositionMode::Static;
-    std::optional<Length> inset_top;
-    std::optional<Length> inset_right;
-    std::optional<Length> inset_bottom;
-    std::optional<Length> inset_left;
-    float rotation_deg = 0.0f;
-    float scale = 1.0f;
-    Overflow overflow_x = Overflow::Visible;
-    Overflow overflow_y = Overflow::Visible;
-    bool has_overflow_x = false;
-    bool has_overflow_y = false;
-    std::optional<Length> scrollbar_width;
-    bool has_scrollbar_width = false;
-    glm::vec4 scrollbar_track_color{0.0f, 0.0f, 0.0f, 0.0f};
-    bool has_scrollbar_track_color = false;
-    glm::vec4 scrollbar_thumb_color{0.4f, 0.4f, 0.4f, 0.8f};
-    bool has_scrollbar_thumb_color = false;
-    glm::vec4 scrollbar_thumb_hover_color{0.6f, 0.6f, 0.6f, 1.0f};
-    bool has_scrollbar_thumb_hover_color = false;
-    Length scrollbar_border_radius{4.0f, LengthUnit::Px};
-    bool has_scrollbar_border_radius = false;
-    // Cascaded `--name: value;` declarations, keyed without the leading `--`. Consulted by
-    // resolve_var() when a declaration's value is `var(--name)` and the element itself has no
-    // matching entry in Element::custom_properties (per-instance, VM-bound — takes priority).
-    std::unordered_map<std::string, std::string> custom_properties;
-};
+// BackgroundRepeat and ComputedStyle now live in <engine/ui/document.h> (still engine::ui-scoped,
+// found here by unqualified lookup) so Element can cache a compute_style() result — see
+// StyleCacheEntry there.
 
 std::string_view trim(std::string_view value) {
     std::size_t begin = 0;
@@ -749,7 +684,7 @@ void apply_animation_opacity(Element& element, ComputedStyle& style, const Style
     }
 }
 
-ComputedStyle compute_style(const Element& element, const Stylesheet* sheet, bool allow_pseudo,
+ComputedStyle compute_style_uncached(const Element& element, const Stylesheet* sheet, bool allow_pseudo,
         const std::vector<const Element*>& ancestors, float window_width, float window_height) {
     ComputedStyle style;
     if (sheet == nullptr) {
@@ -790,6 +725,84 @@ ComputedStyle compute_style(const Element& element, const Stylesheet* sheet, boo
     return style;
 }
 
+// Packs one element's pseudo-state into a byte so StyleCacheEntry::ancestor_pseudo_state can
+// detect "A:hover B" reacting to ancestor A's hover changing, even though the ancestor pointer
+// chain to B (identity, checked separately) didn't change.
+std::uint8_t pseudo_state_bits(const Element& element) {
+    return static_cast<std::uint8_t>((element.hovered ? 1u : 0u) | (element.pressed ? 2u : 0u) |
+            (element.disabled ? 4u : 0u) | (element.focused ? 8u : 0u));
+}
+
+std::vector<std::uint8_t> ancestor_pseudo_state_bits(const std::vector<const Element*>& ancestors) {
+    std::vector<std::uint8_t> bits;
+    bits.reserve(ancestors.size());
+    for (const Element* ancestor : ancestors) {
+        bits.push_back(pseudo_state_bits(*ancestor));
+    }
+    return bits;
+}
+
+bool style_cache_hits(const StyleCacheEntry& cache, const Element& element, const Stylesheet* sheet,
+        const std::vector<const Element*>& ancestors, float window_width, float window_height) {
+    const std::uint64_t sheet_generation = sheet != nullptr ? sheet->generation : 0;
+    if (!cache.valid || cache.sheet != sheet || cache.sheet_generation != sheet_generation ||
+            cache.window_width != window_width || cache.window_height != window_height) {
+        return false;
+    }
+    if (cache.id != element.id || cache.classes != element.classes) {
+        return false;
+    }
+    if (cache.hovered != element.hovered || cache.pressed != element.pressed ||
+            cache.disabled != element.disabled || cache.focused != element.focused) {
+        return false;
+    }
+    if (cache.custom_properties != element.custom_properties) {
+        return false;
+    }
+    if (cache.ancestors != ancestors) {
+        return false;
+    }
+    return cache.ancestor_pseudo_state == ancestor_pseudo_state_bits(ancestors);
+}
+
+void style_cache_store(StyleCacheEntry& cache, const Element& element, const Stylesheet* sheet,
+        const std::vector<const Element*>& ancestors, float window_width, float window_height, ComputedStyle style) {
+    cache.valid = true;
+    cache.sheet = sheet;
+    cache.sheet_generation = sheet != nullptr ? sheet->generation : 0;
+    cache.window_width = window_width;
+    cache.window_height = window_height;
+    cache.id = element.id;
+    cache.classes = element.classes;
+    cache.hovered = element.hovered;
+    cache.pressed = element.pressed;
+    cache.disabled = element.disabled;
+    cache.focused = element.focused;
+    cache.custom_properties = element.custom_properties;
+    cache.ancestors = ancestors;
+    cache.ancestor_pseudo_state = ancestor_pseudo_state_bits(ancestors);
+    cache.style = std::move(style);
+}
+
+// Memoized compute_style(): apply_layout_style() and paint_element() are the only two callers,
+// with allow_pseudo false and true respectively, so they land in independent StyleCacheEntry
+// slots on the element (style_cache_layout_ / style_cache_paint_) and can never invalidate each
+// other. See StyleCacheEntry's doc comment (document.h) for exactly what a hit requires.
+//
+// Not cached at all: apply_animation_opacity(). It runs on the returned-by-value ComputedStyle in
+// paint_element() every call, hit or miss, so keyframe opacity still advances every frame even
+// when every other style input is unchanged.
+ComputedStyle compute_style(const Element& element, const Stylesheet* sheet, bool allow_pseudo,
+        const std::vector<const Element*>& ancestors, float window_width, float window_height) {
+    StyleCacheEntry& cache = allow_pseudo ? element.style_cache_paint_ : element.style_cache_layout_;
+    if (style_cache_hits(cache, element, sheet, ancestors, window_width, window_height)) {
+        return cache.style;
+    }
+    ComputedStyle style = compute_style_uncached(element, sheet, allow_pseudo, ancestors, window_width, window_height);
+    style_cache_store(cache, element, sheet, ancestors, window_width, window_height, style);
+    return style;
+}
+
 BoxInsets resolve_insets(const LengthInsets& insets, glm::vec2 parent_content, float em_basis) {
     return BoxInsets{
             resolve_length(insets.top, parent_content.y, em_basis),
@@ -802,6 +815,17 @@ BoxInsets resolve_insets(const LengthInsets& insets, glm::vec2 parent_content, f
 void apply_layout_style(Element& element, const Stylesheet* sheet, std::vector<const Element*>& ancestors,
         float window_width, float window_height) {
     if (element.kind == ElementKind::ItemTemplate) {
+        return;
+    }
+    if (element.is_virtualization_spacer) {
+        // Height is a pure function of skipped-row count * row stride, computed once in
+        // bind_element (document.cpp, ItemsControl virtualization) — the stylesheet has no
+        // opinion on it (the spacer deliberately carries no class/id, so no rule can match it
+        // anyway), so leave every layout-affecting field exactly as bind_element set it instead of
+        // resolving compute_style() and unconditionally overwriting `height` with (typically)
+        // nullopt below. paint_element() still runs compute_style() on it normally for painting
+        // (a separate cache slot) — with no matching rule that still resolves to a fully
+        // transparent background, so nothing is drawn.
         return;
     }
     const ComputedStyle style = compute_style(element, sheet, false, ancestors, window_width, window_height);
