@@ -26,12 +26,15 @@ public:
 
     // The row button: select this element in the game.
     void select_row();
-    // The twist button: collapse or expand.
+    // The expander checkbox: collapse or expand. Disabled on a leaf.
     void toggle_row();
     [[nodiscard]] bool can_toggle_row() const;
 
     engine::ui::Bindable<std::string> label;
-    engine::ui::Bindable<std::string> twist;
+    // Tree depth through `var-depth`: the row's indent.
+    engine::ui::Bindable<int> depth;
+    // The expander's `checked`: the chevron turns down while the node is expanded.
+    engine::ui::Bindable<bool> expanded;
     // Row background through `var-row`: the selected row is green.
     engine::ui::Bindable<std::string> rowFill;
     MethodCommand select;

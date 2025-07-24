@@ -530,14 +530,14 @@ TEST(UiInspector, TreeRowsSelectAndToggle) {
     std::vector<engine::ui::InspectorTreeRow> rows = engine::ui::inspector_tree(game.world);
     ASSERT_EQ(rows.size(), 3u);
     EXPECT_EQ(rows[0].label, "Canvas");
-    EXPECT_EQ(rows[0].depth, 0);
-    EXPECT_TRUE(rows[0].has_children);
-    EXPECT_TRUE(rows[0].expanded);
+    EXPECT_EQ(rows[0].tree.depth, 0);
+    EXPECT_TRUE(rows[0].tree.has_children);
+    EXPECT_TRUE(rows[0].tree.expanded);
     EXPECT_EQ(rows[1].label, "Button #go");
-    EXPECT_EQ(rows[1].depth, 1);
+    EXPECT_EQ(rows[1].tree.depth, 1);
     EXPECT_EQ(rows[2].label, "Label #lab");
-    EXPECT_EQ(rows[2].depth, 2);
-    EXPECT_FALSE(rows[2].has_children);
+    EXPECT_EQ(rows[2].tree.depth, 2);
+    EXPECT_FALSE(rows[2].tree.has_children);
     EXPECT_EQ(selected_row(rows), nullptr);
 
     engine::ui::inspector_select(game.world, rows[2].window, rows[2].pick);
@@ -551,13 +551,16 @@ TEST(UiInspector, TreeRowsSelectAndToggle) {
     engine::ui::inspector_toggle(game.world, rows[1].key);
     rows = engine::ui::inspector_tree(game.world);
     ASSERT_EQ(rows.size(), 2u) << "a collapsed row hides its children";
-    EXPECT_FALSE(rows[1].expanded);
+    EXPECT_FALSE(rows[1].tree.expanded);
     engine::ui::inspector_toggle(game.world, rows[1].key);
     EXPECT_EQ(engine::ui::inspector_tree(game.world).size(), 3u);
 
     const engine::ui::InspectorRowKey leaf = engine::ui::inspector_tree(game.world)[2].key;
     engine::ui::inspector_toggle(game.world, leaf);
-    EXPECT_TRUE(engine::ui::inspector_tree(game.world)[2].expanded) << "a leaf has nothing to collapse";
+    rows = engine::ui::inspector_tree(game.world);
+    ASSERT_EQ(rows.size(), 3u) << "a leaf has nothing to collapse";
+    EXPECT_FALSE(rows[2].tree.expanded);
+    EXPECT_EQ(rows[2].tree.parent, 1u);
     engine::ui::set_inspector_attached(game.world, false);
 }
 
@@ -616,7 +619,7 @@ TEST(UiInspector, GeneratedRowsKeepKeyAndSelectionWhenTheListMoves) {
         }
     }
     ASSERT_NE(collapsed, nullptr) << "the key survives the move";
-    EXPECT_FALSE(collapsed->expanded);
+    EXPECT_FALSE(collapsed->tree.expanded);
     EXPECT_EQ(selected_row(rows), nullptr) << "the selected label is inside the collapsed row";
 
     engine::ui::inspector_toggle(world, key_b);

@@ -10,6 +10,7 @@
 #include <engine/ui/stylesheet.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -64,10 +65,12 @@ TEST(InspectorPanel, TreeRowsBecomeViewModelRows) {
     panel.refresh();
 
     const editor::InspectorViewModel& vm = *panel.view_model();
-    EXPECT_EQ(labels(vm), (std::vector<std::string>{"Canvas", "  Button #go", "    Label #lab"}));
-    EXPECT_EQ(vm.rows.get()[0]->twist.get(), "▼");
-    EXPECT_EQ(vm.rows.get()[2]->twist.get(), " ");
-    EXPECT_FALSE(vm.rows.get()[2]->toggle.can_execute()) << "a leaf has no twist";
+    EXPECT_EQ(labels(vm), (std::vector<std::string>{"Canvas", "Button #go", "Label #lab"}));
+    EXPECT_EQ(vm.rows.get()[0]->depth.get(), 0);
+    EXPECT_EQ(vm.rows.get()[2]->depth.get(), 2) << "the indent is the depth, not spaces in the label";
+    EXPECT_TRUE(vm.rows.get()[0]->expanded.get());
+    EXPECT_FALSE(vm.rows.get()[2]->expanded.get());
+    EXPECT_FALSE(vm.rows.get()[2]->toggle.can_execute()) << "a leaf has no expander";
     EXPECT_EQ(vm.rows.get()[2]->rowFill.get(), "#00000000");
     EXPECT_EQ(vm.detail.get(), "Nothing selected");
 
@@ -112,7 +115,7 @@ TEST(InspectorPanel, PickInTheGameShowsInThePanel) {
     panel.detach();
 }
 
-TEST(InspectorPanel, TwistCollapsesAndExpands) {
+TEST(InspectorPanel, ExpanderCollapsesAndExpands) {
     Game game;
     editor::InspectorPanel panel;
     panel.attach(game.world);
@@ -120,8 +123,8 @@ TEST(InspectorPanel, TwistCollapsesAndExpands) {
 
     panel.view_model()->rows.get()[1]->toggle.execute();
     panel.refresh();
-    EXPECT_EQ(labels(*panel.view_model()), (std::vector<std::string>{"Canvas", "  Button #go"}));
-    EXPECT_EQ(panel.view_model()->rows.get()[1]->twist.get(), "▶");
+    EXPECT_EQ(labels(*panel.view_model()), (std::vector<std::string>{"Canvas", "Button #go"}));
+    EXPECT_FALSE(panel.view_model()->rows.get()[1]->expanded.get());
 
     panel.view_model()->rows.get()[1]->toggle.execute();
     panel.refresh();
@@ -169,4 +172,33 @@ TEST(InspectorPanel, DetachDropsEverythingAndRowsGoInert) {
 
     kept->select.execute();
     EXPECT_FALSE(engine::ui::inspector_selection(game.world).active) << "a stale row does nothing";
+}
+
+TEST(InspectorPanel, TreeKeysSelectCollapseAndExpand) {
+    Game game;
+    editor::InspectorPanel panel;
+    panel.attach(game.world);
+    panel.refresh();
+    using engine::ui::TreeNav;
+
+    EXPECT_EQ(panel.navigate(TreeNav::Down), std::optional<std::size_t>{0}) << "nothing selected: the first row";
+    panel.refresh();
+    EXPECT_EQ(panel.view_model()->rows.get()[0]->rowFill.get(), "#2f5d3a");
+
+    EXPECT_EQ(panel.navigate(TreeNav::Last), std::optional<std::size_t>{2});
+    panel.refresh();
+    EXPECT_EQ(panel.navigate(TreeNav::Left), std::optional<std::size_t>{1}) << "a leaf moves to its parent";
+    panel.refresh();
+    EXPECT_EQ(panel.view_model()->rows.get()[1]->rowFill.get(), "#2f5d3a");
+
+    EXPECT_EQ(panel.navigate(TreeNav::Left), std::optional<std::size_t>{1}) << "an expanded row collapses";
+    panel.refresh();
+    EXPECT_EQ(labels(*panel.view_model()), (std::vector<std::string>{"Canvas", "Button #go"}));
+    EXPECT_EQ(panel.navigate(TreeNav::Right), std::optional<std::size_t>{1}) << "and expands again";
+    panel.refresh();
+    EXPECT_EQ(panel.view_model()->rows.get().size(), 3u);
+    EXPECT_EQ(panel.navigate(TreeNav::Right), std::optional<std::size_t>{2}) << "then steps into it";
+    panel.detach();
+
+    EXPECT_FALSE(panel.navigate(TreeNav::Down).has_value()) << "detached: no rows";
 }

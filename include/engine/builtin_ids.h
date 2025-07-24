@@ -16,14 +16,16 @@ inline constexpr AssetId material_unlit{"a0e1b2c3d4f5678901234567890abc03"};
 inline constexpr AssetId font_ui{"a0e1b2c3d4f5678901234567890abc04"};
 inline constexpr AssetId splash_wind{"a0e1b2c3d4f5678901234567890abc05"};
 inline constexpr AssetId font_math{"a0e1b2c3d4f5678901234567890abc06"};
+inline constexpr AssetId tree_chevron{"a0e1b2c3d4f5678901234567890abc07"};
 
-inline constexpr std::array<AssetId, 6> ids{
+inline constexpr std::array<AssetId, 7> ids{
         shader_unlit,
         mesh_quad,
         material_unlit,
         font_ui,
         splash_wind,
         font_math,
+        tree_chevron,
 };
 
 [[nodiscard]] constexpr std::span<const AssetId> reserved() noexcept {

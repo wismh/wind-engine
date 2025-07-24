@@ -5,8 +5,11 @@
 #include "rule_line_view_model.h"
 
 #include <engine/ui/inspector.h>
+#include <engine/ui/tree.h>
 
+#include <cstddef>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -41,6 +44,11 @@ public:
 
     void select(const engine::ui::InspectorTreeRow& row);
     void toggle(const engine::ui::InspectorRowKey& key);
+
+    // A tree key on the shown rows, from the selected row of the detail's window. Selects and expands or
+    // collapses in the game's probe; the rows show it on the next refresh. Returns the row to keep in view,
+    // which is where that row sits after the refresh too.
+    std::optional<std::size_t> navigate(engine::ui::TreeNav nav);
 
 private:
     void show_rows();

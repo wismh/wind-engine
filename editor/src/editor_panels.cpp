@@ -6,7 +6,9 @@
 
 #include <engine/ecs/world.h>
 #include <engine/ui/canvas.h>
+#include <engine/ui/document.h>
 #include <engine/ui/presentation.h>
+#include <engine/ui/tree.h>
 
 #include <algorithm>
 
@@ -67,10 +69,40 @@ void EditorPanels::frame(engine::ecs::World& world) {
     place(world, inspector_canvas_, tab == EditorTab::Inspector ? shown : hidden);
     place(world, profiler_canvas_, tab == EditorTab::Profiler ? shown : hidden);
     place(world, build_canvas_, tab == EditorTab::Build ? shown : hidden);
+    read_tree_keys(world, shown, tab == EditorTab::Inspector);
     if (tab == EditorTab::Inspector) {
         inspector_.refresh();
     } else if (tab == EditorTab::Profiler) {
         profiler_.refresh();
+    }
+}
+
+void EditorPanels::read_tree_keys(engine::ecs::World& world, const engine::render::Rect& panel,
+        bool inspector_shown) {
+    std::optional<std::size_t> keep_in_view;
+    const glm::vec2 pointer = engine::ui::pointer_for(world, window_).position;
+    const bool over = inspector_shown && engine::ui::rect_contains(panel, pointer.x, pointer.y);
+    for (const engine::KeyEvent& event : engine::ecs::EventReader<engine::KeyEvent>{world, key_cursor_}) {
+        if (!over || !event.down || event.window != window_) {
+            continue;
+        }
+        if (const std::optional<engine::ui::TreeNav> nav = engine::ui::tree_nav_for_key(event.key)) {
+            if (const std::optional<std::size_t> row = inspector_.navigate(*nav)) {
+                keep_in_view = row;
+            }
+        }
+    }
+    if (!keep_in_view) {
+        return;
+    }
+    engine::ui::UiInstance* instance = world.try_get<engine::ui::UiInstance>(inspector_canvas_);
+    if (instance == nullptr) {
+        return;
+    }
+    engine::ui::Element* scroller = engine::ui::find_by_id(instance->document.root, "tree");
+    const engine::ui::Element* rows = engine::ui::find_by_id(instance->document.root, "tree-rows");
+    if (scroller != nullptr && rows != nullptr) {
+        (void) engine::ui::scroll_item_into_view(*scroller, *rows, *keep_in_view);
     }
 }
 
