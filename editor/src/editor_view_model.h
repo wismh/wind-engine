@@ -23,7 +23,6 @@ public:
     engine::ui::Bindable<bool> profilerTab;
     engine::ui::Bindable<bool> buildTab;
 
-    MethodCommand openProject;
     MethodCommand togglePlay;
     MethodCommand showInspector;
     MethodCommand showProfiler;
