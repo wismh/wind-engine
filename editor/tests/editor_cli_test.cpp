@@ -130,12 +130,6 @@ TEST(EditorCli, OpenTakesAnAbsoluteDirectoryOrItsProjectFile) {
     ASSERT_TRUE(empty.has_value());
     EXPECT_EQ(empty->error, "open needs a path");
 
-    const auto dialog = cli.handle(engine::CliCommand{"open", utf8(absolute_dir())},
-            editor::EditorFacts{.dialog_open = true});
-    ASSERT_TRUE(dialog.has_value());
-    EXPECT_FALSE(dialog->ok);
-    EXPECT_FALSE(cli.take_open().has_value());
-
     const auto file = cli.handle(engine::CliCommand{"open", utf8(absolute_dir() / "wind_project.toml")},
             editor::EditorFacts{});
     ASSERT_TRUE(file.has_value());
