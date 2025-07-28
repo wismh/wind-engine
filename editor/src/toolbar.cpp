@@ -6,6 +6,7 @@ namespace editor {
 
 Toolbar::Toolbar() : view_model_(std::make_shared<EditorViewModel>()) {
     view_model_->togglePlay.bind_to<Toolbar, &Toolbar::toggle_play, &Toolbar::can_toggle_play>(*this);
+    view_model_->showExplorer.bind_to<Toolbar, &Toolbar::show_explorer>(*this);
     view_model_->showInspector.bind_to<Toolbar, &Toolbar::show_inspector>(*this);
     view_model_->showProfiler.bind_to<Toolbar, &Toolbar::show_profiler>(*this);
     view_model_->showBuild.bind_to<Toolbar, &Toolbar::show_build>(*this);
@@ -18,6 +19,10 @@ const std::shared_ptr<EditorViewModel>& Toolbar::view_model() const {
 
 void Toolbar::toggle_play() {
     request_ = state_ == RunState::Idle ? EditorRequest::Play : EditorRequest::Stop;
+}
+
+void Toolbar::show_explorer() {
+    show_tab(EditorTab::Explorer);
 }
 
 void Toolbar::show_inspector() {
@@ -79,6 +84,7 @@ EditorTab Toolbar::active_tab() const {
 
 void Toolbar::show_tab(EditorTab tab) {
     tab_ = tab;
+    view_model_->explorerTab = tab == EditorTab::Explorer;
     view_model_->inspectorTab = tab == EditorTab::Inspector;
     view_model_->profilerTab = tab == EditorTab::Profiler;
     view_model_->buildTab = tab == EditorTab::Build;
