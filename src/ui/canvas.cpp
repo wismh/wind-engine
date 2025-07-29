@@ -3,6 +3,7 @@
 #include <engine/ui/document.h>
 
 #include "painter.h"
+#include "ui/input_batch.h"
 
 #include <algorithm>
 #include <cmath>
@@ -104,7 +105,14 @@ struct PreparedCanvas {
     glm::vec2 layout_pointer{};
 };
 
-std::optional<PreparedCanvas> prepare_top_canvas(ecs::World& world, float x, float y, WindowId window) {
+// `batch` is nullptr for every call outside run_input() (every direct test call, and the two
+// no-batch resolve_pointer_hit()/handle_wheel() default paths below) — always a full recompute,
+// unchanged from before Крок 4. Only run_input()'s *_for_run_input() entry points (input_batch.h)
+// pass a real batch, so a canvas entity prepare_top_canvas() already fully bound+styled+laid out
+// earlier in the same run_input() call is reused instead of recomputed — see input_batch.h for
+// why this cache lives on run_input()'s stack rather than in ctx<>().
+std::optional<PreparedCanvas> prepare_top_canvas(
+        ecs::World& world, float x, float y, WindowId window, UiInputBatchCache* batch = nullptr) {
     std::vector<CanvasHit> hits;
     {
         auto view = world.view<UiCanvas>();
@@ -137,19 +145,31 @@ std::optional<PreparedCanvas> prepare_top_canvas(ecs::World& world, float x, flo
         return std::nullopt;
     }
 
-    const Stylesheet* sheet = nullptr;
-    if (instance->stylesheet) {
-        sheet = &*instance->stylesheet;
-    }
-    if (canvas.data_context) {
-        (void) apply_bindings(instance->document, *canvas.data_context, nullptr);
-    }
+    // Layout does not depend on scroll_x/scroll_y (paint-time transform only, see paint.cpp), so
+    // reusing a batch-cached layout_rect while wheel-scrolling within the same run_input() call
+    // is safe. Cheap regardless of cache hit/miss — no bind/layout work — so always recomputed:
+    // canvas.rect (hence space) never changes between events inside one run_input() call anyway,
+    // but computing it fresh keeps this branch trivial to reason about.
     const WindowSize size = window_size_for(world, canvas.window);
     const UiCanvasSpace space = canvas_layout_space(canvas.rect, canvas.fit, canvas.reference_size);
-    const float media_width = space.reference_space ? space.layout_rect.w : static_cast<float>(size.width);
-    const float media_height = space.reference_space ? space.layout_rect.h : static_cast<float>(size.height);
-    apply_layout_style(instance->document.root, sheet, media_width, media_height);
-    layout(instance->document, space.layout_rect, layout_painter_for(world, window));
+
+    const bool reuse_cached = batch != nullptr && batch->contains(entity);
+    if (!reuse_cached) {
+        const Stylesheet* sheet = nullptr;
+        if (instance->stylesheet) {
+            sheet = &*instance->stylesheet;
+        }
+        if (canvas.data_context) {
+            (void) apply_bindings(instance->document, *canvas.data_context, nullptr);
+        }
+        const float media_width = space.reference_space ? space.layout_rect.w : static_cast<float>(size.width);
+        const float media_height = space.reference_space ? space.layout_rect.h : static_cast<float>(size.height);
+        apply_layout_style(instance->document.root, sheet, media_width, media_height);
+        layout(instance->document, space.layout_rect, layout_painter_for(world, window));
+        if (batch != nullptr) {
+            batch->mark(entity);
+        }
+    }
 
     const glm::vec2 layout_pointer{(x - space.offset.x) / space.scale, (y - space.offset.y) / space.scale};
     return PreparedCanvas{&canvas, instance, entity, space, layout_pointer};
@@ -161,8 +181,9 @@ std::optional<PreparedCanvas> prepare_top_canvas(ecs::World& world, float x, flo
 // (UiLayoutPainters) so hug text metrics match paint_document; otherwise the CPU fallback.
 // Sets MouseConsumed as a side effect whenever it finds a hit (matching the previous
 // handle_pointer() behavior) — both callers want that.
-std::optional<PointerHit> resolve_pointer_hit(ecs::World& world, float x, float y, WindowId window) {
-    const std::optional<PreparedCanvas> prepared = prepare_top_canvas(world, x, y, window);
+std::optional<PointerHit> resolve_pointer_hit(
+        ecs::World& world, float x, float y, WindowId window, UiInputBatchCache* batch = nullptr) {
+    const std::optional<PreparedCanvas> prepared = prepare_top_canvas(world, x, y, window, batch);
     if (!prepared) {
         return std::nullopt;
     }
@@ -241,8 +262,10 @@ Element* resolve_element_path(Element& root, const std::vector<std::size_t>& pat
 
 }
 
-void handle_pointer(ecs::World& world, float x, float y, WindowId window) {
-    const std::optional<PointerHit> hit = resolve_pointer_hit(world, x, y, window);
+namespace {
+
+void handle_pointer_impl(ecs::World& world, float x, float y, WindowId window, UiInputBatchCache* batch) {
+    const std::optional<PointerHit> hit = resolve_pointer_hit(world, x, y, window, batch);
     if (!hit) {
         clear_focus(world, window);
         return;
@@ -339,7 +362,19 @@ void handle_pointer(ecs::World& world, float x, float y, WindowId window) {
     }
 }
 
-void update_drag(ecs::World& world, float x, float y, WindowId window) {
+}
+
+void handle_pointer(ecs::World& world, float x, float y, WindowId window) {
+    handle_pointer_impl(world, x, y, window, nullptr);
+}
+
+void handle_pointer_for_run_input(ecs::World& world, float x, float y, WindowId window, UiInputBatchCache& batch) {
+    handle_pointer_impl(world, x, y, window, &batch);
+}
+
+namespace {
+
+void update_drag_impl(ecs::World& world, float x, float y, WindowId window, UiInputBatchCache* batch) {
     auto& scroll_drags = world.ctx<UiActiveScrollbars>().drags;
     if (const auto sit = scroll_drags.find(window); sit != scroll_drags.end()) {
         const ActiveScrollbarDrag& sdrag = sit->second;
@@ -386,7 +421,16 @@ void update_drag(ecs::World& world, float x, float y, WindowId window) {
             drags.erase(it);
             return;
         }
-        (void) apply_bindings(instance->document, *canvas->data_context, nullptr);
+        // Skip only if prepare_top_canvas() already fully bound+styled+laid out this exact
+        // canvas earlier in the same run_input() batch (see input_batch.h UiInputBatchCache::
+        // mark()) — that's the only thing that guarantees instance->document is fresh; a
+        // batch==nullptr caller (every direct test call) always re-binds, unchanged from before
+        // Крок 4.
+        if (batch == nullptr || !batch->contains(drag.canvas_entity)) {
+            (void) apply_bindings(instance->document, *canvas->data_context, nullptr);
+        } else {
+            ++batch->drag_or_pan_bindings_reused_count;
+        }
         const Element* owner_element = find_by_generated_owner(instance->document.root, drag.owner);
         if (owner_element == nullptr) {
             drags.erase(it);
@@ -398,6 +442,16 @@ void update_drag(ecs::World& world, float x, float y, WindowId window) {
     const float fraction =
             compute_drag_fraction(drag.orientation, drag.rect, drag.space_offset, drag.space_scale, x, y);
     target->write_property_float(drag.value_binding, fraction);
+}
+
+}
+
+void update_drag(ecs::World& world, float x, float y, WindowId window) {
+    update_drag_impl(world, x, y, window, nullptr);
+}
+
+void update_drag_for_run_input(ecs::World& world, float x, float y, WindowId window, UiInputBatchCache& batch) {
+    update_drag_impl(world, x, y, window, &batch);
 }
 
 void end_drag(ecs::World& world, WindowId window) {
@@ -415,7 +469,11 @@ void end_drag(ecs::World& world, WindowId window) {
     world.ctx<UiActiveDrags>().drags.erase(window);
 }
 
-ViewModel* pan_target(ecs::World& world, const ActivePan& pan, UiCanvas& canvas) {
+namespace {
+
+// Same "only skip if prepare_top_canvas() already covered this canvas this batch" rule as
+// update_drag_impl() above.
+ViewModel* pan_target(ecs::World& world, const ActivePan& pan, UiCanvas& canvas, UiInputBatchCache* batch) {
     if (pan.owner == nullptr) {
         return canvas.data_context.get();
     }
@@ -423,14 +481,18 @@ ViewModel* pan_target(ecs::World& world, const ActivePan& pan, UiCanvas& canvas)
     if (instance == nullptr) {
         return nullptr;
     }
-    (void) apply_bindings(instance->document, *canvas.data_context, nullptr);
+    if (batch == nullptr || !batch->contains(pan.canvas_entity)) {
+        (void) apply_bindings(instance->document, *canvas.data_context, nullptr);
+    } else {
+        ++batch->drag_or_pan_bindings_reused_count;
+    }
     if (find_by_generated_owner(instance->document.root, pan.owner) == nullptr) {
         return nullptr;
     }
     return static_cast<ViewModel*>(const_cast<void*>(pan.owner));
 }
 
-void update_pan(ecs::World& world, float x, float y, WindowId window) {
+void update_pan_impl(ecs::World& world, float x, float y, WindowId window, UiInputBatchCache* batch) {
     auto& pans = world.ctx<UiActivePans>().pans;
     const auto it = pans.find(window);
     if (it == pans.end()) {
@@ -442,7 +504,7 @@ void update_pan(ecs::World& world, float x, float y, WindowId window) {
         pans.erase(it);
         return;
     }
-    ViewModel* target = pan_target(world, pan, *canvas);
+    ViewModel* target = pan_target(world, pan, *canvas, batch);
     if (target == nullptr) {
         pans.erase(it);
         return;
@@ -465,15 +527,27 @@ void update_pan(ecs::World& world, float x, float y, WindowId window) {
     }
 }
 
+}
+
+void update_pan(ecs::World& world, float x, float y, WindowId window) {
+    update_pan_impl(world, x, y, window, nullptr);
+}
+
+void update_pan_for_run_input(ecs::World& world, float x, float y, WindowId window, UiInputBatchCache& batch) {
+    update_pan_impl(world, x, y, window, &batch);
+}
+
 void end_pan(ecs::World& world, WindowId window) {
     world.ctx<UiActivePans>().pans.erase(window);
 }
 
-void handle_wheel(ecs::World& world, float x, float y, float wheel_y, WindowId window) {
+namespace {
+
+void handle_wheel_impl(ecs::World& world, float x, float y, float wheel_y, WindowId window, UiInputBatchCache* batch) {
     if (wheel_y == 0.0f) {
         return;
     }
-    const std::optional<PreparedCanvas> prepared = prepare_top_canvas(world, x, y, window);
+    const std::optional<PreparedCanvas> prepared = prepare_top_canvas(world, x, y, window, batch);
     if (!prepared) {
         return;
     }
@@ -543,14 +617,38 @@ void handle_wheel(ecs::World& world, float x, float y, float wheel_y, WindowId w
     world.ctx<MouseConsumed>().consumed_windows.insert(window);
 }
 
-void update_pointer_hover(ecs::World& world, float x, float y, WindowId window) {
-    const std::optional<PointerHit> hit = resolve_pointer_hit(world, x, y, window);
+}
+
+void handle_wheel(ecs::World& world, float x, float y, float wheel_y, WindowId window) {
+    handle_wheel_impl(world, x, y, wheel_y, window, nullptr);
+}
+
+void handle_wheel_for_run_input(
+        ecs::World& world, float x, float y, float wheel_y, WindowId window, UiInputBatchCache& batch) {
+    handle_wheel_impl(world, x, y, wheel_y, window, &batch);
+}
+
+namespace {
+
+void update_pointer_hover_impl(ecs::World& world, float x, float y, WindowId window, UiInputBatchCache* batch) {
+    const std::optional<PointerHit> hit = resolve_pointer_hit(world, x, y, window, batch);
     if (hit && is_scrollable_y(*hit->element)) {
         const glm::vec2 local_pointer{
                 (x - hit->space.offset.x) / hit->space.scale, (y - hit->space.offset.y) / hit->space.scale};
         const render::Rect thumb = scrollbar_thumb_rect(*hit->element);
         hit->element->scrollbar_thumb_hovered = rect_contains(thumb, local_pointer.x, local_pointer.y);
     }
+}
+
+}
+
+void update_pointer_hover(ecs::World& world, float x, float y, WindowId window) {
+    update_pointer_hover_impl(world, x, y, window, nullptr);
+}
+
+void update_pointer_hover_for_run_input(
+        ecs::World& world, float x, float y, WindowId window, UiInputBatchCache& batch) {
+    update_pointer_hover_impl(world, x, y, window, &batch);
 }
 
 ecs::Entity spawn_canvas(ecs::World& world, UiCanvas canvas, UiDocument document, std::optional<Stylesheet> stylesheet) {
