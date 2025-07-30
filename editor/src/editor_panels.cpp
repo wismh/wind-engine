@@ -44,6 +44,7 @@ EditorPanels::EditorPanels(const Toolbar& toolbar) : toolbar_(&toolbar) {}
 
 void EditorPanels::spawn(engine::ecs::World& world, engine::WindowId window) {
     window_ = window;
+    explorer_canvas_ = spawn_panel(world, window, assets::ui::explorer, explorer_.view_model());
     inspector_canvas_ = spawn_panel(world, window, assets::ui::inspector, inspector_.view_model());
     profiler_canvas_ = spawn_panel(world, window, assets::ui::profiler, profiler_.view_model());
     build_canvas_ = spawn_panel(world, window, assets::ui::build, build_.view_model());
@@ -66,10 +67,11 @@ void EditorPanels::frame(engine::ecs::World& world) {
     const engine::render::Rect shown{0.0f, kPanelTop, width, height};
     const engine::render::Rect hidden{};
     const EditorTab tab = toolbar_->active_tab();
+    place(world, explorer_canvas_, tab == EditorTab::Explorer ? shown : hidden);
     place(world, inspector_canvas_, tab == EditorTab::Inspector ? shown : hidden);
     place(world, profiler_canvas_, tab == EditorTab::Profiler ? shown : hidden);
     place(world, build_canvas_, tab == EditorTab::Build ? shown : hidden);
-    read_tree_keys(world, shown, tab == EditorTab::Inspector);
+    read_tree_keys(world, shown, tab);
     if (tab == EditorTab::Inspector) {
         inspector_.refresh();
     } else if (tab == EditorTab::Profiler) {
@@ -77,17 +79,19 @@ void EditorPanels::frame(engine::ecs::World& world) {
     }
 }
 
-void EditorPanels::read_tree_keys(engine::ecs::World& world, const engine::render::Rect& panel,
-        bool inspector_shown) {
+void EditorPanels::read_tree_keys(engine::ecs::World& world, const engine::render::Rect& panel, EditorTab tab) {
     std::optional<std::size_t> keep_in_view;
+    const bool tree = tab == EditorTab::Explorer || tab == EditorTab::Inspector;
     const glm::vec2 pointer = engine::ui::pointer_for(world, window_).position;
-    const bool over = inspector_shown && engine::ui::rect_contains(panel, pointer.x, pointer.y);
+    const bool over = tree && engine::ui::rect_contains(panel, pointer.x, pointer.y);
     for (const engine::KeyEvent& event : engine::ecs::EventReader<engine::KeyEvent>{world, key_cursor_}) {
         if (!over || !event.down || event.window != window_) {
             continue;
         }
         if (const std::optional<engine::ui::TreeNav> nav = engine::ui::tree_nav_for_key(event.key)) {
-            if (const std::optional<std::size_t> row = inspector_.navigate(*nav)) {
+            const std::optional<std::size_t> row =
+                    tab == EditorTab::Explorer ? explorer_.navigate(*nav) : inspector_.navigate(*nav);
+            if (row) {
                 keep_in_view = row;
             }
         }
@@ -95,7 +99,8 @@ void EditorPanels::read_tree_keys(engine::ecs::World& world, const engine::rende
     if (!keep_in_view) {
         return;
     }
-    engine::ui::UiInstance* instance = world.try_get<engine::ui::UiInstance>(inspector_canvas_);
+    const engine::ecs::Entity canvas = tab == EditorTab::Explorer ? explorer_canvas_ : inspector_canvas_;
+    engine::ui::UiInstance* instance = world.try_get<engine::ui::UiInstance>(canvas);
     if (instance == nullptr) {
         return;
     }
@@ -104,6 +109,10 @@ void EditorPanels::read_tree_keys(engine::ecs::World& world, const engine::rende
     if (scroller != nullptr && rows != nullptr) {
         (void) engine::ui::scroll_item_into_view(*scroller, *rows, *keep_in_view);
     }
+}
+
+ExplorerPanel& EditorPanels::explorer() {
+    return explorer_;
 }
 
 InspectorPanel& EditorPanels::inspector() {
