@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <expected>
 #include <optional>
 #include <string>
@@ -65,7 +66,19 @@ struct Keyframes {
     std::vector<KeyframeStop> stops;
 };
 
+// Bumped once per freshly default-constructed Stylesheet, preserved (not re-bumped) by copy/move
+// since those carry the same content forward. Element's compute_style() cache (document.h's
+// StyleCacheEntry) keys on this alongside the Stylesheet* itself: some reload paths (e.g.
+// systems.cpp's run_bind merging extra_stylesheets) move-assign a freshly parsed Stylesheet into
+// an already-engaged std::optional<Stylesheet> living inside a long-lived UiInstance component,
+// which leaves the pointer identical across a real content change — generation catches that.
+[[nodiscard]] inline std::uint64_t next_stylesheet_generation() noexcept {
+    static std::uint64_t counter = 0;
+    return ++counter;
+}
+
 struct Stylesheet {
+    std::uint64_t generation = next_stylesheet_generation();
     std::vector<CssRule> rules;
     std::vector<Keyframes> keyframes;
 };

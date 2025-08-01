@@ -1,5 +1,6 @@
 #pragma once
 
+#include <engine/builtin_ids.h>
 #include <engine/render/commands.h>
 #include <engine/resources/asset_id.h>
 #include <engine/resources/fatal_error.h>
@@ -13,6 +14,7 @@
 #include <glm/vec4.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <expected>
 #include <functional>
 #include <optional>
@@ -187,6 +189,122 @@ struct CustomPropertyBinding {
     BindingId binding{};
 };
 
+enum class BackgroundRepeat {
+    NoRepeat,
+    Repeat,
+};
+
+// The fully-cascaded result of matching an Element against a Stylesheet (paint.cpp's
+// compute_style()). Lives here rather than as a paint.cpp-private type only so Element can cache
+// it (see StyleCacheEntry below) without a public header including a private one — every field
+// here is already a type Element itself exposes (glm, AssetId, Length/LengthInsets/UiAlign/...),
+// so this adds no SDL/glad/NanoVG/spdlog/tinyxml2/mixer exposure.
+struct ComputedStyle {
+    glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
+    glm::vec4 background{0.0f, 0.0f, 0.0f, 0.0f};
+    std::optional<AssetId> background_image;
+    std::optional<LengthInsets> background_slice;
+    BackgroundRepeat background_repeat = BackgroundRepeat::NoRepeat;
+    float opacity = 1.0f;
+    bool visible = true;
+    Length gap{};
+    bool has_gap = false;
+    StackDirection direction = StackDirection::Vertical;
+    bool has_direction = false;
+    LengthInsets padding{};
+    LengthInsets margin{};
+    std::optional<Length> width;
+    std::optional<Length> height;
+    std::optional<Length> min_width;
+    std::optional<Length> min_height;
+    UiAlign justify = UiAlign::Start;
+    UiAlign align_items = UiAlign::Start;
+    UiAlign text_align = UiAlign::Start;
+    Length border_radius{};
+    Length border_width{};
+    glm::vec4 border_color{0.0f, 0.0f, 0.0f, 0.0f};
+    // Line endpoints, offsets from the element's own layout_rect origin. Only meaningful when
+    // element.kind == ElementKind::Line.
+    Length x1{};
+    Length y1{};
+    Length x2{};
+    Length y2{};
+    Length stroke_width{2.0f, LengthUnit::Px};
+    glm::vec4 stroke{0.0f, 0.0f, 0.0f, 1.0f};
+    Length font_size{kDefaultFontSize, LengthUnit::Px};
+    AssetId font_family = builtin::font_ui;
+    std::string animation_name;
+    float animation_duration = 0.0f;
+    int z_index = 0;
+    PositionMode position = PositionMode::Static;
+    std::optional<Length> inset_top;
+    std::optional<Length> inset_right;
+    std::optional<Length> inset_bottom;
+    std::optional<Length> inset_left;
+    float rotation_deg = 0.0f;
+    float scale = 1.0f;
+    Overflow overflow_x = Overflow::Visible;
+    Overflow overflow_y = Overflow::Visible;
+    bool has_overflow_x = false;
+    bool has_overflow_y = false;
+    std::optional<Length> scrollbar_width;
+    bool has_scrollbar_width = false;
+    glm::vec4 scrollbar_track_color{0.0f, 0.0f, 0.0f, 0.0f};
+    bool has_scrollbar_track_color = false;
+    glm::vec4 scrollbar_thumb_color{0.4f, 0.4f, 0.4f, 0.8f};
+    bool has_scrollbar_thumb_color = false;
+    glm::vec4 scrollbar_thumb_hover_color{0.6f, 0.6f, 0.6f, 1.0f};
+    bool has_scrollbar_thumb_hover_color = false;
+    Length scrollbar_border_radius{4.0f, LengthUnit::Px};
+    bool has_scrollbar_border_radius = false;
+    // Cascaded `--name: value;` declarations, keyed without the leading `--`. Consulted by
+    // resolve_var() when a declaration's value is `var(--name)` and the element itself has no
+    // matching entry in Element::custom_properties (per-instance, VM-bound — takes priority).
+    std::unordered_map<std::string, std::string> custom_properties;
+};
+
+struct Element;
+
+// Memoizes one compute_style() call (paint.cpp) for one Element + one allow_pseudo variant.
+// apply_layout_style() always calls with allow_pseudo=false, paint_element() always with
+// allow_pseudo=true — Element keeps one StyleCacheEntry per variant (style_cache_layout_ /
+// style_cache_paint_) rather than folding allow_pseudo into a single key, so a layout pass can
+// never read paint's :hover/:pressed-flavored result or vice versa.
+//
+// A hit requires every input compute_style() actually reads to still match: class list, id,
+// this element's own pseudo-state, the Stylesheet identity — pointer AND Stylesheet::generation,
+// since some reload paths move-assign a freshly parsed Stylesheet into an already-engaged
+// std::optional<Stylesheet> that keeps the same address, so pointer alone would miss a real
+// content change — window size (media queries), this element's custom_properties (var()
+// resolution), and the
+// element's ancestor chain both by identity (descendant/child combinators) and by each ancestor's
+// own pseudo-state (so "A:hover B" still reacts to A's hover changing even though the pointer
+// chain to B is unchanged). `valid` starts false so the first call on a fresh/reconciled Element
+// always misses and populates the cache.
+//
+// Deliberately NOT part of the cached style: animation. compute_style() itself never reads
+// Element::animation_elapsed, so a cached ComputedStyle is always the pre-animation value —
+// paint_element() applies apply_animation_opacity() on top of whatever compute_style() returns,
+// cache hit or miss, every call, so animated opacity still advances every frame.
+struct StyleCacheEntry {
+    bool valid = false;
+    ComputedStyle style{};
+    std::vector<std::string> classes;
+    std::string id;
+    bool hovered = false;
+    bool pressed = false;
+    bool disabled = false;
+    bool focused = false;
+    const Stylesheet* sheet = nullptr;
+    std::uint64_t sheet_generation = 0;
+    float window_width = 0.0f;
+    float window_height = 0.0f;
+    std::unordered_map<std::string, std::string> custom_properties;
+    std::vector<const Element*> ancestors;
+    // Packed (hovered|pressed<<1|disabled<<2|focused<<3) per ancestors[i], same order/length.
+    std::vector<std::uint8_t> ancestor_pseudo_state;
+};
+
 struct Element {
     ElementKind kind = ElementKind::Canvas;
     std::string id;
@@ -270,6 +388,31 @@ struct Element {
     bool focused = false;
     std::size_t caret_position = 0;
     float caret_blink_timer = 0.0f;
+    // Memoizes measure_element_text (document.cpp) across frames: when `text`/`font_family`/the
+    // resolved `font_size` passed to IUiPainter::measure_text still match the last real-painter
+    // measurement, layout reuses `text_measure_cache_result` instead of re-shaping glyphs. Populated
+    // only on the `painter != nullptr` path — the `painter == nullptr` fallback (layout() overload
+    // with no painter, e.g. tests) never reads or writes this cache, since it's a cheap
+    // approximation that must not shadow a real measurement or vice versa. `mutable` so the cache
+    // can be filled from a `const Element&` measuring context without widening every caller in the
+    // layout call chain to non-const. For reconciled ItemsControl-generated items (generated_owner),
+    // this cache survives frames along with the rest of the Element's runtime state, which is the
+    // whole point: an unchanged row's text is measured once, not every frame.
+    mutable bool text_measure_cache_valid = false;
+    mutable std::string text_measure_cache_text;
+    mutable AssetId text_measure_cache_font_family{};
+    mutable float text_measure_cache_font_size = 0.0f;
+    mutable glm::vec2 text_measure_cache_result{0.0f, 0.0f};
+
+    // Memoizes compute_style() (paint.cpp), one slot per allow_pseudo variant — see
+    // StyleCacheEntry's comment above for what invalidates a hit. `mutable` for the same reason as
+    // the text-measure cache: compute_style() takes `const Element&`, and reconciled
+    // ItemsControl-generated items (generated_owner) carry this cache across frames like the rest
+    // of their runtime state, so an unchanged row's style is matched against the stylesheet once,
+    // not every frame.
+    mutable StyleCacheEntry style_cache_layout_;
+    mutable StyleCacheEntry style_cache_paint_;
+
     std::vector<Element> children;
     std::vector<Element> generated_items;
     // Identity of the ViewModel* a generated_items entry was cloned for (opaque — never
@@ -278,6 +421,17 @@ struct Element {
     // static ItemTemplate every frame — which would otherwise reset animation_elapsed and any other
     // per-instance runtime state each frame. Unset (nullptr) on every non-generated Element.
     const void* generated_owner = nullptr;
+    // True only for a synthetic spacer Element that ItemsControl virtualization (bind_element,
+    // document.cpp) inserts before/after the visible window of generated rows, standing in for the
+    // scrolled-past items' combined height so layout_stack's ordinary packing (unmodified) places
+    // the real, visible rows at the correct Y and computes the correct max_scroll_y without knowing
+    // virtualization exists. Its `height` is computed once in bind_element from row height *
+    // skipped-row count — apply_layout_style (paint.cpp) checks this flag and skips resolving/
+    // overwriting size-affecting style fields for such an element, since a class-less, id-less
+    // Canvas has nothing for the stylesheet to say about its size and the unconditional
+    // `element.height = style.height` it does for every other element would reset height to
+    // nullopt. Never true for a real generated item, template, or hand-authored document Element.
+    bool is_virtualization_spacer = false;
 };
 
 struct UiDocument {

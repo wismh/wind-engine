@@ -107,9 +107,26 @@ struct ResolvedBox {
     return {static_cast<float>(text.size()) * size * 0.5f, size};
 }
 
+// Memoized on `element` (see Element::text_measure_cache_* in document.h): a reconciled
+// ItemsControl-generated Element keeps its identity across frames, so an unchanged row's text is
+// shaped once instead of every layout(). Only the real-painter path is cached — the
+// painter-less fallback is a cheap approximation and must never be served from (or poison) the
+// real-painter cache, since the same Element can be laid out both ways across its lifetime (e.g.
+// tests calling the no-painter layout() overload).
 [[nodiscard]] glm::vec2 measure_element_text(const Element& element, IUiPainter* painter, float font_size) {
     if (painter != nullptr) {
-        return painter->measure_text(element.text, element.font_family, font_size);
+        if (element.text_measure_cache_valid && element.text_measure_cache_text == element.text &&
+                element.text_measure_cache_font_family == element.font_family &&
+                element.text_measure_cache_font_size == font_size) {
+            return element.text_measure_cache_result;
+        }
+        const glm::vec2 result = painter->measure_text(element.text, element.font_family, font_size);
+        element.text_measure_cache_text = element.text;
+        element.text_measure_cache_font_family = element.font_family;
+        element.text_measure_cache_font_size = font_size;
+        element.text_measure_cache_result = result;
+        element.text_measure_cache_valid = true;
+        return result;
     }
     return fallback_measure_text(element.text, font_size);
 }
@@ -285,12 +302,26 @@ void layout_stack(Element& element, const render::Rect& allocated, IUiPainter* p
 
     const glm::vec2 child_basis{allocated.w, allocated.h};
     if (!flow.empty()) {
+        // Resolve each flow child's box + used size exactly once per layout_stack call and
+        // reuse it below for both the packed/cross accumulation and the actual placement —
+        // resolve_box/compute_used recurse into the child's own subtree (and, for
+        // Label/Button/TextInput, call into the painter's text shaping), so computing them
+        // twice here doubles layout cost for every level of nesting.
+        struct FlowMetrics {
+            ResolvedBox box;
+            glm::vec2 used;
+        };
+        std::vector<FlowMetrics> metrics;
+        metrics.reserve(flow.size());
+        for (Element* child : flow) {
+            metrics.push_back({resolve_box(*child, child_basis), compute_used(*child, painter, child_basis)});
+        }
+
         float packed = 0.0f;
         float cross = 0.0f;
         for (std::size_t i = 0; i < flow.size(); ++i) {
-            const Element& child = *flow[i];
-            const ResolvedBox child_box = resolve_box(child, child_basis);
-            const glm::vec2 used = compute_used(child, painter, child_basis);
+            const ResolvedBox& child_box = metrics[i].box;
+            const glm::vec2& used = metrics[i].used;
             if (element.direction == StackDirection::Horizontal) {
                 packed += child_box.margin.left + used.x + child_box.margin.right;
                 cross = std::max(cross, child_box.margin.top + used.y + child_box.margin.bottom);
@@ -330,8 +361,8 @@ void layout_stack(Element& element, const render::Rect& allocated, IUiPainter* p
 
         for (std::size_t i = 0; i < flow.size(); ++i) {
             Element& child = *flow[i];
-            const ResolvedBox child_box = resolve_box(child, child_basis);
-            const glm::vec2 used = compute_used(child, painter, child_basis);
+            const ResolvedBox& child_box = metrics[i].box;
+            const glm::vec2& used = metrics[i].used;
             if (horizontal) {
                 cursor += child_box.margin.left;
                 const float extra =
@@ -545,17 +576,6 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
     }
 
     if (element.kind == ElementKind::ItemsControl && is_bound(element.items_source_binding) && !in_template) {
-        // Reconcile by ViewModel* identity instead of clearing+rebuilding from the static
-        // ItemTemplate every frame: an item still present in items_source reuses (re-binds in
-        // place) its previous Element(s), preserving animation_elapsed and any other per-instance
-        // runtime state across frames. Only a genuinely new item is cloned fresh from the template;
-        // an item no longer in items_source simply isn't claimed and its old Element(s) are dropped
-        // when `previous_by_owner` goes out of scope.
-        std::unordered_map<const void*, std::vector<Element>> previous_by_owner;
-        for (Element& old : element.generated_items) {
-            previous_by_owner[old.generated_owner].push_back(std::move(old));
-        }
-        element.generated_items.clear();
         const Element* tmpl = nullptr;
         for (const Element& child : element.children) {
             if (child.kind == ElementKind::ItemTemplate) {
@@ -565,8 +585,99 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
         }
         if (tmpl != nullptr) {
             const std::size_t expected_count = tmpl->children.empty() ? 1 : tmpl->children.size();
+
+            // --- Virtualization eligibility -------------------------------------------------
+            // Generate only the visible window of rows (+overscan) plus up to two spacer
+            // Elements standing in for the scrolled-past rows, instead of one (or
+            // `expected_count`) Element per item for every item in items_source — see
+            // docs/tech/modules/UI.md's ItemsControl section. Every condition below must hold or
+            // this frame falls back to `window_first = 0, window_last = items.size() - 1` with no
+            // spacers: the historical, byte-identical full generation.
+            constexpr int kVirtualizationOverscanRows = 2;
+            std::optional<float> row_height_px;
+            if (expected_count == 1 && element.direction == StackDirection::Vertical &&
+                    is_scrollable_y(element) && element.layout_rect.h > 0.0f &&
+                    element.gap.unit == LengthUnit::Px && element.gap.calc.empty()) {
+                // Row height can't be read off the static ItemTemplate: apply_layout_style
+                // (paint.cpp) never visits an ItemTemplate's own children, so tmpl's root never
+                // gets a resolved `height` there — only a *generated* clone does, once
+                // apply_layout_style has walked it on a previous frame. Sample the first
+                // surviving real (non-spacer) row from last frame's generated_items; if there
+                // isn't one yet (first bind for this control, or last frame fell back), row
+                // height is unknown this frame and we fall back to full generation too —
+                // self-correcting next frame, same as the max_scroll_y / layout_rect.h staleness
+                // this eligibility check already relies on above.
+                for (const Element& old : element.generated_items) {
+                    if (old.generated_owner != nullptr && old.height && old.height->unit == LengthUnit::Px &&
+                            old.height->calc.empty() && old.height->value > 0.0f) {
+                        row_height_px = old.height->value;
+                        break;
+                    }
+                }
+            }
+
+            // Reconcile by ViewModel* identity instead of clearing+rebuilding from the static
+            // ItemTemplate every frame: an item still present in items_source (and still inside
+            // the generated window) reuses (re-binds in place) its previous Element(s),
+            // preserving animation_elapsed and any other per-instance runtime state across
+            // frames. Only a genuinely new item is cloned fresh from the template; an item no
+            // longer in items_source, or no longer inside the window, simply isn't claimed and
+            // its old Element(s) are dropped when `previous_by_owner` goes out of scope. Spacer
+            // Elements (generated_owner == nullptr) never match a real item and are always
+            // dropped and rebuilt fresh below — they carry no runtime state worth preserving.
+            std::unordered_map<const void*, std::vector<Element>> previous_by_owner;
+            for (Element& old : element.generated_items) {
+                previous_by_owner[old.generated_owner].push_back(std::move(old));
+            }
+            element.generated_items.clear();
+
             const std::vector<ViewModel*> items = vm.read_item_source(element.items_source_binding);
-            for (ViewModel* item : items) {
+            std::size_t window_first = 0;
+            std::size_t window_last = items.empty() ? 0 : items.size() - 1;
+            float leading_spacer_h = 0.0f;
+            float trailing_spacer_h = 0.0f;
+            if (row_height_px && !items.empty()) {
+                const float gap_px = element.gap.value;
+                const float row_stride = *row_height_px + gap_px;
+                const auto n = static_cast<std::int64_t>(items.size());
+                std::int64_t first =
+                        static_cast<std::int64_t>(std::floor(element.scroll_y / row_stride)) - kVirtualizationOverscanRows;
+                std::int64_t last = static_cast<std::int64_t>(std::ceil(
+                                             (element.scroll_y + element.layout_rect.h) / row_stride)) +
+                        kVirtualizationOverscanRows;
+                first = std::clamp<std::int64_t>(first, 0, n - 1);
+                last = std::clamp<std::int64_t>(last, first, n - 1);
+                window_first = static_cast<std::size_t>(first);
+                window_last = static_cast<std::size_t>(last);
+
+                // layout_stack packs N flow children with exactly (N-1) gaps total (a gap
+                // *between* consecutive children, never a trailing one after the last) — so a
+                // spacer standing in for `count` skipped rows must itself contribute
+                // `count * row_height + (count-1) * gap`, not `count * row_stride`: the gap
+                // between the spacer and its neighboring real row is already accounted for by
+                // layout_stack's own inter-child gap once the spacer takes its place as one flow
+                // child among (spacers + window) total. Getting this wrong would make the
+                // virtualized max_scroll_y drift from the max_scroll_y full generation would
+                // produce by up to 2 * gap.
+                const auto spacer_height = [&](std::size_t count) -> float {
+                    if (count == 0) {
+                        return 0.0f;
+                    }
+                    return static_cast<float>(count) * *row_height_px + static_cast<float>(count - 1) * gap_px;
+                };
+                leading_spacer_h = spacer_height(window_first);
+                trailing_spacer_h = spacer_height(items.size() - 1 - window_last);
+            }
+
+            if (leading_spacer_h > 0.0f) {
+                Element spacer;
+                spacer.kind = ElementKind::Canvas;
+                spacer.height = Length{leading_spacer_h, LengthUnit::Px};
+                spacer.is_virtualization_spacer = true;
+                element.generated_items.push_back(std::move(spacer));
+            }
+            for (std::size_t i = window_first; !items.empty() && i <= window_last; ++i) {
+                ViewModel* item = items[i];
                 if (item == nullptr) {
                     continue;
                 }
@@ -601,6 +712,13 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
                     }
                     element.generated_items.push_back(std::move(clone));
                 }
+            }
+            if (trailing_spacer_h > 0.0f) {
+                Element spacer;
+                spacer.kind = ElementKind::Canvas;
+                spacer.height = Length{trailing_spacer_h, LengthUnit::Px};
+                spacer.is_virtualization_spacer = true;
+                element.generated_items.push_back(std::move(spacer));
             }
         }
     }
