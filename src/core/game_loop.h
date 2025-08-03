@@ -9,6 +9,7 @@
 
 #include <chrono>
 #include <functional>
+#include <vector>
 
 namespace engine {
 
@@ -32,6 +33,8 @@ private:
     // The server reaches each window's world at the time of the call, so a world Play or Stop swapped in
     // on_frame_end is found the next frame.
     [[nodiscard]] cli::CliFrame cli_frame() const;
+    // One empty capture per window an armed `wind-cli screenshot` waits for; draw_all fills them before its swap.
+    [[nodiscard]] static std::vector<FrameCapture> capture_requests();
     static void main_loop_thunk(void* self);
 
     IPresentation* presentation_ = nullptr;

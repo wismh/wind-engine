@@ -45,7 +45,15 @@ public:
     [[nodiscard]] ui::IUiPainter* ui_painter() const noexcept {
         return ui_painter_.get();
     }
+    // render() then present().
     void draw() override;
+    // Clears and executes this window's command buffer into its back buffer. Does not swap.
+    void render();
+    // This window's back buffer as render() left it (render::framebuffer_image). Empty without a window or
+    // context, or while the window is hidden or minimized.
+    [[nodiscard]] TextureDesc read_pixels();
+    // Swaps this window's buffers.
+    void present();
 
     [[nodiscard]] SDL_GLContext native_context() const noexcept {
         return context_;

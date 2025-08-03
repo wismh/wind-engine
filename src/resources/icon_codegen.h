@@ -29,9 +29,6 @@ inline constexpr int kIconCodegenMinSize = 1024;
 // Square RGBA8 downsample of `src` to `size` x `size` (linear filter, stb_image_resize2).
 [[nodiscard]] render::TextureDesc icon_resize_rgba(const render::TextureDesc& src, int size);
 
-// In-memory PNG encode of an RGBA8 image. Empty on encode failure.
-[[nodiscard]] std::vector<std::uint8_t> icon_encode_png(const render::TextureDesc& image);
-
 // Windows ICO container: resizes `master` to each of `sizes` and embeds each as a PNG blob
 // (Vista+ accepts PNG-encoded ICONDIRENTRY payloads, so no BMP/DIB encoding is needed).
 [[nodiscard]] std::vector<std::uint8_t> icon_encode_ico(const render::TextureDesc& master, std::span<const int> sizes);

@@ -89,7 +89,7 @@ std::uint32_t read_u32be(const std::vector<std::uint8_t>& bytes, std::size_t off
 TEST(IconCodegen, RejectsNonSquareInput) {
     TempDir dir;
     const TextureDesc master = make_gradient(1024, 512);
-    write_file(dir.path / "input.png", engine::icon_encode_png(master));
+    write_file(dir.path / "input.png", engine::encode_png_rgba(master));
 
     const auto result = engine::icon_codegen_write((dir.path / "input.png").string(), (dir.path / "out").string());
     ASSERT_FALSE(result.has_value());
@@ -99,7 +99,7 @@ TEST(IconCodegen, RejectsNonSquareInput) {
 TEST(IconCodegen, RejectsSmallerThanMinimum) {
     TempDir dir;
     const TextureDesc master = make_gradient(512, 512);
-    write_file(dir.path / "input.png", engine::icon_encode_png(master));
+    write_file(dir.path / "input.png", engine::encode_png_rgba(master));
 
     const auto result = engine::icon_codegen_write((dir.path / "input.png").string(), (dir.path / "out").string());
     ASSERT_FALSE(result.has_value());
@@ -198,7 +198,7 @@ TEST(IconCodegen, IcnsHeaderAndChunksAreConsistent) {
 TEST(IconCodegen, HappyPathWritesAllOutputs) {
     TempDir dir;
     const TextureDesc master = make_gradient(1024, 1024);
-    write_file(dir.path / "input.png", engine::icon_encode_png(master));
+    write_file(dir.path / "input.png", engine::encode_png_rgba(master));
 
     const std::filesystem::path out_dir = dir.path / "out";
     const auto result = engine::icon_codegen_write((dir.path / "input.png").string(), out_dir.string());
