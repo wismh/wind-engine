@@ -11,7 +11,7 @@ Debug, RelWithDebInfo, and every configuration of the editor build (`ENGINE_EDIT
 | `include/engine/core/cli_commands.h` | `CliCommand`, `CliReply`, `CliCommands`: the host's commands, passed in `RunHooks::cli` |
 | `src/cli/cli_server.h` | request types, `CliFrame`, `start` / `stop` / `begin_frame` / `drain` |
 | `src/cli/cli_server.cpp` | socket, descriptor, accept thread, routing. Empty translation unit without the macro |
-| `src/cli/cli_commands.cpp` | `tree`, `element`, `hit`, `click`, `profile`, `element_window_rect`, and the JSON of a host reply |
+| `src/cli/cli_commands.cpp` | `tree`, `element`, `hit`, `click`, `profile`, `element_window_rect`, `canvas_window_rect`, canvas picking, and the JSON of a host reply |
 | `src/cli/screenshot.cpp` | `screenshot`: crop, PNG, reply ([Screenshot](#screenshot)) |
 | `src/cli/json.h` | `Json`, the streaming writer both use |
 | `editor/src/editor_cli.cpp` | the editor's `state`, `play`, `stop`, `open` ([Editor](Editor.md#wind-cli)) |
@@ -61,13 +61,13 @@ On Windows the descriptor file is created with an owner-only ACL (`D:P(A;;FA;;;O
 
 ## Commands
 
-`status` lists live descriptors (`pid`, `port`, `kind`, `exe`) and does not contact the process. It does not print the token. A dead pid's file is removed. One live process is the target of a UI command. Several require `--pid`. The editor commands consider only `kind` `editor`, so a standalone game beside the editor does not need `--pid`. `--window` selects a `WindowId` (default 0, `kPrimaryWindow`).
+`status` lists live descriptors (`pid`, `port`, `kind`, `exe`) and does not contact the process. It does not print the token. A dead pid's file is removed. One live process is the target of a UI command. Several require `--pid`. The editor commands consider only `kind` `editor`, so a standalone game beside the editor does not need `--pid`. `--window` selects a `WindowId` (default 0, `kPrimaryWindow`). `--canvas` selects one canvas on it ([Canvases](#canvases)).
 
-The JSON body is `{"command":"…"}` plus optional `selector`, `window`, `x`, `y`, and `path` (absolute, UTF-8). `profile stop` (and `--stop`) also sends `"stop":true`.
+The JSON body is `{"command":"…"}` plus optional `selector`, `window`, `canvas`, `x`, `y`, and `path` (absolute, UTF-8). `profile stop` (and `--stop`) also sends `"stop":true`.
 
 | Command | Result |
 | --- | --- |
-| `tree` | `result.nodes[]` for every canvas on that window |
+| `tree` | `result.nodes[]` for every canvas on that window, or for the one `--canvas` names |
 | `element <selector>` | One element object (fields below) |
 | `hit <x> <y>` | That same object, or `"result":null` |
 | `click <selector>` | `executed`, and `reason` when it did not run |
@@ -75,11 +75,11 @@ The JSON body is `{"command":"…"}` plus optional `selector`, `window`, `x`, `y
 | `profile` | `result` timings below. `paused` is the editor panel's Pause |
 | `profile stop` | `result.capturing` is false. Clears CLI capture only. Does not detach the editor's profiler panel |
 
-`tree` nodes: `window`, `path`, `kind`, `id`, `classes`, `display` (`none` or `shown`), `border` `{x,y,w,h}`. `path` is the inspector's child-index array, including `kGeneratedPathBit`. An empty path is the canvas root.
+`tree` nodes: `window`, `canvas`, `canvas_id`, `path`, `kind`, `id`, `classes`, `display` (`none` or `shown`), `border` `{x,y,w,h}`. `path` is the inspector's child-index array, including `kGeneratedPathBit`. An empty path is the canvas root.
 
 `element` and `hit` use the same object:
 
-- `window`, `path`, `kind`, `id`, `classes`, `text`, `display` (`none` or `shown`)
+- `window`, `canvas`, `canvas_id`, `path`, `kind`, `id`, `classes`, `text`, `display` (`none` or `shown`)
 - `pseudo`: `hover`, `pressed`, `disabled`, `focus`, `checked`
 - boxes `border`, `margin`, `content`, each `{x,y,w,h}`
 - `computed`, or `null` when `style_cache_paint_` is invalid. Custom properties are not included
@@ -121,7 +121,27 @@ A checkbox `click` toggles `checked` first, then takes that command path because
 
 Each canvas has `window`, `id` (the document root id), `frames`, `elements`, `generated`, `layout_skipped`, and `stages`. The stage names are `bindings`, `stylesheets`, `input`, `layout`, `motion`, and `paint`. Each stage is `{last_ms,avg_ms,max_ms}` in milliseconds. `shared` has `frames`, plus `begin_frame` and `commands` in that same timing shape.
 
-Selectors: `#id`, `.class`, or `path:` plus the tree path joined by `/`. `path:` alone is the root. `path:0/1` is child 1 of child 0. Several matches are `"error":"ambiguous"` and a `candidates` list.
+Selectors: `#id`, `.class`, or `path:` plus the tree path joined by `/`. `path:` alone is the root. `path:0/1` is child 1 of child 0. Several matches are `"error":"ambiguous"` and a `candidates` list; each candidate has the `tree` node's identity fields (`window`, `canvas`, `canvas_id`, `path`, `kind`, `id`, `classes`).
+
+## Canvases
+
+Selectors and `hit` search every canvas on the window unless the request has `canvas`. Two canvases on one window can reuse an id: in the editor the Explorer and Inspector panels both have `#tree` at `path:0/1/0/1`, so neither `#tree` nor its path is one element. `--canvas C` limits `tree`, `element`, `hit`, `click`, and `screenshot` to one canvas, and is a usage error with any other command.
+
+| `--canvas` | Request | Picks |
+| --- | --- | --- |
+| a non-negative integer | `"canvas":1` | the canvas at that place in the window's draw order: `UiCanvas::order`, then entity index; 0 is drawn first |
+| anything else | `"canvas":"inspector"` | every canvas whose document root has that id (`<Canvas id="inspector">`) |
+
+Every `tree` node, `element` / `hit` / `click` result, and `ambiguous` candidate carries `canvas` (the place) and `canvas_id` (the root id, empty when the root has none), so `tree` or the `ambiguous` reply says what to pass. A place shifts when a canvas with a lower place is spawned or destroyed; a root id does not. The editor's documents name their roots `editor`, `explorer`, `inspector`, `profiler`, and `build`.
+
+A `canvas` that names nothing is `no canvas N on window W` or `no canvas "ID" on window W`. A root id shared by two canvases picks both, and a selector that matches on each is still `ambiguous`; pass the place. A `canvas` that is negative, fractional, an empty string, or not a number or string is `invalid request`. `tests/cli_server_test.cpp` covers the parse and two canvases that share `#tree`.
+
+```
+wind-cli element "#tree" --window 1 --canvas inspector
+wind-cli click "#tree" --window 1 --canvas 2
+wind-cli screenshot "#tree" --window 1 --canvas explorer --out tree.png
+wind-cli screenshot --window 1 --canvas inspector --out panel.png
+```
 
 `click` with `"executed":false` carries `reason`: `disabled`, `no command`, or `can_execute`.
 
@@ -129,22 +149,23 @@ Without `ENGINE_UI_PROFILER` (an exported game's Release), `profile` returns `"U
 
 ## Screenshot
 
-`wind-cli screenshot [selector] [--out FILE] [--window N] [--pid N]` writes one window as this process drew it, as an RGBA PNG. `--out` is relative to the current directory; the default is `screenshot-YYYYMMDD-HHMMSS.png` there. The tool sends the absolute path; the game writes the file, so it lands on the same machine. `--out` with another command is a usage error.
+`wind-cli screenshot [selector] [--out FILE] [--window N] [--canvas C] [--pid N]` writes one window as this process drew it, as an RGBA PNG. `--out` is relative to the current directory; the default is `screenshot-YYYYMMDD-HHMMSS.png` there. The tool sends the absolute path; the game writes the file, so it lands on the same machine. `--out` with another command is a usage error.
 
 It takes two frames. The first `drain` checks `path` and arms the job. The next frame's `GameLoop` passes one `FrameCapture` per armed window to `IPresentation::draw_all`. `WindowManager::draw_all` calls `OpenGLCanvas::render`, then `read_pixels` (`glReadPixels` of the back buffer, framebuffer 0), then `present`, so the pixels are the ones that frame swaps. `render::framebuffer_image` flips the rows to top first. An opaque window's alpha is 255. A transparent window keeps its alpha, un-premultiplied. The size is the drawable size, the same pixels as `UiCanvas.rect` and `hit`. That frame's `drain` crops, encodes (`encode_png_rgba`), writes, and answers. The encode runs on the main thread.
 
-A selector uses the same matching as `element` and needs a world on the window. The crop is the element's border box mapped through its canvas's `canvas_layout_space` (`element_window_rect`), grown outward to whole pixels and clipped to the window (`snap_to_pixels`). `rect` is that box in window pixels; without a selector it is the whole window. `width` and `height` are the PNG's.
+A selector uses the same matching as `element` (limited to `--canvas` when given) and needs a world on the window. The crop is the element's border box mapped through its canvas's `canvas_layout_space` (`element_window_rect`), grown outward to whole pixels and clipped to the window (`snap_to_pixels`). Without a selector, `--canvas` crops to that canvas's `UiCanvas.rect` (`canvas_window_rect`); a root id shared by two canvases is `ambiguous` with canvas candidates. `rect` is the box in window pixels; with neither it is the whole window. `width` and `height` are the PNG's.
 
 | Error | When |
 | --- | --- |
 | `screenshot needs an absolute path` | `path` is missing or relative. Answered at once |
 | `window N drew nothing: it is closed, hidden, or minimized` | that window did not draw, or `read_pixels` skipped it (`SDL_WINDOW_HIDDEN` or `SDL_WINDOW_MINIMIZED`) |
-| `no world on window N` | a selector, and the window has no world |
+| `no world on window N` | a selector or `--canvas`, and the window has no world |
+| `no canvas …` | `--canvas` names no canvas on the window ([Canvases](#canvases)) |
 | `no element`, `ambiguous`, `selector` | as `element` |
-| `element is outside the window` | the snapped box is empty |
+| `element is outside the window`, `canvas is outside the window` | the snapped box is empty |
 | `could not write PATH`, `could not encode the png` | the file could not be written (the directory must exist) |
 
-`tests/cli_server_test.cpp` covers snapping, a crop of a `Fixed` canvas, a `ScaleWithScreenSize` mapping, the refusals, and the two-drain exchange with a fake capture. `tests/game_loop_test.cpp` runs one through `GameLoop` with a presentation that fills the capture. `tests/framebuffer_image_test.cpp` covers the flip and alpha. The `glReadPixels` call needs a GPU and is not in `engine_tests` ([Boundaries](../architecture/Boundaries.md)).
+`tests/cli_server_test.cpp` covers snapping, a crop of a `Fixed` canvas, a crop to one of two canvases and to an element on it, a `ScaleWithScreenSize` mapping, the refusals, and the two-drain exchange with a fake capture. `tests/game_loop_test.cpp` runs one through `GameLoop` with a presentation that fills the capture. `tests/framebuffer_image_test.cpp` covers the flip and alpha. The `glReadPixels` call needs a GPU and is not in `engine_tests` ([Boundaries](../architecture/Boundaries.md)).
 
 ## Host commands
 
