@@ -1,4 +1,4 @@
-<Canvas>
+<Canvas id="editor">
   <Stack class="editor" direction="vertical">
     <Stack class="toolbar" direction="horizontal">
       <Button class="play-button" command="{binding togglePlay}" checked="{binding isPlaying}" content="{binding playLabel}"/>

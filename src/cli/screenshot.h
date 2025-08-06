@@ -23,9 +23,9 @@ namespace engine::cli {
     // The body a `screenshot` is refused with before any frame is read: `path` is empty or not absolute.
     [[nodiscard]] std::optional<std::string> screenshot_request_error(const CliRequest &request);
 
-    // `screenshot`: `image` (the request's window as this frame drew it) cropped to the selected element's border box,
-    // or whole without a selector, written as a PNG to `request.path`. `world` is that window's world, null when it
-    // has none.
+    // `screenshot`: `image` (the request's window as this frame drew it) cropped to the selected element's border box
+    // (searched only on `request.canvas` when set), to that canvas's rect when there is a canvas and no selector, or
+    // whole, written as a PNG to `request.path`. `world` is that window's world, null when it has none.
     [[nodiscard]] std::string screenshot_json(ecs::World *world, const CliRequest &request,
                                               const render::TextureDesc &image);
 
