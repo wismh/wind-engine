@@ -12,7 +12,6 @@ namespace editor {
 // UI pass that ran the command.
 enum class EditorRequest {
     None,
-    OpenProject,
     Play,
     Stop,
 };
@@ -27,7 +26,7 @@ enum class RunState {
     Playing,
 };
 
-// The editor window's top bar: Open project, Play/Stop, status line, project line, and the Inspector/Profiler/Build
+// The editor window's top bar: Play/Stop, status line, project line, and the Inspector/Profiler/Build
 // tab strip. Owns the view-model and the button methods. Holds `this` in its commands, so it never moves.
 class Toolbar {
 public:
@@ -38,12 +37,10 @@ public:
 
     [[nodiscard]] const std::shared_ptr<EditorViewModel>& view_model() const;
 
-    void open_project();
     void toggle_play();
     void show_inspector();
     void show_profiler();
     void show_build();
-    [[nodiscard]] bool can_open_project() const;
     [[nodiscard]] bool can_toggle_play() const;
 
     // The project line. `playable` enables Play: the project was read and fits this editor's SDK.

@@ -18,7 +18,6 @@ struct EditorFacts {
     std::filesystem::path project_dir;
     // This editor's SDK version; empty when it does not run from an installed SDK.
     std::string sdk;
-    bool dialog_open = false;
 };
 
 // The editor's `wind-cli` commands: `state`, `play`, `stop`, and `open <dir>`. Like the toolbar buttons they only
@@ -38,7 +37,7 @@ private:
     [[nodiscard]] engine::CliReply state(const EditorFacts& facts) const;
     [[nodiscard]] engine::CliReply play();
     [[nodiscard]] engine::CliReply stop();
-    [[nodiscard]] engine::CliReply open(const std::string& path, const EditorFacts& facts);
+    [[nodiscard]] engine::CliReply open(const std::string& path);
 
     Toolbar* toolbar_;
     std::optional<std::filesystem::path> open_;

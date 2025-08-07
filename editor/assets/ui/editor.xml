@@ -1,7 +1,6 @@
 <Canvas>
   <Stack class="editor" direction="vertical">
     <Stack class="toolbar" direction="horizontal">
-      <Button class="tool-button" command="{binding openProject}" content="Open project…"/>
       <Button class="play-button" command="{binding togglePlay}" checked="{binding isPlaying}" content="{binding playLabel}"/>
       <Stack class="info" direction="vertical">
         <Label class="status" text="{binding statusText}"/>
