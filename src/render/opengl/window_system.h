@@ -21,7 +21,8 @@ public:
     WindowSystem(const WindowSystem&) = delete;
     WindowSystem& operator=(const WindowSystem&) = delete;
 
-    [[nodiscard]] bool create(const WindowDesc& desc);
+    // `owner` (WindowDesc::owner resolved by WindowManager) or nullptr: the window stays above it and closes with it.
+    [[nodiscard]] bool create(const WindowDesc& desc, SDL_Window* owner);
     void destroy();
     void swap() const;
     void set_icon(const render::TextureDesc& desc);
@@ -33,6 +34,8 @@ public:
     void set_always_on_top(bool always_on_top);
     void set_position(glm::ivec2 position);
     void resize(glm::ivec2 size);
+    // Restores a minimized window, brings it to the front, and focuses it (IWindowControl::raise).
+    void raise();
 
     void start_text_input();
     void stop_text_input();

@@ -17,6 +17,8 @@ class CommandBuffer;
 class IFatalError;
 class AssetsDb;
 class IAudioSystem;
+class IWindowControl;
+class Worlds;
 
 struct EngineSystemsRegistered {
     bool value = false;
@@ -49,6 +51,10 @@ struct EngineSystemDeps {
     // graceful-skip shape as commands_for_window.
     std::function<void(WindowId, AssetId)> ensure_ui_image;
     std::function<void(WindowId, AssetId)> ensure_ui_font;
+    // Opens and closes the OS windows of DockFloatMode::OsWindow floats (ui/dock_space.h) and binds each to the
+    // world of its dock space. Either unset: such floats stay virtual.
+    IWindowControl* windows = nullptr;
+    Worlds* worlds = nullptr;
 };
 
 void register_simulation_systems(ecs::World& world, EngineSystemDeps deps = {});

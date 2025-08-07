@@ -1,5 +1,5 @@
-/* Project, Inspector, Profiler, and Build panels. Each is its own canvas under the toolbar and the tab strip, placed by
-   EditorPanels (editor/src/editor_panels.cpp). Same palette as editor.css. */
+/* Project, Inspector, Profiler, and Build panels. Each is its own canvas in the dock space under the toolbar, placed by
+   the engine's dock system (EditorPanels, editor/src/editor_panels.cpp). Same palette as editor.css. */
 
 Canvas {
   background: #1e1f22;

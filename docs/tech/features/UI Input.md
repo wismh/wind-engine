@@ -17,6 +17,8 @@ A right click does not place a caret and does not clear focus. `clicks` is the O
 
 `simulate_worlds` calls `reset_pointer_frame` before this phase. That clears `Presentation.mouse`. `begin_frame` does not. A hit inserts the window into `presentation_of(world).mouse`. Gameplay that should ignore that click reads `presentation_of(world).mouse.consumed_for(window)`. `world.ctx<ui::MouseConsumed>()` does not see the hits. `InputSystem` does not check either.
 
+`run_dock_input` runs after `run_input` and also inserts the window for Down, Move, and Wheel on dock chrome and on virtual floats, including their empty parts, and on the tab strips and splitters of a dock float's own window ([Docking](Docking.md#input)).
+
 ## What a hit is
 
 An open `Popup` is above every canvas of its window. Canvases with an open popup are bound, laid out, and placed first, from highest `order` to lowest; the first with a popup under the point takes the event, even when the point is outside that canvas's rect. Otherwise canvases whose rect contains the point are tried from highest `order` to lowest. The top canvas is bound and laid out, then `hit_test`.
@@ -38,7 +40,7 @@ Children are tested first, except that scrollbar track. A selectable Label is th
 
 Inline math does not consume the click. `label_text_selectable` (`src/ui/text_select.cpp`) still requires a `Label`, `user-select` other than `none`, no bound `command` or `drag`, and the label not `disabled`. On that label the formula is one source span, and the copy is that TeX.
 
-Inside the canvas, siblings are visited front to back: the reverse of `child_stacking_order` (z-index ascending, document order on a tie). Containment uses `hit_bounds()`. For a rotated or scaled element that is the axis-aligned box of the transformed corners, which is slightly large at the corners. It is not an oriented-rect test.
+Inside the canvas, siblings are visited front to back: the reverse of `child_stacking_order` (z-index ascending, document order on a tie). Containment uses `hit_bounds()`. A point outside an element's box skips its subtree, except its `position: absolute` children (out of flow, painted wherever they are placed), which are still tried, unless the element clips: `overflow` other than `visible` on either axis, or a Viewport. `hit_test_visual` (the UI Inspector, `wind-cli hit`) follows the same rule. For a rotated or scaled element that is the axis-aligned box of the transformed corners, which is slightly large at the corners. It is not an oriented-rect test.
 
 A Viewport clips to its unpanned `layout_rect` and hit-tests children with the inverse camera (`origin + (pointer - origin) / zoom - pan`). Empty background hits the Viewport. That starts a pan only when the Viewport has a camera binding and `data_context` is set. A child Button still wins.
 
