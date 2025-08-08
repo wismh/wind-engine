@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -129,7 +130,12 @@ public:
 };
 
 // Keeps a list of live windows. kPrimaryWindow is open from the start. Every call that changes a
-// window is appended to `log` when it is set.
+// window is appended to `log` when it is set. An opened window keeps the description it was opened
+// with (`opened`), and its position and size answer `position` and `size` until set_position or
+// resize changes them; a test moves a window "natively" by writing `positions` or `sizes`.
+// kPrimaryWindow has a position and size only once a test or a call sets them. As the real one: an
+// owner that is not open fails open_window, and closing a window closes the windows it owns first.
+// `raised` lists every raise of an open window, in order.
 class FakeWindowControl final : public engine::IWindowControl {
 public:
     void set_overlay_mode(engine::OverlayMode mode) override {
@@ -155,6 +161,7 @@ public:
         if (window == engine::kPrimaryWindow) {
             title = std::string(text);
         }
+        titles[window] = std::string(text);
         note("windows.title " + std::string(text));
     }
     void set_borderless(bool value, engine::WindowId window) override {
@@ -167,28 +174,65 @@ public:
             always_on_top = value;
         }
     }
-    void set_position(glm::ivec2, engine::WindowId) override {}
+    void set_position(glm::ivec2 value, engine::WindowId window) override {
+        if (is_open(window)) {
+            positions[window] = value;
+        }
+    }
     void resize(glm::ivec2 value, engine::WindowId window) override {
         if (window == engine::kPrimaryWindow) {
             primary_size = value;
         }
+        if (is_open(window)) {
+            sizes[window] = value;
+        }
     }
-    std::optional<glm::ivec2> position(engine::WindowId) const override {
-        return std::nullopt;
+    std::optional<glm::ivec2> position(engine::WindowId window) const override {
+        const auto it = positions.find(window);
+        if (!is_open(window) || it == positions.end()) {
+            return std::nullopt;
+        }
+        return it->second;
     }
-    std::optional<glm::ivec2> size(engine::WindowId) const override {
-        return std::nullopt;
+    std::optional<glm::ivec2> size(engine::WindowId window) const override {
+        const auto it = sizes.find(window);
+        if (!is_open(window) || it == sizes.end()) {
+            return std::nullopt;
+        }
+        return it->second;
+    }
+    void raise(engine::WindowId window) override {
+        if (is_open(window)) {
+            raised.push_back(window);
+            note("windows.raise " + std::to_string(static_cast<std::uint32_t>(window)));
+        }
     }
     void set_click_through_enabled(bool, engine::WindowId) override {}
     void set_drag_region(std::optional<engine::render::Rect>, engine::WindowId) override {}
-    std::optional<engine::WindowId> open_window(const engine::WindowDesc&) override {
+    std::optional<engine::WindowId> open_window(const engine::WindowDesc& desc) override {
+        if (refuse_open || (desc.owner && !is_open(*desc.owner))) {
+            return std::nullopt;
+        }
         const engine::WindowId id{next_++};
         open.push_back(id);
+        opened[id] = desc;
+        titles[id] = desc.title;
+        positions[id] = desc.position.value_or(glm::ivec2{0, 0});
+        sizes[id] = desc.size;
         note("windows.open " + std::to_string(static_cast<std::uint32_t>(id)));
         return id;
     }
     void close_window(engine::WindowId id) override {
+        const std::vector<engine::WindowId> live = open;
+        for (const engine::WindowId other : live) {
+            const auto desc = opened.find(other);
+            if (desc != opened.end() && desc->second.owner == id && is_open(other)) {
+                close_window(other);
+            }
+        }
         std::erase(open, id);
+        positions.erase(id);
+        sizes.erase(id);
         note("windows.close " + std::to_string(static_cast<std::uint32_t>(id)));
     }
     std::vector<engine::WindowId> open_windows() const override {
@@ -200,14 +244,31 @@ public:
     engine::FileDialogCall request_open_folder(engine::WindowId, std::filesystem::path) override {
         return engine::FileDialogCall::resolved(engine::FileDialogResult{});
     }
-    engine::render::Rect usable_display_bounds(int) const override {
-        return {};
+    engine::render::Rect usable_display_bounds(int display_index) const override {
+        if (displays.empty()) {
+            return {};
+        }
+        const auto index = static_cast<std::size_t>(display_index);
+        return display_index >= 0 && index < displays.size() ? displays[index] : displays.front();
     }
     engine::render::Rect usable_display_bounds_for_window(engine::WindowId) const override {
-        return {};
+        return displays.empty() ? engine::render::Rect{} : displays.front();
+    }
+
+    [[nodiscard]] bool is_open(engine::WindowId window) const {
+        return std::ranges::find(open, window) != open.end();
     }
 
     std::vector<engine::WindowId> open{engine::kPrimaryWindow};
+    std::map<engine::WindowId, engine::WindowDesc> opened;
+    std::map<engine::WindowId, std::string> titles;
+    std::map<engine::WindowId, glm::ivec2> positions;
+    std::map<engine::WindowId, glm::ivec2> sizes;
+    std::vector<engine::WindowId> raised;
+    // Usable display bounds, display 0 first. Empty: the queries answer a zero rect.
+    std::vector<engine::render::Rect> displays;
+    // open_window answers nullopt.
+    bool refuse_open = false;
     std::string title;
     glm::ivec2 primary_size{0, 0};
     bool borderless = false;
