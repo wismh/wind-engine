@@ -13,6 +13,9 @@ set(_wind_editor_parts
     src/editor_panels.cpp
     src/editor_view_model.cpp
     src/engine_host_play.cpp
+    src/explorer_panel.cpp
+    src/explorer_row_view_model.cpp
+    src/explorer_view_model.cpp
     src/inspector_panel.cpp
     src/inspector_row_view_model.cpp
     src/inspector_view_model.cpp
@@ -22,6 +25,7 @@ set(_wind_editor_parts
     src/profiler_row_view_model.cpp
     src/profiler_view_model.cpp
     src/project_build.cpp
+    src/project_scan.cpp
     src/rule_line_view_model.cpp
     src/toolbar.cpp)
 
