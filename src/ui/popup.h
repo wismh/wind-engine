@@ -78,6 +78,10 @@ namespace engine::ui {
     // Uses the placement of the last input or paint pass (canvas.cpp).
     [[nodiscard]] std::optional<ecs::Entity> popup_canvas_at(ecs::World &world, WindowId window, glm::vec2 point);
 
+    // Closes every open popup of the canvas and drops keyboard focus held inside it: for a canvas that stops being
+    // shown (a dock panel whose tab went inactive).
+    void release_canvas(ecs::World &world, ecs::Entity canvas);
+
         // True when `inner` is `outer` or anywhere in its subtree.
     [[nodiscard]] bool contains_element(const Element &outer, const Element *inner);
 

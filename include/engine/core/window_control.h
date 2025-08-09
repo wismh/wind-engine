@@ -62,6 +62,11 @@ public:
     virtual void set_position(glm::ivec2 position, WindowId window = kPrimaryWindow) = 0;
     virtual void resize(glm::ivec2 size, WindowId window = kPrimaryWindow) = 0;
 
+    // Brings the window to the front and gives it keyboard focus; a minimized window is restored first. A window
+    // that is not open is a no-op. The OS may refuse focus to a process that is not in the foreground (Windows
+    // then flashes its taskbar entry, or its owner's).
+    virtual void raise(WindowId window) = 0;
+
     // Live top-left in screen coordinates, the same space as set_position. nullopt if that
     // window is not open.
     [[nodiscard]] virtual std::optional<glm::ivec2> position(WindowId window = kPrimaryWindow) const = 0;
@@ -91,8 +96,9 @@ public:
     virtual void set_drag_region(std::optional<render::Rect> region, WindowId window = kPrimaryWindow) = 0;
 
     // Opens/closes a secondary window. nullopt on failure (e.g. no primary
-    // window yet). Closing is purely mechanical — see WindowCloseRequestedEvent
-    // (include/engine/ui/canvas.h) for how a game learns a window's close button was clicked.
+    // window yet, or a WindowDesc::owner that is not open). Closing is purely mechanical — see
+    // WindowCloseRequestedEvent (include/engine/ui/canvas.h) for how a game learns a window's close button was
+    // clicked. Closing a window closes the windows it owns (WindowDesc::owner) first.
     virtual std::optional<WindowId> open_window(const WindowDesc& desc) = 0;
     virtual void close_window(WindowId id) = 0;
 

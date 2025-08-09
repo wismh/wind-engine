@@ -40,16 +40,32 @@ std::filesystem::path sdk_root_of(const std::filesystem::path& assets_root) {
     return root.parent_path().parent_path();
 }
 
-// `<user data>/live`, where Play puts module copies. The temp directory when there is no user data
-// directory, because Play cannot load the original in place.
-std::filesystem::path live_root() {
+// `user_data_directory("Wind", "Editor")`, or empty when there is none (logged).
+std::filesystem::path user_data() {
     const auto user_data = engine::user_data_directory("Wind", "Editor");
     if (user_data) {
-        return *user_data / "live";
+        return *user_data;
     }
     engine::log::warn("Editor: no user data directory (" + user_data.error().message() +
-            "). Game module copies go to the temp directory");
+            "). Game module copies go to the temp directory and the panel layout is not kept");
+    return {};
+}
+
+// `<user data>/live`, where Play puts module copies. The temp directory when there is no user data
+// directory, because Play cannot load the original in place.
+std::filesystem::path live_root(const std::filesystem::path& user_data) {
+    if (!user_data.empty()) {
+        return user_data / "live";
+    }
     return std::filesystem::temp_directory_path() / "wind_editor" / "live";
+}
+
+// `<user data>/dock_layout.toml`, the panel layout. None without a user data directory.
+DockLayoutFile layout_file(const std::filesystem::path& user_data) {
+    if (user_data.empty()) {
+        return DockLayoutFile{};
+    }
+    return DockLayoutFile{user_data / "dock_layout.toml"};
 }
 
 }
@@ -118,15 +134,16 @@ bool EditorApp::start(const EditorOptions& options) {
             .fit = engine::ui::UiFit::FillWindow,
             .window = window_,
     });
-    panels_.emplace(*toolbar_);
-    panels_->spawn(*world_, window_);
+    const std::filesystem::path data = user_data();
+    panels_.emplace(layout_file(data));
+    panels_->spawn(*world_, window_, services.windows);
     world_->add_system(engine::ecs::Schedule::Frame, engine::ecs::Phase::Game,
             [this](engine::ecs::World& world) { read_events(world); });
     // Game, not Bind: run_bind of this world (registered by enable_ui) must see this frame's copy.
     world_->add_system(engine::ecs::Schedule::Frame, engine::ecs::Phase::Game,
             [this](engine::ecs::World& world) { panels_->frame(world); });
 
-    const std::filesystem::path live = live_root();
+    const std::filesystem::path live = live_root(data);
     const std::size_t purged = engine::purge_game_module_copies(live);
     if (purged > 0) {
         engine::log::info("Editor: removed " + std::to_string(purged) + " stale game module copies");
@@ -199,6 +216,7 @@ void EditorApp::on_quit() {
     if (session_ && session_->playing()) {
         stop("Stopped.");
     }
+    panels_->save_layout();
     engine::log::info("Editor: quit");
 }
 
@@ -272,7 +290,7 @@ void EditorApp::poll_build() {
         toolbar_->show_state(RunState::Idle);
         toolbar_->show_status(outcome->error());
         log.show_summary(log.first_error().empty() ? outcome->error() : log.first_error());
-        toolbar_->show_build();
+        panels_->show(EditorPanels::kBuild);
         engine::log::warn("Editor: " + outcome->error());
         return;
     }

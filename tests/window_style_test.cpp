@@ -47,6 +47,8 @@ TEST(PrimaryWindow, DefaultsMatchSdd) {
     EXPECT_FALSE(desc.style.transparent);
     EXPECT_TRUE(desc.style.resizable);
     EXPECT_FALSE(desc.style.maximized);
+    EXPECT_FALSE(desc.style.utility);
+    EXPECT_FALSE(desc.owner.has_value());
 }
 
 #if defined(ENGINE_WITH_WINDOW)
@@ -85,6 +87,11 @@ TEST(WindowStyleFlags, AlwaysOnTopSetsAlwaysOnTopBit) {
 TEST(WindowStyleFlags, TransparentSetsTransparentBit) {
     const engine::WindowStyle style{.transparent = true, .resizable = false};
     EXPECT_EQ(engine::window_style_flags(style), SDL_WINDOW_TRANSPARENT);
+}
+
+TEST(WindowStyleFlags, UtilitySetsUtilityBit) {
+    const engine::WindowStyle style{.resizable = false, .utility = true};
+    EXPECT_EQ(engine::window_style_flags(style), SDL_WINDOW_UTILITY);
 }
 
 TEST(WindowStyleFlags, FlagsCombine) {
@@ -193,6 +200,8 @@ TEST(WindowControlImpl, WindowIdAddressedMethodsAreNoopForUnknownWindow) {
     control_ref.set_click_through_enabled(true, secondary);
     control_ref.set_drag_region(engine::render::Rect{0, 0, 10, 10}, secondary);
     control_ref.set_drag_region(std::nullopt, secondary);
+    control_ref.raise(secondary);
+    control_ref.raise(engine::kPrimaryWindow);
 }
 
 TEST(MouseConsumed, ConsumedForTracksPerWindow) {
@@ -376,6 +385,16 @@ TEST(WindowManager, CreateSecondaryWindowFailsWithoutPrimary) {
     engine::render::OpenGLRenderBackend backend;
     engine::WindowManager manager{backend};
     EXPECT_FALSE(manager.create_window(engine::WindowDesc{}).has_value());
+}
+
+TEST(WindowManager, APrimaryWindowWithAnOwnerDoesNotOpen) {
+    // Refused before SDL is touched: nothing is open before the primary window, so nothing can own it.
+    engine::render::OpenGLRenderBackend backend;
+    engine::WindowManager manager{backend};
+    engine::WindowDesc desc;
+    desc.owner = engine::WindowId{1};
+    EXPECT_FALSE(manager.create_primary_window(desc));
+    EXPECT_FALSE(manager.has_window(engine::kPrimaryWindow));
 }
 
 TEST(WindowManager, FreshManagerReportsNoLiveWindows) {

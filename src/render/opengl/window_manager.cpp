@@ -2,6 +2,10 @@
 
 #include "gl_includes.h"
 
+#include <engine/log.h>
+
+#include <vector>
+
 #if defined(_WIN32)
 #include <windows.h>
 #endif
@@ -74,8 +78,12 @@ bool WindowManager::create_primary_window(const WindowDesc& desc) {
     // down and rebuilding its window/context in place rather than swapping in a whole new Entry,
     // so the WindowSystem/CommandBuffer/OpenGLCanvas addresses this manager already handed out via
     // primary_window()/commands_ptr()/canvas_ptr() stay valid across the call.
+    if (desc.owner) {
+        log::error("Window: the primary window cannot have an owner");
+        return false;
+    }
     Entry& entry = *windows_.at(kPrimaryWindow);
-    if (!entry.window.create(desc)) {
+    if (!entry.window.create(desc, nullptr)) {
         return false;
     }
     if (!entry.canvas->init(/*with_ui_painter=*/true)) {
@@ -91,8 +99,18 @@ std::optional<WindowId> WindowManager::create_window(const WindowDesc& desc) {
     }
     Entry* primary = windows_.at(kPrimaryWindow).get();
 
+    SDL_Window* owner = nullptr;
+    if (desc.owner) {
+        WindowSystem* const owner_window = window(*desc.owner);
+        if (owner_window == nullptr) {
+            return std::nullopt;
+        }
+        owner = owner_window->window();
+    }
+
     auto entry = std::make_unique<Entry>();
-    if (!entry->window.create(desc)) {
+    entry->owner = desc.owner;
+    if (!entry->window.create(desc, owner)) {
         return std::nullopt;
     }
 
@@ -120,6 +138,17 @@ std::optional<WindowId> WindowManager::create_window(const WindowDesc& desc) {
 }
 
 void WindowManager::destroy_window(WindowId id) {
+    // SDL_DestroyWindow destroys the windows a window owns before it; closing them here first keeps no entry
+    // holding an SDL window SDL already freed.
+    std::vector<WindowId> owned;
+    for (const auto& [other, entry] : windows_) {
+        if (entry->owner == id && entry->window.window() != nullptr) {
+            owned.push_back(other);
+        }
+    }
+    for (const WindowId other : owned) {
+        destroy_window(other);
+    }
     if (vsync_window_ == id) {
         vsync_window_.reset();
     }
@@ -146,11 +175,16 @@ void WindowManager::shutdown() {
     // create_primary_window() call still works and this manager's already-handed-out primary
     // accessors stay valid — matching the idempotent-shutdown contract EngineRuntime promised
     // before this phase.
-    for (auto it = windows_.begin(); it != windows_.end();) {
-        if (it->first == kPrimaryWindow) {
-            ++it;
-        } else {
-            it = windows_.erase(it);
+    // Through destroy_window, so an owned window closes before its owner.
+    std::vector<WindowId> secondary;
+    for (const auto& [id, entry] : windows_) {
+        if (id != kPrimaryWindow) {
+            secondary.push_back(id);
+        }
+    }
+    for (const WindowId id : secondary) {
+        if (windows_.contains(id)) {
+            destroy_window(id);
         }
     }
     destroy_window(kPrimaryWindow);

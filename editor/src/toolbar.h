@@ -1,6 +1,5 @@
 #pragma once
 
-#include "editor_tab.h"
 #include "editor_view_model.h"
 
 #include <memory>
@@ -26,8 +25,8 @@ enum class RunState {
     Playing,
 };
 
-// The editor window's top bar: Play/Stop, status line, project line, and the Project/Inspector/Profiler/Build
-// tab strip. Owns the view-model and the button methods. Holds `this` in its commands, so it never moves.
+// The editor window's top bar: Play/Stop, status line, and project line. Owns the view-model and the button
+// methods. Holds `this` in its commands, so it never moves.
 class Toolbar {
 public:
     Toolbar();
@@ -38,10 +37,6 @@ public:
     [[nodiscard]] const std::shared_ptr<EditorViewModel>& view_model() const;
 
     void toggle_play();
-    void show_explorer();
-    void show_inspector();
-    void show_profiler();
-    void show_build();
     [[nodiscard]] bool can_toggle_play() const;
 
     // The project line. `playable` enables Play: the project was read and fits this editor's SDK.
@@ -57,14 +52,9 @@ public:
     [[nodiscard]] bool playable() const;
     [[nodiscard]] const std::string& status() const;
 
-    [[nodiscard]] EditorTab active_tab() const;
-
 private:
-    void show_tab(EditorTab tab);
-
     std::shared_ptr<EditorViewModel> view_model_;
     EditorRequest request_ = EditorRequest::None;
-    EditorTab tab_ = EditorTab::Explorer;
     RunState state_ = RunState::Idle;
     bool playable_ = false;
 };

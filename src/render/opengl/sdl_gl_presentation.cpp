@@ -8,6 +8,7 @@
 #include "window_manager.h"
 
 #include "core/back_key_filter.h"
+#include "core/event_window.h"
 #include "ui/painter.h"
 
 #include <engine/builtin_ids.h>
@@ -266,6 +267,12 @@ private:
         });
     }
 
+    // The window an event goes to (event_window): an id of a window closed this frame is dropped, so input still
+    // queued for a dock float window that just closed does not reach kPrimaryWindow.
+    [[nodiscard]] std::optional<WindowId> window_of(SDL_WindowID sdl_id, NoWindowEvent no_window) const {
+        return event_window(sdl_id, windows_.find_by_sdl_id(sdl_id), no_window);
+    }
+
     void dispatch(Worlds& worlds, InputSystem& input, const SDL_Event& event) {
         ApplicationState& app = worlds.application_state();
         switch (event.type) {
@@ -285,26 +292,33 @@ private:
                 break;
             case SDL_EVENT_WINDOW_RESIZED:
             case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED: {
-                const WindowId resized = windows_.find_by_sdl_id(event.window.windowID).value_or(kPrimaryWindow);
-                if (resized == kPrimaryWindow) {
+                const std::optional<WindowId> resized = window_of(event.window.windowID, NoWindowEvent::Drop);
+                if (!resized) {
+                    break;
+                }
+                if (*resized == kPrimaryWindow) {
                     publish_primary_size(worlds, true);
-                } else if (WindowSystem* secondary = windows_.window(resized)) {
-                    publish_size(worlds, resized, secondary->drawable_size(), true);
+                } else if (WindowSystem* secondary = windows_.window(*resized)) {
+                    publish_size(worlds, *resized, secondary->drawable_size(), true);
                 }
                 break;
             }
             case SDL_EVENT_WINDOW_CLOSE_REQUESTED: {
-                const WindowId closed = windows_.find_by_sdl_id(event.window.windowID).value_or(kPrimaryWindow);
-                if (ecs::World* const world = worlds.world_for(closed)) {
+                const std::optional<WindowId> closed = window_of(event.window.windowID, NoWindowEvent::Drop);
+                if (ecs::World* const world = closed ? worlds.world_for(*closed) : nullptr) {
                     ecs::EventWriter<ui::WindowCloseRequestedEvent>{*world}.send(
-                            ui::WindowCloseRequestedEvent{.window = closed});
+                            ui::WindowCloseRequestedEvent{.window = *closed});
                 }
                 break;
             }
             case SDL_EVENT_KEY_DOWN:
             case SDL_EVENT_KEY_UP: {
                 const auto code = static_cast<KeyCode>(static_cast<std::uint32_t>(event.key.scancode));
-                const WindowId window_id = windows_.find_by_sdl_id(event.key.windowID).value_or(kPrimaryWindow);
+                const std::optional<WindowId> target = window_of(event.key.windowID, NoWindowEvent::Primary);
+                if (!target) {
+                    break;
+                }
+                const WindowId window_id = *target;
                 const WindowSystem* window = windows_.window(window_id);
                 const bool text_input_active = window != nullptr && window->is_text_input_active();
                 switch (back_key_.route(code, event.key.down, event.key.repeat, text_input_active)) {
@@ -322,19 +336,29 @@ private:
                 break;
             }
             case SDL_EVENT_TEXT_EDITING: {
-                const WindowId window_id = windows_.find_by_sdl_id(event.edit.windowID).value_or(kPrimaryWindow);
+                const std::optional<WindowId> window_id = window_of(event.edit.windowID, NoWindowEvent::Primary);
+                if (!window_id) {
+                    break;
+                }
                 const std::string text = event.edit.text != nullptr ? event.edit.text : "";
-                input.handle_text_editing(text, event.edit.start, event.edit.length, window_id);
+                input.handle_text_editing(text, event.edit.start, event.edit.length, *window_id);
                 break;
             }
             case SDL_EVENT_TEXT_INPUT: {
-                const WindowId window_id = windows_.find_by_sdl_id(event.text.windowID).value_or(kPrimaryWindow);
-                input.handle_text_input(event.text.text != nullptr ? event.text.text : "", window_id);
+                const std::optional<WindowId> window_id = window_of(event.text.windowID, NoWindowEvent::Primary);
+                if (!window_id) {
+                    break;
+                }
+                input.handle_text_input(event.text.text != nullptr ? event.text.text : "", *window_id);
                 break;
             }
             case SDL_EVENT_MOUSE_BUTTON_DOWN:
             case SDL_EVENT_MOUSE_BUTTON_UP: {
-                const WindowId window_id = windows_.find_by_sdl_id(event.button.windowID).value_or(kPrimaryWindow);
+                const std::optional<WindowId> target = window_of(event.button.windowID, NoWindowEvent::Primary);
+                if (!target) {
+                    break;
+                }
+                const WindowId window_id = *target;
                 WindowSystem* window = windows_.window(window_id);
                 if (window != nullptr) {
                     if (event.button.down && event.button.button == SDL_BUTTON_LEFT &&
@@ -351,7 +375,11 @@ private:
                 break;
             }
             case SDL_EVENT_MOUSE_MOTION: {
-                const WindowId window_id = windows_.find_by_sdl_id(event.motion.windowID).value_or(kPrimaryWindow);
+                const std::optional<WindowId> target = window_of(event.motion.windowID, NoWindowEvent::Primary);
+                if (!target) {
+                    break;
+                }
+                const WindowId window_id = *target;
                 if (WindowSystem* window = windows_.window(window_id); window != nullptr && window->is_dragging()) {
                     window->update_drag();
                     break;
@@ -361,7 +389,11 @@ private:
                 break;
             }
             case SDL_EVENT_MOUSE_WHEEL: {
-                const WindowId window_id = windows_.find_by_sdl_id(event.wheel.windowID).value_or(kPrimaryWindow);
+                const std::optional<WindowId> target = window_of(event.wheel.windowID, NoWindowEvent::Primary);
+                if (!target) {
+                    break;
+                }
+                const WindowId window_id = *target;
                 float wheel_y = event.wheel.y;
                 if (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) {
                     wheel_y = -wheel_y;
@@ -370,8 +402,9 @@ private:
                 break;
             }
             case SDL_EVENT_WINDOW_FOCUS_LOST: {
-                const WindowId window_id = windows_.find_by_sdl_id(event.window.windowID).value_or(kPrimaryWindow);
-                if (WindowSystem* window = windows_.window(window_id); window != nullptr && window->is_dragging()) {
+                const std::optional<WindowId> window_id = window_of(event.window.windowID, NoWindowEvent::Drop);
+                WindowSystem* const window = window_id ? windows_.window(*window_id) : nullptr;
+                if (window != nullptr && window->is_dragging()) {
                     window->end_drag();
                 }
                 break;
