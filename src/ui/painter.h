@@ -169,6 +169,14 @@ namespace engine::ui {
     // against `engine` can call it without a second public entry point.
     [[nodiscard]] bool layout_state_changed(Element &element);
 
+    // An element that shows nothing of its children outside its own box: overflow other than visible, or a Viewport.
+    // Paint and hit-test share it: the `position: absolute` children of an element that does not clip are drawn and
+    // take the pointer outside its box.
+    [[nodiscard]] inline bool clips_children(const Element &element) noexcept {
+        return element.overflow_x != Overflow::Visible || element.overflow_y != Overflow::Visible ||
+               element.kind == ElementKind::Viewport;
+    }
+
     // Per-window painter used by hit-test layout so hug text metrics match paint_document.
     // Unset / empty resolve keeps the CPU fallback (engine_tests, windows with no UI painter).
     struct UiLayoutPainters {

@@ -1368,13 +1368,6 @@ namespace engine::ui {
         return order;
     }
 
-    // An element that shows nothing of its children outside its own box: overflow other than visible, or a Viewport.
-    // Its absolute children outside it take no pointer either.
-    static bool clips_children(const Element &element) {
-        return element.overflow_x != Overflow::Visible || element.overflow_y != Overflow::Visible ||
-               element.kind == ElementKind::Viewport;
-    }
-
     // `position: absolute` children of `element`, front to back, that may lie outside its box: out of flow, they are
     // painted wherever they are placed, so they take the pointer there too.
     template<typename Visit>
