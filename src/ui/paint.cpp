@@ -945,10 +945,17 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
 
     painter.save();
     painter.set_opacity(style.opacity);
-    if (element.rotation_deg != 0.0f || element.scale != 1.0f) {
+    if (style.rotation_deg != 0.0f || style.scale != 1.0f) {
+        // Read from this call's own pseudo-aware `style` (allow_pseudo=true above), not
+        // element.rotation_deg/element.scale — those are apply_layout_style's allow_pseudo=false
+        // values, frozen at layout time. transform is purely a paint-time visual effect (it never
+        // affects layout_rect, unlike width/height/padding/etc, which genuinely can't be
+        // pseudo-reactive without re-running layout), so a `:hover`/`:pressed` rule that changes
+        // `transform` has no reason to wait for the next layout pass — reading the stale field
+        // here silently dropped that effect entirely.
         constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
         const glm::vec2 center{screen_rect.x + screen_rect.w * 0.5f, screen_rect.y + screen_rect.h * 0.5f};
-        painter.apply_transform(center, element.rotation_deg * kDegToRad, element.scale);
+        painter.apply_transform(center, style.rotation_deg * kDegToRad, style.scale);
     }
     // Must come after apply_transform: nvgScissor() bakes in whatever transform is active when
     // called, so a scissor set before a rotation clips against the element's un-rotated
