@@ -217,12 +217,14 @@ void EditorApp::open_project(const std::filesystem::path& directory) {
     project_dir_ = error ? std::filesystem::absolute(directory) : dir;
     auto project = engine::read_wind_project(project_dir_);
     if (!project) {
+        panels_->explorer().close();
         toolbar_->show_project(path_text(project_dir_), false);
         toolbar_->show_status(engine::describe(project.error()));
         engine::log::warn("Editor: " + engine::describe(project.error()));
         return;
     }
     const std::string line = project->name + "  (" + path_text(project_dir_) + ")";
+    panels_->explorer().open(project_dir_);
     if (!sdk_) {
         toolbar_->show_project(line, false);
         toolbar_->show_status("This editor is not an installed SDK (no sdk.toml beside bin/): install it with "

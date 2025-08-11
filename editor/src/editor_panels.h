@@ -1,6 +1,8 @@
 #pragma once
 
 #include "build_panel.h"
+#include "editor_tab.h"
+#include "explorer_panel.h"
 #include "inspector_panel.h"
 #include "profiler_panel.h"
 
@@ -18,10 +20,11 @@ namespace editor {
 
 class Toolbar;
 
-// The Inspector, Profiler, and Build tabs. Each panel is its own canvas in the editor's world, under the toolbar
-// and the tab strip; an inactive one is a Fixed canvas with an empty rect, so it takes no clicks.
+// The Project, Inspector, Profiler, and Build tabs. Each panel is its own canvas in the editor's world, under the
+// toolbar and the tab strip; an inactive one is a Fixed canvas with an empty rect, so it takes no clicks.
 // While playing, the Inspector and Profiler are attached to the world of kPrimaryWindow; only the visible one
-// refreshes. The Build panel is filled by the editor as a build runs.
+// refreshes. The Build panel is filled by the editor as a build runs, and the Project panel scans when a project
+// opens and on its Refresh.
 class EditorPanels {
 public:
     // y of the panels in the editor window: the toolbar (56) and the tab strip (32) of
@@ -42,23 +45,26 @@ public:
     void detach();
 
     // Editor world, Phase::Game (before Bind): places the canvases for the active tab, gives tree keys to
-    // the Inspector while the pointer is over it, and refreshes the visible panel, so this frame's bindings
-    // see this frame's copy.
+    // the Project or Inspector tab while the pointer is over it, and refreshes the visible panel, so this
+    // frame's bindings see this frame's copy.
     void frame(engine::ecs::World& world);
 
+    [[nodiscard]] ExplorerPanel& explorer();
     [[nodiscard]] InspectorPanel& inspector();
     [[nodiscard]] ProfilerPanel& profiler();
     [[nodiscard]] BuildPanel& build();
 
 private:
-    // Arrow, Home, and End presses (repeats too) on the editor window while the pointer is inside `panel`.
-    // Every frame reads the queue, so a key pressed elsewhere is not replayed later.
-    void read_tree_keys(engine::ecs::World& world, const engine::render::Rect& panel, bool inspector_shown);
+    // Arrow, Home, and End presses (repeats too) on the editor window while the pointer is inside `panel` and
+    // `tab` is a tree. Every frame reads the queue, so a key pressed elsewhere is not replayed later.
+    void read_tree_keys(engine::ecs::World& world, const engine::render::Rect& panel, EditorTab tab);
 
     const Toolbar* toolbar_;
+    ExplorerPanel explorer_;
     InspectorPanel inspector_;
     ProfilerPanel profiler_;
     BuildPanel build_;
+    engine::ecs::Entity explorer_canvas_{};
     engine::ecs::Entity inspector_canvas_{};
     engine::ecs::Entity profiler_canvas_{};
     engine::ecs::Entity build_canvas_{};
