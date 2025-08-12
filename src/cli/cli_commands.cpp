@@ -1,4 +1,5 @@
 #include "cli/cli_server.h"
+#include "cli/json.h"
 
 #include "ui/element_path.h"
 #include "ui/painter.h"
@@ -13,6 +14,7 @@
 #include <charconv>
 #include <cmath>
 #include <cstdint>
+#include <expected>
 #include <format>
 #include <functional>
 #include <optional>
@@ -25,116 +27,6 @@
 
 namespace engine::cli {
     namespace {
-
-        class Json {
-        public:
-            void begin_object() { begin('{'); }
-            void end_object() { end('}'); }
-            void begin_array() { begin('['); }
-            void end_array() { end(']'); }
-
-            void key(std::string_view name) {
-                comma();
-                raw_string(name);
-                out_ += ':';
-                suppress_ = true;
-            }
-
-            void string(std::string_view value) {
-                comma();
-                raw_string(value);
-            }
-
-            void boolean(bool value) {
-                comma();
-                out_ += value ? "true" : "false";
-            }
-
-            void null() {
-                comma();
-                out_ += "null";
-            }
-
-            void integer(std::int64_t value) {
-                comma();
-                out_ += std::to_string(value);
-            }
-
-            void number(double value) {
-                comma();
-                if (!std::isfinite(value)) {
-                    out_ += "null";
-                    return;
-                }
-                out_ += std::format("{:.6g}", value);
-            }
-
-            [[nodiscard]] std::string str() const { return out_; }
-
-        private:
-            void begin(char open) {
-                comma();
-                out_ += open;
-                fresh_.push_back(true);
-                suppress_ = false;
-            }
-
-            void end(char close) {
-                out_ += close;
-                if (!fresh_.empty()) {
-                    fresh_.pop_back();
-                }
-                suppress_ = false;
-            }
-
-            void comma() {
-                if (suppress_) {
-                    suppress_ = false;
-                    return;
-                }
-                if (!fresh_.empty() && !fresh_.back()) {
-                    out_ += ',';
-                }
-                if (!fresh_.empty()) {
-                    fresh_.back() = false;
-                }
-            }
-
-            void raw_string(std::string_view value) {
-                out_ += '"';
-                for (const unsigned char c: value) {
-                    switch (c) {
-                        case '"':
-                            out_ += "\\\"";
-                            break;
-                        case '\\':
-                            out_ += "\\\\";
-                            break;
-                        case '\n':
-                            out_ += "\\n";
-                            break;
-                        case '\r':
-                            out_ += "\\r";
-                            break;
-                        case '\t':
-                            out_ += "\\t";
-                            break;
-                        default:
-                            if (c < 0x20) {
-                                out_ += std::format("\\u{:04x}", static_cast<unsigned>(c));
-                            } else {
-                                out_ += static_cast<char>(c);
-                            }
-                            break;
-                    }
-                }
-                out_ += '"';
-            }
-
-            std::string out_;
-            std::vector<char> fresh_{true};
-            bool suppress_ = false;
-        };
 
         void skip_ws(std::string_view &in) {
             while (!in.empty() &&
@@ -963,6 +855,25 @@ namespace engine::cli {
     bool is_ui_command(std::string_view command) {
         return command == "tree" || command == "element" || command == "hit" || command == "click" ||
                command == "profile";
+    }
+
+    std::expected<render::Rect, std::string> element_window_rect(ecs::World &world, const CliRequest &request) {
+        std::string error;
+        const std::vector<Match> matches = resolve(world, request, error);
+        if (!error.empty()) {
+            return std::unexpected(error_json(error));
+        }
+        if (matches.empty()) {
+            return std::unexpected(error_json("no element"));
+        }
+        if (matches.size() > 1) {
+            return std::unexpected(ambiguous_json(world, matches));
+        }
+        const Match &match = matches.front();
+        const ui::LayoutBoxes boxes = ui::layout_boxes(match.instance->document.root, *match.element);
+        const ui::UiCanvasSpace space =
+                ui::canvas_layout_space(match.ui->rect, match.ui->fit, match.ui->reference_size);
+        return ui::scale_rect(boxes.border, space.offset, space.scale);
     }
 
     std::string execute_host(const CliCommands *host, const CliRequest &request) {

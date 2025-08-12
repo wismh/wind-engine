@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/frame_capture.h"
+
 #include <engine/core/window_desc.h>
 #include <engine/core/worlds.h>
 #include <engine/render/graphic_factory.h>
@@ -7,6 +9,7 @@
 
 #include <filesystem>
 #include <functional>
+#include <span>
 
 #include <glm/vec2.hpp>
 
@@ -51,7 +54,9 @@ public:
 
     virtual void poll(Worlds& worlds, InputSystem& input) = 0;
     virtual void sync_frame(Worlds& worlds) = 0;
-    virtual void draw_all() = 0;
+    // Each capture names a window. A window that draws this frame fills that capture's image after drawing and
+    // before its swap; one that does not draw leaves it empty.
+    virtual void draw_all(std::span<FrameCapture> captures) = 0;
 
     // Publishes the primary drawable size, installs the UI glyph resolver, and arms the
     // desktop-overlay modal hook with `reentrant_tick` for as long as the loop runs.

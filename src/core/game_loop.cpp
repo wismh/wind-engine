@@ -10,6 +10,8 @@
 #include <engine/process/process_launcher.h>
 #include <engine/ui/canvas.h>
 
+#include <vector>
+
 #if defined(__EMSCRIPTEN__)
 #include <emscripten.h>
 #endif
@@ -68,7 +70,7 @@ void GameLoop::tick() {
         return;
     }
     const float real_dt = consume_dt();
-    const cli::CliFrame cli_frame = this->cli_frame();
+    cli::CliFrame cli_frame = this->cli_frame();
     cli::begin_frame(cli_frame);
     flush_worlds(*worlds_);
     presentation_->poll(*worlds_, *input_);
@@ -80,7 +82,9 @@ void GameLoop::tick() {
     }
     simulate_worlds(*worlds_, audio_, real_dt);
     presentation_->sync_frame(*worlds_);
-    presentation_->draw_all();
+    std::vector<FrameCapture> captures = capture_requests();
+    presentation_->draw_all(captures);
+    cli_frame.captures = captures;
     cli::drain(cli_frame);
     // Last in the frame, so the hook may destroy worlds or rebind windows: nothing of this frame reads
     // them afterwards. reentrant_tick does not call it, because it runs nested inside poll.
@@ -100,11 +104,13 @@ void GameLoop::reentrant_tick() {
         return;
     }
     const float real_dt = consume_dt();
-    const cli::CliFrame cli_frame = this->cli_frame();
+    cli::CliFrame cli_frame = this->cli_frame();
     cli::begin_frame(cli_frame);
     simulate_worlds(*worlds_, audio_, real_dt);
     presentation_->sync_frame(*worlds_);
-    presentation_->draw_all();
+    std::vector<FrameCapture> captures = capture_requests();
+    presentation_->draw_all(captures);
+    cli_frame.captures = captures;
     cli::drain(cli_frame);
 }
 
@@ -113,6 +119,14 @@ cli::CliFrame GameLoop::cli_frame() const {
             .world_for = [worlds = worlds_](WindowId window) { return worlds->world_for(window); },
             .host = &hooks_.cli,
     };
+}
+
+std::vector<FrameCapture> GameLoop::capture_requests() {
+    std::vector<FrameCapture> captures;
+    for (const WindowId window : cli::capture_requests()) {
+        captures.push_back(FrameCapture{.window = window, .image = {}});
+    }
+    return captures;
 }
 
 void GameLoop::end() {
