@@ -40,7 +40,8 @@
 }
 .dock-tab-close:hover { background: #4e5157; color: #ffffff; }
 
-.dock-splitter { background: #2b2d30; }
+/* Lighter than both the strips and the panels, so the edge to drag for a resize shows. */
+.dock-splitter { background: #43454a; }
 .dock-splitter:hover { background: #3574f0; }
 .dock-splitter:pressed { background: #3574f0; }
 
