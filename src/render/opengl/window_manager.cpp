@@ -160,8 +160,9 @@ void WindowManager::destroy_window(WindowId id) {
         // create_primary_window() call, and leaving WindowControlImpl/commands_ptr()/canvas_ptr()
         // pointed at a still-valid (if inert) object.
         Entry& entry = *windows_.at(kPrimaryWindow);
-        entry.window.destroy();
+        // The old canvas goes first, while its SDL window still exists: its teardown makes its own context current.
         entry.canvas = std::make_shared<render::OpenGLCanvas>(entry.window, *entry.commands, *backend_);
+        entry.window.destroy();
         return;
     }
     windows_.erase(id);
