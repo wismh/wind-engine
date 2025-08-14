@@ -1,4 +1,4 @@
-<Canvas>
+<Canvas id="profiler">
   <Stack class="panel" direction="vertical">
     <Stack class="option-row" direction="horizontal">
       <Checkbox class="option-box" checked="{binding pause}"/>
