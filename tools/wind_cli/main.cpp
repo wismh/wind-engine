@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -563,7 +564,18 @@ void usage() {
                  "       wind-cli element <selector> [--window N] [--pid N]\n"
                  "       wind-cli hit <x> <y> [--window N] [--pid N]\n"
                  "       wind-cli click <selector> [--window N] [--pid N]\n"
+                 "       wind-cli screenshot [selector] [--out FILE] [--window N] [--pid N]\n"
                  "       wind-cli profile [stop] [--pid N]\n";
+}
+
+// screenshot-YYYYMMDD-HHMMSS.png, local time.
+std::string default_screenshot_name() {
+    const std::time_t now = std::time(nullptr);
+    char stamp[32] = {};
+    if (const std::tm *local = std::localtime(&now)) {
+        std::strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", local);
+    }
+    return std::format("screenshot-{}.png", stamp);
 }
 
 constexpr std::chrono::seconds kListenTimeout{30};
@@ -582,6 +594,7 @@ int main(int argc, char **argv) {
     bool wait = false;
     std::uint32_t wait_seconds = static_cast<std::uint32_t>(kDefaultWait.count());
     std::optional<std::filesystem::path> editor;
+    std::optional<std::filesystem::path> out_file;
     std::vector<std::string> positionals;
     const auto parse_uint = [](std::string_view text, std::uint32_t &out) {
         const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), out);
@@ -626,6 +639,13 @@ int main(int argc, char **argv) {
             }
             ++i;
             editor = std::filesystem::path(argv[i]);
+        } else if (arg == "--out") {
+            if (i + 1 >= argc) {
+                usage();
+                return 2;
+            }
+            ++i;
+            out_file = std::filesystem::path(argv[i]);
         } else if (arg.starts_with('-')) {
             usage();
             return 2;
@@ -639,7 +659,7 @@ int main(int argc, char **argv) {
     }
     const std::string &command = positionals[0];
     const bool editor_command = command == "state" || command == "play" || command == "stop" || command == "open";
-    if ((play && command != "launch") || (editor && command != "launch") ||
+    if ((play && command != "launch") || (editor && command != "launch") || (out_file && command != "screenshot") ||
         (wait && !(command == "play" || (command == "launch" && play)))) {
         usage();
         return 2;
@@ -741,6 +761,22 @@ int main(int argc, char **argv) {
         const std::filesystem::path path = std::filesystem::absolute(std::filesystem::path(positionals[1]), error);
         if (error) {
             std::cerr << "bad project path " << positionals[1] << "\n";
+            return 1;
+        }
+        body += ",\"path\":\"" + json_escape(utf8(path)) + "\"";
+    } else if (command == "screenshot") {
+        if (positionals.size() > 2) {
+            usage();
+            return 2;
+        }
+        if (positionals.size() == 2) {
+            body += ",\"selector\":\"" + json_escape(positionals[1]) + "\"";
+        }
+        std::error_code error;
+        const std::filesystem::path name = out_file ? *out_file : std::filesystem::path(default_screenshot_name());
+        const std::filesystem::path path = std::filesystem::absolute(name, error);
+        if (error) {
+            std::cerr << "bad output path\n";
             return 1;
         }
         body += ",\"path\":\"" + json_escape(utf8(path)) + "\"";

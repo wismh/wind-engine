@@ -11,7 +11,9 @@ Debug, RelWithDebInfo, and every configuration of the editor build (`ENGINE_EDIT
 | `include/engine/core/cli_commands.h` | `CliCommand`, `CliReply`, `CliCommands`: the host's commands, passed in `RunHooks::cli` |
 | `src/cli/cli_server.h` | request types, `CliFrame`, `start` / `stop` / `begin_frame` / `drain` |
 | `src/cli/cli_server.cpp` | socket, descriptor, accept thread, routing. Empty translation unit without the macro |
-| `src/cli/cli_commands.cpp` | `tree`, `element`, `hit`, `click`, `profile`, and the JSON of a host reply |
+| `src/cli/cli_commands.cpp` | `tree`, `element`, `hit`, `click`, `profile`, `element_window_rect`, and the JSON of a host reply |
+| `src/cli/screenshot.cpp` | `screenshot`: crop, PNG, reply ([Screenshot](#screenshot)) |
+| `src/cli/json.h` | `Json`, the streaming writer both use |
 | `editor/src/editor_cli.cpp` | the editor's `state`, `play`, `stop`, `open` ([Editor](Editor.md#wind-cli)) |
 | `tools/wind_cli/main.cpp` | the host client and `launch` |
 
@@ -24,7 +26,8 @@ The tool does not check the engine build id.
 `tick` and `reentrant_tick` pass a `CliFrame`: `world_for` (`Worlds::world_for`, looked up per request) and `host` (`&RunHooks::cli`). Both calls run every frame, with or without a world on `kPrimaryWindow`.
 
 1. `cli::begin_frame` runs an armed `click` before `flush_events` and simulate.
-2. After `draw_all`, `cli::drain` answers `tree`, `element`, `hit`, and `profile` from this frame's painted tree, arms a `click` for the next `begin_frame`, and passes every other command to the host.
+2. Before `draw_all`, `cli::capture_requests` names the windows an armed `screenshot` waits for. `draw_all` reads each of them back ([Screenshot](#screenshot)).
+3. After `draw_all`, `cli::drain` answers `tree`, `element`, `hit`, and `profile` from this frame's painted tree, answers an armed `screenshot` from `CliFrame::captures`, arms a `click` for the next `begin_frame` and a new `screenshot` for the next `draw_all`, and passes every other command to the host.
 
 A UI command (`tree`, `element`, `hit`, `click`, `profile`) runs against the world bound to the request's `window` (default 0, `kPrimaryWindow`). When that window has no world, the next `drain` answers `{"ok":false,"error":"no world on window N"}` at once; there is no 504. In the editor between plays `kPrimaryWindow` has no world; `--window` with the editor window's id reaches the editor's own canvases.
 
@@ -60,7 +63,7 @@ On Windows the descriptor file is created with an owner-only ACL (`D:P(A;;FA;;;O
 
 `status` lists live descriptors (`pid`, `port`, `kind`, `exe`) and does not contact the process. It does not print the token. A dead pid's file is removed. One live process is the target of a UI command. Several require `--pid`. The editor commands consider only `kind` `editor`, so a standalone game beside the editor does not need `--pid`. `--window` selects a `WindowId` (default 0, `kPrimaryWindow`).
 
-The JSON body is `{"command":"…"}` plus optional `selector`, `window`, `x`, `y`, and `path`. `profile stop` (and `--stop`) also sends `"stop":true`.
+The JSON body is `{"command":"…"}` plus optional `selector`, `window`, `x`, `y`, and `path` (absolute, UTF-8). `profile stop` (and `--stop`) also sends `"stop":true`.
 
 | Command | Result |
 | --- | --- |
@@ -68,6 +71,7 @@ The JSON body is `{"command":"…"}` plus optional `selector`, `window`, `x`, `y
 | `element <selector>` | One element object (fields below) |
 | `hit <x> <y>` | That same object, or `"result":null` |
 | `click <selector>` | `executed`, and `reason` when it did not run |
+| `screenshot [selector]` | `path`, `window`, `width`, `height`, `rect`. Writes a PNG ([Screenshot](#screenshot)) |
 | `profile` | `result` timings below. `paused` is the editor panel's Pause |
 | `profile stop` | `result.capturing` is false. Clears CLI capture only. Does not detach the editor's profiler panel |
 
@@ -122,6 +126,25 @@ Selectors: `#id`, `.class`, or `path:` plus the tree path joined by `/`. `path:`
 `click` with `"executed":false` carries `reason`: `disabled`, `no command`, or `can_execute`.
 
 Without `ENGINE_UI_PROFILER` (an exported game's Release), `profile` returns `"UI profiler is not in this build"`.
+
+## Screenshot
+
+`wind-cli screenshot [selector] [--out FILE] [--window N] [--pid N]` writes one window as this process drew it, as an RGBA PNG. `--out` is relative to the current directory; the default is `screenshot-YYYYMMDD-HHMMSS.png` there. The tool sends the absolute path; the game writes the file, so it lands on the same machine. `--out` with another command is a usage error.
+
+It takes two frames. The first `drain` checks `path` and arms the job. The next frame's `GameLoop` passes one `FrameCapture` per armed window to `IPresentation::draw_all`. `WindowManager::draw_all` calls `OpenGLCanvas::render`, then `read_pixels` (`glReadPixels` of the back buffer, framebuffer 0), then `present`, so the pixels are the ones that frame swaps. `render::framebuffer_image` flips the rows to top first. An opaque window's alpha is 255. A transparent window keeps its alpha, un-premultiplied. The size is the drawable size, the same pixels as `UiCanvas.rect` and `hit`. That frame's `drain` crops, encodes (`encode_png_rgba`), writes, and answers. The encode runs on the main thread.
+
+A selector uses the same matching as `element` and needs a world on the window. The crop is the element's border box mapped through its canvas's `canvas_layout_space` (`element_window_rect`), grown outward to whole pixels and clipped to the window (`snap_to_pixels`). `rect` is that box in window pixels; without a selector it is the whole window. `width` and `height` are the PNG's.
+
+| Error | When |
+| --- | --- |
+| `screenshot needs an absolute path` | `path` is missing or relative. Answered at once |
+| `window N drew nothing: it is closed, hidden, or minimized` | that window did not draw, or `read_pixels` skipped it (`SDL_WINDOW_HIDDEN` or `SDL_WINDOW_MINIMIZED`) |
+| `no world on window N` | a selector, and the window has no world |
+| `no element`, `ambiguous`, `selector` | as `element` |
+| `element is outside the window` | the snapped box is empty |
+| `could not write PATH`, `could not encode the png` | the file could not be written (the directory must exist) |
+
+`tests/cli_server_test.cpp` covers snapping, a crop of a `Fixed` canvas, a `ScaleWithScreenSize` mapping, the refusals, and the two-drain exchange with a fake capture. `tests/game_loop_test.cpp` runs one through `GameLoop` with a presentation that fills the capture. `tests/framebuffer_image_test.cpp` covers the flip and alpha. The `glReadPixels` call needs a GPU and is not in `engine_tests` ([Boundaries](../architecture/Boundaries.md)).
 
 ## Host commands
 

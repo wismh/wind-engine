@@ -3,7 +3,12 @@
 #include "gl_includes.h"
 #include "nanovg_painter.h"
 
+#include "render/framebuffer_image.h"
+
+#include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <vector>
 
 namespace engine::render {
 namespace {
@@ -131,6 +136,11 @@ bool OpenGLCanvas::set_vsync(bool on) {
 }
 
 void OpenGLCanvas::draw() {
+    render();
+    present();
+}
+
+void OpenGLCanvas::render() {
     make_current();
     if (window_ != nullptr) {
         const glm::ivec2 size = window_->drawable_size();
@@ -160,6 +170,37 @@ void OpenGLCanvas::draw() {
     if (ui_painter_ != nullptr) {
         ui_painter_->end_frame();
     }
+}
+
+TextureDesc OpenGLCanvas::read_pixels() {
+    if (window_ == nullptr || context_ == nullptr || window_->window() == nullptr) {
+        return {};
+    }
+    // A hidden or minimized window's back buffer is not defined to hold what it drew.
+    constexpr SDL_WindowFlags kUnseen = SDL_WINDOW_HIDDEN | SDL_WINDOW_MINIMIZED;
+    if ((SDL_GetWindowFlags(window_->window()) & kUnseen) != 0) {
+        return {};
+    }
+    const glm::ivec2 size = window_->drawable_size();
+    if (size.x <= 0 || size.y <= 0) {
+        return {};
+    }
+    make_current();
+    GLint read_framebuffer = 0;
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read_framebuffer);
+    GLint pack_alignment = 4;
+    glGetIntegerv(GL_PACK_ALIGNMENT, &pack_alignment);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    glReadBuffer(GL_BACK);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    std::vector<std::uint8_t> pixels(static_cast<std::size_t>(size.x) * static_cast<std::size_t>(size.y) * 4u);
+    glReadPixels(0, 0, size.x, size.y, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+    glPixelStorei(GL_PACK_ALIGNMENT, pack_alignment);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(read_framebuffer));
+    return framebuffer_image(pixels, size.x, size.y, window_->is_transparent());
+}
+
+void OpenGLCanvas::present() {
     if (window_ != nullptr) {
         window_->swap();
     }
