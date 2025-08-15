@@ -1131,8 +1131,29 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
 }
 
 void paint_document(UiDocument& document, const Stylesheet* stylesheet, IUiPainter& painter, const UiPaintInput& input) {
-    apply_layout_style(document.root, stylesheet, input.window_width, input.window_height);
-    layout(document, input.canvas_rect, &painter);
+    // wind-129 layout dirty-gate. Same "call layout_state_changed() unconditionally, never as a
+    // short-circuited `||` operand" rule as prepare_top_canvas (canvas.cpp) — see that call site
+    // for why. run_bind (systems.cpp) already called apply_bindings() unconditionally earlier this
+    // frame's Bind phase, so document.root's text/custom_properties/generated_items are already
+    // this frame's values by the time paint_document runs.
+    const bool per_element_changed = layout_state_changed(document.root);
+    const std::uint64_t sheet_generation = stylesheet != nullptr ? stylesheet->generation : 0;
+    const bool layout_dirty = per_element_changed || !document.layout_computed_once ||
+            document.last_canvas_layout_rect != input.canvas_rect || document.last_media_width != input.window_width ||
+            document.last_media_height != input.window_height || document.last_layout_sheet != stylesheet ||
+            document.last_layout_sheet_generation != sheet_generation ||
+            document.last_layout_painter != static_cast<const void*>(&painter);
+    if (layout_dirty) {
+        apply_layout_style(document.root, stylesheet, input.window_width, input.window_height);
+        layout(document, input.canvas_rect, &painter);
+        document.layout_computed_once = true;
+        document.last_canvas_layout_rect = input.canvas_rect;
+        document.last_media_width = input.window_width;
+        document.last_media_height = input.window_height;
+        document.last_layout_sheet = stylesheet;
+        document.last_layout_painter = &painter;
+        document.last_layout_sheet_generation = sheet_generation;
+    }
     apply_interaction(document.root, input.pointer, input.pointer_down);
 
     painter.save();
