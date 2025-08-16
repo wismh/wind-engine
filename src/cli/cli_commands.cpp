@@ -308,11 +308,19 @@ namespace engine::cli {
             json.end_array();
         }
 
-        struct Match {
-            ecs::Entity canvas{};
+        struct CanvasRef {
+            ecs::Entity entity{};
             WindowId window = kPrimaryWindow;
+            int order = 0;
+            std::uint32_t index = 0;
+            // The canvas's place in the window's draw order: what `canvas` counts in a request and in a reply.
+            std::uint32_t place = 0;
             ui::UiCanvas *ui = nullptr;
             ui::UiInstance *instance = nullptr;
+        };
+
+        struct Match {
+            CanvasRef canvas;
             ui::Element *element = nullptr;
             std::vector<std::size_t> path;
         };
@@ -332,15 +340,6 @@ namespace engine::cli {
             }
         }
 
-        struct CanvasRef {
-            ecs::Entity entity{};
-            WindowId window = kPrimaryWindow;
-            int order = 0;
-            std::uint32_t index = 0;
-            ui::UiCanvas *ui = nullptr;
-            ui::UiInstance *instance = nullptr;
-        };
-
         std::vector<CanvasRef> canvases_on(ecs::World &world, WindowId window) {
             std::vector<CanvasRef> sources;
             auto view = world.view<ui::UiCanvas>();
@@ -353,7 +352,7 @@ namespace engine::cli {
                 if (instance == nullptr) {
                     continue;
                 }
-                sources.push_back(CanvasRef{entity, canvas.window, canvas.order, entity.index, &canvas, instance});
+                sources.push_back(CanvasRef{entity, canvas.window, canvas.order, entity.index, 0, &canvas, instance});
             }
             std::stable_sort(sources.begin(), sources.end(), [](const CanvasRef &a, const CanvasRef &b) {
                 if (a.order != b.order) {
@@ -361,6 +360,28 @@ namespace engine::cli {
                 }
                 return a.index < b.index;
             });
+            for (std::size_t i = 0; i < sources.size(); ++i) {
+                sources[i].place = static_cast<std::uint32_t>(i);
+            }
+            return sources;
+        }
+
+        // The canvases on the request's window that `request.canvas` names, all of them when it is unset. `error` is
+        // set when it names none.
+        std::vector<CanvasRef> picked_canvases(ecs::World &world, const CliRequest &request, std::string &error) {
+            std::vector<CanvasRef> sources = canvases_on(world, WindowId{request.window});
+            if (const auto *place = std::get_if<std::uint32_t>(&request.canvas)) {
+                std::erase_if(sources, [&](const CanvasRef &source) { return source.place != *place; });
+                if (sources.empty()) {
+                    error = std::format("no canvas {} on window {}", *place, request.window);
+                }
+            } else if (const auto *root_id = std::get_if<std::string>(&request.canvas)) {
+                std::erase_if(sources,
+                              [&](const CanvasRef &source) { return source.instance->document.root.id != *root_id; });
+                if (sources.empty()) {
+                    error = std::format("no canvas \"{}\" on window {}", *root_id, request.window);
+                }
+            }
             return sources;
         }
 
@@ -384,9 +405,17 @@ namespace engine::cli {
             return false;
         }
 
-        void write_identity(Json &json, const Match &match) {
+        void write_canvas_identity(Json &json, const CanvasRef &canvas) {
             json.key("window");
-            json.integer(static_cast<std::int64_t>(static_cast<std::uint32_t>(match.window)));
+            json.integer(static_cast<std::int64_t>(static_cast<std::uint32_t>(canvas.window)));
+            json.key("canvas");
+            json.integer(static_cast<std::int64_t>(canvas.place));
+            json.key("canvas_id");
+            json.string(canvas.instance->document.root.id);
+        }
+
+        void write_identity(Json &json, const Match &match) {
+            write_canvas_identity(json, match.canvas);
             json.key("path");
             write_path(json, match.path);
             json.key("kind");
@@ -404,9 +433,10 @@ namespace engine::cli {
         void write_rules(Json &json, ecs::World &world, const Match &match) {
             ui::Element &element = *match.element;
             std::vector<const ui::Element *> ancestors;
-            collect_ancestors(match.instance->document.root, element, ancestors);
-            const ui::Stylesheet *sheet = match.instance->stylesheet ? &*match.instance->stylesheet : nullptr;
-            const ui::WindowSize size = ui::window_size_for(world, match.window);
+            const ui::UiInstance &instance = *match.canvas.instance;
+            collect_ancestors(instance.document.root, element, ancestors);
+            const ui::Stylesheet *sheet = instance.stylesheet ? &*instance.stylesheet : nullptr;
+            const ui::WindowSize size = ui::window_size_for(world, match.canvas.window);
             const std::vector<ui::MatchedRule> rules = ui::match_style_rules(
                     element, sheet, ancestors, static_cast<float>(size.width), static_cast<float>(size.height));
             json.key("rules");
@@ -463,7 +493,7 @@ namespace engine::cli {
             }
             json.end_array();
 
-            const ui::LayoutBoxes boxes = ui::layout_boxes(match.instance->document.root, element);
+            const ui::LayoutBoxes boxes = ui::layout_boxes(match.canvas.instance->document.root, element);
             json.key("border");
             write_rect(json, boxes.border);
             json.key("margin");
@@ -589,7 +619,9 @@ namespace engine::cli {
             return json.str();
         }
 
-        std::string ambiguous_json(ecs::World &world, const std::vector<Match> &matches) {
+        // `write` fills one candidate object.
+        template<typename T, typename Write>
+        std::string ambiguous_json(const std::vector<T> &candidates, Write write) {
             Json json;
             json.begin_object();
             json.key("ok");
@@ -598,15 +630,18 @@ namespace engine::cli {
             json.string("ambiguous");
             json.key("candidates");
             json.begin_array();
-            for (const Match &match: matches) {
+            for (const T &candidate: candidates) {
                 json.begin_object();
-                write_identity(json, match);
+                write(json, candidate);
                 json.end_object();
             }
             json.end_array();
             json.end_object();
-            (void) world;
             return json.str();
+        }
+
+        std::string ambiguous_json(const std::vector<Match> &matches) {
+            return ambiguous_json(matches, write_identity);
         }
 
         std::optional<std::vector<std::size_t>> parse_path(std::string_view selector, std::string &error) {
@@ -638,7 +673,10 @@ namespace engine::cli {
 
         std::vector<Match> resolve(ecs::World &world, const CliRequest &request, std::string &error) {
             std::vector<Match> matches;
-            const std::vector<CanvasRef> sources = canvases_on(world, WindowId{request.window});
+            const std::vector<CanvasRef> sources = picked_canvases(world, request, error);
+            if (!error.empty()) {
+                return {};
+            }
             if (request.selector.starts_with("path:")) {
                 const std::optional<std::vector<std::size_t>> path = parse_path(request.selector, error);
                 if (!error.empty() || !path) {
@@ -652,7 +690,7 @@ namespace engine::cli {
                     if (element == nullptr) {
                         continue;
                     }
-                    matches.push_back(Match{source.entity, source.window, source.ui, source.instance, element, *path});
+                    matches.push_back(Match{source, element, *path});
                 }
                 return matches;
             }
@@ -679,15 +717,19 @@ namespace engine::cli {
                                             element.classes.end();
                                   }
                                   if (hit) {
-                                      matches.push_back(Match{source.entity, source.window, source.ui, source.instance,
-                                                              &element, path});
+                                      matches.push_back(Match{source, &element, path});
                                   }
                               });
             }
             return matches;
         }
 
-        std::string tree_json(ecs::World &world, WindowId window) {
+        std::string tree_json(ecs::World &world, const CliRequest &request) {
+            std::string error;
+            const std::vector<CanvasRef> sources = picked_canvases(world, request, error);
+            if (!error.empty()) {
+                return error_json(error);
+            }
             Json json;
             json.begin_object();
             json.key("ok");
@@ -696,10 +738,10 @@ namespace engine::cli {
             json.begin_object();
             json.key("nodes");
             json.begin_array();
-            for (const CanvasRef &source: canvases_on(world, window)) {
+            for (const CanvasRef &source: sources) {
                 walk_elements(source.instance->document.root, {},
                               [&](ui::Element &element, const std::vector<std::size_t> &path) {
-                                  Match match{source.entity, source.window, source.ui, source.instance, &element, path};
+                                  Match match{source, &element, path};
                                   json.begin_object();
                                   write_identity(json, match);
                                   json.key("display");
@@ -721,21 +763,22 @@ namespace engine::cli {
                 return "disabled";
             }
             bool did = false;
+            ui::UiCanvas &canvas = *match.canvas.ui;
             if (element.kind == ui::ElementKind::Checkbox) {
                 element.checked = !element.checked;
-                if (ui::is_bound(element.checked_binding) && match.ui->data_context) {
+                if (ui::is_bound(element.checked_binding) && canvas.data_context) {
                     ui::ViewModel *target =
                             element.generated_owner != nullptr
                                     ? static_cast<ui::ViewModel *>(const_cast<void *>(element.generated_owner))
-                                    : match.ui->data_context.get();
+                                    : canvas.data_context.get();
                     target->write_property_float(element.checked_binding, element.checked ? 1.0f : 0.0f);
                 }
                 did = true;
             }
             if (element.kind != ui::ElementKind::TextInput) {
                 ui::ICommand *command = element.command;
-                if (command == nullptr && ui::is_bound(element.command_binding) && match.ui->data_context) {
-                    command = match.ui->data_context->find_command(element.command_binding);
+                if (command == nullptr && ui::is_bound(element.command_binding) && canvas.data_context) {
+                    command = canvas.data_context->find_command(element.command_binding);
                 }
                 if (command == nullptr) {
                     return did ? "" : "no command";
@@ -773,8 +816,11 @@ namespace engine::cli {
             if (!request.has_x || !request.has_y) {
                 return CliResponse{error_json("hit"), false};
             }
-            const WindowId window{request.window};
-            const std::vector<CanvasRef> sources = canvases_on(world, window);
+            std::string error;
+            const std::vector<CanvasRef> sources = picked_canvases(world, request, error);
+            if (!error.empty()) {
+                return CliResponse{error_json(error), false};
+            }
             std::optional<CanvasRef> top;
             for (const CanvasRef &source: sources) {
                 if (!ui::rect_contains(source.ui->rect, static_cast<float>(request.x), static_cast<float>(request.y))) {
@@ -804,8 +850,7 @@ namespace engine::cli {
                 json.end_object();
                 return CliResponse{json.str(), false};
             }
-            Match match{top->entity, top->window, top->ui, top->instance, hit.element,
-                        ui::find_element_path(top->instance->document.root, hit.element)};
+            Match match{*top, hit.element, ui::find_element_path(top->instance->document.root, hit.element)};
             write_element(json, world, match);
             json.end_object();
             return CliResponse{json.str(), false};
@@ -867,13 +912,28 @@ namespace engine::cli {
             return std::unexpected(error_json("no element"));
         }
         if (matches.size() > 1) {
-            return std::unexpected(ambiguous_json(world, matches));
+            return std::unexpected(ambiguous_json(matches));
         }
         const Match &match = matches.front();
-        const ui::LayoutBoxes boxes = ui::layout_boxes(match.instance->document.root, *match.element);
-        const ui::UiCanvasSpace space =
-                ui::canvas_layout_space(match.ui->rect, match.ui->fit, match.ui->reference_size);
+        const ui::UiCanvas &canvas = *match.canvas.ui;
+        const ui::LayoutBoxes boxes = ui::layout_boxes(match.canvas.instance->document.root, *match.element);
+        const ui::UiCanvasSpace space = ui::canvas_layout_space(canvas.rect, canvas.fit, canvas.reference_size);
         return ui::scale_rect(boxes.border, space.offset, space.scale);
+    }
+
+    std::expected<render::Rect, std::string> canvas_window_rect(ecs::World &world, const CliRequest &request) {
+        std::string error;
+        const std::vector<CanvasRef> sources = picked_canvases(world, request, error);
+        if (!error.empty()) {
+            return std::unexpected(error_json(error));
+        }
+        if (sources.empty()) {
+            return std::unexpected(error_json(std::format("no canvas on window {}", request.window)));
+        }
+        if (sources.size() > 1) {
+            return std::unexpected(ambiguous_json(sources, write_canvas_identity));
+        }
+        return sources.front().ui->rect;
     }
 
     std::string execute_host(const CliCommands *host, const CliRequest &request) {
@@ -963,6 +1023,25 @@ namespace engine::cli {
                 }
                 continue;
             }
+            if (key == "canvas") {
+                if (!body.empty() && body.front() == '"') {
+                    std::string root_id;
+                    if (!parse_string(body, root_id) || root_id.empty()) {
+                        request.error = "invalid request";
+                        return request;
+                    }
+                    request.canvas = std::move(root_id);
+                    continue;
+                }
+                double place = 0.0;
+                if (!parse_number(body, place) || !std::isfinite(place) || place < 0.0 || place > 4294967295.0 ||
+                    std::floor(place) != place) {
+                    request.error = "invalid request";
+                    return request;
+                }
+                request.canvas = static_cast<std::uint32_t>(place);
+                continue;
+            }
             if (key == "window" || key == "x" || key == "y") {
                 double value = 0.0;
                 if (!parse_number(body, value) || !std::isfinite(value)) {
@@ -1010,7 +1089,7 @@ namespace engine::cli {
             return CliResponse{error_json(request.error), false};
         }
         if (request.command == "tree") {
-            return CliResponse{tree_json(world, WindowId{request.window}), false};
+            return CliResponse{tree_json(world, request), false};
         }
         if (request.command == "hit") {
             return hit_json(world, request);
@@ -1030,7 +1109,7 @@ namespace engine::cli {
             return CliResponse{error_json("no element"), false};
         }
         if (matches.size() > 1) {
-            return CliResponse{ambiguous_json(world, matches), false};
+            return CliResponse{ambiguous_json(matches), false};
         }
         if (request.command == "element") {
             return CliResponse{ok_element(world, matches.front()), false};
