@@ -131,13 +131,13 @@ Every registered panel canvas gets `fit = Fixed`, `window`, `rect`, and `order` 
 | --- | --- | --- |
 | `order` | Docked chrome: stack backgrounds, strips, tabs, splitters | `area` |
 | `order + 1` | Docked panels, and hidden ones | Content |
-| `order + 2 + 2i` | Chrome of float `i` (0 is the bottom): frame, title, its stacks and splitters | Frame |
+| `order + 2 + 2i` | Chrome of float `i` (0 is the bottom): frame, resize edges, title, its stacks and splitters | Frame |
 | `order + 3 + 2i` | Panels of float `i` | Content |
 | `order + 2 + 2n` | Drag preview | The drop preview; empty when nothing is dragged |
 
 `dock_space_order_count(layout)` is `3 + 2n`. A float's chrome is below its own panels and above everything of a lower float. Floats are opaque: the topmost canvas under a point of a float is that float's chrome or panel. A float in an OS window keeps its orders, in its own window; the preview canvas moves to the window the drop is previewed in.
 
-The chrome canvases are engine entities (`world.ctx<DockRuntime>()`, `src/ui/dock_runtime.h`), one per layer, floats keyed by float id. Removing the `DockSpace` or its entity destroys them on the next layout pass. Each is a `ui::Node` document (`build_dock_chrome_document`, `src/ui/dock_chrome.cpp`) with one `ItemsControl` per box kind, bound to a `DockChromeViewModel`. The rows are `position: absolute`: a list hugs nothing of them (0 × 0), paint draws a row outside its list's box, and a hit test reaches it there ([UI Input](UI%20Input.md#what-a-hit-is)), so every tab takes hover and `wind-cli hit` answers the tab, wherever the geometry puts it. A row (`DockChromeItem`) carries `x`, `y`, `w`, `h` relative to the canvas, `title`, `active`, the close button, and `reserve` (`--reserve` on the tab). Rows are reused, so only changed values re-lay out.
+The chrome canvases are engine entities (`world.ctx<DockRuntime>()`, `src/ui/dock_runtime.h`), one per layer, floats keyed by float id. Removing the `DockSpace` or its entity destroys them on the next layout pass. Each is a `ui::Node` document (`build_dock_chrome_document`, `src/ui/dock_chrome.cpp`) with one `ItemsControl` per box kind, bound to a `DockChromeViewModel`. The rows are `position: absolute`: a list hugs nothing of them (0 × 0), paint draws a row outside its list's box, and a hit test reaches it there ([UI Input](UI%20Input.md#what-a-hit-is)), so every tab takes hover and `wind-cli hit` answers the tab, wherever the geometry puts it. A row (`DockChromeItem`) carries `x`, `y`, `w`, `h` relative to the canvas, `title`, `active`, the close button, `reserve` (`--reserve` on the tab), and `resize` (`--resize` on a splitter or a float edge). Rows are reused, so only changed values re-lay out.
 
 ### Theme
 
@@ -150,11 +150,14 @@ The chrome canvases are engine entities (`world.ctx<DockRuntime>()`, `src/ui/doc
 | `.dock-tab-item` | A tab's row (`Stack`). Keep padding 0: the close button is placed inside it |
 | `.dock-tab` | The tab (`Button`, `content` is the title). `:checked` is the active tab. Its font, size, and left and right padding set the tab's width ([Tab width](#tab-width)). `--reserve` is the room a closable tab's close button takes on its right (0 otherwise); the default pads the right with `calc(8px + var(--reserve, 0px))` so the title stays clear of the button |
 | `.dock-tab-close` | Close `Button` (`×`) from `--cx`, `--cy`, `--cs`; `display` from `--close` (`none` or `block`) |
-| `.dock-splitter` | Splitter bar (`Button`, so `:hover` and `:pressed`) |
-| `.dock-frame`, `.dock-title` | Float frame (`Stack`) and title bar (`Button`, the active panel of the float's first stack) |
+| `.dock-splitter` | Splitter bar (`Button`, so `:hover` and `:pressed`). `--resize` is `ew-resize` for a `Horizontal` split (side by side) and `ns-resize` for a `Vertical` one; the default sets `cursor: var(--resize)` |
+| `.dock-frame`, `.dock-title` | Float frame (`Stack`) and title bar (`Button`, the active panel of the float's first stack). The default title has `cursor: move` |
+| `.dock-edge` | A float's resize band (`Stack`, no paint): four sides and four corners, `frame_border` wide, the same boxes `dock_chrome_at` answers `FloatEdge` for (`dock_frame_edges`). `--resize` is `ns-resize` top and bottom, `ew-resize` left and right, `nwse-resize` top-left and bottom-right, `nesw-resize` top-right and bottom-left; the default sets `cursor: var(--resize)`. A float in an OS window has none: the OS frame resizes it |
 | `.dock-preview` | Drop preview |
 
-A host restyles with its own sheets in `stylesheets`. Positions and sizes come from the geometry, not from CSS.
+A host restyles with its own sheets in `stylesheets`. Positions and sizes come from the geometry, not from CSS. The chrome has no TextInput; a panel's TextInput shows `text` on `auto` ([UI Input](UI%20Input.md#cursor)).
+
+The cursor follows the chrome under the pointer (`update_cursor`), so a host theme that drops `cursor` drops the resize cursors with it. A press keeps its cursor until release, so a splitter or edge drag keeps the resize cursor off the bar.
 
 ### Tab width
 
