@@ -677,6 +677,95 @@ TEST_F(DockSpaceTest, EveryTabAndSplitterIsHitWhereTheGeometryPutsIt) {
     EXPECT_NE(std::ranges::find(splitter->classes, "dock-splitter"), splitter->classes.end());
 }
 
+// The cursor update_cursor() gives the window with the default theme on every chrome canvas, laid out as it stands.
+class DockCursorTest : public DockSpaceTest {
+protected:
+    void theme_chrome(engine::ecs::Entity entity) {
+        std::vector<engine::ecs::Entity> chromes{runtime(entity).docked.canvas};
+        for (const auto& [id, chrome] : runtime(entity).floats) {
+            chromes.push_back(chrome.canvas);
+        }
+        for (const engine::ecs::Entity chrome : chromes) {
+            engine::ui::UiInstance& instance = world.get<engine::ui::UiInstance>(chrome);
+            instance.stylesheet = default_theme();
+            engine::ui::apply_layout_style(instance.document.root, &*instance.stylesheet);
+            engine::ui::layout(instance.document, canvas(chrome).rect);
+        }
+    }
+
+    engine::ui::Cursor cursor_at(glm::vec2 p) {
+        engine::ui::pointer_for(world, kPrimaryWindow).position = p;
+        return engine::ui::update_cursor(world, kPrimaryWindow);
+    }
+};
+
+TEST_F(DockCursorTest, ASplitterShowsTheResizeCursorOfItsAxisAndKeepsItWhileDragged) {
+    // `a` left, `b` over `c` right: one splitter each way.
+    DockLayout layout;
+    layout.add("a", {});
+    layout.add("b", {stack_of(layout, "a"), DockZone::Right});
+    layout.add("c", {stack_of(layout, "b"), DockZone::Bottom});
+    const engine::ecs::Entity entity = make_space(std::move(layout));
+    theme_chrome(entity);
+    const DockGeometry g = geometry(entity);
+    ASSERT_EQ(g.splitters.size(), 2u);
+    for (const engine::ui::DockSplitterRect& s : g.splitters) {
+        const engine::ui::Cursor expected = s.axis == engine::ui::DockAxis::Horizontal ? engine::ui::Cursor::EwResize
+                                                                                       : engine::ui::Cursor::NsResize;
+        EXPECT_EQ(cursor_at(center(s.grab)), expected);
+    }
+    EXPECT_EQ(cursor_at(center(tab(entity, "a"))), engine::ui::Cursor::Default);
+    EXPECT_EQ(cursor_at(center(g.panel("a")->content)), engine::ui::Cursor::Default);
+
+    const auto columns =
+            std::ranges::find(g.splitters, engine::ui::DockAxis::Horizontal, &engine::ui::DockSplitterRect::axis);
+    ASSERT_NE(columns, g.splitters.end());
+    const glm::vec2 grab = center(columns->grab);
+    // Straight from a panel to a press on the bar, with no frame resolving the cursor in between.
+    EXPECT_EQ(cursor_at(center(g.panel("a")->content)), engine::ui::Cursor::Default);
+    send(MouseEvent::Kind::Move, grab);
+    press(grab);
+    EXPECT_EQ(cursor_at(grab), engine::ui::Cursor::EwResize);
+    // Off the bar, over a panel, while the button is down.
+    const glm::vec2 over_a = grab - glm::vec2{60.0f, 0.0f};
+    drag_to(over_a);
+    EXPECT_EQ(cursor_at(over_a), engine::ui::Cursor::EwResize);
+    release(over_a);
+    EXPECT_EQ(cursor_at(over_a), engine::ui::Cursor::Default);
+}
+
+TEST_F(DockCursorTest, AFloatsEdgesShowTheResizeCursorOfTheirSideAndItsTitleMove) {
+    const engine::ecs::Entity entity = make_space(docked_and_float());
+    theme_chrome(entity);
+    const DockGeometry g = geometry(entity);
+    ASSERT_EQ(g.floats.size(), 1u);
+    // The float's frame is (100, 100) 300 x 200 with a 4px band.
+    const Rect f = g.floats[0].frame;
+    ASSERT_EQ(f, (Rect{100.0f, 100.0f, 300.0f, 200.0f}));
+    const float l = f.x + 1.0f;
+    const float r = f.x + f.w - 1.0f;
+    const float t = f.y + 1.0f;
+    const float b = f.y + f.h - 1.0f;
+    const float mx = f.x + f.w * 0.5f;
+    const float my = f.y + f.h * 0.5f;
+    const std::pair<glm::vec2, engine::ui::Cursor> cases[] = {
+            {{l, my}, engine::ui::Cursor::EwResize},   {{r, my}, engine::ui::Cursor::EwResize},
+            {{mx, t}, engine::ui::Cursor::NsResize},   {{mx, b}, engine::ui::Cursor::NsResize},
+            {{l, t}, engine::ui::Cursor::NwseResize},  {{r, b}, engine::ui::Cursor::NwseResize},
+            {{r, t}, engine::ui::Cursor::NeswResize},  {{l, b}, engine::ui::Cursor::NeswResize},
+    };
+    const engine::ui::DockMetrics metrics = engine::ui::dock_space_metrics(space(entity), runtime(entity));
+    for (const auto& [p, expected] : cases) {
+        EXPECT_EQ(cursor_at(p), expected) << p.x << ", " << p.y;
+        // Where the dock input starts a resize of the same edges.
+        const std::optional<engine::ui::DockChromeHit> hit = engine::ui::dock_chrome_at(g, metrics, p);
+        ASSERT_TRUE(hit.has_value());
+        EXPECT_EQ(hit->kind, engine::ui::DockChromeKind::FloatEdge);
+    }
+    EXPECT_EQ(cursor_at(center(g.floats[0].title)), engine::ui::Cursor::Move);
+    EXPECT_EQ(cursor_at(center(g.panel("b")->content)), engine::ui::Cursor::Default);
+}
+
 TEST_F(DockSpaceTest, WithoutAPainterEveryTabIsTabWidth) {
     const engine::ecs::Entity entity = make_space(side_by_side());
     world.get<engine::ui::UiInstance>(runtime(entity).docked.canvas).stylesheet = default_theme();
