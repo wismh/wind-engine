@@ -27,6 +27,7 @@
 #include <engine/ui/splash.h>
 #include <engine/ui/stylesheet.h>
 
+#include "ui/dock_runtime.h"
 #include "ui/input_batch.h"
 #include "ui/popup.h"
 #include "ui/profile.h"
@@ -791,7 +792,11 @@ namespace engine {
         }
         world.ctx<UiSystemsRegistered>().value = true;
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Input, [](ecs::World &w) { run_input(w); });
+        // After run_input: a press on dock chrome is judged against the canvases the user saw.
+        world.add_system(ecs::Schedule::Frame, ecs::Phase::Input, [deps](ecs::World &w) { ui::run_dock_input(w, deps); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Input, [](ecs::World &w) { run_splash_timers(w); });
+        // Before run_bind: panel and chrome canvases follow the layout the Game phase left.
+        world.add_system(ecs::Schedule::Frame, ecs::Phase::Bind, [deps](ecs::World &w) { ui::run_dock_layout(w, deps); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Bind, [deps](ecs::World &w) { run_bind(w, deps); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::UiRender, [deps](ecs::World &w) { run_ui_render(w, deps); });
     }
