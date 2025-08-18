@@ -132,6 +132,14 @@ Desktop `TextEditingEvent` is `Element::composition`, separate from the bound st
 
 The SDL text-input session follows a focused enabled TextInput only. `sync_frame` passes that field's window-pixel rect and caret offset to `SDL_SetTextInputArea` before `SDL_StartTextInput`, and refreshes the area every frame the session stays up.
 
+## Cursor
+
+`cursor_at(root, x, y)` (`include/engine/ui/document.h`) finds the topmost shown element under the point in the same order as the hit test: open popups first, siblings by z-index, absolute children outside a parent that does not clip, scroll and Viewport cameras. Unlike the hit test it takes any element, interactive or not, so a plain `Stack` with a `cursor` shows it. Its `cursor` wins; `auto` takes the nearest ancestor's that is not `auto` (a popup's ancestors are its anchor's). An `auto` TextInput or selectable Label is `text`, whatever its ancestors set. A chain of `auto` is `default`, and so is a point outside the root.
+
+`update_cursor(world, window)` (`include/engine/ui/canvas.h`) picks the canvas a click there goes to: a canvas with a shown popup under the pointer, else the topmost canvas whose rect holds it. Another canvas under that one never shows through, even where the top one sets nothing. It reads the layout and popup placement of the last input or paint pass and lays nothing out. The result is kept in `Presentation::cursors` (`UiCursors`, per window). `run_input` also calls it on each `Down` before setting `down`, so the kept cursor is the one under the press even when no frame resolved it since the pointer got there. While the window's `UiPointer::down` is set it returns the kept cursor, so a press keeps the cursor it started with until release: a splitter drag that outruns the bar keeps `ew-resize`, and a drag that starts elsewhere does not change cursor over a splitter.
+
+The platform applies it in `sync_frame` (`sync_cursor`, `src/render/opengl/sdl_gl_presentation.cpp`). SDL has one cursor per process, shown over the window with mouse focus, so only that window is resolved: `WindowManager::mouse_focus`, then `update_cursor` on its world (`default` for a window with no world), then `WindowManager::set_cursor`. `SystemCursors` (`src/render/opengl/system_cursors.h`) creates each SDL system cursor on first use, calls `SDL_SetCursor` only when the shape changes, and frees them in `WindowManager::shutdown`. Without a window (`engine_tests`, a headless presentation) nothing is applied; `update_cursor` still works on the world.
+
 ## Drag and scroll
 
 A drag starts only when `drag` is bound and `data_context` is set. It writes a 0–1 fraction through `write_property_float` as the pointer moves. `drag-orientation` picks the axis. A later move drops that drag if `data_context` is gone.
@@ -142,7 +150,7 @@ Scroll, drag, and pan write through `generated_owner` when that pointer is set, 
 
 ## Tests
 
-`tests/ui_layout_hit_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_popup_test.cpp`.
+`tests/ui_layout_hit_test.cpp`, `tests/ui_cursor_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_popup_test.cpp`.
 
 ## See also
 

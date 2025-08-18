@@ -31,6 +31,9 @@ namespace engine::ui {
         Bindable<float> cs;
         // `--reserve` of a tab: room its close button takes at the right (0 without one). The theme pads with it.
         Bindable<float> reserve;
+        // `--resize` of a splitter or a float edge: the way dragging it resizes, spelled as the CSS cursor for that
+        // (`ew-resize`, `ns-resize`, `nwse-resize`, `nesw-resize`). Empty on every other box.
+        Bindable<std::string> resize;
 
         DockChromeItem();
     };
@@ -39,6 +42,7 @@ namespace engine::ui {
     class DockChromeViewModel final : public ViewModel {
     public:
         BindableList<std::shared_ptr<DockChromeItem>> frames;
+        BindableList<std::shared_ptr<DockChromeItem>> edges;
         BindableList<std::shared_ptr<DockChromeItem>> titles;
         BindableList<std::shared_ptr<DockChromeItem>> stacks;
         BindableList<std::shared_ptr<DockChromeItem>> strips;
@@ -56,11 +60,15 @@ namespace engine::ui {
         bool active = false;
         // Window rect of a tab's close button; empty when the tab has none.
         render::Rect close{};
+        // DockChromeItem::resize.
+        std::string resize;
     };
 
     // Lists of one chrome canvas, in window pixels.
     struct DockChromeContent {
         std::vector<DockChromeBox> frames;
+        // A float frame's resize band: four sides and four corners.
+        std::vector<DockChromeBox> edges;
         std::vector<DockChromeBox> titles;
         std::vector<DockChromeBox> stacks;
         std::vector<DockChromeBox> strips;
@@ -68,6 +76,9 @@ namespace engine::ui {
         std::vector<DockChromeBox> tabs;
         std::vector<DockChromeBox> previews;
     };
+
+    // The eight resize boxes of a float `frame` with a `border` wide band, matching dock_chrome_at's FloatEdge.
+    [[nodiscard]] std::vector<DockChromeBox> dock_frame_edges(render::Rect frame, float border);
 
     // The same document for every chrome canvas: an ItemsControl per list, painted frames first, previews last.
     [[nodiscard]] UiDocument build_dock_chrome_document();
