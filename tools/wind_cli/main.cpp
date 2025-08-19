@@ -565,7 +565,13 @@ void usage() {
                  "       wind-cli hit <x> <y> [--window N] [--canvas C] [--pid N]\n"
                  "       wind-cli click <selector> [--window N] [--canvas C] [--pid N]\n"
                  "       wind-cli screenshot [selector] [--out FILE] [--window N] [--canvas C] [--pid N]\n"
-                 "       wind-cli profile [stop] [--pid N]\n";
+                 "       wind-cli profile [stop] [--pid N]\n"
+                 "       wind-cli dock [--window N] [--space S] [--pid N]\n"
+                 "       wind-cli dock activate <panel> [--window N] [--space S] [--pid N]\n"
+                 "       wind-cli dock move <panel> <node> <center|left|right|top|bottom> [--window N] [--space S]"
+                 " [--pid N]\n"
+                 "       wind-cli dock float <panel> [<x> <y> <w> <h>] [--window N] [--space S] [--pid N]\n"
+                 "       wind-cli dock mode <virtual|os> [--window N] [--space S] [--pid N]\n";
 }
 
 // screenshot-YYYYMMDD-HHMMSS.png, local time.
@@ -591,6 +597,8 @@ int main(int argc, char **argv) {
     std::uint32_t window = 0;
     // `--canvas`: a number is the canvas's place in the window's draw order, anything else its root element's id.
     std::optional<std::string> canvas;
+    // `--space`: a dock space's place in its world, lowest order first.
+    std::optional<std::uint32_t> space;
     bool stop = false;
     bool play = false;
     bool wait = false;
@@ -648,6 +656,13 @@ int main(int argc, char **argv) {
             }
             ++i;
             canvas = argv[i];
+        } else if (arg == "--space") {
+            std::uint32_t place = 0;
+            if (!take_uint(place)) {
+                usage();
+                return 2;
+            }
+            space = place;
         } else if (arg == "--out") {
             if (i + 1 >= argc) {
                 usage();
@@ -671,7 +686,7 @@ int main(int argc, char **argv) {
     const bool canvas_command = command == "tree" || command == "element" || command == "hit" || command == "click" ||
                                 command == "screenshot";
     if ((play && command != "launch") || (editor && command != "launch") || (out_file && command != "screenshot") ||
-        (canvas && !canvas_command) ||
+        (canvas && !canvas_command) || (space && command != "dock") ||
         (wait && !(command == "play" || (command == "launch" && play)))) {
         usage();
         return 2;
@@ -800,6 +815,46 @@ int main(int argc, char **argv) {
             return 1;
         }
         body += ",\"path\":\"" + json_escape(utf8(path)) + "\"";
+    } else if (command == "dock") {
+        if (space) {
+            body += std::format(",\"space\":{}", *space);
+        }
+        const std::string action = positionals.size() > 1 ? positionals[1] : std::string();
+        if (positionals.size() == 1) {
+            // No action: the spaces are listed.
+        } else if (action == "activate" && positionals.size() == 3) {
+            body += ",\"action\":\"activate\",\"panel\":\"" + json_escape(positionals[2]) + "\"";
+        } else if (action == "move" && positionals.size() == 5) {
+            std::uint32_t node = 0;
+            if (!parse_uint(positionals[3], node)) {
+                usage();
+                return 2;
+            }
+            body += ",\"action\":\"move\",\"panel\":\"" + json_escape(positionals[2]) + "\"";
+            body += std::format(",\"node\":{},\"zone\":\"{}\"", node, json_escape(positionals[4]));
+        } else if (action == "float" && (positionals.size() == 3 || positionals.size() == 7)) {
+            body += ",\"action\":\"float\",\"panel\":\"" + json_escape(positionals[2]) + "\"";
+            if (positionals.size() == 7) {
+                const auto parse_double = [](std::string_view text, double &out) {
+                    const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), out);
+                    return ec == std::errc{} && ptr == text.data() + text.size();
+                };
+                double rect[4] = {};
+                for (std::size_t i = 0; i < 4; ++i) {
+                    if (!parse_double(positionals[3 + i], rect[i])) {
+                        usage();
+                        return 2;
+                    }
+                }
+                body += std::format(",\"x\":{:.6g},\"y\":{:.6g},\"w\":{:.6g},\"h\":{:.6g}", rect[0], rect[1], rect[2],
+                                    rect[3]);
+            }
+        } else if (action == "mode" && positionals.size() == 3) {
+            body += ",\"action\":\"mode\",\"mode\":\"" + json_escape(positionals[2]) + "\"";
+        } else {
+            usage();
+            return 2;
+        }
     } else if (command == "tree" || command == "state" || command == "play" || command == "stop") {
         if (positionals.size() != 1) {
             usage();
