@@ -97,7 +97,7 @@ Stack main axis is the child's used size (explicit size, otherwise hug), plus ma
 | --- | --- |
 | `static` | In flow |
 | `relative` | In flow, then nudged by `top` / `left` (or the negation of `bottom` / `right`). Siblings stay packed against the pre-offset size |
-| `absolute` | Out of flow. Containing block is the nearest `relative` or `absolute` ancestor, else the canvas. Both opposite insets and no explicit size stretch the box |
+| `absolute` | Out of flow: adds nothing to the size its parent hugs, and takes the pointer outside the parent's box unless the parent clips ([UI Input](../features/UI%20Input.md#what-a-hit-is)). Containing block is the nearest `relative` or `absolute` ancestor, else the canvas. Both opposite insets and no explicit size stretch the box |
 
 `z-index`, `transform`, and opacity do not change layout sizes.
 
@@ -287,6 +287,12 @@ Checkbox.expander:disabled { background-image: none; }
 
 The indent is padding on the row, so the chevron moves with the text. `builtin::tree_chevron` points right; `:checked` turns it down. A leaf's `toggle` cannot execute, so its expander is `:disabled` and draws nothing. Keep the row height fixed, or the list is not virtualized.
 
+## Docking
+
+`include/engine/ui/dock_layout.h` and `dock_geometry.h` are the dock model: tab stacks, splits, and floats keyed by panel name, their rects, chrome and drop hit tests, and TOML text. Plain data; no canvas, input, or font.
+
+`include/engine/ui/dock_space.h` is the host: a `DockSpace` component (window, area, metrics, layout, panels with their `UiCanvas` entities, order base, chrome stylesheets, `revision`). `run_dock_input` (Input, after `run_input`) handles presses and drags on the chrome and consumes the mouse there; `run_dock_layout` (Bind, before `run_bind`) writes every panel canvas's `rect`, `order`, `window` (`Fixed`; a hidden tab is an empty rect) and keeps the engine's chrome canvases (`ui::Node` document, `builtin::dock_css`). Tabs are as wide as their titles in the theme's `.dock-tab` font and padding, measured with the window's painter. `float_mode` says where floats live: virtual windows clamped inside the area, or an OS window each (`IWindowControl` and `Worlds` from `EngineSystemDeps`), with tabs dragged between the space's windows. The editor's panels use it, with OS windows. See [Docking](../features/Docking.md#host).
+
 ## Splash
 
 `ui::show_splash` (`include/engine/ui/splash.h`) spawns two canvases on the given window: an opaque `FillWindow` backdrop and a `ScaleWithScreenSize` image. Both carry `SplashTimer`. `run_splash_timers` ages them with `Time::delta_time`, including while paused, and destroys them when `elapsed` passes `fade_in + hold + fade_out`. `nullopt` when `enabled` is false or the document cannot be built. The engine does not call `show_splash` itself. `image_size` is the decoded pixel size of `config.image`.
@@ -310,12 +316,15 @@ The engine keeps the probes and the editor shows the panels. `set_inspector_atta
 - `include/engine/ui/text_line.h`
 - `include/engine/ui/splash.h`
 - `include/engine/ui/tree.h`
+- `include/engine/ui/dock_layout.h`
+- `include/engine/ui/dock_geometry.h`
+- `include/engine/ui/dock_space.h`
 - `include/engine/ui/inspector.h`
 - `include/engine/ui/profiler.h`
 
 ## Tests
 
-`tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_items_control_virtualization_test.cpp`, `tests/ui_tree_test.cpp`, `tests/ui_text_wrap_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_refs_test.cpp`, `tests/ui_loc_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_inline_math_test.cpp`, `tests/ui_math_parser_test.cpp`, `tests/ui_math_layout_test.cpp`, `tests/ui_math_paint_test.cpp`, `tests/ui_math_font_test.cpp`, `tests/ui_math_stretch_test.cpp`, `tests/ui_math_element_test.cpp`, `tests/splash_test.cpp`, `tests/ui_inspector_test.cpp`, `tests/ui_profiler_test.cpp`, `tests/ui_popup_test.cpp`.
+`tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_items_control_virtualization_test.cpp`, `tests/ui_tree_test.cpp`, `tests/dock_layout_test.cpp`, `tests/dock_space_test.cpp`, `tests/dock_float_window_test.cpp`, `tests/ui_text_wrap_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_refs_test.cpp`, `tests/ui_loc_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_inline_math_test.cpp`, `tests/ui_math_parser_test.cpp`, `tests/ui_math_layout_test.cpp`, `tests/ui_math_paint_test.cpp`, `tests/ui_math_font_test.cpp`, `tests/ui_math_stretch_test.cpp`, `tests/ui_math_element_test.cpp`, `tests/splash_test.cpp`, `tests/ui_inspector_test.cpp`, `tests/ui_profiler_test.cpp`, `tests/ui_popup_test.cpp`.
 
 ## See also
 

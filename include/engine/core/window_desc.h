@@ -30,6 +30,9 @@ struct WindowStyle {
     // restored size. SDL_MaximizeWindow refuses the request unless SDL_WINDOW_RESIZABLE is also
     // set, so maximized without resizable leaves the window at `size`.
     bool maximized = false;
+    // A tool window: no taskbar entry and not in the window switcher (Windows: WS_EX_TOOLWINDOW, a smaller title
+    // bar). Create only. Pair it with WindowDesc::owner so the window stays reachable above its owner.
+    bool utility = false;
 };
 
 struct WindowDesc {
@@ -37,6 +40,11 @@ struct WindowDesc {
     glm::ivec2 size{800, 600};
     std::optional<glm::ivec2> position;   // nullopt = platform default placement
     WindowStyle style;
+    // The open window this one belongs to: it stays above its owner, hides and minimizes with it, and closes when
+    // the owner closes (close_window of the owner closes it first). nullopt: a top-level window of its own. An owner
+    // that is not open makes open_window fail. The primary window cannot have one (nothing is open before it).
+    // Create only. On a platform without owned windows the window opens unowned.
+    std::optional<WindowId> owner;
 };
 
 }

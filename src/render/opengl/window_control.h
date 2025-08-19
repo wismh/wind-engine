@@ -61,6 +61,12 @@ public:
         }
     }
 
+    void raise(WindowId window) override {
+        if (WindowSystem* target = windows_->window(window)) {
+            target->raise();
+        }
+    }
+
     [[nodiscard]] std::optional<glm::ivec2> position(WindowId window) const override {
         const WindowManager& windows = *windows_;
         if (const WindowSystem* target = windows.window(window)) {
