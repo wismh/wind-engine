@@ -97,7 +97,7 @@ Stack main axis is the child's used size (explicit size, otherwise hug), plus ma
 | --- | --- |
 | `static` | In flow |
 | `relative` | In flow, then nudged by `top` / `left` (or the negation of `bottom` / `right`). Siblings stay packed against the pre-offset size |
-| `absolute` | Out of flow: adds nothing to the size its parent hugs, and takes the pointer outside the parent's box unless the parent clips ([UI Input](../features/UI%20Input.md#what-a-hit-is)). Containing block is the nearest `relative` or `absolute` ancestor, else the canvas. Both opposite insets and no explicit size stretch the box |
+| `absolute` | Out of flow: adds nothing to the size its parent hugs, and is drawn and takes the pointer outside the parent's box unless the parent clips (`clips_children`: `overflow` other than `visible`, or a Viewport). In-flow children are still clipped to the parent's box ([UI Input](../features/UI%20Input.md#what-a-hit-is)). Containing block is the nearest `relative` or `absolute` ancestor, else the canvas. Both opposite insets and no explicit size stretch the box |
 
 `z-index`, `transform`, and opacity do not change layout sizes.
 
