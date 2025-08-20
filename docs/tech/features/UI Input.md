@@ -10,7 +10,7 @@ tags: [feature]
 
 ## Hit-test
 
-Canvases whose `rect` contains the point, sorted by `order` descending (higher = front). The top canvas is rebound and relaid out, then `hit_test` ([[src.ui.document.cpp]], shared with `paint.cpp`'s `:hover` resolution) looks for a **Button**, or any element with a bound `command` or `drag`, or a Viewport with a camera binding; a plain Label/Stack/Image does not consume.
+Canvases whose `rect` contains the point, sorted by `order` descending (higher = front). The top canvas is rebound and relaid out, then `hit_test` ([[src.ui.document.cpp]], shared with `paint.cpp`'s `:hover` resolution) looks for a **Button**, a **Checkbox**, or any element with a bound `command` or `drag`, or a Viewport with a camera binding; a plain Label/Stack/Image does not consume.
 
 Entering a Viewport clips to its unpanned `layout_rect` and hit-tests children with the inverse camera (`O + (pointer - O) / Z - P`). Empty background therefore hits the Viewport (pan drag). A child Button still wins. Wheel zoom uses `find_viewport_at` so a node under the cursor still zooms its enclosing Viewport (writes `zoom` and pan so the content point stays put). Zoom is clamped to `[0.25, 4]`.
 
@@ -19,6 +19,8 @@ That relayout uses the same per-window `IUiPainter` as paint (`world.ctx<UiLayou
 Within a canvas, `hit_test` visits siblings topmost-first — the reverse of `child_stacking_order()` (z-index ascending, document-order tie-break), so it always agrees with paint order: the element drawn on top is also the one that receives the click. Its containment check uses `hit_bounds()`, not the raw `layout_rect` — for a rotated/scaled element (`transform: rotate() scale()`) that's the axis-aligned bounding box of the transformed corners, an approximation (slightly generous at a rotated element's corners), not a precise oriented-rect test.
 
 If `can_execute()`, `Execute()`.
+
+A hit on a **Checkbox** additionally flips its `checked` bool (before command dispatch, so a bound `command` still fires too) and writes it back through `checked="{binding}"` if bound — same `generated_owner`-aware target resolution (item VM inside an `ItemsControl` vs. the canvas `data_context`) as `drag`/`scroll-y` write-back. `KeyCode::Return` on the focused element mirrors this.
 
 `begin_frame` resets `MouseConsumed` and reapplies FillWindow rects.
 

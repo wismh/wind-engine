@@ -64,6 +64,8 @@ const char* kind_name(ElementKind kind) {
             return "TextInput";
         case ElementKind::ScrollView:
             return "ScrollView";
+        case ElementKind::Checkbox:
+            return "Checkbox";
     }
     return "";
 }
@@ -262,6 +264,9 @@ bool subject_matches(const CssSelector& selector, const Element& element, bool a
     }
     if (selector.pseudo == "focus") {
         return element.focused;
+    }
+    if (selector.pseudo == "checked") {
+        return element.checked;
     }
     return false;
 }
@@ -730,7 +735,7 @@ ComputedStyle compute_style_uncached(const Element& element, const Stylesheet* s
 // chain to B (identity, checked separately) didn't change.
 std::uint8_t pseudo_state_bits(const Element& element) {
     return static_cast<std::uint8_t>((element.hovered ? 1u : 0u) | (element.pressed ? 2u : 0u) |
-            (element.disabled ? 4u : 0u) | (element.focused ? 8u : 0u));
+            (element.disabled ? 4u : 0u) | (element.focused ? 8u : 0u) | (element.checked ? 16u : 0u));
 }
 
 std::vector<std::uint8_t> ancestor_pseudo_state_bits(const std::vector<const Element*>& ancestors) {
@@ -753,7 +758,8 @@ bool style_cache_hits(const StyleCacheEntry& cache, const Element& element, cons
         return false;
     }
     if (cache.hovered != element.hovered || cache.pressed != element.pressed ||
-            cache.disabled != element.disabled || cache.focused != element.focused) {
+            cache.disabled != element.disabled || cache.focused != element.focused ||
+            cache.checked != element.checked) {
         return false;
     }
     if (cache.custom_properties != element.custom_properties) {
@@ -778,6 +784,7 @@ void style_cache_store(StyleCacheEntry& cache, const Element& element, const Sty
     cache.pressed = element.pressed;
     cache.disabled = element.disabled;
     cache.focused = element.focused;
+    cache.checked = element.checked;
     cache.custom_properties = element.custom_properties;
     cache.ancestors = ancestors;
     cache.ancestor_pseudo_state = ancestor_pseudo_state_bits(ancestors);

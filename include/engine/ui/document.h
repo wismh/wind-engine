@@ -47,6 +47,7 @@ enum class ElementKind {
     Viewport,
     TextInput,
     ScrollView,
+    Checkbox,
 };
 
 enum class Overflow {
@@ -295,13 +296,14 @@ struct StyleCacheEntry {
     bool pressed = false;
     bool disabled = false;
     bool focused = false;
+    bool checked = false;
     const Stylesheet* sheet = nullptr;
     std::uint64_t sheet_generation = 0;
     float window_width = 0.0f;
     float window_height = 0.0f;
     std::unordered_map<std::string, std::string> custom_properties;
     std::vector<const Element*> ancestors;
-    // Packed (hovered|pressed<<1|disabled<<2|focused<<3) per ancestors[i], same order/length.
+    // Packed (hovered|pressed<<1|disabled<<2|focused<<3|checked<<4) per ancestors[i], same order/length.
     std::vector<std::uint8_t> ancestor_pseudo_state;
 };
 
@@ -315,6 +317,12 @@ struct Element {
     BindingId text_binding{};
     BindingId content_binding{};
     BindingId command_binding{};
+    // {binding path} target for a `checked="{binding ...}"` attribute (Checkbox only) — two-way:
+    // bind_element reads it into `checked` every frame like `text`/`content`, and canvas.cpp's
+    // click/Enter handling writes the toggled value back through write_property_float (bool rides
+    // the arithmetic float path, same as every other bool ViewModel property). A literal
+    // `checked="true"` with no binding just seeds `checked` once at parse time.
+    BindingId checked_binding{};
     BindingId source_binding{};
     BindingId items_source_binding{};
     // {binding path} target for a `drag="{binding ...}"` attribute (any element kind, not just
@@ -386,6 +394,11 @@ struct Element {
     bool pressed = false;
     bool disabled = false;
     bool focused = false;
+    // Checkbox-only runtime state, toggled by canvas.cpp on click/Enter and matched by the CSS
+    // `:checked` pseudo-class (paint.cpp subject_matches) — the checked/unchecked look itself is
+    // ordinary cascaded background/border/background-image, not a built-in drawn mark, same as
+    // Button carries no built-in chrome of its own.
+    bool checked = false;
     std::size_t caret_position = 0;
     float caret_blink_timer = 0.0f;
     // Memoizes measure_element_text (document.cpp) across frames: when `text`/`font_family`/the
@@ -449,11 +462,11 @@ struct Element {
     // (document.cpp) to decide whether apply_layout_style()+layout() can be skipped this frame.
     // Layout depends on this narrow set of fields and nothing else on Element:
     //   - apply_layout_style (paint.cpp) always calls compute_style() with allow_pseudo=false, so
-    //     :hover/:pressed/:disabled/:focus can never change a layout-relevant resolved field
-    //     (width/height/padding/margin/gap/justify/align_items/direction/...) — subject_matches
-    //     (paint.cpp) returns false for any pseudo-class selector whenever allow_pseudo is false.
-    //     Those pseudo flags only affect paint_element's allow_pseudo=true resolve, so they're
-    //     deliberately absent from this list.
+    //     :hover/:pressed/:disabled/:focus/:checked can never change a layout-relevant resolved
+    //     field (width/height/padding/margin/gap/justify/align_items/direction/...) —
+    //     subject_matches (paint.cpp) returns false for any pseudo-class selector whenever
+    //     allow_pseudo is false. Those pseudo flags (including Checkbox's `checked`) only affect
+    //     paint_element's allow_pseudo=true resolve, so they're deliberately absent from this list.
     //   - intrinsic_size/compute_used (document.cpp) never read element.source (Image always hugs
     //     kDefaultImageSize, independent of the actual asset), pan_x/pan_y/zoom (Viewport is a
     //     paint-time-only camera — "layout_rect of descendants does not move", per UI.md's
@@ -555,9 +568,10 @@ void layout(UiDocument& document, const render::Rect& canvas_rect);
 
 // Topmost interactive element under (x, y): prunes by hit_bounds() containment, visits siblings
 // in reverse stacking order (highest z-index / last-drawn first), returns the first element that
-// is a Button, or has a bound `command` or `drag` (any element kind), or a Viewport with a camera
-// binding, or nullptr. Viewport camera inverses the pointer for descendants and clips to the
-// unpanned layout_rect. Shared by click resolution (canvas.cpp) and hover resolution (paint.cpp).
+// is a Button or Checkbox, or has a bound `command` or `drag` (any element kind), or a Viewport
+// with a camera binding, or nullptr. Viewport camera inverses the pointer for descendants and
+// clips to the unpanned layout_rect. Shared by click resolution (canvas.cpp) and hover resolution
+// (paint.cpp).
 [[nodiscard]] Element* hit_test(Element& root, float x, float y);
 
 [[nodiscard]] inline bool has_viewport_camera(const Element& element) noexcept {
