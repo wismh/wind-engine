@@ -722,6 +722,67 @@ TEST(UiPainter, AnAbsoluteChildOutsideItsParentIsHitUnlessTheParentClips) {
     EXPECT_EQ(engine::ui::hit_test_visual(parsed->root, 125.0f, 150.0f).element, &parsed->root);
 }
 
+namespace {
+
+// The scissors in force at the first call `op` whose rect starts at `at`: save/restore nest them as the painter does.
+std::vector<engine::render::Rect> scissors_at(const FakePainter& painter, std::string_view op, glm::vec2 at) {
+    std::vector<std::vector<engine::render::Rect>> stack{{}};
+    for (const PaintCall& call : painter.calls) {
+        if (call.op == "save") {
+            stack.push_back(stack.back());
+        } else if (call.op == "restore") {
+            stack.pop_back();
+        } else if (call.op == "scissor") {
+            stack.back().push_back(call.rect);
+        } else if (call.op == op && call.rect.x == at.x && call.rect.y == at.y) {
+            return stack.back();
+        }
+    }
+    ADD_FAILURE() << "no " << op << " at " << at.x << "," << at.y;
+    return {};
+}
+
+bool contains_rect(const std::vector<engine::render::Rect>& rects, const engine::render::Rect& rect) {
+    return std::ranges::any_of(rects, [&](const engine::render::Rect& r) {
+        return r.x == rect.x && r.y == rect.y && r.w == rect.w && r.h == rect.h;
+    });
+}
+
+}
+
+// The paint side of AnAbsoluteChildOutsideItsParentIsHitUnlessTheParentClips: an absolute child is drawn where it is
+// hit, so it is not clipped to the box of a parent that does not clip (the dock chrome's lists hug nothing).
+TEST(UiPainter, AnAbsoluteChildOutsideItsParentIsDrawnUnlessTheParentClips) {
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Stack class="hug">
+            <Label class="item" text="X"/>
+            <Stack class="far"/>
+          </Stack>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    for (const bool clip : {false, true}) {
+        const engine::ui::Stylesheet sheet = must_parse_css(std::string(clip ? ".hug { overflow: hidden; }" : "") + R"(
+            .hug { position: relative; }
+            .item { width: 30; height: 10; background: #ff0000; }
+            .far { position: absolute; left: 100; top: 120; width: 50; height: 60; background: #00ff00; }
+        )");
+        engine::ui::apply_layout_style(parsed->root, &sheet);
+        engine::ui::layout(*parsed, engine::render::Rect{0.0f, 0.0f, 400.0f, 300.0f});
+        const engine::render::Rect hug = parsed->root.children[0].layout_rect;
+        FakePainter painter;
+        engine::ui::paint_document(*parsed, &sheet, painter,
+                engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 400.f, 300.f}});
+
+        EXPECT_TRUE(contains_rect(scissors_at(painter, "fill_rect", {0.0f, 0.0f}), hug)) << "in-flow child, clip "
+                                                                                           << clip;
+        EXPECT_EQ(contains_rect(scissors_at(painter, "fill_rect", {100.0f, 120.0f}), hug), clip);
+        EXPECT_TRUE(contains_rect(scissors_at(painter, "fill_rect", {100.0f, 120.0f}),
+                engine::render::Rect{100.0f, 120.0f, 50.0f, 60.0f}));
+    }
+}
+
 TEST(UiPainter, AbsoluteChildStretchesWhenOppositeInsetsSetAndNoExplicitSize) {
     auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="stretch" text="S"/></Canvas>)");
     ASSERT_TRUE(parsed.has_value());
