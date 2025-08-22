@@ -31,6 +31,8 @@ public:
     Node& command_bind(BindingId id);
     Node& paint_bind(BindingId id);
     Node& drag_bind(BindingId id);
+    Node& checked(bool value);
+    Node& checked_bind(BindingId id);
     Node& pan_x_bind(BindingId id);
     Node& pan_y_bind(BindingId id);
     Node& zoom_bind(BindingId id);
@@ -68,6 +70,7 @@ private:
     friend Node viewport();
     friend Node text_input();
     friend Node scroll_view();
+    friend Node checkbox();
     friend std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal);
 
     explicit Node(ElementKind kind);
@@ -88,6 +91,7 @@ private:
 [[nodiscard]] Node viewport();
 [[nodiscard]] Node text_input();
 [[nodiscard]] Node scroll_view();
+[[nodiscard]] Node checkbox();
 
 [[nodiscard]] std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal = nullptr);
 
