@@ -147,7 +147,7 @@ A driver setting that forces vsync off still lets the swap return at once while 
 
 Compiled only with `ENGINE_WITH_WINDOW`, under `src/render/opengl/`.
 
-`WindowManager` owns one `WindowSystem`, one `OpenGLCanvas`, and one `CommandBuffer` per `WindowId`. Windows share the graphic factory and `AssetsDb`. Each canvas `draw` makes its GL context current before `execute`. `WindowManager` also owns the vsync window and the `FrameLimiter` ([Frame pacing](#frame-pacing)).
+`WindowManager` owns one `WindowSystem`, one `OpenGLCanvas`, and one `CommandBuffer` per `WindowId`. Windows share the graphic factory and `AssetsDb`. Each canvas `draw` makes its GL context current before `execute`. A canvas also makes its own context current to delete its NanoVG painter and context, then puts back the context that was current: a VAO is not shared between contexts, so deleting the painter's VAO in another window's context deletes that window's VAO and its UI stops drawing. `destroy_window` of `kPrimaryWindow` drops the canvas before the SDL window for the same reason. `WindowManager` also owns the vsync window and the `FrameLimiter` ([Frame pacing](#frame-pacing)).
 
 Public headers do not include SDL.
 
