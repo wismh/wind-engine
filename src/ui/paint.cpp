@@ -322,6 +322,25 @@ namespace engine::ui {
             return UserSelect::None;
         }
 
+        // Unknown values stay Auto, same as an absent property.
+        Cursor parse_cursor(std::string_view raw) {
+            static constexpr std::pair<std::string_view, Cursor> kCursors[] = {
+                    {"default", Cursor::Default},       {"pointer", Cursor::Pointer},
+                    {"text", Cursor::Text},             {"crosshair", Cursor::Crosshair},
+                    {"wait", Cursor::Wait},             {"progress", Cursor::Progress},
+                    {"move", Cursor::Move},             {"not-allowed", Cursor::NotAllowed},
+                    {"ew-resize", Cursor::EwResize},    {"ns-resize", Cursor::NsResize},
+                    {"nwse-resize", Cursor::NwseResize}, {"nesw-resize", Cursor::NeswResize},
+            };
+            const std::string_view value = trim(raw);
+            for (const auto &[name, cursor]: kCursors) {
+                if (name == value) {
+                    return cursor;
+                }
+            }
+            return Cursor::Auto;
+        }
+
         // A bare number is a unitless factor, not px (unlike font-size). 0 and negative are invalid.
         std::optional<LineHeight> parse_line_height(std::string_view raw) {
             const std::string_view value = trim(raw);
@@ -635,6 +654,8 @@ namespace engine::ui {
                 style.white_space = parse_white_space(decl.value);
             } else if (decl.property == "user-select") {
                 style.user_select = parse_user_select(decl.value);
+            } else if (decl.property == "cursor") {
+                style.cursor = parse_cursor(decl.value);
             } else if (decl.property == "border-radius") {
                 if (const auto radius = css_length::parse_length(decl.value)) {
                     style.border_radius = *radius;
@@ -1111,6 +1132,7 @@ namespace engine::ui {
             element.text_align = style.text_align;
             element.white_space = style.white_space;
             element.user_select = style.user_select;
+            element.cursor = style.cursor;
             element.font_size = style.font_size;
             element.line_height = style.line_height;
             element.font_family = style.font_family;

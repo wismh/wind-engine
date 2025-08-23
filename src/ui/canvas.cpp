@@ -1281,6 +1281,36 @@ namespace engine::ui {
 
     } // namespace
 
+    Cursor update_cursor(ecs::World &world, WindowId window) {
+        const UiPointer &pointer = pointer_for(world, window);
+        std::unordered_map<WindowId, Cursor> &cursors = presentation_of(world).cursors.cursors;
+        if (pointer.down) {
+            if (const auto held = cursors.find(window); held != cursors.end()) {
+                return held->second;
+            }
+        }
+        Cursor cursor = Cursor::Default;
+        const glm::vec2 point = pointer.position;
+        std::optional<ecs::Entity> target = popup_canvas_at(world, window, point);
+        if (!target) {
+            for (const CanvasHit &hit: canvases_top_first(world, window)) {
+                if (world.try_get<UiInstance>(hit.entity) != nullptr &&
+                    rect_contains(world.get<UiCanvas>(hit.entity).rect, point.x, point.y)) {
+                    target = hit.entity;
+                    break;
+                }
+            }
+        }
+        if (target) {
+            const UiCanvas &canvas = world.get<UiCanvas>(*target);
+            const UiCanvasSpace space = canvas_layout_space(canvas.rect, canvas.fit, canvas.reference_size);
+            cursor = cursor_at(world.get<UiInstance>(*target).document.root, (point.x - space.offset.x) / space.scale,
+                               (point.y - space.offset.y) / space.scale);
+        }
+        cursors[window] = cursor;
+        return cursor;
+    }
+
     void update_pointer_hover(ecs::World &world, float x, float y, WindowId window) {
         update_pointer_hover_impl(world, x, y, window, nullptr);
     }
