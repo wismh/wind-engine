@@ -564,6 +564,32 @@ TEST(UiInspector, TreeRowsSelectAndToggle) {
     engine::ui::set_inspector_attached(game.world, false);
 }
 
+TEST(UiInspector, SelectionsCountSelectsAndPickClicksButNotRetargets) {
+    GameCanvas game = spawn_game({0.0f, 0.0f, 800.0f, 600.0f});
+    layout_instance(game.world, game.entity);
+    engine::ui::set_inspector_attached(game.world, true);
+    const engine::ui::UiInspector &inspector = game.world.ctx<engine::ui::UiInspector>();
+    EXPECT_EQ(inspector.selections, 0u);
+
+    const std::vector<engine::ui::InspectorTreeRow> rows = engine::ui::inspector_tree(game.world);
+    ASSERT_EQ(rows.size(), 3u);
+    engine::ui::inspector_select(game.world, rows[2].window, rows[2].pick);
+    EXPECT_EQ(inspector.selections, 1u);
+    engine::ui::inspector_select(game.world, rows[2].window, rows[2].pick);
+    EXPECT_EQ(inspector.selections, 2u) << "selecting the same element again is a new selection";
+
+    engine::ui::inspector_retarget(game.world);
+    (void) engine::ui::inspector_tree(game.world);
+    EXPECT_EQ(inspector.selections, 2u);
+
+    game.world.ctx<engine::ui::UiInspector>().pick_pointer = true;
+    engine::ui::handle_pointer(game.world, 700.0f, 10.0f);
+    EXPECT_EQ(inspector.selections, 3u) << "a pick click selects";
+
+    engine::ui::set_inspector_attached(game.world, false);
+    EXPECT_EQ(game.world.ctx<engine::ui::UiInspector>().selections, 0u);
+}
+
 TEST(UiInspector, GeneratedRowsKeepKeyAndSelectionWhenTheListMoves) {
     std::unique_ptr<ListCanvas> list = spawn_list();
     engine::ecs::World &world = list->world;

@@ -106,24 +106,31 @@ protected:
     }
 };
 
-TEST_F(EditorPanelsTest, DefaultLayoutHasProjectLeftInspectorAndProfilerRightBuildBelow) {
+TEST_F(EditorPanelsTest, DefaultLayoutHasProjectLeftToolsOverBuildInTheMiddleInspectorRight) {
     const DockLayout layout = editor::EditorPanels::default_layout();
     ASSERT_TRUE(layout.valid());
     EXPECT_TRUE(layout.floats().empty());
     const engine::ui::DockNode* root = layout.node(layout.root());
     ASSERT_EQ(root->kind, engine::ui::DockNodeKind::Split);
     EXPECT_EQ(root->axis, engine::ui::DockAxis::Horizontal);
-    EXPECT_FLOAT_EQ(root->ratio, 0.25f);
+    EXPECT_FLOAT_EQ(root->ratio, 0.2f);
     EXPECT_EQ(root->first, layout.find("project")->stack);
 
-    const engine::ui::DockNode* right = layout.node(root->second);
-    ASSERT_EQ(right->kind, engine::ui::DockNodeKind::Split);
-    EXPECT_EQ(right->axis, engine::ui::DockAxis::Vertical);
-    EXPECT_FLOAT_EQ(right->ratio, 0.7f);
-    EXPECT_EQ(layout.node(right->first)->panels, (std::vector<std::string>{"inspector", "profiler"}));
-    EXPECT_EQ(right->second, layout.find("build")->stack);
+    const engine::ui::DockNode* rest = layout.node(root->second);
+    ASSERT_EQ(rest->kind, engine::ui::DockNodeKind::Split);
+    EXPECT_EQ(rest->axis, engine::ui::DockAxis::Horizontal);
+    EXPECT_FLOAT_EQ(rest->ratio, 0.6f);
+    EXPECT_EQ(rest->second, layout.find("inspector")->stack);
+
+    const engine::ui::DockNode* tools = layout.node(rest->first);
+    ASSERT_EQ(tools->kind, engine::ui::DockNodeKind::Split);
+    EXPECT_EQ(tools->axis, engine::ui::DockAxis::Vertical);
+    EXPECT_FLOAT_EQ(tools->ratio, 0.7f);
+    EXPECT_EQ(layout.node(tools->first)->panels, (std::vector<std::string>{"ui_tree", "profiler"}));
+    EXPECT_EQ(tools->second, layout.find("build")->stack);
 
     EXPECT_TRUE(layout.is_visible("project"));
+    EXPECT_TRUE(layout.is_visible("ui_tree"));
     EXPECT_TRUE(layout.is_visible("inspector"));
     EXPECT_FALSE(layout.is_visible("profiler"));
     EXPECT_TRUE(layout.is_visible("build"));
@@ -134,9 +141,11 @@ TEST_F(EditorPanelsTest, TheDockSpaceFillsTheWindowBelowTheToolbarAndPlacesThePa
     EXPECT_EQ(space().window, kEditorWindow);
     EXPECT_EQ(space().area, kArea);
     EXPECT_EQ(space().layout, editor::EditorPanels::default_layout()) << "no saved layout";
-    ASSERT_EQ(space().panels.size(), 4u);
+    ASSERT_EQ(space().panels.size(), 5u);
     EXPECT_EQ(space().panels[0].title, "Project");
-    EXPECT_EQ(space().panels[3].title, "Build");
+    EXPECT_EQ(space().panels[1].title, "UI Tree");
+    EXPECT_EQ(space().panels[2].title, "Inspector");
+    EXPECT_EQ(space().panels[4].title, "Build");
 
     const engine::ui::DockGeometry geometry =
             engine::ui::compute_dock_geometry(space().layout, kArea, engine::ui::DockMetrics{});
@@ -148,8 +157,9 @@ TEST_F(EditorPanelsTest, TheDockSpaceFillsTheWindowBelowTheToolbarAndPlacesThePa
     }
     EXPECT_EQ(canvas("project").rect.x, 0.0f);
     EXPECT_GT(canvas("project").rect.y, kArea.y) << "under its tab strip";
-    EXPECT_GT(canvas("inspector").rect.x, canvas("project").rect.w);
-    EXPECT_GT(canvas("build").rect.y, canvas("inspector").rect.y + canvas("inspector").rect.h);
+    EXPECT_GT(canvas("ui_tree").rect.x, canvas("project").rect.w);
+    EXPECT_GT(canvas("inspector").rect.x, canvas("ui_tree").rect.x + canvas("ui_tree").rect.w);
+    EXPECT_GT(canvas("build").rect.y, canvas("ui_tree").rect.y + canvas("ui_tree").rect.h);
 
     // A resized window moves the dock area with it.
     engine::ui::presentation_of(world).sizes.sizes[kEditorWindow] = {1000, 700};
@@ -159,20 +169,56 @@ TEST_F(EditorPanelsTest, TheDockSpaceFillsTheWindowBelowTheToolbarAndPlacesThePa
     EXPECT_EQ(project.y + project.h, 700.0f);
 }
 
-TEST_F(EditorPanelsTest, OnlyTheShownInspectorOrProfilerRefreshes) {
+TEST_F(EditorPanelsTest, OnlyTheShownUiTreeOrProfilerRefreshes) {
     start();
     Game game;
     panels->attach(game.world);
     frame();
-    EXPECT_FALSE(panels->inspector().view_model()->rows.get().empty()) << "Inspector is shown";
+    EXPECT_FALSE(panels->ui_tree().view_model()->rows.get().empty()) << "UI Tree is shown";
     EXPECT_TRUE(panels->profiler().view_model()->canvases.get().empty()) << "Profiler is a hidden tab";
 
     space().layout.activate("profiler");
     frame();
     EXPECT_FALSE(panels->profiler().view_model()->canvases.get().empty());
-    EXPECT_EQ(canvas("inspector").rect, Rect{});
+    EXPECT_EQ(canvas("ui_tree").rect, Rect{});
     EXPECT_NE(canvas("profiler").rect, Rect{});
     panels->detach();
+}
+
+TEST_F(EditorPanelsTest, TheInspectorShowsTheNewestSelectionOfEitherPanel) {
+    const std::filesystem::path project = dir / "project";
+    std::filesystem::create_directories(project);
+    std::ofstream(project / "wind_project.toml") << "name = \"x\"\n";
+    start();
+    panels->explorer().open(project);
+    Game game;
+    panels->attach(game.world);
+    const editor::InspectorViewModel& inspector = *panels->inspector().view_model();
+
+    panels->explorer().select("wind_project.toml");
+    frame();
+    EXPECT_EQ(inspector.title.get(), "wind_project.toml");
+
+    // A pick click in the game while the UI Tree is a hidden tab.
+    space().layout.activate("profiler");
+    const std::vector<engine::ui::InspectorTreeRow> rows = engine::ui::inspector_tree(game.world);
+    ASSERT_EQ(rows.size(), 2u);
+    engine::ui::inspector_select(game.world, rows[1].window, rows[1].pick);
+    frame();
+    EXPECT_EQ(inspector.title.get(), "Label");
+    EXPECT_EQ(inspector.subtitle.get(), "UI element");
+    EXPECT_EQ(panels->explorer().selected(), "wind_project.toml") << "the Project tab keeps its highlight";
+
+    panels->explorer().select("wind_project.toml");
+    frame();
+    EXPECT_EQ(inspector.title.get(), "wind_project.toml");
+
+    // Stop with an element selected: the Inspector empties.
+    engine::ui::inspector_select(game.world, rows[1].window, rows[1].pick);
+    frame();
+    panels->detach();
+    frame();
+    EXPECT_EQ(inspector.title.get(), "Nothing selected");
 }
 
 TEST_F(EditorPanelsTest, ShowBringsAHiddenOrLostPanelBack) {
@@ -291,12 +337,14 @@ TEST_F(EditorPanelsTest, AttachAndDetachBothProbes) {
     engine::ecs::World game;
 
     panels->attach(game);
+    EXPECT_TRUE(panels->ui_tree().attached());
     EXPECT_TRUE(panels->inspector().attached());
     EXPECT_TRUE(panels->profiler().attached());
     EXPECT_TRUE(engine::ui::inspector_attached(game));
     EXPECT_EQ(engine::ui::ui_profiler_attached(game), engine::ui::kUiProfilerBuilt);
 
     panels->detach();
+    EXPECT_FALSE(panels->ui_tree().attached());
     EXPECT_FALSE(panels->inspector().attached());
     EXPECT_FALSE(panels->profiler().attached());
     EXPECT_FALSE(engine::ui::inspector_attached(game));
