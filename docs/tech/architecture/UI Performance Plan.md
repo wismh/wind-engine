@@ -9,7 +9,7 @@ These exist. They are not the numbered steps below, and the steps are not done.
 - `ItemsControl` virtualization for a vertical list, one template root, and a fixed pixel row height. Step 6 is the extension (variable row height, collapsed trees, viewport culling).
 - A layout dirty gate can skip `layout()` when text, custom properties, and generated owners are unchanged (`tests/ui_layout_dirty_gate_test.cpp`). Step 2 (a version on `Bindable`, three dirty flags, no full walk) is not that gate. `layout_state_changed` still walks the tree and still assigns the comparison copies.
 - `assign_property_string` skips an equal string. The other step 1 items (no temporary pseudo-state vector, skipping a sibling sort, a motion overlay that does not copy a whole `ComputedStyle`) are not the current paint path.
-- The UI profiler records the stages this plan uses as a baseline. See [UI Profiler](../features/UI%20Profiler.md).
+- The UI profiler records the stages, the draw calls, and the painter calls by kind this plan uses as a baseline. See [UI Profiler](../features/UI%20Profiler.md).
 
 None of steps 0 through 8 are closed. NanoVG is still the UI painter.
 
@@ -42,13 +42,23 @@ Before step 1, record three scenes with [UI Profiler](../features/UI%20Profiler.
 2. Editor inspector, about 3k nodes.
 3. Strategy HUD with at least one running animation and several bound numbers.
 
-For each scene, on a Debug build with the game playing in the editor and its Profiler tab open, record:
+The scenes are `table`, `inspector`, and `hud` of `wind_ui_bench` ([UI Bench](../features/UI%20Bench.md)), measured in RelWithDebInfo, the configuration the reference numbers come from. For each scene record:
 
-- CPU ms of a quiet frame (nothing in the view-model changed, pointer still).
-- CPU ms of a frame that changes one bound value.
-- Draw-call count for that frame (`nvgEndFrame` path in `src/render/opengl/nanovg_painter.cpp` / `glnvg__renderFlush` in `external/nanovg/src/nanovg_gl.h`).
+- CPU ms of a quiet frame (nothing in the view-model changed, pointer still): mode `quiet`.
+- CPU ms of a frame that changes one bound value: mode `one-change`.
+- Draw-call count for that frame: `draw_calls` of each canvas ([UI Profiler](../features/UI%20Profiler.md#counters)), the `glDrawArrays` of `glnvg__renderFlush` in `external/nanovg/src/nanovg_gl.h`.
 
-Every later step is closed by the same three numbers. After steps 2 and 4, a quiet frame is the target: no style match, no layout, no picture rebuild. Draw calls are the target of step 5, not of the earlier steps.
+Recorded in [bench/results/baseline/summary.md](../../../bench/results/baseline/summary.md) (all 34 rows of the matrix, `-Repeat 3`, medians; RelWithDebInfo, 1600 x 900, vsync off, Ryzen 5 5600H laptop; taken on an uncommitted tree, so its commit is `e7211f3` with `dirty` true). CPU ms per frame, `total` = every stage plus `commands`:
+
+| Scene | Elements | Quiet total | Quiet paint | One-change total | One-change layout | One-change paint | Draw calls |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `table` | 244 | 0.44 | 0.35 | 0.67 | 0.17 | 0.39 | 278 |
+| `inspector` | 2,926 | 3.20 | 1.78 | 5.07 | 1.82 | 1.77 | 1,707 |
+| `hud` | 184 | 0.62 | 0.53 | 0.76 | 0.15 | 0.53 | 1,995 |
+
+A quiet frame skips layout in all three. The rest of a quiet frame is bindings (0.75 ms in `inspector`), motion, and paint. Sub-millisecond rows move by up to about 15% between runs ([UI Bench](../features/UI%20Bench.md#repeatability)).
+
+Every later step is closed by re-running the matrix (`bench/run_matrix.ps1 -Repeat 3`) and `bench/compare.ps1 -Base bench/results/baseline -Head <run>`, the same three numbers per scene. After steps 2 and 4, a quiet frame is the target: no style match, no layout, no picture rebuild. Draw calls are the target of step 5, not of the earlier steps.
 
 ## Facts the steps rely on
 
@@ -61,6 +71,8 @@ Every later step is closed by the same three numbers. After steps 2 and 4, a qui
 - While `motion_shown` is non-empty, paint copies the whole `ComputedStyle`. A finished `@keyframes` sample leaves `motion_shown` filled. `sample_prop` (`src/ui/style_anim.cpp`) rebuilds a `ComputedStyle` from raw declarations on each tick.
 - `paint_element` calls `scissor` with the element rect after `apply_transform`. NanoVG stores color and scissor in per-call uniforms and issues one `glDrawArrays` per fill or text run.
 - Per-element text measure and wrap caches already exist (`text_measure_cache_*`, `text_wrap_cache_*`). They are not shared across elements, and a recycled row does not keep a height except `virtualization_row_height_cache` (one float, fixed-px rows).
+- Layout resolves style without pseudo-classes. `apply_layout_style` calls `compute_style(..., allow_pseudo = false, ...)`, and `subject_matches` rejects a selector with a pseudo-class then; paint calls it with `true` into a separate cache (`style_cache_paint_` vs `style_cache_layout_`, `src/ui/paint.cpp`). Hover state is not an input of the dirty gate (`structural` in `paint_document`). So `.hot:hover { padding }` restyles in paint and never relayouts: the bench's `hover layout` rows run layout on no frame, the same as `hover paint`. Step 2 must therefore decide whether layout honors pseudo-classes (a layout-affecting `:hover` then sets the layout flag, and "hover a paint-only control" is the case that must not) or stays pseudo-blind (layout properties under a pseudo-class are refused or warned at parse, and every `:hover` is paint-only by definition).
+- Every painted element costs painter state calls every frame. `paint_element`'s `enter` (`src/ui/paint.cpp`) calls `save`, `set_opacity`, and `scissor` with the element rect, and the element ends with `restore`, whether or not it draws anything or has opacity below 1; an absolute child of a non-clipping parent adds one more `restore`/`enter`. Only an item template, or an invisible or `display: none` element and its subtree, returns before `enter`. The baseline histograms show about one of each per painted element: `table` 238 `save` and `scissor` for 244 elements, `inspector` 1,161 of 2,926 (the rest are not painted), `hud` 189 `save` and 184 `scissor` for 184. NanoVG keeps each `scissor` as per-call uniform state. Relevant to step 1 (an element with opacity 1, no transform, and no clip need not enter at all), step 4 (per-element scissor goes away), and step 5 (a clip must not split a batch).
 - `IPaint` runs from paint whenever it is bound. `Viewport` pan/zoom is a paint-time transform; hit-test inverts it. Neither participates in a dirty or clip model beyond the current full walk.
 
 ## Order
@@ -70,6 +82,16 @@ Every later step is closed by the same three numbers. After steps 2 and 4, a qui
 ### 0 â€” Measurements
 
 Capture the baseline above. Step 5 stays after step 4 unless those numbers show draw calls dominating a small tree; only then an in-frame batcher may jump ahead of `Picture`. The "most draws are solid rects, text, and images" assumption is checked here. If buttons are gradients, step 5's gradient path is on the hot set, not a side case.
+
+Baseline answer (painter calls per frame, [baseline summary](../../../bench/results/baseline/summary.md)):
+
+| Scene | Drawing calls |
+| --- | --- |
+| `table` | 193 `text`, 40 `fill_rect`, 2 `fill_rounded_rect` |
+| `inspector` | 356 `text`, 258 `fill_rect`, 246 `fill_rounded_rect`, 29 `stroke_rect` |
+| `hud` | 808 `fill_rect` (mostly the `IPaint` world grid and minimap), 123 `text`, 64 `line`, 12 `arc`, 8 `fill_rounded_rect`, 3 `stroke_rect`, 1 `linear_gradient` |
+
+Most draws are solid rects (square or rounded) and text. The reference scenes draw no image or nine-slice, and one gradient in all three, so gradients are not on the hot set; images are absent because these scenes have none, not because they are cheap. Draw calls follow the rect count, not the tree: `hud` has the fewest elements and the most draw calls (1,995), almost all from its `IPaint`s. Outliers in `paint-mix` (1,000 cells each; linear, radial, solid, image, and border all paint in about 0.85 ms): `conic_gradient` paints in 13.8 ms with the same 2 draws a cell, so its cost is CPU, not draw calls: every call looks its baked texture up by a string key built with a `std::to_string` per angle and stop component (`gradient_cache_key` / `ensure_conic_texture`, `src/render/opengl/nanovg_painter.cpp`), although every cell shares one texture; `<Math>` (`path`) paints in 10.3 ms with 9 draws a formula; `nine_slice` 3.5 ms and 18 draws a cell.
 
 ### 1 â€” Stop the wasted work on the current tree
 

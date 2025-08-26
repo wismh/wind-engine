@@ -178,6 +178,18 @@ namespace engine {
             for (const AssetId &id: wanted) {
                 if (auto sheet = assets.try_get<ui::Stylesheet>(id)) {
                     merged.rules.insert(merged.rules.end(), (*sheet)->rules.begin(), (*sheet)->rules.end());
+                    // `@keyframes` of every sheet; a later sheet's block replaces an earlier one of the same name.
+                    for (const ui::Keyframes &keyframes: (*sheet)->keyframes) {
+                        const auto same = std::find_if(merged.keyframes.begin(), merged.keyframes.end(),
+                                                       [&](const ui::Keyframes &kept) {
+                                                           return kept.name == keyframes.name;
+                                                       });
+                        if (same != merged.keyframes.end()) {
+                            *same = keyframes;
+                        } else {
+                            merged.keyframes.push_back(keyframes);
+                        }
+                    }
                 } else {
                     all_found = false;
                 }

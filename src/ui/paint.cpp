@@ -6,6 +6,7 @@
 #include "painter.h"
 #include "popup.h"
 #include "profile.h"
+#include "profiler_paint_counter.h"
 #include "style_anim.h"
 #include "text_select.h"
 
@@ -1865,18 +1866,22 @@ namespace engine::ui {
             }
 #if defined(ENGINE_UI_PROFILER)
             profiler_begin_paint(input.canvas);
+            ProfilerPaintCounter counter{input.canvas, painter};
+            IUiPainter &target = counter.painter();
+#else
+            IUiPainter &target = painter;
 #endif
             ENGINE_UI_PROFILE(input.canvas, Paint);
-            painter.save();
-            painter.scissor(scale_rect(popup_room(input), input.ui_offset, input.ui_scale));
+            target.save();
+            target.scissor(scale_rect(popup_room(input), input.ui_offset, input.ui_scale));
             for (OpenPopup &open: popups) {
-                painter.save();
-                painter.apply_view(glm::vec2{0.0f, 0.0f}, open.popup->popup_offset * input.ui_scale, 1.0f);
-                paint_element(*open.popup, stylesheet, painter, open.ancestors, open.parent_content, input);
-                painter.restore();
+                target.save();
+                target.apply_view(glm::vec2{0.0f, 0.0f}, open.popup->popup_offset * input.ui_scale, 1.0f);
+                paint_element(*open.popup, stylesheet, target, open.ancestors, open.parent_content, input);
+                target.restore();
             }
-            paint_inspector_overlay(document.root, painter, input);
-            painter.restore();
+            paint_inspector_overlay(document.root, target, input);
+            target.restore();
         }
 
     } // namespace
@@ -1952,17 +1957,25 @@ namespace engine::ui {
         }
 
         {
+            // Painter calls are counted on the paint pass only; layout above keeps `painter` (its dirty gate
+            // compares painter identity).
+#if defined(ENGINE_UI_PROFILER)
+            ProfilerPaintCounter counter{input.canvas, painter};
+            IUiPainter &target = counter.painter();
+#else
+            IUiPainter &target = painter;
+#endif
             ENGINE_UI_PROFILE(input.canvas, Paint);
-            painter.save();
-            painter.scissor(scale_rect(input.canvas_rect, input.ui_offset, input.ui_scale));
+            target.save();
+            target.scissor(scale_rect(input.canvas_rect, input.ui_offset, input.ui_scale));
             std::vector<const Element *> ancestors;
-            paint_element(document.root, stylesheet, painter, ancestors,
+            paint_element(document.root, stylesheet, target, ancestors,
                           glm::vec2{input.canvas_rect.w, input.canvas_rect.h}, input);
             // With a popup open the boxes are drawn by the popup layer, above it.
             if (!has_open_popup(document.root)) {
-                paint_inspector_overlay(document.root, painter, input);
+                paint_inspector_overlay(document.root, target, input);
             }
-            painter.restore();
+            target.restore();
         }
 #if defined(ENGINE_UI_PROFILER)
         profiler_finish_paint(input.canvas, document.root, layout_ran);

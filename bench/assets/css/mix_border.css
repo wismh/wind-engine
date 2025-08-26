@@ -1,0 +1,6 @@
+/* paint-mix border: one stroke_rect per cell, no fill. */
+
+Stack.cell {
+  border-width: 2;
+  border-color: #e0e4ea;
+}

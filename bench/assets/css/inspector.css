@@ -1,0 +1,158 @@
+/* Inspector scene: a 560 px panel. The scroll box is the page less the toolbar (28 px) and one 8 px gap. */
+
+Canvas {
+  background: #1e1f22;
+}
+
+Label {
+  font-size: 13;
+  color: #dfe1e5;
+  white-space: nowrap;
+}
+
+Button {
+  height: 22;
+  padding: 0 8;
+  border-radius: 4;
+  font-size: 13;
+  color: #dfe1e5;
+  background: #3c3f41;
+  text-align: center;
+  align-items: center;
+}
+
+TextInput {
+  height: 22;
+  padding: 0 6;
+  border-radius: 3;
+  border-width: 1;
+  border-color: #4e5157;
+  font-size: 13;
+  color: #dfe1e5;
+  background: #2b2d30;
+  align-items: center;
+}
+
+Checkbox {
+  width: 16;
+  height: 16;
+  border-radius: 3;
+  border-width: 1;
+  border-color: #6f737a;
+  background: #2b2d30;
+}
+
+Checkbox:checked {
+  background: #3574f0;
+}
+
+Stack.page {
+  width: 560;
+  height: 100%;
+  padding: 12;
+  gap: 8;
+  background: #2b2d30;
+}
+
+Stack.toolbar {
+  height: 28;
+  gap: 24;
+  align-items: center;
+}
+
+Label.title {
+  font-size: 18;
+  color: #ffffff;
+}
+
+Label.counter {
+  color: #e5c07b;
+}
+
+ScrollView.inspector-scroll {
+  width: 100%;
+  height: calc(100% - 36px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+ItemsControl.sections {
+  width: 100%;
+  gap: 6;
+}
+
+Stack.section {
+  width: 100%;
+  gap: 2;
+}
+
+Button.section-header {
+  width: 100%;
+  height: 26;
+  text-align: start;
+  font-size: 14;
+  color: #ffffff;
+  background: #393b40;
+}
+
+Stack.section-body {
+  width: 100%;
+  padding: 4 0 4 12;
+  gap: 6;
+  display: var(--display, block);
+}
+
+ItemsControl.groups {
+  width: 100%;
+  gap: 8;
+}
+
+Stack.group {
+  width: 100%;
+  gap: 3;
+}
+
+Label.group-title {
+  font-size: 12;
+  color: #8c9096;
+}
+
+ItemsControl.props {
+  width: 100%;
+  gap: 3;
+}
+
+Stack.prop {
+  width: 100%;
+  height: 24;
+  gap: 6;
+  align-items: center;
+}
+
+Label.prop-name {
+  width: 170;
+  color: #bcbec4;
+}
+
+TextInput.field {
+  width: 300;
+}
+
+TextInput.number {
+  width: 120;
+}
+
+Button.step {
+  width: 22;
+  padding: 0;
+}
+
+Stack.actions {
+  height: 26;
+  gap: 8;
+  align-items: center;
+}
+
+Button.action {
+  width: 80;
+}

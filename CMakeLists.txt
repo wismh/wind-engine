@@ -130,6 +130,17 @@ if(ENGINE_LAUNCHER)
             "ENGINE_WITH_WINDOW=ON and ENGINE_EDITOR=OFF, and no Emscripten or Android. Use the vs-launcher preset.")
     endif()
 endif()
+# UI bench (bench/): renders one UI scene in one mode, records the UI profiler for a fixed number of frames, writes the
+# snapshot JSON, and exits. The baseline of docs/tech/architecture/UI Performance Plan.md; preset vs-bench, measured in
+# RelWithDebInfo. docs/tech/features/UI Bench.md
+option(ENGINE_BENCH "Build wind_ui_bench (static engine, desktop window)" OFF)
+if(ENGINE_BENCH)
+    if(NOT _engine_is_root OR ENGINE_EDITOR OR EMSCRIPTEN OR ANDROID OR NOT ENGINE_WITH_WINDOW)
+        message(FATAL_ERROR
+            "ENGINE_BENCH builds wind_ui_bench in the engine repo against the static desktop engine: it needs "
+            "ENGINE_WITH_WINDOW=ON and ENGINE_EDITOR=OFF, and no Emscripten or Android. Use the vs-bench preset.")
+    endif()
+endif()
 set(ENGINE_WEB_SHELL "" CACHE FILEPATH "Optional HTML shell for Emscripten (defaults to cmake/web/shell.html)")
 set(ENGINE_HOST_ASSET_CODEGEN "" CACHE FILEPATH "Native asset_codegen when cross-compiling (Emscripten or Android)")
 set(ENGINE_HOST_ICON_CODEGEN "" CACHE FILEPATH "Native icon_codegen when cross-compiling (Emscripten or Android)")
@@ -524,6 +535,11 @@ if(ENGINE_LAUNCHER)
     get_property(_wind_launcher_assets TARGET wind_launcher PROPERTY ENGINE_GAME_ASSETS)
     install(DIRECTORY "${_wind_launcher_assets}/" DESTINATION bin/assets)
     install(FILES "${_wind_launcher_catalog}" DESTINATION bin/assets)
+endif()
+
+# The UI bench. Nothing to install: it runs from build-bench/bin.
+if(ENGINE_BENCH)
+    add_subdirectory(bench)
 endif()
 
 # The editor host and the SDK. ENGINE_EDITOR is ON only in the engine repo (vs-editor); a game builds its

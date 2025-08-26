@@ -1,0 +1,19 @@
+/* motion layout-props: the 20 bars animate width; the boxes stay. */
+
+Stack.bar {
+  animation-name: grow;
+  animation-duration: 2s;
+  animation-iteration-count: infinite;
+}
+
+@keyframes grow {
+  0% {
+    width: 120;
+  }
+  50% {
+    width: 900;
+  }
+  100% {
+    width: 120;
+  }
+}

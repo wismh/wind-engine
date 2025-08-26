@@ -51,6 +51,8 @@ public:
     [[nodiscard]] ui::TextFontMetrics font_metrics(AssetId font, float size) override;
     [[nodiscard]] ui::TextBlock break_lines(
             std::string_view text, AssetId font, float size, float max_width) override;
+    // The `glDrawArrays` the next nvgEndFrame flush issues for the calls queued so far this frame.
+    [[nodiscard]] int queued_draw_calls() override;
 
 private:
     // Bakes (or reuses a cached bake of) a small angular-ramp texture for a conic gradient — NanoVG

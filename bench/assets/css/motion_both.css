@@ -1,0 +1,40 @@
+/* motion both: the boxes animate opacity and transform, the bars width. */
+
+Stack.box {
+  animation-name: spin-fade;
+  animation-duration: 2s;
+  animation-iteration-count: infinite;
+}
+
+@keyframes spin-fade {
+  0% {
+    opacity: 1;
+    transform: rotate(0deg) scale(1);
+  }
+  50% {
+    opacity: 0.3;
+    transform: rotate(180deg) scale(0.7);
+  }
+  100% {
+    opacity: 1;
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+Stack.bar {
+  animation-name: grow;
+  animation-duration: 2s;
+  animation-iteration-count: infinite;
+}
+
+@keyframes grow {
+  0% {
+    width: 120;
+  }
+  50% {
+    width: 900;
+  }
+  100% {
+    width: 120;
+  }
+}
