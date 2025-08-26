@@ -92,7 +92,9 @@ namespace engine::ui {
             }
             for (const DockSplitterRect &splitter: geometry.splitters) {
                 if (splitter.float_id == float_id) {
-                    content.splitters.push_back(DockChromeBox{splitter.grab});
+                    DockChromeBox box{splitter.grab};
+                    box.resize = splitter.axis == DockAxis::Horizontal ? "ew-resize" : "ns-resize";
+                    content.splitters.push_back(std::move(box));
                 }
             }
         }
@@ -156,6 +158,7 @@ namespace engine::ui {
                     add_tree(space, windowed.at(id), id, content);
                 } else if (const DockFloatRect *f = geometry.floating(id)) {
                     content.frames.push_back(DockChromeBox{f->frame});
+                    content.edges = dock_frame_edges(f->frame, space.metrics.frame_border);
                     content.titles.push_back(DockChromeBox{f->title, float_title(space, geometry, id)});
                     add_tree(space, geometry, id, content);
                 }

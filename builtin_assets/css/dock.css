@@ -40,13 +40,16 @@
 }
 .dock-tab-close:hover { background: #4e5157; color: #ffffff; }
 
-/* Lighter than both the strips and the panels, so the edge to drag for a resize shows. */
-.dock-splitter { background: #43454a; }
+/* Lighter than both the strips and the panels, so the edge to drag for a resize shows. --resize is the cursor for
+   the splitter's axis (ew-resize or ns-resize), and for a float edge the one for its side or corner. */
+.dock-splitter { background: #43454a; cursor: var(--resize); }
 .dock-splitter:hover { background: #3574f0; }
 .dock-splitter:pressed { background: #3574f0; }
 
 .dock-frame { background: #2b2d30; border-width: 1px; border-color: #43454a; }
+.dock-edge { cursor: var(--resize); }
 .dock-title {
+    cursor: move;
     padding: 0 8px 0 8px;
     background: #393b40;
     color: #dfe1e5;

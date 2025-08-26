@@ -66,6 +66,16 @@ void sync_text_input_activation(WindowManager& windows, Worlds& worlds) {
     });
 }
 
+// The cursor of the window under the mouse, from its world's UI. A window with no world shows Default.
+void sync_cursor(WindowManager& windows, Worlds& worlds) {
+    const std::optional<WindowId> id = windows.mouse_focus();
+    if (!id) {
+        return;
+    }
+    ecs::World* const world = worlds.world_for(*id);
+    windows.set_cursor(world != nullptr ? ui::update_cursor(*world, *id) : ui::Cursor::Default);
+}
+
 class SdlGlPresentation final : public IPresentation {
 public:
     SdlGlPresentation() : windows_(*backend_) {
@@ -201,6 +211,7 @@ public:
     void sync_frame(Worlds& worlds) override {
         overlay_.update_click_through(windows_, worlds.presentation().mouse);
         sync_text_input_activation(windows_, worlds);
+        sync_cursor(windows_, worlds);
     }
 
     void draw_all(std::span<FrameCapture> captures) override {

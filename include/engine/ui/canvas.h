@@ -189,6 +189,17 @@ struct UiPointers {
 // Primary reads Presentation::pointer. Every other window reads Presentation::pointers.
 [[nodiscard]] UiPointer& pointer_for(ecs::World& world, WindowId id);
 
+// The cursor each window showed on its last update_cursor().
+struct UiCursors {
+    std::unordered_map<WindowId, Cursor> cursors;
+};
+
+// The cursor `window` shows now. While its pointer is down it keeps the one it showed at the press, so a drag that
+// leaves a splitter keeps the resize cursor. Otherwise cursor_at() on the canvas the pointer would click: a canvas
+// with a shown popup under it, else the topmost canvas whose rect holds it. Default when no canvas does. Reads the
+// layout and popup placement of the last input or paint pass; it lays nothing out.
+[[nodiscard]] Cursor update_cursor(ecs::World& world, WindowId window);
+
 [[nodiscard]] constexpr bool rect_contains(const render::Rect& rect, float x, float y) noexcept {
     return x >= rect.x && y >= rect.y && x < (rect.x + rect.w) && y < (rect.y + rect.h);
 }
