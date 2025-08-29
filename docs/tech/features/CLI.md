@@ -127,14 +127,14 @@ Selectors: `#id`, `.class`, or `path:` plus the tree path joined by `/`. `path:`
 
 ## Canvases
 
-Selectors and `hit` search every canvas on the window unless the request has `canvas`. Two canvases on one window can reuse an id: in the editor the Explorer and Inspector panels both have `#tree` at `path:0/1/0/1`, so neither `#tree` nor its path is one element. `--canvas C` limits `tree`, `element`, `hit`, `click`, and `screenshot` to one canvas, and is a usage error with any other command.
+Selectors and `hit` search every canvas on the window unless the request has `canvas`. Two canvases on one window can reuse an id: in the editor the Project and UI Tree panels both have `#tree` at `path:0/1`, so neither `#tree` nor its path is one element. `--canvas C` limits `tree`, `element`, `hit`, `click`, and `screenshot` to one canvas, and is a usage error with any other command.
 
 | `--canvas` | Request | Picks |
 | --- | --- | --- |
 | a non-negative integer | `"canvas":1` | the canvas at that place in the window's draw order: `UiCanvas::order`, then entity index; 0 is drawn first |
 | anything else | `"canvas":"inspector"` | every canvas whose document root has that id (`<Canvas id="inspector">`) |
 
-Every `tree` node, `element` / `hit` / `click` result, and `ambiguous` candidate carries `canvas` (the place) and `canvas_id` (the root id, empty when the root has none), so `tree` or the `ambiguous` reply says what to pass. A place shifts when a canvas with a lower place is spawned or destroyed; a root id does not. The editor's documents name their roots `editor`, `explorer`, `inspector`, `profiler`, and `build`.
+Every `tree` node, `element` / `hit` / `click` result, and `ambiguous` candidate carries `canvas` (the place) and `canvas_id` (the root id, empty when the root has none), so `tree` or the `ambiguous` reply says what to pass. A place shifts when a canvas with a lower place is spawned or destroyed; a root id does not. The editor's documents name their roots `editor`, `explorer`, `ui_tree`, `inspector`, `profiler`, and `build`.
 
 A `canvas` that names nothing is `no canvas N on window W` or `no canvas "ID" on window W`. A root id shared by two canvases picks both, and a selector that matches on each is still `ambiguous`; pass the place. A `canvas` that is negative, fractional, an empty string, or not a number or string is `invalid request`. `tests/cli_server_test.cpp` covers the parse and two canvases that share `#tree`.
 

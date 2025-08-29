@@ -427,16 +427,21 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/CMakeLists.txt` | `wind_editor` and `wind_editor_tests` | [CMake](../build/CMake.md) |
 | `editor/assets/css/editor.css` | Editor window style | [Editor](../features/Editor.md) |
 | `editor/assets/css/editor.css.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
-| `editor/assets/css/panels.css` | Inspector, Profiler, and Build panel style | [Editor](../features/Editor.md) |
+| `editor/assets/css/panels.css` | Project, UI Tree, Inspector, Profiler, and Build panel style | [Editor](../features/Editor.md) |
 | `editor/assets/css/panels.css.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
 | `editor/assets/ui/build.xml` | Build tab: summary and log | [Editor](../features/Editor.md) |
 | `editor/assets/ui/build.xml.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
 | `editor/assets/ui/editor.xml` | Editor window: the toolbar; the panels' dock space is below it | [Editor](../features/Editor.md) |
 | `editor/assets/ui/editor.xml.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
-| `editor/assets/ui/inspector.xml` | Inspector tab: Pick, tree, Computed, Rules | [UI Inspector](../features/UI%20Inspector.md) |
+| `editor/assets/ui/inspector.xml` | Inspector tab: title, subtitle, sections that collapse | [Editor](../features/Editor.md#inspector) |
 | `editor/assets/ui/inspector.xml.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
 | `editor/assets/ui/profiler.xml` | Profiler tab: Pause, canvases, charts, numbers | [UI Profiler](../features/UI%20Profiler.md) |
 | `editor/assets/ui/profiler.xml.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/ui/ui_tree.xml` | UI Tree tab: Pick, element tree | [UI Inspector](../features/UI%20Inspector.md) |
+| `editor/assets/ui/ui_tree.xml.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/src/asset_inspection.cpp` | Folder, File, Import, and Content sections of a project file | [Editor](../features/Editor.md#inspector) |
+| `editor/src/asset_inspection.h` | `inspect_asset`, the Content limits | [Editor](../features/Editor.md#inspector) |
+| `editor/src/asset_selection.h` | `AssetSelection` | [Editor](../features/Editor.md#inspector) |
 | `editor/src/build_line_view_model.cpp` | Binds a log row | [Editor](../features/Editor.md) |
 | `editor/src/build_line_view_model.h` | `BuildLineViewModel` | [Editor](../features/Editor.md) |
 | `editor/src/build_panel.cpp` | Log lines, tones, first error, line cap | [Editor](../features/Editor.md) |
@@ -453,16 +458,21 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/editor_options.h` | `EditorOptions` | [Editor](../features/Editor.md) |
 | `editor/src/editor_panels.cpp` | Panel canvases in a `DockSpace` with OS window floats, default layout, show, tree keys, visible-only refresh, layout saves, attach and detach | [Editor](../features/Editor.md#panels) |
 | `editor/src/editor_panels.h` | `EditorPanels` | [Editor](../features/Editor.md) |
+| `editor/src/editor_selection.cpp` | Select and clear, the revision | [Editor](../features/Editor.md#inspector) |
+| `editor/src/editor_selection.h` | `EditorSelection`, `SelectionTarget` | [Editor](../features/Editor.md#inspector) |
 | `editor/src/editor_view_model.cpp` | Binds the view-model to `editor.xml` | [Editor](../features/Editor.md) |
 | `editor/src/editor_view_model.h` | `EditorViewModel` | [Editor](../features/Editor.md) |
 | `editor/src/engine_host_play.cpp` | `IPlayHost` over `EngineHost` and `EditorPanels` | [Editor](../features/Editor.md) |
 | `editor/src/engine_host_play.h` | `EngineHostPlay` | [Editor](../features/Editor.md) |
-| `editor/src/inspector_panel.cpp` | Copies the inspector probe into the view-model | [UI Inspector](../features/UI%20Inspector.md) |
-| `editor/src/inspector_panel.h` | `InspectorPanel` | [UI Inspector](../features/UI%20Inspector.md) |
-| `editor/src/inspector_row_view_model.cpp` | Tree row label, depth, expanded, select and toggle methods | [UI Inspector](../features/UI%20Inspector.md) |
-| `editor/src/inspector_row_view_model.h` | `InspectorRowViewModel` | [UI Inspector](../features/UI%20Inspector.md) |
-| `editor/src/inspector_view_model.cpp` | Binds the view-model to `inspector.xml` | [UI Inspector](../features/UI%20Inspector.md) |
-| `editor/src/inspector_view_model.h` | `InspectorViewModel` | [UI Inspector](../features/UI%20Inspector.md) |
+| `editor/src/inspector_line_view_model.cpp` | Binds a section line | [Editor](../features/Editor.md#inspector) |
+| `editor/src/inspector_line_view_model.h` | `InspectorLineViewModel` | [Editor](../features/Editor.md#inspector) |
+| `editor/src/inspector_panel.cpp` | Shows the editor's selection: a file read on select, a UI element every refresh | [Editor](../features/Editor.md#inspector) |
+| `editor/src/inspector_panel.h` | `InspectorPanel` | [Editor](../features/Editor.md#inspector) |
+| `editor/src/inspector_section.h` | `InspectorSection`: a heading and its lines | [Editor](../features/Editor.md#inspector) |
+| `editor/src/inspector_section_view_model.cpp` | Section heading, chevron, and toggle method | [Editor](../features/Editor.md#inspector) |
+| `editor/src/inspector_section_view_model.h` | `InspectorSectionViewModel` | [Editor](../features/Editor.md#inspector) |
+| `editor/src/inspector_view_model.cpp` | Binds the view-model to `inspector.xml` | [Editor](../features/Editor.md#inspector) |
+| `editor/src/inspector_view_model.h` | `InspectorViewModel` | [Editor](../features/Editor.md#inspector) |
 | `editor/src/main.cpp` | `wind_editor` entry | [Editor](../features/Editor.md) |
 | `editor/src/method_command.h` | `MethodCommand`: an `ICommand` bound to one method | [Editor](../features/Editor.md) |
 | `editor/src/play_host.h` | `IPlayHost`: the window, catalog, and panel half of Play and Stop | [Editor](../features/Editor.md) |
@@ -479,20 +489,27 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/profiler_view_model.h` | `ProfilerViewModel` | [UI Profiler](../features/UI%20Profiler.md) |
 | `editor/src/project_build.cpp` | Configure and build through `ProcessCall`, the module record | [Editor](../features/Editor.md) |
 | `editor/src/project_build.h` | `ProjectBuild`, `BuildSetup`, `configured_for` | [Editor](../features/Editor.md) |
-| `editor/src/rule_line_view_model.cpp` | Binds a rule row | [UI Inspector](../features/UI%20Inspector.md) |
-| `editor/src/rule_line_view_model.h` | `RuleLineViewModel` | [UI Inspector](../features/UI%20Inspector.md) |
 | `editor/src/toolbar.cpp` | Play/Stop method and shown state | [Editor](../features/Editor.md) |
 | `editor/src/toolbar.h` | `Toolbar`, `EditorRequest`, `RunState` | [Editor](../features/Editor.md) |
+| `editor/src/ui_element_selection.h` | `UiElementSelection` | [Editor](../features/Editor.md#inspector) |
+| `editor/src/ui_tree_panel.cpp` | Copies the inspector probe's tree into the view-model; a new probe selection becomes the editor's | [UI Inspector](../features/UI%20Inspector.md) |
+| `editor/src/ui_tree_panel.h` | `UiTreePanel` | [UI Inspector](../features/UI%20Inspector.md) |
+| `editor/src/ui_tree_row_view_model.cpp` | Tree row label, depth, expanded, select and toggle methods | [UI Inspector](../features/UI%20Inspector.md) |
+| `editor/src/ui_tree_row_view_model.h` | `UiTreeRowViewModel` | [UI Inspector](../features/UI%20Inspector.md) |
+| `editor/src/ui_tree_view_model.cpp` | Binds the view-model to `ui_tree.xml` | [UI Inspector](../features/UI%20Inspector.md) |
+| `editor/src/ui_tree_view_model.h` | `UiTreeViewModel` | [UI Inspector](../features/UI%20Inspector.md) |
+| `editor/tests/asset_inspection_test.cpp` | Folder, text, meta, broken meta, PNG, cut text, empty and gone files | [Editor](../features/Editor.md#inspector) |
 | `editor/tests/build_panel_test.cpp` | Log tones, first error, scroll, line cap | [Editor](../features/Editor.md) |
 | `editor/tests/dock_layout_file_test.cpp` | Layout file round trip, missing, corrupt, empty path | [Editor](../features/Editor.md#layout-file) |
 | `editor/tests/editor_cli_test.cpp` | `EditorCli` replies and the requests it records | [Editor](../features/Editor.md#wind-cli) |
 | `editor/tests/editor_options_test.cpp` | `--project` and `--play` | [Editor](../features/Editor.md) |
-| `editor/tests/editor_panels_test.cpp` | Default layout, dock area and panel canvases, visible-only refresh, show, layout save and load, tree keys, attach and detach; OS float windows, saved float restore | [Editor](../features/Editor.md#panels) |
-| `editor/tests/inspector_panel_test.cpp` | Inspector view-models against a headless world | [UI Inspector](../features/UI%20Inspector.md) |
+| `editor/tests/editor_panels_test.cpp` | Default layout, dock area and panel canvases, visible-only refresh, the shared selection, show, layout save and load, tree keys, attach and detach; OS float windows, saved float restore | [Editor](../features/Editor.md#panels) |
+| `editor/tests/inspector_panel_test.cpp` | Inspector: nothing, a file read on select, collapsed sections, a UI element, detach | [Editor](../features/Editor.md#inspector) |
 | `editor/tests/play_session_test.cpp` | Play, Stop order, play again, refusals, against the fixture module | [Editor](../features/Editor.md) |
 | `editor/tests/profiler_chart_test.cpp` | Chart geometry and the chart paint | [UI Profiler](../features/UI%20Profiler.md) |
 | `editor/tests/profiler_panel_test.cpp` | Profiler view-model with and without frames | [UI Profiler](../features/UI%20Profiler.md) |
 | `editor/tests/project_build_test.cpp` | `ProjectBuild` against a scripted launcher | [Editor](../features/Editor.md) |
+| `editor/tests/ui_tree_panel_test.cpp` | UI Tree view-models and the selection they publish, against a headless world | [UI Inspector](../features/UI%20Inspector.md) |
 | `launcher/CMakeLists.txt` | `wind_launcher` and `wind_launcher_tests` | [Launcher](../features/Launcher.md) |
 | `launcher/assets/css/launcher.css` | Launcher window style | [Launcher](../features/Launcher.md) |
 | `launcher/assets/css/launcher.css.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
