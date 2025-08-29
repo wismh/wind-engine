@@ -237,6 +237,16 @@ std::expected<void, UiError> assign_checked_attribute(
     return {};
 }
 
+// `allow-copy`/`allow-paste` (TextInput only): a static per-field capability, unlike `checked` —
+// no VM tie, literal-only, defaults to true (attribute absent = both allowed).
+void assign_bool_attribute(bool& dest, const char* attr) {
+    if (attr == nullptr) {
+        return;
+    }
+    const std::string_view value = trim(attr);
+    dest = !(value == "false" || value == "0");
+}
+
 std::expected<void, UiError> assign_required_property_binding(BindingId& dest, const char* attr, std::string_view what,
         IFatalError* fatal, const ViewModel* vm, bool in_template) {
     if (attr == nullptr) {
@@ -403,6 +413,8 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
     if (auto result = assign_checked_attribute(element, xml->Attribute("checked"), fatal, vm, in_template); !result) {
         return std::unexpected(result.error());
     }
+    assign_bool_attribute(element.allow_copy, xml->Attribute("allow-copy"));
+    assign_bool_attribute(element.allow_paste, xml->Attribute("allow-paste"));
     if (auto result = assign_required_property_binding(element.pan_x_binding, xml->Attribute("pan-x"), "pan-x", fatal, vm,
                 in_template);
             !result) {
