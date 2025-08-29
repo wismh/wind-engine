@@ -1,0 +1,6 @@
+/* paint-mix nine-slice: one nine-slice image per cell (textures/frame.png, 6 px slices). */
+
+Stack.cell {
+  background-image: 54870d372953dfcfa0bc73dbea9c5ca9;
+  background-slice: 6;
+}

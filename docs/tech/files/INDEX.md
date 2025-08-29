@@ -510,6 +510,15 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/tests/profiler_panel_test.cpp` | Profiler view-model with and without frames | [UI Profiler](../features/UI%20Profiler.md) |
 | `editor/tests/project_build_test.cpp` | `ProjectBuild` against a scripted launcher | [Editor](../features/Editor.md) |
 | `editor/tests/ui_tree_panel_test.cpp` | UI Tree view-models and the selection they publish, against a headless world | [UI Inspector](../features/UI%20Inspector.md) |
+| `bench/CMakeLists.txt` | `wind_ui_bench` and `wind_ui_bench_tests` | [UI Bench](../features/UI%20Bench.md) |
+| `bench/assets/**` | Bench scenes: documents, stylesheets (hover and paint-mix and motion variants), two generated textures | [UI Bench](../features/UI%20Bench.md#scenes) |
+| `bench/src/bench_app.*`, `bench/src/main.cpp` | `BenchApp`: canvas, profiler, owned pointer, the run; `main` parses and hosts it | [UI Bench](../features/UI%20Bench.md) |
+| `bench/src/bench_matrix.*`, `bench/src/bench_options.*`, `bench/src/bench_schedule.*`, `bench/src/frame_plan.*`, `bench/src/bench_report.*` | Matrix, command line, measurement schedule, per-mode frame plan, report JSON | [UI Bench](../features/UI%20Bench.md) |
+| `bench/src/*_scene.*`, `bench/src/*_view_model.*`, `bench/src/*_paint.*` | One scene class per scene, its view-models and paints | [UI Bench](../features/UI%20Bench.md#scenes) |
+| `bench/src/*_data.*`, `bench/src/bench_random.*`, `bench/src/scene_points.*` | Seeded data, SplitMix64, rest/wheel/hover points from the laid-out tree | [UI Bench](../features/UI%20Bench.md) |
+| `bench/tests/bench_test.cpp` | `wind_ui_bench_tests` | [UI Bench](../features/UI%20Bench.md#tests) |
+| `bench/run_matrix.ps1`, `bench/compare.ps1` | Run the matrix into `summary.md` / `summary.json`; compare two summaries | [UI Bench](../features/UI%20Bench.md#matrix-runs) |
+| `bench/results/baseline/summary.*`, `bench/results/.gitignore` | The step-0 baseline; every other result is ignored | [UI Bench](../features/UI%20Bench.md#matrix-runs) |
 | `launcher/CMakeLists.txt` | `wind_launcher` and `wind_launcher_tests` | [Launcher](../features/Launcher.md) |
 | `launcher/assets/css/launcher.css` | Launcher window style | [Launcher](../features/Launcher.md) |
 | `launcher/assets/css/launcher.css.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |

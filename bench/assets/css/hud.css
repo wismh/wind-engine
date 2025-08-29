@@ -1,0 +1,205 @@
+/* HUD scene. Panels sit on the canvas with position: absolute. The top bar is 44 px, the bottom strip 200 px, the unit
+   panel 320 px wide on the right between them; the Viewport takes the rest. */
+
+Canvas {
+  background: #101418;
+}
+
+Label {
+  font-size: 14;
+  color: #e5e9f0;
+  white-space: nowrap;
+}
+
+Button {
+  height: 40;
+  border-radius: 4;
+  font-size: 14;
+  color: #e5e9f0;
+  background: #3b4252;
+  text-align: center;
+  align-items: center;
+}
+
+Viewport.world {
+  position: absolute;
+  left: 0;
+  top: 44;
+  right: 320;
+  bottom: 200;
+  background: #1d2a1d;
+}
+
+Component.world-map {
+  width: 2400;
+  height: 1600;
+}
+
+Stack.topbar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  height: 44;
+  padding: 0 16;
+  gap: 28;
+  align-items: center;
+  background: #20252e;
+  border-width: 1;
+  border-color: #3b4252;
+}
+
+Stack.resource {
+  gap: 8;
+  align-items: center;
+}
+
+Label.res-name {
+  color: #8f9bb3;
+}
+
+Label.res-value {
+  width: 72;
+  color: #ebcb8b;
+}
+
+/* Always on: the pulse never ends. */
+Label.alert {
+  padding: 4 12;
+  border-radius: 4;
+  color: #ffffff;
+  background: #bf616a;
+  animation-name: pulse;
+  animation-duration: 1.2s;
+  animation-iteration-count: infinite;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+Stack.units-panel {
+  position: absolute;
+  top: 44;
+  right: 0;
+  bottom: 200;
+  width: 320;
+  padding: 8;
+  gap: 6;
+  background: #20252e;
+}
+
+Label.panel-title {
+  height: 22;
+  font-size: 16;
+}
+
+/* 100% of the panel less the 22 px title and the 6 px gap. */
+ScrollView.unit-scroll {
+  width: 100%;
+  height: calc(100% - 28px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+ItemsControl.units {
+  width: 100%;
+}
+
+Stack.unit-row {
+  width: 100%;
+  height: 22;
+  padding: 0 6;
+  gap: 8;
+  align-items: center;
+}
+
+Label.unit-name {
+  width: 130;
+}
+
+Label.unit-hp {
+  width: 60;
+  color: #a3be8c;
+}
+
+Label.unit-task {
+  color: #8f9bb3;
+}
+
+Stack.bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 200;
+  padding: 10;
+  gap: 16;
+  background: #20252e;
+  border-width: 1;
+  border-color: #3b4252;
+}
+
+Stack.minimap-frame {
+  width: 180;
+  height: 180;
+  background: #0b0e11;
+}
+
+Component.minimap {
+  width: 180;
+  height: 120;
+}
+
+Stack.selection {
+  width: 520;
+  height: 180;
+  gap: 16;
+}
+
+Stack.portrait {
+  width: 120;
+  height: 120;
+  border-radius: 6;
+  background: linear-gradient(180deg, #5e81ac, #2e3440);
+  align-items: center;
+  justify-content: center;
+}
+
+Label.portrait-mark {
+  font-size: 40;
+  color: #eceff4;
+}
+
+Stack.stats {
+  gap: 6;
+}
+
+Label.sel-name {
+  font-size: 18;
+  color: #ffffff;
+}
+
+Label.stat {
+  color: #d8dee9;
+}
+
+Stack.orders {
+  gap: 8;
+}
+
+Stack.order-row {
+  gap: 8;
+}
+
+Button.order {
+  width: 96;
+}

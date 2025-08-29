@@ -78,6 +78,31 @@ glm::vec4 sample_gradient_stops(const std::vector<ui::GradientStop>& stops, floa
     return stops.back().color;
 }
 
+// The glDrawArrays glnvg__renderFlush issues for one queued call (glnvg__fill, glnvg__convexFill,
+// glnvg__stroke, glnvg__triangles in nanovg_gl.h). Must follow those functions if the submodule changes.
+int flush_draw_arrays(const GLNVGcontext& gl, const GLNVGcall& call) {
+    switch (call.type) {
+        case GLNVG_FILL:
+            // A stencil fan per path, an antialiased fringe per path, then one cover quad.
+            return call.pathCount * ((gl.flags & NVG_ANTIALIAS) != 0 ? 2 : 1) + 1;
+        case GLNVG_CONVEXFILL: {
+            // A fan per path, plus its fringe strip when it has one.
+            int draws = 0;
+            for (int i = 0; i < call.pathCount; ++i) {
+                draws += gl.paths[call.pathOffset + i].strokeCount > 0 ? 2 : 1;
+            }
+            return draws;
+        }
+        case GLNVG_STROKE:
+            // Stencil strokes: base, antialiased pixels, and the stencil clear, each a strip per path.
+            return call.pathCount * ((gl.flags & NVG_STENCIL_STROKES) != 0 ? 3 : 1);
+        case GLNVG_TRIANGLES:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
 }
 
 struct ImageEntry {
@@ -96,6 +121,9 @@ struct NanoVgPainter::Impl {
     // The OpenType MATH font behind `<Math>`; parsed from the same Font bytes the engine hands to add_font,
     // but kept out of NanoVG: formulas are drawn as glyph outlines through fill_path, never as text.
     std::unique_ptr<ui::math::MathFont> math_font;
+    // queued_draw_calls: the queued calls already summed into `queued_draws` this frame.
+    int counted_calls = 0;
+    int queued_draws = 0;
 };
 
 NanoVgPainter::NanoVgPainter() : impl_(std::make_unique<Impl>()) {}
@@ -201,6 +229,8 @@ const ui::math::MathFont* NanoVgPainter::math_font() const {
 }
 
 void NanoVgPainter::begin_frame(float width, float height, float pixel_ratio) {
+    impl_->counted_calls = 0;
+    impl_->queued_draws = 0;
     if (impl_->vg != nullptr) {
         nvgBeginFrame(impl_->vg, width, height, pixel_ratio);
     }
@@ -210,6 +240,23 @@ void NanoVgPainter::end_frame() {
     if (impl_->vg != nullptr) {
         nvgEndFrame(impl_->vg);
     }
+}
+
+int NanoVgPainter::queued_draw_calls() {
+    if (impl_->vg == nullptr) {
+        return 0;
+    }
+    const auto* gl = static_cast<const GLNVGcontext*>(nvgInternalParams(impl_->vg)->userPtr);
+    if (gl->ncalls < impl_->counted_calls) {
+        // Flushed without begin_frame: count the queue again from the start.
+        impl_->counted_calls = 0;
+        impl_->queued_draws = 0;
+    }
+    for (int i = impl_->counted_calls; i < gl->ncalls; ++i) {
+        impl_->queued_draws += flush_draw_arrays(*gl, gl->calls[i]);
+    }
+    impl_->counted_calls = gl->ncalls;
+    return impl_->queued_draws;
 }
 
 void NanoVgPainter::save() {

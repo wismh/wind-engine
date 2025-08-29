@@ -1,0 +1,88 @@
+/* Table scene. The page is the window less 12 px of padding on each side; the scroll box takes what the toolbar
+   (28 px), the header (28 px), and two 8 px gaps leave: calc(100% - 72px). */
+
+Canvas {
+  background: #1b1f27;
+}
+
+Label {
+  font-size: 14;
+  color: #d8dee9;
+  white-space: nowrap;
+}
+
+Stack.page {
+  width: 100%;
+  height: 100%;
+  padding: 12;
+  gap: 8;
+}
+
+Stack.toolbar {
+  height: 28;
+  gap: 24;
+  align-items: center;
+}
+
+Label.title {
+  font-size: 18;
+  color: #ffffff;
+}
+
+Label.summary {
+  color: #8f9bb3;
+}
+
+Label.counter {
+  color: #ebcb8b;
+}
+
+Stack.header {
+  height: 28;
+  padding: 0 8;
+  align-items: center;
+  background: #2e3440;
+}
+
+ScrollView.table-scroll {
+  width: 100%;
+  height: calc(100% - 72px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #4c566a #232831;
+}
+
+ItemsControl.rows {
+  width: 100%;
+}
+
+/* Fixed px height: the ItemsControl virtualizes these rows. The stripe comes from the row's view-model. */
+Stack.row {
+  width: 100%;
+  height: 24;
+  padding: 0 8;
+  align-items: center;
+  background: var(--stripe, #1b1f27);
+}
+
+Label.col-id {
+  width: 90;
+}
+
+Label.col-name {
+  width: 260;
+}
+
+Label.col-value {
+  width: 120;
+  text-align: end;
+  padding: 0 24 0 0;
+}
+
+Label.col-status {
+  width: 160;
+}
+
+Label.col-ratio {
+  width: 120;
+}
