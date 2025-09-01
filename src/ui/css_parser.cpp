@@ -4,13 +4,31 @@
 #include <engine/resources/asset_id.h>
 #include <engine/ui/stylesheet.h>
 
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <format>
 #include <optional>
 #include <utility>
 
 namespace engine::ui {
 namespace {
+
+// Every view the parser passes around is a substr of the source, so a warning's line is the count of
+// newlines before the first byte of the view it is about.
+struct CssWarnings {
+    std::string_view source;
+    std::vector<std::string>& out;
+
+    void add(std::string_view at, std::string_view message) {
+        std::size_t offset = source.size();
+        if (at.data() >= source.data() && at.data() <= source.data() + source.size()) {
+            offset = static_cast<std::size_t>(at.data() - source.data());
+        }
+        const auto line = 1 + std::count(source.begin(), source.begin() + static_cast<std::ptrdiff_t>(offset), '\n');
+        out.push_back(std::format("line {}: {}", line, message));
+    }
+};
 
 std::string_view trim(std::string_view value) {
     std::size_t begin = 0;
@@ -188,14 +206,14 @@ std::optional<CssSelector> parse_simple_selector(std::string_view raw) {
     return parsed;
 }
 
-bool parse_selector_chain(std::string_view raw, CssRule& rule, std::vector<std::string>& warnings) {
+bool parse_selector_chain(std::string_view raw, CssRule& rule, CssWarnings& warnings) {
     const std::string_view selector = trim(raw);
     if (selector.empty()) {
         return false;
     }
     if (selector.find(',') != std::string_view::npos || selector.find('+') != std::string_view::npos ||
             selector.find('~') != std::string_view::npos) {
-        warnings.emplace_back("unsupported combinator in selector: " + std::string(selector));
+        warnings.add(selector, "unsupported combinator in selector: " + std::string(selector));
         return false;
     }
 
@@ -214,7 +232,7 @@ bool parse_selector_chain(std::string_view raw, CssRule& rule, std::vector<std::
         CssCombinator combinator = CssCombinator::Descendant;
         if (selector[i] == '>') {
             if (compounds.empty()) {
-                warnings.emplace_back("unsupported combinator in selector: " + std::string(selector));
+                warnings.add(selector, "unsupported combinator in selector: " + std::string(selector));
                 return false;
             }
             combinator = CssCombinator::Child;
@@ -226,7 +244,7 @@ bool parse_selector_chain(std::string_view raw, CssRule& rule, std::vector<std::
             has_combinator = true;
         }
         if (i >= selector.size() || selector[i] == '>') {
-            warnings.emplace_back("unsupported combinator in selector: " + std::string(selector));
+            warnings.add(selector, "unsupported combinator in selector: " + std::string(selector));
             return false;
         }
 
@@ -256,7 +274,7 @@ bool parse_selector_chain(std::string_view raw, CssRule& rule, std::vector<std::
     return true;
 }
 
-void parse_declarations(std::string_view body, std::vector<CssDeclaration>& declarations, std::vector<std::string>& warnings) {
+void parse_declarations(std::string_view body, std::vector<CssDeclaration>& declarations, CssWarnings& warnings) {
     std::size_t i = 0;
     while (i < body.size()) {
         const auto semi = body.find(';', i);
@@ -268,7 +286,7 @@ void parse_declarations(std::string_view body, std::vector<CssDeclaration>& decl
         }
         const auto colon = chunk.find(':');
         if (colon == std::string_view::npos) {
-            warnings.emplace_back("invalid CSS declaration: " + std::string(chunk));
+            warnings.add(chunk, "invalid CSS declaration: " + std::string(chunk));
             continue;
         }
         CssDeclaration decl;
@@ -278,15 +296,15 @@ void parse_declarations(std::string_view body, std::vector<CssDeclaration>& decl
             continue;
         }
         if (!is_known_property(decl.property)) {
-            warnings.emplace_back("unknown CSS property: " + decl.property);
+            warnings.add(chunk, "unknown CSS property: " + decl.property);
         } else if (is_motion_declaration(decl.property)) {
-            for (std::string& warning : validate_motion_value(decl.property, decl.value)) {
-                warnings.push_back(std::move(warning));
+            for (const std::string& warning : validate_motion_value(decl.property, decl.value)) {
+                warnings.add(chunk, warning);
             }
         } else if (decl.property == "background-image") {
             const std::string_view value = trim(decl.value);
             if (value != "none" && !AssetId::parse(value)) {
-                warnings.emplace_back(
+                warnings.add(chunk,
                         "background-image value must be none or a 32-hex AssetId, not a filename: " + decl.value);
             }
         } else if (decl.property == "background-slice") {
@@ -295,7 +313,7 @@ void parse_declarations(std::string_view body, std::vector<CssDeclaration>& decl
             // resolve_var + apply_declaration) — skip eager validation here, same as any
             // non-length property (color, opacity, ...) already does for var().
             if (!css_length::contains_var(decl.value) && !css_length::parse_insets(decl.value).has_value()) {
-                warnings.emplace_back("invalid background-slice: " + decl.value);
+                warnings.add(chunk, "invalid background-slice: " + decl.value);
                 continue;
             }
         } else if (is_length_property(decl.property)) {
@@ -305,7 +323,7 @@ void parse_declarations(std::string_view body, std::vector<CssDeclaration>& decl
                 const bool ok = padding_like ? css_length::parse_insets(decl.value).has_value()
                                              : css_length::parse_length(decl.value).has_value();
                 if (!ok) {
-                    warnings.emplace_back("invalid calc()");
+                    warnings.add(chunk, "invalid calc()");
                     continue;
                 }
             }
@@ -411,7 +429,7 @@ std::optional<float> parse_keyframe_offset(std::string_view raw) {
     return n / 100.0f;
 }
 
-bool parse_keyframes_body(std::string_view body, Keyframes& keyframes, std::vector<std::string>& warnings) {
+bool parse_keyframes_body(std::string_view body, Keyframes& keyframes, CssWarnings& warnings) {
     std::size_t i = 0;
     while (i < body.size()) {
         skip_whitespace_and_comments(body, i);
@@ -433,7 +451,7 @@ bool parse_keyframes_body(std::string_view body, Keyframes& keyframes, std::vect
         }
         const auto offset = parse_keyframe_offset(selector);
         if (!offset) {
-            warnings.emplace_back("invalid keyframe selector");
+            warnings.add(selector, "invalid keyframe selector");
             continue;
         }
         KeyframeStop stop;
@@ -445,10 +463,10 @@ bool parse_keyframes_body(std::string_view body, Keyframes& keyframes, std::vect
 }
 
 bool parse_stylesheet_body(std::string_view css, std::size_t& i, std::size_t limit, Stylesheet& sheet,
-        const std::optional<MediaQuery>& media, std::vector<std::string>& warnings);
+        const std::optional<MediaQuery>& media, CssWarnings& warnings);
 
 bool parse_at_rule(std::string_view css, std::size_t& i, std::size_t limit, Stylesheet& sheet,
-        const std::optional<MediaQuery>& parent_media, std::vector<std::string>& warnings) {
+        const std::optional<MediaQuery>& parent_media, CssWarnings& warnings) {
     ++i;
     const std::size_t name_begin = i;
     while (i < limit && is_ident_char(css[i])) {
@@ -469,12 +487,12 @@ bool parse_at_rule(std::string_view css, std::size_t& i, std::size_t limit, Styl
             return false;
         }
         if (parent_media) {
-            warnings.emplace_back("unknown media");
+            warnings.add(prelude, "unknown media");
             return true;
         }
         const auto query = parse_media_query(prelude);
         if (!query) {
-            warnings.emplace_back("unknown media");
+            warnings.add(prelude, "unknown media");
             return true;
         }
         std::size_t inner = body_begin;
@@ -489,7 +507,7 @@ bool parse_at_rule(std::string_view css, std::size_t& i, std::size_t limit, Styl
         }
         const std::string_view kf_name = trim(prelude);
         if (kf_name.empty()) {
-            warnings.emplace_back("unsupported at-rule");
+            warnings.add(css.substr(name_begin, 0), "unsupported at-rule");
             return true;
         }
         Keyframes keyframes;
@@ -501,13 +519,13 @@ bool parse_at_rule(std::string_view css, std::size_t& i, std::size_t limit, Styl
         return true;
     }
 
-    warnings.emplace_back("unsupported at-rule");
+    warnings.add(css.substr(name_begin, 0), "unsupported at-rule");
     skip_at_rule(css, i, limit);
     return true;
 }
 
 bool parse_stylesheet_body(std::string_view css, std::size_t& i, std::size_t limit, Stylesheet& sheet,
-        const std::optional<MediaQuery>& media, std::vector<std::string>& warnings) {
+        const std::optional<MediaQuery>& media, CssWarnings& warnings) {
     while (i < limit) {
         skip_whitespace_and_comments(css, i, limit);
         if (i >= limit) {
@@ -555,7 +573,8 @@ bool parse_stylesheet_body(std::string_view css, std::size_t& i, std::size_t lim
 std::expected<Stylesheet, CssError> parse_css(std::string_view css, std::vector<std::string>& warnings) {
     Stylesheet sheet;
     std::size_t i = 0;
-    if (!parse_stylesheet_body(css, i, css.size(), sheet, std::nullopt, warnings)) {
+    CssWarnings sink{css, warnings};
+    if (!parse_stylesheet_body(css, i, css.size(), sheet, std::nullopt, sink)) {
         return std::unexpected(CssError::InvalidSyntax);
     }
     return sheet;

@@ -111,7 +111,7 @@ A `Popup` is out of flow and takes no space in its parent. See [Popup](#popup).
 
 ## Style
 
-`src/ui/css_parser.cpp` parses a subset. An unknown property warns and stays on the rule. Unknown at-rules warn.
+`src/ui/css_parser.cpp` parses a subset. An unknown property warns and stays on the rule. Unknown at-rules warn. Each warning starts with `line N: `; every view the parser passes around is a substr of the source, so the line is the newlines before the view. `AssetsDb` logs a `.css` asset's warnings with `log::warn` when it loads it.
 
 Selectors: type (`Label`), class (`.c`), id (`#id`), type-and-class (`Label.c`), descendant (`A B`), child (`A > B`). `+`, `~`, and comma grouping are rejected. Pseudo-classes: `:hover`, `:pressed`, `:disabled`, `:focus`, `:checked`.
 

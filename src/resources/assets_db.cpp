@@ -5,6 +5,7 @@
 #include <engine/render/material.h>
 #include <engine/resources/assets_db.h>
 #include <engine/loc/catalog.h>
+#include <engine/log.h>
 #include <engine/resources/font.h>
 #include <engine/resources/sprite_sheet.h>
 #include <engine/ui/document.h>
@@ -179,6 +180,10 @@ std::expected<std::shared_ptr<void>, AssetError> load_cpu(
         }
         std::vector<std::string> warnings;
         auto parsed = ui::parse_css(*bytes, warnings);
+        // A dropped declaration otherwise fails silently: the game just looks wrong.
+        for (const std::string& warning : warnings) {
+            log::warn(std::format("stylesheet {}: {}", entry.relative_path, warning));
+        }
         if (!parsed) {
             return std::unexpected(AssetError::Corrupt);
         }
