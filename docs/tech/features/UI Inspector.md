@@ -1,6 +1,6 @@
 # UI inspector
 
-The inspector has two halves. The engine keeps the probe: pick, the hover and selection boxes, path resolution, and snapshot functions that return plain data. The editor shows the panel: the Inspector tab of `wind_editor` ([Editor](Editor.md)). A game cannot open it. To inspect a game, Play it in the editor.
+The inspector has two halves. The engine keeps the probe: pick, the hover and selection boxes, path resolution, and snapshot functions that return plain data. The editor shows it: the UI Tree tab of `wind_editor` lists the elements and picks, and its Inspector tab shows the selected element ([Editor](Editor.md#inspector)). A game cannot open it. To inspect a game, Play it in the editor.
 
 Header: `include/engine/ui/inspector.h`. Panel: `editor/src/inspector_panel.h`.
 
@@ -13,7 +13,7 @@ The probe opens no window and spawns no canvas. Every canvas of the attached wor
 | Function | Returns |
 | --- | --- |
 | `inspector_tree(world)` | One `InspectorTreeRow` per element, depth first, every canvas of the world |
-| `inspector_select(world, window, pick)` | Selects a row's `pick` for that window and makes it the detail window |
+| `inspector_select(world, window, pick)` | Selects a row's `pick` for that window, makes it the detail window, and counts it in `UiInspector::selections` |
 | `inspector_toggle(world, key)` | Collapses an expanded row or expands a collapsed one. A leaf stays as it is |
 | `inspector_selection(world, window)` | The `InspectorPick` of that window |
 | `inspector_detail(world, pick)` | The computed block as text |
@@ -32,6 +32,8 @@ That walk matches paint order (z-index, scroll, Viewport camera, `display: none`
 A hit calls `inspector_select` for that window: canvas entity, path, and the nearest `generated_owner`. It inserts the window into `Presentation.mouse` and returns before focus, drag, and `execute()`. A miss does not select and does not consume. `:hover` and the wheel stay on the game path. With `pick_pointer` off, a click reaches the game. The hover box stops. The selection stays.
 
 The path is a child index per step. A step into `generated_items` sets `kGeneratedPathBit` (`src/ui/element_path.h`). No `Element*` is kept across frames. `generated_owner` finds a virtualized row after its index moves. `inspector_retarget` writes the new path. `run_ui_render` calls it while attached, before it builds the overlay commands, and `inspector_tree` calls it too. A selection whose canvas is gone turns inactive. If the row has left the window, the selection stays, the box disappears, and no tree row is marked.
+
+`UiInspector::selections` counts `inspector_select` calls since attach: a tree row, a tree key, and a pick click each add one, even for the element already selected. A retarget changes the path but not the count. A host compares the count with the one it last saw to tell a new selection from an element that moved; attach and detach reset it to 0.
 
 `hit_test_visual` also returns three rects in canvas space, after scroll and Viewport and before the canvas scale.
 
@@ -72,21 +74,27 @@ Style and box numbers are from the last paint of the game world. `wind-cli` read
 
 After the boxes, one badge is painted in the same scissor. Its text is the tag (`Kind`, then `#id` when set, then `.class` for each class) and the border-box size in layout units. Whole numbers print as integers. Any other size prints to one decimal. The badge sits 4px above the border. When that would leave the canvas it sits below, and its x is clamped inside the canvas. While pick is on and the pointer is on a different element, the badge follows the hover. Otherwise it stays on the selection.
 
-## Editor panel
+## Editor panels
 
-The Inspector tab: a Pick checkbox and a hint, the tree on the left, Computed and Rules on the right (`editor/assets/ui/inspector.xml`, `editor/assets/css/panels.css`). See [Editor](Editor.md) for when it attaches.
+Two tabs of the editor show the probe ([Editor](Editor.md#inspector) has the selection they share).
 
-`InspectorPanel::refresh` runs in the editor world's `Phase::Game`, before that world's Bind, while the tab is visible. It copies `inspector_tree` into `InspectorRowViewModel`s, reused by key so a row keeps its element, and copies the detail and the rules of the detail window's selection. A row binds its depth to `var-depth`; the row's left padding is `calc(var(--depth, 0) * 14px)`. The expander is a `Checkbox` drawn with `builtin::tree_chevron`, turned down while the row is expanded, and calls `inspector_toggle`; on a leaf it is disabled and draws nothing. The row button calls `inspector_select`. Pick is two-way: a checkbox click since the last refresh writes `pick_pointer`; otherwise the game's value is shown.
+The UI Tree tab: a Pick checkbox and a hint over the tree (`editor/assets/ui/ui_tree.xml`, `editor/assets/css/panels.css`). See [Editor](Editor.md) for when it attaches.
+
+`UiTreePanel::refresh` runs in the editor world's `Phase::Game`, before that world's Bind, while the tab is visible. It copies `inspector_tree` into `UiTreeRowViewModel`s, reused by key so a row keeps its element. A row binds its depth to `var-depth`; the row's left padding is `calc(var(--depth, 0) * 14px)`. The expander is a `Checkbox` drawn with `builtin::tree_chevron`, turned down while the row is expanded, and calls `inspector_toggle`; on a leaf it is disabled and draws nothing. The row button calls `inspector_select`. Pick is two-way: a checkbox click since the last refresh writes `pick_pointer`; otherwise the game's value is shown.
+
+`UiTreePanel::sync_selection` runs every frame while attached, the tab shown or not: when `UiInspector::selections` moved since the last call, the editor's selection becomes that element (`UiElementSelection` with `detail_window`). So a pick click shows in the Inspector tab while the UI Tree tab is hidden, and clicking the selected row again takes the Inspector back from a file. Detach clears the editor's selection when it is a UI element.
 
 The tree has fixed 22px rows in a scrolling `ScrollView`, so it is virtualized.
 
-While the Inspector tab is shown and its canvas is the topmost one of the editor window under the pointer (docked or floated), the arrows, Home, and End move through the tree (`InspectorPanel::navigate`, `tree_navigate`): Up and Down move, Left collapses or goes to the parent, Right expands or goes to the first child. The start is the selected row of the detail window; with nothing selected, Down picks the first row. `EditorPanels` reads `KeyEvent` with its own cursor, repeats included, and calls `scroll_item_into_view` on `#tree` so the row stays visible. Keys are not `ActionId` bindings: the process has one binding table, which the game fills and Stop resets.
+While the UI Tree tab is shown and its canvas is the topmost one of the editor window under the pointer (docked or floated), the arrows, Home, and End move through the tree (`UiTreePanel::navigate`, `tree_navigate`): Up and Down move, Left collapses or goes to the parent, Right expands or goes to the first child. The start is the selected row of the detail window; with nothing selected, Down picks the first row. `EditorPanels` reads `KeyEvent` with its own cursor, repeats included, and calls `scroll_item_into_view` on `#tree` so the row stays visible. Keys are not `ActionId` bindings: the process has one binding table, which the game fills and Stop resets.
 
-The panel inspects the world bound to `kPrimaryWindow`. A second world of the game (a tool window in its own world) is not in the tree.
+The Inspector tab shows a selected element on every refresh, so its numbers follow the game: the title is the first line of `inspector_detail` (`Kind #id .class`), the subtitle `UI element`, then a Computed section with the rest of the detail and a Rules section with `inspector_rules`, one line per row (`No rule matches.` when none). It reads the probe's current selection of that window, so a retarget is followed and nothing is copied out of the game between frames. An element that left the live tree shows the probe's one-line reason as the title.
+
+The panels inspect the world bound to `kPrimaryWindow`. A second world of the game (a tool window in its own world) is not in the tree.
 
 ## Tests
 
-`tests/ui_inspector_test.cpp`: visual hit, paths and owner retarget, boxes, rule matching, attach and detach, pick and the command it skips, detail and rules text, tree rows, select, toggle (a leaf stays), generated rows that move, several windows, hover canvas, overlay, badge. `editor/tests/inspector_panel_test.cpp`: rows to view-models, depth and expanded, the row commands, tree keys, Pick both ways, detach. No OS window.
+`tests/ui_inspector_test.cpp`: visual hit, paths and owner retarget, boxes, rule matching, attach and detach, pick and the command it skips, detail and rules text, tree rows, select, toggle (a leaf stays), the `selections` count (select, pick click, not retarget), generated rows that move, several windows, hover canvas, overlay, badge. `editor/tests/ui_tree_panel_test.cpp`: rows to view-models, depth and expanded, the row commands, the editor selection from a row and from a pick (hidden tab too, not on retarget), tree keys, Pick both ways, detach. `editor/tests/inspector_panel_test.cpp`: a UI element's title, Computed, and Rules, following the probe, and detach. No OS window.
 
 ## See also
 

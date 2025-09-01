@@ -10,16 +10,16 @@
 
 namespace editor {
 
-class InspectorPanel;
+class UiTreePanel;
 
-// One row of the inspector tree (`rows` in assets/ui/inspector.xml). Keeps a copy of the engine's row,
+// One row of the UI tree (`rows` in assets/ui/ui_tree.xml). Keeps a copy of the engine's row,
 // which is plain data: nothing in it is dereferenced, and the panel drops every row on Stop.
-class InspectorRowViewModel final : public engine::ui::ViewModel {
+class UiTreeRowViewModel final : public engine::ui::ViewModel {
 public:
-    explicit InspectorRowViewModel(InspectorPanel& panel);
+    explicit UiTreeRowViewModel(UiTreePanel& panel);
 
-    InspectorRowViewModel(const InspectorRowViewModel&) = delete;
-    InspectorRowViewModel& operator=(const InspectorRowViewModel&) = delete;
+    UiTreeRowViewModel(const UiTreeRowViewModel&) = delete;
+    UiTreeRowViewModel& operator=(const UiTreeRowViewModel&) = delete;
 
     void show(engine::ui::InspectorTreeRow row);
     [[nodiscard]] const engine::ui::InspectorTreeRow& row() const;
@@ -41,7 +41,7 @@ public:
     MethodCommand toggle;
 
 private:
-    InspectorPanel* panel_;
+    UiTreePanel* panel_;
     engine::ui::InspectorTreeRow row_;
 };
 

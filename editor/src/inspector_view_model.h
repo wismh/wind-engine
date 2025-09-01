@@ -1,7 +1,6 @@
 #pragma once
 
-#include "inspector_row_view_model.h"
-#include "rule_line_view_model.h"
+#include "inspector_section_view_model.h"
 
 #include <engine/ui/bindable.h>
 #include <engine/ui/view_model.h>
@@ -16,12 +15,11 @@ class InspectorViewModel final : public engine::ui::ViewModel {
 public:
     InspectorViewModel();
 
-    engine::ui::BindableList<std::shared_ptr<InspectorRowViewModel>> rows;
-    engine::ui::Bindable<std::string> detail;
-    engine::ui::BindableList<std::shared_ptr<RuleLineViewModel>> rules;
-    // Two-way with the game world's UiInspector::pick_pointer.
-    engine::ui::Bindable<bool> pick;
-    engine::ui::Bindable<std::string> hint;
+    // What is selected: a file name, or an element's `Kind #id .class`, or why nothing is shown.
+    engine::ui::Bindable<std::string> title;
+    // What kind of thing it is, or how to select something.
+    engine::ui::Bindable<std::string> subtitle;
+    engine::ui::BindableList<std::shared_ptr<InspectorSectionViewModel>> sections;
 };
 
 }
