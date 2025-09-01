@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "editor_selection.h"
 #include "inspector_panel.h"
 
 #include <engine/ecs/world.h>
@@ -9,9 +10,13 @@
 #include <engine/ui/presentation.h>
 #include <engine/ui/stylesheet.h>
 
+#include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <memory>
-#include <optional>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -30,175 +35,172 @@ struct Game {
         canvas.fit = engine::ui::UiFit::Fixed;
         canvas.rect = {0.0f, 0.0f, 800.0f, 600.0f};
         entity = engine::ui::spawn_canvas(world, canvas, std::move(*document), std::move(*sheet));
+        engine::ui::set_inspector_attached(world, true);
     }
 
     engine::ecs::World world;
     engine::ecs::Entity entity{};
 };
 
-std::vector<std::string> labels(const editor::InspectorViewModel& vm) {
+// One text file in a directory of its own.
+class TextFile {
+public:
+    explicit TextFile(std::string_view text)
+        : dir_(std::filesystem::temp_directory_path() / "wind_inspector_panel_test" /
+                  ::testing::UnitTest::GetInstance()->current_test_info()->name()) {
+        std::filesystem::remove_all(dir_);
+        std::filesystem::create_directories(dir_);
+        write(text);
+    }
+
+    ~TextFile() {
+        std::error_code error;
+        std::filesystem::remove_all(dir_, error);
+    }
+
+    TextFile(const TextFile&) = delete;
+    TextFile& operator=(const TextFile&) = delete;
+
+    void write(std::string_view text) const { std::ofstream(path(), std::ios::binary) << text; }
+
+    [[nodiscard]] std::filesystem::path path() const { return dir_ / "notes.txt"; }
+
+    [[nodiscard]] editor::AssetSelection selection() const {
+        return editor::AssetSelection{.key = "notes.txt", .path = path(), .size = std::filesystem::file_size(path())};
+    }
+
+private:
+    std::filesystem::path dir_;
+};
+
+std::vector<std::string> headings(const editor::InspectorViewModel& vm) {
     std::vector<std::string> out;
-    for (const auto& row : vm.rows.get()) {
-        out.push_back(row->label.get());
+    for (const auto& section : vm.sections.get()) {
+        out.push_back(section->heading.get());
+    }
+    return out;
+}
+
+std::vector<std::string> lines(const editor::InspectorSectionViewModel& section) {
+    std::vector<std::string> out;
+    for (const auto& line : section.lines.get()) {
+        out.push_back(line->text.get());
     }
     return out;
 }
 
 }
 
-TEST(InspectorPanel, IdleShowsAHintAndNoRows) {
-    editor::InspectorPanel panel;
+TEST(InspectorPanel, NothingSelectedSaysHowToSelect) {
+    const editor::EditorSelection selection;
+    editor::InspectorPanel panel{selection};
     panel.refresh();
     const editor::InspectorViewModel& vm = *panel.view_model();
-    EXPECT_FALSE(panel.attached());
-    EXPECT_TRUE(vm.rows.get().empty());
-    EXPECT_TRUE(vm.rules.get().empty());
-    EXPECT_FALSE(vm.pick.get());
-    EXPECT_NE(vm.hint.get().find("Play"), std::string::npos);
+    EXPECT_EQ(vm.title.get(), "Nothing selected");
+    EXPECT_NE(vm.subtitle.get().find("UI Tree"), std::string::npos);
+    EXPECT_TRUE(vm.sections.get().empty());
 }
 
-TEST(InspectorPanel, TreeRowsBecomeViewModelRows) {
+TEST(InspectorPanel, AFileIsReadWhenSelectedAndAgainWhenSelectedAgain) {
+    const TextFile file("first\nsecond\n");
+    editor::EditorSelection selection;
+    editor::InspectorPanel panel{selection};
+    selection.select(file.selection());
+    panel.refresh();
+    const editor::InspectorViewModel& vm = *panel.view_model();
+    EXPECT_EQ(vm.title.get(), "notes.txt");
+    EXPECT_EQ(vm.subtitle.get(), "File");
+    EXPECT_EQ(headings(vm), (std::vector<std::string>{"File", "Content"}));
+    EXPECT_EQ(lines(*vm.sections.get()[1]), (std::vector<std::string>{"first", "second"}));
+
+    file.write("changed\n");
+    panel.refresh();
+    EXPECT_EQ(lines(*vm.sections.get()[1]), (std::vector<std::string>{"first", "second"}))
+            << "the disk is not read every frame";
+    selection.select(file.selection());
+    panel.refresh();
+    EXPECT_EQ(lines(*vm.sections.get()[1]), (std::vector<std::string>{"changed"}));
+}
+
+TEST(InspectorPanel, ACollapsedSectionStaysCollapsedForTheNextSelection) {
+    const TextFile file("first\n");
+    editor::EditorSelection selection;
+    editor::InspectorPanel panel{selection};
+    selection.select(file.selection());
+    panel.refresh();
+    const editor::InspectorViewModel& vm = *panel.view_model();
+    const std::shared_ptr<editor::InspectorSectionViewModel> content = vm.sections.get()[1];
+    EXPECT_TRUE(content->expanded.get());
+
+    content->toggle.execute();
+    EXPECT_FALSE(vm.sections.get()[1]->expanded.get());
+    EXPECT_TRUE(vm.sections.get()[1]->lines.get().empty());
+    EXPECT_EQ(lines(*vm.sections.get()[0]).size(), 2u) << "only that section";
+
+    selection.select(file.selection());
+    panel.refresh();
+    EXPECT_FALSE(vm.sections.get()[1]->expanded.get());
+    EXPECT_EQ(vm.sections.get()[1], content) << "a section keeps its view-model";
+
+    content->toggle.execute();
+    EXPECT_EQ(lines(*vm.sections.get()[1]), (std::vector<std::string>{"first"}));
+}
+
+TEST(InspectorPanel, AUiElementShowsItsComputedStyleAndRules) {
     Game game;
-    editor::InspectorPanel panel;
+    editor::EditorSelection selection;
+    editor::InspectorPanel panel{selection};
     panel.attach(game.world);
-    EXPECT_TRUE(engine::ui::inspector_attached(game.world));
+    engine::ui::inspector_select(game.world, engine::kPrimaryWindow,
+            engine::ui::InspectorPick{.canvas = game.entity, .path = {0, 0}});
+    selection.select(editor::UiElementSelection{});
     panel.refresh();
 
     const editor::InspectorViewModel& vm = *panel.view_model();
-    EXPECT_EQ(labels(vm), (std::vector<std::string>{"Canvas", "Button #go", "Label #lab"}));
-    EXPECT_EQ(vm.rows.get()[0]->depth.get(), 0);
-    EXPECT_EQ(vm.rows.get()[2]->depth.get(), 2) << "the indent is the depth, not spaces in the label";
-    EXPECT_TRUE(vm.rows.get()[0]->expanded.get());
-    EXPECT_FALSE(vm.rows.get()[2]->expanded.get());
-    EXPECT_FALSE(vm.rows.get()[2]->toggle.can_execute()) << "a leaf has no expander";
-    EXPECT_EQ(vm.rows.get()[2]->rowFill.get(), "#00000000");
-    EXPECT_EQ(vm.detail.get(), "Nothing selected");
+    EXPECT_EQ(vm.title.get(), "Label #lab");
+    EXPECT_EQ(vm.subtitle.get(), "UI element");
+    EXPECT_EQ(headings(vm), (std::vector<std::string>{"Computed", "Rules"}));
+    const std::vector<std::string> computed = lines(*vm.sections.get()[0]);
+    EXPECT_NE(std::ranges::find(computed, "pseudo: (none)"), computed.end());
+    const std::vector<std::string> rules = lines(*vm.sections.get()[1]);
+    ASSERT_GE(rules.size(), 4u);
+    EXPECT_EQ(rules.front().find("Label"), 0u) << rules.front();
+    bool winner = false;
+    for (const std::string& line : rules) {
+        winner = winner || (line.find("#go > Label") != std::string::npos && line.find("winner") != std::string::npos);
+    }
+    EXPECT_TRUE(winner);
 
-    const std::shared_ptr<editor::InspectorRowViewModel> first = vm.rows.get()[0];
-    panel.refresh();
-    EXPECT_EQ(panel.view_model()->rows.get()[0], first) << "a row keeps its view-model across refreshes";
-    panel.detach();
-}
-
-TEST(InspectorPanel, RowCommandSelectsAndTheDetailFollows) {
-    Game game;
-    editor::InspectorPanel panel;
-    panel.attach(game.world);
-    panel.refresh();
-
-    panel.view_model()->rows.get()[2]->select.execute();
-    EXPECT_TRUE(engine::ui::inspector_selection(game.world).active);
-    panel.refresh();
-
-    const editor::InspectorViewModel& vm = *panel.view_model();
-    EXPECT_NE(vm.detail.get().find("Label #lab"), std::string::npos) << vm.detail.get();
-    EXPECT_EQ(vm.rows.get()[2]->rowFill.get(), "#2f5d3a");
-    EXPECT_EQ(vm.rows.get()[1]->rowFill.get(), "#00000000");
-    ASSERT_EQ(vm.rules.get().size(), 2u);
-    EXPECT_NE(vm.rules.get()[1]->line.get().find("#go > Label"), std::string::npos);
-    EXPECT_NE(vm.rules.get()[1]->line.get().find("winner"), std::string::npos);
-    panel.detach();
-}
-
-TEST(InspectorPanel, PickInTheGameShowsInThePanel) {
-    Game game;
-    editor::InspectorPanel panel;
-    panel.attach(game.world);
-    // What a pick click in the game window does (handle_pointer while pick_pointer is on).
+    // The probe moves to another element: the next refresh follows it without a new editor selection.
     engine::ui::inspector_select(game.world, engine::kPrimaryWindow,
             engine::ui::InspectorPick{.canvas = game.entity, .path = {0}});
     panel.refresh();
-
-    const editor::InspectorViewModel& vm = *panel.view_model();
-    EXPECT_NE(vm.detail.get().find("Button #go"), std::string::npos);
-    EXPECT_EQ(vm.rows.get()[1]->rowFill.get(), "#2f5d3a");
-    panel.detach();
-}
-
-TEST(InspectorPanel, ExpanderCollapsesAndExpands) {
-    Game game;
-    editor::InspectorPanel panel;
-    panel.attach(game.world);
-    panel.refresh();
-
-    panel.view_model()->rows.get()[1]->toggle.execute();
-    panel.refresh();
-    EXPECT_EQ(labels(*panel.view_model()), (std::vector<std::string>{"Canvas", "Button #go"}));
-    EXPECT_FALSE(panel.view_model()->rows.get()[1]->expanded.get());
-
-    panel.view_model()->rows.get()[1]->toggle.execute();
-    panel.refresh();
-    EXPECT_EQ(panel.view_model()->rows.get().size(), 3u);
-    panel.detach();
-}
-
-TEST(InspectorPanel, PickIsTwoWay) {
-    Game game;
-    editor::InspectorPanel panel;
-    panel.attach(game.world);
-    panel.refresh();
-    editor::InspectorViewModel& vm = *panel.view_model();
-    EXPECT_FALSE(vm.pick.get());
-    EXPECT_FALSE(game.world.ctx<engine::ui::UiInspector>().pick_pointer);
-
-    vm.pick = true;  // the checkbox click writes the view-model
-    panel.refresh();
-    EXPECT_TRUE(game.world.ctx<engine::ui::UiInspector>().pick_pointer);
-    EXPECT_TRUE(vm.pick.get());
-
-    game.world.ctx<engine::ui::UiInspector>().pick_pointer = false;
-    panel.refresh();
-    EXPECT_FALSE(vm.pick.get()) << "a change on the game side shows in the checkbox";
-    panel.detach();
-}
-
-TEST(InspectorPanel, DetachDropsEverythingAndRowsGoInert) {
-    Game game;
-    editor::InspectorPanel panel;
-    panel.attach(game.world);
-    panel.view_model()->pick = true;
-    panel.refresh();
-    const std::shared_ptr<editor::InspectorRowViewModel> kept = panel.view_model()->rows.get()[2];
+    EXPECT_EQ(vm.title.get(), "Button #go");
+    EXPECT_EQ(lines(*vm.sections.get()[1]), (std::vector<std::string>{"No rule matches."}));
 
     panel.detach();
-    const editor::InspectorViewModel& vm = *panel.view_model();
     EXPECT_FALSE(panel.attached());
-    EXPECT_FALSE(engine::ui::inspector_attached(game.world));
-    EXPECT_TRUE(vm.rows.get().empty());
-    EXPECT_TRUE(vm.rules.get().empty());
-    EXPECT_TRUE(vm.detail.get().empty());
-    EXPECT_FALSE(vm.pick.get());
-    EXPECT_FALSE(game.world.ctx<engine::ui::UiInspector>().pick_pointer);
-
-    kept->select.execute();
-    EXPECT_FALSE(engine::ui::inspector_selection(game.world).active) << "a stale row does nothing";
+    EXPECT_EQ(vm.title.get(), "Nothing selected");
+    EXPECT_TRUE(vm.sections.get().empty());
 }
 
-TEST(InspectorPanel, TreeKeysSelectCollapseAndExpand) {
+TEST(InspectorPanel, AUiElementWithoutTheGameShowsNothing) {
+    editor::EditorSelection selection;
+    editor::InspectorPanel panel{selection};
+    selection.select(editor::UiElementSelection{});
+    panel.refresh();
+    EXPECT_EQ(panel.view_model()->title.get(), "Nothing selected");
+}
+
+TEST(InspectorPanel, DetachKeepsAFile) {
+    const TextFile file("first\n");
     Game game;
-    editor::InspectorPanel panel;
+    editor::EditorSelection selection;
+    editor::InspectorPanel panel{selection};
     panel.attach(game.world);
+    selection.select(file.selection());
     panel.refresh();
-    using engine::ui::TreeNav;
-
-    EXPECT_EQ(panel.navigate(TreeNav::Down), std::optional<std::size_t>{0}) << "nothing selected: the first row";
-    panel.refresh();
-    EXPECT_EQ(panel.view_model()->rows.get()[0]->rowFill.get(), "#2f5d3a");
-
-    EXPECT_EQ(panel.navigate(TreeNav::Last), std::optional<std::size_t>{2});
-    panel.refresh();
-    EXPECT_EQ(panel.navigate(TreeNav::Left), std::optional<std::size_t>{1}) << "a leaf moves to its parent";
-    panel.refresh();
-    EXPECT_EQ(panel.view_model()->rows.get()[1]->rowFill.get(), "#2f5d3a");
-
-    EXPECT_EQ(panel.navigate(TreeNav::Left), std::optional<std::size_t>{1}) << "an expanded row collapses";
-    panel.refresh();
-    EXPECT_EQ(labels(*panel.view_model()), (std::vector<std::string>{"Canvas", "Button #go"}));
-    EXPECT_EQ(panel.navigate(TreeNav::Right), std::optional<std::size_t>{1}) << "and expands again";
-    panel.refresh();
-    EXPECT_EQ(panel.view_model()->rows.get().size(), 3u);
-    EXPECT_EQ(panel.navigate(TreeNav::Right), std::optional<std::size_t>{2}) << "then steps into it";
     panel.detach();
-
-    EXPECT_FALSE(panel.navigate(TreeNav::Down).has_value()) << "detached: no rows";
+    EXPECT_EQ(panel.view_model()->title.get(), "notes.txt");
+    EXPECT_EQ(headings(*panel.view_model()), (std::vector<std::string>{"File", "Content"}));
 }
