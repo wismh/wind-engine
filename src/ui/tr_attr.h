@@ -14,6 +14,8 @@ struct TrParse {
     Kind kind = Kind::NotTr;
     std::string key;
     std::vector<TrArg> args;
+    // The `{binding path}` of each of `args`, in order.
+    std::vector<std::string> arg_paths;
     std::string message;
 };
 
