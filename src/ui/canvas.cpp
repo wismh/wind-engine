@@ -87,6 +87,66 @@ void begin_frame(ecs::World& world) {
 
 namespace {
 
+bool is_utf8_continuation(char c) {
+    return (static_cast<unsigned char>(c) & 0xC0) == 0x80;
+}
+
+std::size_t prev_utf8_char(std::string_view s, std::size_t pos) {
+    if (pos == 0) {
+        return 0;
+    }
+    --pos;
+    while (pos > 0 && is_utf8_continuation(s[pos])) {
+        --pos;
+    }
+    return pos;
+}
+
+std::size_t next_utf8_char(std::string_view s, std::size_t pos) {
+    if (pos >= s.size()) {
+        return s.size();
+    }
+    ++pos;
+    while (pos < s.size() && is_utf8_continuation(s[pos])) {
+        ++pos;
+    }
+    return pos;
+}
+
+// Which UTF-8 char boundary in element.text a click at real-screen-pixel `click_x` is closest to
+// — snaps to whichever side of a glyph the click is nearer, same convention every text editor
+// uses. Reads back Element::painted_font_size_px/painted_content_origin_x (paint.cpp) rather than
+// re-resolving CSS length units (padding, em font-size) here, so this can never disagree with
+// where paint.cpp actually drew the text/caret. Falls back to the end of the text when the
+// element has never painted yet (painted_font_size_px == 0) or no painter is registered for this
+// window (headless engine_tests) — same degraded-but-safe fallback the layout hug-sizing CPU path
+// already accepts elsewhere.
+std::size_t caret_index_for_click(ecs::World& world, const Element& element, float click_x, WindowId window) {
+    if (element.painted_font_size_px <= 0.0f) {
+        return element.text.size();
+    }
+    IUiPainter* painter = layout_painter_for(world, window);
+    if (painter == nullptr) {
+        return element.text.size();
+    }
+    const float target = click_x - element.painted_content_origin_x;
+    std::size_t pos = 0;
+    float measured_w = 0.0f;
+    while (pos < element.text.size()) {
+        const std::size_t next = next_utf8_char(element.text, pos);
+        const float next_w =
+                painter->measure_text(std::string_view(element.text).substr(0, next), element.font_family,
+                        element.painted_font_size_px)
+                        .x;
+        if (target < (measured_w + next_w) * 0.5f) {
+            return pos;
+        }
+        pos = next;
+        measured_w = next_w;
+    }
+    return pos;
+}
+
 // Shared result of resolve_pointer_hit(): everything a caller needs to both resolve this hit
 // (command/drag lookup) and, for handle_pointer()'s drag case, capture enough geometry to keep
 // tracking the drag on later Move events without re-hit-testing.
@@ -298,6 +358,12 @@ void handle_pointer_impl(ecs::World& world, float x, float y, WindowId window, U
 
     if (hit->element->kind == ElementKind::TextInput) {
         set_focus(world, window, hit->entity, hit->element);
+        // Click places the caret and starts a possible drag-select: anchor == caret for now (no
+        // selection), diverging only if update_text_selection() moves caret_position on a later
+        // Move while the button stays down.
+        const std::size_t index = caret_index_for_click(world, *hit->element, x, window);
+        hit->element->caret_position = index;
+        hit->element->selection_anchor = index;
     } else {
         clear_focus(world, window);
     }
@@ -405,6 +471,18 @@ void handle_pointer(ecs::World& world, float x, float y, WindowId window) {
 
 void handle_pointer_for_run_input(ecs::World& world, float x, float y, WindowId window, UiInputBatchCache& batch) {
     handle_pointer_impl(world, x, y, window, &batch);
+}
+
+void update_text_selection(ecs::World& world, float x, WindowId window) {
+    if (!pointer_for(world, window).down) {
+        return;
+    }
+    Element* element = focused_element(world, window);
+    if (element == nullptr || element->kind != ElementKind::TextInput || element->disabled) {
+        return;
+    }
+    element->caret_position = caret_index_for_click(world, *element, x, window);
+    element->caret_blink_timer = 0.0f;
 }
 
 namespace {
@@ -696,32 +774,6 @@ ecs::Entity spawn_canvas(ecs::World& world, UiCanvas canvas, UiDocument document
 
 namespace {
 
-bool is_utf8_continuation(char c) {
-    return (static_cast<unsigned char>(c) & 0xC0) == 0x80;
-}
-
-std::size_t prev_utf8_char(std::string_view s, std::size_t pos) {
-    if (pos == 0) {
-        return 0;
-    }
-    --pos;
-    while (pos > 0 && is_utf8_continuation(s[pos])) {
-        --pos;
-    }
-    return pos;
-}
-
-std::size_t next_utf8_char(std::string_view s, std::size_t pos) {
-    if (pos >= s.size()) {
-        return s.size();
-    }
-    ++pos;
-    while (pos < s.size() && is_utf8_continuation(s[pos])) {
-        ++pos;
-    }
-    return pos;
-}
-
 // Shared by handle_text_input/handle_key's Backspace/Delete/Ctrl+X/Ctrl+V paths — every one of
 // them ends with "if bound, push element->text back to the ViewModel."
 void write_text_binding(ecs::World& world, ecs::Entity canvas_entity, Element* element) {
@@ -749,7 +801,7 @@ void clear_focus(ecs::World& world, WindowId window) {
         if (it->second.element != nullptr) {
             it->second.element->focused = false;
             it->second.element->caret_blink_timer = 0.0f;
-            it->second.element->selected_all = false;
+            it->second.element->selection_anchor.reset();
         }
         focus_map.erase(it);
     }
@@ -762,13 +814,13 @@ void set_focus(ecs::World& world, WindowId window, ecs::Entity canvas_entity, El
         if (it->second.element != nullptr) {
             it->second.element->focused = false;
             it->second.element->caret_blink_timer = 0.0f;
-            it->second.element->selected_all = false;
+            it->second.element->selection_anchor.reset();
         }
     }
     if (element != nullptr) {
         element->focused = true;
         element->caret_blink_timer = 0.0f;
-        element->selected_all = false;
+        element->selection_anchor.reset();
         if (element->caret_position > element->text.size()) {
             element->caret_position = element->text.size();
         }
@@ -804,11 +856,17 @@ void handle_text_input(ecs::World& world, std::string_view text, WindowId window
     if (element->caret_position > element->text.size()) {
         element->caret_position = element->text.size();
     }
-    if (element->selected_all) {
-        element->text.clear();
-        element->caret_position = 0;
-        element->selected_all = false;
+    if (element->selection_anchor && *element->selection_anchor != element->caret_position) {
+        const std::size_t start = std::min(*element->selection_anchor, element->caret_position);
+        const std::size_t end = std::max(*element->selection_anchor, element->caret_position);
+        element->text.erase(start, end - start);
+        element->caret_position = start;
     }
+    // Typing always ends selection tracking — including a stale anchor left equal to
+    // caret_position by a click/Ctrl+A that was never followed by an actual drag/Shift-extend;
+    // left set, it would wrongly reappear as a "selection" the moment caret_position next moves
+    // away from it by some other means.
+    element->selection_anchor.reset();
     element->text.insert(element->caret_position, text);
     element->caret_position += text.size();
     element->caret_blink_timer = 0.0f;
@@ -875,18 +933,28 @@ void handle_key(ecs::World& world, KeyCode key, bool down, bool /*repeat*/, Wind
     }
 
     const bool ctrl = world.ctx<UiModifierState>().modifiers[window].ctrl;
+    const bool shift = world.ctx<UiModifierState>().modifiers[window].shift;
+    // The real (non-collapsed) selection right now, if any — [selection_start, selection_end).
+    // Frozen for the rest of this call; every branch below either reads it or ends by `return`ing
+    // (Ctrl+A/C/X/V) before it would go stale.
+    const bool has_selection = element->selection_anchor && *element->selection_anchor != element->caret_position;
+    const std::size_t selection_start =
+            has_selection ? std::min(*element->selection_anchor, element->caret_position) : 0;
+    const std::size_t selection_end =
+            has_selection ? std::max(*element->selection_anchor, element->caret_position) : 0;
 
     if (ctrl && key == KeyCode::A) {
-        element->selected_all = true;
+        element->selection_anchor = 0;
+        element->caret_position = element->text.size();
         element->caret_blink_timer = 0.0f;
         return;
     }
 
     if (ctrl && key == KeyCode::C) {
-        if (element->selected_all && element->allow_copy) {
+        if (has_selection && element->allow_copy) {
             UiClipboard& clipboard = world.ctx<UiClipboard>();
             if (clipboard.set_text) {
-                clipboard.set_text(element->text);
+                clipboard.set_text(element->text.substr(selection_start, selection_end - selection_start));
             }
         }
         return;
@@ -894,14 +962,14 @@ void handle_key(ecs::World& world, KeyCode key, bool down, bool /*repeat*/, Wind
 
     // Cut is copy-then-delete: it needs allow_copy (read permission), not allow_paste.
     if (ctrl && key == KeyCode::X) {
-        if (element->selected_all && element->allow_copy) {
+        if (has_selection && element->allow_copy) {
             UiClipboard& clipboard = world.ctx<UiClipboard>();
             if (clipboard.set_text) {
-                clipboard.set_text(element->text);
+                clipboard.set_text(element->text.substr(selection_start, selection_end - selection_start));
             }
-            element->text.clear();
-            element->caret_position = 0;
-            element->selected_all = false;
+            element->text.erase(selection_start, selection_end - selection_start);
+            element->caret_position = selection_start;
+            element->selection_anchor.reset();
             element->caret_blink_timer = 0.0f;
             write_text_binding(world, it->second.canvas_entity, element);
         }
@@ -913,13 +981,16 @@ void handle_key(ecs::World& world, KeyCode key, bool down, bool /*repeat*/, Wind
             UiClipboard& clipboard = world.ctx<UiClipboard>();
             if (clipboard.get_text) {
                 if (const std::optional<std::string> pasted = clipboard.get_text(); pasted.has_value()) {
-                    if (element->selected_all) {
-                        element->text.clear();
-                        element->caret_position = 0;
-                        element->selected_all = false;
+                    std::size_t insert_at = element->caret_position;
+                    if (has_selection) {
+                        element->text.erase(selection_start, selection_end - selection_start);
+                        insert_at = selection_start;
                     }
-                    element->text.insert(element->caret_position, *pasted);
-                    element->caret_position += pasted->size();
+                    // Unconditionally, same reasoning as Backspace/Delete above: a stale anchor
+                    // left equal to insert_at must not resurface as a "selection" later.
+                    element->selection_anchor.reset();
+                    element->text.insert(insert_at, *pasted);
+                    element->caret_position = insert_at + pasted->size();
                     element->caret_blink_timer = 0.0f;
                     write_text_binding(world, it->second.canvas_entity, element);
                 }
@@ -928,18 +999,20 @@ void handle_key(ecs::World& world, KeyCode key, bool down, bool /*repeat*/, Wind
         return;
     }
 
-    // Whole-field select-all (Ctrl+A) is the only selection this widget has today — no partial
-    // anchor/extent range yet (wind clipboard plan Phase B). Every key below that moves the caret
-    // or edits text collapses it first: Left/Home go to the selection's start (0), Right/End go
-    // to its end (text.size()), Backspace/Delete/typed text (handle_text_input) replace the whole
-    // field, same as if the user had erased it by hand.
+    // Backspace/Delete replace the whole selection (if any) instead of one character. Left/Right/
+    // Home/End: with Shift held, arm selection_anchor from the pre-move caret (if not already
+    // armed) and extend; without Shift, an existing selection collapses to the edge the key points
+    // toward (Left/Home -> start, Right/End -> end) instead of moving by one more character —
+    // matching every other text editor's convention.
     bool text_changed = false;
-    const bool had_selection = element->selected_all;
     if (key == KeyCode::Backspace) {
-        if (had_selection) {
-            element->text.clear();
-            element->caret_position = 0;
-            element->selected_all = false;
+        // Reset unconditionally, not only in the has_selection branch: left set, a stale anchor
+        // equal to the pre-erase caret_position would wrongly reappear as a "selection" once the
+        // single-char erase below moves caret_position away from it.
+        element->selection_anchor.reset();
+        if (has_selection) {
+            element->text.erase(selection_start, selection_end - selection_start);
+            element->caret_position = selection_start;
             element->caret_blink_timer = 0.0f;
             text_changed = true;
         } else if (element->caret_position > 0) {
@@ -950,10 +1023,10 @@ void handle_key(ecs::World& world, KeyCode key, bool down, bool /*repeat*/, Wind
             text_changed = true;
         }
     } else if (key == KeyCode::Delete) {
-        if (had_selection) {
-            element->text.clear();
-            element->caret_position = 0;
-            element->selected_all = false;
+        element->selection_anchor.reset();
+        if (has_selection) {
+            element->text.erase(selection_start, selection_end - selection_start);
+            element->caret_position = selection_start;
             element->caret_blink_timer = 0.0f;
             text_changed = true;
         } else if (element->caret_position < element->text.size()) {
@@ -963,21 +1036,46 @@ void handle_key(ecs::World& world, KeyCode key, bool down, bool /*repeat*/, Wind
             text_changed = true;
         }
     } else if (key == KeyCode::Left) {
-        element->caret_position = had_selection ? 0 : prev_utf8_char(element->text, element->caret_position);
-        element->selected_all = false;
+        if (shift && !element->selection_anchor) {
+            element->selection_anchor = element->caret_position;
+        }
+        if (!shift && has_selection) {
+            element->caret_position = selection_start;
+        } else {
+            element->caret_position = prev_utf8_char(element->text, element->caret_position);
+        }
+        if (!shift) {
+            element->selection_anchor.reset();
+        }
         element->caret_blink_timer = 0.0f;
     } else if (key == KeyCode::Right) {
-        element->caret_position =
-                had_selection ? element->text.size() : next_utf8_char(element->text, element->caret_position);
-        element->selected_all = false;
+        if (shift && !element->selection_anchor) {
+            element->selection_anchor = element->caret_position;
+        }
+        if (!shift && has_selection) {
+            element->caret_position = selection_end;
+        } else {
+            element->caret_position = next_utf8_char(element->text, element->caret_position);
+        }
+        if (!shift) {
+            element->selection_anchor.reset();
+        }
         element->caret_blink_timer = 0.0f;
     } else if (key == KeyCode::Home) {
+        if (shift && !element->selection_anchor) {
+            element->selection_anchor = element->caret_position;
+        } else if (!shift) {
+            element->selection_anchor.reset();
+        }
         element->caret_position = 0;
-        element->selected_all = false;
         element->caret_blink_timer = 0.0f;
     } else if (key == KeyCode::End) {
+        if (shift && !element->selection_anchor) {
+            element->selection_anchor = element->caret_position;
+        } else if (!shift) {
+            element->selection_anchor.reset();
+        }
         element->caret_position = element->text.size();
-        element->selected_all = false;
         element->caret_blink_timer = 0.0f;
     }
 
