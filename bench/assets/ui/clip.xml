@@ -1,0 +1,51 @@
+<!-- Clip scene: an outer ScrollView holding a column of notes (where the wheel turns) and twelve inner ScrollViews in
+     rows, then a rotated block whose ScrollView holds one more ScrollView: three levels of clip, one of them rotated
+     inside a scrolled parent. -->
+<Canvas id="clip">
+  <ScrollView class="outer">
+    <Stack class="columns" direction="horizontal">
+      <Stack id="wheel" class="notes" direction="vertical">
+        <Label id="rest" class="title" text="Clip"/>
+        <ItemsControl class="note-list" items_source="{binding notes}">
+          <ItemTemplate>
+            <Label class="note" text="{binding text}"/>
+          </ItemTemplate>
+        </ItemsControl>
+      </Stack>
+      <Stack class="panes" direction="vertical">
+        <ItemsControl class="pane-rows" items_source="{binding paneRows}">
+          <ItemTemplate>
+            <ItemsControl class="pane-row" direction="horizontal" items_source="{binding panes}">
+              <ItemTemplate>
+                <ScrollView class="pane">
+                  <ItemsControl class="pane-lines" items_source="{binding lines}">
+                    <ItemTemplate>
+                      <Label class="pane-line" text="{binding text}"/>
+                    </ItemTemplate>
+                  </ItemsControl>
+                </ScrollView>
+              </ItemTemplate>
+            </ItemsControl>
+          </ItemTemplate>
+        </ItemsControl>
+        <Stack class="tilted" direction="vertical">
+          <Label class="tilted-title" text="Rotated"/>
+          <ScrollView class="pane wide">
+            <ItemsControl class="pane-lines" items_source="{binding tiltLines}">
+              <ItemTemplate>
+                <Label class="pane-line" text="{binding text}"/>
+              </ItemTemplate>
+            </ItemsControl>
+            <ScrollView class="pane inner">
+              <ItemsControl class="pane-lines" items_source="{binding innerLines}">
+                <ItemTemplate>
+                  <Label class="pane-line" text="{binding text}"/>
+                </ItemTemplate>
+              </ItemsControl>
+            </ScrollView>
+          </ScrollView>
+        </Stack>
+      </Stack>
+    </Stack>
+  </ScrollView>
+</Canvas>

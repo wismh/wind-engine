@@ -27,6 +27,7 @@ set(_wind_editor_parts
     src/profiler_chart_paint.cpp
     src/profiler_panel.cpp
     src/profiler_row_view_model.cpp
+    src/profiler_stats.cpp
     src/profiler_view_model.cpp
     src/project_build.cpp
     src/project_scan.cpp

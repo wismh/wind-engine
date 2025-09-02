@@ -1,0 +1,85 @@
+<!-- Strategy HUD scene: a resource bar of bound numbers with an always-pulsing alert (@keyframes), a world in a
+     Viewport drawn by an IPaint (grid and units), a unit list, a selection panel with orders, and a minimap IPaint. -->
+<Canvas id="hud">
+  <Viewport class="world" pan-x="{binding panX}" pan-y="{binding panY}" zoom="{binding zoom}">
+    <Component class="world-map" paint="{binding world}"/>
+  </Viewport>
+  <Stack class="topbar" direction="horizontal">
+    <Stack class="resource" direction="horizontal">
+      <Label class="res-name" text="Gold"/>
+      <Label class="res-value" text="{binding gold}"/>
+    </Stack>
+    <Stack class="resource" direction="horizontal">
+      <Label class="res-name" text="Wood"/>
+      <Label class="res-value" text="{binding wood}"/>
+    </Stack>
+    <Stack class="resource" direction="horizontal">
+      <Label class="res-name" text="Stone"/>
+      <Label class="res-value" text="{binding stone}"/>
+    </Stack>
+    <Stack class="resource" direction="horizontal">
+      <Label class="res-name" text="Food"/>
+      <Label class="res-value" text="{binding food}"/>
+    </Stack>
+    <Stack class="resource" direction="horizontal">
+      <Label class="res-name" text="Iron"/>
+      <Label class="res-value" text="{binding iron}"/>
+    </Stack>
+    <Stack class="resource" direction="horizontal">
+      <Label class="res-name" text="Mana"/>
+      <Label class="res-value" text="{binding mana}"/>
+    </Stack>
+    <Stack class="resource" direction="horizontal">
+      <Label class="res-name" text="Units"/>
+      <Label class="res-value" text="{binding population}"/>
+    </Stack>
+    <Stack class="resource" direction="horizontal">
+      <Label id="rest" class="res-name" text="Day"/>
+      <Label class="res-value" text="{binding day}"/>
+    </Stack>
+    <Label class="alert" text="{binding alertText}"/>
+  </Stack>
+  <Stack class="units-panel" direction="vertical">
+    <Label class="panel-title" text="Army"/>
+    <ScrollView class="unit-scroll">
+      <ItemsControl class="units" items_source="{binding units}">
+        <ItemTemplate>
+          <Stack class="unit-row hot" direction="horizontal" command="{binding select}">
+            <Label class="unit-name" text="{binding name}"/>
+            <Label class="unit-hp" text="{binding hp}"/>
+            <Label class="unit-task" text="{binding task}"/>
+          </Stack>
+        </ItemTemplate>
+      </ItemsControl>
+    </ScrollView>
+  </Stack>
+  <Stack class="bottom" direction="horizontal">
+    <Stack class="minimap-frame" direction="vertical">
+      <Component class="minimap" paint="{binding minimap}"/>
+    </Stack>
+    <Stack class="selection" direction="horizontal">
+      <Stack class="portrait" direction="vertical">
+        <Label class="portrait-mark" text="{binding selectedKind}"/>
+      </Stack>
+      <Stack class="stats" direction="vertical">
+        <Label class="sel-name" text="{binding selectedName}"/>
+        <Label class="stat" text="{binding selectedHp}"/>
+        <Label class="stat" text="{binding selectedAttack}"/>
+        <Label class="stat" text="{binding selectedArmor}"/>
+        <Label class="stat" text="{binding selectedSpeed}"/>
+      </Stack>
+    </Stack>
+    <Stack class="orders" direction="vertical">
+      <Stack class="order-row" direction="horizontal">
+        <Button class="order hot" command="{binding move}" content="Move"/>
+        <Button class="order hot" command="{binding attack}" content="Attack"/>
+        <Button class="order hot" command="{binding hold}" content="Hold"/>
+      </Stack>
+      <Stack class="order-row" direction="horizontal">
+        <Button class="order hot" command="{binding patrol}" content="Patrol"/>
+        <Button class="order hot" command="{binding build}" content="Build"/>
+        <Button class="order hot" command="{binding stop}" content="Stop"/>
+      </Stack>
+    </Stack>
+  </Stack>
+</Canvas>
