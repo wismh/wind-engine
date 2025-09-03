@@ -846,6 +846,57 @@ TEST(RenderSystem, BindMergesExtraStylesheets) {
     EXPECT_NEAR(fill.b, 0.0f, 0.01f);
 }
 
+TEST(RenderSystem, BindMergesKeyframesOfEveryStylesheet) {
+    constexpr std::string_view kHudGuid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa41";
+    constexpr std::string_view kCssBase = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb41";
+    constexpr std::string_view kCssExtra = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb42";
+
+    TempDir tree;
+    write_ui_asset(tree.path / "hud.xml", R"(<Canvas><Button content="Go"/></Canvas>)", kHudGuid);
+    write_css_asset(tree.path / "base.css",
+            "Button { width: 80; height: 40; animation-name: pulse; animation-duration: 1s; }\n"
+            "@keyframes pulse { from { opacity: 1; } to { opacity: 0; } }\n"
+            "@keyframes spin { from { opacity: 1; } to { opacity: 0.5; } }\n",
+            kCssBase);
+    write_css_asset(tree.path / "extra.css", "@keyframes spin { from { opacity: 0; } to { opacity: 1; } }\n", kCssExtra);
+
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kHudGuid}, "hud.xml", engine::ImporterKind::Ui});
+    catalog.add({engine::AssetId{kCssBase}, "base.css", engine::ImporterKind::Css});
+    catalog.add({engine::AssetId{kCssExtra}, "extra.css", engine::ImporterKind::Css});
+    write_file(tree.path / "catalog.toml", catalog.serialize());
+
+    RecordingFatalError fatal;
+    engine::AssetsDb db(fatal);
+    const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
+    ASSERT_TRUE(loaded.has_value());
+
+    auto vm = std::make_shared<TitleViewModel>();
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.fatal = &fatal, .assets = &db});
+
+    engine::ui::UiCanvas canvas;
+    canvas.document = engine::AssetId{kHudGuid};
+    canvas.stylesheet = engine::AssetId{kCssBase};
+    canvas.extra_stylesheets = {engine::AssetId{kCssExtra}};
+    canvas.data_context = vm;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+
+    world.run(engine::ecs::Schedule::Frame);
+    engine::ui::UiInstance* instance = world.try_get<engine::ui::UiInstance>(entity);
+    ASSERT_NE(instance, nullptr);
+    ASSERT_TRUE(instance->stylesheet);
+    const std::vector<engine::ui::Keyframes>& keyframes = instance->stylesheet->keyframes;
+    ASSERT_EQ(keyframes.size(), 2u) << "an asset canvas keeps @keyframes, and one name stays one block";
+    EXPECT_EQ(keyframes[0].name, "pulse");
+    EXPECT_EQ(keyframes[1].name, "spin");
+    ASSERT_FALSE(keyframes[1].stops.empty());
+    ASSERT_FALSE(keyframes[1].stops[0].declarations.empty());
+    EXPECT_EQ(keyframes[1].stops[0].declarations[0].value, "0") << "the later sheet's block wins";
+}
+
 TEST(RenderSystem, BindReloadsWhenExtraStylesheetsChange) {
     constexpr std::string_view kHudGuid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa5";
     constexpr std::string_view kCssRed = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb05";
