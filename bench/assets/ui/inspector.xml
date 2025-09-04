@@ -1,0 +1,58 @@
+<!-- Inspector scene: collapsible sections of property groups (text fields, numeric fields with steppers, checkboxes,
+     action buttons), about 3,000 elements, none virtualized: the section and group roots hug their content. -->
+<Canvas id="inspector">
+  <Stack class="page" direction="vertical">
+    <Stack class="toolbar" direction="horizontal">
+      <Label id="rest" class="title" text="Inspector"/>
+      <Label class="counter" text="{binding frameText}"/>
+    </Stack>
+    <ScrollView id="wheel" class="inspector-scroll">
+      <ItemsControl class="sections" items_source="{binding sections}">
+        <ItemTemplate>
+          <Stack class="section" direction="vertical">
+            <Button class="section-header hot" command="{binding toggle}" content="{binding title}"/>
+            <Stack class="section-body" direction="vertical" var-display="{binding bodyDisplay}">
+              <ItemsControl class="groups" items_source="{binding groups}">
+                <ItemTemplate>
+                  <Stack class="group" direction="vertical">
+                    <Label class="group-title" text="{binding title}"/>
+                    <ItemsControl class="props" items_source="{binding textRows}">
+                      <ItemTemplate>
+                        <Stack class="prop" direction="horizontal">
+                          <Label class="prop-name" text="{binding name}"/>
+                          <TextInput class="field hot" text="{binding value}"/>
+                        </Stack>
+                      </ItemTemplate>
+                    </ItemsControl>
+                    <ItemsControl class="props" items_source="{binding numberRows}">
+                      <ItemTemplate>
+                        <Stack class="prop" direction="horizontal">
+                          <Label class="prop-name" text="{binding name}"/>
+                          <Button class="step hot" command="{binding decrease}" content="-"/>
+                          <TextInput class="number hot" text="{binding value}"/>
+                          <Button class="step hot" command="{binding increase}" content="+"/>
+                        </Stack>
+                      </ItemTemplate>
+                    </ItemsControl>
+                    <ItemsControl class="props" items_source="{binding boolRows}">
+                      <ItemTemplate>
+                        <Stack class="prop" direction="horizontal">
+                          <Label class="prop-name" text="{binding name}"/>
+                          <Checkbox class="check hot" checked="{binding on}"/>
+                        </Stack>
+                      </ItemTemplate>
+                    </ItemsControl>
+                    <Stack class="actions" direction="horizontal">
+                      <Button class="action hot" command="{binding reset}" content="Reset"/>
+                      <Button class="action hot" command="{binding apply}" content="Apply"/>
+                    </Stack>
+                  </Stack>
+                </ItemTemplate>
+              </ItemsControl>
+            </Stack>
+          </Stack>
+        </ItemTemplate>
+      </ItemsControl>
+    </ScrollView>
+  </Stack>
+</Canvas>

@@ -11,7 +11,7 @@ A `UiCanvas` is a component on an entity (`include/engine/ui/canvas.h`).
 | Field | Role |
 | --- | --- |
 | `document` | When set, Bind clones `UiInstance` from `AssetsDb` if this id changed |
-| `stylesheet`, `extra_stylesheets` | Asset ids merged in Bind |
+| `stylesheet`, `extra_stylesheets` | Asset ids merged in Bind: the XML `<Canvas stylesheet>`, then `stylesheet`, then the extras. Rules and `@keyframes` of every sheet; a later `@keyframes` of the same name replaces the earlier one |
 | `data_context` | `shared_ptr<ViewModel>` |
 | `rect` | Window pixels after fit |
 | `reference_size` | Design resolution. Defaults to `{0,0}`. `ScaleWithScreenSize` uses it only when both sides are positive |

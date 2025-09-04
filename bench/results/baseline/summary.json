@@ -1,0 +1,2193 @@
+{
+    "meta":  {
+                 "commit":  "e7211f300e6a4a7d9b65664a42c3185ca0917f8c",
+                 "dirty":  true,
+                 "config":  "RelWithDebInfo",
+                 "engine_version":  "0.1.0",
+                 "build_id":  "e89d200b03110a98",
+                 "window":  {
+                                "width":  1600,
+                                "height":  900
+                            },
+                 "warmup":  60,
+                 "frames":  120,
+                 "repeat":  3,
+                 "vsync":  false,
+                 "date":  "2026-10-09T19:38:58Z",
+                 "cpu":  "AMD Ryzen 5 5600H with Radeon Graphics",
+                 "gpu":  "NVIDIA GeForce GTX 1650; AMD Radeon(TM) Graphics",
+                 "os":  "Microsoft Windows 10 Home",
+                 "power_plan":  "Balanced",
+                 "exe":  "build-bench/bin/RelWithDebInfo/wind_ui_bench.exe"
+             },
+    "rows":  [
+                 {
+                     "key":  "table/quiet",
+                     "scene":  "table",
+                     "mode":  "quiet",
+                     "variant":  "",
+                     "canvases":  1,
+                     "elements":  244,
+                     "generated":  38,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.0395,
+                                           "stylesheets":  0.0009,
+                                           "input":  0,
+                                           "layout":  0,
+                                           "motion":  0.034,
+                                           "paint":  0.3507
+                                       },
+                     "commands_avg_ms":  0.0164,
+                     "total_ms":  0.4414,
+                     "total_min_ms":  0.4359,
+                     "total_max_ms":  0.4751,
+                     "spread_pct":  8.9,
+                     "peak_ms":  0.8936,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  278,
+                     "state_calls":  1144,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "text",
+                                           "avg":  193
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  40
+                                       },
+                                       {
+                                           "kind":  "fill_rounded_rect",
+                                           "avg":  2
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  238,
+                                            "restore":  238,
+                                            "scissor":  238,
+                                            "transform":  0,
+                                            "view":  0,
+                                            "opacity":  237,
+                                            "fill_rect":  40,
+                                            "fill_rounded_rect":  2,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  0,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  193,
+                                            "text":  193,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "table/one-change",
+                     "scene":  "table",
+                     "mode":  "one-change",
+                     "variant":  "",
+                     "canvases":  1,
+                     "elements":  244,
+                     "generated":  38,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.0566,
+                                           "stylesheets":  0.001,
+                                           "input":  0,
+                                           "layout":  0.1653,
+                                           "motion":  0.0366,
+                                           "paint":  0.3896
+                                       },
+                     "commands_avg_ms":  0.0186,
+                     "total_ms":  0.6677,
+                     "total_min_ms":  0.5995,
+                     "total_max_ms":  0.7918,
+                     "spread_pct":  28.8,
+                     "peak_ms":  1.5783,
+                     "layout_max_ms":  0.4998,
+                     "layout_skipped_last":  false,
+                     "draw_calls":  278,
+                     "state_calls":  1144,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "text",
+                                           "avg":  193
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  40
+                                       },
+                                       {
+                                           "kind":  "fill_rounded_rect",
+                                           "avg":  2
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  238,
+                                            "restore":  238,
+                                            "scissor":  238,
+                                            "transform":  0,
+                                            "view":  0,
+                                            "opacity":  237,
+                                            "fill_rect":  40,
+                                            "fill_rounded_rect":  2,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  0,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  193,
+                                            "text":  193,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "table/hover/paint",
+                     "scene":  "table",
+                     "mode":  "hover",
+                     "variant":  "paint",
+                     "canvases":  1,
+                     "elements":  244,
+                     "generated":  38,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.0278,
+                                           "stylesheets":  0.0007,
+                                           "input":  0.0803,
+                                           "layout":  0,
+                                           "motion":  0.0791,
+                                           "paint":  0.3721
+                                       },
+                     "commands_avg_ms":  0.0154,
+                     "total_ms":  0.5716,
+                     "total_min_ms":  0.571,
+                     "total_max_ms":  0.5925,
+                     "spread_pct":  3.8,
+                     "peak_ms":  1.1169,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  278,
+                     "state_calls":  1144,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "text",
+                                           "avg":  193
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  40
+                                       },
+                                       {
+                                           "kind":  "fill_rounded_rect",
+                                           "avg":  2
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  238,
+                                            "restore":  238,
+                                            "scissor":  238,
+                                            "transform":  0,
+                                            "view":  0,
+                                            "opacity":  237,
+                                            "fill_rect":  40,
+                                            "fill_rounded_rect":  2,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  0,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  193,
+                                            "text":  193,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "table/hover/layout",
+                     "scene":  "table",
+                     "mode":  "hover",
+                     "variant":  "layout",
+                     "canvases":  1,
+                     "elements":  244,
+                     "generated":  38,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.0272,
+                                           "stylesheets":  0.0008,
+                                           "input":  0.0777,
+                                           "layout":  0,
+                                           "motion":  0.0794,
+                                           "paint":  0.3656
+                                       },
+                     "commands_avg_ms":  0.0154,
+                     "total_ms":  0.5692,
+                     "total_min_ms":  0.5543,
+                     "total_max_ms":  0.5715,
+                     "spread_pct":  3,
+                     "peak_ms":  1.2704,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  278,
+                     "state_calls":  1144,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "text",
+                                           "avg":  193
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  40
+                                       },
+                                       {
+                                           "kind":  "fill_rounded_rect",
+                                           "avg":  2
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  238,
+                                            "restore":  238,
+                                            "scissor":  238,
+                                            "transform":  0,
+                                            "view":  0,
+                                            "opacity":  237,
+                                            "fill_rect":  40,
+                                            "fill_rounded_rect":  2,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  0,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  193,
+                                            "text":  193,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "table/scroll",
+                     "scene":  "table",
+                     "mode":  "scroll",
+                     "variant":  "",
+                     "canvases":  1,
+                     "elements":  257,
+                     "generated":  41,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.0985,
+                                           "stylesheets":  0.0009,
+                                           "input":  0.0925,
+                                           "layout":  0.173,
+                                           "motion":  0.1356,
+                                           "paint":  0.4093
+                                       },
+                     "commands_avg_ms":  0.0184,
+                     "total_ms":  0.9282,
+                     "total_min_ms":  0.8639,
+                     "total_max_ms":  0.9451,
+                     "spread_pct":  8.7,
+                     "peak_ms":  3.1349,
+                     "layout_max_ms":  0.9338,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  297.33,
+                     "state_calls":  1218.67,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "text",
+                                           "avg":  204.67
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  43.33
+                                       },
+                                       {
+                                           "kind":  "fill_rounded_rect",
+                                           "avg":  2
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  254,
+                                            "restore":  254,
+                                            "scissor":  253,
+                                            "transform":  0,
+                                            "view":  1,
+                                            "opacity":  252,
+                                            "fill_rect":  43.33,
+                                            "fill_rounded_rect":  2,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  0,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  204.67,
+                                            "text":  204.67,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "table/churn",
+                     "scene":  "table",
+                     "mode":  "churn",
+                     "variant":  "",
+                     "canvases":  1,
+                     "elements":  244,
+                     "generated":  38,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.19,
+                                           "stylesheets":  0.0008,
+                                           "input":  0,
+                                           "layout":  0.3069,
+                                           "motion":  0.1807,
+                                           "paint":  0.3862
+                                       },
+                     "commands_avg_ms":  0.021,
+                     "total_ms":  1.0856,
+                     "total_min_ms":  1.0623,
+                     "total_max_ms":  1.2335,
+                     "spread_pct":  15.8,
+                     "peak_ms":  2.4446,
+                     "layout_max_ms":  0.6542,
+                     "layout_skipped_last":  false,
+                     "draw_calls":  278,
+                     "state_calls":  1144,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "text",
+                                           "avg":  193
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  40
+                                       },
+                                       {
+                                           "kind":  "fill_rounded_rect",
+                                           "avg":  2
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  238,
+                                            "restore":  238,
+                                            "scissor":  238,
+                                            "transform":  0,
+                                            "view":  0,
+                                            "opacity":  237,
+                                            "fill_rect":  40,
+                                            "fill_rounded_rect":  2,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  0,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  193,
+                                            "text":  193,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "inspector/quiet",
+                     "scene":  "inspector",
+                     "mode":  "quiet",
+                     "variant":  "",
+                     "canvases":  1,
+                     "elements":  2926,
+                     "generated":  395,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.7527,
+                                           "stylesheets":  0.0018,
+                                           "input":  0,
+                                           "layout":  0,
+                                           "motion":  0.4053,
+                                           "paint":  1.7757
+                                       },
+                     "commands_avg_ms":  0.275,
+                     "total_ms":  3.1954,
+                     "total_min_ms":  3.1045,
+                     "total_max_ms":  3.4196,
+                     "spread_pct":  9.9,
+                     "peak_ms":  4.7806,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  1707,
+                     "state_calls":  4999,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "text",
+                                           "avg":  356
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  258
+                                       },
+                                       {
+                                           "kind":  "fill_rounded_rect",
+                                           "avg":  246
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  1161,
+                                            "restore":  1161,
+                                            "scissor":  1161,
+                                            "transform":  0,
+                                            "view":  0,
+                                            "opacity":  1160,
+                                            "fill_rect":  258,
+                                            "fill_rounded_rect":  246,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  29,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  356,
+                                            "text":  356,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "inspector/one-change",
+                     "scene":  "inspector",
+                     "mode":  "one-change",
+                     "variant":  "",
+                     "canvases":  1,
+                     "elements":  2926,
+                     "generated":  395,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.7752,
+                                           "stylesheets":  0.0018,
+                                           "input":  0,
+                                           "layout":  1.8192,
+                                           "motion":  0.4072,
+                                           "paint":  1.7737
+                                       },
+                     "commands_avg_ms":  0.2918,
+                     "total_ms":  5.071,
+                     "total_min_ms":  4.6886,
+                     "total_max_ms":  5.1815,
+                     "spread_pct":  9.7,
+                     "peak_ms":  7.6252,
+                     "layout_max_ms":  2.4619,
+                     "layout_skipped_last":  false,
+                     "draw_calls":  1707,
+                     "state_calls":  4999,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "text",
+                                           "avg":  356
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  258
+                                       },
+                                       {
+                                           "kind":  "fill_rounded_rect",
+                                           "avg":  246
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  1161,
+                                            "restore":  1161,
+                                            "scissor":  1161,
+                                            "transform":  0,
+                                            "view":  0,
+                                            "opacity":  1160,
+                                            "fill_rect":  258,
+                                            "fill_rounded_rect":  246,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  29,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  356,
+                                            "text":  356,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "inspector/hover/paint",
+                     "scene":  "inspector",
+                     "mode":  "hover",
+                     "variant":  "paint",
+                     "canvases":  1,
+                     "elements":  2926,
+                     "generated":  395,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.4087,
+                                           "stylesheets":  0.0013,
+                                           "input":  1.2013,
+                                           "layout":  0,
+                                           "motion":  0.4454,
+                                           "paint":  1.7799
+                                       },
+                     "commands_avg_ms":  0.254,
+                     "total_ms":  4.0906,
+                     "total_min_ms":  3.8844,
+                     "total_max_ms":  5.499,
+                     "spread_pct":  39.5,
+                     "peak_ms":  6.6299,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  1707,
+                     "state_calls":  4999,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "text",
+                                           "avg":  356
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  258
+                                       },
+                                       {
+                                           "kind":  "fill_rounded_rect",
+                                           "avg":  246
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  1161,
+                                            "restore":  1161,
+                                            "scissor":  1161,
+                                            "transform":  0,
+                                            "view":  0,
+                                            "opacity":  1160,
+                                            "fill_rect":  258,
+                                            "fill_rounded_rect":  246,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  29,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  356,
+                                            "text":  356,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "inspector/hover/layout",
+                     "scene":  "inspector",
+                     "mode":  "hover",
+                     "variant":  "layout",
+                     "canvases":  1,
+                     "elements":  2926,
+                     "generated":  395,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.3609,
+                                           "stylesheets":  0.0016,
+                                           "input":  1.2214,
+                                           "layout":  0,
+                                           "motion":  0.4273,
+                                           "paint":  1.7478
+                                       },
+                     "commands_avg_ms":  0.2534,
+                     "total_ms":  4.0164,
+                     "total_min_ms":  3.7496,
+                     "total_max_ms":  4.2421,
+                     "spread_pct":  12.3,
+                     "peak_ms":  6.7667,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  1707,
+                     "state_calls":  4999,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "text",
+                                           "avg":  356
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  258
+                                       },
+                                       {
+                                           "kind":  "fill_rounded_rect",
+                                           "avg":  246
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  1161,
+                                            "restore":  1161,
+                                            "scissor":  1161,
+                                            "transform":  0,
+                                            "view":  0,
+                                            "opacity":  1160,
+                                            "fill_rect":  258,
+                                            "fill_rounded_rect":  246,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  29,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  356,
+                                            "text":  356,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "inspector/scroll",
+                     "scene":  "inspector",
+                     "mode":  "scroll",
+                     "variant":  "",
+                     "canvases":  1,
+                     "elements":  2928,
+                     "generated":  395,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.4007,
+                                           "stylesheets":  0.0015,
+                                           "input":  1.2272,
+                                           "layout":  0.4534,
+                                           "motion":  0.4222,
+                                           "paint":  1.8135
+                                       },
+                     "commands_avg_ms":  0.2454,
+                     "total_ms":  4.5755,
+                     "total_min_ms":  4.368,
+                     "total_max_ms":  4.6473,
+                     "spread_pct":  6.1,
+                     "peak_ms":  9.3734,
+                     "layout_max_ms":  2.4033,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  1717.17,
+                     "state_calls":  5024.41,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "text",
+                                           "avg":  358.57
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  257.38
+                                       },
+                                       {
+                                           "kind":  "fill_rounded_rect",
+                                           "avg":  248.22
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  1166.96,
+                                            "restore":  1166.96,
+                                            "scissor":  1165.96,
+                                            "transform":  0,
+                                            "view":  1,
+                                            "opacity":  1164.96,
+                                            "fill_rect":  257.38,
+                                            "fill_rounded_rect":  248.22,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  30.68,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  358.57,
+                                            "text":  358.57,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "inspector/churn",
+                     "scene":  "inspector",
+                     "mode":  "churn",
+                     "variant":  "",
+                     "canvases":  1,
+                     "elements":  2926,
+                     "generated":  395,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.9525,
+                                           "stylesheets":  0.0018,
+                                           "input":  0,
+                                           "layout":  1.953,
+                                           "motion":  0.5335,
+                                           "paint":  1.787
+                                       },
+                     "commands_avg_ms":  0.3046,
+                     "total_ms":  5.5651,
+                     "total_min_ms":  5.2978,
+                     "total_max_ms":  5.6974,
+                     "spread_pct":  7.2,
+                     "peak_ms":  9.3835,
+                     "layout_max_ms":  3.3298,
+                     "layout_skipped_last":  false,
+                     "draw_calls":  1673.5,
+                     "state_calls":  4897.75,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "text",
+                                           "avg":  349.75
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  252
+                                       },
+                                       {
+                                           "kind":  "fill_rounded_rect",
+                                           "avg":  241.75
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  1137.25,
+                                            "restore":  1137.25,
+                                            "scissor":  1137.25,
+                                            "transform":  0,
+                                            "view":  0,
+                                            "opacity":  1136.25,
+                                            "fill_rect":  252,
+                                            "fill_rounded_rect":  241.75,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  28.75,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  349.75,
+                                            "text":  349.75,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "hud/quiet",
+                     "scene":  "hud",
+                     "mode":  "quiet",
+                     "variant":  "",
+                     "canvases":  1,
+                     "elements":  184,
+                     "generated":  32,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.0255,
+                                           "stylesheets":  0.0009,
+                                           "input":  0,
+                                           "layout":  0,
+                                           "motion":  0.0423,
+                                           "paint":  0.5328
+                                       },
+                     "commands_avg_ms":  0.0178,
+                     "total_ms":  0.619,
+                     "total_min_ms":  0.6087,
+                     "total_max_ms":  0.6297,
+                     "spread_pct":  3.4,
+                     "peak_ms":  1.2746,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  1995,
+                     "state_calls":  873,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  808
+                                       },
+                                       {
+                                           "kind":  "text",
+                                           "avg":  123
+                                       },
+                                       {
+                                           "kind":  "line",
+                                           "avg":  64
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  189,
+                                            "restore":  189,
+                                            "scissor":  184,
+                                            "transform":  0,
+                                            "view":  1,
+                                            "opacity":  187,
+                                            "fill_rect":  808,
+                                            "fill_rounded_rect":  8,
+                                            "linear_gradient":  1,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  3,
+                                            "line":  64,
+                                            "arc":  12,
+                                            "path":  0,
+                                            "font":  123,
+                                            "text":  123,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "hud/one-change",
+                     "scene":  "hud",
+                     "mode":  "one-change",
+                     "variant":  "",
+                     "canvases":  1,
+                     "elements":  184,
+                     "generated":  32,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.0277,
+                                           "stylesheets":  0.0009,
+                                           "input":  0,
+                                           "layout":  0.1465,
+                                           "motion":  0.0401,
+                                           "paint":  0.5279
+                                       },
+                     "commands_avg_ms":  0.0174,
+                     "total_ms":  0.7587,
+                     "total_min_ms":  0.721,
+                     "total_max_ms":  0.7891,
+                     "spread_pct":  9,
+                     "peak_ms":  1.5381,
+                     "layout_max_ms":  0.3502,
+                     "layout_skipped_last":  false,
+                     "draw_calls":  1995,
+                     "state_calls":  873,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  808
+                                       },
+                                       {
+                                           "kind":  "text",
+                                           "avg":  123
+                                       },
+                                       {
+                                           "kind":  "line",
+                                           "avg":  64
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  189,
+                                            "restore":  189,
+                                            "scissor":  184,
+                                            "transform":  0,
+                                            "view":  1,
+                                            "opacity":  187,
+                                            "fill_rect":  808,
+                                            "fill_rounded_rect":  8,
+                                            "linear_gradient":  1,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  3,
+                                            "line":  64,
+                                            "arc":  12,
+                                            "path":  0,
+                                            "font":  123,
+                                            "text":  123,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "hud/hover/paint",
+                     "scene":  "hud",
+                     "mode":  "hover",
+                     "variant":  "paint",
+                     "canvases":  1,
+                     "elements":  184,
+                     "generated":  32,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.0131,
+                                           "stylesheets":  0.0008,
+                                           "input":  0.0675,
+                                           "layout":  0,
+                                           "motion":  0.0747,
+                                           "paint":  0.5669
+                                       },
+                     "commands_avg_ms":  0.016,
+                     "total_ms":  0.739,
+                     "total_min_ms":  0.6873,
+                     "total_max_ms":  0.7726,
+                     "spread_pct":  11.5,
+                     "peak_ms":  1.7779,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  1996.6,
+                     "state_calls":  873,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  808.8
+                                       },
+                                       {
+                                           "kind":  "text",
+                                           "avg":  123
+                                       },
+                                       {
+                                           "kind":  "line",
+                                           "avg":  64
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  189,
+                                            "restore":  189,
+                                            "scissor":  184,
+                                            "transform":  0,
+                                            "view":  1,
+                                            "opacity":  187,
+                                            "fill_rect":  808.8,
+                                            "fill_rounded_rect":  8,
+                                            "linear_gradient":  1,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  3,
+                                            "line":  64,
+                                            "arc":  12,
+                                            "path":  0,
+                                            "font":  123,
+                                            "text":  123,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "hud/hover/layout",
+                     "scene":  "hud",
+                     "mode":  "hover",
+                     "variant":  "layout",
+                     "canvases":  1,
+                     "elements":  184,
+                     "generated":  32,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.0126,
+                                           "stylesheets":  0.0011,
+                                           "input":  0.0785,
+                                           "layout":  0,
+                                           "motion":  0.0791,
+                                           "paint":  0.5716
+                                       },
+                     "commands_avg_ms":  0.0206,
+                     "total_ms":  0.7635,
+                     "total_min_ms":  0.6969,
+                     "total_max_ms":  0.7972,
+                     "spread_pct":  13.1,
+                     "peak_ms":  1.9519,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  1995,
+                     "state_calls":  873,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  808
+                                       },
+                                       {
+                                           "kind":  "text",
+                                           "avg":  123
+                                       },
+                                       {
+                                           "kind":  "line",
+                                           "avg":  64
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  189,
+                                            "restore":  189,
+                                            "scissor":  184,
+                                            "transform":  0,
+                                            "view":  1,
+                                            "opacity":  187,
+                                            "fill_rect":  808,
+                                            "fill_rounded_rect":  8,
+                                            "linear_gradient":  1,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  3,
+                                            "line":  64,
+                                            "arc":  12,
+                                            "path":  0,
+                                            "font":  123,
+                                            "text":  123,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "paint-mix/quiet/solid",
+                     "scene":  "paint-mix",
+                     "mode":  "quiet",
+                     "variant":  "solid",
+                     "canvases":  1,
+                     "elements":  1083,
+                     "generated":  1025,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.0843,
+                                           "stylesheets":  0.0015,
+                                           "input":  0,
+                                           "layout":  0,
+                                           "motion":  0.268,
+                                           "paint":  0.8784
+                                       },
+                     "commands_avg_ms":  0.0694,
+                     "total_ms":  1.3016,
+                     "total_min_ms":  1.1972,
+                     "total_max_ms":  1.4765,
+                     "spread_pct":  21.5,
+                     "peak_ms":  2.5785,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  2003,
+                     "state_calls":  4120,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  1001
+                                       },
+                                       {
+                                           "kind":  "text",
+                                           "avg":  1
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  1030,
+                                            "restore":  1030,
+                                            "scissor":  1030,
+                                            "transform":  0,
+                                            "view":  0,
+                                            "opacity":  1029,
+                                            "fill_rect":  1001,
+                                            "fill_rounded_rect":  0,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  0,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  1,
+                                            "text":  1,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "paint-mix/quiet/rounded",
+                     "scene":  "paint-mix",
+                     "mode":  "quiet",
+                     "variant":  "rounded",
+                     "canvases":  1,
+                     "elements":  1083,
+                     "generated":  1025,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.0879,
+                                           "stylesheets":  0.0018,
+                                           "input":  0,
+                                           "layout":  0,
+                                           "motion":  0.2539,
+                                           "paint":  1.598
+                                       },
+                     "commands_avg_ms":  0.0886,
+                     "total_ms":  2.0302,
+                     "total_min_ms":  1.9755,
+                     "total_max_ms":  2.3227,
+                     "spread_pct":  17.1,
+                     "peak_ms":  3.9451,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  2003,
+                     "state_calls":  4120,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "fill_rounded_rect",
+                                           "avg":  1000
+                                       },
+                                       {
+                                           "kind":  "text",
+                                           "avg":  1
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  1
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  1030,
+                                            "restore":  1030,
+                                            "scissor":  1030,
+                                            "transform":  0,
+                                            "view":  0,
+                                            "opacity":  1029,
+                                            "fill_rect":  1,
+                                            "fill_rounded_rect":  1000,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  0,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  1,
+                                            "text":  1,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "paint-mix/quiet/border",
+                     "scene":  "paint-mix",
+                     "mode":  "quiet",
+                     "variant":  "border",
+                     "canvases":  1,
+                     "elements":  1083,
+                     "generated":  1025,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.0778,
+                                           "stylesheets":  0.0016,
+                                           "input":  0,
+                                           "layout":  0,
+                                           "motion":  0.2195,
+                                           "paint":  0.8657
+                                       },
+                     "commands_avg_ms":  0.0852,
+                     "total_ms":  1.2463,
+                     "total_min_ms":  1.2284,
+                     "total_max_ms":  1.4624,
+                     "spread_pct":  18.8,
+                     "peak_ms":  2.7244,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  3003,
+                     "state_calls":  4120,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "stroke_rect",
+                                           "avg":  1000
+                                       },
+                                       {
+                                           "kind":  "text",
+                                           "avg":  1
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  1
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  1030,
+                                            "restore":  1030,
+                                            "scissor":  1030,
+                                            "transform":  0,
+                                            "view":  0,
+                                            "opacity":  1029,
+                                            "fill_rect":  1,
+                                            "fill_rounded_rect":  0,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  1000,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  1,
+                                            "text":  1,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "paint-mix/quiet/linear-gradient",
+                     "scene":  "paint-mix",
+                     "mode":  "quiet",
+                     "variant":  "linear-gradient",
+                     "canvases":  1,
+                     "elements":  1083,
+                     "generated":  1025,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.0684,
+                                           "stylesheets":  0.0013,
+                                           "input":  0,
+                                           "layout":  0,
+                                           "motion":  0.2082,
+                                           "paint":  0.8451
+                                       },
+                     "commands_avg_ms":  0.0578,
+                     "total_ms":  1.179,
+                     "total_min_ms":  1.1654,
+                     "total_max_ms":  1.2126,
+                     "spread_pct":  4,
+                     "peak_ms":  2.4998,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  2003,
+                     "state_calls":  4120,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "linear_gradient",
+                                           "avg":  1000
+                                       },
+                                       {
+                                           "kind":  "text",
+                                           "avg":  1
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  1
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  1030,
+                                            "restore":  1030,
+                                            "scissor":  1030,
+                                            "transform":  0,
+                                            "view":  0,
+                                            "opacity":  1029,
+                                            "fill_rect":  1,
+                                            "fill_rounded_rect":  0,
+                                            "linear_gradient":  1000,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  0,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  1,
+                                            "text":  1,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "paint-mix/quiet/radial-gradient",
+                     "scene":  "paint-mix",
+                     "mode":  "quiet",
+                     "variant":  "radial-gradient",
+                     "canvases":  1,
+                     "elements":  1083,
+                     "generated":  1025,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.068,
+                                           "stylesheets":  0.0013,
+                                           "input":  0,
+                                           "layout":  0,
+                                           "motion":  0.2142,
+                                           "paint":  0.8485
+                                       },
+                     "commands_avg_ms":  0.0562,
+                     "total_ms":  1.1921,
+                     "total_min_ms":  1.1464,
+                     "total_max_ms":  1.2466,
+                     "spread_pct":  8.4,
+                     "peak_ms":  2.299,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  2003,
+                     "state_calls":  4120,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "radial_gradient",
+                                           "avg":  1000
+                                       },
+                                       {
+                                           "kind":  "text",
+                                           "avg":  1
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  1
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  1030,
+                                            "restore":  1030,
+                                            "scissor":  1030,
+                                            "transform":  0,
+                                            "view":  0,
+                                            "opacity":  1029,
+                                            "fill_rect":  1,
+                                            "fill_rounded_rect":  0,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  1000,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  0,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  1,
+                                            "text":  1,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "paint-mix/quiet/conic-gradient",
+                     "scene":  "paint-mix",
+                     "mode":  "quiet",
+                     "variant":  "conic-gradient",
+                     "canvases":  1,
+                     "elements":  1083,
+                     "generated":  1025,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.1206,
+                                           "stylesheets":  0.0025,
+                                           "input":  0,
+                                           "layout":  0,
+                                           "motion":  0.319,
+                                           "paint":  13.7555
+                                       },
+                     "commands_avg_ms":  0.1154,
+                     "total_ms":  14.3139,
+                     "total_min_ms":  14.2801,
+                     "total_max_ms":  14.7614,
+                     "spread_pct":  3.4,
+                     "peak_ms":  20.898,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  2003,
+                     "state_calls":  4120,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "conic_gradient",
+                                           "avg":  1000
+                                       },
+                                       {
+                                           "kind":  "text",
+                                           "avg":  1
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  1
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  1030,
+                                            "restore":  1030,
+                                            "scissor":  1030,
+                                            "transform":  0,
+                                            "view":  0,
+                                            "opacity":  1029,
+                                            "fill_rect":  1,
+                                            "fill_rounded_rect":  0,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  1000,
+                                            "stroke_rect":  0,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  1,
+                                            "text":  1,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "paint-mix/quiet/image",
+                     "scene":  "paint-mix",
+                     "mode":  "quiet",
+                     "variant":  "image",
+                     "canvases":  1,
+                     "elements":  1083,
+                     "generated":  1025,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.075,
+                                           "stylesheets":  0.0019,
+                                           "input":  0,
+                                           "layout":  0,
+                                           "motion":  0.223,
+                                           "paint":  0.898
+                                       },
+                     "commands_avg_ms":  0.058,
+                     "total_ms":  1.2559,
+                     "total_min_ms":  1.2057,
+                     "total_max_ms":  1.571,
+                     "spread_pct":  29.1,
+                     "peak_ms":  2.5739,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  2003,
+                     "state_calls":  4120,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "image",
+                                           "avg":  1000
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  1
+                                       },
+                                       {
+                                           "kind":  "text",
+                                           "avg":  1
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  1030,
+                                            "restore":  1030,
+                                            "scissor":  1030,
+                                            "transform":  0,
+                                            "view":  0,
+                                            "opacity":  1029,
+                                            "fill_rect":  1,
+                                            "fill_rounded_rect":  0,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  0,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  1,
+                                            "text":  1,
+                                            "image":  1000,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "paint-mix/quiet/nine-slice",
+                     "scene":  "paint-mix",
+                     "mode":  "quiet",
+                     "variant":  "nine-slice",
+                     "canvases":  1,
+                     "elements":  1083,
+                     "generated":  1025,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.1836,
+                                           "stylesheets":  0.0034,
+                                           "input":  0,
+                                           "layout":  0,
+                                           "motion":  0.3185,
+                                           "paint":  3.5111
+                                       },
+                     "commands_avg_ms":  0.143,
+                     "total_ms":  4.1611,
+                     "total_min_ms":  4.0932,
+                     "total_max_ms":  4.1773,
+                     "spread_pct":  2,
+                     "peak_ms":  6.4776,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  18003,
+                     "state_calls":  4120,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "nine_slice",
+                                           "avg":  1000
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  1
+                                       },
+                                       {
+                                           "kind":  "text",
+                                           "avg":  1
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  1030,
+                                            "restore":  1030,
+                                            "scissor":  1030,
+                                            "transform":  0,
+                                            "view":  0,
+                                            "opacity":  1029,
+                                            "fill_rect":  1,
+                                            "fill_rounded_rect":  0,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  0,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  1,
+                                            "text":  1,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  1000
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "paint-mix/quiet/text",
+                     "scene":  "paint-mix",
+                     "mode":  "quiet",
+                     "variant":  "text",
+                     "canvases":  1,
+                     "elements":  1083,
+                     "generated":  1025,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.0841,
+                                           "stylesheets":  0.0009,
+                                           "input":  0,
+                                           "layout":  0,
+                                           "motion":  0.2501,
+                                           "paint":  1.746
+                                       },
+                     "commands_avg_ms":  0.0834,
+                     "total_ms":  2.1619,
+                     "total_min_ms":  2.0825,
+                     "total_max_ms":  2.2197,
+                     "spread_pct":  6.3,
+                     "peak_ms":  3.9412,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  1003,
+                     "state_calls":  5120,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "text",
+                                           "avg":  1001
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  1
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  1030,
+                                            "restore":  1030,
+                                            "scissor":  1030,
+                                            "transform":  0,
+                                            "view":  0,
+                                            "opacity":  1029,
+                                            "fill_rect":  1,
+                                            "fill_rounded_rect":  0,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  0,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  1001,
+                                            "text":  1001,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "paint-mix/quiet/arc",
+                     "scene":  "paint-mix",
+                     "mode":  "quiet",
+                     "variant":  "arc",
+                     "canvases":  1,
+                     "elements":  1083,
+                     "generated":  1025,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.4208,
+                                           "stylesheets":  0.0014,
+                                           "input":  0,
+                                           "layout":  0,
+                                           "motion":  0.244,
+                                           "paint":  2.0222
+                                       },
+                     "commands_avg_ms":  0.0942,
+                     "total_ms":  2.7814,
+                     "total_min_ms":  2.7255,
+                     "total_max_ms":  3.1556,
+                     "spread_pct":  15.5,
+                     "peak_ms":  4.7674,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  3003,
+                     "state_calls":  4120,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "arc",
+                                           "avg":  1000
+                                       },
+                                       {
+                                           "kind":  "text",
+                                           "avg":  1
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  1
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  1030,
+                                            "restore":  1030,
+                                            "scissor":  1030,
+                                            "transform":  0,
+                                            "view":  0,
+                                            "opacity":  1029,
+                                            "fill_rect":  1,
+                                            "fill_rounded_rect":  0,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  0,
+                                            "line":  0,
+                                            "arc":  1000,
+                                            "path":  0,
+                                            "font":  1,
+                                            "text":  1,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "paint-mix/quiet/math",
+                     "scene":  "paint-mix",
+                     "mode":  "quiet",
+                     "variant":  "math",
+                     "canvases":  1,
+                     "elements":  1083,
+                     "generated":  1025,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.1916,
+                                           "stylesheets":  0.0027,
+                                           "input":  0,
+                                           "layout":  0,
+                                           "motion":  0.3296,
+                                           "paint":  10.3026
+                                       },
+                     "commands_avg_ms":  0.183,
+                     "total_ms":  11.002,
+                     "total_min_ms":  10.7223,
+                     "total_max_ms":  11.2286,
+                     "spread_pct":  4.6,
+                     "peak_ms":  14.2522,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  9003,
+                     "state_calls":  4120,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "path",
+                                           "avg":  1000
+                                       },
+                                       {
+                                           "kind":  "text",
+                                           "avg":  1
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  1
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  1030,
+                                            "restore":  1030,
+                                            "scissor":  1030,
+                                            "transform":  0,
+                                            "view":  0,
+                                            "opacity":  1029,
+                                            "fill_rect":  1,
+                                            "fill_rounded_rect":  0,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  0,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  1000,
+                                            "font":  1,
+                                            "text":  1,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "motion/quiet/paint-props",
+                     "scene":  "motion",
+                     "mode":  "quiet",
+                     "variant":  "paint-props",
+                     "canvases":  1,
+                     "elements":  261,
+                     "generated":  230,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.0196,
+                                           "stylesheets":  0.001,
+                                           "input":  0,
+                                           "layout":  0,
+                                           "motion":  1.0527,
+                                           "paint":  0.4514
+                                       },
+                     "commands_avg_ms":  0.0174,
+                     "total_ms":  1.5452,
+                     "total_min_ms":  1.5358,
+                     "total_max_ms":  1.5554,
+                     "spread_pct":  1.3,
+                     "peak_ms":  3.2008,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  443,
+                     "state_calls":  1144,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "fill_rounded_rect",
+                                           "avg":  220
+                                       },
+                                       {
+                                           "kind":  "text",
+                                           "avg":  1
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  1
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  236,
+                                            "restore":  236,
+                                            "scissor":  236,
+                                            "transform":  200,
+                                            "view":  0,
+                                            "opacity":  235,
+                                            "fill_rect":  1,
+                                            "fill_rounded_rect":  220,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  0,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  1,
+                                            "text":  1,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "motion/quiet/layout-props",
+                     "scene":  "motion",
+                     "mode":  "quiet",
+                     "variant":  "layout-props",
+                     "canvases":  1,
+                     "elements":  261,
+                     "generated":  230,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.0167,
+                                           "stylesheets":  0.0008,
+                                           "input":  0,
+                                           "layout":  0.1131,
+                                           "motion":  0.0945,
+                                           "paint":  0.3407
+                                       },
+                     "commands_avg_ms":  0.0154,
+                     "total_ms":  0.5859,
+                     "total_min_ms":  0.5137,
+                     "total_max_ms":  0.5929,
+                     "spread_pct":  13.5,
+                     "peak_ms":  1.4722,
+                     "layout_max_ms":  0.3929,
+                     "layout_skipped_last":  false,
+                     "draw_calls":  443,
+                     "state_calls":  944,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "fill_rounded_rect",
+                                           "avg":  220
+                                       },
+                                       {
+                                           "kind":  "text",
+                                           "avg":  1
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  1
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  236,
+                                            "restore":  236,
+                                            "scissor":  236,
+                                            "transform":  0,
+                                            "view":  0,
+                                            "opacity":  235,
+                                            "fill_rect":  1,
+                                            "fill_rounded_rect":  220,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  0,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  1,
+                                            "text":  1,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "motion/quiet/both",
+                     "scene":  "motion",
+                     "mode":  "quiet",
+                     "variant":  "both",
+                     "canvases":  1,
+                     "elements":  261,
+                     "generated":  230,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.0198,
+                                           "stylesheets":  0.0009,
+                                           "input":  0,
+                                           "layout":  0.1168,
+                                           "motion":  1.1116,
+                                           "paint":  0.4515
+                                       },
+                     "commands_avg_ms":  0.0168,
+                     "total_ms":  1.7233,
+                     "total_min_ms":  1.6889,
+                     "total_max_ms":  1.7368,
+                     "spread_pct":  2.8,
+                     "peak_ms":  3.0071,
+                     "layout_max_ms":  0.2735,
+                     "layout_skipped_last":  false,
+                     "draw_calls":  443,
+                     "state_calls":  1144,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "fill_rounded_rect",
+                                           "avg":  220
+                                       },
+                                       {
+                                           "kind":  "text",
+                                           "avg":  1
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  1
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  236,
+                                            "restore":  236,
+                                            "scissor":  236,
+                                            "transform":  200,
+                                            "view":  0,
+                                            "opacity":  235,
+                                            "fill_rect":  1,
+                                            "fill_rounded_rect":  220,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  0,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  1,
+                                            "text":  1,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "text/quiet",
+                     "scene":  "text",
+                     "mode":  "quiet",
+                     "variant":  "",
+                     "canvases":  1,
+                     "elements":  276,
+                     "generated":  260,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.1893,
+                                           "stylesheets":  0.0017,
+                                           "input":  0,
+                                           "layout":  0,
+                                           "motion":  0.0897,
+                                           "paint":  6.0717
+                                       },
+                     "commands_avg_ms":  0.0452,
+                     "total_ms":  6.3956,
+                     "total_min_ms":  6.3266,
+                     "total_max_ms":  6.6299,
+                     "spread_pct":  4.7,
+                     "peak_ms":  9.3809,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  452,
+                     "state_calls":  1336,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "text",
+                                           "avg":  448
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  1
+                                       },
+                                       {
+                                           "kind":  "fill_rounded_rect",
+                                           "avg":  1
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  269,
+                                            "restore":  269,
+                                            "scissor":  269,
+                                            "transform":  0,
+                                            "view":  0,
+                                            "opacity":  268,
+                                            "fill_rect":  1,
+                                            "fill_rounded_rect":  1,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  0,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  261,
+                                            "text":  448,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "text/scroll",
+                     "scene":  "text",
+                     "mode":  "scroll",
+                     "variant":  "",
+                     "canvases":  1,
+                     "elements":  276,
+                     "generated":  260,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.079,
+                                           "stylesheets":  0.0016,
+                                           "input":  0.3175,
+                                           "layout":  0,
+                                           "motion":  0.0973,
+                                           "paint":  6.0942
+                                       },
+                     "commands_avg_ms":  0.0486,
+                     "total_ms":  6.6316,
+                     "total_min_ms":  6.6118,
+                     "total_max_ms":  7.1125,
+                     "spread_pct":  7.6,
+                     "peak_ms":  10.4574,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  452,
+                     "state_calls":  1339,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "text",
+                                           "avg":  448
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  1
+                                       },
+                                       {
+                                           "kind":  "fill_rounded_rect",
+                                           "avg":  1
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  270,
+                                            "restore":  270,
+                                            "scissor":  269,
+                                            "transform":  0,
+                                            "view":  1,
+                                            "opacity":  268,
+                                            "fill_rect":  1,
+                                            "fill_rounded_rect":  1,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  0,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  261,
+                                            "text":  448,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "clip/quiet",
+                     "scene":  "clip",
+                     "mode":  "quiet",
+                     "variant":  "",
+                     "canvases":  1,
+                     "elements":  279,
+                     "generated":  208,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.0594,
+                                           "stylesheets":  0.0006,
+                                           "input":  0,
+                                           "layout":  0,
+                                           "motion":  0.0401,
+                                           "paint":  1.0708
+                                       },
+                     "commands_avg_ms":  0.024,
+                     "total_ms":  1.1949,
+                     "total_min_ms":  1.134,
+                     "total_max_ms":  1.6197,
+                     "spread_pct":  40.6,
+                     "peak_ms":  2.078,
+                     "layout_max_ms":  0,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  300,
+                     "state_calls":  1109,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "text",
+                                           "avg":  185
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  25
+                                       },
+                                       {
+                                           "kind":  "fill_rounded_rect",
+                                           "avg":  11
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  231,
+                                            "restore":  231,
+                                            "scissor":  231,
+                                            "transform":  1,
+                                            "view":  0,
+                                            "opacity":  230,
+                                            "fill_rect":  25,
+                                            "fill_rounded_rect":  11,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  10,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  185,
+                                            "text":  185,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 },
+                 {
+                     "key":  "clip/scroll",
+                     "scene":  "clip",
+                     "mode":  "scroll",
+                     "variant":  "",
+                     "canvases":  1,
+                     "elements":  323,
+                     "generated":  246,
+                     "stages_avg_ms":  {
+                                           "bindings":  0.1397,
+                                           "stylesheets":  0.0007,
+                                           "input":  0.1376,
+                                           "layout":  0.1474,
+                                           "motion":  0.0568,
+                                           "paint":  1.2053
+                                       },
+                     "commands_avg_ms":  0.0284,
+                     "total_ms":  1.7159,
+                     "total_min_ms":  1.5973,
+                     "total_max_ms":  1.9053,
+                     "spread_pct":  17.9,
+                     "peak_ms":  4.6444,
+                     "layout_max_ms":  0.6914,
+                     "layout_skipped_last":  true,
+                     "draw_calls":  345.28,
+                     "state_calls":  1274.34,
+                     "top_paint":  [
+                                       {
+                                           "kind":  "text",
+                                           "avg":  213.42
+                                       },
+                                       {
+                                           "kind":  "fill_rect",
+                                           "avg":  28.4
+                                       },
+                                       {
+                                           "kind":  "fill_rounded_rect",
+                                           "avg":  12.67
+                                       }
+                                   ],
+                     "paint_commands":  {
+                                            "save":  265.48,
+                                            "restore":  265.48,
+                                            "scissor":  264.48,
+                                            "transform":  1,
+                                            "view":  1,
+                                            "opacity":  263.48,
+                                            "fill_rect":  28.4,
+                                            "fill_rounded_rect":  12.67,
+                                            "linear_gradient":  0,
+                                            "radial_gradient":  0,
+                                            "conic_gradient":  0,
+                                            "stroke_rect":  11.67,
+                                            "line":  0,
+                                            "arc":  0,
+                                            "path":  0,
+                                            "font":  213.42,
+                                            "text":  213.42,
+                                            "image":  0,
+                                            "image_repeat":  0,
+                                            "nine_slice":  0
+                                        },
+                     "runs":  3
+                 }
+             ]
+}

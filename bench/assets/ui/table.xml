@@ -1,0 +1,32 @@
+<!-- Table scene: 10,000 rows of five columns in a virtualized ItemsControl (fixed 24 px rows) inside a ScrollView.
+     `rest` is where the pointer waits in quiet mode, `wheel` where the scroll mode turns the wheel. Rows carry `hot`:
+     the hover mode walks them, and hover_paint.css / hover_layout.css style them. -->
+<Canvas id="table">
+  <Stack class="page" direction="vertical">
+    <Stack class="toolbar" direction="horizontal">
+      <Label id="rest" class="title" text="Units"/>
+      <Label class="summary" text="{binding summaryText}"/>
+      <Label class="counter" text="{binding frameText}"/>
+    </Stack>
+    <Stack class="header" direction="horizontal">
+      <Label class="col col-id" text="Id"/>
+      <Label class="col col-name" text="Name"/>
+      <Label class="col col-value" text="Value"/>
+      <Label class="col col-status" text="Status"/>
+      <Label class="col col-ratio" text="Ratio"/>
+    </Stack>
+    <ScrollView id="wheel" class="table-scroll">
+      <ItemsControl class="rows" items_source="{binding rows}">
+        <ItemTemplate>
+          <Stack class="row hot" direction="horizontal" command="{binding select}" var-stripe="{binding stripe}">
+            <Label class="col col-id" text="{binding id}"/>
+            <Label class="col col-name" text="{binding name}"/>
+            <Label class="col col-value" text="{binding value}"/>
+            <Label class="col col-status" text="{binding status}"/>
+            <Label class="col col-ratio" text="{binding ratio}"/>
+          </Stack>
+        </ItemTemplate>
+      </ItemsControl>
+    </ScrollView>
+  </Stack>
+</Canvas>

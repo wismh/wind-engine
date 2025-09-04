@@ -1,0 +1,5 @@
+/* paint-mix radial: one radial gradient per cell. */
+
+Stack.cell {
+  background: radial-gradient(#f58518, #4c78a8);
+}
