@@ -417,9 +417,9 @@ TEST(UiXml, ScanBindTreeResolvesBindingsInsideIncludedTemplate) {
     const engine::ui::BindBinder& item_binder = binder->nested[0].second;
     ASSERT_EQ(item_binder.members.size(), 2u);
     EXPECT_EQ(item_binder.members[0].path, "mark");
-    EXPECT_FALSE(item_binder.members[0].is_command);
+    EXPECT_EQ(item_binder.members[0].kind, engine::ui::BindKind::Property);
     EXPECT_EQ(item_binder.members[1].path, "click");
-    EXPECT_TRUE(item_binder.members[1].is_command);
+    EXPECT_EQ(item_binder.members[1].kind, engine::ui::BindKind::Command);
 }
 
 TEST(UiXml, ScanBindTreeResolvesCustomPropertyAttribute) {
@@ -428,7 +428,33 @@ TEST(UiXml, ScanBindTreeResolvesCustomPropertyAttribute) {
     ASSERT_TRUE(binder.has_value());
     ASSERT_EQ(binder->members.size(), 1u);
     EXPECT_EQ(binder->members[0].path, "tint");
-    EXPECT_FALSE(binder->members[0].is_command);
+    EXPECT_EQ(binder->members[0].kind, engine::ui::BindKind::Property);
+}
+
+TEST(UiXml, ScanBindTreeKindsPaintScrollAndTrArguments) {
+    const auto binder = engine::ui::scan_bind_tree(
+            R"(<Canvas><ScrollView scroll-x="{binding scrollX}"><Component paint="{binding world}"/>
+<Label text="{tr hud.gold amount={binding gold}}"/></ScrollView></Canvas>)");
+    ASSERT_TRUE(binder.has_value());
+    ASSERT_EQ(binder->members.size(), 3u);
+    EXPECT_EQ(binder->members[0].path, "scrollX");
+    EXPECT_EQ(binder->members[0].kind, engine::ui::BindKind::Property);
+    EXPECT_EQ(binder->members[1].path, "world");
+    EXPECT_EQ(binder->members[1].kind, engine::ui::BindKind::Paint);
+    EXPECT_EQ(binder->members[2].path, "gold");
+    EXPECT_EQ(binder->members[2].kind, engine::ui::BindKind::Property);
+}
+
+TEST(UiXml, ParseXmlKeepsBindingPaths) {
+    const auto parsed = engine::ui::parse_xml(
+            R"(<Canvas><Component paint="{binding world}"/><ItemsControl items_source="{binding rows}">
+<ItemTemplate><Label text="{binding name}"/></ItemTemplate></ItemsControl></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const auto& paths = parsed->binding_paths;
+    ASSERT_EQ(paths.size(), 3u);
+    EXPECT_EQ(paths.at(engine::ui::intern("world")), "world");
+    EXPECT_EQ(paths.at(engine::ui::intern("rows")), "rows");
+    EXPECT_EQ(paths.at(engine::ui::intern("name")), "name");
 }
 
 TEST(UiXml, TrAttributeStoresKeyAndBindingArg) {

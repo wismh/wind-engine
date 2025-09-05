@@ -74,7 +74,7 @@ Every document has an element with id `rest`, where the pointer waits, and the s
 
 `BenchApp` (`bench/src/bench_app.cpp`) spawns one `FillWindow` canvas on its world, calls `set_ui_profiler_attached`, and turns vsync off (`IWindowControl::set_vsync(false)`). It owns the pointer: it replaces the `InputSystem` router with one that passes events only while the bench itself calls `handle_mouse_move` or `handle_mouse_wheel`, so the real mouse and keyboard change nothing.
 
-Its frame system (`Phase::Game`) follows `BenchSchedule`: on tick 3 it binds the document once more and fails on a missing binding (the engine's bind pass drops that error), looks up `rest`, `wheel`, and the hover targets in the laid-out tree, and rests the pointer; ticks after that drive the mode. On tick `warmup` it calls `profiler_clear`, so the ring keeps that tick and the ones after. When the canvas's ring holds `frames` frames it writes the report and quits. A run that does not get there within 600 more ticks fails.
+Its frame system (`Phase::Game`) follows `BenchSchedule`: on tick 3 it binds the document once more and fails on a missing binding (the engine's bind pass only logs it and binds the rest), looks up `rest`, `wheel`, and the hover targets in the laid-out tree, and rests the pointer; ticks after that drive the mode. On tick `warmup` it calls `profiler_clear`, so the ring keeps that tick and the ones after. When the canvas's ring holds `frames` frames it writes the report and quits. A run that does not get there within 600 more ticks fails.
 
 ## Report
 
