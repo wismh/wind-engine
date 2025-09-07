@@ -184,6 +184,18 @@ TEST(UiCss, UnknownPropertyWarns) {
     EXPECT_NE(find_declaration(sheet->rules[0], "padding"), nullptr);
 }
 
+TEST(UiCss, WarningsNameTheLineOfTheDeclaration) {
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css(".x {\n    color: #ffffff;\n    frobnicate: 1;\n}\n"
+                                             "@media (wobble) {\n}\n.y + .z { color: #000000; }\n",
+            warnings);
+    ASSERT_TRUE(sheet.has_value());
+    ASSERT_EQ(warnings.size(), 3u);
+    EXPECT_EQ(warnings[0], "line 3: unknown CSS property: frobnicate");
+    EXPECT_EQ(warnings[1], "line 5: unknown media");
+    EXPECT_EQ(warnings[2], "line 7: unsupported combinator in selector: .y + .z");
+}
+
 TEST(UiCss, UnknownPropertyDoesNotFailSheet) {
     std::vector<std::string> warnings;
     const auto sheet = engine::ui::parse_css(R"(

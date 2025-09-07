@@ -48,6 +48,8 @@ Pseudo-classes: `:hover`, `:pressed`, `:disabled`, `:focus`, `:checked`.
 
 Unknown properties warn and stay on the rule. The parser keeps going.
 
+Every `parse_css` warning starts with the source line, `line N: ` (counted from the start of the text passed in). When `AssetsDb` loads a `.css` asset it sends each warning to the engine log, so a game sees them in `game.log`: `stylesheet ui/hud.css: line 3: unknown CSS property: frobnicate`. The asset cache makes that once per load; `unload_catalog` or a reload logs them again.
+
 `--name: value` is stored at cascade time (`compute_style_uncached`); `is_known_property` accepts any `--` name. `var(--name)` and `var(--name, fallback)` substitute then, wherever they sit in the value: inside `calc()`, as one inset of `padding`, inside a fallback. A substituted value is resolved again, eight levels at most. The element's bound value wins over the sheet. A reference with no match and no fallback makes the whole value an empty string. Any other unknown property does not change computed style.
 
 Units are `px`, `%`, `em`, and `calc()` with `+ - * /`. A `font-size` of `em`, including `em` inside a `font-size` `calc()`, multiplies by 16 (`kDefaultFontSize`). A percent `font-size`, including inside that `calc()`, uses the parent content width. Other lengths use the resolved font size as the `em` basis.
