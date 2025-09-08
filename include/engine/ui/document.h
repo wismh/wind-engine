@@ -26,6 +26,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace engine::loc {
@@ -865,6 +866,9 @@ namespace engine::ui {
     struct UiDocument {
         Element root;
         std::optional<AssetId> stylesheet;
+        // The `{binding path}` text behind every BindingId the markup names, item templates included, so a bind
+        // error can name the path. parse_xml fills it; a `ui::Node` document has none, and the error shows the id.
+        std::unordered_map<BindingId, std::string> binding_paths;
 
         // wind-129 layout dirty-gate: "external" triggers that invalidate layout for the WHOLE
         // document at once (unlike the per-Element fields above), since layout_stack's packing is
@@ -906,6 +910,9 @@ namespace engine::ui {
         std::vector<AssetId> loaded_extra_stylesheets;
         std::vector<AssetId> loaded_sheet_ids;
         ViewModel *loaded_data_context = nullptr;
+        // Bind errors run_bind has already logged for this instance, so a missing binding logs once, not every
+        // frame. An instance rebuilt for a new document starts empty and logs again.
+        std::unordered_set<std::string> reported_bind_errors;
     };
 
     // Resolves an `<ItemTemplate src="...">` reference to the referenced file's raw XML text.
@@ -919,6 +926,9 @@ namespace engine::ui {
 
     // `catalog` resolves `{tr}` keys. Null leaves a `{tr}` element's text as the key and, when `fatal`
     // is set, reports MissingString. Documents with no `{tr}` ignore it.
+    // A binding the data context does not register is skipped, not fatal to the rest: every other element and
+    // binding still binds. `fatal` gets one report per failure (naming the path from `binding_paths`), and the
+    // result is the first error.
     std::expected<void, UiError> apply_bindings(UiDocument &document, ViewModel &data_context,
                                                 IFatalError *fatal = nullptr,
                                                 const engine::loc::Catalog *catalog = nullptr);
