@@ -32,7 +32,7 @@ jobs:
       - name: Configure
         run: cmake --preset linux-editor
       - name: Build
-        run: cmake --build build-editor --config Release --parallel
+        run: cmake --build build-editor --config Release --parallel -- -k 0
       - name: Tests
         run: xvfb-run -a ctest --test-dir build-editor -C Release --output-on-failure --parallel 4
       - name: Install the SDK
@@ -61,7 +61,7 @@ jobs:
       - name: Configure
         run: cmake --preset macos-editor
       - name: Build
-        run: cmake --build build-editor --config Release --parallel
+        run: cmake --build build-editor --config Release --parallel -- -k 0
       - name: Tests
         run: ctest --test-dir build-editor -C Release --output-on-failure --parallel 4
       - name: Install the SDK
