@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "process/line_splitter.h"
+#include "process/posix_process.h"
 #include "process/process_call_state.h"
 #include "process/process_command_line.h"
 
@@ -49,10 +50,19 @@ std::optional<engine::ProcessResult> finish(
     return std::nullopt;
 }
 
+#if defined(_WIN32)
 engine::ProcessDesc cmd(std::vector<std::string> arguments) {
     arguments.insert(arguments.begin(), "/c");
     return engine::ProcessDesc{.program = "cmd.exe", .arguments = std::move(arguments)};
 }
+#endif
+
+#if defined(ENGINE_PROCESS_POSIX)
+// `script` run by /bin/sh -c.
+engine::ProcessDesc sh(std::string script) {
+    return engine::ProcessDesc{.program = "/bin/sh", .arguments = {"-c", std::move(script)}};
+}
+#endif
 
 }
 
@@ -171,11 +181,8 @@ TEST(ProcessLauncher, StartErrorsArriveOnTheNextPoll) {
     const std::optional<engine::ProcessResult> result = call.take();
     ASSERT_TRUE(result.has_value());
     ASSERT_FALSE(result->has_value());
-#if defined(_WIN32)
-    EXPECT_EQ(result->error(), engine::ProcessError::NotFound);
-#else
-    EXPECT_EQ(result->error(), engine::ProcessError::Unsupported);
-#endif
+    EXPECT_EQ(result->error(),
+            launcher.is_supported() ? engine::ProcessError::NotFound : engine::ProcessError::Unsupported);
 }
 
 TEST(ProcessLauncher, DisposeCancelsCallsStillWaitingForTheirError) {
@@ -299,9 +306,140 @@ TEST(ProcessLauncher, LaunchStartsAnIndependentProgram) {
     EXPECT_EQ(missing.error(), engine::ProcessError::NotFound);
 }
 
+#elif defined(ENGINE_PROCESS_POSIX)
+
+TEST(ProcessLauncher, RunsAProgramAndDeliversItsLinesAndExitCode) {
+    engine::ProcessLauncher launcher;
+    EXPECT_TRUE(launcher.is_supported());
+    engine::ProcessCall call = launcher.run(sh("echo one; echo two; exit 3"));
+    std::vector<std::string> lines;
+    const std::optional<engine::ProcessResult> result = finish(launcher, call, lines);
+    ASSERT_TRUE(result.has_value());
+    ASSERT_TRUE(result->has_value());
+    EXPECT_EQ((*result)->code, 3);
+    EXPECT_EQ(lines, (std::vector<std::string>{"one", "two"}));
+    EXPECT_FALSE(call.pending());
+}
+
+TEST(ProcessLauncher, FindsABareProgramOnPathAndPassesArgumentsUnchanged) {
+    engine::ProcessLauncher launcher;
+    engine::ProcessCall call = launcher.run({.program = "printf", .arguments = {"%s|%s\n", "a b", "\"q\""}});
+    std::vector<std::string> lines;
+    const std::optional<engine::ProcessResult> result = finish(launcher, call, lines);
+    ASSERT_TRUE(result.has_value());
+    ASSERT_TRUE(result->has_value()) << static_cast<int>(result->error());
+    EXPECT_EQ(lines, (std::vector<std::string>{"a b|\"q\""}));
+}
+
+TEST(ProcessLauncher, MergesStandardErrorIntoTheSameLinesInOrder) {
+    engine::ProcessLauncher launcher;
+    engine::ProcessCall call = launcher.run(sh("echo out; echo err 1>&2; echo again"));
+    std::vector<std::string> lines;
+    ASSERT_TRUE(finish(launcher, call, lines).has_value());
+    EXPECT_EQ(lines, (std::vector<std::string>{"out", "err", "again"}));
+}
+
+TEST(ProcessLauncher, SetsVariablesOnTopOfTheParentEnvironment) {
+    engine::ProcessLauncher launcher;
+    engine::ProcessDesc desc = sh("echo \"$WIND_PROCESS_TEST-$HOME\"");
+    desc.environment = {{"WIND_PROCESS_TEST", "hello"}};
+    engine::ProcessCall call = launcher.run(std::move(desc));
+    std::vector<std::string> lines;
+    ASSERT_TRUE(finish(launcher, call, lines).has_value());
+    ASSERT_EQ(lines.size(), 1u);
+    EXPECT_TRUE(lines[0].starts_with("hello-")) << lines[0];
+    EXPECT_NE(lines[0], "hello-");
+}
+
+TEST(ProcessLauncher, RunsInTheWorkingDirectory) {
+    const std::filesystem::path directory = std::filesystem::temp_directory_path() / "wind_process_test_cwd";
+    std::filesystem::create_directories(directory);
+    engine::ProcessLauncher launcher;
+    engine::ProcessDesc desc = sh("pwd -P");
+    desc.working_directory = directory;
+    engine::ProcessCall call = launcher.run(std::move(desc));
+    std::vector<std::string> lines;
+    ASSERT_TRUE(finish(launcher, call, lines).has_value());
+    ASSERT_EQ(lines.size(), 1u);
+    EXPECT_TRUE(std::filesystem::equivalent(lines[0], directory)) << lines[0];
+    std::filesystem::remove_all(directory);
+}
+
+TEST(ProcessLauncher, MissingWorkingDirectoryIsStartFailed) {
+    engine::ProcessLauncher launcher;
+    engine::ProcessDesc desc = sh("pwd");
+    desc.working_directory = std::filesystem::temp_directory_path() / "wind_process_test_missing" / "nope";
+    engine::ProcessCall call = launcher.run(std::move(desc));
+    launcher.poll();
+    const std::optional<engine::ProcessResult> result = call.take();
+    ASSERT_TRUE(result.has_value());
+    ASSERT_FALSE(result->has_value());
+    EXPECT_EQ(result->error(), engine::ProcessError::StartFailed);
+}
+
+TEST(ProcessLauncher, ASignalIsReportedAs128PlusTheSignal) {
+    engine::ProcessLauncher launcher;
+    engine::ProcessCall call = launcher.run(sh("kill -TERM $$"));
+    std::vector<std::string> lines;
+    const std::optional<engine::ProcessResult> result = finish(launcher, call, lines);
+    ASSERT_TRUE(result.has_value());
+    ASSERT_TRUE(result->has_value());
+    EXPECT_EQ((*result)->code, 128 + 15);
+}
+
+TEST(ProcessLauncher, ProcessesLeftRunningDoNotHoldTheCallOpen) {
+    // A background sleep keeps the output pipe after the shell exits. The call still finishes with the shell.
+    engine::ProcessLauncher launcher;
+    const auto started = std::chrono::steady_clock::now();
+    engine::ProcessCall call = launcher.run(sh("sleep 30 & echo done"));
+    std::vector<std::string> lines;
+    const std::optional<engine::ProcessResult> result = finish(launcher, call, lines);
+    ASSERT_TRUE(result.has_value());
+    ASSERT_TRUE(result->has_value());
+    EXPECT_EQ((*result)->code, 0);
+    EXPECT_EQ(lines, (std::vector<std::string>{"done"}));
+    EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::seconds(8));
+}
+
+TEST(ProcessLauncher, CancelEndsTheProgramAndDeliversNothing) {
+    engine::ProcessLauncher launcher;
+    engine::ProcessCall call = launcher.run(sh("echo first; sleep 30"));
+    launcher.poll();
+    call.cancel();
+    EXPECT_FALSE(call.pending());
+    // dispose waits for the reader thread, which only returns once every process of the group has ended.
+    const auto started = std::chrono::steady_clock::now();
+    launcher.poll();
+    launcher.dispose();
+    EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::seconds(8));
+    EXPECT_TRUE(call.take_output().empty());
+    EXPECT_FALSE(call.take().has_value());
+}
+
+TEST(ProcessLauncher, DisposeEndsRunningProgramsAndLeavesTheirCallsEmpty) {
+    engine::ProcessLauncher launcher;
+    engine::ProcessCall call = launcher.run(sh("sleep 30"));
+    launcher.poll();
+    const auto started = std::chrono::steady_clock::now();
+    launcher.dispose();
+    EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::seconds(8));
+    launcher.poll();
+    EXPECT_FALSE(call.pending());
+    EXPECT_FALSE(call.take().has_value());
+}
+
+TEST(ProcessLauncher, LaunchStartsAnIndependentProgram) {
+    engine::ProcessLauncher launcher;
+    EXPECT_TRUE(launcher.launch(sh("exit 0")).has_value());
+    const std::expected<void, engine::ProcessError> missing =
+            launcher.launch({.program = "wind-no-such-program-176", .arguments = {}});
+    ASSERT_FALSE(missing.has_value());
+    EXPECT_EQ(missing.error(), engine::ProcessError::NotFound);
+}
+
 #else
 
-TEST(ProcessLauncher, IsUnsupportedOffWindows) {
+TEST(ProcessLauncher, IsUnsupportedWhereProgramsCannotStart) {
     engine::ProcessLauncher launcher;
     EXPECT_FALSE(launcher.is_supported());
     const std::expected<void, engine::ProcessError> launched = launcher.launch({.program = "true", .arguments = {}});
