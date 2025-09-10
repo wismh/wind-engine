@@ -32,7 +32,7 @@ One `slice` length applies to every side, two to block and inline, three to top 
 
 An attribute that is still unknown is ignored. `var-` with an empty name is ignored. `Node::var` (`src/ui/builder.cpp`) is the builder path: an empty name or an unbound id does nothing.
 
-`{binding}` is interned to a `BindingId` at parse time. It is not stored as a string.
+`{binding}` is interned to a `BindingId` at parse time. The element keeps only the id. `parse_xml` also fills `UiDocument::binding_paths` (id to path, item templates included) so a bind error can name the path.
 
 `Label` and `Button` text may contain `\(...\)`. `\\(` and `\\)` are the literals `\(` and `\)`. An unclosed `\(` stays plain text. A display formula is `<Math display="true">`.
 
@@ -68,6 +68,8 @@ Color, gradient, `background-repeat`, easing, and `transform` values are on [UI]
 2. Merge stylesheet asset ids with `try_get<Stylesheet>`. An empty list does not wipe a sheet already on the instance.
 3. `apply_bindings` writes properties, commands, and paint ids from the view-model, then `{tr}` from `ctx<loc::Catalog>()`.
 
+A binding the view-model does not register is skipped; the rest of the document still binds. `apply_bindings` reports each failure to its `IFatalError` (`UI paint binding "world" is not registered on the data context`; a builder document has no paths and shows `#<id hex>`) and returns the first error. `run_bind` passes a reporter that logs each message once per canvas with `log::warn`, prefixed by the document id, and remembers it in `UiInstance::reported_bind_errors`, so a missing binding is one log line, not one per frame. A new document starts a fresh set.
+
 A bound command sets `disabled` from `!can_execute()` on every bind, except `TextInput`. See [UI Input](UI%20Input.md).
 
 `ItemsControl` clones `ItemTemplate` once per `BindableList` element. The row's `generated_owner` is that item view-model.
@@ -75,7 +77,9 @@ A bound command sets `disabled` from `!can_execute()` on every bind, except `Tex
 `asset_codegen` scans `importer = "ui"` XML (`src/ui/bind_scan.h`) and emits, in `asset_ids.h`:
 
 - one `constexpr BindingId` per `{binding}` path
-- a struct such as `assets::ui::Hud` with `template<typename T> static void bind(T& vm)` that calls `vm.property` / `vm.command` using the C++ member name
+- a struct such as `assets::ui::Hud` with `template<typename T> static void bind(T& vm)` that calls `vm.property`, `vm.command`, or `vm.paint` using the C++ member name
+
+The scan (`collect_bind_element` in `src/ui/xml_parser.cpp`) reads every bindable attribute `parse_element` reads: `command` is a command, `paint` is a paint, and `text`, `content` (and each `{binding}` argument of a `{tr}` there), `formula`, `drag`, `checked`, `open`, `pan-x`, `pan-y`, `zoom`, `scroll-x`, `scroll-y`, `source`, `items_source`, and `var-<name>` are properties. A new bindable attribute goes in both places, or generated `bind()` misses it.
 
 Two paths that hash to the same `BindingId` fail the build. Codegen does not emit a `ViewModel` class or the `Bindable` fields. The game writes those and calls `Hud::bind(*this)`.
 
@@ -123,7 +127,7 @@ Non-stack children (Canvas, Button, Label) overlay the same content rect. Each c
 
 ## Tests
 
-`tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_popup_test.cpp`, `tests/assets_test.cpp`.
+`tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_popup_test.cpp`, `tests/ui_bind_error_test.cpp`, `tests/assets_test.cpp`.
 
 ## See also
 

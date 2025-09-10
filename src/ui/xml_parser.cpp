@@ -10,6 +10,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -608,16 +609,16 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
     return element;
 }
 
-void add_bind_member(BindBinder& binder, std::string path, bool is_command) {
+void add_bind_member(BindBinder& binder, std::string path, BindKind kind) {
     for (const BindMember& existing : binder.members) {
         if (existing.path == path) {
             return;
         }
     }
-    binder.members.push_back(BindMember{std::move(path), is_command});
+    binder.members.push_back(BindMember{std::move(path), kind});
 }
 
-void add_bind_attr(BindBinder& binder, const char* attr, bool is_command) {
+void add_bind_attr(BindBinder& binder, const char* attr, BindKind kind) {
     if (attr == nullptr) {
         return;
     }
@@ -625,7 +626,22 @@ void add_bind_attr(BindBinder& binder, const char* attr, bool is_command) {
     if (!binding || binding->empty()) {
         return;
     }
-    add_bind_member(binder, *binding, is_command);
+    add_bind_member(binder, *binding, kind);
+}
+
+// `text` / `content` may be `{tr key name={binding path}}`: each argument is a property of the same data context.
+void add_bind_text_attr(BindBinder& binder, const char* attr) {
+    if (attr == nullptr) {
+        return;
+    }
+    const TrParse parsed = parse_tr_attribute(attr);
+    if (parsed.kind == TrParse::Kind::Ok) {
+        for (const std::string& path : parsed.arg_paths) {
+            add_bind_member(binder, path, BindKind::Property);
+        }
+        return;
+    }
+    add_bind_attr(binder, attr, BindKind::Property);
 }
 
 void add_bind_custom_properties(BindBinder& binder, const tinyxml2::XMLElement* xml) {
@@ -635,7 +651,7 @@ void add_bind_custom_properties(BindBinder& binder, const tinyxml2::XMLElement* 
         if (!attr_name.starts_with(kPrefix) || attr_name.size() == kPrefix.size()) {
             continue;
         }
-        add_bind_attr(binder, attr->Value(), false);
+        add_bind_attr(binder, attr->Value(), BindKind::Property);
     }
 }
 
@@ -680,18 +696,22 @@ void collect_bind_include(const char* src, BindBinder& binder, const UiIncludeRe
 
 void collect_bind_element(const tinyxml2::XMLElement* xml, BindBinder& binder, const UiIncludeResolver& resolve_include,
         std::vector<std::string>& include_stack) {
-    add_bind_attr(binder, xml->Attribute("text"), false);
-    add_bind_attr(binder, xml->Attribute("content"), false);
-    add_bind_attr(binder, xml->Attribute("formula"), false);
-    add_bind_attr(binder, xml->Attribute("command"), true);
-    add_bind_attr(binder, xml->Attribute("drag"), false);
-    add_bind_attr(binder, xml->Attribute("checked"), false);
-    add_bind_attr(binder, xml->Attribute("open"), false);
-    add_bind_attr(binder, xml->Attribute("pan-x"), false);
-    add_bind_attr(binder, xml->Attribute("pan-y"), false);
-    add_bind_attr(binder, xml->Attribute("zoom"), false);
-    add_bind_attr(binder, xml->Attribute("source"), false);
-    add_bind_attr(binder, xml->Attribute("items_source"), false);
+    // Every bindable attribute parse_element reads. A new one goes here too, or generated bind() misses it.
+    add_bind_text_attr(binder, xml->Attribute("text"));
+    add_bind_text_attr(binder, xml->Attribute("content"));
+    add_bind_attr(binder, xml->Attribute("formula"), BindKind::Property);
+    add_bind_attr(binder, xml->Attribute("command"), BindKind::Command);
+    add_bind_attr(binder, xml->Attribute("paint"), BindKind::Paint);
+    add_bind_attr(binder, xml->Attribute("drag"), BindKind::Property);
+    add_bind_attr(binder, xml->Attribute("checked"), BindKind::Property);
+    add_bind_attr(binder, xml->Attribute("open"), BindKind::Property);
+    add_bind_attr(binder, xml->Attribute("pan-x"), BindKind::Property);
+    add_bind_attr(binder, xml->Attribute("pan-y"), BindKind::Property);
+    add_bind_attr(binder, xml->Attribute("zoom"), BindKind::Property);
+    add_bind_attr(binder, xml->Attribute("scroll-x"), BindKind::Property);
+    add_bind_attr(binder, xml->Attribute("scroll-y"), BindKind::Property);
+    add_bind_attr(binder, xml->Attribute("source"), BindKind::Property);
+    add_bind_attr(binder, xml->Attribute("items_source"), BindKind::Property);
     add_bind_custom_properties(binder, xml);
 
     std::string items_path;
@@ -718,6 +738,15 @@ void collect_bind_element(const tinyxml2::XMLElement* xml, BindBinder& binder, c
     }
 }
 
+void note_binding_paths(const BindBinder& binder, std::unordered_map<BindingId, std::string>& paths) {
+    for (const BindMember& member : binder.members) {
+        paths.try_emplace(intern(member.path), member.path);
+    }
+    for (const auto& [_, nested] : binder.nested) {
+        note_binding_paths(nested, paths);
+    }
+}
+
 }
 
 std::expected<UiDocument, UiError> parse_xml(std::string_view xml, IFatalError* fatal, const ViewModel* data_context,
@@ -737,6 +766,9 @@ std::expected<UiDocument, UiError> parse_xml(std::string_view xml, IFatalError* 
 
     UiDocument document;
     document.root = std::move(*root);
+    BindBinder binder;
+    collect_bind_element(doc.RootElement(), binder, resolve_include, include_stack);
+    note_binding_paths(binder, document.binding_paths);
     if (const char* stylesheet = doc.RootElement()->Attribute("stylesheet")) {
         if (const auto id = AssetId::parse(stylesheet)) {
             document.stylesheet = *id;
