@@ -42,7 +42,15 @@ if [ "$e2e" = "--e2e" ]; then
     cli="$sdk/bin/wind-cli"
     cleanup() { pkill -f "$sdk/bin/wind_editor" || true; }
     trap cleanup EXIT
-    "$cli" launch "$work/game" --play --wait 600
+    if ! "$cli" launch "$work/game" --play --wait 600; then
+        echo "--- game.log"
+        cat "$sdk/bin/game.log" 2>/dev/null || true
+        pkill -f "$sdk/bin/wind_editor" || true
+        echo "--- the editor in the foreground for 20 s"
+        timeout 20 "$sdk/bin/wind_editor" --project "$work/game" 2>&1 | head -80 || true
+        cat "$sdk/bin/game.log" 2>/dev/null || true
+        exit 1
+    fi
     "$cli" state
     "$cli" stop
     "$cli" state

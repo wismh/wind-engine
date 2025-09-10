@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -330,9 +331,10 @@ TEST(UiPainter, SpaceSeparatedClassesEachApplyIndependently) {
     EXPECT_FLOAT_EQ(font->font_size, 24.0f);
     // The Label's own opacity call, not the Canvas root's - "opacity" fires once per element in
     // document order, so the Label's is the last one.
-    const auto opacity_it = std::ranges::find_last(painter.calls, "opacity", &PaintCall::op);
-    ASSERT_FALSE(opacity_it.empty());
-    EXPECT_FLOAT_EQ(opacity_it.front().opacity, 0.5f);
+    const auto newest_first = painter.calls | std::views::reverse;
+    const auto opacity_it = std::ranges::find(newest_first, "opacity", &PaintCall::op);
+    ASSERT_NE(opacity_it, newest_first.end());
+    EXPECT_FLOAT_EQ(opacity_it->opacity, 0.5f);
 }
 
 TEST(UiPainter, FontFamilyGuidFromCss) {

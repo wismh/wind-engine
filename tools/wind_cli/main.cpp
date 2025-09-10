@@ -102,6 +102,18 @@ bool process_alive(std::uint32_t pid) {
 #endif
 }
 
+// The whole of `text` as a number. strtod, not from_chars: Apple's libc++ has no floating-point from_chars before
+// Xcode 16.3.
+bool parse_double(std::string_view text, double &out) {
+    if (text.empty() || text.size() > 64) {
+        return false;
+    }
+    const std::string copy(text);
+    char *end = nullptr;
+    out = std::strtod(copy.c_str(), &end);
+    return end == copy.c_str() + copy.size();
+}
+
 std::string json_escape(std::string_view text) {
     std::string out;
     for (const unsigned char c: text) {
@@ -808,10 +820,6 @@ int main(int argc, char **argv) {
         }
         double x = 0.0;
         double y = 0.0;
-        const auto parse_double = [](std::string_view text, double &out) {
-            const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), out);
-            return ec == std::errc{} && ptr == text.data() + text.size();
-        };
         if (!parse_double(positionals[1], x) || !parse_double(positionals[2], y)) {
             usage();
             return 2;
@@ -876,10 +884,6 @@ int main(int argc, char **argv) {
         } else if (action == "float" && (positionals.size() == 3 || positionals.size() == 7)) {
             body += ",\"action\":\"float\",\"panel\":\"" + json_escape(positionals[2]) + "\"";
             if (positionals.size() == 7) {
-                const auto parse_double = [](std::string_view text, double &out) {
-                    const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), out);
-                    return ec == std::errc{} && ptr == text.data() + text.size();
-                };
                 double rect[4] = {};
                 for (std::size_t i = 0; i < 4; ++i) {
                     if (!parse_double(positionals[3 + i], rect[i])) {
