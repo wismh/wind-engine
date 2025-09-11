@@ -31,6 +31,10 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <fcntl.h>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
 #endif
 
 namespace {
@@ -408,6 +412,15 @@ std::filesystem::path own_directory() {
     const DWORD length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
     path.resize(length);
     return std::filesystem::path(path).parent_path();
+#elif defined(__APPLE__)
+    std::uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::string path(size, 0);
+    if (_NSGetExecutablePath(path.data(), &size) != 0) {
+        return {};
+    }
+    std::error_code error;
+    return std::filesystem::weakly_canonical(path.c_str(), error).parent_path();
 #else
     std::error_code error;
     return std::filesystem::read_symlink("/proc/self/exe", error).parent_path();
@@ -500,11 +513,38 @@ std::optional<std::uint32_t> start_editor(const std::filesystem::path &editor, c
     CloseHandle(info.hProcess);
     return pid;
 #else
-    (void) editor;
-    (void) project;
-    (void) play;
-    std::cerr << "launch is not supported on this platform\n";
-    return std::nullopt;
+    // Its own session, standard streams on /dev/null and the editor's directory as the working directory, so it
+    // outlives this terminal. The pid is the editor's: the wait below matches it against the descriptor.
+    const std::string program = editor.string();
+    const std::string project_arg = project.string();
+    const std::string directory = editor.parent_path().string();
+    std::vector<const char *> argv{program.c_str(), "--project", project_arg.c_str()};
+    if (play) {
+        argv.push_back("--play");
+    }
+    argv.push_back(nullptr);
+    const pid_t pid = ::fork();
+    if (pid < 0) {
+        std::cerr << "could not start " << utf8(editor) << " (fork failed)\n";
+        return std::nullopt;
+    }
+    if (pid == 0) {
+        ::setsid();
+        const int null_in = ::open("/dev/null", O_RDONLY);
+        const int null_out = ::open("/dev/null", O_WRONLY);
+        if (null_in >= 0) {
+            ::dup2(null_in, STDIN_FILENO);
+        }
+        if (null_out >= 0) {
+            ::dup2(null_out, STDOUT_FILENO);
+            ::dup2(null_out, STDERR_FILENO);
+        }
+        if (::chdir(directory.c_str()) == 0) {
+            ::execv(program.c_str(), const_cast<char *const *>(argv.data()));
+        }
+        ::_exit(127);
+    }
+    return static_cast<std::uint32_t>(pid);
 #endif
 }
 
