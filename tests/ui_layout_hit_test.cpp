@@ -43,6 +43,7 @@ public:
     void apply_view(glm::vec2, glm::vec2, float) override {}
     void set_opacity(float) override {}
     void fill_rounded_rect(const engine::render::Rect&, float, glm::vec4) override {}
+    void fill_rounded_rect_gradient(const engine::render::Rect&, float, const engine::ui::Gradient&) override {}
     void stroke_rounded_rect(const engine::render::Rect&, float, float, glm::vec4) override {}
     void draw_line(glm::vec2, glm::vec2, glm::vec4, float) override {}
     void set_font(engine::AssetId, float) override {}
@@ -95,6 +96,7 @@ public:
     void apply_view(glm::vec2, glm::vec2, float) override {}
     void set_opacity(float) override {}
     void fill_rounded_rect(const engine::render::Rect&, float, glm::vec4) override {}
+    void fill_rounded_rect_gradient(const engine::render::Rect&, float, const engine::ui::Gradient&) override {}
     void stroke_rounded_rect(const engine::render::Rect&, float, float, glm::vec4) override {}
     void draw_line(glm::vec2, glm::vec2, glm::vec4, float) override {}
     void set_font(engine::AssetId, float) override {}

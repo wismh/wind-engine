@@ -118,6 +118,170 @@ std::optional<glm::vec4> parse_color(std::string_view raw) {
     return std::nullopt;
 }
 
+std::optional<float> parse_percent(std::string_view raw) {
+    const std::string_view value = trim(raw);
+    if (value.empty()) {
+        return std::nullopt;
+    }
+    const std::string tmp(value);
+    char* end = nullptr;
+    const float n = std::strtof(tmp.c_str(), &end);
+    if (end == tmp.c_str()) {
+        return std::nullopt;
+    }
+    const std::string_view suffix = trim(std::string_view(end));
+    if (suffix != "%") {
+        return std::nullopt;
+    }
+    return n;
+}
+
+std::optional<float> parse_angle_deg(std::string_view raw) {
+    const std::string_view value = trim(raw);
+    if (value.empty()) {
+        return std::nullopt;
+    }
+    const std::string tmp(value);
+    char* end = nullptr;
+    const float n = std::strtof(tmp.c_str(), &end);
+    if (end == tmp.c_str()) {
+        return std::nullopt;
+    }
+    const std::string_view suffix = trim(std::string_view(end));
+    if (!suffix.empty() && suffix != "deg") {
+        return std::nullopt;
+    }
+    return n;
+}
+
+// Gradient stops never nest another `(...)`, so a plain scan (no paren-depth tracking) is enough
+// here, unlike a general CSS value parser.
+std::vector<std::string_view> split_top_level(std::string_view value, char sep) {
+    std::vector<std::string_view> parts;
+    std::size_t start = 0;
+    for (std::size_t i = 0; i <= value.size(); ++i) {
+        if (i == value.size() || value[i] == sep) {
+            parts.push_back(trim(value.substr(start, i - start)));
+            start = i + 1;
+        }
+    }
+    return parts;
+}
+
+std::vector<std::string_view> split_whitespace(std::string_view value) {
+    std::vector<std::string_view> parts;
+    std::size_t i = 0;
+    while (i < value.size()) {
+        while (i < value.size() && std::isspace(static_cast<unsigned char>(value[i])) != 0) {
+            ++i;
+        }
+        const std::size_t start = i;
+        while (i < value.size() && std::isspace(static_cast<unsigned char>(value[i])) == 0) {
+            ++i;
+        }
+        if (i > start) {
+            parts.push_back(value.substr(start, i - start));
+        }
+    }
+    return parts;
+}
+
+// Distributes any stop with no explicit percent evenly across [0,100] by index — a documented
+// simplification of CSS's partial-specification spacing rule (which only interpolates the gaps
+// between explicitly-positioned neighbors); good enough for the two shapes a gradient is actually
+// authored in here: every stop positioned, or none of them.
+void fill_missing_stop_percents(std::vector<GradientStop>& stops) {
+    if (stops.size() < 2) {
+        return;
+    }
+    for (std::size_t i = 0; i < stops.size(); ++i) {
+        if (!stops[i].percent) {
+            stops[i].percent = 100.0f * static_cast<float>(i) / static_cast<float>(stops.size() - 1);
+        }
+    }
+}
+
+// Each stop is `<#hexcolor> [<pct>%] [<pct>%]?` — the second percent is CSS's hard-stop shorthand
+// (the same color repeated at two offsets, e.g. a progress ring's filled wedge in one stop entry).
+bool parse_gradient_stops(std::string_view body, std::vector<GradientStop>& stops) {
+    for (const std::string_view raw_stop : split_top_level(body, ',')) {
+        const std::vector<std::string_view> parts = split_whitespace(raw_stop);
+        if (parts.empty() || parts.size() > 3) {
+            return false;
+        }
+        const auto color = parse_color(parts[0]);
+        if (!color) {
+            return false;
+        }
+        if (parts.size() == 1) {
+            stops.push_back(GradientStop{*color, std::nullopt});
+            continue;
+        }
+        const auto pct1 = parse_percent(parts[1]);
+        if (!pct1) {
+            return false;
+        }
+        stops.push_back(GradientStop{*color, *pct1});
+        if (parts.size() == 3) {
+            const auto pct2 = parse_percent(parts[2]);
+            if (!pct2) {
+                return false;
+            }
+            stops.push_back(GradientStop{*color, *pct2});
+        }
+    }
+    if (stops.size() < 2) {
+        return false;
+    }
+    fill_missing_stop_percents(stops);
+    return true;
+}
+
+// linear-gradient([<angle>deg ,] <stop-list>) | radial-gradient(<stop-list>) |
+// conic-gradient(<stop-list>). Not a general CSS <gradient> grammar: no `to <side>` keyword angles,
+// no explicit radial/conic shape or position arguments, no rgba()/named colors (parse_color is
+// hex-only, same limitation every other color property already has here). Angle/percent tokens are
+// plain numbers with an optional deg/% suffix, matching every other length-ish value in this parser.
+std::optional<Gradient> parse_gradient(std::string_view raw) {
+    const std::string_view value = trim(raw);
+    GradientKind kind;
+    std::string_view prefix;
+    if (value.starts_with("linear-gradient(")) {
+        kind = GradientKind::Linear;
+        prefix = "linear-gradient(";
+    } else if (value.starts_with("radial-gradient(")) {
+        kind = GradientKind::Radial;
+        prefix = "radial-gradient(";
+    } else if (value.starts_with("conic-gradient(")) {
+        kind = GradientKind::Conic;
+        prefix = "conic-gradient(";
+    } else {
+        return std::nullopt;
+    }
+    if (!value.ends_with(')')) {
+        return std::nullopt;
+    }
+    std::string_view body = value.substr(prefix.size(), value.size() - prefix.size() - 1);
+
+    Gradient gradient;
+    gradient.kind = kind;
+    if (kind == GradientKind::Linear) {
+        const std::size_t comma = body.find(',');
+        const std::string_view first = trim(comma == std::string_view::npos ? body : body.substr(0, comma));
+        if (const auto angle = parse_angle_deg(first)) {
+            gradient.angle_deg = *angle;
+            if (comma == std::string_view::npos) {
+                return std::nullopt;  // angle with no stops after it
+            }
+            body = body.substr(comma + 1);
+        }
+    }
+    if (!parse_gradient_stops(body, gradient.stops)) {
+        return std::nullopt;
+    }
+    return gradient;
+}
+
 UiAlign parse_align(std::string_view raw) {
     const std::string_view value = trim(raw);
     if (value == "center") {
@@ -347,15 +511,23 @@ void apply_declaration(ComputedStyle& style, const CssDeclaration& decl) {
             style.color = *color;
         }
     } else if (decl.property == "background") {
-        if (const auto color = parse_color(decl.value)) {
+        if (const auto gradient = parse_gradient(decl.value)) {
+            style.background_gradient = *gradient;
+            style.background_image.reset();
+        } else if (const auto color = parse_color(decl.value)) {
             style.background = *color;
         }
     } else if (decl.property == "background-image") {
         const std::string_view value = trim(decl.value);
-        if (value == "none") {
+        if (const auto gradient = parse_gradient(value)) {
+            style.background_gradient = *gradient;
             style.background_image.reset();
+        } else if (value == "none") {
+            style.background_image.reset();
+            style.background_gradient.reset();
         } else if (const auto id = AssetId::parse(value)) {
             style.background_image = *id;
+            style.background_gradient.reset();
         }
     } else if (decl.property == "background-slice") {
         if (const auto insets = css_length::parse_insets(decl.value)) {
@@ -973,7 +1145,9 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
     if (style.background.a > 0.0f) {
         painter.fill_rounded_rect(screen_rect, screen_border_radius, style.background);
     }
-    if (style.background_image) {
+    if (style.background_gradient) {
+        painter.fill_rounded_rect_gradient(screen_rect, screen_border_radius, *style.background_gradient);
+    } else if (style.background_image) {
         if (style.background_slice) {
             const BoxInsets slice = resolve_insets(*style.background_slice, parent_content, font_size);
             const BoxInsets screen_slice{
