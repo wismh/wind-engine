@@ -21,6 +21,8 @@ cmake --build build-editor --config Debug
 ctest --test-dir build-editor -C Debug --output-on-failure
 ```
 
+On Linux and macOS use the `linux-editor` or `macos-editor` preset instead (Ninja Multi-Config, `libengine.so` / `libengine.dylib`); the commands are the same, and the SDK holds `wind_editor` without `.exe`. See [CMake](docs/tech/build/CMake.md#linux-and-macos).
+
 Editor SDK: install one configuration of the editor build (`/out/` is gitignored). It holds `wind_editor.exe`, `engine.dll`, the host tools, their `.pdb` files, their assets, `engine.lib`, the public headers with that build's `build_id.h`, GoogleTest, the CMake package a game finds (`find_package(Wind)`), the engine source (`source/`), and `sdk.toml` (version, commit, build id). The engine version is `project(engine VERSION ...)` in `CMakeLists.txt`. The editor build's Release is optimized with symbols and keeps the Profiler tab and the `wind-cli` server:
 
 ```bash

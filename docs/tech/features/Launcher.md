@@ -93,7 +93,7 @@ Projects are most recently opened or added first. `location=` is where the last 
 
 ## Limits
 
-- Windows only: `launch` and the editor are Windows today.
+- Desktop only: `launch` runs on Windows, Linux, and macOS ([Process](../modules/Process.md)); the editor SDK builds on all three ([CMake](../build/CMake.md#linux-and-macos)).
 - One template (`empty`), and no download of SDK releases yet.
 - Picking a project means picking its `wind_project.toml` file; there is no folder dialog.
 - Like every Wind app the launcher renders continuously, without vsync.
