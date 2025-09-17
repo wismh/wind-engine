@@ -32,6 +32,7 @@ public:
     virtual void apply_view(glm::vec2 origin, glm::vec2 pan, float zoom) = 0;
     virtual void set_opacity(float opacity) = 0;
     virtual void fill_rounded_rect(const render::Rect& rect, float radius, glm::vec4 color) = 0;
+    virtual void fill_rounded_rect_gradient(const render::Rect& rect, float radius, const Gradient& gradient) = 0;
     virtual void stroke_rounded_rect(const render::Rect& rect, float radius, float width, glm::vec4 color) = 0;
     virtual void draw_line(glm::vec2 from, glm::vec2 to, glm::vec4 color, float width) = 0;
     virtual void set_font(AssetId font, float size) = 0;
