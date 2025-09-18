@@ -90,3 +90,31 @@ jobs:
         run: cmake --build build-editor --config Release --parallel
       - name: Tests
         run: ctest --test-dir build-editor -C Release --output-on-failure --parallel 4
+
+  launcher:
+    name: Launcher (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Linux, os: ubuntu-24.04 }
+          - { name: macOS, os: macos-14 }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build xvfb             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev             libxkbcommon-dev libwayland-dev libdecor-0-dev libdrm-dev libgbm-dev libgl1-mesa-dev libgles2-mesa-dev             libegl1-mesa-dev libgl1-mesa-dri libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libibus-1.0-dev
+      - name: Configure
+        run: >
+          cmake -S . -B build-launcher -G Ninja -DCMAKE_BUILD_TYPE=Release -DENGINE_BUILD_TESTS=ON
+          -DENGINE_WITH_WINDOW=ON -DENGINE_WITH_AUDIO=OFF -DENGINE_LAUNCHER=ON
+      - name: Build
+        run: cmake --build build-launcher --target wind_launcher wind_launcher_tests --parallel -- -k 0
+      - name: Tests
+        run: ${{ runner.os == 'Linux' && 'xvfb-run -a ' || '' }}build-launcher/bin/wind_launcher_tests
