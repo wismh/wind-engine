@@ -72,8 +72,6 @@ jobs:
       - name: Game against the SDK
         run: tools/ci/sdk_smoke.sh out/sdk out/smoke
       - name: Editor plays the game
-        # A window on a hosted Mac may not open (no display attached); this step tells, it does not gate.
-        continue-on-error: true
         env:
           SDL_AUDIODRIVER: dummy
         run: tools/ci/sdk_smoke.sh out/sdk out/smoke-e2e --e2e
