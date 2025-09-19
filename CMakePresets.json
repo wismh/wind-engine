@@ -58,6 +58,34 @@
       }
     },
     {
+      "name": "linux-editor",
+      "displayName": "Linux editor build (shared libengine.so, Ninja Multi-Config)",
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/build-editor",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+      "cacheVariables": {
+        "CMAKE_CONFIGURATION_TYPES": "Debug;Release",
+        "ENGINE_BUILD_TESTS": "ON",
+        "ENGINE_WITH_WINDOW": "ON",
+        "ENGINE_WITH_AUDIO": "ON",
+        "ENGINE_EDITOR": "ON"
+      }
+    },
+    {
+      "name": "macos-editor",
+      "displayName": "macOS editor build (shared libengine.dylib, Ninja Multi-Config)",
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/build-editor",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+      "cacheVariables": {
+        "CMAKE_CONFIGURATION_TYPES": "Debug;Release",
+        "ENGINE_BUILD_TESTS": "ON",
+        "ENGINE_WITH_WINDOW": "ON",
+        "ENGINE_WITH_AUDIO": "ON",
+        "ENGINE_EDITOR": "ON"
+      }
+    },
+    {
       "name": "vs-launcher",
       "displayName": "Visual Studio Wind Launcher (static engine)",
       "generator": "Visual Studio 18 2026",

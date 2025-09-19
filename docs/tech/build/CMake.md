@@ -226,6 +226,32 @@ It is how the launcher and the editor know an SDK ([Editor Plan](../architecture
 
 Then it includes CMake's `GoogleTest` module (`gtest_discover_tests`) and `wind_game.cmake`, prints `Wind <version>: <config> SDK at <dir>`, and calls `engine_sdk_configurations()` ([Configurations](#configurations)). `WindConfigVersion.cmake` comes from `write_basic_package_version_file` with `ExactVersion`, so `find_package(Wind 0.2.0)` refuses a 0.1.0 SDK and lists it.
 
+## Linux and macOS
+
+The editor build, its SDK, and SDK mode work on Linux (GCC, Clang) and macOS (Apple Clang, arm64). CI builds both, runs the tests, installs the SDK, and builds a game from the SDK's template against it ([CI](#ci)). The presets `linux-editor` and `macos-editor` are `vs-editor` with `Ninja Multi-Config` (`build-editor`, `Debug;Release`); `ninja` has to be installed.
+
+| | Windows | Linux | macOS |
+| --- | --- | --- | --- |
+| Shared engine | `engine.dll` and `engine.lib` | `libengine.so` | `libengine.dylib` |
+| Module | `<target>.dll` | `<target>.so` | `<target>.dylib` (no `lib` prefix) |
+| Generator | Visual Studio (CMake's default) | `Ninja Multi-Config`, which `ProjectBuild` passes to a fresh configure | same |
+| Game configurations | `DebugGame;Release` against a Release SDK | same names: `-O0 -g` and CMake's Release, one ABI | same |
+| Symbols | `.pdb`, `/PDBALTPATH` | in the binary (`-g`) | in the binary |
+| Finding `engine` | `engine.dll` beside the executable | `INSTALL_RPATH $ORIGIN` on `wind_editor` and the host tools | `@loader_path`; the install name is `@rpath/libengine.dylib` |
+| Editor binary | `wind_editor.exe` | `wind_editor` | `wind_editor`, not a `.app` (`MACOSX_BUNDLE OFF`: the SDK is `bin/` with `assets/` beside it) |
+
+- **Linking a module.** `WindConfig.cmake` sets `IMPORTED_IMPLIB` only on Windows. Elsewhere the module links `bin/libengine.*` itself, with `IMPORTED_SONAME` set to `libengine.so` or `@rpath/libengine.dylib`, the name the editor process already loaded, so the module binds to the editor's engine and not a second copy. In SDK mode the module also gets `BUILD_RPATH <sdk>/bin`.
+- **`-fno-gnu-unique`** on a GCC module (`engine_add_game`): libstdc++ marks inline variables and template statics `STB_GNU_UNIQUE`, which keeps the module mapped after `dlclose` and binds the next Play's copy to the old module's statics.
+- **No CRT guard.** `<engine/game_entry.h>` checks the CRT only under MSVC. Elsewhere the build id (compiler id and version, configuration, public headers, defines) is the check, and a module built by another compiler version is refused with both ids. `_GLIBCXX_DEBUG` changes `std` layouts, so a game must not define it in `DebugGame`.
+- **Symbol visibility.** The engine keeps default visibility, so every engine symbol is exported, as `WINDOWS_EXPORT_ALL_SYMBOLS` does on Windows. `ENGINE_GAME_EXPORT` and `ENGINE_API` are `visibility("default")`.
+- **Processes.** `IProcessLauncher` runs `cmake` through `fork`/`execve` in a process group ([Process](../modules/Process.md#linux-and-macos)); `wind-cli launch` starts the editor in its own session.
+- **No audio device.** The editor does not start without one. Set `SDL_AUDIODRIVER=dummy` on a machine with no sound card (CI, a container).
+- **Not done:** HTTP ([Net](../modules/Net.md)), `.app` bundles for exported games' signing and notarization, and a headless editor ([Editor Plan](../architecture/Editor%20Plan.md)).
+
+### CI
+
+`.github/workflows/sdk.yml` runs on every push to `main` and `feat/**` and on pull requests: on `ubuntu-24.04` (GCC 13), `macos-14`, and `windows-2022`, it configures the editor build, builds `Release`, runs `ctest` (Linux under `xvfb-run`), and on Linux and macOS installs the SDK and runs `tools/ci/sdk_smoke.sh`. The script makes a project from the SDK's `templates/empty`, configures it the way `ProjectBuild` does (`Ninja Multi-Config`, `DebugGame;Release`, `-DWind_DIR=<sdk>/cmake`), builds both configurations, and checks the `.module` record. On Linux (under `xvfb-run`) and macOS a second run (`--e2e`) starts the editor with `wind-cli launch --play --wait`, reads `state`, and stops it, so the editor builds the project through the POSIX `ProcessLauncher` and plays the module it loaded with `dlopen`.
+
 ## SDK mode
 
 A game's `CMakeLists.txt` calls `find_package(Wind REQUIRED)` after its `project()`, then `engine_add_game`. CMake finds `<sdk>/cmake/WindConfig.cmake` through `CMAKE_PREFIX_PATH=<sdk>` (or `Wind_DIR=<sdk>/cmake`): the editor will pass it when it configures a project; until then the game's `CMakeUserPresets.json` sets it ([Game Consumer](Game%20Consumer.md#editor-module)). The game repo has no engine submodule.

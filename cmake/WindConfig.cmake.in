@@ -38,11 +38,24 @@ endif()
 add_library(engine SHARED IMPORTED GLOBAL)
 set_target_properties(engine PROPERTIES
     IMPORTED_LOCATION "${_wind_sdk_dir}/bin/$<TARGET_FILE_NAME:engine>"
-    IMPORTED_IMPLIB "${_wind_sdk_dir}/lib/$<TARGET_LINKER_FILE_NAME:engine>"
     INTERFACE_INCLUDE_DIRECTORIES "${_wind_sdk_dir}/include"
     INTERFACE_COMPILE_DEFINITIONS "${_wind_sdk_defines}"
     INTERFACE_COMPILE_FEATURES cxx_std_23
     INTERFACE_LINK_LIBRARIES "${_wind_sdk_link}")
+if(WIN32)
+    # The import library, in lib/. Elsewhere the shared library itself is what a module links, and it names itself
+    # (SONAME on Linux, install name @rpath/... on macOS) the way the editor process already loaded it, so a module
+    # loaded into the editor binds to the editor's copy of the engine, not a second one.
+    set(_wind_sdk_engine_link "${_wind_sdk_dir}/lib/$<TARGET_LINKER_FILE_NAME:engine>")
+    set_target_properties(engine PROPERTIES IMPORTED_IMPLIB "${_wind_sdk_engine_link}")
+else()
+    set(_wind_sdk_engine_link "${_wind_sdk_dir}/bin/$<TARGET_FILE_NAME:engine>")
+    if(APPLE)
+        set_target_properties(engine PROPERTIES IMPORTED_SONAME "@rpath/$<TARGET_FILE_NAME:engine>")
+    else()
+        set_target_properties(engine PROPERTIES IMPORTED_SONAME "$<TARGET_FILE_NAME:engine>")
+    endif()
+endif()
 add_library(engine::engine ALIAS engine)
 
 add_executable(asset_codegen IMPORTED GLOBAL)
@@ -67,7 +80,7 @@ include(GoogleTest)
 
 foreach(_wind_sdk_file IN ITEMS
         "${_wind_sdk_dir}/bin/$<TARGET_FILE_NAME:engine>"
-        "${_wind_sdk_dir}/lib/$<TARGET_LINKER_FILE_NAME:engine>"
+        "${_wind_sdk_engine_link}"
         "${_wind_sdk_dir}/bin/$<TARGET_FILE_NAME:asset_codegen>"
         "${_wind_sdk_dir}/bin/$<TARGET_FILE_NAME:icon_codegen>"
         "${_wind_sdk_dir}/lib/$<TARGET_LINKER_FILE_NAME:gtest>"
