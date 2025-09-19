@@ -35,6 +35,9 @@ public:
     virtual void fill_rounded_rect_gradient(const render::Rect& rect, float radius, const Gradient& gradient) = 0;
     virtual void stroke_rounded_rect(const render::Rect& rect, float radius, float width, glm::vec4 color) = 0;
     virtual void draw_line(glm::vec2 from, glm::vec2 to, glm::vec4 color, float width) = 0;
+    // See IDrawList::arc (draw_list.h) for the angle convention (radians, 0 = 12 o'clock, clockwise).
+    virtual void stroke_arc(
+            glm::vec2 center, float radius, float start_angle, float end_angle, float width, glm::vec4 color) = 0;
     virtual void set_font(AssetId font, float size) = 0;
     virtual void fill_text(std::string_view text, glm::vec2 position, glm::vec4 color, UiAlign horizontal,
             UiAlign vertical) = 0;
