@@ -71,6 +71,12 @@ jobs:
         run: cmake --install build-editor --config Release --prefix out/sdk
       - name: Game against the SDK
         run: tools/ci/sdk_smoke.sh out/sdk out/smoke
+      - name: Editor plays the game
+        # A window on a hosted Mac may not open (no display attached); this step tells, it does not gate.
+        continue-on-error: true
+        env:
+          SDL_AUDIODRIVER: dummy
+        run: tools/ci/sdk_smoke.sh out/sdk out/smoke-e2e --e2e
 
   windows:
     # tests/cli_server_test.cpp does not compile with Visual Studio 2022's MSVC (C2017 on a raw string with quotes in
