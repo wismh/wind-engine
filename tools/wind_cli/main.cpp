@@ -3,6 +3,7 @@
 #endif
 #include <charconv>
 #include <chrono>
+#include <csignal>
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
@@ -31,6 +32,10 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <fcntl.h>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
 #endif
 
 namespace {
@@ -95,6 +100,18 @@ bool process_alive(std::uint32_t pid) {
 #else
     return ::kill(static_cast<pid_t>(pid), 0) == 0;
 #endif
+}
+
+// The whole of `text` as a number. strtod, not from_chars: Apple's libc++ has no floating-point from_chars before
+// Xcode 16.3.
+bool parse_double(std::string_view text, double &out) {
+    if (text.empty() || text.size() > 64) {
+        return false;
+    }
+    const std::string copy(text);
+    char *end = nullptr;
+    out = std::strtod(copy.c_str(), &end);
+    return end == copy.c_str() + copy.size();
 }
 
 std::string json_escape(std::string_view text) {
@@ -408,6 +425,15 @@ std::filesystem::path own_directory() {
     const DWORD length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
     path.resize(length);
     return std::filesystem::path(path).parent_path();
+#elif defined(__APPLE__)
+    std::uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::string path(size, 0);
+    if (_NSGetExecutablePath(path.data(), &size) != 0) {
+        return {};
+    }
+    std::error_code error;
+    return std::filesystem::weakly_canonical(path.c_str(), error).parent_path();
 #else
     std::error_code error;
     return std::filesystem::read_symlink("/proc/self/exe", error).parent_path();
@@ -500,11 +526,38 @@ std::optional<std::uint32_t> start_editor(const std::filesystem::path &editor, c
     CloseHandle(info.hProcess);
     return pid;
 #else
-    (void) editor;
-    (void) project;
-    (void) play;
-    std::cerr << "launch is not supported on this platform\n";
-    return std::nullopt;
+    // Its own session, standard streams on /dev/null and the editor's directory as the working directory, so it
+    // outlives this terminal. The pid is the editor's: the wait below matches it against the descriptor.
+    const std::string program = editor.string();
+    const std::string project_arg = project.string();
+    const std::string directory = editor.parent_path().string();
+    std::vector<const char *> argv{program.c_str(), "--project", project_arg.c_str()};
+    if (play) {
+        argv.push_back("--play");
+    }
+    argv.push_back(nullptr);
+    const pid_t pid = ::fork();
+    if (pid < 0) {
+        std::cerr << "could not start " << utf8(editor) << " (fork failed)\n";
+        return std::nullopt;
+    }
+    if (pid == 0) {
+        ::setsid();
+        const int null_in = ::open("/dev/null", O_RDONLY);
+        const int null_out = ::open("/dev/null", O_WRONLY);
+        if (null_in >= 0) {
+            ::dup2(null_in, STDIN_FILENO);
+        }
+        if (null_out >= 0) {
+            ::dup2(null_out, STDOUT_FILENO);
+            ::dup2(null_out, STDERR_FILENO);
+        }
+        if (::chdir(directory.c_str()) == 0) {
+            ::execv(program.c_str(), const_cast<char *const *>(argv.data()));
+        }
+        ::_exit(127);
+    }
+    return static_cast<std::uint32_t>(pid);
 #endif
 }
 
@@ -767,10 +820,6 @@ int main(int argc, char **argv) {
         }
         double x = 0.0;
         double y = 0.0;
-        const auto parse_double = [](std::string_view text, double &out) {
-            const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), out);
-            return ec == std::errc{} && ptr == text.data() + text.size();
-        };
         if (!parse_double(positionals[1], x) || !parse_double(positionals[2], y)) {
             usage();
             return 2;
@@ -835,10 +884,6 @@ int main(int argc, char **argv) {
         } else if (action == "float" && (positionals.size() == 3 || positionals.size() == 7)) {
             body += ",\"action\":\"float\",\"panel\":\"" + json_escape(positionals[2]) + "\"";
             if (positionals.size() == 7) {
-                const auto parse_double = [](std::string_view text, double &out) {
-                    const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), out);
-                    return ec == std::errc{} && ptr == text.data() + text.size();
-                };
                 double rect[4] = {};
                 for (std::size_t i = 0; i < 4; ++i) {
                     if (!parse_double(positionals[3 + i], rect[i])) {
