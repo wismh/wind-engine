@@ -6,6 +6,7 @@
 # Everything but main.cpp and the EditorApp shell, so wind_editor_tests compiles the same panels.
 set(_wind_editor_parts
     src/asset_inspection.cpp
+    src/batch_run.cpp
     src/build_line_view_model.cpp
     src/build_panel.cpp
     src/build_view_model.cpp
@@ -30,6 +31,8 @@ set(_wind_editor_parts
     src/profiler_stats.cpp
     src/profiler_view_model.cpp
     src/project_build.cpp
+    src/project_check.cpp
+    src/project_export.cpp
     src/project_scan.cpp
     src/toolbar.cpp
     src/ui_tree_panel.cpp
@@ -50,6 +53,7 @@ if(ENGINE_BUILD_TESTS)
     # asset_ids.h.
     add_executable(wind_editor_tests
         tests/asset_inspection_test.cpp
+        tests/batch_run_test.cpp
         tests/build_panel_test.cpp
         tests/dock_layout_file_test.cpp
         tests/editor_cli_test.cpp
@@ -61,6 +65,8 @@ if(ENGINE_BUILD_TESTS)
         tests/profiler_chart_test.cpp
         tests/profiler_panel_test.cpp
         tests/project_build_test.cpp
+        tests/project_export_test.cpp
+        tests/toolbar_test.cpp
         tests/ui_tree_panel_test.cpp
         ${_wind_editor_parts})
     set_target_properties(wind_editor_tests PROPERTIES

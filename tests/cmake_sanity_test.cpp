@@ -523,6 +523,18 @@ TEST(Scaffold, EditorSdkIsAFindPackageConfig) {
     // A game module records its path per configuration for the editor that builds and loads it.
     EXPECT_NE(game.find("\"${CMAKE_BINARY_DIR}/wind/${target}.$<CONFIG>.module\" CONTENT \"$<TARGET_FILE:${target}>\""),
             std::string::npos);
+
+    // An export build (-DWIND_EXPORT=ON) builds the engine from <sdk>/source in the game's scope before anything
+    // else of the SDK config runs, in a binary directory that leaves <build>/wind/ to the records. A standalone
+    // executable records the directory of each configuration for the editor's Export.
+    const std::size_t export_branch = sdk.find("if(WIND_EXPORT)");
+    ASSERT_NE(export_branch, std::string::npos);
+    const std::size_t export_add = sdk.find("add_subdirectory(\"${_wind_sdk_dir}/source\" wind-engine)", export_branch);
+    ASSERT_NE(export_add, std::string::npos);
+    EXPECT_NE(sdk.find("return()", export_add), std::string::npos);
+    EXPECT_LT(export_add, sdk.find("add_library(engine SHARED IMPORTED GLOBAL)"));
+    EXPECT_NE(game.find("\"${CMAKE_BINARY_DIR}/wind/${target}.$<CONFIG>.export\""), std::string::npos);
+    EXPECT_NE(game.find("CONTENT \"$<TARGET_FILE_DIR:${target}>\""), std::string::npos);
 #else
     GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
 #endif

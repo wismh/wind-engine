@@ -134,6 +134,11 @@ struct GraphicsProfile {
 
 [[nodiscard]] std::filesystem::path packaged_assets_mount() noexcept;
 
+// The directory of the running executable (the process, not a loaded module): GetModuleFileNameW on Windows,
+// /proc/self/exe on Linux, _NSGetExecutablePath on macOS. Empty on other platforms and when the system cannot say.
+// The editor finds its SDK as the parent of this directory (`<sdk>/bin`).
+[[nodiscard]] std::filesystem::path executable_directory();
+
 // SDL Android I/O prefix. Returned as a string because std::filesystem::path
 // treats "assets:" as a drive letter and would collapse "assets://" to "assets:/".
 [[nodiscard]] std::string apk_assets_mount() noexcept;
