@@ -2,6 +2,7 @@
   <Stack class="editor" direction="vertical">
     <Stack class="toolbar" direction="horizontal">
       <Button class="play-button" command="{binding togglePlay}" checked="{binding isPlaying}" content="{binding playLabel}"/>
+      <Button class="export-button" command="{binding exportGame}" content="Export"/>
       <Stack class="info" direction="vertical">
         <Label class="status" text="{binding statusText}"/>
         <Label class="path" text="{binding projectText}"/>

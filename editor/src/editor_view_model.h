@@ -20,6 +20,7 @@ public:
     engine::ui::Bindable<bool> isPlaying;
 
     MethodCommand togglePlay;
+    MethodCommand exportGame;
 };
 
 }
