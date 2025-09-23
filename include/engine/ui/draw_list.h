@@ -20,6 +20,13 @@ public:
     virtual void line(glm::vec2 from, glm::vec2 to, glm::vec4 color, float width) = 0;
     virtual void fill_rect(const render::Rect& rect, glm::vec4 color, float radius = 0.0f) = 0;
     virtual void stroke_rect(const render::Rect& rect, glm::vec4 color, float width, float radius = 0.0f) = 0;
+    // Strokes a ring-segment arc: `center`/`radius` define the circle, `start_angle`/`end_angle`
+    // (radians, 0 = 12 o'clock/up, increasing clockwise — same convention as a CSS conic-gradient
+    // background, document.h `Gradient`) bound the sweep, `width` is the stroke thickness. This is
+    // the imperative counterpart to a conic-gradient background for a value redrawn every frame (a
+    // live progress ring) instead of one baked into a cached texture.
+    virtual void arc(glm::vec2 center, float radius, float start_angle, float end_angle, glm::vec4 color,
+            float width) = 0;
     virtual void set_font(AssetId font, float size) = 0;
     virtual void text(std::string_view text, glm::vec2 position, glm::vec4 color) = 0;
     virtual void image(AssetId texture, const render::Rect& rect) = 0;

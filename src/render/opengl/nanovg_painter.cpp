@@ -342,6 +342,23 @@ void NanoVgPainter::draw_line(glm::vec2 from, glm::vec2 to, glm::vec4 color, flo
     nvgStroke(impl_->vg);
 }
 
+void NanoVgPainter::stroke_arc(
+        glm::vec2 center, float radius, float start_angle, float end_angle, float width, glm::vec4 color) {
+    if (impl_->vg == nullptr || radius <= 0.0f || width <= 0.0f) {
+        return;
+    }
+    // Convert from IDrawList::arc's convention (0 = 12 o'clock, clockwise) to NanoVG's own
+    // (0 = 3 o'clock/+x axis, increasing angle sweeps clockwise in y-down screen space) - a fixed
+    // quarter-turn offset, same relationship the conic-gradient bake above uses in the other
+    // direction (ensure_conic_texture's atan2(dx, -dy) computes exactly this convention from pixels).
+    constexpr float kHalfPi = kPi * 0.5f;
+    nvgBeginPath(impl_->vg);
+    nvgArc(impl_->vg, center.x, center.y, radius, start_angle - kHalfPi, end_angle - kHalfPi, NVG_CW);
+    nvgStrokeWidth(impl_->vg, width);
+    nvgStrokeColor(impl_->vg, to_nvg(color));
+    nvgStroke(impl_->vg);
+}
+
 void NanoVgPainter::set_font(AssetId font, float size) {
     if (impl_->vg == nullptr) {
         return;
