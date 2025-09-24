@@ -31,7 +31,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/core/host.h` | Headless tick host for tests | [Core](../modules/Core.md) |
 | `include/engine/core/input_system.h` | `ActionId` bindings and input events | [Input Mapper](../features/Input%20Mapper.md) |
 | `include/engine/core/key_code.h` | `KeyCode` values matching SDL scancodes | [Input Mapper](../features/Input%20Mapper.md) |
-| `include/engine/core/platform.h` | Platform, assets root, `user_data_directory` | [Core](../modules/Core.md) |
+| `include/engine/core/platform.h` | Platform, assets root, `executable_directory`, `user_data_directory` | [Core](../modules/Core.md) |
 | `include/engine/core/run_hooks.h` | `RunHooks`: `on_start`, `on_frame_end`, `on_quit`, `cli` | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `include/engine/core/sdl_fatal_error.h` | SDL message-box `IFatalError` | [Core](../modules/Core.md) |
 | `include/engine/core/time.h` | `Time` and the 60 Hz constants | [Core](../modules/Core.md) |
@@ -129,7 +129,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/core/host.cpp` | Registers systems and ticks a fake canvas | [Core](../modules/Core.md) |
 | `src/core/input_system.cpp` | Bind table and event enqueue | [Input Mapper](../features/Input%20Mapper.md) |
 | `src/core/log.cpp` | spdlog sinks | [Core](../modules/Core.md) |
-| `src/core/platform.cpp` | Assets root, Android staging, user-data path | [Core](../modules/Core.md) |
+| `src/core/platform.cpp` | Assets root, Android staging, executable directory, user-data path | [Core](../modules/Core.md) |
 | `src/core/presentation.h` | `IPresentation` seam the loop calls | [Core](../modules/Core.md) |
 | `src/core/sdl_fatal_error.cpp` | Message box and quit | [Core](../modules/Core.md) |
 | `src/core/web_loop.cpp` | RAF vs blocking policy, ordered shutdown | [Core](../modules/Core.md) |
@@ -442,6 +442,8 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/asset_inspection.cpp` | Folder, File, Import, and Content sections of a project file | [Editor](../features/Editor.md#inspector) |
 | `editor/src/asset_inspection.h` | `inspect_asset`, the Content limits | [Editor](../features/Editor.md#inspector) |
 | `editor/src/asset_selection.h` | `AssetSelection` | [Editor](../features/Editor.md#inspector) |
+| `editor/src/batch_run.cpp` | `--batch --export`: SDK and project check, export build, copy, exit code |
+| `editor/src/batch_run.h` | `BatchRun`, `BatchSetup`, the exit codes |
 | `editor/src/build_line_view_model.cpp` | Binds a log row | [Editor](../features/Editor.md) |
 | `editor/src/build_line_view_model.h` | `BuildLineViewModel` | [Editor](../features/Editor.md) |
 | `editor/src/build_panel.cpp` | Log lines, tones, first error, line cap | [Editor](../features/Editor.md) |
@@ -454,7 +456,7 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/editor_app.h` | `EditorApp` | [Editor](../features/Editor.md) |
 | `editor/src/editor_cli.cpp` | `state`, `play`, `stop`, `open` for `wind-cli` | [Editor](../features/Editor.md#wind-cli) |
 | `editor/src/editor_cli.h` | `EditorCli`, `EditorFacts` | [Editor](../features/Editor.md#wind-cli) |
-| `editor/src/editor_options.cpp` | `--project` and `--play` | [Editor](../features/Editor.md) |
+| `editor/src/editor_options.cpp` | `--project`, `--play`, `--batch`, `--export`, `--log-file`, `usage_error` | [Editor](../features/Editor.md) |
 | `editor/src/editor_options.h` | `EditorOptions` | [Editor](../features/Editor.md) |
 | `editor/src/editor_panels.cpp` | Panel canvases in a `DockSpace` with OS window floats, default layout, show, tree keys, visible-only refresh, layout saves, attach and detach | [Editor](../features/Editor.md#panels) |
 | `editor/src/editor_panels.h` | `EditorPanels` | [Editor](../features/Editor.md) |
@@ -487,9 +489,13 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/profiler_row_view_model.h` | `ProfilerRowViewModel` | [UI Profiler](../features/UI%20Profiler.md) |
 | `editor/src/profiler_view_model.cpp` | Binds the view-model to `profiler.xml` and registers the paints | [UI Profiler](../features/UI%20Profiler.md) |
 | `editor/src/profiler_view_model.h` | `ProfilerViewModel` | [UI Profiler](../features/UI%20Profiler.md) |
-| `editor/src/project_build.cpp` | Configure and build through `ProcessCall`, the module record | [Editor](../features/Editor.md) |
-| `editor/src/project_build.h` | `ProjectBuild`, `BuildSetup`, `configured_for` | [Editor](../features/Editor.md) |
-| `editor/src/toolbar.cpp` | Play/Stop method and shown state | [Editor](../features/Editor.md) |
+| `editor/src/project_build.cpp` | Configure and build through `ProcessCall`, the module and export records | [Editor](../features/Editor.md) |
+| `editor/src/project_build.h` | `ProjectBuild`, `BuildSetup`, `BuildKind`, `configured_for` | [Editor](../features/Editor.md) |
+| `editor/src/project_check.cpp` | Read a project and hold it against the SDK | [Editor](../features/Editor.md#start) |
+| `editor/src/project_check.h` | `ProjectCheck`, `check_project` | [Editor](../features/Editor.md#start) |
+| `editor/src/project_export.cpp` | `copy_export`, the file filter, the refused targets | [Editor](../features/Editor.md#export) |
+| `editor/src/project_export.h` | `copy_export`, `default_export_directory`, `export_directory_problem` | [Editor](../features/Editor.md#export) |
+| `editor/src/toolbar.cpp` | Play/Stop and Export methods and shown state | [Editor](../features/Editor.md) |
 | `editor/src/toolbar.h` | `Toolbar`, `EditorRequest`, `RunState` | [Editor](../features/Editor.md) |
 | `editor/src/ui_element_selection.h` | `UiElementSelection` | [Editor](../features/Editor.md#inspector) |
 | `editor/src/ui_tree_panel.cpp` | Copies the inspector probe's tree into the view-model; a new probe selection becomes the editor's | [UI Inspector](../features/UI%20Inspector.md) |
@@ -499,16 +505,19 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/ui_tree_view_model.cpp` | Binds the view-model to `ui_tree.xml` | [UI Inspector](../features/UI%20Inspector.md) |
 | `editor/src/ui_tree_view_model.h` | `UiTreeViewModel` | [UI Inspector](../features/UI%20Inspector.md) |
 | `editor/tests/asset_inspection_test.cpp` | Folder, text, meta, broken meta, PNG, cut text, empty and gone files | [Editor](../features/Editor.md#inspector) |
+| `editor/tests/batch_run_test.cpp` | `BatchRun` exit codes against a scripted launcher |
 | `editor/tests/build_panel_test.cpp` | Log tones, first error, scroll, line cap | [Editor](../features/Editor.md) |
 | `editor/tests/dock_layout_file_test.cpp` | Layout file round trip, missing, corrupt, empty path | [Editor](../features/Editor.md#layout-file) |
 | `editor/tests/editor_cli_test.cpp` | `EditorCli` replies and the requests it records | [Editor](../features/Editor.md#wind-cli) |
-| `editor/tests/editor_options_test.cpp` | `--project` and `--play` | [Editor](../features/Editor.md) |
+| `editor/tests/editor_options_test.cpp` | `--project`, `--play`, `--batch`, `--export`, `--log-file`, usage errors | [Editor](../features/Editor.md) |
 | `editor/tests/editor_panels_test.cpp` | Default layout, dock area and panel canvases, visible-only refresh, the shared selection, show, layout save and load, tree keys, attach and detach; OS float windows, saved float restore | [Editor](../features/Editor.md#panels) |
 | `editor/tests/inspector_panel_test.cpp` | Inspector: nothing, a file read on select, collapsed sections, a UI element, detach | [Editor](../features/Editor.md#inspector) |
 | `editor/tests/play_session_test.cpp` | Play, Stop order, play again, refusals, against the fixture module | [Editor](../features/Editor.md) |
 | `editor/tests/profiler_chart_test.cpp` | Chart geometry and the chart paint | [UI Profiler](../features/UI%20Profiler.md) |
 | `editor/tests/profiler_panel_test.cpp` | Profiler view-model with and without frames | [UI Profiler](../features/UI%20Profiler.md) |
-| `editor/tests/project_build_test.cpp` | `ProjectBuild` against a scripted launcher | [Editor](../features/Editor.md) |
+| `editor/tests/project_build_test.cpp` | `ProjectBuild` (module and export) against a scripted launcher | [Editor](../features/Editor.md) |
+| `editor/tests/project_export_test.cpp` | `copy_export`, the file filter, the refused targets | [Editor](../features/Editor.md#export) |
+| `editor/tests/toolbar_test.cpp` | Export button state and request | [Editor](../features/Editor.md#export) |
 | `editor/tests/ui_tree_panel_test.cpp` | UI Tree view-models and the selection they publish, against a headless world | [UI Inspector](../features/UI%20Inspector.md) |
 | `bench/CMakeLists.txt` | `wind_ui_bench` and `wind_ui_bench_tests` | [UI Bench](../features/UI%20Bench.md) |
 | `bench/assets/**` | Bench scenes: documents, stylesheets (hover and paint-mix and motion variants), two generated textures | [UI Bench](../features/UI%20Bench.md#scenes) |

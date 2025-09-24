@@ -14,35 +14,49 @@ class IProcessLauncher;
 
 namespace editor {
 
-// What one Play builds: a project's game module against this editor's SDK.
+// What a build makes.
+enum class BuildKind {
+    // The game module Play loads, in <project>/build-editor, against the SDK's shared engine.
+    Module,
+    // The standalone executable Export copies, in <project>/build-export: the static engine built from
+    // <sdk>/source (-DWIND_EXPORT=ON), Release only.
+    Export,
+};
+
+// What one build makes: a project's game module against this editor's SDK, or its standalone executable.
 struct BuildSetup {
+    BuildKind kind = BuildKind::Module;
     // The project root, where wind_project.toml and the game's CMakeLists.txt are.
     std::filesystem::path project;
     // This editor's SDK root (the directory with sdk.toml).
     std::filesystem::path sdk;
     // The engine_add_game target.
     std::string target;
-    // The SDK's configuration (sdk.toml `config`): Release builds DebugGame, Debug builds Debug.
+    // The SDK's configuration (sdk.toml `config`): Release builds DebugGame, Debug builds Debug. An Export is Release.
     std::string sdk_config;
 };
 
-// The module that was built, or why there is none.
+// What was built: the game module (Module), or the directory with the executable and its assets/ (Export); or why
+// there is none.
 using BuildOutcome = std::expected<std::filesystem::path, std::string>;
 
-// <project>/build-editor: the build directory the editor configures and builds.
-[[nodiscard]] std::filesystem::path build_directory(const std::filesystem::path& project);
+// <project>/build-editor (Module) or <project>/build-export (Export): the build directory the editor configures and
+// builds. The two never share a directory: their caches differ in what Wind_DIR leads to.
+[[nodiscard]] std::filesystem::path build_directory(const std::filesystem::path& project, BuildKind kind);
 
-// The game configuration the editor builds against an SDK of `sdk_config`, and the list it configures.
-[[nodiscard]] std::string game_config(const std::string& sdk_config);
-[[nodiscard]] std::string game_configurations(const std::string& sdk_config);
+// The game configuration the editor builds against an SDK of `sdk_config`, and the list it configures. An Export is
+// Release whatever the SDK is.
+[[nodiscard]] std::string game_config(const std::string& sdk_config, BuildKind kind);
+[[nodiscard]] std::string game_configurations(const std::string& sdk_config, BuildKind kind);
 
-// True when `build_dir` has a CMake cache whose Wind_DIR is `<sdk>/cmake`, so it builds against this SDK without
-// another configure.
-[[nodiscard]] bool configured_for(const std::filesystem::path& build_dir, const std::filesystem::path& sdk);
+// True when `build_dir` has a CMake cache whose Wind_DIR is `<sdk>/cmake` (and, for an Export, WIND_EXPORT is ON),
+// so it builds against this SDK without another configure.
+[[nodiscard]] bool configured_for(
+        const std::filesystem::path& build_dir, const std::filesystem::path& sdk, BuildKind kind);
 
-// Builds a project's game module through cmake: configure when the build directory is not configured for this SDK,
-// then `cmake --build` of the target. One ProcessCall at a time; the frame keeps running. Each step's command line
-// and output come out of `poll` as lines.
+// Builds a project's game module or standalone executable through cmake: configure when the build directory is not
+// configured for this SDK, then `cmake --build` of the target. One ProcessCall at a time; the frame keeps running.
+// Each step's command line and output come out of `poll` as lines.
 class ProjectBuild {
 public:
     explicit ProjectBuild(engine::IProcessLauncher& processes);
@@ -71,6 +85,7 @@ private:
     void run(Step step, std::vector<std::string> arguments, std::vector<std::string>& lines);
     void start_build(std::vector<std::string>& lines);
     [[nodiscard]] BuildOutcome finish_build() const;
+    [[nodiscard]] std::string config() const;
 
     engine::IProcessLauncher* processes_;
     BuildSetup setup_;

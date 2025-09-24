@@ -124,6 +124,8 @@ The Android back key is not a lifecycle event. The engine never quits on it; it 
 
 `audio_requires_user_gesture()` is true only on Web. `haptics_has_amplitude_control(Platform)` is true only for Android. That predicate does not encode the API 26 runtime check. See [Haptics](Haptics.md).
 
+`executable_directory()` (`include/engine/core/platform.h`) is the directory of the running executable: `GetModuleFileNameW` (the buffer grows until the path fits) on Windows, `/proc/self/exe` on Linux, `_NSGetExecutablePath` on macOS, an empty path elsewhere or when the system cannot say. It needs no SDL and no `Engine::init`. The editor finds its SDK as the parent of this directory in a batch run, where no `EngineHost` gives it an assets root ([Editor](../features/Editor.md#export)).
+
 `user_data_directory(organization, application)` returns a writable directory. The game owns the file format.
 
 | Result | When |
@@ -154,7 +156,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 | `src/core/host.cpp` | fake-canvas host |
 | `src/core/input_system.cpp` | bind table and event enqueue |
 | `src/core/log.cpp` | spdlog |
-| `src/core/platform.cpp` | paths, staging, `user_data_directory` |
+| `src/core/platform.cpp` | paths, staging, `executable_directory`, `user_data_directory` |
 | `src/core/frame_step.cpp` | `flush_worlds`, `simulate_worlds` |
 | `src/core/worlds.cpp` | process worlds, window binding, per-world clocks |
 | `src/core/game_loop.cpp` | frame clock and `RunHooks`. Calls `IPresentation`, not SDL |

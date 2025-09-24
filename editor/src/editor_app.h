@@ -47,8 +47,11 @@ private:
 
     void open_project(const std::filesystem::path& directory);
     void play();
+    void export_game();
+    void start_build(BuildKind kind);
     void poll_build();
     void start_game(const std::filesystem::path& module);
+    void finish_export(const std::filesystem::path& built);
     void stop(std::string status);
 
     // Declared first, destroyed last: everything below holds references into its services. The panels
@@ -70,6 +73,8 @@ private:
     // The open project, once read and checked against the SDK.
     std::filesystem::path project_dir_;
     std::optional<engine::WindProject> project_;
+    // What the build that runs, or ran last, makes.
+    BuildKind building_ = BuildKind::Module;
     bool play_at_start_ = false;
     bool close_requested_ = false;
     bool quitting_ = false;

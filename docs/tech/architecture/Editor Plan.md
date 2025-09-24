@@ -146,7 +146,7 @@ Game repos (`tic-tac-toe`, `electromagnetic-field`) were to switch their `editor
 
 ## Next: projects, launcher, build on Play
 
-The editor is the only way to work with Wind. A game repo stops carrying the engine as a submodule: it finds an installed SDK, and that SDK's version is the game's engine version. A launcher lists projects and installed SDKs and starts the matching editor with the project. Play builds the game module and loads it. Export (standalone executable, Web, Android) is out of this plan.
+The editor is the only way to work with Wind. A game repo stops carrying the engine as a submodule: it finds an installed SDK, and that SDK's version is the game's engine version. A launcher lists projects and installed SDKs and starts the matching editor with the project. Play builds the game module and loads it. Export of a standalone executable (desktop, Release) is built, from the editor and from the command line without a window ([As built (wind-199)](#as-built-wind-199-export)); Web and Android export are out of this plan.
 
 ### One engine version, held by the SDK
 
@@ -171,7 +171,7 @@ GoogleTest is built in the editor build with the SDK's CRT and installed into th
 
 ### Engine source in the SDK
 
-`<sdk>/source/` holds the engine's build input: `CMakeLists.txt`, `cmake/`, `include/`, `src/`, `tools/`, `builtin_assets/`, and `external/` without git metadata. The editor does not use it. It is there so export can build the static engine from the exact version of the SDK, with `add_subdirectory(<sdk>/source wind)`; until export exists that line is also the manual way to build a standalone executable.
+`<sdk>/source/` holds the engine's build input: `CMakeLists.txt`, `cmake/`, `include/`, `src/`, `tools/`, `builtin_assets/`, and `external/` without git metadata. The editor does not use it. It is there so export can build the static engine from the exact version of the SDK: `-DWIND_EXPORT=ON` in the game's configure makes `WindConfig.cmake` do `add_subdirectory(<sdk>/source wind-engine)` for the game.
 
 ### Child processes
 
@@ -210,6 +210,16 @@ As built (wind-179): Add picks the project's `wind_project.toml` through the exi
 | wind-181 | `wind-cli` drives the editor: `launch <project> [--play --wait]`, `state`, `play [--wait]`, `stop`, `open`; descriptor `kind`; UI commands reach the world of their window and answer at once when it has none; `RunHooks::cli` for a host's own commands; `wind-cli` in the SDK's `bin/` ([CLI](../features/CLI.md#editor-commands)). Done |
 
 Game repos drop the `external/engine` submodule for `find_package(Wind)` in their own change, after wind-176.
+
+### As built (wind-199): export
+
+Export builds a project as a standalone executable: the Export button of the editor, or `wind_editor --batch --project <dir> --export [<dir>]` without a window (exit codes 0, 1, 2). Desktop and Release only; Web and Android stay out. A game's `CMakeLists.txt` does not change.
+
+1. The editor configures `<project>/build-export` with `-DWIND_EXPORT=ON` besides the usual SDK variables. `WindConfig.cmake` sees it first, does `add_subdirectory(<sdk>/source wind-engine)`, and returns, so `engine_add_game` makes an executable against the static engine of the SDK's exact version. The `wind-engine` binary directory leaves `<build>/wind/` to the records.
+2. `engine_add_game` records the directory of each executable in `<build>/wind/<target>.<config>.export` (the same `file(GENERATE)` idea as `.module`). The editor copies that directory to `<project>/export/<target>`, leaving out symbols and linker output.
+3. The batch run finds its SDK as the parent of `bin/` (`engine::executable_directory()`), checks the project the way opening it does (`check_project`), and writes its lines to standard output and `--log-file`. No console is attached: a caller on Windows waits with `Start-Process -Wait` and reads the log.
+
+Details: [Editor](../features/Editor.md#export), [CMake](../build/CMake.md#standalone-executable-wind_export).
 
 ## Tasks
 

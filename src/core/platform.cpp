@@ -19,7 +19,75 @@
 #include <vector>
 #endif
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <vector>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#include <cstdint>
+#include <vector>
+#elif defined(__linux__) && !defined(__ANDROID__)
+#include <unistd.h>
+#include <vector>
+#endif
+
 namespace engine {
+
+std::filesystem::path executable_directory() {
+#if defined(_WIN32)
+    // A path can be longer than MAX_PATH: grow until it fits.
+    std::vector<wchar_t> buffer(512);
+    for (;;) {
+        const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+        if (length == 0) {
+            return {};
+        }
+        if (length < buffer.size()) {
+            return std::filesystem::path(std::wstring(buffer.data(), length)).parent_path();
+        }
+        if (buffer.size() >= 65536) {
+            return {};
+        }
+        buffer.resize(buffer.size() * 2);
+    }
+#elif defined(__APPLE__)
+    std::uint32_t size = 1024;
+    std::vector<char> buffer(size);
+    if (_NSGetExecutablePath(buffer.data(), &size) != 0) {
+        // `size` now holds the needed length.
+        buffer.assign(size, '\0');
+        if (_NSGetExecutablePath(buffer.data(), &size) != 0) {
+            return {};
+        }
+    }
+    std::error_code ec;
+    const std::filesystem::path real = std::filesystem::canonical(std::filesystem::path(buffer.data()), ec);
+    return ec ? std::filesystem::path(buffer.data()).parent_path() : real.parent_path();
+#elif defined(__linux__) && !defined(__ANDROID__)
+    std::vector<char> buffer(1024);
+    for (;;) {
+        const ssize_t length = ::readlink("/proc/self/exe", buffer.data(), buffer.size());
+        if (length < 0) {
+            return {};
+        }
+        if (static_cast<std::size_t>(length) < buffer.size()) {
+            return std::filesystem::path(std::string(buffer.data(), static_cast<std::size_t>(length))).parent_path();
+        }
+        if (buffer.size() >= 65536) {
+            return {};
+        }
+        buffer.resize(buffer.size() * 2);
+    }
+#else
+    return {};
+#endif
+}
 
 std::filesystem::path packaged_assets_mount() noexcept {
     return std::filesystem::path{"/assets"};

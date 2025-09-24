@@ -27,7 +27,7 @@ The editor is in progress. See [Editor Plan](Editor%20Plan.md). Today `wind_edit
 
 Open engine work, not game concerns:
 
-- Editor: export, new projects from a template, SDK downloads, and the remaining tools. Today the launcher lists projects and installed editors and opens a project in its editor, and the editor builds it on Play and plays it.
+- Editor: Web and Android export, new projects from a template, SDK downloads, and the remaining tools. Today the launcher lists projects and installed editors and opens a project in its editor, the editor builds it on Play and plays it, and exports a desktop game as a standalone Release executable (the Export button, or `--batch --export`).
 - Packed asset bundles (still GUID-addressed).
 - A separate cue `Sound` that references a clip GUID. Today one file is one cue.
 - `Transform` parent and a world-matrix chain.
