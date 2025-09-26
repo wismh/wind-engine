@@ -25,6 +25,7 @@ constexpr std::string_view kMeshQuad = "a0e1b2c3d4f5678901234567890abc02";
 constexpr std::string_view kMaterialUnlit = "a0e1b2c3d4f5678901234567890abc03";
 constexpr std::string_view kFontUi = "a0e1b2c3d4f5678901234567890abc04";
 constexpr std::string_view kSplashWind = "a0e1b2c3d4f5678901234567890abc05";
+constexpr std::string_view kFontMath = "a0e1b2c3d4f5678901234567890abc06";
 
 std::filesystem::path builtin_assets_dir() {
     return std::filesystem::path{ENGINE_BUILTIN_ASSETS_DIR};
@@ -66,12 +67,14 @@ TEST(Builtin, BuiltinIdsAreFrozen) {
     EXPECT_EQ(engine::builtin::material_unlit.hex(), kMaterialUnlit);
     EXPECT_EQ(engine::builtin::font_ui.hex(), kFontUi);
     EXPECT_EQ(engine::builtin::splash_wind.hex(), kSplashWind);
+    EXPECT_EQ(engine::builtin::font_math.hex(), kFontMath);
 
     EXPECT_TRUE(engine::AssetId::is_valid(engine::builtin::shader_unlit.hex()));
     EXPECT_TRUE(engine::AssetId::is_valid(engine::builtin::mesh_quad.hex()));
     EXPECT_TRUE(engine::AssetId::is_valid(engine::builtin::material_unlit.hex()));
     EXPECT_TRUE(engine::AssetId::is_valid(engine::builtin::font_ui.hex()));
     EXPECT_TRUE(engine::AssetId::is_valid(engine::builtin::splash_wind.hex()));
+    EXPECT_TRUE(engine::AssetId::is_valid(engine::builtin::font_math.hex()));
 }
 
 TEST(Builtin, BuiltinIdsAreUnique) {
@@ -85,8 +88,12 @@ TEST(Builtin, BuiltinIdsAreUnique) {
     EXPECT_NE(engine::builtin::material_unlit, engine::builtin::font_ui);
     EXPECT_NE(engine::builtin::material_unlit, engine::builtin::splash_wind);
     EXPECT_NE(engine::builtin::font_ui, engine::builtin::splash_wind);
-    EXPECT_EQ(engine::builtin::count(), 5u);
-    EXPECT_EQ(engine::builtin::reserved().size(), 5u);
+    for (const engine::AssetId other : {engine::builtin::shader_unlit, engine::builtin::mesh_quad,
+                 engine::builtin::material_unlit, engine::builtin::font_ui, engine::builtin::splash_wind}) {
+        EXPECT_NE(engine::builtin::font_math, other);
+    }
+    EXPECT_EQ(engine::builtin::count(), 6u);
+    EXPECT_EQ(engine::builtin::reserved().size(), 6u);
 }
 
 TEST(Builtin, BuiltinMetasMatchIds) {
@@ -119,6 +126,7 @@ TEST(Builtin, BuiltinMetasMatchIds) {
     require_importer(kMaterialUnlit, engine::ImporterKind::Material);
     require_importer(kFontUi, engine::ImporterKind::Font);
     require_importer(kSplashWind, engine::ImporterKind::UiImage);
+    require_importer(kFontMath, engine::ImporterKind::Font);
 }
 
 TEST(Builtin, BuiltinMaterialReferencesShader) {
@@ -143,6 +151,6 @@ TEST(Builtin, CodegenRejectsBuiltinGuidReuse) {
 TEST(Builtin, CodegenScanBuiltinAssets) {
     const auto result = engine::codegen_scan(builtin_assets_dir());
     ASSERT_TRUE(result.has_value()) << (result ? "" : result.error().message);
-    EXPECT_GE(result->catalog.entries().size(), 5u);
+    EXPECT_GE(result->catalog.entries().size(), 6u);
     EXPECT_EQ(result->asset_ids_header.find("binding_id.h"), std::string::npos);
 }
