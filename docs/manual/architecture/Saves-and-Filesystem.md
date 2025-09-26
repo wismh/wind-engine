@@ -16,7 +16,7 @@ std::expected<std::filesystem::path, std::error_code> path_res =
     engine::user_data_directory("MyStudio", "SuperGame");
 
 if (!path_res) {
-    engine::log::warn("Could not obtain user data directory: {}", path_res.error().message());
+    engine::log::warn("Could not obtain user data directory: " + path_res.error().message());
     // Fall back to memory-only or temporary directory
 } else {
     std::filesystem::path save_dir = *path_res;
@@ -35,23 +35,26 @@ if (!path_res) {
 | **Linux / BSD** | `~/.local/share/MyStudio/SuperGame/` | Adheres to `$XDG_DATA_HOME` specification. |
 | **macOS** | `~/Library/Application Support/MyStudio/SuperGame/` | Standard macOS application support storage. |
 | **Web (WASM)** | `/storage/MyStudio/SuperGame/` | Backed by browser IndexedDB (persists across page reloads). |
-| **Android** | `<internal_storage>/user/` | Isolated private app storage beside cooked runtime assets. |
+| **Android** | `<internal_storage>/user/` | Isolated private app storage beside the staged `assets/`. The two names are ignored there; the application id isolates apps. |
 
 ---
 
 ## 3. Critical Rules for Saves
 
 ### Rule 1: Valid Path Identifiers
-Both `organization` and `application` strings must:
+Both `organization` and `application` strings are one path segment each and must:
 - Be valid UTF-8 and non-empty.
-- Contain no leading or trailing whitespace.
-- Contain no path separators (`/`, `\`), control characters, or reserved Windows device names (`CON`, `PRN`, `AUX`, `NUL`, etc.).
+- Have no leading or trailing space, and no trailing dot.
+- Contain none of `/ \ : * ? " < > |` or ASCII control characters.
+- Not be a Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1` to `COM9`, `LPT1` to `LPT9`), also with a suffix such as `CON.txt`.
+
+A bad name returns `std::errc::invalid_argument`. An engine built without a window returns `function_not_supported`, and a directory the system cannot create returns `io_error`.
 
 ### Rule 2: Never Rename an Existing Identifier
 The strings passed to `user_data_directory` define the persistent storage location. Renaming either argument will leave previous save files orphaned in the old folder.
 
 ### Rule 3: Main Thread Execution
-Always call `user_data_directory` from the main thread after `app.init()` has succeeded, as underlying platform APIs (SDL / Android JNI) require an active subsystem instance.
+Always call `user_data_directory` from the main thread once the engine is initialized (in `on_start` or later), as underlying platform APIs (SDL / Android JNI) require an active subsystem instance.
 
 ### Rule 4: Graceful Degradation
 If `user_data_directory` returns an error (e.g. read-only filesystem or sandboxed environment):

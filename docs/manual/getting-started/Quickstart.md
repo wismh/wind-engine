@@ -106,7 +106,7 @@ Create `src/game.h`:
 ```cpp
 #pragma once
 
-#include <engine/engine.h>
+#include <engine/core/engine_services.h>
 #include <engine/igame.h>
 
 namespace game {
@@ -132,6 +132,9 @@ Create `src/game.cpp`:
 ```cpp
 #include "game.h"
 
+#include <engine/ecs/schedule.h>
+#include <engine/log.h>
+
 namespace game {
 
 MyGame::MyGame(const engine::EngineServices& services)
@@ -142,7 +145,7 @@ engine::WindowDesc MyGame::primary_window() const {
     engine::WindowDesc desc;
     desc.title = "My First Wind Game";
     desc.size = {1280, 720};
-    desc.resizable = true;
+    desc.style.resizable = true;   // the default; window flags live in WindowDesc::style
     return desc;
 }
 
