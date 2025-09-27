@@ -9,32 +9,40 @@ Wind features a built-in mathematical typography engine that renders LaTeX-style
 Use the `<Math>` tag in your UI documents:
 
 ```xml
-<Panel class="equation-card">
-    <Text text="Kinetic Energy:"/>
-    <!-- Inline formula -->
+<Stack class="equation-card" direction="vertical">
+    <Label text="Kinetic Energy:"/>
+    <!-- Inline style formula -->
     <Math formula="E = \frac{1}{2}mv^2"/>
-</Panel>
+</Stack>
 ```
 
-For large display-style equations with centered symbols:
+For display-style equations (a `\sum` or `\prod` puts its limits above and below, integrals keep theirs at the side), set `display="true"`:
 
 ```xml
 <Math formula="\int_{0}^{\infty} e^{-x^2} dx = \frac{\sqrt{\pi}}{2}" display="true"/>
 ```
 
+XML rules apply to the attribute: write `<` as `&lt;` and `&` as `&amp;`. The formula is notation, so it cannot be a `{tr}` string.
+
+A formula can also sit inside the text of a `Label` or `Button` between `\(` and `\)`: `<Label text="Energy is \(E = mc^2\) in vacuum"/>`. It is one unbreakable box on the text row. Write `\\(` for a literal `\(`.
+
 ---
 
 ## 2. Dynamic Formula Binding
 
-You can bind the mathematical formula string dynamically from your `ViewModel`:
+You can bind the formula string from your `ViewModel`:
 
 ```xml
-<Math formula="{dynamicFormula}"/>
+<Math formula="{binding dynamicFormula}"/>
 ```
 
 ```cpp
 class PhysicsLabViewModel : public engine::ui::ViewModel {
 public:
+    PhysicsLabViewModel() {
+        property(engine::ui::intern("dynamicFormula"), dynamicFormula);
+    }
+
     engine::ui::Bindable<std::string> dynamicFormula{R"(F = G \frac{m_1 m_2}{r^2})"};
 };
 ```
@@ -43,15 +51,19 @@ public:
 
 ## 3. Supported LaTeX Subset
 
-The built-in parser supports common mathematical notations:
-- **Fractions:** `\frac{numerator}{denominator}`
-- **Radicals:** `\sqrt{x}`, `\sqrt[n]{x}`
-- **Subscripts & Superscripts:** `x_i^2`
-- **Vectors & Accents:** `\vec{v}`
-- **Operators:** `\sum`, `\int`, `\prod`, `\iint`, `\oint`, `\bigcup`, `\bigcap`
-- **Greek Letters:** `\alpha`, `\beta`, `\gamma`, `\theta`, `\pi`, `\omega`
-- **Functions:** `\sin`, `\cos`, `\tan`, `\exp`, `\log`, `\ln`, `\lim`, `\max`, `\min`
+The built-in parser supports common mathematical notation:
+- **Letters and digits:** a Latin letter is set in math italic, digits upright.
+- **Fractions and roots:** `\frac{numerator}{denominator}`, `\sqrt{x}`, `\sqrt[n]{x}`
+- **Subscripts, superscripts, primes:** `x_i^2`, `f'`
+- **Accents:** `\vec{v}` (the only accent)
+- **Large operators:** `\sum`, `\prod`, `\coprod`, `\int`, `\iint`, `\iiint`, `\oint`, `\bigcup`, `\bigcap`, `\bigvee`, `\bigwedge`, `\bigoplus`, `\bigotimes`, with `\limits` / `\nolimits`
+- **Greek letters:** `\alpha`, `\beta`, `\gamma`, `\theta`, `\pi`, `\omega`, and the rest (lowercase italic, uppercase upright), plus relation, binary, and arrow symbols
+- **Functions (set upright):** `\sin`, `\cos`, `\tan`, `\exp`, `\log`, `\ln`, `\lim`, `\max`, `\min`, `\det`, `\gcd`, and similar
+- **Text:** `\text{}`, `\mathrm{}`, `\operatorname{}`
 - **Delimiters:** `\left( ... \right)`, `\left[ ... \right]`
+- **Spacing:** `\,`, `\:`, `\;`, `\!`, `\quad`, `\qquad`
+
+A command the parser does not know does not fail the document: it is drawn as its source text. The math font loads the first time a formula is drawn.
 
 ---
 

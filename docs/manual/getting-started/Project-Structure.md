@@ -9,6 +9,7 @@ A clean, predictable project layout ensures that your code, assets, and tests re
 ```
 my_game/
 ├── CMakeLists.txt                 # Root CMake configuration
+├── wind_project.toml              # Makes the directory a project the editor opens (name, engine, target)
 ├── CMakePresets.json              # Editor preset (DebugGame;Release)
 ├── CMakeUserPresets.json          # Not committed: CMAKE_PREFIX_PATH to the Wind SDK
 ├── icon.png                       # Optional root icon (processed by icon_codegen)
@@ -22,9 +23,10 @@ my_game/
 │   │   └── sfx_jump.wav.meta
 │   ├── loc/
 │   │   └── en.strings             # Localization string tables
-│   └── ui/
-│       ├── hud.xml                # Declarative UI markup
-│       └── hud.css                # CSS styling
+│   ├── ui/
+│   │   └── hud.xml                # Declarative UI markup (each asset has a .meta beside it)
+│   └── css/
+│       └── hud.css                # CSS styling (its own folder: hud.xml and hud.css would both be assets::ui::hud)
 │
 ├── src/
 │   ├── main.cpp                   # Application entrypoint
@@ -63,8 +65,7 @@ Games include headers **only** from `<engine/...>`:
 #include <engine/ecs/world.h>
 #include <engine/render/sprite.h>
 
-// FORBIDDEN - Do not include private engine implementation details
-#include <engine/src/...>
+// FORBIDDEN - Do not include the engine's private headers (src/...) or its third-party libraries
 #include <glad/glad.h>
 #include <SDL3/SDL.h>
 #include <nanovg.h>
