@@ -77,9 +77,9 @@ TEST(InventoryTest, DecrementsQuantityOnRemove) {
 
 ---
 
-## 3. Testing ECS Systems with `GameBase`
+## 3. Testing ECS Systems Without a Window
 
-To test ECS systems that depend on `ecs::World` without opening a window or initializing OpenGL:
+An `ecs::World` is a plain object: you can create one and run a system on it directly, without opening a window or initializing OpenGL. Its member functions live in the engine library, so such a test also links `engine` (`target_link_libraries(game_tests PRIVATE engine GTest::gtest_main)`). In the editor SDK build `engine` is the SDK's shared `engine.dll`, which has to be found when the test starts (next to the test executable, or on `PATH`). Keep this kind of test for systems; everything that can live in `src/domain/` should stay in the engine-free tests above.
 
 ```cpp
 #include <gtest/gtest.h>
