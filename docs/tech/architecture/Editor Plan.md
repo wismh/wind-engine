@@ -171,7 +171,7 @@ GoogleTest is built in the editor build with the SDK's CRT and installed into th
 
 ### Engine source in the SDK
 
-`<sdk>/source/` holds the engine's build input: `CMakeLists.txt`, `cmake/`, `include/`, `src/`, `tools/`, `builtin_assets/`, and `external/` without git metadata. The editor does not use it. It is there so export can build the static engine from the exact version of the SDK: `-DWIND_EXPORT=ON` in the game's configure makes `WindConfig.cmake` do `add_subdirectory(<sdk>/source wind-engine)` for the game.
+`<sdk>/source/` holds the engine's build input: `CMakeLists.txt`, `cmake/`, `include/`, `src/`, `tools/`, `builtin_assets/`, and `external/` without git metadata. The editor does not use it. It is the engine of Web and Android builds and the fallback of an Export when the SDK has no player libraries ([As built (wind-202)](#as-built-wind-202-prebuilt-player)): `-DWIND_EXPORT=ON` makes `WindConfig.cmake` do `add_subdirectory(<sdk>/source wind-engine)` for the game.
 
 ### Child processes
 
@@ -213,13 +213,24 @@ Game repos drop the `external/engine` submodule for `find_package(Wind)` in thei
 
 ### As built (wind-199): export
 
-Export builds a project as a standalone executable: the Export button of the editor, or `wind_editor --batch --project <dir> --export [<dir>]` without a window (exit codes 0, 1, 2). Desktop and Release only; Web and Android stay out. A game's `CMakeLists.txt` does not change.
+Export builds a project as a standalone executable: the Export button of the editor, or `wind_editor --batch --project <dir> --export [<dir>]` without a window (exit codes 0, 1, 2). Desktop only; Web and Android stay out. A game's `CMakeLists.txt` does not change. (wind-199 built the engine from `<sdk>/source` on every export, Release only; wind-202 below replaced that with prebuilt libraries and added DebugGame.)
 
-1. The editor configures `<project>/build-export` with `-DWIND_EXPORT=ON` besides the usual SDK variables. `WindConfig.cmake` sees it first, does `add_subdirectory(<sdk>/source wind-engine)`, and returns, so `engine_add_game` makes an executable against the static engine of the SDK's exact version. The `wind-engine` binary directory leaves `<build>/wind/` to the records.
+1. The editor configures `<project>/build-export` with `-DWIND_EXPORT=ON` besides the usual SDK variables. `WindConfig.cmake` sees it first and, without player libraries, does `add_subdirectory(<sdk>/source wind-engine)` and returns, so `engine_add_game` makes an executable against the static engine of the SDK's exact version. The `wind-engine` binary directory leaves `<build>/wind/` to the records.
 2. `engine_add_game` records the directory of each executable in `<build>/wind/<target>.<config>.export` (the same `file(GENERATE)` idea as `.module`). The editor copies that directory to `<project>/export/<target>`, leaving out symbols and linker output.
 3. The batch run finds its SDK as the parent of `bin/` (`engine::executable_directory()`), checks the project the way opening it does (`check_project`), and writes its lines to standard output and `--log-file`. No console is attached: a caller on Windows waits with `Start-Process -Wait` and reads the log.
 
 Details: [Editor](../features/Editor.md#export), [CMake](../build/CMake.md#standalone-executable-wind_export).
+
+### As built (wind-202): prebuilt player
+
+An Export compiled the static engine and SDL for the game every time (about six minutes the first time). The SDK now ships that engine built, the way Unreal's installed build and Unity's players do: `<sdk>/player/Development` and `<sdk>/player/Shipping` ([CMake](../build/CMake.md#player-libraries)). An Export compiles the game and links.
+
+1. Two flavours, matched to the game's two configurations. `Development` is optimized with symbols, `ENGINE_UI_PROFILER`, and `ENGINE_CLI_SERVER`, for `DebugGame` (so `wind-cli` drives an exported test build). `Shipping` is optimized without them, for `Release`. Both are `/MD`, with the window and the mixer; there is no variant without audio. The editor's Play is unchanged: it still loads the game module against `engine.dll`.
+2. The SDK install builds them: `cmake --install` of a Release SDK runs `cmake/player_build.cmake`, which configures the engine repo again as `ENGINE_PLAYER=<flavour>` in `<build-editor>/player/<flavour>`, builds it, and installs it into `<sdk>/player/<flavour>` with the exported targets (`install(EXPORT)`). `sdk.toml` gets `platform` and `player_flavours`. Windows and Linux; macOS and a Debug SDK have none, and `WIND_EXPORT` then falls back to the `source/` build with a status line saying why.
+3. In `WindConfig.cmake` the players become `engine` (an interface library linking Development in DebugGame and Shipping in Release), the game is an executable, and the configurations are `DebugGame;Release` with the SDK-mode flags. The export directory holds one executable and `assets/`.
+4. The editor's Export button opens a dialog (folder, Browse... through `request_open_folder`, Development Build, the problem line, Export, Cancel), and `--batch` takes `--development`. `ExportDialog` holds the logic apart from the window.
+
+Open: the Development player carries its symbols in `engine.lib` (about 300 MB installed); a `/Zi` plus installed `.pdb` layout would halve it at the cost of PDB paths to keep valid. A player for another platform than the SDK's, and for macOS, is not built.
 
 ## Tasks
 
