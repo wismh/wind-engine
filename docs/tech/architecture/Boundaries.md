@@ -10,7 +10,7 @@ Rules that keep games from depending on SDL, glad, or NanoVG.
 
 | Public `include/engine/` | Private `src/` |
 | --- | --- |
-| `IGame`, `World`, components, `AssetsDb`, `IMaterial`, UI MVVM, `IAudioSystem`, `IHaptics` | OpenGL classes, NanoVG painter, XML/CSS parsers, `stb_image`, clip/mixer |
+| `IGame`, `World`, components, `AssetsDb`, `IMaterial`, UI MVVM, `IAudioSystem`, `IHaptics` | OpenGL classes, NanoVG painter, XML/CSS parsers, `stb_image`, `stb_truetype`, clip/mixer |
 | glm types on game-facing structs | spdlog, tinyxml2, tomlplusplus, SDL |
 
 Games include `<engine/…>` only. `IUiPainter` is **not** public ([[src.ui.painter.h]]). Games draw custom UI through [[include.engine.ui.draw_list.h]] `IDrawList` from an `IPaint` on the ViewModel.
