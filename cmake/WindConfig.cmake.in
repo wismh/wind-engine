@@ -7,67 +7,102 @@
 # wind_game.cmake, and checks the game's configurations. engine's compile definitions are the ones the SDK was built
 # with (ENGINE_EDITOR, ENGINE_SHARED, ENGINE_WITH_WINDOW, ENGINE_UI_PROFILER, ENGINE_CLI_SERVER), fixed for every
 # configuration of the game.
+#
+# With -DWIND_EXPORT=ON (the editor's Export) `engine` is the static engine instead and the game is an executable:
+# the SDK's player libraries (<sdk>/player/Development for DebugGame, <sdk>/player/Shipping for Release) when it has
+# them, else the engine built from <sdk>/source. cmake/wind_export.cmake.
 
 include_guard(GLOBAL)
 
 get_filename_component(_wind_sdk_dir "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 
-# An export build (the editor's Export, -DWIND_EXPORT=ON): the game builds the static engine of this exact version from
-# <sdk>/source in place of the SDK's shared one, so it is a standalone executable. The engine's CMakeLists.txt defines
-# engine, engine_add_game, and the rest in this directory scope; nothing below runs. The binary directory is
-# `wind-engine` because <build>/wind/ holds the .module and .export records.
+# An export build (the editor's Export, -DWIND_EXPORT=ON): the game links the static engine of this exact version
+# instead of the SDK's shared one, so it is a standalone executable. Two ways, cmake/wind_export.cmake:
+#   player  <sdk>/player/Development and Shipping, the engine built with the SDK: only the game compiles. `engine`
+#           below is an interface library over them, the SDK's tools and GoogleTest are imported as in SDK mode, and
+#           the game builds in DebugGame (Development player) and Release (Shipping player).
+#   source  no player for this SDK (a Debug SDK, macOS, ENGINE_SDK_PLAYER=OFF): the engine's CMakeLists.txt, from
+#           <sdk>/source, defines engine, engine_add_game, and the rest in this directory scope, and nothing below
+#           runs. The binary directory is `wind-engine` because <build>/wind/ holds the .module and .export records.
+set(_wind_player OFF)
 if(WIND_EXPORT)
-    if(NOT EXISTS "${_wind_sdk_dir}/source/CMakeLists.txt")
-        message(FATAL_ERROR "Wind editor SDK at ${_wind_sdk_dir} has no source/: WIND_EXPORT needs the engine's build input")
+    include("${CMAKE_CURRENT_LIST_DIR}/wind_export.cmake")
+    wind_export_player_problem("${_wind_sdk_dir}" "$<CONFIG>" _wind_player_problem)
+    if(_wind_player_problem STREQUAL "")
+        set(_wind_player ON)
+        message(STATUS "Wind ${Wind_VERSION}: export build against the player libraries at ${_wind_sdk_dir}/player")
+    else()
+        if(NOT EXISTS "${_wind_sdk_dir}/source/CMakeLists.txt")
+            message(FATAL_ERROR
+                "Wind editor SDK at ${_wind_sdk_dir} has no player libraries (${_wind_player_problem}) and no source/: "
+                "WIND_EXPORT needs one of them")
+        endif()
+        message(STATUS
+            "Wind ${Wind_VERSION}: export build of the engine at ${_wind_sdk_dir}/source (no player libraries: "
+            "${_wind_player_problem})")
+        include("${CMAKE_CURRENT_LIST_DIR}/wind_game.cmake")
+        if(NOT "$<CONFIG>" STREQUAL "Debug")
+            # The editor asks for DebugGame;Release, and the source build knows neither.
+            engine_debuggame_flags()
+        endif()
+        add_subdirectory("${_wind_sdk_dir}/source" wind-engine)
+        return()
     endif()
-    message(STATUS "Wind ${Wind_VERSION}: export build of the engine at ${_wind_sdk_dir}/source")
-    add_subdirectory("${_wind_sdk_dir}/source" wind-engine)
-    return()
 endif()
 
 # Cache entries: the game functions run in the game's directory scope and read them from there.
 set(WIND_SDK_DIR "${_wind_sdk_dir}" CACHE INTERNAL "Wind editor SDK root")
 set(WIND_SDK_CONFIG "$<CONFIG>" CACHE INTERNAL "Configuration the Wind editor SDK was built in")
 set(ENGINE_FROM_SDK ON CACHE INTERNAL "Wind engine imported from an installed SDK (find_package(Wind))")
+set(ENGINE_PLAYER_SDK ${_wind_player} CACHE INTERNAL "Export build against the SDK's prebuilt static engine")
 set(ENGINE_BUILTIN_ASSETS_DIR "${_wind_sdk_dir}/bin/assets/engine" CACHE INTERNAL
     "Engine builtin assets (already cooked in the SDK)")
 set(ENGINE_COOKED_CATALOG "${_wind_sdk_dir}/bin/assets/engine/catalog.toml" CACHE INTERNAL
     "Cooked catalog.toml for engine builtins")
 
-set(_wind_sdk_defines "$<TARGET_PROPERTY:engine,INTERFACE_COMPILE_DEFINITIONS>")
-list(REMOVE_ITEM _wind_sdk_defines "")
-
 add_library(glm::glm INTERFACE IMPORTED GLOBAL)
 set_target_properties(glm::glm PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "${_wind_sdk_dir}/include")
 
-set(_wind_sdk_link glm::glm)
-if(WIN32)
-    # PUBLIC on the source build's engine (cli_server.cpp: WinSock and the ACL APIs).
-    list(APPEND _wind_sdk_link ws2_32 advapi32)
-endif()
-
-# IMPORTED_LOCATION without a configuration suffix serves every configuration of the game.
-add_library(engine SHARED IMPORTED GLOBAL)
-set_target_properties(engine PROPERTIES
-    IMPORTED_LOCATION "${_wind_sdk_dir}/bin/$<TARGET_FILE_NAME:engine>"
-    INTERFACE_INCLUDE_DIRECTORIES "${_wind_sdk_dir}/include"
-    INTERFACE_COMPILE_DEFINITIONS "${_wind_sdk_defines}"
-    INTERFACE_COMPILE_FEATURES cxx_std_23
-    INTERFACE_LINK_LIBRARIES "${_wind_sdk_link}")
-if(WIN32)
-    # The import library, in lib/. Elsewhere the shared library itself is what a module links, and it names itself
-    # (SONAME on Linux, install name @rpath/... on macOS) the way the editor process already loaded it, so a module
-    # loaded into the editor binds to the editor's copy of the engine, not a second one.
-    set(_wind_sdk_engine_link "${_wind_sdk_dir}/lib/$<TARGET_LINKER_FILE_NAME:engine>")
-    set_target_properties(engine PROPERTIES IMPORTED_IMPLIB "${_wind_sdk_engine_link}")
+if(_wind_player)
+    # The static engine of the player libraries: an interface library that links the Development player in DebugGame
+    # and the Shipping player elsewhere, with the definitions each was built with (the Development one has the UI
+    # profiler and the CLI server).
+    wind_export_import_player("${_wind_sdk_dir}")
+    set(_wind_sdk_engine_files)
 else()
-    set(_wind_sdk_engine_link "${_wind_sdk_dir}/bin/$<TARGET_FILE_NAME:engine>")
-    if(APPLE)
-        set_target_properties(engine PROPERTIES IMPORTED_SONAME "@rpath/$<TARGET_FILE_NAME:engine>")
-    else()
-        set_target_properties(engine PROPERTIES IMPORTED_SONAME "$<TARGET_FILE_NAME:engine>")
+    set(_wind_sdk_defines "$<TARGET_PROPERTY:engine,INTERFACE_COMPILE_DEFINITIONS>")
+    list(REMOVE_ITEM _wind_sdk_defines "")
+
+    set(_wind_sdk_link glm::glm)
+    if(WIN32)
+        # PUBLIC on the source build's engine (cli_server.cpp: WinSock and the ACL APIs).
+        list(APPEND _wind_sdk_link ws2_32 advapi32)
     endif()
+
+    # IMPORTED_LOCATION without a configuration suffix serves every configuration of the game.
+    add_library(engine SHARED IMPORTED GLOBAL)
+    set_target_properties(engine PROPERTIES
+        IMPORTED_LOCATION "${_wind_sdk_dir}/bin/$<TARGET_FILE_NAME:engine>"
+        INTERFACE_INCLUDE_DIRECTORIES "${_wind_sdk_dir}/include"
+        INTERFACE_COMPILE_DEFINITIONS "${_wind_sdk_defines}"
+        INTERFACE_COMPILE_FEATURES cxx_std_23
+        INTERFACE_LINK_LIBRARIES "${_wind_sdk_link}")
+    if(WIN32)
+        # The import library, in lib/. Elsewhere the shared library itself is what a module links, and it names itself
+        # (SONAME on Linux, install name @rpath/... on macOS) the way the editor process already loaded it, so a module
+        # loaded into the editor binds to the editor's copy of the engine, not a second one.
+        set(_wind_sdk_engine_link "${_wind_sdk_dir}/lib/$<TARGET_LINKER_FILE_NAME:engine>")
+        set_target_properties(engine PROPERTIES IMPORTED_IMPLIB "${_wind_sdk_engine_link}")
+    else()
+        set(_wind_sdk_engine_link "${_wind_sdk_dir}/bin/$<TARGET_FILE_NAME:engine>")
+        if(APPLE)
+            set_target_properties(engine PROPERTIES IMPORTED_SONAME "@rpath/$<TARGET_FILE_NAME:engine>")
+        else()
+            set_target_properties(engine PROPERTIES IMPORTED_SONAME "$<TARGET_FILE_NAME:engine>")
+        endif()
+    endif()
+    set(_wind_sdk_engine_files "${_wind_sdk_dir}/bin/$<TARGET_FILE_NAME:engine>" "${_wind_sdk_engine_link}")
 endif()
 add_library(engine::engine ALIAS engine)
 
@@ -92,8 +127,7 @@ set_target_properties(GTest::gtest_main PROPERTIES
 include(GoogleTest)
 
 foreach(_wind_sdk_file IN ITEMS
-        "${_wind_sdk_dir}/bin/$<TARGET_FILE_NAME:engine>"
-        "${_wind_sdk_engine_link}"
+        ${_wind_sdk_engine_files}
         "${_wind_sdk_dir}/bin/$<TARGET_FILE_NAME:asset_codegen>"
         "${_wind_sdk_dir}/bin/$<TARGET_FILE_NAME:icon_codegen>"
         "${_wind_sdk_dir}/lib/$<TARGET_LINKER_FILE_NAME:gtest>"
@@ -109,5 +143,6 @@ endforeach()
 include("${CMAKE_CURRENT_LIST_DIR}/wind_game.cmake")
 message(STATUS "Wind ${Wind_VERSION}: ${WIND_SDK_CONFIG} SDK at ${_wind_sdk_dir}")
 
-# The game's configurations: DebugGame and Release against a Release SDK, Debug against a Debug SDK.
+# The game's configurations: DebugGame and Release against a Release SDK, Debug against a Debug SDK. An export build
+# against the player libraries has the Release SDK's: DebugGame links the Development player, Release the Shipping one.
 engine_sdk_configurations()

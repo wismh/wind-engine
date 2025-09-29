@@ -59,30 +59,42 @@ std::filesystem::path build_directory(const std::filesystem::path& project, Buil
     return project / (kind == BuildKind::Export ? "build-export" : "build-editor");
 }
 
-std::string game_config(const std::string& sdk_config, BuildKind kind) {
+std::string game_config(const std::string& sdk_config, BuildKind kind, bool development) {
     if (kind == BuildKind::Export) {
-        return "Release";
+        return development && sdk_config != "Debug" ? "DebugGame" : "Release";
     }
     return sdk_config == "Debug" ? "Debug" : "DebugGame";
 }
 
 std::string game_configurations(const std::string& sdk_config, BuildKind kind) {
-    if (kind == BuildKind::Export) {
-        return "Release";
+    if (sdk_config == "Debug") {
+        return kind == BuildKind::Export ? "Release" : "Debug";
     }
-    return sdk_config == "Debug" ? "Debug" : "DebugGame;Release";
+    return "DebugGame;Release";
 }
 
-bool configured_for(const std::filesystem::path& build_dir, const std::filesystem::path& sdk, BuildKind kind) {
+std::string export_flavour_problem(const std::string& sdk_config, bool development) {
+    if (development && sdk_config == "Debug") {
+        return "A Development build needs a Release SDK: a Debug SDK has no Development player libraries, so its "
+               "Export is a Release build.";
+    }
+    return {};
+}
+
+bool configured_for(const std::filesystem::path& build_dir, const std::filesystem::path& sdk, BuildKind kind,
+        const std::string& configurations) {
     std::ifstream cache(build_dir / "CMakeCache.txt");
     constexpr std::string_view kSdkKey = "Wind_DIR:";
     constexpr std::string_view kExportKey = "WIND_EXPORT:";
+    constexpr std::string_view kConfigurationsKey = "CMAKE_CONFIGURATION_TYPES:";
     bool sdk_matches = false;
     bool export_on = false;
+    bool configurations_match = false;
     for (std::string line; std::getline(cache, line);) {
         const bool is_sdk = line.starts_with(kSdkKey);
         const bool is_export = line.starts_with(kExportKey);
-        if (!is_sdk && !is_export) {
+        const bool is_configurations = line.starts_with(kConfigurationsKey);
+        if (!is_sdk && !is_export && !is_configurations) {
             continue;
         }
         const std::size_t equals = line.find('=');
@@ -93,11 +105,13 @@ bool configured_for(const std::filesystem::path& build_dir, const std::filesyste
         if (is_sdk) {
             std::error_code error;
             sdk_matches = std::filesystem::equivalent(path_from(value), sdk / "cmake", error);
+        } else if (is_configurations) {
+            configurations_match = value == configurations;
         } else {
             export_on = value == "ON" || value == "TRUE" || value == "1" || value == "YES" || value == "Y";
         }
     }
-    return sdk_matches && (kind == BuildKind::Module || export_on);
+    return sdk_matches && configurations_match && (kind == BuildKind::Module || export_on);
 }
 
 ProjectBuild::ProjectBuild(engine::IProcessLauncher& processes)
@@ -108,7 +122,8 @@ void ProjectBuild::start(BuildSetup setup) {
     setup_ = std::move(setup);
     pending_lines_.clear();
     const std::filesystem::path build_dir = build_directory(setup_.project, setup_.kind);
-    if (configured_for(build_dir, setup_.sdk, setup_.kind)) {
+    const std::string configurations = game_configurations(setup_.sdk_config, setup_.kind);
+    if (configured_for(build_dir, setup_.sdk, setup_.kind, configurations)) {
         start_build(pending_lines_);
         return;
     }
@@ -119,12 +134,13 @@ void ProjectBuild::start(BuildSetup setup) {
     arguments.insert(arguments.end(), {"-G", "Ninja Multi-Config"});
 #endif
     if (setup_.kind == BuildKind::Export) {
-        // WindConfig.cmake builds the static engine from <sdk>/source for this game (docs/tech/build/CMake.md).
+        // WindConfig.cmake links the SDK's player libraries, or builds the static engine from <sdk>/source when the
+        // SDK has none (docs/tech/build/CMake.md).
         arguments.push_back("-DWIND_EXPORT=ON");
     }
     arguments.insert(arguments.end(),
             {"-DCMAKE_PREFIX_PATH=" + path_text(setup_.sdk), "-DWind_DIR=" + path_text(setup_.sdk / "cmake"),
-                    "-DCMAKE_CONFIGURATION_TYPES=" + game_configurations(setup_.sdk_config, setup_.kind)});
+                    "-DCMAKE_CONFIGURATION_TYPES=" + configurations});
     run(Step::Configure, std::move(arguments), pending_lines_);
 }
 
@@ -188,7 +204,7 @@ void ProjectBuild::start_build(std::vector<std::string>& lines) {
 }
 
 std::string ProjectBuild::config() const {
-    return game_config(setup_.sdk_config, setup_.kind);
+    return game_config(setup_.sdk_config, setup_.kind, setup_.development);
 }
 
 BuildOutcome ProjectBuild::finish_build() const {

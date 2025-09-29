@@ -4,7 +4,9 @@
 
 namespace editor {
 
-Toolbar::Toolbar() : view_model_(std::make_shared<EditorViewModel>()) {
+Toolbar::Toolbar()
+    : view_model_(std::make_shared<EditorViewModel>())
+    , export_dialog_(*view_model_) {
     view_model_->togglePlay.bind_to<Toolbar, &Toolbar::toggle_play, &Toolbar::can_toggle_play>(*this);
     view_model_->exportGame.bind_to<Toolbar, &Toolbar::export_game, &Toolbar::can_export_game>(*this);
     view_model_->projectText = std::string("No project open");
@@ -30,8 +32,13 @@ bool Toolbar::can_export_game() const {
     return state_ == RunState::Idle && playable_;
 }
 
+ExportDialog& Toolbar::export_dialog() {
+    return export_dialog_;
+}
+
 void Toolbar::show_project(std::string text, bool playable) {
     playable_ = playable;
+    export_dialog_.set_available(can_export_game());
     view_model_->projectText = std::move(text);
 }
 
@@ -41,6 +48,7 @@ void Toolbar::show_status(std::string text) {
 
 void Toolbar::show_state(RunState state) {
     state_ = state;
+    export_dialog_.set_available(can_export_game());
     view_model_->isPlaying = state != RunState::Idle;
     const char* label = "Play";
     if (state == RunState::Building) {
