@@ -43,3 +43,33 @@ TEST(Toolbar, ExportDoesNothingWhileABuildRuns) {
     toolbar.view_model()->togglePlay.execute();
     EXPECT_EQ(toolbar.take_request(), editor::EditorRequest::Stop);
 }
+
+TEST(Toolbar, ExportInTheDialogFollowsTheToolbarsState) {
+    editor::Toolbar toolbar;
+    editor::ExportDialog& dialog = toolbar.export_dialog();
+    editor::EditorViewModel& vm = *toolbar.view_model();
+    toolbar.show_project("ttt", true);
+    dialog.show("C:/games/ttt", "ttt", "Release");
+    EXPECT_TRUE(vm.exportConfirm.can_execute());
+
+    // A running build or game: the dialog's Export waits, as the toolbar's Export button does.
+    toolbar.show_state(editor::RunState::Building);
+    EXPECT_FALSE(vm.exportConfirm.can_execute());
+    toolbar.show_state(editor::RunState::Playing);
+    EXPECT_FALSE(vm.exportConfirm.can_execute());
+    toolbar.show_state(editor::RunState::Idle);
+    EXPECT_TRUE(vm.exportConfirm.can_execute());
+
+    // A project that does not fit the SDK.
+    toolbar.show_project("ttt", false);
+    EXPECT_FALSE(vm.exportConfirm.can_execute());
+}
+
+TEST(Toolbar, TheExportButtonOnlyAsksForTheDialogAndNeverExportsByItself) {
+    editor::Toolbar toolbar;
+    toolbar.show_project("ttt", true);
+    toolbar.view_model()->exportGame.execute();
+    EXPECT_EQ(toolbar.take_request(), editor::EditorRequest::Export);
+    EXPECT_FALSE(toolbar.export_dialog().is_open());
+    EXPECT_FALSE(toolbar.export_dialog().take_choice().has_value());
+}

@@ -79,28 +79,30 @@ public:
                 << (project() / "build-editor" / "bin" / config / "my_game.dll").generic_string();
     }
 
-    void export_cache_for(const std::filesystem::path& sdk, bool wind_export) const {
+    void export_cache_for(const std::filesystem::path& sdk, bool wind_export,
+            const std::string& configurations = "DebugGame;Release") const {
         std::filesystem::create_directories(project() / "build-export");
         std::ofstream(project() / "build-export" / "CMakeCache.txt")
-                << "CMAKE_CONFIGURATION_TYPES:STRING=Release\n"
+                << "CMAKE_CONFIGURATION_TYPES:STRING=" << configurations << "\n"
                 << "WIND_EXPORT:BOOL=" << (wind_export ? "ON" : "OFF") << "\n"
                 << "Wind_DIR:PATH=" << (sdk / "cmake").generic_string() << "\n";
     }
-    void record_export() const {
+    void record_export(const std::string& config = "Release") const {
         std::filesystem::create_directories(project() / "build-export" / "wind");
-        std::ofstream(project() / "build-export" / "wind" / "my_game.Release.export")
-                << (project() / "build-export" / "bin" / "Release").generic_string() << "\n";
+        std::ofstream(project() / "build-export" / "wind" / ("my_game." + config + ".export"))
+                << (project() / "build-export" / "bin" / config).generic_string() << "\n";
     }
 
     [[nodiscard]] editor::BuildSetup setup(std::string sdk_config = "Release") const {
         return editor::BuildSetup{.project = project(), .sdk = sdk(), .target = "my_game", .sdk_config = sdk_config};
     }
-    [[nodiscard]] editor::BuildSetup export_setup() const {
+    [[nodiscard]] editor::BuildSetup export_setup(bool development = false, std::string sdk_config = "Release") const {
         return editor::BuildSetup{.kind = editor::BuildKind::Export,
                 .project = project(),
                 .sdk = sdk(),
                 .target = "my_game",
-                .sdk_config = "Release"};
+                .sdk_config = std::move(sdk_config),
+                .development = development};
     }
 
 private:
@@ -183,8 +185,14 @@ TEST(ProjectBuild, ACacheForThisSdkSkipsConfigure) {
 TEST(ProjectBuild, ACacheForAnotherSdkConfiguresAgain) {
     const Dirs dirs;
     dirs.cache_for(dirs.other_sdk());
-    EXPECT_FALSE(editor::configured_for(dirs.project() / "build-editor", dirs.sdk(), editor::BuildKind::Module));
-    EXPECT_TRUE(editor::configured_for(dirs.project() / "build-editor", dirs.other_sdk(), editor::BuildKind::Module));
+    const std::string configurations = "DebugGame;Release";
+    EXPECT_FALSE(editor::configured_for(
+            dirs.project() / "build-editor", dirs.sdk(), editor::BuildKind::Module, configurations));
+    EXPECT_TRUE(editor::configured_for(
+            dirs.project() / "build-editor", dirs.other_sdk(), editor::BuildKind::Module, configurations));
+    // The same SDK with other configurations is another configure too.
+    EXPECT_FALSE(editor::configured_for(
+            dirs.project() / "build-editor", dirs.other_sdk(), editor::BuildKind::Module, "Debug"));
     dirs.record_module("DebugGame");
     ScriptedLauncher launcher;
     editor::ProjectBuild build{launcher};
@@ -276,10 +284,23 @@ TEST(ProjectBuild, ConfigurationsFollowTheSdk) {
     EXPECT_EQ(editor::game_configurations("Release", BuildKind::Module), "DebugGame;Release");
     EXPECT_EQ(editor::game_config("Debug", BuildKind::Module), "Debug");
     EXPECT_EQ(editor::game_configurations("Debug", BuildKind::Module), "Debug");
-    // An export is Release whatever the SDK is.
+    // An export against a Release SDK is DebugGame (the Development build) or Release (Shipping) in one build
+    // directory.
     EXPECT_EQ(editor::game_config("Release", BuildKind::Export), "Release");
-    EXPECT_EQ(editor::game_configurations("Release", BuildKind::Export), "Release");
+    EXPECT_EQ(editor::game_config("Release", BuildKind::Export, true), "DebugGame");
+    EXPECT_EQ(editor::game_configurations("Release", BuildKind::Export), "DebugGame;Release");
+    // A Debug SDK has no player libraries, so its export is the Release build of the engine from source, whatever
+    // was asked.
     EXPECT_EQ(editor::game_config("Debug", BuildKind::Export), "Release");
+    EXPECT_EQ(editor::game_config("Debug", BuildKind::Export, true), "Release");
+    EXPECT_EQ(editor::game_configurations("Debug", BuildKind::Export), "Release");
+}
+
+TEST(ProjectBuild, ADevelopmentBuildNeedsAReleaseSdk) {
+    EXPECT_TRUE(editor::export_flavour_problem("Release", true).empty());
+    EXPECT_TRUE(editor::export_flavour_problem("Release", false).empty());
+    EXPECT_TRUE(editor::export_flavour_problem("Debug", false).empty());
+    EXPECT_NE(editor::export_flavour_problem("Debug", true).find("Release SDK"), std::string::npos);
 }
 
 TEST(ProjectBuild, ExportConfiguresItsOwnDirectoryWithWindExportThenBuildsAndFindsTheDirectory) {
@@ -304,11 +325,67 @@ TEST(ProjectBuild, ExportConfiguresItsOwnDirectoryWithWindExportThenBuildsAndFin
     EXPECT_TRUE(has_argument(configure, "-DWIND_EXPORT=ON"));
     EXPECT_TRUE(has_argument(configure, "-DCMAKE_PREFIX_PATH=" + dirs.sdk().generic_string()));
     EXPECT_TRUE(has_argument(configure, "-DWind_DIR=" + (dirs.sdk() / "cmake").generic_string()));
-    EXPECT_TRUE(has_argument(configure, "-DCMAKE_CONFIGURATION_TYPES=Release"));
+    // One build directory holds both configurations; the build asks for Release (the Shipping player).
+    EXPECT_TRUE(has_argument(configure, "-DCMAKE_CONFIGURATION_TYPES=DebugGame;Release"));
     const engine::ProcessDesc& compile = launcher.runs[1];
     EXPECT_TRUE(has_argument(compile, (dirs.project() / "build-export").generic_string()));
     EXPECT_TRUE(has_argument(compile, "Release"));
+    EXPECT_FALSE(has_argument(compile, "DebugGame"));
     EXPECT_TRUE(has_argument(compile, "my_game"));
+}
+
+TEST(ProjectBuild, ADevelopmentExportBuildsDebugGameAndReadsItsRecord) {
+    const Dirs dirs;
+    dirs.record_export("DebugGame");
+    ScriptedLauncher launcher;
+    editor::ProjectBuild build{launcher};
+    build.start(dirs.export_setup(true));
+
+    std::vector<std::string> lines;
+    const std::optional<editor::BuildOutcome> outcome = run_to_end(build, lines);
+    ASSERT_TRUE(outcome.has_value());
+    ASSERT_TRUE(outcome->has_value()) << outcome->error();
+    EXPECT_EQ(**outcome, dirs.project() / "build-export" / "bin" / "DebugGame");
+
+    ASSERT_EQ(launcher.runs.size(), 2u);
+    EXPECT_TRUE(has_argument(launcher.runs[0], "-DWIND_EXPORT=ON"));
+    EXPECT_TRUE(has_argument(launcher.runs[0], "-DCMAKE_CONFIGURATION_TYPES=DebugGame;Release"));
+    EXPECT_TRUE(has_argument(launcher.runs[1], "DebugGame"));
+    EXPECT_FALSE(has_argument(launcher.runs[1], "Release"));
+}
+
+TEST(ProjectBuild, TheDevelopmentFlagIsReleaseAgainstADebugSdk) {
+    const Dirs dirs;
+    dirs.record_export("Release");
+    ScriptedLauncher launcher;
+    editor::ProjectBuild build{launcher};
+    build.start(dirs.export_setup(true, "Debug"));
+    std::vector<std::string> lines;
+    const std::optional<editor::BuildOutcome> outcome = run_to_end(build, lines);
+    ASSERT_TRUE(outcome.has_value());
+    ASSERT_TRUE(outcome->has_value()) << outcome->error();
+    EXPECT_TRUE(has_argument(launcher.runs[0], "-DCMAKE_CONFIGURATION_TYPES=Release"));
+    EXPECT_TRUE(has_argument(launcher.runs[1], "Release"));
+}
+
+TEST(ProjectBuild, BothFlavoursShareOneConfiguredBuildDirectory) {
+    const Dirs dirs;
+    dirs.export_cache_for(dirs.sdk(), true);
+    dirs.record_export("DebugGame");
+    dirs.record_export("Release");
+    ScriptedLauncher launcher;
+    editor::ProjectBuild build{launcher};
+    std::vector<std::string> lines;
+    for (const bool development : {true, false}) {
+        build.start(dirs.export_setup(development));
+        const std::optional<editor::BuildOutcome> outcome = run_to_end(build, lines);
+        ASSERT_TRUE(outcome.has_value());
+        ASSERT_TRUE(outcome->has_value()) << outcome->error();
+    }
+    // No configure for either: the cache already holds DebugGame;Release.
+    ASSERT_EQ(launcher.runs.size(), 2u);
+    EXPECT_TRUE(has_argument(launcher.runs[0], "DebugGame"));
+    EXPECT_TRUE(has_argument(launcher.runs[1], "Release"));
 }
 
 TEST(ProjectBuild, ModuleBuildsDoNotAskForAnExport) {
@@ -325,7 +402,8 @@ TEST(ProjectBuild, ModuleBuildsDoNotAskForAnExport) {
 TEST(ProjectBuild, AnExportCacheForThisSdkWithWindExportSkipsConfigure) {
     const Dirs dirs;
     dirs.export_cache_for(dirs.sdk(), true);
-    EXPECT_TRUE(editor::configured_for(dirs.project() / "build-export", dirs.sdk(), editor::BuildKind::Export));
+    EXPECT_TRUE(editor::configured_for(
+            dirs.project() / "build-export", dirs.sdk(), editor::BuildKind::Export, "DebugGame;Release"));
     dirs.record_export();
     ScriptedLauncher launcher;
     editor::ProjectBuild build{launcher};
@@ -340,10 +418,18 @@ TEST(ProjectBuild, AnExportCacheForThisSdkWithWindExportSkipsConfigure) {
 
 TEST(ProjectBuild, AnExportCacheWithoutWindExportOrForAnotherSdkConfiguresAgain) {
     const Dirs dirs;
+    const std::string configurations = "DebugGame;Release";
     dirs.export_cache_for(dirs.sdk(), false);
-    EXPECT_FALSE(editor::configured_for(dirs.project() / "build-export", dirs.sdk(), editor::BuildKind::Export));
+    EXPECT_FALSE(editor::configured_for(
+            dirs.project() / "build-export", dirs.sdk(), editor::BuildKind::Export, configurations));
     dirs.export_cache_for(dirs.other_sdk(), true);
-    EXPECT_FALSE(editor::configured_for(dirs.project() / "build-export", dirs.sdk(), editor::BuildKind::Export));
+    EXPECT_FALSE(editor::configured_for(
+            dirs.project() / "build-export", dirs.sdk(), editor::BuildKind::Export, configurations));
+    // A build directory an earlier editor configured for Release only cannot build DebugGame.
+    dirs.export_cache_for(dirs.sdk(), true, "Release");
+    EXPECT_FALSE(editor::configured_for(
+            dirs.project() / "build-export", dirs.sdk(), editor::BuildKind::Export, configurations));
+    dirs.export_cache_for(dirs.other_sdk(), true);
     dirs.record_export();
     ScriptedLauncher launcher;
     editor::ProjectBuild build{launcher};
