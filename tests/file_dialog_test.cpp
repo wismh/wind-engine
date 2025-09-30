@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "core/file_dialog_state.h"
+#include "fixtures/fake_services.h"
 
 #include <engine/core/file_dialog.h>
 
@@ -112,4 +113,34 @@ TEST(FileDialog, ResolvedCallHoldsItsAnswerAndEmptyCallHoldsNothing) {
     EXPECT_FALSE(empty.pending());
     EXPECT_FALSE(empty.take().has_value());
     empty.cancel();
+}
+
+TEST(FileDialog, AFolderAnswerTravelsTheSameWayAsAFilesAndEmptyMeansCancelled) {
+    engine::FileDialogCompletions completions;
+    Shown chosen;
+    Shown cancelled;
+    completions.push(chosen.state, engine::FileDialogResult{.path = std::filesystem::path("C:/games/out")});
+    completions.push(cancelled.state, engine::FileDialogResult{});
+    completions.deliver();
+    const std::optional<engine::FileDialogResult> folder = chosen.call.take();
+    ASSERT_TRUE(folder.has_value());
+    EXPECT_EQ(folder->path, std::filesystem::path("C:/games/out"));
+    const std::optional<engine::FileDialogResult> none = cancelled.call.take();
+    ASSERT_TRUE(none.has_value());
+    EXPECT_FALSE(none->path.has_value());
+}
+
+TEST(FileDialog, TheFakeWindowControlAnswersAFolderRequestAtOnceAndRemembersWhereItOpened) {
+    fakes::FakeWindowControl windows;
+    windows.folder_answer = std::filesystem::path("C:/out");
+    engine::FileDialogCall first = windows.request_open_folder(engine::kPrimaryWindow, "C:/start");
+    EXPECT_FALSE(first.pending());
+    EXPECT_EQ(first.take()->path, std::filesystem::path("C:/out"));
+
+    windows.folder_answer.reset();
+    engine::FileDialogCall second = windows.request_open_folder(engine::kPrimaryWindow, {});
+    ASSERT_TRUE(second.take().has_value());
+    ASSERT_EQ(windows.folder_starts.size(), 2u);
+    EXPECT_EQ(windows.folder_starts[0], std::filesystem::path("C:/start"));
+    EXPECT_TRUE(windows.folder_starts[1].empty());
 }

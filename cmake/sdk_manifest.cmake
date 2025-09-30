@@ -4,9 +4,10 @@
 #   WIND_SDK_VERSION          project(engine VERSION)
 #   WIND_SDK_CONFIG           the installed configuration
 #   WIND_SDK_BUILD_ID_HEADER  that configuration's generated <engine/build_id.h>
+#   WIND_SDK_PLATFORM         lower-case CMAKE_SYSTEM_NAME (windows, linux)
 # sdk.toml is how the launcher and the editor know an SDK. Keys are only ever added. docs/tech/build/CMake.md
 
-foreach(_var WIND_SDK_SOURCE_DIR WIND_SDK_VERSION WIND_SDK_CONFIG WIND_SDK_BUILD_ID_HEADER)
+foreach(_var WIND_SDK_SOURCE_DIR WIND_SDK_VERSION WIND_SDK_CONFIG WIND_SDK_BUILD_ID_HEADER WIND_SDK_PLATFORM)
     if(NOT DEFINED ${_var})
         message(FATAL_ERROR "sdk_manifest.cmake: ${_var} is not set")
     endif()
@@ -42,6 +43,18 @@ else()
     set(_dirty true)
 endif()
 
+# The player flavours this install has (player/<flavour>/cmake/wind_player.cmake, written by the player's own install,
+# which runs before this file). A Debug SDK has none: an Export against it builds the engine from source/.
+set(_players)
+if(NOT WIND_SDK_CONFIG STREQUAL "Debug")
+    foreach(_flavour IN ITEMS Development Shipping)
+        if(EXISTS "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/player/${_flavour}/cmake/wind_player.cmake")
+            list(APPEND _players "\"${_flavour}\"")
+        endif()
+    endforeach()
+endif()
+string(JOIN ", " _players_toml ${_players})
+
 set(_out "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/sdk.toml")
 message(STATUS "Installing: ${_out}")
 file(WRITE "${_out}" "# Wind editor SDK. Written by cmake --install. Do not edit.
@@ -50,4 +63,6 @@ commit = \"${_commit}\"
 dirty = ${_dirty}
 config = \"${WIND_SDK_CONFIG}\"
 build_id = \"${_build_id}\"
+platform = \"${WIND_SDK_PLATFORM}\"
+player_flavours = [${_players_toml}]
 ")
