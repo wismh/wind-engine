@@ -34,8 +34,9 @@ struct SdkEntry {
 // version, or nullptr.
 [[nodiscard]] const SdkEntry* sdk_for(const std::vector<SdkEntry>& sdks, std::string_view version);
 
-// Semver order of two versions, numeric per dot-separated part; a part that is not a number compares as text.
-// Negative, zero, or positive like strcmp.
+// Order of two engine versions (engine::EngineVersion: 0.1.99a < 0.1.100a < 0.2.0a < 0.2.0b < 0.2.0, a -dev build before
+// the releases of its number). A text that is not a version is older than every version, and two of them compare as
+// text, so they sort last and are not lost. Negative, zero, or positive like strcmp.
 [[nodiscard]] int compare_versions(std::string_view a, std::string_view b);
 
 // Deletes the installed SDK at `root` with its files. It is first renamed to `.deleting-<name>` beside itself, so an

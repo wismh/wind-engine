@@ -1,0 +1,147 @@
+name: Release
+
+# Every push to main is a release: the next version (tools/ci/next_version.py), the editor SDK of that version built on
+# Linux, macOS, and Windows with the same steps as sdk.yml, and one GitHub Release v<version> with the three archives and
+# their .sha256 once all three passed. The major, the minor, and the stage are in the root CMakeLists.txt; the patch is
+# counted here. docs/tech/build/Release.md
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Next version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+      patch: ${{ steps.next.outputs.patch }}
+      prerelease: ${{ steps.next.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Next version
+        id: next
+        run: python3 tools/ci/next_version.py --github-output
+
+  sdk:
+    name: SDK ${{ needs.version.outputs.version }} (${{ matrix.name }})
+    needs: version
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { name: Linux, runner: ubuntu-24.04, os: linux, arch: x86_64 }
+          - { name: macOS, runner: macos-14, os: macos, arch: arm64 }
+          # tests/cli_server_test.cpp does not compile with Visual Studio 2022's MSVC; the presets use Visual Studio 2026.
+          - { name: Windows, runner: windows-2025-vs2026, os: windows, arch: x86_64 }
+    env:
+      WIND_VERSION: ${{ needs.version.outputs.version }}
+      WIND_PATCH: ${{ needs.version.outputs.patch }}
+      WIND_ARTIFACT: wind-sdk-${{ needs.version.outputs.version }}-${{ matrix.os }}-${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Packages
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build xvfb \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
+            libxkbcommon-dev libwayland-dev libdecor-0-dev libdrm-dev libgbm-dev libgl1-mesa-dev libgles2-mesa-dev \
+            libegl1-mesa-dev libgl1-mesa-dri libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libibus-1.0-dev
+      - name: Configure
+        if: matrix.os != 'windows'
+        run: cmake --preset ${{ matrix.os }}-editor -DENGINE_VERSION_PATCH=${WIND_PATCH}
+      - name: Configure
+        if: matrix.os == 'windows'
+        run: >
+          cmake -S . -B build-editor -G "Visual Studio 18 2026" -DENGINE_BUILD_TESTS=ON -DENGINE_WITH_WINDOW=ON
+          -DENGINE_WITH_AUDIO=ON -DENGINE_EDITOR=ON -DENGINE_VERSION_PATCH=$env:WIND_PATCH
+      - name: Build
+        run: cmake --build build-editor --config Release --parallel
+      - name: Tests
+        if: matrix.os == 'linux'
+        run: xvfb-run -a ctest --test-dir build-editor -C Release --output-on-failure --parallel 4
+      - name: Tests
+        if: matrix.os != 'linux'
+        run: ctest --test-dir build-editor -C Release --output-on-failure --parallel 4
+      - name: Install the SDK
+        run: cmake --install build-editor --config Release --prefix out/sdk
+      - name: The SDK is this version, from a clean checkout
+        shell: bash
+        run: |
+          grep -qx "version = \"${WIND_VERSION}\"" out/sdk/sdk.toml || { cat out/sdk/sdk.toml; echo "sdk.toml: wrong version"; exit 1; }
+          grep -qx "dirty = false" out/sdk/sdk.toml || { cat out/sdk/sdk.toml; echo "sdk.toml: the checkout was dirty"; exit 1; }
+          grep -qx "platform = \"${{ matrix.os }}\"" out/sdk/sdk.toml || { cat out/sdk/sdk.toml; echo "sdk.toml: wrong platform"; exit 1; }
+      - name: Game against the SDK
+        if: matrix.os != 'windows'
+        run: tools/ci/sdk_smoke.sh out/sdk out/smoke
+      - name: Editor plays the game
+        if: matrix.os != 'windows'
+        # A CI machine has no sound card: SDL's dummy driver stands in, or the editor refuses to start.
+        env:
+          SDL_AUDIODRIVER: dummy
+        run: ${{ matrix.os == 'linux' && 'xvfb-run -a ' || '' }}tools/ci/sdk_smoke.sh out/sdk out/smoke-e2e --e2e
+      - name: Pack
+        shell: bash
+        run: |
+          mkdir -p dist
+          mv out/sdk "out/${WIND_ARTIFACT}"
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            file="${WIND_ARTIFACT}.zip"
+            (cd out && cmake -E tar cf "../dist/${file}" --format=zip "${WIND_ARTIFACT}")
+          else
+            file="${WIND_ARTIFACT}.tar.gz"
+            tar -C out -czf "dist/${file}" "${WIND_ARTIFACT}"
+          fi
+          (cd dist && cmake -E sha256sum "${file}" > "${file}.sha256")
+          ls -l dist
+          cat "dist/${file}.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdk-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish ${{ needs.version.outputs.version }}
+    needs: [version, sdk]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sdk-*
+          merge-multiple: true
+          path: dist
+      - name: Release
+        run: |
+          version="${{ needs.version.outputs.version }}"
+          ls -l dist
+          test "$(ls dist/*.sha256 | wc -l)" = 3
+          test "$(ls dist | wc -l)" = 6
+          if [ "${{ needs.version.outputs.prerelease }}" = "true" ]; then
+            flags="--prerelease"
+          else
+            flags="--latest"
+          fi
+          gh release create "v${version}" dist/* --repo "${{ github.repository }}" --target "${{ github.sha }}" \
+            --title "Wind ${version}" --generate-notes ${flags}

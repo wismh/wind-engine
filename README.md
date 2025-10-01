@@ -23,7 +23,7 @@ ctest --test-dir build-editor -C Debug --output-on-failure
 
 On Linux and macOS use the `linux-editor` or `macos-editor` preset instead (Ninja Multi-Config, `libengine.so` / `libengine.dylib`); the commands are the same, and the SDK holds `wind_editor` without `.exe`. See [CMake](docs/tech/build/CMake.md#linux-and-macos).
 
-Editor SDK: install one configuration of the editor build (`/out/` is gitignored). It holds `wind_editor.exe`, `engine.dll`, the host tools, their `.pdb` files, their assets, `engine.lib`, the public headers with that build's `build_id.h`, GoogleTest, the CMake package a game finds (`find_package(Wind)`), the engine source (`source/`), and `sdk.toml` (version, commit, build id). The engine version is `project(engine VERSION ...)` in `CMakeLists.txt`. The editor build's Release is optimized with symbols and keeps the Profiler tab and the `wind-cli` server:
+Editor SDK: install one configuration of the editor build (`/out/` is gitignored). It holds `wind_editor.exe`, `engine.dll`, the host tools, their `.pdb` files, their assets, `engine.lib`, the public headers with that build's `build_id.h`, GoogleTest, the CMake package a game finds (`find_package(Wind)`), the engine source (`source/`), and `sdk.toml` (version, commit, build id). The engine version (`0.1.7a`: major, minor, patch, and the stage `a` alpha, `b` beta, none production) is set in `CMakeLists.txt` and counted by the release workflow; a local build is `0.1.0a-dev` ([Release](docs/tech/build/Release.md)). The editor build's Release is optimized with symbols and keeps the Profiler tab and the `wind-cli` server:
 
 ```bash
 cmake --build build-editor --config Release
@@ -31,6 +31,8 @@ cmake --install build-editor --config Release --prefix out/sdk
 ```
 
 The install of a Release SDK also builds the static engine twice and puts it in `player/Development` and `player/Shipping` (the first install takes about as long as the editor build; `cmake --build build-editor --target wind_player` does it ahead of the install, `-DENGINE_SDK_PLAYER=OFF` leaves it out). The editor's Export links a game with them in seconds ([CMake](docs/tech/build/CMake.md#player-libraries)).
+
+You do not have to build the SDK: every merge into `main` publishes one per platform (Windows x86_64, Linux x86_64, macOS arm64) as a [GitHub Release](https://github.com/wismh/wind-engine/releases) `v<version>` with a `.sha256`. A game's CI takes it with `tools/ci/setup_sdk.py` or the action `wismh/wind-engine/.github/actions/setup-wind` ([Release](docs/tech/build/Release.md), [manual](docs/manual/getting-started/Continuous-Integration.md)).
 
 A game builds its module against the SDK: its `CMakeLists.txt` calls `find_package(Wind REQUIRED)`, and it is configured with `-DCMAKE_PREFIX_PATH=<absolute path to out/sdk>` and `-DCMAKE_CONFIGURATION_TYPES=DebugGame;Release`, usually from its `editor` preset and `CMakeUserPresets.json` (see [Game Consumer](docs/tech/build/Game%20Consumer.md#editor-module)). That configure compiles no engine and gives `bin/<config>/<game>.dll` with its `assets/`. `DebugGame` is game code at `/Od` with symbols and the release CRT (`/MD`), so it loads into the Release editor; a module with the debug CRT does not compile. `ENGINE_EDITOR=ON` in a game tree is a configure error. The editor refuses a module built against another build id:
 
