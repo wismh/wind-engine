@@ -4,7 +4,7 @@
 
 A command error is still HTTP 200 with `"ok":false`. Usage errors exit 2.
 
-Debug, RelWithDebInfo, and every configuration of the editor build (`ENGINE_EDITOR`, so the Release editor too) define `ENGINE_CLI_SERVER`, and not on Emscripten or Android. An exported game's Release and MinSizeRel do not. Without the macro the game does not open a port and does not write a descriptor. `wind-cli` still builds. The only public header is `<engine/core/cli_commands.h>`, for a host's own commands ([Host commands](#host-commands)). The SDK installs `wind-cli` into `bin/`, beside `wind_editor`.
+Debug, RelWithDebInfo, and every configuration of the editor build (`ENGINE_EDITOR`, so the Release editor too) define `ENGINE_CLI_SERVER`, and not on Emscripten or Android. So does a game exported as a Development Build (the SDK's Development player, [Editor](Editor.md#export)): `wind-cli` finds it. An exported game's Release (the Shipping player) and MinSizeRel do not. Without the macro the game does not open a port and does not write a descriptor. `wind-cli` still builds. The only public header is `<engine/core/cli_commands.h>`, for a host's own commands ([Host commands](#host-commands)). The SDK installs `wind-cli` into `bin/`, beside `wind_editor`.
 
 | File | Role |
 | --- | --- |

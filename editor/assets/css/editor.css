@@ -67,6 +67,131 @@ Button:disabled {
   width: 88;
 }
 
+/* The Export button's dialog: a popup under the button, 4 px apart, 480 px of content (the folder field, its gap, and
+   Browse). */
+Popup.export-dialog {
+  margin: 4 0 0 0;
+  padding: 14;
+  gap: 6;
+  background: #2b2d30;
+  border-width: 1;
+  border-color: #43454a;
+  border-radius: 6;
+}
+
+.dialog-title {
+  font-size: 16;
+  color: #ffffff;
+}
+
+.field-label {
+  height: 18;
+  padding: 6 0 0 0;
+  font-size: 12;
+  color: #8c9096;
+}
+
+/* Folder 370, gap 10, Browse 100. */
+.field-row {
+  width: 480;
+  gap: 10;
+}
+
+.field {
+  height: 34;
+  padding: 8 10 8 10;
+  border-radius: 6;
+  font-size: 14;
+  color: #dfe1e5;
+  background: #1e1f22;
+  border-width: 1;
+  border-color: #393b40;
+  selection-color: #2f65ca;
+}
+
+.field:focus {
+  border-color: #3574f0;
+}
+
+.path-field {
+  width: 370;
+}
+
+.browse-button {
+  width: 100;
+}
+
+.check-row {
+  width: 480;
+  height: 24;
+  padding: 8 0 0 0;
+  gap: 8;
+  align-items: center;
+}
+
+Checkbox.option-box {
+  width: 16;
+  height: 16;
+  margin: 0;
+  padding: 0;
+  background: #1e1f22;
+  border-width: 1;
+  border-color: #5a5e66;
+  border-radius: 3;
+}
+
+Checkbox.option-box:hover {
+  border-color: #8c9096;
+}
+
+Checkbox.option-box:checked {
+  background: #2f7d36;
+  border-color: #4fbf5a;
+}
+
+.check-label {
+  font-size: 14;
+}
+
+.dialog-hint {
+  max-width: 480;
+  font-size: 12;
+  color: #8c9096;
+  white-space: normal;
+}
+
+/* --tone is red for a folder that cannot be used and amber for a warning (ExportDialog). */
+.dialog-message {
+  max-width: 480;
+  font-size: 12;
+  color: var(--tone, #8c9096);
+  white-space: normal;
+}
+
+.dialog-buttons {
+  padding: 8 0 0 0;
+  gap: 8;
+}
+
+.cancel-button {
+  width: 84;
+}
+
+.confirm-button {
+  width: 84;
+  color: #ffffff;
+  background: #2f7d36;
+}
+
+.confirm-button:hover {
+  background: #3a9142;
+}
+
+.confirm-button:disabled {
+  color: #8a8f96;
+  background: #34413a;
+}
+
 .info {
   gap: 2;
   padding: 0 0 0 10;

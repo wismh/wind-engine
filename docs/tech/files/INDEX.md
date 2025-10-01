@@ -327,16 +327,16 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/builtin_test.cpp` | Frozen builtin ids and files | [Resources](../modules/Resources.md) |
 | `tests/camera_test.cpp` | Ortho matrices and screen/world | [ECS](../modules/ECS.md) |
 | `tests/cli_server_test.cpp` | Descriptor, HTTP, window routing, host commands, and UI commands without `GameLoop` | [CLI](../features/CLI.md) |
-| `tests/cmake_sanity_test.cpp` | Public headers compile, build id, CMake file checks (game functions, SDK package) | [CMake](../build/CMake.md) |
+| `tests/cmake_sanity_test.cpp` | Public headers compile, build id, CMake file checks (game functions, SDK package, export wiring and player libraries) | [CMake](../build/CMake.md) |
 | `tests/command_buffer_test.cpp` | Push and iterate the three command types | [Render](../modules/Render.md) |
 | `tests/dock_layout_test.cpp` | Dock operations and invariants, geometry, drop zones, chrome hits, text round trip, reconcile | [Docking](../features/Docking.md) |
 | `tests/dock_space_test.cpp` | Dock systems: panel rects and orders, chrome lists and default theme, every tab and splitter hit, tab click and drag, splitter, float move, resize, raise, dock, Escape, consumption, close request, tab widths from titles | [Docking](../features/Docking.md#host) |
 | `tests/dock_float_window_test.cpp` | OS window floats with the fake window control: open, bind, title, rect, mode switch, tear-out, drags across windows, native move and resize, close button, space removed, world destroyed, space window closed, owner and utility style, `dock_panel_os_window`, open failure, saved rect, off-display float | [Docking](../features/Docking.md#os-window-floats) |
 | `tests/ecs_test.cpp` | Create, destroy, views, deferred destroy | [ECS](../modules/ECS.md) |
 | `tests/events_test.cpp` | Double buffer and cursors | [ECS](../modules/ECS.md) |
-| `tests/file_dialog_test.cpp` | `FileDialogCall` delivery, cancel, and ownership | [Windowing](../features/Windowing.md) |
+| `tests/file_dialog_test.cpp` | `FileDialogCall` delivery, cancel, and ownership; a folder answer, the fake window control's folder dialog | [Windowing](../features/Windowing.md) |
 | `tests/fixtures/cli_client.h` | Loopback client: this process's descriptor and `POST /exec` | [CLI](../features/CLI.md) |
-| `tests/fixtures/fake_services.h` | Headless `EngineServices` fakes for tests that create a game; the window control keeps each window's description, position, size, and title | [Core](../modules/Core.md) |
+| `tests/fixtures/fake_services.h` | Headless `EngineServices` fakes for tests that create a game; the window control keeps each window's description, position, size, and title, and answers a folder dialog with a scripted path | [Core](../modules/Core.md) |
 | `tests/fixtures/game_module/fixture_game.cpp` | Fixture game module, built three ways in the editor build | [Core](../modules/Core.md) |
 | `tests/fixtures/game_module/fixture_log.h` | `FixtureLog` the fixture game writes into | [Core](../modules/Core.md) |
 | `tests/event_window_test.cpp` | `event_window`: a live window, a closed window's id dropped, id 0 per event kind | [Windowing](../features/Windowing.md#events-of-a-window) |
@@ -414,9 +414,12 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | Path | What it does | Page |
 | --- | --- | --- |
 | `cmake/build_id.cmake` | Writes `<engine/build_id.h>`: the build id and the engine's CRT macros | [CMake](../build/CMake.md#build-id) |
-| `cmake/wind_game.cmake` | `engine_add_game`, `engine_configure_app`, `engine_prepare_runtime`, web and Android variants, `engine_sdk_configurations` (SDK mode: `DebugGame` and `Release`) | [CMake](../build/CMake.md#game-functions) |
-| `cmake/WindConfig.cmake.in` | Template of the editor SDK's `WindConfig.cmake` (`find_package(Wind)`): imported `engine`, `glm::glm`, tools, GoogleTest | [CMake](../build/CMake.md#editor-sdk) |
-| `cmake/sdk_manifest.cmake` | Install step that writes the SDK's `sdk.toml` (version, commit, dirty, config, build id) | [CMake](../build/CMake.md#editor-sdk) |
+| `cmake/wind_game.cmake` | `engine_add_game`, `engine_configure_app`, `engine_prepare_runtime`, web and Android variants, `engine_sdk_configurations` (SDK mode and exports against the players: `DebugGame` and `Release`), `engine_debuggame_flags` | [CMake](../build/CMake.md#game-functions) |
+| `cmake/WindConfig.cmake.in` | Template of the editor SDK's `WindConfig.cmake` (`find_package(Wind)`): imported `engine`, `glm::glm`, tools, GoogleTest; the `WIND_EXPORT` branch | [CMake](../build/CMake.md#editor-sdk) |
+| `cmake/wind_export.cmake` | Export builds: the SDK's player libraries as `engine` (Development for DebugGame, Shipping for Release), or why there are none | [CMake](../build/CMake.md#standalone-executable-wind_export) |
+| `cmake/wind_player.cmake.in` | Template of `<sdk>/player/<flavour>/cmake/wind_player.cmake`: flavour, version, platform, the SDK build id, `find_package` of what the exported targets name | [CMake](../build/CMake.md#player-libraries) |
+| `cmake/player_build.cmake` | Driver script: configure, build, and install the player flavours in trees of their own | [CMake](../build/CMake.md#player-libraries) |
+| `cmake/sdk_manifest.cmake` | Install step that writes the SDK's `sdk.toml` (version, commit, dirty, config, build id, platform, player flavours) | [CMake](../build/CMake.md#editor-sdk) |
 
 ## `editor/`
 
@@ -442,7 +445,7 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/asset_inspection.cpp` | Folder, File, Import, and Content sections of a project file | [Editor](../features/Editor.md#inspector) |
 | `editor/src/asset_inspection.h` | `inspect_asset`, the Content limits | [Editor](../features/Editor.md#inspector) |
 | `editor/src/asset_selection.h` | `AssetSelection` | [Editor](../features/Editor.md#inspector) |
-| `editor/src/batch_run.cpp` | `--batch --export`: SDK and project check, export build, copy, exit code |
+| `editor/src/batch_run.cpp` | `--batch --export [--development]`: SDK and project check, export build, copy, exit code |
 | `editor/src/batch_run.h` | `BatchRun`, `BatchSetup`, the exit codes |
 | `editor/src/build_line_view_model.cpp` | Binds a log row | [Editor](../features/Editor.md) |
 | `editor/src/build_line_view_model.h` | `BuildLineViewModel` | [Editor](../features/Editor.md) |
@@ -456,7 +459,7 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/editor_app.h` | `EditorApp` | [Editor](../features/Editor.md) |
 | `editor/src/editor_cli.cpp` | `state`, `play`, `stop`, `open` for `wind-cli` | [Editor](../features/Editor.md#wind-cli) |
 | `editor/src/editor_cli.h` | `EditorCli`, `EditorFacts` | [Editor](../features/Editor.md#wind-cli) |
-| `editor/src/editor_options.cpp` | `--project`, `--play`, `--batch`, `--export`, `--log-file`, `usage_error` | [Editor](../features/Editor.md) |
+| `editor/src/editor_options.cpp` | `--project`, `--play`, `--batch`, `--export`, `--development`, `--log-file`, `usage_error` | [Editor](../features/Editor.md) |
 | `editor/src/editor_options.h` | `EditorOptions` | [Editor](../features/Editor.md) |
 | `editor/src/editor_panels.cpp` | Panel canvases in a `DockSpace` with OS window floats, default layout, show, tree keys, visible-only refresh, layout saves, attach and detach | [Editor](../features/Editor.md#panels) |
 | `editor/src/editor_panels.h` | `EditorPanels` | [Editor](../features/Editor.md) |
@@ -466,6 +469,8 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/editor_view_model.h` | `EditorViewModel` | [Editor](../features/Editor.md) |
 | `editor/src/engine_host_play.cpp` | `IPlayHost` over `EngineHost` and `EditorPanels` | [Editor](../features/Editor.md) |
 | `editor/src/engine_host_play.h` | `EngineHostPlay` | [Editor](../features/Editor.md) |
+| `editor/src/export_dialog.cpp` | The Export dialog: default and remembered folder, live folder check, Browse..., confirm | [Editor](../features/Editor.md#export) |
+| `editor/src/export_dialog.h` | `ExportDialog`, `ExportChoice` | [Editor](../features/Editor.md#export) |
 | `editor/src/inspector_line_view_model.cpp` | Binds a section line | [Editor](../features/Editor.md#inspector) |
 | `editor/src/inspector_line_view_model.h` | `InspectorLineViewModel` | [Editor](../features/Editor.md#inspector) |
 | `editor/src/inspector_panel.cpp` | Shows the editor's selection: a file read on select, a UI element every refresh | [Editor](../features/Editor.md#inspector) |
@@ -490,12 +495,12 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/profiler_view_model.cpp` | Binds the view-model to `profiler.xml` and registers the paints | [UI Profiler](../features/UI%20Profiler.md) |
 | `editor/src/profiler_view_model.h` | `ProfilerViewModel` | [UI Profiler](../features/UI%20Profiler.md) |
 | `editor/src/project_build.cpp` | Configure and build through `ProcessCall`, the module and export records | [Editor](../features/Editor.md) |
-| `editor/src/project_build.h` | `ProjectBuild`, `BuildSetup`, `BuildKind`, `configured_for` | [Editor](../features/Editor.md) |
+| `editor/src/project_build.h` | `ProjectBuild`, `BuildSetup`, `BuildKind`, `game_config`, `export_flavour_problem`, `configured_for` | [Editor](../features/Editor.md) |
 | `editor/src/project_check.cpp` | Read a project and hold it against the SDK | [Editor](../features/Editor.md#start) |
 | `editor/src/project_check.h` | `ProjectCheck`, `check_project` | [Editor](../features/Editor.md#start) |
 | `editor/src/project_export.cpp` | `copy_export`, the file filter, the refused targets | [Editor](../features/Editor.md#export) |
 | `editor/src/project_export.h` | `copy_export`, `default_export_directory`, `export_directory_problem` | [Editor](../features/Editor.md#export) |
-| `editor/src/toolbar.cpp` | Play/Stop and Export methods and shown state | [Editor](../features/Editor.md) |
+| `editor/src/toolbar.cpp` | Play/Stop and Export methods, the Export dialog it owns, and shown state | [Editor](../features/Editor.md) |
 | `editor/src/toolbar.h` | `Toolbar`, `EditorRequest`, `RunState` | [Editor](../features/Editor.md) |
 | `editor/src/ui_element_selection.h` | `UiElementSelection` | [Editor](../features/Editor.md#inspector) |
 | `editor/src/ui_tree_panel.cpp` | Copies the inspector probe's tree into the view-model; a new probe selection becomes the editor's | [UI Inspector](../features/UI%20Inspector.md) |
@@ -505,12 +510,13 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/ui_tree_view_model.cpp` | Binds the view-model to `ui_tree.xml` | [UI Inspector](../features/UI%20Inspector.md) |
 | `editor/src/ui_tree_view_model.h` | `UiTreeViewModel` | [UI Inspector](../features/UI%20Inspector.md) |
 | `editor/tests/asset_inspection_test.cpp` | Folder, text, meta, broken meta, PNG, cut text, empty and gone files | [Editor](../features/Editor.md#inspector) |
-| `editor/tests/batch_run_test.cpp` | `BatchRun` exit codes against a scripted launcher |
+| `editor/tests/batch_run_test.cpp` | `BatchRun` exit codes against a scripted launcher, `--development` |
 | `editor/tests/build_panel_test.cpp` | Log tones, first error, scroll, line cap | [Editor](../features/Editor.md) |
 | `editor/tests/dock_layout_file_test.cpp` | Layout file round trip, missing, corrupt, empty path | [Editor](../features/Editor.md#layout-file) |
 | `editor/tests/editor_cli_test.cpp` | `EditorCli` replies and the requests it records | [Editor](../features/Editor.md#wind-cli) |
-| `editor/tests/editor_options_test.cpp` | `--project`, `--play`, `--batch`, `--export`, `--log-file`, usage errors | [Editor](../features/Editor.md) |
+| `editor/tests/editor_options_test.cpp` | `--project`, `--play`, `--batch`, `--export`, `--development`, `--log-file`, usage errors | [Editor](../features/Editor.md) |
 | `editor/tests/editor_panels_test.cpp` | Default layout, dock area and panel canvases, visible-only refresh, the shared selection, show, layout save and load, tree keys, attach and detach; OS float windows, saved float restore | [Editor](../features/Editor.md#panels) |
+| `editor/tests/export_dialog_test.cpp` | The Export dialog over a fake window control: folders, problem and warning lines, confirm, cancel, Browse..., Debug SDK | [Editor](../features/Editor.md#export) |
 | `editor/tests/inspector_panel_test.cpp` | Inspector: nothing, a file read on select, collapsed sections, a UI element, detach | [Editor](../features/Editor.md#inspector) |
 | `editor/tests/play_session_test.cpp` | Play, Stop order, play again, refusals, against the fixture module | [Editor](../features/Editor.md) |
 | `editor/tests/profiler_chart_test.cpp` | Chart geometry and the chart paint | [UI Profiler](../features/UI%20Profiler.md) |

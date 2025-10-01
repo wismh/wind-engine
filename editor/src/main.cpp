@@ -42,6 +42,7 @@ int run_batch(const editor::EditorOptions& options) {
             .sdk = engine::executable_directory().parent_path(),
             .project = *options.project,
             .export_directory = options.export_directory,
+            .development = options.development,
     });
     while (!code) {
         processes.poll();

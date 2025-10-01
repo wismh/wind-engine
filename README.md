@@ -30,6 +30,8 @@ cmake --build build-editor --config Release
 cmake --install build-editor --config Release --prefix out/sdk
 ```
 
+The install of a Release SDK also builds the static engine twice and puts it in `player/Development` and `player/Shipping` (the first install takes about as long as the editor build; `cmake --build build-editor --target wind_player` does it ahead of the install, `-DENGINE_SDK_PLAYER=OFF` leaves it out). The editor's Export links a game with them in seconds ([CMake](docs/tech/build/CMake.md#player-libraries)).
+
 A game builds its module against the SDK: its `CMakeLists.txt` calls `find_package(Wind REQUIRED)`, and it is configured with `-DCMAKE_PREFIX_PATH=<absolute path to out/sdk>` and `-DCMAKE_CONFIGURATION_TYPES=DebugGame;Release`, usually from its `editor` preset and `CMakeUserPresets.json` (see [Game Consumer](docs/tech/build/Game%20Consumer.md#editor-module)). That configure compiles no engine and gives `bin/<config>/<game>.dll` with its `assets/`. `DebugGame` is game code at `/Od` with symbols and the release CRT (`/MD`), so it loads into the Release editor; a module with the debug CRT does not compile. `ENGINE_EDITOR=ON` in a game tree is a configure error. The editor refuses a module built against another build id:
 
 ```bash
