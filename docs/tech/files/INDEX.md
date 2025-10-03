@@ -56,6 +56,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/process/process_call.h` | `ProcessCall`: one owned child, `take_output`, `take`, `cancel` | [Process](../modules/Process.md) |
 | `include/engine/process/process_desc.h` | `ProcessDesc`, `ProcessVariable`, `ProcessExit`, `ProcessError`, `ProcessResult` | [Process](../modules/Process.md) |
 | `include/engine/process/process_launcher.h` | `IProcessLauncher` and `ProcessLauncher` | [Process](../modules/Process.md) |
+| `include/engine/project/engine_version.h` | `EngineVersion`, `parse_engine_version`, `to_string`, release order | [Project](../modules/Project.md#engine-version) |
 | `include/engine/project/manifest_error.h` | `ManifestError`, `ManifestFailure`, `describe` | [Project](../modules/Project.md) |
 | `include/engine/project/sdk_manifest.h` | `SdkManifest`, `read_sdk_manifest` | [Project](../modules/Project.md) |
 | `include/engine/project/wind_project.h` | `WindProject`, `read_wind_project` | [Project](../modules/Project.md) |
@@ -304,6 +305,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/process/process_launcher.cpp` | `ProcessLauncher`: backend choice, `run`, `launch`, `poll`, `dispose` | [Process](../modules/Process.md) |
 | `src/process/windows_process.cpp` | Windows backend: pipe, job object, reader thread, `launch` | [Process](../modules/Process.md) |
 | `src/process/windows_process.h` | Windows backend API | [Process](../modules/Process.md) |
+| `src/project/engine_version.cpp` | `parse_engine_version`, `operator<=>`, `to_string` | [Project](../modules/Project.md#engine-version) |
 | `src/project/manifest_error.cpp` | `to_string`, `describe` | [Project](../modules/Project.md) |
 | `src/project/manifest_table.cpp` | Loads a manifest with toml++, typed keys | [Project](../modules/Project.md) |
 | `src/project/manifest_table.h` | `ManifestTable` | [Project](../modules/Project.md) |
@@ -357,6 +359,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/opengl_texture_test.cpp` | CPU texture description. No GL draw | [Render](../modules/Render.md) |
 | `tests/particle_test.cpp` | Emitter step and curves | [Render](../modules/Render.md) |
 | `tests/physics_test.cpp` | Overlap enter, stay, exit | [ECS](../modules/ECS.md) |
+| `tests/engine_version_test.cpp` | `EngineVersion` parse, refusals, round trip, order | [Project](../modules/Project.md#engine-version) |
 | `tests/platform_test.cpp` | Assets root and `user_data_directory` names | [Core](../modules/Core.md) |
 | `tests/process_test.cpp` | Line cutting, quoting, environment, `ProcessCall` ownership, and real `cmd.exe` children on Windows (output, exit, cancel, leftovers) | [Process](../modules/Process.md) |
 | `tests/project_test.cpp` | `wind_project.toml` and `sdk.toml` reading and their errors | [Project](../modules/Project.md) |
@@ -407,6 +410,14 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tools/asset_guid/main.cpp` | `asset_guid` CLI | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `tools/asset_guid/README.md` | One-page usage | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `tools/icon_codegen/main.cpp` | `icon_codegen` CLI | [Icon Codegen](../build/Icon%20Codegen.md) |
+| `tools/ci/next_version.py` | The next release version from `CMakeLists.txt` and the git tags | [Release](../build/Release.md) |
+| `tools/ci/test_next_version.py` | Its unit tests | [Release](../build/Release.md#tests) |
+| `tools/ci/setup_sdk.py` | Downloads, verifies, and unpacks a released SDK for a game's CI | [Release](../build/Release.md#getting-an-sdk-in-a-games-ci) |
+| `tools/ci/test_setup_sdk.py` | Its unit tests | [Release](../build/Release.md#tests) |
+| `tools/ci/sdk_smoke.sh` | A game against an installed SDK, and the editor playing it | [CMake](../build/CMake.md#editor-sdk) |
+| `.github/workflows/release.yml` | Release on every push to `main`: version, SDK on three platforms, GitHub Release | [Release](../build/Release.md) |
+| `.github/workflows/sdk.yml` | The editor build, tests, install, and smoke on every platform | [CMake](../build/CMake.md#editor-sdk) |
+| `.github/actions/setup-wind/action.yml` | Composite action: `setup_sdk.py`, cache, `WIND_SDK_DIR`, `PATH` | [Release](../build/Release.md#getting-an-sdk-in-a-games-ci) |
 | `tools/wind_cli/main.cpp` | Host client for the loopback server, and `launch` of the editor beside it | [CLI](../features/CLI.md) |
 
 ## `cmake/`
@@ -419,7 +430,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `cmake/wind_export.cmake` | Export builds: the SDK's player libraries as `engine` (Development for DebugGame, Shipping for Release), or why there are none | [CMake](../build/CMake.md#standalone-executable-wind_export) |
 | `cmake/wind_player.cmake.in` | Template of `<sdk>/player/<flavour>/cmake/wind_player.cmake`: flavour, version, platform, the SDK build id, `find_package` of what the exported targets name | [CMake](../build/CMake.md#player-libraries) |
 | `cmake/player_build.cmake` | Driver script: configure, build, and install the player flavours in trees of their own | [CMake](../build/CMake.md#player-libraries) |
-| `cmake/sdk_manifest.cmake` | Install step that writes the SDK's `sdk.toml` (version, commit, dirty, config, build id, platform, player flavours) | [CMake](../build/CMake.md#editor-sdk) |
+| `cmake/sdk_manifest.cmake` | Install step that writes the SDK's `sdk.toml` (full version, commit, dirty, config, build id, platform, player flavours) | [CMake](../build/CMake.md#editor-sdk) |
 
 ## `editor/`
 

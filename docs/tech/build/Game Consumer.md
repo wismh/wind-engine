@@ -4,7 +4,7 @@ A game repo builds against an installed Wind editor SDK. It has no engine submod
 
 ```toml
 name = "My Game"
-engine = "0.1.0"     # the SDK version, sdk.toml `version`
+engine = "0.1.7a"    # the SDK version, sdk.toml `version`
 target = "my_game"   # the engine_add_game target
 ```
 
@@ -19,7 +19,7 @@ engine_add_game(my_game
     src/game.cpp)
 ```
 
-What `engine_add_game` adds (the editor's game module; C++23, asset cook, optional `icon.png`, the game's `assets/` beside the module) is [CMake](CMake.md) and [Pipeline](Pipeline.md). `find_package(Wind 0.1.0 REQUIRED)` also checks the version: the SDK accepts only its own ([CMake](CMake.md#editor-sdk)).
+What `engine_add_game` adds (the editor's game module; C++23, asset cook, optional `icon.png`, the game's `assets/` beside the module) is [CMake](CMake.md) and [Pipeline](Pipeline.md). `find_package(Wind 0.1.7 REQUIRED)` also checks the version: the SDK accepts only its own three numbers ([CMake](CMake.md#editor-sdk); the stage is not in it, the editor checks the full text). A CI that needs an SDK takes it from the engine's Releases: [Release](Release.md#getting-an-sdk-in-a-games-ci).
 
 The game includes `<engine/…>` from `<sdk>/include`. It never edits the SDK; an engine change goes to the engine repo and reaches the game as a new SDK.
 
@@ -79,7 +79,7 @@ cmake --build build-editor --config DebugGame --target my_game
 C:/path/to/engine/out/sdk/bin/wind_editor.exe --project . --play
 ```
 
-The configure prints `Wind 0.1.0: Release SDK at <dir>`. `--config Release` builds the optimized module into `bin/Release/`. A build directory configured earlier with CMake's default configurations fails with a message: delete it and configure again. `ENGINE_EDITOR=ON` is not a game option.
+The configure prints `Wind 0.1.7a: Release SDK at <dir>`. `--config Release` builds the optimized module into `bin/Release/`. A build directory configured earlier with CMake's default configurations fails with a message: delete it and configure again. `ENGINE_EDITOR=ON` is not a game option.
 
 A module built with the debug CRT (`/MDd` or `_DEBUG`) does not compile: `<engine/game_entry.h>` stops it with "Build it in DebugGame or Release against a Release SDK" ([CRT guard](CMake.md#crt-guard)). To step through engine code as well, install a Debug SDK (`--config Debug --prefix out/sdk-debug`) and point a second user preset at it with `"CMAKE_CONFIGURATION_TYPES": "Debug"`.
 

@@ -113,7 +113,33 @@ TEST(SdkCatalog, ComparesVersionsByNumber) {
     EXPECT_LT(launcher::compare_versions("0.1.0", "0.1.1"), 0);
     EXPECT_EQ(launcher::compare_versions("1.2.3", "1.2.3"), 0);
     EXPECT_GT(launcher::compare_versions("10.0.0", "2.0.0"), 0);
-    EXPECT_GT(launcher::compare_versions("1.0.0-rc", "1.0.0-beta"), 0) << "a part that is not a number compares as text";
+    EXPECT_GT(launcher::compare_versions("0.1.100a", "0.1.99a"), 0);
+    EXPECT_GT(launcher::compare_versions("0.2.0a", "0.1.100a"), 0);
+    EXPECT_GT(launcher::compare_versions("0.2.6b", "0.2.5a"), 0);
+    EXPECT_GT(launcher::compare_versions("0.2.0", "0.2.0b"), 0);
+    EXPECT_GT(launcher::compare_versions("0.2.0b", "0.2.0a"), 0);
+    EXPECT_LT(launcher::compare_versions("0.2.0a-dev", "0.2.0a"), 0);
+    EXPECT_GT(launcher::compare_versions("0.1.0", "nightly"), 0) << "a text that is not a version is older";
+    EXPECT_GT(launcher::compare_versions("1.0.0-rc", "1.0.0-beta"), 0) << "two of them compare as text";
+}
+
+TEST(SdkCatalog, ListsReleasesNewestFirstAndUnreadableVersionsLast) {
+    const TempDir dir;
+    for (const std::string_view version :
+            {"0.1.99a", "nightly", "0.2.0a-dev", "0.1.100a", "0.2.0b", "0.2.0a", "0.2.0"}) {
+        dir.sdk(std::filesystem::path("sdks") / std::string(version), version, false);
+    }
+    std::vector<std::string> problems;
+    const std::vector<launcher::SdkEntry> sdks = launcher::find_sdks(dir.path() / "sdks", {}, problems);
+    std::vector<std::string> versions;
+    for (const launcher::SdkEntry& sdk : sdks) {
+        versions.push_back(sdk.manifest.version);
+    }
+    const std::vector<std::string> expected{"0.2.0", "0.2.0b", "0.2.0a", "0.2.0a-dev", "0.1.100a", "0.1.99a", "nightly"};
+    EXPECT_EQ(versions, expected);
+    EXPECT_TRUE(problems.empty());
+    ASSERT_NE(launcher::sdk_for(sdks, "0.1.100a"), nullptr);
+    EXPECT_EQ(launcher::sdk_for(sdks, "0.1.100"), nullptr) << "a project's version is matched as the exact text";
 }
 
 TEST(SdkCatalog, FindsInstalledAndLocatedSdksNewestFirstCleanBeforeDirty) {

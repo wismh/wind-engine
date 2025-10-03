@@ -1,0 +1,66 @@
+name: Set up Wind
+description: >
+  Installs a released Wind editor SDK for a game's CI. The version is the input, or the engine key of the project's
+  wind_project.toml. Sets WIND_SDK_DIR, adds <sdk>/bin (wind_editor, wind-cli) to PATH, and caches the SDK.
+
+inputs:
+  version:
+    description: The engine version to install, like 0.1.7a. Default is `engine` in wind_project.toml.
+    required: false
+    default: ""
+  project-dir:
+    description: The directory with wind_project.toml, read when version is empty.
+    required: false
+    default: "."
+  repo:
+    description: The repository with the Wind releases.
+    required: false
+    default: wismh/wind-engine
+  token:
+    description: A token for the GitHub download, only to be under the rate limit; the releases are public.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  sdk-dir:
+    description: The SDK root (the directory with sdk.toml).
+    value: ${{ steps.install.outputs.sdk-dir }}
+  version:
+    description: The engine version installed.
+    value: ${{ steps.key.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve the version
+      id: key
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_PROJECT: ${{ inputs.project-dir }}
+      run: |
+        PY=python3
+        command -v python3 >/dev/null 2>&1 || PY=python
+        "$PY" "$GITHUB_ACTION_PATH/../../../tools/ci/setup_sdk.py" --print-key --version "$INPUT_VERSION" \
+          --project "$INPUT_PROJECT" | tr -d '\r' >> "$GITHUB_OUTPUT"
+    - name: Cache the SDK
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/wind-sdk/${{ steps.key.outputs.version }}
+        key: ${{ steps.key.outputs.key }}
+    - name: Install the SDK
+      id: install
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        INPUT_REPO: ${{ inputs.repo }}
+        SDK_VERSION: ${{ steps.key.outputs.version }}
+      run: |
+        PY=python3
+        command -v python3 >/dev/null 2>&1 || PY=python
+        sdk="$("$PY" "$GITHUB_ACTION_PATH/../../../tools/ci/setup_sdk.py" --version "$SDK_VERSION" \
+          --repo "$INPUT_REPO" --dest "$RUNNER_TEMP/wind-sdk/$SDK_VERSION")"
+        sdk="${sdk%$'\r'}"
+        echo "sdk-dir=$sdk" >> "$GITHUB_OUTPUT"
+        echo "WIND_SDK_DIR=$sdk" >> "$GITHUB_ENV"
+        echo "$sdk/bin" >> "$GITHUB_PATH"
