@@ -53,12 +53,12 @@ void write(const fs::path& path, const std::string& text) {
 // An SDK and a project under the temp directory, removed with the object.
 class Dirs {
 public:
-    explicit Dirs(const std::string& project_engine = "0.1.0", const std::string& sdk_config = "Release")
+    explicit Dirs(const std::string& project_engine = "0.1.7a", const std::string& sdk_config = "Release")
         : root_(fs::temp_directory_path() / "wind_batch_run_test" /
                   ::testing::UnitTest::GetInstance()->current_test_info()->name()) {
         fs::remove_all(root_);
         write(sdk() / "sdk.toml",
-                "version = \"0.1.0\"\ncommit = \"abc\"\ndirty = false\nconfig = \"" + sdk_config +
+                "version = \"0.1.7a\"\ncommit = \"abc\"\ndirty = false\nconfig = \"" + sdk_config +
                         "\"\nbuild_id = \"b\"\n");
         write(project() / "wind_project.toml",
                 "name = \"My Game\"\nengine = \"" + project_engine + "\"\ntarget = \"my_game\"\n");
@@ -169,7 +169,7 @@ TEST(BatchRun, DevelopmentExportsTheDebugGameBuild) {
 }
 
 TEST(BatchRun, ADevelopmentBuildAgainstADebugSdkEndsWithOneWithoutBuilding) {
-    const Dirs dirs("0.1.0", "Debug");
+    const Dirs dirs("0.1.7a", "Debug");
     ScriptedLauncher launcher;
     std::vector<std::string> lines;
     editor::BatchRun run(launcher, [&](const std::string& line) { lines.push_back(line); });
@@ -228,7 +228,23 @@ TEST(BatchRun, AProjectForAnotherEngineVersionEndsWithOneWithoutBuilding) {
     EXPECT_EQ(*code, editor::kBatchFailed);
     EXPECT_TRUE(launcher.runs.empty());
     ASSERT_FALSE(lines.empty());
-    EXPECT_NE(lines.back().find("The project needs engine 0.2.0; this editor is 0.1.0."), std::string::npos);
+    EXPECT_NE(lines.back().find("The project needs engine 0.2.0; this editor is 0.1.7a."), std::string::npos);
+}
+
+TEST(BatchRun, TheEngineVersionIsComparedAsTheExactTextStageIncluded) {
+    for (const char* project_engine : {"0.1.7", "0.1.7b", "0.1.7a-dev", "0.1.07a"}) {
+        const Dirs dirs(project_engine);
+        ScriptedLauncher launcher;
+        std::vector<std::string> lines;
+        editor::BatchRun run(launcher, [&](const std::string& line) { lines.push_back(line); });
+        const std::optional<int> code = run.start(dirs.setup());
+        ASSERT_TRUE(code.has_value()) << project_engine;
+        EXPECT_EQ(*code, editor::kBatchFailed) << project_engine;
+        EXPECT_TRUE(launcher.runs.empty()) << project_engine;
+        ASSERT_FALSE(lines.empty());
+        EXPECT_NE(lines.back().find(std::string("The project needs engine ") + project_engine +
+                                    "; this editor is 0.1.7a."), std::string::npos) << project_engine;
+    }
 }
 
 TEST(BatchRun, AMissingProjectOrSdkEndsWithOne) {
