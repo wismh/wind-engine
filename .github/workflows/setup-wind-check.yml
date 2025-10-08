@@ -88,11 +88,13 @@ jobs:
           project="${RUNNER_TEMP}/check_game"
           rm -rf "${project}"
           cp -R templates/empty "${project}"
-          for f in "${project}/wind_project.toml" "${project}/CMakeLists.txt"; do
+          # CMakeUserPresets.json only points a hand-made checkout at the SDK; the editor passes the SDK itself.
+          rm -f "${project}/CMakeUserPresets.json"
+          find "${project}" -type f | while read -r f; do
             sed -i.bak -e "s/{{name}}/Check Game/g" -e "s/{{engine}}/${WIND_VERSION}/g" -e "s/{{target}}/check_game/g" "${f}"
             rm -f "${f}.bak"
           done
-          grep -rl '{{' "${project}" && { echo "unsubstituted placeholders"; exit 1; } || true
+          if grep -rl '{{' "${project}"; then echo "unsubstituted placeholders"; exit 1; fi
           cat "${project}/wind_project.toml"
           echo "WIND_PROJECT=${project}" >> "$GITHUB_ENV"
       - name: Export (Linux, macOS)
