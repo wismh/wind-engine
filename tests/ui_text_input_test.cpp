@@ -36,6 +36,7 @@ public:
     void stroke_rounded_rect(const engine::render::Rect&, float, float, glm::vec4) override {}
     void draw_line(glm::vec2, glm::vec2, glm::vec4, float) override { ++lines_drawn; }
     void stroke_arc(glm::vec2, float, float, float, float, glm::vec4) override {}
+    void fill_path(std::span<const engine::ui::PathSegment>, glm::vec4) override {}
     void set_font(engine::AssetId, float) override {}
     void fill_text(std::string_view, glm::vec2, glm::vec4, engine::ui::UiAlign, engine::ui::UiAlign) override {
         ++texts_filled;
