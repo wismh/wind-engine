@@ -1,0 +1,120 @@
+name: Setup Wind check
+
+# Proves the setup-wind action against a real GitHub Release: installs the SDK of a released version on Linux, macOS, and
+# Windows, checks sdk.toml, creates a project from templates/empty, and exports it with `wind_editor --batch --export`.
+# Runs after every successful Release, or by hand with an optional version (default: the newest release).
+# docs/tech/build/Release.md
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The released engine version to check, like 0.1.7a. Default is the newest release.
+        type: string
+        default: ""
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Version to check
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.pick.outputs.version }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      INPUT_VERSION: ${{ inputs.version }}
+    steps:
+      - name: Pick the version
+        id: pick
+        run: |
+          version="${INPUT_VERSION}"
+          if [ -z "${version}" ]; then
+            tag="$(gh release list --repo "${{ github.repository }}" --limit 1 --json tagName --jq '.[0].tagName')"
+            version="${tag#v}"
+          fi
+          test -n "${version}" || { echo "no release to check"; exit 1; }
+          echo "Checking ${version}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+  check:
+    name: ${{ matrix.name }} ${{ needs.version.outputs.version }}
+    needs: version
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Linux, runner: ubuntu-24.04, os: linux }
+          - { name: macOS, runner: macos-14, os: macos }
+          - { name: Windows, runner: windows-2025-vs2026, os: windows }
+    env:
+      WIND_VERSION: ${{ needs.version.outputs.version }}
+      # A CI machine has no sound card.
+      SDL_AUDIODRIVER: dummy
+    steps:
+      - uses: actions/checkout@v4
+      - name: Packages
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
+            libxkbcommon-dev libwayland-dev libdecor-0-dev libdrm-dev libgbm-dev libgl1-mesa-dev libgles2-mesa-dev \
+            libegl1-mesa-dev libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libibus-1.0-dev
+      - name: Packages
+        if: matrix.os == 'macos'
+        run: brew install ninja
+      - uses: ./.github/actions/setup-wind
+        id: wind
+        with:
+          version: ${{ needs.version.outputs.version }}
+      - name: The SDK is this version
+        shell: bash
+        run: |
+          test -n "${WIND_SDK_DIR}" || { echo "WIND_SDK_DIR is not set"; exit 1; }
+          cat "${WIND_SDK_DIR}/sdk.toml"
+          grep -qx "version = \"${WIND_VERSION}\"" "${WIND_SDK_DIR}/sdk.toml" || { echo "sdk.toml: wrong version"; exit 1; }
+      - name: Create a project from templates/empty
+        shell: bash
+        run: |
+          project="${RUNNER_TEMP}/check_game"
+          rm -rf "${project}"
+          cp -R templates/empty "${project}"
+          # CMakeUserPresets.json only points a hand-made checkout at the SDK; the editor passes the SDK itself.
+          rm -f "${project}/CMakeUserPresets.json"
+          find "${project}" -type f | while read -r f; do
+            sed -i.bak -e "s/{{name}}/Check Game/g" -e "s/{{engine}}/${WIND_VERSION}/g" -e "s/{{target}}/check_game/g" "${f}"
+            rm -f "${f}.bak"
+          done
+          if grep -rl '{{' "${project}"; then echo "unsubstituted placeholders"; exit 1; fi
+          cat "${project}/wind_project.toml"
+          echo "WIND_PROJECT=${project}" >> "$GITHUB_ENV"
+      - name: Export (Linux, macOS)
+        if: matrix.os != 'windows'
+        shell: bash
+        run: |
+          wind_editor --batch --project "${WIND_PROJECT}" --export "${RUNNER_TEMP}/out" --log-file "${RUNNER_TEMP}/export.log" \
+            || { code=$?; cat "${RUNNER_TEMP}/export.log"; echo "export exit code ${code}"; exit 1; }
+          tail -n 5 "${RUNNER_TEMP}/export.log"
+          test -f "${RUNNER_TEMP}/out/check_game" || { ls -la "${RUNNER_TEMP}/out"; echo "no exported executable"; exit 1; }
+      - name: Export (Windows)
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          # wind_editor.exe is a GUI-subsystem program: wait for it and read its log file.
+          $log = Join-Path $env:RUNNER_TEMP 'export.log'
+          $out = Join-Path $env:RUNNER_TEMP 'out'
+          $editor = Join-Path $env:WIND_SDK_DIR 'bin\wind_editor.exe'
+          $p = Start-Process -Wait -PassThru -FilePath $editor `
+            -ArgumentList '--batch', '--project', $env:WIND_PROJECT, '--export', $out, '--log-file', $log
+          if (Test-Path $log) { Get-Content $log | Select-Object -Last 40 }
+          if ($p.ExitCode -ne 0) { throw "export exit code $($p.ExitCode)" }
+          if (-not (Test-Path (Join-Path $out 'check_game.exe'))) { Get-ChildItem $out; throw 'no exported executable' }
