@@ -28,6 +28,10 @@ public:
     Node& text_bind(BindingId id);
     Node& content(std::string_view value);
     Node& content_bind(BindingId id);
+    // Math only: the TeX source of the formula, literal or bound (see `<Math formula="...">`).
+    Node& formula(std::string_view value);
+    Node& formula_bind(BindingId id);
+    Node& math_display(bool value);
     Node& command_bind(BindingId id);
     Node& paint_bind(BindingId id);
     Node& drag_bind(BindingId id);
@@ -73,6 +77,7 @@ private:
     friend Node text_input();
     friend Node scroll_view();
     friend Node checkbox();
+    friend Node math_formula();
     friend std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal);
 
     explicit Node(ElementKind kind);
@@ -94,6 +99,7 @@ private:
 [[nodiscard]] Node text_input();
 [[nodiscard]] Node scroll_view();
 [[nodiscard]] Node checkbox();
+[[nodiscard]] Node math_formula();
 
 [[nodiscard]] std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal = nullptr);
 
