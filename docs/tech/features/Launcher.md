@@ -1,6 +1,6 @@
 # Launcher
 
-The Wind Launcher lists your projects and the editor SDKs installed on the machine, makes a new project from an SDK's template, and opens a project in the editor of the engine version it names.
+The Wind Launcher lists your projects and the editor SDKs installed on the machine, makes a new project from an SDK's template, opens a project in the editor of the engine version it names, and installs a released SDK: it lists the releases of this repository that have an SDK archive for the system (GitHub API, cached with its ETag), downloads the archive and its `.sha256` with `curl`, checks the SHA-256, and unpacks it with `tar` into `sdk-<version>` of its install directory.
 
 **It no longer lives in this repository.** Since wind-207 it is an ordinary Wind game project of its own, [`wismh/wind-laucnher`](https://github.com/wismh/wind-laucnher): `wind_project.toml`, `find_package(Wind)`, `engine_add_game`, built against a released SDK like any game. It has its own CI, its own version (`version.txt`, independent of the engine's), and its own releases:
 
