@@ -404,7 +404,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 
 | Path | What it does | Page |
 | --- | --- | --- |
-| `templates/empty/**` | The empty project template the SDK installs and the launcher copies | [Launcher](../features/Launcher.md#template) |
+| `templates/empty/**` | The empty project template the SDK installs and the launcher copies | [Launcher](../features/Launcher.md) |
 | `tools/asset_codegen/main.cpp` | `asset_codegen` CLI | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `tools/asset_codegen/README.md` | One-page usage | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `tools/asset_guid/main.cpp` | `asset_guid` CLI | [Asset Codegen](../build/Asset%20Codegen.md) |
@@ -545,32 +545,3 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `bench/tests/bench_test.cpp` | `wind_ui_bench_tests` | [UI Bench](../features/UI%20Bench.md#tests) |
 | `bench/run_matrix.ps1`, `bench/compare.ps1` | Run the matrix into `summary.md` / `summary.json`; compare two summaries | [UI Bench](../features/UI%20Bench.md#matrix-runs) |
 | `bench/results/baseline/summary.*`, `bench/results/.gitignore` | The step-0 baseline; every other result is ignored | [UI Bench](../features/UI%20Bench.md#matrix-runs) |
-| `launcher/CMakeLists.txt` | `wind_launcher` and `wind_launcher_tests` | [Launcher](../features/Launcher.md) |
-| `launcher/assets/css/launcher.css` | Launcher window style | [Launcher](../features/Launcher.md) |
-| `launcher/assets/css/launcher.css.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
-| `launcher/assets/ui/launcher.xml` | Launcher window: navbar, Projects and SDKs pages, the SDK row menu | [Launcher](../features/Launcher.md) |
-| `launcher/assets/ui/launcher.xml.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
-| `launcher/src/launcher_app.cpp` | `LauncherApp`: lists, dialogs, requests, Open | [Launcher](../features/Launcher.md) |
-| `launcher/src/launcher_app.h` | `LauncherApp` | [Launcher](../features/Launcher.md) |
-| `launcher/src/launcher_request.h` | `LauncherRequest` | [Launcher](../features/Launcher.md) |
-| `launcher/src/launcher_state.cpp` | `launcher.txt` parse, format, load, save; remember and forget | [Launcher](../features/Launcher.md) |
-| `launcher/src/launcher_state.h` | `LauncherState` | [Launcher](../features/Launcher.md) |
-| `launcher/src/launcher_view_model.cpp` | Binds the view-model to `launcher.xml` | [Launcher](../features/Launcher.md) |
-| `launcher/src/launcher_view_model.h` | `LauncherViewModel` | [Launcher](../features/Launcher.md) |
-| `launcher/src/main.cpp` | `ENGINE_GAME(launcher::LauncherApp)` | [Launcher](../features/Launcher.md) |
-| `launcher/src/method_command.h` | `MethodCommand`, as in the editor | [Launcher](../features/Launcher.md) |
-| `launcher/src/project_entry.cpp` | Reads one remembered project | [Launcher](../features/Launcher.md) |
-| `launcher/src/project_entry.h` | `ProjectEntry` | [Launcher](../features/Launcher.md) |
-| `launcher/src/project_template.cpp` | Target name, new-project checks, copying a template with placeholders | [Launcher](../features/Launcher.md#new-project) |
-| `launcher/src/project_template.h` | `NewProject`, `project_target`, `new_project_problem`, `create_project` | [Launcher](../features/Launcher.md#new-project) |
-| `launcher/src/project_row_view_model.cpp` | Project row, Open and Remove | [Launcher](../features/Launcher.md) |
-| `launcher/src/project_row_view_model.h` | `ProjectRowViewModel` | [Launcher](../features/Launcher.md) |
-| `launcher/src/sdk_catalog.cpp` | Install directory, finds and deletes SDKs, version order, the editor and file manager command lines | [Launcher](../features/Launcher.md) |
-| `launcher/src/sdk_catalog.h` | `SdkEntry`, `sdk_install_directory`, `find_sdks`, `delete_sdk`, `sdk_for` | [Launcher](../features/Launcher.md) |
-| `launcher/src/sdk_option_view_model.cpp` | One SDK in the New project picker | [Launcher](../features/Launcher.md#new-project) |
-| `launcher/src/sdk_option_view_model.h` | `SdkOptionViewModel` | [Launcher](../features/Launcher.md#new-project) |
-| `launcher/src/user_paths.cpp` | Environment paths, the default new-project location | [Launcher](../features/Launcher.md#new-project) |
-| `launcher/src/user_paths.h` | `environment_path`, `default_project_location` | [Launcher](../features/Launcher.md#new-project) |
-| `launcher/src/sdk_row_view_model.cpp` | SDK row: the ··· menu and the delete confirmation | [Launcher](../features/Launcher.md) |
-| `launcher/src/sdk_row_view_model.h` | `SdkRowViewModel` | [Launcher](../features/Launcher.md) |
-| `launcher/tests/launcher_test.cpp` | State, SDK catalog and delete, project entries | [Launcher](../features/Launcher.md) |
