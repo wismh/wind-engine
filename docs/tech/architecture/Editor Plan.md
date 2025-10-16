@@ -191,6 +191,8 @@ Building while the game plays is allowed: the editor runs a copy from `live/<n>/
 
 ### Launcher
 
+> Since wind-207 the launcher is its own repository, [wismh/wind-laucnher](https://github.com/wismh/wind-laucnher), built as a game against a released SDK. The text below is the design as built in this repository (wind-179 to wind-203); [Launcher](../features/Launcher.md) says what the engine keeps for it.
+
 `wind_launcher` is a standalone Wind app built statically, not against any `engine.dll`, so it serves every SDK version. It keeps its list in `user_data_directory("Wind", "Launcher")`.
 
 - Projects: recent list, Add (folder dialog, `SDL_ShowOpenFolderDialog` behind `IWindowControl`), Open. Open starts the SDK whose `version` matches the project's `engine` with `--project`. No match: the project shows the version it needs.

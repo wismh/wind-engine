@@ -51,7 +51,7 @@ Game concerns (do not implement in this repo): persist bus volumes in a settings
 | `wind-N` | Task code on commits and `feat/wind-N-…` branches |
 | `engine` | CMake library and C++ namespace. Static in exported builds, shared in the editor build |
 | `wind_editor` | Editor host executable |
-| `wind_launcher` | Lists projects and installed editor SDKs; opens a project in its editor. Static engine |
+| `wind_launcher` | Lists projects and installed editor SDKs; opens a project in its editor. A Wind game project in its own repository, [wismh/wind-laucnher](https://github.com/wismh/wind-laucnher) |
 | `ENGINE_EDITOR` | CMake switch for the editor build: shared `engine`, game as a module, `wind_editor` |
 | `IGame` / `Engine<GameT>` | Game lifecycle contract and standalone windowed host |
 | `AssetId` / `try_get` / `get` | GUID lookup; optional vs fatal |
