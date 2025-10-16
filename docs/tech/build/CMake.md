@@ -17,10 +17,9 @@ The library target is `engine`. Alias: `engine::engine`. It is static. With `ENG
 | `ENGINE_WITH_WEB` | ON if `EMSCRIPTEN`, else OFF | same | `PUBLIC` |
 | `ENGINE_WITH_ANDROID` | ON if `ANDROID`, else OFF | same | `PUBLIC` |
 | `ENGINE_WITH_GLES` | ON if `EMSCRIPTEN` or `ANDROID`, else OFF | same | `PUBLIC`. No glad |
-| `ENGINE_LAUNCHER` | OFF | configure error | `wind_launcher` and its install rules ([Launcher build](#launcher-build)). Needs `ENGINE_WITH_WINDOW`, refuses `ENGINE_EDITOR`, Emscripten, and Android |
-| `ENGINE_BENCH` | OFF | configure error | `wind_ui_bench` and, with tests, `wind_ui_bench_tests` ([Bench build](#bench-build)). No install rules. Same guards as `ENGINE_LAUNCHER` |
+| `ENGINE_BENCH` | OFF | configure error | `wind_ui_bench` and, with tests, `wind_ui_bench_tests` ([Bench build](#bench-build)). No install rules. Needs `ENGINE_WITH_WINDOW`, refuses `ENGINE_EDITOR`, Emscripten, and Android |
 | `ENGINE_EDITOR` | OFF | configure error | Shared `engine`, the editor, the SDK install rules. Needs `ENGINE_WITH_WINDOW`. Fatal on Emscripten and Android. In a game tree it is fatal and points at `find_package(Wind)` |
-| `ENGINE_PLAYER` | empty | configure error | `Development` or `Shipping`: a build of the static engine for the editor SDK's [player libraries](#player-libraries). Engine repo root only, with `ENGINE_WITH_WINDOW` and `ENGINE_WITH_AUDIO` ON and without `ENGINE_EDITOR`, tests, launcher, bench, Emscripten, and Android. Set by `cmake/player_build.cmake`, not by hand |
+| `ENGINE_PLAYER` | empty | configure error | `Development` or `Shipping`: a build of the static engine for the editor SDK's [player libraries](#player-libraries). Engine repo root only, with `ENGINE_WITH_WINDOW` and `ENGINE_WITH_AUDIO` ON and without `ENGINE_EDITOR`, tests, bench, Emscripten, and Android. Set by `cmake/player_build.cmake`, not by hand |
 | `ENGINE_SDK_PLAYER` | ON on Windows and Linux, OFF on macOS | not defined | Only with `ENGINE_EDITOR`. A Release `cmake --install` also builds both player flavours into `<sdk>/player/` |
 
 `ENGINE_UI_PROFILER` and `ENGINE_CLI_SERVER` are not options. Without `ENGINE_EDITOR` they are generator expressions on Debug, RelWithDebInfo, and DebugGame (a game's DebugGame configuration, which only an export built from `<sdk>/source` has). With `ENGINE_EDITOR` they are on in every configuration, so the Release editor and SDK have the Profiler tab and `wind-cli`. A [player](#player-libraries) has them by flavour, Development yes and Shipping no. The CLI define is also omitted for Emscripten and Android. See [Boundaries](../architecture/Boundaries.md).
@@ -45,7 +44,6 @@ Cache paths:
 | `vs-window` | `build-window` | ON | ON | OFF | |
 | `vs-audio` | `build-audio` | OFF | ON | ON | |
 | `vs-editor` | `build-editor` | ON | ON | ON | `ENGINE_EDITOR=ON`. Audio is on so the editor plays game sound. `engine_tests` still opens no mixer device: the audio tests never call `AudioSystem::init` |
-| `vs-launcher` | `build-launcher` | ON | ON | OFF | `ENGINE_LAUNCHER=ON`, static engine |
 | `vs-bench` | `build-bench` | ON | ON | OFF | `ENGINE_BENCH=ON`, static engine. Build preset `bench`: `wind_ui_bench` in RelWithDebInfo |
 | `web` | `build-web` | ON | ON | OFF | `ENGINE_WITH_WEB=ON`. Configure with `emcmake` |
 | `web-audio` | `build-web-audio` | OFF | ON | ON | `ENGINE_WITH_WEB=ON` |
@@ -70,11 +68,6 @@ Build preset `tests` builds `engine_tests` from the `vs` configure.
 - The install rules of the [editor SDK](#editor-sdk) are defined.
 
 `ENGINE_EDITOR` is an engine-repo option. A tree that adds Wind with `add_subdirectory` and sets it fails the configure with a message that points at the SDK. A game builds its editor module in [SDK mode](#sdk-mode).
-
-## Launcher build
-
-`ENGINE_LAUNCHER` (preset `vs-launcher`) adds `launcher/`: `wind_launcher`, an executable through `engine_configure_app` against the static engine, so its cooked `assets/` and `assets/engine/` land beside it, and with tests `wind_launcher_tests` (the state, SDK, and project logic without the UI). `cmake --install build-launcher --config Release --prefix out/launcher` installs `bin/wind_launcher.exe`, its `.pdb` when the configuration makes one, `bin/assets/` (its catalog and assets), and `bin/assets/engine/`. See [Launcher](../features/Launcher.md).
-
 
 ## Bench build
 
@@ -208,7 +201,7 @@ out/sdk/
     wind_game.cmake          game functions
     wind_export.cmake        the export branch: the player libraries as `engine`
   source/          the engine's build input (see below)
-  templates/       project templates (templates/empty/), which the launcher copies for a new project
+  templates/       project templates (templates/empty/), which the launcher (github.com/wismh/wind-laucnher) copies for a new project
   sdk.toml         version, commit, dirty, config, build_id, platform, player_flavours
 ```
 

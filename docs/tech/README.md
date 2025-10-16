@@ -58,7 +58,7 @@ Product name: Wind. CMake target and C++ namespace: `engine`. Build instructions
 | [Docking](features/Docking.md) | Dock layout model and the `DockSpace` host: tabs, splits, virtual floats, chrome, drag and drop |
 | [CLI](features/CLI.md) | `wind-cli` loopback server |
 | [Editor](features/Editor.md) | `wind_editor`: open a project, build on Play, Stop, Build tab |
-| [Launcher](features/Launcher.md) | `wind_launcher`: projects, installed editors, Open |
+| [Launcher](features/Launcher.md) | The launcher lives in its own repository, `wismh/wind-laucnher` |
 | [UI Bench](features/UI%20Bench.md) | `wind_ui_bench`: one UI scene in one mode, the profiler snapshot to a file |
 
 ## Build
