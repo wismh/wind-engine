@@ -735,7 +735,7 @@ if(ENGINE_EDITOR)
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/wind_export.cmake"
         DESTINATION cmake)
 
-    # Project templates the launcher (github.com/wismh/wind-laucnher) copies for a new project, so a project starts from this version's API.
+    # Project templates the launcher (github.com/wismh/wind-launcher) copies for a new project, so a project starts from this version's API.
     install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/templates/" DESTINATION templates)
 
     # The player libraries (<sdk>/player/<flavour>/): the static engine built once for every Export, so an Export
