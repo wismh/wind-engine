@@ -1,5 +1,7 @@
 # Continuous Integration
 
+On your own machine, the normal way to get an SDK is the [Wind Launcher](https://github.com/wismh/wind-laucnher/releases/latest): its SDKs page lists every released SDK for your system and installs one with a button. `setup-wind`, on this page, is for CI, where no one clicks.
+
 A game's CI does not build the engine. It downloads the Wind editor SDK of the engine version your project names, and runs `wind_editor --batch --export` to build and export the game. This page shows how to get the SDK with `setup-wind`, two complete GitHub Actions workflows (Windows and Linux), and how to move a project to a newer engine.
 
 ---
@@ -143,7 +145,7 @@ macOS runners work the same way (`macos-14`, `.tar.gz`, no player libraries: the
 ## 5. Updating the Engine Version
 
 1. Pick the release on the engine's [Releases](https://github.com/wismh/wind-engine/releases) page.
-2. Install that SDK on your machine (unpack the archive for your platform, let the launcher find it in `%LOCALAPPDATA%\Programs\Wind\Sdks`, or Locate it).
+2. Install that SDK on your machine: in the Wind Launcher's SDKs page press Install on that version (a project that needs a missing SDK shows **Install `<version>`** itself), or unpack the archive for your platform and Locate it.
 3. Change `engine` in `wind_project.toml` to the new version, exactly as the release names it, and open the project with that SDK.
 4. Fix what the engine changed in your code, play, and commit.
 
