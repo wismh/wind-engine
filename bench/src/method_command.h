@@ -5,7 +5,7 @@
 namespace bench {
 
 // An ICommand that calls one method of the object that owns the button. Bound once after the owner exists; an
-// unbound command does nothing and reports that it cannot execute. The launcher has the same type.
+// unbound command does nothing and reports that it cannot execute.
 class MethodCommand final : public engine::ui::ICommand {
 public:
     template<typename T, void (T::*Execute)()>
