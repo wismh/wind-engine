@@ -106,6 +106,7 @@ public:
                 .op = "arc", .color = color, .radius = radius, .width = width, .arc_center = center,
                 .arc_start_angle = start_angle, .arc_end_angle = end_angle});
     }
+    void fill_path(std::span<const engine::ui::PathSegment>, glm::vec4) override {}
 
     void set_font(engine::AssetId font, float size) override {
         calls.push_back(PaintCall{.op = "font", .font_size = size, .font = font});
