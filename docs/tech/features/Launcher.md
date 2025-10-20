@@ -2,10 +2,10 @@
 
 The Wind Launcher lists your projects and the editor SDKs installed on the machine, makes a new project from an SDK's template, opens a project in the editor of the engine version it names, and installs a released SDK: it lists the releases of this repository that have an SDK archive for the system (GitHub API, cached with its ETag), downloads the archive and its `.sha256` with `curl`, checks the SHA-256, and unpacks it with `tar` into `sdk-<version>` of its install directory.
 
-**It no longer lives in this repository.** Since wind-207 it is an ordinary Wind game project of its own, [`wismh/wind-laucnher`](https://github.com/wismh/wind-laucnher): `wind_project.toml`, `find_package(Wind)`, `engine_add_game`, built against a released SDK like any game. It has its own CI, its own version (`version.txt`, independent of the engine's), and its own releases:
+**It no longer lives in this repository.** Since wind-207 it is an ordinary Wind game project of its own, [`wismh/wind-launcher`](https://github.com/wismh/wind-launcher): `wind_project.toml`, `find_package(Wind)`, `engine_add_game`, built against a released SDK like any game. It has its own CI, its own version (`version.txt`, independent of the engine's), and its own releases:
 
-- [Latest launcher](https://github.com/wismh/wind-laucnher/releases/latest) with stable download names: `wind-launcher-windows-x86_64.zip`, `wind-launcher-linux-x86_64.tar.gz`, `wind-launcher-macos-arm64.tar.gz`.
-- [All versions](https://github.com/wismh/wind-laucnher/releases), `v<major>.<minor>.<patch><stage>`.
+- [Latest launcher](https://github.com/wismh/wind-launcher/releases/latest) with stable download names: `wind-launcher-windows-x86_64.zip`, `wind-launcher-linux-x86_64.tar.gz`, `wind-launcher-macos-arm64.tar.gz`.
+- [All versions](https://github.com/wismh/wind-launcher/releases), `v<major>.<minor>.<patch><stage>`.
 
 Its README says how it is built and where it keeps things.
 
