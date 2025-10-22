@@ -385,6 +385,39 @@ private:
         return box;
     }
 
+    // A combining mark over its base (`\vec E`). Horizontally the mark's own attachment point lands on the base's:
+    // the MATH top-accent attachment of a lone glyph (italic capitals lean, so it is right of centre), else the
+    // middle of the box. Vertically the mark keeps its designed position over an x-height base and is lifted
+    // by however much taller the base is than `accent_base_height`, so it clears capitals and ascenders by the
+    // same gap it leaves above lower-case letters. The box does not widen: an accent never pushes its neighbours.
+    [[nodiscard]] Box layout(const Accent& accent, Style style) const {
+        const Box base = layout_row(accent.base, cramped_style(style));
+        const GlyphId mark = font_.glyph_index(accent.mark);
+        if (mark == 0) {
+            return base;  // the font lacks the mark: draw the bare base rather than a .notdef box
+        }
+        const float u = unit(style);
+
+        float base_attach = base.width * 0.5f;
+        if (accent.base.size() == 1) {
+            if (const auto* symbol = std::get_if<Symbol>(&accent.base.front().value)) {
+                if (const auto attach = font_.top_accent_attachment(font_.glyph_index(symbol->codepoint))) {
+                    base_attach = *attach * u;
+                }
+            }
+        }
+        const GlyphMetrics mark_metrics = font_.metrics(mark);
+        const float mark_attach =
+                font_.top_accent_attachment(mark).value_or((mark_metrics.x_min + mark_metrics.x_max) * 0.5f) * u;
+        const float lift = std::max(0.0f, base.ascent - c_.accent_base_height * u);
+
+        Box box;
+        place(box, base, 0.0f, 0.0f);
+        place(box, glyph_box(mark, style, lift), base_attach - mark_attach, 0.0f);
+        box.width = base.width;
+        return box;
+    }
+
     [[nodiscard]] Box layout(const Delimited& delimited, Style style) const {
         const Box body = layout_row(delimited.body, style);
         const float u = unit(style);
@@ -549,6 +582,9 @@ private:
                 return AtomClass::Inner;
             }
             AtomClass operator()(const Radical&) const {
+                return AtomClass::Ord;
+            }
+            AtomClass operator()(const Accent&) const {
                 return AtomClass::Ord;
             }
             AtomClass operator()(const Scripts& s) const {

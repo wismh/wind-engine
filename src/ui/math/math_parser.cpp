@@ -216,6 +216,12 @@ constexpr FunctionName kFunctionNames[] = {
         {"Pr", true},
 };
 
+// Accent commands take one argument and draw a combining mark over it; adding `\hat`, `\bar`, ... is one
+// row here (the font needs the mark: tests check every entry has a glyph).
+constexpr AccentCommand kAccentCommands[] = {
+        {"vec", 0x20D7},  // COMBINING RIGHT ARROW ABOVE
+};
+
 constexpr std::size_t kMaxDepth = 64;
 
 constexpr float kThinSpace = 3.0f / 18.0f;
@@ -262,6 +268,17 @@ const std::unordered_map<std::string_view, const CommandSymbol*>& symbol_index()
     static const auto index = [] {
         std::unordered_map<std::string_view, const CommandSymbol*> map;
         for (const CommandSymbol& entry : kCommandSymbols) {
+            map.emplace(entry.name, &entry);
+        }
+        return map;
+    }();
+    return index;
+}
+
+const std::unordered_map<std::string_view, const AccentCommand*>& accent_index() {
+    static const auto index = [] {
+        std::unordered_map<std::string_view, const AccentCommand*> map;
+        for (const AccentCommand& entry : kAccentCommands) {
             map.emplace(entry.name, &entry);
         }
         return map;
@@ -682,6 +699,10 @@ private:
         if (name == "qquad") {
             return make_node(Space{2.0f});
         }
+        if (const auto it = accent_index().find(name); it != accent_index().end()) {
+            Row base = parse_argument();
+            return make_node(Accent{it->second->mark, std::move(base)});
+        }
         if (const auto it = symbol_index().find(name); it != symbol_index().end()) {
             return make_node(it->second->symbol);
         }
@@ -846,6 +867,10 @@ std::string describe(const ParseError& error) {
 
 std::span<const CommandSymbol> command_symbols() {
     return kCommandSymbols;
+}
+
+std::span<const AccentCommand> accent_commands() {
+    return kAccentCommands;
 }
 
 std::span<const FunctionName> function_names() {
