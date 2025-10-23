@@ -9,7 +9,7 @@ This guide walks you through setting up a minimal game using the Wind engine, op
 - **CMake 3.20+**
 - **Visual Studio 2026** (MSVC, C++23)
 - **Git**
-- A **Wind editor SDK**. Take a ready one from the engine's [Releases](https://github.com/wismh/wind-engine/releases) (`wind-sdk-<version>-<os>-<arch>`: unpack it anywhere, or into `%LOCALAPPDATA%\Programs\Wind\Sdks\<name>`, where the [Wind Launcher](https://github.com/wismh/wind-laucnher/releases/latest) finds it; the launcher's SDKs page also downloads and installs a released SDK for you, which is the easiest way), or build it once from the engine repo:
+- A **Wind editor SDK**. Take a ready one from the engine's [Releases](https://github.com/wismh/wind-engine/releases) (`wind-sdk-<version>-<os>-<arch>`: unpack it anywhere, or into `%LOCALAPPDATA%\Programs\Wind\Sdks\<name>`, where the [Wind Launcher](https://github.com/wismh/wind-launcher/releases/latest) finds it; the launcher's SDKs page also downloads and installs a released SDK for you, which is the easiest way), or build it once from the engine repo:
 
 ```bash
 git clone --recursive https://github.com/wismh/wind-engine.git
@@ -23,7 +23,7 @@ cmake --install build-editor --config Release --prefix out/sdk
 
 ---
 
-Shortcut: the [Wind Launcher](https://github.com/wismh/wind-laucnher/releases/latest) (its own download, not part of the SDK) and its **New project…** writes sections 2 to 4 for you (an empty game with one window) from your SDK's template and opens it in the editor. Install the SDK where the launcher finds it, `%LOCALAPPDATA%\Programs\Wind\Sdks\<version>`, or Locate it on the launcher's SDKs page. The steps below are what that template contains.
+Shortcut: the [Wind Launcher](https://github.com/wismh/wind-launcher/releases/latest) (its own download, not part of the SDK) and its **New project…** writes sections 2 to 4 for you (an empty game with one window) from your SDK's template and opens it in the editor. Install the SDK where the launcher finds it, `%LOCALAPPDATA%\Programs\Wind\Sdks\<version>`, or Locate it on the launcher's SDKs page. The steps below are what that template contains.
 
 ---
 
