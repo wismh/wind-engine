@@ -522,6 +522,126 @@ TEST(MathLayoutDelimited, ScriptsAttachAfterTheClosingDelimiter) {
     EXPECT_GE(glyph(l, U'2').origin.x, close.origin.x + advance(U')', kU) - kEps);
 }
 
+// ---- accents ---------------------------------------------------------------------------------
+
+namespace {
+
+constexpr char32_t kVecMark = 0x20D7;  // COMBINING RIGHT ARROW ABOVE, what \vec draws
+constexpr char32_t kCapitalE = 0x1D438;
+constexpr char32_t kCapitalF = 0x1D439;
+constexpr char32_t kCapitalA = 0x1D434;
+constexpr char32_t kCapitalB = 0x1D435;
+
+// Font units of the mark's own top-accent attachment, scaled the way the placed glyph is.
+float mark_attach(const PlacedGlyph& mark) {
+    return stix().top_accent_attachment(mark.glyph).value() * mark.scale;
+}
+
+}
+
+TEST(MathLayoutAccent, LowercaseKeepsTheMarkAtItsDesignedHeight) {
+    const MathLayout l = lay(R"(\vec{x})");
+    ASSERT_EQ(l.glyphs.size(), 2u);
+    const PlacedGlyph& x = glyph(l, kX);
+    const PlacedGlyph& mark = glyph(l, kVecMark);
+    EXPECT_NEAR(mark.scale, kU, 1e-6f);
+    // x is shorter than the font's accent base height, so the mark is not lifted at all...
+    EXPECT_NEAR(mark.origin.y, x.origin.y, kEps);
+    // ...and floats above the letter, not on it.
+    EXPECT_GT(ink_top(x) - ink_bottom(mark), 5.0f);
+}
+
+TEST(MathLayoutAccent, MarkIsCentredOnTheBaseGlyphsTopAccentAttachment) {
+    const MathLayout l = lay(R"(\vec{x})");
+    const PlacedGlyph& x = glyph(l, kX);
+    const PlacedGlyph& mark = glyph(l, kVecMark);
+    const float base_attach = stix().top_accent_attachment(x.glyph).value() * x.scale;
+    EXPECT_NEAR(mark.origin.x + mark_attach(mark), x.origin.x + base_attach, kEps);
+
+    // Italic capitals lean: their attachment point is right of the box's middle, and the mark follows it.
+    const MathLayout capital = lay(R"(\vec{E})");
+    const PlacedGlyph& e = glyph(capital, kCapitalE);
+    const PlacedGlyph& e_mark = glyph(capital, kVecMark);
+    const float e_attach = stix().top_accent_attachment(e.glyph).value() * e.scale;
+    EXPECT_NEAR(e_mark.origin.x + mark_attach(e_mark), e.origin.x + e_attach, kEps);
+    EXPECT_GT(e_attach, advance(kCapitalE, kU) * 0.5f);
+}
+
+TEST(MathLayoutAccent, CapitalsLiftTheMarkByTheirExtraHeight) {
+    const MathLayout l = lay(R"(\vec{E})");
+    const PlacedGlyph& e = glyph(l, kCapitalE);
+    const PlacedGlyph& mark = glyph(l, kVecMark);
+    const float lift = e.origin.y - mark.origin.y;
+    const float cap_height = stix().metrics(e.glyph).y_max * kU;
+    EXPECT_NEAR(lift, cap_height - K().accent_base_height * kU, kEps);
+    EXPECT_GT(lift, 10.0f);
+}
+
+TEST(MathLayoutAccent, MarkClearsLowercaseAndCapitalsByTheSameGap) {
+    const MathLayout small = lay(R"(\vec{x})");
+    const MathLayout capital = lay(R"(\vec{F})");
+    const float small_gap = ink_top(glyph(small, kX)) - ink_bottom(glyph(small, kVecMark));
+    const float capital_gap = ink_top(glyph(capital, kCapitalF)) - ink_bottom(glyph(capital, kVecMark));
+    EXPECT_NEAR(small_gap, capital_gap, 1.5f);
+    EXPECT_GT(capital_gap, 5.0f);
+}
+
+TEST(MathLayoutAccent, BoxKeepsTheBaseWidthAndGrowsTallerToHoldTheMark) {
+    const MathLayout bare = lay("E");
+    const MathLayout accented = lay(R"(\vec{E})");
+    EXPECT_NEAR(accented.width, bare.width, kEps);
+    EXPECT_GT(accented.ascent, bare.ascent + 10.0f);
+    // The box top is exactly the mark's top: the lift over the capital plus the mark's own height.
+    const float lift = stix().metrics(id(kCapitalE)).y_max * kU - K().accent_base_height * kU;
+    EXPECT_NEAR(accented.ascent, lift + stix().metrics(id(kVecMark)).y_max * kU, kEps);
+    EXPECT_NEAR(ink_top(glyph(accented, kVecMark)), 0.0f, kEps);
+    EXPECT_NEAR(accented.descent, bare.descent, kEps);
+}
+
+TEST(MathLayoutAccent, CompositeBaseIsCentredOnItsBox) {
+    const MathLayout l = lay(R"(\vec{AB})");
+    const PlacedGlyph& mark = glyph(l, kVecMark);
+    EXPECT_NEAR(mark.origin.x + mark_attach(mark), l.width * 0.5f, kEps);
+    EXPECT_NEAR(l.width, advance(kCapitalA, kU) + advance(kCapitalB, kU), kEps);
+}
+
+TEST(MathLayoutAccent, AccentedSymbolIsAnOrdinaryAtomForSpacing) {
+    const MathLayout l = lay(R"(\vec{a}+\vec{b})");
+    const PlacedGlyph& plus = glyph(l, U'+');
+    // Ord, Bin: a medium space before the plus, measured from the accented a's box (the mark adds no width).
+    EXPECT_NEAR(plus.origin.x, advance(kA, kU) + 4.0f / 18.0f * kSize, kEps);
+}
+
+TEST(MathLayoutAccent, ScriptsClearTheWholeAccentedSymbol) {
+    const MathLayout l = lay(R"(\vec{F}^2)");
+    const PlacedGlyph& sup = glyph(l, U'2');
+    const PlacedGlyph& f = glyph(l, kCapitalF);
+    EXPECT_NEAR(sup.origin.x, advance(kCapitalF, kU), kEps);
+    EXPECT_GT(f.origin.y - sup.origin.y, K().superscript_shift_up * kU - kEps);
+}
+
+TEST(MathLayoutAccent, MarkShrinksWithTheStyleItIsSetIn) {
+    const MathLayout l = lay(R"(x^{\vec{F}})");
+    EXPECT_NEAR(glyph(l, kVecMark).scale, kU * kScriptScale, 1e-6f);
+    EXPECT_NEAR(glyph(l, kCapitalF).scale, kU * kScriptScale, 1e-6f);
+}
+
+TEST(MathLayoutAccent, NestedAccentsStackUpwards) {
+    const MathLayout l = lay(R"(\vec{\vec{x}})");
+    ASSERT_EQ(l.glyphs.size(), 3u);
+    const PlacedGlyph& inner = glyph(l, kVecMark, 0);
+    const PlacedGlyph& outer = glyph(l, kVecMark, 1);
+    EXPECT_LT(std::min(inner.origin.y, outer.origin.y), std::max(inner.origin.y, outer.origin.y) - 5.0f);
+}
+
+TEST(MathLayoutAccent, WorksInsideFractionsAndRadicals) {
+    const MathLayout fraction = lay(R"(\frac{\vec{F}}{q})");
+    EXPECT_EQ(fraction.glyphs.size(), 3u);
+    EXPECT_EQ(fraction.rules.size(), 1u);
+    const MathLayout radical = lay(R"(\sqrt{\vec{x}})");
+    EXPECT_EQ(radical.glyphs.size(), 3u);
+}
+
 // ---- whole-formula invariants ----------------------------------------------------------------
 
 // Every ink pixel lies in the layout's box (a little slack for the overhang a glyph's ink may have past its
@@ -541,6 +661,9 @@ TEST(MathLayoutInvariants, EverythingIsInsideTheReportedBox) {
             "\\lim_{x\\to0}\\frac{\\sin x}{x}",
             "x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}",
             "\\left\\{\\frac{\\frac{a}{b}}{\\frac{c}{d}}\\right\\}",
+            "\\vec{F} = m\\vec{a}",
+            "\\nabla\\cdot\\vec{E} = \\frac{\\rho}{\\varepsilon_0}",
+            "\\vec{x}_1^2 + \\sqrt{\\vec{AB}}",
     };
     for (const bool display : {false, true}) {
         for (const std::string& source : formulas) {
