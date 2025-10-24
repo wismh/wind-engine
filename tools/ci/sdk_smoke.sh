@@ -3,7 +3,9 @@
 #   tools/ci/sdk_smoke.sh <sdk-dir> <work-dir> [--e2e]
 # Makes a project from the SDK's own template, configures and builds its module against the SDK in DebugGame and
 # Release (what the editor's Play does), and checks the module record. With --e2e it also starts the editor on the
-# project with `wind-cli launch --play --wait`, which needs a display (xvfb on Linux), and stops it.
+# project with `wind-cli launch --play --wait`, which needs a display (xvfb on Linux), and stops it. With --export it
+# instead configures the project the way the editor's Export does (-DWIND_EXPORT=ON) and builds DebugGame and Release
+# executables, which has to link the SDK's player libraries and not build the engine from source/.
 set -euo pipefail
 
 sdk="$(cd "$1" && pwd)"
@@ -24,6 +26,28 @@ find . -type f \( -name '*.toml' -o -name '*.txt' -o -name '*.json' -o -name '*.
     xargs -0 sed -i.orig \
         -e "s|{{target}}|$target|g" -e "s|{{name}}|Smoke|g" -e "s|{{engine}}|$version|g" -e "s|{{sdk}}|$sdk|g"
 find . -name '*.orig' -delete
+
+if [ "$e2e" = "--export" ]; then
+    test -f "$sdk/player/Development/cmake/wind_player.cmake" || { echo "the SDK has no player libraries" >&2; exit 1; }
+    build="$work/game/build-export"
+    # The configure the editor runs for an Export (docs/tech/build/CMake.md, Standalone executable).
+    cmake -S . -B "$build" -G "Ninja Multi-Config" -DWIND_EXPORT=ON         "-DCMAKE_PREFIX_PATH=$sdk" "-DWind_DIR=$sdk/cmake" "-DCMAKE_CONFIGURATION_TYPES=DebugGame;Release" |
+        tee "$work/export-configure.log"
+    if ! grep -q "export build against the player libraries" "$work/export-configure.log"; then
+        echo "the export build did not use the player libraries" >&2
+        exit 1
+    fi
+    for config in DebugGame Release; do
+        cmake --build "$build" --config "$config" --target "$target" --parallel
+        record="$build/wind/$target.$config.export"
+        test -f "$record" || { echo "no export record $record" >&2; exit 1; }
+        directory="$(cat "$record")"
+        ls "$directory"
+        echo "exported $directory"
+    done
+    echo "SDK smoke test passed"
+    exit 0
+fi
 
 build="$work/game/build-editor"
 # The configure the editor runs (editor/src/project_build.cpp).

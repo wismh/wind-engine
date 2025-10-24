@@ -44,6 +44,10 @@ jobs:
         env:
           SDL_AUDIODRIVER: dummy
         run: xvfb-run -a tools/ci/sdk_smoke.sh out/sdk out/smoke-e2e --e2e
+      - name: Export from the player libraries
+        run: |
+          test -f out/sdk/player/Shipping/lib/libengine.a
+          tools/ci/sdk_smoke.sh out/sdk out/smoke-export --export
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -75,6 +79,10 @@ jobs:
         env:
           SDL_AUDIODRIVER: dummy
         run: tools/ci/sdk_smoke.sh out/sdk out/smoke-e2e --e2e
+      - name: Export from the player libraries
+        run: |
+          test -f out/sdk/player/Shipping/lib/libengine.a
+          tools/ci/sdk_smoke.sh out/sdk out/smoke-export --export
 
   windows:
     # tests/cli_server_test.cpp does not compile with Visual Studio 2022's MSVC (C2017 on a raw string with quotes in
