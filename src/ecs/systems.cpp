@@ -20,6 +20,7 @@
 #include <engine/render/renderable.h>
 #include <engine/render/sprite.h>
 #include <engine/resources/assets_db.h>
+#include <engine/resources/default_fatal_error.h>
 #include <engine/resources/fatal_error.h>
 #include <engine/ui/canvas.h>
 #include <engine/ui/presentation.h>
@@ -125,13 +126,13 @@ namespace engine {
         }
 
         // Logs each bind error of one canvas once: run_bind binds every frame, and a missing binding fails every frame.
-        class BindErrorLog final : public IFatalError {
+        class BindErrorLog final : public ui::IBindErrorSink {
         public:
             BindErrorLog(const ui::UiCanvas &canvas, ui::UiInstance &instance)
                 : canvas_(canvas)
                 , instance_(instance) {}
 
-            void report(std::string_view message) override {
+            void bind_error(std::string_view message) override {
                 if (!instance_.reported_bind_errors.emplace(message).second) {
                     return;
                 }
@@ -285,10 +286,12 @@ namespace engine {
             return model;
         }
 
-        void report_fatal(IFatalError *fatal, std::string_view message) {
-            if (fatal != nullptr) {
-                fatal->report(message);
+        // The systems read `*deps.fatal`; an unset one becomes the default exit once, here.
+        EngineSystemDeps with_fatal(EngineSystemDeps deps) {
+            if (deps.fatal == nullptr) {
+                deps.fatal = &default_fatal_error();
             }
+            return deps;
         }
 
         struct SpriteMaterialCache {
@@ -374,8 +377,7 @@ namespace engine {
             const Camera *camera = world.try_get<Camera>(active.entity);
             const Transform *camera_transform = world.try_get<Transform>(active.entity);
             if (camera == nullptr || camera_transform == nullptr) {
-                report_fatal(deps.fatal, "ActiveCamera is missing Camera or Transform");
-                return;
+                deps.fatal->report("ActiveCamera is missing Camera or Transform");
             }
 
             const glm::mat4 view = view_matrix(*camera_transform);
@@ -386,8 +388,7 @@ namespace engine {
             for (ecs::Entity entity: renderables) {
                 const auto &r = renderables.get<render::Renderable>(entity);
                 if (!r.mesh || !r.material) {
-                    report_fatal(deps.fatal, "Renderable is missing mesh or material");
-                    continue;
+                    deps.fatal->report("Renderable is missing mesh or material");
                 }
                 const Transform &transform = world.get<Transform>(entity);
                 render::CmdDrawMesh cmd;
@@ -451,8 +452,7 @@ namespace engine {
                 }
 
                 if (!mesh || !material) {
-                    report_fatal(deps.fatal, "Sprite is missing mesh or material");
-                    continue;
+                    deps.fatal->report("Sprite is missing mesh or material");
                 }
                 const Transform &transform = world.get<Transform>(entity);
                 glm::mat4 model = model_matrix(transform);
@@ -513,8 +513,7 @@ namespace engine {
                 }
 
                 if (!mesh || !material) {
-                    report_fatal(deps.fatal, "ParticleEmitter is missing mesh or material");
-                    continue;
+                    deps.fatal->report("ParticleEmitter is missing mesh or material");
                 }
 
                 glm::mat4 model{1.0f};
@@ -815,6 +814,7 @@ namespace engine {
     }
 
     void register_simulation_systems(ecs::World &world, EngineSystemDeps deps) {
+        deps = with_fatal(std::move(deps));
         if (world.ctx<SimulationSystemsRegistered>().value) {
             return;
         }
@@ -826,6 +826,7 @@ namespace engine {
     }
 
     void register_ui_systems(ecs::World &world, EngineSystemDeps deps) {
+        deps = with_fatal(std::move(deps));
         if (world.ctx<UiSystemsRegistered>().value) {
             return;
         }
@@ -841,6 +842,7 @@ namespace engine {
     }
 
     void register_audio_systems(ecs::World &world, EngineSystemDeps deps) {
+        deps = with_fatal(std::move(deps));
         if (world.ctx<AudioSystemsRegistered>().value) {
             return;
         }
