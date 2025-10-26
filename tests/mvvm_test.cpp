@@ -17,6 +17,8 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+#include "fixtures/fatal_fakes.h"
+#include "fixtures/bind_error_fakes.h"
 
 namespace {
 
@@ -97,17 +99,6 @@ public:
     engine::ui::BindableList<std::shared_ptr<VolumeChannelViewModel>> channels;
 
     LauncherViewModel() { property(engine::ui::intern("channels"), channels); }
-};
-
-class RecordingFatalError final : public engine::IFatalError {
-public:
-    int call_count = 0;
-    std::string last_message;
-
-    void report(std::string_view message) override {
-        ++call_count;
-        last_message = std::string(message);
-    }
 };
 
 constexpr engine::AssetId kIconGuid{"c1a1c2d3e4f5678901234567890abc09"};
@@ -248,7 +239,7 @@ TEST(Mvvm, ImageSourceStringPropertyIsTypeMismatch) {
         StringIconVm() { property(engine::ui::intern("icon"), icon); }
     };
     StringIconVm vm;
-    RecordingFatalError fatal;
+    fakes::RecordingBindErrors fatal;
     auto parsed = engine::ui::parse_xml(R"(<Canvas><Image source="{binding icon}"/></Canvas>)", nullptr, &vm);
     ASSERT_TRUE(parsed.has_value());
     const auto applied = engine::ui::apply_bindings(*parsed, vm, &fatal);

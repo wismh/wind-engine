@@ -9,16 +9,13 @@
 #include <string_view>
 #include <vector>
 
+#include "fixtures/fatal_fakes.h"
+
 #if defined(ENGINE_WITH_WINDOW)
 #include "render/opengl/window_system.h"
 #endif
 
 namespace {
-
-class QuietFatal final : public engine::IFatalError {
-public:
-    void report(std::string_view) override {}
-};
 
 class DummyGame final : public engine::GameBase {
 public:
@@ -27,7 +24,7 @@ public:
 };
 
 TEST(WindowIcon, DefaultIsNullopt) {
-    QuietFatal fatal;
+    fakes::QuietFatal fatal;
     engine::Worlds worlds{fatal};
     DummyGame game{worlds};
     EXPECT_FALSE(game.window_icon().has_value());

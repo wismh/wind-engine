@@ -17,15 +17,9 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include "fixtures/bind_error_fakes.h"
 
 namespace {
-
-class RecordingFatalError final : public engine::IFatalError {
-public:
-    std::vector<std::string> messages;
-
-    void report(std::string_view message) override { messages.emplace_back(message); }
-};
 
 // Registers `title` and `go`, but not the paint `world` nor the property `score` that kBrokenXml also names.
 class PartialVm final : public engine::ui::ViewModel {
@@ -52,7 +46,7 @@ TEST(UiBindError, MissingBindingDoesNotLeaveTheRestUnbound) {
     auto parsed = engine::ui::parse_xml(kBrokenXml);
     ASSERT_TRUE(parsed.has_value());
     PartialVm vm;
-    RecordingFatalError fatal;
+    fakes::RecordingBindErrors fatal;
 
     const auto applied = engine::ui::apply_bindings(*parsed, vm, &fatal);
 
@@ -72,7 +66,7 @@ TEST(UiBindError, BuilderDocumentNamesTheBindingById) {
             engine::ui::canvas().add(engine::ui::component().paint_bind(engine::ui::intern("world"))));
     ASSERT_TRUE(document.has_value());
     engine::ui::ViewModel vm;
-    RecordingFatalError fatal;
+    fakes::RecordingBindErrors fatal;
 
     EXPECT_FALSE(engine::ui::apply_bindings(*document, vm, &fatal).has_value());
 
