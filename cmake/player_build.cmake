@@ -13,6 +13,9 @@
 #   WIND_PLAYER_SDK_BUILD_ID_HEADER  the SDK's generated <engine/build_id.h>; its kBuildId is stamped into each player
 #   WIND_PLAYER_GENERATOR, WIND_PLAYER_GENERATOR_PLATFORM, WIND_PLAYER_GENERATOR_TOOLSET, WIND_PLAYER_MAKE_PROGRAM,
 #   WIND_PLAYER_C_COMPILER, WIND_PLAYER_CXX_COMPILER   the editor build's own, so the players use the same toolchain
+#   WIND_PLAYER_OSX_ARCHITECTURES, WIND_PLAYER_OSX_DEPLOYMENT_TARGET, WIND_PLAYER_OSX_SYSROOT   the editor build's
+#                                CMAKE_OSX_* (empty: not set), so a player has the architecture and the minimum macOS
+#                                of the SDK
 # A second run finds every tree up to date and only installs. A failure ends the script with FATAL_ERROR, so a
 # failed install says so instead of producing an SDK without a player. docs/tech/build/CMake.md
 
@@ -55,6 +58,11 @@ if(NOT WIND_PLAYER_GENERATOR MATCHES "^Visual Studio")
         list(APPEND _configure "-DCMAKE_MAKE_PROGRAM=${WIND_PLAYER_MAKE_PROGRAM}")
     endif()
 endif()
+foreach(_variable IN ITEMS ARCHITECTURES DEPLOYMENT_TARGET SYSROOT)
+    if(WIND_PLAYER_OSX_${_variable})
+        list(APPEND _configure "-DCMAKE_OSX_${_variable}=${WIND_PLAYER_OSX_${_variable}}")
+    endif()
+endforeach()
 # One configuration per tree, so the exported targets of the player have one set of locations.
 if(WIND_PLAYER_GENERATOR MATCHES "^Visual Studio|Multi-Config|Xcode")
     list(APPEND _configure -DCMAKE_CONFIGURATION_TYPES=Release)

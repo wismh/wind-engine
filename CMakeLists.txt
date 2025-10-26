@@ -741,14 +741,8 @@ if(ENGINE_EDITOR)
     # The player libraries (<sdk>/player/<flavour>/): the static engine built once for every Export, so an Export
     # compiles the game and links. They come from build trees of their own (ENGINE_PLAYER, cmake/player_build.cmake),
     # configured, built, and installed by `cmake --install` of a Release SDK; the target wind_player builds them
-    # without installing. Windows and Linux; the macOS SDK has none, and an Export there builds the engine from
-    # source/. A Debug SDK has none either: it is for the engine's own debugging.
-    set(_engine_sdk_player_default OFF)
-    if(WIN32 OR (UNIX AND NOT APPLE))
-        set(_engine_sdk_player_default ON)
-    endif()
-    option(ENGINE_SDK_PLAYER "Build the player libraries (Development, Shipping) into a Release editor SDK"
-        ${_engine_sdk_player_default})
+    # without installing. Windows, Linux, and macOS. A Debug SDK has none: it is for the engine's own debugging.
+    option(ENGINE_SDK_PLAYER "Build the player libraries (Development, Shipping) into a Release editor SDK" ON)
     if(ENGINE_SDK_PLAYER)
         set(_engine_player_defines
             "-DWIND_PLAYER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
@@ -761,7 +755,10 @@ if(ENGINE_EDITOR)
             "-DWIND_PLAYER_GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
             "-DWIND_PLAYER_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
             "-DWIND_PLAYER_C_COMPILER=${CMAKE_C_COMPILER}"
-            "-DWIND_PLAYER_CXX_COMPILER=${CMAKE_CXX_COMPILER}")
+            "-DWIND_PLAYER_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+            "-DWIND_PLAYER_OSX_ARCHITECTURES=${CMAKE_OSX_ARCHITECTURES}"
+            "-DWIND_PLAYER_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}"
+            "-DWIND_PLAYER_OSX_SYSROOT=${CMAKE_OSX_SYSROOT}")
         add_custom_target(wind_player
             COMMAND ${CMAKE_COMMAND} ${_engine_player_defines} -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/player_build.cmake"
             COMMENT "Wind player libraries (Development, Shipping)"
