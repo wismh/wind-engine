@@ -145,7 +145,15 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 
 `engine::log::init()` is a null sink for tests. `init(exe_dir)` writes `<exe_dir>/game.log`. `info`, `warn`, and `error` are the public facade. spdlog stays in `src/core/log.cpp`.
 
-`IFatalError::report` is the fatal hook (`include/engine/resources/fatal_error.h`). `SdlFatalError` shows an SDL message box and quits. It is compiled only with `ENGINE_WITH_WINDOW`.
+`IFatalError` (`include/engine/resources/fatal_error.h`) is the single fatal exit. `report` is `[[noreturn]]`: no caller writes code after it, and an implementation ends the process (or, in a test, throws). Two public contracts lead to it. `try_*` (I/O, mods, parsing) returns `std::expected` and never reports. `get` (a programmer or shipping-data bug) reports. `assert` stays for engine invariants and `log::warn` for content quality.
+
+| Implementation | `report` |
+| --- | --- |
+| `SdlFatalError` (`ENGINE_WITH_WINDOW` only) | SDL message box, `ApplicationState::quit()` when attached, then `std::exit(1)` |
+| `DefaultFatalError` (`include/engine/resources/default_fatal_error.h`, `default_fatal_error()`) | writes the message to stderr, then `std::abort()`. Used where no host supplied one |
+| a test double | throws, so a test asserts on the report (`tests/fixtures/fatal_fakes.h`: `FatalReport`) |
+
+`EngineSystemDeps::fatal` left unset becomes `default_fatal_error()` when `register_*_systems` runs, so the systems always dereference it. `Worlds::set_deps` fills in the `Worlds` fatal instead. `IBindErrorSink` (`ui/document.h`) is not a fatal exit: `apply_bindings` keeps walking after a failure, so it reports to a sink that returns.
 
 ## Always compiled
 
@@ -175,7 +183,8 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 | `src/core/engine_host.cpp` | `EngineHost`: services, primary window, catalogs, game attach and detach, run |
 | `src/core/engine_runtime.cpp` | owns `IPresentation` and `GameLoop` |
 | `src/core/engine_instantiate.cpp` | explicit instantiation of `Engine<WindowSmokeGame>` |
-| `src/core/sdl_fatal_error.cpp` | message box and quit |
+| `src/core/sdl_fatal_error.cpp` | message box, quit, exit |
+| `src/resources/default_fatal_error.cpp` | stderr and abort |
 | `src/core/game_module.cpp` | `load_game_module`, `GameModule`, `purge_game_module_copies` |
 | `src/render/opengl/sdl_gl_presentation.cpp` | SDL init, poll, windows, GL factory |
 
@@ -203,6 +212,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 - `include/engine/core/platform.h`
 - `include/engine/core/run_hooks.h`
 - `include/engine/core/sdl_fatal_error.h`
+- `include/engine/resources/default_fatal_error.h`
 - `include/engine/core/time.h`
 - `include/engine/core/web_loop.h`
 - `include/engine/core/file_dialog.h`

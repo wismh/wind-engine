@@ -51,7 +51,7 @@ A `UiCanvas` is a component on an entity (`include/engine/ui/canvas.h`).
 | `Math` | TeX in `formula`. `display="true"` is display style |
 | `Popup` | Vertical stack shown beside its parent, above every canvas of the window. See [Popup](#popup) |
 
-Unknown tags are `UiError::UnknownElement` and fatal when an `IFatalError` is passed.
+Unknown tags are `UiError::UnknownElement` and fatal when an `IFatalError` is passed (a null one returns the error only).
 
 Common attributes: `id`, `class` (space-separated), `name`. A custom property is only `var-<name>="{binding}"` (`parse_custom_properties` in `src/ui/xml_parser.cpp`), interned to a `BindingId`. A literal on that attribute is `UiError::ForbiddenContent`. `var-` with an empty name is ignored.
 

@@ -42,7 +42,7 @@ The draw list is sorted once. That list is pushed to every bound window that has
 
 A null `Sprite::mesh` uses `builtin::mesh_quad` when that asset loads. An explicit `Sprite::material` is used as-is. A null material with a non-null `texture` reuses the `ctx<SpriteMaterialCache>` entry for that texture pointer, or builds `Material(builtin::shader_unlit, texture, white, BlendMode::Alpha)` and stores it. If that shader did not load and the cache misses, the sprite is fatal and skipped. `builtin::material_unlit` is not used on that path.
 
-`builtin::material_unlit` is only the null-material and null-texture case, when that asset loads. A sprite that still has no mesh or material is fatal and skipped.
+`builtin::material_unlit` is only the null-material and null-texture case, when that asset loads. A sprite that still has no mesh or material is fatal.
 
 Items sort by layer, then `order_in_layer`, then material pointer, then entity index (`renderable_less` / `draw_item_less`). `sort_renderables` is a stable sort of that predicate.
 

@@ -79,7 +79,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/resources/asset_guid.h` | `write_missing_metas` | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `include/engine/resources/asset_id.h` | 32-hex `AssetId` | [Resources](../modules/Resources.md) |
 | `include/engine/resources/assets_db.h` | `get`, `try_get`, `get_sprite` | [Assets](../features/Assets.md) |
-| `include/engine/resources/fatal_error.h` | `IFatalError` | [Core](../modules/Core.md) |
+| `include/engine/resources/default_fatal_error.h` | `DefaultFatalError`, `default_fatal_error()` | [Core](../modules/Core.md) |
+| `include/engine/resources/fatal_error.h` | `IFatalError` (`report` is `[[noreturn]]`) | [Core](../modules/Core.md) |
 | `include/engine/resources/font.h` | `Font` file bytes | [Resources](../modules/Resources.md) |
 | `include/engine/resources/meta.h` | Importers, `.meta` parse, `codegen_write` | [Resources](../modules/Resources.md) |
 | `include/engine/resources/sprite_sheet.h` | Named rect to sprite UVs | [Assets](../features/Assets.md) |
@@ -132,7 +133,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/core/log.cpp` | spdlog sinks | [Core](../modules/Core.md) |
 | `src/core/platform.cpp` | Assets root, Android staging, executable directory, user-data path | [Core](../modules/Core.md) |
 | `src/core/presentation.h` | `IPresentation` seam the loop calls | [Core](../modules/Core.md) |
-| `src/core/sdl_fatal_error.cpp` | Message box and quit | [Core](../modules/Core.md) |
+| `src/core/sdl_fatal_error.cpp` | Message box, quit, `std::exit(1)` | [Core](../modules/Core.md) |
 | `src/core/web_loop.cpp` | RAF vs blocking policy, ordered shutdown | [Core](../modules/Core.md) |
 | `src/core/worlds.cpp` | Add, destroy, bind, per-world clocks | [Core](../modules/Core.md) |
 | `src/cli/cli_commands.cpp` | JSON for `tree`, `element`, `hit`, `click`, `profile`, and host replies; `element_window_rect` | [CLI](../features/CLI.md) |
@@ -158,6 +159,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/resources/.gitkeep` | Keeps the directory in Git | [Resources](../modules/Resources.md) |
 | `src/resources/asset_guid.cpp` | Writes missing `.meta` sidecars | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `src/resources/assets_db.cpp` | Catalog load and typed asset cache | [Assets](../features/Assets.md) |
+| `src/resources/default_fatal_error.cpp` | stderr and abort | [Core](../modules/Core.md) |
 | `src/resources/codegen.cpp` | Scan tree, emit `asset_ids.h` and `catalog.toml` | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `src/resources/icon_codegen.cpp` | Resize and encode ico, icns, mipmaps, favicon | [Icon Codegen](../build/Icon%20Codegen.md) |
 | `src/resources/icon_codegen.h` | Icon encode API used by the host tool | [Icon Codegen](../build/Icon%20Codegen.md) |
@@ -337,7 +339,10 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/ecs_test.cpp` | Create, destroy, views, deferred destroy | [ECS](../modules/ECS.md) |
 | `tests/events_test.cpp` | Double buffer and cursors | [ECS](../modules/ECS.md) |
 | `tests/file_dialog_test.cpp` | `FileDialogCall` delivery, cancel, and ownership; a folder answer, the fake window control's folder dialog | [Windowing](../features/Windowing.md) |
+| `tests/fatal_error_test.cpp` | `get` reports once, `try_get` does not, the default exit, systems without a fatal | [Core](../modules/Core.md) |
+| `tests/fixtures/bind_error_fakes.h` | `RecordingBindErrors`, the `IBindErrorSink` double | [UI Markup](../features/UI%20Markup.md) |
 | `tests/fixtures/cli_client.h` | Loopback client: this process's descriptor and `POST /exec` | [CLI](../features/CLI.md) |
+| `tests/fixtures/fatal_fakes.h` | `FatalReport`, `QuietFatal`, `RecordingFatal`: `IFatalError` doubles that throw | [Core](../modules/Core.md) |
 | `tests/fixtures/fake_services.h` | Headless `EngineServices` fakes for tests that create a game; the window control keeps each window's description, position, size, and title, and answers a folder dialog with a scripted path | [Core](../modules/Core.md) |
 | `tests/fixtures/game_module/fixture_game.cpp` | Fixture game module, built three ways in the editor build | [Core](../modules/Core.md) |
 | `tests/fixtures/game_module/fixture_log.h` | `FixtureLog` the fixture game writes into | [Core](../modules/Core.md) |
