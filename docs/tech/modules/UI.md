@@ -175,7 +175,7 @@ The stylesheet parser still warns when `background-image` is not `none` or an `A
 
 `apply_bindings` (`src/ui/document.cpp`) resolves properties, commands, and paint against the view-model, then `{tr}` against a `Catalog` pointer. A bound command sets `disabled` from `!can_execute()`, except on `TextInput`. `ItemsControl` clones its template per list item.
 
-`run_bind` clones from `AssetsDb` only when `UiCanvas::document` is set and the id changed. Stylesheet asset ids merge via `try_get<Stylesheet>`. An empty id list does not wipe a sheet authored in memory.
+Without `EngineSystemDeps::assets` the clone and stylesheet systems are not registered. `run_bind` itself only applies bindings. With assets, it clones from `AssetsDb` only when `UiCanvas::document` is set and the id changed. Stylesheet asset ids merge via `try_get<Stylesheet>`; one missing from the catalog logs a warning once per world and is retried each frame. An empty id list does not wipe a sheet authored in memory.
 
 Generated binders (`asset_codegen`) emit `static constexpr BindingId` members and `bind(vm)` that calls `vm.property` / `vm.command` using the member names. The game writes the `ViewModel` subclass. See [Asset Codegen](../build/Asset%20Codegen.md).
 
