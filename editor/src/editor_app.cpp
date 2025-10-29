@@ -97,15 +97,15 @@ int EditorApp::run(const EditorOptions& options) {
 }
 
 bool EditorApp::start(const EditorOptions& options) {
-    if (!host_.init()) {
-        return false;
+    if (const auto started = host_.init(); !started) {
+        engine::report_startup_error(started.error());
     }
     if (!options.project) {
         // The launcher passes --project; there is no Open dialog to fall back on.
         host_.fatal().report(kNoProjectMessage);
     }
-    if (!host_.open_primary(kIdleGameWindow)) {
-        return false;
+    if (const auto opened = host_.open_primary(kIdleGameWindow); !opened) {
+        engine::report_startup_error(opened.error());
     }
     if (!host_.load_catalog(host_.assets_root() / "editor")) {
         host_.fatal().report("Failed to load the editor catalog (assets/editor/catalog.toml)");

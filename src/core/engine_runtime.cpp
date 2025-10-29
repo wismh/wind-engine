@@ -9,11 +9,16 @@
 namespace engine {
 
 struct EngineRuntime::Impl {
-    std::unique_ptr<IPresentation> presentation = make_sdl_gl_presentation();
+    explicit Impl(std::unique_ptr<IPresentation> p) : presentation(std::move(p)) {}
+
+    std::unique_ptr<IPresentation> presentation;
     GameLoop loop;
 };
 
-EngineRuntime::EngineRuntime() : impl_(std::make_unique<Impl>()) {}
+EngineRuntime::EngineRuntime() : EngineRuntime(make_sdl_gl_presentation()) {}
+
+EngineRuntime::EngineRuntime(std::unique_ptr<IPresentation> presentation)
+    : impl_(std::make_unique<Impl>(std::move(presentation))) {}
 
 EngineRuntime::~EngineRuntime() {
     shutdown();

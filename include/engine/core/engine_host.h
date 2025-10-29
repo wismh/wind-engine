@@ -6,6 +6,7 @@
 #error "engine::EngineHost requires ENGINE_WITH_WINDOW"
 #endif
 
+#include <engine/core/engine_error.h>
 #include <engine/core/engine_services.h>
 #include <engine/core/run_hooks.h>
 #include <engine/core/window_desc.h>
@@ -19,6 +20,7 @@ namespace engine {
 
 class IFatalError;
 class IGame;
+class IPresentation;
 
 // Owns every engine service of a windowed process: runtime, fatal hook, assets, input, audio, haptics, HTTP,
 // and worlds. `Engine<GameT>` sits on it, and so does the editor host. Call in order: `init`, `open_primary`,
@@ -28,19 +30,23 @@ class IGame;
 class EngineHost {
 public:
     EngineHost();
+    // Test seam: a host over a fake presentation (`src/core/presentation.h`, private). Games use the default.
+    explicit EngineHost(std::unique_ptr<IPresentation> presentation);
     ~EngineHost();
 
     EngineHost(const EngineHost&) = delete;
     EngineHost& operator=(const EngineHost&) = delete;
 
-    // SDL video, the log file, and every service. `services()` is valid once this returned true.
-    [[nodiscard]] bool init();
+    // SDL video, the log file, and every service. `services()` is valid once this succeeded. Fails with
+    // `VideoInit`. Nothing is shown to the user: the entry point calls `report_startup_error`.
+    [[nodiscard]] std::expected<void, EngineError> init();
     [[nodiscard]] const EngineServices& services() const;
     [[nodiscard]] IFatalError& fatal();
 
     // Creates `kPrimaryWindow`, starts audio, haptics, and HTTP, loads the engine catalog and
-    // `builtin::font_ui`, and hands the system deps to `Worlds`. A failure shuts the host down.
-    [[nodiscard]] bool open_primary(const WindowDesc& desc);
+    // `builtin::font_ui`, and hands the system deps to `Worlds`. A failure shuts the host down and
+    // returns `WindowCreate`, `AudioInit`, `HapticsInit`, `AssetsRoot`, `EngineCatalog`, or `UiFont`.
+    [[nodiscard]] std::expected<void, EngineError> open_primary(const WindowDesc& desc);
 
     // `<executable dir>/assets` (`/assets` on web, staged storage on Android).
     [[nodiscard]] std::filesystem::path assets_root() const;
@@ -69,5 +75,10 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
+
+// The single place a startup failure becomes a user-visible fatal exit: a message box with the cause, then exit(1).
+// Entry points (`ENGINE_GAME`, the bench, the editor) call it with the error `init` or `open_primary` returned.
+// Works before `EngineHost::init` has built the host's own fatal hook, so a `VideoInit` failure is reported too.
+[[noreturn]] void report_startup_error(EngineError error);
 
 }

@@ -1,5 +1,7 @@
 #include <engine/core/engine_host.h>
 
+#include "core/presentation.h"
+
 #include <engine/audio/audio_system.h>
 #include <engine/builtin_ids.h>
 #include <engine/core/engine_runtime.h>
@@ -24,6 +26,9 @@
 namespace engine {
 
 struct EngineHost::Impl {
+    Impl() = default;
+    explicit Impl(std::unique_ptr<IPresentation> presentation) : runtime(std::move(presentation)) {}
+
     EngineRuntime runtime;
     std::unique_ptr<SdlFatalError> fatal;
     std::unique_ptr<AssetsDb> assets;
@@ -40,17 +45,20 @@ struct EngineHost::Impl {
 
 EngineHost::EngineHost() : impl_(std::make_unique<Impl>()) {}
 
+EngineHost::EngineHost(std::unique_ptr<IPresentation> presentation)
+    : impl_(std::make_unique<Impl>(std::move(presentation))) {}
+
 EngineHost::~EngineHost() {
     dispose();
 }
 
-bool EngineHost::init() {
+std::expected<void, EngineError> EngineHost::init() {
     if (impl_->initialized) {
-        return true;
+        return {};
     }
     EngineRuntime& runtime = impl_->runtime;
     if (!runtime.init_video()) {
-        return false;
+        return std::unexpected(EngineError::VideoInit);
     }
     log::init(runtime.base_path());
 
@@ -81,7 +89,7 @@ bool EngineHost::init() {
     impl_->input->set_router([&worlds](WindowId id) { return worlds.world_for(id); });
     impl_->fatal->attach(worlds.application_state(), runtime.native_window());
     impl_->initialized = true;
-    return true;
+    return {};
 }
 
 const EngineServices& EngineHost::services() const {
@@ -92,23 +100,28 @@ IFatalError& EngineHost::fatal() {
     return *impl_->fatal;
 }
 
-bool EngineHost::open_primary(const WindowDesc& desc) {
+std::expected<void, EngineError> EngineHost::open_primary(const WindowDesc& desc) {
     if (!impl_->initialized) {
-        return false;
+        return std::unexpected(EngineError::VideoInit);
     }
     if (impl_->opened) {
-        return true;
+        return {};
     }
+    const auto fail = [this](EngineError error) {
+        dispose();
+        return std::unexpected(error);
+    };
     EngineRuntime& runtime = impl_->runtime;
     if (!runtime.create_window(desc)) {
-        dispose();
-        return false;
+        return fail(EngineError::WindowCreate);
     }
     impl_->fatal->attach(impl_->worlds->application_state(), runtime.native_window());
 
-    if (!impl_->audio->init() || !impl_->haptics->init()) {
-        dispose();
-        return false;
+    if (!impl_->audio->init()) {
+        return fail(EngineError::AudioInit);
+    }
+    if (!impl_->haptics->init()) {
+        return fail(EngineError::HapticsInit);
     }
     // A game without the network still runs: every request then answers HttpError::Unsupported.
     if (!impl_->http->init()) {
@@ -119,17 +132,18 @@ bool EngineHost::open_primary(const WindowDesc& desc) {
     assets.set_graphic_factory(&runtime.factory());
     const std::filesystem::path root = runtime.assets_root();
     if (root.empty()) {
-        impl_->fatal->report("Assets root is missing");
+        return fail(EngineError::AssetsRoot);
     }
     assets.set_root(root);
     if (!assets.load_catalog(root / "engine" / "catalog.toml", root / "engine")) {
-        impl_->fatal->report("Failed to load engine catalog");
+        return fail(EngineError::EngineCatalog);
     }
     // Only builtin::font_ui loads eagerly here — it's the fallback for any UI element with no
     // font-family at all. Every other font, and every UI image, is loaded lazily: run_ui_render
     // resolves what a drawn canvas actually references and calls ensure_ui_font/ensure_ui_image.
-    if (!runtime.add_font_for_window(kPrimaryWindow, builtin::font_ui, *assets.get<Font>(builtin::font_ui))) {
-        impl_->fatal->report("Failed to load UI font");
+    const auto ui_font = assets.try_get<Font>(builtin::font_ui);
+    if (!ui_font || !runtime.add_font_for_window(kPrimaryWindow, builtin::font_ui, **ui_font)) {
+        return fail(EngineError::UiFont);
     }
 
     // set_deps registers simulation systems on every world that exists already (a game constructed
@@ -150,7 +164,7 @@ bool EngineHost::open_primary(const WindowDesc& desc) {
             .worlds = impl_->worlds.get(),
     });
     impl_->opened = true;
-    return true;
+    return {};
 }
 
 std::filesystem::path EngineHost::assets_root() const {
@@ -223,6 +237,12 @@ void EngineHost::dispose() {
     impl_->runtime.shutdown();
     impl_->initialized = false;
     impl_->opened = false;
+}
+
+void report_startup_error(EngineError error) {
+    log::error(to_string(error));
+    SdlFatalError fatal;
+    fatal.report(message(error));
 }
 
 }
