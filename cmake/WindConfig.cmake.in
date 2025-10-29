@@ -25,7 +25,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/wind_version.cmake")
 #   player  <sdk>/player/Development and Shipping, the engine built with the SDK: only the game compiles. `engine`
 #           below is an interface library over them, the SDK's tools and GoogleTest are imported as in SDK mode, and
 #           the game builds in DebugGame (Development player) and Release (Shipping player).
-#   source  no player for this SDK (a Debug SDK, macOS, ENGINE_SDK_PLAYER=OFF): the engine's CMakeLists.txt, from
+#   source  no player for this SDK (a Debug SDK, ENGINE_SDK_PLAYER=OFF): the engine's CMakeLists.txt, from
 #           <sdk>/source, defines engine, engine_add_game, and the rest in this directory scope, and nothing below
 #           runs. The binary directory is `wind-engine` because <build>/wind/ holds the .module and .export records.
 set(_wind_player OFF)
