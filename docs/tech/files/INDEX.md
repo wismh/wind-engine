@@ -21,6 +21,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/core/build_info.h` | `build_id()` and the generated `kBuildId` | [CMake](../build/CMake.md) |
 | `include/engine/core/cli_commands.h` | `CliCommand`, `CliReply`, `CliCommands`: a host's own `wind-cli` commands | [CLI](../features/CLI.md#host-commands) |
 | `include/engine/core/engine.h` | `Engine<GameT>::init`, `run`, `dispose` over `EngineHost` | [Core](../modules/Core.md) |
+| `include/engine/core/engine_error.h` | `EngineError`: why startup failed, `to_string`, `message` | [Core](../modules/Core.md) |
 | `include/engine/core/engine_host.h` | `EngineHost`: services, primary window, catalogs, game attach and detach, run | [Core](../modules/Core.md) |
 | `include/engine/core/engine_runtime.h` | Windowed presentation and `GameLoop` owner | [Core](../modules/Core.md) |
 | `include/engine/core/engine_services.h` | References passed into the game constructor | [Core](../modules/Core.md) |
@@ -348,6 +349,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/fixtures/game_module/fixture_log.h` | `FixtureLog` the fixture game writes into | [Core](../modules/Core.md) |
 | `tests/event_window_test.cpp` | `event_window`: a live window, a closed window's id dropped, id 0 per event kind | [Windowing](../features/Windowing.md#events-of-a-window) |
 | `tests/frame_pacing_test.cpp` | Vsync window choice, refresh period, limiter period, `FrameLimiter` schedule | [Windowing](../features/Windowing.md#frame-pacing) |
+| `tests/engine_error_test.cpp` | `EngineError` names and messages | [Core](../modules/Core.md) |
+| `tests/engine_host_test.cpp` | `EngineHost` startup errors over a fake presentation (window builds) | [Core](../modules/Core.md) |
 | `tests/game_entry_test.cpp` | `ENGINE_GAME` module exports and build id (window builds) | [Core](../modules/Core.md) |
 | `tests/game_module_test.cpp` | `load_game_module` against the fixture modules (editor build) | [Core](../modules/Core.md) |
 | `tests/game_loop_test.cpp` | `RunHooks` order, frame-end restart, and `RunHooks::cli` without a primary world, with a fake presentation | [Runtime Loop](../architecture/Runtime%20Loop.md) |
