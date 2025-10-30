@@ -29,6 +29,7 @@ std::string_view trim(std::string_view value) {
     return value.substr(begin, end - begin);
 }
 
+// A null `fatal` is the caller opting out of reports: the failure is only the returned UiError.
 void report(IFatalError* fatal, std::string_view message) {
     if (fatal != nullptr) {
         fatal->report(message);

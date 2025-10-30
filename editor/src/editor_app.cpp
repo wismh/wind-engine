@@ -103,14 +103,12 @@ bool EditorApp::start(const EditorOptions& options) {
     if (!options.project) {
         // The launcher passes --project; there is no Open dialog to fall back on.
         host_.fatal().report(kNoProjectMessage);
-        return false;
     }
     if (!host_.open_primary(kIdleGameWindow)) {
         return false;
     }
     if (!host_.load_catalog(host_.assets_root() / "editor")) {
         host_.fatal().report("Failed to load the editor catalog (assets/editor/catalog.toml)");
-        return false;
     }
     for (const std::string& arg : options.unknown) {
         engine::log::warn("Editor: unknown argument " + arg);
@@ -121,7 +119,6 @@ bool EditorApp::start(const EditorOptions& options) {
     const std::optional<engine::WindowId> window = services.windows.open_window(kEditorWindow);
     if (!window) {
         host_.fatal().report("Failed to open the editor window");
-        return false;
     }
     window_ = *window;
     services.worlds.bind_window(window_, *world_);
@@ -185,7 +182,7 @@ void EditorApp::read_events(engine::ecs::World& world) {
 void EditorApp::on_frame_end() {
     engine::ApplicationState& app = host_.services().worlds.application_state();
     if (session_->playing() && !app.running && !quitting_) {
-        // The game quit (its own menu, closing kPrimaryWindow, a fatal report). The editor stays.
+        // The game quit (its own menu, closing kPrimaryWindow). The editor stays.
         app.running = true;
         stop("The game quit. Stopped.");
     }
