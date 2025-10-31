@@ -83,8 +83,9 @@ private:
         std::unique_ptr<FixedStepClock> clock;
     };
 
-    [[nodiscard]] Slot* find(ecs::World& world);
-    [[nodiscard]] const Slot* find(const ecs::World& world) const;
+    // Fatal when `world` is not one of this Worlds' (a program error), so it always returns a slot.
+    [[nodiscard]] Slot& find(ecs::World& world);
+    [[nodiscard]] const Slot& find(const ecs::World& world) const;
     void register_simulation(Slot& slot);
 
     IFatalError* fatal_ = nullptr;

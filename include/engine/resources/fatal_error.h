@@ -6,10 +6,12 @@
 
 namespace engine {
 
+// The single fatal exit. `report` never returns: an implementation shows the message, shuts the process down
+// (exit or abort), or, in a test, throws. Callers may rely on that and write no code after it.
 class IFatalError {
 public:
     virtual ~IFatalError() = default;
-    virtual void report(std::string_view message) = 0;
+    [[noreturn]] virtual void report(std::string_view message) = 0;
 };
 
 }

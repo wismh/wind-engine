@@ -29,6 +29,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include "fixtures/fatal_fakes.h"
 
 #ifndef ENGINE_BUILTIN_ASSETS_DIR
 #error "ENGINE_BUILTIN_ASSETS_DIR must be set to the builtin_assets path"
@@ -85,23 +86,6 @@ volume = 0.75
 pitch_range = [0.9, 1.1]
 loop = true
 )";
-
-class RecordingFatalError final : public engine::IFatalError {
-public:
-    int call_count = 0;
-    std::string last_message;
-
-    void report(std::string_view message) override {
-        ++call_count;
-        last_message = std::string(message);
-        throw std::runtime_error(last_message);
-    }
-};
-
-class SilentFatalError final : public engine::IFatalError {
-public:
-    void report(std::string_view) override {}
-};
 
 struct TempTree {
     std::filesystem::path path;
@@ -313,7 +297,7 @@ TEST(Assets, GetSpriteSingleAndMultiple) {
     }
 
     FakeGraphicFactory factory;
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     db.set_catalog(std::move(catalog));
     db.set_root(tree.path);
@@ -412,7 +396,7 @@ TEST(Assets, CookedCatalog) {
 }
 
 TEST(Assets, CatalogListsFontAfterSetAndAdd) {
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
 
     engine::CookedCatalog first;
@@ -443,7 +427,7 @@ TEST(Assets, CatalogListsFontAfterSetAndAdd) {
 }
 
 TEST(Assets, TryGetNotFound) {
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     const auto result = db.try_get<engine::render::ITexture>(engine::AssetId{kTextureGuid});
     ASSERT_FALSE(result.has_value());
@@ -451,7 +435,7 @@ TEST(Assets, TryGetNotFound) {
 }
 
 TEST(Assets, TryGetTypeMismatch) {
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
 
     engine::CookedCatalog catalog;
@@ -464,7 +448,7 @@ TEST(Assets, TryGetTypeMismatch) {
 }
 
 TEST(Assets, GetCallsFatalHook) {
-    RecordingFatalError fatal;
+    fakes::RecordingFatal fatal;
     engine::AssetsDb db(fatal);
 
     engine::CookedCatalog catalog;
@@ -555,7 +539,7 @@ TEST(Assets, GetUiDocument) {
     TempTree tree;
     write_file(tree.path / "hud.xml", "<Canvas><Label text=\"Hi\"/></Canvas>");
 
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     db.set_root(tree.path);
 
@@ -575,7 +559,7 @@ TEST(Assets, GetStyleSheet) {
     TempTree tree;
     write_file(tree.path / "hud.css", ".hud { padding: 16; }\n");
 
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     db.set_root(tree.path);
 
@@ -593,7 +577,7 @@ TEST(Assets, StyleSheetWarningsGoToGameLogOncePerLoad) {
     TempTree tree;
     write_file(tree.path / "ui" / "hud.css", ".hud { padding: 16; }\n.bad {\n    frobnicate: 1;\n}\n");
 
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     db.set_root(tree.path);
 
@@ -625,7 +609,7 @@ TEST(Assets, GetSoundFromCatalog) {
     TempTree tree;
     write_file(tree.path / "sfx" / "step.wav", "");
 
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     db.set_root(tree.path);
 
@@ -646,7 +630,7 @@ TEST(Assets, GetSoundFromCatalog) {
 }
 
 TEST(Assets, TextureNotReadyWithoutFactory) {
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
 
     engine::CookedCatalog catalog;
@@ -709,7 +693,7 @@ TEST(Assets, LoadCatalogFromTempDir) {
     catalog.add({engine::AssetId{kUiGuid}, "hud.xml", engine::ImporterKind::Ui});
     write_file(tree.path / "catalog.toml", catalog.serialize());
 
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
     ASSERT_TRUE(loaded.has_value());
@@ -721,7 +705,7 @@ TEST(Assets, LoadCatalogFromTempDir) {
 }
 
 TEST(Assets, LoadCatalogMissingFileNoCrash) {
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
 
     const auto missing_catalog =
@@ -743,7 +727,7 @@ TEST(Assets, LoadCatalogMissingFileNoCrash) {
 }
 
 TEST(Assets, GetBuiltinQuadMesh) {
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     ASSERT_TRUE(load_builtin_catalog(db));
 
@@ -766,7 +750,7 @@ TEST(Assets, GetBuiltinQuadMesh) {
 }
 
 TEST(Assets, GetBuiltinUnlitShader) {
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     ASSERT_TRUE(load_builtin_catalog(db));
 
@@ -783,7 +767,7 @@ TEST(Assets, GetBuiltinUnlitShader) {
 }
 
 TEST(Assets, GetBuiltinUnlitMaterial) {
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     ASSERT_TRUE(load_builtin_catalog(db));
 
@@ -803,7 +787,7 @@ TEST(Assets, GetBuiltinUnlitMaterial) {
 }
 
 TEST(Assets, MaterialNotReadyWithoutFactory) {
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     ASSERT_TRUE(load_builtin_catalog(db));
 
@@ -816,7 +800,7 @@ TEST(Assets, GetTextureFromPng) {
     TempTree tree;
     write_bytes(tree.path / "textures" / "red.png", kPng1x1Red, sizeof(kPng1x1Red));
 
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     db.set_root(tree.path);
 
@@ -845,7 +829,7 @@ TEST(Assets, GetTextureCopiesNearestRepeat) {
     TempTree tree;
     write_bytes(tree.path / "textures" / "red.png", kPng1x1Red, sizeof(kPng1x1Red));
 
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     db.set_root(tree.path);
 
@@ -873,7 +857,7 @@ TEST(Assets, GetTextureFromUiImage) {
     TempTree tree;
     write_bytes(tree.path / "ui" / "icon.png", kPng1x1Red, sizeof(kPng1x1Red));
 
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     db.set_root(tree.path);
 
@@ -892,7 +876,7 @@ TEST(Assets, GetTextureFromUiImage) {
 }
 
 TEST(Assets, GetBuiltinSplashDecodesRealDimensions) {
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     ASSERT_TRUE(load_builtin_catalog(db));
 
@@ -907,7 +891,7 @@ TEST(Assets, GetBuiltinSplashDecodesRealDimensions) {
 }
 
 TEST(Assets, GetMeshTypeMismatch) {
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     ASSERT_TRUE(load_builtin_catalog(db));
 
@@ -921,7 +905,7 @@ TEST(Assets, GetMeshTypeMismatch) {
 }
 
 TEST(Assets, GetFontWithoutFactory) {
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     ASSERT_TRUE(load_builtin_catalog(db));
 
@@ -935,7 +919,7 @@ TEST(Assets, GetFontWithoutFactory) {
 }
 
 TEST(Assets, GetBuiltinMathFontIsOpenTypeCff) {
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     ASSERT_TRUE(load_builtin_catalog(db));
 
@@ -949,7 +933,7 @@ TEST(Assets, CorruptPngIsCorrupt) {
     TempTree tree;
     write_file(tree.path / "textures" / "bad.png", "not-a-png");
 
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     db.set_root(tree.path);
 
@@ -1097,7 +1081,7 @@ TEST(Assets, GetStringTable) {
     write_strings(tree.path / "locale" / "en.strings", kStringsGuid,
             "locale = \"en\"\n\n[[string]]\nid = \"menu.play\"\ntext = \"Play\"\n", true);
 
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     db.set_root(tree.path);
     engine::CookedCatalog catalog;
@@ -1114,7 +1098,7 @@ TEST(Assets, CorruptStringTable) {
     TempTree tree;
     write_strings(tree.path / "locale" / "en.strings", kStringsGuid, "not toml {", true);
 
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     db.set_root(tree.path);
     engine::CookedCatalog catalog;
@@ -1186,7 +1170,7 @@ TEST(Assets, UnloadCatalogDropsOnlyThatRootAndItsCache) {
     game_catalog.add({engine::AssetId{kUiGuid}, "hud.xml", engine::ImporterKind::Ui});
     write_file(game_tree.path / "catalog.toml", game_catalog.serialize());
 
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     ASSERT_TRUE(db.load_catalog(engine_tree.path / "catalog.toml", engine_tree.path).has_value());
     ASSERT_TRUE(db.load_catalog(game_tree.path / "catalog.toml", game_tree.path).has_value());
@@ -1231,7 +1215,7 @@ TEST(Assets, UnloadCatalogUnknownRootIsNoOp) {
     catalog.add({engine::AssetId{kUiGuid}, "hud.xml", engine::ImporterKind::Ui});
     write_file(tree.path / "catalog.toml", catalog.serialize());
 
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     ASSERT_TRUE(db.load_catalog(tree.path / "catalog.toml", tree.path).has_value());
     db.unload_catalog(tree.path / "elsewhere");

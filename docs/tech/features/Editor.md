@@ -25,7 +25,7 @@ The SDK's `bin/` holds `wind_editor.exe`, `wind-cli.exe`, `engine.dll`, their `.
 
 `EditorApp::start` (`editor/src/editor_app.cpp`):
 
-1. `EngineHost::init`. Without `--project` the editor reports "No project to open. Start the editor from the Wind launcher, or run wind_editor --project <dir>." through `IFatalError` (a message box) and exits with 1: a project opens only from the [Launcher](Launcher.md), the command line, or `wind-cli open`. Then `open_primary` with `WindowDesc{"Game", 800x600}`. That is `kPrimaryWindow`, the game's window.
+1. `EngineHost::init` (an `EngineError` goes to `report_startup_error`). Without `--project` the editor reports "No project to open. Start the editor from the Wind launcher, or run wind_editor --project <dir>." through `IFatalError` (a message box) and exits with 1: a project opens only from the [Launcher](Launcher.md), the command line, or `wind-cli open`. Then `open_primary` with `WindowDesc{"Game", 800x600}`. That is `kPrimaryWindow`, the game's window.
 2. `load_catalog(assets_root() / "editor")`: the editor's own `catalog.toml`. A failure is fatal.
 3. `Worlds::add` for the editor world, `open_window({"Wind Editor", 1280x800})`, `bind_window`, `enable_ui`, and one `UiCanvas` (`FillWindow`) with `assets/ui/editor.xml` and `assets/css/editor.css` over `EditorViewModel`. `EditorPanels` spawns five panel canvases (`Fixed`): `assets/ui/explorer.xml`, `assets/ui/ui_tree.xml`, `assets/ui/inspector.xml`, `assets/ui/profiler.xml`, and `assets/ui/build.xml`, all with `assets/css/panels.css`, and one `DockSpace` (order 1) that places them, with the saved layout ([Panels](#panels)).
 4. `purge_game_module_copies(<user data>/live)`. The user data directory is `user_data_directory("Wind", "Editor")`, read once at start; it also holds `dock_layout.toml` ([Layout file](#layout-file)). Without one the copies go to `<temp>/wind_editor/live` and the layout is not kept (logged).
@@ -175,7 +175,7 @@ After a successful build, `PlaySession::play` (`editor/src/play_session.cpp`) wi
 
 | What happened | Result |
 | --- | --- |
-| The game sets `ApplicationState::running = false` while playing (its own menu, a fatal report) | `on_frame_end` sets it back and stops the game. The editor keeps running |
+| The game sets `ApplicationState::running = false` while playing (its own menu) | `on_frame_end` sets it back and stops the game. The editor keeps running |
 | Close button of the editor window | Editor quits. A running game is stopped in `on_quit`, before the host disposes |
 | Close button of `kPrimaryWindow` while playing | `WindowCloseRequestedEvent` in the game world, as in an exported build |
 | Close button of `kPrimaryWindow` between plays | No world, the event is dropped |
@@ -230,7 +230,7 @@ The editor's assets and catalog land in `bin/assets/editor/` (`ENGINE_RUNTIME_AS
 ## Limits
 
 - `engine.dll` is loaded once and stays locked while the editor runs. An engine change needs an editor restart and a game rebuilt against it. A module with another build id is refused with both ids in the status line.
-- The game runs in the editor's process. A crash in game code, including code that keeps running after a fatal report, takes the editor down.
+- The game runs in the editor's process. A crash in game code, takes the editor down.
 - `transparent`, `resizable`, and `maximized` of the game window are fixed at editor start.
 - The game's window icon stays on `kPrimaryWindow` after Stop.
 - The editor has no project list and no Open dialog: the [Launcher](Launcher.md) owns that and starts the editor with `--project`.

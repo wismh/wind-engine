@@ -47,7 +47,7 @@ Normative rules. If a change fights these, the change is wrong. As-built detail 
 - The assets root comes from the SDL executable base path plus `assets`, not the process working directory. Web uses `/assets`. Android stages that tree onto internal storage. See [Runtime Assets](../build/Runtime%20Assets.md).
 - Asset GUIDs are exactly 32 lowercase hex characters, stable once referenced. Never reuse a GUID.
 - Logging: spdlog only in `src/`. Public facade `engine::log::{info,warn,error}`.
-- Fatal errors: `IFatalError` hook. Normal gameplay does not use C++ exceptions for missing assets.
+- Fatal errors: `IFatalError` is the single fatal exit and `report` never returns. `try_*` returns `std::expected`; `get` is fatal. Normal gameplay does not use C++ exceptions for missing assets.
 - Public headers may include glm. They must not include SDL, glad, NanoVG, spdlog, or mixer.
 
 ## See also

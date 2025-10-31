@@ -36,13 +36,13 @@ GPU objects are `IMesh`, `IShader`, `ITexture` created by `IGraphicFactory` from
 
 An empty list returns before any command buffer is cleared and before the camera check. The function clears `ctx<WindowClears>()` first. That set only records which buffers were cleared this frame.
 
-When the list is not empty, each bound window's command buffer is cleared once. A window with no buffer is skipped. If there is then no `Renderable`, `Sprite`, or `ParticleEmitter`, it returns. An invalid or default `ctx<ActiveCamera>` returns after those clears and does not call the fatal hook. A live entity that lacks `Camera` or `Transform` is fatal. Neither path pushes scene commands. `run_ui_render` still pushes `CmdDrawUI`. A window `run_render` already cleared is not cleared again.
+When the list is not empty, each bound window's command buffer is cleared once. A window with no buffer is skipped: a bound window can outlive its buffer for a frame when the OS closes it between two dock syncs (`Worlds::unbind_window` runs on the next one). If there is then no `Renderable`, `Sprite`, or `ParticleEmitter`, it returns. An invalid or default `ctx<ActiveCamera>` is fatal, and so is a live entity that lacks `Camera` or `Transform`. Neither path pushes scene commands. `run_render` is only registered when `EngineSystemDeps` has a command buffer (`commands` or `commands_for_window`); a world without one draws nothing and never checks the camera. `run_ui_render` still pushes `CmdDrawUI`. A window `run_render` already cleared is not cleared again.
 
 The draw list is sorted once. That list is pushed to every bound window that has a command buffer. Every window shares the camera view. Each window's projection is `projection_matrix` with `window_size_for(world, id)`, which reads `Presentation.sizes` for that id.
 
 A null `Sprite::mesh` uses `builtin::mesh_quad` when that asset loads. An explicit `Sprite::material` is used as-is. A null material with a non-null `texture` reuses the `ctx<SpriteMaterialCache>` entry for that texture pointer, or builds `Material(builtin::shader_unlit, texture, white, BlendMode::Alpha)` and stores it. If that shader did not load and the cache misses, the sprite is fatal and skipped. `builtin::material_unlit` is not used on that path.
 
-`builtin::material_unlit` is only the null-material and null-texture case, when that asset loads. A sprite that still has no mesh or material is fatal and skipped.
+`builtin::material_unlit` is only the null-material and null-texture case, when that asset loads. A sprite that still has no mesh or material is fatal.
 
 Items sort by layer, then `order_in_layer`, then material pointer, then entity index (`renderable_less` / `draw_item_less`). `sort_renderables` is a stable sort of that predicate.
 
