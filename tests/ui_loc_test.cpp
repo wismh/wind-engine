@@ -6,19 +6,10 @@
 #include <engine/ui/view_model.h>
 
 #include <string>
+#include "fixtures/fatal_fakes.h"
+#include "fixtures/bind_error_fakes.h"
 
 namespace {
-
-class RecordingFatalError final : public engine::IFatalError {
-public:
-    int call_count = 0;
-    std::string last_message;
-
-    void report(std::string_view message) override {
-        ++call_count;
-        last_message = std::string(message);
-    }
-};
 
 class ScoreModel final : public engine::ui::ViewModel {
 public:
@@ -88,7 +79,7 @@ TEST(UiLoc, MissingSourceKeyIsFatalOnlyWhenHookIsSet) {
     ASSERT_TRUE(engine::ui::apply_bindings(*document, vm, nullptr, &catalog).has_value());
     EXPECT_EQ(document->root.children[0].text, "menu.missing");
 
-    RecordingFatalError fatal;
+    fakes::RecordingBindErrors fatal;
     const auto applied = engine::ui::apply_bindings(*document, vm, &fatal, &catalog);
     ASSERT_FALSE(applied.has_value());
     EXPECT_EQ(applied.error(), engine::ui::UiError::MissingString);
@@ -99,7 +90,7 @@ TEST(UiLoc, MissingSourceKeyIsFatalOnlyWhenHookIsSet) {
 TEST(UiLoc, MissingArgBindingIsFatal) {
     engine::ui::ViewModel vm;
     engine::loc::Catalog catalog = apples_catalog();
-    RecordingFatalError fatal;
+    fakes::RecordingBindErrors fatal;
     auto document = engine::ui::parse_xml(
             R"(<Canvas><Label text="{tr hud.apples count={binding score}}"/></Canvas>)");
     ASSERT_TRUE(document.has_value());

@@ -17,6 +17,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include "fixtures/fatal_fakes.h"
 
 namespace {
 
@@ -27,11 +28,6 @@ public:
     void draw() override {
         ++draw_count;
     }
-};
-
-class QuietFatal final : public engine::IFatalError {
-public:
-    void report(std::string_view) override {}
 };
 
 class DummyGame final : public engine::GameBase {
@@ -144,7 +140,7 @@ public:
 }
 
 TEST(Host, WorldOnIGame) {
-    QuietFatal fatal;
+    fakes::QuietFatal fatal;
     engine::Worlds worlds{fatal};
     DummyGame game{worlds};
     FakeCanvas canvas;
@@ -154,7 +150,7 @@ TEST(Host, WorldOnIGame) {
 }
 
 TEST(Host, RegisterEngineSystemsBeforeOnStart) {
-    QuietFatal fatal;
+    fakes::QuietFatal fatal;
     engine::Worlds worlds{fatal};
     SequenceGame game{worlds};
     FakeCanvas canvas;
@@ -208,7 +204,7 @@ TEST(Host, PhaseOrderFixed) {
 }
 
 TEST(Host, FakeCanvasDraw) {
-    QuietFatal fatal;
+    fakes::QuietFatal fatal;
     engine::Worlds worlds{fatal};
     DummyGame game{worlds};
     FakeCanvas canvas;
@@ -222,7 +218,7 @@ TEST(Host, FakeCanvasDraw) {
 }
 
 TEST(Host, WindowSizeWrittenBeforeOnStart) {
-    QuietFatal fatal;
+    fakes::QuietFatal fatal;
     engine::Worlds worlds{fatal};
     WindowSizeGame game{worlds};
     FakeCanvas canvas;
@@ -236,7 +232,7 @@ TEST(Host, WindowSizeWrittenBeforeOnStart) {
 }
 
 TEST(Host, ResizeWritesWindowSize) {
-    QuietFatal fatal;
+    fakes::QuietFatal fatal;
     engine::Worlds worlds{fatal};
     FillWindowGame game{worlds};
     FakeCanvas canvas;
@@ -265,7 +261,7 @@ TEST(Host, ResizeWritesWindowSize) {
 }
 
 TEST(Host, AudioUpdateEveryFrame) {
-    QuietFatal fatal;
+    fakes::QuietFatal fatal;
     engine::Worlds worlds{fatal};
     DummyGame game{worlds};
     FakeCanvas canvas;

@@ -26,6 +26,7 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#include "fixtures/fatal_fakes.h"
 
 #ifndef ENGINE_BUILTIN_ASSETS_DIR
 #error "ENGINE_BUILTIN_ASSETS_DIR must be set to the builtin_assets path"
@@ -97,12 +98,6 @@ public:
     FormulaVm() { property(intern("formula"), formula); }
 };
 
-class SilentFatal final : public engine::IFatalError {
-public:
-    int calls = 0;
-    void report(std::string_view) override { ++calls; }
-};
-
 Stylesheet must_parse_css(std::string_view css) {
     std::vector<std::string> warnings;
     auto sheet = parse_css(css, warnings);
@@ -160,11 +155,12 @@ TEST(UiMathElement, XmlBindsTheFormulaToAViewModelProperty) {
 
 TEST(UiMathElement, UnregisteredFormulaBindingIsFatalLikeAnyOtherBinding) {
     FormulaVm vm;
-    SilentFatal fatal;
-    const auto parsed = parse_xml(R"(<Canvas><Math formula="{binding nope}"/></Canvas>)", &fatal, &vm);
+    fakes::QuietFatal fatal;
+    EXPECT_THROW((void) parse_xml(R"(<Canvas><Math formula="{binding nope}"/></Canvas>)", &fatal, &vm),
+                 fakes::FatalReport);
+    const auto parsed = parse_xml(R"(<Canvas><Math formula="{binding nope}"/></Canvas>)", nullptr, &vm);
     EXPECT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), UiError::MissingBinding);
-    EXPECT_GE(fatal.calls, 1);
 }
 
 TEST(UiMathElement, BuilderMatchesXml) {
