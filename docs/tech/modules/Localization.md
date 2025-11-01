@@ -29,8 +29,8 @@ Runtime load is `AssetsDb::get<loc::StringTable>`. The game copies tables into `
 | --- | --- |
 | Missing active translation, key present in the source table | fallback or the key. Warns once. `missing_from_source` stays false |
 | Key absent from the source table | `missing_from_source` true. Warns once |
-| `apply_bindings` sees `missing_from_source` and an `IFatalError` was passed | `UiError::MissingString` |
-| `run_bind` | does not pass `IFatalError`, so the frame shows the key |
+| `apply_bindings` sees `missing_from_source` and an `IBindErrorSink` was passed | `UiError::MissingString` |
+| `run_bind` | does not pass a sink, so the frame shows the key |
 
 `set_active` and `set_fallback` take locale tags. `set_pseudo(true)` makes `text` pass the finished string through `pseudolocalize`: `[` + text + `max(1, text.size() / 3)` tildes + `]`.
 
