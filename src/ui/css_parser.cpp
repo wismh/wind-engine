@@ -40,6 +40,7 @@ bool is_known_property(std::string_view name) {
             "width",
             "height",
             "min-width",
+            "max-width",
             "min-height",
             "padding",
             "margin",
@@ -48,6 +49,7 @@ bool is_known_property(std::string_view name) {
             "align-items",
             "justify-content",
             "text-align",
+            "white-space",
             "background-image",
             "background-slice",
             "background-repeat",
@@ -91,7 +93,7 @@ bool is_known_property(std::string_view name) {
 }
 
 bool is_length_property(std::string_view name) {
-    return name == "width" || name == "height" || name == "min-width" || name == "min-height" || name == "padding" ||
+    return name == "width" || name == "height" || name == "min-width" || name == "max-width" || name == "min-height" || name == "padding" ||
             name == "margin" || name == "gap" || name == "font-size" || name == "border-radius" ||
             name == "border-width" || name == "top" || name == "right" || name == "bottom" || name == "left" ||
             name == "x1" || name == "y1" || name == "x2" || name == "y2" || name == "stroke-width" ||
