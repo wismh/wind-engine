@@ -12,6 +12,21 @@ include_guard(GLOBAL)
 
 get_filename_component(_wind_sdk_dir "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 
+# Export build (-DWIND_EXPORT=ON, which the editor passes for Export): the game is a standalone executable, so it
+# builds the static engine of this exact version from <sdk>/source instead of importing engine.dll. That is the
+# engine's own CMakeLists.txt as a subdirectory, the source build of docs/tech/build/Game Consumer.md, and it
+# defines `engine`, the host tools and the game functions itself. The game's CMakeLists.txt does not change:
+# find_package(Wind) and engine_add_game give a module in the editor build and an executable in this one.
+# The binary directory is not `wind`: <build>/wind/ holds the game's .module and .export records.
+if(WIND_EXPORT)
+    if(NOT EXISTS "${_wind_sdk_dir}/source/CMakeLists.txt")
+        message(FATAL_ERROR "Wind SDK at ${_wind_sdk_dir} has no source/: it cannot export a standalone build")
+    endif()
+    message(STATUS "Wind ${Wind_VERSION}: export build of the engine from ${_wind_sdk_dir}/source")
+    add_subdirectory("${_wind_sdk_dir}/source" wind-engine)
+    return()
+endif()
+
 # Cache entries: the game functions run in the game's directory scope and read them from there.
 set(WIND_SDK_DIR "${_wind_sdk_dir}" CACHE INTERNAL "Wind editor SDK root")
 set(WIND_SDK_CONFIG "$<CONFIG>" CACHE INTERNAL "Configuration the Wind editor SDK was built in")

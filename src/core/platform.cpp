@@ -1,7 +1,20 @@
 #include <engine/core/platform.h>
 
+#include <cstdio>
 #include <string>
 #include <system_error>
+
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#elif defined(__linux__) && !defined(__ANDROID__)
+#include <unistd.h>
+#endif
 
 #if (defined(ENGINE_WITH_WINDOW) && ENGINE_WITH_WINDOW) || defined(__ANDROID__)
 #include <SDL3/SDL.h>
@@ -316,6 +329,48 @@ std::expected<std::filesystem::path, std::error_code> user_data_directory_from_s
 
 #endif
 
+}
+
+std::filesystem::path executable_directory() {
+#if defined(_WIN32)
+    std::wstring buffer(MAX_PATH, L'\0');
+    for (;;) {
+        const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+        if (length == 0) {
+            return {};
+        }
+        if (length < buffer.size()) {
+            buffer.resize(length);
+            return std::filesystem::path(buffer).parent_path();
+        }
+        buffer.resize(buffer.size() * 2);
+    }
+#elif defined(__linux__) && !defined(__ANDROID__)
+    std::error_code ec;
+    const std::filesystem::path exe = std::filesystem::read_symlink("/proc/self/exe", ec);
+    return ec ? std::filesystem::path{} : exe.parent_path();
+#else
+    return {};
+#endif
+}
+
+bool attach_parent_console() {
+#if defined(_WIN32)
+    const HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (out != nullptr && out != INVALID_HANDLE_VALUE) {
+        // A pipe or a file (a CI step, `> log.txt`): the CRT already writes to it.
+        return true;
+    }
+    if (!AttachConsole(ATTACH_PARENT_PROCESS)) {
+        return false;
+    }
+    FILE* stream = nullptr;
+    (void)freopen_s(&stream, "CONOUT$", "w", stdout);
+    (void)freopen_s(&stream, "CONOUT$", "w", stderr);
+    return true;
+#else
+    return true;
+#endif
 }
 
 std::expected<std::filesystem::path, std::error_code> user_data_directory(
