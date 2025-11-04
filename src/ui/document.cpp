@@ -239,13 +239,15 @@ void collect_layout_children(ElementT& element, std::vector<Out*>& children) {
     if (element.kind == ElementKind::ItemsControl) {
         children.reserve(element.generated_items.size());
         for (auto& child : element.generated_items) {
-            children.push_back(&child);
+            if (!child.display_none) {
+                children.push_back(&child);
+            }
         }
         return;
     }
     children.reserve(element.children.size());
     for (auto& child : element.children) {
-        if (child.kind != ElementKind::ItemTemplate) {
+        if (child.kind != ElementKind::ItemTemplate && !child.display_none) {
             children.push_back(&child);
         }
     }
@@ -543,7 +545,7 @@ void layout_element(Element& element, const render::Rect& box, IUiPainter* paint
     std::vector<Element*> flow;
     std::vector<Element*> absolute;
     for (Element& child : element.children) {
-        if (child.kind == ElementKind::ItemTemplate) {
+        if (child.kind == ElementKind::ItemTemplate || child.display_none) {
             continue;
         }
         if (child.position == PositionMode::Absolute) {
@@ -762,7 +764,7 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
                 // the max_scroll_y / layout_rect.h staleness this eligibility check already
                 // relies on above.
                 for (const Element& old : element.generated_items) {
-                    if (old.generated_owner != nullptr && old.height && old.height->unit == LengthUnit::Px &&
+                    if (old.generated_owner != nullptr && !old.display_none && old.height && old.height->unit == LengthUnit::Px &&
                             old.height->calc.empty() && old.height->value > 0.0f) {
                         row_height_px = old.height->value;
                         element.virtualization_row_height_cache = row_height_px;
@@ -1078,6 +1080,9 @@ std::vector<Element*> child_stacking_order(std::vector<Element>& children) {
 }
 
 Element* hit_test(Element& element, float x, float y) {
+    if (!element.visible || element.display_none) {
+        return nullptr;
+    }
     if (!rect_contains(hit_bounds(element), x, y)) {
         return nullptr;
     }
@@ -1127,7 +1132,7 @@ Element* hit_test(Element& element, float x, float y) {
 }
 
 void find_viewport_at_impl(Element& element, float x, float y, Element*& found) {
-    if (element.kind == ElementKind::ItemTemplate) {
+    if (element.kind == ElementKind::ItemTemplate || !element.visible || element.display_none) {
         return;
     }
     float child_x = x;
@@ -1222,7 +1227,7 @@ render::Rect scrollbar_thumb_rect(const Element& element, float /*ui_scale*/) no
 }
 
 void find_scrollable_at_impl(Element& element, float x, float y, Element*& found) {
-    if (element.kind == ElementKind::ItemTemplate) {
+    if (element.kind == ElementKind::ItemTemplate || !element.visible || element.display_none) {
         return;
     }
     if (!rect_contains(element.layout_rect, x, y)) {
