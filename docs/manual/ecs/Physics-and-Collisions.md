@@ -33,6 +33,8 @@ world.emplace<engine::ecs::BoxCollider>(coin, engine::ecs::BoxCollider{
 });
 ```
 
+Colliders are tested at the entity's **world position**. A collider on a child entity (see [Hierarchy](Hierarchy.md)) follows its parent; its `size` and `radius` are world units and are not scaled or rotated by the parent. A `RigidBody` moves the local `Transform.position`, so the velocity of a child is in its parent's space.
+
 ---
 
 ## 2. Running Physics Detection

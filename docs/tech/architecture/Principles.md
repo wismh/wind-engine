@@ -28,7 +28,7 @@ Normative rules. If a change fights these, the change is wrong. As-built detail 
 6. Shared engine behavior ships with a GoogleTest, not only a game that seems to work.
 7. Do not change an asset GUID after it is referenced. Move files with their `.meta`. Builtin GUIDs in `builtin_ids.h` are frozen.
 8. `asset_codegen` never writes `.meta`. A missing sidecar is a failed build, not a random GUID in CI.
-9. ECS is homemade and EnTT-shaped. Do not add EnTT as a submodule. Do not keep a Node graph beside `World`. No `Transform` parent.
+9. ECS is homemade and EnTT-shaped. Do not add EnTT as a submodule. Do not keep a Node graph beside `World`. `Transform` has no parent field. The hierarchy is a separate `Parent` component plus a derived `WorldTransform` (see [ECS](../modules/ECS.md)); `Parent` and `Transform` are the replicated state, `WorldTransform` is derived and never replicated.
 10. Simulation uses `fixed_delta_time` on `Schedule::Fixed`. One-shot clicks run on `Schedule::Frame`, `Phase::Game`.
 11. UI documents are XML assets and/or `ui::Node` into the same `Element` tree. Games do not build a parallel widget graph.
 12. All engine APIs are main-thread only.
