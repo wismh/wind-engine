@@ -43,12 +43,12 @@ int main(int argc, char** argv) {
 
     // The host before the app, so the app is destroyed first while the services it holds live.
     engine::EngineHost host;
-    if (!host.init()) {
-        return 1;
+    if (const auto started = host.init(); !started) {
+        engine::report_startup_error(started.error());
     }
     bench::BenchApp app(host.services(), *bench_case, *options);
-    if (!host.open_primary(app.primary_window())) {
-        return 1;
+    if (const auto opened = host.open_primary(app.primary_window()); !opened) {
+        engine::report_startup_error(opened.error());
     }
     if (!host.load_catalog(host.assets_root())) {
         host.fatal().report("Failed to load the bench catalog");

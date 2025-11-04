@@ -12,6 +12,6 @@ public:
 
 }
 
-template bool engine::Engine<WindowSmokeGame>::init();
+template std::expected<void, engine::EngineError> engine::Engine<WindowSmokeGame>::init();
 template int engine::Engine<WindowSmokeGame>::run();
 template void engine::Engine<WindowSmokeGame>::dispose();
