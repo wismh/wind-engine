@@ -8,7 +8,7 @@ Device vibration: duration and intensity only. One frontend, `IHaptics`. The bac
 
 | Call | Contract |
 | --- | --- |
-| `init` / `dispose` | `EngineHost::open_primary` calls `init()` and, on failure, disposes the host and returns false. `dispose()` runs from `EngineHost::dispose`, and only after `EngineHost::init` succeeded |
+| `init` / `dispose` | `EngineHost::open_primary` calls `init()` and, on failure, disposes the host and returns `EngineError::HapticsInit`. `dispose()` runs from `EngineHost::dispose`, and only after `EngineHost::init` succeeded |
 | `vibrate(duration_seconds, intensity = 1)` | Fire-and-forget. Intensity is clamped to `[0, 1]` |
 | `cancel` | Stops a vibration already running |
 | `is_supported` | Runtime capability, not "this binary was compiled for Android" |
