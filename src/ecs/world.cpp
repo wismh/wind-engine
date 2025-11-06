@@ -1,5 +1,9 @@
 #include "engine/ecs/world.h"
 
+#include <engine/ecs/hierarchy.h>
+
+#include <algorithm>
+
 namespace engine::ecs {
 
 Entity World::create() {
@@ -45,6 +49,36 @@ void World::destroy_immediate(Entity entity) {
     if (!valid(entity)) {
         return;
     }
+    // Destroying a parent destroys every descendant. The walk is iterative so a deep chain cannot overflow the stack.
+    // A child counts only when its Parent names the entity that lists it, which keeps the walk a finite forest.
+    if (const Parent* parent = try_get<Parent>(entity)) {
+        if (Children* siblings = try_get<Children>(parent->entity)) {
+            auto& list = siblings->entities;
+            list.erase(std::remove(list.begin(), list.end(), entity), list.end());
+            if (list.empty()) {
+                remove<Children>(parent->entity);
+            }
+        }
+    }
+    std::vector<Entity> doomed{entity};
+    for (std::size_t i = 0; i < doomed.size(); ++i) {
+        const Children* children = try_get<Children>(doomed[i]);
+        if (children == nullptr) {
+            continue;
+        }
+        for (Entity child : children->entities) {
+            const Parent* parent = try_get<Parent>(child);
+            if (valid(child) && parent != nullptr && parent->entity == doomed[i]) {
+                doomed.push_back(child);
+            }
+        }
+    }
+    for (Entity victim : doomed) {
+        release(victim);
+    }
+}
+
+void World::release(Entity entity) {
     for (auto& [type, pool] : pools_) {
         (void) type;
         pool->remove(entity);

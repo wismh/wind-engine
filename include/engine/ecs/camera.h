@@ -26,12 +26,14 @@ struct ActiveCamera {
 
 [[nodiscard]] float camera_aspect(const Camera& camera, const ui::WindowSize& window);
 
-[[nodiscard]] glm::mat4 view_matrix(const Transform& transform);
+// `camera_world` is the camera entity's world matrix (`ecs::world_matrix`). The view is its inverse, so a rotated
+// or parented camera works.
+[[nodiscard]] glm::mat4 view_matrix(const glm::mat4& camera_world);
 [[nodiscard]] glm::mat4 projection_matrix(const Camera& camera, const ui::WindowSize& window);
 
 [[nodiscard]] glm::vec3 screen_to_world(
-        glm::vec2 screen, const Camera& camera, const Transform& transform, const ui::WindowSize& window);
+        glm::vec2 screen, const Camera& camera, const glm::mat4& camera_world, const ui::WindowSize& window);
 [[nodiscard]] glm::vec2 world_to_screen(
-        glm::vec3 world, const Camera& camera, const Transform& transform, const ui::WindowSize& window);
+        glm::vec3 world, const Camera& camera, const glm::mat4& camera_world, const ui::WindowSize& window);
 
 }

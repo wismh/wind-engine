@@ -31,7 +31,7 @@ To maintain a clean codebase and ensure seamless upgrades when moving to a new e
 
 ## 3. ECS Architecture Discipline
 
-- **No Scene-Graph Hierarchy:** Do not add a `parent` pointer or `children` array to `Transform`. World transformations are absolute coordinates. Hierarchical attachments should be resolved explicitly through relationship components or systems.
+- **No Scene-Graph Hierarchy:** Do not add a `parent` pointer or `children` array to `Transform`. `Transform` is local; attachment is the separate `Parent` component and `set_parent` (see [Hierarchy](../ecs/Hierarchy.md)), and the world matrix is derived in `Phase::Transform`.
 - **No Direct EventBus Subscriptions:** Do not build a monolithic publish/subscribe bus with arbitrary callback lambdas. Use double-buffered `Events<T>` queues read by systems during frame updates.
 - **No Third-Party ECS Integration:** Do not pull EnTT into game code; use Wind's built-in generational `ecs::World`.
 - **No Service Locator:** Take what you need from `EngineServices` in your game's constructor and keep the references; there is no `Engine::get_audio()`.
