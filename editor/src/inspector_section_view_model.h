@@ -1,9 +1,9 @@
 #pragma once
 
 #include "inspector_line_view_model.h"
-#include "method_command.h"
 
 #include <engine/ui/bindable.h>
+#include <engine/ui/command.h>
 #include <engine/ui/view_model.h>
 
 #include <memory>
@@ -29,7 +29,7 @@ public:
     // The chevron's `checked`: turned down while expanded.
     engine::ui::Bindable<bool> expanded;
     engine::ui::BindableList<std::shared_ptr<InspectorLineViewModel>> lines;
-    MethodCommand toggle;
+    engine::ui::MethodCommand toggle;
 
 private:
     InspectorPanel* panel_;
