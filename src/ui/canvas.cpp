@@ -58,8 +58,6 @@ namespace engine::ui {
         }
         if (IFatalError *const fatal = world.ctx<IFatalError *>()) {
             fatal->report("World has no presentation");
-            static Presentation missing;
-            return missing;
         }
         slot = &world.ctx<Presentation>();
         return *slot;

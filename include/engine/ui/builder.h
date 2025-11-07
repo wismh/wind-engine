@@ -114,6 +114,8 @@ private:
 [[nodiscard]] Node math_formula();
 [[nodiscard]] Node popup();
 
+// `fatal` null: a failure is only the returned UiError, nothing is reported. `fatal` set: a failure calls
+// `fatal->report`, which does not return.
 [[nodiscard]] std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal = nullptr);
 
 }

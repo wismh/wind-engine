@@ -24,13 +24,9 @@
 #include <string_view>
 #include <thread>
 #include <vector>
+#include "fixtures/fatal_fakes.h"
 
 namespace {
-
-class QuietFatal final : public engine::IFatalError {
-public:
-    void report(std::string_view) override {}
-};
 
 // Records the calls GameLoop makes. Accessors the loop never reaches abort.
 class FakePresentation final : public engine::IPresentation {
@@ -116,7 +112,7 @@ private:
 }
 
 TEST(GameLoop, RunHooksWrapTheFramesInOrder) {
-    QuietFatal fatal;
+    fakes::QuietFatal fatal;
     engine::Worlds worlds{fatal};
     engine::InputSystem input;
     std::vector<std::string> log;
@@ -144,7 +140,7 @@ TEST(GameLoop, RunHooksWrapTheFramesInOrder) {
 }
 
 TEST(GameLoop, FrameEndCanKeepTheLoopRunning) {
-    QuietFatal fatal;
+    fakes::QuietFatal fatal;
     engine::Worlds worlds{fatal};
     engine::InputSystem input;
     std::vector<std::string> log;
@@ -183,7 +179,7 @@ TEST(GameLoop, FrameEndCanKeepTheLoopRunning) {
 #if defined(ENGINE_CLI_SERVER)
 
 TEST(GameLoop, CliReachesTheHostWithoutAPrimaryWorld) {
-    QuietFatal fatal;
+    fakes::QuietFatal fatal;
     engine::Worlds worlds{fatal};
     engine::InputSystem input;
     std::vector<std::string> log;
@@ -239,7 +235,7 @@ TEST(GameLoop, CliReachesTheHostWithoutAPrimaryWorld) {
 }
 
 TEST(GameLoop, ScreenshotIsReadBetweenDrawingAndTheAnswer) {
-    QuietFatal fatal;
+    fakes::QuietFatal fatal;
     engine::Worlds worlds{fatal};
     engine::InputSystem input;
     std::vector<std::string> log;

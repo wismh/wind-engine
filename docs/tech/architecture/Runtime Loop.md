@@ -15,13 +15,13 @@ Windowed games enter through `ENGINE_GAME` (`include/engine/game_entry.h`), whic
 3. `EngineHost::open_primary(game.primary_window())`:
    1. `runtime.create_window`. Attach the fatal hook again so it sees the created window.
    2. `audio.init()`, then `haptics.init()`, then `http.init()`. An HTTP failure only logs a warning; requests then answer `Unsupported`.
-   3. `assets.set_graphic_factory` and `set_root(runtime.assets_root())`. An empty root is fatal.
-   4. Load `assets/engine/catalog.toml`. Failure is fatal.
-   5. Load `builtin::font_ui` into the primary window's UI atlas. Other fonts and UI images load later, when `run_ui_render` sees them referenced.
+   3. `assets.set_graphic_factory` and `set_root(runtime.assets_root())`. An empty root fails with `AssetsRoot`.
+   4. Load `assets/engine/catalog.toml`. Failure returns `EngineCatalog`.
+   5. Load `builtin::font_ui` into the primary window's UI atlas (`UiFont` on failure). Other fonts and UI images load later, when `run_ui_render` sees them referenced.
    6. `Worlds::set_deps`. That registers simulation systems on the game world.
 
-   Any failure disposes the host and `init` returns false.
-4. `EngineHost::load_catalog(assets_root())`: `assets/catalog.toml`. `MetaError::Io` (file absent) is success. Any other error is fatal.
+   Any failure disposes the host and returns its `EngineError` (`WindowCreate`, `AudioInit`, `HapticsInit`, `AssetsRoot`, `EngineCatalog`, `UiFont`). `Engine<GameT>::init` passes it up, and `ENGINE_GAME` hands it to `report_startup_error`: one message box with the cause, exit 1.
+4. `EngineHost::load_catalog(assets_root())`: `assets/catalog.toml`. `MetaError::Io` (file absent) is success. Any other error disposes the host and `init` returns `GameCatalog`.
 5. `EngineHost::attach_game(game)`: if `window_icon()` is set, `get<render::TextureDesc>` and `set_window_icon`. Then `bind_window(kPrimaryWindow)`, `enable_ui`, `enable_audio`, `write_window_size` (sends a resize event), `ui::apply_canvas_fit`.
 
 `run` calls `EngineHost::run` with `RunHooks` whose `on_start` and `on_quit` call the game. `EngineHost::run` calls `runtime.run`, then `dispose`. `dispose` disposes audio, haptics, and HTTP (cancelling every pending call) and shuts the runtime down. A second `dispose` is a no-op.

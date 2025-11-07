@@ -920,17 +920,27 @@ namespace engine::ui {
     // include nesting depth — the resolver owns path composition. Returns nullopt if unreadable.
     using UiIncludeResolver = std::function<std::optional<std::string>(std::string_view src)>;
 
+    // `fatal` null: a failure is only the returned UiError, nothing is reported. `fatal` set: a failure calls
+    // `fatal->report`, which does not return.
     [[nodiscard]] std::expected<UiDocument, UiError> parse_xml(std::string_view xml, IFatalError *fatal = nullptr,
                                                                const ViewModel *data_context = nullptr,
                                                                const UiIncludeResolver &resolve_include = {});
 
-    // `catalog` resolves `{tr}` keys. Null leaves a `{tr}` element's text as the key and, when `fatal`
+    // Receives each failure of one apply_bindings pass. Unlike IFatalError::report it returns, because the pass
+    // keeps walking: one missing binding must not leave the rest of the document unbound.
+    class IBindErrorSink {
+    public:
+        virtual ~IBindErrorSink() = default;
+        virtual void bind_error(std::string_view message) = 0;
+    };
+
+    // `catalog` resolves `{tr}` keys. Null leaves a `{tr}` element's text as the key and, when `errors`
     // is set, reports MissingString. Documents with no `{tr}` ignore it.
     // A binding the data context does not register is skipped, not fatal to the rest: every other element and
-    // binding still binds. `fatal` gets one report per failure (naming the path from `binding_paths`), and the
-    // result is the first error.
+    // binding still binds. `errors` (null: none) gets one message per failure (naming the path from
+    // `binding_paths`), and the result is the first error. Nothing here is fatal; the caller decides.
     std::expected<void, UiError> apply_bindings(UiDocument &document, ViewModel &data_context,
-                                                IFatalError *fatal = nullptr,
+                                                IBindErrorSink *errors = nullptr,
                                                 const engine::loc::Catalog *catalog = nullptr);
 
     void layout(UiDocument &document, const render::Rect &canvas_rect);

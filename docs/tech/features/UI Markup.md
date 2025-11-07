@@ -4,7 +4,7 @@ XML (`src/ui/xml_parser.cpp`, tinyxml2) and `ui::Node` (`src/ui/builder.cpp`) bu
 
 ## Parse
 
-Unknown tags call `IFatalError` when one was passed and return `UiError::UnknownElement`.
+Unknown tags call `IFatalError` when one was passed (it does not return) and otherwise return `UiError::UnknownElement`. `parse_xml` and `make_document` take a null `IFatalError*` to mean "`std::expected` only, no report".
 
 | Attribute | Accepted forms |
 | --- | --- |
@@ -68,7 +68,7 @@ Color, gradient, `background-repeat`, easing, and `transform` values are on [UI]
 2. Merge stylesheet asset ids with `try_get<Stylesheet>`. An empty list does not wipe a sheet already on the instance.
 3. `apply_bindings` writes properties, commands, and paint ids from the view-model, then `{tr}` from `ctx<loc::Catalog>()`.
 
-A binding the view-model does not register is skipped; the rest of the document still binds. `apply_bindings` reports each failure to its `IFatalError` (`UI paint binding "world" is not registered on the data context`; a builder document has no paths and shows `#<id hex>`) and returns the first error. `run_bind` passes a reporter that logs each message once per canvas with `log::warn`, prefixed by the document id, and remembers it in `UiInstance::reported_bind_errors`, so a missing binding is one log line, not one per frame. A new document starts a fresh set.
+A binding the view-model does not register is skipped; the rest of the document still binds. `apply_bindings` reports each failure to its `IBindErrorSink` (not an `IFatalError`: the pass keeps walking, so the sink returns; `UI paint binding "world" is not registered on the data context`; a builder document has no paths and shows `#<id hex>`) and returns the first error. `run_bind` passes a sink that logs each message once per canvas with `log::warn`, prefixed by the document id, and remembers it in `UiInstance::reported_bind_errors`, so a missing binding is one log line, not one per frame. A new document starts a fresh set.
 
 A bound command sets `disabled` from `!can_execute()` on every bind, except `TextInput`. See [UI Input](UI%20Input.md).
 

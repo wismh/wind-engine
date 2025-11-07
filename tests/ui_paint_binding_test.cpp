@@ -17,23 +17,14 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include "fixtures/bind_error_fakes.h"
+#include "fixtures/fatal_fakes.h"
 
 #if defined(NANOVG_H) || defined(NANOVG_GL_H) || defined(NANOVG_GL3)
 #error "ui paint binding tests must not include nvg headers"
 #endif
 
 namespace {
-
-class RecordingFatalError final : public engine::IFatalError {
-public:
-    int call_count = 0;
-    std::string last_message;
-
-    void report(std::string_view message) override {
-        ++call_count;
-        last_message = std::string(message);
-    }
-};
 
 struct LineCall {
     glm::vec2 from{};
@@ -130,8 +121,9 @@ TEST(UiPaintBinding, ParseComponentPaintBinding) {
 }
 
 TEST(UiPaintBinding, UnknownTagIsStillFatal) {
-    RecordingFatalError fatal;
-    const auto parsed = engine::ui::parse_xml("<Canvas><Plot/></Canvas>", &fatal);
+    fakes::RecordingFatal fatal;
+    EXPECT_THROW((void) engine::ui::parse_xml("<Canvas><Plot/></Canvas>", &fatal), fakes::FatalReport);
+    const auto parsed = engine::ui::parse_xml("<Canvas><Plot/></Canvas>", nullptr);
     EXPECT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::UnknownElement);
     EXPECT_GE(fatal.call_count, 1);
@@ -193,9 +185,11 @@ TEST(UiPaintBinding, PaintDrawsArcInLocalContentCoordinatesWithScaledRadiusAndWi
 
 TEST(UiPaintBinding, UnregisteredPaintIsMissingBinding) {
     engine::ui::ViewModel vm;
-    RecordingFatalError fatal;
+    fakes::RecordingFatal fatal;
+    EXPECT_THROW((void) engine::ui::parse_xml(
+            R"(<Canvas><Component paint="{binding plot}"/></Canvas>)", &fatal, &vm), fakes::FatalReport);
     const auto parsed = engine::ui::parse_xml(
-            R"(<Canvas><Component paint="{binding plot}"/></Canvas>)", &fatal, &vm);
+            R"(<Canvas><Component paint="{binding plot}"/></Canvas>)", nullptr, &vm);
     EXPECT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::MissingBinding);
     EXPECT_GE(fatal.call_count, 1);
@@ -211,6 +205,6 @@ TEST(UiPaintBinding, ApplyBindingsResolvesPaintPointer) {
     EXPECT_EQ(parsed->root.children[0].paint, &vm.plot);
 
     engine::ui::ViewModel empty;
-    RecordingFatalError fatal;
+    fakes::RecordingBindErrors fatal;
     EXPECT_EQ(engine::ui::apply_bindings(*parsed, empty, &fatal).error(), engine::ui::UiError::MissingBinding);
 }

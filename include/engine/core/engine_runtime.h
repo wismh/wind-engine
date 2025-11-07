@@ -25,12 +25,15 @@ namespace engine {
 class HttpClient;
 class ProcessLauncher;
 class IAudioSystem;
+class IPresentation;
 struct Font;
 
 // Owns the windowed presentation and the game loop. SDL and OpenGL stay behind IPresentation.
 class EngineRuntime {
 public:
     EngineRuntime();
+    // Test seam: a fake presentation instead of SDL + OpenGL.
+    explicit EngineRuntime(std::unique_ptr<IPresentation> presentation);
     ~EngineRuntime();
 
     EngineRuntime(const EngineRuntime&) = delete;

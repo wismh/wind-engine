@@ -27,6 +27,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include "fixtures/fatal_fakes.h"
 
 namespace {
 
@@ -71,18 +72,6 @@ public:
 
     std::shared_ptr<engine::render::ITexture> create_texture(const engine::render::TextureDesc&) override {
         return std::make_shared<FakeTexture>();
-    }
-};
-
-class RecordingFatalError final : public engine::IFatalError {
-public:
-    int call_count = 0;
-    std::string last_message;
-
-    void report(std::string_view message) override {
-        ++call_count;
-        last_message = std::string(message);
-        throw std::runtime_error(last_message);
     }
 };
 
@@ -274,7 +263,7 @@ TEST(Sprite, MissingMeshOrMaterialWithoutAssetsReportsFatal) {
     world.emplace<engine::render::Sprite>(entity, engine::render::Sprite{});
 
     engine::render::CommandBuffer commands;
-    RecordingFatalError fatal;
+    fakes::RecordingFatal fatal;
     engine::register_engine_systems(world, engine::EngineSystemDeps{
             .commands = &commands,
             .fatal = &fatal,
@@ -361,7 +350,7 @@ TEST(Sprite, AutomaticMeshAndMaterialResolutionWithAssets) {
     });
 
     FakeGraphicFactory factory;
-    RecordingFatalError fatal;
+    fakes::RecordingFatal fatal;
     engine::AssetsDb db(fatal);
     db.set_catalog(std::move(catalog));
     db.set_root(tree.path);

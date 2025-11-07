@@ -47,8 +47,8 @@
 #define ENGINE_GAME(GameClass)                                                                                  \
     int main() {                                                                                                \
         ::engine::Engine<GameClass> app;                                                                        \
-        if (!app.init()) {                                                                                      \
-            return 1;                                                                                           \
+        if (const auto started = app.init(); !started) {                                                        \
+            ::engine::report_startup_error(started.error());                                                    \
         }                                                                                                       \
         return app.run();                                                                                       \
     }

@@ -2,6 +2,7 @@
 
 #include "render/opengl/gl_includes.h"
 
+#include <cstdlib>
 #include <string>
 
 namespace engine {
@@ -18,6 +19,7 @@ void SdlFatalError::report(std::string_view message) {
     if (app_ != nullptr) {
         app_->quit();
     }
+    std::exit(1);
 }
 
 }
