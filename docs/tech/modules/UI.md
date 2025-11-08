@@ -179,7 +179,7 @@ Without `EngineSystemDeps::assets` the clone and stylesheet systems are not regi
 
 Generated binders (`asset_codegen`) emit `static constexpr BindingId` members and `bind(vm)` that calls `vm.property` / `vm.command` using the member names. The game writes the `ViewModel` subclass. See [Asset Codegen](../build/Asset%20Codegen.md).
 
-`ICommand` is `can_execute` and `execute`. `RelayCommand` stores `std::function`. `IPaint::paint` receives an `IDrawList` and the content rect, after CSS chrome and before children. `IDrawList` is local content pixels: line, fill and stroke rect, arc, font, text, image. Games do not call NanoVG.
+`ICommand` is `can_execute` and `execute`. `RelayCommand` stores `std::function` and fits tests and quick scripts. `MethodCommand` is the command of a button on an owner: an owner pointer and a function pointer (no `std::function`, no allocation), bound after construction with `bind_to<Owner, &Owner::method[, &Owner::can_method]>(owner)`; unbound it cannot execute, and binding again replaces the owner. `IPaint::paint` receives an `IDrawList` and the content rect, after CSS chrome and before children. `IDrawList` is local content pixels: line, fill and stroke rect, arc, font, text, image. Games do not call NanoVG.
 
 ## Input
 
