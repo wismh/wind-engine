@@ -16,6 +16,7 @@ enum class Phase {
     Physics,
     Input,
     Game,
+    Transform,
     Bind,
     Audio,
     Render,
@@ -23,11 +24,11 @@ enum class Phase {
 };
 
 inline constexpr std::size_t kScheduleCount = 2;
-inline constexpr std::size_t kPhaseCount = 7;
+inline constexpr std::size_t kPhaseCount = 8;
 
 inline constexpr std::array<Phase, 2> kFixedPhases{Phase::Physics, Phase::Game};
-inline constexpr std::array<Phase, 6> kFramePhases{
-        Phase::Input, Phase::Game, Phase::Bind, Phase::Audio, Phase::Render, Phase::UiRender};
+inline constexpr std::array<Phase, 7> kFramePhases{
+        Phase::Input, Phase::Game, Phase::Transform, Phase::Bind, Phase::Audio, Phase::Render, Phase::UiRender};
 
 [[nodiscard]] constexpr std::size_t schedule_index(Schedule schedule) noexcept {
     return static_cast<std::size_t>(schedule);

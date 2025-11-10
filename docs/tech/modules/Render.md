@@ -46,7 +46,7 @@ A null `Sprite::mesh` uses `builtin::mesh_quad` when that asset loads. An explic
 
 Items sort by layer, then `order_in_layer`, then material pointer, then entity index (`renderable_less` / `draw_item_less`). `sort_renderables` is a stable sort of that predicate.
 
-Model matrix is translate, then rotate X, Y, Z, then scale.
+Model matrix is the entity's world matrix (`ecs::world_matrix`): translate, then rotate X, Y, Z, then scale for a root, and the parent chain times that for a child (`Parent`, see [ECS](ECS.md#hierarchy)). `Phase::Transform` refreshes it before `Render`. The sprite pivot, size and flip below are applied after it. A `Local`-space `ParticleEmitter` uses the same world matrix. The view is the inverse of the active camera's world matrix.
 
 Sprite world size is `pixel_size / pixels_per_unit` (default 100), with the pivot offset, only when both `pixel_size` components and `pixels_per_unit` are greater than 0. `Sprite::pixel_size` defaults to `{0,0}`, so a sprite left there is the mesh at the `Transform` only. Flip and UV tiling/offset still apply. `get_sprite` fills `pixel_size`.
 
