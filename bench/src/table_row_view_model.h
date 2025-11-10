@@ -1,9 +1,9 @@
 #pragma once
 
-#include "method_command.h"
 #include "table_record.h"
 
 #include <engine/ui/bindable.h>
+#include <engine/ui/command.h>
 #include <engine/ui/view_model.h>
 
 #include <string>
@@ -25,7 +25,7 @@ public:
     engine::ui::Bindable<std::string> ratio;
     // The zebra stripe through `var-stripe`, by the record's id so a row keeps its color when rows move.
     engine::ui::Bindable<std::string> stripe;
-    MethodCommand select;
+    engine::ui::MethodCommand select;
 
 private:
     bool picked_ = false;
