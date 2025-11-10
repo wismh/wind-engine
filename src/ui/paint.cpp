@@ -546,6 +546,9 @@ void apply_declaration(ComputedStyle& style, const CssDeclaration& decl) {
         style.opacity = std::strtof(decl.value.c_str(), nullptr);
     } else if (decl.property == "visibility") {
         style.visible = trim(decl.value) != "hidden";
+    } else if (decl.property == "display") {
+        // Only `none` is supported; any other value is the default (displayed).
+        style.display_none = trim(decl.value) == "none";
     } else if (decl.property == "gap") {
         if (const auto gap = css_length::parse_length(decl.value)) {
             style.gap = *gap;
@@ -1015,6 +1018,12 @@ void apply_layout_style(Element& element, const Stylesheet* sheet, std::vector<c
         return;
     }
     const ComputedStyle style = compute_style(element, sheet, false, ancestors, window_width, window_height);
+    element.visible = style.visible;
+    element.display_none = style.display_none;
+    if (style.display_none) {
+        // Layout skips it from now on, so drop any geometry left from when it was displayed.
+        element.layout_rect = render::Rect{};
+    }
     if (style.has_gap) {
         element.gap = style.gap;
     }
@@ -1120,7 +1129,7 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
 
     ComputedStyle style =
             compute_style(element, sheet, true, ancestors, input.window_width, input.window_height);
-    if (!style.visible) {
+    if (!style.visible || style.display_none) {
         return;
     }
     apply_animation_opacity(element, style, sheet, input.delta_time);
