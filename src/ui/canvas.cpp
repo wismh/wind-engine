@@ -1,5 +1,6 @@
 #include <engine/ui/canvas.h>
 
+#include <engine/loc/catalog.h>
 #include <engine/ui/document.h>
 
 #include "painter.h"
@@ -12,6 +13,10 @@
 
 namespace engine::ui {
 namespace {
+
+const engine::loc::Catalog* catalog_for(ecs::World& world) {
+    return &world.ctx<engine::loc::Catalog>();
+}
 
 struct CanvasHit {
     int order = 0;
@@ -220,7 +225,7 @@ std::optional<PreparedCanvas> prepare_top_canvas(
             sheet = &*instance->stylesheet;
         }
         if (canvas.data_context) {
-            (void) apply_bindings(instance->document, *canvas.data_context, nullptr);
+            (void) apply_bindings(instance->document, *canvas.data_context, nullptr, catalog_for(world));
         }
         const float media_width = space.reference_space ? space.layout_rect.w : static_cast<float>(size.width);
         const float media_height = space.reference_space ? space.layout_rect.h : static_cast<float>(size.height);
@@ -542,7 +547,7 @@ void update_drag_impl(ecs::World& world, float x, float y, WindowId window, UiIn
         // batch==nullptr caller (every direct test call) always re-binds, unchanged from before
         // Крок 4.
         if (batch == nullptr || !batch->contains(drag.canvas_entity)) {
-            (void) apply_bindings(instance->document, *canvas->data_context, nullptr);
+            (void) apply_bindings(instance->document, *canvas->data_context, nullptr, catalog_for(world));
         } else {
             ++batch->drag_or_pan_bindings_reused_count;
         }
@@ -597,7 +602,7 @@ ViewModel* pan_target(ecs::World& world, const ActivePan& pan, UiCanvas& canvas,
         return nullptr;
     }
     if (batch == nullptr || !batch->contains(pan.canvas_entity)) {
-        (void) apply_bindings(instance->document, *canvas.data_context, nullptr);
+        (void) apply_bindings(instance->document, *canvas.data_context, nullptr, catalog_for(world));
     } else {
         ++batch->drag_or_pan_bindings_reused_count;
     }
