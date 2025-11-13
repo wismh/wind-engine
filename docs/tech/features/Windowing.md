@@ -99,11 +99,29 @@ The hooks are synthetic cursor polling for click-through, per-window transparent
 
 Click-through is a bounding box. `update_click_through` starts from whether `Presentation.mouse` contains that `WindowId`. A client cursor inside the drag region is then counted as a hit, before `should_be_click_through`. While `set_click_through_enabled` is on and the window is transparent, the window lets clicks through only when that hit is still false, so a cursor in the drag region stays on the window when `Presentation.mouse` does not contain the id. Hover updates that set, so it is not stuck on the last click. There is no per-pixel framebuffer test.
 
+Sprites and other world entities take part through `PointerTarget` (`include/engine/ecs/pointer_target.h`, [UI Input](UI%20Input.md#pointer-targets)): `run_pointer_targets` runs right after the UI input systems, adds the window to this same set when an enabled target is under the cursor and no UI is, and so a game never writes `consumed_windows` for a sprite. The order (UI first, then targets, then the click-through read in `sync_frame`) is the registration order of the systems, not a rule for the caller.
+
 `reset_pointer_frame` clears `Presentation.mouse` at the start of `simulate_worlds`, before any world's `begin_frame`. `begin_frame` does not clear it. The hit-test inserts the window into `presentation_of(world).mouse`. `sync_frame` passes `worlds.presentation().mouse` to click-through, so it sees those hits. `world.ctx<ui::MouseConsumed>().consumed_for(window)` does not.
+
+## Cursor, buttons, and capture
+
+Three `IWindowControl` calls give a game the pointer without any platform header (no `GetCursorPos`, no `GetAsyncKeyState`):
+
+| Call | Meaning |
+| --- | --- |
+| `cursor_screen_position()` | The cursor on the desktop, screen coordinates, the same space as `position()` / `set_position()` (`SDL_GetGlobalMouseState`). Works over other applications. `cursor_client_position(windows, window)` (inline, `window_control.h`) subtracts `position(window)`; it is negative or past the size when the cursor left the window |
+| `is_mouse_button_down(button)` | The OS button state, wherever the cursor is. `None` is false |
+| `capture_mouse(window, on)` | Keeps mouse events coming to `window` after the cursor leaves it. Returns whether the capture is in effect; `is_mouse_captured(window)` reads it |
+
+Not supported: Wayland (a client cannot see the global pointer), the browser, and Android. `cursor_screen_position()` is `nullopt`, `is_mouse_button_down` is false, and `capture_mouse` returns false and holds nothing. They never fail louder than that. `global_mouse_supported(video driver)` (`src/render/opengl/mouse_capture.h`) is the check, so a window-relative value is never passed off as a screen position. `capture_mouse` on a window that is not open is false as well.
+
+**Why `capture_mouse` and not "deliver events to the window that owns the press".** SDL captures the mouse for the process, not for a window, and the engine already needed it for the drag-region window move. The engine's capture and a game's used to be able to switch each other off (`end_drag` called `SDL_CaptureMouse(false)`). `MouseCapture` (`src/render/opengl/mouse_capture.h`), owned by `WindowManager`, is now the only caller of `SDL_CaptureMouse`: the OS capture is on while the engine's window drag is running (counted) or a game window holds it, and releasing one never switches off the other. One game window holds the capture at a time; capturing another window moves it, and closing the window releases it (`destroy_window` calls `window_closed`). A game that wants only "events for the press owner" gets that from the capture it takes on button down and releases on button up.
 
 ## Drag region
 
 `set_drag_region` takes a rect in window-client pixels, the same space as `UiCanvas.rect`. `nullopt` clears it. The engine moves the window with `SDL_CaptureMouse`. It does not use the OS modal move loop.
+
+The drag takes part in the one `MouseCapture` (see above), so a game's `capture_mouse` and the window move do not switch each other off.
 
 A left click inside the rect starts a drag and is consumed before UI and ECS see it. A button inside that rect does not receive the click. Shrink the rect so it does not cover those controls.
 
@@ -154,6 +172,8 @@ Public headers do not include SDL.
 ## Tests
 
 `tests/window_style_test.cpp` and `tests/window_icon_test.cpp` do not call `SDL_Init(SDL_INIT_VIDEO)`. A live display is out of `engine_tests`. See [Boundaries](../architecture/Boundaries.md). `window_style_test` covers `utility` as `SDL_WINDOW_UTILITY`, `raise` of a window that is not open, and a primary window with an owner refused; an owned window on a display (no taskbar entry, closed with its owner) is not in `engine_tests`.
+
+`tests/mouse_capture_test.cpp` (window builds, no display) covers `MouseCapture` with an injected switch: a game capture on and off, the engine's drag not switching a game capture off and the other way round, one window at a time, an unsupported platform holding nothing, close releasing; and `global_mouse_supported` per video driver. `tests/window_cursor_test.cpp` covers the `FakeWindowControl` double (`tests/fixtures/fake_services.h`: `cursor`, `buttons_down`, `capture_supported`, `capture_owner`) and `cursor_client_position`. `tests/pointer_target_test.cpp` covers the pointer targets. Real SDL behaviour (the global cursor, a captured drag leaving the window) is checked by hand under `xvfb` and by the CI smoke runs, not in `engine_tests`.
 
 `tests/event_window_test.cpp` covers `event_window` without SDL: a live window's id, a closed window's id dropped for every kind, and id 0 per kind.
 

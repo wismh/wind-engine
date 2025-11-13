@@ -122,7 +122,7 @@ In UI XML a dynamic value is written `text="{binding healthText}"` and `command=
 
 ## 10. Click-Through Is Checked on the Presentation
 
-Whether the UI took the mouse this frame is `ui::presentation_of(world).mouse.consumed_for(window)`. `world.ctx<ui::MouseConsumed>()` never sees those hits ([Raw Input & Mouse](../input/Raw-Input-and-Mouse.md#2-preventing-click-through)).
+Whether the UI took the mouse this frame is `ui::presentation_of(world).mouse.consumed_for(window)`. For a sprite in the world, add a `PointerTarget` instead of hit-testing it and writing into that set yourself ([Raw Input & Mouse](../input/Raw-Input-and-Mouse.md#3-clickable-sprites-with-pointertarget)). `world.ctx<ui::MouseConsumed>()` never sees those hits ([Raw Input & Mouse](../input/Raw-Input-and-Mouse.md#2-preventing-click-through)).
 
 ---
 
