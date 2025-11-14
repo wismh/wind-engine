@@ -89,6 +89,7 @@ Then [[include.engine.core.engine.h|Run]] → [[architecture/Runtime Loop]].
 | `CmdDrawMesh`                     | Render system         | OpenGL backend                                    |
 | `CmdDrawUI`                       | UiRender system       | NanoVG painter                                    |
 | `MouseConsumed`                   | UI hit-test           | game must skip cell clicks                        |
+| `{tr}` key                        | string-table asset    | UI bind writes `Element::text`                    |
 |                                   |                       |                                                   |
 
 ## Tests vs window

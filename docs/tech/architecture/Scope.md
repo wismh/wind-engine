@@ -14,6 +14,7 @@ Wind is a 2D C++ game engine for production titles. Games are `IGame` implementa
 - Homemade ECS with EnTT as API reference only (not a dependency).
 - Render abstractions + OpenGL 3.3 backend: materials, instance tint, layer sort; NanoVG executes `CmdDrawUI`.
 - AssetsDb + GUID catalog: sidecar TOML `.meta`, `asset_guid` + `asset_codegen`.
+- Localization: `.strings` tables by `AssetId`, `{tr}` in UI, integer plural categories. The game selects the active locale and persists that choice.
 - Audio: buses, SFX pool, music A/B, looping SFX handles on SDL3_mixer.
 - Double-buffered event queues, not a callback bus.
 - Boost.DI wiring of engine services.
@@ -39,6 +40,7 @@ Wind is a 2D C++ game engine for production titles. Games are `IGame` implementa
 - Transform parenting, scene-graph matrices, or auto Y-sort (`sort_mode = Y`).
 - Per-pixel (framebuffer-alpha) click-through. Click-through is bounding-box hit-test ([[features/Windowing]]).
 - Haptics waveforms / pattern playback (duration + intensity only).
+- Bidirectional text, complex-script shaping, and OS `setlocale`. String tables cover left-to-right languages whose glyphs are in the UI font.
 
 ## Backlog
 
