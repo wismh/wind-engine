@@ -281,3 +281,27 @@ TEST(UiBuilder, SpawnCanvasClearsCatalogIdAndKeepsDocument) {
                       ->text,
             "Hello");
 }
+
+TEST(UiBuilder, TextParsesTrKey) {
+    auto document = engine::ui::make_document(
+            engine::ui::canvas().add(engine::ui::label().text("{tr menu.play}")));
+    ASSERT_TRUE(document.has_value());
+    const engine::ui::Element* label = engine::ui::find_by_kind(document->root, engine::ui::ElementKind::Label);
+    ASSERT_NE(label, nullptr);
+    EXPECT_EQ(label->tr_key, "menu.play");
+    EXPECT_TRUE(label->tr_args.empty());
+    EXPECT_FALSE(engine::ui::is_bound(label->text_binding));
+}
+
+TEST(UiBuilder, MalformedTrFailsMakeDocument) {
+    auto document = engine::ui::make_document(engine::ui::canvas().add(engine::ui::label().text("{tr}")));
+    ASSERT_FALSE(document.has_value());
+    EXPECT_EQ(document.error(), engine::ui::UiError::InvalidMarkup);
+}
+
+TEST(UiBuilder, FormulaRejectsTr) {
+    auto document = engine::ui::make_document(
+            engine::ui::canvas().add(engine::ui::math_formula().formula("{tr menu.play}")));
+    ASSERT_FALSE(document.has_value());
+    EXPECT_EQ(document.error(), engine::ui::UiError::InvalidMarkup);
+}
