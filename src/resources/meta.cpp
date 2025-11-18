@@ -55,6 +55,9 @@ std::optional<ImporterKind> parse_importer(std::string_view value) {
     if (value == "animation") {
         return ImporterKind::Animation;
     }
+    if (value == "strings") {
+        return ImporterKind::Strings;
+    }
     return std::nullopt;
 }
 
@@ -370,6 +373,17 @@ std::expected<AssetMeta, MetaError> parse_meta_table(const toml::table& table) {
         return std::unexpected(audio.error());
     }
 
+    if (table.contains("source")) {
+        if (meta.importer != ImporterKind::Strings) {
+            return std::unexpected(MetaError::InvalidField);
+        }
+        const auto source = table["source"].value<bool>();
+        if (!source) {
+            return std::unexpected(MetaError::InvalidField);
+        }
+        meta.strings_source = *source;
+    }
+
     return meta;
 }
 
@@ -413,6 +427,8 @@ std::string_view to_string(ImporterKind kind) noexcept {
             return "css";
         case ImporterKind::Animation:
             return "animation";
+        case ImporterKind::Strings:
+            return "strings";
     }
     return "texture";
 }
