@@ -52,6 +52,7 @@ WindowManager::WindowManager(render::IRenderBackend& backend) : backend_(&backen
     // until the first successful create_primary_window() call.
     auto primary = std::make_unique<Entry>();
     primary->canvas = std::make_shared<render::OpenGLCanvas>(primary->window, *primary->commands, backend);
+    primary->window.set_mouse_capture(&capture_);
     windows_[kPrimaryWindow] = std::move(primary);
 }
 
@@ -109,6 +110,7 @@ std::optional<WindowId> WindowManager::create_window(const WindowDesc& desc) {
     }
 
     auto entry = std::make_unique<Entry>();
+    entry->window.set_mouse_capture(&capture_);
     entry->owner = desc.owner;
     if (!entry->window.create(desc, owner)) {
         return std::nullopt;
@@ -152,6 +154,7 @@ void WindowManager::destroy_window(WindowId id) {
     if (vsync_window_ == id) {
         vsync_window_.reset();
     }
+    capture_.window_closed(id);
     if (id == kPrimaryWindow) {
         // The primary slot is permanent infrastructure (see the constructor): whether a game may
         // close its own primary window at all is a lifecycle *policy* question,

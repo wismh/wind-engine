@@ -3,6 +3,7 @@
 // docs/tech/features/Windowing.md
 
 #include <engine/core/file_dialog.h>
+#include <engine/core/input_system.h>
 #include <engine/core/window_desc.h>
 #include <engine/render/commands.h>
 
@@ -95,6 +96,28 @@ public:
     // Shrink or notch the rect to exclude every interactive control's bounds before calling this.
     virtual void set_drag_region(std::optional<render::Rect> region, WindowId window = kPrimaryWindow) = 0;
 
+    // The cursor on the desktop, in screen coordinates: the same space as position() and set_position(), so
+    // `cursor_screen_position() - position(window)` is the cursor in that window's client pixels, inside the window
+    // or not. Works while the cursor is over another application. nullopt where the platform cannot say: Wayland
+    // (a client cannot see the global pointer), the browser, and Android. Never an error, never a crash.
+    [[nodiscard]] virtual std::optional<glm::vec2> cursor_screen_position() const = 0;
+
+    // Whether `button` is held down right now, wherever the cursor is, read from the OS (not from the last event the
+    // game was sent). false for MouseButton::None, and false where cursor_screen_position() is nullopt.
+    [[nodiscard]] virtual bool is_mouse_button_down(MouseButton button) const = 0;
+
+    // Keeps mouse events coming to `window` after the cursor leaves it, until released: a drag that starts in a
+    // window and ends outside it. Returns whether the capture is now in effect: false for a window that is not
+    // open, for a release, and where the platform cannot capture (the call is then a no-op). One window holds the
+    // capture at a time; capturing for another moves it, and it ends when that window closes. It does not clash with
+    // the engine's own capture while it moves a borderless window by its set_drag_region: the engine captures for
+    // that drag even if the game released, and a game's capture survives the end of a drag. Release it when the
+    // button goes up; a capture left on keeps the other applications from receiving clicks.
+    virtual bool capture_mouse(WindowId window, bool capture) = 0;
+
+    // Whether `window` holds the capture a game asked for (not the engine's own drag capture).
+    [[nodiscard]] virtual bool is_mouse_captured(WindowId window) const = 0;
+
     // Opens/closes a secondary window. nullopt on failure (e.g. no primary
     // window yet, or a WindowDesc::owner that is not open). Closing is purely mechanical — see
     // WindowCloseRequestedEvent (include/engine/ui/canvas.h) for how a game learns a window's close button was
@@ -127,5 +150,16 @@ public:
     // display — the same result as usable_display_bounds(0).
     [[nodiscard]] virtual render::Rect usable_display_bounds_for_window(WindowId window = kPrimaryWindow) const = 0;
 };
+
+// The cursor in `window`'s client pixels: cursor_screen_position() minus position(window). Outside the window it is
+// negative or past the window's size, which is what a drag that left the window needs. nullopt when either is unknown.
+[[nodiscard]] inline std::optional<glm::vec2> cursor_client_position(const IWindowControl& windows, WindowId window) {
+    const std::optional<glm::vec2> cursor = windows.cursor_screen_position();
+    const std::optional<glm::ivec2> origin = windows.position(window);
+    if (!cursor || !origin) {
+        return std::nullopt;
+    }
+    return *cursor - glm::vec2(*origin);
+}
 
 }
