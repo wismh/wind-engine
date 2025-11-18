@@ -43,6 +43,20 @@ Do:
 
 Done when: tests cover both forms and re-binding to a new owner; the `wind-cpp` skill and manual match the real API.
 
+Status: in progress (wind-214).
+
+### Migration (wind-214, E2)
+
+- Old: a game-side `MemberCommand` (or one lambda per button, assigned to a `RelayCommand`).
+- New: `engine::ui::MethodCommand` in `<engine/ui/command.h>`. The view model holds `engine::ui::MethodCommand togglePause;`
+  (the generated `bind()` registers it as an `ICommand`), and the owner binds it after construction:
+  `vm->togglePause.bind_to<HudPanel, &HudPanel::toggle_pause>(*this);`. An optional third argument,
+  `&HudPanel::can_toggle_pause` (`bool ... const`), decides `can_execute()`. Unbound, the command cannot execute and does
+  nothing; `bind_to` again moves it to a new owner. There is no owner-in-constructor form.
+- td-over: replaces `MemberCommand` and the per-button lambdas plus their public hooks in the view models (E2). Delete
+  the game's own member-command header and change the members to `engine::ui::MethodCommand`. `RelayCommand` stays for
+  tests and quick scripts.
+
 ## wind-215 feat: absolute-positioned, drag-bound `ItemsControl` items and a Slider control (E5, E9)
 
 RFC: td-over `docs/engine-proposals/drag-binding-in-itemscontrol.md`. Needs wind-213.
