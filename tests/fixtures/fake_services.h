@@ -206,6 +206,28 @@ public:
     }
     void set_click_through_enabled(bool, engine::WindowId) override {}
     void set_drag_region(std::optional<engine::render::Rect>, engine::WindowId) override {}
+    std::optional<glm::vec2> cursor_screen_position() const override {
+        return cursor;
+    }
+    bool is_mouse_button_down(engine::MouseButton button) const override {
+        return cursor.has_value() && std::ranges::find(buttons_down, button) != buttons_down.end();
+    }
+    bool capture_mouse(engine::WindowId window, bool capture) override {
+        if (!capture) {
+            if (capture_owner == window) {
+                capture_owner.reset();
+            }
+            return false;
+        }
+        if (!capture_supported || !is_open(window)) {
+            return false;
+        }
+        capture_owner = window;
+        return true;
+    }
+    bool is_mouse_captured(engine::WindowId window) const override {
+        return capture_owner == window;
+    }
     std::optional<engine::WindowId> open_window(const engine::WindowDesc& desc) override {
         if (refuse_open || (desc.owner && !is_open(*desc.owner))) {
             return std::nullopt;
@@ -228,6 +250,9 @@ public:
             }
         }
         std::erase(open, id);
+        if (capture_owner == id) {
+            capture_owner.reset();
+        }
         positions.erase(id);
         sizes.erase(id);
         note("windows.close " + std::to_string(static_cast<std::uint32_t>(id)));
@@ -263,6 +288,12 @@ public:
     std::map<engine::WindowId, glm::ivec2> positions;
     std::map<engine::WindowId, glm::ivec2> sizes;
     std::vector<engine::WindowId> raised;
+    // What cursor_screen_position answers (nullopt: the platform cannot say) and the buttons held while it can.
+    std::optional<glm::vec2> cursor;
+    std::vector<engine::MouseButton> buttons_down;
+    // False: capture_mouse(window, true) answers false, as on a platform without capture.
+    bool capture_supported = true;
+    std::optional<engine::WindowId> capture_owner;
     // Usable display bounds, display 0 first. Empty: the queries answer a zero rect.
     std::vector<engine::render::Rect> displays;
     // open_window answers nullopt.
