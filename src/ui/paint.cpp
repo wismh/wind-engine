@@ -1110,8 +1110,9 @@ namespace engine::ui {
             }
             const ComputedStyle &style = compute_style(element, sheet, false, ancestors, window_width, window_height);
             element.visible = style.visible;
-            element.display_none = style.display_none;
-            if (style.display_none) {
+            // `if="{binding}"` hides the element after the cascade, so no winning `display` rule shows it again.
+            element.display_none = style.display_none || element.hidden_by_if;
+            if (element.display_none) {
                 // Layout skips it from now on, so drop any geometry left from when it was displayed.
                 element.layout_rect = render::Rect{};
             }
@@ -1301,7 +1302,7 @@ namespace engine::ui {
                 used = &(*overlay);
             }
             const ComputedStyle &style = *used;
-            if (!style.visible || style.display_none) {
+            if (!style.visible || style.display_none || element.hidden_by_if) {
                 return;
             }
 
