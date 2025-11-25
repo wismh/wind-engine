@@ -53,7 +53,7 @@ A `UiCanvas` is a component on an entity (`include/engine/ui/canvas.h`).
 
 Unknown tags are `UiError::UnknownElement` and fatal when an `IFatalError` is passed (a null one returns the error only).
 
-Common attributes: `id`, `class` (space-separated), `name`. A custom property is only `var-<name>="{binding}"` (`parse_custom_properties` in `src/ui/xml_parser.cpp`), interned to a `BindingId`. A literal on that attribute is `UiError::ForbiddenContent`. `var-` with an empty name is ignored.
+Common attributes: `id`, `class` (space-separated), `name`. A custom property is only `var-<name>="{binding}"` (`parse_custom_properties` in `src/ui/xml_parser.cpp`), interned to a `BindingId`. A `Bindable<float>` or `Bindable<int>` substitutes its number as text, and a number with no unit is pixels in a length (`left: var(--x)`, `width: var(--w)`, inside `calc()`), so a position needs no string formatting; an `em` or `%` length still needs a `Bindable<std::string>`. A literal on that attribute is `UiError::ForbiddenContent`. `var-` with an empty name is ignored.
 
 `Node::var` (`src/ui/builder.cpp`) is the builder path. An empty name or an unbound id does nothing.
 
@@ -69,7 +69,7 @@ An attribute that is still unknown is ignored.
 
 `text` and `content` accept a literal, `{binding path}`, `{tr key}`, or `{tr key name={binding path}}`. The same attribute is not both `{tr}` and `{binding}`. `formula` rejects `{tr}`.
 
-`command`, `paint`, `drag`, `pan-x`, `pan-y`, `zoom`, `scroll-x`, and `scroll-y` must be `{binding}` when present. `source` is 32 hex or `{binding}`, never a filename. `checked` is a literal or `{binding}`. A trimmed `true` or `1` sets it. Any other non-binding literal, including `false` and `0`, sets it false and is not an error.
+`command`, `paint`, `drag`, `if`, `pan-x`, `pan-y`, `zoom`, `scroll-x`, and `scroll-y` must be `{binding}` when present. `if="{binding}"` (any element, `Element::if_binding`, builder `Node::if_bind`) reads a `Bindable<bool>` or any arithmetic one: zero hides the element like `display: none`, so it leaves layout, paint, and hit-testing, and no winning `display` rule shows it again (`Element::hidden_by_if`). A name the view model does not register, or a `Bindable` that is not a number, is reported to the `IBindErrorSink` with the name, and the element stays shown. `source` is 32 hex or `{binding}`, never a filename. `checked` is a literal or `{binding}`. A trimmed `true` or `1` sets it. Any other non-binding literal, including `false` and `0`, sets it false and is not an error.
 
 `stylesheet` on the root element is a CSS asset id. `ItemTemplate src` includes another document. A cycle is `UiError::CyclicInclude`.
 
@@ -169,7 +169,7 @@ The stylesheet parser still warns when `background-image` is not `none` or an `A
 
 `BindingId` is an FNV-1a hash of the path (`include/engine/ui/binding_id.h`). Zero means unbound. Two different paths that hash equal fail codegen (`CodegenErrorKind::Collision`).
 
-`Bindable<T>` stores a value. `set` does not publish a version. `BindableList::get()` returns a mutable `vector&`, so a list can change with no signal.
+`Bindable<T>` stores a value. `set` compares with `==` (a type without `==` always counts as changed) and, on a change, calls the one handler registered with `on_changed(std::function<void(const T&)>)`, synchronously, once. A write from C++ and a write from the document (`ViewModel::write_property_float` / `write_property_string`: drag, `TextInput`, `Checkbox`, popup close) take the same path; an unchanged value is silent. The handler runs inside input handling for a document write, so it must not destroy the view model or its canvas. `BindableList::get()` returns a mutable `vector&`, so a list can change with no signal.
 
 `ViewModel::property`, `command`, and `paint` register those objects by `BindingId`. `assign_property_string` writes only when the formatted text differs. `write_property_float` / `write_property_string` write back when the registered type matches. Arithmetic types format with `std::to_string`.
 
@@ -329,7 +329,7 @@ The engine keeps the probes and the editor shows the panels. `set_inspector_atta
 
 ## Tests
 
-`tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_items_control_virtualization_test.cpp`, `tests/ui_tree_test.cpp`, `tests/dock_layout_test.cpp`, `tests/dock_space_test.cpp`, `tests/dock_float_window_test.cpp`, `tests/ui_text_wrap_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_refs_test.cpp`, `tests/ui_loc_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_inline_math_test.cpp`, `tests/ui_math_parser_test.cpp`, `tests/ui_math_layout_test.cpp`, `tests/ui_math_paint_test.cpp`, `tests/ui_math_font_test.cpp`, `tests/ui_math_stretch_test.cpp`, `tests/ui_math_element_test.cpp`, `tests/splash_test.cpp`, `tests/ui_inspector_test.cpp`, `tests/ui_profiler_test.cpp`, `tests/ui_popup_test.cpp`.
+`tests/ui_bindable_visibility_test.cpp`, `tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_items_control_virtualization_test.cpp`, `tests/ui_tree_test.cpp`, `tests/dock_layout_test.cpp`, `tests/dock_space_test.cpp`, `tests/dock_float_window_test.cpp`, `tests/ui_text_wrap_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_refs_test.cpp`, `tests/ui_loc_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_inline_math_test.cpp`, `tests/ui_math_parser_test.cpp`, `tests/ui_math_layout_test.cpp`, `tests/ui_math_paint_test.cpp`, `tests/ui_math_font_test.cpp`, `tests/ui_math_stretch_test.cpp`, `tests/ui_math_element_test.cpp`, `tests/splash_test.cpp`, `tests/ui_inspector_test.cpp`, `tests/ui_profiler_test.cpp`, `tests/ui_popup_test.cpp`.
 
 ## See also
 

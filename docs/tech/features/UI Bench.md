@@ -68,7 +68,7 @@ Every document has an element with id `rest`, where the pointer waits, and the s
 | `one-change` | One bound value takes a new value: the frame counter of `table` and `inspector`, the gold of `hud` |
 | `hover` | One pointer move onto the next `hot` element that is on screen and is what a hit test there returns |
 | `scroll` | One wheel event of -0.1 units (4 px) at `wheel` |
-| `churn` | `table` removes a row and inserts a new one within the top 30; `inspector` collapses a section on even steps and expands it on the next |
+| `churn` | `table` removes a row and inserts a new one within the top 30; `inspector` collapses a section on even steps and expands it on the next (the section body is `if="{binding bodyShown}"`) |
 
 ## Measurement
 
