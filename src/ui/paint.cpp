@@ -303,6 +303,50 @@ WhiteSpace parse_white_space(std::string_view raw) {
     return trim(raw) == "nowrap" ? WhiteSpace::NoWrap : WhiteSpace::Normal;
 }
 
+// A bare number is a unitless factor, not px (unlike font-size). 0 and negative are invalid.
+std::optional<LineHeight> parse_line_height(std::string_view raw) {
+    const std::string_view value = trim(raw);
+    if (value == "normal") {
+        return LineHeight{};
+    }
+    const std::string tmp(value);
+    char* end = nullptr;
+    const float n = std::strtof(tmp.c_str(), &end);
+    if (end == tmp.c_str() || !(n > 0.0f)) {
+        return std::nullopt;
+    }
+    std::size_t i = static_cast<std::size_t>(end - tmp.c_str());
+    const std::size_t unit_begin = i;
+    while (i < tmp.size() && std::isspace(static_cast<unsigned char>(tmp[i])) == 0) {
+        ++i;
+    }
+    const std::string_view suffix(tmp.data() + unit_begin, i - unit_begin);
+    while (i < tmp.size()) {
+        if (std::isspace(static_cast<unsigned char>(tmp[i])) == 0) {
+            return std::nullopt;
+        }
+        ++i;
+    }
+    LineHeight parsed;
+    if (suffix.empty()) {
+        parsed.kind = LineHeightKind::Factor;
+        parsed.factor = n;
+        return parsed;
+    }
+    parsed.kind = LineHeightKind::Length;
+    parsed.length.value = n;
+    if (suffix == "px") {
+        parsed.length.unit = LengthUnit::Px;
+    } else if (suffix == "em") {
+        parsed.length.unit = LengthUnit::Em;
+    } else if (suffix == "%") {
+        parsed.length.unit = LengthUnit::Percent;
+    } else {
+        return std::nullopt;
+    }
+    return parsed;
+}
+
 UiAlign parse_text_align(std::string_view raw) {
     const std::string_view value = trim(raw);
     if (value == "center") {
@@ -627,6 +671,10 @@ void apply_declaration(ComputedStyle& style, const CssDeclaration& decl) {
     } else if (decl.property == "font-size") {
         if (const auto size = css_length::parse_length(decl.value)) {
             style.font_size = *size;
+        }
+    } else if (decl.property == "line-height") {
+        if (const auto line_height = parse_line_height(decl.value)) {
+            style.line_height = *line_height;
         }
     } else if (decl.property == "font-family") {
         const std::string_view value = trim(decl.value);
@@ -1042,6 +1090,7 @@ void apply_layout_style(Element& element, const Stylesheet* sheet, std::vector<c
     element.text_align = style.text_align;
     element.white_space = style.white_space;
     element.font_size = style.font_size;
+    element.line_height = style.line_height;
     element.font_family = style.font_family;
     element.z_index = style.z_index;
     element.position = style.position;

@@ -58,6 +58,7 @@ bool is_known_property(std::string_view name) {
             "border-width",
             "border-color",
             "font-size",
+            "line-height",
             "font-family",
             "animation-name",
             "animation-duration",
