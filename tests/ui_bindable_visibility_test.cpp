@@ -35,6 +35,20 @@ Element* find_class(Element& root, std::string_view class_name) {
     return nullptr;
 }
 
+class RowViewModel final : public engine::ui::ViewModel {
+public:
+    engine::ui::Bindable<bool> shown{true};
+
+    RowViewModel() { property(engine::ui::intern("shown"), shown); }
+};
+
+class ListViewModel final : public engine::ui::ViewModel {
+public:
+    engine::ui::BindableList<std::shared_ptr<RowViewModel>> rows;
+
+    ListViewModel() { property(engine::ui::intern("rows"), rows); }
+};
+
 class PanelViewModel final : public engine::ui::ViewModel {
 public:
     engine::ui::Bindable<bool> shown{true};
@@ -241,6 +255,32 @@ TEST(UiIfBinding, ABindableThatIsNotANumberIsANamedError) {
     ASSERT_FALSE(engine::ui::apply_bindings(*parsed, vm, &errors).has_value());
     ASSERT_EQ(errors.messages.size(), 1u);
     EXPECT_EQ(errors.messages[0], "UI if binding \"label\" must be a Bindable<bool> (or another number)");
+}
+
+TEST(UiIfBinding, ResolvesPerRowInsideAnItemTemplateWithoutAnError) {
+    auto parsed = engine::ui::parse_xml(
+            R"(<Canvas><ItemsControl items_source="{binding rows}"><ItemTemplate><Stack class="row" if="{binding shown}"/>
+</ItemTemplate></ItemsControl></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    ListViewModel vm;
+    vm.rows.get().push_back(std::make_shared<RowViewModel>());
+    vm.rows.get().push_back(std::make_shared<RowViewModel>());
+    vm.rows.get()[1]->shown.set(false);
+    fakes::RecordingBindErrors errors;
+
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm, &errors).has_value());
+
+    EXPECT_TRUE(errors.messages.empty());
+    const Element& list = parsed->root.children[0];
+    ASSERT_EQ(list.generated_items.size(), 2u);
+    EXPECT_FALSE(list.generated_items[0].hidden_by_if);
+    EXPECT_TRUE(list.generated_items[1].hidden_by_if);
+
+    vm.rows.get()[0]->shown.set(false);
+    vm.rows.get()[1]->shown.set(true);
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm, &errors).has_value());
+    EXPECT_TRUE(parsed->root.children[0].generated_items[0].hidden_by_if);
+    EXPECT_FALSE(parsed->root.children[0].generated_items[1].hidden_by_if);
 }
 
 TEST(UiIfBinding, LiteralIsRejectedAtParse) {
