@@ -32,7 +32,7 @@ public:
     engine::ui::Bindable<int> score{0};
 
     // Commands bound to buttons
-    engine::ui::RelayCommand togglePause;
+    engine::ui::MethodCommand togglePause;
 };
 
 } // namespace game
@@ -84,7 +84,7 @@ public:
 
     engine::ui::Bindable<std::string> healthText{"100"};
     engine::ui::Bindable<int> score{0};
-    engine::ui::RelayCommand togglePause;
+    engine::ui::MethodCommand togglePause;
 };
 ```
 
