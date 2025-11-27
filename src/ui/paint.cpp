@@ -1,6 +1,7 @@
 #include "painter.h"
 #include "css_length.h"
 #include "draw_list_adapter.h"
+#include "inline_math.h"
 #include "math/math_element.h"
 
 #include <engine/builtin_ids.h>
@@ -1285,6 +1286,13 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
                 std::max(0.0f, screen_rect.w - (padding.left + padding.right) * input.ui_scale),
                 std::max(0.0f, screen_rect.h - (padding.top + padding.bottom) * input.ui_scale),
         };
+        const bool inline_math = (element.kind == ElementKind::Label || element.kind == ElementKind::Button) &&
+                text_has_inline_markup(element.text);
+        if (inline_math) {
+            const float content_width = std::max(0.0f, element.layout_rect.w - padding.left - padding.right);
+            paint_label_inline(painter, element, font_size, content_width, content, input.ui_scale, style.text_align,
+                    style.align_items, style.color);
+        }
         const float x = text_align_origin_x(content.x, content.w, style.text_align);
         float y = content.y;
         if (style.align_items == UiAlign::Center) {
@@ -1293,7 +1301,8 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
             y = content.y + content.h;
         }
         const TextBlock* rows = nullptr;
-        if ((element.kind == ElementKind::Label || element.kind == ElementKind::Button) && !element.text.empty()) {
+        if (!inline_math && (element.kind == ElementKind::Label || element.kind == ElementKind::Button) &&
+                !element.text.empty()) {
             const float content_width = std::max(0.0f, element.layout_rect.w - padding.left - padding.right);
             rows = wrapped_text_rows(element, painter, font_size, content_width);
         }
@@ -1318,7 +1327,7 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
                         glm::vec2{x, top + static_cast<float>(i) * row_h}, style.color, style.text_align,
                         UiAlign::Start);
             }
-        } else if (!element.text.empty()) {
+        } else if (!inline_math && !element.text.empty()) {
             painter.fill_text(element.text, glm::vec2{x, y}, style.color, style.text_align, style.align_items);
         }
         if (element.kind == ElementKind::TextInput) {
