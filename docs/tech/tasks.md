@@ -30,6 +30,22 @@ Done when: tests in `engine_tests` cover XML-originated change notification, vis
 residue, and a float-bound `left`; `docs/tech/features/UI Markup.md` and `docs/manual` updated; no string-formatting
 path left as the only way to move an element.
 
+Status: in progress (wind-213).
+
+### Migration (wind-213, E1, E3, E4)
+
+- E1, old: poll a `Bindable` every frame to see what the document wrote (a drag fraction, a `TextInput` text, a checkbox).
+  New: `bindable.on_changed([this](const T& value) { ... })`, one handler per bindable, called once per change for a
+  write from the document and from C++, silent for an unchanged value. Delete the polling systems and the `last_` copies
+  kept next to them. Do not destroy the view model or its canvas inside the handler.
+- E3, old: a 0-or-1-item `ItemsControl`, or a `"none"`/`"flex"` string through `var-display`. New:
+  `if="{binding open}"` on the element, with `Bindable<bool> open`. Zero removes the element from layout, paint, and
+  hit-testing (the `display: none` path). The attribute is `if`, not `visible`, so it cannot be mistaken for CSS
+  `visibility`, which keeps the space. Delete the one-item lists and the display strings.
+- E4, old: `Bindable<std::string>` formatted as `"12.5px"` every frame. New: `Bindable<float>` (or `int`) in
+  `var-x="{binding x}"` with `left: var(--x)`. A bare number in a CSS length is pixels, and that worked before; it is
+  now tested and documented. `em` and `%` still take a string. Delete the pixel formatting helpers.
+
 ## wind-214 feat: `RelayCommand::bind_to` and late-owner commands (E2)
 
 Problem: `RelayCommand` takes only `std::function`; each button costs a lambda plus a public hook in the view model.
