@@ -37,6 +37,8 @@ public:
     Node& command_bind(BindingId id);
     Node& paint_bind(BindingId id);
     Node& drag_bind(BindingId id);
+    // `if="{binding id}"`: a bool property; while it is false the element is out of layout like `display: none`.
+    Node& if_bind(BindingId id);
     Node& checked(bool value);
     Node& checked_bind(BindingId id);
     // Popup only (see `<Popup open="..." placement="...">`).
