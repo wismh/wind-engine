@@ -9,7 +9,7 @@ World draws are data on entities. `run_render` turns them into commands, sorts t
 | `Renderable` + `Transform` | one `CmdDrawMesh` |
 | `Sprite` + `Transform` | one `CmdDrawMesh` (quad unless `mesh` is set) |
 | `ParticleEmitter` | one `CmdDrawParticles` after `run_particles`, when `particles` is not empty |
-| `SpriteAnimator` + `Sprite` | the animator copies the current frame onto the sprite first |
+| `SpriteAnimator` + `Sprite` | the animator copies the current frame onto the sprite first (`Sprite::apply_frame`) |
 
 An entity with both `Renderable` and `Sprite` skips the sprite. `run_render` emits only the `Renderable` command (and nothing from that entity when the `Renderable` itself is skipped).
 
@@ -17,7 +17,7 @@ An entity with both `Renderable` and `Sprite` skips the sprite. `run_render` emi
 
 A `Sprite` with a null mesh uses `builtin::mesh_quad` when that asset loads. An explicit `material` is used as-is. A null material with a non-null `texture` reuses the `ctx<SpriteMaterialCache>` entry for that texture pointer, or builds `Material(builtin::shader_unlit, texture, white, BlendMode::Alpha)` and caches it. If `builtin::shader_unlit` did not load and the cache misses, the sprite is fatal and skipped. `builtin::material_unlit` is only the null-material and null-texture case.
 
-`MaterialOverride` on either component replaces albedo slot 0 and named `vec4` uniforms for that draw only.
+`MaterialOverride` on either component replaces albedo slot 0 and named `vec4` uniforms for that draw only. It is data on the entity: `Sprite::set_param(name, vec4)` and `Renderable::set_param` create the override on first use and set (or replace) one uniform, once; the value stays on the component until set again or `clear_overrides()`. Nothing rewrites it per frame, and nothing is shared between two entities that use one material: `run_render` copies the entity's own override into its `CmdDrawMesh::material_override`, and the material object is never written. The OpenGL backend sets the override uniforms for that draw and then restores what each uniform held before (`OpenGLShader::vec4_value`, `glGetUniformfv`), and unbinds an override albedo after the draw, so an override cannot leak into the next draw that uses the same shader program (a uniform stays in the program until it is set again). A shader without that uniform ignores it.
 
 An empty `particles` list pushes nothing and does not report. When the list is not empty, mesh and material resolve as follows, and a result that is still null is fatal (`report` does not return).
 
@@ -26,6 +26,8 @@ An empty `particles` list pushes nothing and does not report. When the list is n
 - A null `material` with a texture reuses the `ctx<SpriteMaterialCache>` entry for that texture pointer (the same cache sprites use), or, when `builtin::shader_unlit` loaded, builds `Material(builtin::shader_unlit, texture, white, emitter.blend)` and stores it.
 - A null `material` and a null texture use `builtin::material_unlit` when it loads.
 - In both null-material cases `CmdDrawParticles.blend` stays `emitter.blend` (default `Alpha`). The OpenGL backend applies `cmd.blend` for particles (`src/render/opengl/opengl_backend.cpp`).
+
+`Sprite::from_frame(const SpriteAnimationFrame&)` builds a sprite from a frame, and `Sprite::apply_frame` copies onto an existing one, the same six frame-owned fields: `texture`, `tiling`, `offset`, `pixel_size`, `pixels_per_unit`, and `pivot`. Tint, layer, order, flips, `mesh`, `material`, and the override belong to the entity and are never touched. `run_sprite_animations` uses `apply_frame`, so the two cannot drift; `src/render/animation.cpp` binds all 14 `Sprite` members by name, which stops compiling when a field is added, so the choice "frame or entity" is made then. A `SpriteAnimator` that has not yet put a frame on its sprite (`frame_applied` is false: new, after `play` with another clip, after `stop`) does so on its next tick even when it is paused or `speed` is 0, so a spawned entity needs no manual copy. A paused animator that already applied its frame leaves the sprite alone.
 
 ## Color
 
