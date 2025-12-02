@@ -137,6 +137,23 @@ Do: `engine::config` (key-value or table, over `user_data_directory`); `engine::
 Done when: tests cover round-trip and malformed input (error, not UB); same seed gives the same sequence; no
 toml/random third-party header leaks into `include/`.
 
+Status: in progress (wind-219).
+
+### Migration (wind-219, E13, E14)
+
+- Old: a game-owned `std::mt19937` (per system or per game) and a hand-parsed JSON-ish settings file.
+- New, random: `world().ctx<engine::Random>()` (`<engine/core/random.h>`): `uniform(int, int)` (inclusive),
+  `uniform(float, float)`, `next_float()`, `chance(p)`, `pick(range)`, `next_u32()`. Fixed seed for tests and replays:
+  override `IGame::random_seed()` or call `ctx<engine::Random>().seed(n)`. The same seed gives the same numbers on every
+  platform, so a replay or a test can pin golden values. The default is a clock seed.
+- New, settings: `engine::Config::load(path)` / `save(path)` (`<engine/core/config.h>`) with `get_int("audio.volume", 80)`,
+  `set_int(...)`, `get_bool`, `get_float`, `get_string`; the file is TOML, a missing file is an empty config, a broken file
+  is a `ConfigError` (`InvalidToml`, `Unsupported`, `Io`), and `save` is a temp file plus rename. `engine::user_config_path(
+  org, app)` is `<user data directory>/config.toml`.
+- td-over: replaces the game's own `mt19937` holders and its settings reader/writer (E13, E14). Delete them, load the
+  config once in `on_start`, and keep the defaults in the `get_*` calls. A game that needs replays seeds the world's
+  `Random` from the recorded seed.
+
 ## wind-220 fix: strict UI diagnostics, null `AssetId` and GPU context in `AssetsDb::get` (E16, E18)
 
 Problem: `AssetsDb::get(AssetId{})` aborts; unknown binding names and CSS properties fail silently; in the editor
