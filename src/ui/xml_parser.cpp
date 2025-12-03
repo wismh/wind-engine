@@ -511,6 +511,11 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
     }
     assign_bool_attribute(element.allow_copy, xml->Attribute("allow-copy"));
     assign_bool_attribute(element.allow_paste, xml->Attribute("allow-paste"));
+    if (auto result = assign_required_property_binding(element.if_binding, xml->Attribute("if"), "if", fatal, vm,
+                in_template);
+            !result) {
+        return std::unexpected(result.error());
+    }
     if (auto result = assign_required_property_binding(element.pan_x_binding, xml->Attribute("pan-x"), "pan-x", fatal, vm,
                 in_template);
             !result) {
@@ -704,6 +709,7 @@ void collect_bind_element(const tinyxml2::XMLElement* xml, BindBinder& binder, c
     add_bind_attr(binder, xml->Attribute("command"), BindKind::Command);
     add_bind_attr(binder, xml->Attribute("paint"), BindKind::Paint);
     add_bind_attr(binder, xml->Attribute("drag"), BindKind::Property);
+    add_bind_attr(binder, xml->Attribute("if"), BindKind::Property);
     add_bind_attr(binder, xml->Attribute("checked"), BindKind::Property);
     add_bind_attr(binder, xml->Attribute("open"), BindKind::Property);
     add_bind_attr(binder, xml->Attribute("pan-x"), BindKind::Property);
