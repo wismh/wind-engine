@@ -1,5 +1,7 @@
 #include "ui_refs.h"
 
+#include "inline_math.h"
+
 #include <engine/builtin_ids.h>
 
 #include <set>
@@ -20,8 +22,11 @@ void collect_element_images(const Element& element, std::set<AssetId>& out) {
 }
 
 void collect_element_fonts(const Element& element, std::set<AssetId>& out) {
-    // A formula is always set in the builtin math font, whatever `font-family` says.
-    if (element.kind == ElementKind::Math) {
+    // A formula is always set in the builtin math font, whatever `font-family` says. A Label/Button
+    // whose resolved text contains `\(` needs it too — inline math is not a `<Math>` element.
+    const bool inline_formula = (element.kind == ElementKind::Label || element.kind == ElementKind::Button) &&
+            text_has_inline_math_delimiter(element.text);
+    if (element.kind == ElementKind::Math || inline_formula) {
         out.insert(builtin::font_math);
     }
     if (element.font_family != AssetId{} && element.font_family != builtin::font_ui) {

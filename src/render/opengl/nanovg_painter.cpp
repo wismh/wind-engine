@@ -639,6 +639,28 @@ void NanoVgPainter::image_nine_slice(AssetId texture, const Rect& rect, const ui
     }
 }
 
+ui::TextFontMetrics NanoVgPainter::font_metrics(AssetId font, float size) {
+    if (impl_->vg == nullptr) {
+        return ui::IUiPainter::font_metrics(font, size);
+    }
+    nvgSave(impl_->vg);
+    set_font(font, size);
+    nvgTextAlign(impl_->vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
+    float ascender = 0.0f;
+    float descender = 0.0f;
+    float line_height = 0.0f;
+    nvgTextMetrics(impl_->vg, &ascender, &descender, &line_height);
+    nvgRestore(impl_->vg);
+    if (line_height <= 0.0f && ascender <= 0.0f) {
+        return ui::IUiPainter::font_metrics(font, size);
+    }
+    ui::TextFontMetrics metrics;
+    metrics.ascent = std::max(0.0f, ascender);
+    metrics.descent = std::max(0.0f, -descender);
+    metrics.line_height = line_height > 0.0f ? line_height : metrics.ascent + metrics.descent;
+    return metrics;
+}
+
 glm::vec2 NanoVgPainter::measure_text(std::string_view text, AssetId font, float size) {
     if (impl_->vg == nullptr) {
         return {static_cast<float>(text.size()) * size * 0.5f, size};

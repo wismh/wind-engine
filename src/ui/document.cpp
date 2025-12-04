@@ -1,6 +1,7 @@
 #include <engine/ui/document.h>
 
 #include "painter.h"
+#include "inline_math.h"
 #include "math/math_element.h"
 
 #include <engine/loc/catalog.h>
@@ -193,6 +194,11 @@ struct ResolvedBox {
 // breaks with the same rules over the rough per-character width and uses font-size as that stride when normal.
 [[nodiscard]] glm::vec2 measure_element_text(
         const Element& element, IUiPainter* painter, float font_size, float wrap_width) {
+    // `\(...\)` in a Label/Button is inline math, not characters of the string. Plain text (no delimiter)
+    // stays on the path below, including its single-line fast path.
+    if (text_has_inline_markup(element.text)) {
+        return measure_label_inline(element, painter, font_size, wrap_width);
+    }
     const glm::vec2 single = measure_element_text(element, painter, font_size);
     if (element.white_space != WhiteSpace::Normal || element.text.empty()) {
         return single;
