@@ -3,6 +3,7 @@
 #include "painter.h"
 #include "inline_math.h"
 #include "math/math_element.h"
+#include "ui/text_select.h"
 
 #include <engine/loc/catalog.h>
 #include <engine/ui/canvas.h>  // rect_contains
@@ -1172,7 +1173,7 @@ std::vector<Element*> child_stacking_order(std::vector<Element>& children) {
     return order;
 }
 
-Element* hit_test(Element& element, float x, float y) {
+static Element* hit_test_at(Element& element, float x, float y, bool under_control) {
     if (!element.visible || element.display_none) {
         return nullptr;
     }
@@ -1201,17 +1202,21 @@ Element* hit_test(Element& element, float x, float y) {
         child_x = x + element.scroll_x;
         child_y = y + element.scroll_y;
     }
+    // A Button or Checkbox owns the click, including a Label nested inside it (through a Stack or
+    // otherwise). Otherwise `Label { user-select: text }` would steal `<Button><Label/></Button>`.
+    const bool child_under_control = under_control || element.kind == ElementKind::Button ||
+            element.kind == ElementKind::Checkbox;
     // child_stacking_order() is ascending (paint order); iterating its result back-to-front
     // visits the topmost (highest z-index / last-drawn) sibling first.
     std::vector<Element*> children = child_stacking_order(element.children);
     for (auto it = children.rbegin(); it != children.rend(); ++it) {
-        if (Element* nested = hit_test(**it, child_x, child_y)) {
+        if (Element* nested = hit_test_at(**it, child_x, child_y, child_under_control)) {
             return nested;
         }
     }
     std::vector<Element*> generated = child_stacking_order(element.generated_items);
     for (auto it = generated.rbegin(); it != generated.rend(); ++it) {
-        if (Element* nested = hit_test(**it, child_x, child_y)) {
+        if (Element* nested = hit_test_at(**it, child_x, child_y, child_under_control)) {
             return nested;
         }
     }
@@ -1221,7 +1226,14 @@ Element* hit_test(Element& element, float x, float y) {
             has_viewport_camera(element)) {
         return &element;
     }
+    if (!under_control && label_text_selectable(element)) {
+        return &element;
+    }
     return nullptr;
+}
+
+Element* hit_test(Element& element, float x, float y) {
+    return hit_test_at(element, x, y, false);
 }
 
 void find_viewport_at_impl(Element& element, float x, float y, Element*& found) {

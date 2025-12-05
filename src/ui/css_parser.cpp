@@ -51,6 +51,7 @@ bool is_known_property(std::string_view name) {
             "justify-content",
             "text-align",
             "white-space",
+            "user-select",
             "background-image",
             "background-slice",
             "background-repeat",

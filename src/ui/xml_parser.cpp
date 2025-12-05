@@ -271,8 +271,9 @@ std::expected<void, UiError> assign_checked_attribute(
     return {};
 }
 
-// `allow-copy`/`allow-paste` (TextInput only): a static per-field capability, unlike `checked` —
-// no VM tie, literal-only, defaults to true (attribute absent = both allowed).
+// `allow-copy`/`allow-paste`: a static per-field capability, unlike `checked` — no VM tie,
+// literal-only, defaults to true (attribute absent = both allowed). TextInput honors both.
+// A selectable Label honors allow-copy (Ctrl+C); it never pastes, so allow-paste does not apply.
 void assign_bool_attribute(bool& dest, const char* attr) {
     if (attr == nullptr) {
         return;
