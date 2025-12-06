@@ -870,7 +870,8 @@ namespace engine::ui {
             if (is_bound(element.if_binding) && has_if) {
                 if (auto value = vm.read_property_float(element.if_binding)) {
                     element.hidden_by_if = *value == 0.0f;
-                } else {
+                } else if (!in_template) {
+                    // The template itself is bound against the list's owner, not a row: its rows resolve the name.
                     pass.fail_type("if", "a Bindable<bool> (or another number)", element.if_binding);
                 }
             }
