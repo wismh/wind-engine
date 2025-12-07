@@ -8,6 +8,7 @@
 #include <engine/ecs/world.h>
 #include <engine/resources/asset_id.h>
 
+#include <cstdint>
 #include <optional>
 
 namespace engine {
@@ -34,6 +35,12 @@ public:
 
     // No default icon: unset means the OS/window-manager default is used.
     virtual std::optional<AssetId> window_icon() const {
+        return std::nullopt;
+    }
+
+    // A fixed seed for `world().ctx<Random>()`, set when the game is attached (tests, replays, daily seeds). Unset
+    // keeps the clock seed, so every run differs.
+    virtual std::optional<std::uint64_t> random_seed() const {
         return std::nullopt;
     }
 
