@@ -17,6 +17,7 @@
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -67,6 +68,7 @@ namespace engine::ui {
         Checkbox,
         Math,
         Popup,
+        Slider,
     };
 
     // Kinds that pack their children along `direction` with `gap`, vertical by default. A Popup is a menu-like
@@ -638,6 +640,13 @@ namespace engine::ui {
         // Which axis `drag_binding` reads pointer position along — independent of `direction` (a Stack
         // used as a drag track isn't necessarily laying its children out along the same axis).
         StackDirection drag_orientation = StackDirection::Horizontal;
+        // `<Slider value="{binding v}" min max step/>`: the value binding is `drag_binding`, `drag_orientation` picks
+        // the axis, and these are the range. `step` 0 is continuous. The two parts, `children[0]` (class
+        // `slider-fill`) and `children[1]` (class `slider-handle`), are generated at parse time; bind sets the custom
+        // property `--fraction` (0..1, from the value) on the slider and on both parts for the stylesheet to place them.
+        float slider_min = 0.0f;
+        float slider_max = 1.0f;
+        float slider_step = 0.0f;
         Length gap{};
         LengthInsets padding{};
         LengthInsets margin{};
@@ -868,6 +877,34 @@ namespace engine::ui {
         mutable std::unordered_map<std::string, std::string> layout_dirty_check_custom_properties;
         mutable std::vector<const void *> layout_dirty_check_generated_owners;
     };
+
+    // Slider arithmetic, shared by the bind pass (value to `--fraction`) and the pointer drag (position to value).
+    // `value` is clamped into [slider_min, slider_max]; a range with no width is 0.
+    [[nodiscard]] inline float slider_fraction(const Element &slider, float value) noexcept {
+        const float span = slider.slider_max - slider.slider_min;
+        if (!(span > 0.0f)) {
+            return 0.0f;
+        }
+        const float t = (value - slider.slider_min) / span;
+        return t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+    }
+
+    // The nearest multiple of `slider_step` from `slider_min`, clamped to the range; the value unchanged (but clamped)
+    // for a continuous slider.
+    [[nodiscard]] inline float slider_snap(const Element &slider, float value) noexcept {
+        if (slider.slider_step > 0.0f) {
+            const float steps = std::floor((value - slider.slider_min) / slider.slider_step + 0.5f);
+            value = slider.slider_min + steps * slider.slider_step;
+        }
+        if (value < slider.slider_min) {
+            return slider.slider_min;
+        }
+        return value > slider.slider_max ? slider.slider_max : value;
+    }
+
+    // Gives a Slider its two parts: `children[0]` is the fill (class `slider-fill`) and `children[1]` the handle
+    // (class `slider-handle`), both plain Stacks styled by the stylesheet. The XML parser and `ui::slider()` call it.
+    void add_slider_parts(Element &slider);
 
     struct UiDocument {
         Element root;

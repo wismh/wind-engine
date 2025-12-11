@@ -478,9 +478,10 @@ namespace engine::ui {
             layout_element(element, render::Rect{x, y, used.x, used.y}, painter, basis, containing_block, partial);
         }
 
-        // A positioned element, or a popup, is the containing block of its `position: absolute` descendants.
+        // A positioned element, a popup, or a slider (its handle is placed in it) is the containing block of its `position: absolute` descendants.
         bool establishes_containing_block(const Element &element) {
-            return element.position != PositionMode::Static || element.kind == ElementKind::Popup;
+            return element.position != PositionMode::Static || element.kind == ElementKind::Popup ||
+                   element.kind == ElementKind::Slider;
         }
 
         // A Popup is out of flow. It hugs its content with nothing to wrap against (max-width caps it), and
@@ -787,6 +788,8 @@ namespace engine::ui {
             const bool has_source = require_property(element.source_binding, "source");
             const bool has_items_source = require_property(element.items_source_binding, "items_source");
             const bool has_if = require_property(element.if_binding, "if");
+            const bool has_drag =
+                    require_property(element.drag_binding, element.kind == ElementKind::Slider ? "value" : "drag");
             (void) require_property(element.pan_x_binding, "pan-x");
             (void) require_property(element.pan_y_binding, "pan-y");
             (void) require_property(element.zoom_binding, "zoom");
@@ -865,6 +868,24 @@ namespace engine::ui {
                     element.source = *value;
                 } else {
                     pass.fail_missing("source (AssetId)", element.source_binding);
+                }
+            }
+            if (element.kind == ElementKind::Slider && is_bound(element.drag_binding) && has_drag) {
+                // The value places the parts: `--fraction` (0..1) on the slider and both parts, for the stylesheet.
+                if (const auto value = vm.read_property_float(element.drag_binding)) {
+                    const std::string fraction = std::to_string(slider_fraction(element, *value));
+                    const auto set_fraction = [&fraction](Element &target) {
+                        std::string &slot = target.custom_properties["fraction"];
+                        if (slot != fraction) {
+                            slot = fraction;
+                        }
+                    };
+                    set_fraction(element);
+                    for (Element &part: element.children) {
+                        set_fraction(part);
+                    }
+                } else if (!in_template) {
+                    pass.fail_type("value", "a Bindable<float> (or another number)", element.drag_binding);
                 }
             }
             if (is_bound(element.if_binding) && has_if) {
@@ -991,7 +1012,17 @@ namespace engine::ui {
                         // does row height stay unknown this frame — self-correcting next frame, same as
                         // the max_scroll_y / layout_rect.h staleness this eligibility check already
                         // relies on above.
+                        // Rows placed by `position: absolute` (an inventory laid out by var-left / var-top) are not
+                        // stacked, so a window computed from row height and scroll offset would drop most of them:
+                        // never virtualize those, and forget any height cached from an earlier template.
+                        bool rows_out_of_flow = false;
                         for (const Element &old: element.generated_items) {
+                            if (old.generated_owner != nullptr && !old.display_none &&
+                                old.position == PositionMode::Absolute) {
+                                rows_out_of_flow = true;
+                                element.virtualization_row_height_cache.reset();
+                                break;
+                            }
                             if (old.generated_owner != nullptr && !old.display_none && old.height &&
                                 old.height->unit == LengthUnit::Px && old.height->calc.empty() &&
                                 old.height->value > 0.0f) {
@@ -1000,7 +1031,7 @@ namespace engine::ui {
                                 break;
                             }
                         }
-                        if (!row_height_px && element.virtualization_row_height_cache) {
+                        if (!row_height_px && !rows_out_of_flow && element.virtualization_row_height_cache) {
                             row_height_px = element.virtualization_row_height_cache;
                         }
                     }
@@ -1289,6 +1320,18 @@ namespace engine::ui {
         }
 
         return changed;
+    }
+
+    void add_slider_parts(Element &slider) {
+        slider.children.clear();
+        Element fill;
+        fill.kind = ElementKind::Stack;
+        fill.classes = {"slider-fill"};
+        slider.children.push_back(std::move(fill));
+        Element handle;
+        handle.kind = ElementKind::Stack;
+        handle.classes = {"slider-handle"};
+        slider.children.push_back(std::move(handle));
     }
 
     std::expected<void, UiError> apply_bindings(UiDocument &document, ViewModel &data_context, IBindErrorSink *errors,
