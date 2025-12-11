@@ -48,6 +48,8 @@ namespace engine::ui {
                     return "Math";
                 case ElementKind::Popup:
                     return "Popup";
+                case ElementKind::Slider:
+                    return "Slider";
             }
             return "Element";
         }

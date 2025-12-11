@@ -95,6 +95,9 @@ std::optional<ElementKind> kind_from_tag(const char* name) {
     if (tag == "ScrollView") {
         return ElementKind::ScrollView;
     }
+    if (tag == "Slider") {
+        return ElementKind::Slider;
+    }
     if (tag == "Checkbox") {
         return ElementKind::Checkbox;
     }
@@ -565,6 +568,32 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
         return std::unexpected(result.error());
     }
 
+    if (element.kind == ElementKind::Slider) {
+        // `value` is the drag binding: the slider writes its value there and reads it back to place the handle. The
+        // parts are generated, so XML children of a Slider are ignored.
+        if (xml->Attribute("value") == nullptr) {
+            report(fatal, "UI Slider needs value=\"{binding}\"");
+            return std::unexpected(UiError::MissingBinding);
+        }
+        if (auto result = assign_required_property_binding(
+                    element.drag_binding, xml->Attribute("value"), "value", fatal, vm, in_template);
+                !result) {
+            return std::unexpected(result.error());
+        }
+        const auto number = [](const char* text, float fallback) {
+            return text != nullptr ? std::strtof(text, nullptr) : fallback;
+        };
+        element.slider_min = number(xml->Attribute("min"), 0.0f);
+        element.slider_max = number(xml->Attribute("max"), 1.0f);
+        element.slider_step = number(xml->Attribute("step"), 0.0f);
+        if (!(element.slider_max > element.slider_min) || !(element.slider_step >= 0.0f)) {
+            report(fatal, "UI Slider needs max > min and step >= 0");
+            return std::unexpected(UiError::InvalidMarkup);
+        }
+        add_slider_parts(element);
+        return element;
+    }
+
     if (element.kind == ElementKind::ItemTemplate) {
         if (const char* src = xml->Attribute("src")) {
             if (xml->FirstChildElement() != nullptr) {
@@ -710,6 +739,9 @@ void collect_bind_element(const tinyxml2::XMLElement* xml, BindBinder& binder, c
     add_bind_attr(binder, xml->Attribute("paint"), BindKind::Paint);
     add_bind_attr(binder, xml->Attribute("drag"), BindKind::Property);
     add_bind_attr(binder, xml->Attribute("if"), BindKind::Property);
+    if (kind_from_tag(xml->Name()) == ElementKind::Slider) {
+        add_bind_attr(binder, xml->Attribute("value"), BindKind::Property);
+    }
     add_bind_attr(binder, xml->Attribute("checked"), BindKind::Property);
     add_bind_attr(binder, xml->Attribute("open"), BindKind::Property);
     add_bind_attr(binder, xml->Attribute("pan-x"), BindKind::Property);
