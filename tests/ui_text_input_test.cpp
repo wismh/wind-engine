@@ -632,7 +632,7 @@ TEST(UiTextInput, MouseDownThenMoveSelectsARange) {
     // caret == text.size(); confirm the drag path still runs (anchor stays put at 5, caret
     // stays clamped at 5) rather than crashing or silently no-op-ing while the button is down.
     engine::ui::pointer_for(fx.world, engine::kPrimaryWindow).down = true;
-    engine::ui::update_text_selection(fx.world, 5.0f);
+    engine::ui::update_text_selection(fx.world, 5.0f, 0.0f);
     EXPECT_EQ(fx.focused->caret_position, 5u);
     EXPECT_EQ(*fx.focused->selection_anchor, 5u);
 }

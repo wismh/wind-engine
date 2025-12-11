@@ -93,6 +93,15 @@ enum class WhiteSpace {
     NoWrap,
 };
 
+// `user-select` for a Label. None (the default) leaves the label out of hit-testing. Text is a normal
+// selection (drag, double-click word, triple-click all). All selects the whole string on one click.
+// Not inherited — same as every other property here. Buttons ignore it.
+enum class UserSelect {
+    None,
+    Text,
+    All,
+};
+
 enum class PositionMode {
     Static,
     Relative,
@@ -305,6 +314,7 @@ struct ComputedStyle {
     UiAlign align_items = UiAlign::Start;
     UiAlign text_align = UiAlign::Start;
     WhiteSpace white_space = WhiteSpace::Normal;
+    UserSelect user_select = UserSelect::None;
     Length border_radius{};
     Length border_width{};
     glm::vec4 border_color{0.0f, 0.0f, 0.0f, 0.0f};
@@ -471,6 +481,7 @@ struct Element {
     UiAlign align_items = UiAlign::Start;
     UiAlign text_align = UiAlign::Start;
     WhiteSpace white_space = WhiteSpace::Normal;
+    UserSelect user_select = UserSelect::None;
     Length font_size{kDefaultFontSize, LengthUnit::Px};
     LineHeight line_height{};
     AssetId font_family{};
@@ -502,28 +513,30 @@ struct Element {
     bool checked = false;
     std::size_t caret_position = 0;
     float caret_blink_timer = 0.0f;
-    // TextInput-only: the fixed end of an in-progress selection; caret_position is the live end.
-    // unset = no selection. A real (non-collapsed) selection is
+    // TextInput and selectable Label: the fixed end of an in-progress selection; caret_position is
+    // the live end. unset = no selection. A real (non-collapsed) selection is
     // selection_anchor.has_value() && *selection_anchor != caret_position, spanning
     // [min(*selection_anchor, caret_position), max(...)). Set by Ctrl+A (0..text.size()),
     // pointer-down (click == drag-select start), and Shift+Left/Right/Home/End (armed from the
     // caret before it moves). Any unmodified caret move/edit or focus loss clears it (canvas.cpp).
     std::optional<std::size_t> selection_anchor;
-    // TextInput-only: per-field clipboard lock, XML `allow-copy`/`allow-paste` (literal only, no
-    // {binding} — a static field capability, not runtime-toggled state like `checked`). Mirrors
-    // the web's per-event copy/cut/paste interception: independent flags, not one on/off switch.
-    // Cut is gated by allow_copy (it reads before deleting), not allow_paste.
+    // TextInput, and a selectable Label for copy: per-field clipboard lock, XML `allow-copy`/
+    // `allow-paste` (literal only, no {binding} — a static field capability, not runtime-toggled
+    // state like `checked`). Mirrors the web's per-event copy/cut/paste interception: independent
+    // flags, not one on/off switch. Cut is gated by allow_copy (it reads before deleting), not
+    // allow_paste. A Label never cuts or pastes; allow_copy still blocks Ctrl+C.
     bool allow_copy = true;
     bool allow_paste = true;
-    // TextInput-only: this element's real-screen-pixel text metrics as last painted (paint.cpp's
-    // TextInput block) — the resolved font size (after em/%) and the text's x-origin (after
-    // padding + text-align). canvas.cpp's click-to-caret-index reads these back instead of
-    // re-resolving CSS length units itself, so a click can never land somewhere paint.cpp would
-    // have drawn the caret differently. 0 until the element has painted at least once (e.g. a
-    // click on the very first frame, or a headless build with no painter) — click handling falls
-    // back to placing the caret at the end of the text in that case.
+    // TextInput, and a selectable Label: real-screen-pixel text metrics as last painted. TextInput
+    // stores the resolved font size and the text's x-origin (paint.cpp). A Label stores the font
+    // size plus one PaintedTextLine per row (glyph left/top, not the text-align anchor).
+    // canvas.cpp's click-to-index reads these back instead of re-resolving CSS length units itself,
+    // so a click can never land somewhere paint.cpp would have drawn the text differently. 0 / empty
+    // until the element has painted at least once — click handling then falls back to the end of
+    // the text.
     float painted_font_size_px = 0.0f;
     float painted_content_origin_x = 0.0f;
+    std::vector<PaintedTextLine> painted_text_lines;
     // Memoizes measure_element_text (document.cpp) across frames: when `text`/`font_family`/the
     // resolved `font_size` passed to IUiPainter::measure_text still match the last real-painter
     // measurement, layout reuses `text_measure_cache_result` instead of re-shaping glyphs. Populated
@@ -728,9 +741,10 @@ void layout(UiDocument& document, const render::Rect& canvas_rect);
 // Topmost interactive element under (x, y): prunes by hit_bounds() containment, visits siblings
 // in reverse stacking order (highest z-index / last-drawn first), returns the first element that
 // is a Button or Checkbox, or has a bound `command` or `drag` (any element kind), or a Viewport
-// with a camera binding, or nullptr. Viewport camera inverses the pointer for descendants and
-// clips to the unpanned layout_rect. Shared by click resolution (canvas.cpp) and hover resolution
-// (paint.cpp).
+// with a camera binding, or a Label whose `user-select` makes its text selectable, or nullptr.
+// A Label inside a Button or Checkbox is not a selection hit — the control keeps the click.
+// Viewport camera inverses the pointer for descendants and clips to the unpanned layout_rect.
+// Shared by click resolution (canvas.cpp) and hover resolution (paint.cpp).
 [[nodiscard]] Element* hit_test(Element& root, float x, float y);
 
 [[nodiscard]] inline bool has_viewport_camera(const Element& element) noexcept {

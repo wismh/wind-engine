@@ -304,6 +304,18 @@ WhiteSpace parse_white_space(std::string_view raw) {
     return trim(raw) == "nowrap" ? WhiteSpace::NoWrap : WhiteSpace::Normal;
 }
 
+// Unknown values stay None, same as an absent property. `auto` and `contain` are not supported.
+UserSelect parse_user_select(std::string_view raw) {
+    const std::string_view value = trim(raw);
+    if (value == "text") {
+        return UserSelect::Text;
+    }
+    if (value == "all") {
+        return UserSelect::All;
+    }
+    return UserSelect::None;
+}
+
 // A bare number is a unitless factor, not px (unlike font-size). 0 and negative are invalid.
 std::optional<LineHeight> parse_line_height(std::string_view raw) {
     const std::string_view value = trim(raw);
@@ -633,6 +645,8 @@ void apply_declaration(ComputedStyle& style, const CssDeclaration& decl) {
         style.text_align = parse_text_align(decl.value);
     } else if (decl.property == "white-space") {
         style.white_space = parse_white_space(decl.value);
+    } else if (decl.property == "user-select") {
+        style.user_select = parse_user_select(decl.value);
     } else if (decl.property == "border-radius") {
         if (const auto radius = css_length::parse_length(decl.value)) {
             style.border_radius = *radius;
@@ -1090,6 +1104,7 @@ void apply_layout_style(Element& element, const Stylesheet* sheet, std::vector<c
     element.align_items = style.align_items;
     element.text_align = style.text_align;
     element.white_space = style.white_space;
+    element.user_select = style.user_select;
     element.font_size = style.font_size;
     element.line_height = style.line_height;
     element.font_family = style.font_family;
@@ -1143,6 +1158,100 @@ void apply_layout_style(Element& root, const Stylesheet* sheet, float window_wid
 }
 
 namespace {
+
+float text_block_top(float content_y, float content_h, float block_h, UiAlign align) {
+    float top = content_y;
+    if (align == UiAlign::Center) {
+        top = content_y + (content_h - block_h) * 0.5f;
+    } else if (align == UiAlign::End) {
+        top = content_y + content_h - block_h;
+    }
+    return std::max(top, content_y);
+}
+
+float glyph_left(float anchor_x, float line_width, UiAlign align) {
+    if (align == UiAlign::Center) {
+        return anchor_x - line_width * 0.5f;
+    }
+    if (align == UiAlign::End) {
+        return anchor_x - line_width;
+    }
+    return anchor_x;
+}
+
+// Glyph boxes for a Label, in the same places the fill_text calls below draw. `rows` null means the
+// single fill_text of the whole string (vertical align is the anchor `single_anchor_y`).
+std::vector<PaintedTextLine> label_glyph_lines(IUiPainter& painter, const Element& element, const TextBlock* rows,
+        const render::Rect& content, float anchor_x, float single_anchor_y, float screen_font, float ui_scale,
+        UiAlign text_align, UiAlign align_items) {
+    std::vector<PaintedTextLine> lines;
+    if (rows != nullptr) {
+        const float row_h = rows->line_height * ui_scale;
+        const float block_h = row_h * static_cast<float>(rows->lines.size());
+        const float top = text_block_top(content.y, content.h, block_h, align_items);
+        lines.reserve(rows->lines.size());
+        for (std::size_t i = 0; i < rows->lines.size(); ++i) {
+            const TextLine& line = rows->lines[i];
+            float width = 0.0f;
+            if (line.begin < line.end && line.end <= element.text.size()) {
+                width = painter.measure_text(std::string_view(element.text).substr(line.begin, line.end - line.begin),
+                                        element.font_family, screen_font)
+                                .x;
+            }
+            lines.push_back(PaintedTextLine{
+                    line.begin,
+                    line.end,
+                    glyph_left(anchor_x, width, text_align),
+                    top + static_cast<float>(i) * row_h,
+                    width,
+                    row_h,
+            });
+        }
+        return lines;
+    }
+    if (element.text.empty()) {
+        return lines;
+    }
+    const float width = painter.measure_text(element.text, element.font_family, screen_font).x;
+    float top = single_anchor_y;
+    if (align_items == UiAlign::Center) {
+        top = single_anchor_y - screen_font * 0.5f;
+    } else if (align_items == UiAlign::End) {
+        top = single_anchor_y - screen_font;
+    }
+    lines.push_back(PaintedTextLine{
+            0, element.text.size(), glyph_left(anchor_x, width, text_align), top, width, screen_font});
+    return lines;
+}
+
+void paint_label_selection(IUiPainter& painter, const Element& element) {
+    if (!element.selection_anchor || *element.selection_anchor == element.caret_position ||
+            element.painted_font_size_px <= 0.0f) {
+        return;
+    }
+    const std::size_t sel_start =
+            std::min(std::min(*element.selection_anchor, element.caret_position), element.text.size());
+    const std::size_t sel_end =
+            std::min(std::max(*element.selection_anchor, element.caret_position), element.text.size());
+    if (sel_start >= sel_end) {
+        return;
+    }
+    for (const PaintedTextLine& line : element.painted_text_lines) {
+        const std::size_t lo = std::max(sel_start, line.begin);
+        const std::size_t hi = std::min(sel_end, line.end);
+        if (lo >= hi || line.end > element.text.size()) {
+            continue;
+        }
+        const float start_w = painter.measure_text(std::string_view(element.text).substr(line.begin, lo - line.begin),
+                                             element.font_family, element.painted_font_size_px)
+                                     .x;
+        const float end_w = painter.measure_text(std::string_view(element.text).substr(line.begin, hi - line.begin),
+                                           element.font_family, element.painted_font_size_px)
+                                   .x;
+        painter.fill_rounded_rect(render::Rect{line.x + start_w, line.y, std::max(0.0f, end_w - start_w), line.height},
+                0.0f, element.selection_color);
+    }
+}
 
 void clear_interaction(Element& element) {
     element.hovered = false;
@@ -1306,18 +1415,26 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
             const float content_width = std::max(0.0f, element.layout_rect.w - padding.left - padding.right);
             rows = wrapped_text_rows(element, painter, font_size, content_width);
         }
+        if (element.kind == ElementKind::Label) {
+            // Highlight before the glyphs. Inline formulas have no per-glyph map, so they keep no rows
+            // (user-select: all still copies the source; it just has nothing to paint a caret against).
+            const bool cache_glyphs = element.user_select != UserSelect::None && !inline_math;
+            if (cache_glyphs) {
+                element.painted_font_size_px = font_size * input.ui_scale;
+                element.painted_text_lines = label_glyph_lines(painter, element, rows, content, x, y,
+                        element.painted_font_size_px, input.ui_scale, style.text_align, style.align_items);
+                paint_label_selection(painter, element);
+            } else {
+                element.painted_text_lines.clear();
+            }
+        }
         if (rows != nullptr) {
             // One fill_text per row, top-aligned, stacked from where align-items puts the whole block. Rows are
             // the ones layout broke at design size, so a scaled font cannot re-break them differently.
+            // text_block_top is the same placement label_glyph_lines used for the highlight above.
             const float row_h = rows->line_height * input.ui_scale;
             const float block_h = row_h * static_cast<float>(rows->lines.size());
-            float top = content.y;
-            if (style.align_items == UiAlign::Center) {
-                top = content.y + (content.h - block_h) * 0.5f;
-            } else if (style.align_items == UiAlign::End) {
-                top = content.y + content.h - block_h;
-            }
-            top = std::max(top, content.y);
+            const float top = text_block_top(content.y, content.h, block_h, style.align_items);
             for (std::size_t i = 0; i < rows->lines.size(); ++i) {
                 const TextLine& line = rows->lines[i];
                 if (line.begin == line.end) {
