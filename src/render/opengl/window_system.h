@@ -13,6 +13,8 @@
 
 namespace engine {
 
+class MouseCapture;
+
 class WindowSystem {
 public:
     WindowSystem() = default;
@@ -131,6 +133,12 @@ public:
     // get stuck active if a button-up is somehow missed.
     void end_drag();
 
+    // The process-wide mouse capture this window's drag region takes part in (WindowManager's). Null, as in a
+    // window created by a test, means a drag does not capture.
+    void set_mouse_capture(MouseCapture* capture) noexcept {
+        capture_ = capture;
+    }
+
     [[nodiscard]] bool is_dragging() const noexcept {
         return dragging_;
     }
@@ -143,6 +151,7 @@ private:
     bool click_through_enabled_ = false;
     bool click_through_applied_ = false;
     std::optional<render::Rect> drag_region_;
+    MouseCapture* capture_ = nullptr;
     bool dragging_ = false;
     glm::ivec2 drag_start_cursor_screen_{};        // valid only while dragging_
     glm::ivec2 drag_start_window_pos_{};           // valid only while dragging_

@@ -60,6 +60,10 @@ Fatal is also a live entity that lacks `Camera` or `Transform`. Either way that 
 
 `view_matrix`, `screen_to_world` and `world_to_screen` take the camera's world matrix (`const glm::mat4&`, from `ecs::world_matrix(world, camera_entity)`), not its `Transform`. `screen_to_world(screen, camera, camera_world, window)` and `world_to_screen(world_pos, camera, camera_world, window)` also take the `Camera` and a `WindowSize`. For an unrotated, unscaled root camera the result is the same as the old translate-only view.
 
+## Pointer targets
+
+`PointerTarget` is a component, not a callback: the entity's rectangle for the mouse. The input system reports hover, press, and click as `PointerTargetEvent` and as `hovered` / `pressed`, and counts the target for click-through itself. See [UI Input](../features/UI%20Input.md#pointer-targets).
+
 ## Hierarchy
 
 `include/engine/ecs/hierarchy.h`, `src/ecs/hierarchy.cpp`. Not a scene graph: three components and free functions over `World`.
@@ -111,12 +115,13 @@ Replicate `Transform` and `Parent` only. `WorldTransform` and `Children` are der
 - `include/engine/ecs/transform.h`
 - `include/engine/ecs/hierarchy.h`
 - `include/engine/ecs/camera.h`
+- `include/engine/ecs/pointer_target.h`
 - `include/engine/ecs/physics.h`
 - `include/engine/ecs/systems.h`
 
 ## Tests
 
-`tests/ecs_test.cpp`, `tests/hierarchy_test.cpp`, `tests/hierarchy_systems_test.cpp`, `tests/events_test.cpp`, `tests/camera_test.cpp`, `tests/physics_test.cpp`.
+`tests/ecs_test.cpp`, `tests/hierarchy_test.cpp`, `tests/hierarchy_systems_test.cpp`, `tests/events_test.cpp`, `tests/camera_test.cpp`, `tests/physics_test.cpp`, `tests/pointer_target_test.cpp`.
 
 ## See also
 

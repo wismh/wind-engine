@@ -113,6 +113,25 @@ public:
         return windows_->max_fps();
     }
 
+    [[nodiscard]] std::optional<glm::vec2> cursor_screen_position() const override {
+        return global_cursor_position();
+    }
+
+    [[nodiscard]] bool is_mouse_button_down(MouseButton button) const override {
+        return global_mouse_button_down(button);
+    }
+
+    bool capture_mouse(WindowId window, bool capture) override {
+        if (capture && windows_->window(window) == nullptr) {
+            return false;
+        }
+        return windows_->mouse_capture().capture(window, capture);
+    }
+
+    [[nodiscard]] bool is_mouse_captured(WindowId window) const override {
+        return windows_->mouse_capture().captured_by(window);
+    }
+
     void set_drag_region(std::optional<render::Rect> region, WindowId window) override {
         if (WindowSystem* target = windows_->window(window)) {
             target->set_drag_region(region);

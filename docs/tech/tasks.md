@@ -122,6 +122,27 @@ Do:
 Done when: headless tests cover hit-testing and capture state; `Windowing.md` and `UI Input.md` updated; a game needs
 no `windows.h` for drag or click-through.
 
+Status: in progress (wind-216).
+
+### Migration (wind-216, E6, E7)
+
+- E6, old: `GetCursorPos`, `GetAsyncKeyState`, and a Win32 capture in game code to drag across or out of secondary windows.
+  New, on `IWindowControl` (`<engine/core/window_control.h>`): `cursor_screen_position()` (screen coordinates, the space
+  of `position()`), `is_mouse_button_down(MouseButton)`, `capture_mouse(window, bool)` (returns whether the capture is on;
+  one window at a time; closing the window releases it), `is_mouse_captured(window)`, and the inline
+  `cursor_client_position(windows, window)`. Wayland, the browser, and Android answer `nullopt` / `false`; nothing
+  crashes. The capture shares one switch with the engine's drag-region window move, so they never turn each other off.
+  Delete the `windows.h` includes and the `#ifdef _WIN32` branches around drag code.
+- E7, old: hand-written sprite hit tests and writes into `presentation_of(world).mouse.consumed_windows`, with a hidden
+  rule that the UI had to run first. New: add `engine::PointerTarget` (`<engine/ecs/pointer_target.h>`) to the entity
+  (`size` + `pivot`, or leave `size` at `{0, 0}` to use the sprite's size). Read `PointerTargetEvent` (`Enter`, `Exit`,
+  `Press`, `Click`) with an `EventReader`, or `PointerTarget::hovered` / `pressed`. The input system tests the cursor
+  after the UI (`run_pointer_targets`, registered after `run_input`), with the camera and the window's size, and adds the
+  window to the click-through set itself. Delete the hit-test code and every `consumed_windows.insert` for a sprite. Overlap
+  order is the sprite's `layer` / `order_in_layer`, then the later entity.
+- Breaking for any code that implements `IWindowControl` (a test double in a game): the four new pure virtuals
+  above must be added.
+
 ## wind-217 feat: RAII `UiWindow` for secondary windows (E8)
 
 Problem: open window, bind world, create canvas, set drag region (excluding the close button), then the mirror

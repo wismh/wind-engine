@@ -65,6 +65,9 @@ void register_audio_systems(ecs::World& world, EngineSystemDeps deps = {});
 void register_engine_systems(ecs::World& world, EngineSystemDeps deps = {});
 
 void run_sprite_animations(ecs::World& world);
+// Frame / Input, after the UI input systems: hover, press, and click on `PointerTarget`s, and their share of the
+// click-through set. See `PointerTarget` in <engine/ecs/pointer_target.h>.
+void run_pointer_targets(ecs::World& world);
 void run_particles(ecs::World& world);
 
 }
