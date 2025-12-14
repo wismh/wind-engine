@@ -29,6 +29,49 @@ if (opened) {
 
 `close_window(id)` closes a window and the windows it owns. The OS close button does not close anything by itself: the engine sends `engine::ui::WindowCloseRequestedEvent` (`window`), and your game decides ([Game Lifecycle](../architecture/Game-Lifecycle.md#4-lifecycle-hooks)).
 
+### `UiWindow`: a window that cleans up after itself
+
+A window that shows a UI canvas needs several steps to open (`open_window`, bind it to a world, turn on UI for the world, spawn the canvas) and the same steps in reverse to close, in the right order. `engine::UiWindow` (`<engine/ui/ui_window.h>`) does both and owns the result:
+
+```cpp
+#include <engine/ui/ui_window.h>
+
+class SettingsPanel {
+public:
+    explicit SettingsPanel(const engine::EngineServices& services, engine::ecs::World& world) {
+        auto opened = engine::UiWindow::open(services.windows, services.worlds, world,
+                engine::WindowDesc{.title = "Settings", .size = {480, 360}, .style = {.borderless = true}},
+                engine::ui::UiCanvas{.document = assets::ui::settings, .stylesheet = assets::css::settings,
+                                     .data_context = vm_, .fit = engine::ui::UiFit::FillWindow});
+        if (!opened) {
+            engine::log::warn("Settings window: " + std::string(engine::to_string(opened.error())));
+            return;
+        }
+        window_.emplace(std::move(*opened));
+        window_->center_on_work_area();
+        window_->set_drag_region(engine::render::Rect{0, 0, 480, 32});   // the title bar
+    }
+
+    void frame() {
+        if (window_ && window_->take_close_requested()) {
+            window_.reset();                       // canvases, unbind, close, in that order
+        }
+    }
+
+private:
+    std::shared_ptr<SettingsViewModel> vm_ = std::make_shared<SettingsViewModel>();
+    std::optional<engine::UiWindow> window_;      // declared last: destroyed before what it was opened with
+};
+```
+
+- `open` returns the window or an `UiWindowError` (`WindowRefused`: no primary window yet, or an `owner` that is not open). It sets the canvas's `window` for you.
+- The destructor, or `close()` (safe to repeat), destroys every canvas on the window, unbinds it from the world, then closes it. `UiWindow` is move-only. A moved-from one does nothing.
+- `take_close_requested()` is true once per OS close request of **this** window. Two `UiWindow`s each see only their own, so there is no `if (event.window == ...)` chain. The engine never closes the window for you.
+- If the platform closes the window first (its `owner` closed), `is_open()` turns false, and the destructor only finishes the rest: no second close.
+- `set_drag_region(rect)` makes `rect` drag a borderless window, and **leaves out every interactive element inside it automatically**: buttons, text fields, sliders, scroll areas, and open popups stay clickable, and the holes follow the layout (they are refreshed whenever the last layout changed them). The first frame after opening has no layout yet, so the whole region drags until the next one. You do not notch the rectangle by hand (the problem the note in section 3 describes).
+- `center_on_work_area()` puts the window in the middle of the usable area of its display (no taskbar or menu bar). Where the platform cannot say, it does nothing.
+- Destroy a `UiWindow` before the world and the services it was opened with (declare it after them). If the world went first, the destructor skips the world and only closes the window.
+
 ---
 
 ## 2. Window Routing for Input
@@ -71,7 +114,7 @@ While click-through is on, the window lets mouse events pass to the windows behi
 
 While click-through is on, a world entity with a `PointerTarget` under the cursor also keeps the click on the window (the engine adds the window to `presentation.mouse` for it), so a transparent overlay needs no hit-testing code for its sprites ([Raw Input & Mouse](Raw-Input-and-Mouse.md#3-clickable-sprites-with-pointertarget)).
 
-A borderless window has no title bar to drag. `services_.windows.set_drag_region(rect, window)` marks a region (window pixels) as a drag handle. A left click inside it starts a window drag and never reaches the UI, so a button inside that rectangle cannot be clicked: keep the rectangle clear of interactive controls.
+A borderless window has no title bar to drag. `services_.windows.set_drag_region(rect, window)` marks a region (window pixels) as a drag handle. A left click inside it starts a window drag and never reaches the UI, so a button inside that rectangle cannot be clicked. Either leave `set_drag_exclusions(rects, window)` the rectangles of the controls (clicks there reach the UI), or open the window as a [`UiWindow`](#uiwindow-a-window-that-cleans-up-after-itself) and let `UiWindow::set_drag_region` compute them from the layout.
 
 ---
 
