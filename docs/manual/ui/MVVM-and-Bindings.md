@@ -92,7 +92,58 @@ The generator never writes the view-model class or its members; that is your cod
 
 ---
 
-## 3. Updating Data from Game Systems
+## 3. Reacting to Changes
+
+A `Bindable<T>` tells you when its value changes, so a game does not poll a value the document writes (a slider's `drag`, a `TextInput`, a `Checkbox`). Register one handler per bindable, usually in the view model's constructor or the panel that owns it:
+
+```cpp
+vm_->volume.on_changed([this](const float& fraction) { audio_.set_master(fraction); });
+vm_->name.on_changed([this](const std::string& text) { rename(text); });
+```
+
+- The handler runs once per change, with the new value. `set` with the value it already holds is silent, and so is a drag that ends where it started.
+- A write from C++ (`vm.volume.set(0.5f)`) and a write from the document (the player drags, types, or ticks) are both reported.
+- It runs immediately, on the main thread, inside `set`; for a document write that is inside input handling. Do not destroy the view model or its canvas from the handler: record what happened and act on it later in a system.
+- A new `on_changed` replaces the old handler; an empty `std::function` removes it. `BindableList` has no notification.
+
+## 4. Showing and Hiding with `if`
+
+`if="{binding name}"` on any element reads a `Bindable<bool>`. While it is `false` the element is gone: it takes no space in the layout (its siblings close up), is not painted, and cannot be hovered or clicked, exactly like `display: none`. A stylesheet rule cannot show it again.
+
+```xml
+<Stack class="details" if="{binding detailsOpen}">
+    <Label text="{binding detailsText}"/>
+</Stack>
+```
+
+```cpp
+engine::ui::Bindable<bool> detailsOpen{false};
+```
+
+Use it instead of a zero-or-one item `ItemsControl` or a `"none"`/`"flex"` string. `visibility: hidden` in CSS is the other way to hide an element; it keeps the space. A name the view model does not have is logged once and the element stays visible.
+
+## 5. Positions and Sizes from Floats
+
+Bind a `Bindable<float>` (or `int`) to a custom property and use it in a length. The number is pixels:
+
+```xml
+<Stack class="marker" var-x="{binding markerX}" var-y="{binding markerY}"/>
+```
+
+```css
+.marker { position: absolute; left: var(--x); top: var(--y); width: 12; height: 12; }
+```
+
+```cpp
+engine::ui::Bindable<float> markerX;
+vm.markerX.set(12.5f);   // 12.5 px; no "12.5px" string
+```
+
+A custom property also works inside `calc(var(--x) + 4px)`. The unit is always pixels for a bare number; if you need `%` or `em`, bind a `Bindable<std::string>` (`"50%"`).
+
+---
+
+## 6. Updating Data from Game Systems
 
 In your game systems or frame updates, change the `Bindable<T>` values directly:
 
