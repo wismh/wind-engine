@@ -54,7 +54,7 @@ Sprite world size is `pixel_size / pixels_per_unit` (default 100), with the pivo
 
 `Sprite` (`include/engine/render/sprite.h`) is a textured quad: color, layer, order, flip, tiling, offset, pixel size, pixels per unit, pivot, optional mesh, material, and override.
 
-`SpriteAnimator` plays a `SpriteAnimationClip` and writes the current frame onto a sibling `Sprite` (`run_sprite_animations`, frame `delta_time`). Clips load from `importer = "animation"` TOML (`fps`, `loop`, frame list).
+`SpriteAnimator` plays a `SpriteAnimationClip` and writes the current frame onto a sibling `Sprite` (`run_sprite_animations`, frame `delta_time`) through `Sprite::apply_frame`; `Sprite::from_frame` builds a sprite from a frame, and `set_param` / `clear_overrides` on `Sprite` and `Renderable` manage the per-instance `MaterialOverride` (see [Materials and Sort](../features/Materials%20and%20Sort.md)). Clips load from `importer = "animation"` TOML (`fps`, `loop`, frame list).
 
 `ParticleEmitter` simulates in `run_particles` with frame `delta_time`. `run_render` pushes one `CmdDrawParticles` when `particles` is not empty. An empty list pushes nothing and does not report. When the list is not empty, a mesh or material that is still null is fatal and that entity is skipped.
 
