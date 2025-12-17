@@ -12,6 +12,7 @@
 #include <engine/core/window_desc.h>
 #include <engine/project/sdk_manifest.h>
 #include <engine/project/wind_project.h>
+#include <engine/ui/ui_window.h>
 
 #include <filesystem>
 #include <optional>
@@ -40,7 +41,6 @@ public:
 
 private:
     [[nodiscard]] bool start(const EditorOptions& options);
-    void read_events(engine::ecs::World& world);
     void on_frame_end();
     void on_quit();
     [[nodiscard]] EditorFacts facts() const;
@@ -65,6 +65,8 @@ private:
     std::optional<PlaySession> session_;
     std::optional<ProjectBuild> build_;
     engine::ecs::World* world_ = nullptr;
+    // The editor window: open, bound to `world_`, with the editor canvas. Closed with the app, before `host_` goes.
+    std::optional<engine::UiWindow> window_ui_;
     engine::WindowId window_{};
 
     // The SDK this editor runs from: `<sdk>/bin/wind_editor.exe`. No manifest: not an installed SDK, so it cannot
@@ -78,7 +80,6 @@ private:
     BuildKind building_ = BuildKind::Module;
     std::filesystem::path export_directory_;
     bool play_at_start_ = false;
-    bool close_requested_ = false;
     bool quitting_ = false;
 };
 

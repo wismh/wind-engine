@@ -105,6 +105,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/ui/profiler.h` | Profiler probe: attach, canvases, frames, Pause. No-ops without the macro | [UI Profiler](../features/UI%20Profiler.md) |
 | `include/engine/ui/splash.h` | `show_splash` and `SplashTimer` | [UI](../modules/UI.md) |
 | `include/engine/ui/stylesheet.h` | Parsed CSS rules | [UI Markup](../features/UI%20Markup.md) |
+| `include/engine/ui/ui_window.h` | `UiWindow`, `UiWindowError`, `centered_position` | [Windowing](../features/Windowing.md#uiwindow) |
 | `include/engine/ui/tree.h` | `flatten_tree`, `TreeExpansion`, `tree_navigate`: a tree as flat rows | [UI](../modules/UI.md#trees) |
 | `include/engine/ui/text_line.h` | Wrapped rows and painted selection boxes | [UI Input](../features/UI%20Input.md) |
 | `include/engine/ui/view_model.h` | Property, command, and paint registration | [UI](../modules/UI.md) |
@@ -231,6 +232,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ui/css_length.h` | Parse `px`, `%`, `em`, and `calc()` | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/css_parser.cpp` | Stylesheet parser | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/dock_chrome.cpp`, `dock_chrome.h` | Chrome document (an ItemsControl per box kind), its view-models, the tab probe | [Docking](../features/Docking.md#host) |
+| `src/ui/ui_window.cpp` | `UiWindow`, `run_ui_windows` (close requests, drag exclusions) | [Windowing](../features/Windowing.md#uiwindow) |
 | `src/ui/dock_float_windows.cpp` | OS float windows: open as tool windows of the space's window, follow native moves, apply rects and titles, close (also when the world goes); re-dock on the close button | [Docking](../features/Docking.md#os-window-floats) |
 | `src/ui/dock_geometry.cpp` | Stack, splitter, and float rects; split, resize, and clamp helpers | [Docking](../features/Docking.md) |
 | `src/ui/dock_hit.cpp` | Chrome hit test and drop targets | [Docking](../features/Docking.md) |
@@ -419,6 +421,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/web_loop_test.cpp` | RAF policy and shutdown order | [Core](../modules/Core.md) |
 | `tests/window_icon_test.cpp` | `make_icon_surface` byte layout | [Windowing](../features/Windowing.md) |
 | `tests/mouse_capture_test.cpp` | `MouseCapture` and `global_mouse_supported` (window builds) | [Windowing](../features/Windowing.md#cursor-buttons-and-capture) |
+| `tests/ui_window_test.cpp` | `UiWindow`: open, teardown order, move, owner close, close routing, drag exclusions, centring | [Windowing](../features/Windowing.md#uiwindow) |
+| `tests/drag_region_test.cpp` | `drag_region_contains` with exclusions (window builds) | [Windowing](../features/Windowing.md#uiwindow) |
 | `tests/window_cursor_test.cpp` | Cursor, buttons, capture on the window-control double, `cursor_client_position` | [Windowing](../features/Windowing.md#cursor-buttons-and-capture) |
 | `tests/window_style_test.cpp` | Style flags (`utility` included), overlay mode, window control without a window, `raise` of no window, a primary window with an owner refused | [Windowing](../features/Windowing.md) |
 | `tests/worlds_test.cpp` | World isolation, window routing, per-window draw, registration order | [Core](../modules/Core.md) |

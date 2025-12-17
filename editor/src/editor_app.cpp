@@ -9,7 +9,6 @@
 #include <engine/core/platform.h>
 #include <engine/core/window_control.h>
 #include <engine/core/worlds.h>
-#include <engine/ecs/events.h>
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/world.h>
 #include <engine/log.h>
@@ -75,6 +74,7 @@ DockLayoutFile layout_file(const std::filesystem::path& user_data) {
 
 EditorApp::~EditorApp() {
     session_.reset();
+    window_ui_.reset();
 }
 
 int EditorApp::run(const EditorOptions& options) {
@@ -116,29 +116,23 @@ bool EditorApp::start(const EditorOptions& options) {
 
     const engine::EngineServices& services = host_.services();
     world_ = &services.worlds.add();
-    const std::optional<engine::WindowId> window = services.windows.open_window(kEditorWindow);
+    toolbar_.emplace();
+    cli_.emplace(*toolbar_);
+    auto window = engine::UiWindow::open(services.windows, services.worlds, *world_, kEditorWindow,
+            engine::ui::UiCanvas{
+                    .document = assets::ui::editor,
+                    .stylesheet = assets::css::editor,
+                    .data_context = toolbar_->view_model(),
+                    .fit = engine::ui::UiFit::FillWindow,
+            });
     if (!window) {
         host_.fatal().report("Failed to open the editor window");
     }
-    window_ = *window;
-    services.worlds.bind_window(window_, *world_);
-    services.worlds.enable_ui(*world_);
-
-    toolbar_.emplace();
-    cli_.emplace(*toolbar_);
-    const engine::ecs::Entity canvas = world_->create();
-    world_->emplace<engine::ui::UiCanvas>(canvas, engine::ui::UiCanvas{
-            .document = assets::ui::editor,
-            .stylesheet = assets::css::editor,
-            .data_context = toolbar_->view_model(),
-            .fit = engine::ui::UiFit::FillWindow,
-            .window = window_,
-    });
+    window_ui_.emplace(std::move(*window));
+    window_ = window_ui_->id();
     const std::filesystem::path data = user_data();
     panels_.emplace(layout_file(data));
     panels_->spawn(*world_, window_, services.windows);
-    world_->add_system(engine::ecs::Schedule::Frame, engine::ecs::Phase::Game,
-            [this](engine::ecs::World& world) { read_events(world); });
     // Game, not Bind: run_bind of this world (registered by enable_ui) must see this frame's copy.
     world_->add_system(engine::ecs::Schedule::Frame, engine::ecs::Phase::Game,
             [this](engine::ecs::World& world) { panels_->frame(world); });
@@ -167,16 +161,6 @@ bool EditorApp::start(const EditorOptions& options) {
     return true;
 }
 
-void EditorApp::read_events(engine::ecs::World& world) {
-    for (const engine::ui::WindowCloseRequestedEvent& event :
-            engine::ecs::EventReader<engine::ui::WindowCloseRequestedEvent>{
-                    world, world.ctx<engine::ecs::EventCursor<engine::ui::WindowCloseRequestedEvent>>()}) {
-        if (event.window == window_) {
-            close_requested_ = true;
-        }
-    }
-}
-
 // Every transition happens here, after the frame drew: Play and Stop destroy and create worlds, which no
 // system of this frame may still be walking.
 void EditorApp::on_frame_end() {
@@ -186,7 +170,7 @@ void EditorApp::on_frame_end() {
         app.running = true;
         stop("The game quit. Stopped.");
     }
-    if (close_requested_) {
+    if (window_ui_->take_close_requested()) {
         // on_quit stops a running game once the loop ends.
         quitting_ = true;
         app.quit();
