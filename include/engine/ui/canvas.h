@@ -136,6 +136,13 @@ struct ActiveDrag {
     // freshly re-bound tree (document.cpp find_by_generated_owner()) before writing through it,
     // since the game is free to remove that item from its list between Move events mid-drag.
     const void* owner = nullptr;
+    // A Slider drag writes the value of its range instead of the raw fraction (Element::slider_*). `handle` is the
+    // handle part's extent along the axis in layout pixels, so the handle's centre follows the pointer.
+    bool slider = false;
+    float slider_min = 0.0f;
+    float slider_max = 1.0f;
+    float slider_step = 0.0f;
+    float slider_handle = 0.0f;
 };
 
 // One map for every window (kPrimaryWindow included like any other key) — unlike UiPointer/

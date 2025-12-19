@@ -37,6 +37,8 @@ public:
     Node& command_bind(BindingId id);
     Node& paint_bind(BindingId id);
     Node& drag_bind(BindingId id);
+    // A Slider's value binding (the same as `drag_bind`) and its range. `step` 0 is continuous.
+    Node& slider_range(float min, float max, float step = 0.0f);
     // `if="{binding id}"`: a bool property; while it is false the element is out of layout like `display: none`.
     Node& if_bind(BindingId id);
     Node& checked(bool value);
@@ -87,6 +89,7 @@ private:
     friend Node text_input();
     friend Node scroll_view();
     friend Node checkbox();
+    friend Node slider();
     friend Node math_formula();
     friend Node popup();
     friend std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal);
@@ -113,6 +116,8 @@ private:
 [[nodiscard]] Node text_input();
 [[nodiscard]] Node scroll_view();
 [[nodiscard]] Node checkbox();
+// `<Slider>`: set the value with `drag_bind`, the range with `slider_range`, and the axis with `drag_orientation`.
+[[nodiscard]] Node slider();
 [[nodiscard]] Node math_formula();
 [[nodiscard]] Node popup();
 
