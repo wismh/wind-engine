@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <string>
 #include <vector>
 
 namespace engine::ui {
@@ -19,9 +20,11 @@ struct TextBlock {
     float line_height = 0.0f;
 };
 
-// One painted row of a selectable Label, in the same real pixels the glyphs were drawn with. `x`/`y` is the
-// top-left of the glyphs after text-align and align-items, not the content box. Click-to-index and the
-// selection highlight both read this so a click cannot land somewhere the glyphs were not drawn.
+// One painted box of a selectable Label, in the same real pixels the glyphs were drawn with. `x`/`y` is the
+// top-left of the glyphs after text-align and align-items, not the content box. A plain label has one box per
+// visual row. A label with an inline formula has one box per segment: `atomic` is the whole `\(...\)` source
+// span (click snaps to an edge), and `drawn` / `source_of_drawn` are set when the drawn bytes are not a slice
+// of `Element::text` (an escaped `\\(`). Click-to-index and the selection highlight both read this.
 struct PaintedTextLine {
     std::size_t begin = 0;
     std::size_t end = 0;
@@ -29,6 +32,9 @@ struct PaintedTextLine {
     float y = 0.0f;
     float width = 0.0f;
     float height = 0.0f;
+    bool atomic = false;
+    std::string drawn;
+    std::vector<std::size_t> source_of_drawn;
 };
 
 }

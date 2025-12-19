@@ -26,12 +26,19 @@ namespace engine::ui {
 
 // One slice of a label string after `\(...\)` delimiters are resolved. `text` is the characters to
 // draw (a Text run, escapes already turned into a literal `\(` / `\)`) or the TeX source (a Math
-// run, delimiters removed).
+// run, delimiters removed). `source_begin` / `source_end` is that slice in the original string:
+// a Math run includes the `\(` and `\)` delimiters. `source_of_drawn` is empty when every drawn
+// byte is one source byte from `source_begin`; otherwise it has `text.size() + 1` entries, the
+// source offset of each drawn byte and then `source_end` (`\\(` is three source bytes and two
+// drawn bytes).
 struct InlinePiece {
     enum class Kind { Text, Math };
 
     Kind kind = Kind::Text;
     std::string text;
+    std::size_t source_begin = 0;
+    std::size_t source_end = 0;
+    std::vector<std::size_t> source_of_drawn;
 };
 
 struct InlineSplit {
@@ -97,7 +104,7 @@ layout_inline(const std::vector<InlinePiece>& pieces, float max_width, bool wrap
 
 // Draws the cached inline runs inside `content` (real pixels). `content_width` is the design-pixel
 // width the lines wrap at; a cache built for a wider wrap is reused when its lines still fit.
-void paint_label_inline(IUiPainter& painter, const Element& element, float font_size, float content_width,
+void paint_label_inline(IUiPainter& painter, Element& element, float font_size, float content_width,
                         const render::Rect& content, float ui_scale, UiAlign horizontal, UiAlign vertical,
                         glm::vec4 color);
 
