@@ -79,6 +79,13 @@ void sync_cursor(WindowManager& windows, Worlds& worlds) {
 class SdlGlPresentation final : public IPresentation {
 public:
     SdlGlPresentation() : windows_(*backend_) {
+        factory_->set_context_activator([this] {
+            if (windows_.has_window(kPrimaryWindow)) {
+                if (render::OpenGLCanvas* const primary = windows_.canvas(kPrimaryWindow)) {
+                    primary->make_current();
+                }
+            }
+        });
         window_control_ = std::make_unique<WindowControlImpl>(windows_, overlay_, dialogs_);
         window_control_->set_on_windows_changed([this] { sync_modal_hook(); });
     }
