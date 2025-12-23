@@ -5,3 +5,7 @@
 /baseline/*
 !/baseline/summary.md
 !/baseline/summary.json
+!/baseline-linux/
+/baseline-linux/*
+!/baseline-linux/summary.md
+!/baseline-linux/summary.json
