@@ -108,6 +108,17 @@ world.get<engine::render::Renderable>(entity).material_override = overrides;
 
 `set_vec4` replaces the value when the name is already there and appends it otherwise. The override applies to that entity's draw only.
 
+For one parameter, `Sprite` and `Renderable` have a shorthand that creates the override for you:
+
+```cpp
+// A hit flash: set it once when the hit happens...
+world.get<engine::render::Sprite>(enemy).set_param("uFlash", glm::vec4{1.0f, 1.0f, 1.0f, 1.0f});
+// ...and again when it ends (or call clear_overrides() to drop every per-sprite override).
+world.get<engine::render::Sprite>(enemy).set_param("uFlash", glm::vec4{0.0f});
+```
+
+The value stays on the component until you change it, so no system has to rewrite it every frame, and two enemies that share one material each keep their own value: the override is a component field, not a field of the material. Use one shared `.mat` for all of them and flash only the enemy that was hit. The engine restores the shader uniform after every overridden draw, so the next sprite that uses the same shader and never set the parameter draws with the shader's own value (zero unless the shader sets it another way).
+
 > [!NOTE]
 > `MaterialOverride` carries `glm::vec4` values only. Pack scalar parameters (such as radii, flags, or time) into vector components (e.g., `uParams.x`, `uParams.y`), and keep array sizes the shader needs as a constant shared by C++ and GLSL.
 
