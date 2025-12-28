@@ -96,6 +96,12 @@ public:
     // Shrink or notch the rect to exclude every interactive control's bounds before calling this.
     virtual void set_drag_region(std::optional<render::Rect> region, WindowId window = kPrimaryWindow) = 0;
 
+    // Rectangles (client pixels, like the region) inside the drag region where a click does NOT start a drag: it
+    // goes to the UI as usual. This is what the WARNING above asks for, without shrinking the region around every
+    // control: a title bar is one wide region with a hole per button. An empty list clears them. `UiWindow` keeps this
+    // list in step with the interactive elements of its canvas.
+    virtual void set_drag_exclusions(std::vector<render::Rect> exclusions, WindowId window = kPrimaryWindow) = 0;
+
     // The cursor on the desktop, in screen coordinates: the same space as position() and set_position(), so
     // `cursor_screen_position() - position(window)` is the cursor in that window's client pixels, inside the window
     // or not. Works while the cursor is over another application. nullopt where the platform cannot say: Wayland

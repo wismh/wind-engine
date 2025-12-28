@@ -988,6 +988,13 @@ namespace engine::ui {
     // Shared by click resolution (canvas.cpp) and hover resolution (paint.cpp).
     [[nodiscard]] Element *hit_test(Element &root, float x, float y);
 
+    // Appends the rectangle (layout space) of every interactive element under `root` that hit_test() can return,
+    // selectable labels aside: a Button, Checkbox, TextInput, ScrollView, scrollable or Viewport-with-camera element,
+    // an element with a bound `command` or `drag` (a Slider included), and an open Popup at its shown position. An
+    // interactive element is one rectangle: its children are not visited. Hidden elements and item templates are
+    // skipped. `UiWindow` turns these into drag exclusions.
+    void collect_interactive_rects(const Element &root, std::vector<render::Rect> &out);
+
     // The cursor at (x, y): the topmost shown element under the point, any kind, interactive or not, walking the
     // same stacking order, popups, scroll and Viewport cameras as hit_test(). Its `cursor`, or the nearest
     // ancestor's that is not Auto. When the whole chain is Auto, Text over a TextInput or a selectable Label, else
