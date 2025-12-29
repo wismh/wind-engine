@@ -466,6 +466,59 @@ TEST(LabelSelect, EscapedDelimiterSelectsAsText) {
     EXPECT_EQ(selected(label), R"(a\\(b)");
 }
 
+TEST(LabelSelect, ScrolledRowsHitTheVisibleLine) {
+    Fixture fx;
+    fx.setup(
+            R"(<Canvas><ScrollView><Canvas class="pad"/><Label id="t" text="hello&#10;world"/></ScrollView></Canvas>)",
+            "ScrollView { width: 220px; height: 80px; overflow-y: scroll; scrollbar-width: 0; }"
+            ".pad { width: 10px; height: 100px; }"
+            "Label { user-select: text; width: 200px; font-size: 16px; }");
+    fx.paint();
+    engine::ui::Element& scroller = fx.root().children[0];
+    engine::ui::Element& label = scroller.children[1];
+    ASSERT_EQ(label.painted_text_lines.size(), 2u);
+    const engine::ui::PaintedTextLine first = label.painted_text_lines[0];
+    const engine::ui::PaintedTextLine second = label.painted_text_lines[1];
+    ASSERT_GT(scroller.max_scroll_y, first.height);
+    scroller.scroll_y = scroller.max_scroll_y;
+    const float scroll = scroller.scroll_y;
+    const float first_y = first.y + 1.0f - scroll;
+    const float second_y = second.y + 1.0f - scroll;
+    ASSERT_GE(first_y, scroller.layout_rect.y);
+    ASSERT_LT(second_y, scroller.layout_rect.y + scroller.layout_rect.h);
+
+    fx.click(second.x + 1.0f, second_y);
+    EXPECT_EQ(label.caret_position, second.begin);
+    engine::ui::pointer_for(fx.world, engine::kPrimaryWindow).down = true;
+    engine::ui::update_text_selection(fx.world, second.x + second.width - 1.0f, second_y);
+    EXPECT_EQ(selected(label), "world");
+
+    fx.click(first.x + 1.0f, first_y);
+    EXPECT_EQ(label.caret_position, first.begin);
+    engine::ui::pointer_for(fx.world, engine::kPrimaryWindow).down = true;
+    engine::ui::update_text_selection(fx.world, second.x + second.width - 1.0f, second_y);
+    EXPECT_EQ(selected(label), "hello\nworld");
+}
+
+TEST(LabelSelect, HorizontalScrollHitsTheVisibleCharacter) {
+    Fixture fx;
+    fx.setup(R"(<Canvas><ScrollView><Label id="t" text="abcdefghij"/></ScrollView></Canvas>)",
+            "ScrollView { width: 40px; height: 30px; overflow-x: scroll; scrollbar-width: 0; }"
+            "Label { user-select: text; white-space: nowrap; font-size: 16px; width: 200px; }");
+    fx.paint();
+    engine::ui::Element& scroller = fx.root().children[0];
+    engine::ui::Element& label = scroller.children[0];
+    ASSERT_EQ(label.painted_text_lines.size(), 1u);
+    const engine::ui::PaintedTextLine line = label.painted_text_lines[0];
+    constexpr float kScroll = 16.0f;
+    ASSERT_GE(scroller.max_scroll_x, kScroll);
+    scroller.scroll_x = kScroll;
+    // Glyphs are 8px. Scrolling 16 hides "ab"; one pixel into the visible "c" is content x + 17.
+    const float visual_x = line.x + 17.0f - kScroll;
+    fx.click(visual_x, line.y + 1.0f);
+    EXPECT_EQ(label.caret_position, 2u);
+}
+
 TEST(LabelSelect, UserSelectAllStillCopiesFormulaSource) {
     Fixture all;
     all.setup(R"xml(<Canvas><Label id="t" text="a\(x\)"/></Canvas>)xml",
