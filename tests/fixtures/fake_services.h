@@ -133,7 +133,7 @@ public:
 // kPrimaryWindow has a position and size only once a test or a call sets them. As the real one: an
 // owner that is not open fails open_window, and closing a window closes the windows it owns first.
 // `raised` lists every raise of an open window, in order.
-class FakeWindowControl final : public engine::IWindowControl {
+class FakeWindowControl : public engine::IWindowControl {
 public:
     void set_overlay_mode(engine::OverlayMode mode) override {
         overlay = mode;
@@ -205,7 +205,13 @@ public:
         }
     }
     void set_click_through_enabled(bool, engine::WindowId) override {}
-    void set_drag_region(std::optional<engine::render::Rect>, engine::WindowId) override {}
+    void set_drag_region(std::optional<engine::render::Rect> region, engine::WindowId window) override {
+        drag_regions[window] = region;
+    }
+    void set_drag_exclusions(std::vector<engine::render::Rect> exclusions, engine::WindowId window) override {
+        drag_exclusions[window] = std::move(exclusions);
+        ++drag_exclusion_calls;
+    }
     std::optional<glm::vec2> cursor_screen_position() const override {
         return cursor;
     }
@@ -288,6 +294,10 @@ public:
     std::map<engine::WindowId, glm::ivec2> positions;
     std::map<engine::WindowId, glm::ivec2> sizes;
     std::vector<engine::WindowId> raised;
+    // The last set_drag_region and set_drag_exclusions per window, and how many times exclusions were set.
+    std::map<engine::WindowId, std::optional<engine::render::Rect>> drag_regions;
+    std::map<engine::WindowId, std::vector<engine::render::Rect>> drag_exclusions;
+    int drag_exclusion_calls = 0;
     // What cursor_screen_position answers (nullopt: the platform cannot say) and the buttons held while it can.
     std::optional<glm::vec2> cursor;
     std::vector<engine::MouseButton> buttons_down;
