@@ -15,7 +15,7 @@ namespace {
 // own modal move/size loop inside DefWindowProc as soon as a WM_NCLBUTTONDOWN with HTCAPTION
 // arrives — whether HTCAPTION came from a real OS titlebar or from window_drag_hit_test's
 // SDL_HITTEST_DRAGGABLE — and the calling thread blocks inside it until the mouse button is
-// released. EngineRuntime's main loop is the classic SDL_PollEvent poll loop (not SDL3's
+// released. GameLoop's main loop is the classic SDL_PollEvent poll loop (not SDL3's
 // SDL_AppIterate/main-callbacks model), so it never runs again until the drag ends: the whole
 // game visibly freezes for the duration of any drag, not just ones through a drag region.
 // SDL3 already ticks a WM_TIMER (USER_TIMER_MINIMUM, i.e. ~10ms) while inside that modal loop
@@ -23,8 +23,8 @@ namespace {
 // loop, which this engine doesn't use — but SDL_SetWindowsMessageHook (SDL_system.h), called for
 // every message while the modal loop is active, gives any app a way to piggyback on it. What
 // actually runs on each tick isn't this class's business —
-// EngineRuntime::begin_loop() supplies it via set_modal_loop_tick_callback() (a full
-// reentrant game tick, not just a redraw — see EngineRuntime::reentrant_tick()'s doc comment for
+// SdlGlPresentation::attach_loop() supplies it via set_modal_loop_tick_callback() (a full
+// reentrant game tick, not just a redraw — see GameLoop::reentrant_tick() for
 // why that's safe here specifically).
 bool windows_message_hook(void* userdata, MSG* msg) {
     if (msg != nullptr && msg->message == WM_TIMER) {
@@ -178,6 +178,10 @@ std::shared_ptr<render::CommandBuffer> WindowManager::commands_ptr(WindowId id) 
 }
 
 WindowSystem& WindowManager::primary_window() noexcept {
+    return windows_.at(kPrimaryWindow)->window;
+}
+
+const WindowSystem& WindowManager::primary_window() const noexcept {
     return windows_.at(kPrimaryWindow)->window;
 }
 

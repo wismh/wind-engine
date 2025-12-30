@@ -15,7 +15,7 @@ public:
     [[nodiscard]] bool uses_request_animation_frame() const noexcept;
 
     // Runs tick until !app.running or max_frames. Returns the number of ticks invoked.
-    // Does not call Emscripten; EngineRuntime uses this policy to choose RAF vs a blocking while.
+    // Does not call Emscripten; GameLoop uses this policy to choose RAF vs a blocking while.
     int pump(ApplicationState& app, const std::function<void(float)>& tick, int max_frames, float dt);
 
 private:
@@ -23,7 +23,7 @@ private:
 };
 
 // Ordered RAF/blocking quit: on_quit then host dispose (audio + runtime shutdown).
-// EngineRuntime::end_loop uses this so emscripten_set_main_loop (simulate_infinite_loop=1)
+// GameLoop::end uses this so emscripten_set_main_loop (simulate_infinite_loop=1)
 // still runs Engine::dispose even though run() never returns.
 class LoopShutdown {
 public:

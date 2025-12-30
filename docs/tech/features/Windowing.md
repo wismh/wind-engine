@@ -9,7 +9,7 @@ One `ecs::World` and one loop; many OS windows. A window is an output target (`W
 ## Contract
 
 - `IGame::primary_window()` returns a `WindowDesc` (title, size, optional position, `WindowStyle`). That window is `kPrimaryWindow` and must exist before `on_start`.
-- Further windows: `IWindowControl::open_window` / `close_window` (DI, not a service locator). Failure (no primary yet, no video) returns `nullopt`.
+- Further windows: `IWindowControl::open_window` / `close_window`, reached through `EngineServices::windows`. Failure (no primary yet, no video) returns `nullopt`.
 - `WindowStyle::{borderless, always_on_top, transparent, resizable}`. Transparent cannot be toggled after create; open another window instead.
 - World `Renderable`s draw only into `kPrimaryWindow`. Secondary windows are UI-only (`UiCanvas::window`).
 - Drawable size: `ctx<ui::WindowSizes>()` keyed by `WindowId`. `window_size_for(world, id)` returns `{0,0}` until the first resize/backfill.

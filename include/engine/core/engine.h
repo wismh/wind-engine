@@ -8,23 +8,19 @@
 #include <engine/builtin_ids.h>
 #include <engine/core/application_state.h>
 #include <engine/core/engine_runtime.h>
+#include <engine/core/engine_services.h>
 #include <engine/core/input_system.h>
 #include <engine/core/sdl_fatal_error.h>
 #include <engine/ecs/systems.h>
 #include <engine/haptics/haptics_system.h>
 #include <engine/igame.h>
 #include <engine/log.h>
-#include <engine/render/backend.h>
-#include <engine/render/canvas.h>
-#include <engine/render/command_buffer.h>
 #include <engine/render/graphic_factory.h>
 #include <engine/resources/assets_db.h>
 #include <engine/resources/fatal_error.h>
 #include <engine/resources/font.h>
 #include <engine/resources/meta.h>
 #include <engine/ui/canvas.h>
-
-#include <boost/di.hpp>
 
 #include <concepts>
 #include <filesystem>
@@ -34,10 +30,10 @@
 
 namespace engine {
 
-namespace di = boost::di;
-
 template<typename GameT>
-    requires std::derived_from<GameT, IGame>
+concept EngineGame = std::derived_from<GameT, IGame> && std::constructible_from<GameT, const EngineServices&>;
+
+template<EngineGame GameT>
 class Engine {
 public:
     Engine() = default;
@@ -63,8 +59,7 @@ private:
     bool initialized_ = false;
 };
 
-template<typename GameT>
-    requires std::derived_from<GameT, IGame>
+template<EngineGame GameT>
 bool Engine<GameT>::init() {
     if (initialized_) {
         return true;
@@ -74,42 +69,33 @@ bool Engine<GameT>::init() {
     }
     log::init(runtime_.base_path());
 
+    auto sdl_fatal = std::make_shared<SdlFatalError>();
+    fatal_ = sdl_fatal;
     input_ = std::make_shared<InputSystem>();
-    auto injector = di::make_injector(
-            di::bind<IFatalError>().to<SdlFatalError>().in(di::singleton),
-            di::bind<AssetsDb>().in(di::singleton),
-            di::bind<InputSystem>().to(input_),
-            di::bind<IAudioSystem>().to<AudioSystem>().in(di::singleton),
-            di::bind<IHaptics>().to<HapticsSystem>().in(di::singleton),
-            di::bind<render::CommandBuffer>().to(runtime_.commands_ptr()),
-            di::bind<render::ICanvas>().to(runtime_.canvas_ptr()),
-            di::bind<render::IGraphicFactory>().to(runtime_.factory_ptr()),
-            di::bind<render::IRenderBackend>().to(runtime_.backend_ptr()),
-            di::bind<IWindowControl>().to(runtime_.window_control_ptr()),
-            di::bind<IGame>().to<GameT>().in(di::singleton));
-
-    fatal_ = injector.template create<std::shared_ptr<IFatalError>>();
-    assets_ = injector.template create<std::shared_ptr<AssetsDb>>();
-    audio_ = injector.template create<std::shared_ptr<IAudioSystem>>();
-    haptics_ = injector.template create<std::shared_ptr<IHaptics>>();
-    game_ = injector.template create<std::shared_ptr<IGame>>();
-    if (!fatal_ || !assets_ || !audio_ || !haptics_ || !game_) {
-        runtime_.shutdown();
-        return false;
-    }
+    assets_ = std::make_shared<AssetsDb>(*fatal_);
+    audio_ = std::make_shared<AudioSystem>();
+    haptics_ = std::make_shared<HapticsSystem>();
+    const EngineServices services{
+            .assets = *assets_,
+            .input = *input_,
+            .audio = *audio_,
+            .haptics = *haptics_,
+            .windows = runtime_.window_control(),
+            .graphics = runtime_.factory(),
+            .backend = runtime_.backend(),
+            .canvas = runtime_.canvas(),
+            .commands = runtime_.commands(),
+    };
+    game_ = std::make_shared<GameT>(services);
 
     input_->set_world(game_->world());
-    if (auto* sdl_fatal = dynamic_cast<SdlFatalError*>(fatal_.get())) {
-        sdl_fatal->attach(game_->world().ctx<ApplicationState>(), runtime_.native_window());
-    }
+    sdl_fatal->attach(game_->world().ctx<ApplicationState>(), runtime_.native_window());
 
     if (!runtime_.create_window(game_->primary_window())) {
         runtime_.shutdown();
         return false;
     }
-    if (auto* sdl_fatal = dynamic_cast<SdlFatalError*>(fatal_.get())) {
-        sdl_fatal->attach(game_->world().ctx<ApplicationState>(), runtime_.native_window());
-    }
+    sdl_fatal->attach(game_->world().ctx<ApplicationState>(), runtime_.native_window());
 
     if (!audio_->init()) {
         runtime_.shutdown();
@@ -142,10 +128,7 @@ bool Engine<GameT>::init() {
     }
     // Only builtin::font_ui loads eagerly here — it's the fallback for any UI element with no
     // font-family at all. Every other font, and every UI image, is loaded lazily: run_ui_render
-    // (ecs/systems.cpp) resolves what a drawn canvas's document/stylesheet actually reference each
-    // frame and calls EngineSystemDeps::ensure_ui_font/ensure_ui_image below, instead of this
-    // walking the whole catalog and pushing every Font/Texture/UiImage entry into the NanoVG atlas
-    // regardless of whether anything ever draws it.
+    // resolves what a drawn canvas actually references and calls ensure_ui_font/ensure_ui_image.
     if (!runtime_.add_font_for_window(kPrimaryWindow, builtin::font_ui, *assets_->get<Font>(builtin::font_ui))) {
         fatal_->report("Failed to load UI font");
         runtime_.shutdown();
@@ -176,8 +159,7 @@ bool Engine<GameT>::init() {
     return true;
 }
 
-template<typename GameT>
-    requires std::derived_from<GameT, IGame>
+template<EngineGame GameT>
 int Engine<GameT>::run() {
     if (!initialized_ || !game_ || !input_) {
         return 1;
@@ -187,8 +169,7 @@ int Engine<GameT>::run() {
     return result;
 }
 
-template<typename GameT>
-    requires std::derived_from<GameT, IGame>
+template<EngineGame GameT>
 void Engine<GameT>::dispose() {
     if (!initialized_) {
         return;

@@ -124,7 +124,7 @@ copies then erases, and **Ctrl+V** pastes at the caret (replacing the selection 
 `TextInput` only — on a Label neither changes the text, and Ctrl+X does not write the clipboard.
 The OS clipboard itself is reached through
 `world.ctx<ui::UiClipboard>()` — two `std::function`s (`set_text`/`get_text`), empty (no-op)
-unless installed. `EngineRuntime::poll_events` installs the real SDL-backed pair once, lazily
+unless installed. `SdlGlPresentation::poll` installs the real SDL-backed pair once, lazily
 ([[src.render.opengl.clipboard.h]]/`.cpp`, since SDL's clipboard is process-global, not
 per-window); `engine_tests` installs an in-memory fake per test
 ([[tests.ui_text_input_test.cpp]]) so clipboard behavior is covered without a real window.

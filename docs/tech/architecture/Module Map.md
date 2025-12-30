@@ -11,7 +11,8 @@ flowchart TB
   subgraph host [Core host]
     Eng["Engine&lt;GameT&gt;"]
     RT["EngineRuntime"]
-    DI["Boost.DI"]
+    Loop["GameLoop"]
+    Present["IPresentation"]
   end
 
   subgraph game [Game]
@@ -44,13 +45,14 @@ flowchart TB
     AS["IAudioSystem"]
   end
 
-  Eng --> DI
   Eng --> RT
-  DI --> IG
-  DI --> DB
-  DI --> AS
-  RT --> CV
-  RT --> Fac
+  Eng --> IG
+  Eng --> DB
+  Eng --> AS
+  RT --> Loop
+  RT --> Present
+  Present --> CV
+  Present --> Fac
   IG --> W
   Eng --> Sys
   Sys --> W
@@ -68,13 +70,13 @@ flowchart TB
 
 [[include.engine.core.engine.h|Engine::init]] (header-only template):
 
-1. `runtime_.init_video()` — SDL video.
+1. `runtime_.init_video()` — SDL video, inside `SdlGlPresentation`.
 2. [[src.core.log.cpp|log::init]] with base path.
-3. Boost.DI: `IFatalError` → `SdlFatalError`, `AssetsDb`, `InputSystem`, `IAudioSystem` → `AudioSystem`, command buffer / canvas / factory / backend from runtime, `IGame` → `GameT`.
+3. `Engine::init` constructs `SdlFatalError`, `AssetsDb`, `InputSystem`, `AudioSystem`, `HapticsSystem` and passes them to `GameT(const EngineServices&)`.
 4. Create window, `audio_->init()`.
 5. `assets_->set_graphic_factory`, `set_root(exe/assets)`.
 6. Load `assets/engine/catalog.toml` then optional `assets/catalog.toml`.
-7. Load [[include.engine.builtin_ids.h|builtin::font_ui]] into NanoVG; `add_font` for every other catalog font.
+7. Load [[include.engine.builtin_ids.h|builtin::font_ui]] into the presentation's UI atlas.
 8. `register_engine_systems`, `ui::apply_canvas_fit`.
 
 Then [[include.engine.core.engine.h|Run]] → [[architecture/Runtime Loop]].

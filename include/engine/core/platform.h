@@ -140,4 +140,8 @@ struct GraphicsProfile {
 // Copy a cooked assets tree to dest_root so std::ifstream (AssetsDb) can read it.
 bool stage_android_assets(const std::filesystem::path& src_root, const std::filesystem::path& dest_root);
 
+// Native and web: default_assets_root(base). Android: stage the cooked catalog onto internal storage
+// so AssetsDb can ifstream it. Empty base still goes through default_assets_root (web maps that to /assets).
+[[nodiscard]] std::filesystem::path runtime_assets_root(const std::filesystem::path& base_path);
+
 }
