@@ -591,6 +591,11 @@ namespace engine::ui {
         // `checked="true"` with no binding just seeds `checked` once at parse time.
         BindingId checked_binding{};
         BindingId source_binding{};
+        // {binding path} target for `if="{binding ...}"` (any element kind), a bool. While it reads false the
+        // element is out of layout, paint, and hit-testing like `display: none` (bind_element sets
+        // `hidden_by_if`; apply_layout_style and paint_element read it). Unset keeps the element as it is.
+        BindingId if_binding{};
+        bool hidden_by_if = false;
         BindingId items_source_binding{};
         // {binding path} target for a `drag="{binding ...}"` attribute (any element kind, not just
         // Button) — writes a [0,1] fraction along the element's own rect while the pointer drags it
@@ -852,12 +857,13 @@ namespace engine::ui {
         //     position can change *which* items are generated (different generated_owner sequence),
         //     and that is exactly what layout_dirty_check_generated_owners below already detects, so
         //     scroll_x/scroll_y themselves don't need a separate copy.
-        // What's left is: text/content-bindings (both write element.text), custom_properties (read
+        // What's left is: text/content-bindings (both write element.text), `hidden_by_if` (the `if` binding), custom_properties (read
         // unconditionally by var(--x) resolution, not gated by allow_pseudo), and — for ItemsControl —
         // the generated_owner sequence. layout_dirty_check_initialized starts false so the first call
         // on a freshly constructed/cloned Element always reports "changed" (there is nothing yet to
         // compare against).
         mutable bool layout_dirty_check_initialized = false;
+        mutable bool layout_dirty_check_hidden_by_if = false;
         mutable std::string layout_dirty_check_text;
         mutable std::unordered_map<std::string, std::string> layout_dirty_check_custom_properties;
         mutable std::vector<const void *> layout_dirty_check_generated_owners;
