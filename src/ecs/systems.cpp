@@ -742,11 +742,19 @@ namespace engine {
             auto &anim = view.get<render::SpriteAnimator>(entity);
             auto &sprite = view.get<render::Sprite>(entity);
 
-            if (!anim.playing || !anim.clip || anim.clip->frames.empty() || anim.speed <= 0.0f) {
+            if (!anim.clip || anim.clip->frames.empty()) {
+                continue;
+            }
+            const auto &frames = anim.clip->frames;
+            if (!anim.playing || anim.speed <= 0.0f) {
+                // Not advancing, but a new, paused, or stopped animator still shows its frame once.
+                if (!anim.frame_applied) {
+                    sprite.apply_frame(frames[std::min(anim.current_frame, frames.size() - 1)]);
+                    anim.frame_applied = true;
+                }
                 continue;
             }
 
-            const auto &frames = anim.clip->frames;
             if (anim.current_frame >= frames.size()) {
                 anim.current_frame = 0;
                 anim.elapsed = 0.0f;
@@ -768,13 +776,8 @@ namespace engine {
                 }
             }
 
-            const auto &current_frame = frames[anim.current_frame];
-            sprite.texture = current_frame.sprite.texture;
-            sprite.tiling = current_frame.sprite.tiling;
-            sprite.offset = current_frame.sprite.offset;
-            sprite.pixel_size = current_frame.sprite.pixel_size;
-            sprite.pixels_per_unit = current_frame.sprite.pixels_per_unit;
-            sprite.pivot = current_frame.sprite.pivot;
+            sprite.apply_frame(frames[anim.current_frame]);
+            anim.frame_applied = true;
         }
     }
 

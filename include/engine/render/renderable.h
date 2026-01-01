@@ -13,6 +13,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <string_view>
 
 namespace engine::render {
 
@@ -23,6 +24,18 @@ struct Renderable {
     int layer = 0;
     int order_in_layer = 0;
     std::optional<MaterialOverride> material_override;
+
+    // Sets one named vec4 shader uniform for this renderable's draws, once: it stays until set again or cleared, and
+    // no other renderable that shares the material sees it. See `MaterialOverride`.
+    void set_param(std::string_view name, const glm::vec4& value) {
+        if (!material_override) {
+            material_override.emplace();
+        }
+        material_override->set_vec4(name, value);
+    }
+
+    // Removes every per-renderable override (uniforms and albedo).
+    void clear_overrides() { material_override.reset(); }
 
     [[nodiscard]] glm::vec4 tinted_color() const {
         const glm::vec4 material_color =
