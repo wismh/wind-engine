@@ -24,6 +24,10 @@ struct WindowStyle {
     // (SDL's GetWindowStyle() only adds it for a resizable window — SDL_windowswindow.c), preventing
     // the window from being maximized (e.g. by OS shortcuts or double-clicking).
     bool resizable = true;
+    // Opens maximized. The title bar and taskbar stay; this is not fullscreen. `size` is the
+    // restored size. SDL_MaximizeWindow refuses the request unless SDL_WINDOW_RESIZABLE is also
+    // set, so maximized without resizable leaves the window at `size`.
+    bool maximized = false;
 };
 
 struct WindowDesc {
