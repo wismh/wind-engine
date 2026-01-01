@@ -8,7 +8,7 @@ Normative rules. If a change fights these, the change is wrong. As-built detail 
 
 ## Goals
 
-1. **Low coupling.** Core services do not construct each other; Boost.DI injects constructors. No service locator (`Engine::get_audio()`).
+1. **Low coupling.** `Engine::init` constructs services and passes them to the game as `EngineServices`. No service locator (`Engine::get_audio()`).
 2. **Clear ownership.** Engine owns window / GL / audio / import. Game owns the `assets/` tree, `.meta` files, and generated `asset_ids.h`.
 3. **One way to draw.** Game and ECS never call OpenGL. They push `Command`s; the backend executes them.
 4. **Named input.** Gameplay binds controls → interned `ActionId`, not raw keys in systems.

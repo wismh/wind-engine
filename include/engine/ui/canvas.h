@@ -237,7 +237,7 @@ struct UiModifierState {
 };
 
 // System clipboard seam. Both members are empty (calls are no-ops) unless something installs
-// them: EngineRuntime wires real SDL-backed functions once at startup (src/render/opengl/
+// them: SdlGlPresentation wires real SDL-backed functions once at startup (src/render/opengl/
 // clipboard.h); engine_tests installs an in-memory fake per test. Plain data (no SDL, no
 // polymorphism) so it can live in ctx<UiClipboard>() the same way WindowSizes/MouseConsumed
 // already carry window-system facts into this SDL-free module.

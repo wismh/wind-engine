@@ -2,7 +2,6 @@
 
 #include "gl_includes.h"
 #include "nanovg_painter.h"
-#include "opengl_runtime.h"
 
 #include <memory>
 

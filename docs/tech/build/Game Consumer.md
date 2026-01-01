@@ -38,7 +38,7 @@ int main() {
 }
 ```
 
-`Game` constructor is Boost.DI-injected (`AssetsDb&`, `InputSystem&`, `IAudioSystem&`, …). Prefer `GameBase`.
+`Game` constructor takes `const EngineServices&` (`AssetsDb&`, `InputSystem&`, `IAudioSystem&`, …). `Engine<GameT>` requires that constructor. Prefer `GameBase` for tests that never boot `Engine`.
 
 Pin the submodule to a Wind `main` commit; do not develop features inside the nested copy — edit the engine repo directly, then pin.
 

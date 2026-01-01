@@ -1,6 +1,7 @@
 #include <engine/core/host.h>
 
-#include <engine/audio/audio_system.h>
+#include "core/frame_step.h"
+
 #include <engine/ecs/events.h>
 #include <engine/ecs/systems.h>
 #include <engine/ui/canvas.h>
@@ -28,18 +29,8 @@ Host::~Host() {
 }
 
 void Host::tick(float real_dt) {
-    ecs::World& world_ref = world();
-    world_ref.flush_events();
-    ui::begin_frame(world_ref);
-
-    const int steps = clock_.advance(real_dt);
-    if (audio_ != nullptr) {
-        audio_->update(time_->delta_time);
-    }
-    for (int i = 0; i < steps; ++i) {
-        game_->on_fixed_update();
-    }
-    game_->on_update();
+    flush_game_events(*game_);
+    simulate_game_frame(*game_, audio_, clock_, real_dt);
     canvas_->draw();
 }
 
