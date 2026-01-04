@@ -55,6 +55,7 @@
 #include <engine/ui/profiler.h>
 #include <engine/ui/paint.h>
 #include <engine/ui/stylesheet.h>
+#include <engine/ui/ui_window.h>
 #include <engine/ui/view_model.h>
 
 #if defined(ENGINE_WITH_WINDOW)
