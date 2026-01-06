@@ -44,6 +44,14 @@ public:
     virtual void set_position(glm::ivec2 position, WindowId window = kPrimaryWindow) = 0;
     virtual void resize(glm::ivec2 size, WindowId window = kPrimaryWindow) = 0;
 
+    // Live top-left in screen coordinates, the same space as set_position. nullopt if that
+    // window is not open.
+    [[nodiscard]] virtual std::optional<glm::ivec2> position(WindowId window = kPrimaryWindow) const = 0;
+
+    // Live client size in screen coordinates, the same space as resize. nullopt if that window
+    // is not open. This is not the drawable pixel size in ctx<ui::WindowSizes>().
+    [[nodiscard]] virtual std::optional<glm::ivec2> size(WindowId window = kPrimaryWindow) const = 0;
+
     // Manual on/off for click-through overlay mode; the automatic per-frame toggle only
     // runs while this is enabled (and the window is transparent). `window` generalizes to secondary
     // windows the same way as other controls.
@@ -76,6 +84,11 @@ public:
     // `display_index` is 0-based into the platform's display list; out of range falls back
     // to the primary display. A zeroed Rect means the query failed (e.g. no video subsystem).
     [[nodiscard]] virtual render::Rect usable_display_bounds(int display_index = 0) const = 0;
+
+    // Usable area, in screen pixels, of the display that currently contains `window`.
+    // A window that is not open, or that cannot be placed on a display, uses the primary
+    // display — the same result as usable_display_bounds(0).
+    [[nodiscard]] virtual render::Rect usable_display_bounds_for_window(WindowId window = kPrimaryWindow) const = 0;
 };
 
 }

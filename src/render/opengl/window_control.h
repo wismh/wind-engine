@@ -46,6 +46,22 @@ public:
         }
     }
 
+    [[nodiscard]] std::optional<glm::ivec2> position(WindowId window) const override {
+        const WindowManager& windows = *windows_;
+        if (const WindowSystem* target = windows.window(window)) {
+            return target->position();
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] std::optional<glm::ivec2> size(WindowId window) const override {
+        const WindowManager& windows = *windows_;
+        if (const WindowSystem* target = windows.window(window)) {
+            return target->size();
+        }
+        return std::nullopt;
+    }
+
     void set_click_through_enabled(bool enabled, WindowId window) override {
         if (WindowSystem* target = windows_->window(window)) {
             target->set_click_through_enabled(enabled);
@@ -100,6 +116,34 @@ public:
                 static_cast<float>(bounds.w),
                 static_cast<float>(bounds.h),
         };
+    }
+
+    [[nodiscard]] render::Rect usable_display_bounds_for_window(WindowId window) const override {
+        const WindowManager& windows = *windows_;
+        if (const WindowSystem* target = windows.window(window)) {
+            if (SDL_Window* sdl_win = target->window()) {
+                SDL_DisplayID id = SDL_GetDisplayForWindow(sdl_win);
+                if (id == 0) {
+                    int wx = 0;
+                    int wy = 0;
+                    if (SDL_GetWindowPosition(sdl_win, &wx, &wy)) {
+                        const glm::ivec2 sz = target->size();
+                        const SDL_Point pt{wx + sz.x / 2, wy + sz.y / 2};
+                        id = SDL_GetDisplayForPoint(&pt);
+                    }
+                }
+                SDL_Rect bounds{};
+                if (id != 0 && SDL_GetDisplayUsableBounds(id, &bounds)) {
+                    return render::Rect{
+                            static_cast<float>(bounds.x),
+                            static_cast<float>(bounds.y),
+                            static_cast<float>(bounds.w),
+                            static_cast<float>(bounds.h),
+                    };
+                }
+            }
+        }
+        return usable_display_bounds(0);
     }
 
 private:

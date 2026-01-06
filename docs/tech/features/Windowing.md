@@ -12,6 +12,8 @@ One `ecs::World` and one loop; many OS windows. A window is an output target (`W
 - Further windows: `IWindowControl::open_window` / `close_window`, reached through `EngineServices::windows`. Failure (no primary yet, no video) returns `nullopt`.
 - `WindowStyle::{borderless, always_on_top, transparent, resizable, maximized}`. Transparent cannot be toggled after create; open another window instead.
 - `maximized` is create-time. The window opens maximized with the title bar and taskbar still visible; `size` is the restored size. Without `resizable`, SDL ignores the request and the window stays at `size`.
+- `IWindowControl::position` and `size` read the live window in screen coordinates, the same space as `set_position` and `resize`. Both return `nullopt` when that window is not open. `size` is not the drawable pixel size in `ctx<ui::WindowSizes>()`.
+- `usable_display_bounds_for_window` is the work area of the display that window is on. A window that is not open falls back to the primary display, the same result as `usable_display_bounds(0)`.
 - World `Renderable`s draw only into `kPrimaryWindow`. Secondary windows are UI-only (`UiCanvas::window`).
 - Drawable size: `ctx<ui::WindowSizes>()` keyed by `WindowId`. `window_size_for(world, id)` returns `{0,0}` until the first resize/backfill.
 - `UiCanvas::window` selects which window sizes and hit-tests that canvas. Pointer events carry `window`; a canvas on another window never receives them.
