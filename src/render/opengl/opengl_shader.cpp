@@ -26,6 +26,9 @@ unsigned int compile_shader(unsigned int type, std::string_view src) {
 }
 
 OpenGLShader::OpenGLShader(std::string_view vertex_src, std::string_view fragment_src) {
+    if (vertex_src.empty() || fragment_src.empty()) {
+        return;
+    }
     const unsigned int vertex = compile_shader(GL_VERTEX_SHADER, vertex_src);
     const unsigned int fragment = compile_shader(GL_FRAGMENT_SHADER, fragment_src);
     if (vertex == 0 || fragment == 0) {
