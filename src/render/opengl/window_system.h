@@ -41,6 +41,8 @@ public:
     }
 
     [[nodiscard]] glm::ivec2 size() const;
+    // Top-left in screen coordinates. nullopt without a live window, or if the platform query fails.
+    [[nodiscard]] std::optional<glm::ivec2> position() const;
     [[nodiscard]] glm::ivec2 drawable_size() const;
 
     // Current OS cursor position in this window's client pixels, queried directly
