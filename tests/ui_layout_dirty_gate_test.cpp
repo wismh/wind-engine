@@ -697,8 +697,8 @@ TEST(UiLayoutDirtyGate, HoverBackgroundStillUpdatesInstantlyWhileLayoutStaysSkip
 }
 
 // Group C.10 — keyframe animation opacity keeps advancing every call on a static, layout-unchanged
-// screen, because apply_animation_opacity() runs inside paint_element(), which paint_document()
-// calls unconditionally regardless of layout_dirty.
+// screen, because the motion sample runs inside paint_element(), which paint_document()
+// calls unconditionally regardless of the structural layout gate. Opacity does not relayout.
 TEST(UiLayoutDirtyGate, KeyframeAnimationOpacityKeepsAdvancingWhileLayoutStaysSkipped) {
     auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack class="fade"/></Canvas>)");
     ASSERT_TRUE(parsed.has_value());
@@ -718,7 +718,7 @@ TEST(UiLayoutDirtyGate, KeyframeAnimationOpacityKeepsAdvancingWhileLayoutStaysSk
     EXPECT_NEAR(first.min_opacity, 0.5f, 0.01f);
 
     // Second call: identical tree/geometry/stylesheet (layout_rect staying byte-identical is this
-    // test's proof layout_dirty was false), yet animation_elapsed must still have accumulated
+    // test's proof layout_dirty was false), yet the animation clock must still have accumulated
     // another 0.5s, reaching the fully-opaque end of the 1s keyframe.
     FakePainterStub second;
     engine::ui::paint_document(document, &sheet, second,

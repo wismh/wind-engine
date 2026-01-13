@@ -1,5 +1,6 @@
 #include "painter.h"
 #include "css_length.h"
+#include "style_anim.h"
 #include "draw_list_adapter.h"
 #include "inline_math.h"
 #include "math/math_element.h"
@@ -436,24 +437,6 @@ ParsedTransform parse_transform(std::string_view value) {
     return result;
 }
 
-std::optional<float> parse_seconds(std::string_view raw) {
-    const std::string_view value = trim(raw);
-    if (value.empty()) {
-        return std::nullopt;
-    }
-    const std::string tmp(value);
-    char* end = nullptr;
-    const float n = std::strtof(tmp.c_str(), &end);
-    if (end == tmp.c_str()) {
-        return std::nullopt;
-    }
-    const std::string_view suffix = trim(std::string_view(end));
-    if (suffix.empty() || suffix == "s") {
-        return n;
-    }
-    return std::nullopt;
-}
-
 bool has_class(const Element& element, const std::string& class_name) {
     return std::ranges::find(element.classes, class_name) != element.classes.end();
 }
@@ -699,12 +682,8 @@ void apply_declaration(ComputedStyle& style, const CssDeclaration& decl) {
         } else if (const auto id = AssetId::parse(value)) {
             style.font_family = *id;
         }
-    } else if (decl.property == "animation-name") {
-        style.animation_name = std::string(trim(decl.value));
-    } else if (decl.property == "animation-duration") {
-        if (const auto duration = parse_seconds(decl.value)) {
-            style.animation_duration = *duration;
-        }
+    } else if (is_motion_declaration(decl.property)) {
+        apply_motion_declaration(style, decl.property, decl.value);
     } else if (decl.property == "z-index") {
         style.z_index = static_cast<int>(std::strtol(decl.value.c_str(), nullptr, 10));
     } else if (decl.property == "position") {
@@ -869,72 +848,6 @@ bool media_matches(const std::optional<MediaQuery>& media, float window_width, f
     return window_height >= media->px;
 }
 
-const Keyframes* find_keyframes(const Stylesheet& sheet, std::string_view name) {
-    for (const Keyframes& keyframes : sheet.keyframes) {
-        if (keyframes.name == name) {
-            return &keyframes;
-        }
-    }
-    return nullptr;
-}
-
-std::optional<float> sample_opacity(const Keyframes& keyframes, float t) {
-    struct Stop {
-        float offset = 0.0f;
-        float opacity = 1.0f;
-    };
-    std::vector<Stop> stops;
-    for (const KeyframeStop& stop : keyframes.stops) {
-        for (const CssDeclaration& decl : stop.declarations) {
-            if (decl.property == "opacity") {
-                stops.push_back(Stop{stop.offset, std::strtof(decl.value.c_str(), nullptr)});
-                break;
-            }
-        }
-    }
-    if (stops.empty()) {
-        return std::nullopt;
-    }
-    std::sort(stops.begin(), stops.end(), [](const Stop& a, const Stop& b) { return a.offset < b.offset; });
-    t = std::clamp(t, 0.0f, 1.0f);
-    if (t <= stops.front().offset) {
-        return stops.front().opacity;
-    }
-    if (t >= stops.back().offset) {
-        return stops.back().opacity;
-    }
-    for (std::size_t i = 0; i + 1 < stops.size(); ++i) {
-        if (t > stops[i + 1].offset) {
-            continue;
-        }
-        const float span = stops[i + 1].offset - stops[i].offset;
-        const float u = span > 0.0f ? (t - stops[i].offset) / span : 0.0f;
-        return stops[i].opacity + (stops[i + 1].opacity - stops[i].opacity) * u;
-    }
-    return stops.back().opacity;
-}
-
-void apply_animation_opacity(Element& element, ComputedStyle& style, const Stylesheet* sheet, float delta_time) {
-    if (sheet == nullptr || style.animation_name.empty()) {
-        return;
-    }
-    const Keyframes* keyframes = find_keyframes(*sheet, style.animation_name);
-    if (keyframes == nullptr) {
-        return;
-    }
-    element.animation_elapsed += delta_time;
-    float t = 0.0f;
-    if (style.animation_duration > 0.0f) {
-        if (element.animation_elapsed > style.animation_duration) {
-            element.animation_elapsed = style.animation_duration;
-        }
-        t = element.animation_elapsed / style.animation_duration;
-    }
-    if (const auto opacity = sample_opacity(*keyframes, t)) {
-        style.opacity = *opacity;
-    }
-}
-
 ComputedStyle compute_style_uncached(const Element& element, const Stylesheet* sheet, bool allow_pseudo,
         const std::vector<const Element*>& ancestors, float window_width, float window_height) {
     ComputedStyle style;
@@ -1042,9 +955,8 @@ void style_cache_store(StyleCacheEntry& cache, const Element& element, const Sty
 // slots on the element (style_cache_layout_ / style_cache_paint_) and can never invalidate each
 // other. See StyleCacheEntry's doc comment (document.h) for exactly what a hit requires.
 //
-// Not cached at all: apply_animation_opacity(). It runs on the returned-by-value ComputedStyle in
-// paint_element() every call, hit or miss, so keyframe opacity still advances every frame even
-// when every other style input is unchanged.
+// Not cached at all: advance_motion(). It runs before paint and writes Element::motion_shown;
+// paint_element() applies that on top of compute_style(), so a cached cascade stays pre-motion.
 ComputedStyle compute_style(const Element& element, const Stylesheet* sheet, bool allow_pseudo,
         const std::vector<const Element*>& ancestors, float window_width, float window_height) {
     StyleCacheEntry& cache = allow_pseudo ? element.style_cache_paint_ : element.style_cache_layout_;
@@ -1260,10 +1172,10 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
 
     ComputedStyle style =
             compute_style(element, sheet, true, ancestors, input.window_width, input.window_height);
+    apply_motion_shown(element, style);
     if (!style.visible || style.display_none) {
         return;
     }
-    apply_animation_opacity(element, style, sheet, input.delta_time);
 
     const float font_size = resolve_font_size(style.font_size, parent_content.x);
     const BoxInsets padding = resolve_insets(style.padding, parent_content, font_size);
@@ -1536,9 +1448,93 @@ void paint_element(Element& element, const Stylesheet* sheet, IUiPainter& painte
     painter.restore();
 }
 
+void advance_tree(Element& element, const Stylesheet* sheet, float dt, glm::vec2 parent_basis,
+        std::vector<const Element*>& ancestors, float window_width, float window_height) {
+    if (element.kind == ElementKind::ItemTemplate) {
+        return;
+    }
+    element.layout_inputs_changed = false;
+    element.layout_descendant_inputs_changed = false;
+    element.height_motion_active = false;
+    const ComputedStyle target = compute_style(element, sheet, true, ancestors, window_width, window_height);
+    advance_motion(element, target, sheet, dt, parent_basis);
+    const float font_size = resolve_font_size(element.font_size, parent_basis.x);
+    const BoxInsets padding = resolve_insets(element.padding, parent_basis, font_size);
+    glm::vec2 child_basis{
+            std::max(0.0f, element.layout_rect.w - padding.left - padding.right),
+            std::max(0.0f, element.layout_rect.h - padding.top - padding.bottom),
+    };
+    if (element.layout_rect.w <= 0.0f && element.layout_rect.h <= 0.0f) {
+        child_basis = parent_basis;
+    }
+    ancestors.push_back(&element);
+    for (Element& child : element.children) {
+        advance_tree(child, sheet, dt, child_basis, ancestors, window_width, window_height);
+    }
+    for (Element& child : element.generated_items) {
+        advance_tree(child, sheet, dt, child_basis, ancestors, window_width, window_height);
+    }
+    ancestors.pop_back();
 }
 
-void paint_document(UiDocument& document, const Stylesheet* stylesheet, IUiPainter& painter, const UiPaintInput& input) {
+bool bubble_layout_motion(Element& element) {
+    if (element.kind == ElementKind::ItemTemplate) {
+        return false;
+    }
+    bool descendant = false;
+    for (Element& child : element.children) {
+        descendant = bubble_layout_motion(child) || descendant;
+    }
+    for (Element& child : element.generated_items) {
+        descendant = bubble_layout_motion(child) || descendant;
+    }
+    element.layout_descendant_inputs_changed = descendant;
+    return element.layout_inputs_changed || descendant;
+}
+
+void refresh_virtualization(Element& element) {
+    if (element.kind == ElementKind::ItemTemplate) {
+        return;
+    }
+    if (element.kind == ElementKind::ItemsControl) {
+        bool any = element.height_motion_active;
+        for (const Element& row : element.generated_items) {
+            any = any || row.height_motion_active;
+        }
+        element.suppress_item_virtualization = any;
+    }
+    for (Element& child : element.children) {
+        refresh_virtualization(child);
+    }
+    for (Element& child : element.generated_items) {
+        refresh_virtualization(child);
+    }
+}
+
+void commit_motion_tree(Element& element, bool layout_fields) {
+    if (element.kind == ElementKind::ItemTemplate) {
+        return;
+    }
+    if (layout_fields) {
+        commit_motion_layout(element);
+    }
+    commit_motion_visuals(element);
+    for (Element& child : element.children) {
+        commit_motion_tree(child, layout_fields);
+    }
+    for (Element& child : element.generated_items) {
+        commit_motion_tree(child, layout_fields);
+    }
+}
+
+}
+
+void apply_style_declaration(ComputedStyle& style, const CssDeclaration& decl) {
+    apply_declaration(style, decl);
+}
+
+void paint_document(
+        UiDocument& document, const Stylesheet* stylesheet, IUiPainter& painter, const UiPaintInput& input) {
     // wind-129 layout dirty-gate. Same "call layout_state_changed() unconditionally, never as a
     // short-circuited `||` operand" rule as prepare_top_canvas (canvas.cpp) — see that call site
     // for why. run_bind (systems.cpp) already called apply_bindings() unconditionally earlier this
@@ -1546,15 +1542,13 @@ void paint_document(UiDocument& document, const Stylesheet* stylesheet, IUiPaint
     // this frame's values by the time paint_document runs.
     const bool per_element_changed = layout_state_changed(document.root);
     const std::uint64_t sheet_generation = stylesheet != nullptr ? stylesheet->generation : 0;
-    const bool layout_dirty = per_element_changed || !document.layout_computed_once ||
+    const bool structural = per_element_changed || !document.layout_computed_once ||
             document.last_canvas_layout_rect != input.canvas_rect || document.last_media_width != input.window_width ||
             document.last_media_height != input.window_height || document.last_layout_sheet != stylesheet ||
             document.last_layout_sheet_generation != sheet_generation ||
             document.last_layout_painter != static_cast<const void*>(&painter) ||
             document.last_layout_math_font != math_font_identity(&painter);
-    if (layout_dirty) {
-        apply_layout_style(document.root, stylesheet, input.window_width, input.window_height);
-        layout(document, input.canvas_rect, &painter);
+    const auto stamp_layout = [&] {
         document.layout_computed_once = true;
         document.last_canvas_layout_rect = input.canvas_rect;
         document.last_media_width = input.window_width;
@@ -1563,8 +1557,30 @@ void paint_document(UiDocument& document, const Stylesheet* stylesheet, IUiPaint
         document.last_layout_painter = &painter;
         document.last_layout_math_font = math_font_identity(&painter);
         document.last_layout_sheet_generation = sheet_generation;
+    };
+    // Establish rects before hit-testing on a structural frame so :hover is known to the motion
+    // pass in the same paint. Later frames hit-test last frame's rects (one frame behind a size
+    // animation) and do not relayout unless a motion layout input actually changed.
+    if (structural) {
+        apply_layout_style(document.root, stylesheet, input.window_width, input.window_height);
+        layout(document, input.canvas_rect, &painter, false);
+        stamp_layout();
     }
     apply_interaction(document.root, input.pointer, input.pointer_down);
+
+    std::vector<const Element*> motion_ancestors;
+    advance_tree(document.root, stylesheet, input.delta_time, glm::vec2{input.canvas_rect.w, input.canvas_rect.h},
+            motion_ancestors, input.window_width, input.window_height);
+    const bool motion_layout = bubble_layout_motion(document.root);
+    refresh_virtualization(document.root);
+    if (motion_layout) {
+        apply_layout_style(document.root, stylesheet, input.window_width, input.window_height);
+        commit_motion_tree(document.root, true);
+        layout(document, input.canvas_rect, &painter, true);
+        stamp_layout();
+    } else {
+        commit_motion_tree(document.root, false);
+    }
 
     painter.save();
     painter.scissor(scale_rect(input.canvas_rect, input.ui_offset, input.ui_scale));

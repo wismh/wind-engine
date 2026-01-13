@@ -120,7 +120,9 @@ struct UiPaintInput {
 
 void apply_layout_style(
         Element& root, const Stylesheet* sheet, float window_width = 0.0f, float window_height = 0.0f);
-void layout(UiDocument& document, const render::Rect& canvas_rect, IUiPainter* painter);
+// `partial` re-packs only elements whose layout inputs (or a descendant's) changed and translates
+// siblings whose size stayed put. The full walk is the default.
+void layout(UiDocument& document, const render::Rect& canvas_rect, IUiPainter* painter, bool partial = false);
 void paint_document(UiDocument& document, const Stylesheet* stylesheet, IUiPainter& painter, const UiPaintInput& input);
 
 // The rows a Label/Button's text is drawn in when it wraps (`white-space: normal`) at `content_width` (design

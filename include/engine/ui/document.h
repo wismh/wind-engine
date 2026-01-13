@@ -281,6 +281,132 @@ struct Gradient {
     std::vector<GradientStop> stops;
 };
 
+// Default is linear, not the web's `ease`: existing opacity keyframes (splash included) are
+// authored against a linear clock, and `ease` would move the halfway sample off 0.5.
+enum class CssEasing : std::uint8_t {
+    Linear,
+    Ease,
+    EaseIn,
+    EaseOut,
+    EaseInOut,
+};
+
+// Properties `transition` and `@keyframes` can drive. `Overflow` / `ScrollbarColor` are the
+// shorthands; `all` expands to the longhands and does not include those two.
+enum class MotionProp : std::uint8_t {
+    Color,
+    Background,
+    Opacity,
+    Visibility,
+    Display,
+    Width,
+    Height,
+    MinWidth,
+    MaxWidth,
+    MinHeight,
+    Padding,
+    Margin,
+    Gap,
+    FlexDirection,
+    AlignItems,
+    JustifyContent,
+    TextAlign,
+    WhiteSpace,
+    UserSelect,
+    BackgroundImage,
+    BackgroundSlice,
+    BackgroundRepeat,
+    BorderRadius,
+    BorderWidth,
+    BorderColor,
+    FontSize,
+    LineHeight,
+    FontFamily,
+    ZIndex,
+    Position,
+    Top,
+    Right,
+    Bottom,
+    Left,
+    Transform,
+    X1,
+    Y1,
+    X2,
+    Y2,
+    Stroke,
+    StrokeWidth,
+    Overflow,
+    OverflowX,
+    OverflowY,
+    ScrollbarWidth,
+    ScrollbarColor,
+    ScrollbarThumbColor,
+    ScrollbarTrackColor,
+    ScrollbarThumbHoverColor,
+    ScrollbarBorderRadius,
+    SelectionColor,
+    Count,
+};
+
+// One captured property value. Lengths keep their specified form (for retarget equality) and the
+// px they resolved to against the basis of the frame that read them (`px` / `px_r` / `px_b` / `px_l`).
+struct MotionValue {
+    bool present = false;
+    float number = 0.0f;
+    float number2 = 0.0f;
+    int integer = 0;
+    bool flag = false;
+    bool flag2 = false;
+    glm::vec4 color{};
+    glm::vec4 color2{};
+    Length length{};
+    std::optional<Length> opt_length{};
+    LengthInsets insets{};
+    LineHeight line_height{};
+    AssetId asset{};
+    std::optional<AssetId> image{};
+    std::optional<Gradient> gradient{};
+    bool has_gradient = false;
+    std::uint8_t enumer = 0;
+    std::uint8_t enumer2 = 0;
+    float px = 0.0f;
+    float px_r = 0.0f;
+    float px_b = 0.0f;
+    float px_l = 0.0f;
+};
+
+// Parallel to one `transition-property` entry. `running` is false on the frame the property was
+// first observed and again once the clock has reached the end; `shown` is what paint and layout read.
+struct TransitionRuntime {
+    MotionProp prop = MotionProp::Opacity;
+    float elapsed = 0.0f;
+    float duration = 0.0f;
+    float delay = 0.0f;
+    CssEasing easing = CssEasing::Linear;
+    bool seen = false;
+    bool running = false;
+    MotionValue from{};
+    MotionValue to{};
+    MotionValue shown{};
+};
+
+// One `@keyframes` clock. `iterations < 0` is `infinite`. Elapsed survives ItemsControl reconcile
+// because the whole struct lives on the reused Element.
+struct AnimationRuntime {
+    std::string name;
+    float elapsed = 0.0f;
+    float duration = 0.0f;
+    float delay = 0.0f;
+    CssEasing easing = CssEasing::Linear;
+    float iterations = 1.0f;
+};
+
+struct ShownMotion {
+    MotionProp prop = MotionProp::Opacity;
+    MotionValue value{};
+    bool running = false;
+};
+
 // The fully-cascaded result of matching an Element against a Stylesheet (paint.cpp's
 // compute_style()). Lives here rather than as a paint.cpp-private type only so Element can cache
 // it (see StyleCacheEntry below) without a public header including a private one — every field
@@ -329,8 +455,18 @@ struct ComputedStyle {
     Length font_size{kDefaultFontSize, LengthUnit::Px};
     LineHeight line_height{};
     AssetId font_family = builtin::font_ui;
-    std::string animation_name;
-    float animation_duration = 0.0f;
+    // Parallel lists. One duration/delay/easing/iteration applies to every name or property; a
+    // shorter list repeats its last value; extras past the name/property count are ignored.
+    // `animation_iterations[i] < 0` means `infinite`.
+    std::vector<std::string> transition_properties;
+    std::vector<float> transition_durations;
+    std::vector<float> transition_delays;
+    std::vector<CssEasing> transition_easings;
+    std::vector<std::string> animation_names;
+    std::vector<float> animation_durations;
+    std::vector<float> animation_delays;
+    std::vector<CssEasing> animation_easings;
+    std::vector<float> animation_iterations;
     int z_index = 0;
     PositionMode position = PositionMode::Static;
     std::optional<Length> inset_top;
@@ -382,10 +518,9 @@ struct Element;
 // chain to B is unchanged). `valid` starts false so the first call on a fresh/reconciled Element
 // always misses and populates the cache.
 //
-// Deliberately NOT part of the cached style: animation. compute_style() itself never reads
-// Element::animation_elapsed, so a cached ComputedStyle is always the pre-animation value —
-// paint_element() applies apply_animation_opacity() on top of whatever compute_style() returns,
-// cache hit or miss, every call, so animated opacity still advances every frame.
+// Deliberately NOT part of the cached style: transition and @keyframes. compute_style() never
+// reads Element motion clocks, so a cached ComputedStyle is the pre-motion cascade. advance_motion()
+// samples on top of that copy every frame, cache hit or miss.
 struct StyleCacheEntry {
     bool valid = false;
     ComputedStyle style{};
@@ -485,7 +620,23 @@ struct Element {
     Length font_size{kDefaultFontSize, LengthUnit::Px};
     LineHeight line_height{};
     AssetId font_family{};
-    float animation_elapsed = 0.0f;
+    // Motion clocks. Reconcile moves the Element, so these survive an ItemsControl row reuse.
+    // advance_motion() rebuilds `motion_shown` every frame from the clocks; layout reads
+    // `layout_inputs_changed` to decide which subtrees to re-pack.
+    std::vector<TransitionRuntime> transition_players;
+    std::vector<AnimationRuntime> animation_players;
+    std::vector<ShownMotion> motion_shown;
+    bool layout_inputs_changed = false;
+    bool layout_descendant_inputs_changed = false;
+    // True while a row-box property (height, padding, gap, font-size, ...) is still interpolating.
+    // ItemsControl turns that into suppress_item_virtualization for the following bind.
+    bool height_motion_active = false;
+    bool suppress_item_virtualization = false;
+    glm::vec2 layout_used_cache{};
+    bool layout_used_cache_valid = false;
+    float layout_used_basis_w = 0.0f;
+    float layout_used_basis_h = 0.0f;
+    float layout_used_avail_x = 0.0f;
     int z_index = 0;
     PositionMode position = PositionMode::Static;
     std::optional<Length> inset_top;
@@ -609,7 +760,7 @@ struct Element {
     // Identity of the ViewModel* a generated_items entry was cloned for (opaque — never
     // dereferenced, only compared). Lets bind_element's ItemsControl reconciliation reuse the same
     // Element across frames for an item still in items_source, instead of rebuilding from the
-    // static ItemTemplate every frame — which would otherwise reset animation_elapsed and any other
+    // static ItemTemplate every frame — which would otherwise reset motion clocks and any other
     // per-instance runtime state each frame. Unset (nullptr) on every non-generated Element.
     const void* generated_owner = nullptr;
     // True only for a synthetic spacer Element that ItemsControl virtualization (bind_element,
@@ -628,15 +779,19 @@ struct Element {
     // (document.cpp) to decide whether apply_layout_style()+layout() can be skipped this frame.
     // Layout depends on this narrow set of fields and nothing else on Element:
     //   - apply_layout_style (paint.cpp) always calls compute_style() with allow_pseudo=false, so
-    //     :hover/:pressed/:disabled/:focus/:checked can never change a layout-relevant resolved
-    //     field (width/height/padding/margin/gap/justify/align_items/direction/...) —
+    //     :hover/:pressed/:disabled/:focus/:checked do not change the cascaded layout fields it
+    //     writes (width/height/padding/margin/gap/justify/align_items/direction/...).
     //     subject_matches (paint.cpp) returns false for any pseudo-class selector whenever
-    //     allow_pseudo is false. Those pseudo flags (including Checkbox's `checked`) only affect
-    //     paint_element's allow_pseudo=true resolve, so they're deliberately absent from this list.
+    //     allow_pseudo is false, so those flags (including Checkbox's `checked`) are absent from
+    //     this list. A transition or @keyframes samples compute_style(allow_pseudo=true) afterwards
+    //     and can still move a layout input; that path is layout_inputs_changed, not this gate.
     //   - intrinsic_size/compute_used (document.cpp) never read element.source (Image always hugs
     //     kDefaultImageSize, independent of the actual asset), pan_x/pan_y/zoom (Viewport is a
     //     paint-time-only camera — "layout_rect of descendants does not move", per UI.md's
-    //     Viewport section), animation_elapsed, or caret_blink_timer at all.
+    //     Viewport section), motion clocks, or caret_blink_timer at all. A transition or @keyframes
+    //     that changes a layout input sets Element::layout_inputs_changed and paint_document
+    //     re-packs only the chain that shift actually moves; paint-only motion (opacity, color)
+    //     does not.
     //   - scroll_x/scroll_y do not move a plain scrolled container's children's layout_rect
     //     (paint-time pan, same as Viewport) — the one place scroll position affects layout is
     //     indirectly, through ItemsControl virtualization (wind-127/128): a different scroll

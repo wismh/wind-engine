@@ -52,8 +52,10 @@ constexpr float kDefaultCheckboxSize = 20.0f;
 constexpr float kUnboundedWidth = std::numeric_limits<float>::infinity();
 
 void layout_element(Element& element, const render::Rect& box, IUiPainter* painter, glm::vec2 parent_content,
-        const render::Rect& containing_block);
-void layout_absolute(Element& element, const render::Rect& containing_block, IUiPainter* painter);
+        const render::Rect& containing_block, bool partial);
+void layout_absolute(Element& element, const render::Rect& containing_block, IUiPainter* painter, bool partial);
+void translate_layout(
+        Element& element, float dx, float dy, const render::Rect& containing_block, IUiPainter* painter);
 [[nodiscard]] glm::vec2 compute_used(
         const Element& element, IUiPainter* painter, glm::vec2 parent_content, float avail_x);
 
@@ -378,6 +380,13 @@ void collect_layout_children(ElementT& element, std::vector<Out*>& children) {
 
 glm::vec2 compute_used(const Element& element, IUiPainter* painter, glm::vec2 parent_content, float avail_x) {
     const ResolvedBox box = resolve_box(element, parent_content);
+    // Both axes specified: children cannot change the used border box, so don't walk them.
+    if (box.width && box.height) {
+        return {
+                clamp_axis(box.width, box.min_width, box.max_width, *box.width),
+                clamp_axis(box.height, box.min_height, std::nullopt, *box.height),
+        };
+    }
     const glm::vec2 hug = intrinsic_size(element, painter, parent_content, avail_x);
     return {
             clamp_axis(box.width, box.min_width, box.max_width, hug.x),
@@ -385,11 +394,28 @@ glm::vec2 compute_used(const Element& element, IUiPainter* painter, glm::vec2 pa
     };
 }
 
+// Reuse a clean subtree's last used size while a sibling animates. A basis change (parent content
+// box) invalidates the cache because percentages resolve against it.
+glm::vec2 cached_used(Element& element, IUiPainter* painter, glm::vec2 basis, float avail, bool partial) {
+    if (partial && element.layout_used_cache_valid && !element.layout_inputs_changed &&
+            !element.layout_descendant_inputs_changed && element.layout_used_basis_w == basis.x &&
+            element.layout_used_basis_h == basis.y && element.layout_used_avail_x == avail) {
+        return element.layout_used_cache;
+    }
+    const glm::vec2 used = compute_used(element, painter, basis, avail);
+    element.layout_used_cache = used;
+    element.layout_used_cache_valid = true;
+    element.layout_used_basis_w = basis.x;
+    element.layout_used_basis_h = basis.y;
+    element.layout_used_avail_x = avail;
+    return used;
+}
+
 // position: absolute is resolved against `containing_block` (the nearest ancestor with
 // position != Static, or the canvas root) rather than packed into the normal flow. Explicit or
 // hug size is used by default; when both opposite insets are set and no explicit size on that
 // axis, the box stretches to fill instead.
-void layout_absolute(Element& element, const render::Rect& containing_block, IUiPainter* painter) {
+void layout_absolute(Element& element, const render::Rect& containing_block, IUiPainter* painter, bool partial) {
     const glm::vec2 basis{containing_block.w, containing_block.h};
     const ResolvedBox box = resolve_box(element, basis);
 
@@ -419,7 +445,7 @@ void layout_absolute(Element& element, const render::Rect& containing_block, IUi
     if (right) {
         avail_x -= *right;
     }
-    glm::vec2 used = compute_used(element, painter, basis, std::max(0.0f, avail_x));
+    glm::vec2 used = cached_used(element, painter, basis, std::max(0.0f, avail_x), partial);
     if (!box.width && left && right) {
         used.x = std::max(0.0f, containing_block.w - *left - *right);
     }
@@ -440,11 +466,11 @@ void layout_absolute(Element& element, const render::Rect& containing_block, IUi
         y += containing_block.h - *bottom - used.y;
     }
 
-    layout_element(element, render::Rect{x, y, used.x, used.y}, painter, basis, containing_block);
+    layout_element(element, render::Rect{x, y, used.x, used.y}, painter, basis, containing_block, partial);
 }
 
 void layout_stack(Element& element, const render::Rect& allocated, IUiPainter* painter, const ResolvedBox& self,
-        const render::Rect& containing_block) {
+        const render::Rect& containing_block, bool partial) {
     std::vector<Element*> children;
     collect_layout_children(element, children);
     if (children.empty()) {
@@ -476,8 +502,10 @@ void layout_stack(Element& element, const render::Rect& allocated, IUiPainter* p
         std::vector<FlowMetrics> metrics;
         metrics.reserve(flow.size());
         for (Element* child : flow) {
-            metrics.push_back(
-                    {resolve_box(*child, child_basis), compute_used(*child, painter, child_basis, child_basis.x)});
+            metrics.push_back({
+                    resolve_box(*child, child_basis),
+                    cached_used(*child, painter, child_basis, child_basis.x, partial),
+            });
         }
 
         float packed = 0.0f;
@@ -536,7 +564,8 @@ void layout_stack(Element& element, const render::Rect& allocated, IUiPainter* p
                 } else if (element.align_items == UiAlign::End) {
                     y += extra;
                 }
-                layout_element(child, render::Rect{cursor, y, used.x, used.y}, painter, child_basis, containing_block);
+                layout_element(
+                        child, render::Rect{cursor, y, used.x, used.y}, painter, child_basis, containing_block, partial);
                 apply_relative_offset(child, child_basis, child_box.font_size);
                 cursor += used.x + child_box.margin.right;
             } else {
@@ -549,7 +578,8 @@ void layout_stack(Element& element, const render::Rect& allocated, IUiPainter* p
                 } else if (element.align_items == UiAlign::End) {
                     x += extra;
                 }
-                layout_element(child, render::Rect{x, cursor, used.x, used.y}, painter, child_basis, containing_block);
+                layout_element(child, render::Rect{x, cursor, used.x, used.y}, painter, child_basis, containing_block,
+                        partial);
                 apply_relative_offset(child, child_basis, child_box.font_size);
                 cursor += used.y + child_box.margin.bottom;
             }
@@ -560,16 +590,58 @@ void layout_stack(Element& element, const render::Rect& allocated, IUiPainter* p
     }
 
     for (Element* child : absolute) {
-        layout_absolute(*child, containing_block, painter);
+        layout_absolute(*child, containing_block, painter, partial);
+    }
+}
+
+void translate_layout(Element& element, float dx, float dy, const render::Rect& containing_block, IUiPainter* painter) {
+    if (dx == 0.0f && dy == 0.0f) {
+        return;
+    }
+    element.layout_rect.x += dx;
+    element.layout_rect.y += dy;
+    // A positioned element is the containing block of its absolute descendants. A static one is
+    // not: those absolutes stay against the block that was passed in, so they are placed again
+    // instead of being slid with the flow.
+    const render::Rect child_block = element.position != PositionMode::Static ? element.layout_rect : containing_block;
+    const auto translate_child = [&](Element& child) {
+        if (child.kind == ElementKind::ItemTemplate || child.display_none) {
+            return;
+        }
+        if (child.position == PositionMode::Absolute) {
+            layout_absolute(child, child_block, painter, true);
+        } else {
+            translate_layout(child, dx, dy, child_block, painter);
+        }
+    };
+    for (Element& child : element.children) {
+        translate_child(child);
+    }
+    for (Element& child : element.generated_items) {
+        translate_child(child);
     }
 }
 
 void layout_element(Element& element, const render::Rect& box, IUiPainter* painter, glm::vec2 parent_content,
-        const render::Rect& containing_block) {
-    element.layout_rect = box;
+        const render::Rect& containing_block, bool partial) {
     if (element.kind == ElementKind::ItemTemplate) {
+        element.layout_rect = box;
         return;
     }
+    // Unchanged input and unchanged box: keep every descendant rect. Same size, new origin: slide
+    // the flow subtree. A size change falls through and lays the subtree out again.
+    if (partial && !element.layout_inputs_changed && !element.layout_descendant_inputs_changed) {
+        if (element.layout_rect.x == box.x && element.layout_rect.y == box.y && element.layout_rect.w == box.w &&
+                element.layout_rect.h == box.h) {
+            return;
+        }
+        if (element.layout_rect.w == box.w && element.layout_rect.h == box.h) {
+            translate_layout(element, box.x - element.layout_rect.x, box.y - element.layout_rect.y, containing_block,
+                    painter);
+            return;
+        }
+    }
+    element.layout_rect = box;
     const ResolvedBox resolved = resolve_box(element, parent_content);
     const render::Rect content = inset_rect(box, resolved.padding);
     const glm::vec2 child_basis{content.w, content.h};
@@ -578,7 +650,7 @@ void layout_element(Element& element, const render::Rect& box, IUiPainter* paint
     const render::Rect child_containing_block = element.position != PositionMode::Static ? box : containing_block;
     if (element.kind == ElementKind::Stack || element.kind == ElementKind::ItemsControl ||
             element.kind == ElementKind::ScrollView) {
-        layout_stack(element, content, painter, resolved, child_containing_block);
+        layout_stack(element, content, painter, resolved, child_containing_block, partial);
         return;
     }
 
@@ -597,14 +669,14 @@ void layout_element(Element& element, const render::Rect& box, IUiPainter* paint
     for (Element* child_ptr : flow) {
         Element& child = *child_ptr;
         const ResolvedBox child_box = resolve_box(child, child_basis);
-        const glm::vec2 used = compute_used(child, painter, child_basis, child_basis.x);
+        const glm::vec2 used = cached_used(child, painter, child_basis, child_basis.x, partial);
         layout_element(child,
                 render::Rect{content.x + child_box.margin.left, content.y + child_box.margin.top, used.x, used.y},
-                painter, child_basis, child_containing_block);
+                painter, child_basis, child_containing_block, partial);
         apply_relative_offset(child, child_basis, child_box.font_size);
     }
     for (Element* child_ptr : absolute) {
-        layout_absolute(*child_ptr, child_containing_block, painter);
+        layout_absolute(*child_ptr, child_containing_block, painter, partial);
     }
 }
 
@@ -833,8 +905,8 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
                     effective_context->direction == StackDirection::Vertical &&
                     effective_context->layout_rect.h > 0.0f;
             std::optional<float> row_height_px;
-            if (expected_count == 1 && element.direction == StackDirection::Vertical &&
-                    has_scroll_context &&
+            if (!element.suppress_item_virtualization && expected_count == 1 &&
+                    element.direction == StackDirection::Vertical && has_scroll_context &&
                     element.gap.unit == LengthUnit::Px && element.gap.calc.empty()) {
                 // Row height can't be read off the static ItemTemplate: apply_layout_style
                 // (paint.cpp) never visits an ItemTemplate's own children, so tmpl's root never
@@ -870,7 +942,7 @@ std::expected<void, UiError> bind_element(Element& element, ViewModel& vm, IFata
             // Reconcile by ViewModel* identity instead of clearing+rebuilding from the static
             // ItemTemplate every frame: an item still present in items_source (and still inside
             // the generated window) reuses (re-binds in place) its previous Element(s),
-            // preserving animation_elapsed and any other per-instance runtime state across
+            // preserving motion clocks and any other per-instance runtime state across
             // frames. Only a genuinely new item is cloned fresh from the template; an item no
             // longer in items_source, or no longer inside the window, simply isn't claimed and
             // its old Element(s) are dropped when `previous_by_owner` goes out of scope. Spacer
@@ -1099,8 +1171,8 @@ std::expected<void, UiError> apply_bindings(UiDocument& document, ViewModel& dat
     return bind_element(document.root, data_context, fatal, false, nullptr, catalog);
 }
 
-void layout(UiDocument& document, const render::Rect& canvas_rect, IUiPainter* painter) {
-    layout_element(document.root, canvas_rect, painter, glm::vec2{canvas_rect.w, canvas_rect.h}, canvas_rect);
+void layout(UiDocument& document, const render::Rect& canvas_rect, IUiPainter* painter, bool partial) {
+    layout_element(document.root, canvas_rect, painter, glm::vec2{canvas_rect.w, canvas_rect.h}, canvas_rect, partial);
 }
 
 void layout(UiDocument& document, const render::Rect& canvas_rect) {

@@ -1,6 +1,11 @@
 #include <gtest/gtest.h>
 
+#include "ui/style_anim.h"
+
 #include <engine/ui/stylesheet.h>
+
+#include <glm/vec2.hpp>
+#include <glm/vec4.hpp>
 
 #include <string>
 #include <string_view>
@@ -341,5 +346,157 @@ TEST(UiCss, InvalidBackgroundSliceWarns) {
     ASSERT_TRUE(sheet.has_value());
     EXPECT_FALSE(warnings.empty());
     EXPECT_TRUE(warning_mentions(warnings, "invalid background-slice"));
+}
+
+namespace {
+
+engine::ui::ComputedStyle apply_motion_rule(const engine::ui::CssRule& rule) {
+    engine::ui::ComputedStyle style;
+    for (const engine::ui::CssDeclaration& decl : rule.declarations) {
+        engine::ui::apply_motion_declaration(style, decl.property, decl.value);
+    }
+    return style;
+}
+
+const engine::ui::ShownMotion* find_shown(const engine::ui::Element& element, engine::ui::MotionProp prop) {
+    for (const engine::ui::ShownMotion& shown : element.motion_shown) {
+        if (shown.prop == prop) {
+            return &shown;
+        }
+    }
+    return nullptr;
+}
+
+}  // namespace
+
+TEST(UiCss, TransitionAndAnimationShorthandListsAndInfinite) {
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css(R"(
+        .a {
+            transition: opacity 0.2s ease 0.1s, color 1s;
+            animation: fade 1s ease-in 0s infinite;
+        }
+        .c {
+            transition-property: opacity, color;
+            transition-duration: 0.2s;
+            transition-delay: 0s, 0.5s;
+            transition-timing-function: linear;
+            animation-name: fade, spin;
+            animation-duration: 1s, 2s;
+            animation-delay: 0.25s;
+            animation-timing-function: ease-out;
+            animation-iteration-count: 3, infinite;
+        }
+    )",
+            warnings);
+    ASSERT_TRUE(sheet.has_value());
+    EXPECT_TRUE(warnings.empty());
+
+    const engine::ui::CssRule* shorthand = find_class_rule(*sheet, "a");
+    ASSERT_NE(shorthand, nullptr);
+    const engine::ui::ComputedStyle expanded = apply_motion_rule(*shorthand);
+    ASSERT_EQ(expanded.transition_properties.size(), 2u);
+    EXPECT_EQ(expanded.transition_properties[0], "opacity");
+    EXPECT_EQ(expanded.transition_properties[1], "color");
+    ASSERT_EQ(expanded.transition_durations.size(), 2u);
+    EXPECT_FLOAT_EQ(expanded.transition_durations[0], 0.2f);
+    EXPECT_FLOAT_EQ(expanded.transition_durations[1], 1.0f);
+    ASSERT_EQ(expanded.transition_delays.size(), 2u);
+    EXPECT_FLOAT_EQ(expanded.transition_delays[0], 0.1f);
+    EXPECT_FLOAT_EQ(expanded.transition_delays[1], 0.0f);
+    ASSERT_EQ(expanded.transition_easings.size(), 2u);
+    EXPECT_EQ(expanded.transition_easings[0], engine::ui::CssEasing::Ease);
+    EXPECT_EQ(expanded.transition_easings[1], engine::ui::CssEasing::Linear);
+    ASSERT_EQ(expanded.animation_names.size(), 1u);
+    EXPECT_EQ(expanded.animation_names[0], "fade");
+    ASSERT_EQ(expanded.animation_durations.size(), 1u);
+    EXPECT_FLOAT_EQ(expanded.animation_durations[0], 1.0f);
+    ASSERT_EQ(expanded.animation_delays.size(), 1u);
+    EXPECT_FLOAT_EQ(expanded.animation_delays[0], 0.0f);
+    ASSERT_EQ(expanded.animation_easings.size(), 1u);
+    EXPECT_EQ(expanded.animation_easings[0], engine::ui::CssEasing::EaseIn);
+    ASSERT_EQ(expanded.animation_iterations.size(), 1u);
+    EXPECT_FLOAT_EQ(expanded.animation_iterations[0], -1.0f);
+
+    const engine::ui::CssRule* lists = find_class_rule(*sheet, "c");
+    ASSERT_NE(lists, nullptr);
+    const engine::ui::ComputedStyle longhands = apply_motion_rule(*lists);
+    ASSERT_EQ(longhands.transition_properties.size(), 2u);
+    EXPECT_EQ(longhands.transition_properties[0], "opacity");
+    EXPECT_EQ(longhands.transition_properties[1], "color");
+    ASSERT_EQ(longhands.transition_durations.size(), 1u);
+    EXPECT_FLOAT_EQ(longhands.transition_durations[0], 0.2f);
+    ASSERT_EQ(longhands.transition_delays.size(), 2u);
+    EXPECT_FLOAT_EQ(longhands.transition_delays[1], 0.5f);
+    ASSERT_EQ(longhands.animation_names.size(), 2u);
+    EXPECT_EQ(longhands.animation_names[1], "spin");
+    ASSERT_EQ(longhands.animation_durations.size(), 2u);
+    EXPECT_FLOAT_EQ(longhands.animation_durations[1], 2.0f);
+    ASSERT_EQ(longhands.animation_iterations.size(), 2u);
+    EXPECT_FLOAT_EQ(longhands.animation_iterations[0], 3.0f);
+    EXPECT_FLOAT_EQ(longhands.animation_iterations[1], -1.0f);
+    ASSERT_EQ(longhands.animation_easings.size(), 1u);
+    EXPECT_EQ(longhands.animation_easings[0], engine::ui::CssEasing::EaseOut);
+}
+
+TEST(UiCss, UnknownEasingWarns) {
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css(R"(
+        .b { transition-timing-function: bounce; }
+        .d { animation: fade 1s bounce; }
+        .e { transition: opacity 1s wobble; }
+    )",
+            warnings);
+    ASSERT_TRUE(sheet.has_value());
+    EXPECT_TRUE(warning_mentions(warnings, "unknown easing"));
+    EXPECT_TRUE(warning_mentions(warnings, "bounce"));
+    EXPECT_TRUE(warning_mentions(warnings, "wobble"));
+    const engine::ui::CssRule* timing = find_class_rule(*sheet, "b");
+    ASSERT_NE(timing, nullptr);
+    EXPECT_NE(find_declaration(*timing, "transition-timing-function"), nullptr);
+}
+
+TEST(UiCss, TransitionListRepeatsLastAndDropsExtras) {
+    engine::ui::ComputedStyle style;
+    engine::ui::apply_motion_declaration(style, "transition-property", "opacity, background, color");
+    engine::ui::apply_motion_declaration(style, "transition-duration", "1s, 0s");
+    style.opacity = 0.0f;
+    style.background = glm::vec4{0.0f, 0.0f, 0.0f, 1.0f};
+    style.color = glm::vec4{0.0f, 0.0f, 0.0f, 1.0f};
+
+    engine::ui::Element element;
+    engine::ui::advance_motion(element, style, nullptr, 0.0f, glm::vec2{100.0f, 100.0f});
+    style.opacity = 1.0f;
+    style.background = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f};
+    style.color = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f};
+    engine::ui::advance_motion(element, style, nullptr, 0.5f, glm::vec2{100.0f, 100.0f});
+
+    const engine::ui::ShownMotion* opacity = find_shown(element, engine::ui::MotionProp::Opacity);
+    const engine::ui::ShownMotion* background = find_shown(element, engine::ui::MotionProp::Background);
+    const engine::ui::ShownMotion* color = find_shown(element, engine::ui::MotionProp::Color);
+    ASSERT_NE(opacity, nullptr);
+    ASSERT_NE(background, nullptr);
+    ASSERT_NE(color, nullptr);
+    EXPECT_NEAR(opacity->value.number, 0.5f, 0.02f);
+    // The short duration list repeats its last value (0s), so both later properties snap.
+    EXPECT_NEAR(background->value.color.r, 1.0f, 0.02f);
+    EXPECT_NEAR(color->value.color.r, 1.0f, 0.02f);
+
+    engine::ui::ComputedStyle extras;
+    engine::ui::apply_motion_declaration(extras, "transition-property", "opacity, background");
+    engine::ui::apply_motion_declaration(extras, "transition-duration", "1s, 2s, 9s");
+    extras.opacity = 0.0f;
+    extras.background = glm::vec4{0.0f, 0.0f, 0.0f, 1.0f};
+    engine::ui::Element paired;
+    engine::ui::advance_motion(paired, extras, nullptr, 0.0f, glm::vec2{100.0f, 100.0f});
+    extras.opacity = 1.0f;
+    extras.background = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f};
+    engine::ui::advance_motion(paired, extras, nullptr, 0.5f, glm::vec2{100.0f, 100.0f});
+    const engine::ui::ShownMotion* paired_opacity = find_shown(paired, engine::ui::MotionProp::Opacity);
+    const engine::ui::ShownMotion* paired_background = find_shown(paired, engine::ui::MotionProp::Background);
+    ASSERT_NE(paired_opacity, nullptr);
+    ASSERT_NE(paired_background, nullptr);
+    EXPECT_NEAR(paired_opacity->value.number, 0.5f, 0.02f);
+    EXPECT_NEAR(paired_background->value.color.r, 0.25f, 0.02f);
 }
 
