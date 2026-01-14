@@ -1328,8 +1328,7 @@ namespace engine::ui {
         // element; text wider or taller than its content box; a child that leaves the box or has its own transform).
         // Text is judged by the measure caches layout filled; with none that matches, the answer is no.
         bool paint_stays_in_box(Element &element, const ComputedStyle &style, IUiPainter &painter, float font_size,
-                                const BoxInsets &padding, float border_width,
-                                const std::vector<Element> &child_list) {
+                                const BoxInsets &padding, float border_width, const std::vector<Element> &child_list) {
             switch (element.kind) {
                 case ElementKind::Line:
                 case ElementKind::Math:
@@ -1397,8 +1396,8 @@ namespace engine::ui {
 
         // `state_opacity` is the global alpha the painter holds on entry: the nearest entered ancestor's opacity.
         void paint_element(Element &element, const Stylesheet *sheet, IUiPainter &painter,
-                           std::vector<const Element *> &ancestors, glm::vec2 parent_content,
-                           const UiPaintInput &input, float state_opacity) {
+                           std::vector<const Element *> &ancestors, glm::vec2 parent_content, const UiPaintInput &input,
+                           float state_opacity) {
             if (element.kind == ElementKind::ItemTemplate) {
                 return;
             }
@@ -2010,7 +2009,8 @@ namespace engine::ui {
             for (OpenPopup &open: popups) {
                 target.save();
                 target.apply_view(glm::vec2{0.0f, 0.0f}, open.popup->popup_offset * input.ui_scale, 1.0f);
-                paint_element(*open.popup, stylesheet, target, open.ancestors, open.parent_content, input, kUnknownOpacity);
+                paint_element(*open.popup, stylesheet, target, open.ancestors, open.parent_content, input,
+                              kUnknownOpacity);
                 target.restore();
             }
             paint_inspector_overlay(document.root, target, input);

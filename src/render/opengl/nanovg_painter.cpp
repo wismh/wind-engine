@@ -42,13 +42,13 @@ bool same_micro(float a, float b) {
     return std::llround(static_cast<double>(a) * 1e6) == std::llround(static_cast<double>(b) * 1e6);
 }
 
-bool same_gradient(const ui::Gradient& a, const ui::Gradient& b) {
+bool same_gradient(const ui::Gradient &a, const ui::Gradient &b) {
     if (a.kind != b.kind || !same_micro(a.angle_deg, b.angle_deg) || a.stops.size() != b.stops.size()) {
         return false;
     }
     for (std::size_t i = 0; i < a.stops.size(); ++i) {
-        const ui::GradientStop& x = a.stops[i];
-        const ui::GradientStop& y = b.stops[i];
+        const ui::GradientStop &x = a.stops[i];
+        const ui::GradientStop &y = b.stops[i];
         if (!same_micro(x.color.r, y.color.r) || !same_micro(x.color.g, y.color.g) ||
             !same_micro(x.color.b, y.color.b) || !same_micro(x.color.a, y.color.a) ||
             !same_micro(x.percent.value_or(-1.0f), y.percent.value_or(-1.0f))) {
@@ -327,7 +327,7 @@ int NanoVgPainter::ensure_conic_texture(const ui::Gradient& gradient) {
     if (impl_->vg == nullptr) {
         return -1;
     }
-    for (const auto& entry : impl_->gradient_textures) {
+    for (const auto &entry: impl_->gradient_textures) {
         if (same_gradient(entry.gradient, gradient)) {
             return entry.image;
         }
