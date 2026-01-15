@@ -330,6 +330,62 @@ TEST(UiTextInput, ArrowKeysAndHomeEndNavigation) {
     EXPECT_EQ(focused->caret_position, 2u);
 }
 
+TEST(UiTextInput, UnexecutableSubmitCommandLeavesTheFieldTypeable) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<CardViewModel>();
+    vm->word.set("");
+    vm->submit = engine::ui::RelayCommand(
+            [vm] { ++vm->submits; }, [vm] { return !vm->word.get().empty(); });
+
+    auto parsed = engine::ui::parse_xml(
+            R"(<Canvas width="200" height="200">
+                <Stack direction="vertical">
+                    <TextInput id="word" text="{binding word}" command="{binding submit}" width="100" height="30"/>
+                    <Button id="go" command="{binding submit}" content="Go" width="100" height="30"/>
+                </Stack>
+            </Canvas>)",
+            nullptr, vm.get());
+    ASSERT_TRUE(parsed.has_value());
+
+    const engine::render::Rect canvas_rect{0.0f, 0.0f, 200.0f, 200.0f};
+    engine::ui::UiCanvas canvas;
+    canvas.rect = canvas_rect;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    canvas.data_context = vm;
+
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+    world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{*parsed, test_sheet()});
+
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 20.0f, 15.0f);
+    engine::ui::Element* focused = engine::ui::focused_element(world);
+    ASSERT_NE(focused, nullptr);
+    EXPECT_EQ(focused->kind, engine::ui::ElementKind::TextInput);
+    EXPECT_FALSE(focused->disabled);
+
+    engine::ui::UiInstance& instance = world.get<engine::ui::UiInstance>(entity);
+    const engine::ui::Element* button =
+            engine::ui::find_by_kind(instance.document.root, engine::ui::ElementKind::Button);
+    ASSERT_NE(button, nullptr);
+    EXPECT_TRUE(button->disabled);
+
+    engine::ui::handle_key(world, engine::KeyCode::Return, true);
+    EXPECT_EQ(vm->submits, 0);
+
+    engine::ui::handle_text_input(world, "a");
+    EXPECT_EQ(focused->text, "a");
+    EXPECT_EQ(vm->word.get(), "a");
+    EXPECT_FALSE(focused->disabled);
+
+    ASSERT_TRUE(engine::ui::apply_bindings(instance.document, *vm).has_value());
+    EXPECT_FALSE(focused->disabled);
+    EXPECT_FALSE(button->disabled);
+
+    engine::ui::handle_key(world, engine::KeyCode::Return, true);
+    EXPECT_EQ(vm->submits, 1);
+}
+
 TEST(UiTextInput, ReturnKeyExecutesCommand) {
     engine::ecs::World world;
     auto vm = std::make_shared<CardViewModel>();

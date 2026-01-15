@@ -12,7 +12,7 @@ tags: [feature]
 
 ## Bind
 
-[[src.ui.document.cpp]] `apply_bindings`: resolve `BindingId` property/command/`paint` bindings against a `ViewModel` (`property_`/`command_`/`paints_` maps keyed by `BindingId`, not name), then `{tr}` keys against the `Catalog` pointer. ItemsControl clones ItemTemplate per list item.
+[[src.ui.document.cpp]] `apply_bindings`: resolve `BindingId` property/command/`paint` bindings against a `ViewModel` (`property_`/`command_`/`paints_` maps keyed by `BindingId`, not name), then `{tr}` keys against the `Catalog` pointer. A bound command sets `disabled` from `!can_execute()`, except on `TextInput` (see [[features/UI Input]]). ItemsControl clones ItemTemplate per list item.
 
 `asset_codegen` scans `importer = "ui"` XML (`ui::scan_bind_tree`, [[src.ui.bind_scan.h]]) and emits a binder struct per document — e.g. `assets::ui::Hud` with `static constexpr BindingId title = intern("title")` per path and a `template<typename T> static void bind(T& vm)` that calls `vm.property(title, vm.title)` / `vm.command(...)`. Two paths interning to the same `BindingId` fails codegen. Games write the `ViewModel` subclass by hand (`Bindable<T>` members) and call the generated `Hud::bind(*this)` — codegen never generates `ViewModel` classes or `Bindable<T>` fields. See [[src.resources.codegen.cpp]], [[build/Asset Codegen]].
 
