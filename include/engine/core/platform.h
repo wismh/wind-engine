@@ -1,7 +1,10 @@
 #pragma once
 
+#include <expected>
 #include <filesystem>
 #include <string>
+#include <string_view>
+#include <system_error>
 
 namespace engine {
 
@@ -143,5 +146,31 @@ bool stage_android_assets(const std::filesystem::path& src_root, const std::file
 // Native and web: default_assets_root(base). Android: stage the cooked catalog onto internal storage
 // so AssetsDb can ifstream it. Empty base still goes through default_assets_root (web maps that to /assets).
 [[nodiscard]] std::filesystem::path runtime_assets_root(const std::filesystem::path& base_path);
+
+// SDL's Android pref path is the internal-storage root, which also holds staged assets/.
+// Game writes go under user/ so the two trees stay disjoint.
+[[nodiscard]] inline std::filesystem::path android_user_data_directory(
+        const std::filesystem::path& internal_storage) {
+    return internal_storage / "user";
+}
+
+// Writable per-user directory for this organization and application. Both names are one path
+// segment: non-empty valid UTF-8, no leading or trailing ASCII space, no trailing dot, none of
+// / \ : * ? " < > | or ASCII controls, and not a Windows device name (CON, PRN, AUX, NUL,
+// COM1-COM9, LPT1-LPT9, including a dotted suffix such as CON.txt). Those strings are the
+// directory identity; changing them leaves old saves behind.
+//
+// Desktop: SDL pref path — %APPDATA% on Windows, ~/.local/share or $XDG_DATA_HOME on Unix,
+// ~/Library/Application Support on macOS. Web: /storage/<org>/<app>/ via IndexedDB
+// (engine_add_sdl3 sets SDL_EMSCRIPTEN_PERSISTENT_PATH). The browser may flush that write a few
+// frames later. Android: <internal storage>/user/, beside staged assets/. SDL's Android pref path
+// is that internal-storage root and ignores these two strings; applicationId isolates apps.
+//
+// errc::invalid_argument — bad name. errc::function_not_supported — no SDL (ENGINE_WITH_WINDOW
+// off). errc::io_error — SDL could not create the pref directory. On Android, user/ is created
+// afterwards and a failure there returns that filesystem error_code. Main thread only; on Android,
+// call after Engine::init.
+[[nodiscard]] std::expected<std::filesystem::path, std::error_code> user_data_directory(
+        std::string_view organization, std::string_view application);
 
 }
