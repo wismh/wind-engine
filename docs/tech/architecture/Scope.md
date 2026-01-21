@@ -18,6 +18,7 @@ Wind is a 2D C++ game engine for production titles. Games are `IGame` implementa
 - Audio: buses, SFX pool, music A/B, looping SFX handles on SDL3_mixer.
 - Double-buffered event queues, not a callback bus.
 - `Engine::init` passes engine services to the game constructor as `EngineServices`.
+- Per-user writable directory (`user_data_directory`) for saves and settings. The game owns the file format and when to write.
 - GoogleTest suite for engine logic (`engine_tests`).
 
 ## Out of scope

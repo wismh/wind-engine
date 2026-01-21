@@ -18,6 +18,7 @@ Host, time, input polling, logging, fatal errors, and (when windowed) `Engine<Ga
   `render::TextureDesc` to `EngineRuntime::set_window_icon()`. Unset (`std::nullopt`) leaves the
   OS/window-manager default icon alone.
 - `IGame::splash_screen()` — `SplashScreen{enabled, image, fade_in/hold/fade_out_seconds}`, defaulting to builtin `splash_wind`. The engine does **not** auto-show it. A game calls `ui::show_splash(world, config, image_size, window)` (typically from `on_start`). That spawns two canvases (opaque `FillWindow` backdrop + letterboxed `ScaleWithScreenSize` image) with `SplashTimer`; both despawn when the timer elapses. Ages with `Time::delta_time` (Frame), including while paused.
+- `user_data_directory(organization, application)` — writable per-user directory. The game owns the file format and when to write. Desktop uses the SDL pref path (`%APPDATA%`, `$XDG_DATA_HOME` or `~/.local/share`, `~/Library/Application Support`). Web uses `/storage/<org>/<app>/` (IndexedDB); `engine_add_sdl3` sets `SDL_EMSCRIPTEN_PERSISTENT_PATH=/storage` and the browser may flush a write a few frames later. Android uses `<internal storage>/user/` so staged `assets/` stay untouched — SDL's Android pref path is that internal-storage root and ignores the two name strings (`applicationId` isolates apps). Headless builds (`ENGINE_WITH_WINDOW` off) return `errc::function_not_supported`. Main thread only; on Android, after `Engine::init`.
 
 ## How it is implemented
 
@@ -28,7 +29,7 @@ Host, time, input polling, logging, fatal errors, and (when windowed) `Engine<Ga
 - [[src.core.host.cpp]] — fake-canvas host for tests (registers systems, ticks).
 - [[src.core.input_system.cpp]] — bind table + `handle_key` / `handle_mouse_*` / `handle_touch*`.
 - [[src.core.log.cpp]] — spdlog, optional `<exe>/game.log`.
-- [[src.core.platform.cpp]] — `Platform` (Native / Web / Android), assets root, graphics/loop profile, APK staging helper.
+- [[src.core.platform.cpp]] — `Platform` (Native / Web / Android), assets root, graphics/loop profile, APK staging helper, `user_data_directory` (SDL pref path only when `ENGINE_WITH_WINDOW`).
 - [[src.core.frame_step.cpp]] — shared `flush_game_events` / `simulate_game_frame` used by `Host` and `GameLoop`.
 - [[src.core.game_loop.cpp]] — frame clock and present order. Calls `IPresentation`; no SDL.
 - [[src.core.web_loop.cpp]] — `MainLoopPolicy` (blocking vs requestAnimationFrame).
