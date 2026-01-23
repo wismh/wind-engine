@@ -18,6 +18,8 @@ That relayout uses the same per-window `IUiPainter` as paint (`world.ctx<UiLayou
 
 Within a canvas, `hit_test` visits siblings topmost-first — the reverse of `child_stacking_order()` (z-index ascending, document-order tie-break), so it always agrees with paint order: the element drawn on top is also the one that receives the click. Its containment check uses `hit_bounds()`, not the raw `layout_rect` — for a rotated/scaled element (`transform: rotate() scale()`) that's the axis-aligned bounding box of the transformed corners, an approximation (slightly generous at a rotated element's corners), not a precise oriented-rect test.
 
+That interactive hit is unchanged when the inspector is off. While `ui::set_inspector_enabled` is on, a left click whose top canvas is not the inspector panel uses `hit_test_visual` instead, records the element path, sets `MouseConsumed`, and returns before focus, drag, and `Execute()`. A miss does not consume the click. Wheel is not intercepted. See [[features/UI Inspector]].
+
 If `can_execute()`, `Execute()`.
 
 A bound `command` sets `disabled` from `!can_execute()` on every bind, so a Button matches `:disabled` while the command cannot run. `TextInput` is the exception: its command is Enter-to-submit, and `handle_text_input` / `handle_key` ignore a disabled element, so tying `disabled` to `can_execute()` would lock an empty field that the command itself requires to be non-empty. Return still executes only when `can_execute()` is true.

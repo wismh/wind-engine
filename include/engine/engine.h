@@ -3,11 +3,12 @@
 #include <engine/audio/audio_system.h>
 #include <engine/audio/events.h>
 #include <engine/audio/sound.h>
+#include <engine/builtin_ids.h>
+#include <engine/core/app_lifecycle.h>
 #include <engine/core/application_state.h>
 #include <engine/core/fixed_step.h>
 #include <engine/core/host.h>
 #include <engine/core/input_system.h>
-#include <engine/core/app_lifecycle.h>
 #include <engine/core/platform.h>
 #include <engine/core/time.h>
 #include <engine/core/web_loop.h>
@@ -31,7 +32,6 @@
 #include <engine/render/renderable.h>
 #include <engine/render/shader_adapt.h>
 #include <engine/render/sprite.h>
-#include <engine/builtin_ids.h>
 #include <engine/resources/asset_guid.h>
 #include <engine/resources/asset_id.h>
 #include <engine/resources/assets_db.h>
@@ -45,6 +45,7 @@
 #include <engine/ui/command.h>
 #include <engine/ui/document.h>
 #include <engine/ui/draw_list.h>
+#include <engine/ui/inspector.h>
 #include <engine/ui/paint.h>
 #include <engine/ui/stylesheet.h>
 #include <engine/ui/view_model.h>
@@ -55,8 +56,8 @@
 
 namespace engine {
 
-inline constexpr int kApiEpoch = 4;
+    inline constexpr int kApiEpoch = 4;
 
-int api_epoch();
+    int api_epoch();
 
-}
+} // namespace engine
