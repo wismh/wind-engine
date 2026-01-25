@@ -157,7 +157,7 @@ void hud_sync_system(engine::ecs::World& world, HudViewModel& vm) {
 }
 ```
 
-Register the sync as a lambda system on `Schedule::Frame`, `Phase::Game` (the view model reference is captured from the game or panel that owns it). The engine rebinds every canvas each frame in `Phase::Bind`, copies only values that changed, and re-lays-out only when bound text changed.
+Register the sync as a lambda system on `Schedule::Frame`, `Phase::Game` (the view model reference is captured from the game or panel that owns it). Every canvas checks its bindings each frame in `Phase::Bind` by comparing the version of each `Bindable` with the one it saw last; only a `Bindable` whose `set` really changed the value is read again, and only the elements it feeds are restyled and laid out again. Write through `set` (or `edit` on a `BindableList`): a change that bypasses them is not seen.
 
 ---
 
