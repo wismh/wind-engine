@@ -58,6 +58,7 @@ Hubs: [[Home]] · [[architecture/Overview]] · [[build/Pipeline]]
 | `include/engine/ui/command.h` | [[include.engine.ui.command.h]] | [[modules/UI]] |
 | `include/engine/ui/document.h` | [[include.engine.ui.document.h]] | [[modules/UI]] |
 | `include/engine/ui/draw_list.h` | [[include.engine.ui.draw_list.h]] | [[modules/UI]] |
+| `include/engine/ui/inspector.h` | [[include.engine.ui.inspector.h]] | [[modules/UI]] |
 | `include/engine/ui/paint.h` | [[include.engine.ui.paint.h]] | [[modules/UI]] |
 | `include/engine/ui/stylesheet.h` | [[include.engine.ui.stylesheet.h]] | [[modules/UI]] |
 | `include/engine/ui/view_model.h` | [[include.engine.ui.view_model.h]] | [[modules/UI]] |
@@ -117,6 +118,9 @@ Hubs: [[Home]] · [[architecture/Overview]] · [[build/Pipeline]]
 | `src/ui/css_parser.cpp` | [[src.ui.css_parser.cpp]] | [[modules/UI]] |
 | `src/ui/document.cpp` | [[src.ui.document.cpp]] | [[modules/UI]] |
 | `src/ui/draw_list_adapter.h` | [[src.ui.draw_list_adapter.h]] | [[modules/UI]] |
+| `src/ui/element_path.cpp` | [[src.ui.element_path.cpp]] | [[modules/UI]] |
+| `src/ui/element_path.h` | [[src.ui.element_path.h]] | [[modules/UI]] |
+| `src/ui/inspector.cpp` | [[src.ui.inspector.cpp]] | [[modules/UI]] |
 | `src/ui/paint.cpp` | [[src.ui.paint.cpp]] | [[modules/UI]] |
 | `src/ui/painter.h` | [[src.ui.painter.h]] | [[modules/UI]] |
 | `src/ui/view_model.cpp` | [[src.ui.view_model.cpp]] | [[modules/UI]] |
@@ -140,6 +144,7 @@ Hubs: [[Home]] · [[architecture/Overview]] · [[build/Pipeline]]
 | `tests/time_test.cpp` | [[tests.time_test.cpp]] | [[modules/Core]] |
 | `tests/ui_builder_test.cpp` | [[tests.ui_builder_test.cpp]] | [[modules/UI]] |
 | `tests/ui_css_test.cpp` | [[tests.ui_css_test.cpp]] | [[modules/UI]] |
+| `tests/ui_inspector_test.cpp` | [[tests.ui_inspector_test.cpp]] | [[modules/UI]] |
 | `tests/ui_paint_binding_test.cpp` | [[tests.ui_paint_binding_test.cpp]] | [[modules/UI]] |
 | `tests/ui_painter_test.cpp` | [[tests.ui_painter_test.cpp]] | [[modules/UI]] |
 | `tests/ui_xml_test.cpp` | [[tests.ui_xml_test.cpp]] | [[modules/UI]] |

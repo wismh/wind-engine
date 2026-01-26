@@ -29,6 +29,7 @@ flowchart LR
 3. **Features** — implementation walkthroughs (as-built):
    - [[features/UI Markup]]
    - [[features/UI Input]]
+   - [[features/UI Inspector]]
    - [[features/Input Mapper]]
    - [[features/Windowing]]
 4. **[[build/Pipeline|Build pipeline]]** — configure → codegen → compile → copy assets → run.

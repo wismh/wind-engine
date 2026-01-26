@@ -1,0 +1,29 @@
+---
+tags: [feature]
+---
+
+# UI Inspector
+
+A runtime overlay the game turns on with `ui::set_inspector_enabled(world, bool)` ([[include.engine.ui.inspector.h]]). The engine does not bind a key. It reads the live `Element` tree and does not change layout, cascade, or paint.
+
+## Pick
+
+`hit_test` is unchanged: a Button, Checkbox, bound command or drag, camera Viewport, or selectable Label. While the inspector is on, a left click whose top canvas is not the panel calls `hit_test_visual` instead. That walk is the same (z-index, scroll, Viewport camera, `display: none`, `visibility: hidden`, scrollbar track) and returns the deepest visible element, including a Label, Stack, or Image. `ItemTemplate` is skipped.
+
+A hit writes `UiInspector::selection` for that window: canvas entity, element path, and the nearest `generated_owner`. It sets `MouseConsumed` and returns before focus, drag, and the game's command. A miss does not select and does not consume. `:hover` and the wheel stay on the game path, so a list under the pointer still scrolls. Clicks on the panel take the normal path, so its buttons run `ICommand`.
+
+The path is a child index per step. A step into `generated_items` sets `kGeneratedPathBit` (`src/ui/element_path.h`), the same encoding scrollbar drag uses. No `Element*` is kept across frames. `generated_owner` lets a virtualized row be found after its index moves. If that row has left the virtual window, the selection stays, the box disappears, and the tree row is not marked.
+
+`hit_test_visual` also returns three rects in canvas space, after scroll and Viewport and before the canvas scale. Border is `hit_bounds` (the AABB when the element is rotated or scaled). Margin expands that by the margin. Content insets it by padding. Border width does not shrink the content box.
+
+## Panel
+
+One Fixed canvas per live window, tagged `InspectorPanel`, so the tree, the hover box, and pick skip it. `order` is 10000 (above splash). It is 360px wide, or the window width when that is smaller, docked to the right. `begin_frame` refreshes the rect from `WindowSizes`. Turning the inspector off destroys those entities.
+
+The document is `ui::Node` plus `parse_css`. No new builtin GUID. Row sync runs at the start of `Phase::Bind`, before `run_bind`, and only while the inspector is on. The tree is a flat `ItemsControl`: indent by depth, text `Kind #id .class`, and virtualization spacers and `display: none` stay visible. Expand state lives on the row `ViewModel`. A static node is keyed by its path; a generated row is keyed by `generated_owner`, so scrolling the list does not reset it. Clicking a row writes the same selection as clicking the game.
+
+The selected block is read-only: kind, id, classes, text, pseudos, the three boxes, computed style from `style_cache_paint_` plus any running `motion_shown`, and the matched rules. Rules use the same match as `compute_style` (specificity, source order, `@media`, pseudos) for that element only. The last row is the one that wins. A `BindingId` is a hash, so a binding is shown as `text: bound` (and the same for command, paint, and the other bound fields), not as a path. Style and box numbers in the panel are from the previous paint, because Bind runs before paint. The on-screen box is computed after this frame's layout.
+
+## Overlay
+
+`CmdDrawUI` carries an optional tail: whether to draw hover, and the selection path when this canvas is the one selected. `run_ui_render` sets hover only on the top non-panel canvas under the pointer, the same order `prepare_top_canvas` uses. A pointer over the panel draws no hover on the canvases under it. `paint_document` calls `hit_test_visual` for hover and resolves the selection path, then strokes the boxes through `IUiPainter`. Hover and selection use different colors. When they are the same element, only the selection color is drawn. The panel does not get the tail. The boxes are painted inside that canvas's scissor, so `ScaleWithScreenSize` is already applied. There is no full-window overlay canvas: `prepare_top_canvas` only considers the top canvas under the pointer and does not fall through a miss.
