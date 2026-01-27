@@ -33,7 +33,7 @@ Host, time, input polling, logging, fatal errors, and (when windowed) `Engine<Ga
 - [[src.core.frame_step.cpp]] — shared `flush_game_events` / `simulate_game_frame` used by `Host` and `GameLoop`.
 - [[src.core.game_loop.cpp]] — frame clock and present order. Calls `IPresentation`; no SDL.
 - [[src.core.web_loop.cpp]] — `MainLoopPolicy` (blocking vs requestAnimationFrame).
-- [[src.core.app_lifecycle.cpp]] — pause / resume / terminate / Android back → `ApplicationState`.
+- [[src.core.app_lifecycle.cpp]] — pause / resume / terminate / Android back → `ApplicationState`. Back quits only when text input is not active; an active session is the caller's dismiss (`clear_focus` in the SDL poll) and does not quit.
 
 **Only `ENGINE_WITH_WINDOW`:**
 

@@ -74,6 +74,8 @@ public:
         SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
         // A click that also focuses a background window must still deliver BUTTON_DOWN.
         SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
+        // Default "0" finishes the Android activity before SDL_SCANCODE_AC_BACK is delivered.
+        SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");
         video_inited_ = true;
         return true;
     }
@@ -278,7 +280,12 @@ private:
                 const WindowId window_id = windows_.find_by_sdl_id(event.key.windowID).value_or(kPrimaryWindow);
                 input.handle_key(code, event.key.down, event.key.repeat, window_id);
                 if (event.key.down && !event.key.repeat && code == KeyCode::AcBack) {
-                    apply_android_back(app);
+                    const WindowSystem* window = windows_.window(window_id);
+                    const bool text_input_active = window != nullptr && window->is_text_input_active();
+                    if (text_input_active) {
+                        ui::clear_focus(world, window_id);
+                    }
+                    apply_android_back(app, text_input_active);
                 }
                 break;
             }
