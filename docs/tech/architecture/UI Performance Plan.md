@@ -11,7 +11,7 @@ These exist. They are not the numbered steps below, and the steps are not done.
 - `assign_property_string` skips an equal string. The other step 1 items (no temporary pseudo-state vector, skipping a sibling sort, a motion overlay that does not copy a whole `ComputedStyle`, entering no painter state for an element with nothing to set) landed in wind-226; see step 1.
 - The UI profiler records the stages, the draw calls, and the painter calls by kind this plan uses as a baseline. See [UI Profiler](../features/UI%20Profiler.md).
 
-Steps 0, 1, 7a, and 2 are closed (see their sections). Steps 3 through 8 are not. NanoVG is still the UI painter.
+Steps 0, 1, 7a, 2, and 3 are closed (see their sections). Steps 4 through 8 are not. NanoVG is still the UI painter.
 
 The live tree stays one `Element` tree: document, layout, and hit-test. A retained command list (`Picture`) is a second structure, produced by paint and consumed by the renderer. NanoVG is removed when that renderer lands. An offscreen texture is an explicit opt-in on top of the renderer, not the way retention works.
 
@@ -217,6 +217,20 @@ Linux baseline against step 2 (`-Repeat 5`, medians, same machine; the hover row
 `opacity`, `transform`, scroll, and `Viewport` camera do not set the layout flag. Width, height, font, padding, margin, gap do, and only on that chain (2's bubble rules). A finished keyframe holds its end value as the track's output. It does not keep a reason to copy the cascade.
 
 Done when a steady opacity animation does not layout, and a width animation lays out only the chain whose size changed. Headless test: track sample equals the old string-sampled value on a fixture stylesheet.
+
+As built (wind-229). `@keyframes` compile on first sample to `CompiledKeyframes` (one track per animated property, stops sorted, `Keyframes::compiled`, rebuilt when the stops or their declarations changed), so `advance_motion` parses no declaration string; the previous string-sampled function stays as `sample_keyframes_from_declarations` for the test that compares both. Transitions did not parse strings per tick and are unchanged. The motion pass no longer lays out the whole tree: an element whose sample moved a layout field is marked for restyle, the restyle commits the sample and marks layout only if a field moved, and `sync_layout` lays out that chain (through relayout boundaries). `layout_descendant_inputs_changed` is gone. A finished track holds its end value without costing a cascade and without keeping the hover search alive (`motion_active` is true only while a clock runs or a sample moved in the frame). Facts corrected: the old plan text claimed `sample_prop` rebuilt a `ComputedStyle` per declaration string; it parsed `CssDeclaration` strings per stop per property per tick, which is what the tracks remove.
+
+Tests: `tests/ui_animation_tracks_test.cpp` (track sample against the declaration-parsed sample for opacity, width, padding, background at 17 progress values; tracks built once and rebuilt on edit; a steady opacity animation lays out nothing; a width animation lays out only its chain; a finished animation costs no cascade). Run as well under the layout checker.
+
+Against step 2 (`-Repeat 5`, medians, same machine; other rows moved by less than the noise of the VM):
+
+| Row | Layout ms | Total ms |
+| --- | ---: | ---: |
+| `motion / quiet / paint-props` | 0.001 -> 0.001 | 1.154 -> 0.408 |
+| `motion / quiet / layout-props` | 0.044 -> 0.031 | 0.363 -> 0.299 |
+| `motion / quiet / both` | 0.047 -> 0.034 | 1.167 -> 0.535 |
+
+`compare.ps1` flags five other rows between +5% and +12% (`table / quiet`, `table / hover / paint`, `inspector / one-change`, `hud / hover / paint`, `paint-mix / linear-gradient`) with identical counters and no code change on those paths: noise of the shared VM, not a result. Unverified: Windows numbers.
 
 ### 6 — Lists, trees, grids
 
