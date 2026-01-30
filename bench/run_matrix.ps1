@@ -7,7 +7,7 @@
     separate process, sequentially (pass 1 over every row, then pass 2, ...). Raw reports go to <OutDir>/runs. A
     non-zero exit of the bench stops the script with exit code 1. See docs/tech/features/UI Bench.md.
 
-    Windows PowerShell 5.1 compatible.
+    Windows PowerShell 5.1 and PowerShell 7 (Linux, macOS) compatible.
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File bench/run_matrix.ps1 -Repeat 3
@@ -30,10 +30,17 @@ $ErrorActionPreference = 'Stop'
 $Invariant = [Globalization.CultureInfo]::InvariantCulture
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 if ($Exe -eq '') {
-    $Exe = Join-Path $RepoRoot 'build-bench\bin\RelWithDebInfo\wind_ui_bench.exe'
+    $IsWin = ($PSVersionTable.PSVersion.Major -lt 6) -or $IsWindows
+    if ($IsWin) {
+        $Exe = Join-Path $RepoRoot 'build-bench\bin\RelWithDebInfo\wind_ui_bench.exe'
+    } else {
+        # Ninja single-config (`cmake -B build-bench -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo`) or multi-config.
+        $Exe = Join-Path $RepoRoot 'build-bench/bin/wind_ui_bench'
+        if (-not (Test-Path -LiteralPath $Exe)) { $Exe = Join-Path $RepoRoot 'build-bench/bin/RelWithDebInfo/wind_ui_bench' }
+    }
 }
 if (-not (Test-Path -LiteralPath $Exe)) {
-    Write-Error "wind_ui_bench not found at '$Exe'. Build it: cmake --preset vs-bench; cmake --build --preset bench"
+    Write-Error "wind_ui_bench not found at '$Exe'. Build it: see docs/tech/build/CMake.md#bench-build"
     exit 1
 }
 $Exe = (Resolve-Path -LiteralPath $Exe).Path
@@ -99,7 +106,7 @@ if ($rows.Count -eq 0) {
 
 # --- runs ----------------------------------------------------------------------------------------------------------
 # The first report names the output directory (its commit), so runs start in a staging directory.
-$resultsRoot = Join-Path $RepoRoot 'bench\results'
+$resultsRoot = Join-Path $RepoRoot 'bench/results'
 $staging = Join-Path $resultsRoot ('.staging-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 $runsDir = Join-Path $staging 'runs'
 New-Item -ItemType Directory -Force -Path $runsDir | Out-Null
@@ -247,17 +254,33 @@ $cpuName = ''
 $osName = ''
 $gpuName = ''
 $powerPlan = ''
-try { $cpuName = (@(Get-CimInstance Win32_Processor)[0].Name).Trim() } catch { $cpuName = 'unknown' }
-try { $osName = (Get-CimInstance Win32_OperatingSystem).Caption } catch { $osName = 'unknown' }
-try { $gpuName = (@(Get-CimInstance Win32_VideoController) | ForEach-Object { $_.Name }) -join '; ' } catch { $gpuName = 'unknown' }
-try {
-    $scheme = (& powercfg /getactivescheme 2>$null) -join ' '
-    if ($scheme -match '\(([^)]+)\)') { $powerPlan = $Matches[1] }
-} catch { $powerPlan = '' }
+$onWindows = ($PSVersionTable.PSVersion.Major -lt 6) -or $IsWindows
+if ($onWindows) {
+    try { $cpuName = (@(Get-CimInstance Win32_Processor)[0].Name).Trim() } catch { $cpuName = 'unknown' }
+    try { $osName = (Get-CimInstance Win32_OperatingSystem).Caption } catch { $osName = 'unknown' }
+    try { $gpuName = (@(Get-CimInstance Win32_VideoController) | ForEach-Object { $_.Name }) -join '; ' } catch { $gpuName = 'unknown' }
+    try {
+        $scheme = (& powercfg /getactivescheme 2>$null) -join ' '
+        if ($scheme -match '\(([^)]+)\)') { $powerPlan = $Matches[1] }
+    } catch { $powerPlan = '' }
+} else {
+    $cpuName = 'unknown'
+    try {
+        $model = Get-Content -LiteralPath '/proc/cpuinfo' | Where-Object { $_ -match '^model name' } | Select-Object -First 1
+        $count = @(Get-Content -LiteralPath '/proc/cpuinfo' | Where-Object { $_ -match '^processor' }).Count
+        if ($model) { $cpuName = ((($model -split ':', 2)[1]).Trim()) + " ($count threads)" }
+    } catch { $cpuName = 'unknown' }
+    try {
+        $pretty = Get-Content -LiteralPath '/etc/os-release' | Where-Object { $_ -match '^PRETTY_NAME=' } | Select-Object -First 1
+        $osName = ((($pretty -split '=', 2)[1]).Trim('"')) + ' ' + (& uname -r)
+    } catch { $osName = 'unknown' }
+    $gpuName = if ($env:LIBGL_ALWAYS_SOFTWARE) { 'software GL (llvmpipe)' } else { 'unknown' }
+    $powerPlan = 'n/a'
+}
 
 # Relative to the repo when the exe is inside it, so a committed summary does not carry a home directory.
 $exeText = $Exe
-if ($Exe.StartsWith($RepoRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+if ($Exe.StartsWith($RepoRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
     $exeText = $Exe.Substring($RepoRoot.Length + 1) -replace '\\', '/'
 }
 $meta = [ordered]@{

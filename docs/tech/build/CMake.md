@@ -45,6 +45,7 @@ Cache paths:
 | `vs-audio` | `build-audio` | OFF | ON | ON | |
 | `vs-editor` | `build-editor` | ON | ON | ON | `ENGINE_EDITOR=ON`. Audio is on so the editor plays game sound. `engine_tests` still opens no mixer device: the audio tests never call `AudioSystem::init` |
 | `vs-bench` | `build-bench` | ON | ON | OFF | `ENGINE_BENCH=ON`, static engine. Build preset `bench`: `wind_ui_bench` in RelWithDebInfo |
+| `linux-bench` | `build-bench` | ON | ON | OFF | The same on Linux: Ninja, single config `RelWithDebInfo`. Build preset `linux-bench`: `wind_ui_bench`. Linux only |
 | `web` | `build-web` | ON | ON | OFF | `ENGINE_WITH_WEB=ON`. Configure with `emcmake` |
 | `web-audio` | `build-web-audio` | OFF | ON | ON | `ENGINE_WITH_WEB=ON` |
 | `android-arm64` | `build-android` | ON | ON | OFF | toolchain `cmake/toolchains/android-ndk.cmake`, `arm64-v8a`, `android-21`, `ENGINE_WITH_ANDROID=ON` |
@@ -71,7 +72,9 @@ Build preset `tests` builds `engine_tests` from the `vs` configure.
 
 ## Bench build
 
-`ENGINE_BENCH` (preset `vs-bench`) adds `bench/`: `wind_ui_bench`, an executable through `engine_configure_app` against the static engine, linked as a console program in every configuration, and with tests `wind_ui_bench_tests` (command line, matrix, schedule, frame plan, data, report, hover points, and a parse of every bench asset). It records the configuration (`$<CONFIG>`), `ENGINE_VERSION_FULL`, and the git commit and dirty flag read at configure time. Build it in RelWithDebInfo: `cmake --build build-bench --config RelWithDebInfo --target wind_ui_bench`, or `cmake --build --preset bench`. The Visual Studio generator offers RelWithDebInfo by default; nothing in the tree narrows `CMAKE_CONFIGURATION_TYPES`. See [UI Bench](../features/UI%20Bench.md).
+`ENGINE_BENCH` (preset `vs-bench` on Windows, `linux-bench` on Linux) adds `bench/`: `wind_ui_bench`, an executable through `engine_configure_app` against the static engine, linked as a console program in every configuration, and with tests `wind_ui_bench_tests` (command line, matrix, schedule, frame plan, data, report, hover points, and a parse of every bench asset). It records the configuration (`$<CONFIG>`), `ENGINE_VERSION_FULL`, and the git commit and dirty flag read at configure time. Build it in RelWithDebInfo: `cmake --build build-bench --config RelWithDebInfo --target wind_ui_bench`, or `cmake --build --preset bench`.
+
+On Linux (needs the SDL3 build dependencies that `.github/workflows/sdk.yml` installs: X11 and Wayland dev packages, Mesa): `cmake --preset linux-bench && cmake --build --preset linux-bench`, or the plain lines `cmake -S . -B build-bench -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DENGINE_BUILD_TESTS=ON -DENGINE_WITH_WINDOW=ON -DENGINE_WITH_AUDIO=OFF -DENGINE_BENCH=ON` and `cmake --build build-bench --target wind_ui_bench`. The binary is `build-bench/bin/wind_ui_bench`. Run it under `xvfb-run` with `LIBGL_ALWAYS_SOFTWARE=1`; see [UI Bench](../features/UI%20Bench.md#linux). The Visual Studio generator offers RelWithDebInfo by default; nothing in the tree narrows `CMAKE_CONFIGURATION_TYPES`. See [UI Bench](../features/UI%20Bench.md).
 ## Version
 
 The engine version is `<major>.<minor>.<patch><stage>` (`0.1.7a`; `a` alpha, `b` beta, none production), the scheme and the release flow of [Release](Release.md). The root `CMakeLists.txt` sets `ENGINE_VERSION_MAJOR`, `ENGINE_VERSION_MINOR`, and `ENGINE_VERSION_STAGE` (`"a"`, `"b"`, or `""`). `ENGINE_VERSION_PATCH` is a cache entry, empty by default: the release workflow passes `-DENGINE_VERSION_PATCH=N`. Without it the build is local and its version carries `-dev`, `0.1.0a-dev`.
