@@ -770,8 +770,9 @@ TEST(UiPainter, AnAbsoluteChildOutsideItsParentIsDrawnUnlessTheParentClips) {
         EXPECT_TRUE(contains_rect(scissors_at(painter, "fill_rect", {0.0f, 0.0f}), hug)) << "in-flow child, clip "
                                                                                            << clip;
         EXPECT_EQ(contains_rect(scissors_at(painter, "fill_rect", {100.0f, 120.0f}), hug), clip);
-        EXPECT_TRUE(contains_rect(scissors_at(painter, "fill_rect", {100.0f, 120.0f}),
-                engine::render::Rect{100.0f, 120.0f, 50.0f, 60.0f}));
+        // The absolute child draws inside its own box, so it needs no scissor of its own; the check above is the
+        // one that matters: the parent's box is not among the scissors it draws under unless the parent clips.
+        EXPECT_FALSE(scissors_at(painter, "fill_rect", {100.0f, 120.0f}).empty()) << "the canvas scissor remains";
     }
 }
 
@@ -2447,14 +2448,16 @@ TEST(UiPainter, ViewportAppliesViewAfterOwnScissorThenPaintsChildren) {
     }
     EXPECT_TRUE(viewport_scissor_before_view);
 
-    bool child_scissor_after_view = false;
+    // The child paints after the view, inside the Viewport's scissor. It draws within its own box, so it sets no
+    // scissor of its own.
+    bool child_fill_after_view = false;
     for (std::size_t i = view_index + 1; i < painter.calls.size(); ++i) {
-        if (painter.calls[i].op == "scissor" && painter.calls[i].rect.x == 80.0f) {
-            child_scissor_after_view = true;
+        if (painter.calls[i].op == "fill_rect" && painter.calls[i].rect.x == 80.0f) {
+            child_fill_after_view = true;
             break;
         }
     }
-    EXPECT_TRUE(child_scissor_after_view);
+    EXPECT_TRUE(child_fill_after_view);
 }
 
 void paint_frame(engine::ui::UiDocument& document, const engine::ui::Stylesheet& sheet, FakePainter& painter,
