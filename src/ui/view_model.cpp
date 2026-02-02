@@ -31,6 +31,22 @@ bool ViewModel::assign_property_string(BindingId id, std::string& dest) const {
     return true;
 }
 
+ViewModel::StringBind ViewModel::bind_property_string(BindingId id, std::string &dest) const {
+    const auto it = properties_.find(id);
+    if (it == properties_.end() || it->second.store_string == nullptr) {
+        return StringBind::Missing;
+    }
+    return it->second.store_string(it->second.bindable, dest) ? StringBind::Changed : StringBind::Unchanged;
+}
+
+std::optional<ViewModel::PropertyVersion> ViewModel::property_version(BindingId id) const {
+    const auto it = properties_.find(id);
+    if (it == properties_.end() || it->second.version == nullptr) {
+        return std::nullopt;
+    }
+    return PropertyVersion{it->second.bindable, it->second.version};
+}
+
 std::optional<AssetId> ViewModel::read_property_asset_id(BindingId id) const {
     const auto it = properties_.find(id);
     if (it == properties_.end() || it->second.read_asset_id == nullptr) {

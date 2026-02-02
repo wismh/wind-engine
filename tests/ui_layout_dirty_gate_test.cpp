@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "ui/dirty.h"
 #include "ui/painter.h"
 
 #include <engine/render/commands.h>
@@ -21,7 +22,6 @@ namespace {
 
 using engine::ui::Element;
 using engine::ui::ElementKind;
-using engine::ui::layout_state_changed;
 
 engine::ui::Stylesheet must_parse_css(std::string_view css) {
     std::vector<std::string> warnings;
@@ -67,216 +67,6 @@ public:
     }
 };
 
-// wind-129 layout dirty-gate: smoke tests for layout_state_changed() in isolation, without wiring
-// it into prepare_top_canvas/paint_document (that's a later step). Just proves the function
-// compiles, recurses into children, and its cached copies update on every call — not "stuck" on
-// true once something has changed once.
-TEST(UiLayoutDirtyGate, FirstCallAlwaysReportsChanged) {
-    Element root;
-    root.kind = ElementKind::Canvas;
-    Element& label = root.children.emplace_back();
-    label.kind = ElementKind::Label;
-    label.text = "Hello";
-
-    EXPECT_TRUE(layout_state_changed(root));
-}
-
-TEST(UiLayoutDirtyGate, SecondCallWithNoChangesReportsUnchanged) {
-    Element root;
-    root.kind = ElementKind::Canvas;
-    Element& label = root.children.emplace_back();
-    label.kind = ElementKind::Label;
-    label.text = "Hello";
-
-    ASSERT_TRUE(layout_state_changed(root));
-    EXPECT_FALSE(layout_state_changed(root));
-}
-
-TEST(UiLayoutDirtyGate, TextChangeOnChildReportsChangedThenSettles) {
-    Element root;
-    root.kind = ElementKind::Canvas;
-    Element& label = root.children.emplace_back();
-    label.kind = ElementKind::Label;
-    label.text = "Hello";
-
-    ASSERT_TRUE(layout_state_changed(root));   // 1st call: never compared before.
-    ASSERT_FALSE(layout_state_changed(root));  // 2nd call: nothing changed.
-
-    label.text = "Hello, world!";
-    EXPECT_TRUE(layout_state_changed(root));  // 3rd call: text differs from cached copy.
-
-    // 4th call: the cached copy from the 3rd call must have been refreshed to the new text, not
-    // stuck reporting "changed" forever.
-    EXPECT_FALSE(layout_state_changed(root));
-}
-
-TEST(UiLayoutDirtyGate, CustomPropertyChangeReportsChangedThenSettles) {
-    Element root;
-    root.kind = ElementKind::Canvas;
-    Element& child = root.children.emplace_back();
-    child.kind = ElementKind::Stack;
-    child.custom_properties["accent"] = "#ff0000";
-
-    ASSERT_TRUE(layout_state_changed(root));
-    ASSERT_FALSE(layout_state_changed(root));
-
-    child.custom_properties["accent"] = "#00ff00";
-    EXPECT_TRUE(layout_state_changed(root));
-    EXPECT_FALSE(layout_state_changed(root));
-}
-
-TEST(UiLayoutDirtyGate, GeneratedOwnerSequenceChangeReportsChangedThenSettles) {
-    Element root;
-    root.kind = ElementKind::Canvas;
-    Element& items = root.children.emplace_back();
-    items.kind = ElementKind::ItemsControl;
-
-    int owner_a = 0;
-    int owner_b = 0;
-    Element& row_a = items.generated_items.emplace_back();
-    row_a.kind = ElementKind::Stack;
-    row_a.generated_owner = &owner_a;
-
-    ASSERT_TRUE(layout_state_changed(root));
-    ASSERT_FALSE(layout_state_changed(root));
-
-    Element& row_b = items.generated_items.emplace_back();
-    row_b.kind = ElementKind::Stack;
-    row_b.generated_owner = &owner_b;
-
-    EXPECT_TRUE(layout_state_changed(root));
-    EXPECT_FALSE(layout_state_changed(root));
-}
-
-// Same set of owners, different order: a reorder shifts every subsequent row's on-screen position,
-// so it must be reported as layout-relevant even though no owner was added or removed — this is
-// exactly what the vector (order-sensitive) comparison in layout_state_changed is for, as opposed
-// to comparing an unordered set of owners.
-TEST(UiLayoutDirtyGate, GeneratedOwnerReorderReportsChangedThenSettles) {
-    Element root;
-    root.kind = ElementKind::Canvas;
-    Element& items = root.children.emplace_back();
-    items.kind = ElementKind::ItemsControl;
-
-    int owner_a = 0;
-    int owner_b = 0;
-    Element& row_a = items.generated_items.emplace_back();
-    row_a.kind = ElementKind::Stack;
-    row_a.generated_owner = &owner_a;
-    Element& row_b = items.generated_items.emplace_back();
-    row_b.kind = ElementKind::Stack;
-    row_b.generated_owner = &owner_b;
-
-    ASSERT_TRUE(layout_state_changed(root));
-    ASSERT_FALSE(layout_state_changed(root));
-
-    std::swap(items.generated_items[0], items.generated_items[1]);
-    EXPECT_TRUE(layout_state_changed(root));
-    EXPECT_FALSE(layout_state_changed(root));
-}
-
-// generated_items shrinking (an item removed from items_source) must be reported as changed, same
-// as growing.
-TEST(UiLayoutDirtyGate, GeneratedOwnerRemovalReportsChangedThenSettles) {
-    Element root;
-    root.kind = ElementKind::Canvas;
-    Element& items = root.children.emplace_back();
-    items.kind = ElementKind::ItemsControl;
-
-    int owner_a = 0;
-    int owner_b = 0;
-    Element& row_a = items.generated_items.emplace_back();
-    row_a.kind = ElementKind::Stack;
-    row_a.generated_owner = &owner_a;
-    Element& row_b = items.generated_items.emplace_back();
-    row_b.kind = ElementKind::Stack;
-    row_b.generated_owner = &owner_b;
-
-    ASSERT_TRUE(layout_state_changed(root));
-    ASSERT_FALSE(layout_state_changed(root));
-
-    items.generated_items.pop_back();
-    EXPECT_TRUE(layout_state_changed(root));
-    EXPECT_FALSE(layout_state_changed(root));
-}
-
-// A change several levels deep (Canvas -> Stack -> Label, text changed on the innermost Label) must
-// still bubble up to a "changed" result when calling layout_state_changed on the root, not just on
-// the changed element itself — the OR-accumulation across the whole recursion is what makes a
-// single root call sufficient for prepare_top_canvas/paint_document.
-TEST(UiLayoutDirtyGate, DeepGrandchildChangeReportsChangedAtRootThenSettles) {
-    Element root;
-    root.kind = ElementKind::Canvas;
-    Element& stack = root.children.emplace_back();
-    stack.kind = ElementKind::Stack;
-    Element& label = stack.children.emplace_back();
-    label.kind = ElementKind::Label;
-    label.text = "Hello";
-
-    ASSERT_TRUE(layout_state_changed(root));
-    ASSERT_FALSE(layout_state_changed(root));
-
-    label.text = "Hello, world!";
-    EXPECT_TRUE(layout_state_changed(root));
-    EXPECT_FALSE(layout_state_changed(root));
-}
-
-// Two sibling subtrees must have independent caches: changing one Label's text must not leave the
-// other sibling's cache in a state that falsely reports "changed" on the following call, once the
-// first Label's change has already been observed and settled.
-TEST(UiLayoutDirtyGate, SiblingSubtreesHaveIndependentCaches) {
-    Element root;
-    root.kind = ElementKind::Canvas;
-    // Reserve up front: emplace_back growing the vector later would reallocate and invalidate the
-    // label_a/label_b references taken below.
-    root.children.reserve(2);
-    Element& label_a = root.children.emplace_back();
-    label_a.kind = ElementKind::Label;
-    label_a.text = "First";
-    Element& label_b = root.children.emplace_back();
-    label_b.kind = ElementKind::Label;
-    label_b.text = "Second";
-
-    ASSERT_TRUE(layout_state_changed(root));
-    ASSERT_FALSE(layout_state_changed(root));
-
-    label_a.text = "First, changed";
-    ASSERT_TRUE(layout_state_changed(root));
-
-    // No further changes to either sibling: must settle to false, proving label_b's cache was
-    // correctly refreshed on the previous call rather than left stale (which could otherwise make
-    // this call spuriously report "changed" for label_b even though nothing about it moved).
-    EXPECT_FALSE(layout_state_changed(root));
-}
-
-// Several consecutive no-change calls must all report false — not just the immediate next call —
-// ruling out any hidden flip-flop or a forgotten early-return that only happens to pass a single
-// true-then-false check.
-TEST(UiLayoutDirtyGate, RepeatedNoChangeCallsStayFalse) {
-    Element root;
-    root.kind = ElementKind::Canvas;
-    Element& label = root.children.emplace_back();
-    label.kind = ElementKind::Label;
-    label.text = "Hello";
-
-    ASSERT_TRUE(layout_state_changed(root));
-    ASSERT_FALSE(layout_state_changed(root));
-
-    EXPECT_FALSE(layout_state_changed(root));
-    EXPECT_FALSE(layout_state_changed(root));
-    EXPECT_FALSE(layout_state_changed(root));
-}
-
-// wind-129 Step 3 smoke tests: prove the gate is actually wired into paint_document (paint.cpp),
-// not just that layout_state_changed() works in isolation (covered above). Full regression matrix
-// (skip really happens / really doesn't happen for every trigger) is a later step — these two just
-// prove the connection exists and doesn't misfire on the two simplest cases.
-
-// Two paint_document() calls with an identical UiPaintInput and an unchanged tree: the second call
-// must not disturb anything layout produced — document.layout_computed_once, set true by the first
-// (unconditional, since layout_computed_once starts false) call, must stay true, and the child's
-// layout_rect must come out identical both times (trivially true if the gate does nothing wrong,
-// but worth pinning down explicitly).
 TEST(UiLayoutDirtyGate, PaintDocumentRepeatsSameLayoutRectOnIdenticalInput) {
     auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack class="box"/></Canvas>)");
     ASSERT_TRUE(parsed.has_value());
@@ -349,6 +139,9 @@ TEST(UiLayoutDirtyGate, LayoutSkipReallyHappensAcrossRepeatedIdenticalCalls) {
     auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack class="box"/></Canvas>)");
     ASSERT_TRUE(parsed.has_value());
     engine::ui::UiDocument& document = *parsed;
+    // This test edits the stylesheet behind the engine's back to prove layout is skipped; the debug layout check would
+    // (rightly) name that edit.
+    document.verify_layout = false;
 
     engine::ui::Stylesheet sheet = must_parse_css(".box { width: 50px; height: 50px; }");
     FakePainterStub painter;
@@ -392,6 +185,8 @@ TEST(UiLayoutDirtyGate, TextChangeBetweenPaintCallsRecomputesHugWidth) {
     const float first_w = label->layout_rect.w;
 
     label->text = "Hello, this text is a lot longer than before";
+    // An edit behind the bind pass says what it feeds (a binding does it for the text it fills).
+    engine::ui::mark_dirty(document, *label, engine::ui::kDirtyLayout | engine::ui::kDirtyPaint);
     engine::ui::paint_document(document, &sheet, painter, input);
     EXPECT_GT(label->layout_rect.w, first_w);
 }
@@ -414,6 +209,7 @@ TEST(UiLayoutDirtyGate, CustomPropertyChangeBetweenPaintCallsRecomputesWidth) {
     EXPECT_FLOAT_EQ(box->layout_rect.w, 20.0f);
 
     box->custom_properties["w"] = "120px";
+    engine::ui::mark_dirty(document, *box, engine::ui::kDirtyStyle | engine::ui::kDirtyPaint, true);
     engine::ui::paint_document(document, &sheet, painter, input);
     EXPECT_FLOAT_EQ(box->layout_rect.w, 120.0f);
 }

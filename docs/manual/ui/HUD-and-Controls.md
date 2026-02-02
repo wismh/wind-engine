@@ -154,7 +154,7 @@ public:
 };
 ```
 
-Add and remove rows by changing the list (`inventoryItems.get().push_back(row)` or `inventoryItems.set(rows)`); the next bind pass picks it up.
+Add and remove rows by changing the list with `inventoryItems.set(rows)` or `inventoryItems.edit([&](auto& rows) { rows.push_back(row); })`; the next bind pass picks it up. `get()` returns a `const` vector: a change the list does not see could not be noticed, so every change goes through `set` or `edit`, and the list counts a change (`version()`) only when its items really differ afterwards.
 
 ### Virtualization
 A long list does not create a row element per item. When the conditions below hold, the engine builds only the rows near the visible part of the scroller (plus two rows of overscan) and stands in for the rest with empty spacers. The list virtualizes when **all** of these are true:

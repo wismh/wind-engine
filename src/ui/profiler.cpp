@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <format>
 #include <map>
@@ -272,11 +273,23 @@ namespace engine::ui {
                 const bool has = ring != state.rings.end() && ring->second.size > 0;
                 const ProfilerFrame *last = has ? ring->second.last() : nullptr;
                 const bool layout_skipped = last != nullptr && last->layout_skipped();
+                // Frames of the ring that ran layout, and the work the document's passes did over its life.
+                const StageNumbers ran = has ? stage_numbers(ring->second,
+                                                             [](const ProfilerFrame &frame) {
+                                                                 return std::int64_t{frame.layout_ran ? 1 : 0};
+                                                             })
+                                             : StageNumbers{};
+                const int layout_frames = has ? static_cast<int>(std::lround(ran.average * ring->second.size)) : 0;
+                const UiWorkCounters &work = instance.document.counters;
                 out += std::format("{{\"window\":{},\"id\":\"{}\",\"frames\":{},\"elements\":{},\"generated\":{},"
-                                   "\"layout_skipped\":{},\"stages\":{{",
+                                   "\"layout_skipped\":{},\"layout_frames\":{},"
+                                   "\"work\":{{\"slots_checked\":{},\"bound_reads\":{},\"table_builds\":{},"
+                                   "\"layout_passes\":{},\"restyle_passes\":{}}},\"stages\":{{",
                                    static_cast<std::uint32_t>(source.window), json_escape(instance.document.root.id),
                                    has ? ring->second.size : 0, last != nullptr ? last->elements : 0,
-                                   last != nullptr ? last->generated : 0, layout_skipped ? "true" : "false");
+                                   last != nullptr ? last->generated : 0, layout_skipped ? "true" : "false",
+                                   layout_frames, work.slots_checked, work.bound_reads, work.table_builds,
+                                   work.layout_passes, work.restyle_passes);
                 for (std::size_t stage = 0; stage < kProfilerStageCount; ++stage) {
                     if (stage > 0) {
                         out += ',';

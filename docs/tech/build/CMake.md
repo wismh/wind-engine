@@ -18,6 +18,7 @@ The library target is `engine`. Alias: `engine::engine`. It is static. With `ENG
 | `ENGINE_WITH_ANDROID` | ON if `ANDROID`, else OFF | same | `PUBLIC` |
 | `ENGINE_WITH_GLES` | ON if `EMSCRIPTEN` or `ANDROID`, else OFF | same | `PUBLIC`. No glad |
 | `ENGINE_BENCH` | OFF | configure error | `wind_ui_bench` and, with tests, `wind_ui_bench_tests` ([Bench build](#bench-build)). No install rules. Needs `ENGINE_WITH_WINDOW`, refuses `ENGINE_EDITOR`, Emscripten, and Android |
+| `ENGINE_UI_LAYOUT_CHECK` | OFF (ON in the Debug configuration) | same | Defines `ENGINE_UI_LAYOUT_CHECK` privately: every `sync_layout` is compared with a from-scratch layout ([UI](../modules/UI.md#debug-layout-check)). Never with `ENGINE_EDITOR` or a player |
 | `ENGINE_EDITOR` | OFF | configure error | Shared `engine`, the editor, the SDK install rules. Needs `ENGINE_WITH_WINDOW`. Fatal on Emscripten and Android. In a game tree it is fatal and points at `find_package(Wind)` |
 | `ENGINE_PLAYER` | empty | configure error | `Development` or `Shipping`: a build of the static engine for the editor SDK's [player libraries](#player-libraries). Engine repo root only, with `ENGINE_WITH_WINDOW` and `ENGINE_WITH_AUDIO` ON and without `ENGINE_EDITOR`, tests, bench, Emscripten, and Android. Set by `cmake/player_build.cmake`, not by hand |
 | `ENGINE_SDK_PLAYER` | ON | not defined | Only with `ENGINE_EDITOR`. A Release `cmake --install` also builds both player flavours into `<sdk>/player/` |

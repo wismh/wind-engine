@@ -65,13 +65,16 @@ namespace engine::ui {
 
         void fill_list(BindableList<std::shared_ptr<DockChromeItem>> &list, const std::vector<DockChromeBox> &boxes,
                        glm::vec2 origin) {
-            std::vector<std::shared_ptr<DockChromeItem>> &items = list.get();
-            while (items.size() > boxes.size()) {
-                items.pop_back();
-            }
-            while (items.size() < boxes.size()) {
-                items.push_back(std::make_shared<DockChromeItem>());
-            }
+            // The items are reused: only a change of their count is a change of the list.
+            list.edit([&](std::vector<std::shared_ptr<DockChromeItem>> &items) {
+                while (items.size() > boxes.size()) {
+                    items.pop_back();
+                }
+                while (items.size() < boxes.size()) {
+                    items.push_back(std::make_shared<DockChromeItem>());
+                }
+            });
+            const std::vector<std::shared_ptr<DockChromeItem>> &items = list.get();
             for (std::size_t i = 0; i < boxes.size(); ++i) {
                 const DockChromeBox &box = boxes[i];
                 DockChromeItem &item = *items[i];
