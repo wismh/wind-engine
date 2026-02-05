@@ -5,6 +5,7 @@
 #include "math/math_element.h"
 #include "painter.h"
 #include "popup.h"
+#include "ui/text_cache.h"
 #include "ui/text_select.h"
 
 #include <engine/loc/catalog.h>
@@ -177,6 +178,41 @@ namespace engine::ui {
             return std::max(0.0f, outer_width_limit(box, avail_x) - box.padding.left - box.padding.right);
         }
 
+        // The painter's measure of `element`'s text, from the document's shared cache when another element with the
+        // same text, font and size already asked.
+        [[nodiscard]] glm::vec2 shared_measure(const Element &element, IUiPainter *painter, float font_size) {
+            SharedTextCache *cache = active_text_cache();
+            if (cache == nullptr) {
+                return painter->measure_text(element.text, element.font_family, font_size);
+            }
+            const std::string key = text_cache_key(element.text, element.font_family, font_size, -1.0f);
+            if (const auto found = cache->measures.find(key); found != cache->measures.end()) {
+                ++cache->hits;
+                return found->second;
+            }
+            const glm::vec2 result = painter->measure_text(element.text, element.font_family, font_size);
+            ++cache->painter_measures;
+            cache->measures.emplace(key, result);
+            return result;
+        }
+
+        [[nodiscard]] TextBlock shared_break_lines(const Element &element, IUiPainter *painter, float font_size,
+                                                   float wrap_width) {
+            SharedTextCache *cache = active_text_cache();
+            if (cache == nullptr) {
+                return painter->break_lines(element.text, element.font_family, font_size, wrap_width);
+            }
+            const std::string key = text_cache_key(element.text, element.font_family, font_size, wrap_width);
+            if (const auto found = cache->blocks.find(key); found != cache->blocks.end()) {
+                ++cache->hits;
+                return found->second;
+            }
+            TextBlock block = painter->break_lines(element.text, element.font_family, font_size, wrap_width);
+            ++cache->painter_breaks;
+            cache->blocks.emplace(key, block);
+            return block;
+        }
+
         // Memoized on `element` (see Element::text_measure_cache_* in document.h): a reconciled
         // ItemsControl-generated Element keeps its identity across frames, so an unchanged row's text is
         // shaped once instead of every layout(). Only the real-painter path is cached — the
@@ -190,7 +226,7 @@ namespace engine::ui {
                     element.text_measure_cache_font_size == font_size) {
                     return element.text_measure_cache_result;
                 }
-                const glm::vec2 result = painter->measure_text(element.text, element.font_family, font_size);
+                const glm::vec2 result = shared_measure(element, painter, font_size);
                 element.text_measure_cache_text = element.text;
                 element.text_measure_cache_font_family = element.font_family;
                 element.text_measure_cache_font_size = font_size;
@@ -247,7 +283,7 @@ namespace engine::ui {
                 element.text_wrap_cache_text == element.text) {
                 return element.text_wrap_cache_result;
             }
-            TextBlock block = painter->break_lines(element.text, element.font_family, font_size, wrap_width);
+            TextBlock block = shared_break_lines(element, painter, font_size, wrap_width);
             apply_used_line_height(element, font_size, block);
             const glm::vec2 result = size_of(block, single);
             element.text_wrap_cache_text = element.text;
@@ -755,6 +791,7 @@ namespace engine::ui {
     }
 
     void layout(UiDocument &document, const render::Rect &canvas_rect, IUiPainter *painter, bool partial) {
+        const TextCacheScope text_cache(document, painter);
         layout_element(document.root, canvas_rect, painter, glm::vec2{canvas_rect.w, canvas_rect.h}, canvas_rect,
                        partial);
         // The rects and extents an ItemsControl windows its rows against just changed.
@@ -1418,6 +1455,25 @@ namespace engine::ui {
         if (first_row == nullptr || first_row->layout_rect.h <= 0.0f) {
             return false;
         }
+        const auto reveal = [&](float top, float bottom) {
+            const float view_top = scroller.layout_rect.y + scroller.scroll_y;
+            const float view_bottom = view_top + scroller.layout_rect.h;
+            float scroll = scroller.scroll_y;
+            if (top < view_top) {
+                scroll = top - scroller.layout_rect.y;
+            } else if (bottom > view_bottom) {
+                scroll = bottom - scroller.layout_rect.y - scroller.layout_rect.h;
+            }
+            scroller.scroll_y = std::clamp(scroll, 0.0f, scroller.max_scroll_y);
+        };
+        const bool fixed_height = first_row->height && first_row->height->unit == LengthUnit::Px;
+        if (!fixed_height && items_control.row_heights && index + 1 < items_control.row_heights->tops.size()) {
+            // Rows of no fixed height: the tops come from the heights measured so far (an estimate for a row not laid
+            // out yet), the same numbers the spacers were built from.
+            const std::vector<float> &tops = items_control.row_heights->tops;
+            reveal(items_top + tops[index], items_top + tops[index + 1] - items_control.gap.value);
+            return true;
+        }
         const float row_height = first_row->layout_rect.h;
         const float stride =
                 second_row != nullptr ? second_row->layout_rect.y - first_row->layout_rect.y : row_height;
@@ -1430,16 +1486,7 @@ namespace engine::ui {
         }
 
         const float top = items_top + static_cast<float>(index) * stride;
-        const float bottom = top + row_height;
-        const float view_top = scroller.layout_rect.y + scroller.scroll_y;
-        const float view_bottom = view_top + scroller.layout_rect.h;
-        float scroll = scroller.scroll_y;
-        if (top < view_top) {
-            scroll = top - scroller.layout_rect.y;
-        } else if (bottom > view_bottom) {
-            scroll = bottom - scroller.layout_rect.y - scroller.layout_rect.h;
-        }
-        scroller.scroll_y = std::clamp(scroll, 0.0f, scroller.max_scroll_y);
+        reveal(top, top + row_height);
         return true;
     }
 
