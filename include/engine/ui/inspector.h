@@ -25,6 +25,9 @@ namespace engine::ui {
 
     struct UiInspector {
         bool enabled = false;
+        // Left click on a game canvas selects an element. Off, that click reaches the game. The panel
+        // checkbox writes this; it starts on and turns back on when the inspector closes.
+        bool pick_pointer = true;
         // The inspector's own window. Empty while the inspector is off. Game windows are never this.
         std::optional<WindowId> panel_window;
         // Which game window's pick the panel's detail block shows. Updated on every pick.

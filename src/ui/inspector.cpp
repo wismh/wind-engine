@@ -285,12 +285,14 @@ namespace engine::ui {
         class InspectorModel final : public ViewModel {
         public:
             Bindable<std::string> detail;
+            Bindable<bool> pick{true};
             BindableList<std::shared_ptr<InspectorRow>> rows;
             BindableList<std::shared_ptr<InspectorRuleRow>> rules;
             std::unordered_map<RowKey, std::shared_ptr<InspectorRow>, RowKeyHash> cache;
 
             InspectorModel() {
                 property(intern("detail"), detail);
+                property(intern("pick"), pick);
                 property(intern("rows"), rows);
                 property(intern("rules"), rules);
                 detail.set("Nothing selected");
@@ -338,9 +340,10 @@ namespace engine::ui {
             if (!row.has_children) {
                 row.twist.set(" ");
             } else if (row.expanded) {
-                row.twist.set("▾");
+                // Inter has these triangles. The smaller U+25BE / U+25B8 are missing and draw as a box.
+                row.twist.set("▼");
             } else {
-                row.twist.set("▸");
+                row.twist.set("▶");
             }
             state.seen->insert(key);
             state.visible->push_back(slot);
@@ -520,16 +523,29 @@ namespace engine::ui {
             return rows;
         }
 
-        // Chrome inside #root, which has gap 6 (six gaps = 36): title 22, three .section at 14,
-        // detail 176, rules 152. That is 392. The tree is the rest of the window, at least 96px.
+        // Chrome inside #root, which has gap 6 (seven gaps = 42): title 22, pick row 22, three .section
+        // at 14, detail 176, rules 152. That is 414. The tree is the rest of the window, at least 96px.
         constexpr std::string_view kInspectorCss = R"(
 #inspector { background: #121418; }
 #root { width: 100%; height: 100%; padding: 12px; gap: 6px; }
 #title { height: 22px; font-size: 15px; color: #f3f5f8; font-family: default; }
+.pick-row { width: 100%; height: 22px; gap: 8px; align-items: center; }
+.pick-box {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    padding: 0;
+    background: #121418;
+    border-width: 1px;
+    border-color: #3a4150;
+    border-radius: 3px;
+}
+.pick-box:checked { background: #1c4634; border-color: #3dba6a; }
+.pick-label { height: 22px; font-size: 13px; color: #e6ebf2; font-family: default; align-items: center; }
 .section { height: 14px; font-size: 11px; color: #8b93a3; font-family: default; }
 #tree {
     width: 100%;
-    height: calc(100% - 428px);
+    height: calc(100% - 456px);
     min-height: 96px;
     background: #1a1d24;
     border-width: 1px;
@@ -623,8 +639,15 @@ namespace engine::ui {
             auto rules = scroll_view().with_id("rules").overflow_y(Overflow::Scroll);
             rules.add(std::move(rule_list));
 
+            auto pick_box =
+                    checkbox().with_id("pick").with_class("pick-box").checked(true).checked_bind(intern("pick"));
+            auto pick_row = stack().with_class("pick-row").direction(StackDirection::Horizontal);
+            pick_row.add(std::move(pick_box));
+            pick_row.add(label().with_class("pick-label").text("Pick"));
+
             auto root_stack = stack().with_id("root").direction(StackDirection::Vertical);
             root_stack.add(label().with_id("title").text("UI Inspector"));
+            root_stack.add(std::move(pick_row));
             root_stack.add(label().with_class("section").text("Tree"));
             root_stack.add(std::move(tree));
             root_stack.add(label().with_class("section").text("Computed"));
@@ -777,6 +800,7 @@ namespace engine::ui {
             if (model == nullptr) {
                 return;
             }
+            world.ctx<UiInspector>().pick_pointer = model->pick.get();
 
             std::vector<CanvasSource> sources;
             std::unordered_set<WindowId> source_windows;
@@ -883,6 +907,19 @@ namespace engine::ui {
 
     } // namespace
 
+    std::string inspector_element_tag(const Element &element) {
+        std::string tag = kind_name(element.kind);
+        if (!element.id.empty()) {
+            tag += '#';
+            tag += element.id;
+        }
+        for (const std::string &class_name: element.classes) {
+            tag += '.';
+            tag += class_name;
+        }
+        return tag;
+    }
+
     void set_inspector_enabled(ecs::World &world, bool enabled) {
         UiInspector &inspector = world.ctx<UiInspector>();
         if (!enabled) {
@@ -891,6 +928,7 @@ namespace engine::ui {
             release_inspector_window(world);
             inspector.selection.clear();
             inspector.detail_window = kPrimaryWindow;
+            inspector.pick_pointer = true;
             return;
         }
         inspector.enabled = true;
