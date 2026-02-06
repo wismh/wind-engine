@@ -14,6 +14,6 @@ Default unlit shader, unit quad, unlit material, UI font, and math font.
 
 CMake copies this tree to `<exe dir>/assets/engine/`. Game `asset_codegen` is given this reserved GUID list and fails if a game `.meta` reuses one.
 
-`fonts/ui.ttf` is a tiny SIL Open Font License face (Tiny5) so the GUID always has a committed raw file.
+`fonts/ui.ttf` is Inter Regular 4.1, the static TrueType instance (not the variable font), SIL OFL (`fonts/OFL.txt`, https://github.com/rsms/inter/releases/tag/v4.1, `extras/ttf/Inter-Regular.ttf`). It is the default UI face, including Cyrillic. The GUID stays `font_ui`.
 
 `fonts/math.otf` is STIX Two Math (v2.0.2, SIL OFL, `fonts/LICENSE.stix2math.txt`, source https://github.com/stipub/stixfonts `archive/STIXv2.0.2/OTF/STIX2Math.otf`): an OpenType MATH font whose `MATH` table drives formula layout.
