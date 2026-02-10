@@ -584,7 +584,7 @@ namespace engine::ui {
                                  bool primary_button, std::uint8_t clicks) {
             // Inspect mode picks the deepest element and does not run the game's command, drag, or focus.
             // The inspector panel is a normal canvas, so its own buttons still execute.
-            if (primary_button && inspector_enabled(world)) {
+            if (primary_button && inspector_enabled(world) && world.ctx<UiInspector>().pick_pointer) {
                 if (const std::optional<PreparedCanvas> prepared = prepare_top_canvas(world, x, y, window, batch)) {
                     if (world.try_get<InspectorPanel>(prepared->entity) == nullptr) {
                         const VisualHit visual =

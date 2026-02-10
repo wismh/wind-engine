@@ -511,7 +511,7 @@ namespace engine {
                 return a.index < b.index;
             });
             std::unordered_map<WindowId, std::optional<ecs::Entity>> hover_by_window;
-            if (ui::inspector_enabled(world)) {
+            if (ui::inspector_enabled(world) && world.ctx<ui::UiInspector>().pick_pointer) {
                 for (const CanvasDraw &canvas: canvases) {
                     if (hover_by_window.contains(canvas.window)) {
                         continue;
