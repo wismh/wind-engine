@@ -18,6 +18,7 @@
 #include <engine/resources/font.h>
 #include <engine/ui/canvas.h>
 #include <engine/ui/inspector.h>
+#include <engine/ui/profiler.h>
 
 #include <SDL3/SDL.h>
 
@@ -200,6 +201,10 @@ public:
             return window_control_->open_window(desc);
         };
         world.ctx<ui::InspectorWindowHost>().close = [this](WindowId id) { window_control_->close_window(id); };
+        world.ctx<ui::ProfilerWindowHost>().open = [this](const WindowDesc& desc) {
+            return window_control_->open_window(desc);
+        };
+        world.ctx<ui::ProfilerWindowHost>().close = [this](WindowId id) { window_control_->close_window(id); };
         sync_modal_hook();
     }
 
@@ -208,6 +213,7 @@ public:
         sync_modal_hook();
         world.ctx<ui::UiLayoutPainters>().resolve = {};
         world.ctx<ui::InspectorWindowHost>() = {};
+        world.ctx<ui::ProfilerWindowHost>() = {};
     }
 
     void publish_primary_size(ecs::World& world, bool send_event) override {

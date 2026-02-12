@@ -4,6 +4,7 @@
 #include "inline_math.h"
 #include "math/math_element.h"
 #include "painter.h"
+#include "profile.h"
 #include "style_anim.h"
 #include "text_select.h"
 
@@ -1726,34 +1727,55 @@ namespace engine::ui {
         // Establish rects before hit-testing on a structural frame so :hover is known to the motion
         // pass in the same paint. Later frames hit-test last frame's rects (one frame behind a size
         // animation) and do not relayout unless a motion layout input actually changed.
+        bool layout_ran = false;
         if (structural) {
-            apply_layout_style(document.root, stylesheet, input.window_width, input.window_height);
-            layout(document, input.canvas_rect, &painter, false);
-            stamp_layout();
+            {
+                ENGINE_UI_PROFILE(input.canvas, Layout);
+                apply_layout_style(document.root, stylesheet, input.window_width, input.window_height);
+                layout(document, input.canvas_rect, &painter, false);
+                stamp_layout();
+            }
+            layout_ran = true;
         }
         apply_interaction(document.root, input.pointer, input.pointer_down);
 
-        std::vector<const Element *> motion_ancestors;
-        advance_tree(document.root, stylesheet, input.delta_time, glm::vec2{input.canvas_rect.w, input.canvas_rect.h},
-                     motion_ancestors, input.window_width, input.window_height);
-        const bool motion_layout = bubble_layout_motion(document.root);
-        refresh_virtualization(document.root);
+        bool motion_layout = false;
+        {
+            ENGINE_UI_PROFILE(input.canvas, Motion);
+            std::vector<const Element *> motion_ancestors;
+            advance_tree(document.root, stylesheet, input.delta_time,
+                         glm::vec2{input.canvas_rect.w, input.canvas_rect.h}, motion_ancestors, input.window_width,
+                         input.window_height);
+            motion_layout = bubble_layout_motion(document.root);
+            refresh_virtualization(document.root);
+            if (!motion_layout) {
+                commit_motion_tree(document.root, false);
+            }
+        }
         if (motion_layout) {
-            apply_layout_style(document.root, stylesheet, input.window_width, input.window_height);
-            commit_motion_tree(document.root, true);
-            layout(document, input.canvas_rect, &painter, true);
-            stamp_layout();
-        } else {
-            commit_motion_tree(document.root, false);
+            {
+                ENGINE_UI_PROFILE(input.canvas, Layout);
+                apply_layout_style(document.root, stylesheet, input.window_width, input.window_height);
+                commit_motion_tree(document.root, true);
+                layout(document, input.canvas_rect, &painter, true);
+                stamp_layout();
+            }
+            layout_ran = true;
         }
 
-        painter.save();
-        painter.scissor(scale_rect(input.canvas_rect, input.ui_offset, input.ui_scale));
-        std::vector<const Element *> ancestors;
-        paint_element(document.root, stylesheet, painter, ancestors,
-                      glm::vec2{input.canvas_rect.w, input.canvas_rect.h}, input);
-        paint_inspector_overlay(document.root, painter, input);
-        painter.restore();
+        {
+            ENGINE_UI_PROFILE(input.canvas, Paint);
+            painter.save();
+            painter.scissor(scale_rect(input.canvas_rect, input.ui_offset, input.ui_scale));
+            std::vector<const Element *> ancestors;
+            paint_element(document.root, stylesheet, painter, ancestors,
+                          glm::vec2{input.canvas_rect.w, input.canvas_rect.h}, input);
+            paint_inspector_overlay(document.root, painter, input);
+            painter.restore();
+        }
+#if defined(ENGINE_UI_PROFILER)
+        profiler_finish_paint(input.canvas, document.root, layout_ran);
+#endif
     }
 
 } // namespace engine::ui

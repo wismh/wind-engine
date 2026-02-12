@@ -3,9 +3,11 @@
 #include <engine/loc/catalog.h>
 #include <engine/ui/document.h>
 #include <engine/ui/inspector.h>
+#include <engine/ui/profiler.h>
 
 #include "element_path.h"
 #include "painter.h"
+#include "profile.h"
 #include "ui/input_batch.h"
 #include "ui/text_select.h"
 
@@ -88,9 +90,17 @@ namespace engine::ui {
     }
 
     void begin_frame(ecs::World &world) {
-        world.ctx<MouseConsumed>().consumed_windows.clear();
-        apply_canvas_fit(world);
-        sync_inspector_frames(world);
+#if defined(ENGINE_UI_PROFILER)
+        profiler_attach(world);
+        profiler_commit_frame(world);
+#endif
+        {
+            ENGINE_UI_PROFILE_SHARED(BeginFrame);
+            world.ctx<MouseConsumed>().consumed_windows.clear();
+            apply_canvas_fit(world);
+            sync_inspector_frames(world);
+        }
+        sync_profiler_frames(world);
     }
 
     namespace {
@@ -178,6 +188,11 @@ namespace engine::ui {
         // why this cache lives on run_input()'s stack rather than in ctx<>().
         std::optional<PreparedCanvas> prepare_top_canvas(ecs::World &world, float x, float y, WindowId window,
                                                          UiInputBatchCache *batch = nullptr) {
+#if defined(ENGINE_UI_PROFILER)
+            profiler_attach(world);
+#endif
+            ecs::Entity timed{};
+            ENGINE_UI_PROFILE(timed, Input);
             std::vector<CanvasHit> hits;
             {
                 auto view = world.view<UiCanvas>();
@@ -267,6 +282,8 @@ namespace engine::ui {
             }
 
             const glm::vec2 layout_pointer{(x - space.offset.x) / space.scale, (y - space.offset.y) / space.scale};
+            timed = entity;
+            (void) timed;
             return PreparedCanvas{&canvas, instance, entity, space, layout_pointer};
         }
 

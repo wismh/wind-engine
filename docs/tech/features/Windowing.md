@@ -17,7 +17,7 @@ One `ecs::World` and one loop; many OS windows. A window is an output target (`W
 - World `Renderable`s draw only into `kPrimaryWindow`. Secondary windows are UI-only (`UiCanvas::window`).
 - Drawable size: `ctx<ui::WindowSizes>()` keyed by `WindowId`. `window_size_for(world, id)` returns `{0,0}` until the first resize/backfill.
 - `UiCanvas::window` selects which window sizes and hit-tests that canvas. Pointer events carry `window`; a canvas on another window never receives them.
-- Close button: `WindowCloseRequestedEvent` only. The engine never quits or destroys a game window on its own. The UI inspector window is the exception: a close request for that window turns the inspector off, and the engine closes it. The primary window is not closed. See [[features/UI Inspector]].
+- Close button: `WindowCloseRequestedEvent` only. The engine never quits or destroys a game window on its own. The UI inspector window and the UI profiler window are the exceptions: a close request for that window turns the tool off, and the engine closes it. The primary window is not closed. See [[features/UI Inspector]] and [[features/UI Profiler]].
 - Platform SDL / Win32 calls stay in `src/render/opengl/` (`WindowManager`, `WindowSystem`). Public headers stay GL/SDL-free.
 
 ## Overlay and click-through
