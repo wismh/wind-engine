@@ -58,8 +58,9 @@ TEST(BenchOptions, DefaultsMeasureExactlyTheRing) {
 }
 
 TEST(BenchOptions, ReadsEveryFlag) {
-    const auto options = parse({"--scene", "table", "--mode", "hover", "--variant", "layout", "--warmup", "7",
-            "--frames", "10", "--out", "runs/table.json", "--width", "1280", "--height", "720", "--hold", "1500"});
+    const auto options =
+            parse({"--scene", "table", "--mode", "hover", "--variant", "layout", "--warmup", "7", "--frames", "10",
+                   "--out", "runs/table.json", "--width", "1280", "--height", "720", "--hold", "1500"});
     ASSERT_TRUE(options.has_value()) << options.error();
     EXPECT_EQ(options->variant, "layout");
     EXPECT_EQ(options->warmup, 7);
