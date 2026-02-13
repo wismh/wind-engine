@@ -155,6 +155,7 @@ void main() {
                                            .inspector_selection = cmd.inspector_selection,
                                            .inspector_selection_path = cmd.inspector_selection_path,
                                            .inspector_selection_owner = cmd.inspector_selection_owner,
+                                           .canvas = cmd.canvas,
                                    });
             }
 

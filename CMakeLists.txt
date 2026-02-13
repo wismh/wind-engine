@@ -115,6 +115,9 @@ list(FILTER ENGINE_SOURCES EXCLUDE REGEX "sdl_fatal_error\\.cpp$")
 add_library(engine STATIC ${ENGINE_SOURCES})
 add_library(engine::engine ALIAS engine)
 
+# Debug only. Release, RelWithDebInfo, and MinSizeRel compile the profiler call sites out.
+target_compile_definitions(engine PUBLIC $<$<CONFIG:Debug>:ENGINE_UI_PROFILER>)
+
 target_include_directories(engine
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
