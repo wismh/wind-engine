@@ -171,7 +171,8 @@ struct UiActivePans {
 
 struct ActiveScrollbarDrag {
     ecs::Entity canvas_entity{};
-    std::vector<std::size_t> path;
+    // The scrolled element. A stale id (its row left the window mid-drag) ends the drag on the next move.
+    ElementId element{};
     const void* owner = nullptr;
     float drag_start_pointer_y = 0.0f;
     float drag_start_scroll_y = 0.0f;
@@ -241,9 +242,11 @@ void end_pan(ecs::World& world, WindowId window = kPrimaryWindow);
 // Wheel zoom-to-cursor on the innermost Viewport under (x, y). No-op if zoom is unbound.
 void handle_wheel(ecs::World& world, float x, float y, float wheel_y, WindowId window = kPrimaryWindow);
 
+// The focused element by id, not by pointer: a row that leaves an ItemsControl window while it has focus is a stale
+// id that resolves to nothing (focus is dropped), never a dangling `Element*`.
 struct UiFocus {
     ecs::Entity canvas_entity{};
-    Element* element = nullptr;
+    ElementId element{};
 };
 
 struct UiFocusState {

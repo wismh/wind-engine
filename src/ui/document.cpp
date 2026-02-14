@@ -1,5 +1,6 @@
 #include <engine/ui/document.h>
 
+#include "element_index.h"
 #include "inline_math.h"
 #include "math/math_element.h"
 #include "painter.h"
@@ -734,6 +735,9 @@ namespace engine::ui {
             IBindErrorSink *errors = nullptr;
             const engine::loc::Catalog *catalog = nullptr;
             const std::unordered_map<BindingId, std::string> *paths = nullptr;
+            // The document's slot table: the reconcile gives a new row its ids, keeps a reused row's, and frees a
+            // dropped row's.
+            ElementArena *arena = nullptr;
             std::optional<UiError> first_error;
 
             void fail(UiError error, std::string_view message) {
@@ -1192,12 +1196,14 @@ namespace engine::ui {
                             previous_by_owner[old.generated_owner].push_back(std::move(old));
                         }
                         element.generated_items.clear();
+                        ElementArena &arena = *pass.arena;
 
                         if (leading_spacer_h > 0.0f) {
                             Element spacer;
                             spacer.kind = ElementKind::Canvas;
                             spacer.height = Length{leading_spacer_h, LengthUnit::Px};
                             spacer.is_virtualization_spacer = true;
+                            index_subtree(arena, spacer, element.handle, 0, true, true);
                             element.generated_items.push_back(std::move(spacer));
                         }
                         for (std::size_t i = window_first; !window_empty && !items.empty() && i <= window_last; ++i) {
@@ -1219,6 +1225,7 @@ namespace engine::ui {
                                 clone.kind = ElementKind::Stack;
                                 clone.children.clear();
                                 clone.generated_owner = item;
+                                index_subtree(arena, clone, element.handle, 0, true, true);
                                 bind_element(clone, *item, pass, false, child_scroll_context);
                                 element.generated_items.push_back(std::move(clone));
                                 continue;
@@ -1227,6 +1234,7 @@ namespace engine::ui {
                                 Element clone = node;
                                 clone.generated_items.clear();
                                 clone.generated_owner = item;
+                                index_subtree(arena, clone, element.handle, 0, true, true);
                                 bind_element(clone, *item, pass, false, child_scroll_context);
                                 element.generated_items.push_back(std::move(clone));
                             }
@@ -1236,7 +1244,24 @@ namespace engine::ui {
                             spacer.kind = ElementKind::Canvas;
                             spacer.height = Length{trailing_spacer_h, LengthUnit::Px};
                             spacer.is_virtualization_spacer = true;
+                            index_subtree(arena, spacer, element.handle, 0, true, true);
                             element.generated_items.push_back(std::move(spacer));
+                        }
+                        // What the window no longer holds is gone: its ids are freed, never handed out again. What it
+                        // holds keeps the id it had. Every row's place in the list is written down again.
+                        for (const auto &dropped: previous_by_owner) {
+                            for (const Element &row: dropped.second) {
+                                release_subtree(arena, row);
+                            }
+                        }
+                        for (std::size_t i = 0; i < element.generated_items.size(); ++i) {
+                            Element &row = element.generated_items[i];
+                            row.parent = element.handle;
+                            if (ElementArena::Slot *slot = arena.slot(row.handle)) {
+                                slot->parent = element.handle;
+                                slot->position = static_cast<std::uint32_t>(i);
+                                slot->generated = true;
+                            }
                         }
                     }
                 }
@@ -1342,7 +1367,11 @@ namespace engine::ui {
 
     std::expected<void, UiError> apply_bindings(UiDocument &document, ViewModel &data_context, IBindErrorSink *errors,
                                                 const engine::loc::Catalog *catalog) {
-        BindPass pass{errors, catalog, &document.binding_paths};
+        if (!document.arena.alive(document.root.handle)) {
+            // A tree built by hand and never indexed: the reconcile needs its ids.
+            document.reindex();
+        }
+        BindPass pass{errors, catalog, &document.binding_paths, &document.arena};
         bind_element(document.root, data_context, pass, false, nullptr);
         if (pass.first_error) {
             return std::unexpected(*pass.first_error);
