@@ -8,10 +8,10 @@ These exist. They are not the numbered steps below, and the steps are not done.
 
 - `ItemsControl` virtualization for a vertical list, one template root, and a fixed pixel row height. Step 6 is the extension (variable row height, collapsed trees, viewport culling).
 - A layout dirty gate can skip `layout()` when text, custom properties, and generated owners are unchanged (`tests/ui_layout_dirty_gate_test.cpp`). Step 2 (a version on `Bindable`, three dirty flags, no full walk) is not that gate. `layout_state_changed` still walks the tree and still assigns the comparison copies.
-- `assign_property_string` skips an equal string. The other step 1 items (no temporary pseudo-state vector, skipping a sibling sort, a motion overlay that does not copy a whole `ComputedStyle`) are not the current paint path.
+- `assign_property_string` skips an equal string. The other step 1 items (no temporary pseudo-state vector, skipping a sibling sort, a motion overlay that does not copy a whole `ComputedStyle`, entering no painter state for an element with nothing to set) landed in wind-226; see step 1.
 - The UI profiler records the stages, the draw calls, and the painter calls by kind this plan uses as a baseline. See [UI Profiler](../features/UI%20Profiler.md).
 
-None of steps 0 through 8 are closed. NanoVG is still the UI painter.
+Steps 0 and 1 are closed (see their sections). Steps 7a through 8 are not. NanoVG is still the UI painter.
 
 The live tree stays one `Element` tree: document, layout, and hit-test. A retained command list (`Picture`) is a second structure, produced by paint and consumed by the renderer. NanoVG is removed when that renderer lands. An offscreen texture is an explicit opt-in on top of the renderer, not the way retention works.
 
@@ -78,13 +78,13 @@ Every later step is closed by re-running the matrix (`bench/run_matrix.ps1 -Repe
 - `run_bind` (`src/ecs/systems.cpp`) calls `apply_bindings` for every canvas with a view-model, every frame. That walks the tree (`src/ui/document.cpp` `bind_element`). The pointer path in `src/ui/canvas.cpp` can walk it again.
 - `layout_state_changed` walks every element every time it is called and assigns `layout_dirty_check_text` and `layout_dirty_check_custom_properties` even when they compare equal.
 - `children` and `generated_items` are `std::vector<Element>` by value. There is no parent link (`include/engine/ui/document.h`). An `Element*` and an index into that vector both die when the vector reallocates or splices.
-- `style_cache_hits` (`src/ui/paint.cpp`) allocates `ancestor_pseudo_state_bits` on a hit for every non-root element. `compute_style` and `advance_tree` both call it.
-- `child_stacking_order` (`src/ui/document.cpp`) builds a pointer vector and stable-sorts on every parent during paint and hit-test.
-- While `motion_shown` is non-empty, paint copies the whole `ComputedStyle`. A finished `@keyframes` sample leaves `motion_shown` filled. `sample_prop` (`src/ui/style_anim.cpp`) rebuilds a `ComputedStyle` from raw declarations on each tick.
+- (Step 1 fixed) `style_cache_hits` (`src/ui/paint.cpp`) allocated `ancestor_pseudo_state_bits` on a hit for every non-root element; it now compares in place. `compute_style` and `advance_tree` both call it.
+- `child_stacking_order` (`src/ui/document.cpp`) builds a pointer vector for every parent during paint and hit-test. Since step 1 it stable-sorts only siblings whose `z-index` does not already ascend.
+- While `motion_shown` is non-empty, paint overlays the held sample on a style that carries only the fields `paint_element` reads (step 1; it used to copy the whole `ComputedStyle`). A finished `@keyframes` sample leaves `motion_shown` filled. `sample_prop` (`src/ui/style_anim.cpp`) rebuilds a `ComputedStyle` from raw declarations on each tick.
 - `paint_element` calls `scissor` with the element rect after `apply_transform`. NanoVG stores color and scissor in per-call uniforms and issues one `glDrawArrays` per fill or text run.
 - Per-element text measure and wrap caches already exist (`text_measure_cache_*`, `text_wrap_cache_*`). They are not shared across elements, and a recycled row does not keep a height except `virtualization_row_height_cache` (one float, fixed-px rows).
 - Layout resolves style without pseudo-classes. `apply_layout_style` calls `compute_style(..., allow_pseudo = false, ...)`, and `subject_matches` rejects a selector with a pseudo-class then; paint calls it with `true` into a separate cache (`style_cache_paint_` vs `style_cache_layout_`, `src/ui/paint.cpp`). Hover state is not an input of the dirty gate (`structural` in `paint_document`). So `.hot:hover { padding }` restyles in paint and never relayouts: the bench's `hover layout` rows run layout on no frame, the same as `hover paint`. Step 2 must therefore decide whether layout honors pseudo-classes (a layout-affecting `:hover` then sets the layout flag, and "hover a paint-only control" is the case that must not) or stays pseudo-blind (layout properties under a pseudo-class are refused or warned at parse, and every `:hover` is paint-only by definition).
-- Every painted element costs painter state calls every frame. `paint_element`'s `enter` (`src/ui/paint.cpp`) calls `save`, `set_opacity`, and `scissor` with the element rect, and the element ends with `restore`, whether or not it draws anything or has opacity below 1; an absolute child of a non-clipping parent adds one more `restore`/`enter`. Only an item template, or an invisible or `display: none` element and its subtree, returns before `enter`. The baseline histograms show about one of each per painted element: `table` 238 `save` and `scissor` for 244 elements, `inspector` 1,161 of 2,926 (the rest are not painted), `hud` 189 `save` and 184 `scissor` for 184. NanoVG keeps each `scissor` as per-call uniform state. Relevant to step 1 (an element with opacity 1, no transform, and no clip need not enter at all), step 4 (per-element scissor goes away), and step 5 (a clip must not split a batch).
+- Every painted element cost painter state calls every frame (fixed in step 1, which keeps the scissor where it can clip something; see there). `paint_element`'s `enter` (`src/ui/paint.cpp`) called `save`, `set_opacity`, and `scissor` with the element rect, and the element ended with `restore`, whether or not it drew anything or had opacity below 1; every element clipped itself and its in-flow children to its own box, not only `overflow` elements, and `set_opacity` replaces the painter's alpha instead of multiplying it; an absolute child of a non-clipping parent adds one more `restore`/`enter`. Only an item template, or an invisible or `display: none` element and its subtree, returns before `enter`. The baseline histograms show about one of each per painted element: `table` 238 `save` and `scissor` for 244 elements, `inspector` 1,161 of 2,926 (the rest are not painted), `hud` 189 `save` and 184 `scissor` for 184. NanoVG keeps each `scissor` as per-call uniform state. Relevant to step 1 (an element with opacity 1, no transform, and no clip need not enter at all), step 4 (per-element scissor goes away), and step 5 (a clip must not split a batch).
 - `IPaint` runs from paint whenever it is bound. `Viewport` pan/zoom is a paint-time transform; hit-test inverts it. Neither participates in a dirty or clip model beyond the current full walk.
 
 ## Order
@@ -116,6 +116,23 @@ No new model. Makes the baseline readable.
 - A numeric binding does not format a string when the value is unchanged. `assign_property_string` already skips equal strings.
 
 Done when the three scenes are faster on a quiet frame and a one-change frame, and the profiler still attributes Bind, Layout, Motion, and Paint separately.
+
+As built (wind-226). All six items, the conic key too. What changed and what it did not:
+
+- `style_cache_hits` compares the ancestors' pseudo-state bytes in place. `child_stacking_order` skips the sort for siblings that already ascend. `layout_state_changed` still visits every element every call (step 2 removes the walk) but assigns the text, the custom-property map, and the owner list only when they differ.
+- A held motion sample is overlaid on a style built from the fields `paint_element` reads (`copy_paint_fields`), not a copy of the cascade.
+- `enter` is skipped for an element that has nothing to set: the opacity it needs is the one the painter already holds, no transform, and a scissor that would clip nothing (`paint_stays_in_box`: no border, no `Line`/`Math`/`TextInput`/`Viewport`/`ScrollView`/`IPaint`/`overflow`, measured text fits the content box, in-flow children inside the box with no transform). The plan said "no clip", but the old paint clipped every element to its own box, so the skip is conditional on the clip being redundant. A border keeps it because NanoVG strokes centre the line on the edge and the scissor trimmed the outer half. `tests/ui_wasted_work_test.cpp` has an oracle: every fill of a fixture is clipped as when every element scissors. 15 bench rows compared by screenshot before and after (Xvfb, software GL): identical except at most 151 anti-aliasing pixels in `inspector` (a glyph at a box edge no longer trimmed). Opacity is not inherited here (`set_opacity` replaces), so a child with its own opacity 1 under a parent at 0.5 still sets 1.
+- The conic texture cache is a short list searched by content (floats at 1e-6, the resolution of the old text key), not a `std::to_string` key per call.
+
+Linux baseline against step 1 (`-Repeat 5`, medians; counters are exact, times carry the noise caveat of the baseline):
+
+| Scene | State calls | Quiet total ms | One-change total ms | Draw calls |
+| --- | ---: | ---: | ---: | ---: |
+| `table` | 1,144 -> 203 | 0.38 -> 0.38 | 0.48 -> 0.51 | 278 -> 278 |
+| `inspector` | 4,999 -> 482 | 1.84 -> 1.58 | 3.26 -> 3.06 | 1,707 -> 1,707 |
+| `hud` | 873 -> 183 | 0.52 -> 0.49 | 0.60 -> 0.59 | 1,995 -> 1,995 |
+
+`paint-mix/conic-gradient` 6.09 -> 0.92 ms. No row regressed past 20%. Profiler stages are still separate; layout still skips on a quiet frame.
 
 ### 7a — Stable identity and parent
 

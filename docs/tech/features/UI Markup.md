@@ -110,7 +110,7 @@ Non-stack children (Canvas, Button, Label) overlay the same content rect. Each c
 
 `z-index` and `transform` do not change layout.
 
-`layout_state_changed` compares text, custom properties, and the generated-owner list. A clean compare can skip `layout()` after the first successful layout. The comparison copies are still written every call.
+`layout_state_changed` compares text, custom properties, and the generated-owner list. A clean compare can skip `layout()` after the first successful layout. A comparison copy is rewritten only when it differs; the walk is still every element every call.
 
 ## Paint
 
