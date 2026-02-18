@@ -203,7 +203,7 @@ namespace {
         }
         Element *list = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::ItemsControl);
         ASSERT_NE(list, nullptr);
-        ASSERT_TRUE(engine::ui::scroll_item_into_view(*list, *list, 1500));
+        ASSERT_TRUE(engine::ui::scroll_item_into_view(*parsed, *list, *list, 1500));
         // Item 1500 starts after 375 groups of four rows (10 + 20 + 30 + 40) and 1500 gaps of 2, and is 10 tall.
         EXPECT_NEAR(list->scroll_y, 375.0f * 100.0f + 1500.0f * 2.0f + 10.0f - 100.0f, 1.0f);
     }

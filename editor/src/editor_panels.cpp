@@ -253,7 +253,7 @@ void EditorPanels::read_tree_keys(engine::ecs::World& world) {
     engine::ui::Element* scroller = engine::ui::find_by_id(instance->document.root, "tree");
     const engine::ui::Element* rows = engine::ui::find_by_id(instance->document.root, "tree-rows");
     if (scroller != nullptr && rows != nullptr) {
-        (void) engine::ui::scroll_item_into_view(*scroller, *rows, *keep_in_view);
+        (void) engine::ui::scroll_item_into_view(instance->document, *scroller, *rows, *keep_in_view);
     }
 }
 
