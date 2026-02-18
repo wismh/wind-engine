@@ -179,7 +179,9 @@ function Get-RunNumbers($Report) {
     $elements = 0
     $generated = 0
     $layoutSkipped = $true
+    $layoutFrames = 0
     foreach ($c in $canvases) {
+        if ($c.PSObject.Properties.Name -contains 'layout_frames') { $layoutFrames += [int]$c.layout_frames }
         foreach ($s in $Stages) {
             $stage[$s] += [double]$c.stages.$s.avg_ms
             $stageMax[$s] += [double]$c.stages.$s.max_ms
@@ -202,7 +204,7 @@ function Get-RunNumbers($Report) {
     return @{
         Canvases = $canvases.Count; Elements = $elements; Generated = $generated; Stage = $stage
         Commands = $commands; Total = $cpu; Peak = $peak; Draw = $draw; Paint = $paint; Kinds = $kinds
-        LayoutMax = $stageMax['layout']; LayoutSkipped = $layoutSkipped
+        LayoutMax = $stageMax['layout']; LayoutSkipped = $layoutSkipped; LayoutFrames = $layoutFrames
     }
 }
 
@@ -242,6 +244,7 @@ foreach ($row in $rows) {
         peak_ms = [Math]::Round((Get-Median @($runs | ForEach-Object { $_.Peak })), 4)
         layout_max_ms = [Math]::Round((Get-Median @($runs | ForEach-Object { $_.LayoutMax })), 4)
         layout_skipped_last = $runs[0].LayoutSkipped
+        layout_frames = [Math]::Round((Get-Median @($runs | ForEach-Object { $_.LayoutFrames })), 1)
         draw_calls = [Math]::Round((Get-Median @($runs | ForEach-Object { $_.Draw })), 2)
         state_calls = [Math]::Round($stateCalls, 2)
         top_paint = $top
@@ -314,7 +317,8 @@ if ($commitText -eq '') { $commitText = '(none)' }
 [void]$md.AppendLine('Milliseconds are CPU averages per frame. `total` = the six stages + `commands`; `spread` = (max - min) / median ' +
     'of `total` across runs; `peak` = the sum of each stage''s max, an upper bound of the worst frame. `state` = ' +
     'save, restore, scissor, transform, view, opacity, font calls; `top` = the three most frequent drawing calls. ' +
-    '`layout` marks `skip` when the last frame skipped layout. Every scene has one canvas unless `canvases` says otherwise.')
+    '`layout` marks `skip` when the last frame skipped layout, and gives in brackets how many of the measured frames ran layout. ' +
+    'Every scene has one canvas unless `canvases` says otherwise.')
 [void]$md.AppendLine('')
 [void]$md.AppendLine('| row | elements | generated | bindings | styles | input | layout | motion | paint | commands | total | spread | peak | draws | state | top |')
 [void]$md.AppendLine('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |')
@@ -323,6 +327,7 @@ foreach ($r in $summaryRows) {
     if ($r.canvases -ne 1) { $label = "$label ($($r.canvases) canvases)" }
     $layout = Format-Num $r.stages_avg_ms.layout
     if ($r.layout_skipped_last) { $layout = "$layout skip" }
+    $layout = "$layout ($(Format-Num $r.layout_frames '0.#')/$($meta.frames))"
     $topText = (@($r.top_paint | ForEach-Object { '{0} {1}' -f $_.kind, (Format-Num $_.avg '0.#') }) -join ', ')
     $cells = @(
         $label, $r.elements, $r.generated,
