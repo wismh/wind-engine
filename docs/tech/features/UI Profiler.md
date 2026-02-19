@@ -36,7 +36,7 @@ Per canvas (`ProfilerStage`, the order a chart stacks them from the bottom):
 | Bindings | `apply_bindings` |
 | Stylesheets | stylesheet merge after bind. A canvas with no view-model has no bind cost |
 | Input | `prepare_top_canvas`, added to the canvas it returned. A miss adds nothing. Several events in one frame sum |
-| Layout | style plus layout inside `paint_document`. A flag records whether the dirty gate actually ran layout |
+| Layout | style plus layout inside `paint_document`. A flag records whether `sync_layout` actually ran layout |
 | Motion | style animation sample |
 | Paint | the rest of `paint_document` |
 
@@ -53,7 +53,7 @@ Per canvas, on `ProfilerFrame`, recorded under the same rule as the paint scope 
 
 `ProfilerPaintKind` has one bucket per drawing or state call of `IUiPainter` (`src/ui/painter.h`): `save`, `restore`, `scissor`, `transform`, `view`, `opacity`, `fill_rect` / `fill_rounded_rect` (`fill_rounded_rect` with a zero or a positive radius), `linear_gradient` / `radial_gradient` / `conic_gradient` (`fill_rounded_rect_gradient` by `GradientKind`), `stroke_rect`, `line`, `arc`, `path`, `font`, `text`, `image`, `image_repeat`, `nine_slice`. `profiler_paint_kind_name` gives the names. Text measuring is not counted.
 
-`paint_document` paints through `ProfilerPaintCounter` (`src/ui/profiler_paint_counter.h`), a decorator that counts and forwards every call. When the canvas is not recorded it hands out the wrapped painter itself. Layout keeps the wrapped painter, because the layout dirty gate compares painter identity. The counter adds its counts with `profiler_add_paint` after the paint timer stops. While a canvas is recorded, its Paint time includes the counter's forwarding: one extra virtual call per painter call.
+`paint_document` paints through `ProfilerPaintCounter` (`src/ui/profiler_paint_counter.h`), a decorator that counts and forwards every call. When the canvas is not recorded it hands out the wrapped painter itself. Layout keeps the wrapped painter, because `sync_layout` compares painter identity. The counter adds its counts with `profiler_add_paint` after the paint timer stops. While a canvas is recorded, its Paint time includes the counter's forwarding: one extra virtual call per painter call.
 
 Draw calls are per canvas, not per flush. One painter per window queues every canvas of that window, and NanoVG flushes the queue once, at `nvgEndFrame` after the last canvas. `IUiPainter::queued_draw_calls` returns the draw calls queued so far this frame; the counter reads it before and after the canvas and records the difference. So the canvases of one world on one window sum to that world's share of the flush, and another world's canvases on the same window are not in it. A painter that does not override it reports 0.
 
@@ -79,7 +79,7 @@ That table follows `glnvg__fill`, `glnvg__convexFill`, `glnvg__stroke`, and `gln
 | `profiler_frames(world, canvas)` | That canvas's ring, oldest first: `ProfilerFrame` (`stage_ns` per stage, `layout_ran`, `saw_paint`, `saw_bindings`, element and generated counts, `paint_commands`, `draw_calls`, `layout_skipped()`) |
 | `profiler_shared_frames(world)` | The shared ring, oldest first |
 | `profiler_clear(world)` | Empties every ring. The open frame, selection, Pause, and recording stay, so the next commit is a whole tick. `wind_ui_bench` clears after its warmup ([UI Bench](UI%20Bench.md)) |
-| `profiler_json(world)` | The `wind-cli profile` result object: `paused`, `capturing`, per canvas `window`, `id`, `frames`, `elements`, `generated`, `layout_skipped`, `stages` (`last_ms`, `avg_ms`, `max_ms` each), `draw_calls` and every `paint_commands` kind (`last`, `avg`, `max`), and `shared`. Empty without `ENGINE_UI_PROFILER` |
+| `profiler_json(world)` | The `wind-cli profile` result object: `paused`, `capturing`, per canvas `window`, `id`, `frames`, `elements`, `generated`, `layout_skipped`, `layout_frames` (frames that ran layout), `work` (the `UiWorkCounters` of the last frame: `slots_checked`, `bound_reads`, `table_builds`, `layout_passes`, `restyle_passes`, `layout_checks`, `layout_check_failures`), `stages` (`last_ms`, `avg_ms`, `max_ms` each), `draw_calls` and every `paint_commands` kind (`last`, `avg`, `max`), and `shared`. Empty without `ENGINE_UI_PROFILER` |
 
 A label is the root id, or `Canvas` when the id is empty. When two or more windows have a canvas, the label starts with `[{id}] `.
 
