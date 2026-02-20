@@ -21,8 +21,9 @@ void apply_motion_declaration(ComputedStyle& style, std::string_view property, s
 // Defined in paint.cpp so keyframe stops reuse the cascade declaration parser.
 void apply_style_declaration(ComputedStyle& style, const CssDeclaration& decl);
 
-// Step clocks on `element` against the pre-motion `target`. Fills `motion_shown`,
-// `layout_inputs_changed`, and `height_motion_active`. Does not write layout fields.
+// Step clocks on `element` against the pre-motion `target`. Fills `motion_shown` with running
+// transitions and @keyframes samples (a transition already at its goal is omitted), plus
+// `layout_inputs_changed` and `height_motion_active`. Does not write layout fields.
 void advance_motion(
         Element& element, const ComputedStyle& target, const Stylesheet* sheet, float dt, glm::vec2 basis);
 

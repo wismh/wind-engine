@@ -1878,7 +1878,11 @@ void advance_motion(
         if (affects_layout(spec.prop) && layout_differs(element, spec.prop, player.shown)) {
             element.layout_inputs_changed = true;
         }
-        upsert_shown(element.motion_shown, spec.prop, player.shown, player.running);
+        // An idle transition already matches the cascade. Paint reads that cascade directly, so the
+        // sample is not stored. A running transition stays. Finished @keyframes are written above.
+        if (player.running || !same_spec(spec.prop, player.shown, goal)) {
+            upsert_shown(element.motion_shown, spec.prop, player.shown, player.running);
+        }
         next_transitions.push_back(std::move(player));
     }
     element.transition_players = std::move(next_transitions);

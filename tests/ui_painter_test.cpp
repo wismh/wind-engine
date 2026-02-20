@@ -2567,3 +2567,106 @@ TEST(UiPainter, KeyframeOverridesTransitionOnSameProperty) {
     }
     EXPECT_NEAR(shown, 0.5f, 0.02f);
 }
+
+float shown_opacity(const FakePainter& painter) {
+    float shown = 1.0f;
+    for (const PaintCall& call : painter.calls) {
+        if (call.op == "opacity") {
+            shown = std::min(shown, call.opacity);
+        }
+    }
+    return shown;
+}
+
+TEST(UiPainter, QuietTransitionKeepsBackground) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack class="box"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .box { width: 40px; height: 40px; background: #ff0000; transition: background 1s linear; }
+    )");
+    FakePainter painter;
+    paint_frame(*parsed, sheet, painter, glm::vec2{1000.0f, 1000.0f}, 0.25f);
+    const PaintCall* first = painter.find("fill_rect");
+    ASSERT_NE(first, nullptr);
+    EXPECT_NEAR(first->color.r, 1.0f, 0.02f);
+    EXPECT_NEAR(first->color.g, 0.0f, 0.02f);
+
+    paint_frame(*parsed, sheet, painter, glm::vec2{1000.0f, 1000.0f}, 0.25f);
+    const PaintCall* second = painter.find("fill_rect");
+    ASSERT_NE(second, nullptr);
+    EXPECT_NEAR(second->color.r, 1.0f, 0.02f);
+    EXPECT_NEAR(second->color.g, 0.0f, 0.02f);
+    EXPECT_NEAR(second->color.b, 0.0f, 0.02f);
+}
+
+TEST(UiPainter, IdleFrameThenHoverStillReachesMidpoint) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Button class="btn" content="X"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        Button.btn { width: 80px; height: 40px; background: #000000; transition: background 1s linear; }
+        Button.btn:hover { background: #ffffff; }
+    )");
+    FakePainter painter;
+    paint_frame(*parsed, sheet, painter, glm::vec2{1000.0f, 1000.0f}, 0.0f);
+    paint_frame(*parsed, sheet, painter, glm::vec2{1000.0f, 1000.0f}, 0.2f);
+    paint_frame(*parsed, sheet, painter, glm::vec2{10.0f, 10.0f}, 0.5f);
+
+    const PaintCall* fill = painter.find("fill_rect");
+    ASSERT_NE(fill, nullptr);
+    EXPECT_NEAR(fill->color.r, 0.5f, 0.02f);
+    EXPECT_NEAR(fill->color.g, 0.5f, 0.02f);
+    EXPECT_NEAR(fill->color.b, 0.5f, 0.02f);
+}
+
+TEST(UiPainter, AnimationDelayStillStarts) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack class="box"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .box { width: 40px; height: 40px; opacity: 1; animation: fade 1s linear 0.5s; }
+        @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+    )");
+    FakePainter painter;
+    paint_frame(*parsed, sheet, painter, glm::vec2{0.0f, 0.0f}, 0.4f);
+    EXPECT_NEAR(shown_opacity(painter), 1.0f, 0.02f);
+
+    paint_frame(*parsed, sheet, painter, glm::vec2{0.0f, 0.0f}, 0.2f);
+    EXPECT_NEAR(shown_opacity(painter), 0.1f, 0.02f);
+}
+
+TEST(UiPainter, FinishedKeyframeHoldsEndValue) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack class="box"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .box { width: 40px; height: 40px; opacity: 0; animation: fade 1s linear; }
+        @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+    )");
+    FakePainter painter;
+    paint_frame(*parsed, sheet, painter, glm::vec2{0.0f, 0.0f}, 1.0f);
+    EXPECT_NEAR(shown_opacity(painter), 1.0f, 0.02f);
+
+    paint_frame(*parsed, sheet, painter, glm::vec2{0.0f, 0.0f}, 1.0f);
+    EXPECT_NEAR(shown_opacity(painter), 1.0f, 0.02f);
+}
+
+TEST(UiPainter, FinishedPercentKeyframeReresolvesWhenBasisChanges) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack class="box"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .box { height: 20px; animation: widen 1s linear; }
+        @keyframes widen { from { width: 10%; } to { width: 50%; } }
+    )");
+    const engine::ui::Element* box = find_class(parsed->root, "box");
+    ASSERT_NE(box, nullptr);
+    FakePainter painter;
+    auto paint_at = [&](float canvas_w, float dt) {
+        painter.calls.clear();
+        engine::ui::paint_document(*parsed, &sheet, painter,
+                engine::ui::UiPaintInput{
+                        .canvas_rect = {0.0f, 0.0f, canvas_w, 100.0f}, .delta_time = dt});
+    };
+    paint_at(200.0f, 1.0f);
+    EXPECT_NEAR(box->layout_rect.w, 100.0f, 1.0f);
+
+    paint_at(400.0f, 0.0f);
+    EXPECT_NEAR(box->layout_rect.w, 200.0f, 1.0f);
+}
