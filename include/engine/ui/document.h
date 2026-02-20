@@ -682,7 +682,8 @@ namespace engine::ui {
         // Motion clocks. Reconcile moves the Element, so these survive an ItemsControl row reuse.
         // advance_motion() rebuilds `motion_shown` when the paint style cache misses, a clock is still
         // running (animation delay included), or a held sample's parent basis changed. A quiet frame
-        // leaves the vectors alone. layout reads `layout_inputs_changed` to decide which subtrees to re-pack.
+        // leaves the vectors alone. `layout_inputs_changed` is set when the sample moved a layout field: the paint pass
+        // then marks the element for restyle and layout.
         std::vector<TransitionRuntime> transition_players;
         std::vector<AnimationRuntime> animation_players;
         std::vector<ShownMotion> motion_shown;
@@ -692,7 +693,6 @@ namespace engine::ui {
         glm::vec2 motion_sample_basis{};
         bool motion_sample_basis_valid = false;
         bool layout_inputs_changed = false;
-        bool layout_descendant_inputs_changed = false;
         // True while a row-box property (height, padding, gap, font-size, ...) is still interpolating.
         // ItemsControl turns that into suppress_item_virtualization for the following bind.
         bool height_motion_active = false;
