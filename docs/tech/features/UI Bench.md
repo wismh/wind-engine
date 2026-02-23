@@ -10,6 +10,8 @@ cmake --build build-bench --config RelWithDebInfo --target wind_ui_bench
 build-bench/bin/RelWithDebInfo/wind_ui_bench --scene table --mode quiet
 ```
 
+On Linux the preset is `linux-bench` (Ninja, single-config RelWithDebInfo, binary `build-bench/bin/wind_ui_bench`); see [Linux](#linux).
+
 Reference numbers come from RelWithDebInfo. The profiler (`ENGINE_UI_PROFILER`) is compiled in Debug and RelWithDebInfo only; a Release build prints that the profiler is not built and exits with 3. See [CMake](../build/CMake.md#bench-build).
 
 ## Command line
@@ -90,7 +92,7 @@ Its frame system (`Phase::Game`) follows `BenchSchedule`: on tick 3 it binds the
 
 ## Matrix runs
 
-`bench/run_matrix.ps1` (Windows PowerShell 5.1) runs every row of `--list` as its own process, one after another, and stops with exit 1 on the first run that fails.
+`bench/run_matrix.ps1` (Windows PowerShell 5.1, or PowerShell 7 `pwsh` on Linux and macOS) runs every row of `--list` as its own process, one after another, and stops with exit 1 on the first run that fails.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File bench/run_matrix.ps1 -Repeat 3
@@ -125,7 +127,20 @@ A scene with several canvases is summed and its row says how many; every scene t
 
 `bench/compare.ps1 -Base <dir|summary.json> -Head <dir|summary.json> [-Threshold 5]` prints a markdown table of the rows both have: total, layout, paint ms, and draw calls, base -> head with the change. A row is `REGRESSION` when total grows more than the threshold and more than 0.01 ms, or draw calls grow more than the threshold. It warns when the machine, config, or window differs. It exits 0, or 1 when an input is missing.
 
-`bench/results/baseline/summary.md` and `summary.json` are the step-0 baseline of the [UI Performance Plan](../architecture/UI%20Performance%20Plan.md#baseline) and are kept in git. Everything else under `bench/results/` (other runs, `baseline/runs/`) is ignored (`bench/results/.gitignore`). The baseline was taken on an uncommitted tree: its commit is the parent, `dirty` true.
+`bench/results/baseline/summary.md` and `summary.json` are the step-0 baseline of the [UI Performance Plan](../architecture/UI%20Performance%20Plan.md#baseline), `baseline-linux/` its Linux twin, and both are kept in git. Everything else under `bench/results/` (other runs, `baseline/runs/`) is ignored (`bench/results/.gitignore`). The baseline was taken on an uncommitted tree: its commit is the parent, `dirty` true.
+
+### Linux
+
+```bash
+cmake --preset linux-bench && cmake --build --preset linux-bench
+export LIBGL_ALWAYS_SOFTWARE=1 SDL_AUDIODRIVER=dummy XDG_RUNTIME_DIR=/tmp/xdg   # mkdir -m 700 /tmp/xdg
+xvfb-run -a -s "-screen 0 1920x1080x24" pwsh -NoProfile -File bench/run_matrix.ps1 -Repeat 5
+pwsh -NoProfile -File bench/compare.ps1 -Base bench/results/baseline-linux -Head bench/results/<dir>
+```
+
+`-Exe` defaults to `build-bench/bin/wind_ui_bench` there. `pwsh` is the Microsoft tarball (`powershell-7.4.x-linux-x64.tar.gz`; set `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` when ICU is missing). The summary's machine line reads `/proc/cpuinfo` and `/etc/os-release`; there is no power plan.
+
+Software GL (llvmpipe) makes **Paint relative**: it includes NanoVG's GL work on the CPU, so compare it with another run on the same machine, never with the Windows numbers. Bind, Style, Layout, and Motion are plain CPU work and comparable. The CI-sized VM is shared and noisy; `bench/results/baseline-linux/` is the baseline of the overnight steps of the [UI Performance Plan](../architecture/UI%20Performance%20Plan.md#baseline) (`-Repeat 5`, commit `4f4af64`). Treat a change under about 20% on a sub-millisecond row as noise, and prefer the exact counters (draws, painter calls, element counts, layout `skip`).
 
 ### Repeatability
 
