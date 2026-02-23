@@ -472,6 +472,8 @@ namespace engine::ui {
         UiAlign text_align = UiAlign::Start;
         WhiteSpace white_space = WhiteSpace::Normal;
         UserSelect user_select = UserSelect::None;
+        // `repaint-boundary`: the element keeps its own picture (see Element::picture).
+        bool repaint_boundary = false;
         Cursor cursor = Cursor::Auto;
         Length border_radius{};
         Length border_width{};
@@ -554,6 +556,69 @@ namespace engine::ui {
     // reads Element motion clocks, so a cached ComputedStyle is the pre-motion cascade. advance_motion()
     // samples on top of that style when the cache misses or a clock still needs time. A quiet hit
     // leaves the previous sample in place.
+    class Picture;
+
+    // What a picture was recorded for. A picture is replayed only while every part of this still holds.
+    struct PictureKey {
+        render::Rect rect{};
+        glm::vec2 offset{};
+        float scale = 1.0f;
+        glm::vec2 parent_content{};
+        float window_width = 0.0f;
+        float window_height = 0.0f;
+        const Stylesheet *sheet = nullptr;
+        std::uint64_t sheet_generation = 0;
+        // Set when the children were recorded with the element's own state (opacity, transform) set again around them:
+        // that state is then part of what they show.
+        float baked_opacity = 0.0f;
+        float baked_rotation = 0.0f;
+        float baked_scale = 0.0f;
+
+        bool operator==(const PictureKey &) const = default;
+    };
+
+    // An `IPaint` an element's picture drew, and the version it had then.
+    struct PictureWatch {
+        const IPaint *paint = nullptr;
+        std::uint64_t version = 0;
+    };
+
+    // One recorded picture of a boundary and what it depends on besides its key.
+    struct PicturePart {
+        std::shared_ptr<Picture> picture;
+        bool valid = false;
+        // Recorded something that changes without a mark (a focused text input's caret, an `IPaint` with no version):
+        // never replayed.
+        bool volatile_part = false;
+        std::vector<PictureWatch> watches;
+        // A `Viewport`'s content: the part of the world (layout space) its children were recorded for. The picture is
+        // replayed while the camera shows nothing outside it.
+        render::Rect world{};
+    };
+
+    // The retained paint of a repaint boundary: its own drawing (`chrome`) and its children (`content`), both recorded
+    // in screen coordinates under the state the element sets itself (opacity, transform, scissor, camera), which is
+    // applied live and so is a parameter of the picture, not part of it. A copy of an element starts with no picture.
+    struct PictureSlot {
+        PictureKey key{};
+        // The state the element sets itself (opacity, transform, scissor, scroll or camera), the calls of `chrome` and
+        // `content` between them, and the scrollbar: written again whenever paint reaches the element, a few commands.
+        std::shared_ptr<Picture> frame;
+        PicturePart chrome;
+        PicturePart content;
+
+        PictureSlot() = default;
+        PictureSlot(const PictureSlot &) {}
+        PictureSlot &operator=(const PictureSlot &other) {
+            if (this != &other) {
+                *this = PictureSlot{};
+            }
+            return *this;
+        }
+        PictureSlot(PictureSlot &&) noexcept = default;
+        PictureSlot &operator=(PictureSlot &&) noexcept = default;
+    };
+
     struct StyleCacheEntry {
         bool valid = false;
         ComputedStyle style{};
@@ -698,6 +763,12 @@ namespace engine::ui {
         bool height_motion_active = false;
         // A `Viewport` only: how many children the last paint skipped because they lie wholly outside the camera.
         mutable std::uint32_t culled_children = 0;
+        // The element keeps its own picture (`repaint-boundary`, written by the layout style). A scroll container, a
+        // `Viewport`, a `Popup` and the root are boundaries whatever this says.
+        bool repaint_boundary = false;
+        // The rect this element had when paint last looked at it: a layout pass that moved it marks it for paint.
+        render::Rect rect_seen{};
+        PictureSlot picture;
         bool suppress_item_virtualization = false;
         glm::vec2 layout_used_cache{};
         bool layout_used_cache_valid = false;
@@ -992,6 +1063,15 @@ namespace engine::ui {
         // times a rect of the live tree differed. A correct engine leaves the second at 0.
         std::uint64_t layout_checks = 0;
         std::uint64_t layout_check_failures = 0;
+        // Paint: elements `paint_element` drew (a replayed boundary draws none of the elements under it), pictures
+        // recorded and replayed, and the commands a replay issued.
+        std::uint64_t painted_elements = 0;
+        std::uint64_t pictures_recorded = 0;
+        std::uint64_t pictures_replayed = 0;
+        std::uint64_t picture_commands = 0;
+        // The debug picture check: boundaries compared with a fresh recording, and differences found.
+        std::uint64_t picture_checks = 0;
+        std::uint64_t picture_check_failures = 0;
     };
 
     // What the painter measured and broke, shared by every element of one document: two rows with the same text, font,
@@ -1023,6 +1103,16 @@ namespace engine::ui {
         // Relayout boundaries (a fixed-size element) that a change below them marked, and that the next layout pass
         // lays out from where they are.
         std::vector<ElementId> layout_roots;
+        // Boundaries whose picture can never be replayed (they record again every frame), and the `IPaint`s whose
+        // version decides when a picture is recorded again. Paint marks them each frame; entries whose element is gone
+        // leave.
+        std::vector<ElementId> picture_volatile;
+        struct PaintWatch {
+            ElementId element{};
+            const IPaint *paint = nullptr;
+            std::uint64_t seen = 0;
+        };
+        std::vector<PaintWatch> picture_watches;
         // Goes up on every `mark_dirty`. Work that reads a pointer or a hit test (the hover target) repeats only when
         // it moved, the pointer moved, or a layout pass ran.
         std::uint64_t epoch = 0;
@@ -1158,8 +1248,10 @@ namespace engine::ui {
     // `index` of the ItemsControl's items_source lies inside the scroller's box. Reads the rows of the last
     // layout and assumes they share one height, so it works on a virtualized list whose item has no Element
     // yet. Sets Element::scroll_y only: a `scroll-y` binding on the scroller reads its own value back on the
-    // next bind. False when the ItemsControl has no laid-out row or `index` is past the items.
-    bool scroll_item_into_view(Element &scroller, const Element &items_control, std::size_t index);
+    // next bind. `document` is the one the elements belong to: the scroller is marked for paint (its frame) and the
+    // list windows are refreshed. False when the ItemsControl has no laid-out row or `index` is past the items.
+    bool scroll_item_into_view(UiDocument &document, Element &scroller, const Element &items_control,
+                               std::size_t index);
 
     // Finds the generated Element currently stamped with this exact Element::generated_owner value
     // (see that field's comment) — used by canvas.cpp's drag write-back to re-resolve which item
