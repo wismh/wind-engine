@@ -54,11 +54,13 @@ TEST(BenchOptions, DefaultsMeasureExactlyTheRing) {
     EXPECT_EQ(options->height, 900);
     EXPECT_TRUE(options->out.empty());
     EXPECT_FALSE(options->list);
+    EXPECT_EQ(options->hold_ms, 0);
 }
 
 TEST(BenchOptions, ReadsEveryFlag) {
-    const auto options = parse({"--scene", "table", "--mode", "hover", "--variant", "layout", "--warmup", "7",
-            "--frames", "10", "--out", "runs/table.json", "--width", "1280", "--height", "720"});
+    const auto options =
+            parse({"--scene", "table", "--mode", "hover", "--variant", "layout", "--warmup", "7", "--frames", "10",
+                   "--out", "runs/table.json", "--width", "1280", "--height", "720", "--hold", "1500"});
     ASSERT_TRUE(options.has_value()) << options.error();
     EXPECT_EQ(options->variant, "layout");
     EXPECT_EQ(options->warmup, 7);
@@ -66,6 +68,7 @@ TEST(BenchOptions, ReadsEveryFlag) {
     EXPECT_EQ(options->out, std::filesystem::path("runs/table.json"));
     EXPECT_EQ(options->width, 1280);
     EXPECT_EQ(options->height, 720);
+    EXPECT_EQ(options->hold_ms, 1500);
 }
 
 TEST(BenchOptions, ListAndHelpNeedNoScene) {
@@ -78,6 +81,7 @@ TEST(BenchOptions, ListAndHelpNeedNoScene) {
 }
 
 TEST(BenchOptions, RefusesBadArguments) {
+    EXPECT_FALSE(parse({"--scene", "table", "--mode", "quiet", "--hold", "-1"}).has_value());
     EXPECT_FALSE(parse({}).has_value()) << "no scene or mode";
     EXPECT_FALSE(parse({"--scene", "table"}).has_value()) << "no mode";
     EXPECT_FALSE(parse({"--scene", "table", "--mode"}).has_value()) << "a flag without its value";
