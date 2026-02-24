@@ -207,18 +207,26 @@ TEST(UiIfBinding, ASheetThatShowsTheElementDoesNotOverrideIt) {
     EXPECT_TRUE(find_class(parsed->root, "b")->display_none);
 }
 
-TEST(UiIfBinding, TheLayoutGateNoticesAToggle) {
+TEST(UiIfBinding, ATogglePutsTheElementOnTheLayoutList) {
     auto parsed = engine::ui::parse_xml(kColumnXml);
     ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = parse_sheet(kColumnCss);
     PanelViewModel vm;
-    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
-    EXPECT_TRUE(engine::ui::layout_state_changed(parsed->root));
-    EXPECT_FALSE(engine::ui::layout_state_changed(parsed->root));
+    const engine::render::Rect canvas{0.0f, 0.0f, 800.0f, 600.0f};
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm, nullptr, nullptr, &sheet).has_value());
+    EXPECT_TRUE(engine::ui::sync_layout(*parsed, &sheet, nullptr, canvas, 800.0f, 600.0f));
+    EXPECT_FALSE(engine::ui::sync_layout(*parsed, &sheet, nullptr, canvas, 800.0f, 600.0f)) << "nothing is marked";
 
     vm.shown.set(false);
-    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm).has_value());
-    EXPECT_TRUE(engine::ui::layout_state_changed(parsed->root));
-    EXPECT_FALSE(engine::ui::layout_state_changed(parsed->root));
+    ASSERT_TRUE(engine::ui::apply_bindings(*parsed, vm, nullptr, nullptr, &sheet).has_value());
+    const engine::ui::Element *b = find_class(parsed->root, "b");
+    ASSERT_NE(b, nullptr);
+    EXPECT_NE(b->dirty_self & engine::ui::kDirtyLayout, 0);
+    EXPECT_NE(parsed->root.dirty_below & engine::ui::kDirtyLayout, 0) << "the parent is told";
+    EXPECT_TRUE(engine::ui::sync_layout(*parsed, &sheet, nullptr, canvas, 800.0f, 600.0f));
+    EXPECT_TRUE(b->display_none);
+    EXPECT_EQ(b->dirty_self & (engine::ui::kDirtyStyle | engine::ui::kDirtyLayout), 0);
+    EXPECT_FALSE(engine::ui::sync_layout(*parsed, &sheet, nullptr, canvas, 800.0f, 600.0f));
 }
 
 TEST(UiIfBinding, BuilderDocumentUsesIfBind) {
@@ -263,8 +271,7 @@ TEST(UiIfBinding, ResolvesPerRowInsideAnItemTemplateWithoutAnError) {
 </ItemTemplate></ItemsControl></Canvas>)");
     ASSERT_TRUE(parsed.has_value());
     ListViewModel vm;
-    vm.rows.get().push_back(std::make_shared<RowViewModel>());
-    vm.rows.get().push_back(std::make_shared<RowViewModel>());
+    vm.rows.set({std::make_shared<RowViewModel>(), std::make_shared<RowViewModel>()});
     vm.rows.get()[1]->shown.set(false);
     fakes::RecordingBindErrors errors;
 

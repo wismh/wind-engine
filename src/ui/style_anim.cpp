@@ -1403,168 +1403,235 @@ const Keyframes* find_keyframes(const Stylesheet& sheet, std::string_view name) 
     return nullptr;
 }
 
-std::optional<MotionValue> sample_prop(const Keyframes& keyframes, MotionProp prop, float t, glm::vec2 basis) {
-    struct Stop {
-        float offset = 0.0f;
-        MotionValue value;
-    };
-    std::vector<Stop> stops;
-    for (const KeyframeStop& stop : keyframes.stops) {
-        bool sets = false;
-        for (const CssDeclaration& decl : stop.declarations) {
-            if (decl_sets(decl.property, prop)) {
-                sets = true;
-                break;
-            }
-        }
-        if (!sets) {
-            continue;
-        }
-        ComputedStyle style;
-        for (const CssDeclaration& decl : stop.declarations) {
-            if (decl_sets(decl.property, prop)) {
-                apply_style_declaration(style, decl);
-            }
-        }
-        stops.push_back(Stop{stop.offset, read_prop(style, prop, basis)});
-    }
-    if (stops.empty()) {
-        return std::nullopt;
-    }
-    std::sort(stops.begin(), stops.end(), [](const Stop& a, const Stop& b) { return a.offset < b.offset; });
-    t = std::clamp(t, 0.0f, 1.0f);
-    if (t <= stops.front().offset) {
-        return stops.front().value;
-    }
-    if (t >= stops.back().offset) {
-        return stops.back().value;
-    }
-    for (std::size_t i = 0; i + 1 < stops.size(); ++i) {
-        if (t > stops[i + 1].offset) {
-            continue;
-        }
-        const float span = stops[i + 1].offset - stops[i].offset;
-        const float u = span > 0.0f ? (t - stops[i].offset) / span : 0.0f;
-        return lerp_value(prop, stops[i].value, stops[i + 1].value, u);
-    }
-    return stops.back().value;
-}
+struct KeyframeStopValue {
+    float offset = 0.0f;
+    // The stop's declarations for one property, applied to a style. Reading the property back at sample time resolves
+    // a percentage against the basis of that frame.
+    ComputedStyle style;
+};
 
-std::vector<MotionProp> keyframe_props(const Keyframes& keyframes) {
-    std::vector<MotionProp> props;
-    for (const KeyframeStop& stop : keyframes.stops) {
-        for (const CssDeclaration& decl : stop.declarations) {
-            if (const auto prop = prop_from_name(decl.property)) {
-                if (std::find(props.begin(), props.end(), *prop) == props.end()) {
-                    props.push_back(*prop);
+} // namespace
+
+struct CompiledKeyframes {
+    struct Track {
+        MotionProp prop = MotionProp::Opacity;
+        std::vector<KeyframeStopValue> stops; // ascending offset
+    };
+    std::size_t stop_count = 0;
+    std::size_t declaration_count = 0;
+    std::vector<Track> tracks;
+};
+
+namespace {
+
+    std::size_t declaration_count_of(const Keyframes &keyframes) {
+        std::size_t count = 0;
+        for (const KeyframeStop &stop: keyframes.stops) {
+            count += stop.declarations.size();
+        }
+        return count;
+    }
+
+    // The stops of `prop` in ascending offset, each with its declarations applied to a fresh style.
+    std::vector<KeyframeStopValue> stops_of(const Keyframes &keyframes, MotionProp prop) {
+        std::vector<KeyframeStopValue> stops;
+        for (const KeyframeStop &stop: keyframes.stops) {
+            bool sets = false;
+            for (const CssDeclaration &decl: stop.declarations) {
+                if (decl_sets(decl.property, prop)) {
+                    sets = true;
+                    break;
+                }
+            }
+            if (!sets) {
+                continue;
+            }
+            KeyframeStopValue value;
+            value.offset = stop.offset;
+            for (const CssDeclaration &decl: stop.declarations) {
+                if (decl_sets(decl.property, prop)) {
+                    apply_style_declaration(value.style, decl);
+                }
+            }
+            stops.push_back(std::move(value));
+        }
+        std::stable_sort(stops.begin(), stops.end(),
+                         [](const KeyframeStopValue &a, const KeyframeStopValue &b) { return a.offset < b.offset; });
+        return stops;
+    }
+
+    std::optional<MotionValue> interpolate_stops(const std::vector<KeyframeStopValue> &stops, MotionProp prop, float t,
+                                                 glm::vec2 basis) {
+        if (stops.empty()) {
+            return std::nullopt;
+        }
+        t = std::clamp(t, 0.0f, 1.0f);
+        if (t <= stops.front().offset) {
+            return read_prop(stops.front().style, prop, basis);
+        }
+        if (t >= stops.back().offset) {
+            return read_prop(stops.back().style, prop, basis);
+        }
+        for (std::size_t i = 0; i + 1 < stops.size(); ++i) {
+            if (t > stops[i + 1].offset) {
+                continue;
+            }
+            const float span = stops[i + 1].offset - stops[i].offset;
+            const float u = span > 0.0f ? (t - stops[i].offset) / span : 0.0f;
+            return lerp_value(prop, read_prop(stops[i].style, prop, basis), read_prop(stops[i + 1].style, prop, basis),
+                              u);
+        }
+        return read_prop(stops.back().style, prop, basis);
+    }
+
+    std::vector<MotionProp> keyframe_props(const Keyframes &keyframes) {
+        std::vector<MotionProp> props;
+        for (const KeyframeStop &stop: keyframes.stops) {
+            for (const CssDeclaration &decl: stop.declarations) {
+                if (const auto prop = prop_from_name(decl.property)) {
+                    if (std::find(props.begin(), props.end(), *prop) == props.end()) {
+                        props.push_back(*prop);
+                    }
                 }
             }
         }
+        return props;
     }
-    return props;
-}
 
-// Returns the sample progress, or < 0 while delay is still running (underlying style shows).
-float animation_progress(const AnimationRuntime& player) {
-    if (player.elapsed < player.delay) {
-        return -1.0f;
-    }
-    const float local = player.elapsed - player.delay;
-    if (player.duration <= 0.0f) {
-        return 0.0f;
-    }
-    if (player.iterations < 0.0f) {
-        const float cycles = local / player.duration;
-        return cycles - std::floor(cycles);
-    }
-    const float end = player.duration * std::max(player.iterations, 0.0f);
-    if (local >= end) {
-        return 1.0f;
-    }
-    const float cycle_pos = local - std::floor(local / player.duration) * player.duration;
-    return cycle_pos / player.duration;
-}
-
-bool animation_running(const AnimationRuntime& player) {
-    if (player.elapsed < player.delay) {
-        return false;
-    }
-    if (player.iterations < 0.0f) {
-        return true;
-    }
-    const float end = player.delay + player.duration * std::max(player.iterations, 0.0f);
-    return player.elapsed < end;
-}
-
-struct TransitionSpec {
-    MotionProp prop = MotionProp::Opacity;
-    float duration = 0.0f;
-    float delay = 0.0f;
-    CssEasing easing = CssEasing::Linear;
-};
-
-void upsert_spec(std::vector<TransitionSpec>& specs, TransitionSpec spec) {
-    for (TransitionSpec& existing : specs) {
-        if (existing.prop == spec.prop) {
-            existing = spec;
-            return;
-        }
-    }
-    specs.push_back(spec);
-}
-
-std::vector<TransitionSpec> transition_specs(const ComputedStyle& style) {
-    std::vector<TransitionSpec> specs;
-    for (std::size_t i = 0; i < style.transition_properties.size(); ++i) {
-        const std::string& name = style.transition_properties[i];
-        const float duration = list_last(style.transition_durations, i, 0.0f);
-        const float delay = list_last(style.transition_delays, i, 0.0f);
-        const CssEasing easing = list_last(style.transition_easings, i, CssEasing::Linear);
-        if (name == "none") {
-            continue;
-        }
-        if (name == "all") {
-            for (const MotionProp prop : kAllProps) {
-                upsert_spec(specs, TransitionSpec{prop, duration, delay, easing});
+    const std::shared_ptr<const CompiledKeyframes> &compiled_keyframes(const Keyframes &keyframes) {
+        const std::size_t declarations = declaration_count_of(keyframes);
+        if (keyframes.compiled == nullptr || keyframes.compiled->stop_count != keyframes.stops.size() ||
+            keyframes.compiled->declaration_count != declarations) {
+            auto built = std::make_shared<CompiledKeyframes>();
+            built->stop_count = keyframes.stops.size();
+            built->declaration_count = declarations;
+            for (const MotionProp prop: keyframe_props(keyframes)) {
+                CompiledKeyframes::Track track;
+                track.prop = prop;
+                track.stops = stops_of(keyframes, prop);
+                built->tracks.push_back(std::move(track));
             }
-            continue;
+            keyframes.compiled = std::move(built);
         }
-        if (const auto prop = prop_from_name(name)) {
-            upsert_spec(specs, TransitionSpec{*prop, duration, delay, easing});
-        }
+        return keyframes.compiled;
     }
-    return specs;
-}
 
-void upsert_shown(std::vector<ShownMotion>& shown, MotionProp prop, MotionValue value, bool running) {
-    for (ShownMotion& entry : shown) {
-        if (entry.prop == prop) {
-            entry.value = std::move(value);
-            entry.running = running;
-            return;
+    // Returns the sample progress, or < 0 while delay is still running (underlying style shows).
+    float animation_progress(const AnimationRuntime &player) {
+        if (player.elapsed < player.delay) {
+            return -1.0f;
         }
+        const float local = player.elapsed - player.delay;
+        if (player.duration <= 0.0f) {
+            return 0.0f;
+        }
+        if (player.iterations < 0.0f) {
+            const float cycles = local / player.duration;
+            return cycles - std::floor(cycles);
+        }
+        const float end = player.duration * std::max(player.iterations, 0.0f);
+        if (local >= end) {
+            return 1.0f;
+        }
+        const float cycle_pos = local - std::floor(local / player.duration) * player.duration;
+        return cycle_pos / player.duration;
     }
-    shown.push_back(ShownMotion{prop, std::move(value), running});
-}
 
-bool shown_has(const std::vector<ShownMotion>& shown, MotionProp prop) {
-    for (const ShownMotion& entry : shown) {
-        if (entry.prop == prop) {
+    bool animation_running(const AnimationRuntime &player) {
+        if (player.elapsed < player.delay) {
+            return false;
+        }
+        if (player.iterations < 0.0f) {
             return true;
         }
+        const float end = player.delay + player.duration * std::max(player.iterations, 0.0f);
+        return player.elapsed < end;
     }
-    return false;
+
+    struct TransitionSpec {
+        MotionProp prop = MotionProp::Opacity;
+        float duration = 0.0f;
+        float delay = 0.0f;
+        CssEasing easing = CssEasing::Linear;
+    };
+
+    void upsert_spec(std::vector<TransitionSpec> &specs, TransitionSpec spec) {
+        for (TransitionSpec &existing: specs) {
+            if (existing.prop == spec.prop) {
+                existing = spec;
+                return;
+            }
+        }
+        specs.push_back(spec);
+    }
+
+    std::vector<TransitionSpec> transition_specs(const ComputedStyle &style) {
+        std::vector<TransitionSpec> specs;
+        for (std::size_t i = 0; i < style.transition_properties.size(); ++i) {
+            const std::string &name = style.transition_properties[i];
+            const float duration = list_last(style.transition_durations, i, 0.0f);
+            const float delay = list_last(style.transition_delays, i, 0.0f);
+            const CssEasing easing = list_last(style.transition_easings, i, CssEasing::Linear);
+            if (name == "none") {
+                continue;
+            }
+            if (name == "all") {
+                for (const MotionProp prop: kAllProps) {
+                    upsert_spec(specs, TransitionSpec{prop, duration, delay, easing});
+                }
+                continue;
+            }
+            if (const auto prop = prop_from_name(name)) {
+                upsert_spec(specs, TransitionSpec{*prop, duration, delay, easing});
+            }
+        }
+        return specs;
+    }
+
+    void upsert_shown(std::vector<ShownMotion> &shown, MotionProp prop, MotionValue value, bool running) {
+        for (ShownMotion &entry: shown) {
+            if (entry.prop == prop) {
+                entry.value = std::move(value);
+                entry.running = running;
+                return;
+            }
+        }
+        shown.push_back(ShownMotion{prop, std::move(value), running});
+    }
+
+    bool shown_has(const std::vector<ShownMotion> &shown, MotionProp prop) {
+        for (const ShownMotion &entry: shown) {
+            if (entry.prop == prop) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    float transition_u(const TransitionRuntime &player) {
+        if (player.elapsed < player.delay || player.duration <= 0.0f) {
+            return player.elapsed < player.delay ? 0.0f : 1.0f;
+        }
+        const float u = (player.elapsed - player.delay) / player.duration;
+        return apply_easing(player.easing, std::clamp(u, 0.0f, 1.0f));
+    }
+
+} // namespace
+
+std::optional<MotionValue> sample_keyframes_from_declarations(const Keyframes &keyframes, MotionProp prop, float t,
+                                                              glm::vec2 basis) {
+    return interpolate_stops(stops_of(keyframes, prop), prop, t, basis);
 }
 
-float transition_u(const TransitionRuntime& player) {
-    if (player.elapsed < player.delay || player.duration <= 0.0f) {
-        return player.elapsed < player.delay ? 0.0f : 1.0f;
+std::optional<MotionValue> sample_keyframes(const Keyframes &keyframes, MotionProp prop, float t, glm::vec2 basis) {
+    const std::shared_ptr<const CompiledKeyframes> compiled = compiled_keyframes(keyframes);
+    for (const CompiledKeyframes::Track &track: compiled->tracks) {
+        if (track.prop == prop) {
+            return interpolate_stops(track.stops, prop, t, basis);
+        }
     }
-    const float u = (player.elapsed - player.delay) / player.duration;
-    return apply_easing(player.easing, std::clamp(u, 0.0f, 1.0f));
+    return std::nullopt;
 }
-
-}  // namespace
 
 bool is_motion_declaration(std::string_view property) {
     return property == "transition" || property == "transition-property" || property == "transition-duration" ||
@@ -1809,8 +1876,9 @@ void advance_motion(
             const bool running = animation_running(player);
             if (progress >= 0.0f) {
                 const float eased = apply_easing(player.easing, progress);
-                for (const MotionProp prop : keyframe_props(*frames)) {
-                    if (const auto sample = sample_prop(*frames, prop, eased, basis)) {
+                for (const CompiledKeyframes::Track &track: compiled_keyframes(*frames)->tracks) {
+                    const MotionProp prop = track.prop;
+                    if (const auto sample = interpolate_stops(track.stops, prop, eased, basis)) {
                         upsert_shown(element.motion_shown, prop, *sample, running);
                         if (running && affects_row_box(prop)) {
                             element.height_motion_active = true;

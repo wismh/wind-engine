@@ -10,13 +10,15 @@ cmake --build build-bench --config RelWithDebInfo --target wind_ui_bench
 build-bench/bin/RelWithDebInfo/wind_ui_bench --scene table --mode quiet
 ```
 
+On Linux the preset is `linux-bench` (Ninja, single-config RelWithDebInfo, binary `build-bench/bin/wind_ui_bench`); see [Linux](#linux).
+
 Reference numbers come from RelWithDebInfo. The profiler (`ENGINE_UI_PROFILER`) is compiled in Debug and RelWithDebInfo only; a Release build prints that the profiler is not built and exits with 3. See [CMake](../build/CMake.md#bench-build).
 
 ## Command line
 
 ```
 wind_ui_bench --scene <name> --mode <name> [--variant <name>] [--warmup N] [--frames N] [--out path.json]
-              [--width N --height N]
+              [--width N --height N] [--hold MS]
 wind_ui_bench --list
 ```
 
@@ -26,6 +28,7 @@ wind_ui_bench --list
 | `--frames` | `kProfilerRingFrames` (120) | measured frames, 1 to 120, so the ring is exactly the measured window |
 | `--out` | `ui_bench-<scene>-<mode>[-<variant>].json` | in the working directory |
 | `--width`, `--height` | 1600, 900 | window size |
+| `--hold` | 0 | milliseconds the window stays up, still drawing, after the report is written (0 to 600000), so a screenshot can be taken of the measured scene. 0 quits at once |
 | `--list` | | every row of the matrix, one per line: `scene mode [variant]` |
 
 A bad argument or a combination outside the matrix prints what is wrong and what is valid there, and exits with 2. A run that does not record its frames exits with 1.
@@ -58,7 +61,7 @@ XML and CSS under `bench/assets/`; view-models in C++; data from `kBenchSeed` th
 | `text` | 60 wrapped paragraphs at 22, 16, and 12 px, then 200 identical rows, in one `ScrollView`, nothing virtualized |
 | `clip` | An outer `ScrollView` with a column of notes and twelve inner `ScrollView`s, then a block rotated 6deg whose `ScrollView` holds one more |
 
-Every document has an element with id `rest`, where the pointer waits, and the scroll scenes one with id `wheel`, where the wheel turns. Elements with class `hot` are the hover targets. The reference scenes merge `hover_paint.css` (`.hot:hover` changes the background) after their own sheet, or `hover_layout.css` (`.hot:hover` changes the padding) in `hover layout`. Layout resolves style without pseudo-classes today, so the layout rule restyles but does not lay out.
+Every document has an element with id `rest`, where the pointer waits, and the scroll scenes one with id `wheel`, where the wheel turns. Elements with class `hot` are the hover targets. The reference scenes merge `hover_paint.css` (`.hot:hover` changes the background) after their own sheet, or `hover_layout.css` (`.hot:hover` changes the padding) in `hover layout`. Layout reads the real pseudo-state for a rule that also changes layout ([UI](../modules/UI.md#hover-and-layout)), so in `hover layout` layout runs on the frames where the pointer enters or leaves a `hot` element and on no other (the `layout` column of the summary says on how many of the measured frames), and in `hover paint` on none.
 
 ## Modes
 
@@ -90,7 +93,7 @@ Its frame system (`Phase::Game`) follows `BenchSchedule`: on tick 3 it binds the
 
 ## Matrix runs
 
-`bench/run_matrix.ps1` (Windows PowerShell 5.1) runs every row of `--list` as its own process, one after another, and stops with exit 1 on the first run that fails.
+`bench/run_matrix.ps1` (Windows PowerShell 5.1, or PowerShell 7 `pwsh` on Linux and macOS) runs every row of `--list` as its own process, one after another, and stops with exit 1 on the first run that fails.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File bench/run_matrix.ps1 -Repeat 3
@@ -125,7 +128,20 @@ A scene with several canvases is summed and its row says how many; every scene t
 
 `bench/compare.ps1 -Base <dir|summary.json> -Head <dir|summary.json> [-Threshold 5]` prints a markdown table of the rows both have: total, layout, paint ms, and draw calls, base -> head with the change. A row is `REGRESSION` when total grows more than the threshold and more than 0.01 ms, or draw calls grow more than the threshold. It warns when the machine, config, or window differs. It exits 0, or 1 when an input is missing.
 
-`bench/results/baseline/summary.md` and `summary.json` are the step-0 baseline of the [UI Performance Plan](../architecture/UI%20Performance%20Plan.md#baseline) and are kept in git. Everything else under `bench/results/` (other runs, `baseline/runs/`) is ignored (`bench/results/.gitignore`). The baseline was taken on an uncommitted tree: its commit is the parent, `dirty` true.
+`bench/results/baseline/summary.md` and `summary.json` are the step-0 baseline of the [UI Performance Plan](../architecture/UI%20Performance%20Plan.md#baseline), `baseline-linux/` its Linux twin, and both are kept in git. Everything else under `bench/results/` (other runs, `baseline/runs/`) is ignored (`bench/results/.gitignore`). The baseline was taken on an uncommitted tree: its commit is the parent, `dirty` true.
+
+### Linux
+
+```bash
+cmake --preset linux-bench && cmake --build --preset linux-bench
+export LIBGL_ALWAYS_SOFTWARE=1 SDL_AUDIODRIVER=dummy XDG_RUNTIME_DIR=/tmp/xdg   # mkdir -m 700 /tmp/xdg
+xvfb-run -a -s "-screen 0 1920x1080x24" pwsh -NoProfile -File bench/run_matrix.ps1 -Repeat 5
+pwsh -NoProfile -File bench/compare.ps1 -Base bench/results/baseline-linux -Head bench/results/<dir>
+```
+
+`-Exe` defaults to `build-bench/bin/wind_ui_bench` there. `pwsh` is the Microsoft tarball (`powershell-7.4.x-linux-x64.tar.gz`; set `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` when ICU is missing). The summary's machine line reads `/proc/cpuinfo` and `/etc/os-release`; there is no power plan.
+
+Software GL (llvmpipe) makes **Paint relative**: it includes NanoVG's GL work on the CPU, so compare it with another run on the same machine, never with the Windows numbers. Bind, Style, Layout, and Motion are plain CPU work and comparable. The CI-sized VM is shared and noisy; `bench/results/baseline-linux/` is the baseline of the overnight steps of the [UI Performance Plan](../architecture/UI%20Performance%20Plan.md#baseline) (`-Repeat 5`, commit `4f4af64`). Treat a change under about 20% on a sub-millisecond row as noise, and prefer the exact counters (draws, painter calls, element counts, layout `skip`).
 
 ### Repeatability
 

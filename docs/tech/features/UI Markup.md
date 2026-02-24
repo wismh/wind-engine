@@ -73,7 +73,7 @@ Color, gradient, `background-repeat`, easing, and `transform` values are on [UI]
 
 A binding the view-model does not register is skipped; the rest of the document still binds. `apply_bindings` reports each failure to its `IBindErrorSink` (not an `IFatalError`: the pass keeps walking, so the sink returns; `UI paint binding "world" is not registered on the data context`; a builder document has no paths and shows `#<id hex>`) and returns the first error. `run_bind` passes a sink that logs each message once per canvas with `log::warn`, prefixed by the document id, and remembers it in `UiInstance::reported_bind_errors`, so a missing binding is one log line, not one per frame. A new document starts a fresh set.
 
-`if="{binding}"` sets `Element::hidden_by_if` (zero hides) on every bind. `apply_layout_style` ORs it into `display_none` after the cascade (so a rule that says `display: block` cannot show the element) and `paint_element` skips the element, which is the `display: none` path: out of layout, paint, and hit-testing, with its geometry cleared. The layout dirty gate (`layout_state_changed`) compares the flag, so a toggle re-runs layout. A missing name is reported as `UI if binding "name" is not registered on the data context`; a `Bindable` that is not a number as `UI if binding "name" must be a Bindable<bool> (or another number)`.
+`if="{binding}"` sets `Element::hidden_by_if` (zero hides) on every bind. `apply_layout_style` ORs it into `display_none` after the cascade (so a rule that says `display: block` cannot show the element) and `paint_element` skips the element, which is the `display: none` path: out of layout, paint, and hit-testing, with its geometry cleared. The bind pass marks the element (and its parent chain) for layout when the flag changes, so a toggle re-runs layout. A missing name is reported as `UI if binding "name" is not registered on the data context`; a `Bindable` that is not a number as `UI if binding "name" must be a Bindable<bool> (or another number)`.
 
 A `Bindable<T>` reports a change through `on_changed`, so a game does not poll a value the document writes (a drag fraction, a `TextInput` text, a `Checkbox`): see [UI](../modules/UI.md#bindings).
 
@@ -110,7 +110,7 @@ Non-stack children (Canvas, Button, Label) overlay the same content rect. Each c
 
 `z-index` and `transform` do not change layout.
 
-`layout_state_changed` compares text, custom properties, and the generated-owner list. A clean compare can skip `layout()` after the first successful layout. The comparison copies are still written every call.
+What lays out is decided by dirty marks (`sync_layout`): the bind pass, a pseudo-class change, and the other sources of change mark the element and its ancestors, and only that chain restyles and lays out; a quiet frame skips both. See [UI](../modules/UI.md#dirty-flags). A pseudo-class rule that changes a layout property (`.x:hover { padding: 8px }`) lays out on enter and on leave ([UI](../modules/UI.md#hover-and-layout)).
 
 ## Paint
 
@@ -122,7 +122,7 @@ Non-stack children (Canvas, Button, Label) overlay the same content rect. Each c
 - Siblings are stable-sorted by `z-index` ascending (document order on ties) via `child_stacking_order`. Hit-testing walks that order in reverse.
 - A non-identity `rotate` / `scale` is `apply_transform` around the element and its children. `layout_rect` is not rewritten.
 - `IPaint` runs after the element's CSS chrome and before its children, through `IDrawList` in local content pixels.
-- `transition` and `@keyframes` sample numbers, colors, resolved px, and rotate/scale. Keywords snap at eased progress 0.5. Keyframes win over a transition on the same property. The clock is `delta_time` once per `paint_document`. Hit-testing during the animation uses the previous frame's rects.
+- `transition` and `@keyframes` sample numbers, colors, resolved px, and rotate/scale. Keywords snap at eased progress 0.5. Keyframes win over a transition on the same property. The clock is `delta_time` once per `paint_document`. Keyframes are compiled to tracks on first use, so a tick parses nothing. Only a layout property lays out, and only the chain of the element that moved ([UI](../modules/UI.md#style)). Hit-testing during the animation uses the previous frame's rects.
 
 `background-image` and `Image` `source` both call `IUiPainter::image`. `Viewport` paints its chrome, then `apply_view` for children.
 

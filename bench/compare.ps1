@@ -8,7 +8,7 @@
     to grow by more than 0.01 ms, so timer noise on a near-zero row is not flagged. Exits 0 (it is a report) unless an
     input is missing or unreadable. See docs/tech/features/UI Bench.md.
 
-    Windows PowerShell 5.1 compatible.
+    Windows PowerShell 5.1 and PowerShell 7 compatible.
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File bench/compare.ps1 -Base bench/results/baseline -Head bench/results/2026-10-09-e7211f3-dirty
