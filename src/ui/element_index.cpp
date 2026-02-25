@@ -47,29 +47,50 @@ namespace engine::ui {
 
     namespace {
 
+        struct Step {
+            std::uint32_t position;
+            bool generated;
+        };
+
+        // The steps from `id` up to the root (the nearest first), in one buffer that is reused: lookups and marking run
+        // constantly and are never re-entered, so after the first one they cost no allocation.
+        std::vector<Step> &step_scratch() {
+            thread_local std::vector<Step> steps;
+            steps.clear();
+            return steps;
+        }
+
+        // Climbs the parent slots of `id` to the root, recording where each step sits in its parent. False when a
+        // slot on the way is gone.
+        bool climb(const ElementArena &arena, ElementId id, std::vector<Step> &steps, ElementId &top) {
+            const ElementArena::Slot *slot = arena.slot(id);
+            if (slot == nullptr) {
+                return false;
+            }
+            top = id;
+            while (!slot->parent.is_null()) {
+                steps.push_back(Step{slot->position, slot->generated});
+                top = slot->parent;
+                slot = arena.slot(top);
+                if (slot == nullptr) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         template<typename ElementT, typename DocumentT>
         std::expected<ElementT *, ElementLookupError> find_in(DocumentT &document, ElementId id) {
             if (id.is_null()) {
                 return std::unexpected(ElementLookupError::Null);
             }
-            const ElementArena::Slot *slot = document.arena.slot(id);
-            if (slot == nullptr) {
+            if (document.arena.slot(id) == nullptr) {
                 return std::unexpected(ElementLookupError::Stale);
             }
-            // Up to the root, remembering where each step sits in its parent.
-            struct Step {
-                std::uint32_t position;
-                bool generated;
-            };
-            std::vector<Step> steps;
-            ElementId top = id;
-            while (!slot->parent.is_null()) {
-                steps.push_back(Step{slot->position, slot->generated});
-                top = slot->parent;
-                slot = document.arena.slot(top);
-                if (slot == nullptr) {
-                    return std::unexpected(ElementLookupError::Misplaced);
-                }
+            std::vector<Step> &steps = step_scratch();
+            ElementId top;
+            if (!climb(document.arena, id, steps, top)) {
+                return std::unexpected(ElementLookupError::Misplaced);
             }
             ElementT *current = &document.root;
             if (current->handle != top) {
@@ -90,6 +111,34 @@ namespace engine::ui {
         }
 
     } // namespace
+
+    bool ancestor_chain(UiDocument &document, const Element &element, std::vector<Element *> &chain) {
+        chain.clear();
+        if (element.parent.is_null()) {
+            return true;
+        }
+        std::vector<Step> &steps = step_scratch();
+        ElementId top;
+        if (!climb(document.arena, element.parent, steps, top) || document.root.handle != top) {
+            return false;
+        }
+        Element *current = &document.root;
+        chain.push_back(current);
+        for (auto step = steps.rbegin(); step != steps.rend(); ++step) {
+            auto &list = step->generated ? current->generated_items : current->children;
+            if (step->position >= list.size()) {
+                chain.clear();
+                return false;
+            }
+            current = &list[step->position];
+            chain.push_back(current);
+        }
+        if (current->handle != element.parent) {
+            chain.clear();
+            return false;
+        }
+        return true;
+    }
 
     std::expected<Element *, ElementLookupError> UiDocument::find(ElementId id) { return find_in<Element>(*this, id); }
 

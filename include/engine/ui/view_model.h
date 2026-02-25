@@ -8,6 +8,7 @@
 #include <engine/ui/command.h>
 #include <engine/ui/paint.h>
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -36,6 +37,26 @@ public:
     // in place. A number formatted as text is formatted first, then copied only when that text differs.
     // Returns false when `id` is not a string-producing property and leaves `dest` unchanged.
     bool assign_property_string(BindingId id, std::string& dest) const;
+
+    enum class StringBind : std::uint8_t {
+        // `id` is not a string-producing property; `dest` is untouched.
+        Missing,
+        // `dest` already held the property's text.
+        Unchanged,
+        // `dest` was overwritten.
+        Changed,
+    };
+    // `assign_property_string` that says whether it wrote.
+    [[nodiscard]] StringBind bind_property_string(BindingId id, std::string &dest) const;
+
+    // Where the version of a property can be read without a lookup: the bind pass keeps one per slot and compares
+    // `read()` with the version it last saw. Valid while this view-model lives and `id` is not registered again.
+    struct PropertyVersion {
+        const void *bindable = nullptr;
+        std::uint64_t (*version)(const void *) = nullptr;
+        [[nodiscard]] std::uint64_t read() const { return version(bindable); }
+    };
+    [[nodiscard]] std::optional<PropertyVersion> property_version(BindingId id) const;
     [[nodiscard]] std::optional<AssetId> read_property_asset_id(BindingId id) const;
     [[nodiscard]] std::optional<float> read_property_float(BindingId id) const;
     // Writes through to the Bindable<T> registered for `id`, if T is arithmetic (populated by
@@ -65,7 +86,8 @@ private:
     struct PropertyRef {
         void* bindable = nullptr;
         std::string (*to_string)(void*) = nullptr;
-        void (*store_string)(void*, std::string&) = nullptr;
+        bool (*store_string)(void *, std::string &) = nullptr;
+        std::uint64_t (*version)(const void *) = nullptr;
         AssetId (*read_asset_id)(void*) = nullptr;
         float (*read_float)(void*) = nullptr;
         void (*write_float)(void*, float) = nullptr;
@@ -92,25 +114,32 @@ void ViewModel::property(BindingId id, Bindable<T>& bindable) {
             return {};
         }
     };
+    ref.version = [](const void *ptr) { return static_cast<const Bindable<T> *>(ptr)->version(); };
     if constexpr (std::is_same_v<T, std::string>) {
         ref.store_string = [](void* ptr, std::string& dest) {
             const std::string& value = static_cast<Bindable<std::string>*>(ptr)->get();
             if (dest != value) {
                 dest = value;
+                return true;
             }
+            return false;
         };
     } else if constexpr (std::is_arithmetic_v<T>) {
         ref.store_string = [](void* ptr, std::string& dest) {
             std::string formatted = std::to_string(static_cast<Bindable<T>*>(ptr)->get());
             if (dest != formatted) {
                 dest = std::move(formatted);
+                return true;
             }
+            return false;
         };
     } else {
         ref.store_string = [](void*, std::string& dest) {
             if (!dest.empty()) {
                 dest.clear();
+                return true;
             }
+            return false;
         };
     }
     if constexpr (std::is_same_v<T, std::string>) {
@@ -139,6 +168,7 @@ void ViewModel::property(BindingId id, BindableList<std::shared_ptr<T>>& list) {
     static_assert(std::is_base_of_v<ViewModel, T>, "items_source items must be ViewModels");
     PropertyRef ref;
     ref.bindable = &list;
+    ref.version = [](const void *ptr) { return static_cast<const BindableList<std::shared_ptr<T>> *>(ptr)->version(); };
     ref.items = [](void* ptr) -> std::vector<ViewModel*> {
         auto& items = static_cast<BindableList<std::shared_ptr<T>>*>(ptr)->get();
         std::vector<ViewModel*> out;
