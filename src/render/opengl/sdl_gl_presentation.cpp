@@ -22,7 +22,10 @@
 
 #include <SDL3/SDL.h>
 
+#include <cmath>
 #include <cstdint>
+#include <optional>
+#include <string>
 #include <utility>
 
 namespace engine {
@@ -41,19 +44,20 @@ MouseButton mouse_button_from_sdl(Uint8 button) {
     }
 }
 
-// Starts/stops each window's SDL text-input session to match UiFocusState. Without this,
-// SDL_EVENT_TEXT_INPUT never fires and a focused TextInput only blinks its caret.
+// Starts/stops each window's SDL text-input session for a focused enabled TextInput only.
+// Android reads window->text_input_rect inside ShowScreenKeyboard, which runs from Start, and
+// does not implement UpdateTextInputArea — so the rect is set before start on the transition
+// frame, and refreshed every frame the session stays up for desktop IMEs.
 void sync_text_input_activation(WindowManager& windows, ecs::World& world) {
-    const auto& focus_state = world.ctx<ui::UiFocusState>();
     windows.for_each_window([&](WindowId id, WindowSystem& window) {
-        const auto it = focus_state.focused.find(id);
-        const bool wants_text = it != focus_state.focused.end() && it->second.element != nullptr;
-        if (wants_text != window.is_text_input_active()) {
-            if (wants_text) {
+        const std::optional<ui::TextInputScreenArea> area = ui::focused_text_input_area(world, id);
+        if (area) {
+            window.set_text_input_area(area->rect, static_cast<int>(std::lround(area->cursor)));
+            if (!window.is_text_input_active()) {
                 window.start_text_input();
-            } else {
-                window.stop_text_input();
             }
+        } else if (window.is_text_input_active()) {
+            window.stop_text_input();
         }
     });
 }
@@ -69,6 +73,8 @@ public:
         if (video_inited_) {
             return true;
         }
+        // Before SDL_Init. We draw the composition string; the OS keeps the candidate list.
+        SDL_SetHint(SDL_HINT_IME_IMPLEMENTED_UI, "composition");
         if (!SDL_Init(SDL_INIT_VIDEO)) {
             return false;
         }
@@ -299,6 +305,12 @@ private:
                     }
                     apply_android_back(app, text_input_active);
                 }
+                break;
+            }
+            case SDL_EVENT_TEXT_EDITING: {
+                const WindowId window_id = windows_.find_by_sdl_id(event.edit.windowID).value_or(kPrimaryWindow);
+                const std::string text = event.edit.text != nullptr ? event.edit.text : "";
+                input.handle_text_editing(text, event.edit.start, event.edit.length, window_id);
                 break;
             }
             case SDL_EVENT_TEXT_INPUT: {

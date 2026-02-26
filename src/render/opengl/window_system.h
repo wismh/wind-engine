@@ -35,6 +35,9 @@ public:
     void start_text_input();
     void stop_text_input();
     [[nodiscard]] bool is_text_input_active() const;
+    // Window-pixel field rect and caret offset from rect.x (SDL_SetTextInputArea). Rounds to ints.
+    // No-op without a window.
+    void set_text_input_area(render::Rect rect, int cursor);
 
     [[nodiscard]] SDL_Window* window() const noexcept {
         return window_;

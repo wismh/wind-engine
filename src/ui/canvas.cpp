@@ -70,6 +70,98 @@ namespace engine::ui {
         return UiCanvasSpace{rect, glm::vec2{0.0f, 0.0f}, 1.0f, false};
     }
 
+    namespace {
+
+        // Parent content size, matching document.cpp content_size_of so a font-size percentage uses the
+        // same basis layout() passed to resolve_font_size. Scroll and Viewport cameras are not applied
+        // here; layout_boxes folds those into the boxes this caret is placed in.
+        glm::vec2 content_basis(const Element &element, glm::vec2 parent_content) {
+            const float font = resolve_font_size(element.font_size, parent_content.x);
+            const float left = resolve_length(element.padding.left, parent_content.x, font);
+            const float right = resolve_length(element.padding.right, parent_content.x, font);
+            const float top = resolve_length(element.padding.top, parent_content.y, font);
+            const float bottom = resolve_length(element.padding.bottom, parent_content.y, font);
+            return {
+                    std::max(0.0f, element.layout_rect.w - left - right),
+                    std::max(0.0f, element.layout_rect.h - top - bottom),
+            };
+        }
+
+        bool find_parent_content(const Element &element, const Element &target, glm::vec2 parent_content,
+                                 glm::vec2 &out) {
+            if (&element == &target) {
+                out = parent_content;
+                return true;
+            }
+            const glm::vec2 child_basis = content_basis(element, parent_content);
+            for (const Element &child: element.children) {
+                if (find_parent_content(child, target, child_basis, out)) {
+                    return true;
+                }
+            }
+            for (const Element &child: element.generated_items) {
+                if (find_parent_content(child, target, child_basis, out)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+    } // namespace
+
+    TextInputScreenArea map_text_input_area(const LayoutBoxes &boxes, float prefix_width_layout, UiAlign text_align,
+                                            const UiCanvasSpace &space) {
+        TextInputScreenArea area;
+        area.rect = scale_rect(boxes.border, space.offset, space.scale);
+        const float caret_layout_x =
+                text_align_origin_x(boxes.content.x, boxes.content.w, text_align) + prefix_width_layout;
+        const float caret_window_x = space.offset.x + caret_layout_x * space.scale;
+        float cursor = caret_window_x - area.rect.x;
+        const float max_cursor = std::max(0.0f, area.rect.w);
+        if (cursor < 0.0f) {
+            cursor = 0.0f;
+        } else if (cursor > max_cursor) {
+            cursor = max_cursor;
+        }
+        area.cursor = cursor;
+        return area;
+    }
+
+    std::optional<TextInputScreenArea> focused_text_input_area(ecs::World &world, WindowId window) {
+        const auto &focus_map = world.ctx<UiFocusState>().focused;
+        const auto it = focus_map.find(window);
+        if (it == focus_map.end() || it->second.element == nullptr) {
+            return std::nullopt;
+        }
+        const Element *element = it->second.element;
+        if (element->kind != ElementKind::TextInput || element->disabled) {
+            return std::nullopt;
+        }
+        const ecs::Entity canvas_entity = it->second.canvas_entity;
+        const UiCanvas *canvas = world.try_get<UiCanvas>(canvas_entity);
+        UiInstance *instance = world.try_get<UiInstance>(canvas_entity);
+        if (canvas == nullptr || instance == nullptr || canvas->window != window) {
+            return std::nullopt;
+        }
+
+        const LayoutBoxes boxes = layout_boxes(instance->document.root, *element);
+        const std::size_t caret = std::min(element->caret_position, element->text.size());
+        float prefix_width = 0.0f;
+        if (IUiPainter *painter = layout_painter_for(world, window)) {
+            glm::vec2 parent_content{instance->document.root.layout_rect.w, instance->document.root.layout_rect.h};
+            (void) find_parent_content(instance->document.root, *element, parent_content, parent_content);
+            // Layout pixels. Canvas scale is applied by map_text_input_area, not here, and
+            // painted_font_size_px is the previous paint's screen size.
+            const float font_size = resolve_font_size(element->font_size, parent_content.x);
+            prefix_width = painter
+                                   ->measure_text(std::string_view(element->text).substr(0, caret),
+                                                  element->font_family, font_size)
+                                   .x;
+        }
+        const UiCanvasSpace space = canvas_layout_space(canvas->rect, canvas->fit, canvas->reference_size);
+        return map_text_input_area(boxes, prefix_width, element->text_align, space);
+    }
+
     void apply_canvas_fit(ecs::World &world) {
         auto view = world.view<UiCanvas>();
         for (ecs::Entity entity: view) {
@@ -104,30 +196,6 @@ namespace engine::ui {
     }
 
     namespace {
-
-        bool is_utf8_continuation(char c) { return (static_cast<unsigned char>(c) & 0xC0) == 0x80; }
-
-        std::size_t prev_utf8_char(std::string_view s, std::size_t pos) {
-            if (pos == 0) {
-                return 0;
-            }
-            --pos;
-            while (pos > 0 && is_utf8_continuation(s[pos])) {
-                --pos;
-            }
-            return pos;
-        }
-
-        std::size_t next_utf8_char(std::string_view s, std::size_t pos) {
-            if (pos >= s.size()) {
-                return s.size();
-            }
-            ++pos;
-            while (pos < s.size() && is_utf8_continuation(s[pos])) {
-                ++pos;
-            }
-            return pos;
-        }
 
         // Which UTF-8 char boundary in element.text a click at real-screen-pixel `click_x` is closest to
         // — snaps to whichever side of a glyph the click is nearer, same convention every text editor
@@ -1059,6 +1127,13 @@ namespace engine::ui {
 
     namespace {
 
+        // Drops the IME preedit. Does not write the text binding: the preedit was never committed.
+        void clear_composition(Element &element) {
+            element.composition.clear();
+            element.composition_start = -1;
+            element.composition_length = -1;
+        }
+
         // Shared by handle_text_input/handle_key's Backspace/Delete/Ctrl+X/Ctrl+V paths — every one of
         // them ends with "if bound, push element->text back to the ViewModel."
         void write_text_binding(ecs::World &world, ecs::Entity canvas_entity, Element *element) {
@@ -1077,6 +1152,29 @@ namespace engine::ui {
             }
         }
 
+        // ViewModel a focused element's bindings resolve against: the item VM inside an ItemsControl,
+        // otherwise the canvas data context.
+        ViewModel *binding_target(ecs::World &world, ecs::Entity canvas_entity, const Element *element) {
+            UiCanvas *canvas = world.try_get<UiCanvas>(canvas_entity);
+            if (canvas == nullptr || !canvas->data_context) {
+                return nullptr;
+            }
+            if (element->generated_owner != nullptr) {
+                return static_cast<ViewModel *>(const_cast<void *>(element->generated_owner));
+            }
+            return canvas->data_context.get();
+        }
+
+        void execute_bound_command(ViewModel *target, Element *element) {
+            ICommand *command = element->command;
+            if (command == nullptr && is_bound(element->command_binding) && target != nullptr) {
+                command = target->find_command(element->command_binding);
+            }
+            if (command != nullptr && command->can_execute()) {
+                command->execute();
+            }
+        }
+
     } // namespace
 
     void clear_focus(ecs::World &world, WindowId window) {
@@ -1087,6 +1185,7 @@ namespace engine::ui {
                 it->second.element->focused = false;
                 it->second.element->caret_blink_timer = 0.0f;
                 it->second.element->selection_anchor.reset();
+                clear_composition(*it->second.element);
             }
             focus_map.erase(it);
         }
@@ -1100,6 +1199,7 @@ namespace engine::ui {
                 it->second.element->focused = false;
                 it->second.element->caret_blink_timer = 0.0f;
                 it->second.element->selection_anchor.reset();
+                clear_composition(*it->second.element);
             }
         }
         if (element != nullptr) {
@@ -1138,25 +1238,64 @@ namespace engine::ui {
             return;
         }
 
-        if (element->caret_position > element->text.size()) {
-            element->caret_position = element->text.size();
-        }
-        if (element->selection_anchor && *element->selection_anchor != element->caret_position) {
-            const std::size_t start = std::min(*element->selection_anchor, element->caret_position);
-            const std::size_t end = std::max(*element->selection_anchor, element->caret_position);
-            element->text.erase(start, end - start);
-            element->caret_position = start;
-        }
-        // Typing always ends selection tracking — including a stale anchor left equal to
-        // caret_position by a click/Ctrl+A that was never followed by an actual drag/Shift-extend;
-        // left set, it would wrongly reappear as a "selection" the moment caret_position next moves
-        // away from it by some other means.
-        element->selection_anchor.reset();
-        element->text.insert(element->caret_position, text);
-        element->caret_position += text.size();
-        element->caret_blink_timer = 0.0f;
+        // A commit is only this event's payload. Drop the preedit first so it cannot stay on screen
+        // or be inserted a second time.
+        clear_composition(*element);
 
-        write_text_binding(world, it->second.canvas_entity, element);
+        const ecs::Entity canvas_entity = it->second.canvas_entity;
+        // Single-line. A soft-keyboard action arrives as '\n' in the text event; anything after it
+        // is discarded. Insert nothing when the prefix is empty.
+        const std::size_t newline = text.find('\n');
+        const bool submit = newline != std::string_view::npos;
+        const std::string_view inserted = submit ? text.substr(0, newline) : text;
+
+        if (!inserted.empty()) {
+            if (element->caret_position > element->text.size()) {
+                element->caret_position = element->text.size();
+            }
+            if (element->selection_anchor && *element->selection_anchor != element->caret_position) {
+                const std::size_t start = std::min(*element->selection_anchor, element->caret_position);
+                const std::size_t end = std::max(*element->selection_anchor, element->caret_position);
+                element->text.erase(start, end - start);
+                element->caret_position = start;
+            }
+            // Typing always ends selection tracking — including a stale anchor left equal to
+            // caret_position by a click/Ctrl+A that was never followed by an actual drag/Shift-extend;
+            // left set, it would wrongly reappear as a "selection" the moment caret_position next moves
+            // away from it by some other means.
+            element->selection_anchor.reset();
+            element->text.insert(element->caret_position, inserted);
+            element->caret_position += inserted.size();
+            element->caret_blink_timer = 0.0f;
+
+            write_text_binding(world, canvas_entity, element);
+        }
+
+        if (submit) {
+            // A device that sends both KeyCode::Return and this '\n' can submit twice. No latch between them.
+            execute_bound_command(binding_target(world, canvas_entity, element), element);
+            clear_focus(world, window);
+        }
+    }
+
+    void handle_text_editing(ecs::World &world, std::string_view text, int start, int length, WindowId window) {
+        auto &focus_map = world.ctx<UiFocusState>().focused;
+        const auto it = focus_map.find(window);
+        if (it == focus_map.end() || it->second.element == nullptr) {
+            return;
+        }
+        Element *element = it->second.element;
+        if (element->disabled || element->kind != ElementKind::TextInput) {
+            return;
+        }
+        if (text.empty()) {
+            clear_composition(*element);
+        } else {
+            element->composition = std::string(text);
+            element->composition_start = start;
+            element->composition_length = length;
+        }
+        element->caret_blink_timer = 0.0f;
     }
 
     void handle_key(ecs::World &world, KeyCode key, bool down, bool /*repeat*/, WindowId window) {
@@ -1184,6 +1323,16 @@ namespace engine::ui {
             return;
         }
 
+        // While an IME preedit is showing, the IME owns editing. Escape still drops focus (and the
+        // preedit). Return drops the preedit, then runs the command on the already-committed text.
+        if (element->kind == ElementKind::TextInput && !element->composition.empty()) {
+            if (key == KeyCode::Return) {
+                clear_composition(*element);
+            } else if (key != KeyCode::Escape) {
+                return;
+            }
+        }
+
         if (element->caret_position > element->text.size()) {
             element->caret_position = element->text.size();
         }
@@ -1194,26 +1343,14 @@ namespace engine::ui {
         }
 
         if (key == KeyCode::Return) {
-            UiCanvas *canvas = world.try_get<UiCanvas>(it->second.canvas_entity);
-            ViewModel *target = nullptr;
-            if (canvas != nullptr && canvas->data_context) {
-                target = element->generated_owner != nullptr
-                                 ? static_cast<ViewModel *>(const_cast<void *>(element->generated_owner))
-                                 : canvas->data_context.get();
-            }
+            ViewModel *target = binding_target(world, it->second.canvas_entity, element);
             if (element->kind == ElementKind::Checkbox) {
                 element->checked = !element->checked;
                 if (is_bound(element->checked_binding) && target != nullptr) {
                     target->write_property_float(element->checked_binding, element->checked ? 1.0f : 0.0f);
                 }
             }
-            ICommand *command = element->command;
-            if (command == nullptr && is_bound(element->command_binding) && target != nullptr) {
-                command = target->find_command(element->command_binding);
-            }
-            if (command != nullptr && command->can_execute()) {
-                command->execute();
-            }
+            execute_bound_command(target, element);
             return;
         }
 
