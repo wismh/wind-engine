@@ -11,6 +11,7 @@
 #include "profiler_paint_counter.h"
 #include "style_anim.h"
 #include "text_select.h"
+#include "ui/text_cache.h"
 
 #include <engine/builtin_ids.h>
 #include <engine/ui/canvas.h>
@@ -1534,6 +1535,87 @@ namespace engine::ui {
         // stroke is centred on the edge; a line; a formula; a text input; a custom `IPaint`; a scrolling or Viewport
         // element; text wider or taller than its content box; a child that leaves the box or has its own transform).
         // Text is judged by the measure caches layout filled; with none that matches, the answer is no.
+        render::Rect union_rect(const render::Rect &a, const render::Rect &b) {
+            const float x0 = std::min(a.x, b.x);
+            const float y0 = std::min(a.y, b.y);
+            const float x1 = std::max(a.x + a.w, b.x + b.w);
+            const float y1 = std::max(a.y + a.h, b.y + b.h);
+            return render::Rect{x0, y0, x1 - x0, y1 - y0};
+        }
+
+        bool rects_overlap(const render::Rect &a, const render::Rect &b) {
+            return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+        }
+
+        // True when `element` or anything under it can paint inside `visible` (a rect of layout space), or when that
+        // cannot be known cheaply and safely: a transform, a custom `IPaint`, a formula, a line, a text input, a popup,
+        // a nested camera, text whose size was not measured, or a style that was never resolved. An element that
+        // clips its children (`overflow`) reaches no further than its own box. The walk stops at the first element
+        // that reaches `visible`.
+        bool may_reach(const Element &element, const render::Rect &visible) {
+            if (element.kind == ElementKind::ItemTemplate || element.display_none || element.hidden_by_if) {
+                return false;
+            }
+            switch (element.kind) {
+                case ElementKind::Line:
+                case ElementKind::Math:
+                case ElementKind::TextInput:
+                case ElementKind::Viewport:
+                case ElementKind::Popup:
+                    return true;
+                default:
+                    break;
+            }
+            if (element.paint != nullptr || element.rotation_deg != 0.0f || element.scale != 1.0f ||
+                !element.style_cache_paint_.valid) {
+                return true;
+            }
+            const ComputedStyle &style = element.style_cache_paint_.style;
+            if (style.rotation_deg != 0.0f || style.scale != 1.0f) {
+                return true;
+            }
+            render::Rect box = element.layout_rect;
+            if (style.border_width.value != 0.0f) {
+                if (style.border_width.unit != LengthUnit::Px) {
+                    return true;
+                }
+                const float half = style.border_width.value * 0.5f;
+                box = render::Rect{box.x - half, box.y - half, box.w + 2.0f * half, box.h + 2.0f * half};
+            }
+            if ((element.kind == ElementKind::Label || element.kind == ElementKind::Button) && !element.text.empty()) {
+                if (!element.text_measure_cache_valid || text_has_inline_markup(element.text)) {
+                    return true;
+                }
+                // Unwrapped text can run past the box; wrapped text stays inside its width and below its height.
+                const render::Rect text{element.layout_rect.x, element.layout_rect.y,
+                                        std::max(element.layout_rect.w, element.text_measure_cache_result.x),
+                                        std::max(element.layout_rect.h, element.text_measure_cache_result.y)};
+                box = union_rect(box, text);
+            }
+            if (rects_overlap(box, visible)) {
+                return true;
+            }
+            if (clips_children(element)) {
+                return false;
+            }
+            for (const Element &child: element.children) {
+                if (may_reach(child, visible)) {
+                    return true;
+                }
+            }
+            for (const Element &child: element.generated_items) {
+                if (may_reach(child, visible)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // A camera skips a child (with its subtree) that lies wholly outside the visible part of the world.
+        bool outside_view(const Element &child, const render::Rect &visible) {
+            return child.kind != ElementKind::Popup && !child.display_none && !may_reach(child, visible);
+        }
+
         bool paint_stays_in_box(Element &element, const ComputedStyle &style, IUiPainter &painter, float font_size,
                                 const BoxInsets &padding, float border_width, const std::vector<Element> &child_list) {
             switch (element.kind) {
@@ -1604,7 +1686,7 @@ namespace engine::ui {
         // `state_opacity` is the global alpha the painter holds on entry: the nearest entered ancestor's opacity.
         void paint_element(Element &element, const Stylesheet *sheet, IUiPainter &painter,
                            std::vector<const Element *> &ancestors, glm::vec2 parent_content, const UiPaintInput &input,
-                           float state_opacity) {
+                           float state_opacity, const render::Rect *cull = nullptr) {
             if (element.kind == ElementKind::ItemTemplate) {
                 return;
             }
@@ -1925,8 +2007,29 @@ namespace engine::ui {
             // Out of flow, an absolute child of an element that does not clip shows outside its box, as it takes the
             // pointer there (clips_children): it is drawn under the scissor of the ancestors only.
             const bool absolute_escapes = !clips_children(element) && !viewport_camera && !has_scroll;
+            // A camera paints what its box shows: a child (with its subtree) wholly outside the visible part of the
+            // world is skipped, at any depth below the camera until a scroll, a transform or another camera changes
+            // the space. L maps to origin + zoom * (L - origin + pan), so the box shows
+            // [origin - pan, origin - pan + size / zoom] in layout space.
+            render::Rect visible_world{};
+            const render::Rect *child_cull = (has_scroll || has_transform) ? nullptr : cull;
+            if (viewport_camera) {
+                const float zoom = viewport_zoom(element.zoom);
+                // A margin covers what the cached style of a child that was not painted for a while no longer says.
+                constexpr float kCullMargin = 16.0f;
+                visible_world = render::Rect{element.layout_rect.x - element.pan_x - kCullMargin,
+                                             element.layout_rect.y - element.pan_y - kCullMargin,
+                                             element.layout_rect.w / zoom + 2.0f * kCullMargin,
+                                             element.layout_rect.h / zoom + 2.0f * kCullMargin};
+                child_cull = &visible_world;
+            }
+            element.culled_children = 0;
             for (Element *child: child_stacking_order(child_list)) {
                 if (child->kind == ElementKind::Popup) {
+                    continue;
+                }
+                if (child_cull != nullptr && outside_view(*child, *child_cull)) {
+                    ++element.culled_children;
                     continue;
                 }
                 if (absolute_escapes && child->position == PositionMode::Absolute) {
@@ -1935,13 +2038,15 @@ namespace engine::ui {
                         painter.restore();
                         enter(false);
                     }
-                    paint_element(*child, sheet, painter, ancestors, child_content, input, child_state_opacity);
+                    paint_element(*child, sheet, painter, ancestors, child_content, input, child_state_opacity,
+                                  child_cull);
                     if (entered) {
                         painter.restore();
                         enter(needs_clip);
                     }
                 } else {
-                    paint_element(*child, sheet, painter, ancestors, child_content, input, child_state_opacity);
+                    paint_element(*child, sheet, painter, ancestors, child_content, input, child_state_opacity,
+                                  child_cull);
                 }
             }
             if (viewport_camera || has_scroll) {
@@ -2250,6 +2355,7 @@ namespace engine::ui {
 
     bool sync_layout(UiDocument &document, const Stylesheet *sheet, IUiPainter *painter,
                      const render::Rect &canvas_rect, float media_width, float media_height) {
+        const TextCacheScope text_cache(document, painter);
         const std::uint64_t sheet_generation = sheet != nullptr ? sheet->generation : 0;
         const bool everything = !document.layout_computed_once || document.last_canvas_layout_rect != canvas_rect ||
                                 document.last_media_width != media_width ||
@@ -2329,6 +2435,7 @@ namespace engine::ui {
 
     void paint_document(UiDocument &document, const Stylesheet *stylesheet, IUiPainter &painter,
                         const UiPaintInput &input) {
+        const TextCacheScope text_cache(document, &painter);
         if (input.popup_layer) {
             paint_popup_layer(document, stylesheet, painter, input);
             return;
