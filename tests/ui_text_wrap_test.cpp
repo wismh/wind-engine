@@ -430,7 +430,9 @@ TEST(UiTextWrapLayout, WrappedRowsAreMemoizedPerWidth) {
     EXPECT_EQ(painter.break_calls, 2);
 }
 
-TEST(UiTextWrapLayout, LineHeightChangeRebreaks) {
+// A taller line height changes the rows' height, not where they break, so the shared text cache answers and the painter
+// does not break the text again.
+TEST(UiTextWrapLayout, LineHeightChangeKeepsTheBreaksAndTakesTheNewStride) {
     CountingPainter painter;
     auto parsed = engine::ui::parse_xml(kWrapXml);
     ASSERT_TRUE(parsed.has_value());
@@ -446,12 +448,11 @@ TEST(UiTextWrapLayout, LineHeightChangeRebreaks) {
     ASSERT_TRUE(taller.has_value());
     engine::ui::apply_layout_style(parsed->root, &*taller, 400.0f, 400.0f);
     engine::ui::layout(*parsed, canvas, &painter);
-    EXPECT_EQ(painter.break_calls, 2);
+    EXPECT_EQ(painter.break_calls, 1);
     const engine::ui::Element* label = find_class(parsed->root, "t");
     ASSERT_NE(label, nullptr);
     EXPECT_FLOAT_EQ(label->layout_rect.h, 30.0f);
     engine::ui::layout(*parsed, canvas, &painter);
-    EXPECT_EQ(painter.break_calls, 2);
+    EXPECT_EQ(painter.break_calls, 1);
 }
-
 }
