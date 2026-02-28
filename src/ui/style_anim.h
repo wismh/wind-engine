@@ -4,6 +4,7 @@
 
 #include <glm/vec2.hpp>
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -20,6 +21,16 @@ void apply_motion_declaration(ComputedStyle& style, std::string_view property, s
 
 // Defined in paint.cpp so keyframe stops reuse the cascade declaration parser.
 void apply_style_declaration(ComputedStyle& style, const CssDeclaration& decl);
+
+// The value of `prop` at progress `t` (0..1, easing already applied) in `keyframes`, from the compiled tracks: nothing
+// is parsed per call. Empty when no stop sets `prop`.
+[[nodiscard]] std::optional<MotionValue> sample_keyframes(const Keyframes &keyframes, MotionProp prop, float t,
+                                                          glm::vec2 basis);
+
+// The same value, with the declarations of every stop parsed on each call (what sampling did before tracks). Kept as
+// the oracle the tests compare `sample_keyframes` with; the engine does not call it.
+[[nodiscard]] std::optional<MotionValue> sample_keyframes_from_declarations(const Keyframes &keyframes, MotionProp prop,
+                                                                            float t, glm::vec2 basis);
 
 // Step clocks on `element` against the pre-motion `target`. Fills `motion_shown` with running
 // transitions and @keyframes samples (a transition already at its goal is omitted), plus
