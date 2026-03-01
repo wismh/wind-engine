@@ -1,11 +1,39 @@
 #include "opengl_shader.h"
 
+#include <engine/log.h>
+
 #include <glm/gtc/type_ptr.hpp>
 
+#include <cstddef>
+#include <format>
 #include <string>
 
 namespace engine::render {
 namespace {
+
+// The driver's log for a shader or a program, without its trailing newline. "no log" when the driver wrote none.
+template <class GetLength, class GetLog>
+std::string info_log(unsigned int object, GetLength get_length, GetLog get_log) {
+    int length = 0;
+    get_length(object, GL_INFO_LOG_LENGTH, &length);
+    if (length <= 1) {
+        return "no log";
+    }
+    std::string text(static_cast<std::size_t>(length), char{});
+    int written = 0;
+    get_log(object, length, &written, text.data());
+    text.resize(static_cast<std::size_t>(written));
+    text.erase(text.find_last_not_of("\r\n") + 1);
+    return text;
+}
+
+std::string shader_info_log(unsigned int shader) {
+    return info_log(shader, glGetShaderiv, glGetShaderInfoLog);
+}
+
+std::string program_info_log(unsigned int program) {
+    return info_log(program, glGetProgramiv, glGetProgramInfoLog);
+}
 
 unsigned int compile_shader(unsigned int type, std::string_view src) {
     const unsigned int shader = glCreateShader(type);
@@ -17,6 +45,8 @@ unsigned int compile_shader(unsigned int type, std::string_view src) {
     int success = 0;
     glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
     if (success == 0) {
+        log::error(std::format("{} shader failed to compile: {}", type == GL_VERTEX_SHADER ? "vertex" : "fragment",
+                shader_info_log(shader)));
         glDeleteShader(shader);
         return 0;
     }
@@ -51,6 +81,7 @@ OpenGLShader::OpenGLShader(std::string_view vertex_src, std::string_view fragmen
     int success = 0;
     glGetProgramiv(program_, GL_LINK_STATUS, &success);
     if (success == 0) {
+        log::error(std::format("shader program failed to link: {}", program_info_log(program_)));
         glDeleteProgram(program_);
         program_ = 0;
     }
