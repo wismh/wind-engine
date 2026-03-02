@@ -31,7 +31,8 @@ Host, time, input polling, logging, fatal errors, and (when windowed) `Engine<Ga
 - [[src.core.log.cpp]] — spdlog, optional `<exe>/game.log`.
 - [[src.core.platform.cpp]] — `Platform` (Native / Web / Android), assets root, graphics/loop profile, APK staging helper, `user_data_directory` (SDL pref path only when `ENGINE_WITH_WINDOW`).
 - [[src.core.frame_step.cpp]] — shared `flush_game_events` / `simulate_game_frame` used by `Host` and `GameLoop`.
-- [[src.core.game_loop.cpp]] — frame clock and present order. Calls `IPresentation`; no SDL.
+- [[src.core.game_loop.cpp]] — frame clock and present order. Calls `IPresentation`; no SDL. With `ENGINE_CLI_SERVER`, `begin` starts the loopback server and `end` stops it. Armed clicks run at the start of the frame; `drain` answers after `draw_all`. See [[features/CLI]].
+- [[src.cli.cli_server.cpp]] — loopback `POST /exec`. The translation unit is empty without `ENGINE_CLI_SERVER`. See [[features/CLI]].
 - [[src.core.web_loop.cpp]] — `MainLoopPolicy` (blocking vs requestAnimationFrame).
 - [[src.core.app_lifecycle.cpp]] — pause / resume / terminate / Android back → `ApplicationState`. Back quits only when text input is not active; an active session is the caller's dismiss (`clear_focus` in the SDL poll) and does not quit.
 
