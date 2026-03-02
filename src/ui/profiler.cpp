@@ -16,6 +16,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -86,6 +87,10 @@ namespace engine::ui {
         struct ProfilerState {
             bool enabled = false;
             bool pause = false;
+            // Set by wind-cli `profile`. The clock runs when the window is open or this is set.
+            bool capture = false;
+            // A frame was pushed after capture turned on. Stays false across an empty commit.
+            bool capture_saw_commit = false;
             std::optional<WindowId> panel_window;
             ecs::Entity selected{};
             std::map<ecs::Entity, OpenSlot> open;
@@ -97,7 +102,13 @@ namespace engine::ui {
 
         ecs::World *g_world = nullptr;
 
-        [[nodiscard]] bool recording() { return g_world != nullptr && g_world->ctx<ProfilerState>().enabled; }
+        [[nodiscard]] bool recording() {
+            if (g_world == nullptr) {
+                return false;
+            }
+            const ProfilerState &state = g_world->ctx<ProfilerState>();
+            return state.enabled || state.capture;
+        }
 
         [[nodiscard]] bool canvas_is_tool(const ecs::Entity &canvas) {
             if (g_world == nullptr || (canvas.index == 0 && canvas.generation == 0)) {
@@ -587,6 +598,134 @@ namespace engine::ui {
             return true;
         }
 
+        std::string json_escape(std::string_view text) {
+            std::string out;
+            out.reserve(text.size());
+            for (const unsigned char c: text) {
+                switch (c) {
+                    case '"':
+                        out += "\\\"";
+                        break;
+                    case '\\':
+                        out += "\\\\";
+                        break;
+                    case '\n':
+                        out += "\\n";
+                        break;
+                    case '\r':
+                        out += "\\r";
+                        break;
+                    case '\t':
+                        out += "\\t";
+                        break;
+                    default:
+                        if (c < 0x20) {
+                            out += std::format("\\u{:04x}", static_cast<unsigned>(c));
+                        } else {
+                            out += static_cast<char>(c);
+                        }
+                        break;
+                }
+            }
+            return out;
+        }
+
+        std::string stage_json(std::string_view name, const StageNumbers &numbers) {
+            const auto ms = [](double ns) { return ns / 1000000.0; };
+            return std::format("\"{}\":{{\"last_ms\":{:.4f},\"avg_ms\":{:.4f},\"max_ms\":{:.4f}}}", name,
+                               ms(static_cast<double>(numbers.last)), ms(numbers.average),
+                               ms(static_cast<double>(numbers.max)));
+        }
+
+        [[nodiscard]] bool any_ring(const ProfilerState &state) {
+            for (const auto &[entity, ring]: state.rings) {
+                (void) entity;
+                if (ring.size > 0) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        std::string snapshot_json(ecs::World &world, const ProfilerState &state) {
+            std::vector<CanvasSource> sources;
+            {
+                auto view = world.view<UiCanvas>();
+                for (ecs::Entity entity: view) {
+                    if (world.try_get<ProfilerPanel>(entity) != nullptr ||
+                        world.try_get<InspectorPanel>(entity) != nullptr) {
+                        continue;
+                    }
+                    const UiCanvas &source = view.get<UiCanvas>(entity);
+                    if (world.try_get<UiInstance>(entity) == nullptr) {
+                        continue;
+                    }
+                    sources.push_back(CanvasSource{entity, source.window, source.order, entity.index});
+                }
+            }
+            std::stable_sort(sources.begin(), sources.end(), [](const CanvasSource &a, const CanvasSource &b) {
+                if (a.window != b.window) {
+                    return static_cast<std::uint32_t>(a.window) < static_cast<std::uint32_t>(b.window);
+                }
+                if (a.order != b.order) {
+                    return a.order < b.order;
+                }
+                return a.index < b.index;
+            });
+
+            std::string out = state.pause ? "{\"paused\":true" : "{\"paused\":false";
+            out += state.capture ? ",\"capturing\":true" : ",\"capturing\":false";
+            out += ",\"canvases\":[";
+            bool first = true;
+            for (const CanvasSource &source: sources) {
+                const UiInstance *instance = world.try_get<UiInstance>(source.entity);
+                if (instance == nullptr) {
+                    continue;
+                }
+                if (!first) {
+                    out += ',';
+                }
+                first = false;
+                const auto ring = state.rings.find(source.entity);
+                const bool has = ring != state.rings.end() && ring->second.size > 0;
+                const CanvasFrame *last = has ? ring->second.last() : nullptr;
+                const bool layout_skipped = last != nullptr && last->saw_paint && !last->layout_ran;
+                const auto stage = [&](std::string_view name, auto read) {
+                    if (!has) {
+                        return stage_json(name, StageNumbers{});
+                    }
+                    return stage_json(name, stage_numbers(ring->second, read));
+                };
+                out += std::format("{{\"window\":{},\"id\":\"{}\",\"frames\":{},\"elements\":{},\"generated\":{},"
+                                   "\"layout_skipped\":{},\"stages\":{{",
+                                   static_cast<std::uint32_t>(source.window), json_escape(instance->document.root.id),
+                                   has ? ring->second.size : 0, last != nullptr ? last->elements : 0,
+                                   last != nullptr ? last->generated : 0, layout_skipped ? "true" : "false");
+                out += stage("bindings", [](const CanvasFrame &frame) { return frame.bindings_ns; });
+                out += ',';
+                out += stage("stylesheets", [](const CanvasFrame &frame) { return frame.stylesheets_ns; });
+                out += ',';
+                out += stage("input", [](const CanvasFrame &frame) { return frame.input_ns; });
+                out += ',';
+                out += stage("layout", [](const CanvasFrame &frame) { return frame.layout_ns; });
+                out += ',';
+                out += stage("motion", [](const CanvasFrame &frame) { return frame.motion_ns; });
+                out += ',';
+                out += stage("paint", [](const CanvasFrame &frame) { return frame.paint_ns; });
+                out += "}}";
+            }
+            out += "],\"shared\":{";
+            out += std::format("\"frames\":{}", state.shared.size);
+            out += ',';
+            out += stage_json("begin_frame",
+                              stage_numbers(state.shared, [](const SharedFrame &frame) { return frame.begin_ns; }));
+            out += ',';
+            out += stage_json("commands",
+                              stage_numbers(state.shared, [](const SharedFrame &frame) { return frame.commands_ns; }));
+            out += "}}";
+            return out;
+        }
+
     } // namespace
 
     UiProfileScope::UiProfileScope(const ecs::Entity &canvas, ProfileStage stage) : canvas_(&canvas), stage_(stage) {
@@ -630,18 +769,23 @@ namespace engine::ui {
         // One main-thread world. A disabled world clears the pointer so a destroyed world's
         // address cannot stay armed into the next test.
         ProfilerState &state = world.ctx<ProfilerState>();
-        g_world = state.enabled ? &world : nullptr;
+        if (state.enabled || state.capture) {
+            g_world = &world;
+        } else if (g_world == &world) {
+            g_world = nullptr;
+        }
     }
 
     void profiler_commit_frame(ecs::World &world) {
         ProfilerState &state = world.ctx<ProfilerState>();
-        if (!state.enabled) {
+        if (!state.enabled && !state.capture) {
             return;
         }
         if (state.pause) {
             reset_open(state);
             return;
         }
+        bool pushed = false;
         std::vector<ecs::Entity> dead;
         for (auto &[entity, slot]: state.open) {
             if (!slot.touched) {
@@ -654,6 +798,7 @@ namespace engine::ui {
             state.rings[entity].push(slot.frame);
             slot.frame = {};
             slot.touched = false;
+            pushed = true;
         }
         for (const ecs::Entity entity: dead) {
             state.open.erase(entity);
@@ -663,6 +808,10 @@ namespace engine::ui {
             state.shared.push(state.open_shared);
             state.open_shared = {};
             state.shared_touched = false;
+            pushed = true;
+        }
+        if (pushed && state.capture) {
+            state.capture_saw_commit = true;
         }
     }
 
@@ -715,18 +864,22 @@ namespace engine::ui {
         ProfilerState &state = world.ctx<ProfilerState>();
         if (!enabled) {
             state.enabled = false;
-            if (g_world == &world) {
-                g_world = nullptr;
-            }
             destroy_panels(world);
             release_profiler_window(world);
             state.selected = {};
             state.pause = false;
-            state.open.clear();
-            state.rings.clear();
-            state.shared = {};
-            state.open_shared = {};
-            state.shared_touched = false;
+            // CLI capture keeps the rings and the clock. Closing the window does not stop it.
+            if (!state.capture) {
+                if (g_world == &world) {
+                    g_world = nullptr;
+                }
+                state.open.clear();
+                state.rings.clear();
+                state.shared = {};
+                state.open_shared = {};
+                state.shared_touched = false;
+                state.capture_saw_commit = false;
+            }
             return;
         }
         state.enabled = true;
@@ -763,6 +916,45 @@ namespace engine::ui {
             return;
         }
         fill_panel(world, *panel);
+    }
+
+    void profiler_cli_set_capture(ecs::World &world, bool on) {
+        ProfilerState &state = world.ctx<ProfilerState>();
+        if (!on) {
+            state.capture = false;
+            if (!state.enabled) {
+                if (g_world == &world) {
+                    g_world = nullptr;
+                }
+                state.open.clear();
+                state.rings.clear();
+                state.shared = {};
+                state.open_shared = {};
+                state.shared_touched = false;
+                state.capture_saw_commit = false;
+            }
+            return;
+        }
+        if (!state.capture) {
+            state.capture = true;
+            state.capture_saw_commit = false;
+        }
+        g_world = &world;
+    }
+
+    bool profiler_cli_ready(ecs::World &world) {
+        const ProfilerState &state = world.ctx<ProfilerState>();
+        if (state.pause) {
+            return true;
+        }
+        if (state.capture_saw_commit) {
+            return true;
+        }
+        return state.enabled && (state.shared.size > 0 || any_ring(state));
+    }
+
+    std::string profiler_cli_json(ecs::World &world) {
+        return snapshot_json(world, world.ctx<ProfilerState>());
     }
 
 } // namespace engine::ui

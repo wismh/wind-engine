@@ -1,5 +1,6 @@
 #include "core/game_loop.h"
 
+#include "cli/cli_server.h"
 #include "core/frame_step.h"
 
 #include <engine/core/application_state.h>
@@ -51,6 +52,7 @@ void GameLoop::begin() {
     game_->on_start();
     ui::apply_canvas_fit(world);
     world.ctx<ApplicationState>().running = true;
+    cli::start();
 }
 
 void GameLoop::tick() {
@@ -59,11 +61,13 @@ void GameLoop::tick() {
     }
     const float real_dt = consume_dt();
     ecs::World& world = game_->world();
+    cli::begin_frame(world);
     flush_game_events(*game_);
     presentation_->poll(world, *input_, world.ctx<ApplicationState>());
     simulate_game_frame(*game_, audio_, *clock_, real_dt);
     presentation_->sync_frame(world);
     presentation_->draw_all();
+    cli::drain(world);
 }
 
 void GameLoop::reentrant_tick() {
@@ -75,12 +79,16 @@ void GameLoop::reentrant_tick() {
         return;
     }
     const float real_dt = consume_dt();
+    ecs::World& world = game_->world();
+    cli::begin_frame(world);
     simulate_game_frame(*game_, audio_, *clock_, real_dt);
-    presentation_->sync_frame(game_->world());
+    presentation_->sync_frame(world);
     presentation_->draw_all();
+    cli::drain(world);
 }
 
 void GameLoop::end() {
+    cli::stop();
     IGame* const game = game_;
     if (game != nullptr && presentation_ != nullptr) {
         presentation_->detach_loop(game->world());

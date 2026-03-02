@@ -23,8 +23,8 @@ namespace engine::ui {
 #if defined(ENGINE_UI_PROFILER)
     // Times from construction to destruction. `canvas` is read in the destructor, so a caller can
     // fill it in during the scope (prepare_top_canvas does, once it knows which canvas it hit).
-    // A tool canvas, an empty entity, or a closed profiler records nothing and does not read the clock
-    // when the profiler is closed.
+    // A tool canvas, an empty entity, or a profiler that is neither open nor CLI-capturing records
+    // nothing and does not read the clock.
     class UiProfileScope {
     public:
         UiProfileScope(const ecs::Entity &canvas, ProfileStage stage);
@@ -82,6 +82,13 @@ namespace engine::ui {
     [[nodiscard]] ProfileSample profiler_canvas_sample(ecs::World &world, ecs::Entity canvas);
     [[nodiscard]] ProfileSample profiler_shared_sample(ecs::World &world);
     [[nodiscard]] ecs::Entity profiler_selected(ecs::World &world);
+
+    // CLI capture records the same rings as the open window, without opening it. `ready` is true
+    // once a frame committed while capture was on, the window already has samples, or Pause is on.
+    void profiler_cli_set_capture(ecs::World &world, bool on);
+    [[nodiscard]] bool profiler_cli_ready(ecs::World &world);
+    // Result object (not the ok/error envelope): paused, capturing, canvases, shared stages.
+    [[nodiscard]] std::string profiler_cli_json(ecs::World &world);
 #else
 #define ENGINE_UI_PROFILE(canvas, stage) ((void) 0)
 #define ENGINE_UI_PROFILE_SHARED(stage) ((void) 0)
