@@ -63,8 +63,9 @@ Label.res-value {
   color: #ebcb8b;
 }
 
-/* Always on: the pulse never ends. */
+/* Always on: the pulse never ends. It animates opacity only, so as a repaint boundary it costs the frame, not the screen. */
 Label.alert {
+  repaint-boundary: yes;
   padding: 4 12;
   border-radius: 4;
   color: #ffffff;
