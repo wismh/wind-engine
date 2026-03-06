@@ -57,6 +57,23 @@ namespace engine::ui {
         // avail_x for a box whose container has no definite width (a hug-sized ancestor): nothing to wrap against.
         constexpr float kUnboundedWidth = std::numeric_limits<float>::infinity();
 
+        // The elements a layout pass moves or resizes, while a `MovedElements` is alive on this thread.
+        thread_local std::vector<Element *> *g_moved = nullptr;
+
+        // Notes `element` when its rect differs at scope exit from what it was at entry.
+        struct RectWatch {
+            explicit RectWatch(Element &e) : element(e), before(e.layout_rect) {}
+            ~RectWatch() {
+                if (g_moved != nullptr && !(element.layout_rect == before)) {
+                    g_moved->push_back(&element);
+                }
+            }
+            RectWatch(const RectWatch &) = delete;
+            RectWatch &operator=(const RectWatch &) = delete;
+            Element &element;
+            render::Rect before;
+        };
+
         void layout_element(Element &element, const render::Rect &box, IUiPainter *painter, glm::vec2 parent_content,
                             const render::Rect &containing_block, bool partial);
 
@@ -90,6 +107,7 @@ namespace engine::ui {
             } else if (element.inset_bottom) {
                 dy = -resolve_length(*element.inset_bottom, basis.y, em_basis);
             }
+            const RectWatch watch(element);
             element.layout_rect.x += dx;
             element.layout_rect.y += dy;
         }
@@ -186,14 +204,14 @@ namespace engine::ui {
             if (cache == nullptr) {
                 return painter->measure_text(element.text, element.font_family, font_size);
             }
-            const std::string key = text_cache_key(element.text, element.font_family, font_size, -1.0f);
-            if (const auto found = cache->measures.find(key); found != cache->measures.end()) {
+            const TextCacheKeyView view{element.text, element.font_family, font_size, -1.0f};
+            if (const auto found = cache->measures.find(view); found != cache->measures.end()) {
                 ++cache->hits;
                 return found->second;
             }
             const glm::vec2 result = painter->measure_text(element.text, element.font_family, font_size);
             ++cache->painter_measures;
-            cache->measures.emplace(key, result);
+            cache->measures.emplace(TextCacheKey{element.text, element.font_family, font_size, -1.0f}, result);
             return result;
         }
 
@@ -203,14 +221,14 @@ namespace engine::ui {
             if (cache == nullptr) {
                 return painter->break_lines(element.text, element.font_family, font_size, wrap_width);
             }
-            const std::string key = text_cache_key(element.text, element.font_family, font_size, wrap_width);
-            if (const auto found = cache->blocks.find(key); found != cache->blocks.end()) {
+            const TextCacheKeyView view{element.text, element.font_family, font_size, wrap_width};
+            if (const auto found = cache->blocks.find(view); found != cache->blocks.end()) {
                 ++cache->hits;
                 return found->second;
             }
             TextBlock block = painter->break_lines(element.text, element.font_family, font_size, wrap_width);
             ++cache->painter_breaks;
-            cache->blocks.emplace(key, block);
+            cache->blocks.emplace(TextCacheKey{element.text, element.font_family, font_size, wrap_width}, block);
             return block;
         }
 
@@ -673,6 +691,7 @@ namespace engine::ui {
             if (dx == 0.0f && dy == 0.0f) {
                 return;
             }
+            const RectWatch watch(element);
             element.layout_rect.x += dx;
             element.layout_rect.y += dy;
             // A positioned element is the containing block of its absolute descendants. A static one is
@@ -703,6 +722,7 @@ namespace engine::ui {
                 element.layout_rect = box;
                 return;
             }
+            const RectWatch watch(element);
             // Unchanged input and unchanged box: keep every descendant rect. Same size, new origin: slide
             // the flow subtree. A size change falls through and lays the subtree out again.
             if (element.layout_hidden) {
@@ -790,6 +810,10 @@ namespace engine::ui {
         handle.classes = {"slider-handle"};
         slider.children.push_back(std::move(handle));
     }
+
+    MovedElements::MovedElements() : previous_(g_moved) { g_moved = &moved_; }
+
+    MovedElements::~MovedElements() { g_moved = previous_; }
 
     void layout(UiDocument &document, const render::Rect &canvas_rect, IUiPainter *painter, bool partial) {
         const TextCacheScope text_cache(document, painter);

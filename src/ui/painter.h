@@ -177,6 +177,24 @@ namespace engine::ui {
     // subtree, over what `apply_layout_style` just wrote.
     void commit_motion_after_layout(Element &element);
 
+    // While alive on this thread, a layout pass (`layout`, `layout_from`) records every element whose rect it changed,
+    // the flow children it slid and the positioned ones it nudged included. `take()` hands them over; the pointers are
+    // good until the tree is edited. This is how paint learns which pictures a layout pass made stale without looking
+    // at every element.
+    class MovedElements {
+    public:
+        MovedElements();
+        ~MovedElements();
+        MovedElements(const MovedElements &) = delete;
+        MovedElements &operator=(const MovedElements &) = delete;
+
+        [[nodiscard]] std::vector<Element *> take() { return std::move(moved_); }
+
+    private:
+        std::vector<Element *> moved_;
+        std::vector<Element *> *previous_ = nullptr;
+    };
+
     // Lays out `element` and its subtree again in the rect it has, from the parent content size and containing block
     // of its last layout: how a relayout boundary is laid out without its parent.
     void layout_from(Element &element, IUiPainter *painter);
