@@ -224,13 +224,13 @@ namespace engine::ui {
                 case BindField::PanX:
                     if (auto value = vm.read_property_float(element.pan_x_binding); value && element.pan_x != *value) {
                         element.pan_x = *value;
-                        mark_dirty(*pass.document, element, kDirtyPaint);
+                        mark_dirty(*pass.document, element, kDirtyFrame);
                     }
                     break;
                 case BindField::PanY:
                     if (auto value = vm.read_property_float(element.pan_y_binding); value && element.pan_y != *value) {
                         element.pan_y = *value;
-                        mark_dirty(*pass.document, element, kDirtyPaint);
+                        mark_dirty(*pass.document, element, kDirtyFrame);
                     }
                     break;
                 default:
@@ -239,7 +239,7 @@ namespace engine::ui {
                                 *value > 0.0f ? std::clamp(*value, kViewportMinZoom, kViewportMaxZoom) : 1.0f;
                         if (element.zoom != zoom) {
                             element.zoom = zoom;
-                            mark_dirty(*pass.document, element, kDirtyPaint);
+                            mark_dirty(*pass.document, element, kDirtyFrame);
                         }
                     }
                     break;
@@ -259,7 +259,7 @@ namespace engine::ui {
                 const float next = std::clamp(*value, 0.0f, vertical ? element.max_scroll_y : element.max_scroll_x);
                 if (scroll != next) {
                     scroll = next;
-                    mark_dirty(*pass.document, element, kDirtyPaint);
+                    mark_dirty(*pass.document, element, kDirtyFrame);
                     pass.document->windows_dirty = true;
                 }
             }
