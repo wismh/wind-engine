@@ -381,7 +381,7 @@ TEST(UiTree, ScrollItemIntoViewReachesARowTheWindowHasNotBuilt) {
     const void *target = vm.rows.get()[5'000].get();
     ASSERT_EQ(engine::ui::find_by_generated_owner(parsed->root, target), nullptr) << "row 5000 is off the window";
 
-    ASSERT_TRUE(engine::ui::scroll_item_into_view(list, list, 5'000));
+    ASSERT_TRUE(engine::ui::scroll_item_into_view(*parsed, list, list, 5'000));
     run_frame(*parsed, vm, sheet);
     run_frame(*parsed, vm, sheet);
     const engine::ui::Element *row = engine::ui::find_by_generated_owner(parsed->root, target);
@@ -391,12 +391,12 @@ TEST(UiTree, ScrollItemIntoViewReachesARowTheWindowHasNotBuilt) {
     EXPECT_LE(row->layout_rect.y + row->layout_rect.h, view_top + list.layout_rect.h) << "scrolled to the bottom edge";
 
     const float scrolled = list.scroll_y;
-    ASSERT_TRUE(engine::ui::scroll_item_into_view(list, list, 5'000));
+    ASSERT_TRUE(engine::ui::scroll_item_into_view(*parsed, list, list, 5'000));
     EXPECT_FLOAT_EQ(list.scroll_y, scrolled) << "a visible row does not move the list";
 
-    ASSERT_TRUE(engine::ui::scroll_item_into_view(list, list, 0));
+    ASSERT_TRUE(engine::ui::scroll_item_into_view(*parsed, list, list, 0));
     EXPECT_FLOAT_EQ(list.scroll_y, 0.0f);
-    EXPECT_FALSE(engine::ui::scroll_item_into_view(list, list, 10'000)) << "past the last item";
+    EXPECT_FALSE(engine::ui::scroll_item_into_view(*parsed, list, list, 10'000)) << "past the last item";
 }
 
 TEST(UiTree, FindByIdSkipsTemplates) {

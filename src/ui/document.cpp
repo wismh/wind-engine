@@ -1,9 +1,12 @@
 #include <engine/ui/document.h>
 
+#include "element_index.h"
 #include "inline_math.h"
 #include "math/math_element.h"
 #include "painter.h"
 #include "popup.h"
+#include "ui/dirty.h"
+#include "ui/text_cache.h"
 #include "ui/text_select.h"
 
 #include <engine/loc/catalog.h>
@@ -56,6 +59,13 @@ namespace engine::ui {
 
         void layout_element(Element &element, const render::Rect &box, IUiPainter *painter, glm::vec2 parent_content,
                             const render::Rect &containing_block, bool partial);
+
+        // Layout has to look at this element again: a layout input of its own or of a descendant changed, which a
+        // binding, a restyle (a motion sample that moved a layout field restyles), or a structural change recorded in
+        // the `dirty_*` bits.
+        bool layout_needed(const Element &element) {
+            return ((element.dirty_self | element.dirty_below) & kDirtyLayout) != 0;
+        }
         void layout_absolute(Element &element, const render::Rect &containing_block, IUiPainter *painter, bool partial);
         void translate_layout(Element &element, float dx, float dy, const render::Rect &containing_block,
                               IUiPainter *painter);
@@ -169,6 +179,41 @@ namespace engine::ui {
             return std::max(0.0f, outer_width_limit(box, avail_x) - box.padding.left - box.padding.right);
         }
 
+        // The painter's measure of `element`'s text, from the document's shared cache when another element with the
+        // same text, font and size already asked.
+        [[nodiscard]] glm::vec2 shared_measure(const Element &element, IUiPainter *painter, float font_size) {
+            SharedTextCache *cache = active_text_cache();
+            if (cache == nullptr) {
+                return painter->measure_text(element.text, element.font_family, font_size);
+            }
+            const std::string key = text_cache_key(element.text, element.font_family, font_size, -1.0f);
+            if (const auto found = cache->measures.find(key); found != cache->measures.end()) {
+                ++cache->hits;
+                return found->second;
+            }
+            const glm::vec2 result = painter->measure_text(element.text, element.font_family, font_size);
+            ++cache->painter_measures;
+            cache->measures.emplace(key, result);
+            return result;
+        }
+
+        [[nodiscard]] TextBlock shared_break_lines(const Element &element, IUiPainter *painter, float font_size,
+                                                   float wrap_width) {
+            SharedTextCache *cache = active_text_cache();
+            if (cache == nullptr) {
+                return painter->break_lines(element.text, element.font_family, font_size, wrap_width);
+            }
+            const std::string key = text_cache_key(element.text, element.font_family, font_size, wrap_width);
+            if (const auto found = cache->blocks.find(key); found != cache->blocks.end()) {
+                ++cache->hits;
+                return found->second;
+            }
+            TextBlock block = painter->break_lines(element.text, element.font_family, font_size, wrap_width);
+            ++cache->painter_breaks;
+            cache->blocks.emplace(key, block);
+            return block;
+        }
+
         // Memoized on `element` (see Element::text_measure_cache_* in document.h): a reconciled
         // ItemsControl-generated Element keeps its identity across frames, so an unchanged row's text is
         // shaped once instead of every layout(). Only the real-painter path is cached — the
@@ -182,7 +227,7 @@ namespace engine::ui {
                     element.text_measure_cache_font_size == font_size) {
                     return element.text_measure_cache_result;
                 }
-                const glm::vec2 result = painter->measure_text(element.text, element.font_family, font_size);
+                const glm::vec2 result = shared_measure(element, painter, font_size);
                 element.text_measure_cache_text = element.text;
                 element.text_measure_cache_font_family = element.font_family;
                 element.text_measure_cache_font_size = font_size;
@@ -239,7 +284,7 @@ namespace engine::ui {
                 element.text_wrap_cache_text == element.text) {
                 return element.text_wrap_cache_result;
             }
-            TextBlock block = painter->break_lines(element.text, element.font_family, font_size, wrap_width);
+            TextBlock block = shared_break_lines(element, painter, font_size, wrap_width);
             apply_used_line_height(element, font_size, block);
             const glm::vec2 result = size_of(block, single);
             element.text_wrap_cache_text = element.text;
@@ -405,9 +450,9 @@ namespace engine::ui {
         // Reuse a clean subtree's last used size while a sibling animates. A basis change (parent content
         // box) invalidates the cache because percentages resolve against it.
         glm::vec2 cached_used(Element &element, IUiPainter *painter, glm::vec2 basis, float avail, bool partial) {
-            if (partial && element.layout_used_cache_valid && !element.layout_inputs_changed &&
-                !element.layout_descendant_inputs_changed && element.layout_used_basis_w == basis.x &&
-                element.layout_used_basis_h == basis.y && element.layout_used_avail_x == avail) {
+            if (partial && element.layout_used_cache_valid && !layout_needed(element) &&
+                element.layout_used_basis_w == basis.x && element.layout_used_basis_h == basis.y &&
+                element.layout_used_avail_x == avail) {
                 return element.layout_used_cache;
             }
             const glm::vec2 used = compute_used(element, painter, basis, avail);
@@ -660,7 +705,12 @@ namespace engine::ui {
             }
             // Unchanged input and unchanged box: keep every descendant rect. Same size, new origin: slide
             // the flow subtree. A size change falls through and lays the subtree out again.
-            if (partial && !element.layout_inputs_changed && !element.layout_descendant_inputs_changed) {
+            if (element.layout_hidden) {
+                // Shown again: nothing below was laid out while it was hidden, so none of it is kept.
+                element.layout_hidden = false;
+                partial = false;
+            }
+            if (partial && !layout_needed(element)) {
                 if (element.layout_rect.x == box.x && element.layout_rect.y == box.y &&
                     element.layout_rect.w == box.w && element.layout_rect.h == box.h) {
                     return;
@@ -672,6 +722,9 @@ namespace engine::ui {
                 }
             }
             element.layout_rect = box;
+            element.layout_parent_content = parent_content;
+            element.layout_containing_block = containing_block;
+            ++element.layout_runs;
             const ResolvedBox resolved = resolve_box(element, parent_content);
             const render::Rect content = inset_rect(box, resolved.padding);
             const glm::vec2 child_basis{content.w, content.h};
@@ -712,537 +765,6 @@ namespace engine::ui {
             layout_popups(element, child_basis, painter, partial);
         }
 
-        std::int64_t tr_number(float n) {
-            if (!std::isfinite(n)) {
-                return 0;
-            }
-            // 2^53 is a power of two, so float can hold it, and it still fits in int64. Counts past it are
-            // not meaningful plurals; clamping keeps the cast defined.
-            constexpr float kLimit = 9007199254740992.f;
-            if (n >= kLimit) {
-                return static_cast<std::int64_t>(kLimit);
-            }
-            if (n <= -kLimit) {
-                return -static_cast<std::int64_t>(kLimit);
-            }
-            return static_cast<std::int64_t>(n);
-        }
-
-        // One apply_bindings call. A failure is reported and remembered, and the walk goes on: one missing binding
-        // must not leave the rest of the document unbound.
-        struct BindPass {
-            IBindErrorSink *errors = nullptr;
-            const engine::loc::Catalog *catalog = nullptr;
-            const std::unordered_map<BindingId, std::string> *paths = nullptr;
-            std::optional<UiError> first_error;
-
-            void fail(UiError error, std::string_view message) {
-                if (errors != nullptr) {
-                    errors->bind_error(message);
-                }
-                if (!first_error) {
-                    first_error = error;
-                }
-            }
-
-            [[nodiscard]] std::string name_of(BindingId binding) const {
-                if (const auto path = paths->find(binding); path != paths->end()) {
-                    return '"' + path->second + '"';
-                }
-                return std::format("#{:08x}", binding.value);
-            }
-
-            void fail_missing(std::string_view what, BindingId binding) {
-                if (errors == nullptr) {
-                    fail(UiError::MissingBinding, {});
-                    return;
-                }
-                fail(UiError::MissingBinding,
-                     std::format("UI {} binding {} is not registered on the data context", what, name_of(binding)));
-            }
-
-            // The name is registered, but its Bindable holds a type this attribute cannot read.
-            void fail_type(std::string_view what, std::string_view expected, BindingId binding) {
-                if (errors == nullptr) {
-                    fail(UiError::MissingBinding, {});
-                    return;
-                }
-                fail(UiError::MissingBinding,
-                     std::format("UI {} binding {} must be {}", what, name_of(binding), expected));
-            }
-        };
-
-        void bind_element(Element &element, ViewModel &vm, BindPass &pass, bool in_template,
-                          const Element *scroll_context) {
-            // False (and reported) when `binding` is set but `vm` has no such property: the caller skips it.
-            const auto require_property = [&](BindingId binding, std::string_view what) {
-                if (!is_bound(binding) || in_template || vm.has_property(binding)) {
-                    return true;
-                }
-                pass.fail_missing(what, binding);
-                return false;
-            };
-
-            const bool has_text = require_property(element.text_binding, "text");
-            const bool has_content = require_property(element.content_binding, "content");
-            const bool has_source = require_property(element.source_binding, "source");
-            const bool has_items_source = require_property(element.items_source_binding, "items_source");
-            const bool has_if = require_property(element.if_binding, "if");
-            const bool has_drag =
-                    require_property(element.drag_binding, element.kind == ElementKind::Slider ? "value" : "drag");
-            (void) require_property(element.pan_x_binding, "pan-x");
-            (void) require_property(element.pan_y_binding, "pan-y");
-            (void) require_property(element.zoom_binding, "zoom");
-            (void) require_property(element.checked_binding, "checked");
-            (void) require_property(element.open_binding, "open");
-            for (const CustomPropertyBinding &custom: element.custom_property_bindings) {
-                (void) require_property(custom.binding, "var-" + custom.name);
-            }
-            if (!in_template) {
-                for (const TrArg &arg: element.tr_args) {
-                    (void) require_property(arg.binding, "{tr} argument");
-                }
-            }
-
-            if (is_bound(element.command_binding) && !in_template) {
-                ICommand *command = vm.find_command(element.command_binding);
-                element.command = command;
-                if (command == nullptr) {
-                    pass.fail_missing("command", element.command_binding);
-                } else if (element.kind != ElementKind::TextInput) {
-                    // A TextInput commonly carries a command only for Enter-to-submit (canvas.cpp handle_key's
-                    // Return case). Disabling the field whenever that command cannot execute yet (for example
-                    // because this same field is still empty) makes it permanently untypeable: handle_text_input
-                    // and handle_key both bail out on a disabled element, so it can never receive the keystroke
-                    // that would make the command executable. Buttons still grey out; only TextInput is exempt.
-                    element.disabled = !command->can_execute();
-                }
-            }
-
-            if (is_bound(element.paint_binding) && !in_template) {
-                element.paint = vm.find_paint(element.paint_binding);
-                if (element.paint == nullptr) {
-                    pass.fail_missing("paint", element.paint_binding);
-                }
-            }
-
-            if (is_bound(element.text_binding) && has_text) {
-                (void) vm.assign_property_string(element.text_binding, element.text);
-            }
-            if (is_bound(element.content_binding) && has_content) {
-                (void) vm.assign_property_string(element.content_binding, element.text);
-            }
-            if (!element.tr_key.empty() && !in_template) {
-                const engine::loc::Catalog *catalog = pass.catalog;
-                if (catalog == nullptr) {
-                    if (element.text != element.tr_key) {
-                        element.text = element.tr_key;
-                    }
-                    if (pass.errors != nullptr) {
-                        pass.fail(UiError::MissingString, "missing string key \"" + element.tr_key + "\"");
-                    }
-                } else {
-                    std::vector<std::string> held;
-                    std::vector<engine::loc::Arg> args;
-                    held.reserve(element.tr_args.size());
-                    args.reserve(element.tr_args.size());
-                    for (const TrArg &arg: element.tr_args) {
-                        if (const auto number = vm.read_property_float(arg.binding)) {
-                            args.push_back(engine::loc::Arg{arg.name, tr_number(*number)});
-                        } else if (auto text = vm.read_property_string(arg.binding)) {
-                            held.push_back(std::move(*text));
-                            args.push_back(engine::loc::Arg{arg.name, std::string_view{held.back()}});
-                        }
-                    }
-                    engine::loc::Translated translated = catalog->text(element.tr_key, args);
-                    if (element.text != translated.text) {
-                        element.text = std::move(translated.text);
-                    }
-                    if (translated.missing_from_source && pass.errors != nullptr) {
-                        pass.fail(UiError::MissingString, "missing string key \"" + element.tr_key + "\"");
-                    }
-                }
-            }
-            if (is_bound(element.source_binding) && !in_template && has_source) {
-                if (const auto value = vm.read_property_asset_id(element.source_binding)) {
-                    element.source = *value;
-                } else {
-                    pass.fail_missing("source (AssetId)", element.source_binding);
-                }
-            }
-            if (element.kind == ElementKind::Slider && is_bound(element.drag_binding) && has_drag) {
-                // The value places the parts: `--fraction` (0..1) on the slider and both parts, for the stylesheet.
-                if (const auto value = vm.read_property_float(element.drag_binding)) {
-                    const std::string fraction = std::to_string(slider_fraction(element, *value));
-                    const auto set_fraction = [&fraction](Element &target) {
-                        std::string &slot = target.custom_properties["fraction"];
-                        if (slot != fraction) {
-                            slot = fraction;
-                        }
-                    };
-                    set_fraction(element);
-                    for (Element &part: element.children) {
-                        set_fraction(part);
-                    }
-                } else if (!in_template) {
-                    pass.fail_type("value", "a Bindable<float> (or another number)", element.drag_binding);
-                }
-            }
-            if (is_bound(element.if_binding) && has_if) {
-                if (auto value = vm.read_property_float(element.if_binding)) {
-                    element.hidden_by_if = *value == 0.0f;
-                } else if (!in_template) {
-                    // The template itself is bound against the list's owner, not a row: its rows resolve the name.
-                    pass.fail_type("if", "a Bindable<bool> (or another number)", element.if_binding);
-                }
-            }
-            if (is_bound(element.pan_x_binding)) {
-                if (auto value = vm.read_property_float(element.pan_x_binding)) {
-                    element.pan_x = *value;
-                }
-            }
-            if (is_bound(element.pan_y_binding)) {
-                if (auto value = vm.read_property_float(element.pan_y_binding)) {
-                    element.pan_y = *value;
-                }
-            }
-            if (is_bound(element.zoom_binding)) {
-                if (auto value = vm.read_property_float(element.zoom_binding)) {
-                    element.zoom = *value > 0.0f ? std::clamp(*value, kViewportMinZoom, kViewportMaxZoom) : 1.0f;
-                }
-            }
-            // Clamped to the extent the last layout found, as layout clamps it again: ItemsControl virtualization
-            // reads scroll_y before this frame's layout, and a view-model that asks for "the end" with a value past
-            // it would otherwise generate a window of rows past the last one. The view-model keeps its value, so a
-            // list that grew is clamped to its new extent on the next frame.
-            if (is_bound(element.scroll_x_binding)) {
-                if (auto value = vm.read_property_float(element.scroll_x_binding)) {
-                    element.scroll_x = std::clamp(*value, 0.0f, element.max_scroll_x);
-                }
-            }
-            if (is_bound(element.scroll_y_binding)) {
-                if (auto value = vm.read_property_float(element.scroll_y_binding)) {
-                    element.scroll_y = std::clamp(*value, 0.0f, element.max_scroll_y);
-                }
-            }
-            if (is_bound(element.checked_binding)) {
-                if (auto value = vm.read_property_float(element.checked_binding)) {
-                    element.checked = *value != 0.0f;
-                }
-            }
-            if (is_bound(element.open_binding)) {
-                if (auto value = vm.read_property_float(element.open_binding)) {
-                    element.open = *value != 0.0f;
-                }
-            }
-            for (const CustomPropertyBinding &custom: element.custom_property_bindings) {
-                const auto existing = element.custom_properties.find(custom.name);
-                if (existing == element.custom_properties.end()) {
-                    std::string value;
-                    if (vm.assign_property_string(custom.binding, value)) {
-                        element.custom_properties.emplace(custom.name, std::move(value));
-                    }
-                } else if (!vm.assign_property_string(custom.binding, existing->second)) {
-                    element.custom_properties.erase(existing);
-                }
-            }
-
-            const bool nested_template = in_template || element.kind == ElementKind::ItemTemplate;
-            const Element *child_scroll_context = is_scrollable_y(element) ? &element : scroll_context;
-            for (Element &child: element.children) {
-                if (element.generated_owner != nullptr && child.generated_owner == nullptr) {
-                    child.generated_owner = element.generated_owner;
-                }
-                bind_element(child, vm, pass, nested_template, child_scroll_context);
-            }
-
-            if (element.kind == ElementKind::ItemsControl && is_bound(element.items_source_binding) && !in_template &&
-                has_items_source) {
-                const Element *tmpl = nullptr;
-                for (const Element &child: element.children) {
-                    if (child.kind == ElementKind::ItemTemplate) {
-                        tmpl = &child;
-                        break;
-                    }
-                }
-                if (tmpl != nullptr) {
-                    const std::size_t expected_count = tmpl->children.empty() ? 1 : tmpl->children.size();
-
-                    // --- Virtualization eligibility -------------------------------------------------
-                    // Generate only the visible window of rows (+overscan) plus up to two spacer
-                    // Elements standing in for the scrolled-past rows, instead of one (or
-                    // `expected_count`) Element per item for every item in items_source — see
-                    // docs/tech/modules/UI.md's ItemsControl section. Every condition below must hold or
-                    // this frame falls back to `window_first = 0, window_last = items.size() - 1` with no
-                    // spacers: the historical, byte-identical full generation.
-                    constexpr int kVirtualizationOverscanRows = 2;
-                    // The scrolled viewport this ItemsControl's rows are windowed against: itself when
-                    // it is directly scrollable (the wind-127 self-scrolling case), otherwise the
-                    // nearest scrollable ancestor threaded down through `scroll_context` (e.g. an
-                    // enclosing <ScrollView> that isn't this control's direct parent). `direction ==
-                    // Vertical` is required on the ancestor too: scroll_y / layout_rect.y only line up
-                    // with the row axis when the scrolling container also stacks vertically. This is a
-                    // strict generalization of the Case A check below (Case A has
-                    // effective_context == &element, so the two conditions coincide there) — element's
-                    // own `direction == Vertical` is still checked independently right below, since that
-                    // condition is about the ItemsControl itself, not its scroll ancestor.
-                    const Element *effective_context = is_scrollable_y(element) ? &element : scroll_context;
-                    const bool has_scroll_context = effective_context != nullptr &&
-                                                    effective_context->direction == StackDirection::Vertical &&
-                                                    effective_context->layout_rect.h > 0.0f;
-                    std::optional<float> row_height_px;
-                    if (!element.suppress_item_virtualization && expected_count == 1 &&
-                        element.direction == StackDirection::Vertical && has_scroll_context &&
-                        element.gap.unit == LengthUnit::Px && element.gap.calc.empty()) {
-                        // Row height can't be read off the static ItemTemplate: apply_layout_style
-                        // (paint.cpp) never visits an ItemTemplate's own children, so tmpl's root never
-                        // gets a resolved `height` there — only a *generated* clone does, once
-                        // apply_layout_style has walked it on a previous frame. Sample the first
-                        // surviving real (non-spacer) row from last frame's generated_items and, when
-                        // found, treat it as this frame's source of truth and refresh
-                        // `virtualization_row_height_cache` with it. When last frame's window held no
-                        // real row at all — every generated item was a spacer, or there were none yet —
-                        // fall back to the cached value from whenever it was last sampled, instead of
-                        // declaring row height unknown: a wrapping ScrollView can scroll this
-                        // ItemsControl entirely out of view for several frames in a row (visible window
-                        // = zero real rows, one spacer standing in for all of them), and a live sample
-                        // alone would never find anything then, tipping eligibility over to full
-                        // generation for as long as the control stays offscreen. Only when neither a
-                        // live sample nor a prior cached value exists (first bind ever for this control)
-                        // does row height stay unknown this frame — self-correcting next frame, same as
-                        // the max_scroll_y / layout_rect.h staleness this eligibility check already
-                        // relies on above.
-                        // Rows placed by `position: absolute` (an inventory laid out by var-left / var-top) are not
-                        // stacked, so a window computed from row height and scroll offset would drop most of them:
-                        // never virtualize those, and forget any height cached from an earlier template.
-                        bool rows_out_of_flow = false;
-                        for (const Element &old: element.generated_items) {
-                            if (old.generated_owner != nullptr && !old.display_none &&
-                                old.position == PositionMode::Absolute) {
-                                rows_out_of_flow = true;
-                                element.virtualization_row_height_cache.reset();
-                                break;
-                            }
-                            if (old.generated_owner != nullptr && !old.display_none && old.height &&
-                                old.height->unit == LengthUnit::Px && old.height->calc.empty() &&
-                                old.height->value > 0.0f) {
-                                row_height_px = old.height->value;
-                                element.virtualization_row_height_cache = row_height_px;
-                                break;
-                            }
-                        }
-                        if (!row_height_px && !rows_out_of_flow && element.virtualization_row_height_cache) {
-                            row_height_px = element.virtualization_row_height_cache;
-                        }
-                    }
-
-                    // Decide the window before moving any Element. When generated_items is already that
-                    // window, the rows are bound in place. A different set still reconciles by
-                    // ViewModel* below, so a surviving row keeps its motion clocks.
-                    const std::vector<ViewModel *> items = vm.read_item_source(element.items_source_binding);
-                    std::size_t window_first = 0;
-                    std::size_t window_last = items.empty() ? 0 : items.size() - 1;
-                    float leading_spacer_h = 0.0f;
-                    float trailing_spacer_h = 0.0f;
-                    // True when the visible row window is empty: the ItemsControl sits entirely outside
-                    // effective_context's viewport (Case B only — see below). When true, no real rows
-                    // are generated this frame at all, just one spacer standing in for every item.
-                    bool window_empty = false;
-                    if (row_height_px && !items.empty()) {
-                        const float gap_px = element.gap.value;
-                        const float row_stride = *row_height_px + gap_px;
-                        const auto n = static_cast<std::int64_t>(items.size());
-
-                        // Case A (effective_context == &element, i.e. this ItemsControl scrolls itself):
-                        // offset == 0, so scroll_y_effective == element.scroll_y and viewport_h ==
-                        // element.layout_rect.h — byte-identical to the wind-127 formula. Case B
-                        // (effective_context is an ancestor, not necessarily the direct parent):
-                        // layout_rect is always absolute/canvas-space at every nesting depth (each
-                        // layout_element/layout_stack positions children from its own already-absolute
-                        // content origin), so this one subtraction is correct however many intermediate
-                        // Stacks/padding/margins sit between `element` and `effective_context`, without
-                        // needing to check whether effective_context is element's direct parent.
-                        const float offset = (effective_context == &element)
-                                                     ? 0.0f
-                                                     : element.layout_rect.y - effective_context->layout_rect.y;
-                        const float viewport_h = effective_context->layout_rect.h;
-                        const float scroll_y_effective = effective_context->scroll_y - offset;
-
-                        std::int64_t first = static_cast<std::int64_t>(std::floor(scroll_y_effective / row_stride)) -
-                                             kVirtualizationOverscanRows;
-                        std::int64_t last =
-                                static_cast<std::int64_t>(std::ceil((scroll_y_effective + viewport_h) / row_stride)) +
-                                kVirtualizationOverscanRows;
-
-                        // layout_stack packs N flow children with exactly (N-1) gaps total (a gap
-                        // *between* consecutive children, never a trailing one after the last) — so a
-                        // spacer standing in for `count` skipped rows must itself contribute
-                        // `count * row_height + (count-1) * gap`, not `count * row_stride`: the gap
-                        // between the spacer and its neighboring real row is already accounted for by
-                        // layout_stack's own inter-child gap once the spacer takes its place as one flow
-                        // child among (spacers + window) total. Getting this wrong would make the
-                        // virtualized max_scroll_y drift from the max_scroll_y full generation would
-                        // produce by up to 2 * gap.
-                        const auto spacer_height = [&](std::size_t count) -> float {
-                            if (count == 0) {
-                                return 0.0f;
-                            }
-                            return static_cast<float>(count) * *row_height_px + static_cast<float>(count - 1) * gap_px;
-                        };
-
-                        if (last < 0 || first >= n) {
-                            // Entirely offscreen: only reachable in Case B, where scroll_y_effective can
-                            // legitimately land outside [0, N*row_stride) in either direction (e.g. the
-                            // wrapping ScrollView shows content before or after this ItemsControl while
-                            // the list itself is fully scrolled past). Case A can never hit this branch:
-                            // element.scroll_y is always clamped to [0, element.max_scroll_y] by the
-                            // element's own scrolling, which keeps the window over at least one real row.
-                            // Collapse to zero real rows plus one spacer covering every item. Critical
-                            // invariant (same one wind-127 established for the two-spacer case): the
-                            // summed used-height of this ItemsControl (spacers + any real rows) must
-                            // always equal N*row_height + (N-1)*gap regardless of window state, because
-                            // that sum is exactly what effective_context's own intrinsic_size /
-                            // compute_used reads back when laying out content that follows this
-                            // ItemsControl (e.g. a footer) and when computing its own max_scroll_y.
-                            // spacer_height(N) is that sum by construction for N > 0, so this case is
-                            // trivially exact.
-                            window_empty = true;
-                            window_first = 0;
-                            window_last = 0;
-                            leading_spacer_h = spacer_height(static_cast<std::size_t>(n));
-                            trailing_spacer_h = 0.0f;
-                        } else {
-                            first = std::clamp<std::int64_t>(first, 0, n - 1);
-                            last = std::clamp<std::int64_t>(last, first, n - 1);
-                            window_first = static_cast<std::size_t>(first);
-                            window_last = static_cast<std::size_t>(last);
-                            leading_spacer_h = spacer_height(window_first);
-                            trailing_spacer_h = spacer_height(items.size() - 1 - window_last);
-                        }
-                    }
-
-                    const auto is_spacer = [](const Element &row) {
-                        return row.is_virtualization_spacer && row.generated_owner == nullptr;
-                    };
-                    const auto generated_window_matches = [&] {
-                        std::size_t index = 0;
-                        const std::vector<Element> &rows = element.generated_items;
-                        if (leading_spacer_h > 0.0f) {
-                            if (index >= rows.size() || !is_spacer(rows[index])) {
-                                return false;
-                            }
-                            ++index;
-                        }
-                        if (!window_empty && !items.empty()) {
-                            for (std::size_t i = window_first; i <= window_last; ++i) {
-                                ViewModel *item = items[i];
-                                if (item == nullptr) {
-                                    continue;
-                                }
-                                for (std::size_t n = 0; n < expected_count; ++n) {
-                                    if (index >= rows.size() || rows[index].is_virtualization_spacer ||
-                                        rows[index].generated_owner != item) {
-                                        return false;
-                                    }
-                                    ++index;
-                                }
-                            }
-                        }
-                        if (trailing_spacer_h > 0.0f) {
-                            if (index >= rows.size() || !is_spacer(rows[index])) {
-                                return false;
-                            }
-                            ++index;
-                        }
-                        return index == rows.size();
-                    };
-                    const auto write_spacer_height = [](Element &spacer, float height) {
-                        if (spacer.height && spacer.height->unit == LengthUnit::Px && spacer.height->calc.empty() &&
-                            spacer.height->value == height) {
-                            return;
-                        }
-                        spacer.height = Length{height, LengthUnit::Px};
-                    };
-                    if (generated_window_matches()) {
-                        std::size_t index = 0;
-                        if (leading_spacer_h > 0.0f) {
-                            write_spacer_height(element.generated_items[index++], leading_spacer_h);
-                        }
-                        if (!window_empty && !items.empty()) {
-                            for (std::size_t i = window_first; i <= window_last; ++i) {
-                                ViewModel *item = items[i];
-                                if (item == nullptr) {
-                                    continue;
-                                }
-                                for (std::size_t n = 0; n < expected_count; ++n) {
-                                    bind_element(element.generated_items[index++], *item, pass, false,
-                                                 child_scroll_context);
-                                }
-                            }
-                        }
-                        if (trailing_spacer_h > 0.0f) {
-                            write_spacer_height(element.generated_items[index], trailing_spacer_h);
-                        }
-                    } else {
-                        // A changed set. An item still in the window reuses its Element (motion clocks
-                        // included). A new item is cloned from the template. Spacers are rebuilt; they
-                        // carry no runtime state.
-                        std::unordered_map<const void *, std::vector<Element>> previous_by_owner;
-                        for (Element &old: element.generated_items) {
-                            previous_by_owner[old.generated_owner].push_back(std::move(old));
-                        }
-                        element.generated_items.clear();
-
-                        if (leading_spacer_h > 0.0f) {
-                            Element spacer;
-                            spacer.kind = ElementKind::Canvas;
-                            spacer.height = Length{leading_spacer_h, LengthUnit::Px};
-                            spacer.is_virtualization_spacer = true;
-                            element.generated_items.push_back(std::move(spacer));
-                        }
-                        for (std::size_t i = window_first; !window_empty && !items.empty() && i <= window_last; ++i) {
-                            ViewModel *item = items[i];
-                            if (item == nullptr) {
-                                continue;
-                            }
-                            if (const auto reused = previous_by_owner.find(item);
-                                reused != previous_by_owner.end() && reused->second.size() == expected_count) {
-                                for (Element &clone: reused->second) {
-                                    bind_element(clone, *item, pass, false, child_scroll_context);
-                                    element.generated_items.push_back(std::move(clone));
-                                }
-                                previous_by_owner.erase(reused);
-                                continue;
-                            }
-                            if (tmpl->children.empty()) {
-                                Element clone = *tmpl;
-                                clone.kind = ElementKind::Stack;
-                                clone.children.clear();
-                                clone.generated_owner = item;
-                                bind_element(clone, *item, pass, false, child_scroll_context);
-                                element.generated_items.push_back(std::move(clone));
-                                continue;
-                            }
-                            for (const Element &node: tmpl->children) {
-                                Element clone = node;
-                                clone.generated_items.clear();
-                                clone.generated_owner = item;
-                                bind_element(clone, *item, pass, false, child_scroll_context);
-                                element.generated_items.push_back(std::move(clone));
-                            }
-                        }
-                        if (trailing_spacer_h > 0.0f) {
-                            Element spacer;
-                            spacer.kind = ElementKind::Canvas;
-                            spacer.height = Length{trailing_spacer_h, LengthUnit::Px};
-                            spacer.is_virtualization_spacer = true;
-                            element.generated_items.push_back(std::move(spacer));
-                        }
-                    }
-                }
-            }
-        }
-
         const Element *find_by_kind_const(const Element &root, ElementKind kind) {
             if (root.kind == kind) {
                 return &root;
@@ -1257,71 +779,6 @@ namespace engine::ui {
 
     } // namespace
 
-    // wind-129 layout dirty-gate. See Element's layout_dirty_check_* fields (document.h) for WHY these
-    // are the only inputs layout ever depends on. Recurses element.children (skipping ItemTemplate,
-    // same as bind_element/layout_element above — a template's own subtree never itself gets laid out)
-    // plus element.generated_items (ItemsControl-generated rows/spacers), and for every element visited:
-    //   - compares element.text against layout_dirty_check_text
-    //   - compares element.custom_properties against layout_dirty_check_custom_properties
-    //   - compares the current sequence of generated_items[*].generated_owner against
-    //     layout_dirty_check_generated_owners (order and count matter: a reorder or a window shift is
-    //     itself a layout-relevant change even when the set of owners is unchanged)
-    // then unconditionally overwrites all three cached copies with the current values — regardless of
-    // whether this element compared equal — so next frame's comparison is always against the most
-    // recent real state, never against a stale "first ever seen" snapshot. The traversal never
-    // short-circuits on finding a change: every element's cache must be refreshed every call, so the
-    // "changed" result is only ever OR-accumulated into a local, not used to skip visiting the rest of
-    // the tree. layout_dirty_check_initialized is false only before the very first call on a given
-    // Element (fresh construction or ItemsControl clone), which forces that first call to report
-    // "changed" — there is nothing yet to compare against.
-    bool layout_state_changed(Element &element) {
-        bool changed = false;
-
-        if (!element.layout_dirty_check_initialized || element.text != element.layout_dirty_check_text) {
-            changed = true;
-        }
-        element.layout_dirty_check_text = element.text;
-
-        if (!element.layout_dirty_check_initialized || element.hidden_by_if != element.layout_dirty_check_hidden_by_if) {
-            changed = true;
-        }
-        element.layout_dirty_check_hidden_by_if = element.hidden_by_if;
-
-        if (!element.layout_dirty_check_initialized ||
-            element.custom_properties != element.layout_dirty_check_custom_properties) {
-            changed = true;
-        }
-        element.layout_dirty_check_custom_properties = element.custom_properties;
-
-        std::vector<const void *> current_owners;
-        current_owners.reserve(element.generated_items.size());
-        for (const Element &item: element.generated_items) {
-            current_owners.push_back(item.generated_owner);
-        }
-        if (!element.layout_dirty_check_initialized || current_owners != element.layout_dirty_check_generated_owners) {
-            changed = true;
-        }
-        element.layout_dirty_check_generated_owners = std::move(current_owners);
-
-        element.layout_dirty_check_initialized = true;
-
-        for (Element &child: element.children) {
-            if (child.kind == ElementKind::ItemTemplate) {
-                continue;
-            }
-            if (layout_state_changed(child)) {
-                changed = true;
-            }
-        }
-        for (Element &item: element.generated_items) {
-            if (layout_state_changed(item)) {
-                changed = true;
-            }
-        }
-
-        return changed;
-    }
-
     void add_slider_parts(Element &slider) {
         slider.children.clear();
         Element fill;
@@ -1334,22 +791,21 @@ namespace engine::ui {
         slider.children.push_back(std::move(handle));
     }
 
-    std::expected<void, UiError> apply_bindings(UiDocument &document, ViewModel &data_context, IBindErrorSink *errors,
-                                                const engine::loc::Catalog *catalog) {
-        BindPass pass{errors, catalog, &document.binding_paths};
-        bind_element(document.root, data_context, pass, false, nullptr);
-        if (pass.first_error) {
-            return std::unexpected(*pass.first_error);
-        }
-        return {};
-    }
-
     void layout(UiDocument &document, const render::Rect &canvas_rect, IUiPainter *painter, bool partial) {
+        const TextCacheScope text_cache(document, painter);
         layout_element(document.root, canvas_rect, painter, glm::vec2{canvas_rect.w, canvas_rect.h}, canvas_rect,
                        partial);
+        // The rects and extents an ItemsControl windows its rows against just changed.
+        document.windows_dirty = true;
     }
 
     void layout(UiDocument &document, const render::Rect &canvas_rect) { layout(document, canvas_rect, nullptr); }
+
+    void layout_from(Element &element, IUiPainter *painter) {
+        element.dirty_self |= kDirtyLayout;
+        layout_element(element, element.layout_rect, painter, element.layout_parent_content,
+                       element.layout_containing_block, true);
+    }
 
     const TextBlock *wrapped_text_rows(const Element &element, IUiPainter &painter, float font_size,
                                        float content_width) {
@@ -1412,8 +868,12 @@ namespace engine::ui {
         for (Element &child: children) {
             order.push_back(&child);
         }
-        std::stable_sort(order.begin(), order.end(),
-                         [](const Element *a, const Element *b) { return a->z_index < b->z_index; });
+        // Siblings that already ascend by z-index (every z-index equal, the default, included) are in paint order: a
+        // stable sort would move nothing.
+        const auto by_z = [](const Element *a, const Element *b) { return a->z_index < b->z_index; };
+        if (!std::is_sorted(order.begin(), order.end(), by_z)) {
+            std::stable_sort(order.begin(), order.end(), by_z);
+        }
         return order;
     }
 
@@ -1969,7 +1429,8 @@ namespace engine::ui {
         return nullptr;
     }
 
-    bool scroll_item_into_view(Element &scroller, const Element &items_control, std::size_t index) {
+    bool scroll_item_into_view(UiDocument &document, Element &scroller, const Element &items_control,
+                               std::size_t index) {
         const std::vector<Element> &generated = items_control.generated_items;
         if (generated.empty()) {
             return false;
@@ -1996,6 +1457,30 @@ namespace engine::ui {
         if (first_row == nullptr || first_row->layout_rect.h <= 0.0f) {
             return false;
         }
+        const auto reveal = [&](float top, float bottom) {
+            const float view_top = scroller.layout_rect.y + scroller.scroll_y;
+            const float view_bottom = view_top + scroller.layout_rect.h;
+            float scroll = scroller.scroll_y;
+            if (top < view_top) {
+                scroll = top - scroller.layout_rect.y;
+            } else if (bottom > view_bottom) {
+                scroll = bottom - scroller.layout_rect.y - scroller.layout_rect.h;
+            }
+            const float next = std::clamp(scroll, 0.0f, scroller.max_scroll_y);
+            if (next != scroller.scroll_y) {
+                scroller.scroll_y = next;
+                mark_dirty(document, scroller, kDirtyFrame);
+                document.windows_dirty = true;
+            }
+        };
+        const bool fixed_height = first_row->height && first_row->height->unit == LengthUnit::Px;
+        if (!fixed_height && items_control.row_heights && index + 1 < items_control.row_heights->tops.size()) {
+            // Rows of no fixed height: the tops come from the heights measured so far (an estimate for a row not laid
+            // out yet), the same numbers the spacers were built from.
+            const std::vector<float> &tops = items_control.row_heights->tops;
+            reveal(items_top + tops[index], items_top + tops[index + 1] - items_control.gap.value);
+            return true;
+        }
         const float row_height = first_row->layout_rect.h;
         const float stride =
                 second_row != nullptr ? second_row->layout_rect.y - first_row->layout_rect.y : row_height;
@@ -2008,16 +1493,7 @@ namespace engine::ui {
         }
 
         const float top = items_top + static_cast<float>(index) * stride;
-        const float bottom = top + row_height;
-        const float view_top = scroller.layout_rect.y + scroller.scroll_y;
-        const float view_bottom = view_top + scroller.layout_rect.h;
-        float scroll = scroller.scroll_y;
-        if (top < view_top) {
-            scroll = top - scroller.layout_rect.y;
-        } else if (bottom > view_bottom) {
-            scroll = bottom - scroller.layout_rect.y - scroller.layout_rect.h;
-        }
-        scroller.scroll_y = std::clamp(scroll, 0.0f, scroller.max_scroll_y);
+        reveal(top, top + row_height);
         return true;
     }
 

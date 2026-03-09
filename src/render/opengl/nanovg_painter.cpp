@@ -34,26 +34,28 @@ NVGcolor to_nvg(glm::vec4 color) {
     return nvgRGBAf(color.r, color.g, color.b, color.a);
 }
 
-// Distinct stylesheet gradients are few (a handful of classes/pseudo-states), so a plain string key
-// built from content is simpler than a hand-rolled Gradient hash/equality and just as effective —
-// same spirit as `fonts`/`images` being keyed by AssetId hex text rather than a binary key.
-std::string gradient_cache_key(const ui::Gradient& gradient) {
-    std::string key = std::to_string(static_cast<int>(gradient.kind));
-    key += ':';
-    key += std::to_string(gradient.angle_deg);
-    for (const ui::GradientStop& stop : gradient.stops) {
-        key += '|';
-        key += std::to_string(stop.color.r);
-        key += ',';
-        key += std::to_string(stop.color.g);
-        key += ',';
-        key += std::to_string(stop.color.b);
-        key += ',';
-        key += std::to_string(stop.color.a);
-        key += '@';
-        key += std::to_string(stop.percent.value_or(-1.0f));
+// Distinct stylesheet gradients are few (a handful of classes/pseudo-states), so a short list searched by content
+// is simpler than a hand-rolled hash and cheaper than the string key it replaces (a conic fill looks its texture up
+// once per call, and a 1,000-cell grid calls it 1,000 times a frame). Floats are compared at the 1e-6 the old text
+// key had, so an animated stop that moves by less than that still shares one texture.
+bool same_micro(float a, float b) {
+    return std::llround(static_cast<double>(a) * 1e6) == std::llround(static_cast<double>(b) * 1e6);
+}
+
+bool same_gradient(const ui::Gradient &a, const ui::Gradient &b) {
+    if (a.kind != b.kind || !same_micro(a.angle_deg, b.angle_deg) || a.stops.size() != b.stops.size()) {
+        return false;
     }
-    return key;
+    for (std::size_t i = 0; i < a.stops.size(); ++i) {
+        const ui::GradientStop &x = a.stops[i];
+        const ui::GradientStop &y = b.stops[i];
+        if (!same_micro(x.color.r, y.color.r) || !same_micro(x.color.g, y.color.g) ||
+            !same_micro(x.color.b, y.color.b) || !same_micro(x.color.a, y.color.a) ||
+            !same_micro(x.percent.value_or(-1.0f), y.percent.value_or(-1.0f))) {
+            return false;
+        }
+    }
+    return true;
 }
 
 // Linearly interpolates `percent` (0-100) against a gradient's stop list. `stops` is always
@@ -116,7 +118,11 @@ struct NanoVgPainter::Impl {
     std::vector<std::vector<std::uint8_t>> font_blobs;
     std::unordered_map<std::string, int> fonts;
     std::unordered_map<std::string, ImageEntry> images;
-    std::unordered_map<std::string, int> gradient_textures;
+    struct ConicTexture {
+        ui::Gradient gradient;
+        int image = -1;
+    };
+    std::vector<ConicTexture> gradient_textures;
     int default_font = -1;
     // The OpenType MATH font behind `<Math>`; parsed from the same Font bytes the engine hands to add_font,
     // but kept out of NanoVG: formulas are drawn as glyph outlines through fill_path, never as text.
@@ -321,9 +327,10 @@ int NanoVgPainter::ensure_conic_texture(const ui::Gradient& gradient) {
     if (impl_->vg == nullptr) {
         return -1;
     }
-    const std::string key = gradient_cache_key(gradient);
-    if (const auto it = impl_->gradient_textures.find(key); it != impl_->gradient_textures.end()) {
-        return it->second;
+    for (const auto &entry: impl_->gradient_textures) {
+        if (same_gradient(entry.gradient, gradient)) {
+            return entry.image;
+        }
     }
     std::vector<std::uint8_t> pixels(static_cast<std::size_t>(kConicTextureSize) * kConicTextureSize * 4);
     const float center = (static_cast<float>(kConicTextureSize) - 1.0f) * 0.5f;
@@ -345,7 +352,7 @@ int NanoVgPainter::ensure_conic_texture(const ui::Gradient& gradient) {
         }
     }
     const int nvg_id = nvgCreateImageRGBA(impl_->vg, kConicTextureSize, kConicTextureSize, 0, pixels.data());
-    impl_->gradient_textures.emplace(key, nvg_id);
+    impl_->gradient_textures.push_back({gradient, nvg_id});
     return nvg_id;
 }
 

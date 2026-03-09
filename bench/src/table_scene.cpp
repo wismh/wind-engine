@@ -48,12 +48,13 @@ void TableScene::change_value(int step) {
 }
 
 void TableScene::churn(int step) {
-    std::vector<std::shared_ptr<TableRowViewModel>>& rows = view_model_->rows.get();
-    const auto removed = static_cast<std::ptrdiff_t>((step * 7) % kChurnWindow);
-    rows.erase(rows.begin() + removed);
-    const auto inserted = static_cast<std::ptrdiff_t>((step * 11) % kChurnWindow);
-    const TableRecord record = make_table_record(next_id_, churn_random_);
-    rows.insert(rows.begin() + inserted, std::make_shared<TableRowViewModel>(record));
+    view_model_->rows.edit([&](std::vector<std::shared_ptr<TableRowViewModel>> &rows) {
+        const auto removed = static_cast<std::ptrdiff_t>((step * 7) % kChurnWindow);
+        rows.erase(rows.begin() + removed);
+        const auto inserted = static_cast<std::ptrdiff_t>((step * 11) % kChurnWindow);
+        const TableRecord record = make_table_record(next_id_, churn_random_);
+        rows.insert(rows.begin() + inserted, std::make_shared<TableRowViewModel>(record));
+    });
     ++next_id_;
 }
 
