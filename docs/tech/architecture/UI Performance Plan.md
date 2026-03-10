@@ -85,13 +85,15 @@ Every later step is closed by re-running the matrix (`bench/run_matrix.ps1 -Repe
 - Per-element text measure and wrap caches already exist (`text_measure_cache_*`, `text_wrap_cache_*`). They are not shared across elements, and a recycled row does not keep a height except `virtualization_row_height_cache` (one float, fixed-px rows).
 - (Step 2 changed) Layout used to resolve style without pseudo-classes. It now reads the real pseudo-state for a rule that has a pseudo-class on its subject or an ancestor combinator and sets a layout property; every other rule keeps the paint-only path. `.hot:hover { padding }` therefore relayouts on enter and leave (owner decision; a behaviour change for existing sheets). See [UI](../modules/UI.md#hover-and-layout).
 - Every painted element cost painter state calls every frame (fixed in step 1, which keeps the scissor where it can clip something; see there). `paint_element`'s `enter` (`src/ui/paint.cpp`) called `save`, `set_opacity`, and `scissor` with the element rect, and the element ended with `restore`, whether or not it drew anything or had opacity below 1; every element clipped itself and its in-flow children to its own box, not only `overflow` elements, and `set_opacity` replaces the painter's alpha instead of multiplying it; an absolute child of a non-clipping parent adds one more `restore`/`enter`. Only an item template, or an invisible or `display: none` element and its subtree, returns before `enter`. The baseline histograms show about one of each per painted element: `table` 238 `save` and `scissor` for 244 elements, `inspector` 1,161 of 2,926 (the rest are not painted), `hud` 189 `save` and 184 `scissor` for 184. NanoVG keeps each `scissor` as per-call uniform state. Relevant to step 1 (an element with opacity 1, no transform, and no clip need not enter at all), step 4 (per-element scissor goes away), and step 5 (a clip must not split a batch).
-- `IPaint` runs from paint whenever it is bound. `Viewport` pan/zoom is a paint-time transform; hit-test inverts it. Neither participates in a dirty or clip model beyond the current full walk.
+- `IPaint` runs from paint whenever it is bound. `Viewport` pan/zoom is a paint-time transform; hit-test inverts it. (Step 4 changed this: a camera culls children outside its recorded world and an `IPaint` with a `version()` is replayed from a picture; see step 4 as built.)
 
 ## Order
 
 0 → 1 → 7a → 2 → 3 → 6 → 4 → 5 → 7b → 8.
 
 ### 0 — Measurements
+
+Status: done (wind-225, release v0.1.17a)
 
 As built (wind-225): the Linux baseline above, a `linux-bench` preset, and the matrix scripts running under PowerShell 7. Capture the baseline above. Step 5 stays after step 4 unless those numbers show draw calls dominating a small tree; only then an in-frame batcher may jump ahead of `Picture`. The "most draws are solid rects, text, and images" assumption is checked here. If buttons are gradients, step 5's gradient path is on the hot set, not a side case.
 
@@ -106,6 +108,8 @@ Baseline answer (painter calls per frame, [baseline summary](../../../bench/resu
 Most draws are solid rects (square or rounded) and text. The reference scenes draw no image or nine-slice, and one gradient in all three, so gradients are not on the hot set; images are absent because these scenes have none, not because they are cheap. Draw calls follow the rect count, not the tree: `hud` has the fewest elements and the most draw calls (1,995), almost all from its `IPaint`s. Outliers in `paint-mix` (1,000 cells each; linear, radial, solid, image, and border all paint in about 0.85 ms): `conic_gradient` paints in 13.8 ms with the same 2 draws a cell, so its cost is CPU, not draw calls: every call looks its baked texture up by a string key built with a `std::to_string` per angle and stop component (`gradient_cache_key` / `ensure_conic_texture`, `src/render/opengl/nanovg_painter.cpp`), although every cell shares one texture; `<Math>` (`path`) paints in 10.3 ms with 9 draws a formula; `nine_slice` 3.5 ms and 18 draws a cell.
 
 ### 1 — Stop the wasted work on the current tree
+
+Status: done (wind-226, release v0.1.17a)
 
 No new model. Makes the baseline readable.
 
@@ -136,6 +140,8 @@ Linux baseline against step 1 (`-Repeat 5`, medians; counters are exact, times c
 
 ### 7a — Stable identity and parent
 
+Status: done (wind-227, release v0.1.17a)
+
 Required before dirty flags can move without a full walk. Not the hot/cold split (that is 7b).
 
 - Each element has a generational id in an arena. Id survives `ItemsControl` reconcile, which today move-assigns the `Element` value so caches and motion clocks stick.
@@ -158,6 +164,8 @@ As built (wind-227). The arena is a slot table, not the storage of the elements:
 Against step 1 (`-Repeat 3` on the rows below, medians; element and generated counts are exact): `table` 244/38, `inspector` 2,926/395, `hud` 184/32 elements/generated, unchanged; draw calls unchanged. Quiet total ms `table` 0.38 -> 0.39, `hud` 0.49 -> 0.47, `inspector` 1.58 -> 1.78 (bindings 0.25 -> 0.29; inside the noise of a shared VM, re-measured with step 2).
 
 ### 2 — Versions, dirty flags, pseudo-class invalidation
+
+Status: done (wind-228, release v0.1.17a)
 
 Replaces both full walks: `apply_bindings` and `layout_state_changed`. Owner decision for this step: `:hover`, `:focus`, and `:active` may change layout.
 
@@ -212,6 +220,8 @@ Linux baseline against step 2 (`-Repeat 5`, medians, same machine; the hover row
 
 ### 3 — Animation as tracks
 
+Status: done (wind-229, release v0.1.17a)
+
 `@keyframes` and `transition` are parsed into numeric tracks when the style is applied, not on each tick. `sample_prop` stops rebuilding a `ComputedStyle` from declaration strings.
 
 `opacity`, `transform`, scroll, and `Viewport` camera do not set the layout flag. Width, height, font, padding, margin, gap do, and only on that chain (2's bubble rules). A finished keyframe holds its end value as the track's output. It does not keep a reason to copy the cascade.
@@ -233,6 +243,8 @@ Against step 2 (`-Repeat 5`, medians, same machine; other rows moved by less tha
 `compare.ps1` flags five other rows between +5% and +12% (`table / quiet`, `table / hover / paint`, `inspector / one-change`, `hud / hover / paint`, `paint-mix / linear-gradient`) with identical counters and no code change on those paths: noise of the shared VM, not a result. Unverified: Windows numbers.
 
 ### 6 — Lists, trees, grids
+
+Status: done (wind-230, release v0.1.17a)
 
 Immediately after 2. Does not need `Picture` or the new renderer. Uses the current painter's `measure_text` until step 5.
 
@@ -267,6 +279,8 @@ Against step 3 (`-Repeat 5`, medians, same machine). The inspector rows moved be
 `compare.ps1` flags 16 rows, all with unchanged counters and none on a path this step touched (`paint-mix`, `motion`, `hud`, `table`): a drift of 5-15% across the whole matrix, the same on rows that paint only. It is not isolated from the noise of the shared VM; unverified, to be re-measured on another machine. Unverified: Windows numbers.
 
 ### 4 — Retained Picture
+
+Status: done (wind-231, release v0.1.17a)
 
 A repaint boundary owns a `Picture`: canvas, scroll viewport, popup, or an element marked as a boundary. The picture is a list of engine commands (rounded rect, glyphs, image, gradient, arc, path, clip, layer opacity/transform). It is not a NanoVG command stream and not an offscreen texture.
 
