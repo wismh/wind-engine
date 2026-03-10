@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/modules/Core.md
+
 #include <engine/audio/audio_system.h>
 #include <engine/audio/events.h>
 #include <engine/audio/sound.h>

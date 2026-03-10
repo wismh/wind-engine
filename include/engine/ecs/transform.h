@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/modules/ECS.md
+
 #include <glm/vec3.hpp>
 
 namespace engine {

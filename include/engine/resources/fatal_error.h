@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/modules/Core.md
+
 #include <string_view>
 
 namespace engine {

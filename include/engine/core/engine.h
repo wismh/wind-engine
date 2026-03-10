@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/modules/Core.md
+
 #if !defined(ENGINE_WITH_WINDOW)
 #error "engine::Engine requires ENGINE_WITH_WINDOW"
 #endif
@@ -11,6 +13,7 @@
 #include <engine/core/engine_services.h>
 #include <engine/core/input_system.h>
 #include <engine/core/sdl_fatal_error.h>
+#include <engine/core/worlds.h>
 #include <engine/ecs/systems.h>
 #include <engine/haptics/haptics_system.h>
 #include <engine/igame.h>
@@ -55,6 +58,7 @@ private:
     std::shared_ptr<InputSystem> input_;
     std::shared_ptr<IAudioSystem> audio_;
     std::shared_ptr<IHaptics> haptics_;
+    std::unique_ptr<Worlds> worlds_;
     std::shared_ptr<IGame> game_;
     bool initialized_ = false;
 };
@@ -75,6 +79,7 @@ bool Engine<GameT>::init() {
     assets_ = std::make_shared<AssetsDb>(*fatal_);
     audio_ = std::make_shared<AudioSystem>();
     haptics_ = std::make_shared<HapticsSystem>();
+    worlds_ = std::make_unique<Worlds>(*fatal_);
     const EngineServices services{
             .assets = *assets_,
             .input = *input_,
@@ -85,17 +90,18 @@ bool Engine<GameT>::init() {
             .backend = runtime_.backend(),
             .canvas = runtime_.canvas(),
             .commands = runtime_.commands(),
+            .worlds = *worlds_,
     };
     game_ = std::make_shared<GameT>(services);
 
-    input_->set_world(game_->world());
-    sdl_fatal->attach(game_->world().ctx<ApplicationState>(), runtime_.native_window());
+    input_->set_router([this](WindowId id) { return worlds_->world_for(id); });
+    sdl_fatal->attach(worlds_->application_state(), runtime_.native_window());
 
     if (!runtime_.create_window(game_->primary_window())) {
         runtime_.shutdown();
         return false;
     }
-    sdl_fatal->attach(game_->world().ctx<ApplicationState>(), runtime_.native_window());
+    sdl_fatal->attach(worlds_->application_state(), runtime_.native_window());
 
     if (!audio_->init()) {
         runtime_.shutdown();
@@ -139,8 +145,7 @@ bool Engine<GameT>::init() {
         runtime_.set_window_icon(*assets_->get<render::TextureDesc>(*icon_id));
     }
 
-    runtime_.write_window_size(game_->world(), true);
-    register_engine_systems(game_->world(), EngineSystemDeps{
+    const EngineSystemDeps deps{
             .commands = &runtime_.commands(),
             .fatal = fatal_.get(),
             .assets = assets_.get(),
@@ -152,7 +157,13 @@ bool Engine<GameT>::init() {
             .ensure_ui_font = [this](WindowId window, AssetId id) {
                 (void)runtime_.add_font_for_window(window, id, *assets_->get<Font>(id));
             },
-    });
+    };
+    worlds_->set_deps(deps);
+    register_engine_systems(game_->world(), deps);
+    worlds_->bind_window(kPrimaryWindow, game_->world());
+    worlds_->enable_ui(game_->world());
+    worlds_->enable_audio(game_->world());
+    runtime_.write_window_size(*worlds_, true);
     ui::apply_canvas_fit(game_->world());
 
     initialized_ = true;
@@ -164,7 +175,7 @@ int Engine<GameT>::run() {
     if (!initialized_ || !game_ || !input_) {
         return 1;
     }
-    const int result = runtime_.run(*game_, *input_, audio_.get(), [this] { dispose(); });
+    const int result = runtime_.run(*game_, *worlds_, *input_, audio_.get(), [this] { dispose(); });
     dispose();
     return result;
 }

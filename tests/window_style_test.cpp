@@ -1,8 +1,12 @@
 #include <gtest/gtest.h>
 
 #include <engine/core/input_system.h>
+#include <engine/core/worlds.h>
 #include <engine/igame.h>
+#include <engine/resources/fatal_error.h>
 #include <engine/ui/canvas.h>
+
+#include <string_view>
 
 #if defined(ENGINE_WITH_WINDOW)
 #include "render/opengl/desktop_overlay_policy.h"
@@ -14,14 +18,25 @@
 
 namespace {
 
-class DummyGame final : public engine::GameBase {};
+class QuietFatal final : public engine::IFatalError {
+public:
+    void report(std::string_view) override {}
+};
+
+class DummyGame final : public engine::GameBase {
+public:
+    explicit DummyGame(engine::Worlds& worlds)
+        : engine::GameBase(worlds) {}
+};
 
 TEST(WindowId, PrimaryWindowIsZero) {
     EXPECT_EQ(engine::kPrimaryWindow, engine::WindowId{0});
 }
 
 TEST(PrimaryWindow, DefaultsMatchSdd) {
-    DummyGame game;
+    QuietFatal fatal;
+    engine::Worlds worlds{fatal};
+    DummyGame game{worlds};
     const engine::WindowDesc desc = game.primary_window();
     EXPECT_EQ(desc.title, "Game");
     EXPECT_EQ(desc.size, (glm::ivec2{800, 600}));

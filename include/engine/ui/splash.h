@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/modules/UI.md
+
 #include <engine/core/window_desc.h>
 #include <engine/ecs/world.h>
 #include <engine/igame.h>

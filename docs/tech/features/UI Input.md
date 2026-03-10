@@ -1,163 +1,136 @@
----
-tags: [feature]
----
+# UI input
 
-# UI Input
+Pointer and keys become ECS events in [Input Mapper](Input Mapper.md). `run_input` (Frame / Input) is what turns those events into focus, commands, and text edits. The functions on `include/engine/ui/canvas.h` are the same operations for a test that does not go through `run_input`.
 
-## Pointer
+## Pointer path
 
-`run_input` copies `MouseEvent` into `UiPointer`, on Down calls `ui::handle_pointer` ([[src.ui.canvas.cpp]]). Wheel calls `ui::handle_wheel`. Up ends both `ActiveDrag` and `ActivePan`. `MouseEvent::clicks` is `SDL_MouseButtonEvent.clicks` (the OS double-click interval); Down passes the left button and that count into `handle_pointer`. A right click does not place a caret and does not clear focus.
+`run_input` writes the pointer through `pointer_for`: `Presentation::pointer` for `kPrimaryWindow`, and `Presentation::pointers` for every other window. Move, Down, and Up store `position`. Down and Up store `down`.
 
-## Hit-test
+| `MouseEvent::Kind` | Call |
+| --- | --- |
+| Down | `handle_pointer` with the button and `clicks` |
+| Move | `update_pointer_hover`, and `update_text_selection` while the button is down |
+| Up | `end_drag` and `end_pan` |
+| Wheel | `handle_wheel` |
 
-Canvases whose `rect` contains the point, sorted by `order` descending (higher = front). The top canvas is rebound and relaid out, then `hit_test` ([[src.ui.document.cpp]], shared with `paint.cpp`'s `:hover` resolution) looks for a **Button**, a **Checkbox**, any element with a bound `command` or `drag`, a Viewport with a camera binding, or a **Label** whose `user-select` is `text` or `all`. A plain Label/Stack/Image does not consume. A Label inside a Button or Checkbox is not its own hit (children are tested first, so `Label { user-select: text }` must not steal the control). A Label with a bound `command` or `drag` stays that hit and is not selectable. A Label whose text contains an inline formula is a hit too: the formula is one source span, `\(...\)` included, and the copy is that TeX.
+A right click does not place a caret and does not clear focus. `clicks` is the OS count from the button event.
 
-Entering a Viewport clips to its unpanned `layout_rect` and hit-tests children with the inverse camera (`O + (pointer - O) / Z - P`). Empty background therefore hits the Viewport (pan drag). A child Button still wins. Wheel zoom uses `find_viewport_at` so a node under the cursor still zooms its enclosing Viewport (writes `zoom` and pan so the content point stays put). Zoom is clamped to `[0.25, 4]`.
+`simulate_worlds` calls `reset_pointer_frame` before this phase. That clears `Presentation.mouse`. `begin_frame` does not. A hit inserts the window into `presentation_of(world).mouse`. Gameplay that should ignore that click reads `presentation_of(world).mouse.consumed_for(window)`. `world.ctx<ui::MouseConsumed>()` does not see the hits. `InputSystem` does not check either.
 
-That relayout uses the same per-window `IUiPainter` as paint (`world.ctx<UiLayoutPainters>()`, set by `EngineRuntime` from each window's NanoVG painter after `MakeCurrent`). Hug text then matches glyphs. No painter registered (headless `engine_tests`, a window created without a UI painter) keeps the CPU fallback in [[src.ui.document.cpp]].
+## What a hit is
 
-Within a canvas, `hit_test` visits siblings topmost-first — the reverse of `child_stacking_order()` (z-index ascending, document-order tie-break), so it always agrees with paint order: the element drawn on top is also the one that receives the click. Its containment check uses `hit_bounds()`, not the raw `layout_rect` — for a rotated/scaled element (`transform: rotate() scale()`) that's the axis-aligned bounding box of the transformed corners, an approximation (slightly generous at a rotated element's corners), not a precise oriented-rect test.
+Canvases whose rect contains the point are tried from highest `order` to lowest. The top canvas is bound and laid out, then `hit_test`.
 
-That interactive hit is unchanged when the inspector is off. While `ui::set_inspector_enabled` is on and `UiInspector::pick_pointer` is set, a left click whose top canvas is not the inspector panel uses `hit_test_visual` instead, records the element path, sets `MouseConsumed`, and returns before focus, drag, and `Execute()`. With the flag off, that click reaches focus, drag, and `Execute()`. A miss does not consume the click. Wheel is not intercepted. See [[features/UI Inspector]].
+A hit from `hit_test_at` is any of these:
 
-If `can_execute()`, `Execute()`.
+- a Button or a Checkbox
+- a TextInput
+- a ScrollView, even when it cannot scroll
+- an element that `is_scrollable`: `overflow` `scroll`, or `auto` with `max_scroll > 0` on that axis. The scrollbar track is a hit before children
+- an element with a bound `command` or `drag`
+- a Viewport with a camera binding (`pan-x`, `pan-y`, or `zoom`)
+- a Label whose `user-select` is `text` or `all`, when it is not under a Button or Checkbox
 
-A bound `command` sets `disabled` from `!can_execute()` on every bind, so a Button matches `:disabled` while the command cannot run. `TextInput` is the exception: its command is Enter-to-submit, and `handle_text_input` / `handle_key` ignore a disabled element, so tying `disabled` to `can_execute()` would lock an empty field that the command itself requires to be non-empty. Return still executes only when `can_execute()` is true.
+A plain Label, Stack, or Image does not consume the click.
 
-A hit on a **Checkbox** additionally flips its `checked` bool (before command dispatch, so a bound `command` still fires too) and writes it back through `checked="{binding}"` if bound — same `generated_owner`-aware target resolution (item VM inside an `ItemsControl` vs. the canvas `data_context`) as `drag`/`scroll-y` write-back. `KeyCode::Return` on the focused element mirrors this.
+Children are tested first, except that scrollbar track. A selectable Label is the only child suppressed under a Button or Checkbox, so `user-select: text` on that label does not steal the button. A Label with a bound `command` or `drag` stays that hit and is not a text selection.
 
-`begin_frame` resets `MouseConsumed` and reapplies FillWindow rects.
+Inline math does not consume the click. `label_text_selectable` (`src/ui/text_select.cpp`) still requires a `Label`, `user-select` other than `none`, no bound `command` or `drag`, and the label not `disabled`. On that label the formula is one source span, and the copy is that TeX.
 
-Gameplay **must** read `world.ctx<ui::MouseConsumed>().consumed_for(window)` before treating a click as a world pick.
+Inside the canvas, siblings are visited front to back: the reverse of `child_stacking_order` (z-index ascending, document order on a tie). Containment uses `hit_bounds()`. For a rotated or scaled element that is the axis-aligned box of the transformed corners, which is slightly large at the corners. It is not an oriented-rect test.
 
-## Keyboard editing & clipboard
+A Viewport clips to its unpanned `layout_rect` and hit-tests children with the inverse camera (`origin + (pointer - origin) / zoom - pan`). Empty background hits the Viewport. That starts a pan only when the Viewport has a camera binding and `data_context` is set. A child Button still wins.
 
-`ui::handle_key`/`ui::handle_text_input` ([[src.ui.canvas.cpp]]) drive the focused element's
-`caret_position`, UTF-8-aware (`prev_utf8_char`/`next_utf8_char`). Typing, `Backspace`, `Delete`,
-`Ctrl+X` and `Ctrl+V` edit a focused `TextInput` only — a focused `Label` ignores them, so selecting
-its text cannot rewrite it. `Left`/`Right`/`Home`/`End` move the caret on a `TextInput` and on a
-focused selectable `Label` (the whole string, not the visual wrap row; there is no Ctrl+arrow word
-move). `Escape` clears focus; `Return` toggles a focused Checkbox and/or executes a bound `command`.
-No caret is drawn on a Label. Focusing one still sets `:focus`, so `Ctrl+C` has a target. A left
-click that misses clears focus and the selection.
+`handle_wheel` calls `find_scrollable_at` first. A vertical scrollable changes `scroll_y` by `-wheel_y * 40` layout pixels, clamped to `0..max_scroll_y`, and returns. Horizontal `scroll_x` uses that same step, clamped to `0..max_scroll_x`, only when the element is not vertically scrollable. The element still updates when `data_context` is null. Only the binding write is skipped.
 
-The SDL text-input session follows a focused enabled `TextInput` only. `sync_frame` passes that field's window-pixel rect and caret offset to `SDL_SetTextInputArea` before `SDL_StartTextInput`, and refreshes the area every frame the session stays up. A `\n` in text input submits the field and clears focus; physical Return submits and keeps focus.
+The zoom path runs only when that search misses and `data_context` is set. It then calls `find_viewport_at`, and continues only when that Viewport has `zoom` bound, so a control under the cursor still zooms the Viewport around it.
 
-Desktop IME preedit (`SDL_EVENT_TEXT_EDITING`) is `Element::composition`, separate from the binding. An empty editing event clears it. `SDL_EVENT_TEXT_INPUT` commits its payload into the field and clears the preedit. While `composition` is non-empty, keys other than Escape and Return are ignored: Escape clears focus and drops the preedit, Return runs the bound command and drops the preedit without clearing focus. The Android SDL backend never emits `SDL_EVENT_TEXT_EDITING`, so Gboard is unchanged.
+The new zoom is `clamp(z * pow(1.1, wheel_y), 0.25, 4)` (`kViewportZoomStep`, `kViewportMinZoom`, `kViewportMaxZoom`). Pan is rewritten so the content point under the cursor stays put. `viewport_zoom` turns a non-positive stored zoom into 1 before that.
 
-Ctrl/Shift are tracked in `world.ctx<ui::UiModifierState>()`, keyed by `WindowId`, updated by
-`handle_key` special-casing `LCtrl`/`RCtrl`/`LShift`/`RShift` on both down **and** up — this stays
-inside the SDL-free `ui` module rather than widening `KeyEvent`.
+The relayout uses `ctx<UiLayoutPainters>()`. The windowed presentation sets that to the window's NanoVG painter. Headless tests keep the CPU text measure in `document.cpp`.
 
-### Selection
+`UiInputBatchCache` is only on `run_input`'s stack. The first event that touches a canvas binds and lays out. Later events in that same call reuse it. `handle_pointer` and the other public functions do not.
 
-`Element::selection_anchor` (`std::optional<std::size_t>`) is the fixed end of an in-progress
-selection; `caret_position` is always the live end. A real (non-collapsed) selection is
-`selection_anchor.has_value() && *selection_anchor != caret_position`, spanning
-`[min(*anchor, caret), max(...))`. Set by:
+## Commands, checkbox, inspector
 
-- **Click** (`handle_pointer_impl`, left button) — places the caret at the clicked glyph and sets
-  `anchor = caret = that index` (no selection yet, but armed for a drag). `MouseEvent::clicks >= 2`
-  selects the word under the pointer (`word_range`, [[src.ui.text_select.cpp]]). `clicks >= 3`
-  selects the whole string. A Label with `user-select: all` selects the whole string on the first
-  click. Shift+click, when that same element is already focused, extends from the anchor it already
-  has (`set_focus` clears the anchor, so the previous anchor is kept first); an unfocused
-  Shift+click is an ordinary click.
-- **Drag** — `ui::update_text_selection` (called from `run_input`'s `MouseEvent::Kind::Move`
-  branch, [[src.ecs.systems.cpp]], whenever the button is still down) moves the live end. The
-  gesture's granularity (character, word, or the whole string) lives in `UiTextSelectGestures`
-  until the next pointer-down, per window, not on the Element. A word drag unions the seed range
-  with the word under the pointer. A triple-click or `user-select: all` does not shrink. No
-  re-hit-test: `UiFocusState` finds the element again each Move.
-- **Ctrl+A** — `anchor = 0`, `caret = text.size()`. Works on a focused Label as well as a TextInput.
-- **Shift+Left/Right/Home/End** — arms `anchor = caret_position` first if not already set, then
-  moves the caret without collapsing.
+If the hit has a command and `can_execute()` is true, `execute()` runs.
 
-A word is an approximation of UAX #29 with no Unicode library: Latin (including Latin-1 and
-Latin Extended), Greek/Coptic, Cyrillic U+0400–U+052F, and ASCII digits. An apostrophe
-(`'`, U+2019, U+02BC) or hyphen between two of those stays inside the word (`м'ясо`,
-`well-known`). A run of spaces is its own range, a run of punctuation is its own, and every other
-code point (CJK, emoji) is a one-character word.
+A bound command sets `disabled` from `!can_execute()` on every bind, so `:disabled` matches. `TextInput` does not: its command is Enter-to-submit, and a disabled field ignores keys and text. Return still checks `can_execute()`.
 
-`TextInput` still maps a click with `caret_index_for_click` (x only, prefix width added to the
-`text-align` anchor). A selectable Label maps a click from `Element::painted_text_lines`, which
-`paint.cpp` caches while it paints: per visual row, the UTF-8 byte range and the glyph box in
-screen pixels (left, top, width, height). `text-align` and `align-items` are already in that left
-edge, so a short centered row keeps its own glyph origin. Hit and highlight read only that cache.
-A click is not compared to those boxes in raw window pixels. Ancestor scroll, and a Viewport
-camera, are applied first — the same shift `hit_test` uses to enter the child — and the point is
-scaled back into the cached box pixels. The highlight stays inside the paint-time pan, so it
-already sits on the visible row. The element's own scroll is not part of that mapping; its text
-is drawn before its own pan. A TextInput caret uses the same mapped x.
-Vertical: the row under the pointer, or the nearest row when the pointer is between rows. Horizontal: the
-nearest UTF-8 boundary, from `measure_text` of that row's substring. Characters between visual rows
-(spaces the wrap dropped, and `\n`) are not highlighted, but they are part of the copied substring.
-Before the first paint the index falls back to `text.size()`, same as a TextInput. The highlight is a
-`selection-color` rect per box, drawn before the glyphs.
+A Checkbox hit flips `checked` before the command. `write_property_float` of `1` or `0` runs only when `checked` is bound and the canvas `data_context` is non-null. The target is `generated_owner` when that pointer is set (the row view-model inside an `ItemsControl`), otherwise `data_context`.
 
-An inline formula is one atomic box on that cache (`split_inline` records the source span, including
-the `\(` `\)` delimiters). A click in the left half of the box places the caret before the opener and
-a click in the right half after the closer; drag, double-click, word-drag and Left/Right take the
-whole span, so the copied substring is well-formed TeX. A word of the surrounding text stops at the
-formula. `\\(` / `\\)` stay ordinary text; the painted box keeps a drawn-byte to source-byte map
-because the escape is shorter on screen than in the source. A string with neither delimiter never
-builds that split.
+Return toggles `checked` only when the focused element is a Checkbox, then runs the command. `binding_target` is null without a `data_context`, so that float write uses the same guard. A click calls `clear_focus`. `set_focus` is only used for a TextInput or a selectable Label, so a click does not leave the Checkbox focused.
 
-Every other caret-moving or text-editing operation collapses/clears it: unshifted
-`Left`/`Home` move to the selection's start, `Right`/`End` to its end (instead of one more
-character); `Backspace`/`Delete`/typing replace the whole selected range. Any of these — and
-losing focus — resets `selection_anchor` to `nullopt`, including when it was merely stale
-(anchor == caret, e.g. right after a click that never became a drag) — left set, a later move
-would make it look like a real selection that was never actually made.
+While the inspector is on and `pick_pointer` is set, a left click on a game canvas uses `hit_test_visual`, records the path, inserts the window into `Presentation.mouse`, and returns before focus, drag, and `execute()`. Wheel is not intercepted. See [UI Inspector](UI Inspector.md).
 
-Click-to-caret-index (`caret_index_for_click`, canvas.cpp) walks UTF-8 boundaries
-(`next_utf8_char`) comparing each prefix's `IUiPainter::measure_text` width against the click x,
-snapping to the nearer boundary. It reads back `Element::painted_font_size_px`/
-`painted_content_origin_x` — cached by `paint.cpp`'s `TextInput` block every time it paints,
-regardless of focus — rather than re-resolving CSS length units (padding, em font-size) itself, so
-a click can never land somewhere paint didn't actually draw the caret. Falls back to
-`text.size()` before the element has ever painted (e.g. a click on the very first frame) or with
-no painter registered (headless `engine_tests` without a fake `UiLayoutPainters`).
+## Keyboard and text
 
-The highlight itself paints in `paint.cpp`'s `TextInput` block, behind the caret, whenever a real
-selection exists — not gated on the caret's blink phase. Its color is the cascaded
-`selection-color` CSS property (`Element::selection_color`/`ComputedStyle::has_selection_color`),
-resolved the same way as `scrollbar-thumb-color`; unset defaults to a translucent blue.
+`run_input` also drains `KeyEvent`, `TextInputEvent`, and `TextEditingEvent` into `ui::handle_key`, `handle_text_input`, and `handle_text_editing`.
 
-### Clipboard
+Ctrl and Shift are `ctx<UiModifierState>()`, per window, from `LCtrl` / `RCtrl` / `LShift` / `RShift` on both down and up.
 
-**Ctrl+C** copies the selected substring to the OS clipboard (a no-op with no selection, same as a
-real text field). It copies a Label selection too, including a `\n` between visual rows. **Ctrl+X**
-copies then erases, and **Ctrl+V** pastes at the caret (replacing the selection first), on a
-`TextInput` only — on a Label neither changes the text, and Ctrl+X does not write the clipboard.
-The OS clipboard itself is reached through
-`world.ctx<ui::UiClipboard>()` — two `std::function`s (`set_text`/`get_text`), empty (no-op)
-unless installed. `SdlGlPresentation::poll` installs the real SDL-backed pair once, lazily
-([[src.render.opengl.clipboard.h]]/`.cpp`, since SDL's clipboard is process-global, not
-per-window); `engine_tests` installs an in-memory fake per test
-([[tests.ui_text_input_test.cpp]]) so clipboard behavior is covered without a real window.
+| Key | TextInput | Selectable Label |
+| --- | --- | --- |
+| character / Backspace / Delete | edits | ignored |
+| Left / Right / Home / End | moves the caret | moves the caret across the whole string, not one visual row |
+| Ctrl+Left / Ctrl+Right | not a word jump | not a word jump |
+| Escape | clears focus | clears focus |
+| Return | runs `command` when `can_execute()`; keeps focus | runs `command` when `can_execute()`; keeps focus |
+| Ctrl+A | selects all | selects all |
+| Ctrl+C | copies the selection | copies the selection, including `\n` between rows |
+| Ctrl+X / Ctrl+V | cut and paste | do not change the text. Ctrl+X does not write the clipboard |
 
-`Element::allow_copy`/`allow_paste` (XML `allow-copy`/`allow-paste`, default both `true`, literal
-only — no `{binding}`) lock clipboard access per-operation, mirroring how a web page blocks
-copy/cut/paste independently by intercepting those DOM events rather than one combined on/off
-switch. Both attributes parse on every element. `allow-copy="false"` blocks Ctrl+C on a Label the
-same way it blocks a TextInput. `allow-paste` does not apply to a Label. Cut is gated by
-`allow_copy` (it reads before deleting), not `allow_paste`.
+A `\n` inside a text-input event submits and clears focus. Physical Return submits and keeps focus.
 
-## Files
+`allow-copy="false"` blocks Ctrl+C on a Label and a TextInput. Cut checks `allow_copy`. `allow-paste` applies to TextInput only. Both attributes are literals.
 
-- [[include.engine.ui.canvas.h]]
-- [[src.ui.canvas.cpp]]
-- [[src.ui.text_select.cpp]]
-- [[src.ecs.systems.cpp]]
-- [[src.render.opengl.clipboard.h]]
-- [[tests.mvvm_test.cpp]]
-- [[tests.ui_layout_hit_test.cpp]]
-- [[tests.ui_text_input_test.cpp]]
-- [[tests.ui_label_select_test.cpp]]
+The OS clipboard is `ctx<UiClipboard>()` (`set_text`, `get_text`). `SdlGlPresentation::poll` installs the SDL pair once. Tests install an in-memory pair. Empty functions are no-ops.
+
+## Selection
+
+`selection_anchor` is the fixed end. `caret_position` is the live end. A real selection is an anchor that differs from the caret.
+
+- Click places the caret and sets the anchor equal to it.
+- `clicks >= 2` selects the word (`word_range` in `src/ui/text_select.cpp`). `clicks >= 3` selects the whole string.
+- `user-select: all` selects the whole string on the first click.
+- Shift+click on an already focused element extends from the existing anchor. `set_focus` would clear the anchor, so the previous anchor is kept first. Shift+click on an unfocused element is an ordinary click.
+- Drag (`update_text_selection` on Move) moves the live end. Granularity (character, word, or all) is `ctx<UiTextSelectGestures>()`, per window, until the next pointer down.
+- Shift+arrows arm the anchor if it is unset, then move the caret.
+
+A word is an approximation of UAX #29 with no Unicode library: Latin (including Latin-1 and Latin Extended), Greek and Coptic, Cyrillic U+0400–U+052F, and ASCII digits. An apostrophe (`'`, U+2019, U+02BC) or hyphen between two of those stays inside the word. A run of spaces is its own range. A run of punctuation is its own range. Every other code point, including CJK and emoji, is a one-character word.
+
+Unshifted Left and Right collapse an existing selection to its edges (Left to the start, Right to the end) and set `selection_anchor` to `nullopt`. Unshifted Home and End move the caret to `0` and `text.size()` and clear the anchor.
+
+On a TextInput, Backspace, Delete, and typing replace the range and clear the anchor, including a stale anchor that equals the caret. On a selectable Label, Backspace and Delete return immediately and leave the anchor in place. Losing focus still sets `selection_anchor` to `nullopt`.
+
+A Label maps the click through `painted_text_lines` (glyph boxes in the pixels paint used, after `text-align` and `align-items`). Ancestor scroll and a Viewport camera are applied first. The element's own scroll is not: its text is drawn before its own pan. Vertical picks the row under the pointer, or the nearest row. Horizontal snaps to the nearer UTF-8 boundary. Characters the wrap dropped, and `\n`, are not highlighted, and they are part of the copied substring. Before the first paint the index is `text.size()`.
+
+An inline formula is one atomic box, delimiters included. A click in the left half is before the opener. The right half is after the closer. Drag, double-click, and Left/Right take the whole span. `\\(` / `\\)` stay ordinary text. The painted box keeps a drawn-byte to source-byte map because the escape is shorter on screen.
+
+A TextInput uses `caret_index_for_click` (x only). It measures prefixes with the font size and content origin paint stored, so the click matches the caret paint drew. The same fallback (`text.size()`) applies before the first paint or with no painter.
+
+The highlight is `selection-color`, drawn before the glyphs, not tied to caret blink. Unset is a translucent blue.
+
+## IME
+
+Desktop `TextEditingEvent` is `Element::composition`, separate from the bound string. An empty editing event clears it. Text input commits and clears the preedit. While composition is non-empty, only Escape and Return are honored: Escape clears focus and the preedit, Return runs the command and drops the preedit without clearing focus. The Android SDL backend does not emit text-editing events.
+
+The SDL text-input session follows a focused enabled TextInput only. `sync_frame` passes that field's window-pixel rect and caret offset to `SDL_SetTextInputArea` before `SDL_StartTextInput`, and refreshes the area every frame the session stays up.
+
+## Drag and scroll
+
+A drag starts only when `drag` is bound and `data_context` is set. It writes a 0–1 fraction through `write_property_float` as the pointer moves. `drag-orientation` picks the axis. A later move drops that drag if `data_context` is gone.
+
+A pan starts only on a Viewport with a camera binding when `data_context` is set. `pan-x` and `pan-y` take deltas in layout pixels. A later move drops that pan if `data_context` is gone.
+
+Scroll, drag, and pan write through `generated_owner` when that pointer is set, otherwise the canvas `data_context`. Scroll bindings (`scroll-x`, `scroll-y`) are written that way, including from a scrollbar drag. Wheel scroll still updates `scroll_x` / `scroll_y` on the element when `data_context` is null. Only the binding write is skipped.
+
+## Tests
+
+`tests/ui_layout_hit_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/mvvm_test.cpp`.
 
 ## See also
 
-- [[features/UI Markup]]
-- [[features/Input Mapper]]
-- [[modules/UI]]
+- [UI Markup](UI Markup.md)
+- [UI](../modules/UI.md)
+- [Windowing](Windowing.md)

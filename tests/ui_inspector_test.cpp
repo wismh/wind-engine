@@ -6,6 +6,7 @@
 #include <engine/ecs/events.h>
 #include <engine/ecs/world.h>
 #include <engine/ui/canvas.h>
+#include <engine/ui/presentation.h>
 #include <engine/ui/document.h>
 #include <engine/ui/inspector.h>
 #include <engine/ui/stylesheet.h>
@@ -130,7 +131,7 @@ namespace {
 
     GameCanvas spawn_game(engine::render::Rect rect) {
         GameCanvas game;
-        game.world.ctx<engine::ui::WindowSizes>().sizes[engine::kPrimaryWindow] = {800, 600};
+        engine::ui::presentation_of(game.world).sizes.sizes[engine::kPrimaryWindow] = {800, 600};
         const auto parsed = engine::ui::parse_xml(
                 R"(<Canvas><Button id="go" command="{binding click}"><Label id="lab">Go</Label></Button></Canvas>)");
         EXPECT_TRUE(parsed.has_value());
@@ -336,7 +337,7 @@ TEST(UiInspector, ClickOnLabelSelectsItAndSkipsTheCommand) {
     engine::ui::set_inspector_enabled(game.world, true);
     engine::ui::handle_pointer(game.world, x, y);
     EXPECT_EQ(game.vm->clicks, 0);
-    EXPECT_TRUE(game.world.ctx<engine::ui::MouseConsumed>().consumed_for());
+    EXPECT_TRUE(engine::ui::presentation_of(game.world).mouse.consumed_for());
 
     const engine::ui::InspectorPick pick = engine::ui::inspector_selection(game.world);
     EXPECT_TRUE(pick.active);
@@ -384,7 +385,7 @@ TEST(UiInspector, ClickOnPanelRunsTheRowCommand) {
     const engine::ui::UiCanvas &panel_canvas = game.world.get<engine::ui::UiCanvas>(panel);
     EXPECT_NE(panel_canvas.window, engine::kPrimaryWindow);
     EXPECT_EQ(panel_canvas.fit, engine::ui::UiFit::FillWindow);
-    EXPECT_TRUE(game.world.ctx<engine::ui::WindowSizes>().sizes.contains(panel_canvas.window));
+    EXPECT_TRUE(engine::ui::presentation_of(game.world).sizes.sizes.contains(panel_canvas.window));
     EXPECT_FLOAT_EQ(game.world.get<engine::ui::UiCanvas>(game.entity).rect.w, 800.0f);
     const engine::WindowId panel_window = panel_canvas.window;
     layout_instance(game.world, panel);
@@ -398,8 +399,8 @@ TEST(UiInspector, ClickOnPanelRunsTheRowCommand) {
 
     engine::ui::handle_pointer(game.world, x, y, panel_window);
     EXPECT_EQ(game.vm->clicks, 0);
-    EXPECT_FALSE(game.world.ctx<engine::ui::MouseConsumed>().consumed_for());
-    EXPECT_TRUE(game.world.ctx<engine::ui::MouseConsumed>().consumed_for(panel_window));
+    EXPECT_FALSE(engine::ui::presentation_of(game.world).mouse.consumed_for());
+    EXPECT_TRUE(engine::ui::presentation_of(game.world).mouse.consumed_for(panel_window));
     const engine::ui::InspectorPick pick = engine::ui::inspector_selection(game.world);
     EXPECT_TRUE(pick.active);
     engine::ui::UiInstance &game_instance = game.world.get<engine::ui::UiInstance>(game.entity);
@@ -414,7 +415,7 @@ TEST(UiInspector, MissDoesNotConsumeAndDisableDestroysThePanel) {
     ASSERT_TRUE(game.world.valid(inspector_panel(game.world)));
     engine::ui::handle_pointer(game.world, 200.0f, 200.0f);
     EXPECT_EQ(game.vm->clicks, 0);
-    EXPECT_FALSE(game.world.ctx<engine::ui::MouseConsumed>().consumed_for());
+    EXPECT_FALSE(engine::ui::presentation_of(game.world).mouse.consumed_for());
     EXPECT_FALSE(engine::ui::inspector_selection(game.world).active);
 
     engine::ui::set_inspector_enabled(game.world, false);
@@ -547,7 +548,7 @@ TEST(UiInspector, HostOpensOneWindowAndDisableClosesIt) {
     const engine::ecs::Entity panel = inspector_panel(game.world);
     ASSERT_TRUE(game.world.valid(panel));
     EXPECT_EQ(game.world.get<engine::ui::UiCanvas>(panel).window, engine::WindowId{9});
-    EXPECT_FALSE(game.world.ctx<engine::ui::WindowSizes>().sizes.contains(engine::WindowId{9}));
+    EXPECT_FALSE(engine::ui::presentation_of(game.world).sizes.sizes.contains(engine::WindowId{9}));
 
     engine::ui::set_inspector_enabled(game.world, false);
     EXPECT_EQ(closes, 1);

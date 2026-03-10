@@ -8,6 +8,7 @@
 
 #include <engine/ecs/world.h>
 #include <engine/ui/canvas.h>
+#include <engine/ui/presentation.h>
 #include <engine/ui/document.h>
 #include <engine/ui/inspector.h>
 #include <engine/ui/stylesheet.h>
@@ -96,7 +97,7 @@ namespace {
 
     GameCanvas spawn_game() {
         GameCanvas game;
-        game.world.ctx<engine::ui::WindowSizes>().sizes[engine::kPrimaryWindow] = {800, 600};
+        engine::ui::presentation_of(game.world).sizes.sizes[engine::kPrimaryWindow] = {800, 600};
         const auto parsed = engine::ui::parse_xml(
                 R"(<Canvas><Button id="go" command="{binding click}"><Label id="lab" text="Go"/></Button></Canvas>)");
         EXPECT_TRUE(parsed.has_value());
@@ -342,7 +343,7 @@ TEST(Cli, HitAndClickBypassPick) {
     hit.has_y = true;
     const std::string hit_json = engine::cli::execute(game.world, hit).json;
     EXPECT_NE(hit_json.find("\"id\":\"go\""), std::string::npos) << hit_json;
-    EXPECT_FALSE(game.world.ctx<engine::ui::MouseConsumed>().consumed_for());
+    EXPECT_FALSE(engine::ui::presentation_of(game.world).mouse.consumed_for());
 
     engine::cli::CliRequest miss;
     miss.command = "hit";
@@ -356,7 +357,7 @@ TEST(Cli, HitAndClickBypassPick) {
     EXPECT_NE(clicked.find("\"executed\":true"), std::string::npos);
     EXPECT_EQ(game.vm->clicks, 1);
     EXPECT_FALSE(engine::ui::inspector_selection(game.world).active);
-    EXPECT_FALSE(game.world.ctx<engine::ui::MouseConsumed>().consumed_for());
+    EXPECT_FALSE(engine::ui::presentation_of(game.world).mouse.consumed_for());
 
     const std::string label = run(game.world, "click", "#lab").json;
     EXPECT_NE(label.find("\"reason\":\"no command\""), std::string::npos);

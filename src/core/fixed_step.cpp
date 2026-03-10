@@ -4,15 +4,16 @@
 
 namespace engine {
 
-FixedStepClock::FixedStepClock(Time& time, const ApplicationState& app_state)
+FixedStepClock::FixedStepClock(Time& time, const ApplicationState& app_state, const bool& stepping)
     : time_(&time)
-    , app_state_(&app_state) {}
+    , app_state_(&app_state)
+    , stepping_(&stepping) {}
 
 int FixedStepClock::advance(float real_dt) {
     const float frame_dt = std::clamp(real_dt, 0.0f, kMaxFrameDt);
 
     int steps = 0;
-    if (!app_state_->paused) {
+    if (!app_state_->paused && *stepping_) {
         time_->accumulator += frame_dt;
         while (time_->accumulator >= kFixed && steps < kMaxFixedSteps) {
             time_->fixed_delta_time = kFixed;

@@ -1,9 +1,12 @@
 #include <gtest/gtest.h>
 
 #include <engine/builtin_ids.h>
+#include <engine/core/worlds.h>
 #include <engine/igame.h>
+#include <engine/resources/fatal_error.h>
 
 #include <cstdint>
+#include <string_view>
 #include <vector>
 
 #if defined(ENGINE_WITH_WINDOW)
@@ -12,10 +15,21 @@
 
 namespace {
 
-class DummyGame final : public engine::GameBase {};
+class QuietFatal final : public engine::IFatalError {
+public:
+    void report(std::string_view) override {}
+};
+
+class DummyGame final : public engine::GameBase {
+public:
+    explicit DummyGame(engine::Worlds& worlds)
+        : engine::GameBase(worlds) {}
+};
 
 TEST(WindowIcon, DefaultIsNullopt) {
-    DummyGame game;
+    QuietFatal fatal;
+    engine::Worlds worlds{fatal};
+    DummyGame game{worlds};
     EXPECT_FALSE(game.window_icon().has_value());
 }
 

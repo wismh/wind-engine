@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/modules/Localization.md
+
 #include <cstdint>
 #include <expected>
 #include <span>

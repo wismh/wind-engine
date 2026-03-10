@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/features/UI Inspector.md
+
 #include <engine/core/window_desc.h>
 #include <engine/ecs/entity.h>
 #include <engine/ecs/world.h>

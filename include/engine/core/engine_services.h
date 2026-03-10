@@ -1,6 +1,9 @@
 #pragma once
 
+// docs/tech/modules/Core.md
+
 #include <engine/render/command_buffer.h>
+#include <engine/core/worlds.h>
 
 namespace engine {
 
@@ -28,6 +31,7 @@ struct EngineServices {
     render::IRenderBackend& backend;
     render::ICanvas& canvas;
     render::CommandBuffer& commands;
+    Worlds& worlds;
 };
 
 }

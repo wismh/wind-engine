@@ -5,6 +5,7 @@
 #include <engine/resources/fatal_error.h>
 #include <engine/ui/binding_id.h>
 #include <engine/ui/canvas.h>
+#include <engine/ui/presentation.h>
 #include <engine/ui/document.h>
 #include <engine/ui/stylesheet.h>
 #include <engine/ui/view_model.h>
@@ -326,7 +327,7 @@ TEST(Mvvm, ButtonClickExecutesWhenCanExecute) {
     engine::ui::handle_pointer(world, 4.0f, 4.0f);
 
     EXPECT_EQ(vm->clicks, 1);
-    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_TRUE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
 }
 
 TEST(Mvvm, ButtonClickSkippedWhenCannotExecute) {
@@ -339,7 +340,7 @@ TEST(Mvvm, ButtonClickSkippedWhenCannotExecute) {
     engine::ui::handle_pointer(world, 4.0f, 4.0f);
 
     EXPECT_EQ(vm->clicks, 0);
-    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_TRUE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
 }
 
 TEST(Mvvm, HoverSetsMouseConsumedWithoutExecutingCommand) {
@@ -354,7 +355,7 @@ TEST(Mvvm, HoverSetsMouseConsumedWithoutExecutingCommand) {
     engine::ui::update_pointer_hover(world, 4.0f, 4.0f);
 
     EXPECT_EQ(vm->clicks, 0);
-    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_TRUE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
 }
 
 TEST(Mvvm, HoverMissLeavesMouseConsumedFalse) {
@@ -365,26 +366,26 @@ TEST(Mvvm, HoverMissLeavesMouseConsumedFalse) {
     engine::ui::begin_frame(world);
     engine::ui::update_pointer_hover(world, 5.0f, 5.0f);
 
-    EXPECT_FALSE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_FALSE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
     EXPECT_EQ(vm->clicks, 0);
 }
 
 TEST(Mvvm, MouseConsumedGoesFalseWhenPointerMovesOffWidgetWithoutAClick) {
-    // The bug this fix addresses: begin_frame() resets MouseConsumed every frame, and before this
-    // fix only a Down event (via handle_pointer) ever set it back to true — a frame with only Move
-    // events left it permanently false, so click-through would ignore hover entirely. Hovering on
-    // then off, with no click in between, must track both transitions correctly on its own.
+    // The process clears MouseConsumed once per frame, before begin_frame. A later frame that only
+    // moves the pointer off the widget must leave consumption false. Hovering on, then off, with no
+    // click in between, tracks both transitions.
     engine::ecs::World world;
     auto vm = std::make_shared<ClickViewModel>();
     spawn_button_canvas(world, vm, {0.0f, 0.0f, 100.0f, 100.0f}, 0);
 
     engine::ui::begin_frame(world);
     engine::ui::update_pointer_hover(world, 4.0f, 4.0f);
-    ASSERT_TRUE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    ASSERT_TRUE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
 
+    engine::ui::reset_pointer_frame(engine::ui::presentation_of(world));
     engine::ui::begin_frame(world);
     engine::ui::update_pointer_hover(world, 500.0f, 500.0f);
-    EXPECT_FALSE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_FALSE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
     EXPECT_EQ(vm->clicks, 0);
 }
 
@@ -405,7 +406,7 @@ TEST(Mvvm, UiCanvasHitTestInsideRect) {
     engine::ui::begin_frame(world);
     engine::ui::handle_pointer(world, 15.0f, 25.0f);
 
-    EXPECT_FALSE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_FALSE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
 }
 
 TEST(Mvvm, UiCanvasHitTestEmptyFillWindow) {
@@ -415,11 +416,11 @@ TEST(Mvvm, UiCanvasHitTestEmptyFillWindow) {
     canvas.fit = engine::ui::UiFit::FillWindow;
     world.emplace<engine::ui::UiCanvas>(entity, canvas);
 
-    world.ctx<engine::ui::WindowSizes>().sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
+    engine::ui::presentation_of(world).sizes.sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
     engine::ui::begin_frame(world);
     engine::ui::handle_pointer(world, 15.0f, 25.0f);
 
-    EXPECT_FALSE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_FALSE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
 }
 
 TEST(Mvvm, UiCanvasHitTestLabelDoesNotConsume) {
@@ -436,7 +437,7 @@ TEST(Mvvm, UiCanvasHitTestLabelDoesNotConsume) {
     engine::ui::begin_frame(world);
     engine::ui::handle_pointer(world, 4.0f, 4.0f);
 
-    EXPECT_FALSE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_FALSE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
     EXPECT_EQ(vm->clicks, 0);
 }
 
@@ -448,7 +449,7 @@ TEST(Mvvm, UiCanvasHitTestMissOutsideRect) {
     engine::ui::begin_frame(world);
     engine::ui::handle_pointer(world, 5.0f, 5.0f);
 
-    EXPECT_FALSE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_FALSE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
     EXPECT_EQ(vm->clicks, 0);
 }
 
@@ -464,7 +465,7 @@ TEST(Mvvm, HigherOrderCanvasWinsHitTest) {
 
     EXPECT_EQ(front->clicks, 1);
     EXPECT_EQ(back->clicks, 0);
-    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_TRUE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
 }
 
 TEST(Mvvm, WriteAndReadPropertyFloatRoundTripOnArithmeticProperty) {
@@ -499,7 +500,7 @@ TEST(Mvvm, UnboundImageDoesNotConsume) {
     engine::ui::begin_frame(world);
     engine::ui::handle_pointer(world, 8.0f, 8.0f);
 
-    EXPECT_FALSE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_FALSE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
 }
 
 TEST(Mvvm, ImageWithCommandFiresOnClick) {
@@ -513,7 +514,7 @@ TEST(Mvvm, ImageWithCommandFiresOnClick) {
     engine::ui::handle_pointer(world, 8.0f, 8.0f);
 
     EXPECT_EQ(vm->clicks, 1);
-    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_TRUE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
 }
 
 TEST(Mvvm, DragDownWritesClampedFractionAlongHorizontalAxis) {
@@ -527,7 +528,7 @@ TEST(Mvvm, DragDownWritesClampedFractionAlongHorizontalAxis) {
     engine::ui::handle_pointer(world, 8.0f, 8.0f);
 
     EXPECT_FLOAT_EQ(vm->fraction.get(), 0.25f);
-    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_TRUE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
 }
 
 TEST(Mvvm, DragVerticalOrientationUsesYAxis) {
@@ -750,7 +751,7 @@ TEST(Mvvm, ElementZIndexWinsHitTestWithinSameCanvas) {
 
     EXPECT_EQ(vm->back_clicks, 1);
     EXPECT_EQ(vm->front_clicks, 0);
-    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_TRUE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
 }
 
 TEST(Mvvm, RotatedButtonAabbIsClickableOutsideUnrotatedRect) {
@@ -792,14 +793,16 @@ TEST(Mvvm, FrontCanvasMissDoesNotFallThrough) {
     engine::ui::handle_pointer(world, 4.0f, 4.0f);
 
     EXPECT_EQ(back->clicks, 0);
-    EXPECT_FALSE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_FALSE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
 }
 
-TEST(Mvvm, MouseConsumedResetOnBeginFrame) {
+TEST(Mvvm, MouseConsumedSurvivesBeginFrame) {
     engine::ecs::World world;
-    world.ctx<engine::ui::MouseConsumed>().consumed_windows.insert(engine::kPrimaryWindow);
+    engine::ui::presentation_of(world).mouse.consumed_windows.insert(engine::kPrimaryWindow);
     engine::ui::begin_frame(world);
-    EXPECT_FALSE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_TRUE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
+    engine::ui::reset_pointer_frame(engine::ui::presentation_of(world));
+    EXPECT_FALSE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
 }
 
 TEST(Mvvm, FillWindowResizeWritesRect) {
@@ -809,7 +812,7 @@ TEST(Mvvm, FillWindowResizeWritesRect) {
     canvas.fit = engine::ui::UiFit::FillWindow;
     world.emplace<engine::ui::UiCanvas>(entity, canvas);
 
-    world.ctx<engine::ui::WindowSizes>().sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
+    engine::ui::presentation_of(world).sizes.sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
     engine::ui::begin_frame(world);
 
     EXPECT_EQ(world.get<engine::ui::UiCanvas>(entity).rect, (engine::render::Rect{0.0f, 0.0f, 800.0f, 600.0f}));
@@ -823,7 +826,7 @@ TEST(Mvvm, FixedFitLeavesRectAlone) {
     canvas.fit = engine::ui::UiFit::Fixed;
     world.emplace<engine::ui::UiCanvas>(entity, canvas);
 
-    world.ctx<engine::ui::WindowSizes>().sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
+    engine::ui::presentation_of(world).sizes.sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
     engine::ui::begin_frame(world);
 
     EXPECT_EQ(world.get<engine::ui::UiCanvas>(entity).rect, original);
@@ -837,7 +840,7 @@ TEST(Mvvm, ScaleWithScreenSizeResizeWritesLetterboxedRect) {
     canvas.reference_size = {200.0f, 100.0f};
     world.emplace<engine::ui::UiCanvas>(entity, canvas);
 
-    world.ctx<engine::ui::WindowSizes>().sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
+    engine::ui::presentation_of(world).sizes.sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
     engine::ui::begin_frame(world);
 
     // scale = min(800/200, 600/100) = min(4, 6) = 4; scaled box is 800x400, letterboxed vertically.
@@ -851,7 +854,7 @@ TEST(Mvvm, ScaleWithScreenSizeWithoutReferenceSizeFallsBackToWindow) {
     canvas.fit = engine::ui::UiFit::ScaleWithScreenSize;
     world.emplace<engine::ui::UiCanvas>(entity, canvas);
 
-    world.ctx<engine::ui::WindowSizes>().sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
+    engine::ui::presentation_of(world).sizes.sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
     engine::ui::begin_frame(world);
 
     EXPECT_EQ(world.get<engine::ui::UiCanvas>(entity).rect, (engine::render::Rect{0.0f, 0.0f, 800.0f, 600.0f}));
@@ -871,12 +874,12 @@ TEST(Mvvm, ScaleWithScreenSizeRejectsClicksInLetterboxBar) {
     world.emplace<engine::ui::UiCanvas>(entity, canvas);
     world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{*parsed});
 
-    world.ctx<engine::ui::WindowSizes>().sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
+    engine::ui::presentation_of(world).sizes.sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
     engine::ui::begin_frame(world);
     // Viewport is {0,100,800,400} (see ScaleWithScreenSizeResizeWritesLetterboxedRect); y=5 is in the top bar.
     engine::ui::handle_pointer(world, 5.0f, 5.0f);
 
-    EXPECT_FALSE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_FALSE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
     EXPECT_EQ(vm->clicks, 0);
 }
 
@@ -894,18 +897,18 @@ TEST(Mvvm, ScaleWithScreenSizeHitTestScalesPointerIntoDesignSpace) {
     world.emplace<engine::ui::UiCanvas>(entity, canvas);
     world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{*parsed});
 
-    world.ctx<engine::ui::WindowSizes>().sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
+    engine::ui::presentation_of(world).sizes.sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
     engine::ui::begin_frame(world);
     // Viewport {0,100,800,400}, scale 4. Real (16,116) maps to design (4,4), inside the default-sized button.
     engine::ui::handle_pointer(world, 16.0f, 116.0f);
 
-    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_TRUE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
     EXPECT_EQ(vm->clicks, 1);
 }
 
 TEST(Mvvm, WindowSizeForPrimaryReadsWindowSizesCtx) {
     engine::ecs::World world;
-    world.ctx<engine::ui::WindowSizes>().sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
+    engine::ui::presentation_of(world).sizes.sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
 
     const engine::ui::WindowSize size = engine::ui::window_size_for(world, engine::kPrimaryWindow);
     EXPECT_EQ(size.width, 800);
@@ -924,7 +927,7 @@ TEST(Mvvm, WindowSizeForUnsizedSecondaryWindowDefaultsToZero) {
 TEST(Mvvm, WindowSizeForSecondaryWindowReadsWindowSizesCtx) {
     engine::ecs::World world;
     const engine::WindowId other{7};
-    world.ctx<engine::ui::WindowSizes>().sizes[other] = engine::ui::WindowSize{320, 240};
+    engine::ui::presentation_of(world).sizes.sizes[other] = engine::ui::WindowSize{320, 240};
 
     const engine::ui::WindowSize size = engine::ui::window_size_for(world, other);
     EXPECT_EQ(size.width, 320);
@@ -933,8 +936,8 @@ TEST(Mvvm, WindowSizeForSecondaryWindowReadsWindowSizesCtx) {
 
 TEST(Mvvm, PointerForPrimaryReadsUiPointerCtx) {
     engine::ecs::World world;
-    world.ctx<engine::ui::UiPointer>().position = {12.0f, 34.0f};
-    world.ctx<engine::ui::UiPointer>().down = true;
+    engine::ui::presentation_of(world).pointer.position = {12.0f, 34.0f};
+    engine::ui::presentation_of(world).pointer.down = true;
 
     const engine::ui::UiPointer& pointer = engine::ui::pointer_for(world, engine::kPrimaryWindow);
     EXPECT_EQ(pointer.position, (glm::vec2{12.0f, 34.0f}));
@@ -944,8 +947,8 @@ TEST(Mvvm, PointerForPrimaryReadsUiPointerCtx) {
 TEST(Mvvm, PointerForSecondaryWindowIsIsolatedFromPrimary) {
     engine::ecs::World world;
     const engine::WindowId other{7};
-    world.ctx<engine::ui::UiPointer>().position = {12.0f, 34.0f};
-    world.ctx<engine::ui::UiPointer>().down = true;
+    engine::ui::presentation_of(world).pointer.position = {12.0f, 34.0f};
+    engine::ui::presentation_of(world).pointer.down = true;
 
     // Never written for `other` — must not see the primary's position/down state.
     const engine::ui::UiPointer& pointer = engine::ui::pointer_for(world, other);
@@ -958,7 +961,7 @@ TEST(Mvvm, PointerForSecondaryWindowIsIsolatedFromPrimary) {
     EXPECT_EQ(engine::ui::pointer_for(world, other).position, (glm::vec2{5.0f, 6.0f}));
     EXPECT_TRUE(engine::ui::pointer_for(world, other).down);
     // The primary's own pointer must be untouched by writes aimed at `other`.
-    EXPECT_EQ(world.ctx<engine::ui::UiPointer>().position, (glm::vec2{12.0f, 34.0f}));
+    EXPECT_EQ(engine::ui::presentation_of(world).pointer.position, (glm::vec2{12.0f, 34.0f}));
 }
 
 TEST(Mvvm, FillWindowCanvasesEachFollowTheirOwnWindowSize) {
@@ -977,8 +980,8 @@ TEST(Mvvm, FillWindowCanvasesEachFollowTheirOwnWindowSize) {
     secondary_canvas.window = secondary;
     world.emplace<engine::ui::UiCanvas>(secondary_entity, secondary_canvas);
 
-    world.ctx<engine::ui::WindowSizes>().sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
-    world.ctx<engine::ui::WindowSizes>().sizes[secondary] = engine::ui::WindowSize{320, 240};
+    engine::ui::presentation_of(world).sizes.sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
+    engine::ui::presentation_of(world).sizes.sizes[secondary] = engine::ui::WindowSize{320, 240};
     engine::ui::apply_canvas_fit(world);
 
     EXPECT_EQ(world.get<engine::ui::UiCanvas>(primary_entity).rect, (engine::render::Rect{0.0f, 0.0f, 800.0f, 600.0f}));
@@ -1003,7 +1006,7 @@ TEST(Mvvm, HandlePointerOnlyHitTestsCanvasesOnItsOwnWindow) {
 
     EXPECT_EQ(vm_a->clicks, 1);
     EXPECT_EQ(vm_b->clicks, 0);
-    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_TRUE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
 }
 
 class ViewportViewModel final : public engine::ui::ViewModel {
@@ -1059,7 +1062,7 @@ TEST(Mvvm, ViewportBackgroundDragWritesPan) {
     EXPECT_FLOAT_EQ(vm->pan_x.get(), 10.0f);
     EXPECT_FLOAT_EQ(vm->pan_y.get(), 4.0f);
     EXPECT_EQ(vm->clicks, 0);
-    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_TRUE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
 }
 
 TEST(Mvvm, ViewportButtonDownDoesNotPan) {
@@ -1094,7 +1097,7 @@ TEST(Mvvm, ViewportWheelZoomsTowardCursor) {
     EXPECT_NEAR(displayed.x, pointer.x, 1e-4f);
     EXPECT_NEAR(displayed.y, pointer.y, 1e-4f);
     EXPECT_EQ(vm->clicks, 0);
-    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().consumed_for(engine::kPrimaryWindow));
+    EXPECT_TRUE(engine::ui::presentation_of(world).mouse.consumed_for(engine::kPrimaryWindow));
 }
 
 TEST(Mvvm, ViewportWheelOverButtonStillZooms) {

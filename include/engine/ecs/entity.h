@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/modules/ECS.md
+
 #include <cstdint>
 
 namespace engine::ecs {
