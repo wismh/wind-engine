@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/modules/Haptics.md
+
 #include <memory>
 
 namespace engine {

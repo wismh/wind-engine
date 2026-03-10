@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/build/Asset Codegen.md
+
 #include <filesystem>
 
 namespace engine {

@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/modules/UI.md
+
 #include <engine/core/key_code.h>
 #include <engine/core/window_desc.h>
 #include <engine/ecs/world.h>
@@ -178,17 +180,13 @@ struct UiActiveScrollbars {
     std::unordered_map<WindowId, ActiveScrollbarDrag> drags;
 };
 
-// Only ever holds entries for windows OTHER than kPrimaryWindow — mirrors WindowSizes above:
-// the primary's pointer stays authoritative in the existing ctx<UiPointer>() singleton, unchanged,
-// so every pre-existing single-window call site keeps working with zero modification. A window
-// whose pointer has never moved resolves to a default-constructed UiPointer via pointer_for().
+// Holds the pointer for every window other than kPrimaryWindow. The primary pointer lives in
+// Presentation::pointer. pointer_for() is the only read.
 struct UiPointers {
     std::unordered_map<WindowId, UiPointer> pointers;
 };
 
-// Centralizes the "primary reads ctx<UiPointer>(), everything else reads ctx<UiPointers>()" branch
-// (same shape as window_size_for) so a pointer move/click in one window never leaks its position or
-// down-state into another window's hover/press paint state.
+// Primary reads Presentation::pointer. Every other window reads Presentation::pointers.
 [[nodiscard]] UiPointer& pointer_for(ecs::World& world, WindowId id);
 
 [[nodiscard]] constexpr bool rect_contains(const render::Rect& rect, float x, float y) noexcept {

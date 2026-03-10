@@ -1,8 +1,10 @@
 #include <engine/ui/canvas.h>
 
 #include <engine/loc/catalog.h>
+#include <engine/resources/fatal_error.h>
 #include <engine/ui/document.h>
 #include <engine/ui/inspector.h>
+#include <engine/ui/presentation.h>
 #include <engine/ui/profiler.h>
 
 #include "element_path.h"
@@ -45,17 +47,40 @@ namespace engine::ui {
 
     } // namespace
 
+    void bind_presentation(ecs::World &world, Presentation &presentation) {
+        world.ctx<Presentation *>() = &presentation;
+    }
+
+    Presentation &presentation_of(ecs::World &world) {
+        Presentation *&slot = world.ctx<Presentation *>();
+        if (slot != nullptr) {
+            return *slot;
+        }
+        if (IFatalError *const fatal = world.ctx<IFatalError *>()) {
+            fatal->report("World has no presentation");
+            static Presentation missing;
+            return missing;
+        }
+        slot = &world.ctx<Presentation>();
+        return *slot;
+    }
+
+    void reset_pointer_frame(Presentation &presentation) {
+        presentation.mouse.consumed_windows.clear();
+    }
+
     WindowSize window_size_for(ecs::World &world, WindowId id) {
-        const WindowSizes &sizes = world.ctx<WindowSizes>();
+        const WindowSizes &sizes = presentation_of(world).sizes;
         const auto it = sizes.sizes.find(id);
         return it == sizes.sizes.end() ? WindowSize{} : it->second;
     }
 
     UiPointer &pointer_for(ecs::World &world, WindowId id) {
+        Presentation &presentation = presentation_of(world);
         if (id == kPrimaryWindow) {
-            return world.ctx<UiPointer>();
+            return presentation.pointer;
         }
-        return world.ctx<UiPointers>().pointers[id];
+        return presentation.pointers.pointers[id];
     }
 
     UiCanvasSpace canvas_layout_space(const render::Rect &rect, UiFit fit, glm::vec2 reference_size) {
@@ -188,7 +213,6 @@ namespace engine::ui {
 #endif
         {
             ENGINE_UI_PROFILE_SHARED(BeginFrame);
-            world.ctx<MouseConsumed>().consumed_windows.clear();
             apply_canvas_fit(world);
             sync_inspector_frames(world);
         }
@@ -374,7 +398,7 @@ namespace engine::ui {
                 return std::nullopt;
             }
 
-            world.ctx<MouseConsumed>().consumed_windows.insert(window);
+            presentation_of(world).mouse.consumed_windows.insert(window);
             return PointerHit{hit, prepared->canvas, prepared->entity, prepared->space};
         }
 
@@ -684,7 +708,7 @@ namespace engine::ui {
                             UiInspector &inspector = world.ctx<UiInspector>();
                             inspector.detail_window = window;
                             inspector.selection[window] = std::move(pick);
-                            world.ctx<MouseConsumed>().consumed_windows.insert(window);
+                            presentation_of(world).mouse.consumed_windows.insert(window);
                             return;
                         }
                     }
@@ -1043,7 +1067,7 @@ namespace engine::ui {
                     scrolled = true;
                 }
                 if (scrolled) {
-                    world.ctx<MouseConsumed>().consumed_windows.insert(window);
+                    presentation_of(world).mouse.consumed_windows.insert(window);
                     return;
                 }
             }
@@ -1079,7 +1103,7 @@ namespace engine::ui {
             if (is_bound(viewport->pan_y_binding)) {
                 target->write_property_float(viewport->pan_y_binding, new_pan.y);
             }
-            world.ctx<MouseConsumed>().consumed_windows.insert(window);
+            presentation_of(world).mouse.consumed_windows.insert(window);
         }
 
     } // namespace

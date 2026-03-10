@@ -31,10 +31,12 @@ Control touch_control(std::uint32_t finger_id) {
 
 }
 
-InputSystem::InputSystem(ecs::World& world) : world_(&world) {}
+void InputSystem::set_router(std::function<ecs::World*(WindowId)> router) {
+    router_ = std::move(router);
+}
 
-void InputSystem::set_world(ecs::World& world) {
-    world_ = &world;
+ecs::World* InputSystem::world_for(WindowId window) const {
+    return router_ ? router_(window) : nullptr;
 }
 
 ActionId InputSystem::intern(std::string_view name) {
@@ -164,9 +166,12 @@ std::vector<Control> InputSystem::controls_for(ActionId action) const {
 }
 
 void InputSystem::release_held(Control control, ActionId action) {
-    if (!down_keys_.erase(control)) {
+    const auto held_key = down_keys_.find(control);
+    if (held_key == down_keys_.end()) {
         return;
     }
+    const WindowId window = held_key->second;
+    down_keys_.erase(held_key);
     auto held = held_counts_.find(action);
     if (held != held_counts_.end()) {
         --held->second;
@@ -174,12 +179,12 @@ void InputSystem::release_held(Control control, ActionId action) {
             held_counts_.erase(held);
         }
     }
-    if (world_ != nullptr) {
-        ecs::EventWriter<InputEvent>{*world_}.send(InputEvent{action, InputEvent::Kind::Up, 0.f});
+    if (ecs::World* const world = world_for(window)) {
+        ecs::EventWriter<InputEvent>{*world}.send(InputEvent{action, InputEvent::Kind::Up, 0.f});
     }
 }
 
-void InputSystem::apply_digital(Control control, bool down) {
+void InputSystem::apply_digital(Control control, bool down, WindowId window) {
     const auto binding = bindings_.find(control);
     if (binding == bindings_.end()) {
         return;
@@ -190,9 +195,11 @@ void InputSystem::apply_digital(Control control, bool down) {
         if (down_keys_.contains(control)) {
             return;
         }
-        down_keys_.insert(control);
+        down_keys_.emplace(control, window);
         ++held_counts_[action];
-        ecs::EventWriter<InputEvent>{*world_}.send(InputEvent{action, InputEvent::Kind::Down, 1.f});
+        if (ecs::World* const target = world_for(window)) {
+            ecs::EventWriter<InputEvent>{*target}.send(InputEvent{action, InputEvent::Kind::Down, 1.f});
+        }
         return;
     }
 
@@ -200,35 +207,38 @@ void InputSystem::apply_digital(Control control, bool down) {
 }
 
 void InputSystem::handle_key(KeyCode key, bool down, bool repeat, WindowId window) {
-    if (world_ == nullptr) {
+    ecs::World* const world = world_for(window);
+    if (world == nullptr) {
         return;
     }
-    ecs::EventWriter<KeyEvent>{*world_}.send(KeyEvent{
+    ecs::EventWriter<KeyEvent>{*world}.send(KeyEvent{
             .window = window,
             .key = key,
             .down = down,
             .repeat = repeat,
     });
     if (!repeat) {
-        apply_digital(key_control(key), down);
+        apply_digital(key_control(key), down, window);
     }
 }
 
 void InputSystem::handle_text_input(std::string_view text, WindowId window) {
-    if (world_ == nullptr) {
+    ecs::World* const world = world_for(window);
+    if (world == nullptr) {
         return;
     }
-    ecs::EventWriter<TextInputEvent>{*world_}.send(TextInputEvent{
+    ecs::EventWriter<TextInputEvent>{*world}.send(TextInputEvent{
             .window = window,
             .text = std::string(text),
     });
 }
 
 void InputSystem::handle_text_editing(std::string_view text, int start, int length, WindowId window) {
-    if (world_ == nullptr) {
+    ecs::World* const world = world_for(window);
+    if (world == nullptr) {
         return;
     }
-    ecs::EventWriter<TextEditingEvent>{*world_}.send(TextEditingEvent{
+    ecs::EventWriter<TextEditingEvent>{*world}.send(TextEditingEvent{
             .window = window,
             .text = std::string(text),
             .start = start,
@@ -238,10 +248,11 @@ void InputSystem::handle_text_editing(std::string_view text, int start, int leng
 
 void InputSystem::handle_mouse_button(
         WindowId window, MouseButton button, bool down, glm::vec2 position, std::uint8_t clicks) {
-    if (world_ == nullptr) {
+    ecs::World* const world = world_for(window);
+    if (world == nullptr) {
         return;
     }
-    ecs::EventWriter<MouseEvent>{*world_}.send(MouseEvent{
+    ecs::EventWriter<MouseEvent>{*world}.send(MouseEvent{
             .window = window,
             .kind = down ? MouseEvent::Kind::Down : MouseEvent::Kind::Up,
             .position = position,
@@ -251,14 +262,15 @@ void InputSystem::handle_mouse_button(
     if (button == MouseButton::None) {
         return;
     }
-    apply_digital(mouse_control(button), down);
+    apply_digital(mouse_control(button), down, window);
 }
 
 void InputSystem::handle_mouse_move(WindowId window, glm::vec2 position, glm::vec2 relative) {
-    if (world_ == nullptr) {
+    ecs::World* const world = world_for(window);
+    if (world == nullptr) {
         return;
     }
-    ecs::EventWriter<MouseEvent>{*world_}.send(MouseEvent{
+    ecs::EventWriter<MouseEvent>{*world}.send(MouseEvent{
             .window = window,
             .kind = MouseEvent::Kind::Move,
             .position = position,
@@ -267,10 +279,11 @@ void InputSystem::handle_mouse_move(WindowId window, glm::vec2 position, glm::ve
 }
 
 void InputSystem::handle_mouse_wheel(WindowId window, glm::vec2 position, float wheel_y) {
-    if (world_ == nullptr) {
+    ecs::World* const world = world_for(window);
+    if (world == nullptr) {
         return;
     }
-    ecs::EventWriter<MouseEvent>{*world_}.send(MouseEvent{
+    ecs::EventWriter<MouseEvent>{*world}.send(MouseEvent{
             .window = window,
             .kind = MouseEvent::Kind::Wheel,
             .position = position,
@@ -279,7 +292,7 @@ void InputSystem::handle_mouse_wheel(WindowId window, glm::vec2 position, float 
 }
 
 void InputSystem::handle_touch(std::uint32_t finger_id, bool down, glm::vec2 position) {
-    if (world_ == nullptr) {
+    if (world_for(kPrimaryWindow) == nullptr) {
         return;
     }
     if (down) {
@@ -287,10 +300,10 @@ void InputSystem::handle_touch(std::uint32_t finger_id, bool down, glm::vec2 pos
             primary_finger_ = finger_id;
             handle_mouse_button(kPrimaryWindow, MouseButton::Left, true, position);
         }
-        apply_digital(touch_control(finger_id), true);
+        apply_digital(touch_control(finger_id), true, kPrimaryWindow);
         return;
     }
-    apply_digital(touch_control(finger_id), false);
+    apply_digital(touch_control(finger_id), false, kPrimaryWindow);
     if (primary_finger_ == finger_id) {
         handle_mouse_button(kPrimaryWindow, MouseButton::Left, false, position);
         primary_finger_.reset();
@@ -298,7 +311,7 @@ void InputSystem::handle_touch(std::uint32_t finger_id, bool down, glm::vec2 pos
 }
 
 void InputSystem::handle_touch_move(std::uint32_t finger_id, glm::vec2 position, glm::vec2 relative) {
-    if (world_ == nullptr) {
+    if (world_for(kPrimaryWindow) == nullptr) {
         return;
     }
     if (primary_finger_ == finger_id) {

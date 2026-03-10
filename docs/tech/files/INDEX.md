@@ -1,0 +1,318 @@
+# File index
+
+Every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`. `external/`, `build/`, and `cmake-build-*` are not listed. There is no per-file page. The link is the module or feature that owns the file.
+
+## `include/engine/`
+
+| Path | What it does | Page |
+| --- | --- | --- |
+| `include/engine/engine.h` | Umbrella include and `kApiEpoch` | [Core](../modules/Core.md) |
+| `include/engine/igame.h` | `IGame`, `GameBase`, `SplashScreen` | [Core](../modules/Core.md) |
+| `include/engine/log.h` | `log::init`, `info`, `warn`, `error` | [Core](../modules/Core.md) |
+| `include/engine/builtin_ids.h` | Frozen builtin `AssetId` values | [Resources](../modules/Resources.md) |
+| `include/engine/audio/.gitkeep` | Keeps the directory in Git | [Audio](../modules/Audio.md) |
+| `include/engine/audio/audio_system.h` | `IAudioSystem`, `AudioSystem`, pool sizes | [Audio](../modules/Audio.md) |
+| `include/engine/audio/events.h` | `PlaySfxEvent`, `PlayMusicEvent` | [Audio](../modules/Audio.md) |
+| `include/engine/audio/sound.h` | `Sound` and the opaque `Audio` clip | [Audio](../modules/Audio.md) |
+| `include/engine/core/app_lifecycle.h` | Pause, resume, terminate, Android back | [Core](../modules/Core.md) |
+| `include/engine/core/application_state.h` | `running` and `paused` | [Core](../modules/Core.md) |
+| `include/engine/core/bound_windows.h` | Windows bound to one world | [Windowing](../features/Windowing.md) |
+| `include/engine/core/engine.h` | `Engine<GameT>::init`, `run`, `dispose` | [Core](../modules/Core.md) |
+| `include/engine/core/engine_runtime.h` | Windowed presentation and `GameLoop` owner | [Core](../modules/Core.md) |
+| `include/engine/core/engine_services.h` | References passed into the game constructor | [Core](../modules/Core.md) |
+| `include/engine/core/fixed_step.h` | `FixedStepClock` | [Core](../modules/Core.md) |
+| `include/engine/core/host.h` | Headless tick host for tests | [Core](../modules/Core.md) |
+| `include/engine/core/input_system.h` | `ActionId` bindings and input events | [Input Mapper](../features/Input Mapper.md) |
+| `include/engine/core/key_code.h` | `KeyCode` values matching SDL scancodes | [Input Mapper](../features/Input Mapper.md) |
+| `include/engine/core/platform.h` | Platform, assets root, `user_data_directory` | [Core](../modules/Core.md) |
+| `include/engine/core/sdl_fatal_error.h` | SDL message-box `IFatalError` | [Core](../modules/Core.md) |
+| `include/engine/core/time.h` | `Time` and the 60 Hz constants | [Core](../modules/Core.md) |
+| `include/engine/core/web_loop.h` | `MainLoopPolicy` and `LoopShutdown` | [Core](../modules/Core.md) |
+| `include/engine/core/window_control.h` | `IWindowControl` and `OverlayMode` | [Windowing](../features/Windowing.md) |
+| `include/engine/core/window_desc.h` | `WindowId`, `WindowDesc`, `WindowStyle` | [Windowing](../features/Windowing.md) |
+| `include/engine/core/worlds.h` | Process `Worlds`: add, destroy, bind, stepping | [Core](../modules/Core.md) |
+| `include/engine/ecs/.gitkeep` | Keeps the directory in Git | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/camera.h` | Orthographic `Camera` and screen/world conversion | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/entity.h` | Generational `Entity` | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/events.h` | Double-buffered `Events`, reader, writer, cursor | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/physics.h` | Colliders, `CollisionEvent`, `run_physics` | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/schedule.h` | `Schedule` and `Phase` | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/systems.h` | `register_engine_systems` and its dependencies | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/transform.h` | Position, rotation, scale. No parent | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/world.h` | `World` and `View` declarations | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/world.inl` | Pool and view template bodies | [ECS](../modules/ECS.md) |
+| `include/engine/haptics/haptics_system.h` | `IHaptics` and `HapticsSystem` | [Haptics](../modules/Haptics.md) |
+| `include/engine/loc/catalog.h` | `StringTable` parse and `Catalog` | [Localization](../modules/Localization.md) |
+| `include/engine/render/.gitkeep` | Keeps the directory in Git | [Render](../modules/Render.md) |
+| `include/engine/render/animation.h` | Sprite clip, animator, animation TOML | [Render](../modules/Render.md) |
+| `include/engine/render/backend.h` | `IRenderBackend::execute` | [Render](../modules/Render.md) |
+| `include/engine/render/canvas.h` | `ICanvas::draw` | [Render](../modules/Render.md) |
+| `include/engine/render/command_buffer.h` | Buffer of `Command` | [Render](../modules/Render.md) |
+| `include/engine/render/commands.h` | `CmdDrawMesh`, `CmdDrawUI`, `CmdDrawParticles` | [Render](../modules/Render.md) |
+| `include/engine/render/curve.h` | `Curve<T>` with `Linear`, `Smooth`, and `Step` keys | [Render](../modules/Render.md) |
+| `include/engine/render/graphic_factory.h` | Mesh, shader, and texture descriptions and factory | [Render](../modules/Render.md) |
+| `include/engine/render/graphics.h` | `IMesh`, `IShader`, `ITexture` | [Render](../modules/Render.md) |
+| `include/engine/render/material.h` | `IMaterial`, blend modes, `.mat` parse | [Materials and Sort](../features/Materials and Sort.md) |
+| `include/engine/render/particles.h` | `ParticleEmitter` | [Render](../modules/Render.md) |
+| `include/engine/render/renderable.h` | `Renderable` and the sort predicate | [Materials and Sort](../features/Materials and Sort.md) |
+| `include/engine/render/shader_adapt.h` | GLSL 330 to GLSL 300 ES | [Render](../modules/Render.md) |
+| `include/engine/render/sprite.h` | `Sprite` quad fields | [Materials and Sort](../features/Materials and Sort.md) |
+| `include/engine/resources/.gitkeep` | Keeps the directory in Git | [Resources](../modules/Resources.md) |
+| `include/engine/resources/asset_guid.h` | `write_missing_metas` | [Asset Codegen](../build/Asset Codegen.md) |
+| `include/engine/resources/asset_id.h` | 32-hex `AssetId` | [Resources](../modules/Resources.md) |
+| `include/engine/resources/assets_db.h` | `get`, `try_get`, `get_sprite` | [Assets](../features/Assets.md) |
+| `include/engine/resources/fatal_error.h` | `IFatalError` | [Core](../modules/Core.md) |
+| `include/engine/resources/font.h` | `Font` file bytes | [Resources](../modules/Resources.md) |
+| `include/engine/resources/meta.h` | Importers, `.meta` parse, `codegen_write` | [Resources](../modules/Resources.md) |
+| `include/engine/resources/sprite_sheet.h` | Named rect to sprite UVs | [Assets](../features/Assets.md) |
+| `include/engine/ui/.gitkeep` | Keeps the directory in Git | [UI](../modules/UI.md) |
+| `include/engine/ui/bindable.h` | `Bindable` and `BindableList` | [UI](../modules/UI.md) |
+| `include/engine/ui/binding_id.h` | FNV-1a `BindingId` | [UI](../modules/UI.md) |
+| `include/engine/ui/builder.h` | `ui::Node` document builder | [UI Markup](../features/UI Markup.md) |
+| `include/engine/ui/canvas.h` | `UiCanvas`, pointer, focus, `MouseConsumed` | [UI](../modules/UI.md) |
+| `include/engine/ui/command.h` | `ICommand` and `RelayCommand` | [UI](../modules/UI.md) |
+| `include/engine/ui/document.h` | `Element`, layout boxes, `UiDocument` | [UI Markup](../features/UI Markup.md) |
+| `include/engine/ui/draw_list.h` | `IDrawList` for `IPaint` | [UI](../modules/UI.md) |
+| `include/engine/ui/inspector.h` | Inspector toggle, pick, and panel tag | [UI Inspector](../features/UI Inspector.md) |
+| `include/engine/ui/paint.h` | `IPaint` and `RelayPaint` | [UI](../modules/UI.md) |
+| `include/engine/ui/presentation.h` | Process window sizes, pointer, mouse consumption | [Windowing](../features/Windowing.md) |
+| `include/engine/ui/profiler.h` | Profiler toggle. No-op without the macro | [UI Profiler](../features/UI Profiler.md) |
+| `include/engine/ui/splash.h` | `show_splash` and `SplashTimer` | [UI](../modules/UI.md) |
+| `include/engine/ui/stylesheet.h` | Parsed CSS rules | [UI Markup](../features/UI Markup.md) |
+| `include/engine/ui/text_line.h` | Wrapped rows and painted selection boxes | [UI Input](../features/UI Input.md) |
+| `include/engine/ui/view_model.h` | Property, command, and paint registration | [UI](../modules/UI.md) |
+
+## `src/core/` and `src/cli/`
+
+| Path | What it does | Page |
+| --- | --- | --- |
+| `src/core/api_epoch.cpp` | `api_epoch()` returns `kApiEpoch` | [Core](../modules/Core.md) |
+| `src/core/app_lifecycle.cpp` | Applies lifecycle events to `ApplicationState` | [Core](../modules/Core.md) |
+| `src/core/engine_instantiate.cpp` | Explicit `Engine<WindowSmokeGame>` instantiation | [Core](../modules/Core.md) |
+| `src/core/engine_runtime.cpp` | `EngineRuntime` pimpl over the presentation | [Core](../modules/Core.md) |
+| `src/core/fixed_step.cpp` | Accumulator and step cap | [Core](../modules/Core.md) |
+| `src/core/frame_step.cpp` | `flush_worlds` and `simulate_worlds` | [Runtime Loop](../architecture/Runtime Loop.md) |
+| `src/core/frame_step.h` | Declarations for those two functions | [Runtime Loop](../architecture/Runtime Loop.md) |
+| `src/core/game_loop.cpp` | `begin`, `tick`, `reentrant_tick`, `end` | [Runtime Loop](../architecture/Runtime Loop.md) |
+| `src/core/game_loop.h` | `GameLoop` | [Runtime Loop](../architecture/Runtime Loop.md) |
+| `src/core/host.cpp` | Registers systems and ticks a fake canvas | [Core](../modules/Core.md) |
+| `src/core/input_system.cpp` | Bind table and event enqueue | [Input Mapper](../features/Input Mapper.md) |
+| `src/core/log.cpp` | spdlog sinks | [Core](../modules/Core.md) |
+| `src/core/platform.cpp` | Assets root, Android staging, user-data path | [Core](../modules/Core.md) |
+| `src/core/presentation.h` | `IPresentation` seam the loop calls | [Core](../modules/Core.md) |
+| `src/core/sdl_fatal_error.cpp` | Message box and quit | [Core](../modules/Core.md) |
+| `src/core/web_loop.cpp` | RAF vs blocking policy, ordered shutdown | [Core](../modules/Core.md) |
+| `src/core/worlds.cpp` | Add, destroy, bind, per-world clocks | [Core](../modules/Core.md) |
+| `src/cli/cli_commands.cpp` | JSON for `tree`, `element`, `hit`, `click`, `profile` | [CLI](../features/CLI.md) |
+| `src/cli/cli_server.cpp` | Loopback accept thread and descriptor file | [CLI](../features/CLI.md) |
+| `src/cli/cli_server.h` | Server API used by `GameLoop` | [CLI](../features/CLI.md) |
+
+## `src/ecs/`
+
+| Path | What it does | Page |
+| --- | --- | --- |
+| `src/ecs/.gitkeep` | Keeps the directory in Git | [ECS](../modules/ECS.md) |
+| `src/ecs/camera.cpp` | View and projection matrices, screen/world | [ECS](../modules/ECS.md) |
+| `src/ecs/physics.cpp` | Velocity integration and overlap events | [ECS](../modules/ECS.md) |
+| `src/ecs/systems.cpp` | Engine systems: input, splash, animation, particles, bind, audio, render, UI render | [Runtime Loop](../architecture/Runtime Loop.md) |
+| `src/ecs/world.cpp` | Create, destroy, flush, `run` | [ECS](../modules/ECS.md) |
+
+## `src/resources/`
+
+| Path | What it does | Page |
+| --- | --- | --- |
+| `src/resources/.gitkeep` | Keeps the directory in Git | [Resources](../modules/Resources.md) |
+| `src/resources/asset_guid.cpp` | Writes missing `.meta` sidecars | [Asset Codegen](../build/Asset Codegen.md) |
+| `src/resources/assets_db.cpp` | Catalog load and typed asset cache | [Assets](../features/Assets.md) |
+| `src/resources/codegen.cpp` | Scan tree, emit `asset_ids.h` and `catalog.toml` | [Asset Codegen](../build/Asset Codegen.md) |
+| `src/resources/icon_codegen.cpp` | Resize and encode ico, icns, mipmaps, favicon | [Icon Codegen](../build/Icon Codegen.md) |
+| `src/resources/icon_codegen.h` | Icon encode API used by the host tool | [Icon Codegen](../build/Icon Codegen.md) |
+| `src/resources/importers.cpp` | Mesh text, shader XML, PNG decode entry points | [Assets](../features/Assets.md) |
+| `src/resources/importers.h` | Those parsers | [Assets](../features/Assets.md) |
+| `src/resources/meta.cpp` | TOML `.meta` and cooked catalog parse | [Resources](../modules/Resources.md) |
+| `src/resources/png_decode.cpp` | PNG bytes to RGBA `TextureDesc` | [Icon Codegen](../build/Icon Codegen.md) |
+| `src/resources/stb_image.h` | Vendored PNG/image decoder | [Resources](../modules/Resources.md) |
+| `src/resources/stb_image_resize2.h` | Vendored resampler used by icon codegen | [Icon Codegen](../build/Icon Codegen.md) |
+| `src/resources/stb_image_write.h` | Vendored PNG encoder used by icon codegen | [Icon Codegen](../build/Icon Codegen.md) |
+| `src/resources/stb_truetype.h` | Vendored TrueType rasterizer used by the UI painter | [UI](../modules/UI.md) |
+
+## `src/render/`
+
+| Path | What it does | Page |
+| --- | --- | --- |
+| `src/render/.gitkeep` | Keeps the directory in Git | [Render](../modules/Render.md) |
+| `src/render/backend/opengl/.gitkeep` | Empty placeholder. The backend lives in `src/render/opengl/` | [Render](../modules/Render.md) |
+| `src/render/animation.cpp` | Parse animation TOML into a clip | [Render](../modules/Render.md) |
+| `src/render/material.cpp` | Parse `.mat` TOML | [Materials and Sort](../features/Materials and Sort.md) |
+| `src/render/material_instance.h` | `IMaterial` for a loaded `.mat` | [Materials and Sort](../features/Materials and Sort.md) |
+| `src/render/particles.cpp` | Spawn, integrate, and collide particles | [Render](../modules/Render.md) |
+| `src/render/shader_adapt.cpp` | Rewrite GLSL for ES | [Render](../modules/Render.md) |
+| `src/render/opengl/clipboard.cpp` | SDL clipboard get and set | [UI Input](../features/UI Input.md) |
+| `src/render/opengl/clipboard.h` | Those two functions | [UI Input](../features/UI Input.md) |
+| `src/render/opengl/desktop_overlay_policy.cpp` | Click-through and the Win32 modal-loop hook | [Windowing](../features/Windowing.md) |
+| `src/render/opengl/desktop_overlay_policy.h` | `DesktopOverlayPolicy` | [Windowing](../features/Windowing.md) |
+| `src/render/opengl/gl_includes.h` | glad or GLES include, private | [Render](../modules/Render.md) |
+| `src/render/opengl/nanovg_painter.cpp` | `IUiPainter` on NanoVG | [UI](../modules/UI.md) |
+| `src/render/opengl/nanovg_painter.h` | Painter declaration | [UI](../modules/UI.md) |
+| `src/render/opengl/opengl_backend.cpp` | Execute mesh and particle commands | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_backend.h` | `OpenGLBackend` | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_canvas.cpp` | Per-window GL canvas, font and image upload | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_canvas.h` | `OpenGLCanvas` | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_factory.cpp` | Create GL mesh, shader, texture | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_factory.h` | `OpenGLFactory` | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_mesh.cpp` | GL mesh | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_mesh.h` | GL mesh type | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_shader.cpp` | GL program and named uniforms | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_shader.h` | GL shader type | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_texture.cpp` | GL texture and sampler from catalog filter and wrap | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_texture.h` | GL texture type | [Render](../modules/Render.md) |
+| `src/render/opengl/sdl_gl_presentation.cpp` | SDL poll, present, and `IPresentation` | [Windowing](../features/Windowing.md) |
+| `src/render/opengl/sdl_gl_presentation.h` | `SdlGlPresentation` | [Windowing](../features/Windowing.md) |
+| `src/render/opengl/window_control.h` | `IWindowControl` adapter over `WindowManager` | [Windowing](../features/Windowing.md) |
+| `src/render/opengl/window_manager.cpp` | One window, canvas, and command buffer per id | [Windowing](../features/Windowing.md) |
+| `src/render/opengl/window_manager.h` | `WindowManager` | [Windowing](../features/Windowing.md) |
+| `src/render/opengl/window_system.cpp` | One SDL window and GL context, including `set_icon` | [Windowing](../features/Windowing.md) |
+| `src/render/opengl/window_system.h` | `WindowSystem` and `make_icon_surface` | [Windowing](../features/Windowing.md) |
+
+## `src/ui/`
+
+| Path | What it does | Page |
+| --- | --- | --- |
+| `src/ui/.gitkeep` | Keeps the directory in Git | [UI](../modules/UI.md) |
+| `src/ui/bind_scan.h` | Collect `{binding}` paths for codegen | [Asset Codegen](../build/Asset Codegen.md) |
+| `src/ui/builder.cpp` | `ui::Node` factories | [UI Markup](../features/UI Markup.md) |
+| `src/ui/canvas.cpp` | Fit, hit routing, focus, text edit, splash timers' frame hook | [UI](../modules/UI.md) |
+| `src/ui/css_length.h` | Parse `px`, `%`, `em`, and `calc()` | [UI Markup](../features/UI Markup.md) |
+| `src/ui/css_parser.cpp` | Stylesheet parser | [UI Markup](../features/UI Markup.md) |
+| `src/ui/document.cpp` | Bind, layout, hit-test, virtualization | [UI Markup](../features/UI Markup.md) |
+| `src/ui/draw_list_adapter.h` | `IDrawList` over `IUiPainter` | [UI](../modules/UI.md) |
+| `src/ui/element_path.cpp` | Resolve a child-index path, including generated rows | [UI Inspector](../features/UI Inspector.md) |
+| `src/ui/element_path.h` | `kGeneratedPathBit` and path helpers | [UI Inspector](../features/UI Inspector.md) |
+| `src/ui/inline_math.cpp` | Split `\(...\)` out of label text | [UI](../modules/UI.md) |
+| `src/ui/inline_math.h` | Inline-math split API | [UI](../modules/UI.md) |
+| `src/ui/input_batch.h` | Per-`run_input` bind and layout cache | [UI Input](../features/UI Input.md) |
+| `src/ui/inspector.cpp` | Inspector panel document and pick | [UI Inspector](../features/UI Inspector.md) |
+| `src/ui/paint.cpp` | Cascade, paint, style cache | [UI Markup](../features/UI Markup.md) |
+| `src/ui/painter.h` | Private `IUiPainter` | [UI](../modules/UI.md) |
+| `src/ui/profile.h` | `ENGINE_UI_PROFILE` scopes | [UI Profiler](../features/UI Profiler.md) |
+| `src/ui/profiler.cpp` | Profiler window, rings, and charts | [UI Profiler](../features/UI Profiler.md) |
+| `src/ui/profiler_chart.h` | Chart geometry for the profiler `IPaint` | [UI Profiler](../features/UI Profiler.md) |
+| `src/ui/splash.cpp` | Build the two splash documents | [UI](../modules/UI.md) |
+| `src/ui/splash.h` | Splash document structs used by `show_splash` | [UI](../modules/UI.md) |
+| `src/ui/style_anim.cpp` | Sample `transition` and `@keyframes` | [UI Markup](../features/UI Markup.md) |
+| `src/ui/style_anim.h` | Motion clock types | [UI Markup](../features/UI Markup.md) |
+| `src/ui/text_select.cpp` | Word ranges and selection edits | [UI Input](../features/UI Input.md) |
+| `src/ui/text_select.h` | Selection helpers | [UI Input](../features/UI Input.md) |
+| `src/ui/text_wrap.cpp` | Break a string into rows | [UI](../modules/UI.md) |
+| `src/ui/text_wrap.h` | Wrap API | [UI](../modules/UI.md) |
+| `src/ui/tr_attr.cpp` | Parse `{tr …}` attribute text | [Localization](../modules/Localization.md) |
+| `src/ui/tr_attr.h` | `{tr}` parse result | [Localization](../modules/Localization.md) |
+| `src/ui/ui_refs.cpp` | Images and fonts a document can paint | [UI](../modules/UI.md) |
+| `src/ui/ui_refs.h` | Those collectors | [UI](../modules/UI.md) |
+| `src/ui/view_model.cpp` | Non-template `ViewModel` methods | [UI](../modules/UI.md) |
+| `src/ui/xml_parser.cpp` | XML to `Element` | [UI Markup](../features/UI Markup.md) |
+| `src/ui/math/math_ast.h` | Formula AST nodes | [UI](../modules/UI.md) |
+| `src/ui/math/math_element.cpp` | `Math` element measure and paint | [UI](../modules/UI.md) |
+| `src/ui/math/math_element.h` | Math element entry used by the document | [UI](../modules/UI.md) |
+| `src/ui/math/math_font.cpp` | OpenType MATH table reads | [UI](../modules/UI.md) |
+| `src/ui/math/math_font.h` | Math font metrics | [UI](../modules/UI.md) |
+| `src/ui/math/math_layout.cpp` | Box layout for a formula | [UI](../modules/UI.md) |
+| `src/ui/math/math_layout.h` | Layout API | [UI](../modules/UI.md) |
+| `src/ui/math/math_paint.cpp` | Outline strokes for a laid-out formula | [UI](../modules/UI.md) |
+| `src/ui/math/math_paint.h` | Paint API | [UI](../modules/UI.md) |
+| `src/ui/math/math_parser.cpp` | TeX subset parser | [UI](../modules/UI.md) |
+| `src/ui/math/math_parser.h` | Parser API | [UI](../modules/UI.md) |
+| `src/ui/math/math_stretch.cpp` | Glyph stretch for tall delimiters | [UI](../modules/UI.md) |
+| `src/ui/math/math_stretch.h` | Stretch API | [UI](../modules/UI.md) |
+
+## `src/audio/`, `src/haptics/`, `src/loc/`
+
+| Path | What it does | Page |
+| --- | --- | --- |
+| `src/audio/audio_system.cpp` | Real mixer or fake mixer behind `ENGINE_WITH_AUDIO` | [Audio](../modules/Audio.md) |
+| `src/audio/clip.cpp` | Decode a WAV into the opaque clip | [Audio](../modules/Audio.md) |
+| `src/audio/clip.h` | Clip storage. Mixer types stay here | [Audio](../modules/Audio.md) |
+| `src/audio/fake_mixer.h` | In-memory tracks for tests and the no-audio build | [Audio](../modules/Audio.md) |
+| `src/haptics/fake_haptics.h` | Records vibrate and cancel on every backend | [Haptics](../modules/Haptics.md) |
+| `src/haptics/haptics_system.cpp` | No-op, `navigator.vibrate`, or Android JNI | [Haptics](../modules/Haptics.md) |
+| `src/loc/catalog.cpp` | Table parse, lookup, warn-once, pseudo | [Localization](../modules/Localization.md) |
+| `src/loc/format.cpp` | `{name}` and plural message format | [Localization](../modules/Localization.md) |
+| `src/loc/format.h` | Format API | [Localization](../modules/Localization.md) |
+| `src/loc/plural.cpp` | Integer plural categories | [Localization](../modules/Localization.md) |
+| `src/loc/plural.h` | `PluralCategory` | [Localization](../modules/Localization.md) |
+
+## `tests/`
+
+| Path | What it does | Page |
+| --- | --- | --- |
+| `tests/android_assets_test.cpp` | Android asset staging without a device | [Runtime Assets](../build/Runtime Assets.md) |
+| `tests/android_lifecycle_test.cpp` | Pause, resume, back | [Core](../modules/Core.md) |
+| `tests/animation_test.cpp` | Sprite clip parse and playback | [Render](../modules/Render.md) |
+| `tests/assets_test.cpp` | Catalog, `get` / `try_get`, codegen failures | [Assets](../features/Assets.md) |
+| `tests/audio_test.cpp` | Fake mixer: pool, music fade, looping handles | [Audio](../modules/Audio.md) |
+| `tests/builtin_test.cpp` | Frozen builtin ids and files | [Resources](../modules/Resources.md) |
+| `tests/camera_test.cpp` | Ortho matrices and screen/world | [ECS](../modules/ECS.md) |
+| `tests/cli_server_test.cpp` | Descriptor, HTTP, and commands without `GameLoop` | [CLI](../features/CLI.md) |
+| `tests/cmake_sanity_test.cpp` | Public headers and the API epoch compile | [CMake](../build/CMake.md) |
+| `tests/command_buffer_test.cpp` | Push and iterate the three command types | [Render](../modules/Render.md) |
+| `tests/ecs_test.cpp` | Create, destroy, views, deferred destroy | [ECS](../modules/ECS.md) |
+| `tests/events_test.cpp` | Double buffer and cursors | [ECS](../modules/ECS.md) |
+| `tests/haptics_test.cpp` | Clamp, no-op, and the fake counters | [Haptics](../modules/Haptics.md) |
+| `tests/host_test.cpp` | `Host` tick and system registration | [Core](../modules/Core.md) |
+| `tests/icon_codegen_test.cpp` | ICO, ICNS, and PNG sizes in memory | [Icon Codegen](../build/Icon Codegen.md) |
+| `tests/input_test.cpp` | Bind, hold, touch synthesis | [Input Mapper](../features/Input Mapper.md) |
+| `tests/loc_catalog_test.cpp` | TOML tables, fallback, pseudo, warn-once | [Localization](../modules/Localization.md) |
+| `tests/loc_format_test.cpp` | Placeholders and plural branches | [Localization](../modules/Localization.md) |
+| `tests/log_test.cpp` | The null sink | [Core](../modules/Core.md) |
+| `tests/material_test.cpp` | `.mat` parse and instance tint | [Materials and Sort](../features/Materials and Sort.md) |
+| `tests/mvvm_test.cpp` | View-model properties, commands, checkbox write-back | [UI](../modules/UI.md) |
+| `tests/opengl_texture_test.cpp` | CPU texture description. No GL draw | [Render](../modules/Render.md) |
+| `tests/particle_test.cpp` | Emitter step and curves | [Render](../modules/Render.md) |
+| `tests/physics_test.cpp` | Overlap enter, stay, exit | [ECS](../modules/ECS.md) |
+| `tests/platform_test.cpp` | Assets root and `user_data_directory` names | [Core](../modules/Core.md) |
+| `tests/render_system_test.cpp` | `run_render` sort; unset camera skips, missing components fatal | [Materials and Sort](../features/Materials and Sort.md) |
+| `tests/shader_adapt_test.cpp` | GLSL 300 ES rewrite | [Render](../modules/Render.md) |
+| `tests/sort_test.cpp` | `renderable_less` | [Materials and Sort](../features/Materials and Sort.md) |
+| `tests/splash_test.cpp` | Splash documents and the timer | [UI](../modules/UI.md) |
+| `tests/sprite_test.cpp` | Sprite sheet UVs and `get_sprite` | [Assets](../features/Assets.md) |
+| `tests/time_test.cpp` | Clamp, pause, and the step cap | [Core](../modules/Core.md) |
+| `tests/ui_builder_test.cpp` | `ui::Node` tree matches XML | [UI Markup](../features/UI Markup.md) |
+| `tests/ui_css_test.cpp` | Selectors, lengths, unknown properties | [UI Markup](../features/UI Markup.md) |
+| `tests/ui_display_none_test.cpp` | `display: none` skips layout and hit-test | [UI Markup](../features/UI Markup.md) |
+| `tests/ui_inline_math_test.cpp` | `\(...\)` splits inside a label | [UI](../modules/UI.md) |
+| `tests/ui_input_batch_test.cpp` | One bind per canvas inside `run_input` | [UI Input](../features/UI Input.md) |
+| `tests/ui_inspector_test.cpp` | Pick, tree, and panel without a window | [UI Inspector](../features/UI Inspector.md) |
+| `tests/ui_items_control_virtualization_test.cpp` | Row window and spacers | [UI](../modules/UI.md) |
+| `tests/ui_label_select_test.cpp` | Label selection and copy | [UI Input](../features/UI Input.md) |
+| `tests/ui_layout_dirty_gate_test.cpp` | Skip layout when the gate is clean | [UI](../modules/UI.md) |
+| `tests/ui_layout_hit_test.cpp` | Stack layout and hit order | [UI Input](../features/UI Input.md) |
+| `tests/ui_loc_test.cpp` | `{tr}` bind and locale switch | [Localization](../modules/Localization.md) |
+| `tests/ui_math_element_test.cpp` | `Math` element in a document | [UI](../modules/UI.md) |
+| `tests/ui_math_font_test.cpp` | MATH table metrics | [UI](../modules/UI.md) |
+| `tests/ui_math_layout_test.cpp` | Formula box layout | [UI](../modules/UI.md) |
+| `tests/ui_math_paint_test.cpp` | Formula outlines | [UI](../modules/UI.md) |
+| `tests/ui_math_parser_test.cpp` | TeX subset parse | [UI](../modules/UI.md) |
+| `tests/ui_math_stretch_test.cpp` | Stretched delimiters | [UI](../modules/UI.md) |
+| `tests/ui_paint_binding_test.cpp` | `IPaint` draw order | [UI](../modules/UI.md) |
+| `tests/ui_painter_test.cpp` | Recording painter, no GL | [UI](../modules/UI.md) |
+| `tests/ui_profiler_test.cpp` | Profiler scopes and the no-op build | [UI Profiler](../features/UI Profiler.md) |
+| `tests/ui_refs_test.cpp` | Referenced images and fonts | [UI](../modules/UI.md) |
+| `tests/ui_scroll_test.cpp` | Scroll view and wheel | [UI Input](../features/UI Input.md) |
+| `tests/ui_text_input_test.cpp` | Caret, clipboard, IME | [UI Input](../features/UI Input.md) |
+| `tests/ui_text_wrap_test.cpp` | Row breaks and line height | [UI](../modules/UI.md) |
+| `tests/ui_xml_test.cpp` | Tags, bindings, unknown elements | [UI Markup](../features/UI Markup.md) |
+| `tests/web_loop_test.cpp` | RAF policy and shutdown order | [Core](../modules/Core.md) |
+| `tests/window_icon_test.cpp` | `make_icon_surface` byte layout | [Windowing](../features/Windowing.md) |
+| `tests/window_style_test.cpp` | Style flags and overlay mode | [Windowing](../features/Windowing.md) |
+| `tests/worlds_test.cpp` | World isolation, window routing, per-window draw | [Core](../modules/Core.md) |
+
+## `tools/`
+
+| Path | What it does | Page |
+| --- | --- | --- |
+| `tools/asset_codegen/main.cpp` | `asset_codegen` CLI | [Asset Codegen](../build/Asset Codegen.md) |
+| `tools/asset_codegen/README.md` | One-page usage | [Asset Codegen](../build/Asset Codegen.md) |
+| `tools/asset_guid/main.cpp` | `asset_guid` CLI | [Asset Codegen](../build/Asset Codegen.md) |
+| `tools/asset_guid/README.md` | One-page usage | [Asset Codegen](../build/Asset Codegen.md) |
+| `tools/icon_codegen/main.cpp` | `icon_codegen` CLI | [Icon Codegen](../build/Icon Codegen.md) |
+| `tools/wind_cli/main.cpp` | Host client for the loopback server | [CLI](../features/CLI.md) |

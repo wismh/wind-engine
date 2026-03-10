@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/features/Windowing.md
+
 #include <engine/core/window_desc.h>
 #include <engine/render/commands.h>
 
@@ -49,7 +51,7 @@ public:
     [[nodiscard]] virtual std::optional<glm::ivec2> position(WindowId window = kPrimaryWindow) const = 0;
 
     // Live client size in screen coordinates, the same space as resize. nullopt if that window
-    // is not open. This is not the drawable pixel size in ctx<ui::WindowSizes>().
+    // is not open. This is not the drawable pixel size on Presentation::sizes.
     [[nodiscard]] virtual std::optional<glm::ivec2> size(WindowId window = kPrimaryWindow) const = 0;
 
     // Manual on/off for click-through overlay mode; the automatic per-frame toggle only

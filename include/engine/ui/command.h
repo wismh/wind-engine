@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/modules/UI.md
+
 #include <functional>
 
 namespace engine::ui {

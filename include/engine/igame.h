@@ -1,8 +1,10 @@
 #pragma once
 
+// docs/tech/modules/Core.md
+
 #include <engine/builtin_ids.h>
 #include <engine/core/window_desc.h>
-#include <engine/ecs/schedule.h>
+#include <engine/core/worlds.h>
 #include <engine/ecs/world.h>
 #include <engine/resources/asset_id.h>
 
@@ -24,9 +26,8 @@ class IGame {
 public:
     virtual ~IGame() = default;
 
-    // Replaces the older separate window_title()/window_size() pair — a breaking
-    // change, not a compatibility shim. Only the primary window is declared up
-    // front; any further window is opened later through IWindowControl.
+    // Only the primary window is declared up front; any further window is opened later
+    // through IWindowControl.
     virtual WindowDesc primary_window() const {
         return {};
     }
@@ -38,34 +39,30 @@ public:
 
     virtual ecs::World& world() = 0;
     virtual void on_start() = 0;
-    virtual void on_fixed_update() = 0;
-    virtual void on_update() = 0;
-    virtual void on_draw() = 0;
     virtual void on_quit() = 0;
 };
 
 class GameBase : public IGame {
 public:
+    explicit GameBase(Worlds& worlds)
+        : worlds_(&worlds)
+        , world_(&worlds.add()) {}
+
     ecs::World& world() override {
-        return world_;
+        return *world_;
+    }
+
+    [[nodiscard]] Worlds& worlds() {
+        return *worlds_;
     }
 
     void on_start() override {}
 
-    void on_fixed_update() override {
-        world_.run(ecs::Schedule::Fixed);
-    }
-
-    void on_update() override {
-        world_.run(ecs::Schedule::Frame);
-    }
-
-    void on_draw() override {}
-
     void on_quit() override {}
 
-protected:
-    ecs::World world_;
+private:
+    Worlds* worlds_ = nullptr;
+    ecs::World* world_ = nullptr;
 };
 
 }

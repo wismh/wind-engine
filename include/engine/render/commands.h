@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/modules/Render.md
+
 #include <engine/ecs/entity.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>

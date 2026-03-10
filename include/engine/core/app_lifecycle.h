@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/modules/Core.md
+
 #include <engine/core/application_state.h>
 
 namespace engine {

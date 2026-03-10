@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/features/Input Mapper.md
+
 #include <engine/core/key_code.h>
 #include <engine/core/window_desc.h>
 #include <engine/ecs/world.h>
@@ -13,7 +15,6 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace engine {
@@ -98,9 +99,6 @@ struct TextEditingEvent {
 class InputSystem {
 public:
     InputSystem() = default;
-    explicit InputSystem(ecs::World& world);
-
-    void set_world(ecs::World& world);
 
     ActionId intern(std::string_view name);
     [[nodiscard]] std::optional<ActionId> find(std::string_view name) const;
@@ -135,16 +133,20 @@ public:
 
     [[nodiscard]] std::optional<std::uint32_t> primary_touch_finger() const;
 
+    // Events for a window go to the world this returns. A null world drops the event.
+    void set_router(std::function<ecs::World*(WindowId)> router);
+
 private:
-    void apply_digital(Control control, bool down);
+    [[nodiscard]] ecs::World* world_for(WindowId window) const;
+    void apply_digital(Control control, bool down, WindowId window);
     void release_held(Control control, ActionId action);
 
-    ecs::World* world_ = nullptr;
+    std::function<ecs::World*(WindowId)> router_;
     std::optional<std::uint32_t> primary_finger_;
     std::deque<std::string> interned_names_;
     std::unordered_map<std::string_view, ActionId> name_to_id_;
     std::unordered_map<Control, ActionId> bindings_;
-    std::unordered_set<Control> down_keys_;
+    std::unordered_map<Control, WindowId> down_keys_;
     std::unordered_map<ActionId, int> held_counts_;
 };
 

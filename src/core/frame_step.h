@@ -1,16 +1,16 @@
 #pragma once
 
 #include <engine/core/fixed_step.h>
-#include <engine/igame.h>
+#include <engine/core/worlds.h>
 
 namespace engine {
 
 class IAudioSystem;
 
-void flush_game_events(IGame& game);
+void flush_worlds(Worlds& worlds);
 
-// UI frame begin, fixed steps, audio update, then on_update. Host and the windowed loop share this
-// so the phase order cannot drift. The caller measures real_dt and decides whether to flush.
-void simulate_game_frame(IGame& game, IAudioSystem* audio, FixedStepClock& clock, float real_dt);
+// Clears pointer consumption, begins UI frames, advances every world clock, updates audio once,
+// then runs Fixed and Frame. The caller flushes and polls.
+void simulate_worlds(Worlds& worlds, IAudioSystem* audio, float real_dt);
 
 }

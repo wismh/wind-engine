@@ -1,9 +1,11 @@
 #pragma once
 
-#include <engine/core/application_state.h>
+// docs/tech/modules/Core.md
+
 #include <engine/core/input_system.h>
 #include <engine/core/window_control.h>
 #include <engine/core/window_desc.h>
+#include <engine/core/worlds.h>
 #include <engine/igame.h>
 #include <engine/render/backend.h>
 #include <engine/render/canvas.h>
@@ -39,7 +41,7 @@ public:
     [[nodiscard]] bool add_image_for_window(WindowId id, AssetId asset, const render::TextureDesc& desc);
     void shutdown();
 
-    [[nodiscard]] int run(IGame& game, InputSystem& input, IAudioSystem* audio,
+    [[nodiscard]] int run(IGame& game, Worlds& worlds, InputSystem& input, IAudioSystem* audio,
             std::function<void()> host_dispose = {});
 
     [[nodiscard]] render::CommandBuffer& commands();
@@ -53,7 +55,7 @@ public:
     [[nodiscard]] std::filesystem::path base_path() const;
     [[nodiscard]] std::filesystem::path assets_root() const;
 
-    void write_window_size(ecs::World& world, bool send_event);
+    void write_window_size(Worlds& worlds, bool send_event);
 
 private:
     struct Impl;

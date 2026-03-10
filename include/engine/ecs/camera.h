@@ -1,5 +1,7 @@
 #pragma once
 
+// docs/tech/modules/ECS.md
+
 #include <engine/ecs/entity.h>
 #include <engine/ecs/transform.h>
 #include <engine/ui/canvas.h>

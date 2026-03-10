@@ -1,15 +1,11 @@
----
-tags: [architecture]
----
-
 # Module map
 
-Who talks to whom at runtime (windowed game).
+Who talks to whom at runtime in a windowed game.
 
 ```mermaid
 flowchart TB
   subgraph host [Core host]
-    Eng["Engine&lt;GameT&gt;"]
+    Eng["Engine GameT"]
     RT["EngineRuntime"]
     Loop["GameLoop"]
     Present["IPresentation"]
@@ -25,14 +21,14 @@ flowchart TB
     Cat["catalog.toml"]
   end
 
-  subgraph ecsmod [ECS + systems]
+  subgraph ecsmod [ECS systems]
     Sys["register_engine_systems"]
   end
 
   subgraph rnd [Render]
     CB["CommandBuffer"]
     Fac["IGraphicFactory"]
-    CV["ICanvas / OpenGLCanvas"]
+    CV["ICanvas"]
   end
 
   subgraph uimod [UI]
@@ -68,38 +64,26 @@ flowchart TB
 
 ## Init wiring
 
-[[include.engine.core.engine.h|Engine::init]] (header-only template):
-
-1. `runtime_.init_video()` — SDL video, inside `SdlGlPresentation`.
-2. [[src.core.log.cpp|log::init]] with base path.
-3. `Engine::init` constructs `SdlFatalError`, `AssetsDb`, `InputSystem`, `AudioSystem`, `HapticsSystem` and passes them to `GameT(const EngineServices&)`.
-4. Create window, `audio_->init()`.
-5. `assets_->set_graphic_factory`, `set_root(exe/assets)`.
-6. Load `assets/engine/catalog.toml` then optional `assets/catalog.toml`.
-7. Load [[include.engine.builtin_ids.h|builtin::font_ui]] into the presentation's UI atlas.
-8. `register_engine_systems`, `ui::apply_canvas_fit`.
-
-Then [[include.engine.core.engine.h|Run]] → [[architecture/Runtime Loop]].
+`Engine::init` is a header-only template in `include/engine/core/engine.h`. The order is [Runtime Loop](Runtime Loop.md).
 
 ## Data that crosses modules
 
-| Payload                           | From                  | To                                                |
-| --------------------------------- | --------------------- | ------------------------------------------------- |
-| `AssetId`                         | codegen / `.meta`     | `get`, materials, UI `Source`, audio events       |
-| `MouseEvent` / `InputEvent`       | [[modules/Core]] poll | ECS event queues; UI hit-test; game Frame systems |
-| `PlaySfxEvent` / `PlayMusicEvent` | game or UI command    | Audio phase                                       |
-| `CmdDrawMesh`                     | Render system         | OpenGL backend                                    |
-| `CmdDrawUI`                       | UiRender system       | NanoVG painter                                    |
-| `MouseConsumed`                   | UI hit-test           | game must skip cell clicks                        |
-| `{tr}` key                        | string-table asset    | UI bind writes `Element::text`                    |
-|                                   |                       |                                                   |
+| Payload | From | To |
+| --- | --- | --- |
+| `AssetId` | codegen / `.meta` | `get`, materials, UI `source`, audio events |
+| `MouseEvent` / `InputEvent` | [Core](../modules/Core.md) poll | ECS event queues, UI hit-test, game Frame systems |
+| `PlaySfxEvent` / `PlayMusicEvent` | game or UI command | Audio phase |
+| `CmdDrawMesh` / `CmdDrawParticles` | Render system | OpenGL backend |
+| `CmdDrawUI` | UI render system | NanoVG painter |
+| `Presentation.mouse` | UI hit-test | `sync_frame` click-through on that same object. `ctx<ui::MouseConsumed>()` does not see the hits |
+| `{tr}` key | string-table asset | UI bind writes `Element::text` |
 
 ## Tests vs window
 
-[[build/CMake]]: root preset `vs` builds `engine` **without** `src/render/opengl/*` and without `engine_runtime.cpp`. GPU types return `NotReady` if factory is null. `Host` tests inject a fake `ICanvas`.
+[CMake](../build/CMake.md): the root preset `vs` builds `engine` without `src/render/opengl/*` and without `engine_runtime.cpp`. GPU types return `AssetError::NotReady` when the graphic factory is null. `Host` tests inject a fake `ICanvas`.
 
 ## See also
 
-- [[architecture/Overview]]
-- [[architecture/Boundaries]]
-- [[modules/Core]]
+- [Overview](Overview.md)
+- [Boundaries](Boundaries.md)
+- [Core](../modules/Core.md)

@@ -6,6 +6,7 @@
 #include <engine/ui/binding_id.h>
 #include <engine/ui/builder.h>
 #include <engine/ui/canvas.h>
+#include <engine/ui/presentation.h>
 #include <engine/ui/document.h>
 #include <engine/ui/stylesheet.h>
 #include <engine/ui/view_model.h>
@@ -222,7 +223,7 @@ TEST(UiScroll, WheelScrollsContentAndSyncsViewModel) {
     // Scroll down with wheel (wheel_y = -1.0f)
     engine::ui::handle_wheel(world, 50.0f, 50.0f, -1.0f);
 
-    EXPECT_TRUE(world.ctx<engine::ui::MouseConsumed>().consumed_windows.contains(engine::kPrimaryWindow));
+    EXPECT_TRUE(engine::ui::presentation_of(world).mouse.consumed_windows.contains(engine::kPrimaryWindow));
 
     // ViewModel should have been updated
     EXPECT_FLOAT_EQ(vm->scroll_pos.get(), 40.0f);

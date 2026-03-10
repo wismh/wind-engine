@@ -1,45 +1,88 @@
----
-tags: [feature]
----
-
 # Windowing
 
-One `ecs::World` and one loop; many OS windows. A window is an output target (`WindowId`), not a second simulation.
+One process, any number of `ecs::World`, one loop. A world is one simulation. A window belongs to one world (`Worlds::bind_window`). Binding a window that another world already owns is fatal. `kPrimaryWindow` is id 0, the player's only window when the process has one. It is not the only render target.
 
 ## Contract
 
-- `IGame::primary_window()` returns a `WindowDesc` (title, size, optional position, `WindowStyle`). That window is `kPrimaryWindow` and must exist before `on_start`.
-- Further windows: `IWindowControl::open_window` / `close_window`, reached through `EngineServices::windows`. Failure (no primary yet, no video) returns `nullopt`.
-- `WindowStyle::{borderless, always_on_top, transparent, resizable, maximized}`. Transparent cannot be toggled after create; open another window instead.
-- `maximized` is create-time. The window opens maximized with the title bar and taskbar still visible; `size` is the restored size. Without `resizable`, SDL ignores the request and the window stays at `size`.
-- `IWindowControl::position` and `size` read the live window in screen coordinates, the same space as `set_position` and `resize`. Both return `nullopt` when that window is not open. `size` is not the drawable pixel size in `ctx<ui::WindowSizes>()`.
-- `usable_display_bounds_for_window` is the work area of the display that window is on. A window that is not open falls back to the primary display, the same result as `usable_display_bounds(0)`.
-- World `Renderable`s draw only into `kPrimaryWindow`. Secondary windows are UI-only (`UiCanvas::window`).
-- Drawable size: `ctx<ui::WindowSizes>()` keyed by `WindowId`. `window_size_for(world, id)` returns `{0,0}` until the first resize/backfill.
-- `UiCanvas::window` selects which window sizes and hit-tests that canvas. Pointer events carry `window`; a canvas on another window never receives them.
-- Close button: `WindowCloseRequestedEvent` only. The engine never quits or destroys a game window on its own. The UI inspector window and the UI profiler window are the exceptions: a close request for that window turns the tool off, and the engine closes it. The primary window is not closed. See [[features/UI Inspector]] and [[features/UI Profiler]].
-- Platform SDL / Win32 calls stay in `src/render/opengl/` (`WindowManager`, `WindowSystem`). Public headers stay GL/SDL-free.
+`IGame::primary_window()` returns a `WindowDesc`. `Engine::init` creates that window before `on_start`. Its id is `kPrimaryWindow` (`WindowId{0}`).
+
+| `WindowDesc` field | Default |
+| --- | --- |
+| `title` | `"Game"` |
+| `size` | `{800, 600}` |
+| `position` | `nullopt` (platform placement) |
+| `style` | all flags false except `resizable = true` |
+
+`WindowStyle`:
+
+| Flag | When it applies |
+| --- | --- |
+| `borderless` | Create, and later `set_borderless` |
+| `always_on_top` | Create, and later `set_always_on_top` |
+| `transparent` | Create only. There is no setter |
+| `resizable` | Create. `false` also omits the Windows maximize box |
+| `maximized` | Create. Opens maximized with the title bar and taskbar still up. `size` is the restored size. SDL ignores this unless `resizable` is also set |
+
+Further windows: `EngineServices::windows` is `IWindowControl`.
+
+- `open_window` returns `nullopt` when it cannot create one (no primary yet, no video).
+- `close_window` is mechanical.
+- `set_position`, `resize`, `position`, `size` use screen coordinates. `position` and `size` are `nullopt` when that window is not open.
+- `size()` is the client size in screen pixels. It is not the drawable size on `Presentation::sizes`.
+- A call for an id that is not open is a no-op.
+- `usable_display_bounds(display_index)` is the work area (display minus OS chrome). Out of range uses the primary display. A zero rect means the query failed.
+- `usable_display_bounds_for_window` is the display that contains that window, or the primary display when the window is not open.
+
+`Presentation::sizes` is the `WindowSizes` map `window_size_for` reads. `publish_size` writes `drawable_size()` into that map on attach for the primary window, on resize, and when `poll` backfills a secondary id that is still missing. `Host::write_window_size` writes the primary entry from the size it is given. `window_size_for` returns `{0,0}` when that id is absent. A world from `Worlds` whose presentation pointer was never set reports fatal through `ctx<IFatalError*>`. `bind_window` and `enable_ui` set it.
+
+`ctx<ui::WindowSizes>()` is a different map. Resize, backfill, `Host::write_window_size`, and `window_size_for` do not use it.
+
+`UiCanvas::window` selects which size and which pointer events that canvas uses. A canvas on another window does not see them.
+
+World `Renderable`, `Sprite`, and `ParticleEmitter` draws go to every id in `ctx<BoundWindows>()`. The sorted list is shared. Each window's projection uses `window_size_for` (`Presentation.sizes`) on that window's command buffer. An empty list draws nothing. `Engine::init` and the `Host` constructor bind `kPrimaryWindow`. The frame loop does not call `bind_window`. UI for a window is drawn by the world that owns it, after that world's clear and meshes.
+
+## Close
+
+The OS close button sends `WindowCloseRequestedEvent`. The engine does not quit and does not destroy a game window because of it. The game reads the event.
+
+The inspector window and the profiler window are the exception: a close request for that tool window turns the tool off, and the engine closes it. The event is still delivered. The primary window is not closed that way. See [UI Inspector](UI Inspector.md) and [UI Profiler](UI Profiler.md).
 
 ## Overlay and click-through
 
-`OverlayMode` (`Auto` / `AlwaysEnabled` / `AlwaysDisabled`) is engine-wide. Auto turns overlay hooks on when any live window is transparent.
+`OverlayMode` is engine-wide, not per window.
 
-Click-through (transparent windows) is **bounding-box**: the window is click-through unless that window's `MouseConsumed` is set (widget hit). Hover updates `MouseConsumed` so it is not stuck at the last click. Per-pixel framebuffer sampling is out of scope ([[architecture/Scope]]).
+| Mode | Hooks |
+| --- | --- |
+| `Auto` (default) | On when any live window is `transparent` |
+| `AlwaysEnabled` | On even before a transparent window exists |
+| `AlwaysDisabled` | Off, including for an alpha-blended window |
 
-`set_drag_region` marks a client-pixel rect as a titlebar for borderless windows. A left click inside it starts an engine-owned drag (`SDL_CaptureMouse`) and never reaches UI/ECS. Shrink the rect so interactive controls are not inside it.
+The hooks are synthetic cursor polling for click-through, per-window transparent hit-test sync, and the Win32 modal-loop reentrant tick. Call `set_overlay_mode` before opening a transparent window if you need `AlwaysDisabled` from the first frame. `Auto` would turn the hooks on as soon as that window exists.
 
-## Internals (windowed)
+Click-through is a bounding box. `update_click_through` starts from whether `Presentation.mouse` contains that `WindowId`. A client cursor inside the drag region is then counted as a hit, before `should_be_click_through`. While `set_click_through_enabled` is on and the window is transparent, the window lets clicks through only when that hit is still false, so a cursor in the drag region stays on the window when `Presentation.mouse` does not contain the id. Hover updates that set, so it is not stuck on the last click. There is no per-pixel framebuffer test.
 
-`WindowManager` owns one `WindowSystem` + `OpenGLCanvas` + `CommandBuffer` pair per `WindowId`. Windows share `IGraphicFactory` / `AssetsDb`. Each `OpenGLCanvas::draw()` makes its GL context current and re-arms the shared backend's NanoVG painter before `execute()`.
+`reset_pointer_frame` clears `Presentation.mouse` at the start of `simulate_worlds`, before any world's `begin_frame`. `begin_frame` does not clear it. The hit-test inserts the window into `presentation_of(world).mouse`. `sync_frame` passes `worlds.presentation().mouse` to click-through, so it sees those hits. `world.ctx<ui::MouseConsumed>().consumed_for(window)` does not.
+
+## Drag region
+
+`set_drag_region` takes a rect in window-client pixels, the same space as `UiCanvas.rect`. `nullopt` clears it. The engine moves the window with `SDL_CaptureMouse`. It does not use the OS modal move loop.
+
+A left click inside the rect starts a drag and is consumed before UI and ECS see it. A button inside that rect does not receive the click. Shrink the rect so it does not cover those controls.
+
+## Internals
+
+Compiled only with `ENGINE_WITH_WINDOW`, under `src/render/opengl/`.
+
+`WindowManager` owns one `WindowSystem`, one `OpenGLCanvas`, and one `CommandBuffer` per `WindowId`. Windows share the graphic factory and `AssetsDb`. Each canvas `draw` makes its GL context current before `execute`.
+
+Public headers do not include SDL.
 
 ## Tests
 
-Logic without `SDL_Init(SDL_INIT_VIDEO)`: [[tests.window_style_test.cpp]], [[tests.window_icon_test.cpp]]. Real pixels and a live display are out of `engine_tests` ([[architecture/Boundaries]]).
+`tests/window_style_test.cpp` and `tests/window_icon_test.cpp` do not call `SDL_Init(SDL_INIT_VIDEO)`. A live display is out of `engine_tests`. See [Boundaries](../architecture/Boundaries.md).
 
 ## See also
 
-- [[include.engine.core.window_desc.h]]
-- [[include.engine.core.window_control.h]]
-- [[include.engine.core.engine_runtime.h]]
-- [[include.engine.ui.canvas.h]]
-- [[modules/Core]]
+- [Core](../modules/Core.md)
+- [Runtime Loop](../architecture/Runtime Loop.md)
+- [Scope](../architecture/Scope.md)

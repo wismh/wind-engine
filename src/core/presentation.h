@@ -1,7 +1,7 @@
 #pragma once
 
-#include <engine/core/application_state.h>
 #include <engine/core/window_desc.h>
+#include <engine/core/worlds.h>
 #include <engine/render/graphic_factory.h>
 #include <engine/resources/asset_id.h>
 
@@ -14,11 +14,8 @@ namespace engine {
 
 class InputSystem;
 class IWindowControl;
+class Worlds;
 struct Font;
-
-namespace ecs {
-class World;
-}
 
 namespace render {
 class CommandBuffer;
@@ -50,15 +47,15 @@ public:
     [[nodiscard]] virtual bool add_font(WindowId id, AssetId asset, const Font& font) = 0;
     [[nodiscard]] virtual bool add_image(WindowId id, AssetId asset, const render::TextureDesc& desc) = 0;
 
-    virtual void poll(ecs::World& world, InputSystem& input, ApplicationState& app) = 0;
-    virtual void sync_frame(ecs::World& world) = 0;
+    virtual void poll(Worlds& worlds, InputSystem& input) = 0;
+    virtual void sync_frame(Worlds& worlds) = 0;
     virtual void draw_all() = 0;
 
     // Publishes the primary drawable size, installs the UI glyph resolver, and arms the
     // desktop-overlay modal hook with `reentrant_tick` for as long as the loop runs.
-    virtual void attach_loop(ecs::World& world, std::function<void()> reentrant_tick) = 0;
-    virtual void detach_loop(ecs::World& world) = 0;
-    virtual void publish_primary_size(ecs::World& world, bool send_event) = 0;
+    virtual void attach_loop(Worlds& worlds, std::function<void()> reentrant_tick) = 0;
+    virtual void detach_loop(Worlds& worlds) = 0;
+    virtual void publish_primary_size(Worlds& worlds, bool send_event) = 0;
 };
 
 }

@@ -1,7 +1,8 @@
 #pragma once
 
+// docs/tech/modules/Core.md
+
 #include <engine/core/application_state.h>
-#include <engine/core/fixed_step.h>
 #include <engine/core/time.h>
 #include <engine/ecs/world.h>
 #include <engine/igame.h>
@@ -10,10 +11,11 @@
 namespace engine {
 
 class IAudioSystem;
+class Worlds;
 
 class Host {
 public:
-    Host(IGame& game, render::ICanvas& canvas, IAudioSystem* audio = nullptr);
+    Host(IGame& game, Worlds& worlds, render::ICanvas& canvas, IAudioSystem* audio = nullptr);
     ~Host();
 
     Host(const Host&) = delete;
@@ -30,11 +32,9 @@ private:
     void write_window_size(int width, int height, bool send_event);
 
     IGame* game_ = nullptr;
+    Worlds* worlds_ = nullptr;
     render::ICanvas* canvas_ = nullptr;
     IAudioSystem* audio_ = nullptr;
-    Time* time_ = nullptr;
-    ApplicationState* app_state_ = nullptr;
-    FixedStepClock clock_;
 };
 
 }

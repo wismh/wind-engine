@@ -6,6 +6,7 @@
 #include <engine/ui/builder.h>
 #include <engine/ui/canvas.h>
 #include <engine/ui/inspector.h>
+#include <engine/ui/presentation.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -686,7 +687,7 @@ namespace engine::ui {
             if (host.open) {
                 return host.open(desc);
             }
-            world.ctx<WindowSizes>().sizes[kHeadlessInspectorWindow] =
+            presentation_of(world).sizes.sizes[kHeadlessInspectorWindow] =
                     WindowSize{kInspectorWindowWidth, kInspectorWindowHeight};
             return kHeadlessInspectorWindow;
         }
@@ -701,7 +702,7 @@ namespace engine::ui {
             if (id == kPrimaryWindow) {
                 return;
             }
-            world.ctx<WindowSizes>().sizes.erase(id);
+            presentation_of(world).sizes.sizes.erase(id);
             if (id == kHeadlessInspectorWindow) {
                 return;
             }
