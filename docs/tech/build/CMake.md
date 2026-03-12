@@ -91,5 +91,5 @@ Cross-compiling: `asset_codegen` and `icon_codegen` are `IMPORTED` from the host
 
 ## See also
 
-- [Game Consumer](Game Consumer.md)
+- [Game Consumer](Game%20Consumer.md)
 - [Boundaries](../architecture/Boundaries.md)

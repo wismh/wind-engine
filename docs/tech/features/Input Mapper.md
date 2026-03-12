@@ -45,7 +45,7 @@ Poll does not look at `Presentation.mouse`. UI has not run yet. A game system on
 
 `SdlGlPresentation::poll` (`src/render/opengl/sdl_gl_presentation.cpp`) maps keyboard, mouse, text, editing, finger, quit, and window-size events onto these handlers. Gamepad events are not dispatched.
 
-`run_input` later drains `MouseEvent` and `KeyEvent` into the UI. See [UI Input](UI Input.md).
+`run_input` later drains `MouseEvent` and `KeyEvent` into the UI. See [UI Input](UI%20Input.md).
 
 ## Not built
 
@@ -62,4 +62,4 @@ The same `Control` / `ActionId` / `InputEvent` types are the place a gamepad pol
 ## See also
 
 - [Core](../modules/Core.md)
-- [UI Input](UI Input.md)
+- [UI Input](UI%20Input.md)

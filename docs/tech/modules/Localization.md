@@ -66,4 +66,4 @@ Plural and format helpers stay in `src/loc/`.
 
 - [UI](UI.md)
 - [Resources](Resources.md)
-- [Asset Codegen](../build/Asset Codegen.md)
+- [Asset Codegen](../build/Asset%20Codegen.md)

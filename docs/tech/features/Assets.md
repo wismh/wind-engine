@@ -30,7 +30,7 @@ Two catalogs are loaded, in order:
 
 A second `load_catalog` adds entries. It does not replace the engine catalog.
 
-Where `<assets>` is: [Runtime Assets](../build/Runtime Assets.md).
+Where `<assets>` is: [Runtime Assets](../build/Runtime%20Assets.md).
 
 ## Load
 
@@ -50,6 +50,6 @@ Six frozen GUIDs. The splash image is `importer = "ui_image"`. The list is [Reso
 
 ## See also
 
-- [Asset Codegen](../build/Asset Codegen.md)
-- [Materials and Sort](Materials and Sort.md)
+- [Asset Codegen](../build/Asset%20Codegen.md)
+- [Materials and Sort](Materials%20and%20Sort.md)
 - [Localization](../modules/Localization.md)

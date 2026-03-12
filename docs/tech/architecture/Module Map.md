@@ -64,7 +64,7 @@ flowchart TB
 
 ## Init wiring
 
-`Engine::init` is a header-only template in `include/engine/core/engine.h`. The order is [Runtime Loop](Runtime Loop.md).
+`Engine::init` is a header-only template in `include/engine/core/engine.h`. The order is [Runtime Loop](Runtime%20Loop.md).
 
 ## Data that crosses modules
 

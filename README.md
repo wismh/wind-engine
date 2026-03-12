@@ -1,6 +1,6 @@
 # Wind
 
-A 2D C++ game engine for production titles. CMake target / C++ namespace: `engine`. Task codes: `wind-N`. Tech vault: [docs/tech/README.md](docs/tech/README.md). Architecture: [Principles](docs/tech/architecture/Principles.md), [Scope](docs/tech/architecture/Scope.md), [Boundaries](docs/tech/architecture/Boundaries.md).
+A 2D C++ game engine for production titles. CMake target / C++ namespace: `engine`. Task codes: `wind-N`. Tech vault: [docs/tech/README.md](docs/tech/README.md). Manual: [docs/manual/README.md](docs/manual/README.md). Architecture: [Principles](docs/tech/architecture/Principles.md), [Scope](docs/tech/architecture/Scope.md), [Boundaries](docs/tech/architecture/Boundaries.md).
 
 ## Build (library + tests)
 

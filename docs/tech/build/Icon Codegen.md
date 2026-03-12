@@ -45,7 +45,7 @@ ICNS: 8-byte header (`icns` plus a big-endian total length), then chunks of a 4-
 | Windows | `file(GENERATE)` writes `generated/<target>/icon.rc` with `IDI_ICON1 ICON "<dir>/icon.ico"` (forward slashes) and adds it as a source. The `.ico` does not exist at configure time, so the gate is the target property, not `EXISTS` |
 | Apple | `MACOSX_BUNDLE` ON. `icon.icns` is a source with `MACOSX_PACKAGE_LOCATION` `Resources` and `MACOSX_BUNDLE_ICON_FILE` `icon.icns`. This repo has no macOS preset |
 | Web | POST_BUILD copies `favicon.png` beside the target. `cmake/web/shell.html` links `href="favicon.png"` |
-| Android | The mipmaps are generated. Gradle does not pick them up by itself. See [Game Consumer](Game Consumer.md) |
+| Android | The mipmaps are generated. Gradle does not pick them up by itself. See [Game Consumer](Game%20Consumer.md) |
 
 Cross-compiles import `icon_codegen` from `ENGINE_HOST_ICON_CODEGEN`. A missing path is a configure error.
 
@@ -55,5 +55,5 @@ Cross-compiles import `icon_codegen` from `ENGINE_HOST_ICON_CODEGEN`. A missing 
 
 ## See also
 
-- [Asset Codegen](Asset Codegen.md)
+- [Asset Codegen](Asset%20Codegen.md)
 - [CMake](CMake.md)

@@ -67,4 +67,4 @@ Both charts are `IPaint` on the panel view-model and read the rings during paint
 
 - [UI](../modules/UI.md)
 - [Boundaries](../architecture/Boundaries.md)
-- [UI Performance Plan](../architecture/UI Performance Plan.md)
+- [UI Performance Plan](../architecture/UI%20Performance%20Plan.md)
