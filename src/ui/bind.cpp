@@ -118,6 +118,7 @@ namespace engine::ui {
             slot.source = &source;
             slot.version = source.property_version(binding);
             slot.seen = slot.version ? slot.version->read() : 0;
+            slot.registration_seen = source.registration_version();
             pass.table().slots.push_back(slot);
         }
 
@@ -339,7 +340,11 @@ namespace engine::ui {
         }
 
         void bind_paint(BindPass &pass, Element &element, ViewModel &vm) {
-            element.paint = vm.find_paint(element.paint_binding);
+            IPaint *found = vm.find_paint(element.paint_binding);
+            if (found != element.paint) {
+                element.paint = found;
+                mark_dirty(*pass.document, element, kDirtyPaint);
+            }
             if (element.paint == nullptr) {
                 pass.fail_missing("paint", element.paint_binding);
             }
@@ -364,6 +369,7 @@ namespace engine::ui {
         void inherit_owner(const Element &parent, Element &child) {
             if (parent.generated_owner != nullptr && child.generated_owner == nullptr) {
                 child.generated_owner = parent.generated_owner;
+                child.generated_serial = parent.generated_serial;
             }
         }
 
@@ -793,7 +799,7 @@ namespace engine::ui {
                         }
                         for (std::size_t n = 0; n < expected_count; ++n) {
                             if (index >= rows.size() || rows[index].is_virtualization_spacer ||
-                                rows[index].generated_owner != item) {
+                                rows[index].generated_owner != item || rows[index].generated_serial != item->serial()) {
                                 return false;
                             }
                             ++index;
@@ -845,9 +851,9 @@ namespace engine::ui {
             // A changed set. An item still in the window reuses its Element (motion clocks
             // included). A new item is cloned from the template. Spacers are rebuilt; they
             // carry no runtime state.
-            std::unordered_map<const void *, std::vector<Element>> previous_by_owner;
+            std::unordered_map<std::uint64_t, std::vector<Element>> previous_by_owner;
             for (Element &old: element.generated_items) {
-                previous_by_owner[old.generated_owner].push_back(std::move(old));
+                previous_by_owner[old.generated_serial].push_back(std::move(old));
             }
             element.generated_items.clear();
 
@@ -878,7 +884,7 @@ namespace engine::ui {
                 if (item == nullptr) {
                     continue;
                 }
-                if (const auto reused = previous_by_owner.find(item);
+                if (const auto reused = previous_by_owner.find(item->serial());
                     reused != previous_by_owner.end() && reused->second.size() == expected_count) {
                     for (Element &clone: reused->second) {
                         // The reused row keeps its id and the slots it has, unless a table build is under way.
@@ -895,6 +901,7 @@ namespace engine::ui {
                     clone.kind = ElementKind::Stack;
                     clone.children.clear();
                     clone.generated_owner = item;
+                    clone.generated_serial = item->serial();
                     bind_new(clone, *item);
                     element.generated_items.push_back(std::move(clone));
                     continue;
@@ -903,6 +910,7 @@ namespace engine::ui {
                     Element clone = node;
                     clone.generated_items.clear();
                     clone.generated_owner = item;
+                    clone.generated_serial = item->serial();
                     bind_new(clone, *item);
                     element.generated_items.push_back(std::move(clone));
                 }
@@ -1028,6 +1036,7 @@ namespace engine::ui {
             table.context = &data_context;
             table.catalog = pass.catalog;
             table.catalog_version = pass.catalog != nullptr ? pass.catalog->version() : 0;
+            table.context_registration = data_context.registration_version();
             table.built = true;
             ++document.counters.table_builds;
             pass.collecting = true;
@@ -1053,8 +1062,10 @@ namespace engine::ui {
         BindTable &table = document.bind_table;
 
         const std::uint64_t catalog_version = catalog != nullptr ? catalog->version() : 0;
-        const bool rebuild = !table.built || table.context != &data_context || table.catalog != catalog ||
-                             table.catalog_version != catalog_version;
+        bool rebuild = !table.built || table.context != &data_context || table.catalog != catalog ||
+                       table.catalog_version != catalog_version ||
+                       table.context_registration != data_context.registration_version();
+
         if (rebuild) {
             build_table(pass, data_context);
             return pass.first_error ? std::expected<void, UiError>(std::unexpected(*pass.first_error))
@@ -1078,6 +1089,12 @@ namespace engine::ui {
         for (std::size_t i = 0; i < table.slots.size(); ++i) {
             BindSlot &slot = table.slots[i];
             ++document.counters.slots_checked;
+            if (slot.source != nullptr && slot.source->registration_version() != slot.registration_seen) {
+                // A view-model registered a binding after the build, or replaced a paint: read everything again.
+                build_table(pass, data_context);
+                return pass.first_error ? std::expected<void, UiError>(std::unexpected(*pass.first_error))
+                                        : std::expected<void, UiError>{};
+            }
             if (slot.field == BindField::Command) {
                 // A command has no version: `can_execute()` is polled.
                 const auto found = document.find(slot.element);
