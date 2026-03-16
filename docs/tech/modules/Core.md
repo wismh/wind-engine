@@ -2,7 +2,7 @@
 
 Host, time, input polling, logging, fatal errors, platform paths, and, when `ENGINE_WITH_WINDOW` is on, `Engine<GameT>` plus the SDL runtime.
 
-Frame order is [Runtime Loop](../architecture/Runtime Loop.md). Window behavior is [Windowing](../features/Windowing.md). Named controls are [Input Mapper](../features/Input Mapper.md).
+Frame order is [Runtime Loop](../architecture/Runtime%20Loop.md). Window behavior is [Windowing](../features/Windowing.md). Named controls are [Input Mapper](../features/Input%20Mapper.md).
 
 ## What the game implements
 
@@ -70,7 +70,7 @@ Lifecycle (`include/engine/core/app_lifecycle.h`):
 
 Main thread only. On Android, call it after `Engine::init`.
 
-Assets roots: [Runtime Assets](../build/Runtime Assets.md).
+Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 
 ## Log and fatal errors
 
@@ -136,6 +136,6 @@ Assets roots: [Runtime Assets](../build/Runtime Assets.md).
 
 ## See also
 
-- [Runtime Loop](../architecture/Runtime Loop.md)
-- [Module Map](../architecture/Module Map.md)
+- [Runtime Loop](../architecture/Runtime%20Loop.md)
+- [Module Map](../architecture/Module%20Map.md)
 - [CMake](../build/CMake.md)

@@ -63,6 +63,6 @@ The mixer build sets `SDLMIXER_WAVE` ON and turns FLAC, Vorbis, MP3, MIDI, Opus,
 
 ## See also
 
-- [Runtime Loop](../architecture/Runtime Loop.md)
+- [Runtime Loop](../architecture/Runtime%20Loop.md)
 - [CMake](../build/CMake.md)
 - [Assets](../features/Assets.md)

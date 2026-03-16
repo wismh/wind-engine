@@ -7,12 +7,12 @@ Product name: Wind. CMake target and C++ namespace: `engine`. Build instructions
 ## How to read this
 
 1. [Principles](architecture/Principles.md), [Scope](architecture/Scope.md), and [Boundaries](architecture/Boundaries.md) are the rules.
-2. [Overview](architecture/Overview.md) and [Module Map](architecture/Module Map.md) say which area owns what.
-3. [Runtime Loop](architecture/Runtime Loop.md) is the frame order.
+2. [Overview](architecture/Overview.md) and [Module Map](architecture/Module%20Map.md) say which area owns what.
+3. [Runtime Loop](architecture/Runtime%20Loop.md) is the frame order.
 4. A module page is the reference for that area. A feature page is a walkthrough of one subsystem. A build page is how a binary and its assets get onto disk.
 5. [File index](files/INDEX.md) lists every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`.
 
-[UI Performance Plan](architecture/UI Performance Plan.md) is a plan, not a description of the current engine.
+[UI Performance Plan](architecture/UI%20Performance%20Plan.md) is a plan, not a description of the current engine.
 
 ## Architecture
 
@@ -22,9 +22,9 @@ Product name: Wind. CMake target and C++ namespace: `engine`. Build instructions
 | [Scope](architecture/Scope.md) | In scope, out of scope, backlog |
 | [Boundaries](architecture/Boundaries.md) | Public headers, compile flags, what `engine_tests` may do |
 | [Overview](architecture/Overview.md) | What a game sees |
-| [Module Map](architecture/Module Map.md) | Who talks to whom |
-| [Runtime Loop](architecture/Runtime Loop.md) | Init and one frame |
-| [UI Performance Plan](architecture/UI Performance Plan.md) | Planned UI work, labeled as a plan |
+| [Module Map](architecture/Module%20Map.md) | Who talks to whom |
+| [Runtime Loop](architecture/Runtime%20Loop.md) | Init and one frame |
+| [UI Performance Plan](architecture/UI%20Performance%20Plan.md) | Planned UI work, labeled as a plan |
 
 ## Modules
 
@@ -44,13 +44,13 @@ Product name: Wind. CMake target and C++ namespace: `engine`. Build instructions
 | Page | Walkthrough |
 | --- | --- |
 | [Assets](features/Assets.md) | Catalog, importers, `get` / `try_get` |
-| [Materials and Sort](features/Materials and Sort.md) | Materials, sprites, draw order |
+| [Materials and Sort](features/Materials%20and%20Sort.md) | Materials, sprites, draw order |
 | [Windowing](features/Windowing.md) | Windows, overlay, click-through |
-| [Input Mapper](features/Input Mapper.md) | `ActionId` bindings |
-| [UI Markup](features/UI Markup.md) | XML, CSS, builder, bind |
-| [UI Input](features/UI Input.md) | Pointer, keys, text, scroll |
-| [UI Inspector](features/UI Inspector.md) | Pick and tree panel |
-| [UI Profiler](features/UI Profiler.md) | Per-stage timings |
+| [Input Mapper](features/Input%20Mapper.md) | `ActionId` bindings |
+| [UI Markup](features/UI%20Markup.md) | XML, CSS, builder, bind |
+| [UI Input](features/UI%20Input.md) | Pointer, keys, text, scroll |
+| [UI Inspector](features/UI%20Inspector.md) | Pick and tree panel |
+| [UI Profiler](features/UI%20Profiler.md) | Per-stage timings |
 | [CLI](features/CLI.md) | `wind-cli` loopback server |
 
 ## Build
@@ -59,7 +59,7 @@ Product name: Wind. CMake target and C++ namespace: `engine`. Build instructions
 | --- | --- |
 | [Pipeline](build/Pipeline.md) | Configure, codegen, compile, copy assets, run |
 | [CMake](build/CMake.md) | Options, presets, `engine_add_game` |
-| [Asset Codegen](build/Asset Codegen.md) | `asset_codegen` and `asset_guid` |
-| [Icon Codegen](build/Icon Codegen.md) | `icon.png` to platform icons |
-| [Runtime Assets](build/Runtime Assets.md) | Where the running process reads assets |
-| [Game Consumer](build/Game Consumer.md) | A game repo that `add_subdirectory`s Wind |
+| [Asset Codegen](build/Asset%20Codegen.md) | `asset_codegen` and `asset_guid` |
+| [Icon Codegen](build/Icon%20Codegen.md) | `icon.png` to platform icons |
+| [Runtime Assets](build/Runtime%20Assets.md) | Where the running process reads assets |
+| [Game Consumer](build/Game%20Consumer.md) | A game repo that `add_subdirectory`s Wind |

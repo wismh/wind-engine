@@ -2,7 +2,7 @@
 
 GUID catalog, TOML `.meta`, `AssetsDb`, and the cook tools. Games never load by filename.
 
-The runtime walkthrough is [Assets](../features/Assets.md). The cook tools are [Asset Codegen](../build/Asset Codegen.md).
+The runtime walkthrough is [Assets](../features/Assets.md). The cook tools are [Asset Codegen](../build/Asset%20Codegen.md).
 
 ## Identity
 
@@ -64,7 +64,7 @@ Results are cached by `(AssetId, type_index)`.
 
 `load_catalog` parses a cooked `catalog.toml`. `Engine::init` loads `assets/engine/catalog.toml` (fatal on failure) then `assets/catalog.toml` (missing file is `MetaError::Io` and is ignored).
 
-`set_root` is the directory files are opened from. It is not the process working directory. See [Runtime Assets](../build/Runtime Assets.md).
+`set_root` is the directory files are opened from. It is not the process working directory. See [Runtime Assets](../build/Runtime%20Assets.md).
 
 ## Codegen outputs
 
@@ -75,7 +75,7 @@ Results are cached by `(AssetId, type_index)`.
 
 `identifier_from_path` turns `textures/x.png` into `assets::textures::x`. The same stem in two folders is two namespaces.
 
-UI binders: [Asset Codegen](../build/Asset Codegen.md).
+UI binders: [Asset Codegen](../build/Asset%20Codegen.md).
 
 ## Public headers
 

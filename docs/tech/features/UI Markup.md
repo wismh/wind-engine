@@ -65,7 +65,7 @@ Color, gradient, `background-repeat`, easing, and `transform` values are on [UI]
 2. Merge stylesheet asset ids with `try_get<Stylesheet>`. An empty list does not wipe a sheet already on the instance.
 3. `apply_bindings` writes properties, commands, and paint ids from the view-model, then `{tr}` from `ctx<loc::Catalog>()`.
 
-A bound command sets `disabled` from `!can_execute()` on every bind, except `TextInput`. See [UI Input](UI Input.md).
+A bound command sets `disabled` from `!can_execute()` on every bind, except `TextInput`. See [UI Input](UI%20Input.md).
 
 `ItemsControl` clones `ItemTemplate` once per `BindableList` element. The row's `generated_owner` is that item view-model.
 
@@ -123,6 +123,6 @@ Non-stack children (Canvas, Button, Label) overlay the same content rect. Each c
 ## See also
 
 - [UI](../modules/UI.md)
-- [UI Input](UI Input.md)
-- [Asset Codegen](../build/Asset Codegen.md)
+- [UI Input](UI%20Input.md)
+- [Asset Codegen](../build/Asset%20Codegen.md)
 - [Localization](../modules/Localization.md)

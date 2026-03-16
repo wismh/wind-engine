@@ -56,6 +56,6 @@ After the boxes, one badge is painted in the same scissor. Its text is the tag (
 
 ## See also
 
-- [UI Input](UI Input.md)
-- [UI Profiler](UI Profiler.md)
+- [UI Input](UI%20Input.md)
+- [UI Profiler](UI%20Profiler.md)
 - [CLI](CLI.md)
