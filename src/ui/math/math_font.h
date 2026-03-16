@@ -137,7 +137,7 @@ struct GlyphConstruction {
 
 // A parsed OpenType MATH font: cmap, glyph metrics/outlines (through the vendored stb_truetype, TrueType
 // and CFF alike) plus the MATH table (constants, italics correction, top-accent attachment, size
-// variants and glyph assemblies). Pure CPU: no GPU, no window, no NanoVG, so formula layout built on it is
+// variants and glyph assemblies). Pure CPU: no GPU, no window, so formula layout built on it is
 // testable headless. stb_truetype itself is not hardened against hostile font bytes — feed it fonts from
 // the asset catalog only. The MATH table parser, in contrast, bounds-checks every read.
 class MathFont {
