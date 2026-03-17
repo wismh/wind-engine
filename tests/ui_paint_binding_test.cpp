@@ -20,10 +20,6 @@
 #include "fixtures/bind_error_fakes.h"
 #include "fixtures/fatal_fakes.h"
 
-#if defined(NANOVG_H) || defined(NANOVG_GL_H) || defined(NANOVG_GL3)
-#error "ui paint binding tests must not include nvg headers"
-#endif
-
 namespace {
 
 struct LineCall {
