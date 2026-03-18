@@ -99,8 +99,9 @@ struct CompiledKeyframes;
 struct Keyframes {
     std::string name;
     std::vector<KeyframeStop> stops;
-    // Built on the first sample and rebuilt when the stops or their declarations were edited since (a parsed sheet
-    // is not edited). A copy shares it: the content is the same.
+    // Built on the first sample and built again when the number of stops or of their declarations differs from what it
+    // was built for. A value edited in place is not noticed (a parsed sheet is not edited; one built by hand and
+    // changed after its first sample needs a new `Keyframes`). A copy shares it: the content is the same.
     mutable std::shared_ptr<const CompiledKeyframes> compiled;
 };
 
@@ -129,6 +130,9 @@ struct StyleAnalysis {
     // The pseudo bits that any rule tests on an ancestor compound. 0: no element's style depends on an ancestor's
     // pseudo-state, so a pointer over a container restyles nothing below it.
     std::uint8_t ancestor_pseudo_mask = 0;
+    // A rule with a pseudo-class declares `transform` (or something a `var()` could feed it): an element can be
+    // transformed by a pointer that the layout style does not see.
+    bool pseudo_transform = false;
 };
 
 struct Stylesheet {
