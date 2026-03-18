@@ -104,7 +104,7 @@ vm_->name.on_changed([this](const std::string& text) { rename(text); });
 - The handler runs once per change, with the new value. `set` with the value it already holds is silent, and so is a drag that ends where it started.
 - A write from C++ (`vm.volume.set(0.5f)`) and a write from the document (the player drags, types, or ticks) are both reported.
 - It runs immediately, on the main thread, inside `set`; for a document write that is inside input handling. Do not destroy the view model or its canvas from the handler: record what happened and act on it later in a system.
-- A new `on_changed` replaces the old handler; an empty `std::function` removes it. `BindableList` has no notification: it changes through `set` or `edit(fn)`, and each counts one version when the items differ afterwards.
+- A new `on_changed` replaces the old handler; an empty `std::function` removes it. `BindableList` has no notification: it changes through `set` or `edit(fn)`, and each counts one version when the items differ afterwards (`edit_unchecked(fn)` counts one without comparing, for a large list the caller knows it changed). A view-model may register a property, command or paint after its first bind: the engine reads its registrations again when they change.
 
 ## 4. Showing and Hiding with `if`
 
