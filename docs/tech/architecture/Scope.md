@@ -1,10 +1,14 @@
 # Scope
 
-Wind is a 2D C++ game engine for production titles. Games are `IGame` implementations on top of a static library in this repo. They do not vendor SDL or copy engine sources.
+Wind is a 2D C++ game engine for production titles. Development happens in the Wind editor. The editor is the host process, and a game is a guest module that the editor loads on Play and unloads on Stop. An exported game is a standalone executable that links the engine statically. Games do not vendor SDL or copy engine sources.
+
+The editor is planned work. See [Editor Plan](Editor%20Plan.md). Today a game is only the standalone executable.
 
 ## In scope
 
 - Lifecycle: init, main loop, shutdown.
+- The editor: a host executable that owns the engine services, its own window, and the game's `kPrimaryWindow`. It loads a game module on Play and unloads it on Stop. The engine is a shared library only in the editor build. Exported builds stay static.
+- Editor tools. UI Inspector and UI Profiler live in the editor window only. The engine keeps the data they read. A game does not open them.
 - Window, GL context, input actions, mouse to UI. Multiple windows for one running game. See [Windowing](../features/Windowing.md).
 - A process holds any number of `ecs::World`. A world is one simulation: no parent and no scene graph. A window belongs to one world. That world's meshes go to each window bound to it. UI is `UiCanvas` plus a document instance plus a view-model. The document comes from XML or the C++ builder.
 - Homemade ECS. EnTT is an API reference only, not a dependency.
@@ -17,32 +21,11 @@ Wind is a 2D C++ game engine for production titles. Games are `IGame` implementa
 - Per-user writable directory (`user_data_directory`) for saves and settings. The game owns the file format and when to write.
 - GoogleTest suite for engine logic (`engine_tests`).
 
-## Out of scope
-
-- Gameplay, levels, AI, and menus of a specific game.
-- 3D renderer, lighting, skeletal animation.
-- A full physics engine (Box2D, rapier). Current physics is AABB and circle overlap plus velocity integration. It is a collision probe, not a solver.
-- Networking, a scripting VM, an editor, an asset-pipeline GUI. A server binary is not part of this change.
-- DirectX and Metal backends. The interfaces exist so they can be added.
-- GPU and window golden-image tests, and a full `Engine<GameT>` boot in CI. See [Boundaries](Boundaries.md).
-- Browser-grade CSS and full WPF (`ControlTemplate`, `VisualStateManager`, `x:Class` code-behind, C++ reflection).
-- Sharing one process between multiple games (multiple `IGame` instances). One game, many windows is in scope.
-
-## Non-goals (current product)
-
-- Hot reload.
-- 3D spatial audio, Doppler, HRTF.
-- JSON or ScriptableObject sound banks in C++. Volume and pitch live in audio `.meta`.
-- A C++ widget graph (`new Label()`, `onClick` lambdas, `MeasureOverride`). Use `ui::Node` or XML into the same `Element` tree.
-- Transform parenting, scene-graph matrices, or auto Y-sort (`sort_mode = Y`).
-- Per-pixel (framebuffer-alpha) click-through. Click-through is a bounding-box hit-test. See [Windowing](../features/Windowing.md).
-- Haptics waveforms and pattern playback. Duration and intensity only.
-- Bidirectional text, complex-script shaping, and OS `setlocale`. String tables cover left-to-right languages whose glyphs are in the UI font.
-
 ## Backlog
 
 Open engine work, not game concerns:
 
+- Editor: project list, launching the game build, and the remaining tools. The first version picks a game module by file on every start.
 - Packed asset bundles (still GUID-addressed).
 - A separate cue `Sound` that references a clip GUID. Today one file is one cue.
 - `Transform` parent and a world-matrix chain.
@@ -63,15 +46,18 @@ Game concerns (do not implement in this repo): persist bus volumes in a settings
 | --- | --- |
 | Wind | Product name |
 | `wind-N` | Task code on commits and `feat/wind-N-…` branches |
-| `engine` | CMake static library and C++ namespace |
-| `IGame` / `Engine<GameT>` | Game lifecycle contract and windowed host |
+| `engine` | CMake library and C++ namespace. Static in exported builds, shared in the editor build |
+| `wind_editor` | Editor host executable (planned) |
+| `ENGINE_EDITOR` | CMake switch for the editor build: shared `engine`, game as a module (planned) |
+| `IGame` / `Engine<GameT>` | Game lifecycle contract and standalone windowed host |
 | `AssetId` / `try_get` / `get` | GUID lookup; optional vs fatal |
 | `IMaterial` / `CommandBuffer` | Draw contract |
 | `ViewModel` / `ICommand` / `IPaint` | UI to game; named paint hole, not `CmdCustomDraw` |
-| `WindowId` / `WindowDesc` | One OS window. `kPrimaryWindow` is the first |
+| `WindowId` / `WindowDesc` | One OS window. `kPrimaryWindow` is the first and belongs to the game |
 
 ## See also
 
 - [Principles](Principles.md)
 - [Boundaries](Boundaries.md)
+- [Editor Plan](Editor%20Plan.md)
 - [Windowing](../features/Windowing.md)
