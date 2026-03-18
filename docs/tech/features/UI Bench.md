@@ -141,7 +141,7 @@ pwsh -NoProfile -File bench/compare.ps1 -Base bench/results/baseline-linux -Head
 
 `-Exe` defaults to `build-bench/bin/wind_ui_bench` there. `pwsh` is the Microsoft tarball (`powershell-7.4.x-linux-x64.tar.gz`; set `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` when ICU is missing). The summary's machine line reads `/proc/cpuinfo` and `/etc/os-release`; there is no power plan.
 
-Software GL (llvmpipe) makes **Paint relative**: it includes NanoVG's GL work on the CPU, so compare it with another run on the same machine, never with the Windows numbers. Bind, Style, Layout, and Motion are plain CPU work and comparable. The CI-sized VM is shared and noisy; `bench/results/baseline-linux/` is the baseline of the overnight steps of the [UI Performance Plan](../architecture/UI%20Performance%20Plan.md#baseline) (`-Repeat 5`, commit `4f4af64`). Treat a change under about 20% on a sub-millisecond row as noise, and prefer the exact counters (draws, painter calls, element counts, layout `skip`).
+Software GL (llvmpipe) makes **Paint relative**: it includes the UI renderer's GL work on the CPU, so compare it with another run on the same machine, never with the Windows numbers. Bind, Style, Layout, and Motion are plain CPU work and comparable. The CI-sized VM is shared and noisy; `bench/results/baseline-linux/` is the baseline of the overnight steps of the [UI Performance Plan](../architecture/UI%20Performance%20Plan.md#baseline) (`-Repeat 5`, commit `4f4af64`). Treat a change under about 20% on a sub-millisecond row as noise, and prefer the exact counters (draws, painter calls, element counts, layout `skip`).
 
 ### Repeatability
 
