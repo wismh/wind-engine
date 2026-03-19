@@ -1,5 +1,6 @@
 #pragma once
 
+#include "context_vao.h"
 #include "gl_includes.h"
 
 #include <engine/render/graphic_factory.h>
@@ -15,15 +16,15 @@ public:
     OpenGLMesh(const OpenGLMesh&) = delete;
     OpenGLMesh& operator=(const OpenGLMesh&) = delete;
 
-    void draw() const;
+    void draw();
 
     [[nodiscard]] bool valid() const noexcept {
-        return vao_ != 0;
+        return vbo_ != 0;
     }
 
 private:
-    unsigned int vao_ = 0;
     unsigned int vbo_ = 0;
+    ContextVao vao_;
     int vertex_count_ = 0;
 };
 

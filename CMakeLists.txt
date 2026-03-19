@@ -297,6 +297,9 @@ elseif(NOT ENGINE_EDITOR AND NOT ENGINE_PLAYER)
     target_compile_definitions(engine PUBLIC "$<$<CONFIG:Debug>:ENGINE_UI_LAYOUT_CHECK>")
 endif()
 target_compile_definitions(engine PUBLIC "$<${_engine_tools_config}:ENGINE_UI_PROFILER>")
+# glGetError after every executed draw command, logged once per error and command (src/render/opengl/opengl_backend.cpp).
+# Same builds as the profiler: a driver error that drops a draw silently shows up in game.log, and Shipping pays nothing.
+target_compile_definitions(engine PRIVATE "$<${_engine_tools_config}:ENGINE_GL_CHECKS>")
 if(NOT EMSCRIPTEN AND NOT ANDROID)
     target_compile_definitions(engine PUBLIC "$<${_engine_tools_config}:ENGINE_CLI_SERVER>")
 endif()

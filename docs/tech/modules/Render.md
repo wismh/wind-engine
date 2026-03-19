@@ -100,6 +100,7 @@ These sources are not in the headless library. CMake adds them only when the win
 | Factory | `src/render/opengl/opengl_factory.cpp` |
 | Mesh, shader, texture | `opengl_mesh.cpp`, `opengl_shader.cpp`, `opengl_texture.cpp` |
 | Execute mesh and particle draws | `opengl_backend.cpp` |
+| One VAO per GL context | `context_vao.cpp`, bookkeeping in `src/render/context_objects.cpp` |
 | Canvas, font and image upload | `opengl_canvas.cpp` |
 | UI painter | `nanovg_painter.cpp` (`IUiPainter`) |
 | SDL window and GL context | `window_system.cpp` |
@@ -110,6 +111,10 @@ Desktop links glad and OpenGL 3.3. `ENGINE_WITH_GLES` links SDL and NanoVG witho
 
 Sampler state on upload comes from the catalog filter and wrap (`opengl_texture.cpp`).
 
+Every window has its own GL context. Textures, buffers, and programs are shared with the primary's context; vertex array objects are not. A VAO made in one context binds nothing, or another VAO, in the next, and the draw does nothing without an error. So `OpenGLMesh` and the particle draw keep their buffers once and make a VAO in each context the first time they draw there (`ContextVao`). The key of a context comes from `ContextObjects`, which `OpenGLCanvas` fills when it creates and destroys a context. A key is never reused, so a VAO cached for a destroyed context never binds in a new one whose driver handle is the same. A VAO released while another context is current is deleted the next time its own context renders. A destroyed context drops its VAOs with it.
+
+GL errors are silent unless someone asks. With `ENGINE_GL_CHECKS` (Debug, RelWithDebInfo, the editor, and the Development player; not Shipping) `OpenGLRenderBackend::execute` drains `glGetError` before the first command and after each command and logs `GL_INVALID_OPERATION (0x0502) after CmdDrawParticles` once per error and command type (`GlErrorLog`, `src/render/gl_error_log.cpp`), so a draw that fails every frame writes one line, not one a frame. `OpenGLShader` logs the driver's info log when a shader fails to compile or a program fails to link, in every build.
+
 `WindowSystem::set_icon` builds an `SDL_Surface` with `make_icon_surface` and calls `SDL_SetWindowIcon`. A null window or a short RGBA buffer yields a null surface. `tests/window_icon_test.cpp` covers the byte layout without `SDL_Init`.
 
 ## CPU sources (always)
@@ -117,6 +122,8 @@ Sampler state on upload comes from the catalog filter and wrap (`opengl_texture.
 - `src/render/material.cpp` â€” parse `.mat`
 - `src/render/material_instance.h` â€” `IMaterial` for a cooked material
 - `src/render/animation.cpp`, `src/render/particles.cpp`, `src/render/shader_adapt.cpp`
+- `src/render/context_objects.cpp` — GL context keys and deferred VAO deletes, without GL calls
+- `src/render/gl_error_log.cpp` — GL error names and the once-per-place error log lines
 
 ## Public headers
 
@@ -136,7 +143,7 @@ Sampler state on upload comes from the catalog filter and wrap (`opengl_texture.
 
 ## Tests
 
-`tests/command_buffer_test.cpp`, `tests/sort_test.cpp`, `tests/material_test.cpp`, `tests/render_system_test.cpp`, `tests/sprite_test.cpp`, `tests/animation_test.cpp`, `tests/particle_test.cpp`, `tests/shader_adapt_test.cpp`, `tests/opengl_texture_test.cpp` (CPU texture desc, no GL draw), `tests/ui_painter_test.cpp` (fake painter), `tests/window_icon_test.cpp`.
+`tests/command_buffer_test.cpp`, `tests/sort_test.cpp`, `tests/material_test.cpp`, `tests/render_system_test.cpp`, `tests/sprite_test.cpp`, `tests/animation_test.cpp`, `tests/particle_test.cpp`, `tests/shader_adapt_test.cpp`, `tests/opengl_texture_test.cpp` (CPU texture desc, no GL draw), `tests/ui_painter_test.cpp` (fake painter), `tests/window_icon_test.cpp`, `tests/context_objects_test.cpp` (context keys and deferred VAO deletes, no GL), `tests/gl_error_log_test.cpp`.
 
 GPU pixels stay out of `engine_tests`. See [Boundaries](../architecture/Boundaries.md).
 
