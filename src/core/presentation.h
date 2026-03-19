@@ -27,7 +27,7 @@ class IRenderBackend;
 }
 
 // Window, input-device, and draw boundary. The game loop calls this; it does not include SDL,
-// OpenGL, or NanoVG. A second graphics backend is another implementation plus a factory.
+// or OpenGL. A second graphics backend is another implementation plus a factory.
 class IPresentation {
 public:
     virtual ~IPresentation() = default;
@@ -49,7 +49,7 @@ public:
 
     [[nodiscard]] virtual bool add_font(WindowId id, AssetId asset, const Font& font) = 0;
     [[nodiscard]] virtual bool add_image(WindowId id, AssetId asset, const render::TextureDesc& desc) = 0;
-    // Forgets every font and image registered for that window's UI painter.
+    // Forgets the images registered for the UI painters (shared by every window); fonts stay registered.
     [[nodiscard]] virtual bool reset_ui_cache(WindowId id) = 0;
 
     virtual void poll(Worlds& worlds, InputSystem& input) = 0;

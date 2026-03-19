@@ -68,7 +68,6 @@ Games include headers **only** from `<engine/...>`:
 // FORBIDDEN - Do not include the engine's private headers (src/...) or its third-party libraries
 #include <glad/glad.h>
 #include <SDL3/SDL.h>
-#include <nanovg.h>
 #include <spdlog/spdlog.h>
 ```
 
