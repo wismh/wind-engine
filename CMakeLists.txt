@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.20)
 project(engine LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -56,6 +56,27 @@ else()
     set(_engine_gles_default OFF)
 endif()
 option(ENGINE_WITH_GLES "OpenGL ES 3.0 backend (no glad, NanoVG GLES3, shader adapt)" ${_engine_gles_default})
+# Editor build: engine becomes a shared library so the editor and a game module loaded into it share
+# one engine. Exported games (this OFF) link engine statically. Desktop only.
+option(ENGINE_EDITOR "Editor build: shared engine library (engine.dll)" OFF)
+if(ENGINE_EDITOR)
+    if(EMSCRIPTEN OR ANDROID)
+        message(FATAL_ERROR
+            "ENGINE_EDITOR is desktop only. Web and Android builds stay on the static engine; "
+            "configure them with ENGINE_EDITOR=OFF.")
+    endif()
+    if(NOT ENGINE_WITH_WINDOW)
+        message(FATAL_ERROR
+            "ENGINE_EDITOR needs ENGINE_WITH_WINDOW=ON (the editor opens a window). "
+            "Use the vs-editor preset.")
+    endif()
+    # Every static library linked into the shared engine (spdlog, tinyxml2, glad, nanovg, SDL3,
+    # SDL3_mixer) must be position independent off Windows. Set before the submodules are added.
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+    set(_engine_library_kind SHARED)
+else()
+    set(_engine_library_kind STATIC)
+endif()
 set(ENGINE_WEB_SHELL "" CACHE FILEPATH "Optional HTML shell for Emscripten (defaults to cmake/web/shell.html)")
 set(ENGINE_HOST_ASSET_CODEGEN "" CACHE FILEPATH "Native asset_codegen when cross-compiling (Emscripten or Android)")
 set(ENGINE_HOST_ICON_CODEGEN "" CACHE FILEPATH "Native icon_codegen when cross-compiling (Emscripten or Android)")
@@ -112,8 +133,49 @@ list(FILTER ENGINE_SOURCES EXCLUDE REGEX "engine_runtime\\.cpp$")
 list(FILTER ENGINE_SOURCES EXCLUDE REGEX "engine_instantiate\\.cpp$")
 list(FILTER ENGINE_SOURCES EXCLUDE REGEX "sdl_fatal_error\\.cpp$")
 
-add_library(engine STATIC ${ENGINE_SOURCES})
+add_library(engine ${_engine_library_kind} ${ENGINE_SOURCES})
 add_library(engine::engine ALIAS engine)
+
+if(ENGINE_EDITOR)
+    # WINDOWS_EXPORT_ALL_SYMBOLS exports functions, not data. Mutable state reachable from a public
+    # header lives in a .cpp behind ENGINE_API (<engine/core/export.h>). ENGINE_SHARED tells every
+    # consumer to import; ENGINE_BUILDING tells the engine's own sources to export.
+    set_target_properties(engine PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    target_compile_definitions(engine
+        PUBLIC ENGINE_SHARED=1
+        PRIVATE ENGINE_BUILDING=1)
+endif()
+
+# <engine/build_id.h>: kBuildId, a hash of the public headers, the compiler, the configuration, and
+# the PUBLIC compile definitions (cmake/build_id.cmake). One header per configuration, so a
+# multi-config generator (Visual Studio) gives Debug and Release different ids. The definitions are
+# read from engine's INTERFACE_COMPILE_DEFINITIONS per configuration at build time, so defines
+# added further down this file are covered too.
+file(GLOB_RECURSE _engine_public_headers CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/*.inl")
+set(_engine_build_id_config "$<IF:$<BOOL:$<CONFIG>>,$<CONFIG>,NoConfig>")
+set(_engine_build_id_root "${CMAKE_CURRENT_BINARY_DIR}/generated/engine_build_id")
+set(_engine_build_id_dir "${_engine_build_id_root}/${_engine_build_id_config}")
+add_custom_command(
+    OUTPUT "${_engine_build_id_dir}/build_id.stamp"
+    BYPRODUCTS "${_engine_build_id_dir}/engine/build_id.h"
+    COMMAND ${CMAKE_COMMAND}
+        "-DINCLUDE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "-DOUT=${_engine_build_id_dir}/engine/build_id.h"
+        "-DSTAMP=${_engine_build_id_dir}/build_id.stamp"
+        "-DCOMPILER=${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}"
+        "-DCONFIG=${_engine_build_id_config}"
+        "-DDEFINES=$<JOIN:$<TARGET_PROPERTY:engine,INTERFACE_COMPILE_DEFINITIONS>,|>"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/build_id.cmake"
+    DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/build_id.cmake"
+        ${_engine_public_headers}
+    COMMENT "Engine build id"
+    VERBATIM)
+add_custom_target(engine_build_id DEPENDS "${_engine_build_id_dir}/build_id.stamp")
+add_dependencies(engine engine_build_id)
 
 # Debug and RelWithDebInfo. Release and MinSizeRel compile the profiler call sites out.
 target_compile_definitions(engine PUBLIC $<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:ENGINE_UI_PROFILER>)
@@ -126,6 +188,7 @@ endif()
 target_include_directories(engine
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
+        "${_engine_build_id_dir}"
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
@@ -210,6 +273,18 @@ function(engine_prepare_runtime target)
         message(FATAL_ERROR "engine_prepare_runtime: target '${target}' does not exist")
     endif()
     add_dependencies(${target} engine_builtin_catalog)
+
+    # Editor build on Windows: the loader looks for engine.dll beside the executable. A game's
+    # bin/ is not engine's output directory when Wind is a subdirectory, so copy it there.
+    get_target_property(_engine_type engine TYPE)
+    if(WIN32 AND _engine_type STREQUAL "SHARED_LIBRARY")
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:engine>"
+                "$<TARGET_FILE_DIR:${target}>"
+            COMMENT "Copy engine.dll beside ${target}"
+            VERBATIM)
+    endif()
 
     set(_engine_game_assets "${CMAKE_CURRENT_SOURCE_DIR}/assets")
     if(EXISTS "${_engine_game_assets}")

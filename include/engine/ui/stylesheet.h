@@ -2,6 +2,8 @@
 
 // docs/tech/features/UI Markup.md
 
+#include <engine/core/export.h>
+
 #include <cstdint>
 #include <expected>
 #include <optional>
@@ -74,10 +76,8 @@ struct Keyframes {
 // systems.cpp's run_bind merging extra_stylesheets) move-assign a freshly parsed Stylesheet into
 // an already-engaged std::optional<Stylesheet> living inside a long-lived UiInstance component,
 // which leaves the pointer identical across a real content change — generation catches that.
-[[nodiscard]] inline std::uint64_t next_stylesheet_generation() noexcept {
-    static std::uint64_t counter = 0;
-    return ++counter;
-}
+// The counter lives in src/ui/stylesheet.cpp, so engine.dll and a game module share one sequence.
+[[nodiscard]] ENGINE_API std::uint64_t next_stylesheet_generation() noexcept;
 
 struct Stylesheet {
     std::uint64_t generation = next_stylesheet_generation();

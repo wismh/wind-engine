@@ -74,11 +74,6 @@ TEST(Platform, OneArgAssetsRootMatchesCurrentPlatform) {
             engine::default_assets_root(std::filesystem::path{"/opt/app"}, engine::current_platform()));
 }
 
-TEST(Platform, ApiEpochIsFour) {
-    EXPECT_EQ(engine::kApiEpoch, 4);
-    EXPECT_EQ(engine::api_epoch(), 4);
-}
-
 TEST(Platform, AndroidProfileConstants) {
     EXPECT_EQ(engine::loop_kind_for(engine::Platform::Android), engine::LoopKind::Blocking);
     EXPECT_TRUE(engine::uses_gles(engine::Platform::Android));

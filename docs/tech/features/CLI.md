@@ -13,7 +13,7 @@ Debug and RelWithDebInfo define `ENGINE_CLI_SERVER`, and not on Emscripten or An
 | `src/cli/cli_commands.cpp` | `tree`, `element`, `hit`, `click`, `profile` |
 | `tools/wind_cli/main.cpp` | the host client |
 
-`kApiEpoch` is 4. The tool does not check it.
+The tool does not check the engine build id.
 
 ## When it runs
 

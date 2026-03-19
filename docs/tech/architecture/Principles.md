@@ -39,7 +39,7 @@ Normative rules. If a change fights these, the change is wrong. As-built detail 
 ## Constraints
 
 - An exported game links `engine` statically. `engine` is a shared library only in the editor build (`ENGINE_EDITOR`), and a game module must be built against the same engine build as the editor that loads it.
-- CMake 3.16 or newer (`cmake_minimum_required` in `CMakeLists.txt`). C++23 (MSVC, clang, or gcc).
+- CMake 3.20 or newer (`cmake_minimum_required` in `CMakeLists.txt`). C++23 (MSVC, clang, or gcc).
 - SDL3 and SDL3_mixer. This mixer build enables WAV only. FLAC, Vorbis, MP3, MIDI, Opus, and the other `SDLMIXER_*` formats are OFF.
 - Desktop GL is OpenGL 3.3 Core via glad. Shaders are GLSL 330 wrapped in XML `.shader`. Web is WebGL2. Android is GLES 3.0. `shader_adapt` rewrites GLSL 330 to GLSL 300 ES when the GLES profile is on.
 - `.meta` files are TOML (tomlplusplus).
