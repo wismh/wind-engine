@@ -74,7 +74,7 @@ flowchart TB
 | `MouseEvent` / `InputEvent` | [Core](../modules/Core.md) poll | ECS event queues, UI hit-test, game Frame systems |
 | `PlaySfxEvent` / `PlayMusicEvent` | game or UI command | Audio phase |
 | `CmdDrawMesh` / `CmdDrawParticles` | Render system | OpenGL backend |
-| `CmdDrawUI` | UI render system | NanoVG painter |
+| `CmdDrawUI` | UI render system | UI renderer (`ui::UiRenderer`) |
 | `Presentation.mouse` | UI hit-test | `sync_frame` click-through on that same object. `ctx<ui::MouseConsumed>()` does not see the hits |
 | `{tr}` key | string-table asset | UI bind writes `Element::text` |
 | `HttpResult` | [Net](../modules/Net.md) backend (worker thread or browser callback) | the sender's `HttpCall`, in `HttpClient::poll` |

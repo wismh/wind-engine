@@ -222,7 +222,7 @@ The close button of a float window (`WindowCloseRequestedEvent`, read in `run_do
 
 ### Opening and closing in the frame
 
-Windows open and close in `run_dock_layout`, in `Bind`, never inside `draw_all`. A window opened there gets this frame's `CmdDrawUI` from `run_ui_render` (`ensure_ui_font` loads `builtin::font_ui` into its NanoVG context first). `WindowManager::destroy_window` drops the window, its GL context, and its command buffer at once; that buffer's `CmdDrawUI` entries from the last frame point into documents, but nothing reads the buffer after it is gone, and the same pass has already moved the float's canvases to the space's window, so no canvas of this frame targets the closed id (`run_ui_render` skips a window without a buffer). The modal move loop's reentrant tick runs the same systems; a close there would only come from the host removing the space.
+Windows open and close in `run_dock_layout`, in `Bind`, never inside `draw_all`. A window opened there gets this frame's `CmdDrawUI` from `run_ui_render` (`ensure_ui_font` registers `builtin::font_ui` with its painter first). `WindowManager::destroy_window` drops the window, its GL context, and its command buffer at once; that buffer's `CmdDrawUI` entries from the last frame point into documents, but nothing reads the buffer after it is gone, and the same pass has already moved the float's canvases to the space's window, so no canvas of this frame targets the closed id (`run_ui_render` skips a window without a buffer). The modal move loop's reentrant tick runs the same systems; a close there would only come from the host removing the space.
 
 ### Dragging across windows
 

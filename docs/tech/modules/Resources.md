@@ -29,7 +29,7 @@ The full literals are in `builtin_ids.h`. The table's suffix is the last five ch
 | `ImporterKind` | Sidecar `importer` | Runtime type (typical) |
 | --- | --- | --- |
 | `Texture` | `texture` | GPU texture via `IGraphicFactory` |
-| `UiImage` | `ui_image` | `render::TextureDesc` bytes for NanoVG |
+| `UiImage` | `ui_image` | `render::TextureDesc` bytes for the UI image atlas |
 | `Audio` | `audio` | `Sound` |
 | `Mesh` | `mesh` | `IMesh` |
 | `Shader` | `shader` | `IShader` |
