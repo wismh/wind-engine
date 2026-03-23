@@ -2,9 +2,10 @@
 
 #include "context_vao.h"
 #include "gl_includes.h"
-#include "nanovg_painter.h"
 
 #include "render/framebuffer_image.h"
+
+#include <engine/log.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -72,45 +73,54 @@ bool OpenGLCanvas::init(bool with_ui_painter) {
         return true;
     }
 
-    ui_painter_ = std::make_unique<NanoVgPainter>();
-    if (!ui_painter_->create()) {
-        ui_painter_.reset();
+    if (!create_ui_painter()) {
         destroy_context();
         return false;
     }
     if (auto* gl_backend = dynamic_cast<OpenGLRenderBackend*>(backend_)) {
-        gl_backend->set_ui_painter(ui_painter_.get());
+        gl_backend->set_ui_painter(ui_painter());
     }
     return true;
 }
 
-bool OpenGLCanvas::load_ui_font(const Font& font) {
-    if (ui_painter_ == nullptr) {
+bool OpenGLCanvas::create_ui_painter() {
+    auto* gl_backend = dynamic_cast<OpenGLRenderBackend*>(backend_);
+    if (gl_backend == nullptr) {
         return false;
     }
-    return ui_painter_->load_ui_font(font);
+    ui_device_ = std::make_unique<OpenGLUiDevice>();
+    if (!ui_device_->create()) {
+        log::error("the UI renderer's shader did not build; this window draws no UI");
+        ui_device_.reset();
+        return false;
+    }
+    ui_renderer_ = std::make_unique<ui::UiRenderer>(gl_backend->ui_resources(), *ui_device_);
+    return true;
+}
+
+void OpenGLCanvas::destroy_ui_painter() {
+    ui_renderer_.reset();
+    ui_device_.reset();
+}
+
+bool OpenGLCanvas::load_ui_font(const Font& font) {
+    return ui_renderer_ != nullptr && ui_renderer_->load_ui_font(font);
 }
 
 bool OpenGLCanvas::add_font(AssetId id, const Font& font) {
-    if (ui_painter_ == nullptr) {
-        return false;
-    }
-    return ui_painter_->add_font(id, font);
+    return ui_renderer_ != nullptr && ui_renderer_->add_font(id, font);
 }
 
 bool OpenGLCanvas::add_image(AssetId id, const TextureDesc& desc) {
-    if (ui_painter_ == nullptr) {
-        return false;
-    }
-    return ui_painter_->add_image(id, desc);
+    return ui_renderer_ != nullptr && ui_renderer_->add_image(id, desc);
 }
 
 bool OpenGLCanvas::reset_ui_painter() {
-    if (ui_painter_ == nullptr) {
+    if (ui_renderer_ == nullptr) {
         return false;
     }
-    make_current();
-    return ui_painter_->create();
+    ui_renderer_->drop_images();
+    return true;
 }
 
 void OpenGLCanvas::make_current() {
@@ -119,7 +129,7 @@ void OpenGLCanvas::make_current() {
     // silent visual corruption with no build/CI signal (no GPU in engine_tests). Making
     // this window's context current before touching any GL state is what makes draw_all() correct.
     // Hit-test layout also measures text through this painter, so the same MakeCurrent is required
-    // before nvgTextBounds (otherwise a secondary window would measure against the wrong atlas).
+    // before a text measure (otherwise a secondary window would measure against the wrong context).
     if (window_ != nullptr && context_ != nullptr && window_->window() != nullptr) {
         SDL_GL_MakeCurrent(window_->window(), context_);
     }
@@ -155,24 +165,28 @@ void OpenGLCanvas::render() {
     const float clear_alpha = (window_ != nullptr && window_->is_transparent()) ? 0.0f : 1.0f;
     glClearColor(0.0f, 0.0f, 0.0f, clear_alpha);
     glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    if (ui_painter_ != nullptr && window_ != nullptr) {
+    if (window_ != nullptr) {
         const glm::ivec2 size = window_->drawable_size();
-        ui_painter_->begin_frame(static_cast<float>(size.x), static_cast<float>(size.y));
+        if (ui_renderer_ != nullptr) {
+            ui_renderer_->begin_frame(static_cast<float>(size.x), static_cast<float>(size.y));
+        }
     }
-    // Re-arm the shared backend's UI painter pointer to *this* canvas's painter right before
-    // execute() reads it. With 2+ windows each owning its own NanoVgPainter,
-    // OpenGLRenderBackend::execute() only ever reads whatever painter is currently set — never
-    // something captured earlier — so doing this every frame, right here, is what makes each
-    // window's CmdDrawUI commands paint through its own painter instead of whichever window
-    // happened to init() last.
-    if (auto* gl_backend = dynamic_cast<OpenGLRenderBackend*>(backend_)) {
-        gl_backend->set_ui_painter(ui_painter_.get());
+    // Re-arm the shared backend's UI painter pointer to *this* canvas's painter right before execute() reads it.
+    // With 2+ windows each owning its own painter, OpenGLRenderBackend::execute() only ever reads whatever painter
+    // is currently set, so doing this every frame, right here, makes each window's CmdDrawUI commands paint through
+    // its own painter instead of whichever window happened to init() last.
+    auto* const gl_backend = dynamic_cast<OpenGLRenderBackend*>(backend_);
+    if (gl_backend != nullptr) {
+        gl_backend->set_ui_painter(ui_painter());
     }
     if (backend_ != nullptr && commands_ != nullptr) {
         backend_->execute(*commands_);
     }
-    if (ui_painter_ != nullptr) {
-        ui_painter_->end_frame();
+    if (ui_renderer_ != nullptr) {
+        ui_renderer_->end_frame();
+    }
+    if (gl_backend != nullptr) {
+        gl_backend->check_gl_errors("the UI draw");
     }
 }
 
@@ -220,16 +234,15 @@ void OpenGLCanvas::destroy_context() {
     if (context_ != nullptr) {
         make_current();
     }
-    // Only clear the shared backend_'s ui_painter_ if THIS canvas is the one that set it
-    // (ui_painter_ != nullptr): backend_ is the one OpenGLRenderBackend shared by every window
-    //, so a secondary window's canvas — which never created a painter — would
-    // otherwise null out the *primary* window's painter the instant its own init()/destructor
-    // called this (init() always calls destroy_context() first, even on a brand-new canvas).
-    if (ui_painter_ != nullptr) {
+    // Only clear the shared backend_'s ui_painter_ if THIS canvas is the one that made a painter: backend_ is the
+    // one OpenGLRenderBackend shared by every window, so a canvas that never created a painter would otherwise null
+    // out the *primary* window's painter the instant its own init()/destructor called this (init() always calls
+    // destroy_context() first, even on a brand-new canvas).
+    if (ui_painter() != nullptr) {
         if (auto* gl_backend = dynamic_cast<OpenGLRenderBackend*>(backend_)) {
             gl_backend->set_ui_painter(nullptr);
         }
-        ui_painter_.reset();
+        destroy_ui_painter();
     }
     if (context_ == nullptr) {
         return;

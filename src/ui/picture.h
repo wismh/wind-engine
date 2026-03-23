@@ -18,7 +18,7 @@
 namespace engine::ui {
 
     // A list of engine paint commands: the calls an element subtree made on an `IUiPainter`, in order, with the
-    // arguments they had. It is not a NanoVG command stream and not a texture: any `IUiPainter` replays it. A boundary
+    // arguments they had. It is not a GPU command stream and not a texture: any `IUiPainter` replays it. A boundary
     // keeps one and replays it while nothing it shows changed.
     class Picture {
     public:

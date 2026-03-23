@@ -28,7 +28,7 @@ namespace engine {
 // one IRenderBackend/IGraphicFactory-produced GL objects EngineRuntime already owns — texture,
 // mesh, and shader GL object ids stay valid across the whole GL share group once contexts share,
 // so AssetsDb/IGraphicFactory stay single-instance. Every window gets its own
-// OpenGLCanvas + NanoVgPainter — routing which UiCanvas/CommandBuffer target which window
+// OpenGLCanvas + UiRenderer — routing which UiCanvas/CommandBuffer target which window
 // is EngineSystemDeps::commands_for_window's job (engine/ecs/systems.h), not this class's.
 class WindowManager {
 public:
