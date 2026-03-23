@@ -11,6 +11,8 @@ Rules that keep games from depending on SDL, glad, or NanoVG.
 
 Games include `<engine/…>` only. `IUiPainter` is not public (`src/ui/painter.h`). Games draw custom UI through `IDrawList` (`include/engine/ui/draw_list.h`) from an `IPaint` on the view-model.
 
+A public header holds no mutable state. No function-local `static` in an inline or template function, no non-`constexpr` static data member, no mutable `inline` variable. In the editor build each module would get its own copy, and `WINDOWS_EXPORT_ALL_SYMBOLS` does not export data. Put the state in a `.cpp` and declare the accessor with `ENGINE_API`. Example: `ui::next_stylesheet_generation` (`src/ui/stylesheet.cpp`).
+
 ## Forbidden
 
 See [Principles](Principles.md).
@@ -30,6 +32,9 @@ See [Principles](Principles.md).
 | `ENGINE_WITH_WEB` | `PUBLIC`. Web profile helpers. Emscripten turns the option ON by default. |
 | `ENGINE_WITH_ANDROID` | `PUBLIC`. Android profile helpers. The NDK turns the option ON by default. |
 | `ENGINE_WITH_GLES` | `PUBLIC`. ES 3.0 backend (no glad, NanoVG GLES3, shader adapt). Default ON when `EMSCRIPTEN` or `ANDROID`. |
+| `ENGINE_EDITOR` | CMake option, OFF by default. Builds `engine` as a shared library with `WINDOWS_EXPORT_ALL_SYMBOLS`. Needs `ENGINE_WITH_WINDOW`. Configure fails on Emscripten and Android. |
+| `ENGINE_SHARED` | `PUBLIC` on `engine` when `ENGINE_EDITOR` is ON. With it, `ENGINE_API` (`include/engine/core/export.h`) imports on Windows and sets default visibility elsewhere. Without it the macro is empty. |
+| `ENGINE_BUILDING` | `PRIVATE` on `engine` when `ENGINE_EDITOR` is ON. `ENGINE_API` exports while the engine itself compiles. |
 | `ENGINE_BUILD_TESTS` | Builds `engine_tests` and implies `ENGINE_WITH_GTEST`. Default ON at the engine root, OFF when Wind is a subdirectory. |
 | `ENGINE_WITH_GTEST` | Vendors GoogleTest (`external/googletest`) without building `engine_tests`. A game can set this alone so its own test target gets `GTest::gtest_main`. Defaults to `ENGINE_BUILD_TESTS`. |
 | `ENGINE_UI_PROFILER` | `PUBLIC` on `engine` for Debug and RelWithDebInfo. UI profiler scopes and window. Release and MinSizeRel compile the call sites out. The public toggle is an inline no-op. See [UI Profiler](../features/UI%20Profiler.md). |
@@ -39,7 +44,7 @@ See [Principles](Principles.md).
 
 When a game `add_subdirectory`s Wind, window defaults ON. The engine-root `vs` preset keeps window OFF so CI stays headless. See [CMake](../build/CMake.md).
 
-`engine_tests` links `engine` alone by default. `ENGINE_WITH_WINDOW` additionally links `SDL3::SDL3` and, unless GLES, `glad`. Both are otherwise `PRIVATE` on `engine`, so their include directories would not reach a test translation unit. That link exists so a test can `#include "render/opengl/window_system.h"` under the same `ENGINE_WITH_WINDOW` guard production code uses (`tests/window_icon_test.cpp`).
+`engine_tests` links `engine` alone by default. `ENGINE_WITH_WINDOW` additionally links `SDL3::SDL3` and, unless GLES, `glad`. Both are otherwise `PRIVATE` on `engine`, so their include directories would not reach a test translation unit. That link exists so a test can `#include "render/opengl/window_system.h"` under the same `ENGINE_WITH_WINDOW` guard production code uses (`tests/window_icon_test.cpp`). Under `ENGINE_EDITOR` that SDL3 and glad are a second static copy in `engine_tests.exe`, beside the one inside `engine.dll`.
 
 ## `engine_tests`
 

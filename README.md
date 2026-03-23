@@ -13,6 +13,16 @@ ctest --test-dir build -C Debug --output-on-failure
 
 SDL / OpenGL / NanoVG stay behind `ENGINE_WITH_WINDOW` (default **OFF** in this repo; local preset `vs-window`). Mixer stays behind `ENGINE_WITH_AUDIO` (default **OFF**; local preset `vs-audio`). `engine_tests` never calls `Engine::run` and never opens a mixer device.
 
+Editor build: `ENGINE_EDITOR=ON` makes `engine` a shared library (`engine.dll` beside the executables). The `vs-editor` preset turns it on with the window backend and builds to `build-editor`:
+
+```bash
+cmake --preset vs-editor
+cmake --build build-editor --config Debug
+ctest --test-dir build-editor -C Debug --output-on-failure
+```
+
+Exported games, web, and Android stay on the static library. See [CMake](docs/tech/build/CMake.md#editor-build).
+
 Games consume this repo as a git submodule at `external/engine`:
 
 ```cmake

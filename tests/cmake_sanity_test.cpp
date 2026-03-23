@@ -7,8 +7,25 @@
 
 #include "engine/engine.h"
 
-TEST(Scaffold, ApiEpoch) {
-    EXPECT_EQ(engine::kApiEpoch, engine::api_epoch());
+TEST(Scaffold, BuildIdMatchesEngineLibrary) {
+    EXPECT_FALSE(engine::kBuildId.empty());
+    EXPECT_EQ(engine::build_id(), engine::kBuildId);
+}
+
+TEST(Scaffold, BuildIdIsSixteenLowercaseHex) {
+    ASSERT_EQ(engine::kBuildId.size(), 16u);
+    for (const char c : engine::kBuildId) {
+        EXPECT_TRUE((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) << c;
+    }
+}
+
+TEST(Scaffold, SharedEngineOnlyInEditorBuild) {
+#if defined(ENGINE_SHARED)
+    // ENGINE_EDITOR: engine_tests runs against engine.dll.
+    SUCCEED();
+#else
+    GTEST_SKIP() << "static engine (ENGINE_EDITOR is OFF)";
+#endif
 }
 
 TEST(Scaffold, DefaultTestsHaveNoWindowBackend) {
