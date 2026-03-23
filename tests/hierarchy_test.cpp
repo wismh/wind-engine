@@ -6,8 +6,10 @@
 #include <engine/log.h>
 
 #include <glm/gtc/constants.hpp>
+#include <glm/matrix.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 namespace {
@@ -50,9 +52,10 @@ bool has_child(World& world, Entity parent, Entity child) {
 
 TEST(Hierarchy, ChainWorldMatrixWithRotationAndScale) {
     World world;
-    const Entity a = spawn(world, Transform{{1.f, 2.f, 3.f}, {0.2f, 0.4f, 0.6f}, {2.f, 2.f, 2.f}});
-    const Entity b = spawn(world, Transform{{0.5f, -1.f, 0.f}, {0.f, 0.f, glm::half_pi<float>()}, {1.f, 3.f, 1.f}});
-    const Entity c = spawn(world, Transform{{4.f, 0.f, 1.f}, {0.1f, 0.f, 0.f}, {1.f, 1.f, 2.f}});
+    const Entity a = spawn(world, Transform{{1.f, 2.f, 3.f}, engine::euler_xyz({0.2f, 0.4f, 0.6f}), {2.f, 2.f, 2.f}});
+    const Entity b = spawn(world,
+            Transform{{0.5f, -1.f, 0.f}, engine::rotation_z(glm::half_pi<float>()), {1.f, 3.f, 1.f}});
+    const Entity c = spawn(world, Transform{{4.f, 0.f, 1.f}, engine::euler_xyz({0.1f, 0.f, 0.f}), {1.f, 1.f, 2.f}});
     ASSERT_TRUE(engine::ecs::set_parent(world, b, a));
     ASSERT_TRUE(engine::ecs::set_parent(world, c, b));
 
@@ -70,8 +73,10 @@ TEST(Hierarchy, ChainWorldMatrixWithRotationAndScale) {
 
 TEST(Hierarchy, KeepWorldYesPreservesWorldPosition) {
     World world;
-    const Entity parent = spawn(world, Transform{{10.f, -4.f, 2.f}, {0.3f, 0.5f, 1.1f}, {2.f, 2.f, 2.f}});
-    const Entity child = spawn(world, Transform{{1.f, 2.f, 3.f}, {0.2f, -0.4f, 0.7f}, {1.f, 1.5f, 1.f}});
+    const Entity parent = spawn(world,
+            Transform{{10.f, -4.f, 2.f}, engine::euler_xyz({0.3f, 0.5f, 1.1f}), {2.f, 2.f, 2.f}});
+    const Entity child = spawn(world,
+            Transform{{1.f, 2.f, 3.f}, engine::euler_xyz({0.2f, -0.4f, 0.7f}), {1.f, 1.5f, 1.f}});
     const glm::mat4 before = engine::ecs::compute_world_matrix(world, child);
 
     ASSERT_TRUE(engine::ecs::set_parent(world, child, parent, KeepWorld::Yes));
@@ -84,10 +89,57 @@ TEST(Hierarchy, KeepWorldYesPreservesWorldPosition) {
     EXPECT_EQ(world.try_get<Parent>(child), nullptr);
 }
 
+TEST(Hierarchy, KeepWorldYesUnderRotatedChainKeepsWholeMatrix) {
+    World world;
+    const Entity root =
+            spawn(world, Transform{.position = {2.f, 0.f, -1.f}, .rotation = engine::euler_xyz({0.4f, -0.9f, 0.2f})});
+    const Entity parent = spawn(world, Transform{.position = {0.f, 3.f, 0.f},
+                                               .rotation = engine::euler_xyz({1.2f, 0.3f, -0.6f}),
+                                               .scale = {1.5f, 1.5f, 1.5f}});
+    ASSERT_TRUE(engine::ecs::set_parent(world, parent, root));
+    const Entity child = spawn(world, Transform{.position = {-1.f, 0.5f, 4.f},
+                                              .rotation = engine::euler_xyz({-0.3f, 2.1f, 0.8f}),
+                                              .scale = {0.5f, 2.f, 1.f}});
+    const glm::mat4 before = engine::ecs::compute_world_matrix(world, child);
+
+    ASSERT_TRUE(engine::ecs::set_parent(world, child, parent, KeepWorld::Yes));
+    expect_near(engine::ecs::compute_world_matrix(world, child), before, 1e-3f);
+    EXPECT_NEAR(glm::length(world.get<Transform>(child).rotation), 1.f, 1e-5f);
+
+    engine::ecs::clear_parent(world, child, KeepWorld::Yes);
+    expect_near(engine::ecs::compute_world_matrix(world, child), before, 1e-3f);
+}
+
+TEST(Hierarchy, KeepWorldYesUnder2DRotatedParentReadsBackAngle) {
+    World world;
+    const Entity parent = spawn(world, Transform{.position = {5.f, 1.f, 0.f}, .rotation = engine::rotation_z(0.75f)});
+    const Entity child = spawn(world, Transform{.position = {1.f, 1.f, 0.f}, .rotation = engine::rotation_z(1.25f)});
+
+    ASSERT_TRUE(engine::ecs::set_parent(world, child, parent, KeepWorld::Yes));
+    // The child's local turn is what is left after the parent's.
+    EXPECT_NEAR(engine::angle_z(world.get<Transform>(child).rotation), 0.5f, 1e-5f);
+    expect_near(glm::vec3(engine::ecs::compute_world_matrix(world, child)[3]), {1.f, 1.f, 0.f});
+}
+
+TEST(Hierarchy, KeepWorldYesWithSkewKeepsPositionAndAUnitRotation) {
+    World world;
+    // Non-uniform scale above a rotated child: the true local matrix has skew.
+    const Entity parent = spawn(world, Transform{.position = {1.f, 2.f, 0.f}, .scale = {3.f, 1.f, 1.f}});
+    const Entity child = spawn(world, Transform{.position = {4.f, -2.f, 1.f}, .rotation = engine::rotation_z(0.6f)});
+    const glm::mat4 before = engine::ecs::compute_world_matrix(world, child);
+
+    ASSERT_TRUE(engine::ecs::set_parent(world, child, parent, KeepWorld::Yes));
+    expect_near(glm::vec3(engine::ecs::compute_world_matrix(world, child)[3]), glm::vec3(before[3]));
+    EXPECT_NEAR(glm::length(world.get<Transform>(child).rotation), 1.f, 1e-5f);
+    // The local X axis is kept: its heading is exact.
+    const glm::vec3 local_x = glm::vec3(glm::inverse(engine::model_matrix(world.get<Transform>(parent))) * before[0]);
+    EXPECT_NEAR(engine::angle_z(world.get<Transform>(child).rotation), std::atan2(local_x.y, local_x.x), 1e-5f);
+}
+
 TEST(Hierarchy, KeepWorldNoLeavesLocal) {
     World world;
-    const Entity parent = spawn(world, Transform{{10.f, 0.f, 0.f}, {}, {1.f, 1.f, 1.f}});
-    const Entity child = spawn(world, Transform{{1.f, 0.f, 0.f}, {}, {1.f, 1.f, 1.f}});
+    const Entity parent = spawn(world, Transform{{10.f, 0.f, 0.f}, glm::quat{1.f, 0.f, 0.f, 0.f}, {1.f, 1.f, 1.f}});
+    const Entity child = spawn(world, Transform{{1.f, 0.f, 0.f}, glm::quat{1.f, 0.f, 0.f, 0.f}, {1.f, 1.f, 1.f}});
     ASSERT_TRUE(engine::ecs::set_parent(world, child, parent));
     EXPECT_FLOAT_EQ(world.get<Transform>(child).position.x, 1.f);
     EXPECT_FLOAT_EQ(engine::ecs::compute_world_matrix(world, child)[3].x, 11.f);
@@ -216,7 +268,7 @@ TEST(Hierarchy, DeadParentBecomesRoot) {
     engine::log::init();
     World world;
     const Entity parent = spawn(world, Transform{});
-    const Entity child = spawn(world, Transform{{3.f, 0.f, 0.f}, {}, {1.f, 1.f, 1.f}});
+    const Entity child = spawn(world, Transform{{3.f, 0.f, 0.f}, glm::quat{1.f, 0.f, 0.f, 0.f}, {1.f, 1.f, 1.f}});
     // A Parent that points at a dead entity can only come from hand-made data.
     world.emplace<Parent>(child, Parent{parent});
     world.destroy(parent);
@@ -231,7 +283,8 @@ TEST(Hierarchy, DeadParentBecomesRoot) {
 
 TEST(Hierarchy, SetWorldPositionWritesLocal) {
     World world;
-    const Entity parent = spawn(world, Transform{{10.f, 0.f, 0.f}, {0.f, 0.f, glm::half_pi<float>()}, {2.f, 2.f, 2.f}});
+    const Entity parent = spawn(world,
+            Transform{{10.f, 0.f, 0.f}, engine::rotation_z(glm::half_pi<float>()), {2.f, 2.f, 2.f}});
     const Entity child = spawn(world, Transform{});
     ASSERT_TRUE(engine::ecs::set_parent(world, child, parent));
 
@@ -247,8 +300,8 @@ TEST(Hierarchy, SetWorldPositionWritesLocal) {
 
 TEST(Hierarchy, UpdateIsIdempotentAndRebuildsDeletedWorldTransform) {
     World world;
-    const Entity a = spawn(world, Transform{{1.f, 0.f, 0.f}, {0.f, 0.5f, 0.f}, {1.f, 2.f, 1.f}});
-    const Entity b = spawn(world, Transform{{0.f, 3.f, 0.f}, {0.3f, 0.f, 0.f}, {1.f, 1.f, 1.f}});
+    const Entity a = spawn(world, Transform{{1.f, 0.f, 0.f}, engine::euler_xyz({0.f, 0.5f, 0.f}), {1.f, 2.f, 1.f}});
+    const Entity b = spawn(world, Transform{{0.f, 3.f, 0.f}, engine::euler_xyz({0.3f, 0.f, 0.f}), {1.f, 1.f, 1.f}});
     ASSERT_TRUE(engine::ecs::set_parent(world, b, a));
 
     engine::ecs::update_world_transforms(world);
@@ -269,8 +322,8 @@ TEST(Hierarchy, UpdateIsIdempotentAndRebuildsDeletedWorldTransform) {
 
 TEST(Hierarchy, ClearParentRemovesWorldTransform) {
     World world;
-    const Entity a = spawn(world, Transform{{1.f, 0.f, 0.f}, {}, {1.f, 1.f, 1.f}});
-    const Entity b = spawn(world, Transform{{0.f, 3.f, 0.f}, {}, {1.f, 1.f, 1.f}});
+    const Entity a = spawn(world, Transform{{1.f, 0.f, 0.f}, glm::quat{1.f, 0.f, 0.f, 0.f}, {1.f, 1.f, 1.f}});
+    const Entity b = spawn(world, Transform{{0.f, 3.f, 0.f}, glm::quat{1.f, 0.f, 0.f, 0.f}, {1.f, 1.f, 1.f}});
     ASSERT_TRUE(engine::ecs::set_parent(world, b, a));
     engine::ecs::update_world_transforms(world);
     ASSERT_NE(world.try_get<WorldTransform>(b), nullptr);

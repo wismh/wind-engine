@@ -1,6 +1,6 @@
 # Camera
 
-Wind includes an orthographic 2D camera (`engine::Camera`) with coordinate transformations between window pixels and world units. The camera is a component on an entity together with an `engine::Transform`, and one entity is marked as the active camera.
+Wind includes a camera (`engine::Camera`) with coordinate transformations between window pixels and world units. It is orthographic by default, the 2D camera; set `projection` to `engine::Projection::Perspective` for a 3D view. The camera is a component on an entity together with an `engine::Transform`, and one entity is marked as the active camera.
 
 ---
 
@@ -21,7 +21,21 @@ world.ctx<engine::ActiveCamera>().entity = cam;
 - `ortho_size` is the **half-height** of the view in world units (default `10`). A window 720 pixels tall with `ortho_size = 5` shows 10 world units from bottom to top. The width follows the window's aspect ratio (`auto_aspect`, the default).
 - `near_clip` / `far_clip` default to `-1` / `1`, so sprites at `z = 0` are visible.
 - Without a valid `ActiveCamera` the engine draws no world sprites or meshes (UI still draws). An `ActiveCamera` pointing at a live entity that lacks `Camera` or `Transform` is a fatal error.
-- The view is the camera's `Transform::position` only: rotation and scale of the camera entity are not applied. The world is drawn into every window bound to the world, each with its own aspect ratio.
+- The view is the inverse of the camera entity's world matrix, so its position, rotation and parent all apply. The camera looks down its local -Z with +Y up. The world is drawn into every window bound to the world, each with its own aspect ratio.
+
+### Perspective
+
+```cpp
+world.emplace<engine::Camera>(cam, engine::Camera{
+        .projection = engine::Projection::Perspective,
+        .fov_y = glm::radians(60.0f),  // vertical field of view
+        .near_clip = 0.1f,
+        .far_clip = 1000.0f,
+});
+world.get<engine::Transform>(cam).position = {0.0f, 0.0f, 10.0f};  // 10 units in front of z = 0
+```
+
+A perspective camera needs `0 < near_clip < far_clip`. A smaller near is clamped to `engine::kMinPerspectiveNear` and a warning is logged once, so always set both clip planes when you switch to perspective.
 
 ---
 
@@ -41,6 +55,13 @@ glm::vec3 mouse_world = engine::screen_to_world({640.0f, 360.0f}, camera, camera
 
 // World coordinates -> Screen pixel
 glm::vec2 enemy_screen = engine::world_to_screen({250.0f, -100.0f, 0.0f}, camera, camera_world, window);
+```
+
+Under a perspective camera `screen_to_world` returns the point on the world plane `z = 0` under the pixel, which is what 2D-style picking wants. For anything else, take the ray and intersect it yourself:
+
+```cpp
+const engine::Ray ray = engine::screen_to_ray(mouse_pixel, camera, camera_world, window);
+// ray.origin is on the near plane, ray.direction is unit length and points away from the camera
 ```
 
 `view_matrix(camera_world)` is the inverse of that matrix. The engine refreshes `world_matrix` in `Phase::Transform`; a system in `Phase::Game` that moved the camera's parent this frame should call `engine::ecs::compute_world_matrix` instead.
