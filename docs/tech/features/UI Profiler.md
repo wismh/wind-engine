@@ -55,18 +55,9 @@ Per canvas, on `ProfilerFrame`, recorded under the same rule as the paint scope 
 
 `paint_document` paints through `ProfilerPaintCounter` (`src/ui/profiler_paint_counter.h`), a decorator that counts and forwards every call. When the canvas is not recorded it hands out the wrapped painter itself. Layout keeps the wrapped painter, because `sync_layout` compares painter identity. The counter adds its counts with `profiler_add_paint` after the paint timer stops. While a canvas is recorded, its Paint time includes the counter's forwarding: one extra virtual call per painter call.
 
-Draw calls are per canvas, not per flush. One painter per window queues every canvas of that window, and NanoVG flushes the queue once, at `nvgEndFrame` after the last canvas. `IUiPainter::queued_draw_calls` returns the draw calls queued so far this frame; the counter reads it before and after the canvas and records the difference. So the canvases of one world on one window sum to that world's share of the flush, and another world's canvases on the same window are not in it. A painter that does not override it reports 0.
+Draw calls are per canvas, not per flush. One painter per window queues every canvas of that window, and the UI renderer draws the queue once, at `end_frame` after the last canvas. `IUiPainter::queued_draw_calls` returns the draw calls queued so far this frame; the counter reads it before and after the canvas and records the difference. So the canvases of one world on one window sum to that world's share of the flush, and another world's canvases on the same window are not in it. A painter that does not override it reports 0.
 
-`NanoVgPainter::queued_draw_calls` walks the NanoVG GL backend's queued calls (`GLNVGcontext::calls`, through `nvgInternalParams(vg)->userPtr`; the implementation is compiled into `nanovg_painter.cpp`) and adds the `glDrawArrays` that `glnvg__renderFlush` will issue for each. It keeps a cursor, so each call is read once per frame. `begin_frame` resets it.
-
-| Call type | `glDrawArrays` |
-| --- | --- |
-| `GLNVG_FILL` | per path a stencil fan, plus a fringe strip with `NVG_ANTIALIAS`; then one cover quad |
-| `GLNVG_CONVEXFILL` | per path a fan, plus a fringe strip when the path has one |
-| `GLNVG_STROKE` | per path 3 strips with `NVG_STENCIL_STROKES` (the engine creates the context with it), else 1 |
-| `GLNVG_TRIANGLES` | 1 (a text run, `nvgText`) |
-
-That table follows `glnvg__fill`, `glnvg__convexFill`, `glnvg__stroke`, and `glnvg__triangles`; a NanoVG update must check it. Uniform and buffer uploads are not counted.
+`UiRenderer::queued_draw_calls` is the number of batches its draw list holds so far this frame; `end_frame` issues one `glDrawElements` per batch, so the counter and the GPU agree by construction. A batch breaks only when a texture slot it already uses needs another page, so a canvas that continues the previous canvas's batch records 0. Texture and buffer uploads are not counted.
 
 ## Snapshot
 

@@ -1,12 +1,12 @@
 # Boundaries
 
-Rules that keep games from depending on SDL, glad, or NanoVG.
+Rules that keep games from depending on SDL or glad.
 
 ## Public vs private
 
 | Public `include/engine/` | Private `src/` |
 | --- | --- |
-| `IGame`, `World`, components, `AssetsDb`, `IMaterial`, UI MVVM, `IAudioSystem`, `IHaptics`, `IHttpClient`, `IProcessLauncher` | OpenGL classes, NanoVG painter, XML and CSS parsers, `stb_image`, `stb_truetype`, clipboard, mixer |
+| `IGame`, `World`, components, `AssetsDb`, `IMaterial`, UI MVVM, `IAudioSystem`, `IHaptics`, `IHttpClient`, `IProcessLauncher` | OpenGL classes, the UI renderer (`src/ui/render/`), XML and CSS parsers, `stb_image`, `stb_truetype`, clipboard, mixer |
 | glm types on game-facing structs | spdlog, tinyxml2, tomlplusplus, SDL |
 
 Games include `<engine/…>` only. `IUiPainter` is not public (`src/ui/painter.h`). Games draw custom UI through `IDrawList` (`include/engine/ui/draw_list.h`) from an `IPaint` on the view-model.
@@ -31,7 +31,7 @@ See [Principles](Principles.md).
 | `ENGINE_WITH_AUDIO` | `PRIVATE`. Real `MIX_*`. WAV-only mixer in CMake. Same root and subdirectory split as `ENGINE_WITH_WINDOW`: OFF at the engine root, ON when Wind is `add_subdirectory`'d. |
 | `ENGINE_WITH_WEB` | `PUBLIC`. Web profile helpers. Emscripten turns the option ON by default. |
 | `ENGINE_WITH_ANDROID` | `PUBLIC`. Android profile helpers. The NDK turns the option ON by default. |
-| `ENGINE_WITH_GLES` | `PUBLIC`. ES 3.0 backend (no glad, NanoVG GLES3, shader adapt). Default ON when `EMSCRIPTEN` or `ANDROID`. |
+| `ENGINE_WITH_GLES` | `PUBLIC`. ES 3.0 backend (no glad, shader adapt). Default ON when `EMSCRIPTEN` or `ANDROID`. |
 | `ENGINE_EDITOR` | CMake option, OFF by default. Builds `engine` as a shared library with `WINDOWS_EXPORT_ALL_SYMBOLS`. Needs `ENGINE_WITH_WINDOW`. Configure fails on Emscripten and Android. Also a `PUBLIC` define on `engine` (`ENGINE_EDITOR=1`), so `wind_editor`, the tests, the fixture modules, and every game module built against the SDK see it. Game code may test it only for tools, never for gameplay ([Principles](Principles.md)). |
 | `ENGINE_SHARED` | `PUBLIC` on `engine` when `ENGINE_EDITOR` is ON. With it, `ENGINE_API` (`include/engine/core/export.h`) imports on Windows and sets default visibility elsewhere. Without it the macro is empty. |
 | `ENGINE_BUILDING` | `PRIVATE` on `engine` when `ENGINE_EDITOR` is ON. `ENGINE_API` exports while the engine itself compiles. |
@@ -54,7 +54,7 @@ Logic and fakes, not a GPU or a mixer device. Cover the happy path and the main 
 
 Not in `engine_tests`:
 
-- Pixel-perfect OpenGL or NanoVG screenshots.
+- Pixel-perfect OpenGL screenshots.
 - `Engine<GameT>::init` plus a real SDL window (needs a display).
 - Decoding a WAV through SDL_mixer in CI. Use a fake `Audio` or fake track.
 - Gameplay (bot AI, score). That belongs in the game repo.

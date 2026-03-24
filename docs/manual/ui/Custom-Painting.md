@@ -106,7 +106,7 @@ The `IDrawList` interface operates in element-local pixel coordinates (the origi
 There is no `draw_circle`; draw a full circle as an `arc` from `0` to `2 * pi`, or a `fill_rect` with a radius of half the side.
 
 > [!NOTE]
-> All drawing commands in `IDrawList` are batched into the engine's 2D vector pass. Game code never invokes NanoVG or OpenGL functions directly.
+> All drawing commands in `IDrawList` are batched into the engine's 2D vector pass. Game code never invokes the UI renderer or OpenGL functions directly.
 
 ---
 
