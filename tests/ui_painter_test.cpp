@@ -22,10 +22,6 @@
 #include <vector>
 #include "fixtures/bind_error_fakes.h"
 
-#if defined(NANOVG_H) || defined(NANOVG_GL_H) || defined(NANOVG_GL3)
-#error "ui painter tests must not include nvg headers"
-#endif
-
 namespace {
 
 struct PaintCall {
@@ -859,7 +855,7 @@ TEST(UiPainter, ScissorAppliesAfterTransformSoRotatedContentIsNotClipped) {
     }
     ASSERT_LT(transform_index, painter.calls.size());
     ASSERT_LT(transform_index + 1, painter.calls.size());
-    // nvgScissor() bakes in whatever transform is active when called; setting it before the
+    // scissor() bakes in whatever transform is active when called; setting it before the
     // rotation would clip this rotated element against its un-rotated axis-aligned rect instead.
     // The Canvas root's own (untransformed) scissor call precedes this, so check the call
     // immediately after the rotated element's transform, not just the first scissor anywhere.

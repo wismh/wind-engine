@@ -39,10 +39,6 @@
 
 #include "fixtures/cli_client.h"
 
-#if defined(NANOVG_H) || defined(NANOVG_GL_H) || defined(NANOVG_GL3)
-#error "cli tests must not include nvg headers"
-#endif
-
 namespace {
 
     class ClickViewModel final : public engine::ui::ViewModel {
