@@ -4,7 +4,7 @@
 
 ## Desktop
 
-`default_assets_root` is `<base>/assets`. An empty base yields an empty root, and `Engine::init` reports "Assets root is missing".
+`default_assets_root` is `<base>/assets`. An empty base yields an empty root, and `EngineHost::open_primary` reports "Assets root is missing".
 
 `engine_prepare_runtime` leaves this tree beside the executable:
 

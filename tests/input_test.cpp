@@ -546,3 +546,52 @@ TEST(Input, UnboundExtraFingerIgnoredForActions) {
     EXPECT_FALSE(input.is_held(tap));
     EXPECT_TRUE(read_input(world).empty());
 }
+
+TEST(Input, ResetForgetsBindingsActionsAndHeldControls) {
+    engine::ecs::World world;
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
+    const engine::ActionId jump = input.intern("jump");
+    input.bind(engine::KeyCode::A, jump);
+    input.bind(engine::MouseButton::Left, "fire");
+    input.handle_key(engine::KeyCode::A, true);
+    input.handle_touch(3, true, glm::vec2{1.f, 2.f});
+    ASSERT_TRUE(input.is_held(jump));
+    ASSERT_TRUE(input.primary_touch_finger().has_value());
+
+    input.reset();
+
+    EXPECT_FALSE(input.is_held(jump));
+    EXPECT_FALSE(input.primary_touch_finger().has_value());
+    EXPECT_EQ(input.bound_action(engine::KeyCode::A), engine::ActionId::Invalid);
+    EXPECT_EQ(input.bound_action(engine::MouseButton::Left), engine::ActionId::Invalid);
+    EXPECT_FALSE(input.find("jump").has_value());
+    EXPECT_FALSE(input.find("fire").has_value());
+    EXPECT_TRUE(input.debug_name(jump).empty());
+}
+
+TEST(Input, ResetKeepsRouterAndInternsFromOneAgain) {
+    engine::ecs::World before;
+    engine::InputSystem input;
+    input.set_router([&before](engine::WindowId) { return &before; });
+    const engine::ActionId first = input.intern("jump");
+    (void)input.intern("fire");
+    input.bind(engine::KeyCode::A, first);
+    input.handle_key(engine::KeyCode::A, true);
+
+    input.reset();
+    // Held state is dropped without an Up event.
+    input.handle_key(engine::KeyCode::A, false);
+    const std::vector<engine::InputEvent> stale = read_input(before);
+    ASSERT_EQ(stale.size(), 1u);
+    EXPECT_EQ(stale[0].kind, engine::InputEvent::Kind::Down);
+
+    const engine::ActionId again = input.intern("crouch");
+    EXPECT_EQ(again, first);
+    EXPECT_EQ(input.debug_name(again), "crouch");
+    input.bind(engine::KeyCode::B, again);
+    input.handle_key(engine::KeyCode::B, true);
+
+    EXPECT_TRUE(input.is_held(again));
+    EXPECT_EQ(read_key(before).size(), 3u);
+}

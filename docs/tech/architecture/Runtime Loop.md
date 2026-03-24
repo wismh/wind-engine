@@ -1,33 +1,49 @@
 # Runtime loop
 
-Windowed games enter through `Engine<GameT>` (`include/engine/core/engine.h`). Headless tests use `Host` (`include/engine/core/host.h`), which shares `flush_worlds` and `simulate_worlds` (`src/core/frame_step.cpp`) and does not poll SDL. The process owns a `Worlds`. Each world has its own clock. The frame walks them in `add` order. Worlds do not share a command buffer, so that order does not change the picture.
+Windowed games enter through `ENGINE_GAME` (`include/engine/game_entry.h`), which runs `Engine<GameT>` (`include/engine/core/engine.h`) on an `EngineHost` (`include/engine/core/engine_host.h`). Headless tests use `Host` (`include/engine/core/host.h`), which shares `flush_worlds` and `simulate_worlds` (`src/core/frame_step.cpp`) and does not poll SDL. The process owns a `Worlds`. Each world has its own clock. The frame walks them in `add` order. Worlds do not share a command buffer, so that order does not change the picture.
 
 ## `Engine::init`
 
-`init` returns true immediately when it has already succeeded.
+`init` returns true immediately when it has already succeeded. The steps are `EngineHost` calls.
 
-1. `runtime_.init_video()`. SDL video, inside `SdlGlPresentation`.
-2. `log::init(runtime_.base_path())`. File sink `<base>/game.log`.
-3. Construct `SdlFatalError`, `InputSystem`, `AssetsDb`, `AudioSystem`, `HapticsSystem`.
-4. Construct `Worlds`, then `GameT` with `EngineServices` (assets, input, audio, haptics, windows, graphics, backend, canvas, commands, worlds). `GameBase` calls `Worlds::add` for its world. Systems are not registered yet: the window and catalogs do not exist.
-5. `input_->set_router` to `Worlds::world_for`. Attach the fatal hook to `Worlds::application_state` and the native window.
-6. `runtime_.create_window(game_->primary_window())`. On failure, shut the runtime down and return false. Attach the fatal hook again so it sees the created window.
-7. `audio_->init()`, then `haptics_->init()`. Either failure shuts the runtime down.
-8. `assets_->set_graphic_factory` and `set_root(runtime_.assets_root())`. An empty root is fatal.
-9. Load `assets/engine/catalog.toml`. Failure is fatal.
-10. Load `assets/catalog.toml`. `MetaError::Io` (file absent) is ignored. Any other error is fatal.
-11. Load `builtin::font_ui` into the primary window's UI atlas. Other fonts and UI images load later, when `run_ui_render` sees them referenced.
-12. If `window_icon()` is set, `get<render::TextureDesc>` and `set_window_icon`.
-13. `set_deps`, `register_engine_systems` on the game world, `bind_window(kPrimaryWindow)`, `enable_ui`, `enable_audio`, `write_window_size` (sends a resize event), `ui::apply_canvas_fit`.
+1. `EngineHost::init`:
+   1. `runtime.init_video()`. SDL video, inside `SdlGlPresentation`.
+   2. `log::init(runtime.base_path())`. File sink `<base>/game.log`.
+   3. Construct `SdlFatalError`, `InputSystem`, `AssetsDb`, `AudioSystem`, `HapticsSystem`, `Worlds`, and the `EngineServices` over them (assets, input, audio, haptics, windows, graphics, backend, canvas, commands, worlds).
+   4. `input.set_router` to `Worlds::world_for`. Attach the fatal hook to `Worlds::application_state` and the native window.
+2. Construct `GameT` with `services()`. `GameBase` calls `Worlds::add` for its world. Systems are not registered yet: the window and catalogs do not exist.
+3. `EngineHost::open_primary(game.primary_window())`:
+   1. `runtime.create_window`. Attach the fatal hook again so it sees the created window.
+   2. `audio.init()`, then `haptics.init()`.
+   3. `assets.set_graphic_factory` and `set_root(runtime.assets_root())`. An empty root is fatal.
+   4. Load `assets/engine/catalog.toml`. Failure is fatal.
+   5. Load `builtin::font_ui` into the primary window's UI atlas. Other fonts and UI images load later, when `run_ui_render` sees them referenced.
+   6. `Worlds::set_deps`. That registers simulation systems on the game world.
 
-`run` calls `runtime_.run`, then `dispose`. `dispose` disposes audio and haptics and shuts the runtime down. A second `dispose` is a no-op.
+   Any failure disposes the host and `init` returns false.
+4. `EngineHost::load_game_catalog(assets_root())`: `assets/catalog.toml`. `MetaError::Io` (file absent) is success. Any other error is fatal.
+5. `EngineHost::attach_game(game)`: if `window_icon()` is set, `get<render::TextureDesc>` and `set_window_icon`. Then `bind_window(kPrimaryWindow)`, `enable_ui`, `enable_audio`, `write_window_size` (sends a resize event), `ui::apply_canvas_fit`.
+
+`run` calls `EngineHost::run` with `RunHooks` whose `on_start` and `on_quit` call the game. `EngineHost::run` calls `runtime.run`, then `dispose`. `dispose` disposes audio and haptics and shuts the runtime down. A second `dispose` is a no-op.
+
+## `RunHooks`
+
+`include/engine/core/run_hooks.h`. `GameLoop::run` and `EngineRuntime::run` take it instead of a game. An empty function is skipped.
+
+| Hook | When |
+| --- | --- |
+| `on_start` | in `GameLoop::begin`, after `attach_loop`, before the first frame |
+| `on_frame_end` | last in every `tick`, after `cli::drain`. Web runs `tick` from the main-loop callback, so it is called there too. Not called from `reentrant_tick` |
+| `on_quit` | once, in `GameLoop::end`, before the host dispose callback |
+
+`on_frame_end` may set `ApplicationState::running` back to true. The loop reads `running` after the hook, so the loop goes on. The editor uses this to stop a game that quit and keep running itself.
 
 ## `GameLoop::begin`
 
 `EngineRuntime::run` starts `GameLoop` (`src/core/game_loop.cpp`).
 
 1. `presentation_->attach_loop` (layout painter, inspector and profiler window hosts on every UI world, modal-loop hook). Worlds created later with `enable_ui` get the same hosts.
-2. `game_->on_start()`.
+2. `RunHooks::on_start`.
 3. `ui::apply_canvas_fit` on every world that draws UI.
 4. `ApplicationState::running = true`.
 5. `cli::start()` when `ENGINE_CLI_SERVER` is defined. Otherwise the call is empty.
@@ -44,9 +60,10 @@ flowchart TD
   D --> E["sync_frame"]
   E --> F["draw_all"]
   F --> G["cli::drain on the primary world"]
+  G --> H["RunHooks::on_frame_end"]
 ```
 
-`cli::begin_frame` and `cli::drain` use the world bound to `kPrimaryWindow`. No binding means those calls are skipped. `reentrant_tick` is the same slice without flush and without poll. Windows calls it from inside `SDL_PollEvent` while a modal move or size loop is running. It shares the frame clock, so the frame that resumes after a drag does not replay the drag.
+`cli::begin_frame` and `cli::drain` use the world bound to `kPrimaryWindow`. No binding means those calls are skipped. `reentrant_tick` is the same slice without flush, without poll, and without `on_frame_end`. Windows calls it from inside `SDL_PollEvent` while a modal move or size loop is running. It shares the frame clock, so the frame that resumes after a drag does not replay the drag.
 
 ### `simulate_worlds`
 
@@ -61,7 +78,7 @@ flowchart TD
 
 ### Schedules
 
-`register_engine_systems` is the player's composition: simulation, UI, and audio on that one world. It sets `ctx<EngineSystemsRegistered>`. `Worlds::add` registers simulation once `set_deps` has run. `enable_ui` and `enable_audio` add the other two, and can be called on more than one world.
+`register_engine_systems` registers simulation, UI, and audio on one world and sets `ctx<EngineSystemsRegistered>`. `Host` uses it. `EngineHost` does not call it: `set_deps` registers simulation on every world that exists, `Worlds::add` registers simulation on later worlds once `set_deps` has run, and `enable_ui` and `enable_audio` add the other two. Each set is guarded by its own `ctx` flag, so the order never registers a system twice. `enable_ui` and `enable_audio` can be called on more than one world.
 
 | Schedule | Phases that run | Engine systems |
 | --- | --- | --- |
@@ -87,7 +104,7 @@ After simulate, `sync_frame` applies click-through from `Worlds::presentation().
 
 ## `GameLoop::end`
 
-`cli::stop`, detach the presentation, then `LoopShutdown::complete`: `on_quit`, then the host dispose callback (`Engine::dispose`). On web, `run` does not return from the infinite main loop, so `end` is what still runs dispose when `running` becomes false.
+`cli::stop`, detach the presentation, then `LoopShutdown::complete`: `RunHooks::on_quit`, then the host dispose callback (`EngineHost::dispose`). On web, `run` does not return from the infinite main loop, so `end` is what still runs dispose when `running` becomes false.
 
 ## `Host::tick`
 

@@ -55,6 +55,7 @@ Build preset `tests` builds `engine_tests` from the `vs` configure.
 - `ENGINE_SHARED` is a `PUBLIC` define and `ENGINE_BUILDING` a `PRIVATE` one. `ENGINE_API` in `include/engine/core/export.h` reads them.
 - `CMAKE_POSITION_INDEPENDENT_CODE` is ON, so the static libraries linked into the shared engine are position independent.
 - `engine_prepare_runtime` copies `engine.dll` beside its target on Windows.
+- `engine_add_game` builds the game as a shared module, not an executable. See below.
 
 `WINDOWS_EXPORT_ALL_SYMBOLS` exports functions, not data. Mutable state a module must share stays in a `.cpp` behind an `ENGINE_API` function. See [Boundaries](../architecture/Boundaries.md).
 
@@ -62,7 +63,7 @@ Build preset `tests` builds `engine_tests` from the `vs` configure.
 
 `engine_build_id` runs `cmake/build_id.cmake` before `engine` compiles. It writes `<build>/generated/engine_build_id/<config>/engine/build_id.h`. That directory is a `PUBLIC` include of `engine`, so `#include <engine/build_id.h>` works in the engine, tests, and games.
 
-The header holds `engine::kBuildId`: the first 16 hex digits of a SHA-256 over
+The header holds `engine::kBuildId` and `engine::kBuildIdCStr`, the same id as a `std::string_view` and as a null-terminated `char` array. The id is the first 16 hex digits of a SHA-256 over
 
 - every public header under `include/` (relative path and content, sorted by path),
 - `CMAKE_CXX_COMPILER_ID` and `CMAKE_CXX_COMPILER_VERSION`,
@@ -71,7 +72,7 @@ The header holds `engine::kBuildId`: the first 16 hex digits of a SHA-256 over
 
 Each configuration has its own header, so Debug and Release ids differ under Visual Studio. The step depends on every public header and reruns when one changes. The header is rewritten only when the id changes.
 
-`engine::build_id()` (`include/engine/core/build_info.h`, `src/core/build_info.cpp`) returns `kBuildId` as compiled into `engine`. A game bakes its own copy of `kBuildId`. In the editor build the two are compared.
+`engine::build_id()` (`include/engine/core/build_info.h`, `src/core/build_info.cpp`) returns `kBuildId` as compiled into `engine`. A game module returns `kBuildIdCStr` from `wind_game_build_id`, so the id is the one the game was compiled against. In the editor build the two are compared.
 
 ## What links
 
@@ -92,10 +93,20 @@ Call it after `add_subdirectory` of this repo. At least one source file. `ENGINE
 | Platform | Target |
 | --- | --- |
 | Desktop | `add_executable` |
+| Desktop, `ENGINE_EDITOR` | `add_library` SHARED, `PRIVATE ENGINE_GAME_MODULE=1`, no `lib` prefix |
 | Android | `add_library` SHARED, `OUTPUT_NAME` `main`, plus `--defsym=SDL_main=main` and `SDL3::SDL3main` when that target exists |
 | Apple | `MACOSX_BUNDLE` ON |
 
 C++23, no extensions. MSVC: `/W4 /permissive- /utf-8`. MSVC Windows, every config except Debug: `/SUBSYSTEM:WINDOWS` and `/ENTRY:mainCRTStartup` so there is no console and `main` stays the entry.
+
+The game's source calls `ENGINE_GAME(GameClass)` from `<engine/game_entry.h>` instead of writing `main`. The executable gets `main`. The module gets the exports the editor resolves. See [Core](../modules/Core.md).
+
+### Game module (`ENGINE_EDITOR`)
+
+- The `.dll` lands where the executable would: `RUNTIME_OUTPUT_DIRECTORY` `bin/` (a `.so` uses `LIBRARY_OUTPUT_DIRECTORY` `bin/`). The import library goes to `lib/`. The `.pdb` sits beside the `.dll`.
+- MSVC links with `/PDBALTPATH:<name>.pdb` (`$<TARGET_PDB_FILE_NAME>`), the same as `/PDBALTPATH:%_PDB%`. The module records only the PDB file name, so a debugger finds the PDB beside a copy of the module. The literal `%_PDB%` is not used because the Visual Studio generator escapes `%` in link options.
+- No `/SUBSYSTEM` or `/ENTRY` flags. The icon `.rc` is still compiled in. It is harmless in a `.dll`.
+- Asset codegen and `engine_prepare_runtime` run as for the executable, so `bin/assets/catalog.toml`, `bin/assets/engine/`, and `engine.dll` sit beside the module.
 
 The game links `engine` PRIVATE. If the game has an `include/` directory it is PRIVATE too. `engine/src` is not on the game's include path.
 

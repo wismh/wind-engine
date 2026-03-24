@@ -6,7 +6,6 @@
 #include <engine/core/application_state.h>
 #include <engine/core/platform.h>
 #include <engine/ecs/world.h>
-#include <engine/igame.h>
 #include <engine/ui/canvas.h>
 
 #if defined(__EMSCRIPTEN__)
@@ -15,10 +14,10 @@
 
 namespace engine {
 
-int GameLoop::run(IPresentation& presentation, IGame& game, Worlds& worlds, InputSystem& input, IAudioSystem* audio,
-        std::function<void()> host_dispose) {
+int GameLoop::run(IPresentation& presentation, RunHooks hooks, Worlds& worlds, InputSystem& input,
+        IAudioSystem* audio, std::function<void()> host_dispose) {
     presentation_ = &presentation;
-    game_ = &game;
+    hooks_ = std::move(hooks);
     worlds_ = &worlds;
     input_ = &input;
     audio_ = audio;
@@ -48,7 +47,9 @@ void GameLoop::begin() {
     shutdown_ = LoopShutdown{};
 
     presentation_->attach_loop(*worlds_, [this] { reentrant_tick(); });
-    game_->on_start();
+    if (hooks_.on_start) {
+        hooks_.on_start();
+    }
     worlds_->each([](ecs::World& world, FixedStepClock&, bool, bool ui) {
         if (ui) {
             ui::apply_canvas_fit(world);
@@ -59,7 +60,7 @@ void GameLoop::begin() {
 }
 
 void GameLoop::tick() {
-    if (game_ == nullptr || worlds_ == nullptr || input_ == nullptr || presentation_ == nullptr) {
+    if (worlds_ == nullptr || input_ == nullptr || presentation_ == nullptr) {
         return;
     }
     const float real_dt = consume_dt();
@@ -75,6 +76,11 @@ void GameLoop::tick() {
     if (primary != nullptr) {
         cli::drain(*primary);
     }
+    // Last in the frame, so the hook may destroy worlds or rebind windows: nothing of this frame reads
+    // them afterwards. reentrant_tick does not call it, because it runs nested inside poll.
+    if (hooks_.on_frame_end) {
+        hooks_.on_frame_end();
+    }
 }
 
 void GameLoop::reentrant_tick() {
@@ -82,6 +88,8 @@ void GameLoop::reentrant_tick() {
     // slice as tick(), without flush or poll: the outer tick already flushed, and flushing
     // again would drop events the outer frame's systems have not read yet. real_dt shares `last_`
     // with tick(), so the frame that resumes after the drag does not replay the whole drag.
+    // RunHooks::on_frame_end is not called here: the outer tick is still inside poll, so a hook
+    // that destroys a world would pull it out from under that frame.
     if (worlds_ == nullptr || presentation_ == nullptr) {
         return;
     }
@@ -100,17 +108,15 @@ void GameLoop::reentrant_tick() {
 
 void GameLoop::end() {
     cli::stop();
-    IGame* const game = game_;
     if (worlds_ != nullptr && presentation_ != nullptr) {
         presentation_->detach_loop(*worlds_);
     }
-    game_ = nullptr;
     worlds_ = nullptr;
     input_ = nullptr;
     audio_ = nullptr;
 
-    const std::function<void()> on_quit = game == nullptr ? std::function<void()>{}
-                                                          : std::function<void()>{[game] { game->on_quit(); }};
+    const std::function<void()> on_quit = std::move(hooks_.on_quit);
+    hooks_ = RunHooks{};
     shutdown_.complete(on_quit, host_dispose_);
 }
 

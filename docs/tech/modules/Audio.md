@@ -15,6 +15,7 @@
 | `create_looping_sfx` | Handle. `id == 0` is invalid |
 | `play_looping_sfx` / `stop_looping_sfx` / `release_looping_sfx` | Start, fade out, or free a looping voice |
 | `set_master_volume` / `set_music_volume` / `set_sfx_volume` | Bus gains |
+| `stop_all` | Stops every SFX voice and both music slots at once, without a fade, and releases every looping handle. Volumes and the device stay. The editor calls it when a game stops |
 
 `kSfxPoolSize` is 12. `kMusicSlotCount` is 2.
 

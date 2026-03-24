@@ -1,6 +1,6 @@
 # Game Lifecycle
 
-Every Wind game centers around a concrete game class that derives from `engine::GameBase` (or implements `engine::IGame`) and is launched via the `engine::Engine<T>` application template.
+Every Wind game centers around a concrete game class that derives from `engine::GameBase` (or implements `engine::IGame`) and is launched with the `ENGINE_GAME` macro, which runs the `engine::Engine<T>` application template.
 
 ---
 
@@ -9,11 +9,16 @@ Every Wind game centers around a concrete game class that derives from `engine::
 In `main.cpp`:
 
 ```cpp
-#include <engine/engine.h>
-#include <engine/core/engine.h>
+#include <engine/game_entry.h>
 
 #include "game.h"
 
+ENGINE_GAME(game::MyGame)
+```
+
+In a normal build `ENGINE_GAME` expands to this `main`:
+
+```cpp
 int main() {
     engine::Engine<game::MyGame> app;
     if (!app.init()) {
@@ -23,8 +28,10 @@ int main() {
 }
 ```
 
-- `app.init()`: Initializes platform subsystems (SDL, windowing, audio device, OpenGL context, `AssetsDb`). Returns `false` on failure.
+- `app.init()`: Initializes platform subsystems (SDL, windowing, audio device, OpenGL context, `AssetsDb`) through `engine::EngineHost`. Returns `false` on failure.
 - `app.run()`: Enters the main frame loop. It runs until the application receives a close event, returning the process exit code.
+
+In the editor build (`ENGINE_EDITOR`, the game repo's `editor` preset) the same line builds the game as a module the editor loads, so `main.cpp` does not change between the two.
 
 ---
 
