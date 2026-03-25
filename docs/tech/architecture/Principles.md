@@ -20,7 +20,7 @@ Normative rules. If a change fights these, the change is wrong. As-built detail 
 
 ## Do not regress
 
-1. Game logic does not include glad, SDL render, mixer, NanoVG, spdlog, or tinyxml2. The host includes `engine.h`. Game targets do not add `engine/src` to their include path.
+1. Game logic does not include glad, SDL render, mixer, spdlog, or tinyxml2. The host includes `engine.h`. Game targets do not add `engine/src` to their include path.
 2. Draw only through `CommandBuffer`. The public `Command` variant has no custom GL callback. World draws use `IMaterial`. UI custom primitives go through `IDrawList` from `IPaint`.
 3. Load only through `AssetsDb` by `AssetId`. Gameplay uses `get` (fatal). Optional content uses `try_get` and handles `AssetError`.
 4. Play audio only through `IAudioSystem` with a `Sound` from the audio importer (or a test double).
@@ -48,7 +48,7 @@ Normative rules. If a change fights these, the change is wrong. As-built detail 
 - Asset GUIDs are exactly 32 lowercase hex characters, stable once referenced. Never reuse a GUID.
 - Logging: spdlog only in `src/`. Public facade `engine::log::{info,warn,error}`.
 - Fatal errors: `IFatalError` is the single fatal exit and `report` never returns. `try_*` returns `std::expected`; `get` is fatal. Normal gameplay does not use C++ exceptions for missing assets.
-- Public headers may include glm. They must not include SDL, glad, NanoVG, spdlog, or mixer.
+- Public headers may include glm. They must not include SDL, glad, spdlog, or mixer.
 
 ## See also
 

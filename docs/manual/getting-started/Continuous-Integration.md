@@ -138,7 +138,7 @@ jobs:
 
 The packages are the ones the SDK's own CI installs; the game links the engine statically with SDL3 and needs their headers. `--batch` opens no window. The exit code is `0` for an export, `1` when the SDK, the project, the build, or the copy failed (the last line of the log says why), and `2` for a usage error ([Desktop](../platforms/Desktop.md#2-exporting-without-a-window-ci-cloud-builds)). `--development` exports the Development Build (with the profiler and `wind-cli`) instead of `Release`.
 
-macOS runners work the same way (`macos-14`, `.tar.gz`, no player libraries: the export compiles the engine, so it takes minutes).
+macOS runners work the same way (`macos-14`, `.tar.gz`). The SDK ships player libraries there too, so the export links them and takes seconds; an older macOS SDK without `player/` compiles the engine instead, which takes minutes.
 
 ---
 

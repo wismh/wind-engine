@@ -160,7 +160,7 @@ After a successful build, `PlaySession::play` (`editor/src/play_session.cpp`) wi
 
 1. `IPlayHost::detach_tools`: detach the inspector and profiler from the game world and clear both panels. The game world still exists and is still bound.
 2. `on_quit`.
-3. `EngineHost::detach_game`: unbind `kPrimaryWindow`, clear its command buffer (its `CmdDrawUI` entries point into game documents), reset its NanoVG context and register `builtin::font_ui` again, clear drag region and click-through, overlay mode `Auto`, `paused` false.
+3. `EngineHost::detach_game`: unbind `kPrimaryWindow`, clear its command buffer (its `CmdDrawUI` entries point into game documents), drop the UI images (`reset_ui_cache`; fonts stay registered) and register `builtin::font_ui` again, clear drag region and click-through, overlay mode `Auto`, `paused` false.
 4. Destroy every world that did not exist before Play. `Worlds::destroy` closes the dock float windows of a game world's `DockSpace` with it ([Docking](Docking.md#os-window-floats)).
 5. Close every window that was not open before Play, except one bound to a world that was (a panel's float window opened while playing).
 6. `InputSystem::reset`, then `IAudioSystem::stop_all`.

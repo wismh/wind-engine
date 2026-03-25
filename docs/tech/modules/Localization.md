@@ -50,7 +50,7 @@ Implemented in `src/loc/format.cpp` and `src/loc/plural.cpp`.
 
 `text` and `content`, in XML and in `ui::Node::text` / `content`. `formula` rejects `{tr}`. `TextInput` is player text and is not translated.
 
-Builtin `font_ui` is Inter, which covers Latin, Greek, and Cyrillic. A face that lacks a code point needs its own `font-family`. NanoVG draws left to right and does not shape Arabic, Hebrew, or Indic.
+Builtin `font_ui` is Inter, which covers Latin, Greek, and Cyrillic. A face that lacks a code point needs its own `font-family`. The UI renderer draws left to right and does not shape Arabic, Hebrew, or Indic.
 
 ## Public header
 

@@ -1829,7 +1829,7 @@ namespace engine::ui {
                                            screen_rect.y + screen_rect.h * 0.5f};
                     painter.apply_transform(center, style.rotation_deg * kDegToRad, style.scale);
                 }
-                // Must come after apply_transform: nvgScissor() bakes in whatever transform is active when
+                // Must come after apply_transform: scissor() bakes in whatever transform is active when
                 // called, so a scissor set before a rotation clips against the element's un-rotated
                 // axis-aligned rect instead of rotating along with the content — a rotated thin/long element
                 // (e.g. a strike-through line) then gets clipped down to little more than where its rotated

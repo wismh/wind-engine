@@ -1,8 +1,10 @@
 #pragma once
 
 #include "opengl_backend.h"
-#include "nanovg_painter.h"
+#include "opengl_ui_device.h"
 #include "window_system.h"
+
+#include "ui/render/ui_renderer.h"
 
 #include <engine/render/canvas.h>
 #include <engine/render/command_buffer.h>
@@ -24,26 +26,24 @@ public:
     OpenGLCanvas(const OpenGLCanvas&) = delete;
     OpenGLCanvas& operator=(const OpenGLCanvas&) = delete;
 
-    // with_ui_painter=false skips constructing a NanoVgPainter for this canvas entirely (used by
-    // callers that only ever push CmdDrawMesh, never CmdDrawUI, into this window's buffer). Every
-    // real window — primary or secondary — passes the default `true` today: each
-    // OpenGLCanvas owns its own NanoVgPainter, and draw() re-arms the one shared
-    // OpenGLRenderBackend::ui_painter_ pointer to *this* canvas's painter immediately before its
-    // own execute() call, so "last window's draw() wins" is scoped to that single instant rather
-    // than being a permanent, corrupting registration.
+    // with_ui_painter=false makes no UI painter for this canvas (a window whose buffer only ever gets CmdDrawMesh,
+    // never CmdDrawUI). Every real window passes the default `true`: each OpenGLCanvas owns its own painter, a
+    // UiRenderer over the backend's shared PaintResources with this context's OpenGLUiDevice, and draw() re-arms
+    // the one shared OpenGLRenderBackend::ui_painter_ pointer to *this* canvas's painter immediately before its own
+    // execute() call.
     [[nodiscard]] bool init(bool with_ui_painter = true);
     [[nodiscard]] bool load_ui_font(const Font& font);
     [[nodiscard]] bool add_font(AssetId id, const Font& font);
     [[nodiscard]] bool add_image(AssetId id, const TextureDesc& desc);
-    // Drops every font and image this canvas's NanoVG context holds and starts a fresh context. The
-    // next frame registers what its canvases reference again, the builtin UI font included.
+    // Drops the registered UI images (PaintResources::drop_images: shared by every window, so every window's
+    // images; fonts stay registered). The next frame registers what its canvases reference again.
     [[nodiscard]] bool reset_ui_painter();
     void make_current();
     // Sets this context's swap interval: vsync on (adaptive where the driver has it, else plain) or off. False
     // without a context or when the driver refuses the interval.
     [[nodiscard]] bool set_vsync(bool on);
     [[nodiscard]] ui::IUiPainter* ui_painter() const noexcept {
-        return ui_painter_.get();
+        return ui_renderer_.get();
     }
     // render() then present().
     void draw() override;
@@ -61,12 +61,15 @@ public:
 
 private:
     void destroy_context();
+    void destroy_ui_painter();
+    [[nodiscard]] bool create_ui_painter();
 
     WindowSystem* window_ = nullptr;
     CommandBuffer* commands_ = nullptr;
     IRenderBackend* backend_ = nullptr;
     SDL_GLContext context_ = nullptr;
-    std::unique_ptr<NanoVgPainter> ui_painter_;
+    std::unique_ptr<OpenGLUiDevice> ui_device_;
+    std::unique_ptr<ui::UiRenderer> ui_renderer_;
 };
 
 }

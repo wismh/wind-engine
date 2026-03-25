@@ -62,7 +62,7 @@ The zoom path runs only when that search misses and `data_context` is set. It th
 
 The new zoom is `clamp(z * pow(1.1, wheel_y), 0.25, 4)` (`kViewportZoomStep`, `kViewportMinZoom`, `kViewportMaxZoom`). Pan is rewritten so the content point under the cursor stays put. `viewport_zoom` turns a non-positive stored zoom into 1 before that.
 
-The relayout uses `ctx<UiLayoutPainters>()`. The windowed presentation sets that to the window's NanoVG painter. Headless tests keep the CPU text measure in `document.cpp`.
+The relayout uses `ctx<UiLayoutPainters>()`. The windowed presentation sets that to the window's UI renderer. Headless tests keep the CPU text measure in `document.cpp`.
 
 `UiInputBatchCache` is only on `run_input`'s stack. The first event that touches a canvas binds and lays out. Later events in that same call reuse it. `handle_pointer` and the other public functions do not.
 

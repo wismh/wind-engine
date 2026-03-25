@@ -203,12 +203,12 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/opengl/desktop_overlay_policy.cpp` | Click-through and the Win32 modal-loop hook | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/desktop_overlay_policy.h` | `DesktopOverlayPolicy` | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/gl_includes.h` | glad or GLES include, private | [Render](../modules/Render.md) |
-| `src/render/opengl/nanovg_painter.cpp` | `IUiPainter` on NanoVG | [UI](../modules/UI.md) |
-| `src/render/opengl/nanovg_painter.h` | Painter declaration | [UI](../modules/UI.md) |
 | `src/render/opengl/opengl_backend.cpp` | Execute mesh and particle commands | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_backend.h` | `OpenGLBackend` | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_canvas.cpp` | Per-window GL canvas: render, read back, present; font and image upload, swap interval | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_canvas.h` | `OpenGLCanvas` | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_ui_device.cpp`, `src/render/opengl/opengl_ui_device.h` | `OpenGLUiDevice`: the UI renderer's `IUiDevice` on GL 3.3 core and GLES 3.0 | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_ui_shader.h` | The UI shader, `src/ui/render/fragment.h` in GLSL | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_factory.cpp` | Create GL mesh, shader, texture | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_factory.h` | `OpenGLFactory` | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_mesh.cpp` | GL mesh | [Render](../modules/Render.md) |
@@ -297,6 +297,28 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ui/math/math_parser.h` | Parser API | [UI](../modules/UI.md) |
 | `src/ui/math/math_stretch.cpp` | Glyph stretch for tall delimiters | [UI](../modules/UI.md) |
 | `src/ui/math/math_stretch.h` | Stretch API | [UI](../modules/UI.md) |
+| `src/ui/render/affine.h` | `Affine2`, the painter's 2x3 transform | [UI](../modules/UI.md) |
+| `src/ui/render/atlas_page.cpp`, `atlas_page.h` | `AtlasPage`: one CPU atlas page, its packer, dirty rect, and version | [UI](../modules/UI.md) |
+| `src/ui/render/batching_painter.cpp`, `batching_painter.h` | `BatchingPainter`: `IUiPainter` calls to vertices, indices, and batches | [UI](../modules/UI.md) |
+| `src/ui/render/font_face.cpp`, `font_face.h` | `FontFace`: one `stb_truetype` face, cmap, glyph metrics per size, kerning | [UI](../modules/UI.md) |
+| `src/ui/render/font_library.cpp`, `font_library.h` | `FontLibrary`: faces by `AssetId`, the glyph atlas, the math font | [UI](../modules/UI.md) |
+| `src/ui/render/fragment.cpp`, `fragment.h` | The fragment math on the CPU, which the device shaders implement | [UI](../modules/UI.md) |
+| `src/ui/render/glyph_atlas.cpp`, `glyph_atlas.h` | Glyphs rasterized into R8 pages | [UI](../modules/UI.md) |
+| `src/ui/render/image_atlas.cpp`, `image_atlas.h` | UI images in RGBA8 pages with a wrap gutter | [UI](../modules/UI.md) |
+| `src/ui/render/mask_atlas.cpp`, `mask_atlas.h` | `fill_path` masks in R8 pages, cached by path, scale, and phase | [UI](../modules/UI.md) |
+| `src/ui/render/nine_slice.cpp`, `nine_slice.h` | Nine-slice pieces of an image | [UI](../modules/UI.md) |
+| `src/ui/render/paint_resources.h` | `PaintResources`: the CPU atlases every window shares | [UI](../modules/UI.md) |
+| `src/ui/render/path_raster.cpp`, `path_raster.h` | `PathRasterizer`: path coverage on the CPU | [UI](../modules/UI.md) |
+| `src/ui/render/ramp_atlas.cpp`, `ramp_atlas.h` | Gradient ramps in RGBA8 pages | [UI](../modules/UI.md) |
+| `src/ui/render/render_list.cpp`, `render_list.h` | `RenderList`: one frame's vertices, indices, and batches | [UI](../modules/UI.md) |
+| `src/ui/render/skyline_packer.cpp`, `skyline_packer.h` | Skyline rectangle packer for the atlases | [UI](../modules/UI.md) |
+| `src/ui/render/text_layout.cpp`, `text_layout.h` | Text measure, metrics, line breaks, and glyph quads | [UI](../modules/UI.md) |
+| `src/ui/render/ui_device.h` | `IUiDevice`, what a GPU backend implements | [UI](../modules/UI.md) |
+| `src/ui/render/ui_pipeline.h` | Vertex layout, blend, and texture slots every device honors | [UI](../modules/UI.md) |
+| `src/ui/render/ui_renderer.cpp`, `ui_renderer.h` | `UiRenderer`: draw list plus device, a canvas's painter | [UI](../modules/UI.md) |
+| `src/ui/render/ui_texture_sync.cpp`, `ui_texture_sync.h` | A device's textures caught up with the page versions | [UI](../modules/UI.md) |
+| `src/ui/render/ui_vertex.cpp`, `ui_vertex.h` | `UiVertex` and `UiBatch` | [UI](../modules/UI.md) |
+| `src/ui/render/utf8_decoder.cpp`, `utf8_decoder.h` | Byte-at-a-time UTF-8 decoder of the text layout | [UI](../modules/UI.md) |
 
 ## `src/audio/`, `src/haptics/`, `src/net/`, `src/loc/`
 
@@ -434,6 +456,9 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/ui_math_stretch_test.cpp` | Stretched delimiters | [UI](../modules/UI.md) |
 | `tests/ui_paint_binding_test.cpp` | `IPaint` draw order | [UI](../modules/UI.md) |
 | `tests/ui_painter_test.cpp` | Recording painter, no GL | [UI](../modules/UI.md) |
+| `tests/ui_draw_list_test.cpp` | `BatchingPainter`: commands to batches, coverage, clips, gradients, images, path masks | [UI](../modules/UI.md) |
+| `tests/ui_renderer_test.cpp` | `UiRenderer` against a fake `IUiDevice`: uploads, texture catch-up, draw calls | [UI](../modules/UI.md) |
+| `tests/ui_text_render_test.cpp` | Text on the CPU: metrics, measure, breaks, atlas packing, glyph quads, the numbers NanoVG produced | [UI](../modules/UI.md) |
 | `tests/ui_element_id_test.cpp` | `Element::handle` and `parent`: parse, builder, ItemsControl reuse, no aliasing, reindex, stale lookups | [UI](../modules/UI.md#element-identity) |
 | `tests/ui_log_painter.h` | `LogPainter`: every painter call with the clip and opacity it ran under, for tests | [UI](../modules/UI.md) |
 | `tests/ui_wasted_work_test.cpp` | Stacking order against a stable sort, clip equivalence of an element that enters no state, opacity, held motion sample | [UI](../modules/UI.md#paint) |
