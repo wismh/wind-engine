@@ -30,7 +30,7 @@ engine::ecs::set_parent(world, coin, player, engine::ecs::KeepWorld::Yes); // co
 engine::ecs::clear_parent(world, coin, engine::ecs::KeepWorld::Yes);      // drop it again, still in place
 ```
 
-`KeepWorld::Yes` recomputes the local position, rotation (X, then Y, then Z Euler radians) and scale. A non-uniform scale above a rotated child can produce skew that `Transform` cannot store; the world position is kept exactly and rotation and scale are the best fit.
+`KeepWorld::Yes` recomputes the local position, rotation (a quaternion) and scale. A non-uniform scale above a rotated child can produce skew that `Transform` cannot store; the world position is kept exactly and rotation and scale are the best fit.
 
 ---
 
@@ -44,7 +44,7 @@ engine::ecs::set_world_position(world, turret, {0.0f, 0.0f, 0.0f}); // writes th
 
 `world_matrix` and `world_position` read the `WorldTransform` the engine updates in `Phase::Transform` (after `Game`, before `Render`). A `Game` system that edits a `Transform` and then reads `world_matrix` in the same system sees the old value. Call `engine::ecs::update_world_transforms(world)` first, or use `compute_world_matrix`, which walks the chain every time and is always exact.
 
-Rotation is full 3D: a parent rotated 90 degrees about Z swings a child offset `{2, 0, 0}` to world `{0, 2, 0}`.
+Rotation is full 3D (`Transform::rotation` is a quaternion): a parent turned 90 degrees about Z (`engine::rotation_z(glm::half_pi<float>())`) swings a child offset `{2, 0, 0}` to world `{0, 2, 0}`.
 
 ---
 
