@@ -482,6 +482,27 @@ void AudioSystem::set_sfx_volume(float volume) {
     impl_->update_sfx_gains();
 }
 
+void AudioSystem::stop_all() {
+    audio::FakeMixer& mixer = impl_->mixer;
+    for (audio::FakeTrack& track : mixer.sfx) {
+        track.reset();
+    }
+    for (audio::FakeTrack& track : mixer.music) {
+        track.reset();
+    }
+    mixer.active_music_index = 0;
+    mixer.looping.clear();
+#ifdef ENGINE_WITH_AUDIO
+    for (MIX_Track* track : impl_->sfx_tracks) {
+        stop_mix_track(track);
+    }
+    for (MIX_Track* track : impl_->music_tracks) {
+        stop_mix_track(track);
+    }
+    impl_->prune_looping_mix();
+#endif
+}
+
 int AudioSystem::sfx_pool_size() const {
     return audio::kSfxPoolSize;
 }

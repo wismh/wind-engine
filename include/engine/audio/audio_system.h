@@ -41,6 +41,10 @@ public:
     virtual void set_master_volume(float volume) = 0;
     virtual void set_music_volume(float volume) = 0;
     virtual void set_sfx_volume(float volume) = 0;
+
+    // Silences music and every SFX voice now, without a fade, and releases every looping handle.
+    // Volumes stay. The device stays open. The editor calls this on Stop.
+    virtual void stop_all() = 0;
 };
 
 namespace audio {
@@ -88,6 +92,8 @@ public:
     void set_master_volume(float volume) override;
     void set_music_volume(float volume) override;
     void set_sfx_volume(float volume) override;
+
+    void stop_all() override;
 
     [[nodiscard]] int sfx_pool_size() const;
     [[nodiscard]] int sfx_playing_count() const;

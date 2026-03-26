@@ -122,6 +122,8 @@ struct CatalogEntry {
 class CookedCatalog {
 public:
     void add(CatalogEntry entry);
+    // Removes every entry whose files_root equals `files_root` and returns their GUIDs.
+    std::vector<AssetId> remove_root(const std::filesystem::path& files_root);
     [[nodiscard]] const CatalogEntry* find(AssetId id) const;
     [[nodiscard]] const std::vector<CatalogEntry>& entries() const noexcept;
 

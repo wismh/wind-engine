@@ -52,6 +52,9 @@ public:
     void add_catalog(CookedCatalog catalog);
     [[nodiscard]] std::expected<void, MetaError> load_catalog(const std::filesystem::path& catalog_file,
             const std::filesystem::path& files_root);
+    // Removes the entries `load_catalog` added with this files root and evicts their cached assets.
+    // Entries from other roots (engine builtins) and their cache stay.
+    void unload_catalog(const std::filesystem::path& files_root);
     void set_root(std::filesystem::path assets_root);
     void set_graphic_factory(render::IGraphicFactory* factory);
 

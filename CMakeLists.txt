@@ -130,6 +130,7 @@ file(GLOB_RECURSE ENGINE_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c")
 list(FILTER ENGINE_SOURCES EXCLUDE REGEX "[/\\\\]render[/\\\\]opengl[/\\\\]")
 list(FILTER ENGINE_SOURCES EXCLUDE REGEX "engine_runtime\\.cpp$")
+list(FILTER ENGINE_SOURCES EXCLUDE REGEX "engine_host\\.cpp$")
 list(FILTER ENGINE_SOURCES EXCLUDE REGEX "engine_instantiate\\.cpp$")
 list(FILTER ENGINE_SOURCES EXCLUDE REGEX "sdl_fatal_error\\.cpp$")
 
@@ -330,6 +331,8 @@ endfunction()
 
 # Windowed game: executable + C++23 + asset_codegen + runtime asset copy.
 # Call after add_subdirectory(external/engine). Remaining args are sources.
+# Under ENGINE_EDITOR the game is a shared module instead (ENGINE_GAME_MODULE, see <engine/game_entry.h>)
+# that the editor loads on Play. It lands in the same bin/ directory, beside assets/ and engine.dll.
 function(engine_add_game target)
     if(NOT ARGN)
         message(FATAL_ERROR "engine_add_game(${target}): pass at least one source file")
@@ -346,6 +349,11 @@ function(engine_add_game target)
     if(ANDROID)
         add_library(${target} SHARED ${ARGN})
         set_target_properties(${target} PROPERTIES OUTPUT_NAME main)
+    elseif(ENGINE_EDITOR)
+        # ENGINE_GAME expands to the wind_create_game / wind_destroy_game / wind_game_build_id exports.
+        add_library(${target} SHARED ${ARGN})
+        target_compile_definitions(${target} PRIVATE ENGINE_GAME_MODULE=1)
+        set_target_properties(${target} PROPERTIES PREFIX "")
     else()
         add_executable(${target} ${ARGN})
     endif()
@@ -366,10 +374,28 @@ function(engine_add_game target)
         set_target_properties(${target} PROPERTIES
             LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
     endif()
+    if(ENGINE_EDITOR)
+        # A .dll is a RUNTIME output, a .so a LIBRARY output: both go where the executable would. The
+        # import library nobody links against stays out of bin/.
+        if(NOT CMAKE_LIBRARY_OUTPUT_DIRECTORY)
+            set_target_properties(${target} PROPERTIES
+                LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+        endif()
+        if(NOT CMAKE_ARCHIVE_OUTPUT_DIRECTORY)
+            set_target_properties(${target} PROPERTIES
+                ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+        endif()
+    endif()
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8)
     endif()
-    if(WIN32 AND MSVC)
+    if(WIN32 AND MSVC AND ENGINE_EDITOR)
+        # The editor loads a copy of the module with its .pdb beside it. Embed only the PDB file name
+        # so the debugger finds that copy and the original stays unlocked for the next build. This is
+        # what /PDBALTPATH:%_PDB% means; the Visual Studio generator escapes a literal % in link
+        # options, so the name comes from the generator expression instead.
+        target_link_options(${target} PRIVATE "/PDBALTPATH:$<TARGET_PDB_FILE_NAME:${target}>")
+    elseif(WIN32 AND MSVC)
         # Release-ish configs hide the console window (players shouldn't see a terminal); Debug
         # keeps it so spdlog output is visible live. /ENTRY:mainCRTStartup keeps the ordinary
         # int main(int, char**) entry point instead of requiring a WinMain — the CRT startup
@@ -554,6 +580,7 @@ if(ENGINE_WITH_WINDOW)
     target_sources(engine PRIVATE
         ${ENGINE_GL_SOURCES}
         "${CMAKE_CURRENT_SOURCE_DIR}/src/core/engine_runtime.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/core/engine_host.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/core/engine_instantiate.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/core/sdl_fatal_error.cpp")
     target_compile_definitions(engine PUBLIC ENGINE_WITH_WINDOW=1)

@@ -122,19 +122,14 @@ void MyGame::on_quit() {
 Create `src/main.cpp`:
 
 ```cpp
-#include <engine/engine.h>
-#include <engine/core/engine.h>
+#include <engine/game_entry.h>
 
 #include "game.h"
 
-int main() {
-    engine::Engine<game::MyGame> app;
-    if (!app.init()) {
-        return 1;
-    }
-    return app.run();
-}
+ENGINE_GAME(game::MyGame)
 ```
+
+`ENGINE_GAME` writes `main` for you. It runs `engine::Engine<game::MyGame>`: `init`, then `run`.
 
 ---
 

@@ -35,6 +35,15 @@ void InputSystem::set_router(std::function<ecs::World*(WindowId)> router) {
     router_ = std::move(router);
 }
 
+void InputSystem::reset() {
+    primary_finger_.reset();
+    bindings_.clear();
+    down_keys_.clear();
+    held_counts_.clear();
+    name_to_id_.clear();
+    interned_names_.clear();
+}
+
 ecs::World* InputSystem::world_for(WindowId window) const {
     return router_ ? router_(window) : nullptr;
 }

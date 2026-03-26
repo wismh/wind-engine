@@ -1,4 +1,4 @@
-# Writes <engine/build_id.h> with kBuildId. Run as a build step from CMakeLists.txt:
+# Writes <engine/build_id.h> with kBuildId and kBuildIdCStr. Run as a build step from CMakeLists.txt:
 #   cmake -DINCLUDE_DIR=... -DOUT=... -DSTAMP=... -DCOMPILER=... -DCONFIG=... -DDEFINES=a|b|c -P build_id.cmake
 # The id is a hash over every public header (path relative to INCLUDE_DIR plus content, sorted by
 # path), the compiler id and version, the configuration, and the engine's PUBLIC compile definitions.
@@ -45,7 +45,9 @@ set(_content "#pragma once
 namespace engine {
 
 // Hash of the public headers, compiler, configuration (${CONFIG}), and PUBLIC engine defines.
-inline constexpr std::string_view kBuildId = \"${_id}\";
+// kBuildIdCStr is the null-terminated literal a game module returns from wind_game_build_id.
+inline constexpr char kBuildIdCStr[] = \"${_id}\";
+inline constexpr std::string_view kBuildId = kBuildIdCStr;
 
 }
 ")

@@ -7,6 +7,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`. 
 | Path | What it does | Page |
 | --- | --- | --- |
 | `include/engine/engine.h` | Umbrella include | [Core](../modules/Core.md) |
+| `include/engine/game_entry.h` | `ENGINE_GAME(GameClass)`: `main` or the module exports | [Core](../modules/Core.md) |
 | `include/engine/igame.h` | `IGame`, `GameBase`, `SplashScreen` | [Core](../modules/Core.md) |
 | `include/engine/log.h` | `log::init`, `info`, `warn`, `error` | [Core](../modules/Core.md) |
 | `include/engine/builtin_ids.h` | Frozen builtin `AssetId` values | [Resources](../modules/Resources.md) |
@@ -18,15 +19,18 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`. 
 | `include/engine/core/application_state.h` | `running` and `paused` | [Core](../modules/Core.md) |
 | `include/engine/core/bound_windows.h` | Windows bound to one world | [Windowing](../features/Windowing.md) |
 | `include/engine/core/build_info.h` | `build_id()` and the generated `kBuildId` | [CMake](../build/CMake.md) |
-| `include/engine/core/engine.h` | `Engine<GameT>::init`, `run`, `dispose` | [Core](../modules/Core.md) |
+| `include/engine/core/engine.h` | `Engine<GameT>::init`, `run`, `dispose` over `EngineHost` | [Core](../modules/Core.md) |
+| `include/engine/core/engine_host.h` | `EngineHost`: services, primary window, catalogs, game attach, run | [Core](../modules/Core.md) |
 | `include/engine/core/engine_runtime.h` | Windowed presentation and `GameLoop` owner | [Core](../modules/Core.md) |
 | `include/engine/core/engine_services.h` | References passed into the game constructor | [Core](../modules/Core.md) |
 | `include/engine/core/export.h` | `ENGINE_API` export and import macro | [CMake](../build/CMake.md) |
 | `include/engine/core/fixed_step.h` | `FixedStepClock` | [Core](../modules/Core.md) |
+| `include/engine/core/game_module.h` | Game module export types and symbol names | [Core](../modules/Core.md) |
 | `include/engine/core/host.h` | Headless tick host for tests | [Core](../modules/Core.md) |
 | `include/engine/core/input_system.h` | `ActionId` bindings and input events | [Input Mapper](../features/Input%20Mapper.md) |
 | `include/engine/core/key_code.h` | `KeyCode` values matching SDL scancodes | [Input Mapper](../features/Input%20Mapper.md) |
 | `include/engine/core/platform.h` | Platform, assets root, `user_data_directory` | [Core](../modules/Core.md) |
+| `include/engine/core/run_hooks.h` | `RunHooks`: `on_start`, `on_frame_end`, `on_quit` | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `include/engine/core/sdl_fatal_error.h` | SDL message-box `IFatalError` | [Core](../modules/Core.md) |
 | `include/engine/core/time.h` | `Time` and the 60 Hz constants | [Core](../modules/Core.md) |
 | `include/engine/core/web_loop.h` | `MainLoopPolicy` and `LoopShutdown` | [Core](../modules/Core.md) |
@@ -90,12 +94,13 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`. 
 | --- | --- | --- |
 | `src/core/app_lifecycle.cpp` | Applies lifecycle events to `ApplicationState` | [Core](../modules/Core.md) |
 | `src/core/build_info.cpp` | `build_id()` returns the engine's `kBuildId` | [CMake](../build/CMake.md) |
+| `src/core/engine_host.cpp` | `EngineHost` body | [Core](../modules/Core.md) |
 | `src/core/engine_instantiate.cpp` | Explicit `Engine<WindowSmokeGame>` instantiation | [Core](../modules/Core.md) |
 | `src/core/engine_runtime.cpp` | `EngineRuntime` pimpl over the presentation | [Core](../modules/Core.md) |
 | `src/core/fixed_step.cpp` | Accumulator and step cap | [Core](../modules/Core.md) |
 | `src/core/frame_step.cpp` | `flush_worlds` and `simulate_worlds` | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/core/frame_step.h` | Declarations for those two functions | [Runtime Loop](../architecture/Runtime%20Loop.md) |
-| `src/core/game_loop.cpp` | `begin`, `tick`, `reentrant_tick`, `end` | [Runtime Loop](../architecture/Runtime%20Loop.md) |
+| `src/core/game_loop.cpp` | `begin`, `tick`, `reentrant_tick`, `end`, `RunHooks` calls | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/core/game_loop.h` | `GameLoop` | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/core/host.cpp` | Registers systems and ticks a fake canvas | [Core](../modules/Core.md) |
 | `src/core/input_system.cpp` | Bind table and event enqueue | [Input Mapper](../features/Input%20Mapper.md) |
@@ -251,8 +256,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`. 
 | `tests/android_assets_test.cpp` | Android asset staging without a device | [Runtime Assets](../build/Runtime%20Assets.md) |
 | `tests/android_lifecycle_test.cpp` | Pause, resume, back | [Core](../modules/Core.md) |
 | `tests/animation_test.cpp` | Sprite clip parse and playback | [Render](../modules/Render.md) |
-| `tests/assets_test.cpp` | Catalog, `get` / `try_get`, codegen failures | [Assets](../features/Assets.md) |
-| `tests/audio_test.cpp` | Fake mixer: pool, music fade, looping handles | [Audio](../modules/Audio.md) |
+| `tests/assets_test.cpp` | Catalog, `get` / `try_get`, `unload_catalog`, codegen failures | [Assets](../features/Assets.md) |
+| `tests/audio_test.cpp` | Fake mixer: pool, music fade, looping handles, `stop_all` | [Audio](../modules/Audio.md) |
 | `tests/builtin_test.cpp` | Frozen builtin ids and files | [Resources](../modules/Resources.md) |
 | `tests/camera_test.cpp` | Ortho matrices and screen/world | [ECS](../modules/ECS.md) |
 | `tests/cli_server_test.cpp` | Descriptor, HTTP, and commands without `GameLoop` | [CLI](../features/CLI.md) |
@@ -260,10 +265,12 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`. 
 | `tests/command_buffer_test.cpp` | Push and iterate the three command types | [Render](../modules/Render.md) |
 | `tests/ecs_test.cpp` | Create, destroy, views, deferred destroy | [ECS](../modules/ECS.md) |
 | `tests/events_test.cpp` | Double buffer and cursors | [ECS](../modules/ECS.md) |
+| `tests/game_entry_test.cpp` | `ENGINE_GAME` module exports and build id (window builds) | [Core](../modules/Core.md) |
+| `tests/game_loop_test.cpp` | `RunHooks` order and frame-end restart with a fake presentation | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `tests/haptics_test.cpp` | Clamp, no-op, and the fake counters | [Haptics](../modules/Haptics.md) |
 | `tests/host_test.cpp` | `Host` tick and system registration | [Core](../modules/Core.md) |
 | `tests/icon_codegen_test.cpp` | ICO, ICNS, and PNG sizes in memory | [Icon Codegen](../build/Icon%20Codegen.md) |
-| `tests/input_test.cpp` | Bind, hold, touch synthesis | [Input Mapper](../features/Input%20Mapper.md) |
+| `tests/input_test.cpp` | Bind, hold, touch synthesis, `reset` | [Input Mapper](../features/Input%20Mapper.md) |
 | `tests/loc_catalog_test.cpp` | TOML tables, fallback, pseudo, warn-once | [Localization](../modules/Localization.md) |
 | `tests/loc_format_test.cpp` | Placeholders and plural branches | [Localization](../modules/Localization.md) |
 | `tests/log_test.cpp` | The null sink | [Core](../modules/Core.md) |
@@ -307,7 +314,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`. 
 | `tests/web_loop_test.cpp` | RAF policy and shutdown order | [Core](../modules/Core.md) |
 | `tests/window_icon_test.cpp` | `make_icon_surface` byte layout | [Windowing](../features/Windowing.md) |
 | `tests/window_style_test.cpp` | Style flags and overlay mode | [Windowing](../features/Windowing.md) |
-| `tests/worlds_test.cpp` | World isolation, window routing, per-window draw | [Core](../modules/Core.md) |
+| `tests/worlds_test.cpp` | World isolation, window routing, per-window draw, registration order | [Core](../modules/Core.md) |
 
 ## `tools/`
 

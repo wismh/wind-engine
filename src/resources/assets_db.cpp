@@ -21,7 +21,9 @@
 #include <iterator>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <system_error>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -363,6 +365,18 @@ std::expected<void, MetaError> AssetsDb::load_catalog(
     }
     add_catalog(std::move(rooted));
     return {};
+}
+
+void AssetsDb::unload_catalog(const std::filesystem::path& files_root) {
+    const std::vector<AssetId> removed = catalog_.remove_root(files_root);
+    if (removed.empty()) {
+        return;
+    }
+    std::unordered_set<std::string_view> gone;
+    for (const AssetId& id : removed) {
+        gone.insert(id.hex());
+    }
+    std::erase_if(cache_, [&gone](const auto& item) { return gone.contains(item.first.id.hex()); });
 }
 
 void AssetsDb::set_root(std::filesystem::path assets_root) {

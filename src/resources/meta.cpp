@@ -446,6 +446,18 @@ void CookedCatalog::add(CatalogEntry entry) {
     entries_.push_back(std::move(entry));
 }
 
+std::vector<AssetId> CookedCatalog::remove_root(const std::filesystem::path& files_root) {
+    std::vector<AssetId> removed;
+    std::erase_if(entries_, [&](const CatalogEntry& entry) {
+        if (entry.files_root != files_root) {
+            return false;
+        }
+        removed.push_back(entry.guid);
+        return true;
+    });
+    return removed;
+}
+
 const CatalogEntry* CookedCatalog::find(AssetId id) const {
     for (const CatalogEntry& entry : entries_) {
         if (entry.guid == id) {

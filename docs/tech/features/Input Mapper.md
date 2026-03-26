@@ -18,6 +18,8 @@ Gameplay reads `ActionId`. It does not switch on `KeyCode`. UI reads `MouseEvent
 
 `bind` accepts a `Control`, a `KeyCode`, or a `MouseButton`, and either an `ActionId` or a name (the name overloads call `intern`). `unbind` removes one control. `bound_action` and `controls_for` are the reverse lookups. Several controls may share one action. `bind` replaces the action on that control.
 
+`reset()` forgets every binding, every interned name, every held control, and the primary touch finger. It sends no `Up` events and keeps the router. The next `intern` returns `ActionId{1}` again. The editor calls it when a game stops.
+
 `KeyCode` values match SDL3 scancodes. The header does not include SDL. `AcBack` is the Android back key (scancode 282).
 
 ## What `handle_*` sends

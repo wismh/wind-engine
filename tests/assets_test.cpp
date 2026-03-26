@@ -1123,3 +1123,70 @@ TEST(Assets, CodegenStringsRequireOneSourceAndKnownKeys) {
         EXPECT_NE(result.error().message.find("menu.missing"), std::string::npos);
     }
 }
+
+TEST(Assets, UnloadCatalogDropsOnlyThatRootAndItsCache) {
+    TempTree engine_tree;
+    TempTree game_tree;
+    write_file(engine_tree.path / "base.css", ".hud { padding: 16; }");
+    write_file(game_tree.path / "hud.xml", "<Canvas><Label text=\"Old\"/></Canvas>");
+
+    engine::CookedCatalog engine_catalog;
+    engine_catalog.add({engine::AssetId{kCssGuid}, "base.css", engine::ImporterKind::Css});
+    write_file(engine_tree.path / "catalog.toml", engine_catalog.serialize());
+    engine::CookedCatalog game_catalog;
+    game_catalog.add({engine::AssetId{kUiGuid}, "hud.xml", engine::ImporterKind::Ui});
+    write_file(game_tree.path / "catalog.toml", game_catalog.serialize());
+
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+    ASSERT_TRUE(db.load_catalog(engine_tree.path / "catalog.toml", engine_tree.path).has_value());
+    ASSERT_TRUE(db.load_catalog(game_tree.path / "catalog.toml", game_tree.path).has_value());
+    std::weak_ptr<engine::ui::Stylesheet> sheet;
+    std::weak_ptr<engine::ui::UiDocument> hud;
+    {
+        const auto loaded_sheet = db.try_get<engine::ui::Stylesheet>(engine::AssetId{kCssGuid});
+        const auto loaded_hud = db.try_get<engine::ui::UiDocument>(engine::AssetId{kUiGuid});
+        ASSERT_TRUE(loaded_sheet.has_value());
+        ASSERT_TRUE(loaded_hud.has_value());
+        sheet = *loaded_sheet;
+        hud = *loaded_hud;
+    }
+    ASSERT_FALSE(hud.expired());
+
+    db.unload_catalog(game_tree.path);
+
+    // The cache let go of the game asset and kept the engine one.
+    EXPECT_TRUE(hud.expired());
+    EXPECT_FALSE(sheet.expired());
+    EXPECT_EQ(db.catalog().entries().size(), 1u);
+    const auto gone = db.try_get<engine::ui::UiDocument>(engine::AssetId{kUiGuid});
+    ASSERT_FALSE(gone.has_value());
+    EXPECT_EQ(gone.error(), engine::AssetError::NotFound);
+    const auto kept = db.try_get<engine::ui::Stylesheet>(engine::AssetId{kCssGuid});
+    ASSERT_TRUE(kept.has_value());
+    EXPECT_EQ(kept->get(), sheet.lock().get());
+
+    // A rebuilt game loads fresh files, not the evicted cache.
+    write_file(game_tree.path / "hud.xml", "<Canvas><Label text=\"New\"/></Canvas>");
+    ASSERT_TRUE(db.load_catalog(game_tree.path / "catalog.toml", game_tree.path).has_value());
+    const auto document = db.try_get<engine::ui::UiDocument>(engine::AssetId{kUiGuid});
+    ASSERT_TRUE(document.has_value());
+    ASSERT_EQ((*document)->root.children.size(), 1u);
+    EXPECT_EQ((*document)->root.children[0].text, "New");
+}
+
+TEST(Assets, UnloadCatalogUnknownRootIsNoOp) {
+    TempTree tree;
+    write_file(tree.path / "hud.xml", "<Canvas/>");
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kUiGuid}, "hud.xml", engine::ImporterKind::Ui});
+    write_file(tree.path / "catalog.toml", catalog.serialize());
+
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+    ASSERT_TRUE(db.load_catalog(tree.path / "catalog.toml", tree.path).has_value());
+    db.unload_catalog(tree.path / "elsewhere");
+
+    EXPECT_EQ(db.catalog().entries().size(), 1u);
+    EXPECT_TRUE(db.try_get<engine::ui::UiDocument>(engine::AssetId{kUiGuid}).has_value());
+}
