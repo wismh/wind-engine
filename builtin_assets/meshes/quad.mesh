@@ -1,7 +1,9 @@
-# pos.x pos.y pos.z   uv.x uv.y
--0.5    0.5     0      0    1
--0.5   -0.5     0      0    0
- 0.5    0.5     0      1    1
--0.5   -0.5     0      0    0
- 0.5   -0.5     0      1    0
- 0.5    0.5     0      1    1
+# Unit quad on the XY plane, facing +Z (render::make_quad). Format: docs/tech/features/Assets.md#mesh-files
+# pos.x pos.y pos.z   normal.x normal.y normal.z   uv.x uv.y
+-0.5    0.5     0      0 0 1      0    1
+-0.5   -0.5     0      0 0 1      0    0
+ 0.5    0.5     0      0 0 1      1    1
+ 0.5   -0.5     0      0 0 1      1    0
+# triangles, counter-clockwise
+f 0 1 2
+f 1 3 2
