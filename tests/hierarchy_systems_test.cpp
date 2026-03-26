@@ -151,8 +151,8 @@ TEST(HierarchySystems, ChildSpriteModelIsParentTimesLocal) {
     bind_camera(world, spawn(world, Transform{.position = {0.f, 0.f, 10.f}}));
 
     const Transform parent_transform{
-            .position = {3.f, 1.f, 0.f}, .rotation = {0.f, 0.f, 0.5f}, .scale = {2.f, 2.f, 1.f}};
-    const Transform child_transform{.position = {1.f, 2.f, 0.f}, .rotation = {0.f, 0.f, 0.25f}};
+            .position = {3.f, 1.f, 0.f}, .rotation = engine::rotation_z(0.5f), .scale = {2.f, 2.f, 1.f}};
+    const Transform child_transform{.position = {1.f, 2.f, 0.f}, .rotation = engine::rotation_z(0.25f)};
     const Entity parent = spawn(world, parent_transform);
     const Entity child = spawn_child(world, parent, child_transform);
     engine::render::Sprite sprite;
@@ -316,7 +316,7 @@ TEST(HierarchySystems, ChildRotationAboutZCarriesParentOffsetIn3D) {
     World world;
     engine::register_engine_systems(world);
 
-    const Entity parent = spawn(world, Transform{.rotation = {0.f, 0.f, glm::half_pi<float>()}});
+    const Entity parent = spawn(world, Transform{.rotation = engine::rotation_z(glm::half_pi<float>())});
     const Entity child = spawn_child(world, parent, Transform{.position = {2.f, 0.f, 0.f}});
     const Entity grandchild = spawn_child(world, child, Transform{.position = {0.f, 1.f, 0.f}});
     engine::ecs::update_world_transforms(world);
@@ -325,7 +325,7 @@ TEST(HierarchySystems, ChildRotationAboutZCarriesParentOffsetIn3D) {
     expect_near(engine::ecs::world_position(world, child), {0.f, 2.f, 0.f});
     expect_near(engine::ecs::world_position(world, grandchild), {-1.f, 2.f, 0.f});
 
-    world.get<Transform>(parent).rotation = {glm::half_pi<float>(), 0.f, 0.f};
+    world.get<Transform>(parent).rotation = engine::euler_xyz({glm::half_pi<float>(), 0.f, 0.f});
     world.get<Transform>(child).position = {0.f, 1.f, 0.f};
     engine::ecs::update_world_transforms(world);
     // 90 degrees about X sends local +Y to world +Z.

@@ -43,14 +43,15 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/core/window_desc.h` | `WindowId`, `WindowDesc`, `WindowStyle` | [Windowing](../features/Windowing.md) |
 | `include/engine/core/worlds.h` | Process `Worlds`: add, destroy, bind, stepping | [Core](../modules/Core.md) |
 | `include/engine/ecs/.gitkeep` | Keeps the directory in Git | [ECS](../modules/ECS.md) |
-| `include/engine/ecs/camera.h` | Orthographic `Camera` and screen/world conversion | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/camera.h` | `Camera` (orthographic or perspective), `Projection`, screen/world and screen/ray conversion | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/entity.h` | Generational `Entity` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/events.h` | Double-buffered `Events`, reader, writer, cursor | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/pointer_target.h` | `PointerTarget`, `PointerTargetEvent`, `pointer_target_at` | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `include/engine/ecs/physics.h` | Colliders, `CollisionEvent`, `run_physics` | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/ray.h` | `Ray`: world-space origin and direction from `screen_to_ray` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/schedule.h` | `Schedule` and `Phase` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/systems.h` | `register_engine_systems` and its dependencies | [ECS](../modules/ECS.md) |
-| `include/engine/ecs/transform.h` | Position, rotation, scale. No parent | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/transform.h` | Position, quaternion rotation, scale. No parent. `rotation_z`, `euler_xyz`, `angle_z` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/world.h` | `World` and `View` declarations | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/world.inl` | Pool and view template bodies | [ECS](../modules/ECS.md) |
 | `include/engine/haptics/haptics_system.h` | `IHaptics` and `HapticsSystem` | [Haptics](../modules/Haptics.md) |
@@ -156,7 +157,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | Path | What it does | Page |
 | --- | --- | --- |
 | `src/ecs/.gitkeep` | Keeps the directory in Git | [ECS](../modules/ECS.md) |
-| `src/ecs/camera.cpp` | View and projection matrices, screen/world | [ECS](../modules/ECS.md) |
+| `src/ecs/camera.cpp` | View and projection matrices, perspective clip clamp, screen/world, screen/ray | [ECS](../modules/ECS.md) |
 | `src/ecs/pointer_target.cpp` | `pointer_target_at` and `run_pointer_targets` | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `src/ecs/physics.cpp` | Velocity integration and overlap events | [ECS](../modules/ECS.md) |
 | `src/ecs/systems.cpp` | Engine systems: input, dock input, splash, animation, particles, dock layout, bind, audio, render, UI render | [Runtime Loop](../architecture/Runtime%20Loop.md) |
@@ -375,7 +376,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/assets_test.cpp` | Catalog, `get` / `try_get`, `unload_catalog`, codegen failures, stylesheet warnings in `game.log` | [Assets](../features/Assets.md) |
 | `tests/audio_test.cpp` | Pool, music fade, looping handles, `stop_all` without opening a device | [Audio](../modules/Audio.md) |
 | `tests/builtin_test.cpp` | Frozen builtin ids and files | [Resources](../modules/Resources.md) |
-| `tests/camera_test.cpp` | Ortho matrices and screen/world | [ECS](../modules/ECS.md) |
+| `tests/camera_test.cpp` | Ortho and perspective matrices, clip clamp, screen/world, screen/ray | [ECS](../modules/ECS.md) |
 | `tests/cli_server_test.cpp` | Descriptor, HTTP, window routing, host commands, and UI commands without `GameLoop` | [CLI](../features/CLI.md) |
 | `tests/cmake_sanity_test.cpp` | Public headers compile, build id, CMake file checks (game functions, SDK package, export wiring and player libraries) | [CMake](../build/CMake.md) |
 | `tests/command_buffer_test.cpp` | Push and iterate the three command types | [Render](../modules/Render.md) |
@@ -427,6 +428,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/splash_test.cpp` | Splash documents and the timer | [UI](../modules/UI.md) |
 | `tests/sprite_test.cpp` | Sprite sheet UVs and `get_sprite` | [Assets](../features/Assets.md) |
 | `tests/time_test.cpp` | Clamp, pause, and the step cap | [Core](../modules/Core.md) |
+| `tests/transform_test.cpp` | Quaternion `model_matrix` against the Euler result, `rotation_z` / `euler_xyz` / `angle_z` | [ECS](../modules/ECS.md) |
 | `tests/ui_bindable_visibility_test.cpp` | `Bindable::on_changed`, the `if` binding, float-bound lengths | [UI Markup](../features/UI%20Markup.md) |
 | `tests/ui_slider_test.cpp` | `Slider`: parse, value to handle rect, pointer to value with step, vertical, rows, errors, builder | [UI](../modules/UI.md#slider) |
 | `tests/ui_absolute_items_test.cpp` | Items placed by bound position, drag per item, z order, add and remove, no virtualization of absolute rows | [UI Markup](../features/UI%20Markup.md) |
