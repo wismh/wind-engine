@@ -43,7 +43,7 @@ When the list is not empty and a `Renderable`, `Sprite`, or `ParticleEmitter` is
 
 Fatal is only a live entity that lacks `Camera` or `Transform`. Either path pushes no scene commands. `run_ui_render` still pushes `CmdDrawUI`. Each bound window's projection is `projection_matrix` with `window_size_for` for that id (`Presentation.sizes`).
 
-Model matrix, column vector, applied right to left as written in code: translate, rotate X, rotate Y, rotate Z, scale. Rotations are radians.
+Model matrix, column vector, applied right to left as written in code: translate, rotate (`mat4_cast` of the `Transform::rotation` quaternion), scale.
 
 Sprite world size is `pixel_size / pixels_per_unit` (default 100). `pivot` is the origin inside that quad. That translate and scale run only when both `pixel_size` components and `pixels_per_unit` are greater than 0. `Sprite::pixel_size` defaults to `{0,0}` (`include/engine/render/sprite.h`), so a sprite left at that default is the mesh at the `Transform` only.
 

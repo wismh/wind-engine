@@ -100,9 +100,7 @@ engine::render::Renderable make_renderable(std::shared_ptr<engine::render::IMesh
 glm::mat4 expected_trs(const engine::Transform& transform) {
     glm::mat4 model(1.0f);
     model = glm::translate(model, transform.position);
-    model = glm::rotate(model, transform.rotation.x, glm::vec3{1.0f, 0.0f, 0.0f});
-    model = glm::rotate(model, transform.rotation.y, glm::vec3{0.0f, 1.0f, 0.0f});
-    model = glm::rotate(model, transform.rotation.z, glm::vec3{0.0f, 0.0f, 1.0f});
+    model *= glm::mat4_cast(transform.rotation);
     model = glm::scale(model, transform.scale);
     return model;
 }
@@ -1035,7 +1033,7 @@ TEST(RenderSystem, ModelMatrixIsTranslateRotateScale) {
     const auto material = std::make_shared<FakeMaterial>();
     engine::Transform transform;
     transform.position = {1.0f, 2.0f, 3.0f};
-    transform.rotation = {0.1f, 0.2f, 0.3f};
+    transform.rotation = engine::euler_xyz({0.1f, 0.2f, 0.3f});
     transform.scale = {2.0f, 3.0f, 4.0f};
 
     const engine::ecs::Entity entity = world.create();

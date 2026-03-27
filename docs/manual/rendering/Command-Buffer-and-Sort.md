@@ -26,7 +26,7 @@ world.emplace<engine::render::Renderable>(tile, engine::render::Renderable{
 });
 ```
 
-`Renderable` has `mesh`, `material` (both required: an entity missing one is reported and skipped), `color`, `layer`, `order_in_layer`, and an optional `material_override`. The mesh is drawn with the model matrix of the `Transform` (translate, rotate X then Y then Z in radians, scale). For a textured picture use a `Sprite` ([Sprites & Animation](Sprites-and-Animation.md)), which supplies the quad and the material for you. An entity with both `Renderable` and `Sprite` draws only the `Renderable`.
+`Renderable` has `mesh`, `material` (both required: an entity missing one is reported and skipped), `color`, `layer`, `order_in_layer`, and an optional `material_override`. The mesh is drawn with the model matrix of the `Transform` (translate, rotate by the `rotation` quaternion, scale). For a textured picture use a `Sprite` ([Sprites & Animation](Sprites-and-Animation.md)), which supplies the quad and the material for you. An entity with both `Renderable` and `Sprite` draws only the `Renderable`.
 
 ---
 
