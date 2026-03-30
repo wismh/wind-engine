@@ -17,6 +17,7 @@ assets/
     catalog.toml
     shaders/unlit.shader
     meshes/quad.mesh
+    meshes/cube.mesh
     materials/unlit.mat
     fonts/ui.ttf
     fonts/math.otf

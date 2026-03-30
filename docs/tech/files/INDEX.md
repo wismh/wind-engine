@@ -73,10 +73,11 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/render/command_buffer.h` | Buffer of `Command` | [Render](../modules/Render.md) |
 | `include/engine/render/commands.h` | `CmdDrawMesh`, `CmdDrawUI`, `CmdDrawParticles` | [Render](../modules/Render.md) |
 | `include/engine/render/curve.h` | `Curve<T>` with `Linear`, `Smooth`, and `Step` keys | [Render](../modules/Render.md) |
-| `include/engine/render/graphic_factory.h` | Mesh, shader, and texture descriptions and factory | [Render](../modules/Render.md) |
+| `include/engine/render/graphic_factory.h` | `MeshVertex` (position, normal, uv), indexed `MeshDesc`, shader and texture descriptions, factory | [Render](../modules/Render.md) |
 | `include/engine/render/graphics.h` | `IMesh`, `IShader`, `ITexture` | [Render](../modules/Render.md) |
 | `include/engine/render/material.h` | `IMaterial`, blend modes, `.mat` parse | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `include/engine/render/particles.h` | `ParticleEmitter` | [Render](../modules/Render.md) |
+| `include/engine/render/primitives.h` | `make_quad`, `make_cube`, `make_plane`, `make_uv_sphere` | [Render](../modules/Render.md#primitives) |
 | `include/engine/render/renderable.h` | `Renderable` and the sort predicate | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `include/engine/render/shader_adapt.h` | GLSL 330 to GLSL 300 ES | [Render](../modules/Render.md) |
 | `include/engine/render/sprite.h` | `Sprite` quad fields | [Materials and Sort](../features/Materials%20and%20Sort.md) |
@@ -174,7 +175,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/resources/codegen.cpp` | Scan tree, emit `asset_ids.h` and `catalog.toml` | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `src/resources/icon_codegen.cpp` | Resize and encode ico, icns, mipmaps, favicon | [Icon Codegen](../build/Icon%20Codegen.md) |
 | `src/resources/icon_codegen.h` | Icon encode API used by the host tool | [Icon Codegen](../build/Icon%20Codegen.md) |
-| `src/resources/importers.cpp` | Mesh text, shader XML, PNG decode entry points | [Assets](../features/Assets.md) |
+| `src/resources/importers.cpp` | Mesh text (vertices, normals, `f` index rows), shader XML, PNG decode entry points | [Assets](../features/Assets.md) |
 | `src/resources/importers.h` | Those parsers, and `encode_png_rgba` | [Assets](../features/Assets.md) |
 | `src/resources/meta.cpp` | TOML `.meta` and cooked catalog parse | [Resources](../modules/Resources.md) |
 | `src/resources/png_decode.cpp` | PNG bytes to RGBA `TextureDesc` | [Icon Codegen](../build/Icon%20Codegen.md) |
@@ -196,7 +197,9 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/gl_error_log.cpp`, `src/render/gl_error_log.h` | GL error names; one log line per error and command | [Render](../modules/Render.md) |
 | `src/render/material.cpp` | Parse `.mat` TOML | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `src/render/material_instance.h` | `IMaterial` for a loaded `.mat` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `src/render/mesh_check.cpp`, `src/render/mesh_check.h` | `mesh_desc_error`: why a `MeshDesc` cannot be drawn | [Render](../modules/Render.md#meshes) |
 | `src/render/particles.cpp` | Spawn, integrate, and collide particles | [Render](../modules/Render.md) |
+| `src/render/primitives.cpp` | Procedural quad, cube, plane, and UV sphere | [Render](../modules/Render.md#primitives) |
 | `src/render/shader_adapt.cpp` | Rewrite GLSL for ES | [Render](../modules/Render.md) |
 | `src/render/opengl/clipboard.cpp` | SDL clipboard get and set | [UI Input](../features/UI%20Input.md) |
 | `src/render/opengl/clipboard.h` | Those two functions | [UI Input](../features/UI%20Input.md) |
@@ -212,7 +215,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/opengl/opengl_ui_shader.h` | The UI shader, `src/ui/render/fragment.h` in GLSL | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_factory.cpp` | Create GL mesh, shader, texture | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_factory.h` | `OpenGLFactory` | [Render](../modules/Render.md) |
-| `src/render/opengl/opengl_mesh.cpp` | GL mesh | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_mesh.cpp` | GL mesh: vertex and element buffers, per-context VAO, `glDrawElements` or `glDrawArrays` | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_mesh.h` | GL mesh type | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_shader.cpp` | GL program and named uniforms | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_shader.h` | GL shader type | [Render](../modules/Render.md) |
@@ -411,10 +414,12 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/loc_format_test.cpp` | Placeholders and plural branches | [Localization](../modules/Localization.md) |
 | `tests/log_test.cpp` | The null sink | [Core](../modules/Core.md) |
 | `tests/material_test.cpp` | `.mat` parse and instance tint | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `tests/mesh_test.cpp` | `.mesh` parse (5- and 8-column vertices, `f` rows, bad rows and indices), `mesh_desc_error` | [Assets](../features/Assets.md#mesh-files) |
 | `tests/mvvm_test.cpp` | View-model properties, commands, checkbox write-back | [UI](../modules/UI.md) |
 | `tests/opengl_texture_test.cpp` | CPU texture description. No GL draw | [Render](../modules/Render.md) |
 | `tests/particle_test.cpp` | Emitter step and curves | [Render](../modules/Render.md) |
 | `tests/pointer_target_test.cpp` | `PointerTarget`: hit-test, order, windows, camera, hover, click, click-through, UI first | [UI Input](../features/UI%20Input.md#pointer-targets) |
+| `tests/primitives_test.cpp` | Primitive counts, unit outward normals, winding, index range; builtin quad and cube files match | [Render](../modules/Render.md#primitives) |
 | `tests/physics_test.cpp` | Overlap enter, stay, exit | [ECS](../modules/ECS.md) |
 | `tests/engine_version_test.cpp` | `EngineVersion` parse, refusals, round trip, order | [Project](../modules/Project.md#engine-version) |
 | `tests/random_test.cpp` | `Random`: golden sequences, ranges, streams, `IGame::random_seed` | [Core](../modules/Core.md) |
