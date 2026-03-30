@@ -66,6 +66,9 @@ public:
     bool add_image(engine::WindowId, engine::AssetId, const engine::render::TextureDesc&) override {
         return true;
     }
+    bool reset_ui_cache(engine::WindowId) override {
+        return true;
+    }
     void poll(engine::Worlds&, engine::InputSystem&) override {
         log_->push_back("poll");
     }

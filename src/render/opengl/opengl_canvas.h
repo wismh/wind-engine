@@ -35,6 +35,9 @@ public:
     [[nodiscard]] bool load_ui_font(const Font& font);
     [[nodiscard]] bool add_font(AssetId id, const Font& font);
     [[nodiscard]] bool add_image(AssetId id, const TextureDesc& desc);
+    // Drops every font and image this canvas's NanoVG context holds and starts a fresh context. The
+    // next frame registers what its canvases reference again, the builtin UI font included.
+    [[nodiscard]] bool reset_ui_painter();
     void make_current();
     [[nodiscard]] ui::IUiPainter* ui_painter() const noexcept {
         return ui_painter_.get();

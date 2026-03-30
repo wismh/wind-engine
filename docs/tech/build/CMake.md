@@ -40,7 +40,7 @@ Cache paths:
 | `vs2022` | `build` | ON | OFF | OFF | VS 2022 generator |
 | `vs-window` | `build-window` | ON | ON | OFF | |
 | `vs-audio` | `build-audio` | OFF | ON | ON | |
-| `vs-editor` | `build-editor` | ON | ON | OFF | `ENGINE_EDITOR=ON`. Audio stays OFF so `engine_tests` opens no mixer device |
+| `vs-editor` | `build-editor` | ON | ON | ON | `ENGINE_EDITOR=ON`. Audio is on so the editor plays game sound. `engine_tests` still opens no mixer device: the audio tests never call `AudioSystem::init` |
 | `web` | `build-web` | ON | ON | OFF | `ENGINE_WITH_WEB=ON`. Configure with `emcmake` |
 | `web-audio` | `build-web-audio` | OFF | ON | ON | `ENGINE_WITH_WEB=ON` |
 | `android-arm64` | `build-android` | ON | ON | OFF | toolchain `cmake/toolchains/android-ndk.cmake`, `arm64-v8a`, `android-21`, `ENGINE_WITH_ANDROID=ON` |
@@ -56,6 +56,7 @@ Build preset `tests` builds `engine_tests` from the `vs` configure.
 - `CMAKE_POSITION_INDEPENDENT_CODE` is ON, so the static libraries linked into the shared engine are position independent.
 - `engine_prepare_runtime` copies `engine.dll` beside its target on Windows.
 - `engine_add_game` builds the game as a shared module, not an executable. See below.
+- `editor/` is added: `wind_editor`, and with tests also `wind_editor_tests`. This happens when Wind is a game's subdirectory too, so the editor lands in the game's `bin/` beside the module. See [Editor](../features/Editor.md).
 
 `WINDOWS_EXPORT_ALL_SYMBOLS` exports functions, not data. Mutable state a module must share stays in a `.cpp` behind an `ENGINE_API` function. See [Boundaries](../architecture/Boundaries.md).
 
@@ -88,7 +89,7 @@ Windows also links `ws2_32` and `advapi32` PUBLIC, because `cli_server.cpp` uses
 
 ## `engine_add_game`
 
-Call it after `add_subdirectory` of this repo. At least one source file. `ENGINE_WITH_WINDOW` must be ON (the subdirectory default).
+Call it after `add_subdirectory` of this repo. At least one source file. `ENGINE_WITH_WINDOW` must be ON (the subdirectory default). It creates the target (table below) and hands it to `engine_configure_app`.
 
 | Platform | Target |
 | --- | --- |
@@ -97,7 +98,7 @@ Call it after `add_subdirectory` of this repo. At least one source file. `ENGINE
 | Android | `add_library` SHARED, `OUTPUT_NAME` `main`, plus `--defsym=SDL_main=main` and `SDL3::SDL3main` when that target exists |
 | Apple | `MACOSX_BUNDLE` ON |
 
-C++23, no extensions. MSVC: `/W4 /permissive- /utf-8`. MSVC Windows, every config except Debug: `/SUBSYSTEM:WINDOWS` and `/ENTRY:mainCRTStartup` so there is no console and `main` stays the entry.
+`engine_configure_app(target)` is everything after the target exists. The editor calls it for `wind_editor` too. It reads `include/`, `assets/`, and `icon.png` from the calling directory. C++23, no extensions. MSVC: `/W4 /permissive- /utf-8`. MSVC Windows executable, every config except Debug: `/SUBSYSTEM:WINDOWS` and `/ENTRY:mainCRTStartup` so there is no console and `main` stays the entry.
 
 The game's source calls `ENGINE_GAME(GameClass)` from `<engine/game_entry.h>` instead of writing `main`. The executable gets `main`. The module gets the exports the editor resolves. See [Core](../modules/Core.md).
 
@@ -113,6 +114,21 @@ The game links `engine` PRIVATE. If the game has an `include/` directory it is P
 Asset and icon steps: [Pipeline](Pipeline.md). Web adds `cmake/web/link_flags.cmake` (`engine_target_web_link_options`, `engine_target_web_preload`) and copies `favicon.png` beside the output when icons were generated.
 
 `engine_add_web_game` and `engine_add_android_game` call `engine_add_game` and fail the configure when `EMSCRIPTEN` or `ANDROID` is not set.
+
+## Runtime assets subdirectory
+
+`engine_prepare_runtime` copies a target's own `assets/` tree and cooked `catalog.toml` to `<output>/assets/`. The target property `ENGINE_RUNTIME_ASSETS_DIR` moves both to `<output>/assets/<dir>/`. `wind_editor` sets it to `editor`, so the editor and a game module built into the same `bin/` each keep their own `catalog.toml`. The engine's own assets stay in `assets/engine/` either way.
+
+## Editor targets
+
+`editor/CMakeLists.txt`, added when `ENGINE_EDITOR` is ON.
+
+| Target | What |
+| --- | --- |
+| `wind_editor` | `add_executable` from `editor/src/`, then `engine_configure_app`. Its `assets/` cook to `asset_ids.h` and land in `bin/assets/editor/` |
+| `wind_editor_tests` | With `ENGINE_BUILD_TESTS`. `editor/tests/play_session_test.cpp` and `editor/src/play_session.cpp`, linked with `engine` and `GTest::gtest_main`, `tests/` on the include path. `gtest_discover_tests`, so `ctest` runs it |
+
+With `ENGINE_BUILD_TESTS` the root also builds three fixture modules from `tests/fixtures/game_module/fixture_game.cpp` into `test_fixtures/`: `wind_fixture_game_ok`, `wind_fixture_game_wrong_build_id` (`FIXTURE_WRONG_BUILD_ID`), and `wind_fixture_game_no_destroy` (`FIXTURE_NO_DESTROY`). They link `engine` and use `/PDBALTPATH` like a game module. `engine_tests` and `wind_editor_tests` depend on them and get their paths as `WIND_FIXTURE_GAME`, `WIND_FIXTURE_GAME_WRONG_BUILD_ID`, and `WIND_FIXTURE_GAME_NO_DESTROY` (`$<TARGET_FILE:...>`).
 
 ## Tests
 

@@ -5,6 +5,10 @@
 
 #include <memory>
 
+// None of these call AudioSystem::init. With ENGINE_WITH_AUDIO, init opens the real mixer device, which
+// engine_tests never does (Boundaries). A constructed system without init runs the same pool, bus, and
+// fade logic with no device behind it, in both builds.
+
 namespace {
 
 engine::Sound make_sound(float volume = 1.f) {
@@ -25,7 +29,6 @@ TEST(Audio, GainFormula) {
     EXPECT_FLOAT_EQ(engine::audio::final_gain(-1.f, 1.f, 1.f), 0.f);
 
     engine::AudioSystem audio;
-    ASSERT_TRUE(audio.init());
     audio.set_master_volume(0.5f);
     audio.set_sfx_volume(0.5f);
     audio.play_sfx(make_sound(0.5f), 1.f);
@@ -43,7 +46,6 @@ TEST(Audio, GainFormula) {
 
 TEST(Audio, PoolSkipWhenFull) {
     engine::AudioSystem audio;
-    ASSERT_TRUE(audio.init());
 
     const int pool = audio.sfx_pool_size();
     EXPECT_EQ(pool, engine::audio::kSfxPoolSize);
@@ -66,7 +68,6 @@ TEST(Audio, PoolSkipWhenFull) {
 
 TEST(Audio, MusicABCrossfadeSwapsIndex) {
     engine::AudioSystem audio;
-    ASSERT_TRUE(audio.init());
 
     audio.play_music(make_sound(), true, 0.5f);
     EXPECT_EQ(audio.active_music_index(), 0);
@@ -97,7 +98,6 @@ TEST(Audio, MusicABCrossfadeSwapsIndex) {
 
 TEST(Audio, InvalidLoopingHandleNoOp) {
     engine::AudioSystem audio;
-    ASSERT_TRUE(audio.init());
 
     const engine::LoopingSfxHandle valid = audio.create_looping_sfx();
     EXPECT_TRUE(valid.valid());
@@ -124,7 +124,6 @@ TEST(Audio, InvalidLoopingHandleNoOp) {
 
 TEST(Audio, BusVolumeAffectsPlayingTracks) {
     engine::AudioSystem audio;
-    ASSERT_TRUE(audio.init());
 
     audio.play_music(make_sound(1.f), true, 0.f);
     EXPECT_FLOAT_EQ(audio.music_slot_gain(0), 1.f);
@@ -141,7 +140,6 @@ TEST(Audio, BusVolumeAffectsPlayingTracks) {
 
 TEST(Audio, StopAllSilencesEverythingAndKeepsVolumes) {
     engine::AudioSystem audio;
-    ASSERT_TRUE(audio.init());
     audio.set_master_volume(0.5f);
 
     const engine::Sound sound = make_sound();

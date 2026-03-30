@@ -994,7 +994,6 @@ TEST(Audio, PlaySfxGetWhenDepsSet) {
     db.set_catalog(std::move(catalog));
 
     engine::AudioSystem audio;
-    ASSERT_TRUE(audio.init());
 
     engine::ecs::World world;
     engine::register_engine_systems(world, engine::EngineSystemDeps{.assets = &db, .audio = &audio});
@@ -1017,7 +1016,6 @@ TEST(Audio, PlaySfxMissingCueIsFatal) {
     RecordingFatalError fatal;
     engine::AssetsDb db(fatal);
     engine::AudioSystem audio;
-    ASSERT_TRUE(audio.init());
 
     engine::ecs::World world;
     engine::register_engine_systems(world, engine::EngineSystemDeps{.assets = &db, .audio = &audio});

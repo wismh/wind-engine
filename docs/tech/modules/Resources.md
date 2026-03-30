@@ -62,7 +62,7 @@ Texture defaults: sRGB, linear filter, clamp wrap, `layout = single`, `pixels_pe
 
 Results are cached by `(AssetId, type_index)`.
 
-`load_catalog` parses a cooked `catalog.toml` and stamps each entry's `files_root`. `EngineHost::open_primary` loads `assets/engine/catalog.toml` (fatal on failure). `EngineHost::load_game_catalog` then loads `assets/catalog.toml` (a missing file is `MetaError::Io` and is ignored).
+`load_catalog` parses a cooked `catalog.toml` and stamps each entry's `files_root`. `EngineHost::open_primary` loads `assets/engine/catalog.toml` (fatal on failure). `EngineHost::load_catalog` then loads `assets/catalog.toml` (a missing file is `MetaError::Io` and is ignored).
 
 `unload_catalog(files_root)` removes the entries loaded with that files root (`CookedCatalog::remove_root`) and evicts every cached asset with one of their GUIDs, of any type. Entries from other roots, such as the engine builtins, and their cache stay. An unknown root is a no-op. The editor unloads the game catalog when a game stops.
 

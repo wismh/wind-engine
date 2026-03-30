@@ -9,6 +9,7 @@
 #include <glm/vec2.hpp>
 
 #include <optional>
+#include <string_view>
 
 namespace engine {
 
@@ -27,6 +28,7 @@ public:
 
     // borderless/always-on-top/position/size can change after create(); WindowStyle::transparent
     // cannot (SDL has no "make an existing window transparent" call) so there is no setter for it.
+    void set_title(std::string_view title);
     void set_bordered(bool bordered);
     void set_always_on_top(bool always_on_top);
     void set_position(glm::ivec2 position);

@@ -1,0 +1,91 @@
+/* Wind Editor window. Dark, flat, one toolbar row over an empty content area. */
+
+Canvas {
+  background: #1e1f22;
+}
+
+.editor {
+  width: 100%;
+  height: 100%;
+}
+
+/* 56 px tall: .content below is calc(100% - 56px). */
+.toolbar {
+  width: 100%;
+  height: 56;
+  padding: 10 16 10 12;
+  gap: 10;
+  align-items: center;
+  background: #2b2d30;
+}
+
+Button {
+  height: 34;
+  padding: 0 16 0 16;
+  border-radius: 6;
+  font-size: 14;
+  color: #dfe1e5;
+  background: #3c3f41;
+  text-align: center;
+  align-items: center;
+}
+
+Button:hover {
+  background: #4b4f53;
+}
+
+Button:pressed {
+  background: #5a5e62;
+}
+
+Button:disabled {
+  color: #6f737a;
+  background: #313335;
+}
+
+.play-button {
+  width: 88;
+  color: #ffffff;
+  background: #2f7d36;
+}
+
+.play-button:hover {
+  background: #3a9142;
+}
+
+.play-button:disabled {
+  color: #8a8f96;
+  background: #34413a;
+}
+
+/* Playing: the same button stops the game. */
+.play-button:checked {
+  background: #b3322f;
+}
+
+.info {
+  gap: 2;
+  padding: 0 0 0 10;
+}
+
+Label {
+  font-size: 14;
+  color: #dfe1e5;
+  white-space: nowrap;
+}
+
+.status {
+  font-size: 14;
+  color: #dfe1e5;
+}
+
+.path {
+  font-size: 12;
+  color: #8c9096;
+}
+
+.content {
+  width: 100%;
+  height: calc(100% - 56px);
+  background: #1e1f22;
+}

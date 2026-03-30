@@ -46,6 +46,8 @@ public:
 
     [[nodiscard]] virtual bool add_font(WindowId id, AssetId asset, const Font& font) = 0;
     [[nodiscard]] virtual bool add_image(WindowId id, AssetId asset, const render::TextureDesc& desc) = 0;
+    // Forgets every font and image registered for that window's UI painter.
+    [[nodiscard]] virtual bool reset_ui_cache(WindowId id) = 0;
 
     virtual void poll(Worlds& worlds, InputSystem& input) = 0;
     virtual void sync_frame(Worlds& worlds) = 0;

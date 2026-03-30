@@ -48,9 +48,27 @@ The module exports (`include/engine/core/game_module.h`):
 
 `kCreateGameSymbol`, `kDestroyGameSymbol`, and `kGameBuildIdSymbol` hold the names for a loader. `ENGINE_GAME_EXPORT` is `extern "C" __declspec(dllexport)` on Windows and `extern "C"` with default visibility elsewhere. `wind_game_build_id` does not call `engine::build_id()`: inside the editor that reaches the editor's `engine.dll` and always matches.
 
+## Game module loader
+
+Same header, window builds only (`src/core/game_module.cpp`, SDL `SDL_LoadObject`). The editor uses it on Play.
+
+`load_game_module(module, live_root)` returns `std::expected<GameModule, GameModuleError>`:
+
+1. `module` must be a regular file, else `ModuleError::Missing`.
+2. It creates the first free `<live_root>/<n>/` (n = 1, 2, ...) and copies the module there, plus the `.pdb` beside it when there is one. A failed module copy is `CopyFailed`. A failed `.pdb` copy only warns.
+3. It loads the copy. Failure is `LoadFailed` with `SDL_GetError()`.
+4. It resolves the three exports. A missing one is `MissingSymbol` with its name.
+5. It compares `wind_game_build_id()` with `engine::build_id()`. A difference is `BuildIdMismatch` with both ids.
+
+Any failure unloads the copy and deletes its directory. `GameModuleError` is the `ModuleError` plus a detail string. `to_string(ModuleError)` and `describe(error)` give one line for a status bar.
+
+`GameModule` is move-only. `create(services)` and `destroy(game)` call the two exports. `build_id()`, `source_path()`, and `live_path()` describe the load. The destructor unloads the copy and deletes its directory. Nothing the game built may outlive it: destroy the game's worlds and the game first.
+
+`purge_game_module_copies(live_root)` deletes every directory under `live_root` and returns how many went away. A copy another process still has loaded stays.
+
 ## `EngineHost`
 
-`include/engine/core/engine_host.h`, `src/core/engine_host.cpp`. Window builds only. It owns `EngineRuntime`, `SdlFatalError`, `AssetsDb`, `InputSystem`, `AudioSystem`, `HapticsSystem`, and `Worlds`. `Engine<GameT>` sits on it. The editor host in the [Editor Plan](../architecture/Editor%20Plan.md) sits on it too.
+`include/engine/core/engine_host.h`, `src/core/engine_host.cpp`. Window builds only. It owns `EngineRuntime`, `SdlFatalError`, `AssetsDb`, `InputSystem`, `AudioSystem`, `HapticsSystem`, and `Worlds`. `Engine<GameT>` sits on it. The editor ([Editor](../features/Editor.md)) sits on it too.
 
 | Call | Does |
 | --- | --- |
@@ -59,15 +77,16 @@ The module exports (`include/engine/core/game_module.h`):
 | `fatal()` | the `IFatalError` the services use |
 | `open_primary(desc)` | creates `kPrimaryWindow`, starts audio and haptics, sets the graphic factory and assets root, loads the engine catalog and `builtin::font_ui`, then `Worlds::set_deps`. A failure disposes the host and returns false |
 | `assets_root()` | the runtime assets root ([Runtime Assets](../build/Runtime%20Assets.md)) |
-| `load_game_catalog(dir)` | `<dir>/catalog.toml` with `dir` as its files root. A missing file (`MetaError::Io`) is success. Other errors return the `MetaError` |
-| `unload_game_catalog(dir)` | `AssetsDb::unload_catalog(dir)` |
+| `load_catalog(dir)` | `<dir>/catalog.toml` with `dir` as its files root. A missing file (`MetaError::Io`) is success. Other errors return the `MetaError`. The game catalog and the editor's own catalog both load this way |
+| `unload_catalog(dir)` | `AssetsDb::unload_catalog(dir)`. Pass the same path `load_catalog` got |
 | `attach_game(game)` | window icon, `bind_window(kPrimaryWindow)`, `enable_ui`, `enable_audio`, publish the window size with a resize event, `ui::apply_canvas_fit` |
+| `detach_game()` | the window half of undoing `attach_game`: `unbind_window(kPrimaryWindow)`, clear its command buffer, reset its UI painter and register `builtin::font_ui` again, clear its drag region and click-through, overlay mode back to `Auto`, `ApplicationState::paused` false. The editor calls it on Stop |
 | `run(hooks)` | `EngineRuntime::run` with `RunHooks`, then `dispose`. Returns 1 before a successful `open_primary` |
 | `dispose()` | disposes audio and haptics and shuts the runtime down. Also run by the destructor. A second call is a no-op |
 
 `set_deps` registers simulation systems on worlds that already exist and on every later `Worlds::add`. `enable_ui` and `enable_audio` add the rest. Each registration is guarded by its `ctx` flag, so a world never gets a system twice, whether it was added before or after `set_deps`.
 
-`Engine<GameT>` (`include/engine/core/engine.h`) is a thin template: `init` runs `EngineHost::init`, constructs `GameT` from `services()`, `open_primary(game.primary_window())`, `load_game_catalog(assets_root())` (an error is fatal), and `attach_game`. `run` passes `RunHooks` that call `on_start` and `on_quit`. The game is destroyed before the host.
+`Engine<GameT>` (`include/engine/core/engine.h`) is a thin template: `init` runs `EngineHost::init`, constructs `GameT` from `services()`, `open_primary(game.primary_window())`, `load_catalog(assets_root())` (an error is fatal), and `attach_game`. `run` passes `RunHooks` that call `on_start` and `on_quit`. The game is destroyed before the host.
 
 `SplashScreen` lives on this header (enabled, `builtin::splash_wind`, fade 0.4s, hold 1.0s, fade 0.4s). `IGame` has no splash method. A game calls `ui::show_splash`. See [UI](UI.md).
 
@@ -140,6 +159,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 | `src/core/worlds.cpp` | process worlds, window binding, per-world clocks |
 | `src/core/game_loop.cpp` | frame clock and `RunHooks`. Calls `IPresentation`, not SDL |
 | `src/core/web_loop.cpp` | `MainLoopPolicy`, `LoopShutdown` |
+| `src/core/file_dialog_queue.cpp` | open-file dialog answers from any thread to the owner window's world |
 | `src/core/app_lifecycle.cpp` | pause, resume, terminate, Android back |
 | `src/cli/cli_server.cpp` | loopback server. The translation unit is empty without `ENGINE_CLI_SERVER` |
 
@@ -149,13 +169,14 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 | --- | --- |
 | `include/engine/core/engine.h` | `Engine<GameT>::init`, `run`, `dispose` over `EngineHost` |
 | `include/engine/game_entry.h` | `ENGINE_GAME(GameClass)` |
-| `src/core/engine_host.cpp` | `EngineHost`: services, primary window, catalogs, game attach, run |
+| `src/core/engine_host.cpp` | `EngineHost`: services, primary window, catalogs, game attach and detach, run |
 | `src/core/engine_runtime.cpp` | owns `IPresentation` and `GameLoop` |
 | `src/core/engine_instantiate.cpp` | explicit instantiation of `Engine<WindowSmokeGame>` |
 | `src/core/sdl_fatal_error.cpp` | message box and quit |
+| `src/core/game_module.cpp` | `load_game_module`, `GameModule`, `purge_game_module_copies` |
 | `src/render/opengl/sdl_gl_presentation.cpp` | SDL init, poll, windows, GL factory |
 
-`IPresentation` (`src/core/presentation.h`) is the private seam `GameLoop` calls: poll, sync, draw, fonts, images, window control.
+`IPresentation` (`src/core/presentation.h`) is the private seam `GameLoop` calls: poll, sync, draw, fonts, images, the per-window UI cache reset, window control.
 
 ## Public headers
 
@@ -181,6 +202,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 - `include/engine/core/sdl_fatal_error.h`
 - `include/engine/core/time.h`
 - `include/engine/core/web_loop.h`
+- `include/engine/core/file_dialog.h`
 - `include/engine/core/window_desc.h`
 - `include/engine/core/window_control.h`
 - `include/engine/core/worlds.h`
@@ -188,7 +210,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 
 ## Tests
 
-`tests/cmake_sanity_test.cpp`, `tests/host_test.cpp`, `tests/time_test.cpp`, `tests/input_test.cpp`, `tests/log_test.cpp`, `tests/platform_test.cpp`, `tests/web_loop_test.cpp`, `tests/android_lifecycle_test.cpp`, `tests/android_assets_test.cpp`, `tests/window_icon_test.cpp`, `tests/window_style_test.cpp`, `tests/cli_server_test.cpp`, `tests/worlds_test.cpp`, `tests/game_loop_test.cpp` (`RunHooks` order with a fake `IPresentation`), `tests/game_entry_test.cpp` (module exports, window builds only).
+`tests/cmake_sanity_test.cpp`, `tests/host_test.cpp`, `tests/time_test.cpp`, `tests/input_test.cpp`, `tests/log_test.cpp`, `tests/platform_test.cpp`, `tests/web_loop_test.cpp`, `tests/android_lifecycle_test.cpp`, `tests/android_assets_test.cpp`, `tests/window_icon_test.cpp`, `tests/window_style_test.cpp`, `tests/cli_server_test.cpp`, `tests/worlds_test.cpp`, `tests/game_loop_test.cpp` (`RunHooks` order with a fake `IPresentation`), `tests/game_entry_test.cpp` (module exports, window builds only), `tests/game_module_test.cpp` (loader against the fixture modules, editor build only; skipped elsewhere), `tests/file_dialog_test.cpp` (`FileDialogQueue`).
 
 ## See also
 
