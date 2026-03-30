@@ -1,6 +1,6 @@
 # Editor plan
 
-This is a plan. It is not a description of the engine as it runs today. Today a game is a standalone executable, and the UI Inspector and UI Profiler open their own windows from the game ([UI Inspector](../features/UI%20Inspector.md), [UI Profiler](../features/UI%20Profiler.md)).
+This is a plan. It is not a description of the engine as it runs today. wind-167 to wind-169 are done: `wind_editor` loads, plays, and stops a game module ([Editor](../features/Editor.md)). The UI Inspector and UI Profiler still open their own windows from the game ([UI Inspector](../features/UI%20Inspector.md), [UI Profiler](../features/UI%20Profiler.md)).
 
 ## Goal
 
@@ -38,7 +38,7 @@ The game owns `kPrimaryWindow`. Engine defaults, input events, and the CLI alrea
 
 ## Play
 
-1. Copy `game.dll` and `game.pdb` into `user_data_directory` under `live/<n>/` and load the copy. The module links with `/PDBALTPATH:%_PDB%` so a debugger finds the copied PDB and the original stays unlocked. Stale copies are removed when the editor starts.
+1. Copy `game.dll` and `game.pdb` into `user_data_directory` under `live/<n>/` and load the copy. The module links with `/PDBALTPATH:<name>.pdb` (from `$<TARGET_PDB_FILE_NAME>`; the Visual Studio generator escapes a literal `%_PDB%`) so a debugger finds the copied PDB and the original stays unlocked. Stale copies are removed when the editor starts.
 2. Check the build id. Resolve the three exports.
 3. Load the game catalog from `assets/` beside the module. `engine_prepare_runtime` already stages it there.
 4. `wind_create_game(services)`, apply the window description, `attach_game`, `on_start`.
@@ -54,6 +54,8 @@ Nothing built from game code may survive `FreeLibrary`.
 4. Close every window except `kPrimaryWindow` and the editor window. Reset drag region, click-through, and overlay mode on `kPrimaryWindow`.
 5. `InputSystem::reset`, `IAudioSystem::stop_all`, `AssetsDb::unload_catalog` for the game catalog, and drop the UI images and fonts cached for `kPrimaryWindow`.
 6. `wind_destroy_game`, unload, delete the copy.
+
+As built (wind-169), the `kPrimaryWindow` parts of steps 4 and 5 run right after `on_quit`, in `EngineHost::detach_game`, which also clears that window's command buffer: its `CmdDrawUI` entries point into the game world's documents. See [Editor](../features/Editor.md).
 
 A game quits by setting `application_state().running = false`. While playing, the editor checks that in `on_frame_end`, sets it back, and stops. Closing the editor window quits the editor.
 
@@ -81,7 +83,7 @@ Moved to `editor/`: panel documents (XML and CSS), view-models, and the profiler
 | wind-166 | Scope and Principles for the editor, this plan |
 | wind-167 | `ENGINE_EDITOR`, shared `engine`, `ENGINE_API`, data audit, build id, `vs-editor` preset. `engine_tests` pass static and shared |
 | wind-168 | `EngineHost`, `RunHooks`, `ENGINE_GAME`, game module build, `InputSystem::reset`, `IAudioSystem::stop_all`, `AssetsDb::unload_catalog` |
-| wind-169 | Module loader, file dialog event, `wind_editor` with Play and Stop, module tests against a fixture module |
+| wind-169 | Module loader, file dialog event, `wind_editor` with Play and Stop, module tests against a fixture module. Done |
 | wind-170 | Inspector and profiler split into engine probe and editor panels; feature, module, build, and README pages |
 
 ## Done when

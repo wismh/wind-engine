@@ -1,0 +1,14 @@
+<Canvas>
+  <Stack class="editor" direction="vertical">
+    <Stack class="toolbar" direction="horizontal">
+      <Button class="tool-button" command="{binding chooseGame}" content="Choose game…"/>
+      <Button class="play-button" command="{binding togglePlay}" checked="{binding isPlaying}" content="{binding playLabel}"/>
+      <Stack class="info" direction="vertical">
+        <Label class="status" text="{binding statusText}"/>
+        <Label class="path" text="{binding gamePath}"/>
+      </Stack>
+    </Stack>
+    <!-- Inspector and Profiler panels go here (wind-170). -->
+    <Stack class="content"/>
+  </Stack>
+</Canvas>

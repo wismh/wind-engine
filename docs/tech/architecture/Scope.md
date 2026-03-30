@@ -2,7 +2,7 @@
 
 Wind is a 2D C++ game engine for production titles. Development happens in the Wind editor. The editor is the host process, and a game is a guest module that the editor loads on Play and unloads on Stop. An exported game is a standalone executable that links the engine statically. Games do not vendor SDL or copy engine sources.
 
-The editor is planned work. See [Editor Plan](Editor%20Plan.md). Today a game is only the standalone executable.
+The editor is in progress. See [Editor Plan](Editor%20Plan.md). Today `wind_editor` chooses a game module, plays it, and stops it ([Editor](../features/Editor.md)). The UI Inspector and UI Profiler still open their own windows from the game.
 
 ## In scope
 
@@ -47,8 +47,8 @@ Game concerns (do not implement in this repo): persist bus volumes in a settings
 | Wind | Product name |
 | `wind-N` | Task code on commits and `feat/wind-N-…` branches |
 | `engine` | CMake library and C++ namespace. Static in exported builds, shared in the editor build |
-| `wind_editor` | Editor host executable (planned) |
-| `ENGINE_EDITOR` | CMake switch for the editor build: shared `engine`, game as a module (planned) |
+| `wind_editor` | Editor host executable |
+| `ENGINE_EDITOR` | CMake switch for the editor build: shared `engine`, game as a module, `wind_editor` |
 | `IGame` / `Engine<GameT>` | Game lifecycle contract and standalone windowed host |
 | `AssetId` / `try_get` / `get` | GUID lookup; optional vs fatal |
 | `IMaterial` / `CommandBuffer` | Draw contract |

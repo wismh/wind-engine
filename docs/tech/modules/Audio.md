@@ -60,7 +60,7 @@ The mixer build sets `SDLMIXER_WAVE` ON and turns FLAC, Vorbis, MP3, MIDI, Opus,
 
 ## Tests
 
-`tests/audio_test.cpp` uses the fake mixer. It does not call `MIX_Init`.
+`tests/audio_test.cpp` uses the fake mixer. It never calls `AudioSystem::init`, so it opens no device even with `ENGINE_WITH_AUDIO` (the `vs-editor` preset): a constructed `AudioSystem` without `init` runs the same pool, bus, and fade logic with no mixer behind it.
 
 ## See also
 

@@ -22,8 +22,9 @@ class IGame;
 
 // Owns every engine service of a windowed process: runtime, fatal hook, assets, input, audio, haptics,
 // and worlds. `Engine<GameT>` sits on it, and so does the editor host. Call in order: `init`, `open_primary`,
-// `load_game_catalog`, `attach_game`, `run`. `dispose` (also run by the destructor and at the end of
-// `run`) disposes audio and haptics and shuts the runtime down.
+// `load_catalog`, `attach_game`, `run`. The editor also calls `detach_game` and `unload_catalog` on Stop.
+// `dispose` (also run by the destructor and at the end of `run`) disposes audio and haptics and shuts the
+// runtime down.
 class EngineHost {
 public:
     EngineHost();
@@ -45,13 +46,19 @@ public:
     [[nodiscard]] std::filesystem::path assets_root() const;
 
     // Loads `<assets_dir>/catalog.toml` with `assets_dir` as its files root. A missing file is not an
-    // error: a game without assets has no catalog.
-    [[nodiscard]] std::expected<void, MetaError> load_game_catalog(const std::filesystem::path& assets_dir);
-    void unload_game_catalog(const std::filesystem::path& assets_dir);
+    // error: a game without assets has no catalog. `unload_catalog` takes the same path.
+    [[nodiscard]] std::expected<void, MetaError> load_catalog(const std::filesystem::path& assets_dir);
+    void unload_catalog(const std::filesystem::path& assets_dir);
 
     // Window icon, binds `kPrimaryWindow` to the game world, enables UI and audio on it, publishes the
     // window size, and fits its canvases.
     void attach_game(IGame& game);
+
+    // The window half of undoing `attach_game`: unbinds `kPrimaryWindow`, clears its command buffer,
+    // drops the UI fonts and images its painter holds (then registers `builtin::font_ui` again), resets
+    // its drag region and click-through, sets the overlay mode back to `Auto`, and clears
+    // `ApplicationState::paused`. The game's worlds, its other windows, and its catalog are the caller's.
+    void detach_game();
 
     // Runs the loop until `ApplicationState::running` is false, then disposes. Returns 1 when
     // `open_primary` has not succeeded.

@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -165,6 +166,13 @@ void WindowSystem::destroy() {
 void WindowSystem::swap() const {
     if (window_ != nullptr) {
         SDL_GL_SwapWindow(window_);
+    }
+}
+
+void WindowSystem::set_title(std::string_view title) {
+    if (window_ != nullptr) {
+        const std::string text(title);
+        SDL_SetWindowTitle(window_, text.c_str());
     }
 }
 

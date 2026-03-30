@@ -1,6 +1,6 @@
 # File index
 
-Every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`. `external/`, `build/`, and `cmake-build-*` are not listed. There is no per-file page. The link is the module or feature that owns the file.
+Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and `editor/`. `external/`, `build/`, and `cmake-build-*` are not listed. There is no per-file page. The link is the module or feature that owns the file.
 
 ## `include/engine/`
 
@@ -20,12 +20,13 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`. 
 | `include/engine/core/bound_windows.h` | Windows bound to one world | [Windowing](../features/Windowing.md) |
 | `include/engine/core/build_info.h` | `build_id()` and the generated `kBuildId` | [CMake](../build/CMake.md) |
 | `include/engine/core/engine.h` | `Engine<GameT>::init`, `run`, `dispose` over `EngineHost` | [Core](../modules/Core.md) |
-| `include/engine/core/engine_host.h` | `EngineHost`: services, primary window, catalogs, game attach, run | [Core](../modules/Core.md) |
+| `include/engine/core/engine_host.h` | `EngineHost`: services, primary window, catalogs, game attach and detach, run | [Core](../modules/Core.md) |
 | `include/engine/core/engine_runtime.h` | Windowed presentation and `GameLoop` owner | [Core](../modules/Core.md) |
 | `include/engine/core/engine_services.h` | References passed into the game constructor | [Core](../modules/Core.md) |
 | `include/engine/core/export.h` | `ENGINE_API` export and import macro | [CMake](../build/CMake.md) |
 | `include/engine/core/fixed_step.h` | `FixedStepClock` | [Core](../modules/Core.md) |
-| `include/engine/core/game_module.h` | Game module export types and symbol names | [Core](../modules/Core.md) |
+| `include/engine/core/file_dialog.h` | `FileFilter`, `FileDialogRequest`, `FileDialogResultEvent` | [Windowing](../features/Windowing.md) |
+| `include/engine/core/game_module.h` | Game module export types and symbol names; `GameModule`, `load_game_module`, `purge_game_module_copies` | [Core](../modules/Core.md) |
 | `include/engine/core/host.h` | Headless tick host for tests | [Core](../modules/Core.md) |
 | `include/engine/core/input_system.h` | `ActionId` bindings and input events | [Input Mapper](../features/Input%20Mapper.md) |
 | `include/engine/core/key_code.h` | `KeyCode` values matching SDL scancodes | [Input Mapper](../features/Input%20Mapper.md) |
@@ -34,7 +35,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`. 
 | `include/engine/core/sdl_fatal_error.h` | SDL message-box `IFatalError` | [Core](../modules/Core.md) |
 | `include/engine/core/time.h` | `Time` and the 60 Hz constants | [Core](../modules/Core.md) |
 | `include/engine/core/web_loop.h` | `MainLoopPolicy` and `LoopShutdown` | [Core](../modules/Core.md) |
-| `include/engine/core/window_control.h` | `IWindowControl` and `OverlayMode` | [Windowing](../features/Windowing.md) |
+| `include/engine/core/window_control.h` | `IWindowControl` (including `open_windows`, `set_title`, `request_open_file`) and `OverlayMode` | [Windowing](../features/Windowing.md) |
 | `include/engine/core/window_desc.h` | `WindowId`, `WindowDesc`, `WindowStyle` | [Windowing](../features/Windowing.md) |
 | `include/engine/core/worlds.h` | Process `Worlds`: add, destroy, bind, stepping | [Core](../modules/Core.md) |
 | `include/engine/ecs/.gitkeep` | Keeps the directory in Git | [ECS](../modules/ECS.md) |
@@ -97,9 +98,12 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`. 
 | `src/core/engine_host.cpp` | `EngineHost` body | [Core](../modules/Core.md) |
 | `src/core/engine_instantiate.cpp` | Explicit `Engine<WindowSmokeGame>` instantiation | [Core](../modules/Core.md) |
 | `src/core/engine_runtime.cpp` | `EngineRuntime` pimpl over the presentation | [Core](../modules/Core.md) |
+| `src/core/file_dialog_queue.cpp` | Queues dialog answers from any thread, delivers them on `poll` | [Windowing](../features/Windowing.md) |
+| `src/core/file_dialog_queue.h` | `FileDialogQueue` | [Windowing](../features/Windowing.md) |
 | `src/core/fixed_step.cpp` | Accumulator and step cap | [Core](../modules/Core.md) |
 | `src/core/frame_step.cpp` | `flush_worlds` and `simulate_worlds` | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/core/frame_step.h` | Declarations for those two functions | [Runtime Loop](../architecture/Runtime%20Loop.md) |
+| `src/core/game_module.cpp` | Copy, load, check, and unload a game module (window builds) | [Core](../modules/Core.md) |
 | `src/core/game_loop.cpp` | `begin`, `tick`, `reentrant_tick`, `end`, `RunHooks` calls | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/core/game_loop.h` | `GameLoop` | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/core/host.cpp` | Registers systems and ticks a fake canvas | [Core](../modules/Core.md) |
@@ -257,7 +261,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`. 
 | `tests/android_lifecycle_test.cpp` | Pause, resume, back | [Core](../modules/Core.md) |
 | `tests/animation_test.cpp` | Sprite clip parse and playback | [Render](../modules/Render.md) |
 | `tests/assets_test.cpp` | Catalog, `get` / `try_get`, `unload_catalog`, codegen failures | [Assets](../features/Assets.md) |
-| `tests/audio_test.cpp` | Fake mixer: pool, music fade, looping handles, `stop_all` | [Audio](../modules/Audio.md) |
+| `tests/audio_test.cpp` | Pool, music fade, looping handles, `stop_all` without opening a device | [Audio](../modules/Audio.md) |
 | `tests/builtin_test.cpp` | Frozen builtin ids and files | [Resources](../modules/Resources.md) |
 | `tests/camera_test.cpp` | Ortho matrices and screen/world | [ECS](../modules/ECS.md) |
 | `tests/cli_server_test.cpp` | Descriptor, HTTP, and commands without `GameLoop` | [CLI](../features/CLI.md) |
@@ -265,7 +269,12 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`. 
 | `tests/command_buffer_test.cpp` | Push and iterate the three command types | [Render](../modules/Render.md) |
 | `tests/ecs_test.cpp` | Create, destroy, views, deferred destroy | [ECS](../modules/ECS.md) |
 | `tests/events_test.cpp` | Double buffer and cursors | [ECS](../modules/ECS.md) |
+| `tests/file_dialog_test.cpp` | `FileDialogQueue` delivery to the owner window's world | [Windowing](../features/Windowing.md) |
+| `tests/fixtures/fake_services.h` | Headless `EngineServices` fakes for tests that create a game | [Core](../modules/Core.md) |
+| `tests/fixtures/game_module/fixture_game.cpp` | Fixture game module, built three ways in the editor build | [Core](../modules/Core.md) |
+| `tests/fixtures/game_module/fixture_log.h` | `FixtureLog` the fixture game writes into | [Core](../modules/Core.md) |
 | `tests/game_entry_test.cpp` | `ENGINE_GAME` module exports and build id (window builds) | [Core](../modules/Core.md) |
+| `tests/game_module_test.cpp` | `load_game_module` against the fixture modules (editor build) | [Core](../modules/Core.md) |
 | `tests/game_loop_test.cpp` | `RunHooks` order and frame-end restart with a fake presentation | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `tests/haptics_test.cpp` | Clamp, no-op, and the fake counters | [Haptics](../modules/Haptics.md) |
 | `tests/host_test.cpp` | `Host` tick and system registration | [Core](../modules/Core.md) |
@@ -313,7 +322,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`. 
 | `tests/ui_xml_test.cpp` | Tags, bindings, unknown elements | [UI Markup](../features/UI%20Markup.md) |
 | `tests/web_loop_test.cpp` | RAF policy and shutdown order | [Core](../modules/Core.md) |
 | `tests/window_icon_test.cpp` | `make_icon_surface` byte layout | [Windowing](../features/Windowing.md) |
-| `tests/window_style_test.cpp` | Style flags and overlay mode | [Windowing](../features/Windowing.md) |
+| `tests/window_style_test.cpp` | Style flags, overlay mode, window control without a window | [Windowing](../features/Windowing.md) |
 | `tests/worlds_test.cpp` | World isolation, window routing, per-window draw, registration order | [Core](../modules/Core.md) |
 
 ## `tools/`
@@ -326,3 +335,31 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, and `tools/`. 
 | `tools/asset_guid/README.md` | One-page usage | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `tools/icon_codegen/main.cpp` | `icon_codegen` CLI | [Icon Codegen](../build/Icon%20Codegen.md) |
 | `tools/wind_cli/main.cpp` | Host client for the loopback server | [CLI](../features/CLI.md) |
+
+## `editor/`
+
+Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
+
+| Path | What it does | Page |
+| --- | --- | --- |
+| `editor/CMakeLists.txt` | `wind_editor` and `wind_editor_tests` | [CMake](../build/CMake.md) |
+| `editor/assets/css/editor.css` | Editor window style | [Editor](../features/Editor.md) |
+| `editor/assets/css/editor.css.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/ui/editor.xml` | Editor window: toolbar and empty content area | [Editor](../features/Editor.md) |
+| `editor/assets/ui/editor.xml.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/src/editor_app.cpp` | Start, frame-end transitions, quit | [Editor](../features/Editor.md) |
+| `editor/src/editor_app.h` | `EditorApp` | [Editor](../features/Editor.md) |
+| `editor/src/editor_options.cpp` | `--game` and `--play` | [Editor](../features/Editor.md) |
+| `editor/src/editor_options.h` | `EditorOptions` | [Editor](../features/Editor.md) |
+| `editor/src/editor_view_model.cpp` | Binds the view-model to `editor.xml` | [Editor](../features/Editor.md) |
+| `editor/src/editor_view_model.h` | `EditorViewModel` | [Editor](../features/Editor.md) |
+| `editor/src/engine_host_play.cpp` | `IPlayHost` over `EngineHost` | [Editor](../features/Editor.md) |
+| `editor/src/engine_host_play.h` | `EngineHostPlay` | [Editor](../features/Editor.md) |
+| `editor/src/main.cpp` | `wind_editor` entry | [Editor](../features/Editor.md) |
+| `editor/src/method_command.h` | `MethodCommand`: an `ICommand` bound to one method | [Editor](../features/Editor.md) |
+| `editor/src/play_host.h` | `IPlayHost`: the window and catalog half of Play and Stop | [Editor](../features/Editor.md) |
+| `editor/src/play_session.cpp` | Play and the Stop order | [Editor](../features/Editor.md) |
+| `editor/src/play_session.h` | `PlaySession` | [Editor](../features/Editor.md) |
+| `editor/src/toolbar.cpp` | Button methods and shown state | [Editor](../features/Editor.md) |
+| `editor/src/toolbar.h` | `Toolbar`, `EditorRequest` | [Editor](../features/Editor.md) |
+| `editor/tests/play_session_test.cpp` | Play, Stop order, play again, refusals, against the fixture module | [Editor](../features/Editor.md) |

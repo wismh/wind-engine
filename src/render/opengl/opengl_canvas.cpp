@@ -98,6 +98,14 @@ bool OpenGLCanvas::add_image(AssetId id, const TextureDesc& desc) {
     return ui_painter_->add_image(id, desc);
 }
 
+bool OpenGLCanvas::reset_ui_painter() {
+    if (ui_painter_ == nullptr) {
+        return false;
+    }
+    make_current();
+    return ui_painter_->create();
+}
+
 void OpenGLCanvas::make_current() {
     // With 2+ live GL contexts whichever context happens to still be
     // "current" from initialization order would otherwise receive every window's draw calls —
