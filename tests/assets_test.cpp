@@ -796,7 +796,7 @@ TEST(Assets, GetBuiltinUnlitMaterial) {
     ASSERT_NE(material->shader(), nullptr);
     EXPECT_EQ(material->shader(), factory.last_shader_obj);
     EXPECT_EQ(material->texture(0), nullptr);
-    EXPECT_EQ(material->blend(), engine::render::BlendMode::Alpha);
+    EXPECT_EQ(material->render_state().blend, engine::render::BlendMode::Alpha);
     EXPECT_FLOAT_EQ(material->color().r, 1.0f);
     EXPECT_FLOAT_EQ(material->color().g, 1.0f);
     EXPECT_FLOAT_EQ(material->color().b, 1.0f);

@@ -7,6 +7,8 @@
 #include <glm/vec4.hpp>
 
 #include <memory>
+#include <optional>
+#include <string>
 #include <string_view>
 
 namespace {
@@ -28,8 +30,8 @@ public:
         return color_;
     }
 
-    engine::render::BlendMode blend() const override {
-        return engine::render::BlendMode::Alpha;
+    engine::render::RenderState render_state() const override {
+        return {.blend = engine::render::BlendMode::Alpha};
     }
 
 private:
@@ -59,7 +61,7 @@ albedo = "cccccccccccccccccccccccccccccccc"
     const auto desc = engine::render::parse_material(kToml);
     ASSERT_TRUE(desc.has_value());
     EXPECT_EQ(desc->shader, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-    EXPECT_EQ(desc->blend, engine::render::BlendMode::Alpha);
+    EXPECT_EQ(desc->state.blend, engine::render::BlendMode::Alpha);
     expect_vec4(desc->color, {1.0f, 0.5f, 0.25f, 1.0f});
     EXPECT_EQ(desc->albedo, "cccccccccccccccccccccccccccccccc");
 }
