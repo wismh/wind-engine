@@ -738,15 +738,32 @@ TEST(Assets, GetBuiltinQuadMesh) {
     ASSERT_NE(mesh, nullptr);
     EXPECT_EQ(mesh, factory.last_mesh_obj);
     EXPECT_EQ(factory.mesh_calls, 1);
-    ASSERT_EQ(factory.last_mesh.vertices.size(), 6u);
+    ASSERT_EQ(factory.last_mesh.vertices.size(), 4u);
+    EXPECT_EQ(factory.last_mesh.indices.size(), 6u);
     EXPECT_FLOAT_EQ(factory.last_mesh.vertices[0].position.x, -0.5f);
     EXPECT_FLOAT_EQ(factory.last_mesh.vertices[0].position.y, 0.5f);
     EXPECT_FLOAT_EQ(factory.last_mesh.vertices[0].position.z, 0.0f);
+    EXPECT_FLOAT_EQ(factory.last_mesh.vertices[0].normal.z, 1.0f);
     EXPECT_FLOAT_EQ(factory.last_mesh.vertices[0].uv.x, 0.0f);
     EXPECT_FLOAT_EQ(factory.last_mesh.vertices[0].uv.y, 1.0f);
 
     EXPECT_EQ(db.get<engine::render::IMesh>(engine::builtin::mesh_quad), mesh);
     EXPECT_EQ(factory.mesh_calls, 1);
+}
+
+TEST(Assets, GetBuiltinCubeMesh) {
+    fakes::QuietFatal fatal;
+    engine::AssetsDb db(fatal);
+    ASSERT_TRUE(load_builtin_catalog(db));
+
+    FakeGraphicFactory factory;
+    db.set_graphic_factory(&factory);
+
+    const auto mesh = db.get<engine::render::IMesh>(engine::builtin::mesh_cube);
+    ASSERT_NE(mesh, nullptr);
+    EXPECT_EQ(factory.mesh_calls, 1);
+    EXPECT_EQ(factory.last_mesh.vertices.size(), 24u);
+    EXPECT_EQ(factory.last_mesh.indices.size(), 36u);
 }
 
 TEST(Assets, GetBuiltinUnlitShader) {
