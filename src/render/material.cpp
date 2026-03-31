@@ -59,6 +59,32 @@ std::optional<BlendMode> parse_blend(std::string_view value) {
     return std::nullopt;
 }
 
+std::optional<CullMode> parse_cull(std::string_view value) {
+    if (value == "none") {
+        return CullMode::None;
+    }
+    if (value == "back") {
+        return CullMode::Back;
+    }
+    if (value == "front") {
+        return CullMode::Front;
+    }
+    return std::nullopt;
+}
+
+// Absent key: `fallback`. Present but not a boolean: nullopt (the material fails to parse).
+std::optional<bool> bool_key(const toml::table& table, std::string_view key, bool fallback) {
+    const toml::node* const node = table.get(key);
+    if (node == nullptr) {
+        return fallback;
+    }
+    // `as_boolean`, not `value<bool>`: the latter converts an integer.
+    if (const toml::value<bool>* const flag = node->as_boolean()) {
+        return flag->get();
+    }
+    return std::nullopt;
+}
+
 std::optional<MaterialDesc> parse_material_table(const toml::table& table) {
     MaterialDesc desc;
 
@@ -73,7 +99,32 @@ std::optional<MaterialDesc> parse_material_table(const toml::table& table) {
         if (!parsed) {
             return std::nullopt;
         }
-        desc.blend = *parsed;
+        desc.state.blend = *parsed;
+    }
+
+    // `depth` sets both depth keys; `depth_test` / `depth_write` override it one by one.
+    const auto depth = bool_key(table, "depth", false);
+    if (!depth) {
+        return std::nullopt;
+    }
+    const auto depth_test = bool_key(table, "depth_test", *depth);
+    const auto depth_write = bool_key(table, "depth_write", *depth);
+    if (!depth_test || !depth_write) {
+        return std::nullopt;
+    }
+    desc.state.depth_test = *depth_test;
+    desc.state.depth_write = *depth_write;
+
+    if (const toml::node* cull_node = table.get("cull")) {
+        const auto cull_name = cull_node->value<std::string>();
+        if (!cull_name) {
+            return std::nullopt;
+        }
+        const auto cull = parse_cull(*cull_name);
+        if (!cull) {
+            return std::nullopt;
+        }
+        desc.state.cull = *cull;
     }
 
     if (const toml::node* color_node = table.get("color")) {

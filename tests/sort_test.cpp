@@ -2,24 +2,34 @@
 
 #include <engine/ecs/entity.h>
 #include <engine/render/command_buffer.h>
+#include <engine/render/draw_sort.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
 #include <engine/render/renderable.h>
 
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/mat4x4.hpp>
+#include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
+#include <cstdint>
 #include <functional>
 #include <memory>
+#include <utility>
 #include <vector>
 
 namespace {
 
 class FakeMesh final : public engine::render::IMesh {};
 
+const glm::mat4 kIdentityView{1.0f};
+
 class FakeMaterial final : public engine::render::IMaterial {
 public:
     explicit FakeMaterial(engine::render::BlendMode blend = engine::render::BlendMode::Opaque)
-        : blend_(blend) {}
+        : state_{.blend = blend} {}
+    explicit FakeMaterial(engine::render::RenderState state)
+        : state_(state) {}
 
     std::shared_ptr<engine::render::IShader> shader() const override {
         return {};
@@ -33,12 +43,12 @@ public:
         return {1.0f, 1.0f, 1.0f, 1.0f};
     }
 
-    engine::render::BlendMode blend() const override {
-        return blend_;
+    engine::render::RenderState render_state() const override {
+        return state_;
     }
 
 private:
-    engine::render::BlendMode blend_;
+    engine::render::RenderState state_;
 };
 
 engine::render::Renderable make_renderable(std::shared_ptr<engine::render::IMesh> mesh,
@@ -63,7 +73,7 @@ TEST(Sort, ByLayer) {
             {make_renderable(mesh, material, 0, 0), engine::ecs::Entity{1, 1}},
     };
 
-    engine::render::sort_renderables(items);
+    engine::render::sort_renderables(items, kIdentityView);
 
     EXPECT_EQ(items[0].renderable.layer, 0);
     EXPECT_EQ(items[0].entity.index, 1u);
@@ -78,7 +88,7 @@ TEST(Sort, ThenOrderInLayer) {
             {make_renderable(mesh, material, 2, 1), engine::ecs::Entity{1, 1}},
     };
 
-    engine::render::sort_renderables(items);
+    engine::render::sort_renderables(items, kIdentityView);
 
     EXPECT_EQ(items[0].renderable.order_in_layer, 1);
     EXPECT_EQ(items[1].renderable.order_in_layer, 7);
@@ -100,7 +110,7 @@ TEST(Sort, ThenMaterialPointer) {
             {make_renderable(mesh, first, 0, 0), engine::ecs::Entity{1, 1}},
     };
 
-    engine::render::sort_renderables(items);
+    engine::render::sort_renderables(items, kIdentityView);
 
     EXPECT_EQ(items[0].renderable.material, first);
     EXPECT_EQ(items[1].renderable.material, second);
@@ -114,7 +124,7 @@ TEST(Sort, ThenEntityIndex) {
             {make_renderable(mesh, material, 0, 0), engine::ecs::Entity{1, 1}},
     };
 
-    engine::render::sort_renderables(items);
+    engine::render::sort_renderables(items, kIdentityView);
 
     EXPECT_EQ(items[0].entity.index, 1u);
     EXPECT_EQ(items[1].entity.index, 4u);
@@ -129,7 +139,7 @@ TEST(Sort, StableEqualKeys) {
             {renderable, engine::ecs::Entity{8, 20}},
     };
 
-    engine::render::sort_renderables(items);
+    engine::render::sort_renderables(items, kIdentityView);
 
     EXPECT_EQ(items[0].entity.generation, 10u);
     EXPECT_EQ(items[1].entity.generation, 20u);
@@ -145,7 +155,7 @@ TEST(Sort, BlendDoesNotReorder) {
             {make_renderable(mesh, opaque, 0, 0), engine::ecs::Entity{0, 1}},
     };
 
-    engine::render::sort_renderables(items);
+    engine::render::sort_renderables(items, kIdentityView);
 
     EXPECT_TRUE(std::less<>{}(items[0].renderable.material.get(), items[1].renderable.material.get()));
     EXPECT_EQ(items[0].renderable.layer, items[1].renderable.layer);
@@ -159,7 +169,7 @@ TEST(Sort, WorldThenUiKeepsUiLast) {
             {make_renderable(mesh, material, 5, 0), engine::ecs::Entity{0, 1}},
             {make_renderable(mesh, material, 1, 0), engine::ecs::Entity{1, 1}},
     };
-    engine::render::sort_renderables(items);
+    engine::render::sort_renderables(items, kIdentityView);
 
     engine::render::CommandBuffer buffer;
     for (const engine::render::RenderableItem& item : items) {

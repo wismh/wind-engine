@@ -161,7 +161,7 @@ TEST(Builtin, BuiltinMaterialReferencesShader) {
     const auto desc = engine::render::parse_material_file(mat.string());
     ASSERT_TRUE(desc.has_value());
     EXPECT_EQ(desc->shader, kShaderUnlit);
-    EXPECT_EQ(desc->blend, engine::render::BlendMode::Alpha);
+    EXPECT_EQ(desc->state.blend, engine::render::BlendMode::Alpha);
 }
 
 TEST(Builtin, CodegenRejectsBuiltinGuidReuse) {
