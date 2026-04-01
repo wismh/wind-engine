@@ -106,3 +106,71 @@ TEST(Material, InstanceColorMultiplies) {
     expect_vec4(engine::render::multiply_instance_color(material->color(), renderable.color),
             {0.5f, 0.5f, 0.25f, 0.5f});
 }
+
+namespace {
+
+constexpr std::string_view kShaderLine = "shader = \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"\n";
+
+std::optional<engine::render::MaterialDesc> parse_with(std::string_view extra) {
+    return engine::render::parse_material(std::string(kShaderLine) + std::string(extra));
+}
+
+}
+
+TEST(Material, StateDefaultsAreTwoDimensional) {
+    const auto desc = parse_with("");
+    ASSERT_TRUE(desc.has_value());
+    EXPECT_EQ(desc->state.blend, engine::render::BlendMode::Opaque);
+    EXPECT_FALSE(desc->state.depth_test);
+    EXPECT_FALSE(desc->state.depth_write);
+    EXPECT_EQ(desc->state.cull, engine::render::CullMode::None);
+
+    const engine::render::Material material(nullptr);
+    EXPECT_EQ(material.render_state(), engine::render::RenderState{});
+    EXPECT_EQ(material.render_state().blend, engine::render::BlendMode::Alpha);
+    EXPECT_FALSE(material.render_state().depth_test);
+    EXPECT_FALSE(material.render_state().depth_write);
+    EXPECT_EQ(material.render_state().cull, engine::render::CullMode::None);
+}
+
+TEST(Material, ParsesDepthAndCullKeys) {
+    const auto desc = parse_with("depth_test = true\ndepth_write = true\ncull = \"back\"\n");
+    ASSERT_TRUE(desc.has_value());
+    EXPECT_TRUE(desc->state.depth_test);
+    EXPECT_TRUE(desc->state.depth_write);
+    EXPECT_EQ(desc->state.cull, engine::render::CullMode::Back);
+
+    const auto front = parse_with("cull = \"front\"\n");
+    ASSERT_TRUE(front.has_value());
+    EXPECT_EQ(front->state.cull, engine::render::CullMode::Front);
+
+    const auto none = parse_with("cull = \"none\"\n");
+    ASSERT_TRUE(none.has_value());
+    EXPECT_EQ(none->state.cull, engine::render::CullMode::None);
+}
+
+TEST(Material, DepthShorthandSetsBothAndSpecificKeysOverrideIt) {
+    const auto both = parse_with("depth = true\n");
+    ASSERT_TRUE(both.has_value());
+    EXPECT_TRUE(both->state.depth_test);
+    EXPECT_TRUE(both->state.depth_write);
+
+    const auto test_only = parse_with("blend = \"alpha\"\ndepth = true\ndepth_write = false\n");
+    ASSERT_TRUE(test_only.has_value());
+    EXPECT_TRUE(test_only->state.depth_test);
+    EXPECT_FALSE(test_only->state.depth_write);
+    EXPECT_EQ(test_only->state.blend, engine::render::BlendMode::Alpha);
+
+    const auto write_only = parse_with("depth = false\ndepth_write = true\n");
+    ASSERT_TRUE(write_only.has_value());
+    EXPECT_FALSE(write_only->state.depth_test);
+    EXPECT_TRUE(write_only->state.depth_write);
+}
+
+TEST(Material, InvalidDepthOrCullFails) {
+    EXPECT_FALSE(parse_with("cull = \"sideways\"\n").has_value());
+    EXPECT_FALSE(parse_with("cull = 1\n").has_value());
+    EXPECT_FALSE(parse_with("depth = \"yes\"\n").has_value());
+    EXPECT_FALSE(parse_with("depth_test = 1\n").has_value());
+    EXPECT_FALSE(parse_with("depth_write = \"true\"\n").has_value());
+}
