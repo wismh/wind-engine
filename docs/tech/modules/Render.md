@@ -20,13 +20,13 @@ There is no custom-draw callback on the variant.
 
 ## Materials and meshes
 
-`IMaterial` is shader, `texture(slot)`, color, and `BlendMode` (`Opaque`, `Alpha`, `Additive`). `Material` stores one albedo in slot 0. Any other slot returns null.
+`IMaterial` is shader, `texture(slot)`, color, and `render_state()`: a `RenderState` of `BlendMode` (`Opaque`, `Alpha`, `Additive`), `depth_test`, `depth_write`, and `CullMode` (`None`, `Back`, `Front`). `RenderState{}` is the 2D state (alpha, no depth, no culling). `Material` stores one albedo in slot 0. Any other slot returns null.
 
 `MaterialOverride` replaces slot 0 and/or named `vec4` uniforms for one draw. `set_vec4` replaces the value when that name is already in `vec4_params`, and appends the name when it is not.
 
 Instance tint is `material.color * instance.color` (`multiply_instance_color`). `Renderable::color` and `Sprite::color` are that instance color. Default is white, so the material color is unchanged.
 
-`parse_material` reads a `.mat` TOML into `MaterialDesc` (`shader` and `[textures].albedo` are hex `AssetId` strings, plus blend and color; [Materials and Sort](../features/Materials%20and%20Sort.md)). Default blend in the desc is `Opaque`. The C++ `Material` constructor defaults blend to `Alpha` when the caller does not pass one.
+`parse_material` reads a `.mat` TOML into `MaterialDesc` (`shader` and `[textures].albedo` are hex `AssetId` strings, plus color and `state`: `blend`, `depth_test`, `depth_write`, the `depth` shorthand, and `cull`; [Materials and Sort](../features/Materials%20and%20Sort.md)). Default blend in the desc is `Opaque`. The C++ `Material` constructor defaults its state to `RenderState{}`, whose blend is `Alpha`.
 
 GPU objects are `IMesh`, `IShader`, `ITexture` created by `IGraphicFactory` from `MeshDesc`, `ShaderDesc`, and `TextureDesc`.
 
@@ -63,11 +63,11 @@ When the list is not empty, each bound window's command buffer is cleared once. 
 
 The draw list is sorted once. That list is pushed to every bound window that has a command buffer. Every window shares the camera view. Each window's projection is `projection_matrix` with `window_size_for(world, id)`, which reads `Presentation.sizes` for that id.
 
-A null `Sprite::mesh` uses `builtin::mesh_quad` when that asset loads. An explicit `Sprite::material` is used as-is. A null material with a non-null `texture` reuses the `ctx<SpriteMaterialCache>` entry for that texture pointer, or builds `Material(builtin::shader_unlit, texture, white, BlendMode::Alpha)` and stores it. If that shader did not load and the cache misses, the sprite is fatal and skipped. `builtin::material_unlit` is not used on that path.
+A null `Sprite::mesh` uses `builtin::mesh_quad` when that asset loads. An explicit `Sprite::material` is used as-is. A null material with a non-null `texture` reuses the `ctx<SpriteMaterialCache>` entry for that texture pointer, or builds `Material(builtin::shader_unlit, texture, white, {.blend = BlendMode::Alpha})` and stores it. If that shader did not load and the cache misses, the sprite is fatal and skipped. `builtin::material_unlit` is not used on that path.
 
 `builtin::material_unlit` is only the null-material and null-texture case, when that asset loads. A sprite that still has no mesh or material is fatal.
 
-Items sort by layer, then `order_in_layer`, then material pointer, then entity index (`renderable_less` / `draw_item_less`). `sort_renderables` is a stable sort of that predicate.
+Items sort by `draw_sort_less` (`include/engine/render/draw_sort.h`): the opaque queue (opaque blend with depth write) first, by material, front to back, entity; then the transparent queue by layer, `order_in_layer`, depth-tested draws back to front, material, entity. A scene without depth-tested materials (every 2D scene) sorts by layer, order, material, entity. See [Materials and Sort](../features/Materials%20and%20Sort.md#sort). `sort_renderables(items, view)` is a stable sort with that key.
 
 Model matrix is the entity's world matrix (`ecs::world_matrix`): translate, then rotate X, Y, Z, then scale for a root, and the parent chain times that for a child (`Parent`, see [ECS](ECS.md#hierarchy)). `Phase::Transform` refreshes it before `Render`. The sprite pivot, size and flip below are applied after it. A `Local`-space `ParticleEmitter` uses the same world matrix. The view is the inverse of the active camera's world matrix.
 
@@ -87,7 +87,7 @@ Mesh and material, in `run_render`:
 
 - `mesh`, or `builtin::mesh_quad` when `mesh` is null and that asset loads.
 - An explicit `material` is used as-is. `CmdDrawParticles.blend` becomes that material's blend.
-- A null `material` with a texture reuses the `ctx<SpriteMaterialCache>` entry for that texture pointer (the same cache sprites use), or, when `builtin::shader_unlit` loaded, builds `Material(builtin::shader_unlit, texture, white, emitter.blend)` and stores it.
+- A null `material` with a texture reuses the `ctx<SpriteMaterialCache>` entry for that texture pointer (the same cache sprites use), or, when `builtin::shader_unlit` loaded, builds `Material(builtin::shader_unlit, texture, white, {.blend = emitter.blend})` and stores it.
 - A null `material` and a null texture use `builtin::material_unlit` when it loads.
 - In both null-material cases `CmdDrawParticles.blend` stays `emitter.blend` (default `Alpha`). The OpenGL backend applies `cmd.blend` for particles (`src/render/opengl/opengl_backend.cpp`).
 
@@ -134,6 +134,15 @@ Desktop links glad and OpenGL 3.3. `ENGINE_WITH_GLES` links SDL without glad (An
 
 Sampler state on upload comes from the catalog filter and wrap (`opengl_texture.cpp`).
 
+Pipeline state of world draws (`opengl_backend.cpp`). Each `CmdDrawMesh` sets all of it from `material->render_state()`, so nothing leaks from the previous draw:
+
+- Blend: `Opaque` disables `GL_BLEND`; `Alpha` is `SRC_ALPHA, ONE_MINUS_SRC_ALPHA`; `Additive` is `SRC_ALPHA, ONE`.
+- Depth: test and write both off disables `GL_DEPTH_TEST`. Otherwise `GL_DEPTH_TEST` is on with `glDepthFunc(GL_LEQUAL)` (an equal depth passes, so a second pass over the same surface draws), or `GL_ALWAYS` when only write is on (GL writes no depth while the test is disabled). `glDepthMask` follows `depth_write`.
+- Cull: `None` disables `GL_CULL_FACE`; `Back` / `Front` enable it with `glFrontFace(GL_CCW)` and that `glCullFace`.
+- `CmdDrawParticles` uses `cmd.blend` with depth test, depth write, and culling off, whatever its material says.
+
+After the last command `OpenGLRenderBackend::execute` disables `GL_DEPTH_TEST` and `GL_CULL_FACE` and sets `glDepthMask(GL_TRUE)`. The UI flush that follows sets its own state anyway (no depth, stencil, cull). The mask matters for the next frame: `glClear` honours it, so a false mask would keep last frame's depth. `OpenGLCanvas::render` also sets `glDepthMask(GL_TRUE)` right before its `glClear(COLOR | STENCIL | DEPTH)`. State is per context: each window's canvas runs both in its own context, so every window starts its frame with a cleared depth buffer. The default framebuffer has a 24-bit depth buffer (`SDL_GL_DEPTH_SIZE`, `window_system.cpp`).
+
 Each canvas's UI painter is a `ui::UiRenderer` (`src/ui/render/ui_renderer.h`): the backend-neutral `BatchingPainter` over the one `ui::PaintResources` the `OpenGLRenderBackend` keeps for every window (`ui_resources()`), with that canvas's own `OpenGLUiDevice`. `end_frame` catches the device's textures up with the shared atlas pages (`UiTextureSync`: a new page whole, a changed one its dirty rect, everything again after `PaintResources::generation` changes), uploads the frame's vertices and indices into two orphaned stream buffers, and issues one `glDrawElements` per batch, so the UI profiler's `draw_calls` is the batch count. The device is one program (GLSL 330 core, rewritten to 300 es by `adapt_glsl` under `ENGINE_WITH_GLES`) that implements `src/ui/render/fragment.h`, its own textures (R8 glyph and mask pages, RGBA8 ramp and image pages; bilinear, clamp, no mipmaps), and a VAO through `ContextVao`. It sets its whole pipeline when it draws and leaves what the rest of the backend expects: blend on with the premultiplied function, depth, stencil, cull, and scissor off, program, VAO, array buffer, and texture units 0 to 3 unbound with unit 0 active, unpack alignment 4. `ENGINE_GL_CHECKS` also checks for GL errors after the UI draw ("the UI draw"). `reset_ui_painter` (editor Stop) drops the shared images (`PaintResources::drop_images`), and the next frame registers and uploads the ones still referenced; fonts stay registered, being shared by windows that may be measuring text. The UI has no other painter: NanoVG left the engine in wind-234.
 
 Every window has its own GL context. Textures, buffers, and programs are shared with the primary's context; vertex array objects are not. A VAO made in one context binds nothing, or another VAO, in the next, and the draw does nothing without an error. So `OpenGLMesh` and the particle draw keep their buffers once and make a VAO in each context the first time they draw there (`ContextVao`). The key of a context comes from `ContextObjects`, which `OpenGLCanvas` fills when it creates and destroys a context. A key is never reused, so a VAO cached for a destroyed context never binds in a new one whose driver handle is the same. A VAO released while another context is current is deleted the next time its own context renders. A destroyed context drops its VAOs with it.
@@ -155,6 +164,7 @@ GL errors are silent unless someone asks. With `ENGINE_GL_CHECKS` (Debug, RelWit
 - `include/engine/render/commands.h`
 - `include/engine/render/command_buffer.h`
 - `include/engine/render/renderable.h`
+- `include/engine/render/draw_sort.h`
 - `include/engine/render/sprite.h`
 - `include/engine/render/material.h`
 - `include/engine/render/graphics.h`
