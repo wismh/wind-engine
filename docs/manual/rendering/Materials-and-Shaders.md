@@ -73,17 +73,22 @@ The engine's builtin `shaders/unlit.shader` is the shortest working example (in 
 
 ## 2. Authoring Materials (`.mat`)
 
-A material pairs a shader with an optional albedo texture, a color, and a blend mode. The shader and texture are written as the asset's 32-character `guid` from its `.meta`:
+A material pairs a shader with an optional albedo texture, a color, a blend mode, and depth and culling settings. The shader and texture are written as the asset's 32-character `guid` from its `.meta`:
 
 ```toml
 # assets/materials/glow.mat
 shader = "a1b2c3d4e5f60718293a4b5c6d7e8f90"   # guid of assets/shaders/custom_glow.shader
 blend = "alpha"                                  # "opaque" (default), "alpha" or "additive"
 color = [1.0, 1.0, 1.0, 1.0]                     # default white
+depth_test = false                               # default false
+depth_write = false                              # default false
+cull = "none"                                    # "none" (default), "back" or "front"
 
 [textures]
 albedo = "0123456789abcdef0123456789abcdef"      # guid of a texture; omit for none
 ```
+
+The defaults are the 2D state: no depth test, no depth write, no culling, so sprites draw in layer order. For a solid 3D mesh write `blend = "opaque"`, `depth = true` (sets `depth_test` and `depth_write` together; an explicit `depth_test` or `depth_write` wins over it) and `cull = "back"`; counter-clockwise triangles are front faces. Glass or another see-through 3D surface is `blend = "alpha"` with `depth_test = true` and `depth_write = false`. Particles ignore depth and culling. In C++ the same settings are `engine::render::RenderState`, the fourth argument of `engine::render::Material`. An unknown `blend` or `cull` value, or a `depth*` key that is not `true` or `false`, makes the material fail to load.
 
 A `shader` or `albedo` that is not 32 lowercase hex characters makes the material fail to load (`AssetError::Corrupt`). Codegen does not rewrite these strings, so copy the GUIDs from the `.meta` files. There is no `[uniforms]` table: custom shader parameters are set per draw (next section). The `.mat` needs its own `.meta` with `importer = "material"`.
 
