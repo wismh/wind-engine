@@ -35,7 +35,7 @@ public:
     PlaySession& operator=(const PlaySession&) = delete;
 
     // Loads `module`, its catalog from `assets/` beside it, creates the game, applies its window, attaches
-    // it to kPrimaryWindow, and calls `on_start`. The value is a warning for the status line (empty when
+    // it to kPrimaryWindow, calls `on_start`, and attaches the panels to the world of kPrimaryWindow. The value is a warning for the status line (empty when
     // there is none). An error leaves the editor as it was and says why.
     [[nodiscard]] std::expected<std::string, std::string> play(const std::filesystem::path& module);
 

@@ -61,7 +61,7 @@ A Checkbox hit flips `checked` before the command. `write_property_float` of `1`
 
 Return toggles `checked` only when the focused element is a Checkbox, then runs the command. `binding_target` is null without a `data_context`, so that float write uses the same guard. A click calls `clear_focus`. `set_focus` is only used for a TextInput or a selectable Label, so a click does not leave the Checkbox focused.
 
-While the inspector is on and `pick_pointer` is set, a left click on a game canvas uses `hit_test_visual`, records the path, inserts the window into `Presentation.mouse`, and returns before focus, drag, and `execute()`. Wheel is not intercepted. See [UI Inspector](UI%20Inspector.md).
+While the world's inspector is attached (the editor attaches the game world) and `pick_pointer` is set, a left click on a canvas uses `hit_test_visual`, records the path, inserts the window into `Presentation.mouse`, and returns before focus, drag, and `execute()`. Wheel is not intercepted. See [UI Inspector](UI%20Inspector.md).
 
 ## Keyboard and text
 

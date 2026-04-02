@@ -1,5 +1,6 @@
 #pragma once
 
+#include "editor_tab.h"
 #include "editor_view_model.h"
 
 #include <filesystem>
@@ -17,8 +18,8 @@ enum class EditorRequest {
     Stop,
 };
 
-// The editor window's top bar: Choose game, Play/Stop, status line, game path. Owns the view-model and
-// the button methods. Holds `this` in its commands, so it never moves.
+// The editor window's top bar: Choose game, Play/Stop, status line, game path, and the Inspector/Profiler
+// tab strip. Owns the view-model and the button methods. Holds `this` in its commands, so it never moves.
 class Toolbar {
 public:
     Toolbar();
@@ -30,6 +31,8 @@ public:
 
     void choose_game();
     void toggle_play();
+    void show_inspector();
+    void show_profiler();
     [[nodiscard]] bool can_choose_game() const;
     [[nodiscard]] bool can_toggle_play() const;
 
@@ -40,9 +43,14 @@ public:
     // The last request since the previous call, then None.
     [[nodiscard]] EditorRequest take_request();
 
+    [[nodiscard]] EditorTab active_tab() const;
+
 private:
+    void show_tab(EditorTab tab);
+
     std::shared_ptr<EditorViewModel> view_model_;
     EditorRequest request_ = EditorRequest::None;
+    EditorTab tab_ = EditorTab::Inspector;
     bool has_game_ = false;
     bool playing_ = false;
 };

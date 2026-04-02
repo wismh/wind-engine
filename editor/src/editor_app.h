@@ -1,6 +1,7 @@
 #pragma once
 
 #include "editor_options.h"
+#include "editor_panels.h"
 #include "engine_host_play.h"
 #include "play_session.h"
 #include "toolbar.h"
@@ -19,7 +20,8 @@ class World;
 
 namespace editor {
 
-// The editor process: one EngineHost, the editor's world and window, the toolbar, and the play session.
+// The editor process: one EngineHost, the editor's world and window, the toolbar, the Inspector and
+// Profiler panels, and the play session.
 // kPrimaryWindow belongs to the game being played and is empty between plays. Holds `this` in its run
 // hooks and systems, so it never moves.
 class EditorApp {
@@ -43,11 +45,13 @@ private:
     void play();
     void stop(std::string status);
 
-    // Declared first, destroyed last: everything below holds references into its services.
+    // Declared first, destroyed last: everything below holds references into its services. The panels
+    // outlive the session, whose Stop detaches them.
     engine::EngineHost host_;
+    std::optional<Toolbar> toolbar_;
+    std::optional<EditorPanels> panels_;
     std::optional<EngineHostPlay> play_host_;
     std::optional<PlaySession> session_;
-    std::optional<Toolbar> toolbar_;
     engine::ecs::World* world_ = nullptr;
     engine::WindowId window_{};
 

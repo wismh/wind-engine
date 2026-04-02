@@ -74,9 +74,13 @@ TEST(GameModule, LoadsACopyCreatesAndDestroysTheGame) {
     EXPECT_EQ(module.live_path().filename(), kFixture.filename());
     EXPECT_EQ(module.live_path().parent_path().parent_path(), live.path());
     EXPECT_TRUE(std::filesystem::is_regular_file(module.live_path()));
+    // A Release fixture has no .pdb to copy; when the source has one, the copy sits beside the module.
+    std::filesystem::path source_pdb = kFixture;
+    source_pdb.replace_extension(".pdb");
     std::filesystem::path pdb = module.live_path();
     pdb.replace_extension(".pdb");
-    EXPECT_TRUE(std::filesystem::is_regular_file(pdb)) << "the .pdb is copied beside the module";
+    EXPECT_EQ(std::filesystem::is_regular_file(pdb), std::filesystem::is_regular_file(source_pdb))
+            << "the .pdb is copied beside the module when the source has one";
 
     engine::IGame* const game = module.create(services.services);
     ASSERT_NE(game, nullptr);

@@ -59,7 +59,7 @@ Color, gradient, `background-repeat`, easing, and `transform` values are on [UI]
 
 ## Bind
 
-`run_bind` (`src/ecs/systems.cpp`), Frame / Bind, after the inspector and profiler content sync:
+`run_bind` (`src/ecs/systems.cpp`), Frame / Bind:
 
 1. If `UiCanvas::document` is set and the id changed, replace `UiInstance` from `AssetsDb::get<UiDocument>`. `spawn_canvas` clears that id, so a builder tree is not replaced.
 2. Merge stylesheet asset ids with `try_get<Stylesheet>`. An empty list does not wipe a sheet already on the instance.

@@ -1,0 +1,38 @@
+<Canvas>
+  <Stack class="panel" direction="vertical">
+    <Stack class="option-row" direction="horizontal">
+      <Checkbox class="option-box" checked="{binding pick}"/>
+      <Label class="option-label" text="Pick"/>
+      <Label class="hint" text="{binding hint}"/>
+    </Stack>
+    <Stack class="columns" direction="horizontal">
+      <Stack class="column-left" direction="vertical">
+        <Label class="section" text="Tree"/>
+        <ScrollView class="box tree">
+          <ItemsControl class="rows" items_source="{binding rows}">
+            <ItemTemplate>
+              <Stack class="rowline" direction="horizontal" var-row="{binding rowFill}">
+                <Button class="twist" command="{binding toggle}" content="{binding twist}"/>
+                <Button class="row" command="{binding select}" content="{binding label}"/>
+              </Stack>
+            </ItemTemplate>
+          </ItemsControl>
+        </ScrollView>
+      </Stack>
+      <Stack class="column-right" direction="vertical">
+        <Label class="section" text="Computed"/>
+        <ScrollView class="box detail">
+          <Label class="detail-text" text="{binding detail}"/>
+        </ScrollView>
+        <Label class="section" text="Rules"/>
+        <ScrollView class="box rules">
+          <ItemsControl class="rows" items_source="{binding rules}">
+            <ItemTemplate>
+              <Label class="rule" text="{binding line}"/>
+            </ItemTemplate>
+          </ItemsControl>
+        </ScrollView>
+      </Stack>
+    </Stack>
+  </Stack>
+</Canvas>

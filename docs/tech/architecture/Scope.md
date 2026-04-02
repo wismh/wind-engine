@@ -2,7 +2,7 @@
 
 Wind is a 2D C++ game engine for production titles. Development happens in the Wind editor. The editor is the host process, and a game is a guest module that the editor loads on Play and unloads on Stop. An exported game is a standalone executable that links the engine statically. Games do not vendor SDL or copy engine sources.
 
-The editor is in progress. See [Editor Plan](Editor%20Plan.md). Today `wind_editor` chooses a game module, plays it, and stops it ([Editor](../features/Editor.md)). The UI Inspector and UI Profiler still open their own windows from the game.
+The editor is in progress. See [Editor Plan](Editor%20Plan.md). Today `wind_editor` chooses a game module, plays it, inspects and profiles its UI in its Inspector and Profiler tabs, and stops it ([Editor](../features/Editor.md)).
 
 ## In scope
 

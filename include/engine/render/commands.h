@@ -55,13 +55,14 @@ namespace engine::render {
         float window_height = 0.0f;
         glm::vec2 ui_offset{0.0f, 0.0f}; // layout-space -> real-pixel offset (ScaleWithScreenSize letterbox)
         float ui_scale = 1.0f; // layout-space -> real-pixel scale
-        // UI inspector overlay. Empty unless that canvas should draw a hover or selection box.
+        // UI inspector overlay. Empty unless that canvas's world is inspected and it draws a hover or
+        // selection box.
         bool inspector_hover = false;
         bool inspector_selection = false;
         std::vector<std::size_t> inspector_selection_path;
         const void *inspector_selection_owner = nullptr;
-        // Which canvas this draw is. The UI profiler attributes paint to it. Empty for a draw that
-        // has no canvas. Present in every configuration so the command layout does not change.
+        // Which canvas this draw is, set only while its world is the one the UI profiler records. Paint
+        // is attributed to it. Present in every configuration so the command layout does not change.
         ecs::Entity canvas{};
     };
 

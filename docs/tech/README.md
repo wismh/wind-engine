@@ -50,8 +50,8 @@ Product name: Wind. CMake target and C++ namespace: `engine`. Build instructions
 | [Input Mapper](features/Input%20Mapper.md) | `ActionId` bindings |
 | [UI Markup](features/UI%20Markup.md) | XML, CSS, builder, bind |
 | [UI Input](features/UI%20Input.md) | Pointer, keys, text, scroll |
-| [UI Inspector](features/UI%20Inspector.md) | Pick and tree panel |
-| [UI Profiler](features/UI%20Profiler.md) | Per-stage timings |
+| [UI Inspector](features/UI%20Inspector.md) | Pick and tree probe; the editor's Inspector tab |
+| [UI Profiler](features/UI%20Profiler.md) | Per-stage timings; the editor's Profiler tab |
 | [CLI](features/CLI.md) | `wind-cli` loopback server |
 | [Editor](features/Editor.md) | `wind_editor`: choose a game module, Play, Stop |
 

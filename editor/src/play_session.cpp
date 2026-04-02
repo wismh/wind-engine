@@ -67,6 +67,9 @@ std::expected<std::string, std::string> PlaySession::play(const std::filesystem:
     apply_window(desc);
     host_->attach(*game);
     game->on_start();
+    if (engine::ecs::World* const game_world = services_->worlds.world_for(engine::kPrimaryWindow)) {
+        host_->attach_tools(*game_world);
+    }
     if (desc.style.transparent) {
         return std::string("The game asks for a transparent window; the editor's game window stays opaque.");
     }
@@ -79,7 +82,8 @@ void PlaySession::stop() {
     }
     engine::log::info("Editor: stop " + path_text(module_->source_path()));
     // Nothing built from game code may survive the unload at the end. Each step below only touches what
-    // the steps before it have not destroyed yet.
+    // the steps before it have not destroyed yet. The panels go first: they read the game world.
+    host_->detach_tools();
     game_->on_quit();
     host_->detach();
 

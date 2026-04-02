@@ -12,8 +12,10 @@
 #include <engine/ui/stylesheet.h>
 #include <engine/ui/view_model.h>
 
+#include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #if defined(NANOVG_H) || defined(NANOVG_GL_H) || defined(NANOVG_GL3)
 #error "ui inspector tests must not include nvg headers"
@@ -165,13 +167,84 @@ namespace {
         engine::ui::layout(instance.document, canvas.rect);
     }
 
-    engine::ecs::Entity inspector_panel(engine::ecs::World &world) {
-        engine::ecs::Entity found{};
-        auto view = world.view<engine::ui::InspectorPanel>();
-        for (engine::ecs::Entity entity: view) {
-            found = entity;
+    class CellViewModel final : public engine::ui::ViewModel {
+    public:
+        engine::ui::Bindable<std::string> name;
+
+        CellViewModel() { property(engine::ui::intern("name"), name); }
+    };
+
+    class ListViewModel final : public engine::ui::ViewModel {
+    public:
+        engine::ui::BindableList<std::shared_ptr<CellViewModel>> cells;
+
+        ListViewModel() { property(engine::ui::intern("cells"), cells); }
+    };
+
+    std::shared_ptr<CellViewModel> make_cell(std::string name) {
+        auto cell = std::make_shared<CellViewModel>();
+        cell->name.set(std::move(name));
+        return cell;
+    }
+
+    struct ListCanvas {
+        engine::ecs::World world;
+        std::shared_ptr<ListViewModel> vm = std::make_shared<ListViewModel>();
+        engine::ecs::Entity entity{};
+    };
+
+    // A canvas with an ItemsControl whose rows are a Stack with one Label each.
+    std::unique_ptr<ListCanvas> spawn_list() {
+        auto list = std::make_unique<ListCanvas>();
+        engine::ui::presentation_of(list->world).sizes.sizes[engine::kPrimaryWindow] = {800, 600};
+        const auto parsed = engine::ui::parse_xml(R"(<Canvas><ItemsControl id="list" items_source="{binding cells}">)"
+                                                  R"(<ItemTemplate><Stack class="row"><Label text="{binding name}"/>)"
+                                                  R"(</Stack></ItemTemplate></ItemsControl></Canvas>)");
+        EXPECT_TRUE(parsed.has_value());
+        list->vm->cells.set({make_cell("a"), make_cell("b")});
+        engine::ui::UiCanvas canvas;
+        canvas.fit = engine::ui::UiFit::Fixed;
+        canvas.rect = {0.0f, 0.0f, 800.0f, 600.0f};
+        canvas.data_context = list->vm;
+        list->entity = engine::ui::spawn_canvas(list->world, canvas, *parsed);
+        layout_instance(list->world, list->entity);
+        return list;
+    }
+
+    const engine::ui::InspectorTreeRow *find_row(const std::vector<engine::ui::InspectorTreeRow> &rows,
+                                                 std::string_view label) {
+        for (const engine::ui::InspectorTreeRow &row: rows) {
+            if (row.label.find(label) != std::string::npos) {
+                return &row;
+            }
         }
-        return found;
+        return nullptr;
+    }
+
+    const engine::ui::InspectorTreeRow *selected_row(const std::vector<engine::ui::InspectorTreeRow> &rows) {
+        for (const engine::ui::InspectorTreeRow &row: rows) {
+            if (row.selected) {
+                return &row;
+            }
+        }
+        return nullptr;
+    }
+
+    engine::ui::Element *label_with_text(engine::ui::Element &element, std::string_view text) {
+        if (element.kind == engine::ui::ElementKind::Label && element.text == text) {
+            return &element;
+        }
+        for (engine::ui::Element &child: element.children) {
+            if (engine::ui::Element *found = label_with_text(child, text)) {
+                return found;
+            }
+        }
+        for (engine::ui::Element &child: element.generated_items) {
+            if (engine::ui::Element *found = label_with_text(child, text)) {
+                return found;
+            }
+        }
+        return nullptr;
     }
 
 } // namespace
@@ -322,6 +395,28 @@ TEST(UiInspector, MatchedRulesKeepTheWinnerAndDropMediaAndHover) {
     }
 }
 
+TEST(UiInspector, AttachStartsWithPickOffAndDetachClears) {
+    GameCanvas game = spawn_game({0.0f, 0.0f, 800.0f, 600.0f});
+    EXPECT_FALSE(engine::ui::inspector_attached(game.world));
+    EXPECT_TRUE(engine::ui::inspector_tree(game.world).empty());
+
+    engine::ui::set_inspector_attached(game.world, true);
+    EXPECT_TRUE(engine::ui::inspector_attached(game.world));
+    EXPECT_FALSE(game.world.ctx<engine::ui::UiInspector>().pick_pointer);
+    game.world.ctx<engine::ui::UiInspector>().pick_pointer = true;
+    engine::ui::inspector_select(game.world, engine::kPrimaryWindow, engine::ui::InspectorPick{.canvas = game.entity});
+    EXPECT_TRUE(engine::ui::inspector_selection(game.world).active);
+
+    engine::ui::set_inspector_attached(game.world, true);
+    EXPECT_TRUE(engine::ui::inspector_selection(game.world).active) << "attaching twice keeps the state";
+
+    engine::ui::set_inspector_attached(game.world, false);
+    EXPECT_FALSE(engine::ui::inspector_attached(game.world));
+    EXPECT_FALSE(engine::ui::inspector_selection(game.world).active);
+    EXPECT_FALSE(game.world.ctx<engine::ui::UiInspector>().pick_pointer);
+    EXPECT_TRUE(engine::ui::inspector_tree(game.world).empty());
+}
+
 TEST(UiInspector, ClickOnLabelSelectsItAndSkipsTheCommand) {
     GameCanvas game = spawn_game({0.0f, 0.0f, 800.0f, 600.0f});
     layout_instance(game.world, game.entity);
@@ -334,7 +429,8 @@ TEST(UiInspector, ClickOnLabelSelectsItAndSkipsTheCommand) {
     EXPECT_EQ(engine::ui::hit_test(instance.document.root, x, y)->id, "go");
     EXPECT_EQ(engine::ui::hit_test_visual(instance.document.root, x, y).element->id, "lab");
 
-    engine::ui::set_inspector_enabled(game.world, true);
+    engine::ui::set_inspector_attached(game.world, true);
+    game.world.ctx<engine::ui::UiInspector>().pick_pointer = true;
     engine::ui::handle_pointer(game.world, x, y);
     EXPECT_EQ(game.vm->clicks, 0);
     EXPECT_TRUE(engine::ui::presentation_of(game.world).mouse.consumed_for());
@@ -355,19 +451,21 @@ TEST(UiInspector, ClickOnLabelSelectsItAndSkipsTheCommand) {
                                        .window_width = 800.0f,
                                        .window_height = 600.0f,
                                });
-    engine::ui::sync_inspector_content(game.world);
-    const engine::ecs::Entity panel = inspector_panel(game.world);
-    ASSERT_TRUE(game.world.valid(panel));
-    layout_instance(game.world, panel);
-    engine::ui::UiInstance &panel_instance = game.world.get<engine::ui::UiInstance>(panel);
-    engine::ui::Element *detail = find_id(panel_instance.document.root, "detail");
-    ASSERT_NE(detail, nullptr);
-    EXPECT_NE(detail->text.find("Label #lab"), std::string::npos);
-    EXPECT_NE(detail->text.find("1.00,0.00,0.00,1.00"), std::string::npos);
-    engine::ui::Element *winner = find_text(panel_instance.document.root, "winner");
-    ASSERT_NE(winner, nullptr);
-    EXPECT_NE(winner->text.find("#go"), std::string::npos);
-    EXPECT_EQ(winner->text.find(":hover"), std::string::npos);
+    const std::string detail = engine::ui::inspector_detail(game.world, pick);
+    EXPECT_NE(detail.find("Label #lab"), std::string::npos) << detail;
+    EXPECT_NE(detail.find("1.00,0.00,0.00,1.00"), std::string::npos) << detail;
+    EXPECT_NE(detail.find("rules: 2"), std::string::npos) << detail;
+
+    const std::vector<std::string> rules = engine::ui::inspector_rules(game.world, pick);
+    ASSERT_EQ(rules.size(), 2u);
+    EXPECT_NE(rules.back().find("#go"), std::string::npos);
+    EXPECT_NE(rules.back().find("winner"), std::string::npos);
+    EXPECT_NE(rules.back().find("color: #ff0000"), std::string::npos);
+    EXPECT_EQ(rules.front().find("winner"), std::string::npos);
+    for (const std::string &rule: rules) {
+        EXPECT_EQ(rule.find(":hover"), std::string::npos);
+        EXPECT_EQ(rule.find("#00ff00"), std::string::npos) << "@media (min-width: 4000px) is off at 800px";
+    }
 
     engine::ui::handle_pointer(game.world, 700.0f, 10.0f);
     EXPECT_EQ(game.vm->clicks, 0);
@@ -375,52 +473,204 @@ TEST(UiInspector, ClickOnLabelSelectsItAndSkipsTheCommand) {
     EXPECT_TRUE(edge.active);
     EXPECT_TRUE(edge.path.empty());
     EXPECT_EQ(edge.canvas, game.entity);
+    engine::ui::set_inspector_attached(game.world, false);
 }
 
-TEST(UiInspector, ClickOnPanelRunsTheRowCommand) {
+TEST(UiInspector, DetailOfNothingAndOfAGoneElement) {
     GameCanvas game = spawn_game({0.0f, 0.0f, 800.0f, 600.0f});
-    engine::ui::set_inspector_enabled(game.world, true);
-    const engine::ecs::Entity panel = inspector_panel(game.world);
-    ASSERT_TRUE(game.world.valid(panel));
-    const engine::ui::UiCanvas &panel_canvas = game.world.get<engine::ui::UiCanvas>(panel);
-    EXPECT_NE(panel_canvas.window, engine::kPrimaryWindow);
-    EXPECT_EQ(panel_canvas.fit, engine::ui::UiFit::FillWindow);
-    EXPECT_TRUE(engine::ui::presentation_of(game.world).sizes.sizes.contains(panel_canvas.window));
-    EXPECT_FLOAT_EQ(game.world.get<engine::ui::UiCanvas>(game.entity).rect.w, 800.0f);
-    const engine::WindowId panel_window = panel_canvas.window;
-    layout_instance(game.world, panel);
-    engine::ui::UiInstance &panel_instance = game.world.get<engine::ui::UiInstance>(panel);
-    engine::ui::Element *row = find_text(panel_instance.document.root, "Label #lab");
-    ASSERT_NE(row, nullptr);
-    EXPECT_EQ(row->kind, engine::ui::ElementKind::Button);
-    ASSERT_GT(row->layout_rect.w, 1.0f);
-    const float x = row->layout_rect.x + row->layout_rect.w * 0.5f;
-    const float y = row->layout_rect.y + row->layout_rect.h * 0.5f;
+    engine::ui::set_inspector_attached(game.world, true);
+    EXPECT_EQ(engine::ui::inspector_detail(game.world, {}), "Nothing selected");
+    EXPECT_TRUE(engine::ui::inspector_rules(game.world, {}).empty());
 
-    engine::ui::handle_pointer(game.world, x, y, panel_window);
-    EXPECT_EQ(game.vm->clicks, 0);
-    EXPECT_FALSE(engine::ui::presentation_of(game.world).mouse.consumed_for());
-    EXPECT_TRUE(engine::ui::presentation_of(game.world).mouse.consumed_for(panel_window));
-    const engine::ui::InspectorPick pick = engine::ui::inspector_selection(game.world);
-    EXPECT_TRUE(pick.active);
-    engine::ui::UiInstance &game_instance = game.world.get<engine::ui::UiInstance>(game.entity);
-    engine::ui::Element *selected = engine::ui::resolve_element_path(game_instance.document.root, pick.path);
-    ASSERT_NE(selected, nullptr);
-    EXPECT_EQ(selected->id, "lab");
+    engine::ui::InspectorPick gone{.canvas = game.entity, .path = {7, 3}, .active = true};
+    EXPECT_EQ(engine::ui::inspector_detail(game.world, gone), "Selected element is not in the live tree.");
+    EXPECT_TRUE(engine::ui::inspector_rules(game.world, gone).empty());
+
+    engine::ui::inspector_select(game.world, engine::kPrimaryWindow, engine::ui::InspectorPick{.canvas = game.entity});
+    game.world.destroy(game.entity);
+    engine::ui::inspector_retarget(game.world);
+    EXPECT_FALSE(engine::ui::inspector_selection(game.world).active) << "the canvas is gone";
 }
 
-TEST(UiInspector, MissDoesNotConsumeAndDisableDestroysThePanel) {
+TEST(UiInspector, NotAttachedOrPickOffLetsTheButtonRun) {
+    GameCanvas game = spawn_game({0.0f, 0.0f, 800.0f, 600.0f});
+    layout_instance(game.world, game.entity);
+    engine::ui::UiInstance &instance = game.world.get<engine::ui::UiInstance>(game.entity);
+    engine::ui::Element *button = find_id(instance.document.root, "go");
+    ASSERT_NE(button, nullptr);
+    const float x = button->layout_rect.x + button->layout_rect.w * 0.5f;
+    const float y = button->layout_rect.y + button->layout_rect.h * 0.5f;
+
+    game.world.ctx<engine::ui::UiInspector>().pick_pointer = true;
+    engine::ui::handle_pointer(game.world, x, y);
+    EXPECT_EQ(game.vm->clicks, 1) << "pick does nothing on a world that is not attached";
+
+    engine::ui::set_inspector_attached(game.world, true);
+    engine::ui::handle_pointer(game.world, x, y);
+    EXPECT_EQ(game.vm->clicks, 2) << "attaching starts with pick off";
+    EXPECT_FALSE(engine::ui::inspector_selection(game.world).active);
+    engine::ui::set_inspector_attached(game.world, false);
+}
+
+TEST(UiInspector, MissDoesNotConsume) {
     GameCanvas game = spawn_game({0.0f, 0.0f, 100.0f, 100.0f});
-    engine::ui::set_inspector_enabled(game.world, true);
-    ASSERT_TRUE(game.world.valid(inspector_panel(game.world)));
+    engine::ui::set_inspector_attached(game.world, true);
+    game.world.ctx<engine::ui::UiInspector>().pick_pointer = true;
     engine::ui::handle_pointer(game.world, 200.0f, 200.0f);
     EXPECT_EQ(game.vm->clicks, 0);
     EXPECT_FALSE(engine::ui::presentation_of(game.world).mouse.consumed_for());
     EXPECT_FALSE(engine::ui::inspector_selection(game.world).active);
+    engine::ui::set_inspector_attached(game.world, false);
+}
 
-    engine::ui::set_inspector_enabled(game.world, false);
-    EXPECT_FALSE(engine::ui::inspector_enabled(game.world));
-    EXPECT_FALSE(game.world.valid(inspector_panel(game.world)));
+TEST(UiInspector, TreeRowsSelectAndToggle) {
+    GameCanvas game = spawn_game({0.0f, 0.0f, 800.0f, 600.0f});
+    engine::ui::set_inspector_attached(game.world, true);
+
+    std::vector<engine::ui::InspectorTreeRow> rows = engine::ui::inspector_tree(game.world);
+    ASSERT_EQ(rows.size(), 3u);
+    EXPECT_EQ(rows[0].label, "Canvas");
+    EXPECT_EQ(rows[0].depth, 0);
+    EXPECT_TRUE(rows[0].has_children);
+    EXPECT_TRUE(rows[0].expanded);
+    EXPECT_EQ(rows[1].label, "Button #go");
+    EXPECT_EQ(rows[1].depth, 1);
+    EXPECT_EQ(rows[2].label, "Label #lab");
+    EXPECT_EQ(rows[2].depth, 2);
+    EXPECT_FALSE(rows[2].has_children);
+    EXPECT_EQ(selected_row(rows), nullptr);
+
+    engine::ui::inspector_select(game.world, rows[2].window, rows[2].pick);
+    const engine::ui::InspectorPick pick = engine::ui::inspector_selection(game.world);
+    EXPECT_TRUE(pick.active);
+    EXPECT_NE(engine::ui::inspector_detail(game.world, pick).find("Label #lab"), std::string::npos);
+    rows = engine::ui::inspector_tree(game.world);
+    ASSERT_NE(selected_row(rows), nullptr);
+    EXPECT_EQ(selected_row(rows)->label, "Label #lab");
+
+    engine::ui::inspector_toggle(game.world, rows[1].key);
+    rows = engine::ui::inspector_tree(game.world);
+    ASSERT_EQ(rows.size(), 2u) << "a collapsed row hides its children";
+    EXPECT_FALSE(rows[1].expanded);
+    engine::ui::inspector_toggle(game.world, rows[1].key);
+    EXPECT_EQ(engine::ui::inspector_tree(game.world).size(), 3u);
+
+    const engine::ui::InspectorRowKey leaf = engine::ui::inspector_tree(game.world)[2].key;
+    engine::ui::inspector_toggle(game.world, leaf);
+    EXPECT_TRUE(engine::ui::inspector_tree(game.world)[2].expanded) << "a leaf has nothing to collapse";
+    engine::ui::set_inspector_attached(game.world, false);
+}
+
+TEST(UiInspector, GeneratedRowsKeepKeyAndSelectionWhenTheListMoves) {
+    std::unique_ptr<ListCanvas> list = spawn_list();
+    engine::ecs::World &world = list->world;
+    engine::ui::set_inspector_attached(world, true);
+
+    std::vector<engine::ui::InspectorTreeRow> rows = engine::ui::inspector_tree(world);
+    // Canvas, ItemsControl, ItemTemplate (+ its Stack and Label), then two generated rows with a Label each.
+    const engine::ui::InspectorTreeRow *row_b = nullptr;
+    int stacks = 0;
+    for (const engine::ui::InspectorTreeRow &row: rows) {
+        if (row.label == "Stack .row" && row.key.owner != 0) {
+            ++stacks;
+            if (stacks == 2) {
+                row_b = &row;
+            }
+        }
+    }
+    ASSERT_EQ(stacks, 2);
+    ASSERT_NE(row_b, nullptr);
+    EXPECT_TRUE(row_b->key.relative.empty()) << "a generated row is keyed by its owner";
+    const engine::ui::InspectorRowKey key_b = row_b->key;
+
+    engine::ui::UiInstance &instance = world.get<engine::ui::UiInstance>(list->entity);
+    engine::ui::Element *label_b = label_with_text(instance.document.root, "b");
+    ASSERT_NE(label_b, nullptr);
+    engine::ui::InspectorPick pick;
+    pick.canvas = list->entity;
+    pick.path = engine::ui::find_element_path(instance.document.root, label_b);
+    pick.generated_owner = engine::ui::path_generated_owner(instance.document.root, pick.path);
+    engine::ui::inspector_select(world, engine::kPrimaryWindow, pick);
+    engine::ui::inspector_toggle(world, key_b);
+
+    // Reorder and rebuild: row "b" moves to index 0.
+    std::vector<std::shared_ptr<CellViewModel>> cells = list->vm->cells.get();
+    std::swap(cells[0], cells[1]);
+    cells.push_back(make_cell("c"));
+    list->vm->cells.set(std::move(cells));
+    layout_instance(world, list->entity);
+
+    rows = engine::ui::inspector_tree(world);
+    const engine::ui::InspectorPick moved = engine::ui::inspector_selection(world);
+    ASSERT_TRUE(moved.active);
+    EXPECT_NE(moved.path, pick.path) << "retarget follows the owner to its new index";
+    engine::ui::Element *resolved =
+            engine::ui::resolve_element_path(world.get<engine::ui::UiInstance>(list->entity).document.root, moved.path);
+    ASSERT_NE(resolved, nullptr);
+    EXPECT_EQ(resolved->text, "b");
+
+    const engine::ui::InspectorTreeRow *collapsed = nullptr;
+    for (const engine::ui::InspectorTreeRow &row: rows) {
+        if (row.key == key_b) {
+            collapsed = &row;
+        }
+    }
+    ASSERT_NE(collapsed, nullptr) << "the key survives the move";
+    EXPECT_FALSE(collapsed->expanded);
+    EXPECT_EQ(selected_row(rows), nullptr) << "the selected label is inside the collapsed row";
+
+    engine::ui::inspector_toggle(world, key_b);
+    rows = engine::ui::inspector_tree(world);
+    ASSERT_NE(selected_row(rows), nullptr);
+    EXPECT_EQ(selected_row(rows)->label, "Label");
+    EXPECT_EQ(selected_row(rows)->pick.path, moved.path);
+    engine::ui::set_inspector_attached(world, false);
+}
+
+TEST(UiInspector, TreeSpansWindowsAndPrefixesTheRoot) {
+    GameCanvas game = spawn_game({0.0f, 0.0f, 800.0f, 600.0f});
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas id="tool"/>)");
+    ASSERT_TRUE(parsed.has_value());
+    engine::ui::UiCanvas canvas;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    canvas.rect = {0.0f, 0.0f, 100.0f, 100.0f};
+    canvas.window = engine::WindowId{3};
+    const engine::ecs::Entity tool = engine::ui::spawn_canvas(game.world, canvas, *parsed);
+    engine::ui::set_inspector_attached(game.world, true);
+
+    const std::vector<engine::ui::InspectorTreeRow> rows = engine::ui::inspector_tree(game.world);
+    ASSERT_EQ(rows.size(), 4u);
+    EXPECT_EQ(rows[0].label, "[0] Canvas");
+    EXPECT_EQ(rows[3].label, "[3] Canvas #tool");
+    EXPECT_EQ(rows[3].window, engine::WindowId{3});
+    EXPECT_EQ(rows[3].key.canvas, tool);
+
+    engine::ui::inspector_select(game.world, rows[3].window, rows[3].pick);
+    EXPECT_EQ(game.world.ctx<engine::ui::UiInspector>().detail_window, engine::WindowId{3});
+    EXPECT_TRUE(engine::ui::inspector_selection(game.world, engine::WindowId{3}).active);
+    EXPECT_FALSE(engine::ui::inspector_selection(game.world).active);
+    engine::ui::set_inspector_attached(game.world, false);
+}
+
+TEST(UiInspector, HoverCanvasIsTheTopCanvasUnderThePointer) {
+    GameCanvas game = spawn_game({0.0f, 0.0f, 100.0f, 100.0f});
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas id="top"/>)");
+    ASSERT_TRUE(parsed.has_value());
+    engine::ui::UiCanvas canvas;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    canvas.rect = {0.0f, 0.0f, 50.0f, 50.0f};
+    canvas.order = 5;
+    const engine::ecs::Entity top = engine::ui::spawn_canvas(game.world, canvas, *parsed);
+
+    engine::ui::pointer_for(game.world, engine::kPrimaryWindow).position = {10.0f, 10.0f};
+    EXPECT_FALSE(engine::ui::inspector_hover_canvas(game.world, engine::kPrimaryWindow).has_value());
+    engine::ui::set_inspector_attached(game.world, true);
+    EXPECT_EQ(engine::ui::inspector_hover_canvas(game.world, engine::kPrimaryWindow), top);
+    engine::ui::pointer_for(game.world, engine::kPrimaryWindow).position = {80.0f, 80.0f};
+    EXPECT_EQ(engine::ui::inspector_hover_canvas(game.world, engine::kPrimaryWindow), game.entity);
+    engine::ui::pointer_for(game.world, engine::kPrimaryWindow).position = {180.0f, 80.0f};
+    EXPECT_FALSE(engine::ui::inspector_hover_canvas(game.world, engine::kPrimaryWindow).has_value());
+    engine::ui::set_inspector_attached(game.world, false);
 }
 
 TEST(UiInspector, OverlayDrawsHoverAndSelectionOnceWhenTheyMatch) {
@@ -486,93 +736,4 @@ TEST(UiInspector, BadgeFollowsHoverAndPrintsATenth) {
     engine::ui::Element *hud = find_id(document.root, "hud");
     ASSERT_NE(hud, nullptr);
     EXPECT_GT(painter.last_fill.y, hud->layout_rect.y + hud->layout_rect.h);
-}
-
-TEST(UiInspector, PickOffLetsTheButtonRun) {
-    GameCanvas game = spawn_game({0.0f, 0.0f, 800.0f, 600.0f});
-    layout_instance(game.world, game.entity);
-    engine::ui::set_inspector_enabled(game.world, true);
-    game.world.ctx<engine::ui::UiInspector>().pick_pointer = false;
-    engine::ui::UiInstance &instance = game.world.get<engine::ui::UiInstance>(game.entity);
-    engine::ui::Element *button = find_id(instance.document.root, "go");
-    ASSERT_NE(button, nullptr);
-    const float x = button->layout_rect.x + button->layout_rect.w * 0.5f;
-    const float y = button->layout_rect.y + button->layout_rect.h * 0.5f;
-
-    engine::ui::handle_pointer(game.world, x, y);
-    EXPECT_EQ(game.vm->clicks, 1);
-    EXPECT_FALSE(engine::ui::inspector_selection(game.world).active);
-}
-
-TEST(UiInspector, PickCheckboxClearsTheFlag) {
-    GameCanvas game = spawn_game({0.0f, 0.0f, 800.0f, 600.0f});
-    engine::ui::set_inspector_enabled(game.world, true);
-    EXPECT_TRUE(game.world.ctx<engine::ui::UiInspector>().pick_pointer);
-    const engine::ecs::Entity panel = inspector_panel(game.world);
-    ASSERT_TRUE(game.world.valid(panel));
-    const engine::WindowId panel_window = game.world.get<engine::ui::UiCanvas>(panel).window;
-    layout_instance(game.world, panel);
-    engine::ui::UiInstance &panel_instance = game.world.get<engine::ui::UiInstance>(panel);
-    engine::ui::Element *box = find_id(panel_instance.document.root, "pick");
-    ASSERT_NE(box, nullptr);
-    ASSERT_GT(box->layout_rect.w, 1.0f);
-    const float x = box->layout_rect.x + box->layout_rect.w * 0.5f;
-    const float y = box->layout_rect.y + box->layout_rect.h * 0.5f;
-
-    engine::ui::handle_pointer(game.world, x, y, panel_window);
-    engine::ui::sync_inspector_content(game.world);
-    EXPECT_FALSE(game.world.ctx<engine::ui::UiInspector>().pick_pointer);
-
-    engine::ui::set_inspector_enabled(game.world, false);
-    EXPECT_TRUE(game.world.ctx<engine::ui::UiInspector>().pick_pointer);
-}
-
-TEST(UiInspector, HostOpensOneWindowAndDisableClosesIt) {
-    GameCanvas game = spawn_game({0.0f, 0.0f, 800.0f, 600.0f});
-    int opens = 0;
-    int closes = 0;
-    std::string title;
-    game.world.ctx<engine::ui::InspectorWindowHost>().open = [&](const engine::WindowDesc &desc) {
-        ++opens;
-        title = desc.title;
-        return engine::WindowId{9};
-    };
-    game.world.ctx<engine::ui::InspectorWindowHost>().close = [&](engine::WindowId id) {
-        ++closes;
-        EXPECT_EQ(id, engine::WindowId{9});
-    };
-
-    engine::ui::set_inspector_enabled(game.world, true);
-    EXPECT_EQ(opens, 1);
-    EXPECT_EQ(title, "UI Inspector");
-    const engine::ecs::Entity panel = inspector_panel(game.world);
-    ASSERT_TRUE(game.world.valid(panel));
-    EXPECT_EQ(game.world.get<engine::ui::UiCanvas>(panel).window, engine::WindowId{9});
-    EXPECT_FALSE(engine::ui::presentation_of(game.world).sizes.sizes.contains(engine::WindowId{9}));
-
-    engine::ui::set_inspector_enabled(game.world, false);
-    EXPECT_EQ(closes, 1);
-    EXPECT_FALSE(engine::ui::inspector_enabled(game.world));
-    EXPECT_FALSE(game.world.valid(inspector_panel(game.world)));
-    EXPECT_FALSE(game.world.ctx<engine::ui::UiInspector>().panel_window.has_value());
-}
-
-TEST(UiInspector, CloseRequestDisablesAndClosesTheWindow) {
-    GameCanvas game = spawn_game({0.0f, 0.0f, 800.0f, 600.0f});
-    int closes = 0;
-    game.world.ctx<engine::ui::InspectorWindowHost>().open = [](const engine::WindowDesc &) {
-        return engine::WindowId{9};
-    };
-    game.world.ctx<engine::ui::InspectorWindowHost>().close = [&](engine::WindowId) { ++closes; };
-
-    engine::ui::set_inspector_enabled(game.world, true);
-    engine::ecs::EventWriter<engine::ui::WindowCloseRequestedEvent>{game.world}.send(
-            engine::ui::WindowCloseRequestedEvent{.window = engine::WindowId{9}});
-    engine::ui::begin_frame(game.world);
-    EXPECT_FALSE(engine::ui::inspector_enabled(game.world));
-    EXPECT_EQ(closes, 1);
-    EXPECT_FALSE(game.world.valid(inspector_panel(game.world)));
-
-    engine::ui::begin_frame(game.world);
-    EXPECT_EQ(closes, 1);
 }

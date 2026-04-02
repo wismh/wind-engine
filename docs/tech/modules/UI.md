@@ -222,7 +222,7 @@ Parsing does not fail the document. `ParseResult::root` is always laid out. A re
 
 ## Inspector and profiler
 
-Public toggles are `set_inspector_enabled` and `set_ui_profiler_enabled`. Neither binds a key. The profiler functions compile to no-ops without `ENGINE_UI_PROFILER`. See the feature pages.
+The engine keeps the probes and the editor shows the panels. `set_inspector_attached` and `set_ui_profiler_attached` start them on a world; the snapshot functions (`inspector_tree`, `inspector_detail`, `inspector_rules`, `profiler_canvases`, `profiler_frames`, …) return plain data. Nothing binds a key, opens a window, or spawns a canvas, so a game cannot open them: the editor attaches them to the game world on Play ([Editor](../features/Editor.md)). The profiler functions compile to no-ops without `ENGINE_UI_PROFILER`. See the feature pages.
 
 ## Public headers
 

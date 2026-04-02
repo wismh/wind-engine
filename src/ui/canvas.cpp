@@ -5,7 +5,6 @@
 #include <engine/ui/document.h>
 #include <engine/ui/inspector.h>
 #include <engine/ui/presentation.h>
-#include <engine/ui/profiler.h>
 
 #include "element_path.h"
 #include "painter.h"
@@ -211,12 +210,8 @@ namespace engine::ui {
         profiler_attach(world);
         profiler_commit_frame(world);
 #endif
-        {
-            ENGINE_UI_PROFILE_SHARED(BeginFrame);
-            apply_canvas_fit(world);
-            sync_inspector_frames(world);
-        }
-        sync_profiler_frames(world);
+        ENGINE_UI_PROFILE_SHARED(BeginFrame);
+        apply_canvas_fit(world);
     }
 
     namespace {
@@ -692,25 +687,19 @@ namespace engine::ui {
         void handle_pointer_impl(ecs::World &world, float x, float y, WindowId window, UiInputBatchCache *batch,
                                  bool primary_button, std::uint8_t clicks) {
             // Inspect mode picks the deepest element and does not run the game's command, drag, or focus.
-            // The inspector panel and the profiler panel stay on the normal path, so their buttons still execute.
-            if (primary_button && inspector_enabled(world) && world.ctx<UiInspector>().pick_pointer) {
+            // The inspector's own panels live in the editor's world, so every canvas here is a game canvas.
+            if (primary_button && inspector_attached(world) && world.ctx<UiInspector>().pick_pointer) {
                 if (const std::optional<PreparedCanvas> prepared = prepare_top_canvas(world, x, y, window, batch)) {
-                    if (!inspector_skips_canvas(world, prepared->entity)) {
-                        const VisualHit visual =
-                                hit_test_visual(prepared->instance->document.root, prepared->layout_pointer.x,
-                                                prepared->layout_pointer.y);
-                        if (visual.element != nullptr) {
-                            InspectorPick pick;
-                            pick.canvas = prepared->entity;
-                            pick.path = find_element_path(prepared->instance->document.root, visual.element);
-                            pick.generated_owner = path_generated_owner(prepared->instance->document.root, pick.path);
-                            pick.active = true;
-                            UiInspector &inspector = world.ctx<UiInspector>();
-                            inspector.detail_window = window;
-                            inspector.selection[window] = std::move(pick);
-                            presentation_of(world).mouse.consumed_windows.insert(window);
-                            return;
-                        }
+                    const VisualHit visual = hit_test_visual(prepared->instance->document.root,
+                                                             prepared->layout_pointer.x, prepared->layout_pointer.y);
+                    if (visual.element != nullptr) {
+                        InspectorPick pick;
+                        pick.canvas = prepared->entity;
+                        pick.path = find_element_path(prepared->instance->document.root, visual.element);
+                        pick.generated_owner = path_generated_owner(prepared->instance->document.root, pick.path);
+                        inspector_select(world, window, std::move(pick));
+                        presentation_of(world).mouse.consumed_windows.insert(window);
+                        return;
                     }
                 }
             }
