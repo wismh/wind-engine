@@ -1779,6 +1779,9 @@ namespace engine::ui {
 
     void paint_document(UiDocument &document, const Stylesheet *stylesheet, IUiPainter &painter,
                         const UiPaintInput &input) {
+#if defined(ENGINE_UI_PROFILER)
+        profiler_begin_paint(input.canvas);
+#endif
         // wind-129 layout dirty-gate. Same "call layout_state_changed() unconditionally, never as a
         // short-circuited `||` operand" rule as prepare_top_canvas (canvas.cpp) — see that call site
         // for why. run_bind (systems.cpp) already called apply_bindings() unconditionally earlier this

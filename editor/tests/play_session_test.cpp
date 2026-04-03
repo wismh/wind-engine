@@ -45,8 +45,19 @@ public:
         log_->push_back("host.detach");
         worlds_->unbind_window(engine::kPrimaryWindow);
     }
+    void attach_tools(engine::ecs::World& game_world) override {
+        log_->push_back("host.attach_tools");
+        tools_world = &game_world;
+    }
+    void detach_tools() override {
+        log_->push_back("host.detach_tools");
+        // The panels read the game world: it must still be bound when they let go of it.
+        EXPECT_EQ(worlds_->world_for(engine::kPrimaryWindow), tools_world);
+        tools_world = nullptr;
+    }
 
     bool fail_load = false;
+    engine::ecs::World* tools_world = nullptr;
     std::filesystem::path loaded;
     std::filesystem::path unloaded;
 
@@ -128,7 +139,10 @@ TEST(PlaySession, PlayLoadsTheGameAndAppliesItsWindow) {
     EXPECT_NE(started->find("transparent"), std::string::npos) << "transparent cannot change after creation";
     EXPECT_TRUE(session.playing());
     EXPECT_EQ(editor.log, (std::vector<std::string>{"host.load", "game.construct", "windows.title Fixture",
-                                  "host.attach", "game.start", "windows.open 2"}));
+                                  "host.attach", "game.start", "windows.open 2", "host.attach_tools"}));
+    ASSERT_NE(editor.host.tools_world, nullptr);
+    EXPECT_EQ(editor.host.tools_world, services.worlds.world_for(engine::kPrimaryWindow));
+    EXPECT_NE(editor.host.tools_world, &editor.world);
     EXPECT_EQ(editor.host.loaded, kFixture.parent_path() / "assets");
     EXPECT_EQ(services.windows.title, "Fixture");
     EXPECT_EQ(services.windows.primary_size, glm::ivec2(320, 200));
@@ -150,10 +164,12 @@ TEST(PlaySession, StopTearsDownInOrderAndUnloadsTheModule) {
     session.stop();
 
     EXPECT_FALSE(session.playing());
-    // on_quit first, then kPrimaryWindow lets go of the game, then the game's worlds and windows go,
-    // then input, audio, and the catalog. The game object is destroyed last, right before the unload.
-    EXPECT_EQ(editor.log, (std::vector<std::string>{"game.quit", "host.detach", "windows.close 2", "audio.stop_all",
-                                  "host.unload", "game.destroy", "windows.title Game"}));
+    // The panels let go of the game world first, then on_quit, then kPrimaryWindow lets go of the game,
+    // then the game's worlds and windows go, then input, audio, and the catalog. The game object is
+    // destroyed last, right before the unload.
+    EXPECT_EQ(editor.log, (std::vector<std::string>{"host.detach_tools", "game.quit", "host.detach", "windows.close 2",
+                                  "audio.stop_all", "host.unload", "game.destroy", "windows.title Game"}));
+    EXPECT_EQ(editor.host.tools_world, nullptr);
     EXPECT_EQ(editor.host.unloaded, editor.host.loaded);
     EXPECT_EQ(world_count(services.worlds), 1u);
     EXPECT_EQ(services.worlds.world_for(editor.window), &editor.world);

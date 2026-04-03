@@ -47,8 +47,6 @@ World `Renderable`, `Sprite`, and `ParticleEmitter` draws go to every id in `ctx
 
 The OS close button sends `WindowCloseRequestedEvent`. The engine does not quit and does not destroy a game window because of it. The game reads the event.
 
-The inspector window and the profiler window are the exception: a close request for that tool window turns the tool off, and the engine closes it. The event is still delivered. The primary window is not closed that way. See [UI Inspector](UI%20Inspector.md) and [UI Profiler](UI%20Profiler.md).
-
 ## Open-file dialog
 
 `request_open_file(owner, filters)` shows the platform open-file dialog (`SDL_ShowOpenFileDialog`), modal to `owner` where the platform supports it, and returns a `FileDialogRequest` at once. `FileFilter` (`include/engine/core/file_dialog.h`) is a display name and a pattern: extensions without dots, separated by `;` (`"dll"`, `"png;jpg"`), or `*`. An empty list shows every file.

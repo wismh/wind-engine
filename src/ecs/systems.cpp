@@ -24,7 +24,6 @@
 #include <engine/ui/presentation.h>
 #include <engine/ui/document.h>
 #include <engine/ui/inspector.h>
-#include <engine/ui/profiler.h>
 #include <engine/ui/splash.h>
 #include <engine/ui/stylesheet.h>
 
@@ -578,7 +577,11 @@ namespace engine {
                 return a.index < b.index;
             });
             std::unordered_map<WindowId, std::optional<ecs::Entity>> hover_by_window;
-            if (ui::inspector_enabled(world) && world.ctx<ui::UiInspector>().pick_pointer) {
+            const bool inspected = ui::inspector_attached(world);
+            if (inspected) {
+                ui::inspector_retarget(world);
+            }
+            if (inspected && world.ctx<ui::UiInspector>().pick_pointer) {
                 for (const CanvasDraw &canvas: canvases) {
                     if (hover_by_window.contains(canvas.window)) {
                         continue;
@@ -624,8 +627,12 @@ namespace engine {
                         window_width,      window_height,
                         space.offset,      space.scale,
                 };
-                cmd.canvas = canvas.entity;
-                if (ui::inspector_enabled(world) && !ui::inspector_skips_canvas(world, canvas.entity)) {
+#if defined(ENGINE_UI_PROFILER)
+                if (ui::profiler_recording()) {
+                    cmd.canvas = canvas.entity;
+                }
+#endif
+                if (inspected) {
                     if (const auto hover = hover_by_window.find(canvas.window); hover != hover_by_window.end() &&
                                                                                 hover->second.has_value() &&
                                                                                 *hover->second == canvas.entity) {
@@ -753,8 +760,6 @@ namespace engine {
         world.ctx<UiSystemsRegistered>().value = true;
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Input, [](ecs::World &w) { run_input(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Input, [](ecs::World &w) { run_splash_timers(w); });
-        world.add_system(ecs::Schedule::Frame, ecs::Phase::Bind, [](ecs::World &w) { ui::sync_inspector_content(w); });
-        world.add_system(ecs::Schedule::Frame, ecs::Phase::Bind, [](ecs::World &w) { ui::sync_profiler_content(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Bind, [deps](ecs::World &w) { run_bind(w, deps); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::UiRender, [deps](ecs::World &w) { run_ui_render(w, deps); });
     }

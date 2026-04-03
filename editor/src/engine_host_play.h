@@ -8,18 +8,23 @@ class EngineHost;
 
 namespace editor {
 
-// IPlayHost over the editor's EngineHost.
+class EditorPanels;
+
+// IPlayHost over the editor's EngineHost and its panels.
 class EngineHostPlay final : public IPlayHost {
 public:
-    explicit EngineHostPlay(engine::EngineHost& host);
+    EngineHostPlay(engine::EngineHost& host, EditorPanels& panels);
 
     [[nodiscard]] std::expected<void, std::string> load_catalog(const std::filesystem::path& assets_dir) override;
     void unload_catalog(const std::filesystem::path& assets_dir) override;
     void attach(engine::IGame& game) override;
     void detach() override;
+    void attach_tools(engine::ecs::World& game_world) override;
+    void detach_tools() override;
 
 private:
     engine::EngineHost* host_;
+    EditorPanels* panels_;
 };
 
 }

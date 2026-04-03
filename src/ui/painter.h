@@ -112,13 +112,13 @@ namespace engine::ui {
         float window_height = 0.0f;
         glm::vec2 ui_offset{0.0f, 0.0f}; // canvas_rect-space -> real-pixel offset (identity for FillWindow/Fixed)
         float ui_scale = 1.0f; // canvas_rect-space -> real-pixel scale
-        // Set by run_ui_render when the UI inspector is on. Hover is the canvas under the pointer;
+        // Set by run_ui_render while the UI inspector is attached. Hover is the canvas under the pointer;
         // selection is the picked path on this canvas (empty path is the root).
         bool inspector_hover = false;
         bool inspector_selection = false;
         std::vector<std::size_t> inspector_selection_path;
         const void *inspector_selection_owner = nullptr;
-        // Copied from CmdDrawUI. Empty when the draw is not a canvas the profiler should time.
+        // Copied from CmdDrawUI. Empty unless the canvas's world is the one the UI profiler records.
         ecs::Entity canvas{};
     };
 

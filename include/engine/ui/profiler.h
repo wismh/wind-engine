@@ -6,44 +6,112 @@
 #include <engine/ecs/entity.h>
 #include <engine/ecs/world.h>
 
-#include <functional>
-#include <optional>
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <vector>
 
 namespace engine::ui {
 
-    // Marks the profiler's own canvas so timing, and the profiler's canvas list, skip it.
-    struct ProfilerPanel {
+    // Per-canvas stages, in the order a chart stacks them from the bottom.
+    enum class ProfilerStage : std::uint8_t {
+        Bindings,
+        Stylesheets,
+        Input,
+        Layout,
+        Motion,
+        Paint,
+    };
+
+    inline constexpr std::size_t kProfilerStageCount = 6;
+
+    // Frames each ring keeps.
+    inline constexpr int kProfilerRingFrames = 120;
+
+    // One committed frame of one canvas.
+    struct ProfilerFrame {
+        std::array<std::int64_t, kProfilerStageCount> stage_ns{};
+        bool layout_ran = false;
+        bool saw_paint = false;
+        bool saw_bindings = false;
+        int elements = 0;
+        int generated = 0;
+
+        [[nodiscard]] std::int64_t ns(ProfilerStage stage) const {
+            return stage_ns[static_cast<std::size_t>(stage)];
+        }
+        // Painted and the dirty gate skipped layout.
+        [[nodiscard]] bool layout_skipped() const { return saw_paint && !layout_ran; }
+    };
+
+    // One committed frame of the work not attributed to a canvas.
+    struct ProfilerSharedFrame {
+        std::int64_t begin_frame_ns = 0;
+        std::int64_t commands_ns = 0;
+    };
+
+    // One canvas of the profiled world.
+    struct ProfilerCanvas {
+        ecs::Entity canvas{};
         WindowId window = kPrimaryWindow;
+        // The root id, or `Canvas` when it is empty. Prefixed with `[window] ` when canvases of the world
+        // sit on more than one window.
+        std::string label;
+        bool selected = false;
+        // Frames in its ring.
+        int frames = 0;
     };
 
-    // Installed by the windowed presentation. Empty in headless tests: the panel still gets a
-    // canvas and a WindowSizes entry, and no OS window is opened.
-    struct ProfilerWindowHost {
-        std::function<std::optional<WindowId>(const WindowDesc &)> open;
-        std::function<void(WindowId)> close;
-    };
-
-    // Opens or closes the profiler window. Does not bind a key; the game calls this.
-    // Without ENGINE_UI_PROFILER (Release and MinSizeRel) the call compiles away.
 #if defined(ENGINE_UI_PROFILER)
-    void set_ui_profiler_enabled(ecs::World &world, bool enabled);
+    inline constexpr bool kUiProfilerBuilt = true;
 
-    [[nodiscard]] bool ui_profiler_enabled(ecs::World &world);
+    // Starts or stops recording `world` for a panel. One world records at a time: the last one attached
+    // or captured by wind-cli. Detaching drops the rings unless CLI capture is on, and clears the
+    // selection and Pause. Does not bind a key, open a window, or spawn a canvas.
+    void set_ui_profiler_attached(ecs::World &world, bool attached);
 
-    // Opens the profiler window if it is not up yet. Called from begin_frame, after the timed
-    // section, so the tool is not inside the shared begin_frame sample.
-    void sync_profiler_frames(ecs::World &world);
+    [[nodiscard]] bool ui_profiler_attached(ecs::World &world);
 
-    // Rebuilds the canvas list and the selected canvas's numbers. Called at the start of Bind.
-    void sync_profiler_content(ecs::World &world);
+    // Every canvas with a live tree, by window, then `order`, then entity index. When the selected canvas
+    // is gone, the first one becomes selected.
+    [[nodiscard]] std::vector<ProfilerCanvas> profiler_canvases(ecs::World &world);
+
+    void profiler_select(ecs::World &world, ecs::Entity canvas);
+
+    [[nodiscard]] ecs::Entity profiler_selected(ecs::World &world);
+
+    // While paused, each commit drops the open frame and the rings stay as they are.
+    void set_profiler_paused(ecs::World &world, bool paused);
+
+    [[nodiscard]] bool profiler_paused(ecs::World &world);
+
+    // The ring of `canvas`, oldest first. Empty when it has no frames.
+    [[nodiscard]] std::vector<ProfilerFrame> profiler_frames(ecs::World &world, ecs::Entity canvas);
+
+    // The shared ring, oldest first.
+    [[nodiscard]] std::vector<ProfilerSharedFrame> profiler_shared_frames(ecs::World &world);
 #else
-    inline void set_ui_profiler_enabled(ecs::World &, bool) {}
+    // Release and MinSizeRel: no scopes, no rings. Every call compiles away.
+    inline constexpr bool kUiProfilerBuilt = false;
 
-    [[nodiscard]] inline bool ui_profiler_enabled(ecs::World &) { return false; }
+    inline void set_ui_profiler_attached(ecs::World &, bool) {}
 
-    inline void sync_profiler_frames(ecs::World &) {}
+    [[nodiscard]] inline bool ui_profiler_attached(ecs::World &) { return false; }
 
-    inline void sync_profiler_content(ecs::World &) {}
+    [[nodiscard]] inline std::vector<ProfilerCanvas> profiler_canvases(ecs::World &) { return {}; }
+
+    inline void profiler_select(ecs::World &, ecs::Entity) {}
+
+    [[nodiscard]] inline ecs::Entity profiler_selected(ecs::World &) { return {}; }
+
+    inline void set_profiler_paused(ecs::World &, bool) {}
+
+    [[nodiscard]] inline bool profiler_paused(ecs::World &) { return false; }
+
+    [[nodiscard]] inline std::vector<ProfilerFrame> profiler_frames(ecs::World &, ecs::Entity) { return {}; }
+
+    [[nodiscard]] inline std::vector<ProfilerSharedFrame> profiler_shared_frames(ecs::World &) { return {}; }
 #endif
 
 } // namespace engine::ui

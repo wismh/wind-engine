@@ -3,25 +3,39 @@
 # executable: C++23, warnings, bin/ output, cooked assets/, and the runtime copy. Its own assets and
 # catalog go to bin/assets/editor/, so a game module built into the same bin/ keeps bin/assets/.
 
-set(_wind_editor_sources
-    src/editor_app.cpp
+# Everything but main.cpp and the EditorApp shell, so wind_editor_tests compiles the same panels.
+set(_wind_editor_parts
     src/editor_options.cpp
+    src/editor_panels.cpp
     src/editor_view_model.cpp
     src/engine_host_play.cpp
-    src/main.cpp
+    src/inspector_panel.cpp
+    src/inspector_row_view_model.cpp
+    src/inspector_view_model.cpp
     src/play_session.cpp
+    src/profiler_chart_paint.cpp
+    src/profiler_panel.cpp
+    src/profiler_row_view_model.cpp
+    src/profiler_view_model.cpp
+    src/rule_line_view_model.cpp
     src/toolbar.cpp)
 
-add_executable(wind_editor ${_wind_editor_sources})
+add_executable(wind_editor src/main.cpp src/editor_app.cpp ${_wind_editor_parts})
 set_property(TARGET wind_editor PROPERTY ENGINE_RUNTIME_ASSETS_DIR editor)
 engine_configure_app(wind_editor)
 target_include_directories(wind_editor PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 if(ENGINE_BUILD_TESTS)
-    # PlaySession against headless services and the fixture game module (tests/fixtures/game_module).
+    # PlaySession against headless services and the fixture game module (tests/fixtures/game_module),
+    # and the panels' view-models against headless worlds. The view-models use wind_editor's generated
+    # asset_ids.h.
     add_executable(wind_editor_tests
+        tests/editor_panels_test.cpp
+        tests/inspector_panel_test.cpp
         tests/play_session_test.cpp
-        src/play_session.cpp)
+        tests/profiler_chart_test.cpp
+        tests/profiler_panel_test.cpp
+        ${_wind_editor_parts})
     set_target_properties(wind_editor_tests PROPERTIES
         CXX_STANDARD 23
         CXX_STANDARD_REQUIRED ON
@@ -32,7 +46,9 @@ if(ENGINE_BUILD_TESTS)
     target_link_libraries(wind_editor_tests PRIVATE engine GTest::gtest_main)
     target_include_directories(wind_editor_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/wind_editor"
         "${ENGINE_CMAKE_DIR}/tests")
+    add_dependencies(wind_editor_tests wind_editor_assets)
     target_compile_definitions(wind_editor_tests PRIVATE ${ENGINE_FIXTURE_GAME_DEFINES})
     add_dependencies(wind_editor_tests wind_fixture_game_ok)
     set_property(TARGET wind_editor_tests PROPERTY ENGINE_RUNTIME_ASSETS_DIR editor)
