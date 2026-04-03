@@ -67,19 +67,23 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/project/wind_project.h` | `WindProject`, `read_wind_project` | [Project](../modules/Project.md) |
 | `include/engine/loc/catalog.h` | `StringTable` parse and `Catalog` | [Localization](../modules/Localization.md) |
 | `include/engine/render/.gitkeep` | Keeps the directory in Git | [Render](../modules/Render.md) |
+| `include/engine/render/ambient_light.h` | `AmbientLight` component | [Render](../modules/Render.md#lights) |
 | `include/engine/render/animation.h` | Sprite clip, animator, animation TOML | [Render](../modules/Render.md) |
 | `include/engine/render/backend.h` | `IRenderBackend::execute` | [Render](../modules/Render.md) |
 | `include/engine/render/canvas.h` | `ICanvas::draw` | [Render](../modules/Render.md) |
 | `include/engine/render/command_buffer.h` | Buffer of `Command` | [Render](../modules/Render.md) |
-| `include/engine/render/commands.h` | `CmdDrawMesh`, `CmdDrawUI`, `CmdDrawParticles` | [Render](../modules/Render.md) |
+| `include/engine/render/commands.h` | `CmdDrawMesh`, `CmdDrawUI`, `CmdDrawParticles`, `CmdSetView` | [Render](../modules/Render.md) |
 | `include/engine/render/curve.h` | `Curve<T>` with `Linear`, `Smooth`, and `Step` keys | [Render](../modules/Render.md) |
+| `include/engine/render/directional_light.h` | `DirectionalLight` component | [Render](../modules/Render.md#lights) |
 | `include/engine/render/graphic_factory.h` | `MeshVertex` (position, normal, uv), indexed `MeshDesc`, shader and texture descriptions, factory | [Render](../modules/Render.md) |
 | `include/engine/render/graphics.h` | `IMesh`, `IShader`, `ITexture` | [Render](../modules/Render.md) |
+| `include/engine/render/lights.h` | `collect_scene_lights`, `default_scene_lights` | [Render](../modules/Render.md#lights) |
 | `include/engine/render/material.h` | `IMaterial`, `RenderState` (blend, depth test/write, `CullMode`), `.mat` parse | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `include/engine/render/draw_sort.h` | `DrawQueue`, `DrawSortKey`, `make_draw_sort_key`, `draw_sort_less` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `include/engine/render/particles.h` | `ParticleEmitter` | [Render](../modules/Render.md) |
 | `include/engine/render/primitives.h` | `make_quad`, `make_cube`, `make_plane`, `make_uv_sphere` | [Render](../modules/Render.md#primitives) |
 | `include/engine/render/renderable.h` | `Renderable`, `RenderableItem`, `sort_renderables` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `include/engine/render/scene_lights.h` | `SceneLights`, `kMaxDirectionalLights`, default light constants | [Render](../modules/Render.md#lights) |
 | `include/engine/render/shader_adapt.h` | GLSL 330 to GLSL 300 ES | [Render](../modules/Render.md) |
 | `include/engine/render/sprite.h` | `Sprite` quad fields | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `include/engine/resources/.gitkeep` | Keeps the directory in Git | [Resources](../modules/Resources.md) |
@@ -196,6 +200,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/context_objects.cpp`, `src/render/context_objects.h` | Live GL context keys and VAO deletes deferred to their context | [Render](../modules/Render.md) |
 | `src/render/framebuffer_image.cpp`, `src/render/framebuffer_image.h` | Read-back rows to a top-first image with straight alpha | [CLI](../features/CLI.md#screenshot) |
 | `src/render/gl_error_log.cpp`, `src/render/gl_error_log.h` | GL error names; one log line per error and command | [Render](../modules/Render.md) |
+| `src/render/lights.cpp` | Collect directional and ambient lights for `CmdSetView` | [Render](../modules/Render.md#lights) |
 | `src/render/material.cpp` | Parse `.mat` TOML | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `src/render/material_instance.h` | `IMaterial` for a loaded `.mat` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `src/render/mesh_check.cpp`, `src/render/mesh_check.h` | `mesh_desc_error`: why a `MeshDesc` cannot be drawn | [Render](../modules/Render.md#meshes) |
@@ -208,7 +213,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/opengl/desktop_overlay_policy.cpp` | Click-through and the Win32 modal-loop hook | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/desktop_overlay_policy.h` | `DesktopOverlayPolicy` | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/gl_includes.h` | glad or GLES include, private | [Render](../modules/Render.md) |
-| `src/render/opengl/opengl_backend.cpp` | Execute mesh and particle commands | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_backend.cpp` | Execute view, mesh and particle commands; view and light uniforms, white texture for untextured draws | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_backend.h` | `OpenGLBackend` | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_canvas.cpp` | Per-window GL canvas: render, read back, present; font and image upload, swap interval | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_canvas.h` | `OpenGLCanvas` | [Render](../modules/Render.md) |
@@ -383,7 +388,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/camera_test.cpp` | Ortho and perspective matrices, clip clamp, screen/world, screen/ray | [ECS](../modules/ECS.md) |
 | `tests/cli_server_test.cpp` | Descriptor, HTTP, window routing, host commands, and UI commands without `GameLoop` | [CLI](../features/CLI.md) |
 | `tests/cmake_sanity_test.cpp` | Public headers compile, build id, CMake file checks (game functions, SDK package, export wiring and player libraries) | [CMake](../build/CMake.md) |
-| `tests/command_buffer_test.cpp` | Push and iterate the three command types | [Render](../modules/Render.md) |
+| `tests/command_buffer_test.cpp` | Push and iterate the four command types; draws carry no view or projection | [Render](../modules/Render.md) |
 | `tests/context_objects_test.cpp` | GL context keys, reused handles, deferred VAO deletes | [Render](../modules/Render.md) |
 | `tests/dock_layout_test.cpp` | Dock operations and invariants, geometry, drop zones, chrome hits, text round trip, reconcile | [Docking](../features/Docking.md) |
 | `tests/dock_space_test.cpp` | Dock systems: panel rects and orders, chrome lists and default theme, every tab and splitter hit, tab click and drag, splitter, float move, resize, raise, dock, Escape, consumption, close request, tab widths from titles | [Docking](../features/Docking.md#host) |
@@ -420,6 +425,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/opengl_texture_test.cpp` | CPU texture description. No GL draw | [Render](../modules/Render.md) |
 | `tests/particle_test.cpp` | Emitter step and curves | [Render](../modules/Render.md) |
 | `tests/pointer_target_test.cpp` | `PointerTarget`: hit-test, order, windows, camera, hover, click, click-through, UI first | [UI Input](../features/UI%20Input.md#pointer-targets) |
+| `tests/lights_test.cpp` | Light collection (direction from rotation and parent, cap, ambient sum, default rig) and the lights and camera in `CmdSetView` | [Render](../modules/Render.md#lights) |
 | `tests/primitives_test.cpp` | Primitive counts, unit outward normals, winding, index range; builtin quad and cube files match | [Render](../modules/Render.md#primitives) |
 | `tests/physics_test.cpp` | Overlap enter, stay, exit | [ECS](../modules/ECS.md) |
 | `tests/engine_version_test.cpp` | `EngineVersion` parse, refusals, round trip, order | [Project](../modules/Project.md#engine-version) |
