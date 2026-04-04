@@ -6,6 +6,7 @@
 #include <engine/resources/meta.h>
 
 #include <chrono>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -29,6 +30,8 @@ constexpr std::string_view kFontMath = "a0e1b2c3d4f5678901234567890abc06";
 constexpr std::string_view kTreeChevron = "a0e1b2c3d4f5678901234567890abc07";
 constexpr std::string_view kDockCss = "a0e1b2c3d4f5678901234567890abc08";
 constexpr std::string_view kMeshCube = "a0e1b2c3d4f5678901234567890abc09";
+constexpr std::string_view kShaderLit = "a0e1b2c3d4f5678901234567890abc0a";
+constexpr std::string_view kMaterialLit = "a0e1b2c3d4f5678901234567890abc0b";
 
 std::filesystem::path builtin_assets_dir() {
     return std::filesystem::path{ENGINE_BUILTIN_ASSETS_DIR};
@@ -74,6 +77,8 @@ TEST(Builtin, BuiltinIdsAreFrozen) {
     EXPECT_EQ(engine::builtin::tree_chevron.hex(), kTreeChevron);
     EXPECT_EQ(engine::builtin::dock_css.hex(), kDockCss);
     EXPECT_EQ(engine::builtin::mesh_cube.hex(), kMeshCube);
+    EXPECT_EQ(engine::builtin::shader_lit.hex(), kShaderLit);
+    EXPECT_EQ(engine::builtin::material_lit.hex(), kMaterialLit);
 
     EXPECT_TRUE(engine::AssetId::is_valid(engine::builtin::shader_unlit.hex()));
     EXPECT_TRUE(engine::AssetId::is_valid(engine::builtin::mesh_quad.hex()));
@@ -84,6 +89,8 @@ TEST(Builtin, BuiltinIdsAreFrozen) {
     EXPECT_TRUE(engine::AssetId::is_valid(engine::builtin::tree_chevron.hex()));
     EXPECT_TRUE(engine::AssetId::is_valid(engine::builtin::dock_css.hex()));
     EXPECT_TRUE(engine::AssetId::is_valid(engine::builtin::mesh_cube.hex()));
+    EXPECT_TRUE(engine::AssetId::is_valid(engine::builtin::shader_lit.hex()));
+    EXPECT_TRUE(engine::AssetId::is_valid(engine::builtin::material_lit.hex()));
 }
 
 TEST(Builtin, BuiltinIdsAreUnique) {
@@ -116,8 +123,17 @@ TEST(Builtin, BuiltinIdsAreUnique) {
                  engine::builtin::font_math, engine::builtin::tree_chevron, engine::builtin::dock_css}) {
         EXPECT_NE(engine::builtin::mesh_cube, other);
     }
-    EXPECT_EQ(engine::builtin::count(), 9u);
-    EXPECT_EQ(engine::builtin::reserved().size(), 9u);
+    // Every pair of the reserved list differs, and the list holds every constant above.
+    const auto reserved = engine::builtin::reserved();
+    for (std::size_t i = 0; i < reserved.size(); ++i) {
+        for (std::size_t j = i + 1; j < reserved.size(); ++j) {
+            EXPECT_NE(reserved[i], reserved[j]) << i << " " << j;
+        }
+    }
+    EXPECT_EQ(reserved[9], engine::builtin::shader_lit);
+    EXPECT_EQ(reserved[10], engine::builtin::material_lit);
+    EXPECT_EQ(engine::builtin::count(), 11u);
+    EXPECT_EQ(reserved.size(), 11u);
 }
 
 TEST(Builtin, BuiltinMetasMatchIds) {
@@ -154,6 +170,8 @@ TEST(Builtin, BuiltinMetasMatchIds) {
     require_importer(kTreeChevron, engine::ImporterKind::UiImage);
     require_importer(kDockCss, engine::ImporterKind::Css);
     require_importer(kMeshCube, engine::ImporterKind::Mesh);
+    require_importer(kShaderLit, engine::ImporterKind::Shader);
+    require_importer(kMaterialLit, engine::ImporterKind::Material);
 }
 
 TEST(Builtin, BuiltinMaterialReferencesShader) {
@@ -162,6 +180,18 @@ TEST(Builtin, BuiltinMaterialReferencesShader) {
     ASSERT_TRUE(desc.has_value());
     EXPECT_EQ(desc->shader, kShaderUnlit);
     EXPECT_EQ(desc->state.blend, engine::render::BlendMode::Alpha);
+}
+
+TEST(Builtin, BuiltinLitMaterialIsOpaqueDepthTestedAndBackCulled) {
+    const std::filesystem::path mat = builtin_assets_dir() / "materials" / "lit.mat";
+    const auto desc = engine::render::parse_material_file(mat.string());
+    ASSERT_TRUE(desc.has_value());
+    EXPECT_EQ(desc->shader, kShaderLit);
+    EXPECT_TRUE(desc->albedo.empty());
+    EXPECT_EQ(desc->state.blend, engine::render::BlendMode::Opaque);
+    EXPECT_TRUE(desc->state.depth_test);
+    EXPECT_TRUE(desc->state.depth_write);
+    EXPECT_EQ(desc->state.cull, engine::render::CullMode::Back);
 }
 
 TEST(Builtin, CodegenRejectsBuiltinGuidReuse) {
@@ -178,6 +208,6 @@ TEST(Builtin, CodegenRejectsBuiltinGuidReuse) {
 TEST(Builtin, CodegenScanBuiltinAssets) {
     const auto result = engine::codegen_scan(builtin_assets_dir());
     ASSERT_TRUE(result.has_value()) << (result ? "" : result.error().message);
-    EXPECT_GE(result->catalog.entries().size(), 9u);
+    EXPECT_GE(result->catalog.entries().size(), 11u);
     EXPECT_EQ(result->asset_ids_header.find("binding_id.h"), std::string::npos);
 }

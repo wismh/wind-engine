@@ -16,9 +16,11 @@ assets/
   engine/
     catalog.toml
     shaders/unlit.shader
+    shaders/lit.shader
     meshes/quad.mesh
     meshes/cube.mesh
     materials/unlit.mat
+    materials/lit.mat
     fonts/ui.ttf
     fonts/math.otf
     textures/splash.png

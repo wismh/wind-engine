@@ -39,7 +39,7 @@ std::shared_ptr<engine::render::IMesh> ball =
         services.graphics.create_mesh(engine::render::make_uv_sphere(0.5f, 32, 16));
 ```
 
-Each vertex has a position, a normal (default +Z), and a UV. Triangles wind counter-clockwise when their front faces the camera. A mesh with an index past its vertices does not load. The unlit shader ignores normals; they are there for lit 3D shaders.
+Each vertex has a position, a normal (default +Z), and a UV. Triangles wind counter-clockwise when their front faces the camera. A mesh with an index past its vertices does not load. The unlit shader ignores normals; the builtin lit material uses them ([Basic 3D](Basic-3D.md)).
 
 ---
 
@@ -63,13 +63,16 @@ A sprite's z does not change that order, and there is no Y-sort. For a top-down 
 
 ## 3. What a `CommandBuffer` Is
 
-`engine::render::CommandBuffer` holds a `std::vector` of `render::Command`, a variant of exactly three types:
+`engine::render::CommandBuffer` holds a `std::vector` of `render::Command`, a variant of exactly four types:
 
 | Command | Pushed by |
 | --- | --- |
+| `CmdSetView` | the render system, once per window before its draws: camera view, that window's projection, camera position, and lights |
 | `CmdDrawMesh` | the render system, for each `Renderable` and `Sprite` |
 | `CmdDrawParticles` | the render system, for each `ParticleEmitter` with live particles |
 | `CmdDrawUI` | the UI system, for each `UiCanvas` |
+
+Draw commands carry no camera: they use the last `CmdSetView` before them in the buffer (identity matrices when there is none).
 
 A game does not push commands itself and there is no custom draw callback. If you need something the components do not give you, the options are a material with your own shader ([Materials & Shaders](Materials-and-Shaders.md)) and, for vector shapes in the UI, `IPaint` ([Custom Painting](../ui/Custom-Painting.md)). The buffer is exposed (`services.commands`, `size()`, iteration) for tests and tools: with a headless `Host` a test can run a frame and inspect which commands were produced.
 
@@ -78,4 +81,5 @@ A game does not push commands itself and there is no custom draw callback. If yo
 ## Next Steps
 
 - Set up camera views in [Camera](Camera.md).
+- Light a 3D mesh in [Basic 3D](Basic-3D.md).
 - Create in-game interfaces in [UI Basics](../ui/UI-Basics.md).

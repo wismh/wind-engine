@@ -102,9 +102,15 @@ std::vector<engine::CollisionEvent> read_collisions(World& world) {
     return events;
 }
 
+// `index` counts draws: the buffer starts with the window's CmdSetView.
 const engine::render::CmdDrawMesh& mesh_command(const engine::render::CommandBuffer& commands, std::size_t index) {
-    EXPECT_LT(index, commands.size());
-    return std::get<engine::render::CmdDrawMesh>(commands[index]);
+    EXPECT_LT(index + 1, commands.size());
+    return std::get<engine::render::CmdDrawMesh>(commands[index + 1]);
+}
+
+const engine::render::CmdSetView& view_command(const engine::render::CommandBuffer& commands) {
+    EXPECT_FALSE(commands.empty());
+    return std::get<engine::render::CmdSetView>(commands[0]);
 }
 
 }
@@ -162,7 +168,7 @@ TEST(HierarchySystems, ChildSpriteModelIsParentTimesLocal) {
 
     world.run(Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 1u);
+    ASSERT_EQ(commands.size(), 2u);
     expect_near(mesh_command(commands, 0).model,
                 engine::model_matrix(parent_transform) * engine::model_matrix(child_transform));
 }
@@ -183,7 +189,7 @@ TEST(HierarchySystems, ChildRenderableModelFollowsMovedParent) {
     commands.clear();
     world.run(Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 1u);
+    ASSERT_EQ(commands.size(), 2u);
     expect_near(glm::vec3(mesh_command(commands, 0).model[3]), {6.f, 0.f, 0.f});
 }
 
@@ -246,16 +252,16 @@ TEST(HierarchySystems, LocalSpaceEmitterOnChildFollowsParent) {
     world.emplace<engine::render::ParticleEmitter>(child, std::move(emitter));
 
     world.run(Schedule::Frame);
-    ASSERT_EQ(commands.size(), 1u);
-    const auto& first = std::get<engine::render::CmdDrawParticles>(commands[0]);
+    ASSERT_EQ(commands.size(), 2u);
+    const auto& first = std::get<engine::render::CmdDrawParticles>(commands[1]);
     ASSERT_EQ(first.instances.size(), 1u);
     EXPECT_NEAR(first.instances[0].position.x, 12.f, 1e-3f);
 
     world.get<Transform>(parent).position.x = 20.f;
     commands.clear();
     world.run(Schedule::Frame);
-    ASSERT_EQ(commands.size(), 1u);
-    const auto& second = std::get<engine::render::CmdDrawParticles>(commands[0]);
+    ASSERT_EQ(commands.size(), 2u);
+    const auto& second = std::get<engine::render::CmdDrawParticles>(commands[1]);
     ASSERT_EQ(second.instances.size(), 1u);
     EXPECT_NEAR(second.instances[0].position.x, 22.f, 1e-3f);
 }
@@ -308,8 +314,10 @@ TEST(HierarchySystems, RenderUsesWorldMatrixOfParentedCamera) {
 
     world.run(Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 1u);
-    expect_near(mesh_command(commands, 0).view, glm::translate(glm::mat4(1.f), glm::vec3(-6.f, 0.f, -10.f)));
+    ASSERT_EQ(commands.size(), 2u);
+    const engine::render::CmdSetView& view = view_command(commands);
+    expect_near(view.view, glm::translate(glm::mat4(1.f), glm::vec3(-6.f, 0.f, -10.f)));
+    expect_near(view.camera_position, {6.f, 0.f, 10.f});
 }
 
 TEST(HierarchySystems, ChildRotationAboutZCarriesParentOffsetIn3D) {
