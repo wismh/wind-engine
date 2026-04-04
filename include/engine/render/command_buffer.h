@@ -28,6 +28,10 @@ public:
         commands_.emplace_back(std::move(command));
     }
 
+    void push(CmdSetView command) {
+        commands_.emplace_back(std::move(command));
+    }
+
     void clear() {
         commands_.clear();
     }
