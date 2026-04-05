@@ -5,6 +5,7 @@
 #include <engine/render/graphic_factory.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
+#include <engine/render/shader_adapt.h>
 #include <engine/loc/catalog.h>
 #include <engine/log.h>
 #include <engine/resources/asset_guid.h>
@@ -801,6 +802,58 @@ TEST(Assets, GetBuiltinUnlitMaterial) {
     EXPECT_FLOAT_EQ(material->color().g, 1.0f);
     EXPECT_FLOAT_EQ(material->color().b, 1.0f);
     EXPECT_FLOAT_EQ(material->color().a, 1.0f);
+}
+
+// lit.shader is CDATA-wrapped XML: a raw `<` in its loop would fail the parse and the load.
+TEST(Assets, GetBuiltinLitShader) {
+    fakes::QuietFatal fatal;
+    engine::AssetsDb db(fatal);
+    ASSERT_TRUE(load_builtin_catalog(db));
+
+    FakeGraphicFactory factory;
+    db.set_graphic_factory(&factory);
+
+    const auto shader = db.get<engine::render::IShader>(engine::builtin::shader_lit);
+    ASSERT_NE(shader, nullptr);
+    EXPECT_EQ(shader, factory.last_shader_obj);
+    const engine::render::ShaderDesc desc = factory.last_shader;
+    EXPECT_EQ(desc.vertex_src.rfind("#version 330 core", 0), 0u);
+    EXPECT_EQ(desc.fragment_src.rfind("#version 330 core", 0), 0u);
+    for (const std::string_view name : {"aNormal", "uModel", "uView", "uProjection", "uNormalMatrix"}) {
+        EXPECT_NE(desc.vertex_src.find(name), std::string::npos) << name;
+    }
+    for (const std::string_view name :
+            {"uTexture", "uColor", "uLightCount", "uLightDirections", "uLightColors", "uAmbient", "i < "}) {
+        EXPECT_NE(desc.fragment_src.find(name), std::string::npos) << name;
+    }
+    EXPECT_NE(desc.fragment_src.find("#define kMaxDirectionalLights 4"), std::string::npos)
+            << "the shader's array size must match engine::render::kMaxDirectionalLights";
+
+    const engine::render::ShaderDesc es = engine::render::adapt_shader(desc, engine::render::ShaderTarget::Glsl300Es);
+    EXPECT_EQ(es.vertex_src.rfind("#version 300 es\n", 0), 0u);
+    EXPECT_EQ(es.fragment_src.rfind("#version 300 es\nprecision mediump float;\n", 0), 0u);
+    EXPECT_NE(es.fragment_src.find("uLightDirections[kMaxDirectionalLights]"), std::string::npos);
+}
+
+TEST(Assets, GetBuiltinLitMaterial) {
+    fakes::QuietFatal fatal;
+    engine::AssetsDb db(fatal);
+    ASSERT_TRUE(load_builtin_catalog(db));
+
+    FakeGraphicFactory factory;
+    db.set_graphic_factory(&factory);
+
+    const auto material = db.get<engine::render::IMaterial>(engine::builtin::material_lit);
+    ASSERT_NE(material, nullptr);
+    EXPECT_EQ(material->shader(), db.get<engine::render::IShader>(engine::builtin::shader_lit));
+    EXPECT_EQ(material->texture(0), nullptr);
+    EXPECT_EQ(material->render_state(), (engine::render::RenderState{
+            .blend = engine::render::BlendMode::Opaque,
+            .depth_test = true,
+            .depth_write = true,
+            .cull = engine::render::CullMode::Back,
+    }));
+    EXPECT_EQ(material->color(), glm::vec4(1.0f));
 }
 
 TEST(Assets, MaterialNotReadyWithoutFactory) {

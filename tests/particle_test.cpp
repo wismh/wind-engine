@@ -258,10 +258,11 @@ TEST(ParticleSystemRender, RunRenderPushesCmdDrawParticles) {
 
     world.run(engine::ecs::Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 1u);
-    ASSERT_TRUE(std::holds_alternative<engine::render::CmdDrawParticles>(commands[0]));
+    ASSERT_EQ(commands.size(), 2u);
+    ASSERT_TRUE(std::holds_alternative<engine::render::CmdSetView>(commands[0]));
+    ASSERT_TRUE(std::holds_alternative<engine::render::CmdDrawParticles>(commands[1]));
 
-    const auto& cmd = std::get<engine::render::CmdDrawParticles>(commands[0]);
+    const auto& cmd = std::get<engine::render::CmdDrawParticles>(commands[1]);
     EXPECT_EQ(cmd.mesh, em.mesh);
     EXPECT_EQ(cmd.material, em.material);
     EXPECT_EQ(cmd.blend, engine::render::BlendMode::Additive);
@@ -307,10 +308,11 @@ TEST(ParticleSystemRender, ParticleEmitterSortsBetweenSpritesByLayer) {
 
     world.run(engine::ecs::Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 3u);
-    EXPECT_TRUE(std::holds_alternative<engine::render::CmdDrawMesh>(commands[0]));
-    EXPECT_TRUE(std::holds_alternative<engine::render::CmdDrawParticles>(commands[1]));
-    EXPECT_TRUE(std::holds_alternative<engine::render::CmdDrawMesh>(commands[2]));
+    ASSERT_EQ(commands.size(), 4u);
+    EXPECT_TRUE(std::holds_alternative<engine::render::CmdSetView>(commands[0]));
+    EXPECT_TRUE(std::holds_alternative<engine::render::CmdDrawMesh>(commands[1]));
+    EXPECT_TRUE(std::holds_alternative<engine::render::CmdDrawParticles>(commands[2]));
+    EXPECT_TRUE(std::holds_alternative<engine::render::CmdDrawMesh>(commands[3]));
 }
 
 TEST(Curve, EvaluateLinearClampsExtremes) {
