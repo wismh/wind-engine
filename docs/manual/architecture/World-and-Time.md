@@ -107,7 +107,7 @@ void movement_system(engine::ecs::World& world) {   // registered on Schedule::F
 }
 ```
 
-A pause flag in your own resource leaves `engine::ecs::Schedule::Frame` running, so UI interactions and animations remain fully responsive while the game simulation is frozen. Engine systems such as `run_physics` (which integrates `RigidBody::velocity`) and sprite animation do not read `GameClock`; zero those velocities yourself while paused. `Worlds::set_stepping(world, false)` freezes a whole world, including its UI.
+A pause flag in your own resource leaves `engine::ecs::Schedule::Frame` running, so UI interactions and animations remain fully responsive while the game simulation is frozen. Engine systems such as `run_physics_2d` (which integrates `RigidBody2D::velocity`) and sprite animation do not read `GameClock`; zero those velocities yourself while paused. `Worlds::set_stepping(world, false)` freezes a whole world, including its UI.
 
 ---
 
