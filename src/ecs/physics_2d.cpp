@@ -1,4 +1,4 @@
-#include <engine/ecs/physics.h>
+#include <engine/ecs/physics_2d.h>
 
 #include <engine/core/time.h>
 #include <engine/ecs/events.h>
@@ -81,20 +81,20 @@ struct ColliderItem {
 
 }
 
-void run_physics(ecs::World& world) {
+void run_physics_2d(ecs::World& world) {
     const float dt = world.ctx<Time>().fixed_delta_time;
 
-    world.view<Transform, RigidBody>().each([dt](Transform& transform, const RigidBody& body) {
+    world.view<Transform, RigidBody2D>().each([dt](Transform& transform, const RigidBody2D& body) {
         transform.position += body.velocity * dt;
     });
 
-    // Colliders sit in world space. RigidBody integrated the local position above (a child's velocity is in its
+    // Colliders sit in world space. RigidBody2D integrated the local position above (a child's velocity is in its
     // parent's space), so refresh the world matrices before reading them.
     ecs::update_world_transforms(world);
 
     std::vector<ColliderItem> colliders;
-    world.view<Transform, BoxCollider>().each(
-            [&](ecs::Entity entity, const Transform&, const BoxCollider& collider) {
+    world.view<Transform, BoxCollider2D>().each(
+            [&](ecs::Entity entity, const Transform&, const BoxCollider2D& collider) {
                 colliders.push_back(ColliderItem{
                         .entity = entity,
                         .position = ecs::world_position(world, entity),
@@ -105,8 +105,8 @@ void run_physics(ecs::World& world) {
                         .is_trigger = collider.is_trigger,
                 });
             });
-    world.view<Transform, CircleCollider>().each(
-            [&](ecs::Entity entity, const Transform&, const CircleCollider& collider) {
+    world.view<Transform, CircleCollider2D>().each(
+            [&](ecs::Entity entity, const Transform&, const CircleCollider2D& collider) {
                 colliders.push_back(ColliderItem{
                         .entity = entity,
                         .position = ecs::world_position(world, entity),
@@ -120,7 +120,7 @@ void run_physics(ecs::World& world) {
 
     PhysicsOverlapState& state = world.ctx<PhysicsOverlapState>();
     std::map<std::pair<ecs::Entity, ecs::Entity>, bool> current;
-    ecs::EventWriter<CollisionEvent> writer{world};
+    ecs::EventWriter<CollisionEvent2D> writer{world};
 
     for (std::size_t i = 0; i < colliders.size(); ++i) {
         for (std::size_t j = i + 1; j < colliders.size(); ++j) {
@@ -133,13 +133,13 @@ void run_physics(ecs::World& world) {
             const bool is_trigger = a.is_trigger || b.is_trigger;
             current.emplace(pair, is_trigger);
             const CollisionPhase phase = state.last.contains(pair) ? CollisionPhase::Stay : CollisionPhase::Enter;
-            writer.send(CollisionEvent{pair.first, pair.second, phase, is_trigger});
+            writer.send(CollisionEvent2D{pair.first, pair.second, phase, is_trigger});
         }
     }
 
     for (const auto& [pair, was_trigger] : state.last) {
         if (!current.contains(pair)) {
-            writer.send(CollisionEvent{pair.first, pair.second, CollisionPhase::Exit, was_trigger});
+            writer.send(CollisionEvent2D{pair.first, pair.second, CollisionPhase::Exit, was_trigger});
         }
     }
 

@@ -5,7 +5,7 @@
 #include <engine/ecs/camera.h>
 #include <engine/ecs/events.h>
 #include <engine/ecs/hierarchy.h>
-#include <engine/ecs/physics.h>
+#include <engine/ecs/physics_2d.h>
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/systems.h>
 #include <engine/ecs/transform.h>
@@ -94,9 +94,9 @@ void step_physics(World& world) {
     world.run(Schedule::Fixed);
 }
 
-std::vector<engine::CollisionEvent> read_collisions(World& world) {
-    std::vector<engine::CollisionEvent> events;
-    for (const engine::CollisionEvent& event : engine::ecs::EventReader<engine::CollisionEvent>{world}) {
+std::vector<engine::CollisionEvent2D> read_collisions(World& world) {
+    std::vector<engine::CollisionEvent2D> events;
+    for (const engine::CollisionEvent2D& event : engine::ecs::EventReader<engine::CollisionEvent2D>{world}) {
         events.push_back(event);
     }
     return events;
@@ -199,15 +199,15 @@ TEST(HierarchySystems, ChildColliderOverlapsInWorldCoordinates) {
 
     const Entity parent = spawn(world, Transform{.position = {10.f, 0.f, 0.f}});
     const Entity child = spawn_child(world, parent, Transform{.position = {0.5f, 0.f, 0.f}});
-    world.emplace<engine::BoxCollider>(child, engine::BoxCollider{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::BoxCollider2D>(child, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
     const Entity other = spawn(world, Transform{.position = {10.5f, 0.f, 0.f}});
-    world.emplace<engine::BoxCollider>(other, engine::BoxCollider{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::BoxCollider2D>(other, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
     const Entity far_root = spawn(world, Transform{.position = {0.5f, 0.f, 0.f}});
-    world.emplace<engine::BoxCollider>(far_root, engine::BoxCollider{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::BoxCollider2D>(far_root, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
 
     step_physics(world);
 
-    const std::vector<engine::CollisionEvent> events = read_collisions(world);
+    const std::vector<engine::CollisionEvent2D> events = read_collisions(world);
     ASSERT_EQ(events.size(), 1u);
     const bool pair_ok = (events[0].a == child && events[0].b == other) || (events[0].a == other && events[0].b == child);
     EXPECT_TRUE(pair_ok);
@@ -218,11 +218,11 @@ TEST(HierarchySystems, ChildColliderUsesParentMovedThisStep) {
     engine::register_engine_systems(world);
 
     const Entity parent = spawn(world, Transform{});
-    world.emplace<engine::RigidBody>(parent, engine::RigidBody{glm::vec3{60.f, 0.f, 0.f}});
+    world.emplace<engine::RigidBody2D>(parent, engine::RigidBody2D{glm::vec3{60.f, 0.f, 0.f}});
     const Entity child = spawn_child(world, parent, Transform{});
-    world.emplace<engine::CircleCollider>(child, engine::CircleCollider{.radius = 0.5f});
+    world.emplace<engine::CircleCollider2D>(child, engine::CircleCollider2D{.radius = 0.5f});
     const Entity other = spawn(world, Transform{.position = {1.f, 0.f, 0.f}});
-    world.emplace<engine::CircleCollider>(other, engine::CircleCollider{.radius = 0.5f});
+    world.emplace<engine::CircleCollider2D>(other, engine::CircleCollider2D{.radius = 0.5f});
 
     // Parent integrates to x = 1 this step; only a fresh world position puts the child on top of `other`.
     step_physics(world);
