@@ -110,7 +110,7 @@ Because `.shader` files are parsed as XML, GLSL relational operators (`<`, `<=`)
 
 ## 8. Do Not Register the Engine's Own Systems
 
-The engine already registers `run_physics`, sprite animation, particles, UI input and binding, audio events, and rendering on every world. Adding `run_physics` to your own schedule integrates velocities twice. Register only your gameplay systems, on `Schedule::Fixed` / `Phase::Game` or `Schedule::Frame` / `Phase::Game` ([Systems & Schedules](../ecs/Systems-and-Schedules.md)).
+The engine already registers `run_physics_2d`, sprite animation, particles, UI input and binding, audio events, and rendering on every world. Adding `run_physics_2d` to your own schedule integrates velocities twice. Register only your gameplay systems, on `Schedule::Fixed` / `Phase::Game` or `Schedule::Frame` / `Phase::Game` ([Systems & Schedules](../ecs/Systems-and-Schedules.md)).
 
 ---
 

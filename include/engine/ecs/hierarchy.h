@@ -46,9 +46,10 @@ enum class KeepWorld {
 // kMaxHierarchyDepth (counting the child's own subtree). Setting the current parent again succeeds and does nothing.
 // An entity without Transform is a valid parent or child; it counts as identity. With KeepWorld::Yes a child without
 // Transform gets one holding the recomputed local transform.
-// KeepWorld::Yes decomposes the new local matrix into position, X-then-Y-then-Z Euler radians and scale. If the
-// parent chain has non-uniform scale above a rotation, the true local matrix has skew that Transform cannot store:
-// the child's world position is kept exactly, rotation and scale are the best fit.
+// KeepWorld::Yes decomposes the new local matrix into position, a rotation quaternion and scale (a mirrored matrix puts
+// the sign into scale.x). If the parent chain has non-uniform scale above a rotation, the true local matrix has skew
+// that Transform cannot store: the child's world position is kept exactly, rotation and scale are the best fit (the
+// local X axis is kept, Y is made orthogonal to it, scale is the length of each axis).
 [[nodiscard]] bool set_parent(World& world, Entity child, Entity parent, KeepWorld keep = KeepWorld::No);
 
 // Removes the child's Parent (and its WorldTransform) and takes it out of its parent's Children. No-op without a

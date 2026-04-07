@@ -52,8 +52,8 @@ public:
         return {1.0f, 1.0f, 1.0f, 1.0f};
     }
 
-    engine::render::BlendMode blend() const override {
-        return blend_;
+    engine::render::RenderState render_state() const override {
+        return {.blend = blend_};
     }
 
 private:
@@ -117,12 +117,13 @@ TEST(Sprite, MaterialClassConstructibleInCpp) {
     const auto texture = std::make_shared<FakeTexture>();
     const glm::vec4 color{0.5f, 0.6f, 0.7f, 1.0f};
 
-    engine::render::Material mat(shader, texture, color, engine::render::BlendMode::Additive);
+    engine::render::Material mat(
+            shader, texture, color, engine::render::RenderState{.blend = engine::render::BlendMode::Additive});
     EXPECT_EQ(mat.shader(), shader);
     EXPECT_EQ(mat.texture(0), texture);
     EXPECT_EQ(mat.texture(1), nullptr);
     EXPECT_EQ(mat.color(), color);
-    EXPECT_EQ(mat.blend(), engine::render::BlendMode::Additive);
+    EXPECT_EQ(mat.render_state().blend, engine::render::BlendMode::Additive);
 }
 
 TEST(Sprite, TintedColorMultipliesSpriteAndMaterial) {
@@ -163,8 +164,8 @@ TEST(Sprite, CustomMeshAndMaterialEmittedInCommands) {
     engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
     world.run(engine::ecs::Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 1u);
-    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[0]);
+    ASSERT_EQ(commands.size(), 2u);
+    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[1]);
     ASSERT_NE(cmd, nullptr);
     EXPECT_EQ(cmd->mesh, custom_mesh);
     EXPECT_EQ(cmd->material, custom_mat);
@@ -199,8 +200,8 @@ TEST(Sprite, MaterialOverridePropagatesToCommand) {
     engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
     world.run(engine::ecs::Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 1u);
-    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[0]);
+    ASSERT_EQ(commands.size(), 2u);
+    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[1]);
     ASSERT_NE(cmd, nullptr);
     ASSERT_TRUE(cmd->material_override.has_value());
     EXPECT_EQ(cmd->material_override->albedo, override_texture);
@@ -238,9 +239,9 @@ TEST(Sprite, FlipXAndFlipYNegateModelScale) {
     engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
     world.run(engine::ecs::Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 2u);
-    const auto* cmd_normal = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[0]);
-    const auto* cmd_flipped = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[1]);
+    ASSERT_EQ(commands.size(), 3u);
+    const auto* cmd_normal = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[1]);
+    const auto* cmd_flipped = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[2]);
     ASSERT_NE(cmd_normal, nullptr);
     ASSERT_NE(cmd_flipped, nullptr);
 
@@ -316,15 +317,15 @@ TEST(Sprite, InterleavedSortingWithRenderable) {
     engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
     world.run(engine::ecs::Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 3u);
+    ASSERT_EQ(commands.size(), 4u);
     // Command 0 MUST be layer 0 (Renderable e2)
-    const auto* cmd0 = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[0]);
+    const auto* cmd0 = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[1]);
     ASSERT_NE(cmd0, nullptr);
     EXPECT_EQ(cmd0->material, mat_b);
 
     // Commands 1 and 2 must be layer 1 (Sprites e1 and e3)
-    const auto* cmd1 = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[1]);
-    const auto* cmd2 = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[2]);
+    const auto* cmd1 = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[2]);
+    const auto* cmd2 = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[3]);
     ASSERT_NE(cmd1, nullptr);
     ASSERT_NE(cmd2, nullptr);
     EXPECT_EQ(cmd1->material, mat_a);
@@ -384,10 +385,10 @@ TEST(Sprite, AutomaticMeshAndMaterialResolutionWithAssets) {
     });
     world.run(engine::ecs::Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 3u);
-    const auto* cmd1 = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[0]);
-    const auto* cmd2 = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[1]);
-    const auto* cmd3 = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[2]);
+    ASSERT_EQ(commands.size(), 4u);
+    const auto* cmd1 = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[1]);
+    const auto* cmd2 = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[2]);
+    const auto* cmd3 = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[3]);
     ASSERT_NE(cmd1, nullptr);
     ASSERT_NE(cmd2, nullptr);
     ASSERT_NE(cmd3, nullptr);
@@ -432,8 +433,8 @@ TEST(Sprite, DefaultTilingAndOffset) {
     engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
     world.run(engine::ecs::Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 1u);
-    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[0]);
+    ASSERT_EQ(commands.size(), 2u);
+    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[1]);
     ASSERT_NE(cmd, nullptr);
     EXPECT_FLOAT_EQ(cmd->uv_scale.x, 1.0f);
     EXPECT_FLOAT_EQ(cmd->uv_scale.y, 1.0f);
@@ -461,8 +462,8 @@ TEST(Sprite, CustomTilingAndOffset) {
     engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
     world.run(engine::ecs::Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 1u);
-    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[0]);
+    ASSERT_EQ(commands.size(), 2u);
+    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[1]);
     ASSERT_NE(cmd, nullptr);
     EXPECT_FLOAT_EQ(cmd->uv_scale.x, 4.0f);
     EXPECT_FLOAT_EQ(cmd->uv_scale.y, 2.5f);
@@ -488,8 +489,8 @@ TEST(Sprite, RenderableHasDefaultUvScaleAndOffset) {
     engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
     world.run(engine::ecs::Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 1u);
-    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[0]);
+    ASSERT_EQ(commands.size(), 2u);
+    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[1]);
     ASSERT_NE(cmd, nullptr);
     EXPECT_FLOAT_EQ(cmd->uv_scale.x, 1.0f);
     EXPECT_FLOAT_EQ(cmd->uv_scale.y, 1.0f);
@@ -518,8 +519,8 @@ TEST(Sprite, ScalingWithPixelsPerUnit) {
     engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
     world.run(engine::ecs::Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 1u);
-    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[0]);
+    ASSERT_EQ(commands.size(), 2u);
+    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[1]);
     ASSERT_NE(cmd, nullptr);
     // World size is 32/16 = 2.0 on X, 16/16 = 1.0 on Y
     EXPECT_FLOAT_EQ(cmd->model[0][0], 2.0f);
@@ -550,8 +551,8 @@ TEST(Sprite, PivotOffsetShiftsModelPosition) {
     engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
     world.run(engine::ecs::Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 1u);
-    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[0]);
+    ASSERT_EQ(commands.size(), 2u);
+    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[1]);
     ASSERT_NE(cmd, nullptr);
     EXPECT_FLOAT_EQ(cmd->model[3][0], 5.0f);
     EXPECT_FLOAT_EQ(cmd->model[3][1], 6.0f); // 5.0 + 1.0 = 6.0
@@ -562,8 +563,9 @@ TEST(Sprite, PivotOffsetShiftsModelPosition) {
 
 namespace {
 
+// `index` counts draws: the buffer starts with the window's CmdSetView.
 const engine::render::CmdDrawMesh* draw_of(const engine::render::CommandBuffer& commands, std::size_t index) {
-    return std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[index]);
+    return std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[index + 1]);
 }
 
 engine::ecs::Entity spawn_sprite(engine::ecs::World& world, const std::shared_ptr<engine::render::IMaterial>& material,
@@ -597,7 +599,7 @@ TEST(Sprite, TwoInstancesOfOneMaterialKeepTheirOwnParameters) {
     engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
     world.run(engine::ecs::Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 3u);
+    ASSERT_EQ(commands.size(), 4u);
     ASSERT_TRUE(draw_of(commands, 0)->material_override.has_value());
     ASSERT_TRUE(draw_of(commands, 1)->material_override.has_value());
     EXPECT_EQ(draw_of(commands, 0)->material_override->vec4_params[0].second, (glm::vec4{1.0f, 0.0f, 0.0f, 1.0f}));
@@ -622,7 +624,7 @@ TEST(Sprite, ParameterSetOnceReachesEveryFrameUntilChanged) {
     for (int frame = 0; frame < 3; ++frame) {
         commands.clear();
         world.run(engine::ecs::Schedule::Frame);
-        ASSERT_EQ(commands.size(), 1u) << frame;
+        ASSERT_EQ(commands.size(), 2u) << frame;
         ASSERT_TRUE(draw_of(commands, 0)->material_override.has_value()) << frame;
         EXPECT_EQ(draw_of(commands, 0)->material_override->vec4_params[0].second, glm::vec4{1.0f}) << frame;
     }
@@ -630,14 +632,14 @@ TEST(Sprite, ParameterSetOnceReachesEveryFrameUntilChanged) {
     world.get<engine::render::Sprite>(entity).set_param("uFlash", glm::vec4{0.0f});
     commands.clear();
     world.run(engine::ecs::Schedule::Frame);
-    ASSERT_EQ(commands.size(), 1u);
+    ASSERT_EQ(commands.size(), 2u);
     ASSERT_EQ(draw_of(commands, 0)->material_override->vec4_params.size(), 1u);
     EXPECT_EQ(draw_of(commands, 0)->material_override->vec4_params[0].second, glm::vec4{0.0f});
 
     world.get<engine::render::Sprite>(entity).clear_overrides();
     commands.clear();
     world.run(engine::ecs::Schedule::Frame);
-    ASSERT_EQ(commands.size(), 1u);
+    ASSERT_EQ(commands.size(), 2u);
     EXPECT_FALSE(draw_of(commands, 0)->material_override.has_value());
 }
 

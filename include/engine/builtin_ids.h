@@ -19,8 +19,14 @@ inline constexpr AssetId font_math{"a0e1b2c3d4f5678901234567890abc06"};
 inline constexpr AssetId tree_chevron{"a0e1b2c3d4f5678901234567890abc07"};
 // Default theme of dock space chrome (docs/tech/features/Docking.md#host).
 inline constexpr AssetId dock_css{"a0e1b2c3d4f5678901234567890abc08"};
+// Unit cube with per-face normals (docs/tech/modules/Render.md#primitives).
+inline constexpr AssetId mesh_cube{"a0e1b2c3d4f5678901234567890abc09"};
+// Lambert shader: directional lights plus ambient from CmdSetView (docs/tech/modules/Render.md#lit-shader).
+inline constexpr AssetId shader_lit{"a0e1b2c3d4f5678901234567890abc0a"};
+// White opaque material on shader_lit: depth on, back faces culled, no texture.
+inline constexpr AssetId material_lit{"a0e1b2c3d4f5678901234567890abc0b"};
 
-inline constexpr std::array<AssetId, 8> ids{
+inline constexpr std::array<AssetId, 11> ids{
         shader_unlit,
         mesh_quad,
         material_unlit,
@@ -29,6 +35,9 @@ inline constexpr std::array<AssetId, 8> ids{
         font_math,
         tree_chevron,
         dock_css,
+        mesh_cube,
+        shader_lit,
+        material_lit,
 };
 
 [[nodiscard]] constexpr std::span<const AssetId> reserved() noexcept {

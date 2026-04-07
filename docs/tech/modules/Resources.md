@@ -8,7 +8,7 @@ The runtime walkthrough is [Assets](../features/Assets.md). The cook tools are [
 
 `AssetId` is exactly 32 lowercase hex characters (`include/engine/resources/asset_id.h`). The constructor throws `std::invalid_argument` when the string is not valid. `parse` returns `nullopt` instead.
 
-Builtin ids in `include/engine/builtin_ids.h` are frozen. `builtin::reserved()` is the eight ids `asset_codegen` rejects in a game tree. Do not regenerate them. See `builtin_assets/README.md`.
+Builtin ids in `include/engine/builtin_ids.h` are frozen. `builtin::reserved()` is the eleven ids `asset_codegen` rejects in a game tree. Do not regenerate them. See `builtin_assets/README.md`.
 
 | Constant | GUID suffix | File |
 | --- | --- | --- |
@@ -19,6 +19,10 @@ Builtin ids in `include/engine/builtin_ids.h` are frozen. `builtin::reserved()` 
 | `splash_wind` | `…abc05` | `textures/splash.png` |
 | `font_math` | `…abc06` | `fonts/math.otf` |
 | `tree_chevron` | `…abc07` | `textures/tree_chevron.png` |
+| `dock_css` | `…abc08` | `css/dock.css` |
+| `mesh_cube` | `…abc09` | `meshes/cube.mesh` |
+| `shader_lit` | `…abc0a` | `shaders/lit.shader` |
+| `material_lit` | `…abc0b` | `materials/lit.mat` |
 
 The full literals are in `builtin_ids.h`. The table's suffix is the last five characters.
 
