@@ -109,13 +109,13 @@ Functions:
 - `KeepWorld::Yes` recomputes the child's local `Transform` from the exact world matrices so the world matrix does not change (`Transform` is created if the child had none). The matrix is decomposed into position, a rotation quaternion, and scale (a mirrored matrix puts the sign into `scale.x`). Skew caveat: a non-uniform scale above a rotated child gives a local matrix `Transform` cannot represent; the world position is kept exactly, rotation and scale are the best fit: the local X axis is kept, Y is made orthogonal to it, Z is their cross product, and scale is the length of each axis.
 - `clear_parent(world, child, KeepWorld = No)` removes `Parent` and `WorldTransform` and takes the child out of its parent's `Children`.
 - `world_matrix(world, e)`: `WorldTransform` if present, else `model_matrix(Transform)`, else identity. `compute_world_matrix` is the slow exact path that walks the `Parent` chain and ignores `WorldTransform`. `world_position` reads `world_matrix`. `set_world_position(world, e, p)` converts `p` into the parent's space (exact chain) and writes the local `Transform.position`.
-- `update_world_transforms(world)` recomputes the whole forest every call, parents before children, idempotent. There are no dirty flags: `Transform` is a public struct that code mutates directly. It starts from the roots (entities with `Children` and no `Parent`), writes `WorldTransform` on every entity that has a `Parent`, and removes `WorldTransform` from entities that no longer have one. Deleting a `WorldTransform` and updating again gives the same matrix. Callers: the `Frame` / `Transform` system, `run_particles` at its start (it runs in `Game`, before `Transform`), and `run_physics` after integration. Anything else that needs fresh matrices in between calls it too.
+- `update_world_transforms(world)` recomputes the whole forest every call, parents before children, idempotent. There are no dirty flags: `Transform` is a public struct that code mutates directly. It starts from the roots (entities with `Children` and no `Parent`), writes `WorldTransform` on every entity that has a `Parent`, and removes `WorldTransform` from entities that no longer have one. Deleting a `WorldTransform` and updating again gives the same matrix. Callers: the `Frame` / `Transform` system, `run_particles` at its start (it runs in `Game`, before `Transform`), and `run_physics_2d` after integration. Anything else that needs fresh matrices in between calls it too.
 
 Destroying a parent destroys all its descendants (iterative, safe for deep chains), and destroying a child removes it from its parent's `Children`. `World::destroy_immediate` does this through `Children`, a deliberate small coupling of `world.cpp` to `hierarchy.h`. `destroy` inside a view is still deferred: the parent and its descendants stay alive and valid until the view ends, and then the cascade runs.
 
 A `Parent` whose entity is dead can only come from hand-made data (the cascade prevents it). `update_world_transforms` logs one warning, removes that `Parent`, and the entity is a root from then on. `compute_world_matrix` stops its walk at a dead parent without logging.
 
-Staleness contract: the engine refreshes `WorldTransform` in `Phase::Transform` (Frame) and inside `run_physics` / `run_particles`. A `Game` system sees the matrices of the previous frame's `Transform` phase plus whatever `run_particles` refreshed, so it should read `compute_world_matrix` or call `update_world_transforms` itself when it needs the result of an edit made this frame. `run_render` needs no refresh, because `Transform` precedes `Render`. `WorldTransform` is only as fresh as the last `update_world_transforms`. After a local `Transform` edit, `set_parent` or `set_world_position`, `world_matrix` still returns the old value until the next update; use `compute_world_matrix` for an exact answer now. `Parent` must be set through `set_parent`; a `Parent` that its parent's `Children` does not list is not visited by the update. `RigidBody.velocity` of a child is in the parent's space, because `run_physics` integrates the local `Transform.position`.
+Staleness contract: the engine refreshes `WorldTransform` in `Phase::Transform` (Frame) and inside `run_physics_2d` / `run_particles`. A `Game` system sees the matrices of the previous frame's `Transform` phase plus whatever `run_particles` refreshed, so it should read `compute_world_matrix` or call `update_world_transforms` itself when it needs the result of an edit made this frame. `run_render` needs no refresh, because `Transform` precedes `Render`. `WorldTransform` is only as fresh as the last `update_world_transforms`. After a local `Transform` edit, `set_parent` or `set_world_position`, `world_matrix` still returns the old value until the next update; use `compute_world_matrix` for an exact answer now. `Parent` must be set through `set_parent`; a `Parent` that its parent's `Children` does not list is not visited by the update. `RigidBody2D.velocity` of a child is in the parent's space, because `run_physics_2d` integrates the local `Transform.position`.
 
 ### Multiplayer readiness
 
@@ -123,14 +123,16 @@ Replicate `Transform` and `Parent` only. `WorldTransform` and `Children` are der
 
 ## Physics
 
-`run_physics` is the Fixed / Physics system.
+The physics is 2D: `include/engine/ecs/physics_2d.h`. Its components, event and system carry a `2D` suffix (`RigidBody2D`, `BoxCollider2D`, `CircleCollider2D`, `CollisionEvent2D`, `run_physics_2d`) so a 3D physics can add its own types without a clash. `CollisionPhase` (`Enter`, `Stay`, `Exit`) has no dimension and keeps its name for both. `render::ParticleCollider2D` is the XY-only copy of these colliders that `run_particles` hands to `update_emitter`.
 
-1. Integrate `Transform.position += RigidBody.velocity * fixed_delta_time`.
-2. Call `update_world_transforms`, then collect `BoxCollider` and `CircleCollider` at their **world position** (`world_position`; XY overlap, centered on it). A collider on a child follows its parent. Colliders ignore scale and rotation, as before: `size` and `radius` are world units.
+`run_physics_2d` is the Fixed / Physics system.
+
+1. Integrate `Transform.position += RigidBody2D.velocity * fixed_delta_time`.
+2. Call `update_world_transforms`, then collect `BoxCollider2D` and `CircleCollider2D` at their **world position** (`world_position`; XY overlap, centered on it). A collider on a child follows its parent. Colliders ignore scale and rotation, as before: `size` and `radius` are world units.
 3. A pair overlaps when each layer bit hits the other's mask.
-4. Send `CollisionEvent` with `Enter`, `Stay`, or `Exit`. `is_trigger` is true if either collider is a trigger.
+4. Send `CollisionEvent2D` with `Enter`, `Stay`, or `Exit`. `is_trigger` is true if either collider is a trigger.
 
-`RigidBody.velocity` moves the local `Transform.position`, so the velocity of a child is in its parent's space. There is no contact solver, no response impulse, and no Z test. Overlap state is `ctx<PhysicsOverlapState>` in `src/ecs/physics.cpp`.
+`RigidBody2D.velocity` moves the local `Transform.position`, so the velocity of a child is in its parent's space. There is no contact solver, no response impulse, and no Z test. Overlap state is `ctx<PhysicsOverlapState>` in `src/ecs/physics_2d.cpp`.
 
 ## Public headers
 
@@ -143,12 +145,12 @@ Replicate `Transform` and `Parent` only. `WorldTransform` and `Children` are der
 - `include/engine/ecs/hierarchy.h`
 - `include/engine/ecs/camera.h`
 - `include/engine/ecs/pointer_target.h`
-- `include/engine/ecs/physics.h`
+- `include/engine/ecs/physics_2d.h`
 - `include/engine/ecs/systems.h`
 
 ## Tests
 
-`tests/ecs_test.cpp`, `tests/hierarchy_test.cpp`, `tests/hierarchy_systems_test.cpp`, `tests/events_test.cpp`, `tests/camera_test.cpp`, `tests/physics_test.cpp`, `tests/pointer_target_test.cpp`.
+`tests/ecs_test.cpp`, `tests/hierarchy_test.cpp`, `tests/hierarchy_systems_test.cpp`, `tests/events_test.cpp`, `tests/camera_test.cpp`, `tests/physics_2d_test.cpp`, `tests/pointer_target_test.cpp`.
 
 ## See also
 

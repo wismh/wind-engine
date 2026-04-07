@@ -141,10 +141,10 @@ Mesh and material, in `run_render`:
 - A null `material` and a null texture use `builtin::material_unlit` when it loads.
 - In both null-material cases `CmdDrawParticles.blend` stays `emitter.blend` (default `Alpha`). The OpenGL backend applies `cmd.blend` for particles (`src/render/opengl/opengl_backend.cpp`).
 
-When `collision_enabled` is set, `run_particles` copies non-trigger colliders into `ParticleCollider`s:
+When `collision_enabled` is set, `run_particles` copies non-trigger colliders into `ParticleCollider2D`s:
 
-- `BoxCollider` becomes `Shape::Box`, with `box.size`.
-- `CircleCollider` becomes `Shape::Circle`, with `circle.radius`.
+- `BoxCollider2D` becomes `Shape::Box`, with `box.size`.
+- `CircleCollider2D` becomes `Shape::Circle`, with `circle.radius`.
 
 `update_emitter` (`src/render/particles.cpp`) then tests the swept segment. These fields are on `ParticleEmitter`:
 
