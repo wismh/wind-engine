@@ -230,11 +230,12 @@ TEST(RenderSystem, SortThenPushMesh) {
 
     world.run(engine::ecs::Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 2u);
-    ASSERT_TRUE(std::holds_alternative<engine::render::CmdDrawMesh>(commands[0]));
+    ASSERT_EQ(commands.size(), 3u);
+    ASSERT_TRUE(std::holds_alternative<engine::render::CmdSetView>(commands[0]));
     ASSERT_TRUE(std::holds_alternative<engine::render::CmdDrawMesh>(commands[1]));
-    EXPECT_EQ(std::get<engine::render::CmdDrawMesh>(commands[0]).mesh, mesh_low);
-    EXPECT_EQ(std::get<engine::render::CmdDrawMesh>(commands[1]).mesh, mesh_high);
+    ASSERT_TRUE(std::holds_alternative<engine::render::CmdDrawMesh>(commands[2]));
+    EXPECT_EQ(std::get<engine::render::CmdDrawMesh>(commands[1]).mesh, mesh_low);
+    EXPECT_EQ(std::get<engine::render::CmdDrawMesh>(commands[2]).mesh, mesh_high);
 }
 
 TEST(RenderSystem, MaterialOverridePropagatesToCommand) {
@@ -260,8 +261,8 @@ TEST(RenderSystem, MaterialOverridePropagatesToCommand) {
 
     world.run(engine::ecs::Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 1u);
-    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands[0]);
+    ASSERT_EQ(commands.size(), 2u);
+    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands[1]);
     ASSERT_NE(cmd, nullptr);
     ASSERT_TRUE(cmd->material_override.has_value());
     EXPECT_EQ(cmd->material_override->albedo, override_texture);
@@ -412,10 +413,11 @@ TEST(RenderSystem, UiCommandsAfterWorld) {
 
     world.run(engine::ecs::Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 2u);
-    EXPECT_TRUE(std::holds_alternative<engine::render::CmdDrawMesh>(commands[0]));
-    ASSERT_TRUE(std::holds_alternative<engine::render::CmdDrawUI>(commands[1]));
-    EXPECT_EQ(std::get<engine::render::CmdDrawUI>(commands[1]).rect, canvas.rect);
+    ASSERT_EQ(commands.size(), 3u);
+    EXPECT_TRUE(std::holds_alternative<engine::render::CmdSetView>(commands[0]));
+    EXPECT_TRUE(std::holds_alternative<engine::render::CmdDrawMesh>(commands[1]));
+    ASSERT_TRUE(std::holds_alternative<engine::render::CmdDrawUI>(commands[2]));
+    EXPECT_EQ(std::get<engine::render::CmdDrawUI>(commands[2]).rect, canvas.rect);
 }
 
 TEST(RenderSystem, UiCanvasForSecondaryWindowRoutesThroughCommandsForWindow) {
@@ -1044,9 +1046,9 @@ TEST(RenderSystem, ModelMatrixIsTranslateRotateScale) {
 
     world.run(engine::ecs::Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 1u);
-    ASSERT_TRUE(std::holds_alternative<engine::render::CmdDrawMesh>(commands[0]));
-    const glm::mat4 model = std::get<engine::render::CmdDrawMesh>(commands[0]).model;
+    ASSERT_EQ(commands.size(), 2u);
+    ASSERT_TRUE(std::holds_alternative<engine::render::CmdDrawMesh>(commands[1]));
+    const glm::mat4 model = std::get<engine::render::CmdDrawMesh>(commands[1]).model;
     expect_mat4_eq(model, expected_trs(transform));
     EXPECT_FALSE(mat4_eq(model, glm::translate(glm::mat4(1.0f), transform.position), 1e-4f));
 }
@@ -1351,8 +1353,8 @@ TEST(RenderSystem, DrawMeshCarriesTheMaterialWithItsRenderState) {
 
     world.run(engine::ecs::Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 1u);
-    const auto& cmd = std::get<engine::render::CmdDrawMesh>(commands[0]);
+    ASSERT_EQ(commands.size(), 2u);
+    const auto& cmd = std::get<engine::render::CmdDrawMesh>(commands[1]);
     ASSERT_EQ(cmd.material, material);
     EXPECT_EQ(cmd.material->render_state(), state);
 }

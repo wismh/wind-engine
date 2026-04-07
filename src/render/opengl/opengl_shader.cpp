@@ -106,8 +106,29 @@ void OpenGLShader::set_mat4(std::string_view name, const glm::mat4& value) const
     glUniformMatrix4fv(uniform_location(name), 1, GL_FALSE, glm::value_ptr(value));
 }
 
+void OpenGLShader::set_mat3(std::string_view name, const glm::mat3& value) const {
+    const int location = uniform_location(name);
+    if (location >= 0) {
+        glUniformMatrix3fv(location, 1, GL_FALSE, glm::value_ptr(value));
+    }
+}
+
 void OpenGLShader::set_vec4(std::string_view name, const glm::vec4& value) const {
     glUniform4fv(uniform_location(name), 1, glm::value_ptr(value));
+}
+
+void OpenGLShader::set_vec3(std::string_view name, const glm::vec3& value) const {
+    const int location = uniform_location(name);
+    if (location >= 0) {
+        glUniform3fv(location, 1, glm::value_ptr(value));
+    }
+}
+
+void OpenGLShader::set_vec3_array(std::string_view name, std::span<const glm::vec3> values) const {
+    const int location = uniform_location(name);
+    if (location >= 0 && !values.empty()) {
+        glUniform3fv(location, static_cast<int>(values.size()), glm::value_ptr(values.front()));
+    }
 }
 
 glm::vec4 OpenGLShader::vec4_value(std::string_view name) const {

@@ -20,10 +20,18 @@ For a mesh draw, the engine sets these uniforms on your shader and feeds this ve
 | --- | --- | --- |
 | `aPosition` (location 0) | `vec3` | vertex position |
 | `aUV` (location 1) | `vec2` | vertex UV |
+| `aNormal` (location 2) | `vec3` | vertex normal |
 | `uModel`, `uView`, `uProjection` | `mat4` | model matrix from `Transform`, camera view, camera projection |
+| `uNormalMatrix` | `mat3` | inverse transpose of the model's 3x3, to carry normals to world space |
 | `uColor` | `vec4` | material color times the instance color |
 | `uUvScale`, `uUvOffset` | `vec2` | `Sprite::tiling` / `offset` (`1,1` / `0,0` for a `Renderable`) |
-| `uTexture` | `sampler2D` | the material's albedo (texture unit 0) |
+| `uTexture` | `sampler2D` | the material's albedo (texture unit 0); a 1x1 white texture when the material has none |
+| `uCameraPosition` | `vec3` | camera position in world space |
+| `uLightCount` | `int` | number of directional lights used (0 to 4) |
+| `uLightDirections[4]`, `uLightColors[4]` | `vec3[4]` | world direction each light travels along (unit length), and its color times intensity |
+| `uAmbient` | `vec3` | ambient light (sum of every `AmbientLight`) |
+
+A uniform your shader does not declare is skipped. The lighting uniforms follow the rules in [Basic 3D](Basic-3D.md#lights).
 
 Example `assets/shaders/custom_glow.shader`:
 
@@ -67,7 +75,7 @@ Example `assets/shaders/custom_glow.shader`:
 </shader>
 ```
 
-The engine's builtin `shaders/unlit.shader` is the shortest working example (in an SDK it is `bin/assets/engine/shaders/unlit.shader`).
+The engine's builtin `shaders/unlit.shader` is the shortest working example (in an SDK it is `bin/assets/engine/shaders/unlit.shader`). `shaders/lit.shader` is the lit one: Lambert diffuse per directional light plus ambient.
 
 ---
 
