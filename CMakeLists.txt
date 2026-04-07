@@ -450,6 +450,14 @@ function(engine_configure_app target)
         set_property(TARGET ${target} PROPERTY ENGINE_GAME_ICON_DIR "${_icon_gen}")
     endif()
 
+    set(_manifest "${CMAKE_CURRENT_SOURCE_DIR}/android/AndroidManifest.xml")
+    if(NOT EXISTS "${_manifest}")
+        set(_manifest "${CMAKE_CURRENT_SOURCE_DIR}/AndroidManifest.xml")
+    endif()
+    if(EXISTS "${_manifest}")
+        set_property(TARGET ${target} PROPERTY ENGINE_GAME_ANDROID_MANIFEST "${_manifest}")
+    endif()
+
     get_property(_icon_dir TARGET ${target} PROPERTY ENGINE_GAME_ICON_DIR)
     if(WIN32 AND _icon_dir)
         # icon.ico does not exist at configure time (icon_codegen writes it at build time), so
