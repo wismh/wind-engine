@@ -78,6 +78,9 @@ std::optional<ImporterKind> importer_from_extension(const std::filesystem::path&
     if (ext == ".strings") {
         return ImporterKind::Strings;
     }
+    if (ext == ".world") {
+        return ImporterKind::World;
+    }
     return std::nullopt;
 }
 

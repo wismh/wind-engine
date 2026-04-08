@@ -90,8 +90,16 @@ public:
     template<typename... Ts>
     [[nodiscard]] View<Ts...> view();
 
+    [[nodiscard]] std::vector<Entity> alive_entities() const;
+
     template<typename T>
     T& ctx();
+
+    template<typename T>
+    [[nodiscard]] T* try_ctx() noexcept;
+
+    template<typename T>
+    [[nodiscard]] const T* try_ctx() const noexcept;
 
     using SystemFn = std::function<void(World&)>;
 
