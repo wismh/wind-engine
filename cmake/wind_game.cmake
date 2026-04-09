@@ -250,10 +250,33 @@ function(engine_configure_app target)
     if(EXISTS "${_include}")
         target_include_directories(${target} PRIVATE "${_include}")
     endif()
+    set(_src "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    if(EXISTS "${_src}")
+        target_include_directories(${target} PRIVATE "${_src}")
+    endif()
+
+    set(_gen "${CMAKE_CURRENT_BINARY_DIR}/generated/${target}")
+    target_include_directories(${target} PRIVATE "${_gen}")
+
+    file(GLOB_RECURSE _component_headers CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.hpp")
+    add_custom_command(
+        OUTPUT "${_gen}/component_io.h"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${_gen}"
+        COMMAND asset_codegen --components "${_gen}/component_io.h"
+            "${CMAKE_CURRENT_SOURCE_DIR}/include"
+            "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        DEPENDS asset_codegen ${_component_headers}
+        COMMENT "Generate component serializers for ${target}"
+        VERBATIM)
+    add_custom_target(${target}_components DEPENDS "${_gen}/component_io.h")
+    add_dependencies(${target} ${target}_components)
 
     set(_assets "${CMAKE_CURRENT_SOURCE_DIR}/assets")
     if(EXISTS "${_assets}")
-        set(_gen "${CMAKE_CURRENT_BINARY_DIR}/generated/${target}")
         file(GLOB_RECURSE _asset_files CONFIGURE_DEPENDS "${_assets}/*")
         add_custom_command(
             OUTPUT "${_gen}/asset_ids.h" "${_gen}/catalog.toml"
@@ -266,7 +289,6 @@ function(engine_configure_app target)
             "${_gen}/asset_ids.h"
             "${_gen}/catalog.toml")
         add_dependencies(${target} ${target}_assets)
-        target_include_directories(${target} PRIVATE "${_gen}")
         set_property(TARGET ${target} PROPERTY ENGINE_GAME_CATALOG "${_gen}/catalog.toml")
         set_property(TARGET ${target} PROPERTY ENGINE_GAME_ASSETS "${_assets}")
     endif()
