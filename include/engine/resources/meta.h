@@ -36,6 +36,7 @@ enum class ImporterKind {
     Css,
     Animation,
     Strings,
+    World,
 };
 
 enum class ColorSpace {
@@ -148,6 +149,8 @@ enum class CodegenErrorKind {
     Io,
     UiMarkup,
     Strings,
+    World,
+    ComponentCodegen,
 };
 
 struct CodegenError {

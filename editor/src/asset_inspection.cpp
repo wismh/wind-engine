@@ -1,5 +1,6 @@
 #include "asset_inspection.h"
 
+#include <engine/ecs/world_asset.h>
 #include <engine/resources/meta.h>
 
 #include <algorithm>
@@ -141,6 +142,20 @@ std::optional<InspectorSection> import_section(const std::filesystem::path& file
     case engine::ImporterKind::Strings:
         section.lines.push_back(std::format("Key source: {}", meta->strings_source ? "yes" : "no"));
         break;
+    case engine::ImporterKind::World: {
+        std::ifstream world_in(file, std::ios::binary);
+        if (world_in) {
+            const std::string world_text(
+                    (std::istreambuf_iterator<char>(world_in)), std::istreambuf_iterator<char>());
+            if (const auto world = engine::ecs::parse_world_asset(world_text)) {
+                section.lines.push_back(std::format("Entities: {}", world->entities.size()));
+                if (!world->active_camera.empty()) {
+                    section.lines.push_back(std::format("Active camera: {}", world->active_camera));
+                }
+            }
+        }
+        break;
+    }
     default:
         break;
     }
