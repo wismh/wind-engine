@@ -2,7 +2,7 @@
 
 #include <engine/core/time.h>
 #include <engine/ecs/events.h>
-#include <engine/ecs/physics.h>
+#include <engine/ecs/physics_2d.h>
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/systems.h>
 #include <engine/ecs/transform.h>
@@ -17,9 +17,9 @@ void step_physics(engine::ecs::World& world) {
     world.run(engine::ecs::Schedule::Fixed);
 }
 
-std::vector<engine::CollisionEvent> read_collisions(engine::ecs::World& world) {
-    std::vector<engine::CollisionEvent> events;
-    for (const engine::CollisionEvent& event : engine::ecs::EventReader<engine::CollisionEvent>{world}) {
+std::vector<engine::CollisionEvent2D> read_collisions(engine::ecs::World& world) {
+    std::vector<engine::CollisionEvent2D> events;
+    for (const engine::CollisionEvent2D& event : engine::ecs::EventReader<engine::CollisionEvent2D>{world}) {
         events.push_back(event);
     }
     return events;
@@ -32,13 +32,13 @@ void drop_collision_history(engine::ecs::World& world) {
 
 }
 
-TEST(Physics, IntegrateFixedDeltaTime) {
+TEST(Physics2D, IntegrateFixedDeltaTime) {
     engine::ecs::World world;
     engine::register_engine_systems(world);
 
     const engine::ecs::Entity entity = world.create();
     world.emplace<engine::Transform>(entity, engine::Transform{});
-    world.emplace<engine::RigidBody>(entity, engine::RigidBody{glm::vec3{60.f, 0.f, 0.f}});
+    world.emplace<engine::RigidBody2D>(entity, engine::RigidBody2D{glm::vec3{60.f, 0.f, 0.f}});
 
     step_physics(world);
 
@@ -48,39 +48,39 @@ TEST(Physics, IntegrateFixedDeltaTime) {
     EXPECT_NEAR(transform.position.z, 0.f, 1e-5f);
 }
 
-TEST(Physics, AabbOverlap) {
+TEST(Physics2D, AabbOverlap) {
     engine::ecs::World world;
     engine::register_engine_systems(world);
 
     const engine::ecs::Entity a = world.create();
     const engine::ecs::Entity b = world.create();
     world.emplace<engine::Transform>(a, engine::Transform{});
-    world.emplace<engine::BoxCollider>(a, engine::BoxCollider{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::BoxCollider2D>(a, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
     world.emplace<engine::Transform>(b, engine::Transform{});
-    world.emplace<engine::BoxCollider>(b, engine::BoxCollider{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::BoxCollider2D>(b, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
 
     step_physics(world);
 
-    const std::vector<engine::CollisionEvent> events = read_collisions(world);
+    const std::vector<engine::CollisionEvent2D> events = read_collisions(world);
     ASSERT_EQ(events.size(), 1u);
     EXPECT_EQ(events[0].a, a);
     EXPECT_EQ(events[0].b, b);
 }
 
-TEST(Physics, CollisionPhaseEnterThenStay) {
+TEST(Physics2D, CollisionPhaseEnterThenStay) {
     engine::ecs::World world;
     engine::register_engine_systems(world);
 
     const engine::ecs::Entity a = world.create();
     const engine::ecs::Entity b = world.create();
     world.emplace<engine::Transform>(a, engine::Transform{});
-    world.emplace<engine::BoxCollider>(a, engine::BoxCollider{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::BoxCollider2D>(a, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
     world.emplace<engine::Transform>(b, engine::Transform{});
-    world.emplace<engine::BoxCollider>(b, engine::BoxCollider{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::BoxCollider2D>(b, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
 
     step_physics(world);
     {
-        const std::vector<engine::CollisionEvent> events = read_collisions(world);
+        const std::vector<engine::CollisionEvent2D> events = read_collisions(world);
         ASSERT_EQ(events.size(), 1u);
         EXPECT_EQ(events[0].phase, engine::CollisionPhase::Enter);
     }
@@ -88,22 +88,22 @@ TEST(Physics, CollisionPhaseEnterThenStay) {
     drop_collision_history(world);
     step_physics(world);
     {
-        const std::vector<engine::CollisionEvent> events = read_collisions(world);
+        const std::vector<engine::CollisionEvent2D> events = read_collisions(world);
         ASSERT_EQ(events.size(), 1u);
         EXPECT_EQ(events[0].phase, engine::CollisionPhase::Stay);
     }
 }
 
-TEST(Physics, CollisionPhaseExitThenReenter) {
+TEST(Physics2D, CollisionPhaseExitThenReenter) {
     engine::ecs::World world;
     engine::register_engine_systems(world);
 
     const engine::ecs::Entity a = world.create();
     const engine::ecs::Entity b = world.create();
     world.emplace<engine::Transform>(a, engine::Transform{});
-    world.emplace<engine::BoxCollider>(a, engine::BoxCollider{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::BoxCollider2D>(a, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
     world.emplace<engine::Transform>(b, engine::Transform{});
-    world.emplace<engine::BoxCollider>(b, engine::BoxCollider{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::BoxCollider2D>(b, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
 
     step_physics(world);
     ASSERT_EQ(read_collisions(world).size(), 1u);
@@ -112,7 +112,7 @@ TEST(Physics, CollisionPhaseExitThenReenter) {
     drop_collision_history(world);
     step_physics(world);
     {
-        const std::vector<engine::CollisionEvent> events = read_collisions(world);
+        const std::vector<engine::CollisionEvent2D> events = read_collisions(world);
         ASSERT_EQ(events.size(), 1u);
         EXPECT_EQ(events[0].phase, engine::CollisionPhase::Exit);
     }
@@ -125,113 +125,116 @@ TEST(Physics, CollisionPhaseExitThenReenter) {
     drop_collision_history(world);
     step_physics(world);
 
-    const std::vector<engine::CollisionEvent> events = read_collisions(world);
+    const std::vector<engine::CollisionEvent2D> events = read_collisions(world);
     ASSERT_EQ(events.size(), 1u);
     EXPECT_EQ(events[0].a, a);
     EXPECT_EQ(events[0].b, b);
     EXPECT_EQ(events[0].phase, engine::CollisionPhase::Enter);
 }
 
-TEST(Physics, CircleOverlap) {
+TEST(Physics2D, CircleOverlap) {
     engine::ecs::World world;
     engine::register_engine_systems(world);
 
     const engine::ecs::Entity a = world.create();
     const engine::ecs::Entity b = world.create();
     world.emplace<engine::Transform>(a, engine::Transform{});
-    world.emplace<engine::CircleCollider>(a, engine::CircleCollider{.radius = 1.f});
+    world.emplace<engine::CircleCollider2D>(a, engine::CircleCollider2D{.radius = 1.f});
     world.emplace<engine::Transform>(b, engine::Transform{glm::vec3{1.5f, 0.f, 0.f}});
-    world.emplace<engine::CircleCollider>(b, engine::CircleCollider{.radius = 1.f});
+    world.emplace<engine::CircleCollider2D>(b, engine::CircleCollider2D{.radius = 1.f});
 
     step_physics(world);
 
-    const std::vector<engine::CollisionEvent> events = read_collisions(world);
+    const std::vector<engine::CollisionEvent2D> events = read_collisions(world);
     ASSERT_EQ(events.size(), 1u);
     EXPECT_EQ(events[0].a, a);
     EXPECT_EQ(events[0].b, b);
 }
 
-TEST(Physics, CircleNoOverlapBeyondRadius) {
+TEST(Physics2D, CircleNoOverlapBeyondRadius) {
     engine::ecs::World world;
     engine::register_engine_systems(world);
 
     const engine::ecs::Entity a = world.create();
     const engine::ecs::Entity b = world.create();
     world.emplace<engine::Transform>(a, engine::Transform{});
-    world.emplace<engine::CircleCollider>(a, engine::CircleCollider{.radius = 1.f});
+    world.emplace<engine::CircleCollider2D>(a, engine::CircleCollider2D{.radius = 1.f});
     world.emplace<engine::Transform>(b, engine::Transform{glm::vec3{3.f, 0.f, 0.f}});
-    world.emplace<engine::CircleCollider>(b, engine::CircleCollider{.radius = 1.f});
+    world.emplace<engine::CircleCollider2D>(b, engine::CircleCollider2D{.radius = 1.f});
 
     step_physics(world);
 
     EXPECT_TRUE(read_collisions(world).empty());
 }
 
-TEST(Physics, BoxCircleOverlapCrossShape) {
+TEST(Physics2D, BoxCircleOverlapCrossShape) {
     engine::ecs::World world;
     engine::register_engine_systems(world);
 
     const engine::ecs::Entity a = world.create();
     const engine::ecs::Entity b = world.create();
     world.emplace<engine::Transform>(a, engine::Transform{});
-    world.emplace<engine::BoxCollider>(a, engine::BoxCollider{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::BoxCollider2D>(a, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
     world.emplace<engine::Transform>(b, engine::Transform{glm::vec3{1.5f, 0.f, 0.f}});
-    world.emplace<engine::CircleCollider>(b, engine::CircleCollider{.radius = 1.f});
+    world.emplace<engine::CircleCollider2D>(b, engine::CircleCollider2D{.radius = 1.f});
 
     step_physics(world);
 
-    const std::vector<engine::CollisionEvent> events = read_collisions(world);
+    const std::vector<engine::CollisionEvent2D> events = read_collisions(world);
     ASSERT_EQ(events.size(), 1u);
     EXPECT_EQ(events[0].a, a);
     EXPECT_EQ(events[0].b, b);
 }
 
-TEST(Physics, LayerMaskFiltersCollision) {
+TEST(Physics2D, LayerMaskFiltersCollision) {
     engine::ecs::World world;
     engine::register_engine_systems(world);
 
     const engine::ecs::Entity a = world.create();
     const engine::ecs::Entity b = world.create();
     world.emplace<engine::Transform>(a, engine::Transform{});
-    world.emplace<engine::BoxCollider>(a, engine::BoxCollider{.size = glm::vec3{2.f, 2.f, 1.f}, .layer = 0b01, .mask = 0b01});
+    world.emplace<engine::BoxCollider2D>(a,
+            engine::BoxCollider2D{.size = glm::vec3{2.f, 2.f, 1.f}, .layer = 0b01, .mask = 0b01});
     world.emplace<engine::Transform>(b, engine::Transform{});
-    world.emplace<engine::BoxCollider>(b, engine::BoxCollider{.size = glm::vec3{2.f, 2.f, 1.f}, .layer = 0b10, .mask = 0b10});
+    world.emplace<engine::BoxCollider2D>(b,
+            engine::BoxCollider2D{.size = glm::vec3{2.f, 2.f, 1.f}, .layer = 0b10, .mask = 0b10});
 
     step_physics(world);
 
     EXPECT_TRUE(read_collisions(world).empty());
 }
 
-TEST(Physics, LayerMaskDefaultStillCollidesWithAll) {
+TEST(Physics2D, LayerMaskDefaultStillCollidesWithAll) {
     engine::ecs::World world;
     engine::register_engine_systems(world);
 
     const engine::ecs::Entity a = world.create();
     const engine::ecs::Entity b = world.create();
     world.emplace<engine::Transform>(a, engine::Transform{});
-    world.emplace<engine::BoxCollider>(a, engine::BoxCollider{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::BoxCollider2D>(a, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
     world.emplace<engine::Transform>(b, engine::Transform{});
-    world.emplace<engine::BoxCollider>(b, engine::BoxCollider{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::BoxCollider2D>(b, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
 
     step_physics(world);
 
     ASSERT_EQ(read_collisions(world).size(), 1u);
 }
 
-TEST(Physics, TriggerFlagReportedOnEvent) {
+TEST(Physics2D, TriggerFlagReportedOnEvent) {
     engine::ecs::World world;
     engine::register_engine_systems(world);
 
     const engine::ecs::Entity a = world.create();
     const engine::ecs::Entity b = world.create();
     world.emplace<engine::Transform>(a, engine::Transform{});
-    world.emplace<engine::BoxCollider>(a, engine::BoxCollider{.size = glm::vec3{2.f, 2.f, 1.f}, .is_trigger = true});
+    world.emplace<engine::BoxCollider2D>(a,
+            engine::BoxCollider2D{.size = glm::vec3{2.f, 2.f, 1.f}, .is_trigger = true});
     world.emplace<engine::Transform>(b, engine::Transform{});
-    world.emplace<engine::BoxCollider>(b, engine::BoxCollider{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::BoxCollider2D>(b, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
 
     step_physics(world);
 
-    const std::vector<engine::CollisionEvent> events = read_collisions(world);
+    const std::vector<engine::CollisionEvent2D> events = read_collisions(world);
     ASSERT_EQ(events.size(), 1u);
     EXPECT_TRUE(events[0].is_trigger);
 }
