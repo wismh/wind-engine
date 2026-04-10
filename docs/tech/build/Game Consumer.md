@@ -22,6 +22,43 @@ The `FORCE` has to be set before `add_subdirectory`. `option()` will not replace
 
 What `engine_add_game` adds (executable, Android `libmain`, or the editor's game module; C++23, asset cook, optional `icon.png`, runtime copy) is [CMake](CMake.md) and [Pipeline](Pipeline.md).
 
+## Editor module
+
+The editor is not built in the game's tree. Build and install the editor SDK once from the engine repo:
+
+```bash
+cmake --preset vs-editor
+cmake --build build-editor --config Release
+cmake --install build-editor --config Release --prefix out/sdk
+```
+
+Then configure the game with the cache path `WIND_EDITOR_SDK` pointing at that SDK. The game's `CMakeLists.txt` does not change. `add_subdirectory(external/engine)` imports `engine`, `glm::glm`, `asset_codegen`, and `icon_codegen` from the SDK and compiles no engine, and `engine_add_game` builds a module (`bin/<config>/<game>.dll` with `assets/catalog.toml` beside it). `ENGINE_WITH_GTEST` still adds GoogleTest from the submodule. See [CMake](CMake.md#sdk-mode).
+
+The path is per machine, so it goes in the game's `CMakeUserPresets.json` (not committed), on top of a committed `editor` preset that sets only the generator and binary directory:
+
+```json
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "editor-local",
+      "inherits": "editor",
+      "cacheVariables": {
+        "WIND_EDITOR_SDK": "C:/path/to/engine/out/sdk"
+      }
+    }
+  ]
+}
+```
+
+```bash
+cmake --preset editor-local
+cmake --build build-editor --config Release --target my_game
+C:/path/to/engine/out/sdk/bin/wind_editor.exe --game build-editor/bin/Release/my_game.dll --play
+```
+
+Build the module in the SDK's configuration (Release). `ENGINE_EDITOR=ON` in a game tree without `WIND_EDITOR_SDK` is a configure error.
+
 ## `main`
 
 ```cpp
