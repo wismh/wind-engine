@@ -5,6 +5,8 @@
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
 
+#include <glm/mat4x4.hpp>
+#include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
 #include <memory>
@@ -32,8 +34,8 @@ public:
         return {1.0f, 1.0f, 1.0f, 1.0f};
     }
 
-    engine::render::BlendMode blend() const override {
-        return engine::render::BlendMode::Opaque;
+    engine::render::RenderState render_state() const override {
+        return {.blend = engine::render::BlendMode::Opaque};
     }
 };
 
@@ -53,6 +55,10 @@ struct RecordingBackend {
     void operator()(const engine::render::CmdDrawParticles&) {
         kinds.emplace_back("particles");
     }
+
+    void operator()(const engine::render::CmdSetView&) {
+        kinds.emplace_back("view");
+    }
 };
 
 template<typename T, typename = void>
@@ -60,6 +66,18 @@ struct has_shader_field : std::false_type {};
 
 template<typename T>
 struct has_shader_field<T, std::void_t<decltype(std::declval<T>().shader)>> : std::true_type {};
+
+template<typename T, typename = void>
+struct has_view_field : std::false_type {};
+
+template<typename T>
+struct has_view_field<T, std::void_t<decltype(std::declval<T>().view)>> : std::true_type {};
+
+template<typename T, typename = void>
+struct has_projection_field : std::false_type {};
+
+template<typename T>
+struct has_projection_field<T, std::void_t<decltype(std::declval<T>().projection)>> : std::true_type {};
 
 template<typename T, typename = void>
 struct has_texture_field : std::false_type {};
@@ -81,14 +99,23 @@ TEST(CommandBuffer, VariantHasExpectedCommands) {
     using engine::render::CmdDrawMesh;
     using engine::render::CmdDrawParticles;
     using engine::render::CmdDrawUI;
+    using engine::render::CmdSetView;
     using engine::render::Command;
 
-    static_assert(std::variant_size_v<Command> == 3);
+    static_assert(std::variant_size_v<Command> == 4);
     static_assert(std::is_same_v<std::variant_alternative_t<0, Command>, CmdDrawMesh>);
     static_assert(std::is_same_v<std::variant_alternative_t<1, Command>, CmdDrawUI>);
     static_assert(std::is_same_v<std::variant_alternative_t<2, Command>, CmdDrawParticles>);
+    static_assert(std::is_same_v<std::variant_alternative_t<3, Command>, CmdSetView>);
     static_assert(!has_shader_field<CmdDrawMesh>::value);
     static_assert(!has_texture_field<CmdDrawMesh>::value);
+    // The camera reaches draws only through CmdSetView.
+    static_assert(!has_view_field<CmdDrawMesh>::value);
+    static_assert(!has_projection_field<CmdDrawMesh>::value);
+    static_assert(!has_view_field<CmdDrawParticles>::value);
+    static_assert(!has_projection_field<CmdDrawParticles>::value);
+    static_assert(has_view_field<CmdSetView>::value);
+    static_assert(has_projection_field<CmdSetView>::value);
     SUCCEED();
 }
 
@@ -164,4 +191,25 @@ TEST(CommandBuffer, PushParticlesPreservesFifo) {
     EXPECT_EQ(backend.kinds[0], "mesh");
     EXPECT_EQ(backend.kinds[1], "particles");
     EXPECT_EQ(backend.kinds[2], "ui");
+}
+
+TEST(CommandBuffer, SetViewDefaultsToIdentityWithoutLights) {
+    const engine::render::CmdSetView view;
+    EXPECT_EQ(view.view, glm::mat4(1.0f));
+    EXPECT_EQ(view.projection, glm::mat4(1.0f));
+    EXPECT_EQ(view.camera_position, glm::vec3(0.0f));
+    EXPECT_EQ(view.lights.directional_count, 0);
+    EXPECT_EQ(view.lights.ambient, glm::vec3(0.0f));
+}
+
+TEST(CommandBuffer, SetViewIsVisitedInOrder) {
+    engine::render::CommandBuffer buffer;
+    buffer.push(engine::render::CmdSetView{});
+    buffer.push(make_mesh_cmd());
+    buffer.push(engine::render::CmdSetView{});
+    buffer.push(make_mesh_cmd());
+
+    RecordingBackend backend;
+    buffer.execute(backend);
+    EXPECT_EQ(backend.kinds, (std::vector<std::string>{"view", "mesh", "view", "mesh"}));
 }

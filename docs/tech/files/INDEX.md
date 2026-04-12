@@ -43,14 +43,15 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/core/window_desc.h` | `WindowId`, `WindowDesc`, `WindowStyle` | [Windowing](../features/Windowing.md) |
 | `include/engine/core/worlds.h` | Process `Worlds`: add, destroy, bind, stepping | [Core](../modules/Core.md) |
 | `include/engine/ecs/.gitkeep` | Keeps the directory in Git | [ECS](../modules/ECS.md) |
-| `include/engine/ecs/camera.h` | Orthographic `Camera` and screen/world conversion | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/camera.h` | `Camera` (orthographic or perspective), `Projection`, screen/world and screen/ray conversion | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/entity.h` | Generational `Entity` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/events.h` | Double-buffered `Events`, reader, writer, cursor | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/pointer_target.h` | `PointerTarget`, `PointerTargetEvent`, `pointer_target_at` | [UI Input](../features/UI%20Input.md#pointer-targets) |
-| `include/engine/ecs/physics.h` | Colliders, `CollisionEvent`, `run_physics` | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/physics_2d.h` | Colliders, `CollisionEvent2D`, `run_physics_2d` | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/ray.h` | `Ray`: world-space origin and direction from `screen_to_ray` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/schedule.h` | `Schedule` and `Phase` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/systems.h` | `register_engine_systems` and its dependencies | [ECS](../modules/ECS.md) |
-| `include/engine/ecs/transform.h` | Position, rotation, scale. No parent | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/transform.h` | Position, quaternion rotation, scale. No parent. `rotation_z`, `euler_xyz`, `angle_z` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/world.h` | `World` and `View` declarations | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/world.inl` | Pool and view template bodies | [ECS](../modules/ECS.md) |
 | `include/engine/haptics/haptics_system.h` | `IHaptics` and `HapticsSystem` | [Haptics](../modules/Haptics.md) |
@@ -66,17 +67,23 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/project/wind_project.h` | `WindProject`, `read_wind_project` | [Project](../modules/Project.md) |
 | `include/engine/loc/catalog.h` | `StringTable` parse and `Catalog` | [Localization](../modules/Localization.md) |
 | `include/engine/render/.gitkeep` | Keeps the directory in Git | [Render](../modules/Render.md) |
+| `include/engine/render/ambient_light.h` | `AmbientLight` component | [Render](../modules/Render.md#lights) |
 | `include/engine/render/animation.h` | Sprite clip, animator, animation TOML | [Render](../modules/Render.md) |
 | `include/engine/render/backend.h` | `IRenderBackend::execute` | [Render](../modules/Render.md) |
 | `include/engine/render/canvas.h` | `ICanvas::draw` | [Render](../modules/Render.md) |
 | `include/engine/render/command_buffer.h` | Buffer of `Command` | [Render](../modules/Render.md) |
-| `include/engine/render/commands.h` | `CmdDrawMesh`, `CmdDrawUI`, `CmdDrawParticles` | [Render](../modules/Render.md) |
+| `include/engine/render/commands.h` | `CmdDrawMesh`, `CmdDrawUI`, `CmdDrawParticles`, `CmdSetView` | [Render](../modules/Render.md) |
 | `include/engine/render/curve.h` | `Curve<T>` with `Linear`, `Smooth`, and `Step` keys | [Render](../modules/Render.md) |
-| `include/engine/render/graphic_factory.h` | Mesh, shader, and texture descriptions and factory | [Render](../modules/Render.md) |
+| `include/engine/render/directional_light.h` | `DirectionalLight` component | [Render](../modules/Render.md#lights) |
+| `include/engine/render/graphic_factory.h` | `MeshVertex` (position, normal, uv), indexed `MeshDesc`, shader and texture descriptions, factory | [Render](../modules/Render.md) |
 | `include/engine/render/graphics.h` | `IMesh`, `IShader`, `ITexture` | [Render](../modules/Render.md) |
-| `include/engine/render/material.h` | `IMaterial`, blend modes, `.mat` parse | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `include/engine/render/lights.h` | `collect_scene_lights`, `default_scene_lights` | [Render](../modules/Render.md#lights) |
+| `include/engine/render/material.h` | `IMaterial`, `RenderState` (blend, depth test/write, `CullMode`), `.mat` parse | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `include/engine/render/draw_sort.h` | `DrawQueue`, `DrawSortKey`, `make_draw_sort_key`, `draw_sort_less` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `include/engine/render/particles.h` | `ParticleEmitter` | [Render](../modules/Render.md) |
-| `include/engine/render/renderable.h` | `Renderable` and the sort predicate | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `include/engine/render/primitives.h` | `make_quad`, `make_cube`, `make_plane`, `make_uv_sphere` | [Render](../modules/Render.md#primitives) |
+| `include/engine/render/renderable.h` | `Renderable`, `RenderableItem`, `sort_renderables` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `include/engine/render/scene_lights.h` | `SceneLights`, `kMaxDirectionalLights`, default light constants | [Render](../modules/Render.md#lights) |
 | `include/engine/render/shader_adapt.h` | GLSL 330 to GLSL 300 ES | [Render](../modules/Render.md) |
 | `include/engine/render/sprite.h` | `Sprite` quad fields | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `include/engine/resources/.gitkeep` | Keeps the directory in Git | [Resources](../modules/Resources.md) |
@@ -156,9 +163,9 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | Path | What it does | Page |
 | --- | --- | --- |
 | `src/ecs/.gitkeep` | Keeps the directory in Git | [ECS](../modules/ECS.md) |
-| `src/ecs/camera.cpp` | View and projection matrices, screen/world | [ECS](../modules/ECS.md) |
+| `src/ecs/camera.cpp` | View and projection matrices, perspective clip clamp, screen/world, screen/ray | [ECS](../modules/ECS.md) |
 | `src/ecs/pointer_target.cpp` | `pointer_target_at` and `run_pointer_targets` | [UI Input](../features/UI%20Input.md#pointer-targets) |
-| `src/ecs/physics.cpp` | Velocity integration and overlap events | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_2d.cpp` | Velocity integration and overlap events | [ECS](../modules/ECS.md) |
 | `src/ecs/systems.cpp` | Engine systems: input, dock input, splash, animation, particles, dock layout, bind, audio, render, UI render | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/ecs/world.cpp` | Create, destroy, flush, `run` | [ECS](../modules/ECS.md) |
 
@@ -173,7 +180,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/resources/codegen.cpp` | Scan tree, emit `asset_ids.h` and `catalog.toml` | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `src/resources/icon_codegen.cpp` | Resize and encode ico, icns, mipmaps, favicon | [Icon Codegen](../build/Icon%20Codegen.md) |
 | `src/resources/icon_codegen.h` | Icon encode API used by the host tool | [Icon Codegen](../build/Icon%20Codegen.md) |
-| `src/resources/importers.cpp` | Mesh text, shader XML, PNG decode entry points | [Assets](../features/Assets.md) |
+| `src/resources/importers.cpp` | Mesh text (vertices, normals, `f` index rows), shader XML, PNG decode entry points | [Assets](../features/Assets.md) |
 | `src/resources/importers.h` | Those parsers, and `encode_png_rgba` | [Assets](../features/Assets.md) |
 | `src/resources/meta.cpp` | TOML `.meta` and cooked catalog parse | [Resources](../modules/Resources.md) |
 | `src/resources/png_decode.cpp` | PNG bytes to RGBA `TextureDesc` | [Icon Codegen](../build/Icon%20Codegen.md) |
@@ -193,9 +200,12 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/context_objects.cpp`, `src/render/context_objects.h` | Live GL context keys and VAO deletes deferred to their context | [Render](../modules/Render.md) |
 | `src/render/framebuffer_image.cpp`, `src/render/framebuffer_image.h` | Read-back rows to a top-first image with straight alpha | [CLI](../features/CLI.md#screenshot) |
 | `src/render/gl_error_log.cpp`, `src/render/gl_error_log.h` | GL error names; one log line per error and command | [Render](../modules/Render.md) |
+| `src/render/lights.cpp` | Collect directional and ambient lights for `CmdSetView` | [Render](../modules/Render.md#lights) |
 | `src/render/material.cpp` | Parse `.mat` TOML | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `src/render/material_instance.h` | `IMaterial` for a loaded `.mat` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `src/render/mesh_check.cpp`, `src/render/mesh_check.h` | `mesh_desc_error`: why a `MeshDesc` cannot be drawn | [Render](../modules/Render.md#meshes) |
 | `src/render/particles.cpp` | Spawn, integrate, and collide particles | [Render](../modules/Render.md) |
+| `src/render/primitives.cpp` | Procedural quad, cube, plane, and UV sphere | [Render](../modules/Render.md#primitives) |
 | `src/render/shader_adapt.cpp` | Rewrite GLSL for ES | [Render](../modules/Render.md) |
 | `src/render/opengl/clipboard.cpp` | SDL clipboard get and set | [UI Input](../features/UI%20Input.md) |
 | `src/render/opengl/clipboard.h` | Those two functions | [UI Input](../features/UI%20Input.md) |
@@ -203,7 +213,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/opengl/desktop_overlay_policy.cpp` | Click-through and the Win32 modal-loop hook | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/desktop_overlay_policy.h` | `DesktopOverlayPolicy` | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/gl_includes.h` | glad or GLES include, private | [Render](../modules/Render.md) |
-| `src/render/opengl/opengl_backend.cpp` | Execute mesh and particle commands | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_backend.cpp` | Execute view, mesh and particle commands; view and light uniforms, white texture for untextured draws | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_backend.h` | `OpenGLBackend` | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_canvas.cpp` | Per-window GL canvas: render, read back, present; font and image upload, swap interval | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_canvas.h` | `OpenGLCanvas` | [Render](../modules/Render.md) |
@@ -211,7 +221,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/opengl/opengl_ui_shader.h` | The UI shader, `src/ui/render/fragment.h` in GLSL | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_factory.cpp` | Create GL mesh, shader, texture | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_factory.h` | `OpenGLFactory` | [Render](../modules/Render.md) |
-| `src/render/opengl/opengl_mesh.cpp` | GL mesh | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_mesh.cpp` | GL mesh: vertex and element buffers, per-context VAO, `glDrawElements` or `glDrawArrays` | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_mesh.h` | GL mesh type | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_shader.cpp` | GL program and named uniforms | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_shader.h` | GL shader type | [Render](../modules/Render.md) |
@@ -375,10 +385,10 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/assets_test.cpp` | Catalog, `get` / `try_get`, `unload_catalog`, codegen failures, stylesheet warnings in `game.log` | [Assets](../features/Assets.md) |
 | `tests/audio_test.cpp` | Pool, music fade, looping handles, `stop_all` without opening a device | [Audio](../modules/Audio.md) |
 | `tests/builtin_test.cpp` | Frozen builtin ids and files | [Resources](../modules/Resources.md) |
-| `tests/camera_test.cpp` | Ortho matrices and screen/world | [ECS](../modules/ECS.md) |
+| `tests/camera_test.cpp` | Ortho and perspective matrices, clip clamp, screen/world, screen/ray | [ECS](../modules/ECS.md) |
 | `tests/cli_server_test.cpp` | Descriptor, HTTP, window routing, host commands, and UI commands without `GameLoop` | [CLI](../features/CLI.md) |
 | `tests/cmake_sanity_test.cpp` | Public headers compile, build id, CMake file checks (game functions, SDK package, export wiring and player libraries) | [CMake](../build/CMake.md) |
-| `tests/command_buffer_test.cpp` | Push and iterate the three command types | [Render](../modules/Render.md) |
+| `tests/command_buffer_test.cpp` | Push and iterate the four command types; draws carry no view or projection | [Render](../modules/Render.md) |
 | `tests/context_objects_test.cpp` | GL context keys, reused handles, deferred VAO deletes | [Render](../modules/Render.md) |
 | `tests/dock_layout_test.cpp` | Dock operations and invariants, geometry, drop zones, chrome hits, text round trip, reconcile | [Docking](../features/Docking.md) |
 | `tests/dock_space_test.cpp` | Dock systems: panel rects and orders, chrome lists and default theme, every tab and splitter hit, tab click and drag, splitter, float move, resize, raise, dock, Escape, consumption, close request, tab widths from titles | [Docking](../features/Docking.md#host) |
@@ -409,24 +419,28 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/loc_catalog_test.cpp` | TOML tables, fallback, pseudo, warn-once | [Localization](../modules/Localization.md) |
 | `tests/loc_format_test.cpp` | Placeholders and plural branches | [Localization](../modules/Localization.md) |
 | `tests/log_test.cpp` | The null sink | [Core](../modules/Core.md) |
-| `tests/material_test.cpp` | `.mat` parse and instance tint | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `tests/material_test.cpp` | `.mat` parse (blend, depth, cull, defaults) and instance tint | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `tests/mesh_test.cpp` | `.mesh` parse (5- and 8-column vertices, `f` rows, bad rows and indices), `mesh_desc_error` | [Assets](../features/Assets.md#mesh-files) |
 | `tests/mvvm_test.cpp` | View-model properties, commands, checkbox write-back | [UI](../modules/UI.md) |
 | `tests/opengl_texture_test.cpp` | CPU texture description. No GL draw | [Render](../modules/Render.md) |
 | `tests/particle_test.cpp` | Emitter step and curves | [Render](../modules/Render.md) |
 | `tests/pointer_target_test.cpp` | `PointerTarget`: hit-test, order, windows, camera, hover, click, click-through, UI first | [UI Input](../features/UI%20Input.md#pointer-targets) |
-| `tests/physics_test.cpp` | Overlap enter, stay, exit | [ECS](../modules/ECS.md) |
+| `tests/lights_test.cpp` | Light collection (direction from rotation and parent, cap, ambient sum, default rig) and the lights and camera in `CmdSetView` | [Render](../modules/Render.md#lights) |
+| `tests/primitives_test.cpp` | Primitive counts, unit outward normals, winding, index range; builtin quad and cube files match | [Render](../modules/Render.md#primitives) |
+| `tests/physics_2d_test.cpp` | Overlap enter, stay, exit | [ECS](../modules/ECS.md) |
 | `tests/engine_version_test.cpp` | `EngineVersion` parse, refusals, round trip, order | [Project](../modules/Project.md#engine-version) |
 | `tests/random_test.cpp` | `Random`: golden sequences, ranges, streams, `IGame::random_seed` | [Core](../modules/Core.md) |
 | `tests/config_test.cpp` | `Config`: round trip, defaults, malformed input, failed save | [Core](../modules/Core.md) |
 | `tests/platform_test.cpp` | Assets root and `user_data_directory` names | [Core](../modules/Core.md) |
 | `tests/process_test.cpp` | Line cutting, quoting, environment, `ProcessCall` ownership, and real `cmd.exe` children on Windows (output, exit, cancel, leftovers) | [Process](../modules/Process.md) |
 | `tests/project_test.cpp` | `wind_project.toml` and `sdk.toml` reading and their errors | [Project](../modules/Project.md) |
-| `tests/render_system_test.cpp` | `run_render` sort; unset camera skips, missing components fatal | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `tests/render_system_test.cpp` | `run_render` sort (queues, depth order, 2D order at different z); unset camera skips, missing components fatal | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `tests/shader_adapt_test.cpp` | GLSL 300 ES rewrite | [Render](../modules/Render.md) |
-| `tests/sort_test.cpp` | `renderable_less` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `tests/sort_test.cpp` | `draw_sort_less` queues and keys, `sort_renderables` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `tests/splash_test.cpp` | Splash documents and the timer | [UI](../modules/UI.md) |
 | `tests/sprite_test.cpp` | Sprite sheet UVs and `get_sprite` | [Assets](../features/Assets.md) |
 | `tests/time_test.cpp` | Clamp, pause, and the step cap | [Core](../modules/Core.md) |
+| `tests/transform_test.cpp` | Quaternion `model_matrix` against the Euler result, `rotation_z` / `euler_xyz` / `angle_z` | [ECS](../modules/ECS.md) |
 | `tests/ui_bindable_visibility_test.cpp` | `Bindable::on_changed`, the `if` binding, float-bound lengths | [UI Markup](../features/UI%20Markup.md) |
 | `tests/ui_slider_test.cpp` | `Slider`: parse, value to handle rect, pointer to value with step, vertical, rows, errors, builder | [UI](../modules/UI.md#slider) |
 | `tests/ui_absolute_items_test.cpp` | Items placed by bound position, drag per item, z order, add and remove, no virtualization of absolute rows | [UI Markup](../features/UI%20Markup.md) |

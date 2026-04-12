@@ -26,32 +26,53 @@ world.emplace<engine::render::Renderable>(tile, engine::render::Renderable{
 });
 ```
 
-`Renderable` has `mesh`, `material` (both required: an entity missing one is reported and skipped), `color`, `layer`, `order_in_layer`, and an optional `material_override`. The mesh is drawn with the model matrix of the `Transform` (translate, rotate X then Y then Z in radians, scale). For a textured picture use a `Sprite` ([Sprites & Animation](Sprites-and-Animation.md)), which supplies the quad and the material for you. An entity with both `Renderable` and `Sprite` draws only the `Renderable`.
+`Renderable` has `mesh`, `material` (both required: an entity missing one is reported and skipped), `color`, `layer`, `order_in_layer`, and an optional `material_override`. The mesh is drawn with the model matrix of the `Transform` (translate, rotate by the `rotation` quaternion, scale). For a textured picture use a `Sprite` ([Sprites & Animation](Sprites-and-Animation.md)), which supplies the quad and the material for you. An entity with both `Renderable` and `Sprite` draws only the `Renderable`.
+
+### Meshes
+
+A mesh is a `.mesh` asset (rows of `x y z u v` or `x y z nx ny nz u v`, plus optional `f a b c` triangle rows of vertex indices), a builtin (`engine::builtin::mesh_quad`, `engine::builtin::mesh_cube`), or built in code. `<engine/render/primitives.h>` makes a quad, cube, XZ plane, or UV sphere as a `MeshDesc`; hand it to the graphics factory once and keep the mesh:
+
+```cpp
+#include <engine/render/primitives.h>
+
+std::shared_ptr<engine::render::IMesh> ball =
+        services.graphics.create_mesh(engine::render::make_uv_sphere(0.5f, 32, 16));
+```
+
+Each vertex has a position, a normal (default +Z), and a UV. Triangles wind counter-clockwise when their front faces the camera. A mesh with an index past its vertices does not load. The unlit shader ignores normals; the builtin lit material uses them ([Basic 3D](Basic-3D.md)).
 
 ---
 
 ## 2. Draw Order
 
-Draws of meshes, sprites, and particle batches are sorted together; the first difference decides:
+Draws of meshes, sprites, and particle batches are sorted together. In a 2D game the first difference decides:
 
 1. `layer` ascending (a low layer is drawn first, behind)
 2. `order_in_layer` ascending
 3. the material (entities that share a material are grouped; the order between two materials is by address)
 4. the entity index
 
-There is no depth test and no Y-sort. For a top-down game, set `order_in_layer` from the entity's Y yourself. UI is separate: canvases are drawn after the world, sorted by `UiCanvas::order`.
+A sprite's z does not change that order, and there is no Y-sort. For a top-down game, set `order_in_layer` from the entity's Y yourself. UI is separate: canvases are drawn after the world, sorted by `UiCanvas::order`.
+
+3D materials change it ([Materials & Shaders](Materials-and-Shaders.md#2-authoring-materials-mat)):
+
+- A material with `blend = "opaque"` and depth write on is *opaque*. All opaque draws go first, whatever their layer, grouped by material and then nearest first. The depth buffer hides what is behind.
+- Everything else is *transparent* and keeps the order above, except that inside one layer and order, draws whose material has depth test on go first, farthest first, and the rest (sprites, particles) after them, on top.
 
 ---
 
 ## 3. What a `CommandBuffer` Is
 
-`engine::render::CommandBuffer` holds a `std::vector` of `render::Command`, a variant of exactly three types:
+`engine::render::CommandBuffer` holds a `std::vector` of `render::Command`, a variant of exactly four types:
 
 | Command | Pushed by |
 | --- | --- |
+| `CmdSetView` | the render system, once per window before its draws: camera view, that window's projection, camera position, and lights |
 | `CmdDrawMesh` | the render system, for each `Renderable` and `Sprite` |
 | `CmdDrawParticles` | the render system, for each `ParticleEmitter` with live particles |
 | `CmdDrawUI` | the UI system, for each `UiCanvas` |
+
+Draw commands carry no camera: they use the last `CmdSetView` before them in the buffer (identity matrices when there is none).
 
 A game does not push commands itself and there is no custom draw callback. If you need something the components do not give you, the options are a material with your own shader ([Materials & Shaders](Materials-and-Shaders.md)) and, for vector shapes in the UI, `IPaint` ([Custom Painting](../ui/Custom-Painting.md)). The buffer is exposed (`services.commands`, `size()`, iteration) for tests and tools: with a headless `Host` a test can run a frame and inspect which commands were produced.
 
@@ -60,4 +81,5 @@ A game does not push commands itself and there is no custom draw callback. If yo
 ## Next Steps
 
 - Set up camera views in [Camera](Camera.md).
+- Light a 3D mesh in [Basic 3D](Basic-3D.md).
 - Create in-game interfaces in [UI Basics](../ui/UI-Basics.md).

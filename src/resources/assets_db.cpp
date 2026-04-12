@@ -276,7 +276,7 @@ std::expected<std::shared_ptr<void>, AssetError> load_material(
         albedo = std::move(*texture);
     }
 
-    auto material = std::make_shared<render::Material>(std::move(*shader), std::move(albedo), desc->color, desc->blend);
+    auto material = std::make_shared<render::Material>(std::move(*shader), std::move(albedo), desc->color, desc->state);
     return std::static_pointer_cast<void>(std::move(material));
 }
 

@@ -18,7 +18,7 @@
 #include <engine/core/time.h>
 #include <engine/core/web_loop.h>
 #include <engine/ecs/camera.h>
-#include <engine/ecs/physics.h>
+#include <engine/ecs/physics_2d.h>
 #include <engine/ecs/pointer_target.h>
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/systems.h>

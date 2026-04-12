@@ -1,6 +1,6 @@
 # Scope
 
-Wind is a 2D C++ game engine for production titles. Development happens in the Wind editor. The editor is the host process, and a game is a guest module that the editor loads on Play and unloads on Stop. An exported game is a standalone executable that links the engine statically. Games do not vendor SDL or copy engine sources.
+Wind is a 2D-first C++ game engine for production titles. Basic 3D is in scope; a 2D game does not pay for it and renders as it always has. Development happens in the Wind editor. The editor is the host process, and a game is a guest module that the editor loads on Play and unloads on Stop. An exported game is a standalone executable that links the engine statically. Games do not vendor SDL or copy engine sources.
 
 The editor is in progress. See [Editor Plan](Editor%20Plan.md). Today `wind_editor` opens a project, builds its game module with CMake on Play, plays it, inspects its files and its UI in its Inspector and UI Tree tabs, profiles its UI in its Profiler tab, shows the build in its Build tab, and stops it ([Editor](../features/Editor.md)).
 
@@ -12,6 +12,7 @@ The editor is in progress. See [Editor Plan](Editor%20Plan.md). Today `wind_edit
 - Window, GL context, input actions, mouse to UI. Multiple windows for one running game. See [Windowing](../features/Windowing.md).
 - A process holds any number of `ecs::World`. A world is one simulation: no parent and no scene graph. A window belongs to one world. That world's meshes go to each window bound to it. UI is `UiCanvas` plus a document instance plus a view-model. The document comes from XML or the C++ builder.
 - Homemade ECS. EnTT is an API reference only, not a dependency. Entities can have a `Parent` (a separate component, not a field of `Transform`); the engine derives `WorldTransform` from it. This is not a scene graph.
+- Basic 3D: `Transform` rotation is a quaternion, and `Camera` is orthographic (the 2D default) or perspective, with screen-to-ray picking. Meshes carry normals and optional 32-bit indices, with procedural primitives (quad, cube, plane, UV sphere) and a builtin cube. Materials carry depth and cull state and sort into opaque and transparent queues. A per-window `CmdSetView` carries the camera and up to four directional lights plus ambient to a builtin Lambert lit shader and material.
 - Render abstractions and an OpenGL 3.3 backend: materials, instance tint, layer sort. The UI renderer (`src/ui/render/`, one OpenGL device) executes `CmdDrawUI`. Particles are `CmdDrawParticles`.
 - `AssetsDb` and a GUID catalog: sidecar TOML `.meta`, `asset_guid`, and `asset_codegen`.
 - Localization: `.strings` tables by `AssetId`, `{tr}` in UI, integer plural categories. The game selects the active locale and persists that choice.
@@ -39,6 +40,7 @@ Open engine work, not game concerns:
 - Drag-region hole-punching so a `Button` inside a title-bar rect stays clickable.
 - Visual verification of GL-window transparency on a real display. Linux and macOS overlay styles are untested.
 - HTTP: Linux and macOS backends (today `Unsupported`), streaming bodies, download to a file, and progress.
+- Advanced 3D: PBR materials, shadows, skinned meshes, glTF import, 3D physics, frustum culling, instancing, post-processing, and editor 3D gizmos.
 
 Game concerns (do not implement in this repo): persist bus volumes in a settings file; that game's AI tests.
 

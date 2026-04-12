@@ -133,7 +133,7 @@ TEST(PointerTarget, ScaledAndRotatedTransformsMoveTheRect) {
     const auto entity = scene.world.create();
     scene.world.emplace<engine::Transform>(entity,
             engine::Transform{.position = {0.0f, 0.0f, 0.0f},
-                    .rotation = {0.0f, 0.0f, glm::half_pi<float>()},
+                    .rotation = engine::rotation_z(glm::half_pi<float>()),
                     .scale = {1.0f, 4.0f, 1.0f}});
     scene.world.emplace<PointerTarget>(entity, PointerTarget{.size = {1.0f, 1.0f}});
 
@@ -471,4 +471,28 @@ TEST(PointerTarget, TheRegisteredSystemsLetTheUiTakeThePointerBeforeATargetBelow
     EXPECT_TRUE(engine::ui::presentation_of(scene.world).mouse.consumed_for(engine::kPrimaryWindow));
     scene.release(engine::kPrimaryWindow, {300.0f, 200.0f});
     EXPECT_EQ(count(run_frame(), PointerTargetEvent::Kind::Click), 1u);
+}
+
+TEST(PointerTarget, PerspectiveCameraHitsTargetsOnTheirOwnPlane) {
+    Scene scene;
+    engine::Camera camera;
+    camera.projection = engine::Projection::Perspective;
+    camera.near_clip = 0.1f;
+    camera.far_clip = 100.0f;
+    scene.world.get<engine::Camera>(scene.camera) = camera;
+    scene.world.get<engine::Transform>(scene.camera).position = {0.0f, 0.0f, 10.0f};
+
+    // A target 2 units right of the view axis on z = 0, and one at z = 5 that the same world x puts farther out on
+    // screen: each is hit where it projects, not at the other's depth.
+    const auto flat = scene.box({2.0f, 0.0f, 0.0f}, {1.0f, 1.0f});
+    const auto raised = scene.box({2.0f, 3.0f, 5.0f}, {1.0f, 1.0f});
+    const auto& cam = scene.world.get<engine::Camera>(scene.camera);
+    const glm::mat4 camera_world = engine::model_matrix(scene.world.get<engine::Transform>(scene.camera));
+    const engine::ui::WindowSize size{800, 600};
+
+    const glm::vec2 flat_at = engine::world_to_screen({2.0f, 0.0f, 0.0f}, cam, camera_world, size);
+    const glm::vec2 raised_at = engine::world_to_screen({2.0f, 3.0f, 5.0f}, cam, camera_world, size);
+    EXPECT_EQ(engine::pointer_target_at(scene.world, engine::kPrimaryWindow, flat_at), flat);
+    EXPECT_EQ(engine::pointer_target_at(scene.world, engine::kPrimaryWindow, raised_at), raised);
+    EXPECT_FALSE(engine::pointer_target_at(scene.world, engine::kPrimaryWindow, {400.0f, 300.0f}));
 }
