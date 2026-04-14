@@ -43,8 +43,6 @@ TEST(ProfilerPanel, IdleShowsAHintAndNoData) {
     EXPECT_FALSE(vm.hint.get().empty());
 }
 
-#if defined(ENGINE_UI_PROFILER)
-
 TEST(ProfilerPanel, CanvasesWithoutFrames) {
     engine::ecs::World game;
     (void) spawn_named(game, "hud");
@@ -116,19 +114,3 @@ TEST(ProfilerPanel, PauseIsTwoWayAndDetachClears) {
     kept->select.execute();
     EXPECT_EQ(engine::ui::profiler_selected(game), engine::ecs::Entity{}) << "a stale row does nothing";
 }
-
-#else
-
-TEST(ProfilerPanel, ReleaseBuildShowsWhyItIsEmpty) {
-    engine::ecs::World game;
-    (void) spawn_named(game, "hud");
-    editor::ProfilerPanel panel;
-    panel.attach(game);
-    panel.refresh();
-    const editor::ProfilerViewModel& vm = *panel.view_model();
-    EXPECT_NE(vm.hint.get().find("not in this build"), std::string::npos);
-    EXPECT_TRUE(vm.canvases.get().empty());
-    panel.detach();
-}
-
-#endif

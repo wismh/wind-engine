@@ -7,7 +7,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | Path | What it does | Page |
 | --- | --- | --- |
 | `include/engine/engine.h` | Umbrella include | [Core](../modules/Core.md) |
-| `include/engine/game_entry.h` | `ENGINE_GAME(GameClass)`: `main` or the module exports | [Core](../modules/Core.md) |
+| `include/engine/game_entry.h` | `ENGINE_GAME(GameClass)`: `main` or the module exports; the module's CRT guard | [Core](../modules/Core.md) |
 | `include/engine/igame.h` | `IGame`, `GameBase`, `SplashScreen` | [Core](../modules/Core.md) |
 | `include/engine/log.h` | `log::init`, `info`, `warn`, `error` | [Core](../modules/Core.md) |
 | `include/engine/builtin_ids.h` | Frozen builtin `AssetId` values | [Resources](../modules/Resources.md) |
@@ -339,8 +339,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 
 | Path | What it does | Page |
 | --- | --- | --- |
-| `cmake/build_id.cmake` | Writes `<engine/build_id.h>` | [CMake](../build/CMake.md#build-id) |
-| `cmake/wind_game.cmake` | `engine_add_game`, `engine_configure_app`, `engine_prepare_runtime`, web and Android variants | [CMake](../build/CMake.md#game-functions) |
+| `cmake/build_id.cmake` | Writes `<engine/build_id.h>`: the build id and the engine's CRT macros | [CMake](../build/CMake.md#build-id) |
+| `cmake/wind_game.cmake` | `engine_add_game`, `engine_configure_app`, `engine_prepare_runtime`, web and Android variants, `engine_sdk_configurations` (SDK mode: `DebugGame` and `Release`) | [CMake](../build/CMake.md#game-functions) |
 | `cmake/wind_sdk.cmake.in` | Template of the editor SDK's `wind_sdk.cmake`: imported `engine`, `glm::glm`, tools | [CMake](../build/CMake.md#editor-sdk) |
 
 ## `editor/`

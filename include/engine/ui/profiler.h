@@ -92,7 +92,8 @@ namespace engine::ui {
     // The shared ring, oldest first.
     [[nodiscard]] std::vector<ProfilerSharedFrame> profiler_shared_frames(ecs::World &world);
 #else
-    // Release and MinSizeRel: no scopes, no rings. Every call compiles away.
+    // Without ENGINE_UI_PROFILER (an exported game's Release and MinSizeRel): no scopes, no rings. Every call
+    // compiles away. The editor build (ENGINE_EDITOR) has the profiler in every configuration.
     inline constexpr bool kUiProfilerBuilt = false;
 
     inline void set_ui_profiler_attached(ecs::World &, bool) {}

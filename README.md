@@ -21,14 +21,14 @@ cmake --build build-editor --config Debug
 ctest --test-dir build-editor -C Debug --output-on-failure
 ```
 
-Editor SDK: install one configuration of the editor build (`/out/` is gitignored). It holds `wind_editor.exe`, `engine.dll`, the host tools, their assets, `engine.lib`, the public headers with that build's `build_id.h`, and the CMake files a game builds its module with:
+Editor SDK: install one configuration of the editor build (`/out/` is gitignored). It holds `wind_editor.exe`, `engine.dll`, the host tools, their `.pdb` files, their assets, `engine.lib`, the public headers with that build's `build_id.h`, and the CMake files a game builds its module with. The editor build's Release is optimized with symbols and keeps the Profiler tab and the `wind-cli` server:
 
 ```bash
 cmake --build build-editor --config Release
 cmake --install build-editor --config Release --prefix out/sdk
 ```
 
-A game builds its module against the SDK: configure it with `-DWIND_EDITOR_SDK=<absolute path to out/sdk>`, usually from its `CMakeUserPresets.json` (see [Game Consumer](docs/tech/build/Game%20Consumer.md#editor-module)). That configure compiles no engine and gives `bin/<config>/<game>.dll` with its `assets/`. `ENGINE_EDITOR=ON` in a game tree is a configure error. The editor refuses a module built against another build id:
+A game builds its module against the SDK: configure it with `-DWIND_EDITOR_SDK=<absolute path to out/sdk>` and `-DCMAKE_CONFIGURATION_TYPES=DebugGame;Release`, usually from its `editor` preset and `CMakeUserPresets.json` (see [Game Consumer](docs/tech/build/Game%20Consumer.md#editor-module)). That configure compiles no engine and gives `bin/<config>/<game>.dll` with its `assets/`. `DebugGame` is game code at `/Od` with symbols and the release CRT (`/MD`), so it loads into the Release editor; a module with the debug CRT does not compile. `ENGINE_EDITOR=ON` in a game tree is a configure error. The editor refuses a module built against another build id:
 
 ```bash
 out/sdk/bin/wind_editor.exe                              # opens a file dialog: pick the game .dll

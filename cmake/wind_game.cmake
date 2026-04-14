@@ -11,6 +11,84 @@
 # The source build also defines the target `engine_builtin_catalog`, which cooks ENGINE_COOKED_CATALOG. In
 # the SDK the catalog is already cooked under bin/assets/engine/.
 
+# SDK mode only, called by wind_sdk.cmake: check the game's configurations against the SDK's and give DebugGame its
+# flags. A module shares the C runtime with the SDK's engine.dll, so:
+#   Release (any non-Debug) SDK: the configurations DebugGame and Release, both /MD. Debug, RelWithDebInfo, and
+#     MinSizeRel are refused. CMake has no flags for DebugGame, so the CMAKE_<LANG>_FLAGS_DEBUGGAME and
+#     CMAKE_<KIND>_LINKER_FLAGS_DEBUGGAME cache entries below (filled when empty) give every target of the game's
+#     tree (the module, the game's own tests, googletest) /Od /Ob0 /Zi /RTC1 with /MD and no NDEBUG or _DEBUG.
+#     They are cache entries, so they reach the game's directories, and a game can still set them in its preset.
+#   Debug SDK: the configuration Debug only, with CMake's Debug flags (/MDd).
+# The list has to be set before the game's project(), so it comes from the game's editor preset
+# (CMAKE_CONFIGURATION_TYPES, or CMAKE_BUILD_TYPE for a single-configuration generator). This only checks it.
+function(engine_sdk_configurations)
+    if(WIND_SDK_CONFIG STREQUAL "Debug")
+        set(_allowed Debug)
+        set(_hint "A Debug SDK has the debug CRT, so the game builds in Debug only.")
+    else()
+        set(_allowed DebugGame Release)
+        set(_hint
+            "A ${WIND_SDK_CONFIG} SDK has the release CRT, so the game builds in DebugGame (game code unoptimized, "
+            "with symbols, asserts on) or Release, both with /MD. Debug would load the debug CRT into a release "
+            "engine.dll. "
+            "To debug the engine itself, install a Debug SDK (cmake --install build-editor --config Debug).")
+    endif()
+    get_property(_multi GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+    if(_multi)
+        set(_variable CMAKE_CONFIGURATION_TYPES)
+    else()
+        set(_variable CMAKE_BUILD_TYPE)
+    endif()
+    set(_configs ${${_variable}})
+    set(_refused)
+    foreach(_config IN LISTS _configs)
+        if(NOT _config IN_LIST _allowed)
+            list(APPEND _refused "${_config}")
+        endif()
+    endforeach()
+    if(_refused OR NOT _configs)
+        string(JOIN ";" _wanted ${_allowed})
+        string(JOIN "" _hint ${_hint})
+        message(FATAL_ERROR
+            "Wind SDK mode: ${_variable} is \"${_configs}\". Against this ${WIND_SDK_CONFIG} SDK it must be "
+            "\"${_wanted}\" (or a part of it). ${_hint}\n"
+            "Set it in the game's editor preset, before the first configure:\n"
+            "  \"cacheVariables\": { \"${_variable}\": \"${_wanted}\" }\n"
+            "or pass -D${_variable}=${_wanted} to a fresh configure. See docs/tech/build/Game Consumer.md")
+    endif()
+
+    if(WIND_SDK_CONFIG STREQUAL "Debug")
+        return()
+    endif()
+    # Every game target uses the release DLL CRT. Targets whose directory sets CMP0091 OLD (googletest asks for
+    # CMake 3.13) read the runtime from the flags instead, hence /MD in the DebugGame flags too.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL CACHE STRING "Wind SDK mode: the release DLL CRT of engine.dll")
+    if(MSVC)
+        set(_compile "/MD /Od /Ob0 /Zi /RTC1")
+        set(_link "/DEBUG /INCREMENTAL")
+    else()
+        set(_compile "-O0 -g")
+        set(_link "")
+    endif()
+    # project() already created these as empty cache entries (it does that for every configuration it does not
+    # know), so an empty one is filled with FORCE. A value the game set in its preset stays.
+    set(_names)
+    set(_values)
+    foreach(_lang IN ITEMS C CXX)
+        list(APPEND _names CMAKE_${_lang}_FLAGS_DEBUGGAME)
+        list(APPEND _values "${_compile}")
+    endforeach()
+    foreach(_kind IN ITEMS EXE SHARED MODULE)
+        list(APPEND _names CMAKE_${_kind}_LINKER_FLAGS_DEBUGGAME)
+        list(APPEND _values "${_link}")
+    endforeach()
+    foreach(_name _value IN ZIP_LISTS _names _values)
+        if("${${_name}}" STREQUAL "")
+            set(${_name} "${_value}" CACHE STRING "Wind SDK mode: DebugGame flags" FORCE)
+        endif()
+    endforeach()
+endfunction()
+
 # Copy assets/engine (builtins + cooked catalog) and, when present, the consumer's assets/
 # beside a runtime target. Games normally call `engine_add_game` instead of this directly.
 # A game module built against the SDK gets only its own assets/: the editor that loads it has engine.dll and
@@ -287,6 +365,21 @@ function(engine_add_game target)
         add_library(${target} SHARED ${ARGN})
         target_compile_definitions(${target} PRIVATE ENGINE_GAME_MODULE=1)
         set_target_properties(${target} PROPERTIES PREFIX "")
+        if(ENGINE_FROM_SDK AND MSVC)
+            # The CRT of the SDK's engine.dll, whatever the game's directory sets (engine_sdk_configurations has
+            # the DebugGame flags). The Release module gets symbols, like the SDK: /Zi, and /DEBUG with /OPT:REF
+            # and /OPT:ICF kept on. <engine/game_entry.h> checks the CRT at compile time.
+            if(WIND_SDK_CONFIG STREQUAL "Debug")
+                set_target_properties(${target} PROPERTIES MSVC_RUNTIME_LIBRARY MultiThreadedDebugDLL)
+            else()
+                set_target_properties(${target} PROPERTIES MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
+                target_compile_options(${target} PRIVATE "$<$<CONFIG:Release>:/Zi>")
+                target_link_options(${target} PRIVATE
+                    "$<$<CONFIG:Release>:/DEBUG>"
+                    "$<$<CONFIG:Release>:/OPT:REF>"
+                    "$<$<CONFIG:Release>:/OPT:ICF>")
+            endif()
+        endif()
     else()
         add_executable(${target} ${ARGN})
     endif()

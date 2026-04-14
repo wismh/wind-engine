@@ -4,7 +4,7 @@ The profiler has two halves. The engine keeps the probe: the `ENGINE_UI_PROFILE`
 
 Header: `include/engine/ui/profiler.h`. Private: `src/ui/profile.h`. Panel: `editor/src/profiler_panel.h`.
 
-`ENGINE_UI_PROFILER` is defined for Debug and RelWithDebInfo. Release and MinSizeRel do not define it. The public functions are then inline no-ops that return nothing, and `kUiProfilerBuilt` is false. `ENGINE_UI_PROFILE` is `((void)0)`, so those call sites do not read the clock. The rings and the stage strings in `src/ui/profiler.cpp` are under the macro.
+`ENGINE_UI_PROFILER` is defined for Debug, RelWithDebInfo, and every configuration of the editor build (`ENGINE_EDITOR`), so the Release editor from the SDK profiles. An exported game's Release and MinSizeRel do not define it. The public functions are then inline no-ops that return nothing, and `kUiProfilerBuilt` is false. `ENGINE_UI_PROFILE` is `((void)0)`, so those call sites do not read the clock. The rings and the stage strings in `src/ui/profiler.cpp` are under the macro.
 
 `CmdDrawUI::canvas` is present in every configuration so the command layout does not change. Copying it is not a clock.
 
@@ -59,7 +59,7 @@ A label is the root id, or `Canvas` when the id is empty. When two or more windo
 
 The Profiler tab: a Pause checkbox and a hint, the canvas list on the left, the charts and the numbers on the right (`editor/assets/ui/profiler.xml`, `editor/assets/css/panels.css`). See [Editor](Editor.md) for when it attaches.
 
-`ProfilerPanel::refresh` runs in the editor world's `Phase::Game` while the tab is visible. It copies the canvas list into `ProfilerRowViewModel`s (clicking a row calls `profiler_select`), copies the selected ring and the shared ring into the two chart paints, and writes the numbers. Pause is two-way like the inspector's Pick. In Release the panel shows only a hint that the profiler is not in this build.
+`ProfilerPanel::refresh` runs in the editor world's `Phase::Game` while the tab is visible. It copies the canvas list into `ProfilerRowViewModel`s (clicking a row calls `profiler_select`), copies the selected ring and the shared ring into the two chart paints, and writes the numbers. Pause is two-way like the inspector's Pick. The editor always has the profiler: `profiler_panel.cpp` has a `static_assert` on `kUiProfilerBuilt`, so an editor without `ENGINE_UI_PROFILER` does not compile.
 
 | Chart | Size | Contents |
 | --- | --- | --- |
@@ -74,7 +74,7 @@ The panel profiles the world bound to `kPrimaryWindow`. A second world of the ga
 
 ## Tests
 
-`tests/ui_profiler_test.cpp`: nothing stored while detached, the shared ring, bind samples per canvas, another world's passes stay out, layout then a skip, Pause, the ring size, the canvas list and selection, the window prefix, capture keeps the rings. `profile` over the socket is `tests/cli_server_test.cpp`. `editor/tests/profiler_panel_test.cpp` and `editor/tests/profiler_chart_test.cpp`: the panel with and without frames, Pause, detach, chart geometry, and the chart paint.
+`tests/ui_profiler_test.cpp`: nothing stored while detached, the shared ring, bind samples per canvas, another world's passes stay out, layout then a skip, Pause, the ring size, the canvas list and selection, the window prefix, capture keeps the rings. `profile` over the socket is `tests/cli_server_test.cpp`. `tests/ui_profiler_test.cpp` also has `CompiledOutApiIsANoOp` for a build without the macro. `editor/tests/profiler_panel_test.cpp` and `editor/tests/profiler_chart_test.cpp`: the panel with and without frames, Pause, detach, chart geometry, and the chart paint.
 
 ## See also
 

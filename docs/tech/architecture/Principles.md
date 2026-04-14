@@ -35,10 +35,11 @@ Normative rules. If a change fights these, the change is wrong. As-built detail 
 13. `MouseConsumed` is cleared once at the start of each process frame (`ui::reset_pointer_frame`), not inside `ui::begin_frame` and not at the end of the frame. `begin_frame` fits canvases and commits the profiler frame. It opens no tool window: the inspector and profiler panels are editor canvases in the editor's world.
 14. No engine code assumes a single global window. A `UiCanvas` is keyed by `WindowId`. A window belongs to one world. That world's meshes go to each of its windows. Window size, pointer, and mouse consumption live on the process `Presentation`, not in a world's `ctx`.
 15. Window, GL, and SDL platform calls stay behind `WindowManager` in `src/render/opengl/`. `#if defined(_WIN32)` branches do not leak a Win32 type into `include/`.
+16. Game code tests `ENGINE_EDITOR` only for tools (an editor-only debug overlay, a cheat panel, extra logging). Gameplay, simulation, saves, and UI flow must not depend on it, or the game in the editor behaves unlike the exported game. The same goes for `ENGINE_UI_PROFILER` and `ENGINE_CLI_SERVER`, which the editor has in every configuration.
 
 ## Constraints
 
-- An exported game links `engine` statically. `engine` is a shared library only in the editor build (`ENGINE_EDITOR`), and a game module must be built against the same engine build as the editor that loads it.
+- An exported game links `engine` statically. `engine` is a shared library only in the editor build (`ENGINE_EDITOR`), and a game module must be built against the same engine build as the editor that loads it, with the same C runtime: `DebugGame` or `Release` against a Release SDK, `Debug` against a Debug SDK.
 - CMake 3.20 or newer (`cmake_minimum_required` in `CMakeLists.txt`). C++23 (MSVC, clang, or gcc).
 - SDL3 and SDL3_mixer. This mixer build enables WAV only. FLAC, Vorbis, MP3, MIDI, Opus, and the other `SDLMIXER_*` formats are OFF.
 - Desktop GL is OpenGL 3.3 Core via glad. Shaders are GLSL 330 wrapped in XML `.shader`. Web is WebGL2. Android is GLES 3.0. `shader_adapt` rewrites GLSL 330 to GLSL 300 ES when the GLES profile is on.
