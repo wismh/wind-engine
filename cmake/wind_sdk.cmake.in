@@ -3,8 +3,9 @@
 # Included by the engine's root CMakeLists.txt when a game sets WIND_EDITOR_SDK. docs/tech/build/CMake.md
 #
 # Defines the imported targets `engine` (engine::engine), `glm::glm`, `asset_codegen`, and `icon_codegen`
-# from this SDK, then includes wind_game.cmake. engine's compile definitions are the ones the SDK was built
-# with, fixed for every configuration of the game.
+# from this SDK, then includes wind_game.cmake and checks the game's configurations. engine's compile definitions
+# are the ones the SDK was built with (ENGINE_EDITOR, ENGINE_SHARED, ENGINE_WITH_WINDOW, ENGINE_UI_PROFILER,
+# ENGINE_CLI_SERVER), fixed for every configuration of the game.
 
 include_guard(GLOBAL)
 
@@ -63,3 +64,6 @@ foreach(_wind_sdk_file IN ITEMS
 endforeach()
 
 include("${CMAKE_CURRENT_LIST_DIR}/wind_game.cmake")
+
+# The game's configurations: DebugGame and Release against a Release SDK, Debug against a Debug SDK.
+engine_sdk_configurations()

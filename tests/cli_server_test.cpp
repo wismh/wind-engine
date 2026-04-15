@@ -396,6 +396,7 @@ TEST(Cli, ProfileCaptureWithoutWindow) {
 
 #else
 
+// Without ENGINE_UI_PROFILER: an exported game's Release. The editor build always has it.
 TEST(Cli, ProfileMissingFromThisBuild) {
     engine::ecs::World world;
     const std::string json = run(world, "profile").json;

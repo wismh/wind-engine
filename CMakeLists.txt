@@ -137,6 +137,19 @@ if(ENGINE_EDITOR)
     # Every static library linked into the shared engine (spdlog, tinyxml2, glad, nanovg, SDL3,
     # SDL3_mixer) must be position independent off Windows. Set before the submodules are added.
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+    # A game module shares the C++ runtime with engine.dll, so the CRT is fixed here (the CMake default, made
+    # explicit) and recorded in <engine/build_id.h> for the guard in <engine/game_entry.h>.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    if(MSVC)
+        # Release with symbols: the same /O2 /Ob2 code, plus a .pdb for every binary (engine.dll, wind_editor,
+        # the host tools, the libraries inside engine.dll) for call stacks, breakpoints, and crash dumps. The
+        # SDK installs them. /DEBUG turns /OPT:REF and /OPT:ICF off unless they are given.
+        add_compile_options("$<$<CONFIG:Release>:/Zi>")
+        add_link_options(
+            "$<$<CONFIG:Release>:/DEBUG>"
+            "$<$<CONFIG:Release>:/OPT:REF>"
+            "$<$<CONFIG:Release>:/OPT:ICF>")
+    endif()
     set(_engine_library_kind SHARED)
 else()
     set(_engine_library_kind STATIC)
@@ -188,8 +201,10 @@ if(ENGINE_EDITOR)
     # header lives in a .cpp behind ENGINE_API (<engine/core/export.h>). ENGINE_SHARED tells every
     # consumer to import; ENGINE_BUILDING tells the engine's own sources to export.
     set_target_properties(engine PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    # ENGINE_EDITOR reaches wind_editor, the tests, the fixture modules, and through the SDK every game module.
+    # Game code may test it only for tools; gameplay must not depend on it (Principles).
     target_compile_definitions(engine
-        PUBLIC ENGINE_SHARED=1
+        PUBLIC ENGINE_SHARED=1 ENGINE_EDITOR=1
         PRIVATE ENGINE_BUILDING=1)
 endif()
 
@@ -215,6 +230,7 @@ add_custom_command(
         "-DCOMPILER=${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}"
         "-DCONFIG=${_engine_build_id_config}"
         "-DDEFINES=$<JOIN:$<TARGET_PROPERTY:engine,INTERFACE_COMPILE_DEFINITIONS>,|>"
+        "-DDEBUG_CRT=$<AND:$<BOOL:${MSVC}>,$<CONFIG:Debug>>"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/build_id.cmake"
     DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/build_id.cmake"
@@ -224,12 +240,17 @@ add_custom_command(
 add_custom_target(engine_build_id DEPENDS "${_engine_build_id_dir}/build_id.stamp")
 add_dependencies(engine engine_build_id)
 
-# Debug and RelWithDebInfo. Release and MinSizeRel compile the profiler call sites out.
-target_compile_definitions(engine PUBLIC $<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:ENGINE_UI_PROFILER>)
-# Same configs, desktop only. The CLI server is a separate switch from the profiler.
+# The UI profiler and the CLI server: Debug, RelWithDebInfo, and every configuration of the editor build, so the
+# Release editor has the Profiler tab and wind-cli. An exported game's Release and MinSizeRel compile the profiler
+# call sites out. The CLI server is a separate switch, desktop only.
+if(ENGINE_EDITOR)
+    set(_engine_tools_config 1)
+else()
+    set(_engine_tools_config "$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>")
+endif()
+target_compile_definitions(engine PUBLIC "$<${_engine_tools_config}:ENGINE_UI_PROFILER>")
 if(NOT EMSCRIPTEN AND NOT ANDROID)
-    target_compile_definitions(engine PUBLIC
-        $<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:ENGINE_CLI_SERVER>)
+    target_compile_definitions(engine PUBLIC "$<${_engine_tools_config}:ENGINE_CLI_SERVER>")
 endif()
 
 target_include_directories(engine
@@ -248,7 +269,7 @@ target_link_libraries(engine
         tinyxml2::tinyxml2
         tomlplusplus::tomlplusplus)
 if(WIN32)
-    # cli_server.cpp (Debug / RelWithDebInfo) calls WinSock and the ACL APIs. A static
+    # cli_server.cpp (ENGINE_CLI_SERVER) calls WinSock and the ACL APIs. A static
     # library does not propagate PRIVATE link libs, so games that link engine need them PUBLIC.
     target_link_libraries(engine PUBLIC ws2_32 advapi32)
 endif()

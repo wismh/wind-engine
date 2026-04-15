@@ -32,13 +32,14 @@ See [Principles](Principles.md).
 | `ENGINE_WITH_WEB` | `PUBLIC`. Web profile helpers. Emscripten turns the option ON by default. |
 | `ENGINE_WITH_ANDROID` | `PUBLIC`. Android profile helpers. The NDK turns the option ON by default. |
 | `ENGINE_WITH_GLES` | `PUBLIC`. ES 3.0 backend (no glad, NanoVG GLES3, shader adapt). Default ON when `EMSCRIPTEN` or `ANDROID`. |
-| `ENGINE_EDITOR` | CMake option, OFF by default. Builds `engine` as a shared library with `WINDOWS_EXPORT_ALL_SYMBOLS`. Needs `ENGINE_WITH_WINDOW`. Configure fails on Emscripten and Android. |
+| `ENGINE_EDITOR` | CMake option, OFF by default. Builds `engine` as a shared library with `WINDOWS_EXPORT_ALL_SYMBOLS`. Needs `ENGINE_WITH_WINDOW`. Configure fails on Emscripten and Android. Also a `PUBLIC` define on `engine` (`ENGINE_EDITOR=1`), so `wind_editor`, the tests, the fixture modules, and every game module built against the SDK see it. Game code may test it only for tools, never for gameplay ([Principles](Principles.md)). |
 | `ENGINE_SHARED` | `PUBLIC` on `engine` when `ENGINE_EDITOR` is ON. With it, `ENGINE_API` (`include/engine/core/export.h`) imports on Windows and sets default visibility elsewhere. Without it the macro is empty. |
 | `ENGINE_BUILDING` | `PRIVATE` on `engine` when `ENGINE_EDITOR` is ON. `ENGINE_API` exports while the engine itself compiles. |
 | `ENGINE_BUILD_TESTS` | Builds `engine_tests` and implies `ENGINE_WITH_GTEST`. Default ON at the engine root, OFF when Wind is a subdirectory. |
 | `ENGINE_WITH_GTEST` | Vendors GoogleTest (`external/googletest`) without building `engine_tests`. A game can set this alone so its own test target gets `GTest::gtest_main`. Defaults to `ENGINE_BUILD_TESTS`. |
-| `ENGINE_UI_PROFILER` | `PUBLIC` on `engine` for Debug and RelWithDebInfo. UI profiler scopes and rings. Release and MinSizeRel compile the call sites out. The public functions are inline no-ops and `kUiProfilerBuilt` is false, so the editor's Profiler tab shows a hint. See [UI Profiler](../features/UI%20Profiler.md). |
-| `ENGINE_CLI_SERVER` | `PUBLIC` on `engine` for Debug and RelWithDebInfo, and not on Emscripten or Android. Loopback server for `wind-cli`. Other configurations do not listen and do not write a descriptor. The host tool still builds and does not link `engine`. See [CLI](../features/CLI.md). |
+| `ENGINE_UI_PROFILER` | `PUBLIC` on `engine` for Debug, RelWithDebInfo, and every configuration with `ENGINE_EDITOR` (the Release editor and SDK have it). UI profiler scopes and rings. An exported game's Release and MinSizeRel compile the call sites out: the public functions are inline no-ops and `kUiProfilerBuilt` is false. `wind_editor` does not compile without it. See [UI Profiler](../features/UI%20Profiler.md). |
+| `ENGINE_CLI_SERVER` | `PUBLIC` on `engine` for the same configurations as `ENGINE_UI_PROFILER`, and not on Emscripten or Android. Loopback server for `wind-cli`. Other configurations do not listen and do not write a descriptor. The host tool still builds and does not link `engine`. See [CLI](../features/CLI.md). |
+| `ENGINE_BUILD_DEBUG_CRT`, `ENGINE_BUILD_ITERATOR_DEBUG_LEVEL` | Macros in the generated `<engine/build_id.h>`: the MSVC C runtime of that engine build (1 and 2 with `/MDd`, 0 and 0 with `/MD`). `<engine/game_entry.h>` fails a game module's compile when its `_DEBUG` or `_ITERATOR_DEBUG_LEVEL` differs. See [CMake](../build/CMake.md#crt-guard). |
 
 `IHaptics` has no `ENGINE_WITH_*` flag. The Native, Web, and Android split is `#if defined(__EMSCRIPTEN__)` / `__ANDROID__` inside `HapticsSystem`.
 

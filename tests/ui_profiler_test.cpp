@@ -282,7 +282,8 @@ TEST(UiProfiler, DetachDropsTheRingsUnlessCaptureIsOn) {
 
 #else
 
-TEST(UiProfiler, ReleaseApiIsANoOp) {
+// Without ENGINE_UI_PROFILER: an exported game's Release and MinSizeRel. The editor build always has it.
+TEST(UiProfiler, CompiledOutApiIsANoOp) {
     engine::ecs::World world;
     engine::ui::set_ui_profiler_attached(world, true);
     EXPECT_FALSE(engine::ui::kUiProfilerBuilt);

@@ -7,6 +7,9 @@
 
 #include "engine/engine.h"
 
+#include <engine/build_id.h>
+#include <engine/ui/profiler.h>
+
 TEST(Scaffold, BuildIdMatchesEngineLibrary) {
     EXPECT_FALSE(engine::kBuildId.empty());
     EXPECT_EQ(engine::build_id(), engine::kBuildId);
@@ -25,6 +28,36 @@ TEST(Scaffold, SharedEngineOnlyInEditorBuild) {
     SUCCEED();
 #else
     GTEST_SKIP() << "static engine (ENGINE_EDITOR is OFF)";
+#endif
+}
+
+TEST(Scaffold, EditorBuildHasProfilerAndCliInEveryConfiguration) {
+#if defined(ENGINE_EDITOR)
+    EXPECT_TRUE(engine::ui::kUiProfilerBuilt);
+#if !defined(ENGINE_UI_PROFILER) || !defined(ENGINE_CLI_SERVER)
+    ADD_FAILURE() << "ENGINE_EDITOR must bring ENGINE_UI_PROFILER and ENGINE_CLI_SERVER in every configuration";
+#endif
+#if !defined(ENGINE_SHARED)
+    ADD_FAILURE() << "ENGINE_EDITOR without the shared engine";
+#endif
+#else
+    GTEST_SKIP() << "static engine (ENGINE_EDITOR is OFF)";
+#endif
+}
+
+TEST(Scaffold, BuildIdHeaderRecordsThisBuildsCrt) {
+    // <engine/game_entry.h> compares these with a game module's CRT. engine_tests is built like the engine, so
+    // they must describe this very translation unit.
+#if defined(_MSC_VER)
+#if defined(_DEBUG)
+    EXPECT_EQ(ENGINE_BUILD_DEBUG_CRT, 1);
+#else
+    EXPECT_EQ(ENGINE_BUILD_DEBUG_CRT, 0);
+#endif
+    EXPECT_EQ(ENGINE_BUILD_ITERATOR_DEBUG_LEVEL, _ITERATOR_DEBUG_LEVEL);
+#else
+    EXPECT_EQ(ENGINE_BUILD_DEBUG_CRT, 0);
+    EXPECT_EQ(ENGINE_BUILD_ITERATOR_DEBUG_LEVEL, 0);
 #endif
 }
 
@@ -477,6 +510,15 @@ TEST(Scaffold, EditorSdkModeBuildsNoEngine) {
     EXPECT_NE(sdk.find("add_executable(asset_codegen IMPORTED GLOBAL)"), std::string::npos);
     EXPECT_NE(sdk.find("add_executable(icon_codegen IMPORTED GLOBAL)"), std::string::npos);
     EXPECT_NE(sdk.find("include(\"${CMAKE_CURRENT_LIST_DIR}/wind_game.cmake\")"), std::string::npos);
+
+    // SDK mode checks the game's configurations and gives DebugGame flags as cache defaults, so every target of
+    // the game's tree (googletest included) builds with the release CRT and no Debug defaults.
+    const std::string game = slurp(root / "cmake" / "wind_game.cmake");
+    EXPECT_NE(sdk.find("engine_sdk_configurations()"), std::string::npos);
+    EXPECT_NE(game.find("function(engine_sdk_configurations)"), std::string::npos);
+    EXPECT_NE(game.find("CMAKE_${_lang}_FLAGS_DEBUGGAME"), std::string::npos);
+    EXPECT_NE(game.find("MSVC_RUNTIME_LIBRARY MultiThreadedDLL"), std::string::npos);
+    EXPECT_EQ(game.find("MultiThreadedDebugDLL CACHE"), std::string::npos);
 #else
     GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
 #endif

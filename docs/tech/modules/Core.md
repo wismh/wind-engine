@@ -36,7 +36,7 @@ ENGINE_GAME(game::Game)
 | Build | `ENGINE_GAME(GameClass)` expands to |
 | --- | --- |
 | Exported (no `ENGINE_GAME_MODULE`) | `int main()` that runs `Engine<GameClass>::init` and `run`. Android aliases `SDL_main` to it at link time |
-| Editor module (`ENGINE_GAME_MODULE`, set by `engine_add_game` under `ENGINE_EDITOR`) | a `static_assert` on `EngineGame`, then three `extern "C"` exports |
+| Editor module (`ENGINE_GAME_MODULE`, set by `engine_add_game` in SDK mode or under `ENGINE_EDITOR`) | on MSVC an `#error` when `_DEBUG` or `_ITERATOR_DEBUG_LEVEL` differs from the engine's (`ENGINE_BUILD_DEBUG_CRT`, `ENGINE_BUILD_ITERATOR_DEBUG_LEVEL` in `<engine/build_id.h>`, see [CMake](../build/CMake.md#crt-guard)), a `static_assert` on `EngineGame`, then three `extern "C"` exports |
 
 The module exports (`include/engine/core/game_module.h`):
 
