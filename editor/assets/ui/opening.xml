@@ -1,0 +1,15 @@
+<Canvas id="opening">
+  <Stack class="opening-backdrop" direction="vertical">
+    <Stack class="opening-card" direction="vertical">
+      <Label class="opening-title" text="{binding title}"/>
+      <Label class="opening-step" text="{binding stepText}"/>
+      <Stack class="opening-progress-track" direction="horizontal">
+        <Stack class="opening-progress-fill" direction="horizontal" var-w="{binding progressWidth}"/>
+      </Stack>
+      <Label class="opening-detail" text="{binding detailText}"/>
+      <Stack class="opening-actions" direction="horizontal">
+        <Button class="opening-skip" command="{binding skip}" content="Skip"/>
+      </Stack>
+    </Stack>
+  </Stack>
+</Canvas>
