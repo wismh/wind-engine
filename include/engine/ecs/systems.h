@@ -3,10 +3,12 @@
 // docs/tech/modules/ECS.md
 
 #include <engine/core/window_desc.h>
+#include <engine/ecs/camera.h>
 #include <engine/ecs/world.h>
 #include <engine/resources/asset_id.h>
 
 #include <functional>
+#include <optional>
 
 namespace engine {
 
@@ -59,10 +61,24 @@ struct EngineSystemDeps {
     Worlds* worlds = nullptr;
 };
 
+struct WorldViewportRender {
+    render::CommandBuffer* commands = nullptr;
+    render::Rect viewport{};
+    std::optional<glm::vec4> clear_color;
+    ecs::Camera camera{};
+    glm::mat4 camera_world{1.0f};
+    AssetsDb* assets = nullptr;
+    IFatalError* fatal = nullptr;
+};
+
 void register_simulation_systems(ecs::World& world, EngineSystemDeps deps = {});
 void register_ui_systems(ecs::World& world, EngineSystemDeps deps = {});
 void register_audio_systems(ecs::World& world, EngineSystemDeps deps = {});
 void register_engine_systems(ecs::World& world, EngineSystemDeps deps = {});
+
+// Appends a scissored CmdSetView and the sorted world draws (Renderable, Sprite, ParticleEmitter) of `scene`
+// to `target.commands` without clearing the command buffer. Updates `scene` world transforms first.
+void render_world_viewport(ecs::World& scene, const WorldViewportRender& target);
 
 void run_sprite_animations(ecs::World& world);
 // Frame / Input, after the UI input systems: hover, press, and click on `PointerTarget`s, and their share of the
