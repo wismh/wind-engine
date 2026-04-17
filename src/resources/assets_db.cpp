@@ -1,4 +1,5 @@
 #include <engine/audio/sound.h>
+#include <engine/ecs/world_asset.h>
 #include <engine/render/animation.h>
 #include <engine/render/graphic_factory.h>
 #include <engine/render/graphics.h>
@@ -70,6 +71,9 @@ std::optional<ImporterKind> importer_for_type(const std::type_info& type) {
     }
     if (type == typeid(loc::StringTable)) {
         return ImporterKind::Strings;
+    }
+    if (type == typeid(ecs::WorldAsset)) {
+        return ImporterKind::World;
     }
     return std::nullopt;
 }
@@ -237,6 +241,18 @@ std::expected<std::shared_ptr<void>, AssetError> load_cpu(
         desc->filter = entry.texture.filter;
         desc->wrap = entry.texture.wrap;
         return std::static_pointer_cast<void>(std::make_shared<render::TextureDesc>(std::move(*desc)));
+    }
+
+    if (type == typeid(ecs::WorldAsset)) {
+        const auto bytes = read_all(path);
+        if (!bytes) {
+            return std::unexpected(AssetError::Corrupt);
+        }
+        auto parsed = ecs::parse_world_asset(*bytes);
+        if (!parsed) {
+            return std::unexpected(AssetError::Corrupt);
+        }
+        return std::static_pointer_cast<void>(std::make_shared<ecs::WorldAsset>(std::move(*parsed)));
     }
 
     return std::unexpected(AssetError::Corrupt);
