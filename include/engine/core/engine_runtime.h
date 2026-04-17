@@ -22,6 +22,7 @@
 
 namespace engine {
 
+class HttpClient;
 class IAudioSystem;
 struct Font;
 
@@ -44,7 +45,7 @@ public:
     void shutdown();
 
     [[nodiscard]] int run(RunHooks hooks, Worlds& worlds, InputSystem& input, IAudioSystem* audio,
-            std::function<void()> host_dispose = {});
+            HttpClient* http, std::function<void()> host_dispose = {});
 
     [[nodiscard]] render::CommandBuffer& commands();
     [[nodiscard]] render::ICanvas& canvas();

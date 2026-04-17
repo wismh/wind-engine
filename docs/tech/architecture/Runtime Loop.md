@@ -9,12 +9,12 @@ Windowed games enter through `ENGINE_GAME` (`include/engine/game_entry.h`), whic
 1. `EngineHost::init`:
    1. `runtime.init_video()`. SDL video, inside `SdlGlPresentation`.
    2. `log::init(runtime.base_path())`. File sink `<base>/game.log`.
-   3. Construct `SdlFatalError`, `InputSystem`, `AssetsDb`, `AudioSystem`, `HapticsSystem`, `Worlds`, and the `EngineServices` over them (assets, input, audio, haptics, windows, graphics, backend, canvas, commands, worlds).
+   3. Construct `SdlFatalError`, `InputSystem`, `AssetsDb`, `AudioSystem`, `HapticsSystem`, `HttpClient`, `Worlds`, and the `EngineServices` over them (assets, input, audio, haptics, http, windows, graphics, backend, canvas, commands, worlds).
    4. `input.set_router` to `Worlds::world_for`. Attach the fatal hook to `Worlds::application_state` and the native window.
 2. Construct `GameT` with `services()`. `GameBase` calls `Worlds::add` for its world. Systems are not registered yet: the window and catalogs do not exist.
 3. `EngineHost::open_primary(game.primary_window())`:
    1. `runtime.create_window`. Attach the fatal hook again so it sees the created window.
-   2. `audio.init()`, then `haptics.init()`.
+   2. `audio.init()`, then `haptics.init()`, then `http.init()`. An HTTP failure only logs a warning; requests then answer `Unsupported`.
    3. `assets.set_graphic_factory` and `set_root(runtime.assets_root())`. An empty root is fatal.
    4. Load `assets/engine/catalog.toml`. Failure is fatal.
    5. Load `builtin::font_ui` into the primary window's UI atlas. Other fonts and UI images load later, when `run_ui_render` sees them referenced.
@@ -24,7 +24,7 @@ Windowed games enter through `ENGINE_GAME` (`include/engine/game_entry.h`), whic
 4. `EngineHost::load_catalog(assets_root())`: `assets/catalog.toml`. `MetaError::Io` (file absent) is success. Any other error is fatal.
 5. `EngineHost::attach_game(game)`: if `window_icon()` is set, `get<render::TextureDesc>` and `set_window_icon`. Then `bind_window(kPrimaryWindow)`, `enable_ui`, `enable_audio`, `write_window_size` (sends a resize event), `ui::apply_canvas_fit`.
 
-`run` calls `EngineHost::run` with `RunHooks` whose `on_start` and `on_quit` call the game. `EngineHost::run` calls `runtime.run`, then `dispose`. `dispose` disposes audio and haptics and shuts the runtime down. A second `dispose` is a no-op.
+`run` calls `EngineHost::run` with `RunHooks` whose `on_start` and `on_quit` call the game. `EngineHost::run` calls `runtime.run`, then `dispose`. `dispose` disposes audio, haptics, and HTTP (cancelling every pending call) and shuts the runtime down. A second `dispose` is a no-op.
 
 ## `RunHooks`
 
@@ -56,14 +56,15 @@ Web (`Platform::Web`) then uses `emscripten_set_main_loop_arg` with `simulate_in
 flowchart TD
   A["cli::begin_frame on the primary world"] --> B["flush every world"]
   B --> C["poll: event window to its world"]
-  C --> D["simulate_worlds"]
+  C --> C2["HttpClient::poll: finished requests to their calls"]
+  C2 --> D["simulate_worlds"]
   D --> E["sync_frame"]
   E --> F["draw_all"]
   F --> G["cli::drain on the primary world"]
   G --> H["RunHooks::on_frame_end"]
 ```
 
-`cli::begin_frame` and `cli::drain` use the world bound to `kPrimaryWindow`. No binding means those calls are skipped. `reentrant_tick` is the same slice without flush, without poll, and without `on_frame_end`. Windows calls it from inside `SDL_PollEvent` while a modal move or size loop is running. It shares the frame clock, so the frame that resumes after a drag does not replay the drag.
+`cli::begin_frame` and `cli::drain` use the world bound to `kPrimaryWindow`. No binding means those calls are skipped. `reentrant_tick` is the same slice without flush, without either poll, and without `on_frame_end`, so HTTP results wait for the frame after the drag. Windows calls it from inside `SDL_PollEvent` while a modal move or size loop is running. It shares the frame clock, so the frame that resumes after a drag does not replay the drag.
 
 ### `simulate_worlds`
 

@@ -11,6 +11,7 @@
 
 namespace engine {
 
+class HttpClient;
 class IAudioSystem;
 class InputSystem;
 
@@ -18,7 +19,7 @@ class InputSystem;
 class GameLoop {
 public:
     [[nodiscard]] int run(IPresentation& presentation, RunHooks hooks, Worlds& worlds, InputSystem& input,
-            IAudioSystem* audio, std::function<void()> host_dispose);
+            IAudioSystem* audio, HttpClient* http, std::function<void()> host_dispose);
 
 private:
     void begin();
@@ -33,6 +34,7 @@ private:
     Worlds* worlds_ = nullptr;
     InputSystem* input_ = nullptr;
     IAudioSystem* audio_ = nullptr;
+    HttpClient* http_ = nullptr;
     std::chrono::steady_clock::time_point last_{};
     std::function<void()> host_dispose_;
     LoopShutdown shutdown_;

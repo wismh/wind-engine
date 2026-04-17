@@ -88,7 +88,7 @@ The header also defines `ENGINE_BUILD_DEBUG_CRT` (1 when that configuration link
 
 Always, PRIVATE: spdlog, tinyxml2, tomlplusplus. PUBLIC: glm.
 
-Windows also links `ws2_32` and `advapi32` PUBLIC, because `cli_server.cpp` uses WinSock and ACL APIs and a static library does not propagate PRIVATE system libs. The shared editor build keeps the same rule.
+Windows also links `ws2_32`, `advapi32`, and `winhttp` PUBLIC, because `cli_server.cpp` uses WinSock and ACL APIs, `src/net/winhttp_session.cpp` uses WinHTTP, and a static library does not propagate PRIVATE system libs. The shared editor build keeps the same rule.
 
 `ENGINE_WITH_WINDOW` adds SDL3 (static, except Android where SDL is shared), nanovg, and either glad plus `OpenGL::GL` or, with GLES, SDL and nanovg (Android also GLESv3, EGL, `android`, `log`).
 
@@ -136,7 +136,7 @@ The game's source calls `ENGINE_GAME(GameClass)` from `<engine/game_entry.h>` in
 
 The game links `engine` PRIVATE. If the game has an `include/` directory it is PRIVATE too. `engine/src` is not on the game's include path.
 
-Asset and icon steps: [Pipeline](Pipeline.md). Web adds `cmake/web/link_flags.cmake` (`engine_target_web_link_options`, `engine_target_web_preload`) and copies `favicon.png` beside the output when icons were generated.
+Asset and icon steps: [Pipeline](Pipeline.md). Web adds `cmake/web/link_flags.cmake` (`engine_target_web_link_options`, which also links `-sFETCH=1` for [Net](../modules/Net.md), and `engine_target_web_preload`) and copies `favicon.png` beside the output when icons were generated.
 
 `engine_add_web_game` and `engine_add_android_game` call `engine_add_game` and fail the configure when `EMSCRIPTEN` or `ANDROID` is not set.
 

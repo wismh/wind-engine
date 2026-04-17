@@ -77,6 +77,7 @@ flowchart TB
 | `CmdDrawUI` | UI render system | NanoVG painter |
 | `Presentation.mouse` | UI hit-test | `sync_frame` click-through on that same object. `ctx<ui::MouseConsumed>()` does not see the hits |
 | `{tr}` key | string-table asset | UI bind writes `Element::text` |
+| `HttpResult` | [Net](../modules/Net.md) backend (worker thread or browser callback) | the sender's `HttpCall`, in `HttpClient::poll` |
 
 ## Tests vs window
 
