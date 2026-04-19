@@ -12,4 +12,9 @@ struct FixtureLog {
     std::vector<std::string> lines;
 };
 
+struct FixtureComponent {
+    std::string label = "default";
+    int power = 1;
+};
+
 }
