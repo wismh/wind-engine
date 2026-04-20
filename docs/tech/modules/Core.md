@@ -36,17 +36,18 @@ ENGINE_GAME(game::Game)
 | Build | `ENGINE_GAME(GameClass)` expands to |
 | --- | --- |
 | Exported (no `ENGINE_GAME_MODULE`) | `int main()` that runs `Engine<GameClass>::init` and `run`. Android aliases `SDL_main` to it at link time |
-| Editor module (`ENGINE_GAME_MODULE`, set by `engine_add_game` in SDK mode or under `ENGINE_EDITOR`) | on MSVC an `#error` when `_DEBUG` or `_ITERATOR_DEBUG_LEVEL` differs from the engine's (`ENGINE_BUILD_DEBUG_CRT`, `ENGINE_BUILD_ITERATOR_DEBUG_LEVEL` in `<engine/build_id.h>`, see [CMake](../build/CMake.md#crt-guard)), a `static_assert` on `EngineGame`, then three `extern "C"` exports |
+| Editor module (`ENGINE_GAME_MODULE`, set by `engine_add_game` in SDK mode or under `ENGINE_EDITOR`) | on MSVC an `#error` when `_DEBUG` or `_ITERATOR_DEBUG_LEVEL` differs from the engine's (`ENGINE_BUILD_DEBUG_CRT`, `ENGINE_BUILD_ITERATOR_DEBUG_LEVEL` in `<engine/build_id.h>`, see [CMake](../build/CMake.md#crt-guard)), a `static_assert` on `EngineGame`, then four `extern "C"` exports |
 
 The module exports (`include/engine/core/game_module.h`):
 
 | Symbol | Type | Body |
 | --- | --- | --- |
-| `wind_create_game` | `CreateGameFn`: `IGame* (*)(const EngineServices&)` | `new GameClass(services)` |
+| `wind_create_game` | `CreateGameFn`: `IGame* (*)(const EngineServices&)` | `new GameClass(services)` plus `assets::register_game_components` on `game->world().ctx<ecs::WorldSerializer>()` when `<component_io.h>` is present |
 | `wind_destroy_game` | `DestroyGameFn`: `void (*)(IGame*)` | `delete game` |
 | `wind_game_build_id` | `GameBuildIdFn`: `const char* (*)()` | `kBuildIdCStr`, baked when the game compiles |
+| `wind_register_game_components` | `RegisterGameComponentsFn`: `void (*)(ecs::WorldSerializer&)` | `assets::register_game_components(serializer)` when `<component_io.h>` is present (no-op otherwise) |
 
-`kCreateGameSymbol`, `kDestroyGameSymbol`, and `kGameBuildIdSymbol` hold the names for a loader. `ENGINE_GAME_EXPORT` is `extern "C" __declspec(dllexport)` on Windows and `extern "C"` with default visibility elsewhere. `wind_game_build_id` does not call `engine::build_id()`: inside the editor that reaches the editor's `engine.dll` and always matches.
+`kCreateGameSymbol`, `kDestroyGameSymbol`, `kGameBuildIdSymbol`, and `kRegisterGameComponentsSymbol` hold the names for a loader. `ENGINE_GAME_EXPORT` is `extern "C" __declspec(dllexport)` on Windows and `extern "C"` with default visibility elsewhere. `wind_game_build_id` does not call `engine::build_id()`: inside the editor that reaches the editor's `engine.dll` and always matches.
 
 ## Game module loader
 
@@ -57,12 +58,12 @@ Same header, window builds only (`src/core/game_module.cpp`, SDL `SDL_LoadObject
 1. `module` must be a regular file, else `ModuleError::Missing`.
 2. It creates the first free `<live_root>/<n>/` (n = 1, 2, ...) and copies the module there, plus the `.pdb` beside it when there is one. A failed module copy is `CopyFailed`. A failed `.pdb` copy only warns.
 3. It loads the copy. Failure is `LoadFailed` with `SDL_GetError()`.
-4. It resolves the three exports. A missing one is `MissingSymbol` with its name.
+4. It resolves the required exports (`wind_create_game`, `wind_destroy_game`, `wind_game_build_id`) and optional `wind_register_game_components`. A missing required export is `MissingSymbol` with its name.
 5. It compares `wind_game_build_id()` with `engine::build_id()`. A difference is `BuildIdMismatch` with both ids.
 
 Any failure unloads the copy and deletes its directory. `GameModuleError` is the `ModuleError` plus a detail string. `to_string(ModuleError)` and `describe(error)` give one line for a status bar.
 
-`GameModule` is move-only. `create(services)` and `destroy(game)` call the two exports. `build_id()`, `source_path()`, and `live_path()` describe the load. The destructor unloads the copy and deletes its directory. Nothing the game built may outlive it: destroy the game's worlds and the game first.
+`GameModule` is move-only. `create(services)` and `destroy(game)` call the lifecycle exports; `register_components(serializer)` invokes `wind_register_game_components` when present (`has_component_registration()`). `build_id()`, `source_path()`, and `live_path()` describe the load. The destructor unloads the copy and deletes its directory. Nothing the game built (including `WorldSerializer` entries registered from the module) may outlive it: destroy the game's worlds, serializers, and the game first.
 
 `purge_game_module_copies(live_root)` deletes every directory under `live_root` and returns how many went away. A copy another process still has loaded stays.
 
