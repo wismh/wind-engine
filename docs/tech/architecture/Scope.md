@@ -19,6 +19,7 @@ The editor is in progress. See [Editor Plan](Editor%20Plan.md). Today `wind_edit
 - Double-buffered event queues, not a callback bus.
 - `Engine::init` passes engine services to the game constructor as `EngineServices`.
 - Per-user writable directory (`user_data_directory`) for saves and settings. The game owns the file format and when to write.
+- HTTP and HTTPS requests (`IHttpClient`) on Windows, Android, and Web. The caller owns each request as an `HttpCall`.
 - GoogleTest suite for engine logic (`engine_tests`).
 
 ## Backlog
@@ -37,6 +38,8 @@ Open engine work, not game concerns:
 - Per-window `Camera`. Meshes already draw into every window bound to that world. Those windows share the world's `ActiveCamera`. Each window's projection uses `window_size_for` (`Presentation.sizes`).
 - Drag-region hole-punching so a `Button` inside a title-bar rect stays clickable.
 - Visual verification of GL-window transparency on a real display. Linux and macOS overlay styles are untested.
+- HTTP: Linux and macOS backends (today `Unsupported`), streaming bodies, download to a file, and progress.
+- Open-file dialog results as an owned call, like `HttpCall`, instead of `FileDialogResultEvent` in the owner window's world.
 
 Game concerns (do not implement in this repo): persist bus volumes in a settings file; that game's AI tests.
 

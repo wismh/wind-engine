@@ -26,6 +26,7 @@ function(engine_target_web_link_options target)
         "SHELL:-sFULL_ES3=1"
         "SHELL:-sALLOW_MEMORY_GROWTH=1"
         "SHELL:-sNO_EXIT_RUNTIME=1"
+        "SHELL:-sFETCH=1"
         "SHELL:-sEXPORTED_FUNCTIONS=_main"
         "SHELL:--shell-file=${_shell}")
 endfunction()

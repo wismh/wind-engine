@@ -110,7 +110,7 @@ TEST(GameLoop, RunHooksWrapTheFramesInOrder) {
                     },
                     .on_quit = [&] { log.push_back("quit"); },
             },
-            worlds, input, nullptr, [&] { log.push_back("dispose"); });
+            worlds, input, nullptr, nullptr, [&] { log.push_back("dispose"); });
 
     EXPECT_EQ(result, 0);
     EXPECT_EQ(frames, 2);
@@ -148,7 +148,7 @@ TEST(GameLoop, FrameEndCanKeepTheLoopRunning) {
                     },
                     .on_quit = {},
             },
-            worlds, input, nullptr, {});
+            worlds, input, nullptr, nullptr, {});
 
     EXPECT_EQ(result, 0);
     EXPECT_EQ(stops, 1);

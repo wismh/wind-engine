@@ -10,6 +10,7 @@ namespace engine {
 class AssetsDb;
 class IAudioSystem;
 class IHaptics;
+class IHttpClient;
 class InputSystem;
 class IWindowControl;
 
@@ -26,6 +27,7 @@ struct EngineServices {
     InputSystem& input;
     IAudioSystem& audio;
     IHaptics& haptics;
+    IHttpClient& http;
     IWindowControl& windows;
     render::IGraphicFactory& graphics;
     render::IRenderBackend& backend;
