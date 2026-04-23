@@ -65,7 +65,7 @@ Platform requirements:
 
 ### Threads
 
-`HttpCallState` (`src/net/http_call_state.h`) is shared by the call, the completion queue, and the backend. `result` is touched on the main thread only. A backend brackets its blocking work with `begin_transfer(abort)` and `end_transfer()`; `cancel` runs the registered abort under the same lock, so a handle is closed exactly once. `HttpCompletions` takes results from any thread and hands them over in `deliver`, dropping cancelled ones. `HttpWorkerPool` skips a call cancelled while queued.
+`HttpCallState` (`src/net/http_call_state.h`) is shared by the call, the completion queue, and the backend. `result` is touched on the main thread only. A backend brackets its blocking work with `begin_transfer(abort)` and `end_transfer()`; `cancel` runs the registered abort under the same lock, so a handle is closed exactly once. `HttpCompletions` (`CallCompletions` from `src/core/call_completions.h`, shared with `FileDialogCall`) takes results from any thread and hands them over in `deliver`, dropping cancelled ones. `HttpWorkerPool` skips a call cancelled while queued.
 
 ## Not in scope yet
 

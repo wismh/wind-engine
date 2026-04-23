@@ -167,8 +167,8 @@ public:
     std::vector<engine::WindowId> open_windows() const override {
         return open;
     }
-    engine::FileDialogRequest request_open_file(engine::WindowId, std::vector<engine::FileFilter>) override {
-        return engine::FileDialogRequest{1};
+    engine::FileDialogCall request_open_file(engine::WindowId, std::vector<engine::FileFilter>) override {
+        return engine::FileDialogCall::resolved(engine::FileDialogResult{});
     }
     engine::render::Rect usable_display_bounds(int) const override {
         return {};

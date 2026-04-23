@@ -25,7 +25,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/core/engine_services.h` | References passed into the game constructor | [Core](../modules/Core.md) |
 | `include/engine/core/export.h` | `ENGINE_API` export and import macro | [CMake](../build/CMake.md) |
 | `include/engine/core/fixed_step.h` | `FixedStepClock` | [Core](../modules/Core.md) |
-| `include/engine/core/file_dialog.h` | `FileFilter`, `FileDialogRequest`, `FileDialogResultEvent` | [Windowing](../features/Windowing.md) |
+| `include/engine/core/file_dialog.h` | `FileFilter`, `FileDialogResult`, `FileDialogCall`: one owned dialog, `take`, `cancel` | [Windowing](../features/Windowing.md) |
 | `include/engine/core/game_module.h` | Game module export types and symbol names; `GameModule`, `load_game_module`, `purge_game_module_copies` | [Core](../modules/Core.md) |
 | `include/engine/core/host.h` | Headless tick host for tests | [Core](../modules/Core.md) |
 | `include/engine/core/input_system.h` | `ActionId` bindings and input events | [Input Mapper](../features/Input%20Mapper.md) |
@@ -98,11 +98,12 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | --- | --- | --- |
 | `src/core/app_lifecycle.cpp` | Applies lifecycle events to `ApplicationState` | [Core](../modules/Core.md) |
 | `src/core/build_info.cpp` | `build_id()` returns the engine's `kBuildId` | [CMake](../build/CMake.md) |
+| `src/core/call_completions.h` | `CallCompletions`: async call results from any thread, handed over on the main thread | [Windowing](../features/Windowing.md) |
 | `src/core/engine_host.cpp` | `EngineHost` body | [Core](../modules/Core.md) |
 | `src/core/engine_instantiate.cpp` | Explicit `Engine<WindowSmokeGame>` instantiation | [Core](../modules/Core.md) |
 | `src/core/engine_runtime.cpp` | `EngineRuntime` pimpl over the presentation | [Core](../modules/Core.md) |
-| `src/core/file_dialog_queue.cpp` | Queues dialog answers from any thread, delivers them on `poll` | [Windowing](../features/Windowing.md) |
-| `src/core/file_dialog_queue.h` | `FileDialogQueue` | [Windowing](../features/Windowing.md) |
+| `src/core/file_dialog_call.cpp` | `FileDialogCall` ownership and cancel | [Windowing](../features/Windowing.md) |
+| `src/core/file_dialog_state.h` | State shared by a call and the dialog callback, `FileDialogCompletions` | [Windowing](../features/Windowing.md) |
 | `src/core/fixed_step.cpp` | Accumulator and step cap | [Core](../modules/Core.md) |
 | `src/core/frame_step.cpp` | `flush_worlds` and `simulate_worlds` | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/core/frame_step.h` | Declarations for those two functions | [Runtime Loop](../architecture/Runtime%20Loop.md) |
@@ -254,8 +255,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/net/http_call.cpp` | `HttpCall` ownership and cancel | [Net](../modules/Net.md) |
 | `src/net/http_call_state.h` | State shared by a call, the queue, and the backend | [Net](../modules/Net.md) |
 | `src/net/http_client.cpp` | `HttpClient`: backend choice, `send`, `poll`, `dispose` | [Net](../modules/Net.md) |
-| `src/net/http_completions.cpp` | Finished results handed to calls on the main thread | [Net](../modules/Net.md) |
-| `src/net/http_completions.h` | Completion queue API | [Net](../modules/Net.md) |
+| `src/net/http_completions.h` | `HttpCompletions`, the `CallCompletions` of HTTP calls | [Net](../modules/Net.md) |
 | `src/net/http_parse.cpp` | URL check, method names, raw headers, `HttpResponse::header` | [Net](../modules/Net.md) |
 | `src/net/http_parse.h` | `HttpUrl` and the parse functions | [Net](../modules/Net.md) |
 | `src/net/http_worker_pool.cpp` | Threads for blocking backends | [Net](../modules/Net.md) |
@@ -286,7 +286,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/command_buffer_test.cpp` | Push and iterate the three command types | [Render](../modules/Render.md) |
 | `tests/ecs_test.cpp` | Create, destroy, views, deferred destroy | [ECS](../modules/ECS.md) |
 | `tests/events_test.cpp` | Double buffer and cursors | [ECS](../modules/ECS.md) |
-| `tests/file_dialog_test.cpp` | `FileDialogQueue` delivery to the owner window's world | [Windowing](../features/Windowing.md) |
+| `tests/file_dialog_test.cpp` | `FileDialogCall` delivery, cancel, and ownership | [Windowing](../features/Windowing.md) |
 | `tests/fixtures/fake_services.h` | Headless `EngineServices` fakes for tests that create a game | [Core](../modules/Core.md) |
 | `tests/fixtures/game_module/fixture_game.cpp` | Fixture game module, built three ways in the editor build | [Core](../modules/Core.md) |
 | `tests/fixtures/game_module/fixture_log.h` | `FixtureLog` the fixture game writes into | [Core](../modules/Core.md) |

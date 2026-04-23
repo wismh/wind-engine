@@ -1,118 +1,115 @@
 #include <gtest/gtest.h>
 
-#include "core/file_dialog_queue.h"
+#include "core/file_dialog_state.h"
 
 #include <engine/core/file_dialog.h>
-#include <engine/core/worlds.h>
-#include <engine/ecs/events.h>
-#include <engine/ecs/world.h>
-#include <engine/resources/fatal_error.h>
 
 #include <filesystem>
+#include <memory>
 #include <optional>
-#include <string_view>
 #include <thread>
-#include <vector>
+#include <utility>
 
 namespace {
 
-class QuietFatal final : public engine::IFatalError {
-public:
-    void report(std::string_view) override {}
+// What the SDL window control does: one state shared by the call and the dialog's callback.
+struct Shown {
+    std::shared_ptr<engine::FileDialogState> state = std::make_shared<engine::FileDialogState>();
+    engine::FileDialogCall call{state};
 };
 
-std::vector<engine::FileDialogResultEvent> read_results(engine::ecs::World& world) {
-    std::vector<engine::FileDialogResultEvent> out;
-    for (const engine::FileDialogResultEvent& event : engine::ecs::EventReader<engine::FileDialogResultEvent>{world}) {
-        out.push_back(event);
-    }
-    return out;
 }
 
-}
-
-TEST(FileDialog, AnswerFromAnotherThreadArrivesInTheOwnerWorldOnDeliver) {
-    QuietFatal fatal;
-    engine::Worlds worlds{fatal};
-    engine::ecs::World& editor = worlds.add();
-    engine::ecs::World& game = worlds.add();
-    const engine::WindowId editor_window{3};
-    worlds.bind_window(editor_window, editor);
-    worlds.bind_window(engine::kPrimaryWindow, game);
-
-    engine::FileDialogQueue queue;
-    const engine::FileDialogRequest request = queue.begin(editor_window);
-    std::thread dialog_thread(
-            [&queue, request] { queue.complete(request, std::filesystem::path("C:/games/game.dll")); });
+TEST(FileDialog, AnswerFromAnotherThreadIsVisibleOnlyAfterDeliver) {
+    engine::FileDialogCompletions completions;
+    Shown shown;
+    std::thread dialog_thread([&completions, state = shown.state] {
+        completions.push(state, engine::FileDialogResult{.path = std::filesystem::path("C:/games/game.dll")});
+    });
     dialog_thread.join();
 
-    EXPECT_TRUE(read_results(editor).empty()) << "nothing is sent before deliver";
-    queue.deliver(worlds);
+    EXPECT_TRUE(shown.call.pending()) << "nothing is visible before deliver";
+    EXPECT_FALSE(shown.call.take().has_value());
 
-    const std::vector<engine::FileDialogResultEvent> results = read_results(editor);
-    ASSERT_EQ(results.size(), 1u);
-    EXPECT_EQ(results[0].request, request);
-    ASSERT_TRUE(results[0].path.has_value());
-    EXPECT_EQ(*results[0].path, std::filesystem::path("C:/games/game.dll"));
-    EXPECT_TRUE(read_results(game).empty());
+    completions.deliver();
+    EXPECT_FALSE(shown.call.pending());
+    const std::optional<engine::FileDialogResult> answer = shown.call.take();
+    ASSERT_TRUE(answer.has_value());
+    ASSERT_TRUE(answer->path.has_value());
+    EXPECT_EQ(*answer->path, std::filesystem::path("C:/games/game.dll"));
 
-    queue.deliver(worlds);
-    EXPECT_EQ(read_results(editor).size(), 1u) << "an answer is delivered once";
+    EXPECT_FALSE(shown.call.take().has_value()) << "an answer is taken once";
+    EXPECT_FALSE(shown.call.pending());
 }
 
-TEST(FileDialog, CancelIsAnEmptyPath) {
-    QuietFatal fatal;
-    engine::Worlds worlds{fatal};
-    engine::ecs::World& editor = worlds.add();
-    const engine::WindowId editor_window{3};
-    worlds.bind_window(editor_window, editor);
+TEST(FileDialog, UserCancelIsAnAnswerWithoutAPath) {
+    engine::FileDialogCompletions completions;
+    Shown shown;
+    completions.push(shown.state, engine::FileDialogResult{});
+    completions.deliver();
 
-    engine::FileDialogQueue queue;
-    const engine::FileDialogRequest request = queue.begin(editor_window);
-    queue.complete(request, std::nullopt);
-    queue.deliver(worlds);
-
-    const std::vector<engine::FileDialogResultEvent> results = read_results(editor);
-    ASSERT_EQ(results.size(), 1u);
-    EXPECT_FALSE(results[0].path.has_value());
+    const std::optional<engine::FileDialogResult> answer = shown.call.take();
+    ASSERT_TRUE(answer.has_value());
+    EXPECT_FALSE(answer->path.has_value());
 }
 
-TEST(FileDialog, RequestsGetDistinctIdsAndKeepTheirOwnOwner) {
-    QuietFatal fatal;
-    engine::Worlds worlds{fatal};
-    engine::ecs::World& first = worlds.add();
-    engine::ecs::World& second = worlds.add();
-    const engine::WindowId first_window{1};
-    const engine::WindowId second_window{2};
-    worlds.bind_window(first_window, first);
-    worlds.bind_window(second_window, second);
+TEST(FileDialog, EachCallGetsItsOwnAnswer) {
+    engine::FileDialogCompletions completions;
+    Shown a;
+    Shown b;
+    completions.push(b.state, engine::FileDialogResult{.path = std::filesystem::path("b.dll")});
+    completions.push(a.state, engine::FileDialogResult{.path = std::filesystem::path("a.dll")});
+    completions.deliver();
 
-    engine::FileDialogQueue queue;
-    const engine::FileDialogRequest a = queue.begin(first_window);
-    const engine::FileDialogRequest b = queue.begin(second_window);
-    EXPECT_NE(a, b);
-    queue.complete(b, std::filesystem::path("b.dll"));
-    queue.complete(a, std::filesystem::path("a.dll"));
-    queue.deliver(worlds);
-
-    const auto first_results = read_results(first);
-    const auto second_results = read_results(second);
-    ASSERT_EQ(first_results.size(), 1u);
-    ASSERT_EQ(second_results.size(), 1u);
-    EXPECT_EQ(first_results[0].request, a);
-    EXPECT_EQ(second_results[0].request, b);
+    EXPECT_EQ(a.call.take()->path, std::filesystem::path("a.dll"));
+    EXPECT_EQ(b.call.take()->path, std::filesystem::path("b.dll"));
 }
 
-TEST(FileDialog, AnswerForAWindowWithoutAWorldIsDropped) {
-    QuietFatal fatal;
-    engine::Worlds worlds{fatal};
-    engine::ecs::World& other = worlds.add();
-    worlds.bind_window(engine::kPrimaryWindow, other);
+TEST(FileDialog, CancelDropsTheAnswer) {
+    engine::FileDialogCompletions completions;
+    Shown shown;
+    shown.call.cancel();
+    EXPECT_FALSE(shown.call.pending());
 
-    engine::FileDialogQueue queue;
-    const engine::FileDialogRequest request = queue.begin(engine::WindowId{9});
-    queue.complete(request, std::filesystem::path("x.dll"));
-    queue.deliver(worlds);
+    completions.push(shown.state, engine::FileDialogResult{.path = std::filesystem::path("x.dll")});
+    completions.deliver();
+    EXPECT_FALSE(shown.state->result.has_value());
+    EXPECT_FALSE(shown.call.take().has_value());
+}
 
-    EXPECT_TRUE(read_results(other).empty());
+TEST(FileDialog, DestroyedCallDropsTheAnswer) {
+    engine::FileDialogCompletions completions;
+    auto state = std::make_shared<engine::FileDialogState>();
+    {
+        const engine::FileDialogCall call{state};
+        EXPECT_TRUE(call.pending());
+    }
+    EXPECT_TRUE(state->cancelled());
+
+    completions.push(state, engine::FileDialogResult{.path = std::filesystem::path("x.dll")});
+    completions.deliver();
+    EXPECT_FALSE(state->result.has_value());
+}
+
+TEST(FileDialog, MoveAssignCancelsTheCallItReplaces) {
+    Shown first;
+    Shown second;
+    first.call = std::move(second.call);
+
+    EXPECT_TRUE(first.state->cancelled());
+    EXPECT_FALSE(second.state->cancelled());
+    EXPECT_TRUE(first.call.pending());
+    EXPECT_FALSE(second.call.pending());
+}
+
+TEST(FileDialog, ResolvedCallHoldsItsAnswerAndEmptyCallHoldsNothing) {
+    engine::FileDialogCall resolved =
+            engine::FileDialogCall::resolved(engine::FileDialogResult{.path = std::filesystem::path("r.dll")});
+    EXPECT_FALSE(resolved.pending());
+    EXPECT_EQ(resolved.take()->path, std::filesystem::path("r.dll"));
+
+    engine::FileDialogCall empty;
+    EXPECT_FALSE(empty.pending());
+    EXPECT_FALSE(empty.take().has_value());
+    empty.cancel();
 }
