@@ -6,7 +6,7 @@ cmake_minimum_required(VERSION 3.20)
 # v<full version>. CMake's own project version stays the three numbers (WindConfigVersion.cmake compares only those, a
 # game's find_package(Wind) gets that exact number). docs/tech/build/Release.md, docs/tech/build/CMake.md
 set(ENGINE_VERSION_MAJOR 0)
-set(ENGINE_VERSION_MINOR 1)
+set(ENGINE_VERSION_MINOR 2)
 set(ENGINE_VERSION_STAGE "a")
 set(ENGINE_VERSION_PATCH "" CACHE STRING "Patch number of a release build (empty: a local build, version ...-dev)")
 if(NOT ENGINE_VERSION_STAGE MATCHES "^(a|b)?$")
