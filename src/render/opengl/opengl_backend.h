@@ -59,6 +59,7 @@ private:
     bool particle_buffers_initialized_ = false;
     GlErrorLog gl_errors_;
     CmdSetView view_;
+    int full_viewport_[4]{0, 0, 0, 0};
 };
 
 }

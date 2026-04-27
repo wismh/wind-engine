@@ -1,0 +1,12 @@
+<Canvas id="world_view" class="world-canvas">
+  <Stack class="world-panel" direction="vertical">
+    <Stack class="world-header" direction="horizontal">
+      <Button class="panel-button" command="{binding toggleProjection}" content="{binding projectionLabel}"/>
+      <Button class="panel-button" command="{binding resetCamera}" content="Reset Camera"/>
+      <Label class="hint" text="{binding statusText}"/>
+    </Stack>
+    <Stack id="world-viewport" class="world-viewport" direction="vertical" var-viewport-bg="{binding viewportBg}">
+      <Label class="hint" text="{binding emptyText}"/>
+    </Stack>
+  </Stack>
+</Canvas>
