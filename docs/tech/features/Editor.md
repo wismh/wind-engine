@@ -44,7 +44,7 @@ A toolbar, a tab strip, and the active panel.
 | Game path | `gamePath` | The chosen module |
 | Inspector / Profiler tabs | `showInspector`, `showProfiler`, `inspectorTab`, `profilerTab` (`checked`) | Show that panel. Inspector is first |
 
-The commands are `MethodCommand` (`editor/src/method_command.h`) bound to `Toolbar` methods. Choose game and Play/Stop only record an `EditorRequest`. A tab button switches the tab at once. The dialog answer (`FileDialogResultEvent`) and the editor window's `WindowCloseRequestedEvent` are read by one editor-world system that also only records. Every transition runs in `RunHooks::on_frame_end`, after the frame drew, because Play and Stop create and destroy worlds that no system of that frame may still be walking.
+The commands are `MethodCommand` (`editor/src/method_command.h`) bound to `Toolbar` methods. Choose game and Play/Stop only record an `EditorRequest`. A tab button switches the tab at once. The editor window's `WindowCloseRequestedEvent` is read by one editor-world system that also only records. The dialog answer waits on the editor's `FileDialogCall` until `on_frame_end` takes it. Every transition runs in `RunHooks::on_frame_end`, after the frame drew, because Play and Stop create and destroy worlds that no system of that frame may still be walking.
 
 ## Panels
 

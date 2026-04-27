@@ -63,7 +63,7 @@ The editor's `engine.dll` stays locked while the editor runs. An engine change n
 
 ## Choosing the game
 
-Every start opens a file dialog for the module. `IWindowControl::request_open_file(owner, filters)` wraps `SDL_ShowOpenFileDialog`. SDL may call back on another thread, so the result is queued and delivered in `poll` as `FileDialogResultEvent` to the owner window's world. No SDL type reaches `include/`.
+Every start opens a file dialog for the module. `IWindowControl::request_open_file(owner, filters)` wraps `SDL_ShowOpenFileDialog`. It returns a `FileDialogCall` the editor owns. SDL may call back on another thread, so the answer is queued and becomes visible on the call in `poll`. No SDL type reaches `include/`.
 
 ## Inspector and profiler
 

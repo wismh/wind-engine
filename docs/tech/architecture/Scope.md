@@ -39,7 +39,6 @@ Open engine work, not game concerns:
 - Drag-region hole-punching so a `Button` inside a title-bar rect stays clickable.
 - Visual verification of GL-window transparency on a real display. Linux and macOS overlay styles are untested.
 - HTTP: Linux and macOS backends (today `Unsupported`), streaming bodies, download to a file, and progress.
-- Open-file dialog results as an owned call, like `HttpCall`, instead of `FileDialogResultEvent` in the owner window's world.
 
 Game concerns (do not implement in this repo): persist bus volumes in a settings file; that game's AI tests.
 
