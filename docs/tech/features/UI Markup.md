@@ -61,7 +61,7 @@ Color, gradient, `background-repeat`, easing, and `transform` values are on [UI]
 
 - Styles do not inherit. `compute_style_uncached` starts from a fresh `ComputedStyle` and does not copy the parent. Color, `font-size`, and `font-family` do not inherit. Defaults are white, 16px, and `builtin::font_ui`.
 
-`display: none` removes the subtree from layout, paint, and hit-testing. Any other token sets `display_none` false, so a winning `display: block` shows the element again. It does not select another layout mode. `visibility: hidden` keeps the box.
+`display: none` removes the subtree from layout, paint, and hit-testing. Any other token sets `display_none` false, so a winning `display: block` shows the element again. It does not select another layout mode. `visibility: hidden` keeps the box. Do not attempt to toggle visibility dynamically through CSS custom properties such as `display: var(--display)`: conditional element visibility is done exclusively via the XML attribute `if="{boolBinding}"`.
 
 ## Bind
 
