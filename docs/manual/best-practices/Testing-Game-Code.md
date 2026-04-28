@@ -40,18 +40,19 @@ private:
 
 ## 2. Writing Unit Tests with GoogleTest
 
-Enable GoogleTest via CMake without building engine internal test suites:
+GoogleTest ships in the Wind SDK, so `find_package(Wind)` already gives `GTest::gtest_main`:
 
 ```cmake
 # CMakeLists.txt
-set(ENGINE_WITH_GTEST ON CACHE BOOL "" FORCE)
-add_subdirectory(external/engine)
+find_package(Wind REQUIRED)
+enable_testing()
 
 add_executable(game_tests
     tests/inventory_test.cpp
     src/domain/inventory.cpp
 )
 target_link_libraries(game_tests PRIVATE GTest::gtest_main)
+gtest_discover_tests(game_tests DISCOVERY_MODE PRE_TEST)
 ```
 
 Write test cases in `tests/inventory_test.cpp`:
