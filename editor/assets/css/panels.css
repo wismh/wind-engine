@@ -366,3 +366,32 @@ ScrollView.log {
   color: var(--tone, #c5ced8);
   white-space: nowrap;
 }
+
+/* World tab: transparent canvas and viewport when a .world is loaded so the scissored 3D/2D scene shows through. */
+Canvas.world-canvas {
+  background: #00000000;
+}
+
+.world-panel {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  gap: 0;
+}
+
+.world-header {
+  width: 100%;
+  height: 36;
+  padding: 6 12;
+  gap: 8;
+  align-items: center;
+  background: #1e1f22;
+}
+
+.world-viewport {
+  width: 100%;
+  height: calc(100% - 36px);
+  padding: 12;
+  background: var(--viewport-bg, #1e1f22);
+}
+

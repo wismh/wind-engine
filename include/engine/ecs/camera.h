@@ -61,4 +61,13 @@ struct ActiveCamera {
 [[nodiscard]] glm::vec2 world_to_screen(
         glm::vec3 world, const Camera& camera, const glm::mat4& camera_world, const ui::WindowSize& window);
 
+namespace ecs {
+
+using ActiveCamera = engine::ActiveCamera;
+using Camera = engine::Camera;
+using Projection = engine::Projection;
+using CameraProjection = engine::Projection;
+
+}
+
 }

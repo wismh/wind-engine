@@ -7,6 +7,7 @@
 #include "inspector_panel.h"
 #include "profiler_panel.h"
 #include "ui_tree_panel.h"
+#include "world_view_panel.h"
 
 #include <engine/core/input_system.h>
 #include <engine/core/window_control.h>
@@ -19,29 +20,35 @@
 #include <cstdint>
 #include <string_view>
 
+namespace engine {
+struct EngineSystemDeps;
+}
+
 namespace engine::ecs {
 class World;
 }
 
 namespace editor {
 
-// The Project, UI Tree, Inspector, Profiler, and Build panels in an engine dock space that fills the editor window
-// below the toolbar; a floated panel lives in an OS window of its own (DockFloatMode::OsWindow). Each panel is its own
-// canvas in the editor's world; the dock space places it, so an inactive tab is a Fixed canvas with an empty rect and
-// takes no clicks. The panels share one EditorSelection: the Project and UI Tree panels write it, the Inspector shows
-// it. While playing, the UI Tree, Inspector, and Profiler read the world of kPrimaryWindow and refresh only while
-// their tab is shown. The Build panel is filled by the editor as a build runs, and the Project panel scans when a
-// project opens and on its Refresh. The layout is read from `layout_file` at spawn and written back when the user
-// changes it and at quit.
+// The Project, World, UI Tree, Inspector, Profiler, and Build panels in an engine dock space that fills the editor
+// window below the toolbar; a floated panel lives in an OS window of its own (DockFloatMode::OsWindow). Each panel is
+// its own canvas in the editor's world; the dock space places it, so an inactive tab is a Fixed canvas with an empty
+// rect and takes no clicks. The panels share one EditorSelection: the Project and UI Tree panels write it, the
+// Inspector shows it, and the World panel opens a selected `.world.toml` file. While playing, the UI Tree, Inspector,
+// and Profiler read the world of kPrimaryWindow and refresh only while their tab is shown. The Build panel is filled by
+// the editor as a build runs, and the Project panel scans when a project opens and on its Refresh. The layout is read
+// from `layout_file` at spawn and written back when the user changes it and at quit.
 class EditorPanels {
 public:
     static constexpr std::string_view kProject = "project";
+    static constexpr std::string_view kWorld = "world";
     static constexpr std::string_view kUiTree = "ui_tree";
     static constexpr std::string_view kInspector = "inspector";
     static constexpr std::string_view kProfiler = "profiler";
     static constexpr std::string_view kBuild = "build";
     // Dock order: the default layout's tabs and where reconcile puts a panel a saved layout lacks.
-    static constexpr std::array<std::string_view, 5> kKeys{kProject, kUiTree, kInspector, kProfiler, kBuild};
+    static constexpr std::array<std::string_view, 6> kKeys{
+            kProject, kWorld, kUiTree, kInspector, kProfiler, kBuild};
 
     // Height of the toolbar in the editor window: `.toolbar` of assets/css/editor.css. The dock space is below it.
     static constexpr float kToolbarHeight = 56.0f;
@@ -53,8 +60,8 @@ public:
     EditorPanels(const EditorPanels&) = delete;
     EditorPanels& operator=(const EditorPanels&) = delete;
 
-    // Project on the left; in the middle UI Tree and Profiler tabbed (UI Tree shown) over Build; Inspector on the
-    // right.
+    // Project on the left; in the middle World, UI Tree, and Profiler tabbed (UI Tree shown) over Build; Inspector on
+    // the right.
     [[nodiscard]] static engine::ui::DockLayout default_layout();
 
     // Spawns the panel canvases and the dock space in `world` for `window`, with the saved layout when it reads, else
@@ -67,10 +74,13 @@ public:
     void detach();
 
     // Editor world, Phase::Game (before Bind): keeps the dock area under the toolbar, gives tree keys to the Project
-    // or UI Tree panel under the pointer, takes a new UI selection from the game (a pick click, UI Tree shown or not),
-    // refreshes the UI Tree, Inspector, and Profiler while shown, so this frame's bindings see this frame's copy, and
-    // saves the layout when the dock space changed it.
+    // or UI Tree panel under the pointer, opens a newly selected `.world.toml` in the World panel, takes a new UI
+    // selection from the game (a pick click, UI Tree shown or not), refreshes the World, UI Tree, Inspector, and
+    // Profiler while shown, so this frame's bindings see this frame's copy, and saves the layout when the dock space
+    // changed it.
     void frame(engine::ecs::World& world);
+    // Editor world, Phase::Render: renders the World panel's preview world into its viewport rect when shown.
+    void render(engine::ecs::World& world, const engine::EngineSystemDeps& deps);
 
     // Brings the panel to the front: its tab becomes active and its float, if any, goes on top; a float in an OS
     // window is raised and focused. A panel the layout lost goes back where reconcile puts it.
@@ -84,6 +94,7 @@ public:
 
     [[nodiscard]] const EditorSelection& selection() const;
     [[nodiscard]] ExplorerPanel& explorer();
+    [[nodiscard]] WorldViewPanel& world_view();
     [[nodiscard]] UiTreePanel& ui_tree();
     [[nodiscard]] InspectorPanel& inspector();
     [[nodiscard]] ProfilerPanel& profiler();
@@ -103,11 +114,13 @@ private:
     // Before the panels, which hold it.
     EditorSelection selection_;
     ExplorerPanel explorer_;
+    WorldViewPanel world_view_;
     UiTreePanel ui_tree_;
     InspectorPanel inspector_;
     ProfilerPanel profiler_;
     BuildPanel build_;
     engine::ecs::Entity explorer_canvas_{};
+    engine::ecs::Entity world_canvas_{};
     engine::ecs::Entity ui_tree_canvas_{};
     engine::ecs::Entity inspector_canvas_{};
     engine::ecs::Entity profiler_canvas_{};
