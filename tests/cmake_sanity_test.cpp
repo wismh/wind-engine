@@ -483,7 +483,7 @@ TEST(Scaffold, AndroidGradleOverlaysPerGameManifest) {
 }
 
 
-TEST(Scaffold, EditorSdkModeBuildsNoEngine) {
+TEST(Scaffold, EditorSdkIsAFindPackageConfig) {
 #ifdef ENGINE_SOURCE_DIR
     const std::filesystem::path root{ENGINE_SOURCE_DIR};
     const auto slurp = [](const std::filesystem::path& path) {
@@ -491,24 +491,24 @@ TEST(Scaffold, EditorSdkModeBuildsNoEngine) {
         return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
     };
     const std::string cmake = slurp(root / "CMakeLists.txt");
-    const std::string sdk = slurp(root / "cmake" / "wind_sdk.cmake.in");
+    const std::string sdk = slurp(root / "cmake" / "WindConfig.cmake.in");
     ASSERT_FALSE(cmake.empty());
     ASSERT_FALSE(sdk.empty());
 
-    // WIND_EDITOR_SDK includes the installed wind_sdk.cmake and returns before any engine target exists.
-    const auto include_sdk = cmake.find("include(\"${WIND_EDITOR_SDK}/cmake/wind_sdk.cmake\")");
-    ASSERT_NE(include_sdk, std::string::npos);
-    const auto sdk_return = cmake.find("return()", include_sdk);
-    ASSERT_NE(sdk_return, std::string::npos);
-    const auto engine_target = cmake.find("add_library(engine ${_engine_library_kind}");
-    ASSERT_NE(engine_target, std::string::npos);
-    EXPECT_LT(sdk_return, engine_target);
+    // A game loads the SDK with find_package(Wind); the engine's own CMakeLists.txt has no SDK branch.
+    EXPECT_EQ(cmake.find("WIND_EDITOR_SDK"), std::string::npos);
+    EXPECT_NE(cmake.find("project(engine VERSION "), std::string::npos);
+    EXPECT_NE(cmake.find("cmake/WindConfig.cmake.in"), std::string::npos);
+    EXPECT_NE(cmake.find("COMPATIBILITY ExactVersion"), std::string::npos);
+    EXPECT_NE(cmake.find("cmake/sdk_manifest.cmake"), std::string::npos);
+    EXPECT_NE(cmake.find("DESTINATION source/external"), std::string::npos);
     EXPECT_NE(cmake.find("include(\"${CMAKE_CURRENT_SOURCE_DIR}/cmake/wind_game.cmake\")"), std::string::npos);
 
-    // The SDK imports engine and the host tools and uses the same game functions as the source build.
+    // The SDK imports engine, the host tools, and GoogleTest, and uses the same game functions as the source build.
     EXPECT_NE(sdk.find("add_library(engine SHARED IMPORTED GLOBAL)"), std::string::npos);
     EXPECT_NE(sdk.find("add_executable(asset_codegen IMPORTED GLOBAL)"), std::string::npos);
     EXPECT_NE(sdk.find("add_executable(icon_codegen IMPORTED GLOBAL)"), std::string::npos);
+    EXPECT_NE(sdk.find("add_library(GTest::gtest_main STATIC IMPORTED GLOBAL)"), std::string::npos);
     EXPECT_NE(sdk.find("include(\"${CMAKE_CURRENT_LIST_DIR}/wind_game.cmake\")"), std::string::npos);
 
     // SDK mode checks the game's configurations and gives DebugGame flags as cache defaults, so every target of
