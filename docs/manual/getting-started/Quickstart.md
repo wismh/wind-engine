@@ -6,22 +6,31 @@ This guide walks you through setting up a minimal game using the Wind engine, op
 
 ## 1. Prerequisites
 
-- **CMake 3.25+**
-- A **C++23** conforming compiler (MSVC 19.36+, Clang 16+, GCC 13+)
+- **CMake 3.20+**
+- **Visual Studio 2026** (MSVC, C++23)
 - **Git**
+- A **Wind editor SDK**. Build it once from the engine repo:
+
+```bash
+git clone --recursive https://github.com/wismh/wind-engine.git
+cd wind-engine
+cmake --preset vs-editor
+cmake --build build-editor --config Release
+cmake --install build-editor --config Release --prefix out/sdk
+```
+
+`out/sdk/` now holds the editor (`bin/wind_editor.exe`), the engine, its headers, and the CMake package your game finds. `out/sdk/sdk.toml` names its engine version.
 
 ---
 
 ## 2. Setting Up the Repository
 
-Initialize your game repository and add the Wind engine as a git submodule in `external/engine`:
+Your game repository does not contain the engine. It finds the SDK when it configures:
 
 ```bash
 mkdir my_game
 cd my_game
 git init
-git submodule add https://github.com/wismh/wind-engine.git external/engine
-git submodule update --init --recursive
 ```
 
 ---
@@ -31,16 +40,13 @@ git submodule update --init --recursive
 Create a root `CMakeLists.txt` file:
 
 ```cmake
-cmake_minimum_required(VERSION 3.25)
+cmake_minimum_required(VERSION 3.20)
 project(my_game LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# The installed Wind SDK (CMAKE_PREFIX_PATH points at it)
+find_package(Wind REQUIRED)
 
-# Add Wind engine as a submodule
-add_subdirectory(external/engine)
-
-# Declare your game executable
+# Declare your game
 engine_add_game(my_game
     src/main.cpp
     src/game.h
@@ -48,7 +54,36 @@ engine_add_game(my_game
 )
 ```
 
-`engine_add_game` configures C++23, enables windowing and audio by default, triggers asset compilation (`asset_codegen`), and copies cooked assets next to the output executable.
+`engine_add_game` configures C++23, triggers asset compilation (`asset_codegen`), and builds your game as a module (`my_game.dll`) that the editor loads on Play, with its cooked assets beside it.
+
+Add `CMakePresets.json` (committed) and `CMakeUserPresets.json` (not committed: the SDK path is per machine):
+
+```json
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "editor",
+      "generator": "Visual Studio 18 2026",
+      "binaryDir": "${sourceDir}/build-editor",
+      "cacheVariables": { "CMAKE_CONFIGURATION_TYPES": "DebugGame;Release" }
+    }
+  ]
+}
+```
+
+```json
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "editor-local",
+      "inherits": "editor",
+      "cacheVariables": { "CMAKE_PREFIX_PATH": "C:/path/to/wind-engine/out/sdk" }
+    }
+  ]
+}
+```
 
 ---
 
@@ -129,20 +164,21 @@ Create `src/main.cpp`:
 ENGINE_GAME(game::MyGame)
 ```
 
-`ENGINE_GAME` writes `main` for you. It runs `engine::Engine<game::MyGame>`: `init`, then `run`.
+`ENGINE_GAME` writes the exports the editor loads your module through (and `main` in a standalone executable).
 
 ---
 
 ## 5. Build and Run
 
-Configure and build your game:
+Configure and build your game, then play it in the editor:
 
 ```bash
-cmake -B build -S .
-cmake --build build --config RelWithDebInfo
+cmake --preset editor-local
+cmake --build build-editor --config DebugGame --target my_game
+C:/path/to/wind-engine/out/sdk/bin/wind_editor.exe --game build-editor/bin/DebugGame/my_game.dll --play
 ```
 
-Run the resulting executable located in `build/` (or `build/RelWithDebInfo/my_game.exe` on Windows). You should see a window titled "My First Wind Game" open up!
+`DebugGame` is your code unoptimized with symbols; `Release` is optimized. The editor opens the game window titled "My First Wind Game" next to its own window. Stop unloads the game, so you can rebuild and press Play again.
 
 ---
 

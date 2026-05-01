@@ -21,14 +21,14 @@ cmake --build build-editor --config Debug
 ctest --test-dir build-editor -C Debug --output-on-failure
 ```
 
-Editor SDK: install one configuration of the editor build (`/out/` is gitignored). It holds `wind_editor.exe`, `engine.dll`, the host tools, their `.pdb` files, their assets, `engine.lib`, the public headers with that build's `build_id.h`, and the CMake files a game builds its module with. The editor build's Release is optimized with symbols and keeps the Profiler tab and the `wind-cli` server:
+Editor SDK: install one configuration of the editor build (`/out/` is gitignored). It holds `wind_editor.exe`, `engine.dll`, the host tools, their `.pdb` files, their assets, `engine.lib`, the public headers with that build's `build_id.h`, GoogleTest, the CMake package a game finds (`find_package(Wind)`), the engine source (`source/`), and `sdk.toml` (version, commit, build id). The engine version is `project(engine VERSION ...)` in `CMakeLists.txt`. The editor build's Release is optimized with symbols and keeps the Profiler tab and the `wind-cli` server:
 
 ```bash
 cmake --build build-editor --config Release
 cmake --install build-editor --config Release --prefix out/sdk
 ```
 
-A game builds its module against the SDK: configure it with `-DWIND_EDITOR_SDK=<absolute path to out/sdk>` and `-DCMAKE_CONFIGURATION_TYPES=DebugGame;Release`, usually from its `editor` preset and `CMakeUserPresets.json` (see [Game Consumer](docs/tech/build/Game%20Consumer.md#editor-module)). That configure compiles no engine and gives `bin/<config>/<game>.dll` with its `assets/`. `DebugGame` is game code at `/Od` with symbols and the release CRT (`/MD`), so it loads into the Release editor; a module with the debug CRT does not compile. `ENGINE_EDITOR=ON` in a game tree is a configure error. The editor refuses a module built against another build id:
+A game builds its module against the SDK: its `CMakeLists.txt` calls `find_package(Wind REQUIRED)`, and it is configured with `-DCMAKE_PREFIX_PATH=<absolute path to out/sdk>` and `-DCMAKE_CONFIGURATION_TYPES=DebugGame;Release`, usually from its `editor` preset and `CMakeUserPresets.json` (see [Game Consumer](docs/tech/build/Game%20Consumer.md#editor-module)). That configure compiles no engine and gives `bin/<config>/<game>.dll` with its `assets/`. `DebugGame` is game code at `/Od` with symbols and the release CRT (`/MD`), so it loads into the Release editor; a module with the debug CRT does not compile. `ENGINE_EDITOR=ON` in a game tree is a configure error. The editor refuses a module built against another build id:
 
 ```bash
 out/sdk/bin/wind_editor.exe                              # opens a file dialog: pick the game .dll
@@ -40,10 +40,10 @@ Play loads a copy of the module and runs the game in the "Game" window. Stop unl
 
 Exported games, web, and Android stay on the static library. See [CMake](docs/tech/build/CMake.md#editor-build).
 
-Games consume this repo as a git submodule at `external/engine`:
+Games do not keep this repo as a submodule. They find an installed SDK (above). A standalone executable, Web, or Android build adds the SDK's engine source instead, until the editor exports ([Game Consumer](docs/tech/build/Game%20Consumer.md#standalone-executable)):
 
 ```cmake
-add_subdirectory(external/engine)
+add_subdirectory(path/to/sdk/source wind)
 engine_add_game(my_game src/main.cpp)
 ```
 
@@ -92,10 +92,10 @@ cmake -S . -B build-web \
   -DENGINE_HOST_ASSET_CODEGEN="$PWD/build/asset_codegen"
 ```
 
-A game CMakeLists stays:
+A game's standalone CMakeLists adds the SDK's engine source:
 
 ```cmake
-add_subdirectory(external/engine)
+add_subdirectory(path/to/sdk/source wind)
 engine_add_game(my_game src/main.cpp)
 # optional: engine_add_web_game(my_game src/main.cpp)  # fatal if not Emscripten
 ```
@@ -148,16 +148,16 @@ cmake --build build-android
 
 That produces `libmain.so` (and shared SDL3) under `build-android/` and stages cooked assets beside the library for compile checks.
 
-4. Build an APK with the Gradle template in `cmake/android/`. Point Java sources at the SDL3 submodule (`external/SDL3/android-project/...`). `assembleDebug` runs CMake via `externalNativeBuild` and stages cooked assets to the app module's `build/wind-assets/` (`-DENGINE_ANDROID_ASSETS_OUT`, same path as `sourceSets.main.assets.srcDirs`). From a **game** repo (engine at `external/engine`):
+4. Build an APK with the Gradle template in `cmake/android/`. Point Java sources at the SDL3 submodule (`external/SDL3/android-project/...`). `assembleDebug` runs CMake via `externalNativeBuild` and stages cooked assets to the app module's `build/wind-assets/` (`-DENGINE_ANDROID_ASSETS_OUT`, same path as `sourceSets.main.assets.srcDirs`). From a **game** repo (engine source at `<sdk>/source`):
 
 ```cmake
-add_subdirectory(external/engine)
+add_subdirectory(path/to/sdk/source wind)
 engine_add_game(my_game src/main.cpp)
 # optional: engine_add_android_game(my_game src/main.cpp)  # fatal if not ANDROID
 ```
 
 ```bash
-cd external/engine/cmake/android
+cd path/to/sdk/source/cmake/android
 # Generate or copy a Gradle wrapper (Android Studio: Open this folder), then:
 ./gradlew :app:assembleDebug \
   -PENGINE_SOURCE_DIR="$(pwd)/../.." \

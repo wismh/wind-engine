@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
-project(engine LANGUAGES CXX C)
+# The engine version (semver). An editor SDK records it in sdk.toml and WindConfigVersion.cmake, and a game's
+# find_package(Wind) gets that exact version. A release is tagged v<version>. docs/tech/build/CMake.md
+project(engine VERSION 0.1.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -58,42 +60,7 @@ function(engine_require_file rel)
     endif()
 endfunction()
 
-# SDK mode: a game builds its module against an installed editor SDK (`cmake --install build-editor`)
-# instead of compiling the engine. wind_sdk.cmake defines the imported `engine`, `glm::glm`,
-# `asset_codegen`, and `icon_codegen` targets and includes the SDK's wind_game.cmake. Nothing of the
-# engine, its tools, the editor, or engine_tests is built here. docs/tech/build/CMake.md
-set(WIND_EDITOR_SDK "" CACHE PATH
-    "Installed Wind editor SDK (out/sdk). Set in a game tree to build its module for wind_editor")
-if(WIND_EDITOR_SDK)
-    if(_engine_is_root)
-        message(FATAL_ERROR
-            "WIND_EDITOR_SDK is for a game that adds Wind with add_subdirectory. The engine repo builds the "
-            "SDK itself (preset vs-editor, then cmake --install). Clear WIND_EDITOR_SDK.")
-    endif()
-    if(NOT EXISTS "${WIND_EDITOR_SDK}/cmake/wind_sdk.cmake")
-        message(FATAL_ERROR
-            "WIND_EDITOR_SDK=${WIND_EDITOR_SDK} has no cmake/wind_sdk.cmake. Build and install the SDK from "
-            "the engine repo:\n"
-            "  cmake --preset vs-editor\n"
-            "  cmake --build build-editor --config Release\n"
-            "  cmake --install build-editor --config Release --prefix out/sdk\n"
-            "then set WIND_EDITOR_SDK to the absolute path of out/sdk. See README.md and "
-            "docs/tech/architecture/Editor Plan.md")
-    endif()
-    include("${WIND_EDITOR_SDK}/cmake/wind_sdk.cmake")
-    message(STATUS "Wind: SDK mode, ${WIND_SDK_CONFIG} SDK at ${WIND_EDITOR_SDK_DIR}")
-    if(ENGINE_WITH_GTEST)
-        engine_require_submodule(googletest)
-        set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-        set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
-        set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
-        enable_testing()
-        add_subdirectory(external/googletest)
-        include(GoogleTest)
-    endif()
-    return()
-endif()
-set(ENGINE_FROM_SDK OFF CACHE INTERNAL "Wind engine imported from WIND_EDITOR_SDK")
+set(ENGINE_FROM_SDK OFF CACHE INTERNAL "Wind engine imported from an installed SDK (find_package(Wind))")
 
 if(EMSCRIPTEN)
     set(_engine_web_default ON)
@@ -119,10 +86,9 @@ option(ENGINE_EDITOR "Editor build: shared engine library (engine.dll)" OFF)
 if(ENGINE_EDITOR)
     if(NOT _engine_is_root)
         message(FATAL_ERROR
-            "ENGINE_EDITOR is not a game option any more. A game builds its editor module against an "
-            "installed editor SDK: set WIND_EDITOR_SDK to it (for example in CMakeUserPresets.json). Make the "
-            "SDK in the engine repo with the vs-editor preset and cmake --install. See README.md and "
-            "docs/tech/architecture/Editor Plan.md")
+            "ENGINE_EDITOR is not a game option. A game builds its editor module against an installed editor "
+            "SDK with find_package(Wind) and CMAKE_PREFIX_PATH=<sdk>. Make the SDK in the engine repo with the "
+            "vs-editor preset and cmake --install. See README.md and docs/tech/build/Game Consumer.md")
     endif()
     if(EMSCRIPTEN OR ANDROID)
         message(FATAL_ERROR
@@ -456,7 +422,8 @@ if(ENGINE_WITH_AUDIO)
     target_link_libraries(engine PRIVATE SDL3_mixer::SDL3_mixer SDL3::SDL3)
 endif()
 
-if(ENGINE_BUILD_TESTS AND NOT ENGINE_WITH_GTEST)
+# The editor build installs GoogleTest into the SDK for a game's own tests.
+if((ENGINE_BUILD_TESTS OR ENGINE_EDITOR) AND NOT ENGINE_WITH_GTEST)
     set(ENGINE_WITH_GTEST ON CACHE BOOL "" FORCE)
 endif()
 
@@ -533,13 +500,13 @@ if(ENGINE_BUILD_TESTS)
 endif()
 
 # The editor host and the SDK. ENGINE_EDITOR is ON only in the engine repo (vs-editor); a game builds its
-# module against the installed SDK instead (WIND_EDITOR_SDK above).
+# module against the installed SDK instead (find_package(Wind)).
 if(ENGINE_EDITOR)
     add_subdirectory(editor)
 
     # cmake --install build-editor --config <cfg> --prefix out/sdk: one configuration of the editor, the
-    # shared engine, and the host tools, plus what a game needs to build a module against them. Layout and
-    # wind_sdk.cmake: docs/tech/build/CMake.md.
+    # shared engine, and the host tools, plus what a game needs to build a module against them. Layout,
+    # WindConfig.cmake, and sdk.toml: docs/tech/build/CMake.md.
     set(_engine_tools_runtime wind_editor engine asset_codegen icon_codegen)
     install(TARGETS ${_engine_tools_runtime}
         RUNTIME DESTINATION bin
@@ -562,9 +529,53 @@ if(ENGINE_EDITOR)
     install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/external/glm/glm" DESTINATION include
         FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp" PATTERN "*.inl")
 
-    # wind_sdk.cmake bakes the installed configuration and engine's PUBLIC defines for it, evaluated here
-    # per configuration, so a game's own configuration never re-evaluates them.
-    set(_engine_sdk_file "${CMAKE_CURRENT_BINARY_DIR}/generated/sdk/$<CONFIG>/wind_sdk.cmake")
-    file(GENERATE OUTPUT "${_engine_sdk_file}" INPUT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/wind_sdk.cmake.in")
-    install(FILES "${_engine_sdk_file}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/wind_game.cmake" DESTINATION cmake)
+    # GoogleTest for a game's own tests, built here with the SDK's CRT. The libraries carry /Zi debug info that
+    # points at a compile .pdb (googletest puts it beside the library); it goes beside each installed library, where the linker of a game's test looks for it. Its
+    # name drops googletest's Debug postfix, which is "pdb_debug_postfix-NOTFOUND" when CMAKE_DEBUG_POSTFIX is unset.
+    set(_engine_gtest_libraries gtest gtest_main)
+    install(TARGETS ${_engine_gtest_libraries} ARCHIVE DESTINATION lib)
+    if(MSVC)
+        foreach(_library IN LISTS _engine_gtest_libraries)
+            set_target_properties(${_library} PROPERTIES COMPILE_PDB_NAME_DEBUG ${_library})
+            install(FILES "$<TARGET_LINKER_FILE_DIR:${_library}>/${_library}.pdb" DESTINATION lib)
+        endforeach()
+    endif()
+    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/external/googletest/googletest/include/gtest" DESTINATION include)
+
+    # The engine's build input, for building the static engine of this exact version (export, or a standalone
+    # executable by hand with add_subdirectory(<sdk>/source)). The editor does not use it.
+    # Thousands of files: install them without a line each.
+    set(CMAKE_INSTALL_MESSAGE NEVER)
+    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt" DESTINATION source)
+    foreach(_dir IN ITEMS cmake include src tools builtin_assets)
+        install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/${_dir}" DESTINATION source)
+    endforeach()
+    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/external/" DESTINATION source/external
+        PATTERN ".git" EXCLUDE
+        PATTERN ".github" EXCLUDE)
+    unset(CMAKE_INSTALL_MESSAGE)
+
+    # WindConfig.cmake bakes the installed configuration and engine's PUBLIC defines for it, evaluated here
+    # per configuration, so a game's own configuration never re-evaluates them. The version file accepts only
+    # this exact engine version.
+    set(_engine_sdk_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/sdk")
+    file(GENERATE OUTPUT "${_engine_sdk_dir}/$<CONFIG>/WindConfig.cmake"
+        INPUT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/WindConfig.cmake.in")
+    include(CMakePackageConfigHelpers)
+    write_basic_package_version_file("${_engine_sdk_dir}/WindConfigVersion.cmake"
+        VERSION ${PROJECT_VERSION}
+        COMPATIBILITY ExactVersion)
+    install(FILES
+        "${_engine_sdk_dir}/$<CONFIG>/WindConfig.cmake"
+        "${_engine_sdk_dir}/WindConfigVersion.cmake"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/wind_game.cmake"
+        DESTINATION cmake)
+
+    # sdk.toml last: version, commit, dirty, configuration, and build id of what was just installed.
+    install(CODE "
+        set(WIND_SDK_SOURCE_DIR \"${CMAKE_CURRENT_SOURCE_DIR}\")
+        set(WIND_SDK_VERSION \"${PROJECT_VERSION}\")
+        set(WIND_SDK_CONFIG \"$<CONFIG>\")
+        set(WIND_SDK_BUILD_ID_HEADER \"${_engine_build_id_dir}/engine/build_id.h\")
+        include(\"${CMAKE_CURRENT_SOURCE_DIR}/cmake/sdk_manifest.cmake\")")
 endif()

@@ -9,7 +9,7 @@ git submodule update --init --recursive
 cmake --preset vs
 ```
 
-`vs` is the engine-root preset: tests ON, window OFF, audio OFF. A game repo uses `add_subdirectory` instead of this preset. Defaults flip. See [CMake](CMake.md).
+`vs` is the engine-root preset: tests ON, window OFF, audio OFF. A game repo uses `find_package(Wind)` against an installed SDK, or `add_subdirectory` of the SDK's engine source for a standalone build, where the defaults flip. See [CMake](CMake.md).
 
 Configure vendors glm, tomlplusplus, tinyxml2, and spdlog. Window and audio submodules are required only when those options are ON. Cross compiles (`EMSCRIPTEN`, Android) refuse to configure unless `ENGINE_HOST_ASSET_CODEGEN` and `ENGINE_HOST_ICON_CODEGEN` point at native binaries built by a previous host configure.
 

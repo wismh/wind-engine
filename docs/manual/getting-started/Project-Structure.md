@@ -9,11 +9,9 @@ A clean, predictable project layout ensures that your code, assets, and tests re
 ```
 my_game/
 ├── CMakeLists.txt                 # Root CMake configuration
-├── CMakePresets.json              # Developer build presets
+├── CMakePresets.json              # Editor preset (DebugGame;Release)
+├── CMakeUserPresets.json          # Not committed: CMAKE_PREFIX_PATH to the Wind SDK
 ├── icon.png                       # Optional root icon (processed by icon_codegen)
-│
-├── external/
-│   └── engine/                    # Git submodule pointing to Wind engine
 │
 ├── assets/                        # Raw game assets
 │   ├── textures/

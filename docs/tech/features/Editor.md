@@ -13,7 +13,7 @@ cmake --install build-editor --config Release --prefix out/sdk
 out/sdk/bin/wind_editor.exe --game path/to/my_game.dll --play
 ```
 
-The SDK's `bin/` holds `wind_editor.exe`, `engine.dll`, their `.pdb` files, `assets/engine/`, and `assets/editor/`, so it runs from there. The Release editor is the normal one: optimized, with symbols, and with the Profiler tab and the `wind-cli` server, because `ENGINE_EDITOR` turns `ENGINE_UI_PROFILER` and `ENGINE_CLI_SERVER` on in every configuration ([CMake](../build/CMake.md#editor-build)). Games load into it in `DebugGame` or `Release` ([Game Consumer](../build/Game%20Consumer.md#debugging-game-code) has the debugger setup). The editor writes its `game.log` beside itself. A game builds its module against the same SDK (`WIND_EDITOR_SDK`, [Game Consumer](../build/Game%20Consumer.md#editor-module)), so the build ids match. Layout: [CMake](../build/CMake.md#editor-sdk).
+The SDK's `bin/` holds `wind_editor.exe`, `engine.dll`, their `.pdb` files, `assets/engine/`, and `assets/editor/`, so it runs from there. The Release editor is the normal one: optimized, with symbols, and with the Profiler tab and the `wind-cli` server, because `ENGINE_EDITOR` turns `ENGINE_UI_PROFILER` and `ENGINE_CLI_SERVER` on in every configuration ([CMake](../build/CMake.md#editor-build)). Games load into it in `DebugGame` or `Release` ([Game Consumer](../build/Game%20Consumer.md#debugging-game-code) has the debugger setup). The editor writes its `game.log` beside itself. A game builds its module against the same SDK (`find_package(Wind)`, [Game Consumer](../build/Game%20Consumer.md#editor-module)), so the build ids match. Layout: [CMake](../build/CMake.md#editor-sdk).
 
 ## Start
 
