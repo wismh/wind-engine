@@ -71,12 +71,22 @@ namespace engine::ui {
         Math,
         Popup,
         Slider,
+        MenuBar,
+        Menu,
+        MenuItem,
+        MenuSeparator,
+        ContextMenu,
     };
 
     // Kinds that pack their children along `direction` with `gap`, vertical by default. A Popup is a menu-like
     // column of its items.
     [[nodiscard]] constexpr bool packs_children(ElementKind kind) noexcept {
-        return kind == ElementKind::Stack || kind == ElementKind::ScrollView || kind == ElementKind::Popup;
+        return kind == ElementKind::Stack || kind == ElementKind::ScrollView || kind == ElementKind::Popup ||
+               kind == ElementKind::MenuBar || kind == ElementKind::ContextMenu || kind == ElementKind::MenuItem;
+    }
+
+    [[nodiscard]] constexpr bool is_popup_kind(ElementKind kind) noexcept {
+        return kind == ElementKind::Popup || kind == ElementKind::ContextMenu;
     }
 
     enum class Overflow {
@@ -660,6 +670,7 @@ namespace engine::ui {
         std::string name;
 
         std::string text;
+        std::string shortcut;
         BindingId text_binding{};
         // `{tr key}` or `{tr key name={binding path}}` on `text` / `content`. apply_bindings writes the
         // resolved message into `text`. Empty means this element is not a translation.

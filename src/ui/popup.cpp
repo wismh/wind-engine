@@ -33,7 +33,7 @@ namespace engine::ui {
             const SpaceMap inner = child_map_of(element, map);
             const glm::vec2 basis = content_size_of(element, parent_content);
             for (Element *child: painted_children(element)) {
-                if (child->kind != ElementKind::Popup) {
+                if (!is_popup_kind(child->kind)) {
                     place_in(*child, inner, basis, bounds);
                     continue;
                 }
@@ -56,7 +56,7 @@ namespace engine::ui {
             const glm::vec2 basis = content_size_of(element, parent_content);
             ancestors.push_back(&element);
             for (Element *child: painted_children(element)) {
-                if (child->kind != ElementKind::Popup) {
+                if (!is_popup_kind(child->kind)) {
                     collect_in(*child, ancestors, basis, out);
                     continue;
                 }
@@ -79,7 +79,7 @@ namespace engine::ui {
             const std::vector<Element> &children =
                     element.kind == ElementKind::ItemsControl ? element.generated_items : element.children;
             return std::any_of(children.begin(), children.end(), [](const Element &child) {
-                return (child.kind != ElementKind::Popup || child.open) && any_open_in(child);
+                return (!is_popup_kind(child.kind) || child.open) && any_open_in(child);
             });
         }
 
