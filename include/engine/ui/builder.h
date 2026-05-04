@@ -47,6 +47,7 @@ public:
     Node& open(bool value);
     Node& open_bind(BindingId id);
     Node& placement(PopupPlacement value);
+    Node& shortcut(std::string_view value);
     Node& allow_copy(bool value);
     Node& allow_paste(bool value);
     Node& pan_x_bind(BindingId id);
@@ -92,6 +93,11 @@ private:
     friend Node slider();
     friend Node math_formula();
     friend Node popup();
+    friend Node menu_bar();
+    friend Node menu();
+    friend Node menu_item();
+    friend Node menu_separator();
+    friend Node context_menu();
     friend std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal);
 
     explicit Node(ElementKind kind);
@@ -120,6 +126,11 @@ private:
 [[nodiscard]] Node slider();
 [[nodiscard]] Node math_formula();
 [[nodiscard]] Node popup();
+[[nodiscard]] Node menu_bar();
+[[nodiscard]] Node menu();
+[[nodiscard]] Node menu_item();
+[[nodiscard]] Node menu_separator();
+[[nodiscard]] Node context_menu();
 
 // `fatal` null: a failure is only the returned UiError, nothing is reported. `fatal` set: a failure calls
 // `fatal->report`, which does not return.

@@ -129,6 +129,14 @@ TEST(WindowControlImpl, DelegatesWithoutCrashingWithoutWindow) {
     control_ref.set_always_on_top(true);
     control_ref.set_position({0, 0});
     control_ref.resize({100, 100});
+    control_ref.minimize();
+    control_ref.maximize();
+    control_ref.restore();
+    EXPECT_FALSE(control_ref.is_maximized());
+    EXPECT_FALSE(control_ref.is_minimized());
+    control_ref.show();
+    control_ref.hide();
+    EXPECT_FALSE(control_ref.is_visible());
     control_ref.set_click_through_enabled(true);
     control_ref.set_drag_region(engine::render::Rect{0, 0, 10, 10});
     control_ref.set_drag_region(std::nullopt);
