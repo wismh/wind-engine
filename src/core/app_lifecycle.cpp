@@ -16,13 +16,4 @@ void apply_app_lifecycle(ApplicationState& app, AppLifecycleEvent event) {
     }
 }
 
-void apply_android_back(ApplicationState& app, bool text_input_active) {
-    if (text_input_active) {
-        return;
-    }
-    if (android_back_quits()) {
-        app.quit();
-    }
-}
-
 }

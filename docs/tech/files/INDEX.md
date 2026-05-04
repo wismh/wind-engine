@@ -15,7 +15,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/audio/audio_system.h` | `IAudioSystem`, `AudioSystem`, pool sizes | [Audio](../modules/Audio.md) |
 | `include/engine/audio/events.h` | `PlaySfxEvent`, `PlayMusicEvent` | [Audio](../modules/Audio.md) |
 | `include/engine/audio/sound.h` | `Sound` and the opaque `Audio` clip | [Audio](../modules/Audio.md) |
-| `include/engine/core/app_lifecycle.h` | Pause, resume, terminate, Android back | [Core](../modules/Core.md) |
+| `include/engine/core/app_lifecycle.h` | Pause, resume, terminate | [Core](../modules/Core.md) |
 | `include/engine/core/application_state.h` | `running` and `paused` | [Core](../modules/Core.md) |
 | `include/engine/core/bound_windows.h` | Windows bound to one world | [Windowing](../features/Windowing.md) |
 | `include/engine/core/build_info.h` | `build_id()` and the generated `kBuildId` | [CMake](../build/CMake.md) |
@@ -97,6 +97,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | Path | What it does | Page |
 | --- | --- | --- |
 | `src/core/app_lifecycle.cpp` | Applies lifecycle events to `ApplicationState` | [Core](../modules/Core.md) |
+| `src/core/back_key_filter.h`, `src/core/back_key_filter.cpp` | `BackKeyFilter`: Android back delivered to `InputSystem` or used to dismiss text input | [Input Mapper](../features/Input%20Mapper.md) |
 | `src/core/build_info.cpp` | `build_id()` returns the engine's `kBuildId` | [CMake](../build/CMake.md) |
 | `src/core/call_completions.h` | `CallCompletions`: async call results from any thread, handed over on the main thread | [Windowing](../features/Windowing.md) |
 | `src/core/engine_host.cpp` | `EngineHost` body | [Core](../modules/Core.md) |
@@ -275,7 +276,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | Path | What it does | Page |
 | --- | --- | --- |
 | `tests/android_assets_test.cpp` | Android asset staging without a device | [Runtime Assets](../build/Runtime%20Assets.md) |
-| `tests/android_lifecycle_test.cpp` | Pause, resume, back | [Core](../modules/Core.md) |
+| `tests/android_lifecycle_test.cpp` | Pause, resume, back key routing | [Core](../modules/Core.md) |
 | `tests/animation_test.cpp` | Sprite clip parse and playback | [Render](../modules/Render.md) |
 | `tests/assets_test.cpp` | Catalog, `get` / `try_get`, `unload_catalog`, codegen failures | [Assets](../features/Assets.md) |
 | `tests/audio_test.cpp` | Pool, music fade, looping handles, `stop_all` without opening a device | [Audio](../modules/Audio.md) |
