@@ -108,6 +108,8 @@ TEST(WindowSystem, IsTransparentDefaultsToFalse) {
     // display/GPU, out of scope for engine_tests.
     engine::WindowSystem window;
     EXPECT_FALSE(window.is_transparent());
+    EXPECT_FALSE(window.is_borderless());
+    EXPECT_FALSE(window.is_resizable());
 }
 
 TEST(WindowSystem, RuntimeSettersAreNoopWithoutWindow) {

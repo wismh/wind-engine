@@ -233,3 +233,24 @@ TEST(HierarchyPanel, AttachOverridesEditWorldAndClearsInvalidSelectionOnSwitchOr
     EXPECT_TRUE(std::holds_alternative<std::monostate>(selection.target()));
     EXPECT_TRUE(panel.view_model()->rows.get().empty());
 }
+
+TEST(HierarchyPanel, DirtyStateDisplaysAsteriskInStatusText) {
+    engine::ecs::World edit_world;
+    spawn_named(edit_world, "hero");
+
+    editor::EditorSelection selection;
+    editor::HierarchyPanel panel{selection};
+    panel.set_edit_world(&edit_world, "level.world", false);
+    panel.refresh();
+    EXPECT_FALSE(panel.is_dirty());
+    EXPECT_EQ(panel.view_model()->statusText.get(), "level.world  (1 entities)");
+
+    panel.set_edit_world(&edit_world, "level.world", true);
+    EXPECT_TRUE(panel.is_dirty());
+    EXPECT_EQ(panel.view_model()->statusText.get(), "level.world*  (1 entities)");
+
+    panel.set_edit_world(&edit_world, "level.world", false);
+    EXPECT_FALSE(panel.is_dirty());
+    EXPECT_EQ(panel.view_model()->statusText.get(), "level.world  (1 entities)");
+}
+
