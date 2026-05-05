@@ -161,3 +161,29 @@ TEST(Primitives, UvSphereDefaultsAndClamps) {
     EXPECT_EQ(tiny.vertices.size(), 4u * 3u);
     expect_well_formed(tiny);
 }
+
+TEST(Primitives, Cylinder) {
+    const engine::render::MeshDesc cyl = engine::render::make_cylinder(1.0f, 2.0f, 8);
+    expect_well_formed(cyl);
+    expect_outward(cyl);
+}
+
+TEST(Primitives, Cone) {
+    const engine::render::MeshDesc cone = engine::render::make_cone(1.0f, 2.0f, 8);
+    expect_well_formed(cone);
+    expect_outward(cone);
+}
+
+TEST(Primitives, Torus) {
+    constexpr float kRingRadius = 1.0f;
+    constexpr float kTubeRadius = 0.1f;
+    const engine::render::MeshDesc torus = engine::render::make_torus(kRingRadius, kTubeRadius, 16, 8);
+    expect_well_formed(torus);
+    for (const engine::render::MeshVertex& vertex : torus.vertices) {
+        const glm::vec3 ring_center =
+                kRingRadius * glm::normalize(glm::vec3(vertex.position.x, 0.0f, vertex.position.z));
+        EXPECT_GT(glm::dot(vertex.normal, vertex.position - ring_center), 0.0f);
+    }
+}
+
+

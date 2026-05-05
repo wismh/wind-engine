@@ -4,12 +4,16 @@
 
 #include <engine/log.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <string>
 
 #if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #endif
 
@@ -43,13 +47,85 @@ LRESULT CALLBACK win32_hit_test_wndproc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
     auto* self = reinterpret_cast<WindowSystem*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     auto prev = reinterpret_cast<WNDPROC>(self != nullptr ? self->win32_prev_wndproc() : nullptr);
 
-    if (msg == WM_NCHITTEST && self != nullptr && self->click_through_applied()) {
-        POINT pt{static_cast<LONG>(static_cast<short>(LOWORD(lParam))),
-                static_cast<LONG>(static_cast<short>(HIWORD(lParam)))};
-        if (ScreenToClient(hwnd, &pt)) {
-            if (!self->is_in_drag_region(glm::vec2{static_cast<float>(pt.x), static_cast<float>(pt.y)})) {
-                return HTTRANSPARENT;
+    if (msg == WM_NCCALCSIZE && wParam == TRUE && self != nullptr && self->is_borderless() && !self->is_transparent()) {
+        if (self->is_maximized()) {
+            HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            if (monitor != nullptr) {
+                MONITORINFO mi{};
+                mi.cbSize = sizeof(mi);
+                if (GetMonitorInfoW(monitor, &mi)) {
+                    auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam);
+                    params->rgrc[0] = mi.rcWork;
+                    return 0;
+                }
             }
+        }
+        return 0;
+    }
+
+    if (msg == WM_NCHITTEST && self != nullptr) {
+        const int screen_x = static_cast<short>(LOWORD(lParam));
+        const int screen_y = static_cast<short>(HIWORD(lParam));
+
+        if (self->click_through_applied()) {
+            POINT pt{screen_x, screen_y};
+            if (ScreenToClient(hwnd, &pt)) {
+                if (!self->is_in_drag_region(glm::vec2{static_cast<float>(pt.x), static_cast<float>(pt.y)})) {
+                    return HTTRANSPARENT;
+                }
+            }
+        }
+
+        if (self->is_borderless() && !self->is_transparent()) {
+            const bool maximized = self->is_maximized();
+
+            if (self->is_resizable() && !maximized) {
+                RECT win_rect{};
+                GetWindowRect(hwnd, &win_rect);
+
+                const int border_x = (std::max)(GetSystemMetrics(SM_CXFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER), 6);
+                const int border_y = (std::max)(GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER), 6);
+                const int border_top = 6;
+
+                const bool on_left = screen_x < win_rect.left + border_x;
+                const bool on_right = screen_x >= win_rect.right - border_x;
+                const bool on_top = screen_y < win_rect.top + border_top;
+                const bool on_bottom = screen_y >= win_rect.bottom - border_y;
+
+                if (on_top && on_left) {
+                    return HTTOPLEFT;
+                }
+                if (on_top && on_right) {
+                    return HTTOPRIGHT;
+                }
+                if (on_bottom && on_left) {
+                    return HTBOTTOMLEFT;
+                }
+                if (on_bottom && on_right) {
+                    return HTBOTTOMRIGHT;
+                }
+                if (on_top) {
+                    return HTTOP;
+                }
+                if (on_bottom) {
+                    return HTBOTTOM;
+                }
+                if (on_left) {
+                    return HTLEFT;
+                }
+                if (on_right) {
+                    return HTRIGHT;
+                }
+            }
+
+            POINT pt{screen_x, screen_y};
+            if (ScreenToClient(hwnd, &pt)) {
+                if (self->is_in_drag_region(glm::vec2{static_cast<float>(pt.x), static_cast<float>(pt.y)})) {
+                    return HTCAPTION;
+                }
+            }
+
+            return HTCLIENT;
         }
     }
 
@@ -94,8 +170,10 @@ bool WindowSystem::create(const WindowDesc& desc, SDL_Window* owner) {
     // hint has no public SDL_HINT_* constant (raw string, same one GetWindowStyle() reads); it's
     // read once per SDL_CreateWindow call, so setting it right before this one call is enough — it
     // has no effect at all on a non-borderless window (that branch is never taken for one).
-    if (desc.style.borderless) {
+    if (desc.style.borderless && desc.style.transparent) {
         SDL_SetHint("SDL_BORDERLESS_WINDOWED_STYLE", "0");
+    } else if (desc.style.borderless) {
+        SDL_SetHint("SDL_BORDERLESS_WINDOWED_STYLE", "1");
     }
 
     // An owned window is created hidden and shown once it has its owner: Windows decides on a taskbar entry when a
@@ -127,36 +205,26 @@ bool WindowSystem::create(const WindowDesc& desc, SDL_Window* owner) {
     // about drag_region_ at the hit-testing level at all. is_in_drag_region() exists as a plain,
     // directly-called geometry check.
 #if defined(_WIN32)
-    // Subclass on top of SDL's own
-    // WIN_WindowProc so WM_NCHITTEST can resolve to HTTRANSPARENT for click-through, which SDL's
-    // own hit-test dispatch can never produce. GWLP_USERDATA is free for a normal top-level window
-    // — SDL only ever uses it for its message-box dialogs and tray-icon windows (SDL_windowsmessagebox.c,
-    // SDL_tray.c), never for a window created via SDL_CreateWindow, so this doesn't collide with
-    // SDL's own bookkeeping (that lives in a window property, "SDL_WindowData", read via
-    // WIN_GetWindowDataFromHWND — untouched here). SetWindowLongPtrW's return value is the
-    // previously-installed WNDPROC (SDL's WIN_WindowProc), saved so the subclass can delegate.
+    // Subclass on top of SDL's own WIN_WindowProc so:
+    // 1. WM_NCHITTEST can resolve to HTTRANSPARENT for click-through, which SDL's own hit-test dispatch can never produce.
+    // 2. Borderless windows (e.g. editor) get native edge/corner resize handles (HTLEFT/HTRIGHT/etc.) and custom drag region (HTCAPTION)
+    //    for native Aero Snap, docking, and snap layouts.
+    // 3. WM_NCCALCSIZE clamps maximized borderless windows to the monitor's work area (preventing taskbar overlap).
+    // GWLP_USERDATA stores `this` pointer for the subclass wndproc.
     if (HWND hwnd = static_cast<HWND>(
                 SDL_GetPointerProperty(SDL_GetWindowProperties(window_), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
             hwnd != nullptr) {
-        // WS_EX_TRANSPARENT alone does not give real, OS-delivered click-through on a
-        // DWM-composited window (one using SDL_WINDOW_TRANSPARENT + DwmEnableBlurBehindWindow, not
-        // the classic WS_EX_LAYERED alpha-blend path): with WS_EX_TRANSPARENT set but WS_EX_LAYERED
-        // never added, WM_NCHITTEST answers HTTRANSPARENT correctly but the real click still doesn't
-        // reach whatever is underneath. Adding WS_EX_LAYERED alone regressed further: with it added
-        // but never "armed" via SetLayeredWindowAttributes/UpdateLayeredWindow, its alpha/blend state is
-        // undefined, and Windows then appears to treat the entire window as input-transparent — not
-        // just the points win32_hit_test_wndproc answers HTTRANSPARENT for — breaking the drag region
-        // and keyboard focus. SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA) arms it at full
-        // opacity on the classic GDI blend path; the actual visual transparency still comes from
-        // DWM's DwmEnableBlurBehindWindow above, untouched by this. Only for a transparent window —
-        // WS_EX_LAYERED has no reason to exist on an opaque one.
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+        win32_prev_wndproc_ = reinterpret_cast<void*>(
+                SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&win32_hit_test_wndproc)));
+
         if (transparent_) {
             const LONG_PTR ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED);
             SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
-            SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
-            win32_prev_wndproc_ = reinterpret_cast<void*>(
-                    SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&win32_hit_test_wndproc)));
+        } else if (desc.style.borderless) {
+            SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
         }
     }
 #endif
@@ -174,6 +242,14 @@ void WindowSystem::destroy() {
         end_drag();
     }
 #if defined(_WIN32)
+    if (window_ != nullptr && win32_prev_wndproc_ != nullptr) {
+        if (HWND hwnd = static_cast<HWND>(
+                    SDL_GetPointerProperty(SDL_GetWindowProperties(window_), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
+                hwnd != nullptr) {
+            SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(win32_prev_wndproc_));
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+        }
+    }
     win32_prev_wndproc_ = nullptr;
 #endif
     if (window_ == nullptr) {
@@ -270,6 +346,14 @@ bool WindowSystem::is_maximized() const {
 
 bool WindowSystem::is_minimized() const {
     return window_ != nullptr && (SDL_GetWindowFlags(window_) & SDL_WINDOW_MINIMIZED) != 0;
+}
+
+bool WindowSystem::is_borderless() const noexcept {
+    return window_ != nullptr && (SDL_GetWindowFlags(window_) & SDL_WINDOW_BORDERLESS) != 0;
+}
+
+bool WindowSystem::is_resizable() const noexcept {
+    return window_ != nullptr && (SDL_GetWindowFlags(window_) & SDL_WINDOW_RESIZABLE) != 0;
 }
 
 void WindowSystem::show() {
