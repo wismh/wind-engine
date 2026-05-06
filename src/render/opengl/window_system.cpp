@@ -550,6 +550,26 @@ glm::ivec2 WindowSystem::drawable_size() const {
     return {width, height};
 }
 
+ui::SafeInsets WindowSystem::safe_insets() const {
+    SDL_Rect area{};
+    int width = 0;
+    int height = 0;
+    if (window_ == nullptr || !SDL_GetWindowSafeArea(window_, &area) || !SDL_GetWindowSize(window_, &width, &height) ||
+        width <= 0 || height <= 0) {
+        return {};
+    }
+    const glm::ivec2 pixels = drawable_size();
+    const float scale_x = static_cast<float>(pixels.x) / static_cast<float>(width);
+    const float scale_y = static_cast<float>(pixels.y) / static_cast<float>(height);
+    const auto edge = [](int inset, float scale) { return std::max(0, inset) * scale; };
+    return ui::SafeInsets{
+            edge(area.x, scale_x),
+            edge(area.y, scale_y),
+            edge(width - area.x - area.w, scale_x),
+            edge(height - area.y - area.h, scale_y),
+    };
+}
+
 SDL_WindowFlags window_style_flags(const WindowStyle& style) {
     SDL_WindowFlags flags = 0;
     if (style.resizable) {
