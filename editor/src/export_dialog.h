@@ -1,11 +1,12 @@
 #pragma once
 
-#include "editor_view_model.h"
+#include "export_view_model.h"
 
 #include <engine/core/file_dialog.h>
 #include <engine/core/window_control.h>
 
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -19,20 +20,18 @@ struct ExportChoice {
     bool development = false;
 };
 
-// The dialog the Export button opens: a popup beside the button with the target folder (a text field and Browse...), the
-// Development build checkbox, a line about the folder (why it cannot be used, or that it replaces an earlier export),
-// and Export and Cancel. Owns the logic; the view-model (EditorViewModel, `export*`) is only what the XML binds.
+// The panel opened by File -> Export: a dock panel floating in its own window with the target folder (a text field
+// and Browse...), the Development build checkbox, a line about the folder (why it cannot be used, or that it
+// replaces an earlier export), and Export and Cancel buttons. Owns the logic and its ExportViewModel.
 // Holds `this` in its commands, so it never moves.
-//
-// The folder starts as `<project>/export/<target>`, then as the last one this session used for the project. Export
-// is enabled while the folder is usable and `available` (the editor builds one thing at a time). Confirming records the
-// choice and closes the dialog; the editor takes the choice at the end of the frame.
 class ExportDialog {
 public:
-    explicit ExportDialog(EditorViewModel& view_model);
+    ExportDialog();
 
     ExportDialog(const ExportDialog&) = delete;
     ExportDialog& operator=(const ExportDialog&) = delete;
+
+    [[nodiscard]] const std::shared_ptr<ExportViewModel>& view_model() const;
 
     // Opens the dialog for `project` (its directory and engine_add_game target) against an SDK of `sdk_config`.
     void show(const std::filesystem::path& project, const std::string& target, const std::string& sdk_config);
@@ -53,6 +52,7 @@ public:
 
     // The choice Export recorded, once.
     [[nodiscard]] std::optional<ExportChoice> take_choice();
+    [[nodiscard]] bool take_close_requested();
 
     // The line shown under the checkbox, and whether it is a problem (Export disabled) or only a warning.
     [[nodiscard]] const std::string& message() const;
@@ -62,10 +62,12 @@ private:
     void refresh_message();
     [[nodiscard]] std::filesystem::path chosen_directory() const;
 
-    EditorViewModel* view_model_;
+    std::shared_ptr<ExportViewModel> view_model_;
     std::filesystem::path project_;
     std::string target_;
     std::string sdk_config_;
+    bool is_open_ = false;
+    bool close_requested_ = false;
     bool available_ = false;
     bool browse_requested_ = false;
     engine::FileDialogCall folder_call_;
