@@ -3,7 +3,13 @@
 #include "editor_selection.h"
 #include "inspector_panel.h"
 
+#include <engine/ecs/camera.h>
+#include <engine/ecs/hierarchy.h>
+#include <engine/ecs/transform.h>
 #include <engine/ecs/world.h>
+#include <engine/ecs/world_io.h>
+#include <engine/ecs/world_serializer.h>
+#include <engine/render/sprite.h>
 #include <engine/ui/canvas.h>
 #include <engine/ui/document.h>
 #include <engine/ui/inspector.h>
@@ -98,6 +104,7 @@ TEST(InspectorPanel, NothingSelectedSaysHowToSelect) {
     const editor::InspectorViewModel& vm = *panel.view_model();
     EXPECT_EQ(vm.title.get(), "Nothing selected");
     EXPECT_NE(vm.subtitle.get().find("UI Tree"), std::string::npos);
+    EXPECT_NE(vm.subtitle.get().find("Hierarchy"), std::string::npos);
     EXPECT_TRUE(vm.sections.get().empty());
 }
 
@@ -204,3 +211,103 @@ TEST(InspectorPanel, DetachKeepsAFile) {
     EXPECT_EQ(panel.view_model()->title.get(), "notes.txt");
     EXPECT_EQ(headings(*panel.view_model()), (std::vector<std::string>{"File", "Content"}));
 }
+
+TEST(InspectorPanel, InspectsEntityInEditModeAndPlayModeIncludingUnknownComponents) {
+    constexpr std::string_view kWorldToml = R"(
+version = 1
+active_camera = "hero"
+
+[[entities]]
+id = "squad"
+
+[[entities]]
+id = "hero"
+parent = "squad"
+[entities.transform]
+position = [1.5, 2.0, 3.0]
+scale = [1.0, 1.0, 1.0]
+[entities.camera]
+projection = "orthographic"
+ortho_size = 12.0
+[entities.sprite]
+layer = 2
+order_in_layer = 5
+flip_x = true
+[entities.health]
+hp = 100
+shield = 25.5
+immortal = false
+tags = ["player", "leader"]
+
+[[entities]]
+id = "weapon"
+parent = "hero"
+)";
+
+    engine::ecs::World edit_world;
+    const auto loaded = engine::ecs::load_world_from_toml(
+            edit_world, kWorldToml, nullptr, nullptr, engine::ecs::UnknownComponentMode::Preserve);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
+    const engine::ecs::Entity hero = loaded->by_id.at("hero");
+
+    editor::EditorSelection selection;
+    editor::InspectorPanel panel{selection};
+    panel.set_edit_world(&edit_world);
+    selection.select(editor::EntitySelection{.entity = hero});
+    panel.refresh();
+
+    const editor::InspectorViewModel& vm = *panel.view_model();
+    EXPECT_EQ(vm.title.get(), "hero");
+    EXPECT_EQ(vm.subtitle.get(), "Entity");
+    EXPECT_EQ(headings(vm),
+            (std::vector<std::string>{
+                    "Entity",
+                    "camera",
+                    "sprite",
+                    "transform",
+                    "health (unregistered)",
+            }));
+
+    const std::vector<std::string> entity_lines = lines(*vm.sections.get()[0]);
+    EXPECT_NE(std::ranges::find(entity_lines, "id: hero"), entity_lines.end());
+    EXPECT_NE(std::ranges::find(entity_lines, "parent: squad"), entity_lines.end());
+    EXPECT_NE(std::ranges::find(entity_lines, "children: 1"), entity_lines.end());
+    EXPECT_NE(std::ranges::find(entity_lines, "active_camera: true"), entity_lines.end());
+
+    const std::vector<std::string> cam_lines = lines(*vm.sections.get()[1]);
+    EXPECT_NE(std::ranges::find(cam_lines, "projection = orthographic"), cam_lines.end());
+    EXPECT_NE(std::ranges::find(cam_lines, "ortho_size = 12"), cam_lines.end());
+
+    const std::vector<std::string> sprite_lines = lines(*vm.sections.get()[2]);
+    EXPECT_NE(std::ranges::find(sprite_lines, "layer = 2"), sprite_lines.end());
+    EXPECT_NE(std::ranges::find(sprite_lines, "order_in_layer = 5"), sprite_lines.end());
+    EXPECT_NE(std::ranges::find(sprite_lines, "flip_x = true"), sprite_lines.end());
+
+    const std::vector<std::string> tr_lines = lines(*vm.sections.get()[3]);
+    EXPECT_NE(std::ranges::find(tr_lines, "position = [1.5, 2, 3]"), tr_lines.end());
+
+    const std::vector<std::string> unknown_lines = lines(*vm.sections.get()[4]);
+    EXPECT_NE(std::ranges::find(unknown_lines, "hp = 100"), unknown_lines.end());
+    EXPECT_NE(std::ranges::find(unknown_lines, "shield = 25.5"), unknown_lines.end());
+    EXPECT_NE(std::ranges::find(unknown_lines, "immortal = false"), unknown_lines.end());
+    EXPECT_NE(std::ranges::find(unknown_lines, "tags = [player, leader]"), unknown_lines.end());
+
+    // Play Mode: attaching a live game world inspects entities from that game world.
+    engine::ecs::World game_world;
+    const engine::ecs::Entity boss = game_world.create();
+    game_world.emplace<engine::ecs::EntityName>(boss, engine::ecs::EntityName{.id = "boss"});
+    game_world.emplace<engine::Transform>(boss, engine::Transform{.position = {10.0f, 20.0f, 0.0f}});
+
+    panel.attach(game_world);
+    selection.select(editor::EntitySelection{.entity = boss});
+    panel.refresh();
+    EXPECT_EQ(vm.title.get(), "boss");
+    EXPECT_EQ(vm.subtitle.get(), "Entity");
+    EXPECT_EQ(headings(vm), (std::vector<std::string>{"Entity", "transform"}));
+
+    // When the entity is destroyed, refreshing shows nothing selected.
+    game_world.destroy(boss);
+    panel.refresh();
+    EXPECT_EQ(vm.title.get(), "Nothing selected");
+}
+

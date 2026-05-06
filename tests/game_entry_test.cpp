@@ -28,12 +28,15 @@ TEST(GameEntry, ModuleExportsMatchTheLoaderTypes) {
     const engine::CreateGameFn create = &wind_create_game;
     const engine::DestroyGameFn destroy = &wind_destroy_game;
     const engine::GameBuildIdFn build_id = &wind_game_build_id;
+    const engine::RegisterGameComponentsFn register_components = &wind_register_game_components;
     EXPECT_NE(create, nullptr);
     EXPECT_NE(destroy, nullptr);
     EXPECT_NE(build_id, nullptr);
+    EXPECT_NE(register_components, nullptr);
     EXPECT_EQ(std::string_view{engine::kCreateGameSymbol}, "wind_create_game");
     EXPECT_EQ(std::string_view{engine::kDestroyGameSymbol}, "wind_destroy_game");
     EXPECT_EQ(std::string_view{engine::kGameBuildIdSymbol}, "wind_game_build_id");
+    EXPECT_EQ(std::string_view{engine::kRegisterGameComponentsSymbol}, "wind_register_game_components");
 }
 
 TEST(GameEntry, ModuleBuildIdIsTheCompiledInConstant) {

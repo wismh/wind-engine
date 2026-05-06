@@ -10,6 +10,7 @@
 #include <engine/build_id.h>
 #include <engine/core/build_info.h>
 #include <engine/core/game_module.h>
+#include <engine/ecs/world_serializer.h>
 
 #include <filesystem>
 #include <fstream>
@@ -177,6 +178,45 @@ TEST(GameModule, PurgeRemovesStaleCopies) {
     EXPECT_EQ(engine::purge_game_module_copies(live.path()), 2u);
     EXPECT_EQ(entry_count(live.path()), 0u);
     EXPECT_EQ(engine::purge_game_module_copies(live.path() / "missing"), 0u);
+}
+
+TEST(GameModule, RegistersModuleComponentsAndRoundTripsWorldToml) {
+    LiveRoot live;
+    auto loaded = engine::load_game_module(kFixture, live.path());
+    ASSERT_TRUE(loaded.has_value()) << engine::describe(loaded.error());
+    engine::GameModule& module = *loaded;
+    EXPECT_TRUE(module.has_component_registration());
+
+    {
+        engine::ecs::World world;
+        module.register_components(world.ctx<engine::ecs::WorldSerializer>());
+
+        constexpr std::string_view kToml = R"(
+version = 1
+
+[[entities]]
+id = "beacon"
+fixture_component = { label = "alpha", power = 99 }
+)";
+        const auto inst = engine::ecs::load_world_from_toml(world, kToml);
+        ASSERT_TRUE(inst.has_value()) << inst.error().message;
+        const engine::ecs::Entity beacon = inst->by_id.at("beacon");
+        const auto* comp = world.try_get<fixture::FixtureComponent>(beacon);
+        ASSERT_NE(comp, nullptr);
+        EXPECT_EQ(comp->label, "alpha");
+        EXPECT_EQ(comp->power, 99);
+
+        const std::string saved_toml = engine::ecs::save_world_to_toml(world);
+
+        engine::ecs::World world2;
+        module.register_components(world2.ctx<engine::ecs::WorldSerializer>());
+        const auto reloaded = engine::ecs::load_world_from_toml(world2, saved_toml);
+        ASSERT_TRUE(reloaded.has_value()) << reloaded.error().message;
+        const auto* comp2 = world2.try_get<fixture::FixtureComponent>(reloaded->by_id.at("beacon"));
+        ASSERT_NE(comp2, nullptr);
+        EXPECT_EQ(comp2->label, "alpha");
+        EXPECT_EQ(comp2->power, 99);
+    }
 }
 
 #else

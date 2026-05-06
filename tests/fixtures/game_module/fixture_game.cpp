@@ -9,6 +9,7 @@
 #include <engine/core/key_code.h>
 #include <engine/core/window_control.h>
 #include <engine/ecs/schedule.h>
+#include <engine/ecs/world_serializer.h>
 #include <engine/igame.h>
 
 #include <string>
@@ -71,8 +72,23 @@ private:
 
 }
 
+ENGINE_GAME_EXPORT void wind_register_game_components(engine::ecs::WorldSerializer& serializer) {
+    serializer.register_component<fixture::FixtureComponent>(
+            "fixture_component",
+            [](engine::ecs::ComponentWriter& out, const fixture::FixtureComponent& c) {
+                out.field("label", c.label);
+                out.field("power", c.power);
+            },
+            [](engine::ecs::ComponentReader& in, fixture::FixtureComponent& c) {
+                (void)in.field("label", c.label);
+                (void)in.field("power", c.power);
+            });
+}
+
 ENGINE_GAME_EXPORT engine::IGame* wind_create_game(const engine::EngineServices& services) {
-    return new fixture::Game(services);
+    auto* const game = new fixture::Game(services);
+    wind_register_game_components(game->world().ctx<engine::ecs::WorldSerializer>());
+    return game;
 }
 
 #if !defined(FIXTURE_NO_DESTROY)
