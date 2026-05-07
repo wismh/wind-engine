@@ -5,6 +5,7 @@
 #include <engine/core/window_desc.h>
 #include <engine/render/commands.h>
 #include <engine/render/graphic_factory.h>
+#include <engine/ui/canvas.h>
 
 #include <glm/vec2.hpp>
 
@@ -70,6 +71,9 @@ public:
     // Top-left in screen coordinates. nullopt without a live window, or if the platform query fails.
     [[nodiscard]] std::optional<glm::ivec2> position() const;
     [[nodiscard]] glm::ivec2 drawable_size() const;
+    // The OS-covered edges of the window in drawable pixels (SDL_GetWindowSafeArea, scaled from window coordinates).
+    // Zero without a live window and on a platform that reports none.
+    [[nodiscard]] ui::SafeInsets safe_insets() const;
     // False while the window is hidden, minimized, or occluded: a vsync swap there may return at once instead of
     // waiting for the display, so it cannot pace the frame. False without a live window.
     [[nodiscard]] bool is_presentable() const;
