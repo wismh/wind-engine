@@ -15,6 +15,7 @@
 #include <engine/resources/font.h>
 #include <engine/resources/meta.h>
 #include <engine/resources/sprite_sheet.h>
+#include <engine/resources/text_asset.h>
 #include <engine/ui/binding_id.h>
 #include <engine/ui/document.h>
 #include <engine/ui/stylesheet.h>
@@ -42,6 +43,7 @@ constexpr std::string_view kTextureGuid = "a1b2c3d4e5f6789012345678901234ab";
 constexpr std::string_view kAudioGuid = "b1c2d3e4f567890123456789012345ab";
 constexpr std::string_view kUiGuid = "d1e2f3a4567890123456789012345abc";
 constexpr std::string_view kCssGuid = "e1f2a3b4567890123456789012345abc";
+constexpr std::string_view kDataGuid = "a7b8c9d0567890123456789012345abc";
 constexpr std::string_view kUiImageGuid = "f1a2b3c4567890123456789012345abc";
 constexpr std::string_view kFontGuid = "c1a1c2d3e4f5678901234567890abc07";
 
@@ -572,6 +574,109 @@ TEST(Assets, GetStyleSheet) {
     ASSERT_NE(sheet, nullptr);
     ASSERT_FALSE(sheet->rules.empty());
     EXPECT_EQ(sheet->rules[0].selector.class_name, "hud");
+}
+
+TEST(Assets, GetTextAssetReturnsFileBytesUnchanged) {
+    TempTree tree;
+    const std::string body = "[sword]\r\ndamage = 12\n\n# no trailing newline";
+    std::filesystem::create_directories(tree.path / "items");
+    {
+        std::ofstream out(tree.path / "items" / "sword.item", std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(out.is_open());
+        out << body;
+    }
+
+    fakes::QuietFatal fatal;
+    engine::AssetsDb db(fatal);
+    db.set_root(tree.path);
+
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kDataGuid}, "items/sword.item", engine::ImporterKind::Data});
+    db.set_catalog(std::move(catalog));
+
+    const auto text = db.get<engine::TextAsset>(engine::AssetId{kDataGuid});
+    ASSERT_NE(text, nullptr);
+    EXPECT_EQ(text->text, body);
+}
+
+TEST(Assets, TextAssetMissingFileIsCorrupt) {
+    TempTree tree;
+
+    fakes::QuietFatal fatal;
+    engine::AssetsDb db(fatal);
+    db.set_root(tree.path);
+
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kDataGuid}, "gone.toml", engine::ImporterKind::Data});
+    db.set_catalog(std::move(catalog));
+
+    const auto text = db.try_get<engine::TextAsset>(engine::AssetId{kDataGuid});
+    ASSERT_FALSE(text.has_value());
+    EXPECT_EQ(text.error(), engine::AssetError::Corrupt);
+}
+
+TEST(Assets, TextAssetTypeMismatch) {
+    TempTree tree;
+    write_file(tree.path / "hud.css", ".hud { padding: 16; }\n");
+    write_file(tree.path / "items.toml", "a = 1\n");
+
+    fakes::QuietFatal fatal;
+    engine::AssetsDb db(fatal);
+    db.set_root(tree.path);
+
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kCssGuid}, "hud.css", engine::ImporterKind::Css});
+    catalog.add({engine::AssetId{kDataGuid}, "items.toml", engine::ImporterKind::Data});
+    db.set_catalog(std::move(catalog));
+
+    const auto css_as_text = db.try_get<engine::TextAsset>(engine::AssetId{kCssGuid});
+    ASSERT_FALSE(css_as_text.has_value());
+    EXPECT_EQ(css_as_text.error(), engine::AssetError::TypeMismatch);
+
+    const auto data_as_css = db.try_get<engine::ui::Stylesheet>(engine::AssetId{kDataGuid});
+    ASSERT_FALSE(data_as_css.has_value());
+    EXPECT_EQ(data_as_css.error(), engine::AssetError::TypeMismatch);
+}
+
+TEST(Assets, DataImporterNameRoundTrips) {
+    const auto parsed =
+            engine::parse_asset_meta("guid = \"0123456789abcdef0123456789abcdef\"\nimporter = \"data\"\n");
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(parsed->importer, engine::ImporterKind::Data);
+    EXPECT_EQ(engine::to_string(engine::ImporterKind::Data), "data");
+}
+
+TEST(Assets, GuidGivesUnknownExtensionsTheDataImporter) {
+    TempTree tree;
+    write_file(tree.path / "items" / "sword.toml", "damage = 12\n");
+    write_file(tree.path / "items" / "shield.item", "armor = 3\n");
+    write_file(tree.path / "items" / "notes", "no extension\n");
+
+    EXPECT_EQ(engine::write_missing_metas(tree.path), 3);
+    for (const char* name : {"sword.toml", "shield.item", "notes"}) {
+        const auto parsed = engine::parse_asset_meta(read_file(tree.path / "items" / (std::string(name) + ".meta")));
+        ASSERT_TRUE(parsed.has_value()) << name;
+        EXPECT_EQ(parsed->importer, engine::ImporterKind::Data) << name;
+    }
+
+    const auto result = engine::codegen_scan(tree.path);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->catalog.entries().size(), 3u);
+}
+
+TEST(Assets, CatalogTomlIsNotAnAsset) {
+    TempTree tree;
+    write_file(tree.path / "catalog.toml", "[[asset]]\n");
+    write_file(tree.path / "engine" / "catalog.toml", "[[asset]]\n");
+    write_file(tree.path / "items.toml", "a = 1\n");
+
+    EXPECT_EQ(engine::write_missing_metas(tree.path), 1);
+    EXPECT_FALSE(std::filesystem::exists(tree.path / "catalog.toml.meta"));
+    EXPECT_FALSE(std::filesystem::exists(tree.path / "engine" / "catalog.toml.meta"));
+
+    const auto result = engine::codegen_scan(tree.path);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->catalog.entries().size(), 1u);
 }
 
 TEST(Assets, StyleSheetWarningsGoToGameLogOncePerLoad) {
