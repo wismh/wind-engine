@@ -7,6 +7,7 @@
 #include "window_control.h"
 #include "window_manager.h"
 
+#include "core/back_key_filter.h"
 #include "ui/painter.h"
 
 #include <engine/builtin_ids.h>
@@ -304,16 +305,19 @@ private:
             case SDL_EVENT_KEY_UP: {
                 const auto code = static_cast<KeyCode>(static_cast<std::uint32_t>(event.key.scancode));
                 const WindowId window_id = windows_.find_by_sdl_id(event.key.windowID).value_or(kPrimaryWindow);
-                input.handle_key(code, event.key.down, event.key.repeat, window_id);
-                if (event.key.down && !event.key.repeat && code == KeyCode::AcBack) {
-                    const WindowSystem* window = windows_.window(window_id);
-                    const bool text_input_active = window != nullptr && window->is_text_input_active();
-                    if (text_input_active) {
+                const WindowSystem* window = windows_.window(window_id);
+                const bool text_input_active = window != nullptr && window->is_text_input_active();
+                switch (back_key_.route(code, event.key.down, event.key.repeat, text_input_active)) {
+                    case BackKeyFilter::Route::Deliver:
+                        input.handle_key(code, event.key.down, event.key.repeat, window_id);
+                        break;
+                    case BackKeyFilter::Route::DismissTextInput:
                         if (ecs::World* const world = worlds.world_for(window_id)) {
                             ui::clear_focus(*world, window_id);
                         }
-                    }
-                    apply_android_back(app, text_input_active);
+                        break;
+                    case BackKeyFilter::Route::Swallow:
+                        break;
                 }
                 break;
             }
@@ -398,6 +402,7 @@ private:
     DesktopOverlayPolicy overlay_;
     std::shared_ptr<FileDialogCompletions> dialogs_ = std::make_shared<FileDialogCompletions>();
     std::unique_ptr<WindowControlImpl> window_control_;
+    BackKeyFilter back_key_;
     bool video_inited_ = false;
     std::function<void()> loop_tick_;
 };

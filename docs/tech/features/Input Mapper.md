@@ -22,6 +22,22 @@ Gameplay reads `ActionId`. It does not switch on `KeyCode`. UI reads `MouseEvent
 
 `KeyCode` values match SDL3 scancodes. The header does not include SDL. `AcBack` is the Android back key (scancode 282).
 
+## Android back
+
+The engine never quits on `AcBack` (`SDL_HINT_ANDROID_TRAP_BACK_BUTTON` is on, so SDL does not either). A game binds `AcBack` to its own `ActionId`, pops its screens, and calls `ApplicationState::quit()` from its root screen. Unbound, Back does nothing. This is the same model as `WindowCloseRequestedEvent` ([Windowing](Windowing.md#close)).
+
+`poll` asks `BackKeyFilter` (`src/core/back_key_filter.h`) about every key before `handle_key`:
+
+| Key event | Route |
+| --- | --- |
+| any key other than `AcBack` | `Deliver` |
+| `AcBack` press, no text input active on that window | `Deliver` |
+| `AcBack` press, text input active | `DismissTextInput`: `ui::clear_focus` on that window, not delivered |
+| repeat or release of a press that dismissed | `Swallow`: not delivered |
+| repeat or release of a delivered press | `Deliver` |
+
+A dismissing press sends no `KeyEvent` and no `InputEvent`, so one press does not both close the keyboard and navigate back.
+
 ## What `handle_*` sends
 
 The system must have `set_router`. A handler asks the router for the world bound to that event's window. A null world drops the event. Keyboard and text go to the window the OS delivered. Touch stays aimed at `kPrimaryWindow`.
@@ -45,7 +61,7 @@ Poll does not look at `Presentation.mouse`. UI has not run yet. A game system on
 
 ## Where SDL is decoded
 
-`SdlGlPresentation::poll` (`src/render/opengl/sdl_gl_presentation.cpp`) maps keyboard, mouse, text, editing, finger, quit, and window-size events onto these handlers. Gamepad events are not dispatched.
+`SdlGlPresentation::poll` (`src/render/opengl/sdl_gl_presentation.cpp`) maps keyboard, mouse, text, editing, finger, quit, and window-size events onto these handlers. Keys pass through `BackKeyFilter` first ([Android back](#android-back)). Gamepad events are not dispatched.
 
 `run_input` later drains `MouseEvent` and `KeyEvent` into the UI. See [UI Input](UI%20Input.md).
 
@@ -58,8 +74,10 @@ The same `Control` / `ActionId` / `InputEvent` types are the place a gamepad pol
 - `include/engine/core/input_system.h`
 - `include/engine/core/key_code.h`
 - `src/core/input_system.cpp`
+- `src/core/back_key_filter.h`, `src/core/back_key_filter.cpp`
 - `src/render/opengl/sdl_gl_presentation.cpp`
 - `tests/input_test.cpp`
+- `tests/android_lifecycle_test.cpp` (`BackKeyFilter`)
 
 ## See also
 
