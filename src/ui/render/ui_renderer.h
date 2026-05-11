@@ -65,6 +65,9 @@ public:
         painter_.stroke_arc(center, radius, start_angle, end_angle, width, color);
     }
     void fill_path(std::span<const PathSegment> path, glm::vec4 color) override { painter_.fill_path(path, color); }
+    void stroke_path(std::span<const PathSegment> path, float width, glm::vec4 color) override {
+        painter_.stroke_path(path, width, color);
+    }
     void set_font(AssetId font, float size) override { painter_.set_font(font, size); }
     void fill_text(std::string_view text, glm::vec2 position, glm::vec4 color, UiAlign horizontal,
             UiAlign vertical) override {

@@ -60,6 +60,7 @@ public:
         arcs.push_back(ArcCall{center, radius, start_angle, end_angle, width, color});
     }
     void fill_path(std::span<const engine::ui::PathSegment>, glm::vec4) override {}
+    void stroke_path(std::span<const engine::ui::PathSegment>, float, glm::vec4) override {}
     void set_font(engine::AssetId, float) override {}
     void fill_text(std::string_view, glm::vec2, glm::vec4, engine::ui::UiAlign, engine::ui::UiAlign) override {}
     void image(engine::AssetId, const engine::render::Rect&) override {}

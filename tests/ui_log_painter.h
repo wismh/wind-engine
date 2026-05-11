@@ -107,6 +107,7 @@ namespace ui_test {
         void draw_line(glm::vec2, glm::vec2, glm::vec4, float) override { log("line"); }
         void stroke_arc(glm::vec2, float, float, float, float, glm::vec4) override { log("arc"); }
         void fill_path(std::span<const engine::ui::PathSegment>, glm::vec4) override { log("path"); }
+        void stroke_path(std::span<const engine::ui::PathSegment>, float, glm::vec4) override { log("stroke-path"); }
         void set_font(engine::AssetId, float) override { log("font"); }
         void fill_text(std::string_view text, glm::vec2 position, glm::vec4 color, engine::ui::UiAlign,
                        engine::ui::UiAlign) override {

@@ -68,12 +68,11 @@ inline constexpr UiBlendState kUiBlend{};
 enum class UiTextureSlot : std::uint8_t {
     // R8 coverage, GlyphAtlas pages.
     Glyph = 0,
-    // R8 coverage, MaskAtlas pages (fill_path).
+    // R8 coverage, MaskAtlas pages (fill_path and stroke_path).
     Mask = 1,
     // RGBA8 premultiplied, RampAtlas pages (gradients).
     Ramp = 2,
-    // RGBA8 straight alpha, ImageAtlas pages (the shader premultiplies after the fetch, as NanoVG did for images
-    // created without NVG_IMAGE_PREMULTIPLIED).
+    // RGBA8 straight alpha, ImageAtlas pages (the shader premultiplies after the fetch).
     Image = 3,
 };
 
