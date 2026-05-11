@@ -41,7 +41,7 @@ void main() {
     v_aux = a_aux;
     v_color = a_color;
     v_kind = a_kind;
-    // NanoVG's viewSize mapping: origin top left, y down.
+    // Origin top left, y down.
     gl_Position = vec4(2.0 * a_position.x / u_view_size.x - 1.0, 1.0 - 2.0 * a_position.y / u_view_size.y, 0.0, 1.0);
 }
 )";

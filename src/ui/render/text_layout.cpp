@@ -15,7 +15,7 @@ namespace engine::ui {
 namespace {
 
 constexpr std::size_t kNone = std::numeric_limits<std::size_t>::max();
-// The NanoVG painter's break_lines asked nvgTextBreakLines for this many rows per call.
+// break_lines asks for this many rows per call.
 constexpr int kRowsPerCall = 32;
 
 [[nodiscard]] std::string_view up_to_nul(std::string_view text) noexcept {
@@ -170,8 +170,8 @@ struct Row {
     float width = 0.0f;
 };
 
-// nvgTextBreakLines from `begin` at raster scale 1, at most `rows.size()` rows (minx/maxx dropped: nothing reads
-// them). The control flow and every float are kept as NanoVG had them.
+// Rows from `begin` at raster scale 1, at most `rows.size()` rows (minx/maxx dropped: nothing reads them). The
+// control flow and every float are kept as the font rasterizer had them.
 int break_rows(FontFace& face, int isize, std::string_view text, std::size_t begin, float break_width,
         std::span<Row> rows) {
     if (rows.empty() || begin == text.size()) {
@@ -298,7 +298,7 @@ TextFontMetrics text_metrics(const FontFace& face, float size) {
     const float descender = at_size(face.descender(), isize);
     const float line_height = at_size(face.line_height(), isize);
     if (line_height <= 0.0f && ascender <= 0.0f) {
-        // The NanoVG painter fell back to IUiPainter::font_metrics, whose measure of "M" came back `size` high here.
+        // The painter fell back to IUiPainter::font_metrics, whose measure of "M" came back `size` high here.
         return TextFontMetrics{size * 0.8f, size * 0.2f, size};
     }
     TextFontMetrics metrics;

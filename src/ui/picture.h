@@ -74,6 +74,11 @@ namespace engine::ui {
             std::vector<PathSegment> segments;
             glm::vec4 color;
         };
+        struct StrokePath {
+            std::vector<PathSegment> segments;
+            float width = 0.0f;
+            glm::vec4 color{};
+        };
         struct Font {
             AssetId font;
             float size;
@@ -105,7 +110,8 @@ namespace engine::ui {
         };
 
         using Command = std::variant<Save, Restore, Scissor, Transform, View, Opacity, FillRect, FillGradient,
-                                     StrokeRect, Line, Arc, Path, Font, Text, Image, ImageRepeat, NineSlice, Call>;
+                                     StrokeRect, Line, Arc, Path, StrokePath, Font, Text, Image, ImageRepeat, NineSlice,
+                                     Call>;
 
         std::vector<Command> commands;
 
@@ -142,6 +148,7 @@ namespace engine::ui {
         void stroke_arc(glm::vec2 center, float radius, float start_angle, float end_angle, float width,
                         glm::vec4 color) override;
         void fill_path(std::span<const PathSegment> path, glm::vec4 color) override;
+        void stroke_path(std::span<const PathSegment> path, float width, glm::vec4 color) override;
         void set_font(AssetId font, float size) override;
         void fill_text(std::string_view text, glm::vec2 position, glm::vec4 color, UiAlign horizontal,
                        UiAlign vertical) override;

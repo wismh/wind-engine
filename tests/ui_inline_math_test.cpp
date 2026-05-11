@@ -124,6 +124,7 @@ public:
     void fill_path(std::span<const engine::ui::PathSegment> path, glm::vec4 color) override {
         paths.push_back({std::vector<engine::ui::PathSegment>(path.begin(), path.end()), color});
     }
+    void stroke_path(std::span<const engine::ui::PathSegment>, float, glm::vec4) override {}
     void set_font(engine::AssetId, float) override {}
     void fill_text(std::string_view text, glm::vec2 pos, glm::vec4 color, engine::ui::UiAlign,
                    engine::ui::UiAlign) override {
@@ -592,7 +593,7 @@ TEST(UiInlineMath, LineHeightIsAMinimumStrideForAShortFormula) {
     EXPECT_NEAR(only_child(document).layout_rect.w, formula.width, 0.05f);
 }
 
-// First paint measures every run as zero wide (what the NanoVG painter returned under CSS scale(0)). The next
+// First paint measures every run as zero wide (what the painter returns under CSS scale(0)). The next
 // paint, with real widths, must place the formula after the text instead of reusing that line.
 class CollapseThenMeasurePainter final : public RecordingPainter {
 public:
