@@ -1,0 +1,7 @@
+/* Editor overrides of the default dock chrome (builtin_assets/css/dock.css), merged after it in DockSpace::stylesheets.
+   The UI is flushed after every 3D draw of a window, so any opaque chrome box under the World tab's viewport would cover
+   the scene. The stack body and the float frame fill therefore stay transparent: each panel canvas paints its own
+   opaque background, and the World viewport shows its clear color. */
+
+.dock-stack { background: #00000000; }
+.dock-frame { background: #00000000; }
