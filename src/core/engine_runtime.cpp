@@ -51,9 +51,9 @@ void EngineRuntime::shutdown() {
 }
 
 int EngineRuntime::run(RunHooks hooks, Worlds& worlds, InputSystem& input, IAudioSystem* audio, HttpClient* http,
-        std::function<void()> host_dispose) {
-    return impl_->loop.run(
-            *impl_->presentation, std::move(hooks), worlds, input, audio, http, std::move(host_dispose));
+        ProcessLauncher* processes, std::function<void()> host_dispose) {
+    return impl_->loop.run(*impl_->presentation, std::move(hooks), worlds, input, audio, http, processes,
+            std::move(host_dispose));
 }
 
 render::CommandBuffer& EngineRuntime::commands() {

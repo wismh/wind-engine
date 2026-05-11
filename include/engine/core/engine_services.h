@@ -12,6 +12,7 @@ class IAudioSystem;
 class IHaptics;
 class IHttpClient;
 class InputSystem;
+class IProcessLauncher;
 class IWindowControl;
 
 namespace render {
@@ -28,6 +29,7 @@ struct EngineServices {
     IAudioSystem& audio;
     IHaptics& haptics;
     IHttpClient& http;
+    IProcessLauncher& processes;
     IWindowControl& windows;
     render::IGraphicFactory& graphics;
     render::IRenderBackend& backend;

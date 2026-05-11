@@ -6,7 +6,7 @@ Rules that keep games from depending on SDL, glad, or NanoVG.
 
 | Public `include/engine/` | Private `src/` |
 | --- | --- |
-| `IGame`, `World`, components, `AssetsDb`, `IMaterial`, UI MVVM, `IAudioSystem`, `IHaptics`, `IHttpClient` | OpenGL classes, NanoVG painter, XML and CSS parsers, `stb_image`, `stb_truetype`, clipboard, mixer |
+| `IGame`, `World`, components, `AssetsDb`, `IMaterial`, UI MVVM, `IAudioSystem`, `IHaptics`, `IHttpClient`, `IProcessLauncher` | OpenGL classes, NanoVG painter, XML and CSS parsers, `stb_image`, `stb_truetype`, clipboard, mixer |
 | glm types on game-facing structs | spdlog, tinyxml2, tomlplusplus, SDL |
 
 Games include `<engine/…>` only. `IUiPainter` is not public (`src/ui/painter.h`). Games draw custom UI through `IDrawList` (`include/engine/ui/draw_list.h`) from an `IPaint` on the view-model.
@@ -41,7 +41,7 @@ See [Principles](Principles.md).
 | `ENGINE_CLI_SERVER` | `PUBLIC` on `engine` for the same configurations as `ENGINE_UI_PROFILER`, and not on Emscripten or Android. Loopback server for `wind-cli`. Other configurations do not listen and do not write a descriptor. The host tool still builds and does not link `engine`. See [CLI](../features/CLI.md). |
 | `ENGINE_BUILD_DEBUG_CRT`, `ENGINE_BUILD_ITERATOR_DEBUG_LEVEL` | Macros in the generated `<engine/build_id.h>`: the MSVC C runtime of that engine build (1 and 2 with `/MDd`, 0 and 0 with `/MD`). `<engine/game_entry.h>` fails a game module's compile when its `_DEBUG` or `_ITERATOR_DEBUG_LEVEL` differs. See [CMake](../build/CMake.md#crt-guard). |
 
-`IHaptics` has no `ENGINE_WITH_*` flag. The Native, Web, and Android split is `#if defined(__EMSCRIPTEN__)` / `__ANDROID__` inside `HapticsSystem`. `IHttpClient` follows the same rule: `_WIN32`, `__ANDROID__`, and `__EMSCRIPTEN__` inside `HttpClient`, and WinHTTP, JNI, and `emscripten/fetch.h` stay in `src/net/`.
+`IHaptics` has no `ENGINE_WITH_*` flag. The Native, Web, and Android split is `#if defined(__EMSCRIPTEN__)` / `__ANDROID__` inside `HapticsSystem`. `IHttpClient` follows the same rule: `_WIN32`, `__ANDROID__`, and `__EMSCRIPTEN__` inside `HttpClient`, and WinHTTP, JNI, and `emscripten/fetch.h` stay in `src/net/`. `IProcessLauncher` too: `_WIN32` inside `ProcessLauncher`, and `windows.h` stays in `src/process/windows_process.cpp`.
 
 When a game `add_subdirectory`s Wind, window defaults ON. The engine-root `vs` preset keeps window OFF so CI stays headless. See [CMake](../build/CMake.md).
 

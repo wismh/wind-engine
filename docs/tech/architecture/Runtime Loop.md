@@ -9,7 +9,7 @@ Windowed games enter through `ENGINE_GAME` (`include/engine/game_entry.h`), whic
 1. `EngineHost::init`:
    1. `runtime.init_video()`. SDL video, inside `SdlGlPresentation`.
    2. `log::init(runtime.base_path())`. File sink `<base>/game.log`.
-   3. Construct `SdlFatalError`, `InputSystem`, `AssetsDb`, `AudioSystem`, `HapticsSystem`, `HttpClient`, `Worlds`, and the `EngineServices` over them (assets, input, audio, haptics, http, windows, graphics, backend, canvas, commands, worlds).
+   3. Construct `SdlFatalError`, `InputSystem`, `AssetsDb`, `AudioSystem`, `HapticsSystem`, `HttpClient`, `ProcessLauncher`, `Worlds`, and the `EngineServices` over them (assets, input, audio, haptics, http, processes, windows, graphics, backend, canvas, commands, worlds).
    4. `input.set_router` to `Worlds::world_for`. Attach the fatal hook to `Worlds::application_state` and the native window.
 2. Construct `GameT` with `services()`. `GameBase` calls `Worlds::add` for its world. Systems are not registered yet: the window and catalogs do not exist.
 3. `EngineHost::open_primary(game.primary_window())`:
@@ -57,7 +57,8 @@ flowchart TD
   A["cli::begin_frame on the primary world"] --> B["flush every world"]
   B --> C["poll: event window to its world"]
   C --> C2["HttpClient::poll: finished requests to their calls"]
-  C2 --> D["simulate_worlds"]
+  C2 --> C3["ProcessLauncher::poll: output lines and exits to their calls"]
+  C3 --> D["simulate_worlds"]
   D --> E["sync_frame"]
   E --> F["draw_all"]
   F --> G["cli::drain on the primary world"]

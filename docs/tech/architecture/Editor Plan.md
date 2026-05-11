@@ -200,7 +200,7 @@ Building while the game plays is allowed: the editor runs a copy from `live/<n>/
 | Task | Content |
 | --- | --- |
 | wind-176 | Engine version, `sdk.toml`, `WindConfig.cmake` and `find_package(Wind)`, GoogleTest and the engine source in the SDK, `WIND_EDITOR_SDK` removed. Verified with a smoke game against an installed SDK: module and tests in `DebugGame` and `Release`, Play in the SDK's editor, `find_package(Wind 0.2.0)` refused, and a static executable with `add_subdirectory(<sdk>/source)`. Done |
-| wind-177 | `ProcessCall` in the engine (Windows) and tests |
+| wind-177 | `ProcessCall` in the engine (Windows) and tests. As built: `IProcessLauncher` in `EngineServices::processes`, polled after HTTP; a job object per child, so cancel and the child's exit end everything it started ([Process](../modules/Process.md)). Done |
 | wind-178 | `wind_project.toml`, `wind_editor --project`, configure and build on Play, Build panel |
 | wind-179 | `wind_launcher`: projects, SDKs, Open |
 
