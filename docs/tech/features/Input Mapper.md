@@ -24,7 +24,7 @@ Gameplay reads `ActionId`. It does not switch on `KeyCode`. UI reads `MouseEvent
 
 ## Android back
 
-The engine never quits on `AcBack` (`SDL_HINT_ANDROID_TRAP_BACK_BUTTON` is on, so SDL does not either). A game binds `AcBack` to its own `ActionId`, pops its screens, and calls `ApplicationState::quit()` from its root screen. Unbound, Back does nothing. This is the same model as `WindowCloseRequestedEvent` ([Windowing](Windowing.md#close)).
+The engine never quits on `AcBack`. `SDL_HINT_ANDROID_TRAP_BACK_BUTTON` is set before `SDL_Init` (and again from the Android manifest as `SDL_ENV.SDL_ANDROID_TRAP_BACK_BUTTON`), and the template manifest sets `android:enableOnBackInvokedCallback="true"`. On Android 13 and later the system Back gesture is that callback, not a key and not `onBackPressed`. SDL registers the callback on the main thread and turns it into `AcBack`. Without the attribute the system finishes the activity, `SDL_EVENT_QUIT` follows, and the game never sees the key. A game binds `AcBack` to its own `ActionId`, pops its screens, and calls `ApplicationState::quit()` from its root screen. Unbound, Back does nothing. This is the same model as `WindowCloseRequestedEvent` ([Windowing](Windowing.md#close)).
 
 `poll` asks `BackKeyFilter` (`src/core/back_key_filter.h`) about every key before `handle_key`:
 
