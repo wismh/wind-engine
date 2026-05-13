@@ -78,6 +78,7 @@ flowchart TB
 | `Presentation.mouse` | UI hit-test | `sync_frame` click-through on that same object. `ctx<ui::MouseConsumed>()` does not see the hits |
 | `{tr}` key | string-table asset | UI bind writes `Element::text` |
 | `HttpResult` | [Net](../modules/Net.md) backend (worker thread or browser callback) | the sender's `HttpCall`, in `HttpClient::poll` |
+| Process output lines, `ProcessResult` | [Process](../modules/Process.md) reader thread and the child's exit | the starter's `ProcessCall`, in `ProcessLauncher::poll` |
 
 ## Tests vs window
 

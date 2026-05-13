@@ -11,6 +11,7 @@
 #include <engine/haptics/haptics_system.h>
 #include <engine/log.h>
 #include <engine/net/http_client.h>
+#include <engine/process/process_launcher.h>
 #include <engine/igame.h>
 #include <engine/log.h>
 #include <engine/resources/assets_db.h>
@@ -30,6 +31,7 @@ struct EngineHost::Impl {
     std::unique_ptr<IAudioSystem> audio;
     std::unique_ptr<IHaptics> haptics;
     std::unique_ptr<HttpClient> http;
+    std::unique_ptr<ProcessLauncher> processes;
     std::unique_ptr<Worlds> worlds;
     std::optional<EngineServices> services;
     bool initialized = false;
@@ -58,6 +60,7 @@ bool EngineHost::init() {
     impl_->audio = std::make_unique<AudioSystem>();
     impl_->haptics = std::make_unique<HapticsSystem>();
     impl_->http = std::make_unique<HttpClient>();
+    impl_->processes = std::make_unique<ProcessLauncher>();
     impl_->worlds = std::make_unique<Worlds>(*impl_->fatal);
     impl_->services.emplace(EngineServices{
             .assets = *impl_->assets,
@@ -65,6 +68,7 @@ bool EngineHost::init() {
             .audio = *impl_->audio,
             .haptics = *impl_->haptics,
             .http = *impl_->http,
+            .processes = *impl_->processes,
             .windows = runtime.window_control(),
             .graphics = runtime.factory(),
             .backend = runtime.backend(),
@@ -207,7 +211,7 @@ int EngineHost::run(RunHooks hooks) {
     }
     const int result = impl_->runtime.run(
             std::move(hooks), *impl_->worlds, *impl_->input, impl_->audio.get(), impl_->http.get(),
-            [this] { dispose(); });
+            impl_->processes.get(), [this] { dispose(); });
     dispose();
     return result;
 }
@@ -219,6 +223,7 @@ void EngineHost::dispose() {
     impl_->audio->dispose();
     impl_->haptics->dispose();
     impl_->http->dispose();
+    impl_->processes->dispose();
     impl_->runtime.shutdown();
     impl_->initialized = false;
     impl_->opened = false;
