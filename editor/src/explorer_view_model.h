@@ -19,7 +19,6 @@ public:
     // The project directory above the tree, or why there is no tree.
     engine::ui::Bindable<std::string> rootText;
     engine::ui::BindableList<std::shared_ptr<ExplorerRowViewModel>> rows;
-    engine::ui::MethodCommand refresh;
 };
 
 }

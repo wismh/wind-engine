@@ -7,6 +7,7 @@ namespace editor {
 Toolbar::Toolbar()
     : view_model_(std::make_shared<EditorViewModel>()) {
     view_model_->togglePlay.bind_to<Toolbar, &Toolbar::toggle_play, &Toolbar::can_toggle_play>(*this);
+    view_model_->refreshProject.bind_to<Toolbar, &Toolbar::refresh_project, &Toolbar::can_refresh_project>(*this);
     view_model_->exportGame.bind_to<Toolbar, &Toolbar::export_game, &Toolbar::can_export_game>(*this);
     view_model_->minimizeWindow.bind_to<Toolbar, &Toolbar::minimize_window, &Toolbar::can_window_action>(*this);
     view_model_->maximizeWindow.bind_to<Toolbar, &Toolbar::maximize_window, &Toolbar::can_window_action>(*this);
@@ -64,6 +65,15 @@ void Toolbar::toggle_play() {
 
 bool Toolbar::can_toggle_play() const {
     return state_ != RunState::Idle || playable_;
+}
+
+void Toolbar::refresh_project() {
+    request_ = EditorRequest::Refresh;
+}
+
+bool Toolbar::can_refresh_project() const {
+    // show_project("") is no project. A name is set whenever the Project tab is open.
+    return !view_model_->projectName.get().empty();
 }
 
 void Toolbar::export_game() {

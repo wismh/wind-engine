@@ -6,6 +6,8 @@
 # Everything but main.cpp and the EditorApp shell, so wind_editor_tests compiles the same panels.
 set(_wind_editor_parts
     src/asset_inspection.cpp
+    src/asset_sync.cpp
+    src/asset_watch.cpp
     src/batch_run.cpp
     src/build_line_view_model.cpp
     src/build_panel.cpp
@@ -58,6 +60,11 @@ engine_configure_app(wind_editor)
 set_target_properties(wind_editor PROPERTIES MACOSX_BUNDLE OFF)
 target_include_directories(wind_editor PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_compile_definitions(wind_editor PRIVATE "WIND_ENGINE_VERSION=\"${ENGINE_VERSION_FULL}\"")
+find_package(Threads REQUIRED)
+target_link_libraries(wind_editor PRIVATE Threads::Threads)
+if(APPLE)
+    target_link_libraries(wind_editor PRIVATE "-framework CoreServices")
+endif()
 
 if(ENGINE_BUILD_TESTS)
     # PlaySession against headless services and the fixture game module (tests/fixtures/game_module),
@@ -65,6 +72,7 @@ if(ENGINE_BUILD_TESTS)
     # asset_ids.h.
     add_executable(wind_editor_tests
         tests/asset_inspection_test.cpp
+        tests/asset_watch_test.cpp
         tests/batch_run_test.cpp
         tests/build_panel_test.cpp
         tests/dock_layout_file_test.cpp
@@ -93,7 +101,10 @@ if(ENGINE_BUILD_TESTS)
     if(MSVC)
         target_compile_options(wind_editor_tests PRIVATE /W4 /permissive- /utf-8)
     endif()
-    target_link_libraries(wind_editor_tests PRIVATE engine GTest::gtest_main)
+    target_link_libraries(wind_editor_tests PRIVATE engine GTest::gtest_main Threads::Threads)
+    if(APPLE)
+        target_link_libraries(wind_editor_tests PRIVATE "-framework CoreServices")
+    endif()
     target_include_directories(wind_editor_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_BINARY_DIR}/generated/wind_editor"
