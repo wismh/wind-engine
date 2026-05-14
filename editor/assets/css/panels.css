@@ -104,7 +104,7 @@ ScrollView.fill {
   height: calc(100% - 32px);
 }
 
-/* Refresh on the Project tab, in the 24 px .option-row. */
+/* A short button in a 24 px .option-row (the World tab's tools). */
 Button.panel-button {
   height: 24;
   margin: 0;

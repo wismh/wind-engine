@@ -53,7 +53,7 @@ Texture defaults: sRGB, linear filter, clamp wrap, `layout = single`, `pixels_pe
 
 `strings_source` is the `.meta` flag `source = true`. If the tree contains any `.strings` file, codegen requires exactly one such table. A `{tr}` key must exist in that table.
 
-`asset_guid` writes a missing sidecar and never overwrites one. A file whose extension is not one of the known ones gets `importer = "data"`. `asset_codegen` fails the build when a sidecar is missing. It never writes `.meta`. Neither tool treats `readme.md`, `license*`, dotfiles, or `catalog.toml` as assets.
+`asset_guid` writes a missing sidecar and never overwrites one. A file whose extension is not one of the known ones gets `importer = "data"`. `asset_codegen` fails the build when a sidecar is missing. It never writes `.meta`. Neither tool treats `readme.md`, `license*`, dotfiles, or `catalog.toml` as assets. The editor writes missing sidecars the same way for the open project's `assets/`, and it also deletes an orphan `.meta`.
 
 ## `AssetsDb`
 
