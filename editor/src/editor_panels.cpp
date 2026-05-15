@@ -44,6 +44,7 @@ void EditorPanels::spawn(engine::ecs::World& world, engine::WindowId window) {
     window_ = window;
     inspector_canvas_ = spawn_panel(world, window, assets::ui::inspector, inspector_.view_model());
     profiler_canvas_ = spawn_panel(world, window, assets::ui::profiler, profiler_.view_model());
+    build_canvas_ = spawn_panel(world, window, assets::ui::build, build_.view_model());
 }
 
 void EditorPanels::attach(engine::ecs::World& game) {
@@ -62,12 +63,13 @@ void EditorPanels::frame(engine::ecs::World& world) {
     const float height = std::max(0.0f, static_cast<float>(size.height) - kPanelTop);
     const engine::render::Rect shown{0.0f, kPanelTop, width, height};
     const engine::render::Rect hidden{};
-    const bool inspector = toolbar_->active_tab() == EditorTab::Inspector;
-    place(world, inspector_canvas_, inspector ? shown : hidden);
-    place(world, profiler_canvas_, inspector ? hidden : shown);
-    if (inspector) {
+    const EditorTab tab = toolbar_->active_tab();
+    place(world, inspector_canvas_, tab == EditorTab::Inspector ? shown : hidden);
+    place(world, profiler_canvas_, tab == EditorTab::Profiler ? shown : hidden);
+    place(world, build_canvas_, tab == EditorTab::Build ? shown : hidden);
+    if (tab == EditorTab::Inspector) {
         inspector_.refresh();
-    } else {
+    } else if (tab == EditorTab::Profiler) {
         profiler_.refresh();
     }
 }
@@ -78,6 +80,10 @@ InspectorPanel& EditorPanels::inspector() {
 
 ProfilerPanel& EditorPanels::profiler() {
     return profiler_;
+}
+
+BuildPanel& EditorPanels::build() {
+    return build_;
 }
 
 }

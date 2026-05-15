@@ -55,6 +55,9 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/process/process_call.h` | `ProcessCall`: one owned child, `take_output`, `take`, `cancel` | [Process](../modules/Process.md) |
 | `include/engine/process/process_desc.h` | `ProcessDesc`, `ProcessVariable`, `ProcessExit`, `ProcessError`, `ProcessResult` | [Process](../modules/Process.md) |
 | `include/engine/process/process_launcher.h` | `IProcessLauncher` and `ProcessLauncher` | [Process](../modules/Process.md) |
+| `include/engine/project/manifest_error.h` | `ManifestError`, `ManifestFailure`, `describe` | [Project](../modules/Project.md) |
+| `include/engine/project/sdk_manifest.h` | `SdkManifest`, `read_sdk_manifest` | [Project](../modules/Project.md) |
+| `include/engine/project/wind_project.h` | `WindProject`, `read_wind_project` | [Project](../modules/Project.md) |
 | `include/engine/loc/catalog.h` | `StringTable` parse and `Catalog` | [Localization](../modules/Localization.md) |
 | `include/engine/render/.gitkeep` | Keeps the directory in Git | [Render](../modules/Render.md) |
 | `include/engine/render/animation.h` | Sprite clip, animator, animation TOML | [Render](../modules/Render.md) |
@@ -277,6 +280,11 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/process/process_launcher.cpp` | `ProcessLauncher`: backend choice, `run`, `launch`, `poll`, `dispose` | [Process](../modules/Process.md) |
 | `src/process/windows_process.cpp` | Windows backend: pipe, job object, reader thread, `launch` | [Process](../modules/Process.md) |
 | `src/process/windows_process.h` | Windows backend API | [Process](../modules/Process.md) |
+| `src/project/manifest_error.cpp` | `to_string`, `describe` | [Project](../modules/Project.md) |
+| `src/project/manifest_table.cpp` | Loads a manifest with toml++, typed keys | [Project](../modules/Project.md) |
+| `src/project/manifest_table.h` | `ManifestTable` | [Project](../modules/Project.md) |
+| `src/project/sdk_manifest.cpp` | `read_sdk_manifest` | [Project](../modules/Project.md) |
+| `src/project/wind_project.cpp` | `read_wind_project` | [Project](../modules/Project.md) |
 | `src/loc/catalog.cpp` | Table parse, lookup, warn-once, pseudo | [Localization](../modules/Localization.md) |
 | `src/loc/format.cpp` | `{name}` and plural message format | [Localization](../modules/Localization.md) |
 | `src/loc/format.h` | Format API | [Localization](../modules/Localization.md) |
@@ -321,6 +329,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/physics_test.cpp` | Overlap enter, stay, exit | [ECS](../modules/ECS.md) |
 | `tests/platform_test.cpp` | Assets root and `user_data_directory` names | [Core](../modules/Core.md) |
 | `tests/process_test.cpp` | Line cutting, quoting, environment, `ProcessCall` ownership, and real `cmd.exe` children on Windows (output, exit, cancel, leftovers) | [Process](../modules/Process.md) |
+| `tests/project_test.cpp` | `wind_project.toml` and `sdk.toml` reading and their errors | [Project](../modules/Project.md) |
 | `tests/render_system_test.cpp` | `run_render` sort; unset camera skips, missing components fatal | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `tests/shader_adapt_test.cpp` | GLSL 300 ES rewrite | [Render](../modules/Render.md) |
 | `tests/sort_test.cpp` | `renderable_less` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
@@ -386,17 +395,25 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/CMakeLists.txt` | `wind_editor` and `wind_editor_tests` | [CMake](../build/CMake.md) |
 | `editor/assets/css/editor.css` | Editor window style | [Editor](../features/Editor.md) |
 | `editor/assets/css/editor.css.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
-| `editor/assets/css/panels.css` | Inspector and Profiler panel style | [Editor](../features/Editor.md) |
+| `editor/assets/css/panels.css` | Inspector, Profiler, and Build panel style | [Editor](../features/Editor.md) |
 | `editor/assets/css/panels.css.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/ui/build.xml` | Build tab: summary and log | [Editor](../features/Editor.md) |
+| `editor/assets/ui/build.xml.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
 | `editor/assets/ui/editor.xml` | Editor window: toolbar, tab strip, content area | [Editor](../features/Editor.md) |
 | `editor/assets/ui/editor.xml.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
 | `editor/assets/ui/inspector.xml` | Inspector tab: Pick, tree, Computed, Rules | [UI Inspector](../features/UI%20Inspector.md) |
 | `editor/assets/ui/inspector.xml.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
 | `editor/assets/ui/profiler.xml` | Profiler tab: Pause, canvases, charts, numbers | [UI Profiler](../features/UI%20Profiler.md) |
 | `editor/assets/ui/profiler.xml.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
-| `editor/src/editor_app.cpp` | Start, frame-end transitions, quit | [Editor](../features/Editor.md) |
+| `editor/src/build_line_view_model.cpp` | Binds a log row | [Editor](../features/Editor.md) |
+| `editor/src/build_line_view_model.h` | `BuildLineViewModel` | [Editor](../features/Editor.md) |
+| `editor/src/build_panel.cpp` | Log lines, tones, first error, line cap | [Editor](../features/Editor.md) |
+| `editor/src/build_panel.h` | `BuildPanel`, `LineTone`, `tone_of` | [Editor](../features/Editor.md) |
+| `editor/src/build_view_model.cpp` | Binds the view-model to `build.xml` and its scroll | [Editor](../features/Editor.md) |
+| `editor/src/build_view_model.h` | `BuildViewModel` | [Editor](../features/Editor.md) |
+| `editor/src/editor_app.cpp` | Start, SDK and project, build and play, frame-end transitions, quit | [Editor](../features/Editor.md) |
 | `editor/src/editor_app.h` | `EditorApp` | [Editor](../features/Editor.md) |
-| `editor/src/editor_options.cpp` | `--game` and `--play` | [Editor](../features/Editor.md) |
+| `editor/src/editor_options.cpp` | `--project` and `--play` | [Editor](../features/Editor.md) |
 | `editor/src/editor_options.h` | `EditorOptions` | [Editor](../features/Editor.md) |
 | `editor/src/editor_panels.cpp` | Panel canvases, tab placement, refresh, attach and detach | [Editor](../features/Editor.md) |
 | `editor/src/editor_panels.h` | `EditorPanels` | [Editor](../features/Editor.md) |
@@ -425,12 +442,17 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/profiler_row_view_model.h` | `ProfilerRowViewModel` | [UI Profiler](../features/UI%20Profiler.md) |
 | `editor/src/profiler_view_model.cpp` | Binds the view-model to `profiler.xml` and registers the paints | [UI Profiler](../features/UI%20Profiler.md) |
 | `editor/src/profiler_view_model.h` | `ProfilerViewModel` | [UI Profiler](../features/UI%20Profiler.md) |
+| `editor/src/project_build.cpp` | Configure and build through `ProcessCall`, the module record | [Editor](../features/Editor.md) |
+| `editor/src/project_build.h` | `ProjectBuild`, `BuildSetup`, `configured_for` | [Editor](../features/Editor.md) |
 | `editor/src/rule_line_view_model.cpp` | Binds a rule row | [UI Inspector](../features/UI%20Inspector.md) |
 | `editor/src/rule_line_view_model.h` | `RuleLineViewModel` | [UI Inspector](../features/UI%20Inspector.md) |
 | `editor/src/toolbar.cpp` | Button methods, tabs, and shown state | [Editor](../features/Editor.md) |
-| `editor/src/toolbar.h` | `Toolbar`, `EditorRequest` | [Editor](../features/Editor.md) |
+| `editor/src/toolbar.h` | `Toolbar`, `EditorRequest`, `RunState` | [Editor](../features/Editor.md) |
+| `editor/tests/build_panel_test.cpp` | Log tones, first error, scroll, line cap | [Editor](../features/Editor.md) |
+| `editor/tests/editor_options_test.cpp` | `--project` and `--play` | [Editor](../features/Editor.md) |
 | `editor/tests/editor_panels_test.cpp` | Tabs and panel canvas placement, attach and detach | [Editor](../features/Editor.md) |
 | `editor/tests/inspector_panel_test.cpp` | Inspector view-models against a headless world | [UI Inspector](../features/UI%20Inspector.md) |
 | `editor/tests/play_session_test.cpp` | Play, Stop order, play again, refusals, against the fixture module | [Editor](../features/Editor.md) |
 | `editor/tests/profiler_chart_test.cpp` | Chart geometry and the chart paint | [UI Profiler](../features/UI%20Profiler.md) |
 | `editor/tests/profiler_panel_test.cpp` | Profiler view-model with and without frames | [UI Profiler](../features/UI%20Profiler.md) |
+| `editor/tests/project_build_test.cpp` | `ProjectBuild` against a scripted launcher | [Editor](../features/Editor.md) |

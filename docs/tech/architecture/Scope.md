@@ -2,7 +2,7 @@
 
 Wind is a 2D C++ game engine for production titles. Development happens in the Wind editor. The editor is the host process, and a game is a guest module that the editor loads on Play and unloads on Stop. An exported game is a standalone executable that links the engine statically. Games do not vendor SDL or copy engine sources.
 
-The editor is in progress. See [Editor Plan](Editor%20Plan.md). Today `wind_editor` chooses a game module, plays it, inspects and profiles its UI in its Inspector and Profiler tabs, and stops it ([Editor](../features/Editor.md)).
+The editor is in progress. See [Editor Plan](Editor%20Plan.md). Today `wind_editor` opens a project, builds its game module with CMake on Play, plays it, inspects and profiles its UI in its Inspector and Profiler tabs, shows the build in its Build tab, and stops it ([Editor](../features/Editor.md)).
 
 ## In scope
 
@@ -27,7 +27,7 @@ The editor is in progress. See [Editor Plan](Editor%20Plan.md). Today `wind_edit
 
 Open engine work, not game concerns:
 
-- Editor: project list, launching the game build, and the remaining tools. The first version picks a game module by file on every start.
+- Editor: the launcher with the project list (wind-179), export, and the remaining tools. Today the editor opens one project (`--project` or a dialog), builds it on Play, and plays it.
 - Packed asset bundles (still GUID-addressed).
 - A separate cue `Sound` that references a clip GUID. Today one file is one cue.
 - `Transform` parent and a world-matrix chain.

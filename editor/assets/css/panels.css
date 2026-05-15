@@ -274,3 +274,24 @@ Component.swatch {
   border-color: #393b40;
   border-radius: 6;
 }
+
+/* Build tab: the summary row (24 px, as .option-row) and the log under it, calc(100% - 32px) with the 8 px gap. */
+.summary {
+  height: 24;
+  align-items: center;
+  color: #dfe1e5;
+}
+
+ScrollView.log {
+  height: calc(100% - 32px);
+  overflow-x: auto;
+}
+
+/* Fixed 18 px rows: the log is virtualized. --tone is red for errors and amber for warnings (BuildPanel). */
+.log-line {
+  height: 18;
+  padding: 0 6;
+  font-size: 12;
+  color: var(--tone, #c5ced8);
+  white-space: nowrap;
+}

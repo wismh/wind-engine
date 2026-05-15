@@ -1,6 +1,14 @@
 # Game consumer
 
-A game repo builds against an installed Wind editor SDK. It has no engine submodule: the SDK it finds is its engine, and that SDK's version is the game's engine version.
+A game repo builds against an installed Wind editor SDK. It has no engine submodule: the SDK it finds is its engine, and that SDK's version is the game's engine version. `wind_project.toml` in its root makes it a project the editor opens:
+
+```toml
+name = "My Game"
+engine = "0.1.0"     # the SDK version, sdk.toml `version`
+target = "my_game"   # the engine_add_game target
+```
+
+See [Project](../modules/Project.md).
 
 ```cmake
 cmake_minimum_required(VERSION 3.20)
@@ -25,7 +33,15 @@ cmake --build build-editor --config Release
 cmake --install build-editor --config Release --prefix out/sdk
 ```
 
-Then configure the game with `CMAKE_PREFIX_PATH` pointing at that SDK. `find_package(Wind)` loads `<sdk>/cmake/WindConfig.cmake`: imported `engine`, `glm::glm`, `asset_codegen`, `icon_codegen`, `GTest::gtest`, and `GTest::gtest_main`, and the game functions. Nothing of the engine is compiled, and `engine_add_game` builds a module (`bin/<config>/<game>.dll` with `assets/catalog.toml` beside it). See [CMake](CMake.md#sdk-mode).
+Then open the project in that SDK's editor and press Play:
+
+```bash
+C:/path/to/engine/out/sdk/bin/wind_editor.exe --project C:/path/to/my_game --play
+```
+
+The editor configures `<project>/build-editor` against its own SDK when needed, builds the `target` in `DebugGame`, and loads the module ([Editor](../features/Editor.md#build)); CMake must be on `PATH`. The rest of this section is the same build by hand, for an IDE or a terminal.
+
+Configure the game with `CMAKE_PREFIX_PATH` pointing at that SDK. `find_package(Wind)` loads `<sdk>/cmake/WindConfig.cmake`: imported `engine`, `glm::glm`, `asset_codegen`, `icon_codegen`, `GTest::gtest`, and `GTest::gtest_main`, and the game functions. Nothing of the engine is compiled, and `engine_add_game` builds a module (`bin/<config>/<game>.dll` with `assets/catalog.toml` beside it). See [CMake](CMake.md#sdk-mode).
 
 The game builds in two configurations against the Release SDK: `DebugGame` (game code unoptimized with symbols and asserts, `/MD`) and `Release`. Both link the same Release `engine.dll`; Debug, RelWithDebInfo, and MinSizeRel are a configure error in SDK mode ([CMake](CMake.md#configurations)). The list has to be set before the game's `project()`, so the committed `editor` preset sets it with the generator and binary directory:
 
@@ -40,7 +56,7 @@ The game builds in two configurations against the Release SDK: `DebugGame` (game
 }
 ```
 
-The SDK path is per machine, so until the editor configures the project itself ([Editor Plan](../architecture/Editor%20Plan.md#next-projects-launcher-build-on-play)) it goes in the game's `CMakeUserPresets.json` (not committed), on top of that preset:
+The SDK path is per machine, so for a build by hand it goes in the game's `CMakeUserPresets.json` (not committed), on top of that preset. The editor reuses a `build-editor` configured this way when its `Wind_DIR` is the editor's own SDK:
 
 ```json
 {
@@ -60,7 +76,7 @@ The SDK path is per machine, so until the editor configures the project itself (
 ```bash
 cmake --preset editor-local
 cmake --build build-editor --config DebugGame --target my_game
-C:/path/to/engine/out/sdk/bin/wind_editor.exe --game build-editor/bin/DebugGame/my_game.dll --play
+C:/path/to/engine/out/sdk/bin/wind_editor.exe --project . --play
 ```
 
 The configure prints `Wind 0.1.0: Release SDK at <dir>`. `--config Release` builds the optimized module into `bin/Release/`. A build directory configured earlier with CMake's default configurations fails with a message: delete it and configure again. `ENGINE_EDITOR=ON` is not a game option.
@@ -86,7 +102,7 @@ gtest_discover_tests(my_game_tests DISCOVERY_MODE PRE_TEST)
 
 The module and the SDK both carry `.pdb` files, in `DebugGame` and in `Release`. The editor loads a copy of the module from `live/<n>/` with its `.pdb` beside it, and the module records only the `.pdb` file name (`/PDBALTPATH`), so the debugger finds that copy.
 
-- Start under the debugger: open `build-editor/<game>.sln`, set the game target as the startup project, and in its Debugging properties set Command to `C:/path/to/engine/out/sdk/bin/wind_editor.exe` and Command Arguments to `--game $(TargetPath) --play`. Build `DebugGame` and press F5. Breakpoints in game code hit once Play loads the module.
+- Start under the debugger: open `build-editor/<game>.sln`, set the game target as the startup project, and in its Debugging properties set Command to `C:/path/to/engine/out/sdk/bin/wind_editor.exe` and Command Arguments to `--project $(SolutionDir).. --play`. Build `DebugGame` and press F5. The editor's own build finds nothing to do, and breakpoints in game code hit once Play loads the module.
 - Attach: start `wind_editor.exe` yourself, then Debug > Attach to Process > `wind_editor.exe`. Breakpoints bind when the module loads on Play.
 
 ## `main`

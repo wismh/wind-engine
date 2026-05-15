@@ -9,10 +9,10 @@
 namespace editor {
 
 // Command line of wind_editor.
-//   --game <module>  use this game module and skip the file dialog at start
-//   --play           press Play once the editor is up (needs --game)
+//   --project <dir>  open the project in <dir> (the directory with wind_project.toml) and skip the dialog at start
+//   --play           press Play once the editor is up (needs --project)
 struct EditorOptions {
-    std::optional<std::filesystem::path> game;
+    std::optional<std::filesystem::path> project;
     bool play = false;
     // Arguments that were not understood, for one warning line.
     std::vector<std::string> unknown;

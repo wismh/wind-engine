@@ -13,6 +13,7 @@
 #include <engine/resources/fatal_error.h>
 #include <engine/ui/canvas.h>
 
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -23,17 +24,18 @@ namespace {
 const engine::WindowDesc kIdleGameWindow{.title = "Game", .size = {800, 600}};
 const engine::WindowDesc kEditorWindow{.title = "Wind Editor", .size = {1280, 800}};
 
-#if defined(_WIN32)
-constexpr char kModulePattern[] = "dll";
-#elif defined(__APPLE__)
-constexpr char kModulePattern[] = "dylib";
-#else
-constexpr char kModulePattern[] = "so";
-#endif
-
 std::string path_text(const std::filesystem::path& path) {
     const std::u8string text = path.u8string();
     return {reinterpret_cast<const char*>(text.data()), text.size()};
+}
+
+// `<sdk>/bin/assets` -> `<sdk>`.
+std::filesystem::path sdk_root_of(const std::filesystem::path& assets_root) {
+    std::filesystem::path root = std::filesystem::absolute(assets_root).lexically_normal();
+    if (!root.has_filename()) {
+        root = root.parent_path();
+    }
+    return root.parent_path().parent_path();
 }
 
 // `<user data>/live`, where Play puts module copies. The temp directory when there is no user data
@@ -119,16 +121,23 @@ bool EditorApp::start(const EditorOptions& options) {
     }
     play_host_.emplace(host_, *panels_);
     session_.emplace(services, *play_host_, live, kIdleGameWindow);
-    toolbar_->show_playing(false);
+    build_.emplace(services.processes);
+    toolbar_->show_state(RunState::Idle);
 
-    if (options.game) {
-        game_path_ = std::filesystem::absolute(*options.game);
-        toolbar_->show_game(game_path_);
-        toolbar_->show_status("Ready. Press Play.");
+    sdk_root_ = sdk_root_of(host_.assets_root());
+    if (auto manifest = engine::read_sdk_manifest(sdk_root_)) {
+        sdk_ = std::move(*manifest);
+        engine::log::info("Editor: SDK " + sdk_->version + " (" + sdk_->config + ") at " + path_text(sdk_root_));
+    } else {
+        engine::log::warn("Editor: not an installed SDK: " + engine::describe(manifest.error()));
+    }
+
+    if (options.project) {
+        open_project(*options.project);
         play_at_start_ = options.play;
     } else {
-        toolbar_->show_status("Choose a game module.");
-        choose_game();
+        toolbar_->show_status("Open a project.");
+        choose_project();
     }
     engine::log::info("Editor: started");
     return true;
@@ -165,8 +174,8 @@ void EditorApp::on_frame_end() {
     switch (toolbar_->take_request()) {
         case EditorRequest::None:
             break;
-        case EditorRequest::ChooseGame:
-            choose_game();
+        case EditorRequest::OpenProject:
+            choose_project();
             break;
         case EditorRequest::Play:
             play();
@@ -175,50 +184,121 @@ void EditorApp::on_frame_end() {
             stop("Stopped.");
             break;
     }
+    poll_build();
 }
 
 void EditorApp::on_quit() {
+    if (build_) {
+        build_->cancel();
+    }
     if (session_ && session_->playing()) {
         stop("Stopped.");
     }
     engine::log::info("Editor: quit");
 }
 
-void EditorApp::choose_game() {
+void EditorApp::choose_project() {
     if (dialog_.pending()) {
         return;
     }
     std::vector<engine::FileFilter> filters{
-            engine::FileFilter{.name = "Wind game module", .pattern = kModulePattern},
+            engine::FileFilter{.name = "Wind project (wind_project.toml)", .pattern = "toml"},
     };
     dialog_ = host_.services().windows.request_open_file(window_, std::move(filters));
 }
 
 void EditorApp::take_dialog_answer(const engine::FileDialogResult& answer) {
     if (!answer.path) {
-        if (game_path_.empty()) {
-            toolbar_->show_status("No game chosen. Press Choose game.");
+        if (!project_) {
+            toolbar_->show_status("No project open. Press Open project.");
         }
         return;
     }
-    game_path_ = *answer.path;
-    toolbar_->show_game(game_path_);
+    if (answer.path->filename() != engine::kWindProjectFile) {
+        toolbar_->show_status("Pick the project's wind_project.toml.");
+        return;
+    }
+    open_project(answer.path->parent_path());
+}
+
+void EditorApp::open_project(const std::filesystem::path& directory) {
+    std::error_code error;
+    const std::filesystem::path dir = std::filesystem::weakly_canonical(std::filesystem::absolute(directory), error);
+    project_.reset();
+    project_dir_ = error ? std::filesystem::absolute(directory) : dir;
+    auto project = engine::read_wind_project(project_dir_);
+    if (!project) {
+        toolbar_->show_project(path_text(project_dir_), false);
+        toolbar_->show_status(engine::describe(project.error()));
+        engine::log::warn("Editor: " + engine::describe(project.error()));
+        return;
+    }
+    const std::string line = project->name + "  (" + path_text(project_dir_) + ")";
+    if (!sdk_) {
+        toolbar_->show_project(line, false);
+        toolbar_->show_status("This editor is not an installed SDK (no sdk.toml beside bin/): install it with "
+                              "cmake --install to build projects.");
+        return;
+    }
+    if (project->engine != sdk_->version) {
+        toolbar_->show_project(line, false);
+        toolbar_->show_status("The project needs engine " + project->engine + "; this editor is " + sdk_->version +
+                ". Open it with that version.");
+        return;
+    }
+    project_ = std::move(*project);
+    toolbar_->show_project(line, true);
     toolbar_->show_status("Ready. Press Play.");
-    engine::log::info("Editor: game " + path_text(game_path_));
+    engine::log::info("Editor: project " + project_->name + " at " + path_text(project_dir_));
 }
 
 void EditorApp::play() {
-    if (game_path_.empty() || session_->playing()) {
+    if (!project_ || !sdk_ || session_->playing() || build_->running()) {
         return;
     }
-    const auto started = session_->play(game_path_);
+    BuildPanel& log = panels_->build();
+    log.clear();
+    log.show_summary("Building " + project_->target + " (" + game_config(sdk_->config) + ")...");
+    build_->start(BuildSetup{
+            .project = project_dir_,
+            .sdk = sdk_root_,
+            .target = project_->target,
+            .sdk_config = sdk_->config,
+    });
+    toolbar_->show_state(RunState::Building);
+    toolbar_->show_status("Building " + project_->name + "...");
+}
+
+void EditorApp::poll_build() {
+    std::vector<std::string> lines;
+    const std::optional<BuildOutcome> outcome = build_->poll(lines);
+    BuildPanel& log = panels_->build();
+    log.append(std::move(lines));
+    if (!outcome) {
+        return;
+    }
+    if (!outcome->has_value()) {
+        toolbar_->show_state(RunState::Idle);
+        toolbar_->show_status(outcome->error());
+        log.show_summary(log.first_error().empty() ? outcome->error() : log.first_error());
+        toolbar_->show_build();
+        engine::log::warn("Editor: " + outcome->error());
+        return;
+    }
+    log.show_summary("Built " + path_text(**outcome) + ".");
+    start_game(**outcome);
+}
+
+void EditorApp::start_game(const std::filesystem::path& module) {
+    const auto started = session_->play(module);
     if (!started) {
         engine::log::warn("Editor: play failed: " + started.error());
+        toolbar_->show_state(RunState::Idle);
         toolbar_->show_status(started.error());
         return;
     }
-    toolbar_->show_playing(true);
-    std::string status = "Playing " + path_text(game_path_.filename()) + ".";
+    toolbar_->show_state(RunState::Playing);
+    std::string status = "Playing " + project_->name + ".";
     if (!started->empty()) {
         status += " " + *started;
     }
@@ -226,8 +306,15 @@ void EditorApp::play() {
 }
 
 void EditorApp::stop(std::string status) {
+    if (build_->running()) {
+        build_->cancel();
+        panels_->build().show_summary("Build cancelled.");
+        toolbar_->show_state(RunState::Idle);
+        toolbar_->show_status("Build cancelled.");
+        return;
+    }
     session_->stop();
-    toolbar_->show_playing(false);
+    toolbar_->show_state(RunState::Idle);
     toolbar_->show_status(std::move(status));
 }
 
