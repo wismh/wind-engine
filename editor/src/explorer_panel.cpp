@@ -54,7 +54,6 @@ const ProjectEntry* find_entry(const std::vector<ProjectEntry>& roots, std::stri
 
 ExplorerPanel::ExplorerPanel(EditorSelection& selection)
     : selection_(&selection), view_model_(std::make_shared<ExplorerViewModel>()) {
-    view_model_->refresh.bind_to<ExplorerPanel, &ExplorerPanel::rescan, &ExplorerPanel::can_rescan>(*this);
     view_model_->rootText = std::string(kNoProject);
 }
 
@@ -97,10 +96,6 @@ void ExplorerPanel::rescan() {
     view_model_->rootText = std::move(root);
     show_rows();
     publish_selection(false);
-}
-
-bool ExplorerPanel::can_rescan() const {
-    return !directory_.empty();
 }
 
 void ExplorerPanel::select(const std::string& key) {

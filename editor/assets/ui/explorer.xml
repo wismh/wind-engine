@@ -1,7 +1,6 @@
 <Canvas id="explorer">
   <Stack class="panel" direction="vertical">
     <Stack class="option-row" direction="horizontal">
-      <Button class="panel-button" command="{binding refresh}" content="Refresh"/>
       <Label class="hint" text="{binding rootText}"/>
     </Stack>
     <ScrollView id="tree" class="box tree fill">

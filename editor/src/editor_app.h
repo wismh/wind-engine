@@ -1,5 +1,6 @@
 #pragma once
 
+#include "asset_watch.h"
 #include "edit_module.h"
 #include "editor_cli.h"
 #include "editor_options.h"
@@ -82,6 +83,8 @@ private:
     std::optional<engine::SdkManifest> sdk_;
     // The open project, once read and checked against the SDK.
     std::filesystem::path project_dir_;
+    // `<project>/assets`: syncs before the project tab opens, then watches until the project closes.
+    AssetWatch assets_watch_;
     std::optional<engine::WindProject> project_;
     // What the build that runs, or ran last, makes, and for an Export where its output goes.
     BuildKind building_ = BuildKind::Module;

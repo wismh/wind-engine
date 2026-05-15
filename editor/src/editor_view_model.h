@@ -22,6 +22,7 @@ public:
     engine::ui::Bindable<bool> isMaximized{false};
 
     engine::ui::MethodCommand togglePlay;
+    engine::ui::MethodCommand refreshProject;
     engine::ui::MethodCommand exportGame;
 
     engine::ui::MethodCommand minimizeWindow;

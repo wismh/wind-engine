@@ -9,11 +9,16 @@
         android:required="true" />
 
     <application
+        android:enableOnBackInvokedCallback="true"
         android:extractNativeLibs="true"
         android:hardwareAccelerated="true"
         android:hasCode="true"
         android:icon="@mipmap/ic_launcher"
         android:label="${appName}">
+        <!-- Read by SDL before the video driver starts. "1" is KeyCode::AcBack; "0" finishes the activity. -->
+        <meta-data
+            android:name="SDL_ENV.SDL_ANDROID_TRAP_BACK_BUTTON"
+            android:value="1" />
         <activity
             android:name="org.libsdl.app.SDLActivity"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|navigation|touchscreen|locale"

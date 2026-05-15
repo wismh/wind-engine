@@ -165,6 +165,8 @@ A game supplies its own manifest additions (extra `<uses-permission>`, `<queries
 
 The template already asks for `INTERNET` (HTTP, [Net](../modules/Net.md)) and `VIBRATE` (haptics). From API 28 Android blocks cleartext `http://`; a game that talks to a plain-HTTP server sets `android:usesCleartextTraffic="true"` or a `networkSecurityConfig` on `<application>` in its overlay.
 
+The template `<application>` sets `android:enableOnBackInvokedCallback="true"` and `SDL_ENV.SDL_ANDROID_TRAP_BACK_BUTTON` to `1`. That is what delivers system Back as `KeyCode::AcBack` instead of finishing the activity ([Input Mapper](../features/Input%20Mapper.md#android-back)). A game overlay must not set the attribute to `false`.
+
 ABI in the template is `arm64-v8a`. `minSdk` is 21. `compileSdk` and `targetSdk` are 35.
 
 ## Web

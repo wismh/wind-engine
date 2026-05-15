@@ -128,13 +128,12 @@ TEST(ProjectScan, AMissingDirectoryIsEmpty) {
     EXPECT_EQ(scan.count, 0u);
 }
 
-TEST(ExplorerPanel, NoProjectShowsNothingAndCannotRefresh) {
+TEST(ExplorerPanel, NoProjectShowsNothing) {
     editor::EditorSelection selection;
     editor::ExplorerPanel panel{selection};
     const editor::ExplorerViewModel& vm = *panel.view_model();
     EXPECT_TRUE(vm.rows.get().empty());
     EXPECT_EQ(vm.rootText.get(), "No project open.");
-    EXPECT_FALSE(vm.refresh.can_execute());
 }
 
 TEST(ExplorerPanel, OpenShowsTheCollapsedRootsAndExpandsOnToggle) {
@@ -143,7 +142,6 @@ TEST(ExplorerPanel, OpenShowsTheCollapsedRootsAndExpandsOnToggle) {
     editor::ExplorerPanel panel{selection};
     panel.open(dir.root());
     editor::ExplorerViewModel& vm = *panel.view_model();
-    EXPECT_TRUE(vm.refresh.can_execute());
     EXPECT_EQ(labels(vm), (std::vector<std::string>{"assets", "src", "CMakeLists.txt", "wind_project.toml"}));
     EXPECT_TRUE(std::holds_alternative<std::monostate>(selection.target()));
     EXPECT_FALSE(row_of(vm, "assets")->expanded.get());
@@ -226,14 +224,14 @@ TEST(ExplorerPanel, RefreshKeepsExpansionAndSelectionThatStillExist) {
     panel.select("assets/ui/menu.xml");
 
     dir.write("assets/ui/hud.xml", "<Canvas/>");
-    vm.refresh.execute();
+    panel.rescan();
     EXPECT_EQ(labels(vm), (std::vector<std::string>{"assets", "  Images", "  ui", "    hud.xml", "    menu.xml",
                                   "src", "CMakeLists.txt", "wind_project.toml"}));
     EXPECT_EQ(panel.selected(), "assets/ui/menu.xml");
     EXPECT_EQ(asset_of(selection).key, "assets/ui/menu.xml");
 
     std::filesystem::remove(dir.root() / "assets/ui/menu.xml");
-    vm.refresh.execute();
+    panel.rescan();
     EXPECT_TRUE(panel.selected().empty()) << "the selected file is gone";
     EXPECT_TRUE(std::holds_alternative<std::monostate>(selection.target()));
     EXPECT_TRUE(row_of(vm, "assets/ui")->expanded.get());
@@ -278,5 +276,4 @@ TEST(ExplorerPanel, OpenAgainStartsCollapsedAndCloseClears) {
     EXPECT_TRUE(std::holds_alternative<std::monostate>(selection.target()));
     EXPECT_TRUE(vm.rows.get().empty());
     EXPECT_EQ(vm.rootText.get(), "No project open.");
-    EXPECT_FALSE(vm.refresh.can_execute());
 }
