@@ -5,8 +5,8 @@
 #include <glm/vec2.hpp>
 
 #include <algorithm>
-#include <charconv>
 #include <cmath>
+#include <cstdlib>
 #include <cstdint>
 #include <cctype>
 #include <optional>
@@ -134,9 +134,11 @@ struct Numbers {
             ok = false;
             return 0.0f;
         }
-        float value = 0.0f;
-        const auto result = std::from_chars(text.data() + begin, text.data() + i, value);
-        if (result.ec != std::errc{}) {
+        // strtod, not from_chars: Apple's libc++ has no floating-point from_chars before Xcode 16.3.
+        const std::string token(text.substr(begin, i - begin));
+        char *end = nullptr;
+        const float value = static_cast<float>(std::strtod(token.c_str(), &end));
+        if (end != token.c_str() + token.size()) {
             ok = false;
             return 0.0f;
         }
