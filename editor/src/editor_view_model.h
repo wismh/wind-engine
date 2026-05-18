@@ -25,6 +25,14 @@ public:
     engine::ui::MethodCommand refreshProject;
     engine::ui::MethodCommand exportGame;
 
+    engine::ui::MethodCommand showProject;
+    engine::ui::MethodCommand showHierarchy;
+    engine::ui::MethodCommand showWorld;
+    engine::ui::MethodCommand showUiTree;
+    engine::ui::MethodCommand showInspector;
+    engine::ui::MethodCommand showProfiler;
+    engine::ui::MethodCommand showBuild;
+
     engine::ui::MethodCommand minimizeWindow;
     engine::ui::MethodCommand maximizeWindow;
     engine::ui::MethodCommand closeWindow;
