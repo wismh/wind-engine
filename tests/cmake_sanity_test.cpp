@@ -519,6 +519,10 @@ TEST(Scaffold, EditorSdkIsAFindPackageConfig) {
     EXPECT_NE(game.find("CMAKE_${_lang}_FLAGS_DEBUGGAME"), std::string::npos);
     EXPECT_NE(game.find("MSVC_RUNTIME_LIBRARY MultiThreadedDLL"), std::string::npos);
     EXPECT_EQ(game.find("MultiThreadedDebugDLL CACHE"), std::string::npos);
+
+    // A game module records its path per configuration for the editor that builds and loads it.
+    EXPECT_NE(game.find("\"${CMAKE_BINARY_DIR}/wind/${target}.$<CONFIG>.module\" CONTENT \"$<TARGET_FILE:${target}>\""),
+            std::string::npos);
 #else
     GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
 #endif

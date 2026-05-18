@@ -1013,3 +1013,49 @@ TEST(UiItemsControlVirtualization, WrappedFallbackWithoutFixedPxRowHeightGenerat
     ASSERT_NE(items, nullptr);
     EXPECT_EQ(items->generated_items.size(), kCount);
 }
+
+namespace {
+
+class ScrolledListVm final : public engine::ui::ViewModel {
+public:
+    engine::ui::BindableList<std::shared_ptr<RowVm>> items;
+    engine::ui::Bindable<float> scroll;
+
+    ScrolledListVm() {
+        property(engine::ui::intern("items"), items);
+        property(engine::ui::intern("scroll"), scroll);
+    }
+};
+
+}
+
+// A view-model that asks for "the end" with a bound scroll past it (the editor's build log) gets the last rows, not
+// an empty window: the bound value is clamped to the extent before virtualization reads it.
+TEST(UiItemsControlVirtualization, BoundScrollPastTheEndShowsTheLastRows) {
+    constexpr std::size_t kCount = 500;
+    ScrolledListVm vm;
+    std::vector<std::shared_ptr<RowVm>> rows = make_rows(kCount);
+    vm.items.set(rows);
+    vm.scroll = 1.0e9f;
+
+    constexpr char kXml[] = R"(
+        <Canvas>
+          <ItemsControl class="list" items_source="{binding items}" scroll-y="{binding scroll}">
+            <ItemTemplate><Canvas class="row"/></ItemTemplate>
+          </ItemsControl>
+        </Canvas>
+    )";
+    auto parsed = engine::ui::parse_xml(kXml, nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(kEligibleCss);
+    for (int frame = 0; frame < 3; ++frame) {
+        run_frame(*parsed, vm, sheet);
+    }
+    const engine::ui::Element* items = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::ItemsControl);
+    ASSERT_NE(items, nullptr);
+    EXPECT_FLOAT_EQ(items->scroll_y, items->max_scroll_y);
+    const std::vector<const engine::ui::Element*> window = real_items(*items);
+    ASSERT_FALSE(window.empty());
+    EXPECT_EQ(window.back()->generated_owner, rows.back().get());
+    EXPECT_FLOAT_EQ(vm.scroll.get(), 1.0e9f) << "the view-model keeps its value";
+}
