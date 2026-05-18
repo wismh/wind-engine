@@ -184,6 +184,54 @@ public:
             sizes[window] = value;
         }
     }
+    void minimize(engine::WindowId window) override {
+        if (is_open(window)) {
+            minimized[window] = true;
+            maximized[window] = false;
+            note("windows.minimize " + std::to_string(static_cast<std::uint32_t>(window)));
+        }
+    }
+    void maximize(engine::WindowId window) override {
+        if (is_open(window)) {
+            maximized[window] = true;
+            minimized[window] = false;
+            note("windows.maximize " + std::to_string(static_cast<std::uint32_t>(window)));
+        }
+    }
+    void restore(engine::WindowId window) override {
+        if (is_open(window)) {
+            minimized[window] = false;
+            maximized[window] = false;
+            note("windows.restore " + std::to_string(static_cast<std::uint32_t>(window)));
+        }
+    }
+    bool is_maximized(engine::WindowId window) const override {
+        const auto it = maximized.find(window);
+        return is_open(window) && it != maximized.end() && it->second;
+    }
+    bool is_minimized(engine::WindowId window) const override {
+        const auto it = minimized.find(window);
+        return is_open(window) && it != minimized.end() && it->second;
+    }
+    void show(engine::WindowId window) override {
+        if (is_open(window)) {
+            visible[window] = true;
+            note("windows.show " + std::to_string(static_cast<std::uint32_t>(window)));
+        }
+    }
+    void hide(engine::WindowId window) override {
+        if (is_open(window)) {
+            visible[window] = false;
+            note("windows.hide " + std::to_string(static_cast<std::uint32_t>(window)));
+        }
+    }
+    bool is_visible(engine::WindowId window) const override {
+        const auto it = visible.find(window);
+        if (!is_open(window)) {
+            return false;
+        }
+        return it == visible.end() || it->second;
+    }
     std::optional<glm::ivec2> position(engine::WindowId window) const override {
         const auto it = positions.find(window);
         if (!is_open(window) || it == positions.end()) {
@@ -315,6 +363,9 @@ public:
     glm::ivec2 primary_size{0, 0};
     bool borderless = false;
     bool always_on_top = false;
+    std::unordered_map<engine::WindowId, bool> minimized;
+    std::unordered_map<engine::WindowId, bool> maximized;
+    std::unordered_map<engine::WindowId, bool> visible;
     engine::OverlayMode overlay = engine::OverlayMode::Auto;
     bool vsync_enabled = true;
     int max_frames_per_second = 0;

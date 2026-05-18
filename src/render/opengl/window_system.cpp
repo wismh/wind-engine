@@ -246,6 +246,48 @@ void WindowSystem::resize(glm::ivec2 size) {
     }
 }
 
+void WindowSystem::minimize() {
+    if (window_ != nullptr) {
+        SDL_MinimizeWindow(window_);
+    }
+}
+
+void WindowSystem::maximize() {
+    if (window_ != nullptr) {
+        SDL_MaximizeWindow(window_);
+    }
+}
+
+void WindowSystem::restore() {
+    if (window_ != nullptr) {
+        SDL_RestoreWindow(window_);
+    }
+}
+
+bool WindowSystem::is_maximized() const {
+    return window_ != nullptr && (SDL_GetWindowFlags(window_) & SDL_WINDOW_MAXIMIZED) != 0;
+}
+
+bool WindowSystem::is_minimized() const {
+    return window_ != nullptr && (SDL_GetWindowFlags(window_) & SDL_WINDOW_MINIMIZED) != 0;
+}
+
+void WindowSystem::show() {
+    if (window_ != nullptr) {
+        SDL_ShowWindow(window_);
+    }
+}
+
+void WindowSystem::hide() {
+    if (window_ != nullptr) {
+        SDL_HideWindow(window_);
+    }
+}
+
+bool WindowSystem::is_visible() const {
+    return window_ != nullptr && (SDL_GetWindowFlags(window_) & SDL_WINDOW_HIDDEN) == 0;
+}
+
 void WindowSystem::start_text_input() {
     if (window_ == nullptr) {
         return;
