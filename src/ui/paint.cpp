@@ -87,6 +87,16 @@ namespace engine::ui {
                     return "Popup";
                 case ElementKind::Slider:
                     return "Slider";
+                case ElementKind::MenuBar:
+                    return "MenuBar";
+                case ElementKind::Menu:
+                    return "Menu";
+                case ElementKind::MenuItem:
+                    return "MenuItem";
+                case ElementKind::MenuSeparator:
+                    return "MenuSeparator";
+                case ElementKind::ContextMenu:
+                    return "ContextMenu";
             }
             return "";
         }
@@ -1575,6 +1585,7 @@ namespace engine::ui {
                 case ElementKind::TextInput:
                 case ElementKind::Viewport:
                 case ElementKind::Popup:
+                case ElementKind::ContextMenu:
                     return true;
                 default:
                     break;
@@ -1588,7 +1599,8 @@ namespace engine::ui {
                 return true;
             }
             render::Rect box = element.layout_rect;
-            if ((element.kind == ElementKind::Label || element.kind == ElementKind::Button) && !element.text.empty()) {
+            if ((element.kind == ElementKind::Label || element.kind == ElementKind::Button ||
+                 element.kind == ElementKind::Menu || element.kind == ElementKind::MenuItem) && !element.text.empty()) {
                 if (!element.text_measure_cache_valid || text_has_inline_markup(element.text)) {
                     return true;
                 }
@@ -1619,7 +1631,7 @@ namespace engine::ui {
 
         // A camera skips a child (with its subtree) that lies wholly outside the visible part of the world.
         bool outside_view(const Element &child, const render::Rect &visible) {
-            return child.kind != ElementKind::Popup && !child.display_none && !may_reach(child, visible);
+            return !is_popup_kind(child.kind) && !child.display_none && !may_reach(child, visible);
         }
 
         // How many elements below an element the scissor check looks at before it gives up and keeps the scissor.
@@ -1669,6 +1681,7 @@ namespace engine::ui {
                 case ElementKind::Viewport:
                 case ElementKind::ScrollView:
                 case ElementKind::Popup:
+                case ElementKind::ContextMenu:
                     return false;
                 default:
                     break;
@@ -1679,7 +1692,8 @@ namespace engine::ui {
             }
             constexpr float kEpsilon = 0.01f;
             const render::Rect &box = element.layout_rect;
-            if ((element.kind == ElementKind::Label || element.kind == ElementKind::Button) && !element.text.empty()) {
+            if ((element.kind == ElementKind::Label || element.kind == ElementKind::Button ||
+                 element.kind == ElementKind::Menu || element.kind == ElementKind::MenuItem) && !element.text.empty()) {
                 if (text_has_inline_markup(element.text)) {
                     return false;
                 }
@@ -1712,7 +1726,7 @@ namespace engine::ui {
             }
             int budget = kEscapeBudget;
             for (const Element &child: child_list) {
-                if (child.kind == ElementKind::ItemTemplate || child.kind == ElementKind::Popup || child.display_none ||
+                if (child.kind == ElementKind::ItemTemplate || is_popup_kind(child.kind) || child.display_none ||
                     !child.visible) {
                     continue;
                 }
@@ -1747,7 +1761,7 @@ namespace engine::ui {
                               std::vector<const Element *> &ancestors, glm::vec2 parent_content,
                               const UiPaintInput &input) {
             for (Element &child: children) {
-                if (child.kind == ElementKind::ItemTemplate || child.kind == ElementKind::Popup ||
+                if (child.kind == ElementKind::ItemTemplate || is_popup_kind(child.kind) ||
                     ((child.dirty_self | child.dirty_below) & kPaintMarks) == 0) {
                     continue;
                 }
@@ -1926,7 +1940,8 @@ namespace engine::ui {
                 }
 
                 if (element.kind == ElementKind::Label || element.kind == ElementKind::Button ||
-                    element.kind == ElementKind::TextInput) {
+                    element.kind == ElementKind::TextInput || element.kind == ElementKind::Menu ||
+                    element.kind == ElementKind::MenuItem) {
                     painter.set_font(style.font_family, font_size * input.ui_scale);
                     const render::Rect content{
                             screen_rect.x + padding.left * input.ui_scale,
@@ -1951,7 +1966,8 @@ namespace engine::ui {
                         y = content.y + content.h;
                     }
                     const TextBlock *rows = nullptr;
-                    if (!inline_math && (element.kind == ElementKind::Label || element.kind == ElementKind::Button) &&
+                    if (!inline_math && (element.kind == ElementKind::Label || element.kind == ElementKind::Button ||
+                                         element.kind == ElementKind::Menu || element.kind == ElementKind::MenuItem) &&
                         !element.text.empty()) {
                         const float content_width =
                                 std::max(0.0f, element.layout_rect.w - padding.left - padding.right);
@@ -1988,6 +2004,12 @@ namespace engine::ui {
                         }
                     } else if (!inline_math && !element.text.empty()) {
                         painter.fill_text(element.text, glm::vec2{x, y}, style.color, style.text_align,
+                                          style.align_items);
+                    }
+                    if (element.kind == ElementKind::MenuItem && !element.shortcut.empty()) {
+                        const float sc_x = content.x + content.w;
+                        const glm::vec4 sc_color{style.color.r, style.color.g, style.color.b, style.color.a * 0.65f};
+                        painter.fill_text(element.shortcut, glm::vec2{sc_x, y}, sc_color, UiAlign::End,
                                           style.align_items);
                     }
                     if (element.kind == ElementKind::TextInput) {
@@ -2140,7 +2162,7 @@ namespace engine::ui {
                 element.culled_children = 0;
                 const float kids_opacity = boundary ? kUnknownOpacity : child_state_opacity;
                 for (Element *child: child_stacking_order(child_list)) {
-                    if (child->kind == ElementKind::Popup) {
+                    if (is_popup_kind(child->kind)) {
                         continue;
                     }
                     if (child_cull != nullptr && outside_view(*child, *child_cull)) {
