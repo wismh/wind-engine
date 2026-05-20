@@ -1,6 +1,6 @@
 # Editor plan
 
-This is a plan. It is not a description of the engine as it runs today. wind-167 to wind-173 and wind-176 are done: `wind_editor` loads, plays, inspects, profiles, and stops a game module ([Editor](../features/Editor.md), [UI Inspector](../features/UI%20Inspector.md), [UI Profiler](../features/UI%20Profiler.md)).
+This is a plan. It is not a description of the engine as it runs today. wind-167 to wind-173 and wind-176 to wind-178 are done: `wind_editor` loads, plays, inspects, profiles, and stops a game module ([Editor](../features/Editor.md), [UI Inspector](../features/UI%20Inspector.md), [UI Profiler](../features/UI%20Profiler.md)).
 
 ## Goal
 
@@ -185,6 +185,8 @@ The editor and the launcher are engine clients and include only `<engine/...>`, 
 2. Play: configure `<dir>/build-editor` when it has no cache (`-DCMAKE_PREFIX_PATH=<own sdk>`, `-DCMAKE_CONFIGURATION_TYPES=DebugGame;Release`), then `cmake --build ... --config DebugGame --target <target>`, both through `ProcessCall`. The frame keeps running; the Build panel shows the output (`VSLANG=1033`, so MSBuild writes English). A failed build does not start the game.
 3. The module path comes from the CMake File API (codemodel), not a guessed `bin/<config>/` path. Then Play continues as today.
 
+As built (wind-178): the configure also passes `-DWind_DIR=<sdk>/cmake`, and runs when the cache's `Wind_DIR` is not this SDK (a cache from another SDK too). The module path is a record `engine_add_game` writes with `file(GENERATE)` (`<build>/wind/<target>.<config>.module`), not the File API: the engine has no JSON reader, and the record is exact. `wind_project.toml` and `sdk.toml` are read by the engine's [Project](../modules/Project.md) module, which the launcher will share. A bound `scroll-y` is now clamped before ItemsControl virtualization, so the Build log can ask for its end. See [Editor](../features/Editor.md#build).
+
 Building while the game plays is allowed: the editor runs a copy from `live/<n>/`.
 
 ### Launcher
@@ -201,7 +203,7 @@ Building while the game plays is allowed: the editor runs a copy from `live/<n>/
 | --- | --- |
 | wind-176 | Engine version, `sdk.toml`, `WindConfig.cmake` and `find_package(Wind)`, GoogleTest and the engine source in the SDK, `WIND_EDITOR_SDK` removed. Verified with a smoke game against an installed SDK: module and tests in `DebugGame` and `Release`, Play in the SDK's editor, `find_package(Wind 0.2.0)` refused, and a static executable with `add_subdirectory(<sdk>/source)`. Done |
 | wind-177 | `ProcessCall` in the engine (Windows) and tests. As built: `IProcessLauncher` in `EngineServices::processes`, polled after HTTP; a job object per child, so cancel and the child's exit end everything it started ([Process](../modules/Process.md)). Done |
-| wind-178 | `wind_project.toml`, `wind_editor --project`, configure and build on Play, Build panel |
+| wind-178 | `wind_project.toml`, `wind_editor --project`, configure and build on Play, Build panel. Done |
 | wind-179 | `wind_launcher`: projects, SDKs, Open |
 
 Game repos drop the `external/engine` submodule for `find_package(Wind)` in their own change, after wind-176.

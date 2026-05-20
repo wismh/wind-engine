@@ -56,7 +56,15 @@ engine_add_game(my_game
 
 `engine_add_game` configures C++23, triggers asset compilation (`asset_codegen`), and builds your game as a module (`my_game.dll`) that the editor loads on Play, with its cooked assets beside it.
 
-Add `CMakePresets.json` (committed) and `CMakeUserPresets.json` (not committed: the SDK path is per machine):
+Add `wind_project.toml` beside it. It makes the directory a project the editor opens, and names the engine version and the target to play:
+
+```toml
+name = "My First Wind Game"
+engine = "0.1.0"   # the version in your SDK's sdk.toml
+target = "my_game"
+```
+
+For building by hand in an IDE, also add `CMakePresets.json` (committed) and `CMakeUserPresets.json` (not committed: the SDK path is per machine). The editor does not need them:
 
 ```json
 {
@@ -170,15 +178,13 @@ ENGINE_GAME(game::MyGame)
 
 ## 5. Build and Run
 
-Configure and build your game, then play it in the editor:
+Open the project in the editor and play it (CMake must be on `PATH`):
 
 ```bash
-cmake --preset editor-local
-cmake --build build-editor --config DebugGame --target my_game
-C:/path/to/wind-engine/out/sdk/bin/wind_editor.exe --game build-editor/bin/DebugGame/my_game.dll --play
+C:/path/to/wind-engine/out/sdk/bin/wind_editor.exe --project . --play
 ```
 
-`DebugGame` is your code unoptimized with symbols; `Release` is optimized. The editor opens the game window titled "My First Wind Game" next to its own window. Stop unloads the game, so you can rebuild and press Play again.
+Play builds your game (`DebugGame`: your code unoptimized with symbols) and loads it; the Build tab shows the output and the first error. The editor opens the game window titled "My First Wind Game" next to its own window. Stop unloads the game, so you can edit the code and press Play again.
 
 ---
 

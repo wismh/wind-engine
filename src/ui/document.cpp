@@ -852,14 +852,18 @@ namespace engine::ui {
                     element.zoom = *value > 0.0f ? std::clamp(*value, kViewportMinZoom, kViewportMaxZoom) : 1.0f;
                 }
             }
+            // Clamped to the extent the last layout found, as layout clamps it again: ItemsControl virtualization
+            // reads scroll_y before this frame's layout, and a view-model that asks for "the end" with a value past
+            // it would otherwise generate a window of rows past the last one. The view-model keeps its value, so a
+            // list that grew is clamped to its new extent on the next frame.
             if (is_bound(element.scroll_x_binding)) {
                 if (auto value = vm.read_property_float(element.scroll_x_binding)) {
-                    element.scroll_x = *value;
+                    element.scroll_x = std::clamp(*value, 0.0f, element.max_scroll_x);
                 }
             }
             if (is_bound(element.scroll_y_binding)) {
                 if (auto value = vm.read_property_float(element.scroll_y_binding)) {
-                    element.scroll_y = *value;
+                    element.scroll_y = std::clamp(*value, 0.0f, element.max_scroll_y);
                 }
             }
             if (is_bound(element.checked_binding)) {

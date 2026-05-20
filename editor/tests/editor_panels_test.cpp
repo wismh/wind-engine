@@ -16,7 +16,7 @@ namespace {
 
 constexpr engine::WindowId kEditorWindow{1};
 
-// The editor world in these tests holds only the two panel canvases, in spawn order.
+// The editor world in these tests holds only the panel canvases, in spawn order: Inspector, Profiler, Build.
 std::vector<engine::ui::UiCanvas*> panel_canvases(engine::ecs::World& world) {
     std::vector<engine::ui::UiCanvas*> out;
     auto view = world.view<engine::ui::UiCanvas>();
@@ -45,9 +45,15 @@ TEST(EditorTabs, InspectorFirstThenTheTabCommandsSwitch) {
     EXPECT_FALSE(vm.inspectorTab.get());
     EXPECT_TRUE(vm.profilerTab.get());
 
+    vm.showBuild.execute();
+    EXPECT_EQ(toolbar.active_tab(), editor::EditorTab::Build);
+    EXPECT_FALSE(vm.profilerTab.get());
+    EXPECT_TRUE(vm.buildTab.get());
+
     vm.showInspector.execute();
     EXPECT_EQ(toolbar.active_tab(), editor::EditorTab::Inspector);
     EXPECT_TRUE(vm.inspectorTab.get());
+    EXPECT_FALSE(vm.buildTab.get());
     EXPECT_EQ(toolbar.take_request(), editor::EditorRequest::None) << "a tab is not a Play/Stop request";
 }
 
@@ -60,7 +66,7 @@ TEST(EditorPanels, OnlyTheActiveTabHasARect) {
     panels.frame(world);
 
     const std::vector<engine::ui::UiCanvas*> canvases = panel_canvases(world);
-    ASSERT_EQ(canvases.size(), 2u);
+    ASSERT_EQ(canvases.size(), 3u);
     const engine::render::Rect shown{0.0f, editor::EditorPanels::kPanelTop, 1280.0f, 800.0f - 88.0f};
     for (const engine::ui::UiCanvas* canvas : canvases) {
         EXPECT_EQ(canvas->fit, engine::ui::UiFit::Fixed);
@@ -68,11 +74,18 @@ TEST(EditorPanels, OnlyTheActiveTabHasARect) {
     }
     EXPECT_TRUE(same_rect(canvases[0]->rect, shown));
     EXPECT_TRUE(same_rect(canvases[1]->rect, engine::render::Rect{}));
+    EXPECT_TRUE(same_rect(canvases[2]->rect, engine::render::Rect{}));
 
     toolbar.view_model()->showProfiler.execute();
     panels.frame(world);
     EXPECT_TRUE(same_rect(canvases[0]->rect, engine::render::Rect{}));
     EXPECT_TRUE(same_rect(canvases[1]->rect, shown));
+    EXPECT_TRUE(same_rect(canvases[2]->rect, engine::render::Rect{}));
+
+    toolbar.view_model()->showBuild.execute();
+    panels.frame(world);
+    EXPECT_TRUE(same_rect(canvases[1]->rect, engine::render::Rect{}));
+    EXPECT_TRUE(same_rect(canvases[2]->rect, shown));
 }
 
 TEST(EditorPanels, AttachAndDetachBothProbes) {

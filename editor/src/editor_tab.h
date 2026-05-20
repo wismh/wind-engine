@@ -6,6 +6,7 @@ namespace editor {
 enum class EditorTab {
     Inspector,
     Profiler,
+    Build,
 };
 
 }

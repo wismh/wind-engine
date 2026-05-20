@@ -31,9 +31,9 @@ cmake --install build-editor --config Release --prefix out/sdk
 A game builds its module against the SDK: its `CMakeLists.txt` calls `find_package(Wind REQUIRED)`, and it is configured with `-DCMAKE_PREFIX_PATH=<absolute path to out/sdk>` and `-DCMAKE_CONFIGURATION_TYPES=DebugGame;Release`, usually from its `editor` preset and `CMakeUserPresets.json` (see [Game Consumer](docs/tech/build/Game%20Consumer.md#editor-module)). That configure compiles no engine and gives `bin/<config>/<game>.dll` with its `assets/`. `DebugGame` is game code at `/Od` with symbols and the release CRT (`/MD`), so it loads into the Release editor; a module with the debug CRT does not compile. `ENGINE_EDITOR=ON` in a game tree is a configure error. The editor refuses a module built against another build id:
 
 ```bash
-out/sdk/bin/wind_editor.exe                              # opens a file dialog: pick the game .dll
-out/sdk/bin/wind_editor.exe --game path/to/my_game.dll   # no dialog
-out/sdk/bin/wind_editor.exe --game path/to/my_game.dll --play
+out/sdk/bin/wind_editor.exe                                # opens a file dialog: pick the project's wind_project.toml
+out/sdk/bin/wind_editor.exe --project path/to/my_game      # no dialog
+out/sdk/bin/wind_editor.exe --project path/to/my_game --play  # build, then play
 ```
 
 Play loads a copy of the module and runs the game in the "Game" window. Stop unloads it, so the game can be rebuilt while the editor stays open. See [Editor](docs/tech/features/Editor.md).
