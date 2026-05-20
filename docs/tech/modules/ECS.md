@@ -123,7 +123,7 @@ Replicate `Transform` and `Parent` only. `WorldTransform` and `Children` are der
 
 ## Physics
 
-The physics is 2D: `include/engine/ecs/physics_2d.h`. Its components, event and system carry a `2D` suffix (`RigidBody2D`, `BoxCollider2D`, `CircleCollider2D`, `CollisionEvent2D`, `run_physics_2d`) so a 3D physics can add its own types without a clash. `CollisionPhase` (`Enter`, `Stay`, `Exit`) has no dimension and keeps its name for both. `render::ParticleCollider2D` is the XY-only copy of these colliders that `run_particles` hands to `update_emitter`.
+The physics is 2D: `include/engine/ecs/physics_2d.h`. Its components, event and system carry a `2D` suffix (`RigidBody2D`, `BoxCollider2D`, `CircleCollider2D`, `CollisionEvent2D`, `run_physics_2d`) so a 3D physics can add its own types without a clash. `CollisionPhase` (`Enter`, `Stay`, `Exit`) has no dimension and keeps its name for both. `render::ParticleCollider2D` is the XY-only copy of these colliders that `run_particles` hands to `update_emitter`. `EngineSystemDeps::jobs`, when set, is the pool that integration forks on; a null pool integrates on the caller. See [Jobs](Core.md#jobs).
 
 `run_physics_2d` is the Fixed / Physics system.
 

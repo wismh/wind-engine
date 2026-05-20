@@ -17,6 +17,10 @@
 #include <span>
 #include <vector>
 
+namespace engine {
+class JobSystem;
+}
+
 namespace engine::render {
 
 struct ParticleCollider2D {
@@ -156,10 +160,13 @@ struct ParticleEmitter {
     }
 };
 
+// `jobs` null integrates on the caller. Spawn stays on the caller either way. Dead particles are dropped
+// after the integrate joins, and the survivors keep their order.
 void update_emitter(
         ParticleEmitter& emitter,
         float dt,
         const glm::mat4& transform = glm::mat4{1.0f},
-        std::span<const ParticleCollider2D> colliders = {});
+        std::span<const ParticleCollider2D> colliders = {},
+        JobSystem* jobs = nullptr);
 
 }
