@@ -20,7 +20,7 @@ Asset mode writes only:
 - `<output_dir>/asset_ids.h`
 - `<output_dir>/catalog.toml`
 
-`--components` scans C++ headers and sources under the given directories for `struct WIND_COMPONENT` definitions and writes `<output_file>` (`component_io.h`).
+`--components` scans C++ headers under the given directories for `struct WIND_COMPONENT` and `struct WIND_SERIALIZABLE` definitions and writes `<output_file>` (`component_io.h`).
 
 It does not write `.meta`.
 
@@ -30,13 +30,14 @@ It does not write `.meta`.
 | --- | --- |
 | `MissingMeta` | a known asset file has no sidecar |
 | `InvalidGuid` | the sidecar GUID is not 32 lowercase hex |
-| `Collision` | two files share a GUID, a game GUID is in the reserved set, two `{binding}` paths hash equal, or two `WIND_COMPONENT` structs map to the same snake_case key |
+| `Collision` | two files share a GUID, a game GUID is in the reserved set, two `{binding}` paths hash equal, two `WIND_COMPONENT` structs map to the same snake_case key, or two `WIND_SERIALIZABLE` structs map to the same key |
 | `InvalidMeta` | TOML or importer fields failed |
 | `Io` | the tree or an output file could not be read or written |
 | `UiMarkup` | a UI document failed the bind scan |
 | `Strings` | a `.strings` file failed to parse, the tree has any string table but not exactly one `source = true`, a document uses `{tr}` and there is no source table, or a `{tr}` key is absent from that source table |
 | `World` | a `.world` file failed TOML parsing or structural validation (`version`, duplicate entity IDs, missing parent, hierarchy cycle, missing `active_camera`) |
-| `ComponentCodegen` | a `struct WIND_COMPONENT` declaration is malformed (e.g. unclosed brace) |
+| `ComponentCodegen` | a `struct WIND_COMPONENT` or `struct WIND_SERIALIZABLE` declaration is malformed (unclosed brace, both markers on one struct, or a serializable field named `type`) |
+| `Object` | an `importer = "object"` file is not a TOML table, or that table has no non-empty string `type` |
 
 CMake runs this for `builtin_assets/` (`--engine`) and for each `engine_add_game` target (both `assets/` when present and `--components` into `generated/<target>/component_io.h`). See [Pipeline](Pipeline.md).
 
@@ -61,7 +62,11 @@ The game writes the `ViewModel` and the `Bindable` fields. Codegen does not.
 
 `include/engine/resources/component_codegen.h`, `src/resources/component_codegen.cpp`.
 
-Game structs marked with `WIND_COMPONENT` (`include/engine/ecs/world_io.h`) are scanned for non-static data member identifiers. `emit_component_io_header` writes `component_io.h` with `assets::register_game_components(engine::ecs::WorldSerializer&)`, registering each `PascalCase` struct under its `snake_case` TOML table key and emitting `out.field("name", c.name)` / `(void)in.field("name", c.name)` calls per field.
+Game structs marked with `WIND_COMPONENT` or `WIND_SERIALIZABLE` (`include/engine/ecs/world_io.h`) are scanned for non-static data member identifiers. `emit_component_io_header` writes `component_io.h`.
+
+`assets::register_game_components(engine::ecs::WorldSerializer&)` registers each `WIND_COMPONENT` under its `snake_case` TOML table key (`WIND_COMPONENT("custom")` overrides the key) and emits `out.field("name", c.name)` / `(void)in.field("name", c.name)` calls per field.
+
+`WIND_SERIALIZABLE` is a value, not a component. The header emits `write_fields` / `read_fields` and ADL `encode_wind` / `decode_wind` in the struct's namespace, so a component field of that type becomes a nested table (and `std::vector` of them an array of tables) with no `type` key. The same header's `assets::register_game_objects(engine::AssetsDb&)` registers each struct under its key. A `.object` file with `type = "<key>"` and the struct's fields loads through `AssetsDb::get<T>`. A component key and a serializable key may be the same string. A serializable field named `type` is a codegen error, because that key is the asset file's type tag. One struct does not carry both markers.
 
 ## `asset_guid`
 

@@ -62,6 +62,7 @@ It writes a `.meta` (a fresh GUID and the default importer for the extension) fo
 | `material` | `.mat` | `render::IMaterial` |
 | `animation` | `.anim` | `render::SpriteAnimationClip` |
 | `font` | `.ttf` | `Font` (the file bytes) |
+| `object` | `.object` | a `WIND_SERIALIZABLE` struct. The file is a TOML table with a string `type` plus the struct's fields. See [Loading Assets](Loading-Assets.md#4-serializable-objects) |
 
 The audio build decodes WAV only. Asking `get<T>` for the wrong `T` is `AssetError::TypeMismatch`.
 
