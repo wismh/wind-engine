@@ -107,6 +107,21 @@ std::optional<ElementKind> kind_from_tag(const char* name) {
     if (tag == "Popup") {
         return ElementKind::Popup;
     }
+    if (tag == "MenuBar") {
+        return ElementKind::MenuBar;
+    }
+    if (tag == "Menu") {
+        return ElementKind::Menu;
+    }
+    if (tag == "MenuItem") {
+        return ElementKind::MenuItem;
+    }
+    if (tag == "MenuSeparator") {
+        return ElementKind::MenuSeparator;
+    }
+    if (tag == "ContextMenu") {
+        return ElementKind::ContextMenu;
+    }
     return std::nullopt;
 }
 
@@ -301,7 +316,7 @@ std::optional<PopupPlacement> parse_placement(std::string_view value) {
 // `open` and `placement` belong to a Popup and are ignored on any other element, like any unknown attribute.
 std::expected<void, UiError> assign_popup_attributes(
         Element& element, const tinyxml2::XMLElement* xml, IFatalError* fatal, const ViewModel* vm, bool in_template) {
-    if (element.kind != ElementKind::Popup) {
+    if (!is_popup_kind(element.kind)) {
         return {};
     }
     if (auto result = assign_flag_attribute(
@@ -436,6 +451,9 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
     }
 
     if (packs_children(element.kind)) {
+        if (element.kind == ElementKind::MenuBar) {
+            element.direction = StackDirection::Horizontal;
+        }
         if (element.kind == ElementKind::ScrollView) {
             element.overflow_y = Overflow::Auto;
             element.direction = StackDirection::Vertical;
@@ -568,6 +586,12 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
         return std::unexpected(result.error());
     }
 
+    if (element.kind == ElementKind::MenuItem) {
+        if (const char* shortcut = xml->Attribute("shortcut")) {
+            element.shortcut = shortcut;
+        }
+    }
+
     if (element.kind == ElementKind::Slider) {
         // `value` is the drag binding: the slider writes its value there and reads it back to place the handle. The
         // parts are generated, so XML children of a Slider are ignored.
@@ -633,6 +657,34 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
     }
 
     const bool nested_template = in_template || element.kind == ElementKind::ItemTemplate;
+    if (element.kind == ElementKind::Menu) {
+        const bool has_explicit_popup = xml->FirstChildElement() != nullptr &&
+                                        kind_from_tag(xml->FirstChildElement()->Name()) == ElementKind::Popup;
+        if (!has_explicit_popup) {
+            Element popup;
+            popup.kind = ElementKind::Popup;
+            popup.classes.push_back("menu-popup");
+            popup.open = false;
+            popup.placement = PopupPlacement::BottomStart;
+            for (const tinyxml2::XMLElement* child = xml->FirstChildElement(); child != nullptr;
+                    child = child->NextSiblingElement()) {
+                auto parsed = parse_element(child, fatal, vm, nested_template, resolve_include, include_stack);
+                if (!parsed) {
+                    return std::unexpected(parsed.error());
+                }
+                if (parsed->kind == ElementKind::Menu) {
+                    for (Element &sub_popup : parsed->children) {
+                        if (is_popup_kind(sub_popup.kind)) {
+                            sub_popup.placement = PopupPlacement::RightStart;
+                        }
+                    }
+                }
+                popup.children.push_back(std::move(*parsed));
+            }
+            element.children.push_back(std::move(popup));
+            return element;
+        }
+    }
     for (const tinyxml2::XMLElement* child = xml->FirstChildElement(); child != nullptr;
             child = child->NextSiblingElement()) {
         auto parsed = parse_element(child, fatal, vm, nested_template, resolve_include, include_stack);

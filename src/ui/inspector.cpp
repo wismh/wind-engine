@@ -50,6 +50,16 @@ namespace engine::ui {
                     return "Popup";
                 case ElementKind::Slider:
                     return "Slider";
+                case ElementKind::MenuBar:
+                    return "MenuBar";
+                case ElementKind::Menu:
+                    return "Menu";
+                case ElementKind::MenuItem:
+                    return "MenuItem";
+                case ElementKind::MenuSeparator:
+                    return "MenuSeparator";
+                case ElementKind::ContextMenu:
+                    return "ContextMenu";
             }
             return "Element";
         }

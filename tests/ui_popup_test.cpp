@@ -798,3 +798,167 @@ TEST(UiPopup, ScrollbarDragInsideAPopupMovesByThePointerDelta) {
     EXPECT_FLOAT_EQ(find_id(root_of(world, canvas), "menu")->scroll_y, 15.0f);
     engine::ui::end_drag(world);
 }
+
+TEST(UiMenu, MenuBarXmlParsesAndLaysOut) {
+    MenuViewModel vm;
+    auto doc = engine::ui::parse_xml(R"(
+        <Canvas>
+          <MenuBar id="bar">
+            <Menu id="file_menu" text="File">
+              <MenuItem id="new_item" text="New" shortcut="Ctrl+N" command="{binding rename}"/>
+              <MenuSeparator id="sep"/>
+              <MenuItem id="exit_item" text="Exit" command="{binding remove}"/>
+            </Menu>
+            <Menu id="edit_menu" text="Edit">
+              <MenuItem id="undo_item" text="Undo" shortcut="Ctrl+Z"/>
+            </Menu>
+          </MenuBar>
+        </Canvas>
+    )", nullptr, &vm);
+    ASSERT_TRUE(doc.has_value());
+    Element* bar = find_id(doc->root, "bar");
+    ASSERT_NE(bar, nullptr);
+    EXPECT_EQ(bar->kind, ElementKind::MenuBar);
+    EXPECT_EQ(bar->direction, engine::ui::StackDirection::Horizontal);
+
+    Element* file_menu = find_id(doc->root, "file_menu");
+    ASSERT_NE(file_menu, nullptr);
+    EXPECT_EQ(file_menu->kind, ElementKind::Menu);
+    EXPECT_EQ(file_menu->text, "File");
+    ASSERT_EQ(file_menu->children.size(), 1u);
+    EXPECT_EQ(file_menu->children[0].kind, ElementKind::Popup);
+    EXPECT_FALSE(file_menu->children[0].open);
+    EXPECT_EQ(file_menu->children[0].placement, PopupPlacement::BottomStart);
+
+    Element* new_item = find_id(doc->root, "new_item");
+    ASSERT_NE(new_item, nullptr);
+    EXPECT_EQ(new_item->kind, ElementKind::MenuItem);
+    EXPECT_EQ(new_item->text, "New");
+    EXPECT_EQ(new_item->shortcut, "Ctrl+N");
+
+    Element* sep = find_id(doc->root, "sep");
+    ASSERT_NE(sep, nullptr);
+    EXPECT_EQ(sep->kind, ElementKind::MenuSeparator);
+}
+
+TEST(UiMenu, MenuClickTogglesAndMenuItemCloses) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<MenuViewModel>();
+    const engine::ecs::Entity canvas = add_canvas(world, R"(
+        <Canvas>
+          <MenuBar>
+            <Menu id="file_menu" text="File">
+              <MenuItem id="rename_item" text="Rename" command="{binding rename}"/>
+            </Menu>
+          </MenuBar>
+        </Canvas>
+    )", "MenuBar { width: 400px; height: 30px; } "
+        "Menu { width: 50px; height: 30px; } "
+        "Popup { padding: 4px; } "
+        "MenuItem { width: 100px; height: 25px; }",
+        vm, Rect{0.0f, 0.0f, 400.0f, 300.0f});
+    bind(world, canvas);
+
+    Element* file_menu = find_id(root_of(world, canvas), "file_menu");
+    ASSERT_NE(file_menu, nullptr);
+    ASSERT_EQ(file_menu->children.size(), 1u);
+    EXPECT_FALSE(file_menu->children[0].open);
+
+    // Click on "File" menu (at 10, 15) -> opens popup
+    click(world, 10.0f, 15.0f);
+    EXPECT_TRUE(file_menu->children[0].open);
+
+    // Click on "Rename" item (at 20, 40) -> executes command & closes popup
+    click(world, 20.0f, 40.0f);
+    EXPECT_EQ(vm->renamed, 1);
+    EXPECT_FALSE(file_menu->children[0].open);
+}
+
+TEST(UiMenu, MenuHotTrackingHoverSwitchesActiveMenu) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<MenuViewModel>();
+    const engine::ecs::Entity canvas = add_canvas(world, R"(
+        <Canvas>
+          <MenuBar>
+            <Menu id="file_menu" text="File">
+              <MenuItem text="FileItem"/>
+            </Menu>
+            <Menu id="edit_menu" text="Edit">
+              <MenuItem text="EditItem"/>
+            </Menu>
+          </MenuBar>
+        </Canvas>
+    )", "MenuBar { width: 400px; height: 30px; } "
+        "Menu { width: 50px; height: 30px; } "
+        "Popup { padding: 4px; } "
+        "MenuItem { width: 100px; height: 25px; }",
+        vm, Rect{0.0f, 0.0f, 400.0f, 300.0f});
+    bind(world, canvas);
+
+    Element* file_menu = find_id(root_of(world, canvas), "file_menu");
+    Element* edit_menu = find_id(root_of(world, canvas), "edit_menu");
+    ASSERT_NE(file_menu, nullptr);
+    ASSERT_NE(edit_menu, nullptr);
+
+    // Click on "File" (0..50) -> opens File popup
+    click(world, 10.0f, 15.0f);
+    EXPECT_TRUE(file_menu->children[0].open);
+    EXPECT_FALSE(edit_menu->children[0].open);
+
+    // Hover over "Edit" (50..100) -> hot tracking closes File and opens Edit popup
+    engine::ui::begin_frame(world);
+    engine::ui::update_pointer_hover(world, 60.0f, 15.0f);
+    EXPECT_FALSE(file_menu->children[0].open);
+    EXPECT_TRUE(edit_menu->children[0].open);
+}
+
+TEST(UiMenu, ContextMenuParsesAndBehavesAsPopup) {
+    MenuViewModel vm;
+    auto doc = engine::ui::parse_xml(R"(
+        <Canvas>
+          <ContextMenu id="ctx" open="{binding menuOpen}">
+            <MenuItem id="cut" text="Cut" shortcut="Ctrl+X"/>
+            <MenuItem id="copy" text="Copy" shortcut="Ctrl+C"/>
+          </ContextMenu>
+        </Canvas>
+    )", nullptr, &vm);
+    ASSERT_TRUE(doc.has_value());
+    Element* ctx = find_id(doc->root, "ctx");
+    ASSERT_NE(ctx, nullptr);
+    EXPECT_EQ(ctx->kind, ElementKind::ContextMenu);
+    EXPECT_TRUE(engine::ui::is_popup_kind(ctx->kind));
+    EXPECT_FALSE(ctx->open);
+    EXPECT_EQ(ctx->open_binding, engine::ui::intern("menuOpen"));
+
+    Element* cut = find_id(doc->root, "cut");
+    ASSERT_NE(cut, nullptr);
+    EXPECT_EQ(cut->kind, ElementKind::MenuItem);
+    EXPECT_EQ(cut->shortcut, "Ctrl+X");
+}
+
+TEST(UiMenu, BuilderCreatesMenuTree) {
+    using namespace engine::ui;
+    auto doc = make_document(
+        canvas().add(
+            menu_bar()
+                .add(menu().text("File")
+                    .add(menu_item().text("New").shortcut("Ctrl+N"))
+                    .add(menu_separator())
+                    .add(menu_item().text("Exit")))
+        )
+    );
+    ASSERT_TRUE(doc.has_value());
+    EXPECT_EQ(doc->root.children.size(), 1u);
+    EXPECT_EQ(doc->root.children[0].kind, ElementKind::MenuBar);
+    EXPECT_EQ(doc->root.children[0].children.size(), 1u);
+    EXPECT_EQ(doc->root.children[0].children[0].kind, ElementKind::Menu);
+    ASSERT_EQ(doc->root.children[0].children[0].children.size(), 1u);
+    const Element& popup = doc->root.children[0].children[0].children[0];
+    EXPECT_EQ(popup.kind, ElementKind::Popup);
+    ASSERT_EQ(popup.children.size(), 3u);
+    EXPECT_EQ(popup.children[0].kind, ElementKind::MenuItem);
+    EXPECT_EQ(popup.children[0].text, "New");
+    EXPECT_EQ(popup.children[0].shortcut, "Ctrl+N");
+    EXPECT_EQ(popup.children[1].kind, ElementKind::MenuSeparator);
+    EXPECT_EQ(popup.children[2].kind, ElementKind::MenuItem);
+}
