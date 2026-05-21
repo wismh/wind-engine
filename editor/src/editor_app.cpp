@@ -189,7 +189,7 @@ bool EditorApp::start(const EditorOptions& options) {
         engine::log::info("Editor: removed " + std::to_string(purged) + " stale game module copies");
     }
     play_host_.emplace(host_, *panels_);
-    edit_module_.emplace(*play_host_, live);
+    edit_module_.emplace(*play_host_, services.assets, live);
     panels_->world_view().set_assets(&services.assets);
     panels_->world_view().set_component_registrar(
             [this](engine::ecs::WorldSerializer& s) { edit_module_->register_components(s); });

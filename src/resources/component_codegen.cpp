@@ -30,13 +30,9 @@ struct Token {
     std::size_t line = 1;
 };
 
-bool is_ident_start(char c) {
-    return std::isalpha(static_cast<unsigned char>(c)) != 0 || c == '_';
-}
+bool is_ident_start(char c) { return std::isalpha(static_cast<unsigned char>(c)) != 0 || c == '_'; }
 
-bool is_ident_continue(char c) {
-    return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_';
-}
+bool is_ident_continue(char c) { return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_'; }
 
 std::vector<Token> tokenize_cpp(std::string_view src) {
     std::vector<Token> tokens;
@@ -157,8 +153,8 @@ std::string pascal_to_snake(std::string_view name) {
                 const unsigned char prev = static_cast<unsigned char>(name[i - 1]);
                 const bool prev_lower = std::islower(prev) != 0;
                 const bool next_lower =
-                        (i + 1 < name.size()) && (std::islower(static_cast<unsigned char>(name[i + 1])) != 0);
-                if (prev_lower || ( std::isupper(prev) != 0 && next_lower)) {
+                    (i + 1 < name.size()) && (std::islower(static_cast<unsigned char>(name[i + 1])) != 0);
+                if (prev_lower || (std::isupper(prev) != 0 && next_lower)) {
                     out.push_back('_');
                 }
             }
@@ -171,19 +167,32 @@ std::string pascal_to_snake(std::string_view name) {
 }
 
 bool is_skipped_statement_keyword(std::string_view word) {
-    return word == "static" || word == "constexpr" || word == "consteval" || word == "using" ||
-            word == "typedef" || word == "friend" || word == "enum" || word == "struct" || word == "class" ||
-            word == "template" || word == "static_assert" || word == "operator";
+    return word == "static" || word == "constexpr" || word == "consteval" || word == "using" || word == "typedef" ||
+           word == "friend" || word == "enum" || word == "struct" || word == "class" || word == "template" ||
+           word == "static_assert" || word == "operator";
 }
 
-std::expected<void, CodegenError> extract_struct_fields(
-        const std::vector<Token>& tokens, std::size_t body_start, std::size_t body_end,
-        std::string_view include_path, std::string_view struct_name, std::vector<std::string>& out_fields) {
+bool is_wind_marker(std::string_view word) { return word == "WIND_COMPONENT" || word == "WIND_SERIALIZABLE"; }
+
+std::string qualify(const std::vector<std::string>& namespaces, std::string_view struct_name) {
+    std::string out;
+    for (const std::string& ns: namespaces) {
+        out += ns;
+        out += "::";
+    }
+    out += struct_name;
+    return out;
+}
+
+std::expected<void, CodegenError> extract_struct_fields(const std::vector<Token>& tokens, std::size_t body_start,
+                                                        std::size_t body_end, std::string_view include_path,
+                                                        std::string_view marker, std::string_view struct_name,
+                                                        std::vector<std::string>& out_fields) {
     std::size_t i = body_start;
     while (i < body_end) {
         if (tokens[i].kind == TokenKind::Ident &&
-                (tokens[i].text == "public" || tokens[i].text == "private" || tokens[i].text == "protected") &&
-                i + 1 < body_end && tokens[i + 1].text == ":") {
+            (tokens[i].text == "public" || tokens[i].text == "private" || tokens[i].text == "protected") &&
+            i + 1 < body_end && tokens[i + 1].text == ":") {
             i += 2;
             continue;
         }
@@ -258,18 +267,16 @@ std::expected<void, CodegenError> extract_struct_fields(
         }
 
         if (!init_or_end_pos.has_value() || *init_or_end_pos <= stmt_start) {
-            return std::unexpected(CodegenError{
-                    CodegenErrorKind::ComponentCodegen,
-                    std::format("{}:{}: malformed member in WIND_COMPONENT struct {}", include_path,
-                            tokens[stmt_start].line, struct_name)});
+            return std::unexpected(CodegenError{CodegenErrorKind::ComponentCodegen,
+                                                std::format("{}:{}: malformed member in {} struct {}", include_path,
+                                                            tokens[stmt_start].line, marker, struct_name)});
         }
 
         const Token& name_tok = tokens[*init_or_end_pos - 1];
         if (name_tok.kind != TokenKind::Ident || *init_or_end_pos - 1 == stmt_start) {
-            return std::unexpected(CodegenError{
-                    CodegenErrorKind::ComponentCodegen,
-                    std::format("{}:{}: could not determine field name in WIND_COMPONENT struct {}", include_path,
-                            name_tok.line, struct_name)});
+            return std::unexpected(CodegenError{CodegenErrorKind::ComponentCodegen,
+                                                std::format("{}:{}: could not determine field name in {} struct {}",
+                                                            include_path, name_tok.line, marker, struct_name)});
         }
         out_fields.push_back(name_tok.text);
     }
@@ -283,20 +290,14 @@ bool is_header_file(const std::filesystem::path& path) {
 
 } // namespace
 
-std::string ScannedComponent::qualified_name() const {
-    std::string out;
-    for (const std::string& ns : namespaces) {
-        out += ns;
-        out += "::";
-    }
-    out += struct_name;
-    return out;
-}
+std::string ScannedComponent::qualified_name() const { return qualify(namespaces, struct_name); }
 
-std::expected<std::vector<ScannedComponent>, CodegenError> scan_components_in_text(
-        std::string_view source_text, std::string_view include_path) {
+std::string ScannedSerializable::qualified_name() const { return qualify(namespaces, struct_name); }
+
+std::expected<ScannedStructs, CodegenError> scan_components_in_text(std::string_view source_text,
+                                                                    std::string_view include_path) {
     const std::vector<Token> tokens = tokenize_cpp(source_text);
-    std::vector<ScannedComponent> results;
+    ScannedStructs results;
 
     std::vector<std::string> ns_stack;
     // Number of namespace segments pushed by each open `{` on the brace stack (0 for non-namespace `{`).
@@ -318,7 +319,7 @@ std::expected<std::vector<ScannedComponent>, CodegenError> scan_components_in_te
                 }
             }
             if (cursor < tokens.size() && tokens[cursor].text == "{") {
-                for (std::string& seg : segments) {
+                for (std::string& seg: segments) {
                     ns_stack.push_back(std::move(seg));
                 }
                 brace_ns_counts.push_back(segments.size());
@@ -344,20 +345,36 @@ std::expected<std::vector<ScannedComponent>, CodegenError> scan_components_in_te
             continue;
         }
 
-        if (tok.kind == TokenKind::Ident && (tok.text == "struct" || tok.text == "class") &&
-                i + 1 < tokens.size() && tokens[i + 1].kind == TokenKind::Ident &&
-                tokens[i + 1].text == "WIND_COMPONENT") {
-            std::size_t cursor = i + 2;
+        if (tok.kind == TokenKind::Ident && (tok.text == "struct" || tok.text == "class") && i + 1 < tokens.size() &&
+            tokens[i + 1].kind == TokenKind::Ident && is_wind_marker(tokens[i + 1].text)) {
+            bool component = false;
+            bool serializable = false;
             std::string custom_key;
-            if (cursor + 2 < tokens.size() && tokens[cursor].text == "(" &&
+            std::size_t cursor = i + 1;
+            while (cursor < tokens.size() && tokens[cursor].kind == TokenKind::Ident &&
+                   is_wind_marker(tokens[cursor].text)) {
+                if (tokens[cursor].text == "WIND_COMPONENT") {
+                    component = true;
+                } else {
+                    serializable = true;
+                }
+                ++cursor;
+                if (cursor + 2 < tokens.size() && tokens[cursor].text == "(" &&
                     tokens[cursor + 1].kind == TokenKind::StringLiteral && tokens[cursor + 2].text == ")") {
-                custom_key = tokens[cursor + 1].text;
-                cursor += 3;
+                    custom_key = tokens[cursor + 1].text;
+                    cursor += 3;
+                }
             }
-            if (cursor >= tokens.size() || tokens[cursor].kind != TokenKind::Ident) {
+            if (component && serializable) {
                 return std::unexpected(CodegenError{
-                        CodegenErrorKind::ComponentCodegen,
-                        std::format("{}:{}: expected struct name after WIND_COMPONENT", include_path, tok.line)});
+                    CodegenErrorKind::ComponentCodegen,
+                    std::format("{}:{}: struct is both WIND_COMPONENT and WIND_SERIALIZABLE", include_path, tok.line)});
+            }
+            const char* const marker = serializable ? "WIND_SERIALIZABLE" : "WIND_COMPONENT";
+            if (cursor >= tokens.size() || tokens[cursor].kind != TokenKind::Ident) {
+                return std::unexpected(
+                    CodegenError{CodegenErrorKind::ComponentCodegen,
+                                 std::format("{}:{}: expected struct name after {}", include_path, tok.line, marker)});
             }
             const std::string struct_name = tokens[cursor].text;
             ++cursor;
@@ -370,9 +387,8 @@ std::expected<std::vector<ScannedComponent>, CodegenError> scan_components_in_te
             }
             if (cursor >= tokens.size()) {
                 return std::unexpected(CodegenError{
-                        CodegenErrorKind::ComponentCodegen,
-                        std::format("{}:{}: missing '{{' for WIND_COMPONENT struct {}", include_path, tok.line,
-                                struct_name)});
+                    CodegenErrorKind::ComponentCodegen,
+                    std::format("{}:{}: missing '{{' for {} struct {}", include_path, tok.line, marker, struct_name)});
             }
             const std::size_t body_start = cursor + 1;
             int depth = 1;
@@ -389,22 +405,44 @@ std::expected<std::vector<ScannedComponent>, CodegenError> scan_components_in_te
             }
             if (depth != 0) {
                 return std::unexpected(CodegenError{
-                        CodegenErrorKind::ComponentCodegen,
-                        std::format("{}:{}: unclosed '{{' in WIND_COMPONENT struct {}", include_path, tok.line,
-                                struct_name)});
+                    CodegenErrorKind::ComponentCodegen,
+                    std::format("{}:{}: unclosed '{{' in {} struct {}", include_path, tok.line, marker, struct_name)});
             }
 
-            ScannedComponent comp;
-            comp.include_path = std::string(include_path);
-            comp.namespaces = ns_stack;
-            comp.struct_name = struct_name;
-            comp.toml_key = custom_key.empty() ? pascal_to_snake(struct_name) : std::move(custom_key);
-
-            if (auto ok = extract_struct_fields(tokens, body_start, scan, include_path, struct_name, comp.fields);
-                    !ok) {
+            std::vector<std::string> fields;
+            if (auto ok = extract_struct_fields(tokens, body_start, scan, include_path, marker, struct_name, fields);
+                !ok) {
                 return std::unexpected(std::move(ok.error()));
             }
-            results.push_back(std::move(comp));
+            if (serializable) {
+                for (const std::string& field: fields) {
+                    if (field == "type") {
+                        return std::unexpected(
+                            CodegenError{CodegenErrorKind::ComponentCodegen,
+                                         std::format("{}:{}: WIND_SERIALIZABLE struct {} has a field named \"type\"",
+                                                     include_path, tok.line, struct_name)});
+                    }
+                }
+            }
+
+            const std::string toml_key = custom_key.empty() ? pascal_to_snake(struct_name) : std::move(custom_key);
+            if (serializable) {
+                ScannedSerializable value;
+                value.include_path = std::string(include_path);
+                value.namespaces = ns_stack;
+                value.struct_name = struct_name;
+                value.toml_key = toml_key;
+                value.fields = std::move(fields);
+                results.serializables.push_back(std::move(value));
+            } else {
+                ScannedComponent comp;
+                comp.include_path = std::string(include_path);
+                comp.namespaces = ns_stack;
+                comp.struct_name = struct_name;
+                comp.toml_key = toml_key;
+                comp.fields = std::move(fields);
+                results.components.push_back(std::move(comp));
+            }
             i = scan + 1;
             continue;
         }
@@ -415,12 +453,13 @@ std::expected<std::vector<ScannedComponent>, CodegenError> scan_components_in_te
     return results;
 }
 
-std::expected<std::vector<ScannedComponent>, CodegenError> scan_components_in_dirs(
-        std::span<const std::filesystem::path> source_dirs) {
-    std::vector<ScannedComponent> all;
-    std::unordered_map<std::string, std::string> key_to_type;
+std::expected<ScannedStructs, CodegenError>
+scan_components_in_dirs(std::span<const std::filesystem::path> source_dirs) {
+    ScannedStructs all;
+    std::unordered_map<std::string, std::string> component_keys;
+    std::unordered_map<std::string, std::string> serializable_keys;
 
-    for (const std::filesystem::path& root : source_dirs) {
+    for (const std::filesystem::path& root: source_dirs) {
         std::error_code ec;
         if (!std::filesystem::exists(root, ec) || !std::filesystem::is_directory(root, ec)) {
             continue;
@@ -428,7 +467,7 @@ std::expected<std::vector<ScannedComponent>, CodegenError> scan_components_in_di
 
         std::vector<std::filesystem::path> files;
         const auto options = std::filesystem::directory_options::skip_permission_denied;
-        for (const auto& entry : std::filesystem::recursive_directory_iterator(root, options, ec)) {
+        for (const auto& entry: std::filesystem::recursive_directory_iterator(root, options, ec)) {
             if (ec) {
                 return std::unexpected(CodegenError{CodegenErrorKind::Io, ec.message()});
             }
@@ -438,14 +477,14 @@ std::expected<std::vector<ScannedComponent>, CodegenError> scan_components_in_di
         }
         std::sort(files.begin(), files.end());
 
-        for (const std::filesystem::path& file : files) {
+        for (const std::filesystem::path& file: files) {
             std::ifstream in(file);
             if (!in) {
-                return std::unexpected(
-                        CodegenError{CodegenErrorKind::Io, "failed to read " + file.generic_string()});
+                return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to read " + file.generic_string()});
             }
             const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-            if (text.find("WIND_COMPONENT") == std::string::npos) {
+            if (text.find("WIND_COMPONENT") == std::string::npos &&
+                text.find("WIND_SERIALIZABLE") == std::string::npos) {
                 continue;
             }
             const std::string rel = file.lexically_relative(root).generic_string();
@@ -453,51 +492,150 @@ std::expected<std::vector<ScannedComponent>, CodegenError> scan_components_in_di
             if (!scanned) {
                 return std::unexpected(std::move(scanned.error()));
             }
-            for (ScannedComponent& comp : *scanned) {
+            for (ScannedComponent& comp: scanned->components) {
                 const std::string qname = comp.qualified_name();
-                if (const auto it = key_to_type.find(comp.toml_key);
-                        it != key_to_type.end() && it->second != qname) {
-                    return std::unexpected(CodegenError{
-                            CodegenErrorKind::Collision,
-                            std::format("component key \"{}\" is used by both {} and {}", comp.toml_key,
-                                    it->second, qname)});
+                if (const auto it = component_keys.find(comp.toml_key);
+                    it != component_keys.end() && it->second != qname) {
+                    return std::unexpected(CodegenError{CodegenErrorKind::Collision,
+                                                        std::format("component key \"{}\" is used by both {} and {}",
+                                                                    comp.toml_key, it->second, qname)});
                 }
-                key_to_type.emplace(comp.toml_key, qname);
-                all.push_back(std::move(comp));
+                component_keys.emplace(comp.toml_key, qname);
+                all.components.push_back(std::move(comp));
+            }
+            for (ScannedSerializable& value: scanned->serializables) {
+                const std::string qname = value.qualified_name();
+                if (const auto it = serializable_keys.find(value.toml_key);
+                    it != serializable_keys.end() && it->second != qname) {
+                    return std::unexpected(CodegenError{CodegenErrorKind::Collision,
+                                                        std::format("serializable key \"{}\" is used by both {} and {}",
+                                                                    value.toml_key, it->second, qname)});
+                }
+                serializable_keys.emplace(value.toml_key, qname);
+                all.serializables.push_back(std::move(value));
             }
         }
     }
 
-    std::sort(all.begin(), all.end(), [](const ScannedComponent& a, const ScannedComponent& b) {
+    std::sort(all.components.begin(), all.components.end(), [](const ScannedComponent& a, const ScannedComponent& b) {
         return a.qualified_name() < b.qualified_name();
     });
+    std::sort(all.serializables.begin(), all.serializables.end(),
+              [](const ScannedSerializable& a, const ScannedSerializable& b) {
+                  return a.qualified_name() < b.qualified_name();
+              });
     return all;
 }
 
-std::string emit_component_io_header(std::span<const ScannedComponent> components) {
+namespace {
+
+void emit_namespace_open(std::ostringstream& os, const std::vector<std::string>& namespaces) {
+    for (const std::string& ns: namespaces) {
+        os << "namespace " << ns << " {\n";
+    }
+}
+
+void emit_namespace_close(std::ostringstream& os, const std::vector<std::string>& namespaces) {
+    for (auto it = namespaces.rbegin(); it != namespaces.rend(); ++it) {
+        os << "} // namespace " << *it << "\n";
+    }
+}
+
+std::string namespace_prefix(const std::vector<std::string>& namespaces) {
+    std::string out;
+    for (const std::string& ns: namespaces) {
+        out += ns;
+        out += "::";
+    }
+    return out;
+}
+
+void emit_serializable(std::ostringstream& os, const ScannedSerializable& value) {
+    const std::string qname = value.qualified_name();
+    emit_namespace_open(os, value.namespaces);
+    os << "inline void write_fields(engine::ecs::ComponentWriter& out, const " << qname << "& v) {\n";
+    for (const std::string& field: value.fields) {
+        os << "    out.field(\"" << field << "\", v." << field << ");\n";
+    }
+    os << "}\n";
+    os << "inline void read_fields(engine::ecs::ComponentReader& in, " << qname << "& v) {\n";
+    for (const std::string& field: value.fields) {
+        os << "    (void)in.field(\"" << field << "\", v." << field << ");\n";
+    }
+    os << "}\n";
+    os << "inline engine::ecs::FieldValue encode_wind(const engine::ecs::ComponentWriter& w, const " << qname
+       << "& v) {\n";
+    os << "    engine::ecs::FieldTable table;\n";
+    os << "    engine::ecs::ComponentWriter nested = w.nested(table);\n";
+    os << "    write_fields(nested, v);\n";
+    os << "    return engine::ecs::FieldValue{std::move(table)};\n";
+    os << "}\n";
+    os << "inline bool decode_wind(const engine::ecs::ComponentReader& r, const engine::ecs::FieldValue& node, "
+       << qname << "& v) {\n";
+    os << "    const engine::ecs::FieldTable* table = node.as_table();\n";
+    os << "    if (table == nullptr) {\n";
+    os << "        return false;\n";
+    os << "    }\n";
+    os << "    engine::ecs::ComponentReader nested = r.nested(*table);\n";
+    os << "    read_fields(nested, v);\n";
+    os << "    return nested.ok();\n";
+    os << "}\n";
+    emit_namespace_close(os, value.namespaces);
+    os << "\n";
+}
+
+} // namespace
+
+std::string emit_component_io_header(std::span<const ScannedComponent> components,
+                                     std::span<const ScannedSerializable> serializables) {
     std::ostringstream os;
     os << "#pragma once\n\n";
     os << "#include <engine/ecs/world_serializer.h>\n";
+    os << "#include <engine/resources/assets_db.h>\n";
 
     std::set<std::string> includes;
-    for (const ScannedComponent& comp : components) {
+    for (const ScannedComponent& comp: components) {
         if (!comp.include_path.empty()) {
             includes.insert(comp.include_path);
         }
     }
+    for (const ScannedSerializable& value: serializables) {
+        if (!value.include_path.empty()) {
+            includes.insert(value.include_path);
+        }
+    }
     if (!includes.empty()) {
         os << '\n';
-        for (const std::string& inc : includes) {
+        for (const std::string& inc: includes) {
             os << "#include \"" << inc << "\"\n";
         }
     }
+    os << "\n";
 
-    os << "\nnamespace assets {\n\n";
+    for (const ScannedSerializable& value: serializables) {
+        emit_serializable(os, value);
+    }
+
+    os << "namespace assets {\n\n";
+    if (serializables.empty()) {
+        os << "inline void register_game_objects(engine::AssetsDb&) {}\n\n";
+    } else {
+        os << "inline void register_game_objects(engine::AssetsDb& db) {\n";
+        for (const ScannedSerializable& value: serializables) {
+            const std::string qname = value.qualified_name();
+            os << "    db.register_object<" << qname << ">(\n";
+            os << "            \"" << value.toml_key << "\",\n";
+            os << "            [](engine::ecs::ComponentReader& in, " << qname << "& v) {\n";
+            os << "                " << namespace_prefix(value.namespaces) << "read_fields(in, v);\n";
+            os << "            });\n";
+        }
+        os << "}\n\n";
+    }
     if (components.empty()) {
         os << "inline void register_game_components(engine::ecs::WorldSerializer&) {}\n\n";
     } else {
         os << "inline void register_game_components(engine::ecs::WorldSerializer& serializer) {\n";
-        for (const ScannedComponent& comp : components) {
+        for (const ScannedComponent& comp: components) {
             const std::string qname = comp.qualified_name();
             os << "    serializer.register_component<" << qname << ">(\n";
             os << "            \"" << comp.toml_key << "\",\n";
@@ -506,12 +644,12 @@ std::string emit_component_io_header(std::span<const ScannedComponent> component
                 os << "            [](engine::ecs::ComponentReader&, " << qname << "&) {});\n";
             } else {
                 os << "            [](engine::ecs::ComponentWriter& out, const " << qname << "& c) {\n";
-                for (const std::string& field : comp.fields) {
+                for (const std::string& field: comp.fields) {
                     os << "                out.field(\"" << field << "\", c." << field << ");\n";
                 }
                 os << "            },\n";
                 os << "            [](engine::ecs::ComponentReader& in, " << qname << "& c) {\n";
-                for (const std::string& field : comp.fields) {
+                for (const std::string& field: comp.fields) {
                     os << "                (void)in.field(\"" << field << "\", c." << field << ");\n";
                 }
                 os << "            });\n";
@@ -523,8 +661,8 @@ std::string emit_component_io_header(std::span<const ScannedComponent> component
     return os.str();
 }
 
-std::expected<void, CodegenError> component_codegen_write(
-        std::span<const std::filesystem::path> source_dirs, const std::filesystem::path& output_file) {
+std::expected<void, CodegenError> component_codegen_write(std::span<const std::filesystem::path> source_dirs,
+                                                          const std::filesystem::path& output_file) {
     auto scanned = scan_components_in_dirs(source_dirs);
     if (!scanned) {
         return std::unexpected(std::move(scanned.error()));
@@ -540,13 +678,11 @@ std::expected<void, CodegenError> component_codegen_write(
 
     std::ofstream out(output_file, std::ios::trunc);
     if (!out) {
-        return std::unexpected(
-                CodegenError{CodegenErrorKind::Io, "failed to write " + output_file.generic_string()});
+        return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to write " + output_file.generic_string()});
     }
-    out << emit_component_io_header(*scanned);
+    out << emit_component_io_header(scanned->components, scanned->serializables);
     if (!out) {
-        return std::unexpected(
-                CodegenError{CodegenErrorKind::Io, "failed to write " + output_file.generic_string()});
+        return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to write " + output_file.generic_string()});
     }
     return {};
 }
