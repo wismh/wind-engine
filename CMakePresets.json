@@ -58,6 +58,18 @@
       }
     },
     {
+      "name": "vs-launcher",
+      "displayName": "Visual Studio Wind Launcher (static engine)",
+      "generator": "Visual Studio 18 2026",
+      "binaryDir": "${sourceDir}/build-launcher",
+      "cacheVariables": {
+        "ENGINE_BUILD_TESTS": "ON",
+        "ENGINE_WITH_WINDOW": "ON",
+        "ENGINE_WITH_AUDIO": "OFF",
+        "ENGINE_LAUNCHER": "ON"
+      }
+    },
+    {
       "name": "web",
       "displayName": "Emscripten WebGL2 (configure with emcmake)",
       "generator": "Ninja",

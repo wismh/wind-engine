@@ -178,7 +178,7 @@ ENGINE_GAME(game::MyGame)
 
 ## 5. Build and Run
 
-Open the project in the editor and play it (CMake must be on `PATH`):
+Open the project in the editor and play it (CMake must be on `PATH`). Wind Launcher does the same with a button: Add project, pick `wind_project.toml`, Locate editor for your SDK's `sdk.toml`, then Open. Or directly:
 
 ```bash
 C:/path/to/wind-engine/out/sdk/bin/wind_editor.exe --project . --play
