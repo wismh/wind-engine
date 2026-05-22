@@ -17,8 +17,14 @@ public:
     engine::ui::Bindable<std::string> statusText;
     engine::ui::Bindable<std::string> viewportBg;
     engine::ui::Bindable<std::string> emptyText;
+    engine::ui::Bindable<std::string> moveBtnLabel;
+    engine::ui::Bindable<std::string> rotateBtnLabel;
+    engine::ui::Bindable<std::string> scaleBtnLabel;
     engine::ui::MethodCommand toggleProjection;
     engine::ui::MethodCommand resetCamera;
+    engine::ui::MethodCommand setToolTranslate;
+    engine::ui::MethodCommand setToolRotate;
+    engine::ui::MethodCommand setToolScale;
 };
 
 }
