@@ -1,6 +1,7 @@
 #include "batch_run.h"
 #include "editor_app.h"
 #include "editor_options.h"
+#include "native_build.h"
 
 #include <engine/core/platform.h>
 #include <engine/process/process_launcher.h>
@@ -37,12 +38,18 @@ int run_batch(const editor::EditorOptions& options) {
 
     engine::ProcessLauncher processes;
     editor::BatchRun run(processes, write);
+    const editor::NativeBuild& native = editor::native_build();
+    if (!native.problem.empty()) {
+        write(native.problem);
+        return editor::kBatchFailed;
+    }
     // `<sdk>/bin/wind_editor` -> `<sdk>`.
     std::optional<int> code = run.start(editor::BatchSetup{
             .sdk = engine::executable_directory().parent_path(),
             .project = *options.project,
             .export_directory = options.export_directory,
             .development = options.development,
+            .environment = native.environment,
     });
     while (!code) {
         processes.poll();

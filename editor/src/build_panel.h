@@ -11,7 +11,7 @@
 
 namespace editor {
 
-// How a build log line reads: an error or a warning of CMake, MSBuild, the compiler, or the linker.
+// How a build log line reads: an error or a warning of CMake, Ninja, the compiler, or the linker.
 enum class LineTone {
     Plain,
     Warning,

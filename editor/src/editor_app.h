@@ -50,6 +50,9 @@ private:
     [[nodiscard]] EditorFacts facts() const;
 
     void open_project(const std::filesystem::path& directory);
+    // Fills `setup.environment` from the MSVC developer environment on Windows. A failure is reported on the Build
+    // panel and the status line.
+    [[nodiscard]] bool prepare_build(BuildSetup& setup);
     void start_opening_build();
     void load_edit_module(const std::filesystem::path& module);
     void play();

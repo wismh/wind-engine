@@ -9,7 +9,7 @@ git submodule update --init --recursive
 cmake --preset vs
 ```
 
-`vs` is the engine-root preset: tests ON, window OFF, audio OFF. A game repo uses `find_package(Wind)` against an installed SDK, or, for a standalone build, the SDK's prebuilt static engine (`-DWIND_EXPORT=ON`, the editor's Export; the SDK's engine source when it has none) or its engine source (`add_subdirectory` for Web and Android), where the defaults flip. See [CMake](CMake.md).
+`vs` is the engine-root preset: Ninja Multi-Config, MSVC on Windows, tests ON, window OFF, audio OFF. A game repo uses `find_package(Wind)` against an installed SDK, or, for a standalone build, the SDK's prebuilt static engine (`-DWIND_EXPORT=ON`, the editor's Export; the SDK's engine source when it has none) or its engine source (`add_subdirectory` for Web and Android), where the defaults flip. See [CMake](CMake.md).
 
 Configure vendors glm, tomlplusplus, tinyxml2, and spdlog. Window and audio submodules are required only when those options are ON. Cross compiles (`EMSCRIPTEN`, Android) refuse to configure unless `ENGINE_HOST_ASSET_CODEGEN` and `ENGINE_HOST_ICON_CODEGEN` point at native binaries built by a previous host configure.
 

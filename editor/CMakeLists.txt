@@ -33,6 +33,7 @@ set(_wind_editor_parts
     src/inspector_panel.cpp
     src/inspector_section_view_model.cpp
     src/inspector_view_model.cpp
+    src/native_build.cpp
     src/opening_overlay.cpp
     src/opening_view_model.cpp
     src/play_session.cpp
@@ -84,6 +85,7 @@ if(ENGINE_BUILD_TESTS)
         tests/export_dialog_test.cpp
         tests/hierarchy_panel_test.cpp
         tests/inspector_panel_test.cpp
+        tests/native_build_test.cpp
         tests/opening_overlay_test.cpp
         tests/play_session_test.cpp
         tests/profiler_chart_test.cpp
