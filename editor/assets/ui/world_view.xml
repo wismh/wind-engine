@@ -3,7 +3,9 @@
     <Stack class="world-header" direction="horizontal">
       <Button class="panel-button" command="{binding toggleProjection}" content="{binding projectionLabel}"/>
       <Button class="panel-button" command="{binding resetCamera}" content="Reset Camera"/>
-      <Label class="hint" text="{binding statusText}"/>
+      <Button class="panel-button" command="{binding setToolTranslate}" content="{binding moveBtnLabel}"/>
+      <Button class="panel-button" command="{binding setToolRotate}" content="{binding rotateBtnLabel}"/>
+      <Button class="panel-button" command="{binding setToolScale}" content="{binding scaleBtnLabel}"/>
     </Stack>
     <Stack id="world-viewport" class="world-viewport" direction="vertical" var-viewport-bg="{binding viewportBg}">
       <Label class="hint" text="{binding emptyText}"/>
