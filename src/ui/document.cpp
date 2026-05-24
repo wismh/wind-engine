@@ -573,6 +573,54 @@ namespace engine::ui {
             }
         }
 
+        // One child that can take free main-axis space. `main` is its used size on that axis.
+        struct GrowTarget {
+            float *main = nullptr;
+            float grow = 0.0f;
+            float limit = 0.0f;
+        };
+
+        // Split `free_space` across targets in proportion to `grow`. A target that would pass `limit`
+        // stops there and its unused share is split again. Stops once nothing remains open.
+        void distribute_flex_grow(std::vector<GrowTarget> &targets, float &free_space) {
+            float weight = 0.0f;
+            for (const GrowTarget &target: targets) {
+                weight += target.grow;
+            }
+            for (int guard = static_cast<int>(targets.size());
+                 guard > 0 && free_space > 0.0f && weight > 0.0f; --guard) {
+                const float pass_weight = weight;
+                bool capped = false;
+                float taken = 0.0f;
+                for (GrowTarget &target: targets) {
+                    if (!(target.grow > 0.0f)) {
+                        continue;
+                    }
+                    const float share = free_space * (target.grow / pass_weight);
+                    const float room = target.limit - *target.main;
+                    if (share > room) {
+                        const float add = std::max(0.0f, room);
+                        *target.main += add;
+                        taken += add;
+                        weight -= target.grow;
+                        target.grow = 0.0f;
+                        capped = true;
+                    }
+                }
+                if (!capped) {
+                    for (GrowTarget &target: targets) {
+                        if (!(target.grow > 0.0f)) {
+                            continue;
+                        }
+                        *target.main += free_space * (target.grow / pass_weight);
+                    }
+                    free_space = 0.0f;
+                    return;
+                }
+                free_space -= taken;
+            }
+        }
+
         void layout_stack(Element &element, const render::Rect &allocated, IUiPainter *painter, const ResolvedBox &self,
                           const render::Rect &containing_block, bool partial) {
             std::vector<Element *> children;
@@ -640,7 +688,27 @@ namespace engine::ui {
                 element.scroll_y = std::clamp(element.scroll_y, 0.0f, element.max_scroll_y);
 
                 const bool horizontal = element.direction == StackDirection::Horizontal;
-                const float leftover = std::max(0.0f, (horizontal ? allocated.w : allocated.h) - packed);
+                float leftover = std::max(0.0f, (horizontal ? allocated.w : allocated.h) - packed);
+                if (leftover > 0.0f) {
+                    std::vector<GrowTarget> targets;
+                    targets.reserve(flow.size());
+                    for (std::size_t i = 0; i < flow.size(); ++i) {
+                        const float grow = flow[i]->flex_grow;
+                        if (!(grow > 0.0f)) {
+                            continue;
+                        }
+                        float &main = horizontal ? metrics[i].used.x : metrics[i].used.y;
+                        float limit = std::numeric_limits<float>::infinity();
+                        if (horizontal && metrics[i].box.max_width) {
+                            limit = *metrics[i].box.max_width;
+                        }
+                        if (!(main < limit)) {
+                            continue;
+                        }
+                        targets.push_back(GrowTarget{&main, grow, limit});
+                    }
+                    distribute_flex_grow(targets, leftover);
+                }
                 float cursor = horizontal ? allocated.x : allocated.y;
                 // space-between splits leftover space into the gaps between children instead of around
                 // the group (first child flush to the start, last flush to the end) — one fewer gap than

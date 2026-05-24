@@ -387,6 +387,7 @@ namespace engine::ui {
         ScrollbarThumbHoverColor,
         ScrollbarBorderRadius,
         SelectionColor,
+        FlexGrow,
         Count,
     };
 
@@ -480,6 +481,8 @@ namespace engine::ui {
         std::optional<Length> min_height;
         UiAlign justify = UiAlign::Start;
         UiAlign align_items = UiAlign::Start;
+        // Share of a stack's free main-axis space. 0 takes none. See layout_stack.
+        float flex_grow = 0.0f;
         UiAlign text_align = UiAlign::Start;
         WhiteSpace white_space = WhiteSpace::Normal;
         UserSelect user_select = UserSelect::None;
@@ -755,6 +758,8 @@ namespace engine::ui {
         std::optional<Length> min_height;
         UiAlign justify = UiAlign::Start;
         UiAlign align_items = UiAlign::Start;
+        // Share of the parent's free main-axis space. 0 (the default) takes none.
+        float flex_grow = 0.0f;
         UiAlign text_align = UiAlign::Start;
         WhiteSpace white_space = WhiteSpace::Normal;
         UserSelect user_select = UserSelect::None;
