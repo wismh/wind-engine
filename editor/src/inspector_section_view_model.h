@@ -1,5 +1,6 @@
 #pragma once
 
+#include "inspector_field_view_model.h"
 #include "inspector_line_view_model.h"
 
 #include <engine/ui/bindable.h>
@@ -24,12 +25,16 @@ public:
 
     // The chevron and the heading button.
     void toggle_section();
+    void remove_component();
 
     engine::ui::Bindable<std::string> heading;
     // The chevron's `checked`: turned down while expanded.
     engine::ui::Bindable<bool> expanded;
     engine::ui::BindableList<std::shared_ptr<InspectorLineViewModel>> lines;
+    engine::ui::BindableList<std::shared_ptr<InspectorFieldViewModel>> fields;
+    engine::ui::Bindable<std::string> removeDisplay{std::string("none")};
     engine::ui::MethodCommand toggle;
+    engine::ui::MethodCommand remove;
 
 private:
     InspectorPanel* panel_;

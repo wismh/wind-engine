@@ -694,6 +694,13 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
         if (!parsed) {
             return std::unexpected(parsed.error());
         }
+        if (element.kind == ElementKind::ContextMenu && parsed->kind == ElementKind::Menu) {
+            for (Element& sub_popup : parsed->children) {
+                if (is_popup_kind(sub_popup.kind)) {
+                    sub_popup.placement = PopupPlacement::RightStart;
+                }
+            }
+        }
         element.children.push_back(std::move(*parsed));
     }
     return element;
