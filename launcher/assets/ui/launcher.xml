@@ -1,0 +1,43 @@
+<Canvas>
+  <Stack class="launcher" direction="vertical">
+    <Stack class="header" direction="horizontal">
+      <Label class="title" text="Wind"/>
+      <Button class="tool-button" command="{binding addProject}" content="Add project…"/>
+      <Button class="tool-button" command="{binding locateSdk}" content="Locate editor…"/>
+      <Label class="status" text="{binding statusText}"/>
+    </Stack>
+    <Stack class="body" direction="vertical">
+      <Label class="section" text="Projects"/>
+      <ScrollView class="box projects">
+        <ItemsControl class="rows" items_source="{binding projects}">
+          <ItemTemplate>
+            <Stack class="row" direction="horizontal">
+              <Stack class="row-text" direction="vertical">
+                <Label class="name" text="{binding name}"/>
+                <Label class="path" text="{binding path}"/>
+              </Stack>
+              <Label class="engine" text="{binding engineText}" var-tone="{binding tone}"/>
+              <Button class="open-button" command="{binding open}" content="Open"/>
+              <Button class="small-button" command="{binding remove}" content="Remove"/>
+            </Stack>
+          </ItemTemplate>
+        </ItemsControl>
+      </ScrollView>
+      <Label class="section" text="Editors"/>
+      <ScrollView class="box sdks">
+        <ItemsControl class="rows" items_source="{binding sdks}">
+          <ItemTemplate>
+            <Stack class="row" direction="horizontal">
+              <Label class="version" text="{binding version}"/>
+              <Stack class="sdk-text" direction="vertical">
+                <Label class="name" text="{binding detail}"/>
+                <Label class="path" text="{binding path}"/>
+              </Stack>
+              <Button class="small-button" command="{binding forget}" content="Forget"/>
+            </Stack>
+          </ItemTemplate>
+        </ItemsControl>
+      </ScrollView>
+    </Stack>
+  </Stack>
+</Canvas>

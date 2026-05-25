@@ -1,6 +1,6 @@
 # Editor plan
 
-This is a plan. It is not a description of the engine as it runs today. wind-167 to wind-173 and wind-176 to wind-178 are done: `wind_editor` loads, plays, inspects, profiles, and stops a game module ([Editor](../features/Editor.md), [UI Inspector](../features/UI%20Inspector.md), [UI Profiler](../features/UI%20Profiler.md)).
+This is a plan. It is not a description of the engine as it runs today. wind-167 to wind-173 and wind-176 to wind-179 are done: `wind_editor` loads, plays, inspects, profiles, and stops a game module ([Editor](../features/Editor.md), [UI Inspector](../features/UI%20Inspector.md), [UI Profiler](../features/UI%20Profiler.md)).
 
 ## Goal
 
@@ -197,6 +197,8 @@ Building while the game plays is allowed: the editor runs a copy from `live/<n>/
 - SDKs: scanned from one install directory, plus Locate for a dev SDK such as `out/sdk`.
 - Later: new project from a template, download of SDK releases.
 
+As built (wind-179): Add picks the project's `wind_project.toml` through the existing open-file dialog instead of a new folder dialog, and Locate picks an SDK's `sdk.toml`. Installed SDKs are `<user data>/sdks/*`. The preset is `vs-launcher` (`ENGINE_LAUNCHER`). See [Launcher](../features/Launcher.md).
+
 ### Tasks
 
 | Task | Content |
@@ -204,7 +206,7 @@ Building while the game plays is allowed: the editor runs a copy from `live/<n>/
 | wind-176 | Engine version, `sdk.toml`, `WindConfig.cmake` and `find_package(Wind)`, GoogleTest and the engine source in the SDK, `WIND_EDITOR_SDK` removed. Verified with a smoke game against an installed SDK: module and tests in `DebugGame` and `Release`, Play in the SDK's editor, `find_package(Wind 0.2.0)` refused, and a static executable with `add_subdirectory(<sdk>/source)`. Done |
 | wind-177 | `ProcessCall` in the engine (Windows) and tests. As built: `IProcessLauncher` in `EngineServices::processes`, polled after HTTP; a job object per child, so cancel and the child's exit end everything it started ([Process](../modules/Process.md)). Done |
 | wind-178 | `wind_project.toml`, `wind_editor --project`, configure and build on Play, Build panel. Done |
-| wind-179 | `wind_launcher`: projects, SDKs, Open |
+| wind-179 | `wind_launcher`: projects, SDKs, Open. Done |
 
 Game repos drop the `external/engine` submodule for `find_package(Wind)` in their own change, after wind-176.
 

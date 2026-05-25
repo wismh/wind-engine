@@ -120,6 +120,16 @@ if(ENGINE_EDITOR)
 else()
     set(_engine_library_kind STATIC)
 endif()
+# Wind Launcher (launcher/): a static app that lists projects and installed editor SDKs and starts the editor a project
+# needs. Static so it serves every SDK version; preset vs-launcher. docs/tech/features/Launcher.md
+option(ENGINE_LAUNCHER "Build wind_launcher (static engine, desktop window)" OFF)
+if(ENGINE_LAUNCHER)
+    if(NOT _engine_is_root OR ENGINE_EDITOR OR EMSCRIPTEN OR ANDROID OR NOT ENGINE_WITH_WINDOW)
+        message(FATAL_ERROR
+            "ENGINE_LAUNCHER builds wind_launcher in the engine repo against the static desktop engine: it needs "
+            "ENGINE_WITH_WINDOW=ON and ENGINE_EDITOR=OFF, and no Emscripten or Android. Use the vs-launcher preset.")
+    endif()
+endif()
 set(ENGINE_WEB_SHELL "" CACHE FILEPATH "Optional HTML shell for Emscripten (defaults to cmake/web/shell.html)")
 set(ENGINE_HOST_ASSET_CODEGEN "" CACHE FILEPATH "Native asset_codegen when cross-compiling (Emscripten or Android)")
 set(ENGINE_HOST_ICON_CODEGEN "" CACHE FILEPATH "Native icon_codegen when cross-compiling (Emscripten or Android)")
@@ -497,6 +507,22 @@ if(ENGINE_BUILD_TESTS)
     else()
         gtest_discover_tests(engine_tests DISCOVERY_MODE PRE_TEST)
     endif()
+endif()
+
+# Wind Launcher and its install: `cmake --install build-launcher --config Release --prefix out/launcher` gives bin/ with
+# wind_launcher, its .pdb, assets/ (the launcher's catalog), and assets/engine/.
+if(ENGINE_LAUNCHER)
+    add_subdirectory(launcher)
+    install(TARGETS wind_launcher RUNTIME DESTINATION bin)
+    if(MSVC)
+        install(FILES "$<TARGET_PDB_FILE:wind_launcher>" DESTINATION bin OPTIONAL)
+    endif()
+    install(DIRECTORY "${ENGINE_BUILTIN_ASSETS_DIR}/" DESTINATION bin/assets/engine)
+    install(FILES "${ENGINE_COOKED_CATALOG}" DESTINATION bin/assets/engine)
+    get_property(_wind_launcher_catalog TARGET wind_launcher PROPERTY ENGINE_GAME_CATALOG)
+    get_property(_wind_launcher_assets TARGET wind_launcher PROPERTY ENGINE_GAME_ASSETS)
+    install(DIRECTORY "${_wind_launcher_assets}/" DESTINATION bin/assets)
+    install(FILES "${_wind_launcher_catalog}" DESTINATION bin/assets)
 endif()
 
 # The editor host and the SDK. ENGINE_EDITOR is ON only in the engine repo (vs-editor); a game builds its

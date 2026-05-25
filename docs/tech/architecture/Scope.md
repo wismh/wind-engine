@@ -27,7 +27,7 @@ The editor is in progress. See [Editor Plan](Editor%20Plan.md). Today `wind_edit
 
 Open engine work, not game concerns:
 
-- Editor: the launcher with the project list (wind-179), export, and the remaining tools. Today the editor opens one project (`--project` or a dialog), builds it on Play, and plays it.
+- Editor: export, new projects from a template, SDK downloads, and the remaining tools. Today the launcher lists projects and installed editors and opens a project in its editor, and the editor builds it on Play and plays it.
 - Packed asset bundles (still GUID-addressed).
 - A separate cue `Sound` that references a clip GUID. Today one file is one cue.
 - `Transform` parent and a world-matrix chain.
@@ -51,6 +51,7 @@ Game concerns (do not implement in this repo): persist bus volumes in a settings
 | `wind-N` | Task code on commits and `feat/wind-N-…` branches |
 | `engine` | CMake library and C++ namespace. Static in exported builds, shared in the editor build |
 | `wind_editor` | Editor host executable |
+| `wind_launcher` | Lists projects and installed editor SDKs; opens a project in its editor. Static engine |
 | `ENGINE_EDITOR` | CMake switch for the editor build: shared `engine`, game as a module, `wind_editor` |
 | `IGame` / `Engine<GameT>` | Game lifecycle contract and standalone windowed host |
 | `AssetId` / `try_get` / `get` | GUID lookup; optional vs fatal |

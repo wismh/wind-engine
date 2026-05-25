@@ -456,3 +456,26 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/tests/profiler_chart_test.cpp` | Chart geometry and the chart paint | [UI Profiler](../features/UI%20Profiler.md) |
 | `editor/tests/profiler_panel_test.cpp` | Profiler view-model with and without frames | [UI Profiler](../features/UI%20Profiler.md) |
 | `editor/tests/project_build_test.cpp` | `ProjectBuild` against a scripted launcher | [Editor](../features/Editor.md) |
+| `launcher/CMakeLists.txt` | `wind_launcher` and `wind_launcher_tests` | [Launcher](../features/Launcher.md) |
+| `launcher/assets/css/launcher.css` | Launcher window style | [Launcher](../features/Launcher.md) |
+| `launcher/assets/css/launcher.css.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `launcher/assets/ui/launcher.xml` | Launcher window: header, Projects, Editors | [Launcher](../features/Launcher.md) |
+| `launcher/assets/ui/launcher.xml.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `launcher/src/launcher_app.cpp` | `LauncherApp`: lists, dialogs, requests, Open | [Launcher](../features/Launcher.md) |
+| `launcher/src/launcher_app.h` | `LauncherApp` | [Launcher](../features/Launcher.md) |
+| `launcher/src/launcher_request.h` | `LauncherRequest` | [Launcher](../features/Launcher.md) |
+| `launcher/src/launcher_state.cpp` | `launcher.txt` parse, format, load, save; remember and forget | [Launcher](../features/Launcher.md) |
+| `launcher/src/launcher_state.h` | `LauncherState` | [Launcher](../features/Launcher.md) |
+| `launcher/src/launcher_view_model.cpp` | Binds the view-model to `launcher.xml` | [Launcher](../features/Launcher.md) |
+| `launcher/src/launcher_view_model.h` | `LauncherViewModel` | [Launcher](../features/Launcher.md) |
+| `launcher/src/main.cpp` | `ENGINE_GAME(launcher::LauncherApp)` | [Launcher](../features/Launcher.md) |
+| `launcher/src/method_command.h` | `MethodCommand`, as in the editor | [Launcher](../features/Launcher.md) |
+| `launcher/src/project_entry.cpp` | Reads one remembered project | [Launcher](../features/Launcher.md) |
+| `launcher/src/project_entry.h` | `ProjectEntry` | [Launcher](../features/Launcher.md) |
+| `launcher/src/project_row_view_model.cpp` | Project row, Open and Remove | [Launcher](../features/Launcher.md) |
+| `launcher/src/project_row_view_model.h` | `ProjectRowViewModel` | [Launcher](../features/Launcher.md) |
+| `launcher/src/sdk_catalog.cpp` | Finds SDKs, version order, the editor command line | [Launcher](../features/Launcher.md) |
+| `launcher/src/sdk_catalog.h` | `SdkEntry`, `find_sdks`, `sdk_for` | [Launcher](../features/Launcher.md) |
+| `launcher/src/sdk_row_view_model.cpp` | Editor row and Forget | [Launcher](../features/Launcher.md) |
+| `launcher/src/sdk_row_view_model.h` | `SdkRowViewModel` | [Launcher](../features/Launcher.md) |
+| `launcher/tests/launcher_test.cpp` | State, SDK catalog, project entries | [Launcher](../features/Launcher.md) |

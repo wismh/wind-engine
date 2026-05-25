@@ -1,0 +1,172 @@
+/* Wind Launcher. The editor's palette (editor/assets/css/editor.css): a header bar, then the project and editor
+   lists. */
+
+Canvas {
+  background: #1e1f22;
+}
+
+.launcher {
+  width: 100%;
+  height: 100%;
+}
+
+/* 56 px tall. .body is calc(100% - 56px). */
+.header {
+  width: 100%;
+  height: 56;
+  padding: 10 16 10 16;
+  gap: 10;
+  align-items: center;
+  background: #2b2d30;
+}
+
+.title {
+  width: 72;
+  font-size: 20;
+  color: #ffffff;
+}
+
+Button {
+  height: 34;
+  padding: 0 16 0 16;
+  border-radius: 6;
+  font-size: 14;
+  color: #dfe1e5;
+  background: #3c3f41;
+  text-align: center;
+  align-items: center;
+}
+
+Button:hover {
+  background: #4b4f53;
+}
+
+Button:pressed {
+  background: #5a5e62;
+}
+
+Button:disabled {
+  color: #6f737a;
+  background: #313335;
+}
+
+Label {
+  font-size: 14;
+  color: #dfe1e5;
+  white-space: nowrap;
+}
+
+.status {
+  padding: 0 0 0 10;
+  font-size: 13;
+  color: #8c9096;
+}
+
+/* Two sections of 24 px and two gaps of 8 px around the lists: 64 px of chrome inside the 16 px padding. */
+.body {
+  width: 100%;
+  height: calc(100% - 56px);
+  padding: 8 16 16 16;
+  gap: 8;
+}
+
+.section {
+  height: 24;
+  font-size: 12;
+  color: #8c9096;
+  align-items: end;
+}
+
+ScrollView.box {
+  width: 100%;
+  padding: 4;
+  background: #2b2d30;
+  border-width: 1;
+  border-color: #393b40;
+  border-radius: 6;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #4e5157 #2b2d30;
+}
+
+ScrollView.projects {
+  height: calc(62% - 48px);
+}
+
+ScrollView.sdks {
+  height: calc(38% - 48px);
+}
+
+ItemsControl.rows {
+  width: 100%;
+}
+
+/* Fixed 48 px rows: the lists are virtualized. */
+.row {
+  width: 100%;
+  height: 48;
+  padding: 0 8 0 10;
+  gap: 10;
+  border-radius: 4;
+  align-items: center;
+}
+
+.row:hover {
+  background: #ffffff0d;
+}
+
+/* A project row: padding 18, engine 130, Open 84, Remove 84, three gaps 30 = 346 px beside the text. */
+.row-text {
+  width: calc(100% - 346px);
+  gap: 2;
+}
+
+/* An editor row: padding 18, version 70, Forget 84, two gaps 20 = 192 px beside the text. */
+.sdk-text {
+  width: calc(100% - 192px);
+  gap: 2;
+}
+
+.name {
+  font-size: 14;
+  color: #dfe1e5;
+}
+
+.path {
+  font-size: 12;
+  color: #8c9096;
+}
+
+/* --tone is red when the project's editor is missing (LauncherApp). */
+.engine {
+  width: 130;
+  font-size: 13;
+  color: var(--tone, #8c9096);
+}
+
+.version {
+  width: 70;
+  font-size: 16;
+  color: #ffffff;
+}
+
+.open-button {
+  width: 84;
+  color: #ffffff;
+  background: #2f7d36;
+}
+
+.open-button:hover {
+  background: #3a9142;
+}
+
+.open-button:disabled {
+  color: #8a8f96;
+  background: #34413a;
+}
+
+.small-button {
+  width: 84;
+  height: 30;
+  font-size: 13;
+}

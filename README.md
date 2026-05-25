@@ -38,6 +38,15 @@ out/sdk/bin/wind_editor.exe --project path/to/my_game --play  # build, then play
 
 Play loads a copy of the module and runs the game in the "Game" window. Stop unloads it, so the game can be rebuilt while the editor stays open. See [Editor](docs/tech/features/Editor.md).
 
+Wind Launcher lists your projects and installed editors and opens a project in the editor of its version ([Launcher](docs/tech/features/Launcher.md)):
+
+```bash
+cmake --preset vs-launcher
+cmake --build build-launcher --config Release
+cmake --install build-launcher --config Release --prefix out/launcher
+out/launcher/bin/wind_launcher.exe
+```
+
 Exported games, web, and Android stay on the static library. See [CMake](docs/tech/build/CMake.md#editor-build).
 
 Games do not keep this repo as a submodule. They find an installed SDK (above). A standalone executable, Web, or Android build adds the SDK's engine source instead, until the editor exports ([Game Consumer](docs/tech/build/Game%20Consumer.md#standalone-executable)):
