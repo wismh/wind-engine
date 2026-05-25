@@ -175,6 +175,83 @@ Button.row {
   background: #00000000;
   white-space: nowrap;
   align-items: center;
+  display: var(--row-display, flex);
+}
+
+TextInput.rename {
+  width: calc(100% - 20px);
+  height: 22;
+  margin: 0;
+  padding: 0 8 0 2;
+  font-size: 13;
+  color: #dfe1e5;
+  background: #1e1f22;
+  border-width: 1;
+  border-color: #3574f0;
+  border-radius: 2;
+  display: var(--rename-display, none);
+}
+
+ContextMenu {
+  padding: 4;
+  background: #2b2d30;
+  border-width: 1;
+  border-color: #43454a;
+  border-radius: 6;
+  gap: 2;
+}
+
+ContextMenu Menu {
+  height: 24;
+  min-width: 180;
+  padding: 0 10 0 10;
+  border-radius: 4;
+  font-size: 13;
+  color: #dfe1e5;
+  background: #00000000;
+  text-align: left;
+  align-items: center;
+}
+
+ContextMenu Menu:hover {
+  background: #3574f0;
+  color: #ffffff;
+}
+
+.menu-popup {
+  padding: 4;
+  background: #2b2d30;
+  border-width: 1;
+  border-color: #43454a;
+  border-radius: 6;
+  gap: 2;
+}
+
+MenuItem {
+  height: 24;
+  min-width: 180;
+  padding: 0 10 0 10;
+  border-radius: 4;
+  font-size: 13;
+  color: #dfe1e5;
+  background: #00000000;
+  align-items: center;
+}
+
+MenuItem:hover {
+  background: #3574f0;
+  color: #ffffff;
+}
+
+MenuItem:disabled {
+  color: #6f737a;
+}
+
+MenuSeparator {
+  height: 1;
+  width: 100%;
+  margin: 3 0 3 0;
+  background: #43454a;
 }
 
 Button.canvas-row {
@@ -223,27 +300,55 @@ ScrollView.sections {
   overflow-x: auto;
 }
 
-.inspector-section {
+/* The scroll view's child must have a width. Without it every `width: 100%` and
+   `calc(100% - …)` inside a section resolves against an indefinite size and becomes 0,
+   so headings and the add row lay out with nothing to paint. */
+.inspector-body {
   width: 100%;
-  padding: 0 0 6 0;
 }
 
-/* The heading toggles the section like its chevron. */
+.inspector-section {
+  width: 100%;
+  margin: 8 0 0 0;
+  padding: 0 0 4 0;
+  background: #23262b;
+  border-width: 1;
+  border-color: #121417;
+}
+
+/* A bar of its own, so the component heading reads apart from the fields under it. */
 .section-head {
   width: 100%;
   height: 22;
+  margin: 0 0 4 0;
+  background: #3a3d44;
 }
 
 Button.section-button {
-  width: calc(100% - 20px);
+  width: calc(100% - 40px);
   height: 22;
   margin: 0;
   padding: 0 8 0 2;
   font-size: 12;
-  color: #8c9096;
+  color: #e6e8eb;
   background: #00000000;
   white-space: nowrap;
   align-items: center;
+}
+
+Button.section-remove {
+  width: 16;
+  height: 16;
+  margin: 3 4 0 0;
+  padding: 0;
+  font-size: 14;
+  color: #8c9096;
+  background: #00000000;
+  display: var(--remove-display, none);
+}
+
+Button.section-remove:hover {
+  color: #ffffff;
 }
 
 Button.section-button:hover {
@@ -253,10 +358,136 @@ Button.section-button:hover {
 /* Fixed 17 px lines, so a long file's lines can be virtualized. */
 .line {
   height: 17;
-  padding: 0 8 0 20;
+  padding: 0 1% 0 4%;
   font-size: 12;
   color: #d5dbe4;
   white-space: nowrap;
+}
+
+/* The label takes its column. Every visible edit box grows into the rest, so one box and
+   a row of boxes end on the same right edge and stay as wide as the row allows. */
+.field-line {
+  width: 100%;
+  height: 22;
+  padding: 0 1% 0 4%;
+  gap: 1%;
+  align-items: center;
+}
+
+Label.field-name {
+  width: 30%;
+  max-width: 108;
+  height: 22;
+  font-size: 12;
+  color: #8c9096;
+  white-space: nowrap;
+  display: var(--name-display, flex);
+}
+
+Label.field-value {
+  height: 22;
+  font-size: 12;
+  color: #d5dbe4;
+  white-space: nowrap;
+  display: var(--text-display, none);
+}
+
+Checkbox.field-check {
+  width: 16;
+  height: 16;
+  margin: 0;
+  padding: 0;
+  background: #1e1f22;
+  border-width: 1;
+  border-color: #5a5e66;
+  border-radius: 3;
+  display: var(--check-display, none);
+}
+
+Checkbox.field-check:hover {
+  border-color: #8c9096;
+}
+
+Checkbox.field-check:checked {
+  background: #2f7d36;
+  border-color: #4fbf5a;
+}
+
+TextInput.field-input {
+  width: 0;
+  flex-grow: 1;
+  height: 18;
+  margin: 0;
+  padding: 0 6;
+  font-size: 12;
+  color: #dfe1e5;
+  background: #1e1f22;
+  border-width: 1;
+  border-color: #43454a;
+  border-radius: 2;
+  text-align: left;
+  align-items: center;
+  display: var(--input-display, none);
+}
+
+TextInput.field-num {
+  width: 0;
+  flex-grow: 1;
+  height: 18;
+  margin: 0;
+  padding: 0 4;
+  font-size: 12;
+  color: #dfe1e5;
+  background: #1e1f22;
+  border-width: 1;
+  border-color: #43454a;
+  border-radius: 2;
+  text-align: center;
+  align-items: center;
+}
+
+TextInput.field-x { display: var(--x-display, none); }
+TextInput.field-y { display: var(--y-display, none); }
+TextInput.field-z { display: var(--z-display, none); }
+TextInput.field-w { display: var(--w-display, none); }
+
+.add-block {
+  width: 100%;
+  padding: 4 1% 8 4%;
+  gap: 2;
+  display: var(--add-display, none);
+}
+
+Button.add-button {
+  width: 100%;
+  height: 22;
+  margin: 0;
+  padding: 0 8;
+  font-size: 12;
+  color: #d5dbe4;
+  background: #00000000;
+  white-space: nowrap;
+  align-items: center;
+}
+
+Button.add-choice {
+  width: 100%;
+  height: 22;
+  margin: 0;
+  padding: 0 8;
+  font-size: 12;
+  color: #d5dbe4;
+  background: #00000000;
+  white-space: nowrap;
+  align-items: center;
+}
+
+Button.add-button:hover {
+  color: #ffffff;
+}
+
+Button.add-choice:hover {
+  color: #ffffff;
 }
 
 /* Right column of the profiler: section 16, chart 160, legend 16, shared 40, four gaps 24 = 256 px. */

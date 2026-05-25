@@ -104,6 +104,48 @@ void press_ctrl(engine::ecs::World& world, engine::KeyCode key) {
     engine::ui::handle_key(world, engine::KeyCode::LCtrl, false);
 }
 
+class NestedFieldVm final : public engine::ui::ViewModel {
+public:
+    engine::ui::Bindable<std::string> value{"1"};
+
+    NestedFieldVm() { property(engine::ui::intern("value"), value); }
+};
+
+class NestedSectionVm final : public engine::ui::ViewModel {
+public:
+    engine::ui::BindableList<std::shared_ptr<NestedFieldVm>> fields;
+
+    NestedSectionVm() { property(engine::ui::intern("fields"), fields); }
+};
+
+class NestedInspectorVm final : public engine::ui::ViewModel {
+public:
+    engine::ui::BindableList<std::shared_ptr<NestedSectionVm>> sections;
+
+    NestedInspectorVm() { property(engine::ui::intern("sections"), sections); }
+};
+
+// The live row, not the ItemTemplate's blueprint.
+engine::ui::Element* find_generated_text_input(engine::ui::Element& element) {
+    if (element.kind == engine::ui::ElementKind::ItemTemplate) {
+        return nullptr;
+    }
+    if (element.kind == engine::ui::ElementKind::TextInput) {
+        return &element;
+    }
+    for (engine::ui::Element& child : element.children) {
+        if (engine::ui::Element* found = find_generated_text_input(child)) {
+            return found;
+        }
+    }
+    for (engine::ui::Element& child : element.generated_items) {
+        if (engine::ui::Element* found = find_generated_text_input(child)) {
+            return found;
+        }
+    }
+    return nullptr;
+}
+
 }
 
 TEST(UiTextInput, ParseXmlTag) {
@@ -1326,4 +1368,93 @@ TEST(UiTextInput, CompositionPaintsTextAndUnderline) {
     }
     EXPECT_TRUE(saw_preedit);
     EXPECT_TRUE(painted_horizontal_line(painter));
+}
+
+TEST(UiTextInput, NestedItemsControlWritesTheInnerItem) {
+    auto field = std::make_shared<NestedFieldVm>();
+    auto section = std::make_shared<NestedSectionVm>();
+    section->fields.set({field});
+    auto vm = std::make_shared<NestedInspectorVm>();
+    vm->sections.set({section});
+
+    auto parsed = engine::ui::parse_xml(
+            R"(<Canvas width="300" height="200">
+                <ItemsControl items_source="{binding sections}" width="300" height="80">
+                  <ItemTemplate>
+                    <Stack direction="vertical" width="300" height="40">
+                      <ItemsControl items_source="{binding fields}" width="300" height="24">
+                        <ItemTemplate>
+                          <Stack direction="horizontal" width="300" height="24">
+                            <TextInput text="{binding value}" width="80" height="20"/>
+                          </Stack>
+                        </ItemTemplate>
+                      </ItemsControl>
+                    </Stack>
+                  </ItemTemplate>
+                </ItemsControl>
+              </Canvas>)",
+            nullptr, vm.get());
+    ASSERT_TRUE(parsed.has_value());
+
+    engine::ecs::World world;
+    engine::ui::UiCanvas canvas;
+    canvas.rect = {0.0f, 0.0f, 300.0f, 200.0f};
+    canvas.fit = engine::ui::UiFit::Fixed;
+    canvas.data_context = vm;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+    world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{*parsed, test_sheet()});
+
+    engine::ui::UiInstance& instance = world.get<engine::ui::UiInstance>(entity);
+    ASSERT_TRUE(instance.stylesheet.has_value());
+    ASSERT_TRUE(engine::ui::apply_bindings(instance.document, *vm).has_value());
+    (void) engine::ui::sync_layout(instance.document, &*instance.stylesheet, nullptr,
+                                   engine::render::Rect{0.0f, 0.0f, 300.0f, 200.0f}, 300.0f, 200.0f);
+    engine::ui::Element* input = find_generated_text_input(instance.document.root);
+    ASSERT_NE(input, nullptr);
+    EXPECT_EQ(input->generated_owner, field.get());
+    EXPECT_EQ(input->text, "1");
+    ASSERT_GT(input->layout_rect.w, 0.0f);
+
+    const float x = input->layout_rect.x + input->layout_rect.w * 0.5f;
+    const float y = input->layout_rect.y + input->layout_rect.h * 0.5f;
+    engine::ui::handle_pointer(world, x, y);
+    ASSERT_EQ(engine::ui::focused_element(world), input);
+
+    engine::ui::handle_text_input(world, "2");
+    EXPECT_EQ(input->text, "12");
+    EXPECT_EQ(field->value.get(), "12");
+
+    ASSERT_TRUE(engine::ui::apply_bindings(instance.document, *vm).has_value());
+    input = find_generated_text_input(instance.document.root);
+    ASSERT_NE(input, nullptr);
+    EXPECT_EQ(input->text, "12");
+    EXPECT_EQ(engine::ui::focused_element(world), input);
+}
+
+TEST(UiTextInput, CenteredTextStoresTheGlyphLeft) {
+    CardViewModel vm;
+    vm.word.set("ab");
+    auto parsed = engine::ui::parse_xml(
+            R"(<Canvas width="200" height="80"><TextInput id="word" text="{binding word}" width="100" height="30"/></Canvas>)",
+            nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    std::vector<std::string> warnings;
+    auto sheet = engine::ui::parse_css(
+            "TextInput { width: 100; height: 30; padding: 0; font-size: 10; text-align: center; align-items: center; }",
+            warnings);
+    ASSERT_TRUE(sheet.has_value());
+
+    engine::ui::UiDocument document = std::move(*parsed);
+    ASSERT_TRUE(engine::ui::apply_bindings(document, vm).has_value());
+    FakePainter painter;
+    engine::ui::paint_document(document, &*sheet, painter,
+                               engine::ui::UiPaintInput{.canvas_rect = {0.0f, 0.0f, 200.0f, 80.0f}});
+    engine::ui::Element* input = engine::ui::find_by_kind(document.root, engine::ui::ElementKind::TextInput);
+    ASSERT_NE(input, nullptr);
+    // "ab" at 10px measures 10 wide (FakePainter: length * size * 0.5). Centered in a 100px box, the
+    // glyphs start at 45, not at the content center the caret used to treat as the left edge.
+    const float text_w = painter.measure_text("ab", input->font_family, input->painted_font_size_px).x;
+    EXPECT_FLOAT_EQ(text_w, 10.0f);
+    EXPECT_FLOAT_EQ(input->painted_content_origin_x, input->layout_rect.x + (input->layout_rect.w - text_w) * 0.5f);
 }
