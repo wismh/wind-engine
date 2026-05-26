@@ -857,14 +857,23 @@ namespace engine::ui {
             return std::string_view::npos;
         }
 
+        const std::string *environment_value(const Stylesheet *sheet, const std::string &name) {
+            if (sheet == nullptr) {
+                return nullptr;
+            }
+            const auto found = sheet->environment.find(name);
+            return found == sheet->environment.end() ? nullptr : &found->second;
+        }
+
         // Replaces every `var(--name)` and `var(--name, fallback)` in `value`, wherever it sits (inside
         // calc(), one inset of a padding, a fallback). Element::custom_properties (per-instance, refreshed
         // every frame from a `var-<name>="{binding}"` XML attribute in bind_element) wins over
         // ComputedStyle::custom_properties (cascaded `--name: value;` declarations), the way an inline
-        // override beats a class rule. A substituted value is resolved again, up to kMaxVarNesting deep.
+        // override beats a class rule. Then the host's `Stylesheet::environment`, then the fallback. A substituted
+        // value is resolved again, up to kMaxVarNesting deep.
         // Nullopt when a reference has no value and no fallback, is malformed, or nests too deep.
         std::optional<std::string> substitute_vars(std::string_view value, const Element &element,
-                                                   const ComputedStyle &style, int nesting) {
+                                                   const ComputedStyle &style, const Stylesheet *sheet, int nesting) {
             if (nesting > kMaxVarNesting) {
                 return std::nullopt;
             }
@@ -897,13 +906,15 @@ namespace engine::ui {
                 } else if (const auto cascaded = style.custom_properties.find(name);
                            cascaded != style.custom_properties.end()) {
                     found = cascaded->second;
+                } else if (const std::string *host = environment_value(sheet, name)) {
+                    found = *host;
                 } else if (comma != std::string_view::npos) {
                     found = trim(inner.substr(comma + 1));
                 }
                 if (!found) {
                     return std::nullopt;
                 }
-                std::optional<std::string> resolved = substitute_vars(*found, element, style, nesting + 1);
+                std::optional<std::string> resolved = substitute_vars(*found, element, style, sheet, nesting + 1);
                 if (!resolved) {
                     return std::nullopt;
                 }
@@ -914,11 +925,12 @@ namespace engine::ui {
 
         // An unresolved reference resolves the whole value to empty, the same graceful no-op every
         // apply_declaration parser already falls back to on invalid input.
-        CssDeclaration resolve_var(const CssDeclaration &decl, const Element &element, const ComputedStyle &style) {
+        CssDeclaration resolve_var(const CssDeclaration &decl, const Element &element, const ComputedStyle &style,
+                                   const Stylesheet *sheet) {
             if (!css_length::contains_var(decl.value)) {
                 return decl;
             }
-            std::optional<std::string> value = substitute_vars(decl.value, element, style, 0);
+            std::optional<std::string> value = substitute_vars(decl.value, element, style, sheet, 0);
             return CssDeclaration{decl.property, value ? std::move(*value) : std::string{}};
         }
 
@@ -1015,7 +1027,7 @@ namespace engine::ui {
                         style.custom_properties[decl.property.substr(2)] = decl.value;
                         continue;
                     }
-                    apply_declaration(style, resolve_var(decl, element, style));
+                    apply_declaration(style, resolve_var(decl, element, style, sheet));
                 }
             }
             return style;
