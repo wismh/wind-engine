@@ -1,8 +1,10 @@
 #include <engine/core/job_system.h>
 
 #include <algorithm>
+#include <atomic>
 #include <condition_variable>
-#include <deque>
+#include <cstdint>
+#include <memory>
 #include <mutex>
 #include <thread>
 #include <utility>
@@ -51,13 +53,23 @@ struct JobSystem::Impl {
         std::size_t end = 0;
     };
 
+    // One `parallel_for`. Workers and the caller claim ranges with `next`. `left` hits zero only after
+    // every claimed range has returned, which is what the caller waits for. The shared_ptr keeps the
+    // batch alive while a worker is still leaving `participate` after that wait.
+    struct Batch {
+        std::vector<Range> ranges;
+        void* context = nullptr;
+        RangeFn fn = nullptr;
+        std::atomic<std::size_t> next{0};
+        std::atomic<std::size_t> left{0};
+        std::mutex done_mutex;
+        std::condition_variable done;
+    };
+
     std::mutex mutex;
     std::condition_variable wake;
-    std::condition_variable done;
-    std::deque<Range> queue;
-    std::size_t pending = 0;
-    void* context = nullptr;
-    RangeFn fn = nullptr;
+    std::shared_ptr<Batch> batch;
+    std::uint64_t published = 0;
     bool stopping = false;
     int workers = 0;
     std::vector<std::thread> threads;
@@ -79,30 +91,43 @@ struct JobSystem::Impl {
         }
         threads.clear();
         workers = 0;
+        batch.reset();
         stopping = false;
     }
 
-    void run() {
-        std::unique_lock lock(mutex);
+    static void participate(const std::shared_ptr<Batch>& job) {
         for (;;) {
-            wake.wait(lock, [&] { return stopping || !queue.empty(); });
-            if (queue.empty()) {
+            const std::size_t index = job->next.fetch_add(1, std::memory_order_relaxed);
+            if (index >= job->ranges.size()) {
                 return;
             }
-            const Range range = queue.front();
-            queue.pop_front();
-            void* call_context = context;
-            const RangeFn call = fn;
-            lock.unlock();
+            const Range range = job->ranges[index];
             {
                 const DepthGuard guard;
-                call(call_context, range.begin, range.end);
+                job->fn(job->context, range.begin, range.end);
+            }
+            if (job->left.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+                const std::lock_guard lock(job->done_mutex);
+                job->done.notify_one();
+            }
+        }
+    }
+
+    void run() {
+        std::uint64_t seen = 0;
+        std::unique_lock lock(mutex);
+        for (;;) {
+            wake.wait(lock, [&] { return stopping || published != seen; });
+            if (published == seen) {
+                return;
+            }
+            seen = published;
+            const std::shared_ptr<Batch> job = batch;
+            lock.unlock();
+            if (job) {
+                participate(job);
             }
             lock.lock();
-            --pending;
-            if (pending == 0) {
-                done.notify_one();
-            }
         }
     }
 };
@@ -112,7 +137,10 @@ JobSystem::JobSystem(int workers) : impl_(std::make_unique<Impl>()) {
     impl_->workers = count;
     impl_->threads.reserve(static_cast<std::size_t>(count));
     for (int i = 0; i < count; ++i) {
-        impl_->threads.emplace_back([this] { impl_->run(); });
+        impl_->threads.emplace_back([this] {
+            g_job_depth = 0;
+            impl_->run();
+        });
     }
 }
 
@@ -132,13 +160,10 @@ void JobSystem::parallel_for_impl(std::size_t count, std::size_t grain, void* co
     }
     const std::size_t span = (grain == 0 || grain > count) ? count : grain;
 
-    auto call = [&](std::size_t begin, std::size_t end) {
-        const DepthGuard guard;
-        fn(context, begin, end);
-    };
     auto run_here = [&] {
         for (std::size_t begin = 0; begin < count; begin += span) {
-            call(begin, std::min(begin + span, count));
+            const DepthGuard guard;
+            fn(context, begin, std::min(begin + span, count));
         }
     };
 
@@ -147,58 +172,46 @@ void JobSystem::parallel_for_impl(std::size_t count, std::size_t grain, void* co
         return;
     }
 
-    std::vector<Impl::Range> ranges;
+    auto job = std::make_shared<Impl::Batch>();
     for (std::size_t begin = 0; begin < count; begin += span) {
-        ranges.push_back(Impl::Range{.begin = begin, .end = std::min(begin + span, count)});
+        job->ranges.push_back(Impl::Range{.begin = begin, .end = std::min(begin + span, count)});
     }
-    if (ranges.size() <= 1) {
+    if (job->ranges.size() <= 1) {
         run_here();
         return;
     }
+    job->context = context;
+    job->fn = fn;
+    // The caller owns the first range. Workers claim the rest.
+    job->next.store(1, std::memory_order_relaxed);
+    job->left.store(job->ranges.size(), std::memory_order_relaxed);
 
     {
         const std::lock_guard lock(impl_->mutex);
-        impl_->context = context;
-        impl_->fn = fn;
-        impl_->pending = ranges.size();
-        impl_->queue.clear();
-        for (std::size_t i = 1; i < ranges.size(); ++i) {
-            impl_->queue.push_back(ranges[i]);
-        }
+        impl_->batch = job;
+        ++impl_->published;
     }
     impl_->wake.notify_all();
 
-    call(ranges[0].begin, ranges[0].end);
+    {
+        const DepthGuard guard;
+        fn(context, job->ranges[0].begin, job->ranges[0].end);
+    }
+    if (job->left.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        const std::lock_guard lock(job->done_mutex);
+        job->done.notify_one();
+    }
+    Impl::participate(job);
+    {
+        std::unique_lock lock(job->done_mutex);
+        job->done.wait(lock, [&] { return job->left.load(std::memory_order_acquire) == 0; });
+    }
     {
         const std::lock_guard lock(impl_->mutex);
-        --impl_->pending;
-        if (impl_->pending == 0) {
-            impl_->done.notify_one();
+        if (impl_->batch == job) {
+            impl_->batch.reset();
         }
     }
-
-    for (;;) {
-        Impl::Range range;
-        {
-            const std::lock_guard lock(impl_->mutex);
-            if (impl_->queue.empty()) {
-                break;
-            }
-            range = impl_->queue.front();
-            impl_->queue.pop_front();
-        }
-        call(range.begin, range.end);
-        const std::lock_guard lock(impl_->mutex);
-        --impl_->pending;
-        if (impl_->pending == 0) {
-            impl_->done.notify_one();
-        }
-    }
-
-    std::unique_lock lock(impl_->mutex);
-    impl_->done.wait(lock, [&] { return impl_->pending == 0; });
-    impl_->context = nullptr;
-    impl_->fn = nullptr;
 }
 
 }

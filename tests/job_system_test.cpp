@@ -19,17 +19,14 @@ namespace {
 }
 
 void expect_each_index_once(engine::JobSystem& jobs, std::size_t count, std::size_t grain) {
-    std::vector<std::atomic<int>> hits(count);
-    for (std::atomic<int>& hit : hits) {
-        hit.store(0);
-    }
+    std::vector<int> hits(count, 0);
     jobs.parallel_for(count, grain, [&](std::size_t begin, std::size_t end) {
         for (std::size_t i = begin; i < end; ++i) {
-            hits[i].fetch_add(1);
+            std::atomic_ref<int>(hits[i]).fetch_add(1, std::memory_order_relaxed);
         }
     });
-    for (const std::atomic<int>& hit : hits) {
-        EXPECT_EQ(hit.load(), 1);
+    for (const int hit : hits) {
+        EXPECT_EQ(hit, 1);
     }
 }
 
@@ -76,7 +73,9 @@ TEST(JobSystem, TwoWorkersVisitEachIndexOnce) {
 #if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
     EXPECT_EQ(jobs.worker_count(), 2);
 #endif
-    expect_each_index_once(jobs, 100, 7);
+    for (int pass = 0; pass < 8; ++pass) {
+        expect_each_index_once(jobs, 100, 7);
+    }
 }
 
 TEST(JobSystem, CallerRunsTheFirstRangeAndAWorkerRunsAnother) {
