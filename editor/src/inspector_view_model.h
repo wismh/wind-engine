@@ -1,8 +1,10 @@
 #pragma once
 
+#include "inspector_field_view_model.h"
 #include "inspector_section_view_model.h"
 
 #include <engine/ui/bindable.h>
+#include <engine/ui/command.h>
 #include <engine/ui/view_model.h>
 
 #include <memory>
@@ -20,6 +22,10 @@ public:
     // What kind of thing it is, or how to select something.
     engine::ui::Bindable<std::string> subtitle;
     engine::ui::BindableList<std::shared_ptr<InspectorSectionViewModel>> sections;
+    // "flex" while an entity is open in Edit Mode.
+    engine::ui::Bindable<std::string> addDisplay{std::string("none")};
+    engine::ui::MethodCommand toggleAdd;
+    engine::ui::BindableList<std::shared_ptr<InspectorAddViewModel>> addables;
 };
 
 }

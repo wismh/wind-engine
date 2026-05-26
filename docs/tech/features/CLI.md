@@ -89,7 +89,7 @@ The JSON body is `{"command":"…"}` plus optional `selector`, `window`, `canvas
 - `bindings`: attribute names, not paths. Only a set binding is listed
 - `rules[]`: `selector`, `specificity`, `winner`, `declarations` as `{property,value}`. The last rule has `"winner":true`
 
-`write_rules` calls `match_style_rules` with `window_size_for` (`Presentation.sizes` for that window). Paint fills `style_cache_paint_` with `reference_size` when the canvas is `ScaleWithScreenSize` and both sides are positive. On that canvas, `winner` can be a different `@media` rule than the one that produced `computed`.
+`write_rules` calls `match_style_rules` with `media_size` of that canvas, the same box paint uses for `@media`.
 
 When `computed` is an object, `write_element` (`src/cli/cli_commands.cpp`) writes:
 

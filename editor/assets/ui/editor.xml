@@ -13,8 +13,8 @@
             <MenuItem text="Exit" command="{binding closeWindow}" shortcut="Alt+F4"/>
           </Menu>
           <Menu text="Edit">
-            <MenuItem text="Undo" shortcut="Ctrl+Z"/>
-            <MenuItem text="Redo" shortcut="Ctrl+Y"/>
+            <MenuItem text="Undo" shortcut="Ctrl+Z" command="{binding undo}"/>
+            <MenuItem text="Redo" shortcut="Ctrl+Y" command="{binding redo}"/>
           </Menu>
           <Menu text="Window">
             <MenuItem text="Toggle Play" command="{binding togglePlay}" shortcut="F5"/>

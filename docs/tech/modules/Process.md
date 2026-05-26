@@ -22,7 +22,6 @@ Other programs started from the engine. The editor runs CMake through it to buil
 build_ = services.processes.run({
         .program = "cmake",
         .arguments = {"--build", build_dir, "--config", "DebugGame"},
-        .environment = {{"VSLANG", "1033"}},
 });
 
 for (std::string& line : build_.take_output()) {
@@ -40,7 +39,7 @@ if (std::optional<engine::ProcessResult> result = build_.take()) {
 - `take_output()` returns the lines that arrived since the last call. The poll that brings the result also brings every line before it, and lines not taken stay after `take()`.
 - `take()` hands the result once. `pending()` is true from `run` until the result arrives or the call is cancelled.
 - `cancel()`, destroying a pending call, or move-assigning over it ends the program and every process it started. No line or result arrives afterwards. The processes end in the next poll.
-- When the program exits, the processes it left running are ended too (a `start /b` child, an MSBuild node), so they cannot hold the call open and nothing a build started outlives it.
+- When the program exits, the processes it left running are ended too, so they cannot hold the call open and nothing a build started outlives it.
 - An error that kept the program from starting answers on the next poll, so there is one path for every outcome.
 - `dispose` ends every program a call still owns and leaves those calls empty. `EngineHost` disposes the launcher with the other services.
 - `launch` starts an independent program: no call, no output, no console, no inherited handle, not ended by `dispose`. It tries to leave the job this process runs in (a debugger's, a terminal's) so the program outlives it, and starts inside that job when the job does not allow leaving.

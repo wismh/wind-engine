@@ -62,6 +62,13 @@ struct UiCanvasSpace {
 
 [[nodiscard]] UiCanvasSpace canvas_layout_space(const render::Rect& rect, UiFit fit, glm::vec2 reference_size);
 
+// The width and height `@media` is tested against: `layout_rect`. A Fixed canvas (a docked or floating
+// panel) contributes its own rect. FillWindow's rect is the window. ScaleWithScreenSize contributes
+// the design box when both `reference_size` sides are positive.
+[[nodiscard]] inline glm::vec2 media_size(const UiCanvasSpace& space) {
+    return {space.layout_rect.w, space.layout_rect.h};
+}
+
 // Window pixels of a TextInput border box, and the caret's x offset from `rect.x`.
 struct TextInputScreenArea {
     render::Rect rect{};

@@ -34,6 +34,8 @@ class IGraphicFactory;
 
 namespace editor {
 
+class CommandHistory;
+
 enum class GizmoAxis : std::uint8_t {
     None,
     X,
@@ -113,8 +115,23 @@ public:
     [[nodiscard]] glm::mat4 camera_world_matrix() const;
 
     bool save_world();
+    // A project file moved. When the open world is that file, or lives inside a moved folder, later saves use the
+    // new path. Unsaved edits in the world stay.
+    void retarget_open_file(const std::filesystem::path& project, std::string_view from_key, std::string_view to_key);
+    // The open world was deleted, or lived in a deleted folder. Drops it; unsaved edits go with it.
+    void release_deleted_file(const std::filesystem::path& project, std::string_view deleted_key);
     [[nodiscard]] bool is_dirty() const noexcept { return is_dirty_; }
-    void mark_dirty() noexcept { is_dirty_ = true; }
+    void mark_dirty() noexcept { mark_scene_dirty(); }
+    [[nodiscard]] engine::AssetsDb* assets() const noexcept { return assets_; }
+
+    // Entity steps on the shared undo stack, including a finished gizmo drag. `saved` catches up in `save_world`.
+    void sync_entity_dirty(int entity_steps);
+    // Gizmo drags push onto this history when the button goes up. The same stack as inspector edits.
+    void set_journal(CommandHistory* journal, std::function<void()> on_history);
+    // Closes an in-progress gizmo drag as one undo step. Undo and redo call this first.
+    void finish_gizmo_drag();
+    // The open world is about to be replaced. Drops nothing itself: the hook discards entity steps first.
+    void set_edit_reset_hook(std::function<void()> hook);
 
     [[nodiscard]] GizmoMode gizmo_mode() const noexcept { return gizmo_mode_; }
     [[nodiscard]] GizmoAxis active_gizmo_axis() const noexcept { return gizmo_drag_axis_; }
@@ -125,6 +142,11 @@ public:
     [[nodiscard]] float gizmo_scale() const noexcept { return gizmo_scale_; }
 
 private:
+    void mark_scene_dirty() noexcept;
+    void begin_gizmo_command(engine::ecs::Entity entity);
+    void note_gizmo_edit() noexcept;
+    void release_drag_cursor(engine::ecs::World& editor_world);
+    void drop_edit_history();
     void set_default_camera();
     void init_camera_from_scene();
     void update_projection_label();
@@ -173,6 +195,17 @@ private:
     bool held_e_ = false;
     bool held_ctrl_ = false;
     bool is_dirty_ = false;
+    bool scene_dirty_ = false;
+    bool gizmo_drag_dirty_ = false;
+    int entity_steps_ = 0;
+    int saved_entity_steps_ = 0;
+    CommandHistory* journal_ = nullptr;
+    std::function<void()> on_history_;
+    std::function<void()> edit_reset_;
+    bool gizmo_command_open_ = false;
+    engine::ecs::Entity gizmo_command_entity_{};
+    engine::ecs::FieldTable gizmo_command_before_;
+    bool reset_drag_cursor_ = false;
 
     GizmoMode gizmo_mode_ = GizmoMode::Translate;
     GizmoAxis gizmo_hovered_ = GizmoAxis::None;

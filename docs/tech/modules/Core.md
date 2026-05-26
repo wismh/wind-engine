@@ -36,18 +36,19 @@ ENGINE_GAME(game::Game)
 | Build | `ENGINE_GAME(GameClass)` expands to |
 | --- | --- |
 | Exported (no `ENGINE_GAME_MODULE`) | `int main()` that runs `Engine<GameClass>::init` and `run`. Android aliases `SDL_main` to it at link time |
-| Editor module (`ENGINE_GAME_MODULE`, set by `engine_add_game` in SDK mode or under `ENGINE_EDITOR`) | on MSVC an `#error` when `_DEBUG` or `_ITERATOR_DEBUG_LEVEL` differs from the engine's (`ENGINE_BUILD_DEBUG_CRT`, `ENGINE_BUILD_ITERATOR_DEBUG_LEVEL` in `<engine/build_id.h>`, see [CMake](../build/CMake.md#crt-guard)), a `static_assert` on `EngineGame`, then four `extern "C"` exports |
+| Editor module (`ENGINE_GAME_MODULE`, set by `engine_add_game` in SDK mode or under `ENGINE_EDITOR`) | on MSVC an `#error` when `_DEBUG` or `_ITERATOR_DEBUG_LEVEL` differs from the engine's (`ENGINE_BUILD_DEBUG_CRT`, `ENGINE_BUILD_ITERATOR_DEBUG_LEVEL` in `<engine/build_id.h>`, see [CMake](../build/CMake.md#crt-guard)), a `static_assert` on `EngineGame`, then five `extern "C"` exports |
 
 The module exports (`include/engine/core/game_module.h`):
 
 | Symbol | Type | Body |
 | --- | --- | --- |
-| `wind_create_game` | `CreateGameFn`: `IGame* (*)(const EngineServices&)` | `new GameClass(services)` plus `assets::register_game_components` on `game->world().ctx<ecs::WorldSerializer>()` when `<component_io.h>` is present |
+| `wind_create_game` | `CreateGameFn`: `IGame* (*)(const EngineServices&)` | `new GameClass(services)` plus `assets::register_game_components` on `game->world().ctx<ecs::WorldSerializer>()` and `assets::register_game_objects(services.assets)` when `<component_io.h>` is present |
 | `wind_destroy_game` | `DestroyGameFn`: `void (*)(IGame*)` | `delete game` |
 | `wind_game_build_id` | `GameBuildIdFn`: `const char* (*)()` | `kBuildIdCStr`, baked when the game compiles |
 | `wind_register_game_components` | `RegisterGameComponentsFn`: `void (*)(ecs::WorldSerializer&)` | `assets::register_game_components(serializer)` when `<component_io.h>` is present (no-op otherwise) |
+| `wind_register_game_objects` | `RegisterGameObjectsFn`: `void (*)(AssetsDb&)` | `assets::register_game_objects(assets)` when `<component_io.h>` is present (no-op otherwise). Edit Mode calls this because it does not call `wind_create_game` |
 
-`kCreateGameSymbol`, `kDestroyGameSymbol`, `kGameBuildIdSymbol`, and `kRegisterGameComponentsSymbol` hold the names for a loader. `ENGINE_GAME_EXPORT` is `extern "C" __declspec(dllexport)` on Windows and `extern "C"` with default visibility elsewhere. `wind_game_build_id` does not call `engine::build_id()`: inside the editor that reaches the editor's `engine.dll` and always matches.
+`kCreateGameSymbol`, `kDestroyGameSymbol`, `kGameBuildIdSymbol`, `kRegisterGameComponentsSymbol`, and `kRegisterGameObjectsSymbol` hold the names for a loader. `ENGINE_GAME_EXPORT` is `extern "C" __declspec(dllexport)` on Windows and `extern "C"` with default visibility elsewhere. `wind_game_build_id` does not call `engine::build_id()`: inside the editor that reaches the editor's `engine.dll` and always matches.
 
 ## Game module loader
 
@@ -58,18 +59,18 @@ Same header, window builds only (`src/core/game_module.cpp`, SDL `SDL_LoadObject
 1. `module` must be a regular file, else `ModuleError::Missing`.
 2. It creates the first free `<live_root>/<n>/` (n = 1, 2, ...) and copies the module there, plus the `.pdb` beside it when there is one. A failed module copy is `CopyFailed`. A failed `.pdb` copy only warns.
 3. It loads the copy. Failure is `LoadFailed` with `SDL_GetError()`.
-4. It resolves the required exports (`wind_create_game`, `wind_destroy_game`, `wind_game_build_id`) and optional `wind_register_game_components`. A missing required export is `MissingSymbol` with its name.
+4. It resolves the required exports (`wind_create_game`, `wind_destroy_game`, `wind_game_build_id`) and optional `wind_register_game_components` and `wind_register_game_objects`. A missing required export is `MissingSymbol` with its name. A missing optional export is not an error.
 5. It compares `wind_game_build_id()` with `engine::build_id()`. A difference is `BuildIdMismatch` with both ids.
 
 Any failure unloads the copy and deletes its directory. `GameModuleError` is the `ModuleError` plus a detail string. `to_string(ModuleError)` and `describe(error)` give one line for a status bar.
 
-`GameModule` is move-only. `create(services)` and `destroy(game)` call the lifecycle exports; `register_components(serializer)` invokes `wind_register_game_components` when present (`has_component_registration()`). `build_id()`, `source_path()`, and `live_path()` describe the load. The destructor unloads the copy and deletes its directory. Nothing the game built (including `WorldSerializer` entries registered from the module) may outlive it: destroy the game's worlds, serializers, and the game first.
+`GameModule` is move-only. `create(services)` and `destroy(game)` call the lifecycle exports; `register_components(serializer)` invokes `wind_register_game_components` when present (`has_component_registration()`); `register_objects(assets)` invokes `wind_register_game_objects` when present (`has_object_registration()`). `build_id()`, `source_path()`, and `live_path()` describe the load. The destructor unloads the copy and deletes its directory. Nothing the game built (including `WorldSerializer` entries and `AssetsDb` object loaders registered from the module) may outlive it: destroy the game's worlds, clear object loaders, reset serializers, and destroy the game first.
 
 `purge_game_module_copies(live_root)` deletes every directory under `live_root` and returns how many went away. A copy another process still has loaded stays.
 
 ## `EngineHost`
 
-`include/engine/core/engine_host.h`, `src/core/engine_host.cpp`. Window builds only. It owns `EngineRuntime`, `SdlFatalError`, `AssetsDb`, `InputSystem`, `AudioSystem`, `HapticsSystem`, `HttpClient`, `ProcessLauncher` ([Process](Process.md)), and `Worlds`. `Engine<GameT>` sits on it. The editor ([Editor](../features/Editor.md)) sits on it too.
+`include/engine/core/engine_host.h`, `src/core/engine_host.cpp`. Window builds only. It owns `EngineRuntime`, `SdlFatalError`, `AssetsDb`, `InputSystem`, `AudioSystem`, `HapticsSystem`, `HttpClient`, `ProcessLauncher`, `JobSystem` ([Jobs](#jobs)), and `Worlds`. `Engine<GameT>` sits on it. The editor ([Editor](../features/Editor.md)) sits on it too.
 
 | Call | Does |
 | --- | --- |
@@ -83,7 +84,7 @@ Any failure unloads the copy and deletes its directory. `GameModuleError` is the
 | `attach_game(game)` | window icon, `bind_window(kPrimaryWindow)`, `enable_ui`, `enable_audio`, publish the window size with a resize event, `ui::apply_canvas_fit` |
 | `detach_game()` | the window half of undoing `attach_game`: `unbind_window(kPrimaryWindow)`, clear its command buffer, reset its UI painter and register `builtin::font_ui` again, clear its drag region and click-through, overlay mode back to `Auto`, `ApplicationState::paused` false. The editor calls it on Stop |
 | `run(hooks)` | `EngineRuntime::run` with `RunHooks` and the `HttpClient` and `ProcessLauncher` the loop polls, then `dispose`. Returns 1 before a successful `open_primary` |
-| `dispose()` | disposes audio, haptics, HTTP, and the process launcher (ending the programs its calls still own) and shuts the runtime down. Also run by the destructor. A second call is a no-op |
+| `dispose()` | stops the job pool, disposes audio, haptics, HTTP, and the process launcher (ending the programs its calls still own) and shuts the runtime down. Also run by the destructor. A second call is a no-op |
 
 `set_deps` registers simulation systems on worlds that already exist and on every later `Worlds::add`. `enable_ui` and `enable_audio` add the rest. Each registration is guarded by its `ctx` flag, so a world never gets a system twice, whether it was added before or after `set_deps`.
 
@@ -94,6 +95,16 @@ Any failure unloads the copy and deletes its directory. `GameModuleError` is the
 `EngineError` (`include/engine/core/engine_error.h`, header only, all builds) names why the engine could not start: `VideoInit`, `WindowCreate`, `AudioInit`, `HapticsInit`, `AssetsRoot`, `EngineCatalog`, `UiFont`, `GameCatalog`. `to_string(error)` is the enumerator name (logs, tests), `message(error)` the sentence for the dialog. A startup failure is returned, never reported where it happens: `EngineHost::init`, `open_primary`, and `Engine<GameT>::init` show nothing and exit nothing, and each failure after `init` disposes the host first. The entry point is the one place that tells the user. `report_startup_error(error)` (declared in `engine_host.h`) logs the name and shows `message(error)` through a fresh `SdlFatalError`, so it also works for `VideoInit`, when the host has no fatal hook yet. `ENGINE_GAME`, the bench `main`, and `EditorApp::start` call it; a failure that belongs to one entry (the editor's missing project or its own catalog) calls its `IFatalError` directly. The detail of a `MetaError` from the game catalog is not part of the error. `EngineHost` and `EngineRuntime` have a constructor taking an `IPresentation` so a test can stand in for SDL.
 
 `SplashScreen` lives on this header (enabled, `builtin::splash_wind`, fade 0.4s, hold 1.0s, fade 0.4s). `IGame` has no splash method. A game calls `ui::show_splash`. See [UI](UI.md).
+
+## Jobs
+
+`JobSystem` (`include/engine/core/job_system.h`, `src/core/job_system.cpp`) is a fork-join pool. The owner thread calls `parallel_for(count, grain, fn)` and the call returns only after every index in `[0, count)` has been passed to `fn` once, in half-open ranges of at most `grain` (`grain` 0 is one range covering `count`). The caller runs ranges too: with more than one range it runs the first, then takes more while it waits. A `parallel_for` made from inside a running range runs on that same thread.
+
+`fn` must not throw and must not call engine APIs. It may read what the caller shares and write disjoint indices of a buffer the caller owns.
+
+`JobSystem(0)` runs every range on the caller. The default constructor uses `hardware_concurrency - 1` workers, or none when the machine has one core. Web without pthreads always has none: the same calls run on the caller, and `std::thread` is not started. `stop` joins the workers; a later `parallel_for` runs on the caller. `EngineHost::dispose` stops the pool before it tears the other services down. `Host` owns a `JobSystem(0)` and passes it through `set_deps`, so `engine_tests` exercise the same call and stay on the caller.
+
+`run_particles` is the caller. It hands `EngineSystemDeps::jobs` to `update_emitter`. Integration of the live particles forks when a pool is passed; spawn stays on the caller, and dead particles are dropped after the join. See [Render](Render.md#sprites-animation-particles-curves).
 
 ## Time
 
@@ -171,6 +182,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 | `commands` and `commands_for_window` both unset | `run_render` and `run_ui_render` are not registered |
 | `assets` | the document-clone and stylesheet-merge systems are not registered. `run_bind` still binds whatever `UiInstance` a canvas already has |
 | `assets` or `audio` | `run_audio` is not registered, so `PlaySfxEvent` and `PlayMusicEvent` are never read and nothing reports (the headless contract) |
+| `jobs` | `run_particles` integrates on the caller |
 
 `AudioSystemsRegistered` is set by `register_audio_systems` even when no audio system was added; a second call with other deps does not add one. `run_stylesheets` warns once per world and `AssetId` about a stylesheet missing from the catalog, and looks it up again each frame because a catalog loaded later can supply it.
 
@@ -182,7 +194,8 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 | --- | --- |
 | `src/core/build_info.cpp` | `build_id()` returns `kBuildId` as compiled into `engine` |
 | `src/core/fixed_step.cpp` | accumulator |
-| `src/core/host.cpp` | fake-canvas host |
+| `src/core/host.cpp` | fake-canvas host. Owns a `JobSystem` with no workers |
+| `src/core/job_system.cpp` | Fork-join pool |
 | `src/core/input_system.cpp` | bind table and event enqueue |
 | `src/core/log.cpp` | spdlog |
 | `src/core/platform.cpp` | paths, staging, `executable_directory`, `user_data_directory` |

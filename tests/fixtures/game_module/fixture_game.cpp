@@ -11,6 +11,7 @@
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/world_serializer.h>
 #include <engine/igame.h>
+#include <engine/resources/assets_db.h>
 
 #include <string>
 
@@ -18,22 +19,18 @@ namespace fixture {
 
 class Game final : public engine::GameBase {
 public:
-    explicit Game(const engine::EngineServices& services)
-        : engine::GameBase(services.worlds)
-        , input_(&services.input)
-        , windows_(&services.windows) {
+    explicit Game(const engine::EngineServices& services) :
+        engine::GameBase(services.worlds), input_(&services.input), windows_(&services.windows) {
         note("construct");
     }
 
-    ~Game() override {
-        note("destroy");
-    }
+    ~Game() override { note("destroy"); }
 
     engine::WindowDesc primary_window() const override {
         return engine::WindowDesc{
-                .title = "Fixture",
-                .size = {320, 200},
-                .style = engine::WindowStyle{.always_on_top = true, .transparent = true},
+            .title = "Fixture",
+            .size = {320, 200},
+            .style = engine::WindowStyle{.always_on_top = true, .transparent = true},
         };
     }
 
@@ -51,9 +48,7 @@ public:
         world().add_system(engine::ecs::Schedule::Frame, engine::ecs::Phase::Game, [](engine::ecs::World&) {});
     }
 
-    void on_quit() override {
-        note("quit");
-    }
+    void on_quit() override { note("quit"); }
 
 private:
     void note(const char* line) {
@@ -70,31 +65,36 @@ private:
     engine::IWindowControl* windows_;
 };
 
-}
+} // namespace fixture
 
 ENGINE_GAME_EXPORT void wind_register_game_components(engine::ecs::WorldSerializer& serializer) {
     serializer.register_component<fixture::FixtureComponent>(
-            "fixture_component",
-            [](engine::ecs::ComponentWriter& out, const fixture::FixtureComponent& c) {
-                out.field("label", c.label);
-                out.field("power", c.power);
-            },
-            [](engine::ecs::ComponentReader& in, fixture::FixtureComponent& c) {
-                (void)in.field("label", c.label);
-                (void)in.field("power", c.power);
-            });
+        "fixture_component",
+        [](engine::ecs::ComponentWriter& out, const fixture::FixtureComponent& c) {
+            out.field("label", c.label);
+            out.field("power", c.power);
+        },
+        [](engine::ecs::ComponentReader& in, fixture::FixtureComponent& c) {
+            (void)in.field("label", c.label);
+            (void)in.field("power", c.power);
+        });
+}
+
+ENGINE_GAME_EXPORT void wind_register_game_objects(engine::AssetsDb& assets) {
+    assets.register_object<fixture::FixtureDrop>(
+        "fixture_drop",
+        [](engine::ecs::ComponentReader& in, fixture::FixtureDrop& drop) { (void)in.field("count", drop.count); });
 }
 
 ENGINE_GAME_EXPORT engine::IGame* wind_create_game(const engine::EngineServices& services) {
     auto* const game = new fixture::Game(services);
     wind_register_game_components(game->world().ctx<engine::ecs::WorldSerializer>());
+    wind_register_game_objects(services.assets);
     return game;
 }
 
 #if !defined(FIXTURE_NO_DESTROY)
-ENGINE_GAME_EXPORT void wind_destroy_game(engine::IGame* game) {
-    delete game;
-}
+ENGINE_GAME_EXPORT void wind_destroy_game(engine::IGame* game) { delete game; }
 #endif
 
 ENGINE_GAME_EXPORT const char* wind_game_build_id() {
