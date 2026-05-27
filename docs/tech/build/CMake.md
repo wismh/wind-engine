@@ -36,7 +36,7 @@ Cache paths:
 
 ## Presets
 
-`CMakePresets.json`. Desktop presets use Ninja Multi-Config. On Windows `vs`, `vs-window`, `vs-audio`, `vs-editor`, and `vs-bench` inherit `windows-msvc`, which loads the MSVC environment (`architecture` and `toolset` strategy `external`) so `cl` is found without a developer prompt; Ninja has to be on `PATH` or installed with Visual Studio's C++ CMake tools. A build directory made by the Visual Studio generator cannot be reused: delete it once. Web and Android use single-config Ninja. Configuring with a Visual Studio generator is an error.
+`CMakePresets.json`. Desktop presets use Ninja Multi-Config. On Windows `vs`, `vs-window`, `vs-audio`, `vs-editor`, and `vs-bench` inherit `windows-msvc`, which sets the compiler to `cl`. `architecture` and `toolset` use strategy `external`: CMake ignores them, and Visual Studio uses them to load the MSVC environment before it configures. A command-line configure needs that environment already (`cl` on `PATH`, with `INCLUDE` and `LIB`); CI runs `tools/ci/msvc_env.ps1` before `cmake --preset`. Ninja has to be on `PATH` or installed with Visual Studio's C++ CMake tools. A build directory made by the Visual Studio generator cannot be reused: delete it once. Web and Android use single-config Ninja. Configuring with a Visual Studio generator is an error.
 
 | Preset | Binary dir | Tests | Window | Audio | Also |
 | --- | --- | --- | --- | --- | --- |
@@ -262,7 +262,7 @@ A player belongs to the SDK that installed it: `wind_player.cmake` carries the S
 
 ## Linux and macOS
 
-The editor build, its SDK, and SDK mode work on Linux (GCC, Clang) and macOS (Apple Clang, arm64). CI builds both, runs the tests, installs the SDK, and builds a game from the SDK's template against it ([CI](#ci)). The presets `linux-editor` and `macos-editor` are `vs-editor` with `Ninja Multi-Config` (`build-editor`, `Debug;Release`); `ninja` has to be installed. The Windows preset is the same generator: `vs-editor` loads the MSVC compiler. The empty-project preset's `architecture` and `toolset` fields load that compiler too; delete those two fields on Linux and macOS (CMake rejects the external strategy off Windows).
+The editor build, its SDK, and SDK mode work on Linux (GCC, Clang) and macOS (Apple Clang, arm64). CI builds both, runs the tests, installs the SDK, and builds a game from the SDK's template against it ([CI](#ci)). The presets `linux-editor` and `macos-editor` are `vs-editor` with `Ninja Multi-Config` (`build-editor`, `Debug;Release`); `ninja` has to be installed. The Windows preset is the same generator and compiles with `cl`. CI loads the MSVC environment first (`tools/ci/msvc_env.ps1`), because `cmake --preset` does not. The empty-project preset's `architecture` and `toolset` fields are the same hint for Visual Studio; delete those two fields on Linux and macOS (CMake rejects the external strategy off Windows).
 
 | | Windows | Linux | macOS |
 | --- | --- | --- | --- |
@@ -285,7 +285,7 @@ The editor build, its SDK, and SDK mode work on Linux (GCC, Clang) and macOS (Ap
 
 ### CI
 
-`.github/workflows/sdk.yml` runs on every push to `main` and `feat/**` and on pull requests: on `ubuntu-24.04` (GCC 13), `macos-14`, and `windows-2022`, it configures the editor build, builds `Release`, runs `ctest` (Linux under `xvfb-run`), and on Linux and macOS installs the SDK and runs `tools/ci/sdk_smoke.sh`. On Linux and macOS a third run (`--export`) configures the same project with `-DWIND_EXPORT=ON`, fails if the configure fell back to the engine source, and builds `DebugGame` and `Release` executables from the SDK's players. The script makes a project from the SDK's `templates/empty`, configures it the way `ProjectBuild` does (`Ninja Multi-Config`, `DebugGame;Release`, `-DWind_DIR=<sdk>/cmake`), builds both configurations, and checks the `.module` record. On Linux (under `xvfb-run`) and macOS a second run (`--e2e`) starts the editor with `wind-cli launch --play --wait`, reads `state`, and stops it, so the editor builds the project through the POSIX `ProcessLauncher` and plays the module it loaded with `dlopen`.
+`.github/workflows/sdk.yml` runs on every push to `main` and `feat/**` and on pull requests: on `ubuntu-24.04` (GCC 13), `macos-14`, and `windows-2025-vs2026`, it configures the editor build, builds `Release`, runs `ctest` (Linux under `xvfb-run`), and on Linux and macOS installs the SDK and runs `tools/ci/sdk_smoke.sh`. On Linux and macOS a third run (`--export`) configures the same project with `-DWIND_EXPORT=ON`, fails if the configure fell back to the engine source, and builds `DebugGame` and `Release` executables from the SDK's players. The script makes a project from the SDK's `templates/empty`, configures it the way `ProjectBuild` does (`Ninja Multi-Config`, `DebugGame;Release`, `-DWind_DIR=<sdk>/cmake`), builds both configurations, and checks the `.module` record. On Linux (under `xvfb-run`) and macOS a second run (`--e2e`) starts the editor with `wind-cli launch --play --wait`, reads `state`, and stops it, so the editor builds the project through the POSIX `ProcessLauncher` and plays the module it loaded with `dlopen`.
 
 ## SDK mode
 
