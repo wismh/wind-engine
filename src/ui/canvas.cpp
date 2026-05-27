@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <format>
 #include <unordered_map>
 #include <vector>
 
@@ -243,6 +244,31 @@ namespace engine::ui {
         return map_text_input_area(boxes, prefix_width, element->text_align, space);
     }
 
+    SafeInsets canvas_safe_insets(const UiCanvas &canvas, const WindowSize &window) {
+        const UiCanvasSpace space = canvas_layout_space(canvas.rect, canvas.fit, canvas.reference_size);
+        const float scale = space.scale > 0.0f ? space.scale : 1.0f;
+        const auto inside = [scale](float inset, float distance_to_edge) {
+            return std::max(0.0f, inset - distance_to_edge) / scale;
+        };
+        const float right_gap = static_cast<float>(window.width) - (canvas.rect.x + canvas.rect.w);
+        const float bottom_gap = static_cast<float>(window.height) - (canvas.rect.y + canvas.rect.h);
+        return SafeInsets{
+                inside(window.safe.left, canvas.rect.x),
+                inside(window.safe.top, canvas.rect.y),
+                inside(window.safe.right, right_gap),
+                inside(window.safe.bottom, bottom_gap),
+        };
+    }
+
+    void apply_safe_area_environment(const UiCanvas &canvas, const WindowSize &window, Stylesheet &sheet) {
+        const SafeInsets insets = canvas_safe_insets(canvas, window);
+        const auto px = [](float value) { return std::format("{}px", value); };
+        sheet.set_environment("safe-top", px(insets.top));
+        sheet.set_environment("safe-right", px(insets.right));
+        sheet.set_environment("safe-bottom", px(insets.bottom));
+        sheet.set_environment("safe-left", px(insets.left));
+    }
+
     void apply_canvas_fit(ecs::World &world) {
         auto view = world.view<UiCanvas>();
         for (ecs::Entity entity: view) {
@@ -258,6 +284,10 @@ namespace engine::ui {
             } else if (canvas.fit == UiFit::ScaleWithScreenSize) {
                 canvas.rect = scaled_fit_rect(canvas.reference_size, static_cast<float>(size.width),
                                               static_cast<float>(size.height));
+            }
+            UiInstance *const instance = world.try_get<UiInstance>(entity);
+            if (instance != nullptr && instance->stylesheet) {
+                apply_safe_area_environment(canvas, size, *instance->stylesheet);
             }
         }
     }
