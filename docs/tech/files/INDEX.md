@@ -112,6 +112,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/core/file_dialog_call.cpp` | `FileDialogCall` ownership and cancel | [Windowing](../features/Windowing.md) |
 | `src/core/file_dialog_state.h` | State shared by a call and the dialog callback, `FileDialogCompletions` | [Windowing](../features/Windowing.md) |
 | `src/core/fixed_step.cpp` | Accumulator and step cap | [Core](../modules/Core.md) |
+| `src/core/frame_limiter.h`, `src/core/frame_limiter.cpp` | `FrameLimiter`: sleep schedule for frames no vsync swap waits on | [Windowing](../features/Windowing.md#frame-pacing) |
+| `src/core/frame_pacing.h`, `src/core/frame_pacing.cpp` | `choose_vsync_window`, `frame_period`, `limiter_period` | [Windowing](../features/Windowing.md#frame-pacing) |
 | `src/core/frame_step.cpp` | `flush_worlds` and `simulate_worlds` | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/core/frame_step.h` | Declarations for those two functions | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/core/game_module.cpp` | Copy, load, check, and unload a game module (window builds) | [Core](../modules/Core.md) |
@@ -178,7 +180,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/opengl/nanovg_painter.h` | Painter declaration | [UI](../modules/UI.md) |
 | `src/render/opengl/opengl_backend.cpp` | Execute mesh and particle commands | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_backend.h` | `OpenGLBackend` | [Render](../modules/Render.md) |
-| `src/render/opengl/opengl_canvas.cpp` | Per-window GL canvas, font and image upload | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_canvas.cpp` | Per-window GL canvas, font and image upload, swap interval | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_canvas.h` | `OpenGLCanvas` | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_factory.cpp` | Create GL mesh, shader, texture | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_factory.h` | `OpenGLFactory` | [Render](../modules/Render.md) |
@@ -191,7 +193,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/opengl/sdl_gl_presentation.cpp` | SDL poll, present, and `IPresentation` | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/sdl_gl_presentation.h` | `SdlGlPresentation` | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/window_control.h` | `IWindowControl` adapter over `WindowManager` | [Windowing](../features/Windowing.md) |
-| `src/render/opengl/window_manager.cpp` | One window, canvas, and command buffer per id | [Windowing](../features/Windowing.md) |
+| `src/render/opengl/window_manager.cpp` | One window, canvas, and command buffer per id; frame pacing in `draw_all` | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/window_manager.h` | `WindowManager` | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/window_system.cpp` | One SDL window and GL context, including `set_icon` | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/window_system.h` | `WindowSystem` and `make_icon_surface` | [Windowing](../features/Windowing.md) |
@@ -311,6 +313,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/fixtures/fake_services.h` | Headless `EngineServices` fakes for tests that create a game | [Core](../modules/Core.md) |
 | `tests/fixtures/game_module/fixture_game.cpp` | Fixture game module, built three ways in the editor build | [Core](../modules/Core.md) |
 | `tests/fixtures/game_module/fixture_log.h` | `FixtureLog` the fixture game writes into | [Core](../modules/Core.md) |
+| `tests/frame_pacing_test.cpp` | Vsync window choice, refresh period, limiter period, `FrameLimiter` schedule | [Windowing](../features/Windowing.md#frame-pacing) |
 | `tests/game_entry_test.cpp` | `ENGINE_GAME` module exports and build id (window builds) | [Core](../modules/Core.md) |
 | `tests/game_module_test.cpp` | `load_game_module` against the fixture modules (editor build) | [Core](../modules/Core.md) |
 | `tests/game_loop_test.cpp` | `RunHooks` order and frame-end restart with a fake presentation | [Runtime Loop](../architecture/Runtime%20Loop.md) |

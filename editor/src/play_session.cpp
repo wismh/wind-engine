@@ -52,6 +52,8 @@ std::expected<std::string, std::string> PlaySession::play(const std::filesystem:
     kept_worlds_.clear();
     services_->worlds.each_world([this](engine::ecs::World& world) { kept_worlds_.push_back(&world); });
     kept_windows_ = services_->windows.open_windows();
+    kept_vsync_ = services_->windows.vsync();
+    kept_max_fps_ = services_->windows.max_fps();
 
     engine::IGame* const game = loaded->create(*services_);
     if (game == nullptr) {
@@ -115,6 +117,8 @@ void PlaySession::stop() {
     windows.set_title(idle_window_.title);
     windows.set_borderless(idle_window_.style.borderless);
     windows.set_always_on_top(idle_window_.style.always_on_top);
+    windows.set_vsync(kept_vsync_);
+    windows.set_max_fps(kept_max_fps_);
     kept_worlds_.clear();
     kept_windows_.clear();
     assets_dir_.clear();

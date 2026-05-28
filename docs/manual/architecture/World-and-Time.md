@@ -18,6 +18,17 @@ The engine executes two distinct execution loops:
    - Delta time is capped at `kMaxFrameDt = 0.25f` to prevent massive simulation jumps after window hitches.
    - Ideal for camera smoothing, sprite animations, UI data synchronization, and rendering submission.
 
+### Frame rate
+
+By default a frame waits for the display (vsync), so the frame step runs at the monitor's refresh rate and an idle game does not burn a CPU core. With every window minimized the engine sleeps to that rate instead. A settings menu can change this for the whole process through `EngineServices::windows`:
+
+```cpp
+services_.windows.set_vsync(false);   // frames no longer wait for the display
+services_.windows.set_max_fps(120);   // cap while vsync is off; 0 (the default) is no cap
+```
+
+The cap is ignored while vsync paces the frame. Web always runs on the browser's animation frame and ignores both. Fixed-step simulation does not change with the frame rate.
+
 ---
 
 ## 2. Reading `engine::Time`

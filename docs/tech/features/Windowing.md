@@ -29,6 +29,7 @@ Further windows: `EngineServices::windows` is `IWindowControl`.
 - `close_window` is mechanical.
 - `open_windows` lists every live window, `kPrimaryWindow` included. The order is unspecified.
 - `set_title` changes a window's title.
+- `set_vsync`, `vsync`, `set_max_fps`, `max_fps` are process-wide frame pacing, not per window. See [Frame pacing](#frame-pacing).
 - `set_position`, `resize`, `position`, `size` use screen coordinates. `position` and `size` are `nullopt` when that window is not open.
 - `size()` is the client size in screen pixels. It is not the drawable size on `Presentation::sizes`.
 - A call for an id that is not open is a no-op.
@@ -81,17 +82,55 @@ Click-through is a bounding box. `update_click_through` starts from whether `Pre
 
 A left click inside the rect starts a drag and is consumed before UI and ECS see it. A button inside that rect does not receive the click. Shrink the rect so it does not cover those controls.
 
+## Frame pacing
+
+`draw_all` (`WindowManager::draw_all`) ends each tick with at most one wait, so the loop runs at the display's refresh rate instead of as fast as it can.
+
+| `IWindowControl` | Default | Effect |
+| --- | --- | --- |
+| `set_vsync(bool)` | on | On: the vsync window's swap waits for vblank. Off: every context has interval `0`, and only `max_fps` limits the loop |
+| `set_max_fps(int)` | `0` (no cap) | Frames per second while no swap waits for vsync: vsync off, or on with no vsync window. Ignored while a vsync swap waits. A negative value is stored as `0` |
+
+`WindowManager` holds both (`vsync()`, `max_fps()`); `WindowControlImpl` forwards to it. The next `draw_all` applies them. The editor keeps its own values across Play and puts them back on Stop ([Editor](Editor.md)).
+
+Every window has its own GL context, and a swap interval belongs to a context. One window, the vsync window, swaps with vsync: adaptive (`SDL_GL_SetSwapInterval(-1)`, a late frame swaps at once instead of waiting another vblank) where the driver has it, else `1`. Every other window has interval `0`, set right after its context is created, whatever the driver's default. `draw_all` draws the other windows first and the vsync window last, so its swap is the tick's only wait. With two vsync windows the editor (game window plus editor window) would wait two vblanks per tick.
+
+`choose_vsync_window` (`src/core/frame_pacing.h`) picks the vsync window every frame from the live windows:
+
+1. Only a window that is presentable (not hidden, minimized, or occluded: a vsync swap there may return at once) and whose context accepted a swap interval.
+2. `kPrimaryWindow` when it qualifies, else the lowest id that does.
+
+When the choice changes, the old window's context goes back to `0` and the new one gets vsync. A context that refuses vsync is never chosen again.
+
+With vsync off, no window is chosen. With no vsync window, `FrameLimiter` (`src/core/frame_limiter.h`) sleeps (`SDL_DelayPrecise`) after the draws for `limiter_period` (`src/core/frame_pacing.h`):
+
+| Vsync | Vsync window | Period |
+| --- | --- | --- |
+| on | yes | none, the swap waited |
+| on | none (every window minimized or hidden, a driver without swap control, no window) | the primary window's display refresh rate (`frame_period`, 60 Hz when unknown), or `max_fps` when that is lower |
+| off | none | `max_fps`, or no sleep when it is `0` |
+
+Frames keep a fixed schedule, so an oversleep does not lower the rate. A frame more than one period late starts a new schedule instead of running frames back to back.
+
+The modal move and size loop's reentrant tick (`reentrant_tick`) calls `draw_all` too, so it is paced the same way.
+
+Web does neither, and ignores `set_vsync` and `set_max_fps`: `GameLoop` runs on `requestAnimationFrame`, and SDL's Emscripten swap interval would change that main loop's timing.
+
+A driver setting that forces vsync off still lets the swap return at once while the engine believes it has vsync. The engine does not detect that.
+
 ## Internals
 
 Compiled only with `ENGINE_WITH_WINDOW`, under `src/render/opengl/`.
 
-`WindowManager` owns one `WindowSystem`, one `OpenGLCanvas`, and one `CommandBuffer` per `WindowId`. Windows share the graphic factory and `AssetsDb`. Each canvas `draw` makes its GL context current before `execute`.
+`WindowManager` owns one `WindowSystem`, one `OpenGLCanvas`, and one `CommandBuffer` per `WindowId`. Windows share the graphic factory and `AssetsDb`. Each canvas `draw` makes its GL context current before `execute`. `WindowManager` also owns the vsync window and the `FrameLimiter` ([Frame pacing](#frame-pacing)).
 
 Public headers do not include SDL.
 
 ## Tests
 
 `tests/window_style_test.cpp` and `tests/window_icon_test.cpp` do not call `SDL_Init(SDL_INIT_VIDEO)`. A live display is out of `engine_tests`. See [Boundaries](../architecture/Boundaries.md).
+
+`tests/frame_pacing_test.cpp` covers the pure half of frame pacing: the primary window paces when it can, only one window paces, a hidden or minimized primary and a context without swap control hand it on, no candidate leaves it to the limiter; the period at 60 and 144 Hz and an unknown rate as 60 Hz; `limiter_period` for each row of the table above; the limiter's first frame, the rest of a period, an oversleep that keeps the schedule, and a stall that starts a new one. `tests/window_style_test.cpp` checks the defaults and the round trip through `IWindowControl` without a window. Whether a swap really waits needs a display and is not in `engine_tests`.
 
 `tests/file_dialog_test.cpp` drives `FileDialogCall` and `FileDialogCompletions` without a dialog: an answer pushed from another thread is visible only after `deliver`, and taken once; a user cancel is an answer without a path; each call gets its own answer; `cancel`, a destroyed call, and a call replaced by move assignment drop the answer; `resolved` and an empty call.
 

@@ -3,6 +3,9 @@
 #include "opengl_canvas.h"
 #include "window_system.h"
 
+#include "core/frame_limiter.h"
+#include "core/frame_pacing.h"
+
 #include <engine/core/window_desc.h>
 #include <engine/render/backend.h>
 #include <engine/render/command_buffer.h>
@@ -12,6 +15,7 @@
 #include <memory>
 #include <optional>
 #include <unordered_map>
+#include <vector>
 
 namespace engine {
 
@@ -57,8 +61,25 @@ public:
     [[nodiscard]] WindowSystem& primary_window() noexcept;
     [[nodiscard]] const WindowSystem& primary_window() const noexcept;
 
-    // Draws + swaps every live window (OpenGLCanvas::draw() already swaps at the end).
+    // Draws + swaps every live window (OpenGLCanvas::draw() already swaps at the end), then waits for the next
+    // frame once: the vsync window's swap waits for vblank and goes last, every other window swaps without
+    // waiting, and with no vsync window FrameLimiter sleeps (limiter_period). Web is paced by
+    // requestAnimationFrame and never waits here.
     void draw_all();
+
+    // IWindowControl::set_vsync / set_max_fps. Applied by the next draw_all.
+    void set_vsync(bool enabled) noexcept {
+        vsync_ = enabled;
+    }
+    [[nodiscard]] bool vsync() const noexcept {
+        return vsync_;
+    }
+    void set_max_fps(int fps) noexcept {
+        max_fps_ = fps > 0 ? fps : 0;
+    }
+    [[nodiscard]] int max_fps() const noexcept {
+        return max_fps_;
+    }
 
     // Resolves an SDL window id (from an SDL_Event's windowID field) back to the WindowId
     // that owns it. Linear scan over live windows — window counts are always tiny, so a scan per
@@ -88,7 +109,15 @@ private:
         WindowSystem window;
         std::shared_ptr<render::CommandBuffer> commands = std::make_shared<render::CommandBuffer>();
         std::shared_ptr<render::OpenGLCanvas> canvas;   // constructed after window/commands are stable addresses
+        // False once the driver refused this context's swap interval; such a window never paces.
+        bool vsync_supported = false;
     };
+
+    // Turns vsync off on a fresh context, whatever the driver's default is, so only the vsync window waits.
+    void init_swap_interval(WindowId id, Entry& entry);
+    // Moves vsync to the window choose_vsync_window picks this frame and returns it.
+    std::optional<WindowId> sync_vsync_window();
+    void wait_for_next_frame(bool vsync_waited);
 
     render::IRenderBackend* backend_;
     // unique_ptr<Entry>: OpenGLCanvas captures WindowSystem&/CommandBuffer& by reference at
@@ -100,6 +129,11 @@ private:
     std::unordered_map<WindowId, std::unique_ptr<Entry>> windows_;
     std::uint32_t next_id_ = 1;   // 0 is kPrimaryWindow, reserved
     std::function<void()> modal_loop_tick_callback_;
+    bool vsync_ = true;
+    int max_fps_ = 0;
+    std::optional<WindowId> vsync_window_;
+    std::vector<PacingWindow> pacing_;   // reused by sync_vsync_window every frame
+    FrameLimiter limiter_;
 };
 
 }

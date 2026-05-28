@@ -55,9 +55,12 @@ private:
     std::optional<engine::GameModule> module_;
     engine::IGame* game_ = nullptr;
     std::filesystem::path assets_dir_;
-    // What existed before Play survives Stop: the editor's world and window, and kPrimaryWindow.
+    // What existed before Play survives Stop: the editor's world and window, kPrimaryWindow, and the
+    // editor's frame pacing, which a game may change for the whole process.
     std::vector<engine::ecs::World*> kept_worlds_;
     std::vector<engine::WindowId> kept_windows_;
+    bool kept_vsync_ = true;
+    int kept_max_fps_ = 0;
 };
 
 }
