@@ -9,6 +9,7 @@
 #include <engine/log.h>
 #include <engine/resources/font.h>
 #include <engine/resources/sprite_sheet.h>
+#include <engine/resources/text_asset.h>
 #include <engine/ui/document.h>
 #include <engine/ui/stylesheet.h>
 
@@ -74,6 +75,9 @@ std::optional<ImporterKind> importer_for_type(const std::type_info& type) {
     }
     if (type == typeid(ecs::WorldAsset)) {
         return ImporterKind::World;
+    }
+    if (type == typeid(TextAsset)) {
+        return ImporterKind::Data;
     }
     return std::nullopt;
 }
@@ -253,6 +257,14 @@ std::expected<std::shared_ptr<void>, AssetError> load_cpu(
             return std::unexpected(AssetError::Corrupt);
         }
         return std::static_pointer_cast<void>(std::make_shared<ecs::WorldAsset>(std::move(*parsed)));
+    }
+
+    if (type == typeid(TextAsset)) {
+        auto bytes = read_all(path);
+        if (!bytes) {
+            return std::unexpected(AssetError::Corrupt);
+        }
+        return std::static_pointer_cast<void>(std::make_shared<TextAsset>(TextAsset{std::move(*bytes)}));
     }
 
     return std::unexpected(AssetError::Corrupt);
