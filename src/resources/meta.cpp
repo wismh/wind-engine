@@ -61,6 +61,9 @@ std::optional<ImporterKind> parse_importer(std::string_view value) {
     if (value == "world") {
         return ImporterKind::World;
     }
+    if (value == "data") {
+        return ImporterKind::Data;
+    }
     return std::nullopt;
 }
 
@@ -434,6 +437,8 @@ std::string_view to_string(ImporterKind kind) noexcept {
             return "strings";
         case ImporterKind::World:
             return "world";
+        case ImporterKind::Data:
+            return "data";
     }
     return "texture";
 }
