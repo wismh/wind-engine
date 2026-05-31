@@ -44,6 +44,10 @@ UI documents and stylesheets are CPU assets (`UiDocument`, `Stylesheet`). A styl
 
 The cache key is the GUID plus `std::type_index`. The same GUID requested as two types is two loads, and the wrong type is `TypeMismatch`.
 
+## Text assets
+
+`importer = "data"` is for files the engine does not know: item configs, tables, anything text. `get<TextAsset>(id)` returns the file bytes in `TextAsset::text`, unchanged (no newline conversion, no parse). The game parses it with whatever it likes. A file that does not read is `AssetError::Corrupt`. The file name and extension do not matter, `asset_guid` gives every file with an unknown extension this importer, and a `.meta` can name it for any other file.
+
 ## Mesh files
 
 `importer = "mesh"` reads a `.mesh` text file into a `render::MeshDesc` (`parse_mesh`, `src/resources/importers.cpp`). One row per line; `#` starts a comment and blank lines are skipped.
