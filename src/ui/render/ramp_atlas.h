@@ -18,12 +18,10 @@ struct RampRow {
 };
 
 // RGBA8 premultiplied pages of gradient ramps, kRampWidth texels (fragment.h) per row, one row per distinct ramp.
-// A ramp is what the fragment stage samples at t in [0, 1] (texel i is t = i / (kRampWidth - 1)), built to keep
-// the NanoVG painter's pixels:
-//   - Linear and radial: NanoVG's nvgLinearGradient / nvgRadialGradient take the first and the last stop only and mix
-//     them in premultiplied space; so do these rows, and two gradients that share those two colors share a row.
-//   - Conic: that painter baked every stop (sample_gradient_stops, straight alpha) into a texture; the row holds the
-//     same samples, premultiplied.
+// A ramp is what the fragment stage samples at t in [0, 1] (texel i is t = i / (kRampWidth - 1)):
+//   - Linear and radial: the first and the last stop only, mixed in premultiplied space; two gradients that share
+//     those two colors share a row.
+//   - Conic: every stop (sample_gradient_stops, straight alpha), then premultiplied into the row.
 // Colors are compared at 1e-6 as its conic cache did. Rows are reused least recently used first once a
 // page is full, never a row the current list drew from (a full page of those opens another page). CPU only; a device
 // catches up with page versions. Main thread only.

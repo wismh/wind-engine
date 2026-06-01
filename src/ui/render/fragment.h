@@ -1,15 +1,15 @@
 #pragma once
 
 // The UI fragment stage, written once on the CPU. Every device's shader implements exactly this math (the OpenGL one
-// line for line); engine_tests run it to check what a vertex means without a GPU. It reproduces NanoVG's antialiasing:
-// a one px linear ramp centered on every edge (its fill fringe and stroke mask), and its scissor mask.
+// line for line); engine_tests run it to check what a vertex means without a GPU. Antialiasing is a one px linear ramp
+// centered on every edge (the fill fringe and the stroke mask) and the same ramp on a scissor.
 //
 // Per fragment, with `v` the interpolated vertex (UiVertex, color unpacked to premultiplied floats):
 //
 //   clip_cov = clamp(0.5 - (|v.clip.x| - v.clip.z), 0, 1) * clamp(0.5 - (|v.clip.y| - v.clip.w), 0, 1)
 //
 //   box(p, h, r)        (signed distance to a rect of half size h centered at 0, px)
-//       r.x <= 0:              max(|p.x| - h.x, |p.y| - h.y)                     sharp: NanoVG's miter corners
+//       r.x <= 0:              max(|p.x| - h.x, |p.y| - h.y)                     sharp: miter corners
 //       q = |p| - (h - r); q.x > 0 && q.y > 0:
 //                              k0 = length(q / r); k1 = length(q / (r * r)); k0 * (k0 - 1) / k1
 //                                                                               (elliptic corner; |q| - r when round)

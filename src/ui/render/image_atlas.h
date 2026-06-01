@@ -25,12 +25,11 @@ struct AtlasImage {
     int height = 0;
 };
 
-// RGBA8 straight-alpha pages of UI images, registered by AssetId from a TextureDesc and kept for the atlas's life (as
-// the NanoVG painter kept its images). Each image is packed with a one-texel gutter holding the texels of the opposite
-// edge: the NanoVG painter created every image with REPEATX | REPEATY, so a bilinear fetch at an image's edge blended
-// in the far edge; the gutter keeps that, and makes ImageRepeat's fract seamless. An image too large for a page gets a
-// page of its own size. TextureDesc's filter and wrap are ignored, as the NanoVG painter ignored them (bilinear,
-// repeat). CPU only; a device catches up with page versions. Main thread only.
+// RGBA8 straight-alpha pages of UI images, registered by AssetId from a TextureDesc and kept for the atlas's life.
+// Each image is packed with a one-texel gutter holding the texels of the opposite edge, so a bilinear fetch at an
+// image's edge blends in the far edge; the gutter keeps that, and makes ImageRepeat's fract seamless. An image too
+// large for a page gets a page of its own size. TextureDesc's filter and wrap are ignored (bilinear, repeat). CPU
+// only; a device catches up with page versions. Main thread only.
 class ImageAtlas {
 public:
     static constexpr int kDefaultPageSize = 1024;

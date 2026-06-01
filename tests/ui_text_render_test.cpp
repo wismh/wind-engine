@@ -117,13 +117,13 @@ TEST(UiTextRender, SizesQuantizeToTenthsOfAPixel) {
     EXPECT_FLOAT_EQ(a.ascent, b.ascent);
     EXPECT_FLOAT_EQ(a.line_height, b.line_height);
     EXPECT_EQ(engine::ui::text_extent(face, "Quantized", 13.37f), engine::ui::text_extent(face, "Quantized", 13.3f));
-    // Degenerate sizes take IUiPainter's 80/20 split, as the NanoVG painter fell back to it.
+    // Degenerate sizes take IUiPainter's 80/20 split, as the painter falls back to it.
     const auto tiny = engine::ui::text_metrics(face, 0.05f);
     EXPECT_FLOAT_EQ(tiny.line_height, 0.05f);
     EXPECT_FLOAT_EQ(tiny.ascent, 0.05f * 0.8f);
 }
 
-TEST(UiTextRender, RasterScaleQuantizesLikeNanoVg) {
+TEST(UiTextRender, RasterScaleQuantizesToHundredths) {
     EXPECT_FLOAT_EQ(engine::ui::text_raster_scale(1.0f), 1.0f);
     EXPECT_FLOAT_EQ(engine::ui::text_raster_scale(1.234f), 1.23f);
     EXPECT_FLOAT_EQ(engine::ui::text_raster_scale(9.0f), 4.0f);
@@ -145,7 +145,7 @@ TEST(UiTextRender, MeasuresAdvanceAndLineHeight) {
     EXPECT_FLOAT_EQ(hello.x, std::floor(hello.x));
     // A trailing space counts: the advance, not the ink box.
     EXPECT_GT(engine::ui::text_extent(face, "Hello, world ", 16.0f).x, hello.x);
-    // NanoVG measured a C string: a NUL ends it.
+    // A C string: a NUL ends it.
     EXPECT_EQ(engine::ui::text_extent(face, std::string_view("ab\0cd", 5), 16.0f).x,
             engine::ui::text_extent(face, "ab", 16.0f).x);
 }
@@ -204,7 +204,7 @@ TEST(UiTextRender, DecodesUtf8LikeFontstash) {
     EXPECT_GT(engine::ui::text_extent(face, "\xF4\x8F\xBF\xBD", 16.0f).x, 0.0f);
 }
 
-TEST(UiTextRender, BreakLinesFollowsNanoVgRows) {
+TEST(UiTextRender, BreakLinesFollowsTheRowRules) {
     FontFace face = load_face();
     const auto rows = [&](std::string_view text, float width) {
         return engine::ui::wrap_text(face, text, 16.0f, width).lines;
@@ -232,7 +232,7 @@ TEST(UiTextRender, BreakLinesFollowsNanoVgRows) {
     EXPECT_EQ(lead[0].end, 8u);
 
     // A word wider than the row is split, at least one character per row.
-    // NanoVG quirk kept for parity: a row cut inside a word reports the width up to and including the character
+    // Quirk kept for parity: a row cut inside a word reports the width up to and including the character
     // that did not fit (rowWidth is updated before the overflow check), so it is wider than `max_width`.
     const std::string word = "abcdefghijklmnop";
     const auto split = rows(word, 30.0f);
@@ -274,7 +274,7 @@ TEST(UiTextRender, BreakLinesAgreesWithBreakTextLines) {
             for (std::size_t i = 0; i < ours.size(); ++i) {
                 EXPECT_EQ(ours[i].begin, reference[i].begin) << text << " @ " << width << " row " << i;
                 EXPECT_EQ(ours[i].end, reference[i].end) << text << " @ " << width << " row " << i;
-                // A row cut inside a word counts the character that overflowed (see BreakLinesFollowsNanoVgRows).
+                // A row cut inside a word counts the character that overflowed (see BreakLinesFollowsTheRowRules).
                 const bool cut = ours[i].end < text.size() && text[ours[i].end] != ' ' &&
                                  text[ours[i].end] != '\t' && text[ours[i].end] != '\n';
                 const float expected =
@@ -505,7 +505,7 @@ TEST(UiTextRender, RasterScaleRasterizesLargerAndMapsBack) {
 TEST(UiTextRender, LibraryResolvesFontsAndKeepsTheMathFontApart) {
     FontLibrary library;
     const AssetId other{"0123456789abcdef0123456789abcdef"};
-    // No face yet: the NanoVG painter's no-context answers.
+    // No face yet: the no-face answers.
     EXPECT_EQ(library.face(engine::builtin::font_ui), nullptr);
     EXPECT_EQ(library.measure_text("abcd", engine::builtin::font_ui, 10.0f), glm::vec2(20.0f, 10.0f));
     EXPECT_FLOAT_EQ(library.font_metrics(other, 10.0f).ascent, 8.0f);
@@ -535,9 +535,9 @@ TEST(UiTextRender, LibraryResolvesFontsAndKeepsTheMathFontApart) {
     EXPECT_GE(library.atlas().glyph_count(), 4u);
 }
 
-// Numbers the fontstash parity test (removed with NanoVG in wind-234 5e) proved equal to NanoVG's, kept as literals so
+// Numbers the fontstash parity test (removed in wind-234 5e) proved, kept as literals so
 // a change to the text path shows up as a changed width, metric, quad, or glyph bitmap.
-TEST(UiTextRender, KeepsTheNumbersNanoVgProduced) {
+TEST(UiTextRender, KeepsTheLockedTextNumbers) {
     FontFace face = load_face();
     struct Metrics {
         float size, ascent, descent, line_height;

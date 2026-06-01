@@ -38,6 +38,7 @@ namespace {
         void draw_line(glm::vec2, glm::vec2, glm::vec4, float) override {}
         void stroke_arc(glm::vec2, float, float, float, float, glm::vec4) override {}
         void fill_path(std::span<const engine::ui::PathSegment>, glm::vec4) override {}
+        void stroke_path(std::span<const engine::ui::PathSegment>, float, glm::vec4) override {}
         void set_font(engine::AssetId, float) override {}
         void fill_text(std::string_view, glm::vec2, glm::vec4, engine::ui::UiAlign, engine::ui::UiAlign) override {}
         void image(engine::AssetId, const engine::render::Rect &) override {}
@@ -87,6 +88,7 @@ namespace {
         void draw_line(glm::vec2, glm::vec2, glm::vec4, float) override { add(Kind::Line, true); }
         void stroke_arc(glm::vec2, float, float, float, float, glm::vec4) override { add(Kind::Arc, true); }
         void fill_path(std::span<const engine::ui::PathSegment>, glm::vec4) override { add(Kind::Path, true); }
+        void stroke_path(std::span<const engine::ui::PathSegment>, float, glm::vec4) override { add(Kind::Path, true); }
         void set_font(engine::AssetId, float) override { add(Kind::Font, false); }
         void fill_text(std::string_view, glm::vec2, glm::vec4, engine::ui::UiAlign, engine::ui::UiAlign) override {
             add(Kind::Text, true);

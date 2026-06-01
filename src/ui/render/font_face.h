@@ -25,8 +25,8 @@ struct GlyphMetrics {
 };
 
 // A TrueType/OpenType (glyf) face parsed with the vendored stb_truetype, and the per-face caches text layout hits on
-// every call: cmap lookups, per-size glyph metrics, and kerning pairs. All numbers follow fontstash (NanoVG's text
-// backend) so layout keeps the widths NanoVG produced: the em scale (`stbtt_ScaleForMappingEmToPixels`), the
+// every call: cmap lookups, per-size glyph metrics, and kerning pairs. All numbers follow fontstash so layout keeps
+// the widths it had: the em scale (`stbtt_ScaleForMappingEmToPixels`), the
 // normalized vertical metrics, and the truncated tenth-pixel advances. Main thread only; the caches mutate on lookup.
 class FontFace {
 public:

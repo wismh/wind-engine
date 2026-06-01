@@ -7,13 +7,13 @@
 namespace engine::ui {
 namespace {
 
-// nvg__tesselateBezier's recursion limit.
+// Recursion limit of the cubic flattener.
 constexpr int kMaxTessellationLevel = 10;
-// NanoVG's distTol, fringeWidth, and nvgFill's miter limit, in device pixels.
+// Point-merge distance, fringe width, and the fill's miter limit, in device pixels.
 constexpr float kDistanceTolerance = 0.01f;
 constexpr float kFringe = 1.0f;
 constexpr float kMiterLimit = 2.4f;
-// NVG_PT_CORNER, NVG_PT_LEFT, NVG_PT_BEVEL, NVG_PR_INNERBEVEL.
+// Corner, left turn, bevel, inner bevel.
 constexpr std::uint8_t kCorner = 0x01;
 constexpr std::uint8_t kLeft = 0x02;
 constexpr std::uint8_t kBevel = 0x04;
@@ -28,7 +28,7 @@ constexpr std::uint8_t kInnerBevel = 0x08;
     return d.x * d.x + d.y * d.y < kDistanceTolerance * kDistanceTolerance;
 }
 
-// nvg__normalize.
+// Writes a unit vector and returns the length it had.
 float normalize(glm::vec2& v) noexcept {
     const float length = std::sqrt(v.x * v.x + v.y * v.y);
     if (length > 1e-6f) {
@@ -37,15 +37,37 @@ float normalize(glm::vec2& v) noexcept {
     return length;
 }
 
-// The left normal of a direction (NanoVG's dlx, dly).
+// The left normal of a direction.
 [[nodiscard]] glm::vec2 left_normal(glm::vec2 d) noexcept {
     return {d.y, -d.x};
+}
+
+// Coverage of a stadium of radius `half`: 1 inside `half - 0.5`, 0 outside `half + 0.5`, linear between.
+[[nodiscard]] float capsule_coverage(glm::vec2 p, glm::vec2 a, glm::vec2 b, float half) noexcept {
+    const glm::vec2 ab = b - a;
+    const float len2 = ab.x * ab.x + ab.y * ab.y;
+    float t = 0.0f;
+    if (len2 > 1e-12f) {
+        const float raw = ((p.x - a.x) * ab.x + (p.y - a.y) * ab.y) / len2;
+        t = std::clamp(raw, 0.0f, 1.0f);
+    }
+    const glm::vec2 closest = a + ab * t;
+    const glm::vec2 d = p - closest;
+    const float dist = std::sqrt(d.x * d.x + d.y * d.y);
+    const float u = dist - (half - 0.5f);
+    if (u <= 0.0f) {
+        return 1.0f;
+    }
+    if (u >= 1.0f) {
+        return 0.0f;
+    }
+    return 1.0f - u;
 }
 
 }
 
 void PathRasterizer::add_point(glm::vec2 p, std::uint8_t flags) {
-    // nvg__addPoint: a point on top of the last one only adds its flags.
+    // A point on top of the last one only adds its flags.
     Contour& contour = contours_.back();
     if (contour.count > 0 && same_point(points_.back().p, p)) {
         points_.back().flags |= flags;
@@ -57,7 +79,7 @@ void PathRasterizer::add_point(glm::vec2 p, std::uint8_t flags) {
 
 void PathRasterizer::tessellate(glm::vec2 p1, glm::vec2 p2, glm::vec2 p3, glm::vec2 p4, int level,
         std::uint8_t flags) {
-    // nvg__tesselateBezier, point for point: only the curve's end point is a corner.
+    // Only the curve's end point is a corner.
     if (level > kMaxTessellationLevel) {
         return;
     }
@@ -81,11 +103,12 @@ void PathRasterizer::tessellate(glm::vec2 p1, glm::vec2 p2, glm::vec2 p3, glm::v
 
 bool PathRasterizer::flatten(std::span<const PathSegment> path, const Affine2& to_raster, float tolerance) {
     tolerance_ = tolerance;
+    stroking_ = false;
     points_.clear();
     contours_.clear();
     fill_.clear();
     fringe_.clear();
-    // Solid or hole is decided on the points and control points, as the NanoVG painter's fill_path did.
+    // Solid or hole is decided on the points and control points.
     float reference = 0.0f;
     glm::vec2 control_start{};
     glm::vec2 control_previous{};
@@ -126,7 +149,7 @@ bool PathRasterizer::flatten(std::span<const PathSegment> path, const Affine2& t
                 if (contours_.empty()) {
                     break;
                 }
-                // nvgQuadTo: the cubic with control points two thirds of the way to the quadratic's.
+                // A quadratic is the cubic whose controls sit two thirds of the way toward its control point.
                 const glm::vec2 c = to_raster.apply(segment.c1);
                 visit_control(c);
                 visit_control(p);
@@ -146,14 +169,16 @@ bool PathRasterizer::flatten(std::span<const PathSegment> path, const Affine2& t
                 tessellate(points_.back().p, c1, c2, p, 0, kCorner);
                 break;
             }
+            case PathSegment::Kind::Close:
+                break;
         }
-        if (!contours_.empty()) {
+        if (segment.kind != PathSegment::Kind::Close && !contours_.empty()) {
             last = p;
         }
     }
     close_contour();
 
-    // nvg__flattenPaths: drop a closing point on top of the first, force the winding, and measure the segments.
+    // Drop a closing point on top of the first, force the winding, and measure the segments.
     glm::vec2 points_min(std::numeric_limits<float>::max());
     glm::vec2 points_max(std::numeric_limits<float>::lowest());
     bool any = false;
@@ -163,7 +188,7 @@ bool PathRasterizer::flatten(std::span<const PathSegment> path, const Affine2& t
             contour.count -= 1;
         }
         if (contour.count > 2) {
-            // nvg__polyArea: positive for NVG_CCW (solid), which a hole must not be.
+            // Positive shoelace area is the solid winding; a hole is reversed so it does not have it.
             float area = 0.0f;
             for (std::uint32_t i = 2; i < contour.count; ++i) {
                 area += cross(pts[i].p - pts[0].p, pts[i - 1].p - pts[0].p);
@@ -204,8 +229,105 @@ bool PathRasterizer::flatten(std::span<const PathSegment> path, const Affine2& t
     return true;
 }
 
+bool PathRasterizer::flatten_stroke(std::span<const PathSegment> path, const Affine2& to_raster, float width,
+        float tolerance) {
+    tolerance_ = tolerance;
+    points_.clear();
+    contours_.clear();
+    fill_.clear();
+    fringe_.clear();
+    strokes_.clear();
+    stroking_ = false;
+    half_width_ = width * 0.5f;
+    if (!(half_width_ > 0.0f)) {
+        min_ = max_ = glm::vec2(0.0f);
+        return false;
+    }
+
+    glm::vec2 last{};
+    for (const PathSegment& segment : path) {
+        const glm::vec2 p = to_raster.apply(segment.p);
+        switch (segment.kind) {
+            case PathSegment::Kind::Move:
+                contours_.push_back({static_cast<std::uint32_t>(points_.size())});
+                add_point(p, kCorner);
+                break;
+            case PathSegment::Kind::Line:
+                if (contours_.empty()) {
+                    break;
+                }
+                add_point(p, kCorner);
+                break;
+            case PathSegment::Kind::Quad: {
+                if (contours_.empty()) {
+                    break;
+                }
+                const glm::vec2 c = to_raster.apply(segment.c1);
+                tessellate(points_.back().p, last + (c - last) * (2.0f / 3.0f), p + (c - p) * (2.0f / 3.0f), p, 0,
+                        kCorner);
+                break;
+            }
+            case PathSegment::Kind::Cubic: {
+                if (contours_.empty()) {
+                    break;
+                }
+                const glm::vec2 c1 = to_raster.apply(segment.c1);
+                const glm::vec2 c2 = to_raster.apply(segment.c2);
+                tessellate(points_.back().p, c1, c2, p, 0, kCorner);
+                break;
+            }
+            case PathSegment::Kind::Close:
+                if (!contours_.empty()) {
+                    contours_.back().closed = true;
+                }
+                break;
+        }
+        if (segment.kind != PathSegment::Kind::Close && !contours_.empty()) {
+            last = p;
+        }
+    }
+
+    glm::vec2 points_min(std::numeric_limits<float>::max());
+    glm::vec2 points_max(std::numeric_limits<float>::lowest());
+    bool any = false;
+    for (const Contour& contour : contours_) {
+        const Point* const pts = points_.data() + contour.first;
+        std::uint32_t count = contour.count;
+        if (count > 1 && same_point(pts[count - 1].p, pts[0].p)) {
+            count -= 1;
+        }
+        if (count < 2) {
+            continue;
+        }
+        const auto add = [&](glm::vec2 a, glm::vec2 b) {
+            if (same_point(a, b)) {
+                return;
+            }
+            strokes_.push_back({a, b});
+            points_min = glm::min(points_min, glm::min(a, b));
+            points_max = glm::max(points_max, glm::max(a, b));
+            any = true;
+        };
+        for (std::uint32_t i = 0; i + 1 < count; ++i) {
+            add(pts[i].p, pts[i + 1].p);
+        }
+        if (contour.closed) {
+            add(pts[count - 1].p, pts[0].p);
+        }
+    }
+    if (!any) {
+        min_ = max_ = glm::vec2(0.0f);
+        return false;
+    }
+    const float reach = half_width_ + 0.5f;
+    min_ = points_min - glm::vec2(reach);
+    max_ = points_max + glm::vec2(reach);
+    stroking_ = true;
+    return true;
+}
+
 void PathRasterizer::calculate_joins() {
-    // nvg__calculateJoins(ctx, fringeWidth, NVG_MITER, 2.4).
+    // Miter joins, limit 2.4, measured against a 1 px fringe.
     constexpr float kInverseWidth = 1.0f / kFringe;
     for (Contour& contour : contours_) {
         Point* const pts = points_.data() + contour.first;
@@ -236,7 +358,7 @@ void PathRasterizer::calculate_joins() {
 }
 
 void PathRasterizer::bevel_join(const Point& p0, const Point& p1, float lw, float rw, float lu, float ru) {
-    // nvg__bevelJoin with nvg__chooseBevel.
+    // A bevel when the miter is past the limit, otherwise the miter.
     const glm::vec2 dl0 = left_normal(p0.d);
     const glm::vec2 dl1 = left_normal(p1.d);
     const bool inner_bevel = (p1.flags & kInnerBevel) != 0;
@@ -286,7 +408,7 @@ void PathRasterizer::bevel_join(const Point& p0, const Point& p1, float lw, floa
 }
 
 void PathRasterizer::expand_fill() {
-    // nvg__expandFill(ctx, fringeWidth, NVG_MITER, 2.4) with antialiasing on.
+    // Inset by half a pixel and a 1 px fringe, miter joins, limit 2.4.
     constexpr float woff = 0.5f * kFringe;
     for (Contour& contour : contours_) {
         const Point* const pts = points_.data() + contour.first;
@@ -334,6 +456,10 @@ void PathRasterizer::expand_fill() {
 }
 
 void PathRasterizer::rasterize(glm::vec2 offset, int width, int height, std::uint8_t* out, int stride) {
+    if (stroking_) {
+        rasterize_stroke(offset, width, height, out, stride);
+        return;
+    }
     const std::size_t count = static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
     const std::size_t row_cells = static_cast<std::size_t>(width) + 1;
     winding_.assign(row_cells * static_cast<std::size_t>(height), 0);
@@ -441,6 +567,39 @@ void PathRasterizer::rasterize(glm::vec2 offset, int width, int height, std::uin
         for (int x = 0; x < width; ++x) {
             const float coverage = filled(x, y) ? 1.0f : row[x];
             dst[x] = static_cast<std::uint8_t>(std::clamp(coverage, 0.0f, 1.0f) * 255.0f + 0.5f);
+        }
+    }
+}
+
+void PathRasterizer::rasterize_stroke(glm::vec2 offset, int width, int height, std::uint8_t* out, int stride) {
+    const std::size_t count = static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+    coverage_.assign(count, 0.0f);
+    const float reach = half_width_ + 0.5f;
+    for (const StrokeSegment& segment : strokes_) {
+        const glm::vec2 a = segment.a + offset;
+        const glm::vec2 b = segment.b + offset;
+        const glm::vec2 lo = glm::min(a, b) - glm::vec2(reach);
+        const glm::vec2 hi = glm::max(a, b) + glm::vec2(reach);
+        const int x0 = std::max(0, static_cast<int>(std::ceil(lo.x - 0.5f)));
+        const int x1 = std::min(width - 1, static_cast<int>(std::floor(hi.x - 0.5f)));
+        const int y0 = std::max(0, static_cast<int>(std::ceil(lo.y - 0.5f)));
+        const int y1 = std::min(height - 1, static_cast<int>(std::floor(hi.y - 0.5f)));
+        if (x0 > x1 || y0 > y1) {
+            continue;
+        }
+        for (int y = y0; y <= y1; ++y) {
+            float* row = coverage_.data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(width);
+            for (int x = x0; x <= x1; ++x) {
+                const glm::vec2 center{static_cast<float>(x) + 0.5f, static_cast<float>(y) + 0.5f};
+                row[x] = std::max(row[x], capsule_coverage(center, a, b, half_width_));
+            }
+        }
+    }
+    for (int y = 0; y < height; ++y) {
+        const float* row = coverage_.data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(width);
+        std::uint8_t* dst = out + static_cast<std::size_t>(y) * static_cast<std::size_t>(stride);
+        for (int x = 0; x < width; ++x) {
+            dst[x] = static_cast<std::uint8_t>(std::clamp(row[x], 0.0f, 1.0f) * 255.0f + 0.5f);
         }
     }
 }
