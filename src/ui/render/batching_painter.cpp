@@ -80,7 +80,7 @@ void BatchingPainter::set_clip(const render::Rect& rect) {
     s.clipped = true;
     s.clip_xform = compose(s.xform, Affine2::translation({rect.x + w * 0.5f, rect.y + h * 0.5f}));
     s.clip_extent = {w * 0.5f, h * 0.5f};
-    // glnvg__convertPaint's scissorScale: each clip axis's length in logical units, then px.
+    // Each clip axis's length in logical units, then px.
     const Affine2& c = s.clip_xform;
     const float kx = std::sqrt(c.a * c.a + c.c * c.c) * pixel_ratio_;
     const float ky = std::sqrt(c.b * c.b + c.d * c.d) * pixel_ratio_;
@@ -224,8 +224,8 @@ void BatchingPainter::fill_rounded_rect_gradient(const render::Rect& rect, float
     Affine2 uv_map = kNoUv;
     switch (gradient.kind) {
         case GradientKind::Linear: {
-            // nvgLinearGradient from the NanoVG painter's end points: t = (dot(p - start, dir) - d / 2) / feather +
-            // 1/2, feather = max(1, d), d the distance between the end points.
+            // Linear gradient from the end points: t = (dot(p - start, dir) - d / 2) / feather + 1/2, feather =
+            // max(1, d), d the distance between the end points.
             const float angle = gradient.angle_deg * (kPi / 180.0f);
             glm::vec2 dir{std::sin(angle), -std::cos(angle)};
             const float half_len = 0.5f * (std::abs(rect.w * dir.x) + std::abs(rect.h * dir.y));
@@ -253,8 +253,7 @@ void BatchingPainter::fill_rounded_rect_gradient(const render::Rect& rect, float
             break;
         }
         case GradientKind::Conic:
-            // The NanoVG painter's conic texture stretched over the rect: the angle is taken in the rect's normalized
-            // frame.
+            // The conic texture stretched over the rect: the angle is taken in the rect's normalized frame.
             uv_map = pattern_map(center, glm::vec2(rect.w, rect.h));
             quad.kind = UiShapeKind::ConicGradient;
             break;
@@ -325,7 +324,7 @@ void BatchingPainter::stroke_arc(glm::vec2 center, float radius, float start_ang
     if (!(radius > 0.0f) || !(width > 0.0f) || !(s > 0.0f)) {
         return;
     }
-    // nvgArc(..., NVG_CW): the sweep normalized into (0, 2pi], a full turn at most.
+    // A clockwise sweep normalized into (0, 2pi], a full turn at most.
     float sweep = end_angle - start_angle;
     if (std::abs(sweep) >= 2.0f * kPi) {
         sweep = 2.0f * kPi;
@@ -397,6 +396,47 @@ void BatchingPainter::fill_path(std::span<const PathSegment> path, glm::vec4 col
     push(quad);
 }
 
+void BatchingPainter::stroke_path(std::span<const PathSegment> path, float width, glm::vec4 color) {
+    if (path.empty() || !(width > 0.0f) || !(color.a * state_.alpha > 0.0f)) {
+        return;
+    }
+    float alpha = state_.alpha;
+    const float half = stroke_half_width(width, alpha);
+    if (!(color.a * alpha > 0.0f) || !(half > 0.0f)) {
+        return;
+    }
+    const Affine2& x = state_.xform;
+    const float r = pixel_ratio_;
+    const Affine2 linear{x.a * r, x.b * r, x.c * r, x.d * r, 0.0f, 0.0f};
+    const glm::vec2 translation{x.e * r, x.f * r};
+    const glm::vec2 snapped = glm::round(translation * MaskAtlas::kPhaseSteps) / MaskAtlas::kPhaseSteps;
+    const glm::vec2 whole = glm::floor(snapped);
+    const AtlasMask* mask = resources_.masks.stroke_mask(path, linear, snapped - whole, half * 2.0f, 0.25f * r);
+    if (mask == nullptr) {
+        return;
+    }
+    const AtlasPage& page = resources_.masks.page(mask->page);
+    const glm::vec2 page_size{static_cast<float>(page.width()), static_cast<float>(page.height())};
+    const glm::vec2 cell_min{static_cast<float>(mask->cell.x0 + 1), static_cast<float>(mask->cell.y0 + 1)};
+    const glm::vec2 cell_max{static_cast<float>(mask->cell.x1 - 1), static_cast<float>(mask->cell.y1 - 1)};
+    const glm::vec2 device_min = mask->origin + glm::vec2(1.0f) + whole + (translation - snapped);
+    const glm::vec2 device_max = device_min + (cell_max - cell_min);
+    Quad quad;
+    const glm::vec2 corners[4] = {device_min, {device_max.x, device_min.y}, device_max, {device_min.x, device_max.y}};
+    const glm::vec2 uvs[4] = {cell_min, {cell_max.x, cell_min.y}, cell_max, {cell_min.x, cell_max.y}};
+    for (int i = 0; i < 4; ++i) {
+        quad.position[i] = corners[i] / r;
+        quad.local[i] = {};
+        quad.uv[i] = uvs[i] / page_size;
+    }
+    quad.kind = UiShapeKind::Mask;
+    quad.color = pack_premultiplied(color, alpha);
+    quad.textured = true;
+    quad.slot = UiTextureSlot::Mask;
+    quad.page = mask->page;
+    push(quad);
+}
+
 void BatchingPainter::set_font(AssetId font, float size) {
     state_.font = font;
     state_.font_size = size;
@@ -416,7 +456,7 @@ void BatchingPainter::fill_text(std::string_view text, glm::vec2 position, glm::
     const std::uint32_t packed = pack_premultiplied(color, state_.alpha);
     for (GlyphQuad g : glyphs_) {
         if (flipped) {
-            // nvgText under a mirroring transform swaps the quad's rows and their texture rows.
+            // A mirroring transform swaps the quad's rows and their texture rows.
             std::swap(g.min.y, g.max.y);
             std::swap(g.uv_min.y, g.uv_max.y);
         }
@@ -464,7 +504,7 @@ void BatchingPainter::image_repeat(AssetId texture, const render::Rect& rect) {
         return;
     }
     Quad quad = image_quad(*img, UiShapeKind::ImageRepeat);
-    // The NanoVG painter's pattern: the texture's own pixel size, anchored at the rect's origin.
+    // The texture's own pixel size, anchored at the rect's origin.
     const glm::vec2 tile{static_cast<float>(img->width), static_cast<float>(img->height)};
     push_box(rect, 0.0f, pattern_map({rect.x, rect.y}, tile), quad);
 }

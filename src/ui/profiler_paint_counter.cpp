@@ -92,6 +92,11 @@ namespace engine::ui {
         inner_.fill_path(path, color);
     }
 
+    void ProfilerPaintCounter::stroke_path(std::span<const PathSegment> path, float width, glm::vec4 color) {
+        count(ProfilerPaintKind::Path);
+        inner_.stroke_path(path, width, color);
+    }
+
     void ProfilerPaintCounter::set_font(AssetId font, float size) {
         count(ProfilerPaintKind::Font);
         inner_.set_font(font, size);
