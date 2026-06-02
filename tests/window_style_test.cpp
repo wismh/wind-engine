@@ -139,6 +139,26 @@ TEST(WindowControlImpl, DelegatesWithoutCrashingWithoutWindow) {
     control_ref.close_window(engine::kPrimaryWindow);
 }
 
+TEST(WindowControlImpl, FramePacingIsProcessWideAndStartsWithVsync) {
+    engine::render::OpenGLRenderBackend backend;
+    engine::WindowManager windows{backend};
+    engine::DesktopOverlayPolicy overlay;
+    engine::WindowControlImpl control{windows, overlay, std::make_shared<engine::FileDialogCompletions>()};
+    engine::IWindowControl& control_ref = control;
+    EXPECT_TRUE(control_ref.vsync());
+    EXPECT_EQ(control_ref.max_fps(), 0);
+
+    control_ref.set_vsync(false);
+    control_ref.set_max_fps(144);
+    EXPECT_FALSE(control_ref.vsync());
+    EXPECT_FALSE(windows.vsync());
+    EXPECT_EQ(control_ref.max_fps(), 144);
+    EXPECT_EQ(windows.max_fps(), 144);
+
+    control_ref.set_max_fps(-1);
+    EXPECT_EQ(control_ref.max_fps(), 0) << "a negative cap is no cap";
+}
+
 TEST(WindowControlImpl, WindowIdAddressedMethodsDefaultToPrimary) {
     // Every setter's default argument must resolve to kPrimaryWindow so every pre-existing
     // single-window call site (going through IWindowControl&, where the default lives) keeps

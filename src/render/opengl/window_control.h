@@ -91,6 +91,22 @@ public:
         return overlay_->mode();
     }
 
+    void set_vsync(bool enabled) override {
+        windows_->set_vsync(enabled);
+    }
+
+    [[nodiscard]] bool vsync() const override {
+        return windows_->vsync();
+    }
+
+    void set_max_fps(int fps) override {
+        windows_->set_max_fps(fps);
+    }
+
+    [[nodiscard]] int max_fps() const override {
+        return windows_->max_fps();
+    }
+
     void set_drag_region(std::optional<render::Rect> region, WindowId window) override {
         if (WindowSystem* target = windows_->window(window)) {
             target->set_drag_region(region);

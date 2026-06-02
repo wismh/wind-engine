@@ -36,10 +36,12 @@ public:
         };
     }
 
-    // Everything a Stop must take down: a second world with a window, an input binding, and a system
-    // whose code lives in this module.
+    // Everything a Stop must take down: a second world with a window, an input binding, a system
+    // whose code lives in this module, and frame pacing other than the editor's.
     void on_start() override {
         note("start");
+        windows_->set_vsync(false);
+        windows_->set_max_fps(30);
         engine::ecs::World& tool = worlds().add();
         if (const auto id = windows_->open_window(engine::WindowDesc{.title = "Fixture tool"})) {
             worlds().bind_window(*id, tool);

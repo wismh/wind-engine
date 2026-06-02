@@ -169,6 +169,22 @@ void WindowSystem::swap() const {
     }
 }
 
+bool WindowSystem::is_presentable() const {
+    if (window_ == nullptr) {
+        return false;
+    }
+    constexpr SDL_WindowFlags kNotPresented = SDL_WINDOW_HIDDEN | SDL_WINDOW_MINIMIZED | SDL_WINDOW_OCCLUDED;
+    return (SDL_GetWindowFlags(window_) & kNotPresented) == 0;
+}
+
+float WindowSystem::refresh_rate() const {
+    if (window_ == nullptr) {
+        return 0.0f;
+    }
+    const SDL_DisplayMode* mode = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window_));
+    return mode != nullptr ? mode->refresh_rate : 0.0f;
+}
+
 void WindowSystem::set_title(std::string_view title) {
     if (window_ != nullptr) {
         const std::string text(title);
