@@ -54,6 +54,11 @@ public:
     // The last request since the previous call, then None.
     [[nodiscard]] EditorRequest take_request();
 
+    [[nodiscard]] RunState state() const;
+    // The open project fits this editor's SDK, so Play can build it.
+    [[nodiscard]] bool playable() const;
+    [[nodiscard]] const std::string& status() const;
+
     [[nodiscard]] EditorTab active_tab() const;
 
 private:

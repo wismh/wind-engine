@@ -70,6 +70,18 @@ EditorRequest Toolbar::take_request() {
     return std::exchange(request_, EditorRequest::None);
 }
 
+RunState Toolbar::state() const {
+    return state_;
+}
+
+bool Toolbar::playable() const {
+    return playable_;
+}
+
+const std::string& Toolbar::status() const {
+    return view_model_->statusText.get();
+}
+
 EditorTab Toolbar::active_tab() const {
     return tab_;
 }

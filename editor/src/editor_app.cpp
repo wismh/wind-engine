@@ -68,6 +68,10 @@ int EditorApp::run(const EditorOptions& options) {
             },
             .on_frame_end = [this] { on_frame_end(); },
             .on_quit = [this] { on_quit(); },
+            .cli = engine::CliCommands{
+                    .kind = "editor",
+                    .handle = [this](const engine::CliCommand& command) { return cli_->handle(command, facts()); },
+            },
     });
 }
 
@@ -98,6 +102,7 @@ bool EditorApp::start(const EditorOptions& options) {
     services.worlds.enable_ui(*world_);
 
     toolbar_.emplace();
+    cli_.emplace(*toolbar_);
     const engine::ecs::Entity canvas = world_->create();
     world_->emplace<engine::ui::UiCanvas>(canvas, engine::ui::UiCanvas{
             .document = assets::ui::editor,
@@ -171,6 +176,10 @@ void EditorApp::on_frame_end() {
     if (const std::optional<engine::FileDialogResult> answer = dialog_.take()) {
         take_dialog_answer(*answer);
     }
+    // Before the toolbar's request, so a Play in the same frame builds the project just opened.
+    if (const std::optional<std::filesystem::path> directory = cli_->take_open()) {
+        open_project(*directory);
+    }
     switch (toolbar_->take_request()) {
         case EditorRequest::None:
             break;
@@ -195,6 +204,15 @@ void EditorApp::on_quit() {
         stop("Stopped.");
     }
     engine::log::info("Editor: quit");
+}
+
+EditorFacts EditorApp::facts() const {
+    return EditorFacts{
+            .project = project_ ? project_->name : std::string{},
+            .project_dir = project_dir_,
+            .sdk = sdk_ ? sdk_->version : std::string{},
+            .dialog_open = dialog_.pending(),
+    };
 }
 
 void EditorApp::choose_project() {

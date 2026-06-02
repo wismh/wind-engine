@@ -1,5 +1,6 @@
 #pragma once
 
+#include "editor_cli.h"
 #include "editor_options.h"
 #include "editor_panels.h"
 #include "engine_host_play.h"
@@ -43,6 +44,7 @@ private:
     void read_events(engine::ecs::World& world);
     void on_frame_end();
     void on_quit();
+    [[nodiscard]] EditorFacts facts() const;
 
     void choose_project();
     void take_dialog_answer(const engine::FileDialogResult& answer);
@@ -56,6 +58,7 @@ private:
     // outlive the session, whose Stop detaches them.
     engine::EngineHost host_;
     std::optional<Toolbar> toolbar_;
+    std::optional<EditorCli> cli_;
     std::optional<EditorPanels> panels_;
     std::optional<EngineHostPlay> play_host_;
     std::optional<PlaySession> session_;

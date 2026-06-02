@@ -13,7 +13,13 @@ cmake --install build-editor --config Release --prefix out/sdk
 out/sdk/bin/wind_editor.exe --project path/to/my_game --play
 ```
 
-The SDK's `bin/` holds `wind_editor.exe`, `engine.dll`, their `.pdb` files, `assets/engine/`, and `assets/editor/`, so it runs from there. The Release editor is the normal one: optimized, with symbols, and with the Profiler tab and the `wind-cli` server, because `ENGINE_EDITOR` turns `ENGINE_UI_PROFILER` and `ENGINE_CLI_SERVER` on in every configuration ([CMake](../build/CMake.md#editor-build)). Games load into it in `DebugGame` or `Release` ([Game Consumer](../build/Game%20Consumer.md#debugging-game-code) has the debugger setup). The editor writes its `game.log` beside itself. It builds a project's module against the same SDK (`find_package(Wind)`, [Game Consumer](../build/Game%20Consumer.md#editor-module)), so the build ids match. Only an installed SDK can build projects: the editor finds its SDK as the parent of its `bin/` and reads `sdk.toml` there ([Project](../modules/Project.md)); `build-editor/bin/<config>/wind_editor.exe` has none and says so. Layout: [CMake](../build/CMake.md#editor-sdk).
+Or from a terminal or an agent, with `wind-cli` from the same `bin/` ([wind-cli](#wind-cli)):
+
+```bash
+out/sdk/bin/wind-cli.exe launch path/to/my_game --play --wait
+```
+
+The SDK's `bin/` holds `wind_editor.exe`, `wind-cli.exe`, `engine.dll`, their `.pdb` files, `assets/engine/`, and `assets/editor/`, so it runs from there. The Release editor is the normal one: optimized, with symbols, and with the Profiler tab and the `wind-cli` server, because `ENGINE_EDITOR` turns `ENGINE_UI_PROFILER` and `ENGINE_CLI_SERVER` on in every configuration ([CMake](../build/CMake.md#editor-build)). Games load into it in `DebugGame` or `Release` ([Game Consumer](../build/Game%20Consumer.md#debugging-game-code) has the debugger setup). The editor writes its `game.log` beside itself. It builds a project's module against the same SDK (`find_package(Wind)`, [Game Consumer](../build/Game%20Consumer.md#editor-module)), so the build ids match. Only an installed SDK can build projects: the editor finds its SDK as the parent of its `bin/` and reads `sdk.toml` there ([Project](../modules/Project.md)); `build-editor/bin/<config>/wind_editor.exe` has none and says so. Layout: [CMake](../build/CMake.md#editor-sdk).
 
 ## Start
 
@@ -47,7 +53,19 @@ A toolbar, a tab strip, and the active panel.
 | Project line | `projectText` | The project's name and directory |
 | Inspector / Profiler / Build tabs | `showInspector`, `showProfiler`, `showBuild`, `inspectorTab`, `profilerTab`, `buildTab` (`checked`) | Show that panel. Inspector is first |
 
-The commands are `MethodCommand` (`editor/src/method_command.h`) bound to `Toolbar` methods. Open project and Play/Stop only record an `EditorRequest`; `Toolbar::show_state` (`RunState` Idle, Building, Playing) sets what Play/Stop does. A tab button switches the tab at once. The editor window's `WindowCloseRequestedEvent` is read by one editor-world system that also only records. The dialog answer waits on the editor's `FileDialogCall` until `on_frame_end` takes it. Every transition runs in `RunHooks::on_frame_end`, after the frame drew, because Play and Stop create and destroy worlds that no system of that frame may still be walking.
+The commands are `MethodCommand` (`editor/src/method_command.h`) bound to `Toolbar` methods. Open project and Play/Stop only record an `EditorRequest` (`wind-cli` `play` and `stop` record the same one); `Toolbar::show_state` (`RunState` Idle, Building, Playing) sets what Play/Stop does. A tab button switches the tab at once. The editor window's `WindowCloseRequestedEvent` is read by one editor-world system that also only records. The dialog answer waits on the editor's `FileDialogCall` until `on_frame_end` takes it. Every transition runs in `RunHooks::on_frame_end`, after the frame drew, because Play and Stop create and destroy worlds that no system of that frame may still be walking.
+
+## wind-cli
+
+`EditorApp::run` passes `RunHooks::cli` with `kind` `editor`, so the descriptor says this process is an editor, and a `handle` that calls `EditorCli` (`editor/src/editor_cli.cpp`) with `EditorFacts` read from `EditorApp` (`facts()`: the project name when one is open and playable, its directory, the SDK version, whether the Open project dialog is pending). The commands and their replies are in [CLI](CLI.md#editor-commands).
+
+`EditorCli` reads the toolbar (`Toolbar::state`, `playable`, `status`) and acts only through it, so a command and a button do the same thing:
+
+- `play` calls `Toolbar::toggle_play` when Idle and playable: `EditorRequest::Play`.
+- `stop` calls it when Building or Playing: `EditorRequest::Stop`, which cancels the build or stops the game.
+- `open` keeps the directory; `on_frame_end` takes it (`take_open`) and calls `open_project` before it reads the toolbar request, so a Play in the same frame builds the project just opened.
+
+`handle` runs inside `cli::drain`, after the frame drew and before `on_frame_end`, which then makes the transition in the same frame. A UI command (`tree`, `click`, ...) reaches the game world while playing; between plays `kPrimaryWindow` has no world and the answer is `no world on window 0` at once. `--window` with the editor window's id reaches the editor's own canvases.
 
 ## Panels
 
@@ -127,10 +145,11 @@ The editor's assets and catalog land in `bin/assets/editor/` (`ENGINE_RUNTIME_AS
 - Long log lines are cut at the panel's right edge; the summary line shows the first error in full width.
 - Against a Release SDK, game code gets no STL checks or CRT debug heap (`DebugGame` is `/MD`). That needs a Debug SDK and a Debug game.
 - The panels show only the world of `kPrimaryWindow`.
+- `wind-cli launch` is Windows only, like `ProcessLauncher::launch`.
 
 ## Tests
 
-`editor/tests/play_session_test.cpp` (`wind_editor_tests`) drives `PlaySession` with headless services (`tests/fixtures/fake_services.h`), a recording `IPlayHost`, and the fixture module: Play applies the window and attaches the game and then the tools to the game world, Stop runs in the order above (tools first, while the game world is still bound), puts back the frame pacing the fixture changed, and deletes the copy, Play again works, a wrong build id and a catalog error leave nothing behind, the destructor stops. `editor/tests/project_build_test.cpp` drives `ProjectBuild` with a scripted `IProcessLauncher`: configure then build of a fresh directory and the module record, a cache for this SDK skips configure, a cache for another SDK configures again, a Debug SDK builds Debug, a failed configure or build, CMake missing, no module record, and cancel. `build_panel_test.cpp` covers the tones, the first error, scrolling, and the line cap; `editor_options_test.cpp` the command line. `editor/tests/editor_panels_test.cpp` covers the tabs and canvas placement; `inspector_panel_test.cpp`, `profiler_panel_test.cpp`, and `profiler_chart_test.cpp` cover the panels. `wind_editor_tests` compiles every editor source except `main.cpp` and `editor_app.cpp`, with wind_editor's generated `asset_ids.h`. `tests/game_module_test.cpp` covers the loader.
+`editor/tests/play_session_test.cpp` (`wind_editor_tests`) drives `PlaySession` with headless services (`tests/fixtures/fake_services.h`), a recording `IPlayHost`, and the fixture module: Play applies the window and attaches the game and then the tools to the game world, Stop runs in the order above (tools first, while the game world is still bound), puts back the frame pacing the fixture changed, and deletes the copy, Play again works, a wrong build id and a catalog error leave nothing behind, the destructor stops. `editor/tests/project_build_test.cpp` drives `ProjectBuild` with a scripted `IProcessLauncher`: configure then build of a fresh directory and the module record, a cache for this SDK skips configure, a cache for another SDK configures again, a Debug SDK builds Debug, a failed configure or build, CMake missing, no module record, and cancel. `build_panel_test.cpp` covers the tones, the first error, scrolling, and the line cap; `editor_options_test.cpp` the command line; `editor_cli_test.cpp` the `wind-cli` replies in each `RunState`, the refusals, and the toolbar request each command records. `editor/tests/editor_panels_test.cpp` covers the tabs and canvas placement; `inspector_panel_test.cpp`, `profiler_panel_test.cpp`, and `profiler_chart_test.cpp` cover the panels. `wind_editor_tests` compiles every editor source except `main.cpp` and `editor_app.cpp`, with wind_editor's generated `asset_ids.h`. `tests/game_module_test.cpp` covers the loader.
 
 ## See also
 
