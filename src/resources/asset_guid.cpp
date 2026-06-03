@@ -82,6 +82,9 @@ ImporterKind importer_from_extension(const std::filesystem::path& path) {
     if (ext == ".world") {
         return ImporterKind::World;
     }
+    if (ext == ".svg") {
+        return ImporterKind::Svg;
+    }
     return ImporterKind::Data;
 }
 

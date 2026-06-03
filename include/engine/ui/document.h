@@ -76,6 +76,7 @@ namespace engine::ui {
         MenuItem,
         MenuSeparator,
         ContextMenu,
+        Svg,
     };
 
     // Kinds that pack their children along `direction` with `gap`, vertical by default. A Popup is a menu-like
@@ -657,6 +658,8 @@ namespace engine::ui {
         std::vector<std::uint8_t> ancestor_dep;
     };
 
+    struct SvgPicture;
+
     struct Element {
         ElementKind kind = ElementKind::Canvas;
         // The element's identity in its document's arena (`UiDocument::find`) and its parent's. Null on an element no
@@ -724,6 +727,9 @@ namespace engine::ui {
         bool scrollbar_thumb_hovered = false;
         bool scrollbar_dragging = false;
         std::optional<AssetId> source;
+        // The icon for an `Svg` element's `source`, filled before paint. Null on every other kind, and until the
+        // asset has been resolved.
+        std::shared_ptr<const SvgPicture> svg;
         std::optional<LengthInsets> slice;
         std::vector<CustomPropertyBinding> custom_property_bindings;
         std::unordered_map<std::string, std::string> custom_properties;
