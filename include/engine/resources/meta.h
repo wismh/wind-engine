@@ -37,6 +37,7 @@ enum class ImporterKind {
     Animation,
     Strings,
     World,
+    Svg,
     Data,
 };
 

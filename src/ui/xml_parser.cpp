@@ -122,6 +122,9 @@ std::optional<ElementKind> kind_from_tag(const char* name) {
     if (tag == "ContextMenu") {
         return ElementKind::ContextMenu;
     }
+    if (tag == "Svg") {
+        return ElementKind::Svg;
+    }
     return std::nullopt;
 }
 
@@ -388,7 +391,7 @@ std::expected<void, UiError> parse_source(Element& element, const char* attr, IF
     }
     const auto id = AssetId::parse(attr);
     if (!id) {
-        report(fatal, "UI Image source must be a 32-hex AssetId or {binding}, not a filename");
+        report(fatal, "UI source must be a 32-hex AssetId or {binding}, not a filename");
         return std::unexpected(UiError::ForbiddenContent);
     }
     element.source = *id;

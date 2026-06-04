@@ -17,6 +17,7 @@
 
 #include <engine/builtin_ids.h>
 #include <engine/ui/canvas.h>
+#include <engine/ui/svg.h>
 
 #include <glm/vec2.hpp>
 
@@ -51,6 +52,48 @@ namespace engine::ui {
                 --end;
             }
             return value.substr(begin, end - begin);
+        }
+
+        // Fits the viewBox into `content` without stretching, centered. Points and the stroke width are then in the
+        // same pixel space as the rest of the painter.
+        void paint_svg(IUiPainter &painter, const SvgPicture &picture, const render::Rect &content, glm::vec4 css) {
+            if (!(picture.width > 0.0f) || !(picture.height > 0.0f) || !(content.w > 0.0f) || !(content.h > 0.0f)) {
+                return;
+            }
+            const float scale = std::min(content.w / picture.width, content.h / picture.height);
+            const float drawn_w = picture.width * scale;
+            const float drawn_h = picture.height * scale;
+            const float origin_x = content.x + (content.w - drawn_w) * 0.5f;
+            const float origin_y = content.y + (content.h - drawn_h) * 0.5f;
+            const auto map = [&](glm::vec2 point) {
+                return glm::vec2{origin_x + (point.x - picture.min_x) * scale,
+                                 origin_y + (point.y - picture.min_y) * scale};
+            };
+            for (const SvgShape &shape: picture.shapes) {
+                std::vector<PathSegment> mapped;
+                mapped.reserve(shape.segments.size());
+                for (const PathSegment &segment: shape.segments) {
+                    PathSegment out = segment;
+                    if (segment.kind != PathSegment::Kind::Close) {
+                        out.p = map(segment.p);
+                        if (segment.kind == PathSegment::Kind::Quad || segment.kind == PathSegment::Kind::Cubic) {
+                            out.c1 = map(segment.c1);
+                        }
+                        if (segment.kind == PathSegment::Kind::Cubic) {
+                            out.c2 = map(segment.c2);
+                        }
+                    }
+                    mapped.push_back(out);
+                }
+                const glm::vec4 color = shape.current_color
+                                                ? glm::vec4{css.r, css.g, css.b, css.a * shape.color.a}
+                                                : shape.color;
+                if (shape.paint == SvgShape::Paint::Fill) {
+                    painter.fill_path(mapped, color);
+                } else if (shape.width > 0.0f) {
+                    painter.stroke_path(mapped, shape.width * scale, color);
+                }
+            }
         }
 
         const char *kind_name(ElementKind kind) {
@@ -97,6 +140,8 @@ namespace engine::ui {
                     return "MenuSeparator";
                 case ElementKind::ContextMenu:
                     return "ContextMenu";
+                case ElementKind::Svg:
+                    return "Svg";
             }
             return "";
         }
@@ -1598,6 +1643,7 @@ namespace engine::ui {
                 case ElementKind::Viewport:
                 case ElementKind::Popup:
                 case ElementKind::ContextMenu:
+                case ElementKind::Svg:
                     return true;
                 default:
                     break;
@@ -1694,6 +1740,7 @@ namespace engine::ui {
                 case ElementKind::ScrollView:
                 case ElementKind::Popup:
                 case ElementKind::ContextMenu:
+                case ElementKind::Svg:
                     return false;
                 default:
                     break;
@@ -2127,6 +2174,15 @@ namespace engine::ui {
                             painter.image(*element.source, screen_rect);
                         }
                     }
+                }
+                if (element.kind == ElementKind::Svg && element.svg) {
+                    const render::Rect content{
+                            screen_rect.x + padding.left * input.ui_scale,
+                            screen_rect.y + padding.top * input.ui_scale,
+                            std::max(0.0f, screen_rect.w - (padding.left + padding.right) * input.ui_scale),
+                            std::max(0.0f, screen_rect.h - (padding.top + padding.bottom) * input.ui_scale),
+                    };
+                    paint_svg(painter, *element.svg, content, style.color);
                 }
             };
             const auto begin_view = [&](IUiPainter &painter) {
