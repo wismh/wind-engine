@@ -2,15 +2,20 @@
 
 #include "core/game_loop.h"
 #include "core/presentation.h"
+#include "fixtures/cli_client.h"
 
 #include <engine/core/input_system.h>
 #include <engine/core/run_hooks.h>
 #include <engine/core/worlds.h>
 #include <engine/resources/fatal_error.h>
 
+#include <atomic>
+#include <chrono>
 #include <cstdlib>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -154,3 +159,63 @@ TEST(GameLoop, FrameEndCanKeepTheLoopRunning) {
     EXPECT_EQ(stops, 1);
     EXPECT_EQ(frames, 3);
 }
+
+#if defined(ENGINE_CLI_SERVER)
+
+TEST(GameLoop, CliReachesTheHostWithoutAPrimaryWorld) {
+    QuietFatal fatal;
+    engine::Worlds worlds{fatal};
+    engine::InputSystem input;
+    std::vector<std::string> log;
+    FakePresentation presentation{log};
+
+    // The editor between plays: no world on kPrimaryWindow, the host answers its own commands.
+    cli_client::Descriptor descriptor;
+    cli_client::Reply state;
+    cli_client::Reply tree;
+    std::atomic<bool> answered{false};
+    std::thread client;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+
+    engine::GameLoop loop;
+    const int result = loop.run(presentation,
+            engine::RunHooks{
+                    .on_start = {},
+                    .on_frame_end = [&] {
+                        // The server starts after on_start, so the descriptor is there from the first frame.
+                        if (!client.joinable()) {
+                            descriptor = cli_client::read_descriptor();
+                            client = std::thread([&] {
+                                state = cli_client::post_authorized(descriptor, R"({"command":"state"})");
+                                tree = cli_client::post_authorized(descriptor, R"({"command":"tree"})");
+                                answered = true;
+                            });
+                        }
+                        if (answered || std::chrono::steady_clock::now() > deadline) {
+                            worlds.application_state().quit();
+                        }
+                    },
+                    .on_quit = {},
+                    .cli = engine::CliCommands{
+                            .kind = "editor",
+                            .handle = [](const engine::CliCommand& command) -> std::optional<engine::CliReply> {
+                                if (command.name != "state") {
+                                    return std::nullopt;
+                                }
+                                return engine::CliReply{
+                                        .ok = true, .error = {}, .result = {{"run", std::string("idle")}}};
+                            },
+                    },
+            },
+            worlds, input, nullptr, nullptr, nullptr, {});
+    client.join();
+
+    EXPECT_EQ(result, 0);
+    EXPECT_EQ(descriptor.kind, "editor");
+    EXPECT_EQ(state.status, 200);
+    EXPECT_EQ(state.body, R"({"ok":true,"result":{"run":"idle"}})");
+    EXPECT_EQ(tree.body, R"({"ok":false,"error":"no world on window 0"})");
+    EXPECT_TRUE(answered.load());
+}
+
+#endif
