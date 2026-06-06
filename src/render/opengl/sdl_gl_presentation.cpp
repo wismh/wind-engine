@@ -96,6 +96,10 @@ public:
         }
         // Before SDL_Init. We draw the composition string; the OS keeps the candidate list.
         SDL_SetHint(SDL_HINT_IME_IMPLEMENTED_UI, "composition");
+        // Default "0" finishes the Android activity on Back, before SDL_SCANCODE_AC_BACK exists.
+        // The video driver applies this from its hint callback inside SDL_Init, so it has to be set first.
+        // OVERRIDE wins over the manifest SDL_ENV copy of the same hint.
+        SDL_SetHintWithPriority(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1", SDL_HINT_OVERRIDE);
         if (!SDL_Init(SDL_INIT_VIDEO)) {
             return false;
         }
@@ -103,8 +107,6 @@ public:
         SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
         // A click that also focuses a background window must still deliver BUTTON_DOWN.
         SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
-        // Default "0" finishes the Android activity before SDL_SCANCODE_AC_BACK is delivered.
-        SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");
         video_inited_ = true;
         return true;
     }
