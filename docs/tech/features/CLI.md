@@ -1,28 +1,32 @@
 # CLI
 
-`wind-cli` is a host tool. It does not link `engine`. When `ENGINE_CLI_SERVER` is on, the game listens on `127.0.0.1` and answers `POST /exec`. The tool prints the JSON body and exits 0 when that body starts with `{"ok":true`. A body that does not start that way exits 1, as do a missing game and a failed exchange. `status` always exits 0.
+`wind-cli` is a host tool. It does not link `engine`. When `ENGINE_CLI_SERVER` is on, the game or the editor listens on `127.0.0.1` and answers `POST /exec`. The tool prints the JSON body and exits 0 when that body starts with `{"ok":true`. A body that does not start that way exits 1, as do a missing game and a failed exchange. `status` always exits 0. `launch` starts an editor ([Editor commands](#editor-commands)).
 
 A command error is still HTTP 200 with `"ok":false`. Usage errors exit 2.
 
-Debug, RelWithDebInfo, and every configuration of the editor build (`ENGINE_EDITOR`, so the Release editor too) define `ENGINE_CLI_SERVER`, and not on Emscripten or Android. An exported game's Release and MinSizeRel do not. Without the macro the game does not open a port and does not write a descriptor. `wind-cli` still builds. There is no header under `include/engine/`.
+Debug, RelWithDebInfo, and every configuration of the editor build (`ENGINE_EDITOR`, so the Release editor too) define `ENGINE_CLI_SERVER`, and not on Emscripten or Android. An exported game's Release and MinSizeRel do not. Without the macro the game does not open a port and does not write a descriptor. `wind-cli` still builds. The only public header is `<engine/core/cli_commands.h>`, for a host's own commands ([Host commands](#host-commands)). The SDK installs `wind-cli` into `bin/`, beside `wind_editor`.
 
 | File | Role |
 | --- | --- |
-| `src/cli/cli_server.h` | request types, `start` / `stop` / `begin_frame` / `drain` |
-| `src/cli/cli_server.cpp` | socket, descriptor, accept thread. Empty translation unit without the macro |
-| `src/cli/cli_commands.cpp` | `tree`, `element`, `hit`, `click`, `profile` |
-| `tools/wind_cli/main.cpp` | the host client |
+| `include/engine/core/cli_commands.h` | `CliCommand`, `CliReply`, `CliCommands`: the host's commands, passed in `RunHooks::cli` |
+| `src/cli/cli_server.h` | request types, `CliFrame`, `start` / `stop` / `begin_frame` / `drain` |
+| `src/cli/cli_server.cpp` | socket, descriptor, accept thread, routing. Empty translation unit without the macro |
+| `src/cli/cli_commands.cpp` | `tree`, `element`, `hit`, `click`, `profile`, and the JSON of a host reply |
+| `editor/src/editor_cli.cpp` | the editor's `state`, `play`, `stop`, `open` ([Editor](Editor.md#wind-cli)) |
+| `tools/wind_cli/main.cpp` | the host client and `launch` |
 
 The tool does not check the engine build id.
 
 ## When it runs
 
-`GameLoop::begin` calls `cli::start`. `GameLoop::end` calls `cli::stop`. `begin_frame` does not bind a port. A test that calls `begin_frame` does not either.
+`GameLoop::begin` calls `cli::start(RunHooks::cli.kind)`, after `on_start`. `GameLoop::end` calls `cli::stop`. `begin_frame` does not bind a port. A test that calls `begin_frame` does not either.
 
-`tick` and `reentrant_tick`:
+`tick` and `reentrant_tick` pass a `CliFrame`: `world_for` (`Worlds::world_for`, looked up per request) and `host` (`&RunHooks::cli`). Both calls run every frame, with or without a world on `kPrimaryWindow`.
 
 1. `cli::begin_frame` runs an armed `click` before `flush_events` and simulate.
-2. After `draw_all`, `cli::drain` answers `tree`, `element`, `hit`, and `profile` from this frame's painted tree, and arms a `click` for the next `begin_frame`.
+2. After `draw_all`, `cli::drain` answers `tree`, `element`, `hit`, and `profile` from this frame's painted tree, arms a `click` for the next `begin_frame`, and passes every other command to the host.
+
+A UI command (`tree`, `element`, `hit`, `click`, `profile`) runs against the world bound to the request's `window` (default 0, `kPrimaryWindow`). When that window has no world, the next `drain` answers `{"ok":false,"error":"no world on window N"}` at once; there is no 504. In the editor between plays `kPrimaryWindow` has no world; `--window` with the editor window's id reaches the editor's own canvases.
 
 `execute()` inside the command runs a click immediately. The deferral is only the socket path, so the response is the drain after the click has been painted. `tests/cli_server_test.cpp` pumps the queue on the test thread. It does not go through `GameLoop`.
 
@@ -36,7 +40,7 @@ The OS picks the port (`bind` with port 0). A descriptor is written for the curr
 | `XDG_RUNTIME_DIR` set | `$XDG_RUNTIME_DIR/wind/cli` |
 | otherwise | `/tmp/wind-cli-<uid>` |
 
-Fields: `pid`, `port`, `token`, `exe`. The token is 32 random bytes, base64. Every request sends `Authorization: Bearer`.
+Fields: `pid`, `port`, `token`, `exe`, `kind`. `kind` is `RunHooks::cli.kind`, `game` when empty; the editor writes `editor`. `wind-cli` reads a descriptor without `kind` as a game. The token is 32 random bytes, base64. Every request sends `Authorization: Bearer`.
 
 | Response | When |
 | --- | --- |
@@ -54,9 +58,9 @@ On Windows the descriptor file is created with an owner-only ACL (`D:P(A;;FA;;;O
 
 ## Commands
 
-`status` lists live descriptors and does not contact the game. It does not print the token. A dead pid's file is removed. One live game is the target. Several require `--pid`. `--window` selects a `WindowId` (default 0, `kPrimaryWindow`).
+`status` lists live descriptors (`pid`, `port`, `kind`, `exe`) and does not contact the process. It does not print the token. A dead pid's file is removed. One live process is the target of a UI command. Several require `--pid`. The editor commands consider only `kind` `editor`, so a standalone game beside the editor does not need `--pid`. `--window` selects a `WindowId` (default 0, `kPrimaryWindow`).
 
-The JSON body is `{"command":"…"}` plus optional `selector`, `window`, `x`, and `y`. `profile stop` (and `--stop`) also sends `"stop":true`.
+The JSON body is `{"command":"…"}` plus optional `selector`, `window`, `x`, `y`, and `path`. `profile stop` (and `--stop`) also sends `"stop":true`.
 
 | Command | Result |
 | --- | --- |
@@ -118,6 +122,37 @@ Selectors: `#id`, `.class`, or `path:` plus the tree path joined by `/`. `path:`
 `click` with `"executed":false` carries `reason`: `disabled`, `no command`, or `can_execute`.
 
 Without `ENGINE_UI_PROFILER` (an exported game's Release), `profile` returns `"UI profiler is not in this build"`.
+
+## Host commands
+
+A command that is not a UI command goes to `RunHooks::cli.handle` with `CliCommand{name, path}`, on the main thread inside `drain`, after the frame drew and before `on_frame_end`. A host records what to do there and acts in `on_frame_end`, like a toolbar button. `begin_frame` leaves host commands for `drain`.
+
+| `handle` returns | Body |
+| --- | --- |
+| nullopt, or no `handle` | `{"ok":false,"error":"unknown command"}` |
+| `CliReply` with `ok` false | `{"ok":false,"error":error}` |
+| `CliReply` with `ok` true | `{"ok":true,"result":{…}}`, the fields in order |
+
+A field is a `CliValue`: `std::monostate` (null), `bool`, `std::int64_t`, `double` (`{:.6g}`, null when not finite), or `std::string` (escaped). The server writes the JSON, so the host does not. A game leaves `RunHooks::cli` empty.
+
+## Editor commands
+
+The editor's `RunHooks::cli` has `kind` `editor` and calls `EditorCli` ([Editor](Editor.md#wind-cli)).
+
+| Command | Result |
+| --- | --- |
+| `state` | `run` (`idle`, `building`, `playing`), `playable`, `status` (the status line), `project`, `project_dir`, `sdk`; null when there is none |
+| `play` | `requested`: `play`. Refused with `already building` / `already playing`, or `not playable: <status line>` |
+| `stop` | `requested`: `stop`, `was`: `building` or `playing`. A build is cancelled. Refused with `not playing` |
+| `open <project>` | `requested`: `open`, `path`. The tool sends the absolute path; `wind_project.toml` is taken as its directory. Refused while building or playing, or while the Open project dialog is open |
+
+`play` and `stop` answer before anything happens: the editor acts in `on_frame_end` of the same frame, so the next `state` already shows `building` (or `idle` with the reason in `status`).
+
+`wind-cli play --wait [S]` sends `play`, then polls `state` every 250 ms. It prints the last `state` and exits 0 on `playing`, 1 on `idle` (the build or Play failed, or the game quit) or after `S` seconds (default 600).
+
+`wind-cli launch <project> [--play [--wait [S]]] [--editor PATH]` starts `wind_editor` with `--project <dir>` (and `--play`) the way the launcher does: detached, in the editor's directory, out of the terminal's job when the job allows it. The editor is `wind_editor` beside `wind-cli` (the SDK's `bin/`) unless `--editor` names one. `<project>` is a directory or its `wind_project.toml`, relative to the current directory; it must hold `wind_project.toml`. The tool waits up to 30 s for the editor's descriptor and fails if the editor exits first. It prints `{"ok":true,"result":{"pid":…,"port":…}}`. With `--play --wait` it then waits as `play --wait` does and adds `state`; on failure the body has `"ok":false` and `error` set to the status line. `launch` is Windows only; elsewhere it says so and exits 1.
+
+`--play` and `--editor` outside `launch`, and `--wait` outside `play` and `launch --play`, are usage errors (exit 2).
 
 ## See also
 

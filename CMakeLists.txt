@@ -267,7 +267,8 @@ else()
     add_executable(asset_guid "${CMAKE_CURRENT_SOURCE_DIR}/tools/asset_guid/main.cpp")
     target_link_libraries(asset_guid PRIVATE engine)
 
-    # Host client. Does not link engine: it only speaks HTTP to a running game.
+    # Host client. Does not link engine: it speaks HTTP to a running game or editor, and `launch` starts the
+    # wind_editor beside it (the SDK installs both into bin/).
     add_executable(wind-cli "${CMAKE_CURRENT_SOURCE_DIR}/tools/wind_cli/main.cpp")
     if(WIN32)
         target_link_libraries(wind-cli PRIVATE ws2_32)
@@ -533,7 +534,7 @@ if(ENGINE_EDITOR)
     # cmake --install build-editor --config <cfg> --prefix out/sdk: one configuration of the editor, the
     # shared engine, and the host tools, plus what a game needs to build a module against them. Layout,
     # WindConfig.cmake, and sdk.toml: docs/tech/build/CMake.md.
-    set(_engine_tools_runtime wind_editor engine asset_codegen icon_codegen)
+    set(_engine_tools_runtime wind_editor engine asset_codegen icon_codegen wind-cli)
     install(TARGETS ${_engine_tools_runtime}
         RUNTIME DESTINATION bin
         LIBRARY DESTINATION bin

@@ -14,14 +14,17 @@
 #include <engine/ui/stylesheet.h>
 #include <engine/ui/view_model.h>
 
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <variant>
 
 #if defined(ENGINE_UI_PROFILER)
 #include "ui/profile.h"
@@ -29,24 +32,7 @@
 #include <engine/ui/profiler.h>
 #endif
 
-#if defined(ENGINE_CLI_SERVER)
-#if defined(_WIN32)
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#include <windows.h>
-#else
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#endif
-#endif
+#include "fixtures/cli_client.h"
 
 #if defined(NANOVG_H) || defined(NANOVG_GL_H) || defined(NANOVG_GL3)
 #error "cli tests must not include nvg headers"
@@ -154,114 +140,13 @@ namespace {
         return engine::cli::execute(world, request);
     }
 
+    engine::cli::CliFrame frame_of(engine::ecs::World &world) {
+        return engine::cli::CliFrame{.world_for = [&world](engine::WindowId window) -> engine::ecs::World * {
+            return window == engine::kPrimaryWindow ? &world : nullptr;
+        }};
+    }
+
 #if defined(ENGINE_CLI_SERVER)
-
-    struct Reply {
-        int status = 0;
-        std::string body;
-    };
-
-    std::uint32_t this_pid() {
-#if defined(_WIN32)
-        return static_cast<std::uint32_t>(GetCurrentProcessId());
-#else
-        return static_cast<std::uint32_t>(::getpid());
-#endif
-    }
-
-    std::string read_file(const std::filesystem::path &path) {
-        std::ifstream file(path);
-        return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    }
-
-    Reply post(int port, std::string_view extra, std::string_view body) {
-        Reply reply;
-#if defined(_WIN32)
-        using Socket = SOCKET;
-        constexpr Socket invalid = INVALID_SOCKET;
-        WSADATA wsa{};
-        if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
-            return reply;
-        }
-#else
-        using Socket = int;
-        constexpr Socket invalid = -1;
-#endif
-        const Socket socket = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-        if (socket == invalid) {
-#if defined(_WIN32)
-            WSACleanup();
-#endif
-            return reply;
-        }
-#if defined(_WIN32)
-        const DWORD timeout = 3000;
-        ::setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char *>(&timeout), sizeof(timeout));
-#else
-        timeval timeout{};
-        timeout.tv_sec = 3;
-        ::setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-#endif
-        sockaddr_in address{};
-        address.sin_family = AF_INET;
-        address.sin_port = htons(static_cast<unsigned short>(port));
-        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        if (::connect(socket, reinterpret_cast<sockaddr *>(&address), sizeof(address)) != 0) {
-#if defined(_WIN32)
-            closesocket(socket);
-            WSACleanup();
-#else
-            ::close(socket);
-#endif
-            return reply;
-        }
-        const std::string request =
-                std::format("POST /exec HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n"
-                            "Content-Length: {}\r\n{}Connection: close\r\n\r\n{}",
-                            body.size(), extra, body);
-        std::string_view pending = request;
-        while (!pending.empty()) {
-            const int sent = ::send(socket, pending.data(), static_cast<int>(pending.size()), 0);
-            if (sent <= 0) {
-#if defined(_WIN32)
-                closesocket(socket);
-                WSACleanup();
-#else
-                ::close(socket);
-#endif
-                return reply;
-            }
-            pending.remove_prefix(static_cast<std::size_t>(sent));
-        }
-        std::string data;
-        char buffer[2048];
-        while (true) {
-            const int got = ::recv(socket, buffer, sizeof(buffer), 0);
-            if (got < 0) {
-                break;
-            }
-            if (got == 0) {
-                break;
-            }
-            data.append(buffer, static_cast<std::size_t>(got));
-        }
-#if defined(_WIN32)
-        closesocket(socket);
-        WSACleanup();
-#else
-        ::close(socket);
-#endif
-        const std::size_t line = data.find("\r\n");
-        if (line == std::string::npos || !data.starts_with("HTTP/1.1 ")) {
-            return reply;
-        }
-        reply.status = std::atoi(data.c_str() + 9);
-        const std::size_t split = data.find("\r\n\r\n");
-        if (split != std::string::npos) {
-            reply.body = data.substr(split + 4);
-        }
-        return reply;
-    }
 
     class CliLoopback : public ::testing::Test {
     protected:
@@ -367,6 +252,47 @@ TEST(Cli, HitAndClickBypassPick) {
     EXPECT_EQ(game.vm->clicks, 1);
 }
 
+TEST(Cli, HostRepliesAreWrittenAsJson) {
+    engine::cli::CliRequest request;
+    request.command = "state";
+    EXPECT_EQ(engine::cli::execute_host(nullptr, request), R"({"ok":false,"error":"unknown command"})");
+    EXPECT_FALSE(engine::cli::is_ui_command("state"));
+    EXPECT_TRUE(engine::cli::is_ui_command("click"));
+
+    const engine::CliCommands host{
+            .kind = "editor",
+            .handle = [](const engine::CliCommand &command) -> std::optional<engine::CliReply> {
+                if (command.name == "fail") {
+                    return engine::CliReply{.ok = false, .error = R"(not "playable")", .result = {}};
+                }
+                if (command.name != "state") {
+                    return std::nullopt;
+                }
+                return engine::CliReply{.ok = true,
+                                        .error = {},
+                                        .result = {
+                                                {"project", std::monostate{}},
+                                                {"playable", true},
+                                                {"frames", std::int64_t{1234567890123}},
+                                                {"ratio", 0.5},
+                                                {"status", std::string("C:\\games\n\"ttt\"")},
+                                        }};
+            },
+    };
+    EXPECT_EQ(engine::cli::execute_host(&host, request),
+              R"({"ok":true,"result":{"project":null,"playable":true,"frames":1234567890123,"ratio":0.5,)"
+              R"("status":"C:\\games\n\"ttt\""}})");
+    request.command = "fail";
+    EXPECT_EQ(engine::cli::execute_host(&host, request), R"({"ok":false,"error":"not \"playable\""})");
+    request.command = "fly";
+    EXPECT_EQ(engine::cli::execute_host(&host, request), R"({"ok":false,"error":"unknown command"})");
+
+    const engine::cli::CliRequest parsed = engine::cli::parse_request(R"({"command":"open","path":"C:/g"})");
+    EXPECT_TRUE(parsed.error.empty());
+    EXPECT_EQ(parsed.command, "open");
+    EXPECT_EQ(parsed.path, "C:/g");
+}
+
 #if defined(ENGINE_UI_PROFILER)
 
 TEST(Cli, ProfileCaptureWithoutWindow) {
@@ -408,38 +334,118 @@ TEST(Cli, ProfileMissingFromThisBuild) {
 #if defined(ENGINE_CLI_SERVER)
 
 TEST_F(CliLoopback, RejectsMissingTokenAndOrigin) {
-    const std::filesystem::path file = engine::cli::descriptor_directory() / (std::to_string(this_pid()) + ".json");
-    const std::string descriptor = read_file(file);
-    ASSERT_NE(descriptor.find("\"port\":"), std::string::npos);
-    const int port = std::atoi(descriptor.c_str() + descriptor.find("\"port\":") + 7);
-    ASSERT_GT(port, 0);
-    const auto token_at = descriptor.find("\"token\":\"");
-    ASSERT_NE(token_at, std::string::npos);
-    const std::size_t token_begin = token_at + std::string("\"token\":\"").size();
-    const std::size_t token_end = descriptor.find('"', token_begin);
-    ASSERT_NE(token_end, std::string::npos);
-    const std::string token = descriptor.substr(token_begin, token_end - token_begin);
+    const cli_client::Descriptor descriptor = cli_client::read_descriptor();
+    ASSERT_GT(descriptor.port, 0);
+    ASSERT_FALSE(descriptor.token.empty());
+    EXPECT_EQ(descriptor.kind, "game");
 
-    const Reply denied = post(port, "", "{\"command\":\"tree\"}");
+    const cli_client::Reply denied = cli_client::post(descriptor.port, "", "{\"command\":\"tree\"}");
     EXPECT_EQ(denied.status, 401);
     EXPECT_NE(denied.body.find("unauthorized"), std::string::npos);
 
-    const std::string origin = std::format("Origin: http://evil\r\nAuthorization: Bearer {}\r\n", token);
-    const Reply rejected = post(port, origin, "{\"command\":\"tree\"}");
+    const std::string origin = std::format("Origin: http://evil\r\nAuthorization: Bearer {}\r\n", descriptor.token);
+    const cli_client::Reply rejected = cli_client::post(descriptor.port, origin, "{\"command\":\"tree\"}");
     EXPECT_EQ(rejected.status, 403);
     EXPECT_NE(rejected.body.find("origin"), std::string::npos);
 
     GameCanvas game = spawn_game();
-    Reply accepted;
-    std::thread client([&] {
-        accepted = post(port, std::format("Authorization: Bearer {}\r\n", token), "{\"command\":\"tree\"}");
-    });
+    cli_client::Reply accepted;
+    std::thread client([&] { accepted = cli_client::post_authorized(descriptor, "{\"command\":\"tree\"}"); });
     engine::cli::wait_for_request();
-    engine::cli::drain(game.world);
+    engine::cli::drain(frame_of(game.world));
     client.join();
     EXPECT_EQ(accepted.status, 200);
     EXPECT_NE(accepted.body.find("\"ok\":true"), std::string::npos);
     EXPECT_NE(accepted.body.find("\"id\":\"go\""), std::string::npos);
+}
+
+TEST_F(CliLoopback, WindowWithoutAWorldAnswersAtOnce) {
+    const cli_client::Descriptor descriptor = cli_client::read_descriptor();
+    ASSERT_GT(descriptor.port, 0);
+
+    // The editor between plays: kPrimaryWindow has no world. One drain answers; nothing waits for the 504.
+    cli_client::Reply reply;
+    std::thread client([&] { reply = cli_client::post_authorized(descriptor, "{\"command\":\"tree\"}"); });
+    engine::cli::wait_for_request();
+    engine::cli::drain(engine::cli::CliFrame{.world_for = [](engine::WindowId) -> engine::ecs::World * {
+        return nullptr;
+    }});
+    client.join();
+    EXPECT_EQ(reply.status, 200);
+    EXPECT_EQ(reply.body, "{\"ok\":false,\"error\":\"no world on window 0\"}");
+}
+
+TEST_F(CliLoopback, EachWindowReachesItsOwnWorld) {
+    const cli_client::Descriptor descriptor = cli_client::read_descriptor();
+    ASSERT_GT(descriptor.port, 0);
+
+    GameCanvas game = spawn_game();
+    engine::ecs::World other;
+    const engine::WindowId second{1};
+    const auto xml = engine::ui::parse_xml(R"(<Canvas><Button id="tool"/></Canvas>)");
+    ASSERT_TRUE(xml.has_value());
+    engine::ui::UiCanvas canvas;
+    canvas.fit = engine::ui::UiFit::Fixed;
+    canvas.rect = {0.0f, 0.0f, 80.0f, 40.0f};
+    canvas.window = second;
+    ASSERT_TRUE(other.valid(engine::ui::spawn_canvas(other, canvas, *xml)));
+    const engine::cli::CliFrame frame{
+            .world_for = [&](engine::WindowId window) -> engine::ecs::World * {
+                if (window == engine::kPrimaryWindow) {
+                    return &game.world;
+                }
+                return window == second ? &other : nullptr;
+            },
+    };
+
+    cli_client::Reply reply;
+    std::thread client(
+            [&] { reply = cli_client::post_authorized(descriptor, "{\"command\":\"tree\",\"window\":1}"); });
+    engine::cli::wait_for_request();
+    engine::cli::drain(frame);
+    client.join();
+    EXPECT_NE(reply.body.find("\"id\":\"tool\""), std::string::npos) << reply.body;
+    EXPECT_EQ(reply.body.find("\"id\":\"go\""), std::string::npos) << reply.body;
+}
+
+TEST_F(CliLoopback, OtherCommandsGoToTheHostAfterTheFrameDrew) {
+    const cli_client::Descriptor descriptor = cli_client::read_descriptor();
+    ASSERT_GT(descriptor.port, 0);
+
+    std::string seen_path;
+    const engine::CliCommands host{
+            .kind = "editor",
+            .handle = [&](const engine::CliCommand &command) -> std::optional<engine::CliReply> {
+                if (command.name != "open") {
+                    return std::nullopt;
+                }
+                seen_path = command.path;
+                return engine::CliReply{.ok = true, .error = {}, .result = {{"requested", std::string("open")}}};
+            },
+    };
+    const engine::cli::CliFrame frame{
+            .world_for = [](engine::WindowId) -> engine::ecs::World * { return nullptr; },
+            .host = &host,
+    };
+
+    cli_client::Reply opened;
+    std::thread client([&] {
+        opened = cli_client::post_authorized(descriptor, "{\"command\":\"open\",\"path\":\"C:/games/ttt\"}");
+    });
+    engine::cli::wait_for_request();
+    engine::cli::begin_frame(frame);
+    EXPECT_TRUE(seen_path.empty());
+    engine::cli::drain(frame);
+    client.join();
+    EXPECT_EQ(seen_path, "C:/games/ttt");
+    EXPECT_EQ(opened.body, "{\"ok\":true,\"result\":{\"requested\":\"open\"}}");
+
+    cli_client::Reply unknown;
+    std::thread second([&] { unknown = cli_client::post_authorized(descriptor, "{\"command\":\"fly\"}"); });
+    engine::cli::wait_for_request();
+    engine::cli::drain(frame);
+    second.join();
+    EXPECT_EQ(unknown.body, "{\"ok\":false,\"error\":\"unknown command\"}");
 }
 
 #endif

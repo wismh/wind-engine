@@ -60,7 +60,7 @@ void GameLoop::begin() {
         }
     });
     worlds_->application_state().running = true;
-    cli::start();
+    cli::start(hooks_.cli.kind);
 }
 
 void GameLoop::tick() {
@@ -68,10 +68,8 @@ void GameLoop::tick() {
         return;
     }
     const float real_dt = consume_dt();
-    ecs::World* const primary = worlds_->world_for(kPrimaryWindow);
-    if (primary != nullptr) {
-        cli::begin_frame(*primary);
-    }
+    const cli::CliFrame cli_frame = this->cli_frame();
+    cli::begin_frame(cli_frame);
     flush_worlds(*worlds_);
     presentation_->poll(*worlds_, *input_);
     if (http_ != nullptr) {
@@ -83,9 +81,7 @@ void GameLoop::tick() {
     simulate_worlds(*worlds_, audio_, real_dt);
     presentation_->sync_frame(*worlds_);
     presentation_->draw_all();
-    if (primary != nullptr) {
-        cli::drain(*primary);
-    }
+    cli::drain(cli_frame);
     // Last in the frame, so the hook may destroy worlds or rebind windows: nothing of this frame reads
     // them afterwards. reentrant_tick does not call it, because it runs nested inside poll.
     if (hooks_.on_frame_end) {
@@ -104,16 +100,19 @@ void GameLoop::reentrant_tick() {
         return;
     }
     const float real_dt = consume_dt();
-    ecs::World* const primary = worlds_->world_for(kPrimaryWindow);
-    if (primary != nullptr) {
-        cli::begin_frame(*primary);
-    }
+    const cli::CliFrame cli_frame = this->cli_frame();
+    cli::begin_frame(cli_frame);
     simulate_worlds(*worlds_, audio_, real_dt);
     presentation_->sync_frame(*worlds_);
     presentation_->draw_all();
-    if (primary != nullptr) {
-        cli::drain(*primary);
-    }
+    cli::drain(cli_frame);
+}
+
+cli::CliFrame GameLoop::cli_frame() const {
+    return cli::CliFrame{
+            .world_for = [worlds = worlds_](WindowId window) { return worlds->world_for(window); },
+            .host = &hooks_.cli,
+    };
 }
 
 void GameLoop::end() {
