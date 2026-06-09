@@ -297,6 +297,8 @@ namespace engine::cli {
                     return "Checkbox";
                 case ui::ElementKind::Math:
                     return "Math";
+                case ui::ElementKind::Popup:
+                    return "Popup";
             }
             return "Element";
         }
@@ -669,6 +671,7 @@ namespace engine::cli {
             bound("content", element.content_binding);
             bound("command", element.command_binding);
             bound("checked", element.checked_binding);
+            bound("open", element.open_binding);
             bound("source", element.source_binding);
             bound("items", element.items_source_binding);
             bound("drag", element.drag_binding);

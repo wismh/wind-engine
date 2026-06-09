@@ -64,7 +64,14 @@ namespace engine::ui {
         ScrollView,
         Checkbox,
         Math,
+        Popup,
     };
+
+    // Kinds that pack their children along `direction` with `gap`, vertical by default. A Popup is a menu-like
+    // column of its items.
+    [[nodiscard]] constexpr bool packs_children(ElementKind kind) noexcept {
+        return kind == ElementKind::Stack || kind == ElementKind::ScrollView || kind == ElementKind::Popup;
+    }
 
     enum class Overflow {
         Visible,
@@ -108,6 +115,20 @@ namespace engine::ui {
         Static,
         Relative,
         Absolute,
+    };
+
+    // Where a Popup sits against its anchor (its parent's border box): the side first, then which edge of
+    // that side it lines up with. A popup that does not fit on that side flips to the opposite one when that
+    // side has more room, and is then pushed inside the window.
+    enum class PopupPlacement {
+        BottomStart,
+        BottomEnd,
+        TopStart,
+        TopEnd,
+        RightStart,
+        RightEnd,
+        LeftStart,
+        LeftEnd,
     };
 
     struct BoxInsets {
@@ -675,6 +696,15 @@ namespace engine::ui {
         // ordinary cascaded background/border/background-image, not a built-in drawn mark, same as
         // Button carries no built-in chrome of its own.
         bool checked = false;
+        // Popup-only. `open` is a literal or a two-way binding: a click outside, Escape, or a wheel outside
+        // closes the popup and writes false back. A closed popup is laid out but not painted or hit.
+        bool open = false;
+        BindingId open_binding{};
+        PopupPlacement placement = PopupPlacement::BottomStart;
+        // Layout units from where layout left the popup (its anchor's top-left) to where it is shown, after
+        // the anchor's scroll and Viewport camera, the flip, and the clamp into the window. Written by the
+        // canvas before hit-testing and painting; every walk that enters an open popup starts from it.
+        glm::vec2 popup_offset{};
         std::size_t caret_position = 0;
         // IME preedit, kept off `text` so apply_bindings can refresh `text` from the ViewModel every
         // frame and leave the preedit in place. composition_start and composition_length are Unicode

@@ -28,6 +28,7 @@
 #include <engine/ui/stylesheet.h>
 
 #include "ui/input_batch.h"
+#include "ui/popup.h"
 #include "ui/profile.h"
 #include "ui/ui_refs.h"
 
@@ -577,6 +578,21 @@ namespace engine {
                 return a.index < b.index;
             });
             std::unordered_map<WindowId, std::optional<ecs::Entity>> hover_by_window;
+            // A canvas whose open popup is under the pointer owns hover in that window: the canvases it covers
+            // must not light up what lies under the popup.
+            std::unordered_map<WindowId, std::optional<ecs::Entity>> popup_owner_by_window;
+            for (const CanvasDraw &canvas: canvases) {
+                if (!popup_owner_by_window.contains(canvas.window)) {
+                    popup_owner_by_window.emplace(
+                            canvas.window,
+                            ui::popup_canvas_at(world, canvas.window, ui::pointer_for(world, canvas.window).position));
+                }
+            }
+            struct PopupLayer {
+                render::CommandBuffer *target = nullptr;
+                render::CmdDrawUI command;
+            };
+            std::vector<PopupLayer> popup_layers;
             const bool inspected = ui::inspector_attached(world);
             if (inspected) {
                 ui::inspector_retarget(world);
@@ -627,6 +643,13 @@ namespace engine {
                         window_width,      window_height,
                         space.offset,      space.scale,
                 };
+                cmd.popup_bounds = ui::popup_bounds(space, size);
+                if (const std::optional<ecs::Entity> &owner = popup_owner_by_window[canvas.window];
+                    owner.has_value() && *owner != canvas.entity) {
+                    constexpr float kNoPointer = -1.0e9f;
+                    cmd.pointer = glm::vec2{kNoPointer, kNoPointer};
+                    cmd.pointer_down = false;
+                }
 #if defined(ENGINE_UI_PROFILER)
                 if (ui::profiler_recording()) {
                     cmd.canvas = canvas.entity;
@@ -645,7 +668,16 @@ namespace engine {
                         cmd.inspector_selection_owner = pick.generated_owner;
                     }
                 }
+                if (canvas.document != nullptr && ui::has_open_popup(canvas.document->root)) {
+                    popup_layers.push_back(PopupLayer{target, cmd});
+                    popup_layers.back().command.popup_layer = true;
+                }
                 target->push(std::move(cmd));
+            }
+            // After every base pass, so a popup is drawn above the canvases of higher order too. Same canvas
+            // order among the popup layers.
+            for (PopupLayer &layer: popup_layers) {
+                layer.target->push(std::move(layer.command));
             }
         }
 
