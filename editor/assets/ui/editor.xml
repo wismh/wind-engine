@@ -6,6 +6,8 @@
         <Label class="app-title" text="{binding windowTitle}"/>
         <MenuBar class="main-menu-bar">
           <Menu text="File">
+            <MenuItem text="Refresh" command="{binding refreshProject}"/>
+            <MenuSeparator/>
             <MenuItem text="Export..." command="{binding exportGame}" shortcut="Ctrl+E"/>
             <MenuSeparator/>
             <MenuItem text="Exit" command="{binding closeWindow}" shortcut="Alt+F4"/>
