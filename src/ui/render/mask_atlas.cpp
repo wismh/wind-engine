@@ -80,14 +80,30 @@ AtlasMask MaskAtlas::place(int w, int h) {
 
 const AtlasMask* MaskAtlas::mask(std::span<const PathSegment> path, const Affine2& linear, glm::vec2 phase,
         float tolerance) {
-    if (path.empty()) {
+    return lookup(path, linear, phase, tolerance, -1);
+}
+
+const AtlasMask* MaskAtlas::stroke_mask(std::span<const PathSegment> path, const Affine2& linear, glm::vec2 phase,
+        float width, float tolerance) {
+    if (!(width > 0.0f)) {
+        return nullptr;
+    }
+    constexpr float kWidthSteps = 64.0f;
+    return lookup(path, linear, phase, tolerance, quantize(width, kWidthSteps));
+}
+
+const AtlasMask* MaskAtlas::lookup(std::span<const PathSegment> path, const Affine2& linear, glm::vec2 phase,
+        float tolerance, std::int32_t width_q) {
+    if (path.empty() || width_q == 0) {
         return nullptr;
     }
     constexpr float kLinearSteps = 4096.0f;
+    constexpr float kWidthSteps = 64.0f;
     const std::int32_t linear_q[4] = {quantize(linear.a, kLinearSteps), quantize(linear.b, kLinearSteps),
             quantize(linear.c, kLinearSteps), quantize(linear.d, kLinearSteps)};
     const std::int32_t phase_q[2] = {quantize(phase.x, kPhaseSteps), quantize(phase.y, kPhaseSteps)};
     Hasher hasher;
+    hasher.add(static_cast<std::uint32_t>(width_q));
     for (const PathSegment& segment : path) {
         hasher.add(static_cast<std::uint32_t>(segment.kind));
         hasher.add(segment.p);
@@ -107,8 +123,8 @@ const AtlasMask* MaskAtlas::mask(std::span<const PathSegment> path, const Affine
     const auto found = entries_.find(hasher.value);
     if (found != entries_.end()) {
         Entry& entry = found->second;
-        if (std::ranges::equal(entry.linear, linear_q) && std::ranges::equal(entry.phase, phase_q) &&
-                same_path(entry.path, path)) {
+        if (entry.width_q == width_q && std::ranges::equal(entry.linear, linear_q) &&
+                std::ranges::equal(entry.phase, phase_q) && same_path(entry.path, path)) {
             page_used_[entry.mask.page] = serial_;
             return &entry.mask;
         }
@@ -119,7 +135,10 @@ const AtlasMask* MaskAtlas::mask(std::span<const PathSegment> path, const Affine
             static_cast<float>(linear_q[1]) / kLinearSteps, static_cast<float>(linear_q[2]) / kLinearSteps,
             static_cast<float>(linear_q[3]) / kLinearSteps, static_cast<float>(phase_q[0]) / kPhaseSteps,
             static_cast<float>(phase_q[1]) / kPhaseSteps};
-    if (!rasterizer_.flatten(path, to_raster, tolerance)) {
+    const float stroke_width = static_cast<float>(width_q) / kWidthSteps;
+    const bool drawn = width_q < 0 ? rasterizer_.flatten(path, to_raster, tolerance)
+                                   : rasterizer_.flatten_stroke(path, to_raster, stroke_width, tolerance);
+    if (!drawn) {
         return nullptr;
     }
     const glm::vec2 origin = glm::floor(rasterizer_.bounds_min()) - static_cast<float>(kPadding);
@@ -138,6 +157,7 @@ const AtlasMask* MaskAtlas::mask(std::span<const PathSegment> path, const Affine
     entry.path.assign(path.begin(), path.end());
     std::ranges::copy(linear_q, entry.linear);
     std::ranges::copy(phase_q, entry.phase);
+    entry.width_q = width_q;
     entry.mask = placed;
     return &entry.mask;
 }

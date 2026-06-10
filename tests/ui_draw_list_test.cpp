@@ -9,6 +9,7 @@
 #include "ui/render/path_raster.h"
 #include "ui/render/render_list.h"
 #include "ui/render/ui_pipeline.h"
+#include "ui/render/ui_vertex.h"
 
 #include <engine/builtin_ids.h>
 #include <engine/render/commands.h>
@@ -278,7 +279,7 @@ TEST(UiDrawList, VertexPositionsFollowTheTransformAndTheView) {
     const glm::vec2 c = centroid(f, 0);
     EXPECT_NEAR(c.x, 60.0f, 1e-3f);
     EXPECT_NEAR(c.y, 45.0f, 1e-3f);
-    // The rect's corner, wherever the transform put it, is on the edge: half covered (NanoVG's sharp corner).
+    // The rect's corner, wherever the transform put it, is on the edge: half covered (a sharp corner).
     const glm::vec2 offset = glm::vec2(10.0f, 20.0f) - glm::vec2(60.0f, 45.0f);
     const float cs = std::cos(0.5f);
     const float sn = std::sin(0.5f);
@@ -336,7 +337,7 @@ TEST(UiDrawList, AnAxisAlignedClipIsAPerVertexFrameAndDoesNotSplit) {
     EXPECT_FLOAT_EQ(clip.z, 50.0f);
     EXPECT_FLOAT_EQ(clip.w, 25.0f);
     EXPECT_NEAR(alpha_at(f.list(), 0, {60, 35}), 1.0f, 1e-4f);
-    EXPECT_NEAR(alpha_at(f.list(), 0, {110, 35}), 0.5f, 1e-4f) << "NanoVG's scissor ramp is centered on the edge";
+    EXPECT_NEAR(alpha_at(f.list(), 0, {110, 35}), 0.5f, 1e-4f) << "the scissor ramp is centered on the edge";
     EXPECT_NEAR(alpha_at(f.list(), 0, {111, 35}), 0.0f, 1e-4f);
     EXPECT_NEAR(alpha_at(f.list(), 0, {110, 60}), 0.25f, 1e-4f);
 
@@ -368,7 +369,7 @@ TEST(UiDrawList, ARotatedClipIsExactWithoutAStencil) {
     EXPECT_NEAR(std::abs(clip.y), 10.0f / std::sqrt(2.0f), 1e-3f);
 }
 
-TEST(UiDrawList, NestedClipsIntersectLikeNanoVg) {
+TEST(UiDrawList, NestedClipsIntersectOnTheOuterBox) {
     Fixture f;
     f.painter.scissor({0, 0, 100, 100});
     f.painter.scissor({50, 50, 100, 100});
@@ -388,7 +389,7 @@ TEST(UiDrawList, NestedClipsIntersectLikeNanoVg) {
     const float wide = 50.0f * std::sqrt(2.0f);
     EXPECT_NEAR(r.vertex(0, 0).clip.z, 50.0f, 1e-3f);
     EXPECT_NEAR(r.vertex(0, 0).clip.w, wide, 1e-3f);
-    EXPECT_NEAR(alpha_at(r.list(), 0, {115, 50}), 1.0f, 1e-4f) << "NanoVG's approximation, kept for its pixels";
+    EXPECT_NEAR(alpha_at(r.list(), 0, {115, 50}), 1.0f, 1e-4f) << "the approximation kept for its pixels";
 }
 
 TEST(UiDrawList, NineSliceDrawsNineQuadsWithTheirImageCoordinates) {
@@ -436,7 +437,7 @@ TEST(UiDrawList, ImageRepeatWrapsInsideTheImageRect) {
     EXPECT_NEAR(fetch->uv.x, img->uv_min.x + 0.25f * img->uv_size.x, 1e-5f);
     EXPECT_NEAR(fetch->uv.y, img->uv_min.y + 0.5f * img->uv_size.y, 1e-5f);
 
-    // The gutter holds the opposite edge, as NanoVG's REPEAT sampling read it.
+    // The gutter holds the opposite edge, as repeat sampling reads it.
     const engine::ui::AtlasPage& page = f.resources.images.page(img->page);
     const int x0 = static_cast<int>(std::lround(img->uv_min.x * static_cast<float>(page.width())));
     const int y0 = static_cast<int>(std::lround(img->uv_min.y * static_cast<float>(page.height())));
@@ -498,7 +499,7 @@ TEST(UiDrawList, PathCoverageKeepsHolesAndUnionsSolids) {
 
     ASSERT_TRUE(raster.flatten(square({2.5f, 2.5f}, {12.5f, 12.5f}), {}));
     raster.rasterize({0, 0}, 32, 32, pixels.data(), 32);
-    EXPECT_EQ(at(2, 5), 128) << "NanoVG's fringe: a one-pixel ramp centered on the edge";
+    EXPECT_EQ(at(2, 5), 128) << "a one-pixel ramp centered on the edge";
     EXPECT_EQ(at(2, 2), 128) << "the corner of a mitered fringe is half covered, not a quarter";
     ASSERT_TRUE(raster.flatten(square({2.25f, 2}, {12, 12}), {}));
     raster.rasterize({0, 0}, 32, 32, pixels.data(), 32);
@@ -532,12 +533,12 @@ TEST(UiDrawList, PathCoverageKeepsHolesAndUnionsSolids) {
     EXPECT_EQ(at(3, 20), 0);
 }
 
-TEST(UiDrawList, PathCoverageDrawsThinStemsAsBoldAsNanoVg) {
+TEST(UiDrawList, PathCoverageDrawsThinStemsAboutAPixelWide) {
     engine::ui::PathRasterizer raster;
     std::vector<std::uint8_t> pixels(32 * 32);
     const auto at = [&](int x, int y) { return pixels[static_cast<std::size_t>(y) * 32 + x]; };
 
-    // A stem 0.4 px wide: exact area would be 102. NanoVG's convex fill culls the inverted inset and the two half
+    // A stem 0.4 px wide: exact area would be 102. A convex fill culls the inverted inset and the two half
     // fringes (0.7 each at the center) blend to 0.91.
     ASSERT_TRUE(raster.flatten(square({10.3f, 2}, {10.7f, 20}), {}));
     raster.rasterize({0, 0}, 32, 32, pixels.data(), 32);
@@ -558,6 +559,73 @@ TEST(UiDrawList, PathCoverageDrawsThinStemsAsBoldAsNanoVg) {
     EXPECT_EQ(at(8, 10), 0);
     EXPECT_LE(raster.bounds_min().x, 9.8f) << "bounds hold the fringe";
     EXPECT_GE(raster.bounds_max().x, 21.2f);
+}
+
+TEST(UiDrawList, StrokeCoversCapsJoinsAndCrossingsWithoutClosing) {
+    engine::ui::PathRasterizer raster;
+    std::vector<std::uint8_t> pixels(64 * 64);
+    const auto at = [&](int x, int y) { return pixels[static_cast<std::size_t>(y) * 64 + x]; };
+    const auto draw = [&](const std::vector<PathSegment>& path, float width) {
+        ASSERT_TRUE(raster.flatten_stroke(path, {}, width));
+        raster.rasterize({0, 0}, 64, 64, pixels.data(), 64);
+    };
+
+    // Open segment, width 8. The end sits on a pixel center, so the cap is measured from there.
+    draw({{PathSegment::Kind::Move, {10.5f, 20.5f}}, {PathSegment::Kind::Line, {50.5f, 20.5f}}}, 8.0f);
+    EXPECT_EQ(at(50, 20), 255);
+    EXPECT_EQ(at(52, 20), 255) << "a round cap stays solid for half the width past the end";
+    EXPECT_NEAR(at(54, 20), 128, 1) << "the cap fringe is half covered one pixel further out";
+    EXPECT_EQ(at(56, 20), 0);
+
+    // An open corner does not grow a segment between its ends.
+    draw({{PathSegment::Kind::Move, {8.5f, 8.5f}}, {PathSegment::Kind::Line, {30.5f, 8.5f}},
+                 {PathSegment::Kind::Line, {30.5f, 30.5f}}},
+            4.0f);
+    EXPECT_EQ(at(20, 8), 255);
+    EXPECT_EQ(at(19, 19), 0) << "the chord between the open ends is not stroked";
+
+    std::vector<PathSegment> box = square({8.5f, 8.5f}, {40.5f, 40.5f});
+    box.push_back({PathSegment::Kind::Close, {}});
+    draw(box, 4.0f);
+    EXPECT_EQ(at(24, 8), 255);
+    EXPECT_EQ(at(24, 24), 0) << "a closed stroke leaves the middle empty";
+
+    // A sharp tip. A miter would run well past the corner; a round join stays within the half width.
+    draw({{PathSegment::Kind::Move, {8.5f, 20.5f}}, {PathSegment::Kind::Line, {50.5f, 16.5f}},
+                 {PathSegment::Kind::Line, {8.5f, 12.5f}}},
+            6.0f);
+    EXPECT_EQ(at(29, 18), 255);
+    EXPECT_EQ(at(58, 16), 0);
+
+    draw({{PathSegment::Kind::Move, {5.5f, 20.5f}}, {PathSegment::Kind::Line, {45.5f, 20.5f}},
+                 {PathSegment::Kind::Move, {20.5f, 5.5f}}, {PathSegment::Kind::Line, {20.5f, 45.5f}}},
+            4.0f);
+    EXPECT_EQ(at(10, 20), 255);
+    EXPECT_EQ(at(20, 20), 255) << "a crossing is no darker than either arm";
+    EXPECT_NEAR(at(22, 22), 128, 1) << "overlapping fringes take the maximum, not a sum";
+
+    ASSERT_TRUE(raster.flatten(square({2, 2}, {22, 22}), {}));
+    raster.rasterize({0, 0}, 64, 64, pixels.data(), 64);
+    EXPECT_EQ(at(12, 12), 255) << "a fill still closes a contour that has no Close";
+}
+
+TEST(UiDrawList, ThinStrokeFadesAndWidthsDoNotShareAMask) {
+    Fixture f;
+    const std::vector<PathSegment> line{{PathSegment::Kind::Move, {10, 10}}, {PathSegment::Kind::Line, {40, 10}}};
+    f.painter.stroke_path(line, 0.5f, {1, 1, 1, 1});
+    ASSERT_EQ(f.quads(), 1u);
+    EXPECT_NEAR(engine::ui::unpack_color(f.vertex(0, 0).color).a, 0.25f, 0.01f);
+    EXPECT_EQ(f.resources.masks.rasterized_count(), 1u);
+
+    f.painter.stroke_path(line, 0.25f, {1, 1, 1, 1});
+    EXPECT_EQ(f.resources.masks.rasterized_count(), 1u) << "every sub-pixel width shares the one-pixel mask";
+
+    f.painter.stroke_path(line, 4.0f, {1, 1, 1, 1});
+    EXPECT_EQ(f.resources.masks.rasterized_count(), 2u);
+    f.painter.stroke_path(line, 8.0f, {1, 1, 1, 1});
+    EXPECT_EQ(f.resources.masks.rasterized_count(), 3u);
+    f.painter.fill_path(square({10, 10}, {40, 30}), {1, 1, 1, 1});
+    EXPECT_EQ(f.resources.masks.rasterized_count(), 4u) << "a fill is cached apart from a stroke";
 }
 
 TEST(UiDrawList, EqualGradientsShareARampRow) {
@@ -601,7 +669,7 @@ TEST(UiDrawList, EqualGradientsShareARampRow) {
     EXPECT_EQ(row[128 * 4 + 0], row[128 * 4 + 3]);
 }
 
-TEST(UiDrawList, GradientCoordinatesMatchNanoVgsPaints) {
+TEST(UiDrawList, GradientCoordinatesMatchThePaint) {
     Fixture f;
     engine::ui::Gradient g;
     g.stops = {{{1, 0, 0, 1}, 0.0f}, {{0, 0, 1, 1}, 100.0f}};
@@ -632,7 +700,7 @@ TEST(UiDrawList, GradientCoordinatesMatchNanoVgsPaints) {
     EXPECT_NEAR(ramp_u({50, 100}), (0.5f * (kW - 1.0f) + 0.5f) / kW, 1e-4f);
 }
 
-TEST(UiDrawList, ShapeCoverageFollowsNanoVgsFringe) {
+TEST(UiDrawList, ShapeCoverageFollowsTheOnePixelFringe) {
     Fixture f;
     f.painter.stroke_rounded_rect({10, 10, 100, 50}, 0.0f, 4.0f, {1, 1, 1, 1});
     EXPECT_NEAR(alpha_at(f.list(), 0, {60, 10}), 1.0f, 1e-4f) << "centered on the edge";
@@ -725,7 +793,7 @@ TEST(UiDrawList, FragmentReferenceMatchesThePipelineContract) {
     EXPECT_EQ(engine::ui::kUiVertexAttributes.back().offset, 68u);
     EXPECT_EQ(engine::ui::pack_premultiplied({1, 1, 1, 0.5f}, 1.0f), 0x80808080u);
     EXPECT_EQ(engine::ui::pack_premultiplied({1, 0, 0, 1}, 1.0f), 0xFF0000FFu);
-    // An elliptic corner (NanoVG clamps x and y radii apart) is a true ellipse at its axes.
+    // An elliptic corner (x and y radii clamped apart) is a true ellipse at its axes.
     EXPECT_NEAR(engine::ui::box_distance({0, 20}, {10, 20}, {10, 20}), 0.0f, 1e-5f);
     EXPECT_NEAR(engine::ui::box_distance({10, 0}, {10, 20}, {10, 20}), 0.0f, 1e-5f);
     EXPECT_LT(engine::ui::box_distance({5, 5}, {10, 20}, {10, 20}), 0.0f);

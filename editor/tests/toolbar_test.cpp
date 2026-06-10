@@ -3,6 +3,28 @@
 #include "export_dialog.h"
 #include "toolbar.h"
 
+TEST(Toolbar, RefreshNeedsAnOpenProjectAndRecordsOneRequest) {
+    editor::Toolbar toolbar;
+    editor::EditorViewModel& vm = *toolbar.view_model();
+    EXPECT_FALSE(vm.refreshProject.can_execute());
+
+    toolbar.show_project("ttt", true);
+    EXPECT_TRUE(vm.refreshProject.can_execute());
+    toolbar.show_state(editor::RunState::Playing);
+    EXPECT_TRUE(vm.refreshProject.can_execute());
+    vm.refreshProject.execute();
+    EXPECT_EQ(toolbar.take_request(), editor::EditorRequest::Refresh);
+    EXPECT_EQ(toolbar.take_request(), editor::EditorRequest::None);
+
+    // A project that does not fit is still open in the Project tab.
+    toolbar.show_project("ttt", false);
+    EXPECT_TRUE(vm.refreshProject.can_execute());
+    toolbar.show_project("", false);
+    EXPECT_FALSE(vm.refreshProject.can_execute());
+    vm.refreshProject.execute();
+    EXPECT_EQ(toolbar.take_request(), editor::EditorRequest::None);
+}
+
 TEST(Toolbar, ExportNeedsAFittingProjectAndNothingRunning) {
     editor::Toolbar toolbar;
     editor::EditorViewModel& vm = *toolbar.view_model();
