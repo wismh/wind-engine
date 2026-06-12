@@ -8,6 +8,7 @@
 
 #include "element_path.h"
 #include "painter.h"
+#include "popup.h"
 #include "profile.h"
 #include "ui/input_batch.h"
 #include "ui/text_select.h"
@@ -257,6 +258,18 @@ namespace engine::ui {
             UiCanvas *canvas = nullptr;
             ecs::Entity entity{};
             UiCanvasSpace space{};
+            // The popup the element is in, or null. Its popup_offset moves the element's layout rect to where
+            // it is shown.
+            Element *popup = nullptr;
+
+            // Window point to the layout space the element's own rect is in.
+            [[nodiscard]] glm::vec2 local(float x, float y) const {
+                glm::vec2 point{(x - space.offset.x) / space.scale, (y - space.offset.y) / space.scale};
+                if (popup != nullptr) {
+                    point -= popup->popup_offset;
+                }
+                return point;
+            }
         };
 
         struct PreparedCanvas {
@@ -265,47 +278,37 @@ namespace engine::ui {
             ecs::Entity entity{};
             UiCanvasSpace space{};
             glm::vec2 layout_pointer{};
+            // The shown popup under the pointer, when the pointer is over one.
+            Element *popup = nullptr;
         };
 
-        // `batch` is nullptr for every call outside run_input() (every direct test call, and the two
-        // no-batch resolve_pointer_hit()/handle_wheel() default paths below) — always a full recompute,
-        // unchanged from before Крок 4. Only run_input()'s *_for_run_input() entry points (input_batch.h)
-        // pass a real batch, so a canvas entity prepare_top_canvas() already fully bound+styled+laid out
-        // earlier in the same run_input() call is reused instead of recomputed — see input_batch.h for
-        // why this cache lives on run_input()'s stack rather than in ctx<>().
-        std::optional<PreparedCanvas> prepare_top_canvas(ecs::World &world, float x, float y, WindowId window,
-                                                         UiInputBatchCache *batch = nullptr) {
-#if defined(ENGINE_UI_PROFILER)
-            profiler_attach(world);
-#endif
-            ecs::Entity timed{};
-            ENGINE_UI_PROFILE(timed, Input);
+        // Canvases of `window`, topmost first: higher order, then the later entity.
+        std::vector<CanvasHit> canvases_top_first(ecs::World &world, WindowId window) {
             std::vector<CanvasHit> hits;
-            {
-                auto view = world.view<UiCanvas>();
-                for (ecs::Entity entity: view) {
-                    const UiCanvas &canvas = view.get<UiCanvas>(entity);
-                    if (canvas.window != window) {
-                        continue;
-                    }
-                    if (!rect_contains(canvas.rect, x, y)) {
-                        continue;
-                    }
+            auto view = world.view<UiCanvas>();
+            for (ecs::Entity entity: view) {
+                const UiCanvas &canvas = view.get<UiCanvas>(entity);
+                if (canvas.window == window) {
                     hits.push_back(CanvasHit{canvas.order, entity.index, entity});
                 }
             }
-            if (hits.empty()) {
-                return std::nullopt;
-            }
-
             std::stable_sort(hits.begin(), hits.end(), [](const CanvasHit &a, const CanvasHit &b) {
                 if (a.order != b.order) {
                     return a.order > b.order;
                 }
                 return a.index > b.index;
             });
+            return hits;
+        }
 
-            const ecs::Entity entity = hits.front().entity;
+        // Binds, styles, and lays out one canvas for an input event at window point (x, y), then places its
+        // popups. `batch` is nullptr for every call outside run_input() (every direct test call, and the two
+        // no-batch resolve_pointer_hit()/handle_wheel() default paths below) — always a full recompute. Only
+        // run_input()'s *_for_run_input() entry points (input_batch.h) pass a real batch, so a canvas entity
+        // already fully bound+styled+laid out earlier in the same run_input() call is reused instead of
+        // recomputed — see input_batch.h for why this cache lives on run_input()'s stack rather than in ctx<>().
+        std::optional<PreparedCanvas> prepare_canvas(ecs::World &world, ecs::Entity entity, float x, float y,
+                                                     WindowId window, UiInputBatchCache *batch) {
             UiCanvas &canvas = world.get<UiCanvas>(entity);
             UiInstance *instance = world.try_get<UiInstance>(entity);
             if (instance == nullptr) {
@@ -367,11 +370,48 @@ namespace engine::ui {
                     batch->mark(entity);
                 }
             }
+            // Every event, not only after layout: a wheel earlier in this batch may have scrolled an anchor.
+            place_popups(instance->document.root, popup_bounds(space, size));
 
             const glm::vec2 layout_pointer{(x - space.offset.x) / space.scale, (y - space.offset.y) / space.scale};
-            timed = entity;
-            (void) timed;
-            return PreparedCanvas{&canvas, instance, entity, space, layout_pointer};
+            Element *popup = popup_at(instance->document.root, layout_pointer.x, layout_pointer.y);
+            return PreparedCanvas{&canvas, instance, entity, space, layout_pointer, popup};
+        }
+
+        // The canvas an event at window point (x, y) goes to. An open popup is above every canvas of its
+        // window, so a canvas with a popup under the pointer wins; otherwise the topmost canvas whose rect
+        // holds the point.
+        std::optional<PreparedCanvas> prepare_top_canvas(ecs::World &world, float x, float y, WindowId window,
+                                                         UiInputBatchCache *batch = nullptr) {
+#if defined(ENGINE_UI_PROFILER)
+            profiler_attach(world);
+#endif
+            ecs::Entity timed{};
+            ENGINE_UI_PROFILE(timed, Input);
+            const std::vector<CanvasHit> hits = canvases_top_first(world, window);
+            for (const CanvasHit &hit: hits) {
+                UiInstance *instance = world.try_get<UiInstance>(hit.entity);
+                if (instance == nullptr || !has_open_popup(instance->document.root)) {
+                    continue;
+                }
+                std::optional<PreparedCanvas> prepared = prepare_canvas(world, hit.entity, x, y, window, batch);
+                if (prepared && prepared->popup != nullptr) {
+                    timed = hit.entity;
+                    return prepared;
+                }
+            }
+            for (const CanvasHit &hit: hits) {
+                if (!rect_contains(world.get<UiCanvas>(hit.entity).rect, x, y)) {
+                    continue;
+                }
+                std::optional<PreparedCanvas> prepared = prepare_canvas(world, hit.entity, x, y, window, batch);
+                if (prepared) {
+                    timed = hit.entity;
+                }
+                (void) timed;
+                return prepared;
+            }
+            return std::nullopt;
         }
 
         // Shared by handle_pointer() and update_pointer_hover(): finds the topmost element under (x, y),
@@ -394,7 +434,7 @@ namespace engine::ui {
             }
 
             presentation_of(world).mouse.consumed_windows.insert(window);
-            return PointerHit{hit, prepared->canvas, prepared->entity, prepared->space};
+            return PointerHit{hit, prepared->canvas, prepared->entity, prepared->space, prepared->popup};
         }
 
         // Shared axis math for handle_pointer()'s drag-start and update_drag()'s continuation: maps a
@@ -413,6 +453,82 @@ namespace engine::ui {
         }
 
     } // namespace
+
+    namespace {
+
+        // Closes `popup` and writes false through its `open` binding, on the row's view-model inside an
+        // ItemsControl. Focus inside it goes too: nothing typed should land in a popup that is not shown.
+        void close_popup(ecs::World &world, WindowId window, UiCanvas &canvas, Element &popup) {
+            popup.open = false;
+            if (is_bound(popup.open_binding) && canvas.data_context) {
+                ViewModel *target = popup.generated_owner != nullptr
+                                            ? static_cast<ViewModel *>(const_cast<void *>(popup.generated_owner))
+                                            : canvas.data_context.get();
+                target->write_property_float(popup.open_binding, 0.0f);
+            }
+            if (Element *focused = focused_element(world, window); focused != nullptr && contains_element(popup, focused)) {
+                clear_focus(world, window);
+            }
+        }
+
+        // Light dismiss: closes every open popup of `window` except those `hit` is inside and the one whose
+        // anchor `hit` is (a click on the anchor is left to the anchor's own command, so a toggle still
+        // toggles). Returns whether any closed; `kept` is set when `hit` held one open.
+        bool close_popups_except(ecs::World &world, WindowId window, const Element *hit, bool &kept) {
+            kept = false;
+            bool closed = false;
+            for (const CanvasHit &entry: canvases_top_first(world, window)) {
+                UiInstance *instance = world.try_get<UiInstance>(entry.entity);
+                if (instance == nullptr) {
+                    continue;
+                }
+                UiCanvas &canvas = world.get<UiCanvas>(entry.entity);
+                for (OpenPopup &open: open_popups(instance->document.root)) {
+                    const bool anchor_hit = !open.ancestors.empty() && open.ancestors.back() == hit;
+                    if (hit != nullptr && (anchor_hit || contains_element(*open.popup, hit))) {
+                        kept = true;
+                        continue;
+                    }
+                    close_popup(world, window, canvas, *open.popup);
+                    closed = true;
+                }
+            }
+            return closed;
+        }
+
+        // Escape: closes the popup drawn last in `window`. Returns whether there was one.
+        bool close_topmost_popup(ecs::World &world, WindowId window) {
+            for (const CanvasHit &entry: canvases_top_first(world, window)) {
+                UiInstance *instance = world.try_get<UiInstance>(entry.entity);
+                if (instance == nullptr) {
+                    continue;
+                }
+                const std::vector<OpenPopup> popups = open_popups(instance->document.root);
+                if (!popups.empty()) {
+                    close_popup(world, window, world.get<UiCanvas>(entry.entity), *popups.back().popup);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+    } // namespace
+
+    std::optional<ecs::Entity> popup_canvas_at(ecs::World &world, WindowId window, glm::vec2 point) {
+        for (const CanvasHit &entry: canvases_top_first(world, window)) {
+            UiInstance *instance = world.try_get<UiInstance>(entry.entity);
+            if (instance == nullptr || !has_open_popup(instance->document.root)) {
+                continue;
+            }
+            const UiCanvas &canvas = world.get<UiCanvas>(entry.entity);
+            const UiCanvasSpace space = canvas_layout_space(canvas.rect, canvas.fit, canvas.reference_size);
+            const glm::vec2 layout{(point.x - space.offset.x) / space.scale, (point.y - space.offset.y) / space.scale};
+            if (popup_at(instance->document.root, layout.x, layout.y) != nullptr) {
+                return entry.entity;
+            }
+        }
+        return std::nullopt;
+    }
 
     namespace {
 
@@ -575,7 +691,8 @@ namespace engine::ui {
             if (path.empty()) {
                 return {x, y};
             }
-            glm::vec2 layout{(x - space.offset.x) / space.scale, (y - space.offset.y) / space.scale};
+            const glm::vec2 window_layout{(x - space.offset.x) / space.scale, (y - space.offset.y) / space.scale};
+            glm::vec2 layout = window_layout;
             Element *node = &root;
             for (const std::size_t step: path) {
                 if (node->kind == ElementKind::Viewport) {
@@ -595,6 +712,10 @@ namespace engine::ui {
                 }
                 if (child == nullptr) {
                     return {x, y};
+                }
+                // A popup is shown from its own offset; its anchor's scroll and camera do not apply inside it.
+                if (child->kind == ElementKind::Popup) {
+                    layout = window_layout - child->popup_offset;
                 }
                 node = child;
             }
@@ -705,6 +826,15 @@ namespace engine::ui {
             }
 
             const std::optional<PointerHit> hit = resolve_pointer_hit(world, x, y, window, batch);
+            // Any button outside the open popups closes them, and that press does nothing else.
+            bool kept = false;
+            if (close_popups_except(world, window, hit ? hit->element : nullptr, kept) && !kept) {
+                presentation_of(world).mouse.consumed_windows.insert(window);
+                if (primary_button) {
+                    clear_focus(world, window);
+                }
+                return;
+            }
             if (!hit) {
                 // Right-click does not move focus, so a selection stays put.
                 if (primary_button) {
@@ -742,13 +872,18 @@ namespace engine::ui {
                         hit->element->generated_owner != nullptr
                                 ? static_cast<ViewModel *>(const_cast<void *>(hit->element->generated_owner))
                                 : hit->canvas->data_context.get();
-                const float fraction = compute_drag_fraction(hit->element->drag_orientation, hit->element->layout_rect,
-                                                             hit->space.offset, hit->space.scale, x, y);
+                render::Rect shown = hit->element->layout_rect;
+                if (hit->popup != nullptr) {
+                    shown.x += hit->popup->popup_offset.x;
+                    shown.y += hit->popup->popup_offset.y;
+                }
+                const float fraction = compute_drag_fraction(hit->element->drag_orientation, shown, hit->space.offset,
+                                                             hit->space.scale, x, y);
                 target->write_property_float(hit->element->drag_binding, fraction);
                 world.ctx<UiActiveDrags>().drags[window] = ActiveDrag{
                         hit->entity,
                         hit->element->drag_binding,
-                        hit->element->layout_rect,
+                        shown,
                         hit->space.offset,
                         hit->space.scale,
                         hit->element->drag_orientation,
@@ -757,8 +892,7 @@ namespace engine::ui {
             }
 
             bool clicked_scrollbar = false;
-            const glm::vec2 local_pointer{(x - hit->space.offset.x) / hit->space.scale,
-                                          (y - hit->space.offset.y) / hit->space.scale};
+            const glm::vec2 local_pointer = hit->local(x, y);
             if (is_scrollable_y(*hit->element)) {
                 const render::Rect track = scrollbar_track_rect(*hit->element);
                 const render::Rect thumb = scrollbar_thumb_rect(*hit->element);
@@ -771,7 +905,9 @@ namespace engine::ui {
                                 hit->entity,
                                 find_element_path(inst.document.root, hit->element),
                                 hit->element->generated_owner,
-                                local_pointer.y,
+                                // Canvas layout units, as update_drag measures the moves: only the
+                                // difference counts, so a popup's offset must not be in one end of it.
+                                (y - hit->space.offset.y) / hit->space.scale,
                                 hit->element->scroll_y,
                                 track.h,
                                 thumb.h,
@@ -1023,8 +1159,18 @@ namespace engine::ui {
                 return;
             }
             const std::optional<PreparedCanvas> prepared = prepare_top_canvas(world, x, y, window, batch);
+            // A wheel outside the open popups closes them, then scrolls as usual: a menu does not ride along
+            // with the list under it.
+            if (!prepared || prepared->popup == nullptr) {
+                bool kept = false;
+                (void) close_popups_except(world, window, nullptr, kept);
+            }
             if (!prepared) {
                 return;
+            }
+            // Over a popup the wheel stays in it, whether or not something there scrolls.
+            if (prepared->popup != nullptr) {
+                presentation_of(world).mouse.consumed_windows.insert(window);
             }
 
             Element *scrollable = find_scrollable_at(prepared->instance->document.root, prepared->layout_pointer.x,
@@ -1111,8 +1257,7 @@ namespace engine::ui {
         void update_pointer_hover_impl(ecs::World &world, float x, float y, WindowId window, UiInputBatchCache *batch) {
             const std::optional<PointerHit> hit = resolve_pointer_hit(world, x, y, window, batch);
             if (hit && is_scrollable_y(*hit->element)) {
-                const glm::vec2 local_pointer{(x - hit->space.offset.x) / hit->space.scale,
-                                              (y - hit->space.offset.y) / hit->space.scale};
+                const glm::vec2 local_pointer = hit->local(x, y);
                 const render::Rect thumb = scrollbar_thumb_rect(*hit->element);
                 hit->element->scrollbar_thumb_hovered = rect_contains(thumb, local_pointer.x, local_pointer.y);
             }
@@ -1324,6 +1469,10 @@ namespace engine::ui {
             return;
         }
         if (!down) {
+            return;
+        }
+        // Escape closes the topmost popup first, before it reaches a focused field.
+        if (key == KeyCode::Escape && close_topmost_popup(world, window)) {
             return;
         }
         auto &focus_map = world.ctx<UiFocusState>().focused;

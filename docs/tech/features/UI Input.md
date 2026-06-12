@@ -19,11 +19,12 @@ A right click does not place a caret and does not clear focus. `clicks` is the O
 
 ## What a hit is
 
-Canvases whose rect contains the point are tried from highest `order` to lowest. The top canvas is bound and laid out, then `hit_test`.
+An open `Popup` is above every canvas of its window. Canvases with an open popup are bound, laid out, and placed first, from highest `order` to lowest; the first with a popup under the point takes the event, even when the point is outside that canvas's rect. Otherwise canvases whose rect contains the point are tried from highest `order` to lowest. The top canvas is bound and laid out, then `hit_test`.
 
 A hit from `hit_test_at` is any of these:
 
 - a Button or a Checkbox
+- an open Popup, anywhere inside it that no child takes
 - a TextInput
 - a ScrollView, even when it cannot scroll
 - an element that `is_scrollable`: `overflow` `scroll`, or `auto` with `max_scroll > 0` on that axis. The scrollbar track is a hit before children
@@ -41,7 +42,7 @@ Inside the canvas, siblings are visited front to back: the reverse of `child_sta
 
 A Viewport clips to its unpanned `layout_rect` and hit-tests children with the inverse camera (`origin + (pointer - origin) / zoom - pan`). Empty background hits the Viewport. That starts a pan only when the Viewport has a camera binding and `data_context` is set. A child Button still wins.
 
-`handle_wheel` calls `find_scrollable_at` first. A vertical scrollable changes `scroll_y` by `-wheel_y * 40` layout pixels, clamped to `0..max_scroll_y`, and returns. Horizontal `scroll_x` uses that same step, clamped to `0..max_scroll_x`, only when the element is not vertically scrollable. The element still updates when `data_context` is null. Only the binding write is skipped.
+`handle_wheel` calls `find_scrollable_at` first. Over an open popup, only that popup is searched, and the wheel is consumed even when nothing there scrolls. A vertical scrollable changes `scroll_y` by `-wheel_y * 40` layout pixels, clamped to `0..max_scroll_y`, and returns. Horizontal `scroll_x` uses that same step, clamped to `0..max_scroll_x`, only when the element is not vertically scrollable. The element still updates when `data_context` is null. Only the binding write is skipped.
 
 The zoom path runs only when that search misses and `data_context` is set. It then calls `find_viewport_at`, and continues only when that Viewport has `zoom` bound, so a control under the cursor still zooms the Viewport around it.
 
@@ -62,6 +63,18 @@ A Checkbox hit flips `checked` before the command. `write_property_float` of `1`
 Return toggles `checked` only when the focused element is a Checkbox, then runs the command. `binding_target` is null without a `data_context`, so that float write uses the same guard. A click calls `clear_focus`. `set_focus` is only used for a TextInput or a selectable Label, so a click does not leave the Checkbox focused.
 
 While the world's inspector is attached (the editor attaches the game world) and `pick_pointer` is set, a left click on a canvas uses `hit_test_visual`, records the path, inserts the window into `Presentation.mouse`, and returns before focus, drag, and `execute()`. Wheel is not intercepted. See [UI Inspector](UI%20Inspector.md).
+
+## Popups
+
+A press of any button outside the open popups of the window closes them (light dismiss) and does nothing else: no command, no focus, no drag. It is consumed. A popup stays open when the hit is inside it, or when the hit is its anchor: that click goes on to the anchor's command, so a toggle closes the menu instead of reopening it. A press inside a popup closes the popups it is not in, so a click in a menu closes its open submenu and still runs.
+
+Escape closes the popup drawn last (the topmost canvas first) and stops there; it does not also clear focus outside it. A wheel outside every open popup closes them, then scrolls as usual.
+
+Closing writes `0` through `open` (see [UI](../modules/UI.md#popup)) and clears focus when the focused element is inside that popup.
+
+Inside a popup, `drag`, the scrollbar, and text selection use the element's shown position: the drag rect is moved by `popup_offset`, and `pointer_in_painted_space` restarts from the popup's offset instead of its anchor's scroll.
+
+Input reads `open` as the frame's Bind left it, except that the canvas an event goes to is bound again first. A popup opened by the view-model shows and takes clicks from the next frame.
 
 ## Keyboard and text
 
@@ -127,7 +140,7 @@ Scroll, drag, and pan write through `generated_owner` when that pointer is set, 
 
 ## Tests
 
-`tests/ui_layout_hit_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/mvvm_test.cpp`.
+`tests/ui_layout_hit_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_popup_test.cpp`.
 
 ## See also
 

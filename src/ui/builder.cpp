@@ -139,6 +139,21 @@ Node& Node::checked_bind(BindingId id) {
     return *this;
 }
 
+Node& Node::open(bool value) {
+    element_.open = value;
+    return *this;
+}
+
+Node& Node::open_bind(BindingId id) {
+    element_.open_binding = id;
+    return *this;
+}
+
+Node& Node::placement(PopupPlacement value) {
+    element_.placement = value;
+    return *this;
+}
+
 Node& Node::allow_copy(bool value) {
     element_.allow_copy = value;
     return *this;
@@ -219,14 +234,14 @@ Node& Node::scroll_y_bind(BindingId id) {
 }
 
 Node& Node::direction(StackDirection direction) {
-    if (element_.kind == ElementKind::Stack || element_.kind == ElementKind::ScrollView) {
+    if (packs_children(element_.kind)) {
         element_.direction = direction;
     }
     return *this;
 }
 
 Node& Node::gap(float px) {
-    if (element_.kind == ElementKind::Stack || element_.kind == ElementKind::ScrollView) {
+    if (packs_children(element_.kind)) {
         element_.gap = Length{px, LengthUnit::Px};
     }
     return *this;
@@ -311,6 +326,10 @@ Node checkbox() {
 
 Node math_formula() {
     return Node(ElementKind::Math);
+}
+
+Node popup() {
+    return Node(ElementKind::Popup);
 }
 
 std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal) {

@@ -49,6 +49,7 @@ A `UiCanvas` is a component on an entity (`include/engine/ui/canvas.h`).
 | `Viewport` | Nested clip and camera (`pan-x`, `pan-y`, `zoom`). Not a document root |
 | `Component` | Empty layout hole |
 | `Math` | TeX in `formula`. `display="true"` is display style |
+| `Popup` | Vertical stack shown beside its parent, above every canvas of the window. See [Popup](#popup) |
 
 Unknown tags are `UiError::UnknownElement` and fatal when an `IFatalError` is passed.
 
@@ -58,7 +59,8 @@ Common attributes: `id`, `class` (space-separated), `name`. A custom property is
 
 `parse_element` also reads:
 
-- `gap`: `strtof` of the attribute, stored as px. `Stack` and `ScrollView` only. `Node::gap` is the builder.
+- `gap`: `strtof` of the attribute, stored as px. `Stack`, `ScrollView`, and `Popup` only (`packs_children`). `Node::gap` is the builder.
+- `open` and `placement`: `Popup` only. See [Popup](#popup).
 - `overflow` sets both axes. `overflow-x` and `overflow-y` then set one axis. Tokens are `visible`, `hidden`, `scroll`, and `auto`. Any other token is not applied. `Node::overflow`, `overflow_x`, and `overflow_y` are the builder.
 - `drag-orientation`: `vertical`, otherwise horizontal. `Node::drag_orientation` is the builder.
 - `slice`: 1 to 4 lengths (`px`, `%`, `em`, or `calc()`; a bare number is px). One value is every side, two are block and inline, three are top / horizontal / bottom, four are top, right, bottom, left. Anything else is `UiError::InvalidMarkup`. On an `Image`, `element.slice` is the nine-slice. If it is unset, paint uses CSS `background-slice`. If that is unset too, the image is not sliced. `Node::slice` is the builder.
@@ -100,6 +102,8 @@ Stack main axis is the child's used size (explicit size, otherwise hug), plus ma
 `z-index`, `transform`, and opacity do not change layout sizes.
 
 A layout dirty gate (`layout_state_changed`) compares `text`, `custom_properties`, and the generated-item owner list with the previous values. On the prepare path, `canvas.cpp` skips `layout()` when that compare is clean, `layout_computed_once` is set, and the canvas layout rect, media width, media height, stylesheet pointer, stylesheet generation, layout painter, and math-font identity all match the last layout. The copies are still stored every call.
+
+A `Popup` is out of flow and takes no space in its parent. See [Popup](#popup).
 
 `ItemsControl` virtualization (vertical, one template root, a fixed pixel row height) builds a window of rows plus spacers. `suppress_item_virtualization` turns it off. Variable-height windows and tree collapse are not this path. See [UI Performance Plan](../architecture/UI%20Performance%20Plan.md).
 
@@ -190,9 +194,38 @@ Per-element scissor is `nvgIntersectScissor`. `overflow` and `Viewport` clip. A 
 
 `background-image` and `Image` `source` both call `IUiPainter::image(AssetId, rect)`. `run_ui_render` collects referenced images and fonts (`src/ui/ui_refs.h`) and calls `ensure_ui_image` / `ensure_ui_font`. `builtin::font_ui` is ensured even when no element names it.
 
-`CmdDrawUI` carries the document, stylesheet, pointer, `delta_time`, the width and height used for `@media`, letterbox offset and scale, and optional inspector paths. A `ScaleWithScreenSize` canvas with both `reference_size` sides positive supplies that width and height from the design box (`reference_size`). Otherwise those values come from `window_size_for` (`Presentation.sizes`).
+`CmdDrawUI` carries the document, stylesheet, pointer, `delta_time`, the width and height used for `@media`, letterbox offset and scale, optional inspector paths, `popup_bounds` (the window in layout units), and `popup_layer`. A `ScaleWithScreenSize` canvas with both `reference_size` sides positive supplies that width and height from the design box (`reference_size`). Otherwise those values come from `window_size_for` (`Presentation.sizes`).
 
 NanoVG is `src/render/opengl/nanovg_painter.cpp`, only in a windowed build. Tests use a recording `IUiPainter`.
+
+## Popup
+
+A menu, dropdown, or context menu that no ancestor clips and every canvas of the window is under. `src/ui/popup.h` is the private API.
+
+```xml
+<Button class="more" command="{binding toggleMenu}">
+  <Popup open="{binding menuOpen}" placement="bottom-end">
+    <Button content="Rename" command="{binding rename}"/>
+    <Button content="Remove" command="{binding remove}"/>
+  </Popup>
+</Button>
+```
+
+- The anchor is the Popup's parent. Inside an `ItemTemplate` each row has its own popup and its own `open`.
+- `open` is a literal (`true` / `1`) or a `{binding}` to an arithmetic `Bindable` (a `bool` is fine). The engine writes `0` through that binding when it closes the popup, on the row view-model (`generated_owner`) inside an `ItemsControl`. The view-model opens it, and closes it from a menu item's command.
+- `placement` is `bottom-start` (default), `bottom-end`, `top-start`, `top-end`, `right-start`, `right-end`, `left-start`, or `left-end`: the side of the anchor, then which edge it lines up with. Any other token is `UiError::InvalidMarkup`. `Node::popup()`, `open`, `open_bind`, and `placement` are the builder.
+
+Layout: a Popup packs its children like a vertical `Stack` (`direction`, `gap`, `flex-direction` apply). It is out of flow. It hugs its content with no width to wrap against, so `max-width` is what makes text wrap. Percentages resolve against the anchor's content box. Layout leaves it at the anchor's top-left, and it is the containing block of its absolute descendants. A closed popup is still laid out, so opening one does not need a relayout.
+
+Placement: `place_popups` runs after every layout in `paint_document` and on every input event (`prepare_canvas`), because scroll and a Viewport camera move an anchor without a relayout. It maps the anchor's border box through its ancestors' scroll and camera, puts the popup on the `placement` side with the margin facing the anchor as the gap, and flips to the opposite side when the popup does not fit and that side has more room. Then it is pushed inside the window (`popup_bounds`: the window in the canvas's layout units, or the canvas rect while the window has no size). It stores `shown - layout` in `Element::popup_offset`. A popup is never scaled by an ancestor Viewport's zoom, and ignores ancestor `transform` and opacity. A nested popup is placed from where its parent popup is shown.
+
+Every walk skips Popup children: paint, `hit_test`, `hit_test_visual`, `find_scrollable_at`, and `find_viewport_at` visit the open popups first (`open_popups`, the last drawn first) from their offset, then the tree. `layout_boxes` maps a popup's subtree through its offset.
+
+Paint: the base pass does not draw popups. `run_ui_render` pushes a second `CmdDrawUI` with `popup_layer` for each canvas with an open popup, after every canvas's base command, so a popup is above canvases of higher `order` too. That pass scissors to the window, then draws each open popup through `apply_view` by its offset, in document order (siblings by z-index, a nested popup after its parent). With a popup open, the inspector boxes are drawn in that pass, above the popups.
+
+Hover: while an open popup is under the pointer, every other canvas of that window gets a `CmdDrawUI` pointer far outside, so nothing under the popup shows `:hover`.
+
+Input is on [UI Input](../features/UI%20Input.md#popups).
 
 ## Text
 
@@ -243,7 +276,7 @@ The engine keeps the probes and the editor shows the panels. `set_inspector_atta
 
 ## Tests
 
-`tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_items_control_virtualization_test.cpp`, `tests/ui_text_wrap_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_refs_test.cpp`, `tests/ui_loc_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_inline_math_test.cpp`, `tests/ui_math_parser_test.cpp`, `tests/ui_math_layout_test.cpp`, `tests/ui_math_paint_test.cpp`, `tests/ui_math_font_test.cpp`, `tests/ui_math_stretch_test.cpp`, `tests/ui_math_element_test.cpp`, `tests/splash_test.cpp`, `tests/ui_inspector_test.cpp`, `tests/ui_profiler_test.cpp`.
+`tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_items_control_virtualization_test.cpp`, `tests/ui_text_wrap_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_refs_test.cpp`, `tests/ui_loc_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_inline_math_test.cpp`, `tests/ui_math_parser_test.cpp`, `tests/ui_math_layout_test.cpp`, `tests/ui_math_paint_test.cpp`, `tests/ui_math_font_test.cpp`, `tests/ui_math_stretch_test.cpp`, `tests/ui_math_element_test.cpp`, `tests/splash_test.cpp`, `tests/ui_inspector_test.cpp`, `tests/ui_profiler_test.cpp`, `tests/ui_popup_test.cpp`.
 
 ## See also
 

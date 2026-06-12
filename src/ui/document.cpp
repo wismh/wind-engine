@@ -3,6 +3,7 @@
 #include "inline_math.h"
 #include "math/math_element.h"
 #include "painter.h"
+#include "popup.h"
 #include "ui/text_select.h"
 
 #include <engine/loc/catalog.h>
@@ -283,7 +284,7 @@ namespace engine::ui {
             if (element.kind == ElementKind::ItemsControl) {
                 children.reserve(element.generated_items.size());
                 for (auto &child: element.generated_items) {
-                    if (!child.display_none) {
+                    if (child.kind != ElementKind::Popup && !child.display_none) {
                         children.push_back(&child);
                     }
                 }
@@ -291,7 +292,7 @@ namespace engine::ui {
             }
             children.reserve(element.children.size());
             for (auto &child: element.children) {
-                if (child.kind != ElementKind::ItemTemplate && !child.display_none) {
+                if (child.kind != ElementKind::ItemTemplate && child.kind != ElementKind::Popup && !child.display_none) {
                     children.push_back(&child);
                 }
             }
@@ -340,8 +341,7 @@ namespace engine::ui {
                         box.padding.top + kDefaultCheckboxSize + box.padding.bottom,
                 };
             }
-            if (element.kind != ElementKind::Stack && element.kind != ElementKind::ItemsControl &&
-                element.kind != ElementKind::ScrollView) {
+            if (!packs_children(element.kind) && element.kind != ElementKind::ItemsControl) {
                 return {
                         box.padding.left + box.padding.right,
                         box.padding.top + box.padding.bottom,
@@ -471,6 +471,25 @@ namespace engine::ui {
             }
 
             layout_element(element, render::Rect{x, y, used.x, used.y}, painter, basis, containing_block, partial);
+        }
+
+        // A positioned element, or a popup, is the containing block of its `position: absolute` descendants.
+        bool establishes_containing_block(const Element &element) {
+            return element.position != PositionMode::Static || element.kind == ElementKind::Popup;
+        }
+
+        // A Popup is out of flow. It hugs its content with nothing to wrap against (max-width caps it), and
+        // percentages resolve against the anchor's content box. Layout leaves it at the anchor's top-left;
+        // place_popups (popup.h) works out where it is shown.
+        void layout_popups(Element &anchor, glm::vec2 basis, IUiPainter *painter, bool partial) {
+            for (Element &child: anchor.children) {
+                if (child.kind != ElementKind::Popup || child.display_none) {
+                    continue;
+                }
+                const glm::vec2 used = cached_used(child, painter, basis, kUnboundedWidth, partial);
+                const render::Rect box{anchor.layout_rect.x, anchor.layout_rect.y, used.x, used.y};
+                layout_element(child, box, painter, basis, box, partial);
+            }
         }
 
         void layout_stack(Element &element, const render::Rect &allocated, IUiPainter *painter, const ResolvedBox &self,
@@ -608,8 +627,7 @@ namespace engine::ui {
             // A positioned element is the containing block of its absolute descendants. A static one is
             // not: those absolutes stay against the block that was passed in, so they are placed again
             // instead of being slid with the flow.
-            const render::Rect child_block =
-                    element.position != PositionMode::Static ? element.layout_rect : containing_block;
+            const render::Rect child_block = establishes_containing_block(element) ? element.layout_rect : containing_block;
             const auto translate_child = [&](Element &child) {
                 if (child.kind == ElementKind::ItemTemplate || child.display_none) {
                     return;
@@ -653,18 +671,17 @@ namespace engine::ui {
             const glm::vec2 child_basis{content.w, content.h};
             // A positioned element (relative or absolute) becomes the containing block its own
             // descendants resolve `position: absolute` against.
-            const render::Rect child_containing_block =
-                    element.position != PositionMode::Static ? box : containing_block;
-            if (element.kind == ElementKind::Stack || element.kind == ElementKind::ItemsControl ||
-                element.kind == ElementKind::ScrollView) {
+            const render::Rect child_containing_block = establishes_containing_block(element) ? box : containing_block;
+            if (packs_children(element.kind) || element.kind == ElementKind::ItemsControl) {
                 layout_stack(element, content, painter, resolved, child_containing_block, partial);
+                layout_popups(element, child_basis, painter, partial);
                 return;
             }
 
             std::vector<Element *> flow;
             std::vector<Element *> absolute;
             for (Element &child: element.children) {
-                if (child.kind == ElementKind::ItemTemplate || child.display_none) {
+                if (child.kind == ElementKind::ItemTemplate || child.kind == ElementKind::Popup || child.display_none) {
                     continue;
                 }
                 if (child.position == PositionMode::Absolute) {
@@ -686,6 +703,7 @@ namespace engine::ui {
             for (Element *child_ptr: absolute) {
                 layout_absolute(*child_ptr, child_containing_block, painter, partial);
             }
+            layout_popups(element, child_basis, painter, partial);
         }
 
         std::int64_t tr_number(float n) {
@@ -744,6 +762,9 @@ namespace engine::ui {
                 return result;
             }
             if (auto result = require_property(element.checked_binding); !result) {
+                return result;
+            }
+            if (auto result = require_property(element.open_binding); !result) {
                 return result;
             }
             for (const CustomPropertyBinding &custom: element.custom_property_bindings) {
@@ -869,6 +890,11 @@ namespace engine::ui {
             if (is_bound(element.checked_binding)) {
                 if (auto value = vm.read_property_float(element.checked_binding)) {
                     element.checked = *value != 0.0f;
+                }
+            }
+            if (is_bound(element.open_binding)) {
+                if (auto value = vm.read_property_float(element.open_binding)) {
+                    element.open = *value != 0.0f;
                 }
             }
             for (const CustomPropertyBinding &custom: element.custom_property_bindings) {
@@ -1374,20 +1400,29 @@ namespace engine::ui {
                 under_control || element.kind == ElementKind::Button || element.kind == ElementKind::Checkbox;
         // child_stacking_order() is ascending (paint order); iterating its result back-to-front
         // visits the topmost (highest z-index / last-drawn) sibling first.
+        // A Popup child is not hit from here: hit_test visits open popups first, from their own offset.
         std::vector<Element *> children = child_stacking_order(element.children);
         for (auto it = children.rbegin(); it != children.rend(); ++it) {
+            if ((*it)->kind == ElementKind::Popup) {
+                continue;
+            }
             if (Element *nested = hit_test_at(**it, child_x, child_y, child_under_control)) {
                 return nested;
             }
         }
         std::vector<Element *> generated = child_stacking_order(element.generated_items);
         for (auto it = generated.rbegin(); it != generated.rend(); ++it) {
+            if ((*it)->kind == ElementKind::Popup) {
+                continue;
+            }
             if (Element *nested = hit_test_at(**it, child_x, child_y, child_under_control)) {
                 return nested;
             }
         }
+        // An open popup owns every point inside it, so a click on its padding does not reach what is under it.
         if (element.kind == ElementKind::Button || element.kind == ElementKind::Checkbox ||
-            element.kind == ElementKind::TextInput || element.kind == ElementKind::ScrollView ||
+            element.kind == ElementKind::Popup || element.kind == ElementKind::TextInput ||
+            element.kind == ElementKind::ScrollView ||
             is_scrollable(element) || is_bound(element.command_binding) || is_bound(element.drag_binding) ||
             has_viewport_camera(element)) {
             return &element;
@@ -1398,21 +1433,12 @@ namespace engine::ui {
         return nullptr;
     }
 
-    Element *hit_test(Element &element, float x, float y) { return hit_test_at(element, x, y, false); }
-
-    struct SpaceMap {
-        float scale = 1.0f;
-        glm::vec2 translate{0.0f, 0.0f};
-
-        [[nodiscard]] render::Rect apply(const render::Rect &rect) const {
-            return render::Rect{
-                    translate.x + rect.x * scale,
-                    translate.y + rect.y * scale,
-                    rect.w * scale,
-                    rect.h * scale,
-            };
+    Element *hit_test(Element &element, float x, float y) {
+        if (Element *popup = popup_at(element, x, y)) {
+            return hit_test_at(*popup, x - popup->popup_offset.x, y - popup->popup_offset.y, false);
         }
-    };
+        return hit_test_at(element, x, y, false);
+    }
 
     struct ElementInsets {
         BoxInsets padding{};
@@ -1513,6 +1539,9 @@ namespace engine::ui {
 
         std::vector<Element *> children = child_stacking_order(element.children);
         for (auto it = children.rbegin(); it != children.rend(); ++it) {
+            if ((*it)->kind == ElementKind::Popup) {
+                continue;
+            }
             if (VisualHit nested = hit_visual_at(**it, child_x, child_y, child_basis, child_map);
                 nested.element != nullptr) {
                 return nested;
@@ -1520,6 +1549,9 @@ namespace engine::ui {
         }
         std::vector<Element *> generated = child_stacking_order(element.generated_items);
         for (auto it = generated.rbegin(); it != generated.rend(); ++it) {
+            if ((*it)->kind == ElementKind::Popup) {
+                continue;
+            }
             if (VisualHit nested = hit_visual_at(**it, child_x, child_y, child_basis, child_map);
                 nested.element != nullptr) {
                 return nested;
@@ -1536,13 +1568,17 @@ namespace engine::ui {
         }
         const SpaceMap child_map = child_map_of(element, map);
         const glm::vec2 child_basis = content_size_of(element, parent_content);
+        // A popup is shown from its own offset, whatever scroll or camera its anchor sits under.
+        const auto map_for = [&](const Element &child) {
+            return child.kind == ElementKind::Popup ? SpaceMap{1.0f, child.popup_offset} : child_map;
+        };
         for (Element &child: element.children) {
-            if (find_layout_boxes(child, target, child_basis, child_map, out)) {
+            if (find_layout_boxes(child, target, child_basis, map_for(child), out)) {
                 return true;
             }
         }
         for (Element &child: element.generated_items) {
-            if (find_layout_boxes(child, target, child_basis, child_map, out)) {
+            if (find_layout_boxes(child, target, child_basis, map_for(child), out)) {
                 return true;
             }
         }
@@ -1550,6 +1586,15 @@ namespace engine::ui {
     }
 
     VisualHit hit_test_visual(Element &root, float x, float y) {
+        const std::vector<OpenPopup> popups = open_popups(root);
+        for (auto it = popups.rbegin(); it != popups.rend(); ++it) {
+            Element &popup = *it->popup;
+            if (VisualHit hit = hit_visual_at(popup, x - popup.popup_offset.x, y - popup.popup_offset.y,
+                                              it->parent_content, SpaceMap{1.0f, popup.popup_offset});
+                hit.element != nullptr) {
+                return hit;
+            }
+        }
         return hit_visual_at(root, x, y, glm::vec2{root.layout_rect.w, root.layout_rect.h}, SpaceMap{});
     }
 
@@ -1578,15 +1623,24 @@ namespace engine::ui {
             child_y = y + element.scroll_y;
         }
         for (Element *child: child_stacking_order(element.children)) {
-            find_viewport_at_impl(*child, child_x, child_y, found);
+            if (child->kind != ElementKind::Popup) {
+                find_viewport_at_impl(*child, child_x, child_y, found);
+            }
         }
         for (Element *child: child_stacking_order(element.generated_items)) {
-            find_viewport_at_impl(*child, child_x, child_y, found);
+            if (child->kind != ElementKind::Popup) {
+                find_viewport_at_impl(*child, child_x, child_y, found);
+            }
         }
     }
 
     Element *find_viewport_at(Element &root, float x, float y) {
         Element *found = nullptr;
+        // Over an open popup only that popup is searched: nothing under it scrolls or zooms.
+        if (Element *popup = popup_at(root, x, y)) {
+            find_viewport_at_impl(*popup, x - popup->popup_offset.x, y - popup->popup_offset.y, found);
+            return found;
+        }
         find_viewport_at_impl(root, x, y, found);
         return found;
     }
@@ -1677,15 +1731,24 @@ namespace engine::ui {
             child_y = y + element.scroll_y;
         }
         for (Element *child: child_stacking_order(element.children)) {
-            find_scrollable_at_impl(*child, child_x, child_y, found);
+            if (child->kind != ElementKind::Popup) {
+                find_scrollable_at_impl(*child, child_x, child_y, found);
+            }
         }
         for (Element *child: child_stacking_order(element.generated_items)) {
-            find_scrollable_at_impl(*child, child_x, child_y, found);
+            if (child->kind != ElementKind::Popup) {
+                find_scrollable_at_impl(*child, child_x, child_y, found);
+            }
         }
     }
 
     Element *find_scrollable_at(Element &root, float x, float y) {
         Element *found = nullptr;
+        // Over an open popup only that popup is searched: nothing under it scrolls or zooms.
+        if (Element *popup = popup_at(root, x, y)) {
+            find_scrollable_at_impl(*popup, x - popup->popup_offset.x, y - popup->popup_offset.y, found);
+            return found;
+        }
         find_scrollable_at_impl(root, x, y, found);
         return found;
     }
