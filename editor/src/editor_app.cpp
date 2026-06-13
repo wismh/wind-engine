@@ -167,6 +167,14 @@ bool EditorApp::start(const EditorOptions& options) {
     const std::filesystem::path data = user_data();
     panels_.emplace(layout_file(data));
     panels_->spawn(*world_, window_, services.windows);
+    EditorViewModel& menu = *toolbar_->view_model();
+    menu.showProject.bind_to<EditorPanels, &EditorPanels::show_project>(*panels_);
+    menu.showHierarchy.bind_to<EditorPanels, &EditorPanels::show_hierarchy>(*panels_);
+    menu.showWorld.bind_to<EditorPanels, &EditorPanels::show_world>(*panels_);
+    menu.showUiTree.bind_to<EditorPanels, &EditorPanels::show_ui_tree>(*panels_);
+    menu.showInspector.bind_to<EditorPanels, &EditorPanels::show_inspector>(*panels_);
+    menu.showProfiler.bind_to<EditorPanels, &EditorPanels::show_profiler>(*panels_);
+    menu.showBuild.bind_to<EditorPanels, &EditorPanels::show_build>(*panels_);
     opening_overlay_.emplace();
     opening_overlay_->spawn(*world_, window_);
     // Game, not Bind: run_bind of this world (registered by enable_ui) must see this frame's copy.

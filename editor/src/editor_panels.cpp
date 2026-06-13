@@ -36,25 +36,35 @@ engine::ecs::Entity spawn_panel(engine::ecs::World& world, engine::WindowId wind
     return canvas;
 }
 
-// Drops panels this editor does not have and puts back the ones the default layout lacks: tabbed with the Profiler,
-// or the first stack when the Profiler is missing too. The Export panel is optional/closable, so it is kept if present
-// but not added if missing.
-bool reconcile(DockLayout& layout) {
-    bool changed = false;
+// Drops panels this editor does not have. A closed panel stays closed until show() puts that one back. The Export
+// panel is optional, so it is kept if present and not added if missing.
+void drop_unknown(DockLayout& layout) {
     for (const std::string& key : layout.panels()) {
         if (key != EditorPanels::kExport &&
                 std::ranges::find(EditorPanels::kKeys, key) == EditorPanels::kKeys.end()) {
-            changed |= layout.remove(key);
+            layout.remove(key);
         }
     }
-    for (const std::string_view key : EditorPanels::kKeys) {
-        if (!layout.contains(key)) {
-            const std::optional<engine::ui::DockPanelPlace> profiler = layout.find(EditorPanels::kProfiler);
-            const DockNodeId stack = profiler ? profiler->stack : engine::ui::kNoDockNode;
-            changed |= layout.add(std::string(key), engine::ui::DockTarget{stack, DockZone::Center});
+}
+
+// One closed panel, tabbed with the Profiler, else the first docked stack, else a new root. Other closed panels stay
+// closed.
+void place_closed(DockLayout& layout, std::string_view key) {
+    if (key.empty() || layout.contains(key)) {
+        return;
+    }
+    if (key != EditorPanels::kProfiler) {
+        if (const std::optional<engine::ui::DockPanelPlace> profiler = layout.find(EditorPanels::kProfiler)) {
+            if (layout.add(std::string(key), {profiler->stack, DockZone::Center})) {
+                return;
+            }
         }
     }
-    return changed;
+    const std::vector<DockNodeId> stacks = layout.stacks_under(layout.root());
+    if (!stacks.empty() && layout.add(std::string(key), {stacks.front(), DockZone::Center})) {
+        return;
+    }
+    layout.add(std::string(key), {});
 }
 
 // The saved layout when it holds at least one of the editor's panels, else the default.
@@ -64,7 +74,7 @@ DockLayout initial_layout(const DockLayoutFile& file) {
     if (!saved || std::ranges::none_of(EditorPanels::kKeys, known)) {
         return EditorPanels::default_layout();
     }
-    reconcile(*saved);
+    drop_unknown(*saved);
     return std::move(*saved);
 }
 
@@ -122,13 +132,13 @@ void EditorPanels::spawn(engine::ecs::World& world, engine::WindowId window, eng
     // The default chrome, then its editor overrides: transparent stack bodies so the World viewport shows through.
     space.stylesheets = {engine::builtin::dock_css, assets::css::dock};
     space.panels = {
-            {std::string(kProject), "Project", explorer_canvas_},
-            {std::string(kHierarchy), "Hierarchy", hierarchy_canvas_},
-            {std::string(kWorld), "World", world_canvas_},
-            {std::string(kUiTree), "UI Tree", ui_tree_canvas_},
-            {std::string(kInspector), "Inspector", inspector_canvas_},
-            {std::string(kProfiler), "Profiler", profiler_canvas_},
-            {std::string(kBuild), "Build", build_canvas_},
+            {std::string(kProject), "Project", explorer_canvas_, true},
+            {std::string(kHierarchy), "Hierarchy", hierarchy_canvas_, true},
+            {std::string(kWorld), "World", world_canvas_, true},
+            {std::string(kUiTree), "UI Tree", ui_tree_canvas_, true},
+            {std::string(kInspector), "Inspector", inspector_canvas_, true},
+            {std::string(kProfiler), "Profiler", profiler_canvas_, true},
+            {std::string(kBuild), "Build", build_canvas_, true},
             {std::string(kExport), "Export", export_canvas_, true},
     };
     space.layout = initial_layout(layout_file_);
@@ -164,6 +174,8 @@ void EditorPanels::frame(engine::ecs::World& world) {
             engine::ecs::EventReader<engine::ui::DockPanelCloseRequested>{world, close_cursor_}) {
         if (event.key == kExport) {
             close_export();
+        } else if (std::ranges::find(kKeys, event.key) != kKeys.end()) {
+            space.layout.remove(event.key);
         }
     }
     if (const std::optional<engine::WindowId> export_win = engine::ui::dock_panel_os_window(world, dock_, kExport)) {
@@ -219,7 +231,7 @@ void EditorPanels::render(engine::ecs::World& world, const engine::EngineSystemD
 void EditorPanels::show(std::string_view key) {
     DockLayout& layout = layout_mut();
     if (!layout.contains(key)) {
-        reconcile(layout);
+        place_closed(layout, key);
     }
     const std::optional<engine::ui::DockPanelPlace> place = layout.find(key);
     if (!place) {
