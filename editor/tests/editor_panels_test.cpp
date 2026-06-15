@@ -154,7 +154,9 @@ TEST_F(EditorPanelsTest, TheDockSpaceFillsTheWindowBelowTheToolbarAndPlacesThePa
     EXPECT_EQ(space().panels[5].title, "Profiler");
     EXPECT_EQ(space().panels[6].title, "Build");
     EXPECT_EQ(space().panels[7].title, "Export");
-    EXPECT_TRUE(space().panels[7].closable);
+    for (const engine::ui::DockPanel& panel : space().panels) {
+        EXPECT_TRUE(panel.closable) << panel.key;
+    }
 
     const engine::ui::DockGeometry geometry =
             engine::ui::compute_dock_geometry(space().layout, kArea, engine::ui::DockMetrics{});
@@ -308,7 +310,7 @@ TEST_F(EditorPanelsTest, ACorruptLayoutFileStartsFromTheDefault) {
     EXPECT_EQ(space().layout, editor::EditorPanels::default_layout());
 }
 
-TEST_F(EditorPanelsTest, ASavedLayoutLosesUnknownPanelsAndGetsTheMissingOnes) {
+TEST_F(EditorPanelsTest, ASavedLayoutLosesUnknownPanelsAndKeepsClosedOnesClosed) {
     DockLayout saved;
     saved.add("project", {});
     saved.add("ghost", {saved.find("project")->stack, DockZone::Right});
@@ -317,9 +319,38 @@ TEST_F(EditorPanelsTest, ASavedLayoutLosesUnknownPanelsAndGetsTheMissingOnes) {
     const DockLayout& layout = space().layout;
     EXPECT_TRUE(layout.valid());
     EXPECT_FALSE(layout.contains("ghost"));
+    EXPECT_TRUE(layout.contains("project"));
     for (const std::string_view key : editor::EditorPanels::kKeys) {
-        EXPECT_TRUE(layout.contains(key)) << key;
+        if (key != editor::EditorPanels::kProject) {
+            EXPECT_FALSE(layout.contains(key)) << key;
+        }
     }
+}
+
+TEST_F(EditorPanelsTest, ClosingAPanelRemovesItAndShowBringsOnlyItBack) {
+    start();
+    ASSERT_TRUE(space().layout.remove(editor::EditorPanels::kHierarchy));
+    engine::ecs::EventWriter<engine::ui::DockPanelCloseRequested>{world}.send(
+            {.space = panels->dock(), .key = std::string(editor::EditorPanels::kInspector)});
+    frame();
+    EXPECT_FALSE(space().layout.contains(editor::EditorPanels::kInspector));
+    EXPECT_FALSE(space().layout.contains(editor::EditorPanels::kHierarchy));
+    EXPECT_TRUE(world.valid(panels->canvas(editor::EditorPanels::kInspector)));
+    EXPECT_EQ(canvas(editor::EditorPanels::kInspector).rect, Rect{});
+
+    panels->show(editor::EditorPanels::kInspector);
+    EXPECT_TRUE(space().layout.is_visible(editor::EditorPanels::kInspector));
+    EXPECT_FALSE(space().layout.contains(editor::EditorPanels::kHierarchy));
+    EXPECT_EQ(space().layout.find(editor::EditorPanels::kInspector)->stack,
+            space().layout.find(editor::EditorPanels::kProfiler)->stack);
+
+    panels->save_layout();
+    engine::ecs::World next_world;
+    editor::EditorPanels next{editor::DockLayoutFile{layout_path()}};
+    next.spawn(next_world, kEditorWindow, windows);
+    EXPECT_FALSE(next.layout().contains(editor::EditorPanels::kHierarchy));
+    EXPECT_TRUE(next.layout().contains(editor::EditorPanels::kInspector));
+    EXPECT_TRUE(next.layout().contains(editor::EditorPanels::kBuild));
 }
 
 TEST_F(EditorPanelsTest, ALayoutWithNoneOfThePanelsStartsFromTheDefault) {
