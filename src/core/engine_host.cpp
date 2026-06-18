@@ -6,6 +6,7 @@
 #include <engine/builtin_ids.h>
 #include <engine/core/engine_runtime.h>
 #include <engine/core/input_system.h>
+#include <engine/core/job_system.h>
 #include <engine/core/random.h>
 #include <engine/core/sdl_fatal_error.h>
 #include <engine/core/window_control.h>
@@ -38,6 +39,7 @@ struct EngineHost::Impl {
     std::unique_ptr<IHaptics> haptics;
     std::unique_ptr<HttpClient> http;
     std::unique_ptr<ProcessLauncher> processes;
+    std::unique_ptr<JobSystem> jobs;
     std::unique_ptr<Worlds> worlds;
     std::optional<EngineServices> services;
     bool initialized = false;
@@ -70,6 +72,7 @@ std::expected<void, EngineError> EngineHost::init() {
     impl_->haptics = std::make_unique<HapticsSystem>();
     impl_->http = std::make_unique<HttpClient>();
     impl_->processes = std::make_unique<ProcessLauncher>();
+    impl_->jobs = std::make_unique<JobSystem>();
     impl_->worlds = std::make_unique<Worlds>(*impl_->fatal);
     impl_->services.emplace(EngineServices{
             .assets = *impl_->assets,
@@ -78,6 +81,7 @@ std::expected<void, EngineError> EngineHost::init() {
             .haptics = *impl_->haptics,
             .http = *impl_->http,
             .processes = *impl_->processes,
+            .jobs = *impl_->jobs,
             .windows = runtime.window_control(),
             .graphics = runtime.factory(),
             .backend = runtime.backend(),
@@ -163,6 +167,7 @@ std::expected<void, EngineError> EngineHost::open_primary(const WindowDesc& desc
             },
             .windows = &runtime.window_control(),
             .worlds = impl_->worlds.get(),
+            .jobs = impl_->jobs.get(),
     });
     impl_->opened = true;
     return {};
@@ -233,6 +238,9 @@ int EngineHost::run(RunHooks hooks) {
 void EngineHost::dispose() {
     if (!impl_->initialized) {
         return;
+    }
+    if (impl_->jobs) {
+        impl_->jobs->stop();
     }
     impl_->audio->dispose();
     impl_->haptics->dispose();

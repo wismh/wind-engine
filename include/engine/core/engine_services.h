@@ -2,6 +2,7 @@
 
 // docs/tech/modules/Core.md
 
+#include <engine/core/job_system.h>
 #include <engine/render/command_buffer.h>
 #include <engine/core/worlds.h>
 
@@ -30,6 +31,8 @@ struct EngineServices {
     IHaptics& haptics;
     IHttpClient& http;
     IProcessLauncher& processes;
+    // Fork-join pool. `parallel_for` is the call that runs a function off this thread.
+    JobSystem& jobs;
     IWindowControl& windows;
     render::IGraphicFactory& graphics;
     render::IRenderBackend& backend;

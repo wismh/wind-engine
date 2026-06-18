@@ -156,6 +156,8 @@ When `collision_enabled` is set, `run_particles` copies non-trigger colliders in
 - Velocity reflects with `bounce` and `friction` (each clamped to 0–1) when it points into the surface.
 - `collision_radius` of 0 is a point. A positive value thickens the segment.
 
+`update_emitter` takes an optional `JobSystem`. With none, or a pool that has no workers, integration runs on the caller. With workers, ranges of 64 particles run on the pool and the caller joins before it continues. Each range writes only its own particles. The caller then drops the dead ones and the survivors keep their order. Spawn stays on the caller: it draws the calling thread's random stream. A job does not call engine APIs.
+
 `Curve<T>` (`include/engine/render/curve.h`) is a keyed curve. `KeyInterpolation` is `Linear`, `Smooth`, or `Step`. On the emitter, evaluated over normalized lifetime:
 
 - A non-empty `size_curve_xy` (`Curve<glm::vec2>`) wins over `size_curve` (`Curve<float>`). When both are empty, size stays on the linear start/end.
