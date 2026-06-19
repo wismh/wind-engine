@@ -75,4 +75,7 @@ struct WorldAsset {
 [[nodiscard]] std::expected<WorldAsset, WorldLoadError> parse_world_asset(std::string_view toml_text);
 [[nodiscard]] std::string serialize_world_asset(const WorldAsset& asset);
 
+// A TOML document whose root is one table, as field values. Dates and other unsupported nodes fail.
+[[nodiscard]] std::expected<FieldTable, std::string> parse_field_table(std::string_view toml_text);
+
 } // namespace engine::ecs
