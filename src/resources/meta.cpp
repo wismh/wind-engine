@@ -64,6 +64,9 @@ std::optional<ImporterKind> parse_importer(std::string_view value) {
     if (value == "svg") {
         return ImporterKind::Svg;
     }
+    if (value == "object") {
+        return ImporterKind::Object;
+    }
     if (value == "data") {
         return ImporterKind::Data;
     }
@@ -164,7 +167,7 @@ std::expected<void, MetaError> apply_optional_texture(const toml::table& table, 
         if (arr == nullptr) {
             return std::unexpected(MetaError::InvalidField);
         }
-        for (const toml::node& sprite_elem : *arr) {
+        for (const toml::node& sprite_elem: *arr) {
             const toml::table* const sprite_tab = sprite_elem.as_table();
             if (sprite_tab == nullptr) {
                 return std::unexpected(MetaError::InvalidField);
@@ -186,8 +189,8 @@ std::expected<void, MetaError> apply_optional_texture(const toml::table& table, 
                     if (!x || !y || !w || !h || *w <= 0 || *h <= 0) {
                         return std::unexpected(MetaError::InvalidField);
                     }
-                    sprite_meta.rect = SpriteRect{
-                            static_cast<int>(*x), static_cast<int>(*y), static_cast<int>(*w), static_cast<int>(*h)};
+                    sprite_meta.rect = SpriteRect{static_cast<int>(*x), static_cast<int>(*y), static_cast<int>(*w),
+                                                  static_cast<int>(*h)};
                 } else if (const toml::array* const rect_arr = rect_node->as_array()) {
                     if (rect_arr->size() != 4) {
                         return std::unexpected(MetaError::InvalidField);
@@ -199,8 +202,8 @@ std::expected<void, MetaError> apply_optional_texture(const toml::table& table, 
                     if (!x || !y || !w || !h || *w <= 0 || *h <= 0) {
                         return std::unexpected(MetaError::InvalidField);
                     }
-                    sprite_meta.rect = SpriteRect{
-                            static_cast<int>(*x), static_cast<int>(*y), static_cast<int>(*w), static_cast<int>(*h)};
+                    sprite_meta.rect = SpriteRect{static_cast<int>(*x), static_cast<int>(*y), static_cast<int>(*w),
+                                                  static_cast<int>(*h)};
                 } else {
                     return std::unexpected(MetaError::InvalidField);
                 }
@@ -210,8 +213,8 @@ std::expected<void, MetaError> apply_optional_texture(const toml::table& table, 
                 const auto w = (*sprite_tab)["w"].value<std::int64_t>();
                 const auto h = (*sprite_tab)["h"].value<std::int64_t>();
                 if (x && y && w && h && *w > 0 && *h > 0) {
-                    sprite_meta.rect = SpriteRect{
-                            static_cast<int>(*x), static_cast<int>(*y), static_cast<int>(*w), static_cast<int>(*h)};
+                    sprite_meta.rect = SpriteRect{static_cast<int>(*x), static_cast<int>(*y), static_cast<int>(*w),
+                                                  static_cast<int>(*h)};
                 } else {
                     return std::unexpected(MetaError::InvalidField);
                 }
@@ -399,7 +402,7 @@ std::expected<AssetMeta, MetaError> parse_meta_table(const toml::table& table) {
 std::string to_identifier(std::string_view piece) {
     std::string out;
     out.reserve(piece.size());
-    for (char c : piece) {
+    for (char c: piece) {
         if (std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_') {
             out.push_back(c);
         } else {
@@ -412,7 +415,7 @@ std::string to_identifier(std::string_view piece) {
     return out;
 }
 
-}
+} // namespace
 
 std::string_view to_string(ImporterKind kind) noexcept {
     switch (kind) {
@@ -442,6 +445,8 @@ std::string_view to_string(ImporterKind kind) noexcept {
             return "world";
         case ImporterKind::Svg:
             return "svg";
+        case ImporterKind::Object:
+            return "object";
         case ImporterKind::Data:
             return "data";
     }
@@ -457,9 +462,7 @@ std::expected<AssetMeta, MetaError> parse_asset_meta(std::string_view toml_text)
     }
 }
 
-void CookedCatalog::add(CatalogEntry entry) {
-    entries_.push_back(std::move(entry));
-}
+void CookedCatalog::add(CatalogEntry entry) { entries_.push_back(std::move(entry)); }
 
 std::vector<AssetId> CookedCatalog::remove_root(const std::filesystem::path& files_root) {
     std::vector<AssetId> removed;
@@ -474,7 +477,7 @@ std::vector<AssetId> CookedCatalog::remove_root(const std::filesystem::path& fil
 }
 
 const CatalogEntry* CookedCatalog::find(AssetId id) const {
-    for (const CatalogEntry& entry : entries_) {
+    for (const CatalogEntry& entry: entries_) {
         if (entry.guid == id) {
             return &entry;
         }
@@ -482,13 +485,11 @@ const CatalogEntry* CookedCatalog::find(AssetId id) const {
     return nullptr;
 }
 
-const std::vector<CatalogEntry>& CookedCatalog::entries() const noexcept {
-    return entries_;
-}
+const std::vector<CatalogEntry>& CookedCatalog::entries() const noexcept { return entries_; }
 
 std::string CookedCatalog::serialize() const {
     std::ostringstream os;
-    for (const CatalogEntry& entry : entries_) {
+    for (const CatalogEntry& entry: entries_) {
         os << "[[assets]]\n";
         os << "guid = \"" << entry.guid.hex() << "\"\n";
         os << "path = \"" << entry.relative_path << "\"\n";
@@ -499,11 +500,11 @@ std::string CookedCatalog::serialize() const {
             os << "wrap = \"" << wrap_to_string(entry.texture.wrap) << "\"\n";
             os << "layout = \"" << layout_to_string(entry.texture.layout) << "\"\n";
             os << "pixels_per_unit = " << entry.texture.pixels_per_unit << "\n";
-            for (const SpriteMeta& sprite : entry.texture.sprites) {
+            for (const SpriteMeta& sprite: entry.texture.sprites) {
                 os << "\n[[assets.sprites]]\n";
                 os << "name = \"" << sprite.name << "\"\n";
-                os << "rect = { x = " << sprite.rect.x << ", y = " << sprite.rect.y
-                   << ", w = " << sprite.rect.w << ", h = " << sprite.rect.h << " }\n";
+                os << "rect = { x = " << sprite.rect.x << ", y = " << sprite.rect.y << ", w = " << sprite.rect.w
+                   << ", h = " << sprite.rect.h << " }\n";
                 os << "pivot = [" << sprite.pivot.x << ", " << sprite.pivot.y << "]\n";
                 if (sprite.pixels_per_unit) {
                     os << "pixels_per_unit = " << *sprite.pixels_per_unit << "\n";
@@ -534,7 +535,7 @@ std::expected<CookedCatalog, MetaError> parse_cooked_catalog(std::string_view to
         }
 
         CookedCatalog catalog;
-        for (const toml::node& node : *assets) {
+        for (const toml::node& node: *assets) {
             const toml::table* const entry_table = node.as_table();
             if (entry_table == nullptr) {
                 return std::unexpected(MetaError::InvalidField);
@@ -570,7 +571,7 @@ std::expected<CookedCatalog, MetaError> parse_cooked_catalog(std::string_view to
 
 AssetCppId identifier_from_path(std::string_view relative_path) {
     std::string normalized(relative_path);
-    for (char& c : normalized) {
+    for (char& c: normalized) {
         if (c == '\\') {
             c = '/';
         }
@@ -581,7 +582,7 @@ AssetCppId identifier_from_path(std::string_view relative_path) {
 
     std::string current;
     std::vector<std::string> parts;
-    for (char c : normalized) {
+    for (char c: normalized) {
         if (c == '/') {
             if (!current.empty()) {
                 parts.push_back(std::move(current));
@@ -615,7 +616,7 @@ AssetCppId identifier_from_path(std::string_view relative_path) {
 
 std::string AssetCppId::qualified() const {
     std::string out;
-    for (const std::string& ns : namespaces) {
+    for (const std::string& ns: namespaces) {
         out += ns;
         out += "::";
     }
@@ -623,4 +624,4 @@ std::string AssetCppId::qualified() const {
     return out;
 }
 
-}
+} // namespace engine

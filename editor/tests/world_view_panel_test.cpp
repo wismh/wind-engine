@@ -22,6 +22,7 @@
 #include <engine/ui/document.h>
 #include <engine/ui/presentation.h>
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -303,8 +304,14 @@ TEST_F(WorldViewPanelTest, RenderPushesViewportSetViewWhenCanvasHasViewportArea)
 }
 
 TEST_F(WorldViewPanelTest, BeforeModuleUnloadDropsPreviewWorldBeforeDllUnloadsAndReloadRestoresIt) {
+    class Fatal final : public engine::IFatalError {
+    public:
+        [[noreturn]] void report(std::string_view) override { std::abort(); }
+    };
+    Fatal fatal;
+    engine::AssetsDb assets(fatal);
     StubPlayHost host;
-    editor::EditModule edit{host, dir / "live"};
+    editor::EditModule edit{host, assets, dir / "live"};
     panel.set_component_registrar(
             [&edit](engine::ecs::WorldSerializer& s) { edit.register_components(s); });
     ASSERT_TRUE(edit.load(kFixture).has_value());

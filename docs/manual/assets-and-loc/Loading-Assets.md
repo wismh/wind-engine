@@ -49,6 +49,20 @@ Named sub-sprites of a sprite sheet come back as a ready `render::Sprite`: `serv
 
 ---
 
+## 4. Serializable objects
+
+A `struct WIND_SERIALIZABLE` is a value the engine can read and write. It is not a component. The build writes `encode_wind` / `decode_wind` and `assets::register_game_objects` into `component_io.h`.
+
+Three ways to use one struct:
+
+1. Load it as an asset. Put a TOML table in `items/sword.object` with `type` set to the struct's key (its snake_case name, or the string in `WIND_SERIALIZABLE("item_drop")`) and the struct's fields. `asset_guid` sets `importer = "object"`. `services.assets.get<game::ItemDrop>(assets::items::sword)` returns it.
+2. Point at that asset from a component with `engine::AssetId`. The `.world` file stores the guid. The engine does not load the object while it reads the component.
+3. Nest the struct (or a `std::vector` of it) in a `WIND_COMPONENT`. Those fields are written into the same `.world` file and are not a separate asset. A nested value does not write `type`.
+
+A static game calls `assets::register_game_objects(services.assets)` from its constructor. A game module registers on `wind_create_game`, and Edit Mode registers through `wind_register_game_objects`. `TextAsset` (`importer = "data"`) stays the path for a file the game parses itself.
+
+---
+
 ## Next Steps
 
 - Localize text tables in [Localization](Localization.md).
