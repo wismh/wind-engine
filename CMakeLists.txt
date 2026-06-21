@@ -1,4 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
+# MSBuild is not a Wind generator. Desktop builds use Ninja Multi-Config (one directory, several configurations).
+# Web, Android, and the Linux bench use single-config Ninja. A Visual Studio cache cannot be reused.
+if(CMAKE_GENERATOR MATCHES "^Visual Studio")
+    message(FATAL_ERROR
+        "Wind does not build with ${CMAKE_GENERATOR}. Delete this build directory and configure with "
+        "-G \"Ninja Multi-Config\" (on Windows, cmake --preset vs-editor loads the MSVC environment).")
+endif()
 # The engine version, `<major>.<minor>.<patch><stage>`: 0.1.7a is alpha, 0.1.7b beta, 0.1.7 production. The numbers and
 # the stage are set here; a person raises the minor or the stage by editing them. The patch comes from the release
 # build (-DENGINE_VERSION_PATCH=N, .github/workflows/release.yml); without it the build is local and its version is

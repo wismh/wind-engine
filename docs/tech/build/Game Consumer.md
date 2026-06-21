@@ -48,15 +48,17 @@ The game builds in two configurations against the Release SDK: `DebugGame` (game
 ```json
 {
   "name": "editor",
-  "generator": "Visual Studio 18 2026",
+  "generator": "Ninja Multi-Config",
   "binaryDir": "${sourceDir}/build-editor",
+  "architecture": { "value": "x64", "strategy": "external" },
+  "toolset": { "value": "host=x64", "strategy": "external" },
   "cacheVariables": {
     "CMAKE_CONFIGURATION_TYPES": "DebugGame;Release"
   }
 }
 ```
 
-The SDK path is per machine, so for a build by hand it goes in the game's `CMakeUserPresets.json` (not committed), on top of that preset. The editor reuses a `build-editor` configured this way when its `Wind_DIR` is the editor's own SDK:
+`architecture` and `toolset` load the MSVC compiler on Windows. Delete those two fields on Linux and macOS. The SDK path is per machine, so for a build by hand it goes in the game's `CMakeUserPresets.json` (not committed), on top of that preset. The editor reuses a `build-editor` configured this way when its `Wind_DIR` is the editor's own SDK and the generator is Ninja Multi-Config:
 
 ```json
 {
@@ -102,8 +104,7 @@ gtest_discover_tests(my_game_tests DISCOVERY_MODE PRE_TEST)
 
 The module and the SDK both carry `.pdb` files, in `DebugGame` and in `Release`. The editor loads a copy of the module from `live/<n>/` with its `.pdb` beside it, and the module records only the `.pdb` file name (`/PDBALTPATH`), so the debugger finds that copy.
 
-- Start under the debugger: open `build-editor/<game>.sln`, set the game target as the startup project, and in its Debugging properties set Command to `C:/path/to/engine/out/sdk/bin/wind_editor.exe` and Command Arguments to `--project $(SolutionDir).. --play`. Build `DebugGame` and press F5. The editor's own build finds nothing to do, and breakpoints in game code hit once Play loads the module.
-- Attach: start `wind_editor.exe` yourself, then Debug > Attach to Process > `wind_editor.exe`. Breakpoints bind when the module loads on Play.
+- Attach: start `wind_editor.exe` yourself, then Debug > Attach to Process > `wind_editor.exe`. Breakpoints bind when the module loads on Play. The build is Ninja, so there is no `<game>.sln`. Visual Studio opens the folder through `CMakePresets.json` and builds the `editor` preset.
 
 ## `main`
 

@@ -38,7 +38,7 @@ The game owns `kPrimaryWindow`. Engine defaults, input events, and the CLI alrea
 
 ## Play
 
-1. Copy `game.dll` and `game.pdb` into `user_data_directory` under `live/<n>/` and load the copy. The module links with `/PDBALTPATH:<name>.pdb` (from `$<TARGET_PDB_FILE_NAME>`; the Visual Studio generator escapes a literal `%_PDB%`) so a debugger finds the copied PDB and the original stays unlocked. Stale copies are removed when the editor starts.
+1. Copy `game.dll` and `game.pdb` into `user_data_directory` under `live/<n>/` and load the copy. The module links with `/PDBALTPATH:<name>.pdb` (from `$<TARGET_PDB_FILE_NAME>`; `%_PDB%` is an MSBuild macro) so a debugger finds the copied PDB and the original stays unlocked. Stale copies are removed when the editor starts.
 2. Check the build id. Resolve the three exports.
 3. Load the game catalog from `assets/` beside the module. `engine_prepare_runtime` already stages it there.
 4. `wind_create_game(services)`, apply the window description, `attach_game`, `on_start`.
@@ -182,7 +182,7 @@ The editor and the launcher are engine clients and include only `<engine/...>`, 
 `wind_project.toml` in the game repo root marks a Wind project: `name`, `engine` (the version), `target` (the `engine_add_game` target). `wind_editor --project <dir>` replaces `--game`:
 
 1. Read `wind_project.toml`. An `engine` other than the editor's own `sdk.toml` version is refused with both versions.
-2. Play: configure `<dir>/build-editor` when it has no cache (`-DCMAKE_PREFIX_PATH=<own sdk>`, `-DCMAKE_CONFIGURATION_TYPES=DebugGame;Release`), then `cmake --build ... --config DebugGame --target <target>`, both through `ProcessCall`. The frame keeps running; the Build panel shows the output (`VSLANG=1033`, so MSBuild writes English). A failed build does not start the game.
+2. Play: configure `<dir>/build-editor` when it has no cache (`-G "Ninja Multi-Config"`, `-DCMAKE_PREFIX_PATH=<own sdk>`, `-DCMAKE_CONFIGURATION_TYPES=DebugGame;Release`), then `cmake --build ... --config DebugGame --target <target>`, both through `ProcessCall`. The frame keeps running; the Build panel shows the output. A failed build does not start the game.
 3. The module path comes from the CMake File API (codemodel), not a guessed `bin/<config>/` path. Then Play continues as today.
 
 As built (wind-178): the configure also passes `-DWind_DIR=<sdk>/cmake`, and runs when the cache's `Wind_DIR` is not this SDK (a cache from another SDK too). The module path is a record `engine_add_game` writes with `file(GENERATE)` (`<build>/wind/<target>.<config>.module`), not the File API: the engine has no JSON reader, and the record is exact. `wind_project.toml` and `sdk.toml` are read by the engine's [Project](../modules/Project.md) module, which the launcher will share. A bound `scroll-y` is now clamped before ItemsControl virtualization, so the Build log can ask for its end. See [Editor](../features/Editor.md#build).

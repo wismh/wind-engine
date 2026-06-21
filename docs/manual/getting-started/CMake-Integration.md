@@ -112,8 +112,10 @@ This keeps your unit test suite fast, deterministic, and free from engine depend
     {
       "name": "editor",
       "displayName": "Game module for the Wind editor",
-      "generator": "Visual Studio 18 2026",
+      "generator": "Ninja Multi-Config",
       "binaryDir": "${sourceDir}/build-editor",
+      "architecture": { "value": "x64", "strategy": "external" },
+      "toolset": { "value": "host=x64", "strategy": "external" },
       "cacheVariables": { "CMAKE_CONFIGURATION_TYPES": "DebugGame;Release" }
     }
   ]
