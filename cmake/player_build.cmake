@@ -47,16 +47,14 @@ endif()
 if(WIND_PLAYER_GENERATOR_TOOLSET)
     list(APPEND _configure -T "${WIND_PLAYER_GENERATOR_TOOLSET}")
 endif()
-if(NOT WIND_PLAYER_GENERATOR MATCHES "^Visual Studio")
-    # Visual Studio picks its compiler itself; the others are told which one the editor build uses.
-    foreach(_language IN ITEMS C CXX)
-        if(WIND_PLAYER_${_language}_COMPILER)
-            list(APPEND _configure "-DCMAKE_${_language}_COMPILER=${WIND_PLAYER_${_language}_COMPILER}")
-        endif()
-    endforeach()
-    if(WIND_PLAYER_MAKE_PROGRAM)
-        list(APPEND _configure "-DCMAKE_MAKE_PROGRAM=${WIND_PLAYER_MAKE_PROGRAM}")
+# Ninja is told the editor build's compiler and make program.
+foreach(_language IN ITEMS C CXX)
+    if(WIND_PLAYER_${_language}_COMPILER)
+        list(APPEND _configure "-DCMAKE_${_language}_COMPILER=${WIND_PLAYER_${_language}_COMPILER}")
     endif()
+endforeach()
+if(WIND_PLAYER_MAKE_PROGRAM)
+    list(APPEND _configure "-DCMAKE_MAKE_PROGRAM=${WIND_PLAYER_MAKE_PROGRAM}")
 endif()
 foreach(_variable IN ITEMS ARCHITECTURES DEPLOYMENT_TARGET SYSROOT)
     if(WIND_PLAYER_OSX_${_variable})
@@ -64,20 +62,22 @@ foreach(_variable IN ITEMS ARCHITECTURES DEPLOYMENT_TARGET SYSROOT)
     endif()
 endforeach()
 # One configuration per tree, so the exported targets of the player have one set of locations.
-if(WIND_PLAYER_GENERATOR MATCHES "^Visual Studio|Multi-Config|Xcode")
+if(WIND_PLAYER_GENERATOR MATCHES "Multi-Config|Xcode")
     list(APPEND _configure -DCMAKE_CONFIGURATION_TYPES=Release)
 else()
     list(APPEND _configure -DCMAKE_BUILD_TYPE=Release)
 endif()
 
-set(_build_tail)
-if(WIND_PLAYER_GENERATOR MATCHES "^Visual Studio")
-    set(_build_tail -- /nologo /verbosity:minimal)
-endif()
-
 string(REPLACE "," ";" WIND_PLAYER_FLAVOURS "${WIND_PLAYER_FLAVOURS}")
 foreach(_flavour IN LISTS WIND_PLAYER_FLAVOURS)
     set(_tree "${WIND_PLAYER_BINARY_DIR}/${_flavour}")
+    # cmake will not configure a tree that was generated with another generator.
+    if(EXISTS "${_tree}/CMakeCache.txt")
+        file(STRINGS "${_tree}/CMakeCache.txt" _generator_line REGEX "^CMAKE_GENERATOR:")
+        if(NOT _generator_line MATCHES "=${WIND_PLAYER_GENERATOR}$")
+            file(REMOVE_RECURSE "${_tree}")
+        endif()
+    endif()
     _wind_player_run("configure ${_flavour}"
         "${CMAKE_COMMAND}" -S "${WIND_PLAYER_SOURCE_DIR}" -B "${_tree}" ${_configure}
         -DENGINE_PLAYER=${_flavour}
@@ -86,7 +86,7 @@ foreach(_flavour IN LISTS WIND_PLAYER_FLAVOURS)
         -DENGINE_WITH_WINDOW=ON -DENGINE_WITH_AUDIO=ON
         -DWIND_PLAYER_SDK_BUILD_ID=${_sdk_build_id})
     _wind_player_run("build ${_flavour}"
-        "${CMAKE_COMMAND}" --build "${_tree}" --config Release --target engine --parallel ${_build_tail})
+        "${CMAKE_COMMAND}" --build "${_tree}" --config Release --target engine --parallel)
     if(WIND_PLAYER_PREFIX)
         # A clean directory, so a library a newer engine no longer links does not stay behind.
         file(REMOVE_RECURSE "$ENV{DESTDIR}${WIND_PLAYER_PREFIX}/${_flavour}")
