@@ -1,5 +1,5 @@
-/* Wind Launcher. The editor's palette (editor/assets/css/editor.css): a header bar, then the project and editor
-   lists. */
+/* Wind Launcher. The editor's palette (editor/assets/css/editor.css): a navbar on the left, then the page it picked
+   (Projects or SDKs) above a status bar. */
 
 Canvas {
   background: #1e1f22;
@@ -10,20 +10,21 @@ Canvas {
   height: 100%;
 }
 
-/* 56 px tall. .body is calc(100% - 56px). */
-.header {
-  width: 100%;
-  height: 56;
-  padding: 10 16 10 16;
-  gap: 10;
-  align-items: center;
+/* 184 px wide. .main is calc(100% - 184px). */
+.nav {
+  width: 184;
+  height: 100%;
+  padding: 12 10 12 10;
+  gap: 4;
   background: #2b2d30;
 }
 
 .title {
-  width: 72;
+  height: 44;
+  padding: 0 0 0 10;
   font-size: 20;
   color: #ffffff;
+  align-items: center;
 }
 
 Button {
@@ -50,35 +51,96 @@ Button:disabled {
   background: #313335;
 }
 
+Button.nav-button {
+  width: 100%;
+  height: 34;
+  padding: 0 12 0 12;
+  text-align: left;
+  color: #8c9096;
+  background: #2b2d30;
+}
+
+Button.nav-button:hover {
+  color: #dfe1e5;
+  background: #34363a;
+}
+
+Button.nav-button:checked {
+  color: #ffffff;
+  background: #3c3f41;
+}
+
 Label {
   font-size: 14;
   color: #dfe1e5;
   white-space: nowrap;
 }
 
-.status {
-  padding: 0 0 0 10;
-  font-size: 13;
-  color: #8c9096;
+.main {
+  width: calc(100% - 184px);
+  height: 100%;
 }
 
-/* Two sections of 24 px and two gaps of 8 px around the lists: 64 px of chrome inside the 16 px padding. */
-.body {
+/* One page is shown at a time: LauncherApp writes "block" or "none" through var-display. 32 px of status bar below
+   it. */
+.page {
   width: 100%;
-  height: calc(100% - 56px);
-  padding: 8 16 16 16;
-  gap: 8;
+  height: calc(100% - 32px);
+  padding: 0 16 0 16;
+  display: var(--display, none);
 }
 
-.section {
-  height: 24;
-  font-size: 12;
-  color: #8c9096;
-  align-items: end;
+/* 64 px tall. The list is calc(100% - 72px): 8 px of padding stays below it. */
+.page-header {
+  width: 100%;
+  height: 64;
+  gap: 10;
+  align-items: center;
+}
+
+/* Beside the buttons: Add existing 130 and New project 130; Open folder 120 and Locate 100; 10 px per gap. */
+.projects-header .heading {
+  width: calc(100% - 280px);
+}
+
+.sdks-header .heading {
+  width: calc(100% - 240px);
+}
+
+.heading {
+  gap: 2;
+}
+
+.page-title {
+  font-size: 20;
+  color: #ffffff;
+}
+
+.add-button {
+  width: 130;
+}
+
+.new-button {
+  width: 130;
+  color: #ffffff;
+  background: #2f7d36;
+}
+
+.new-button:hover {
+  background: #3a9142;
+}
+
+.folder-button {
+  width: 120;
+}
+
+.locate-button {
+  width: 100;
 }
 
 ScrollView.box {
   width: 100%;
+  height: calc(100% - 72px);
   padding: 4;
   background: #2b2d30;
   border-width: 1;
@@ -89,12 +151,17 @@ ScrollView.box {
   scrollbar-color: #4e5157 #2b2d30;
 }
 
-ScrollView.projects {
-  height: calc(62% - 48px);
+.status-bar {
+  width: 100%;
+  height: 32;
+  padding: 0 16 0 16;
+  align-items: center;
+  background: #2b2d30;
 }
 
-ScrollView.sdks {
-  height: calc(38% - 48px);
+.status {
+  font-size: 13;
+  color: #8c9096;
 }
 
 ItemsControl.rows {
@@ -121,9 +188,9 @@ ItemsControl.rows {
   gap: 2;
 }
 
-/* An editor row: padding 18, version 70, Forget 84, two gaps 20 = 192 px beside the text. */
+/* An SDK row: padding 18, version 70, ··· 34, two gaps 20 = 142 px beside the text. */
 .sdk-text {
-  width: calc(100% - 192px);
+  width: calc(100% - 142px);
   gap: 2;
 }
 
@@ -137,7 +204,7 @@ ItemsControl.rows {
   color: #8c9096;
 }
 
-/* --tone is red when the project's editor is missing (LauncherApp). */
+/* --tone is red when the project's SDK is missing (LauncherApp). */
 .engine {
   width: 130;
   font-size: 13;
@@ -169,4 +236,164 @@ ItemsControl.rows {
   width: 84;
   height: 30;
   font-size: 13;
+}
+
+.more-button {
+  width: 34;
+  height: 30;
+  padding: 0;
+  font-size: 16;
+  background: #2b2d30;
+}
+
+.more-button:hover {
+  background: #4b4f53;
+}
+
+/* The ··· menu and the delete confirmation: popups below the button, its right edges lined up, 4 px apart. */
+Popup.menu {
+  margin: 4 0 0 0;
+  padding: 4;
+  gap: 2;
+  background: #2b2d30;
+  border-width: 1;
+  border-color: #43454a;
+  border-radius: 6;
+}
+
+Button.menu-item {
+  width: 180;
+  height: 30;
+  padding: 0 10 0 10;
+  font-size: 13;
+  text-align: left;
+  background: #2b2d30;
+}
+
+Button.menu-item:hover {
+  background: #3c3f41;
+}
+
+Popup.confirm {
+  padding: 12;
+  gap: 6;
+}
+
+.confirm-text {
+  font-size: 14;
+  color: #ffffff;
+}
+
+.confirm-path {
+  max-width: 320;
+  font-size: 12;
+  color: #8c9096;
+  white-space: normal;
+}
+
+.confirm-buttons {
+  padding: 6 0 0 0;
+  gap: 8;
+}
+
+.danger-button {
+  width: 84;
+  height: 30;
+  font-size: 13;
+  color: #ffffff;
+  background: #b0413e;
+}
+
+.danger-button:hover {
+  background: #c74e4a;
+}
+
+/* The New project page: a 560 px column of labelled fields. */
+.form {
+  width: 560;
+  padding: 8 0 0 0;
+  gap: 6;
+}
+
+.field-label {
+  height: 18;
+  padding: 8 0 0 0;
+  font-size: 12;
+  color: #8c9096;
+}
+
+.field {
+  width: 100%;
+  height: 34;
+  padding: 0 10 0 10;
+  border-radius: 6;
+  font-size: 14;
+  color: #dfe1e5;
+  background: #2b2d30;
+  border-width: 1;
+  border-color: #393b40;
+  selection-color: #2f65ca;
+}
+
+/* A TextInput draws its text at the top of its content box: the padding centres the 14 px row in 34 px. */
+TextInput.field {
+  padding: 8 10 8 10;
+}
+
+TextInput.field:focus {
+  border-color: #3574f0;
+}
+
+/* Location 450, gap 10, Browse 100. */
+.field-row {
+  width: 100%;
+  gap: 10;
+}
+
+.location-field {
+  width: calc(100% - 110px);
+}
+
+.browse-button {
+  width: 100;
+}
+
+Button.sdk-picker {
+  text-align: left;
+}
+
+Button.sdk-picker:hover {
+  background: #34363a;
+}
+
+/* The picker's list: one row per SDK, 552 px like the button inside the popup's padding. */
+ItemsControl.sdk-options {
+  width: 552;
+}
+
+Button.sdk-option {
+  width: 552;
+}
+
+Button.sdk-option:checked {
+  color: #ffffff;
+  background: #3c3f41;
+}
+
+/* --tone is red when the project cannot be created (LauncherApp). */
+.hint {
+  width: 100%;
+  padding: 10 0 0 0;
+  font-size: 12;
+  white-space: normal;
+  color: var(--tone, #8c9096);
+}
+
+.form-buttons {
+  padding: 14 0 0 0;
+  gap: 8;
+}
+
+.form-buttons .small-button {
+  height: 34;
 }

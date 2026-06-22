@@ -2,22 +2,28 @@
 
 #include "launcher_state.h"
 #include "project_entry.h"
+#include "project_template.h"
 #include "sdk_catalog.h"
 
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <iterator>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace {
 
-// A fresh directory per test under the temp directory, removed with the object. ctest runs tests in parallel.
+// A fresh directory per test under the temp directory, removed with the object. ctest runs tests in parallel. Named
+// by a hash of the test's name, not the name: a new project's path must stay short (kMaxProjectPath).
 class TempDir {
 public:
     TempDir()
-        : path_(std::filesystem::temp_directory_path() / "wind_launcher_test" /
-                  ::testing::UnitTest::GetInstance()->current_test_info()->name()) {
+        : path_(std::filesystem::temp_directory_path() / "wlt" /
+                  std::to_string(std::hash<std::string>{}(
+                                         ::testing::UnitTest::GetInstance()->current_test_info()->name()) %
+                                 1000000)) {
         std::filesystem::remove_all(path_);
         std::filesystem::create_directories(path_);
     }
@@ -166,4 +172,195 @@ TEST(ProjectEntry, ReadsTheProjectOrSaysWhatIsWrong) {
     const launcher::ProjectEntry gone = launcher::read_project_entry(dir.path() / "moved");
     EXPECT_FALSE(gone.project.has_value());
     EXPECT_NE(gone.problem.find("File not found"), std::string::npos);
+}
+
+TEST(SdkCatalog, InstallsUnderTheUsersLocalPrograms) {
+    const std::filesystem::path dir = launcher::sdk_install_directory();
+    ASSERT_FALSE(dir.empty());
+    EXPECT_EQ(dir.filename(), "Sdks");
+    EXPECT_EQ(dir.parent_path().filename(), "Wind");
+#if defined(_WIN32)
+    EXPECT_EQ(dir.parent_path().parent_path().filename(), "Programs");
+#endif
+}
+
+TEST(SdkCatalog, SkipsDirectoriesStartingWithADot) {
+    const TempDir dir;
+    dir.sdk("sdks/0.1.0", "0.1.0", false);
+    dir.sdk("sdks/.deleting-0.2.0", "0.2.0", false);
+    std::vector<std::string> problems;
+    const auto sdks = launcher::find_sdks(dir.path() / "sdks", {}, problems);
+    ASSERT_EQ(sdks.size(), 1u);
+    EXPECT_EQ(sdks[0].manifest.version, "0.1.0");
+    EXPECT_TRUE(problems.empty());
+}
+
+TEST(SdkCatalog, DeleteRemovesTheSdkAndLeavesItsNeighbours) {
+    const TempDir dir;
+    dir.sdk("sdks/0.1.0", "0.1.0", false);
+    dir.write("sdks/0.1.0/bin/wind_editor.exe", "exe");
+    dir.sdk("sdks/0.2.0", "0.2.0", false);
+    ASSERT_TRUE(launcher::delete_sdk(dir.path() / "sdks" / "0.1.0").has_value());
+    EXPECT_FALSE(std::filesystem::exists(dir.path() / "sdks" / "0.1.0"));
+    EXPECT_FALSE(std::filesystem::exists(dir.path() / "sdks" / ".deleting-0.1.0"));
+    EXPECT_TRUE(std::filesystem::exists(dir.path() / "sdks" / "0.2.0" / "sdk.toml"));
+
+    const auto gone = launcher::delete_sdk(dir.path() / "sdks" / "0.1.0");
+    ASSERT_FALSE(gone.has_value());
+    EXPECT_NE(gone.error().find("not there"), std::string::npos);
+}
+
+#if defined(_WIN32)
+TEST(SdkCatalog, DeleteKeepsAnSdkWhoseFilesAreInUse) {
+    const TempDir dir;
+    dir.sdk("sdks/0.1.0", "0.1.0", false);
+    dir.write("sdks/0.1.0/bin/wind_editor.exe", "exe");
+    {
+        // An open file without FILE_SHARE_DELETE, like a running editor's executable, blocks renaming its directory.
+        std::ifstream running(dir.path() / "sdks" / "0.1.0" / "bin" / "wind_editor.exe");
+        ASSERT_TRUE(running.is_open());
+        const auto deleted = launcher::delete_sdk(dir.path() / "sdks" / "0.1.0");
+        ASSERT_FALSE(deleted.has_value());
+        EXPECT_NE(deleted.error().find("Close the editor"), std::string::npos);
+    }
+    EXPECT_TRUE(std::filesystem::exists(dir.path() / "sdks" / "0.1.0" / "sdk.toml"))
+            << "a delete that cannot rename leaves the SDK whole";
+}
+#endif
+
+TEST(SdkCatalog, RemovesWhatAStoppedDeleteLeft) {
+    const TempDir dir;
+    dir.sdk("sdks/0.1.0", "0.1.0", false);
+    dir.write("sdks/.deleting-0.2.0/bin/wind_editor.exe", "exe");
+    launcher::remove_deleted_sdks(dir.path() / "sdks");
+    EXPECT_FALSE(std::filesystem::exists(dir.path() / "sdks" / ".deleting-0.2.0"));
+    EXPECT_TRUE(std::filesystem::exists(dir.path() / "sdks" / "0.1.0" / "sdk.toml"));
+    launcher::remove_deleted_sdks({});
+    launcher::remove_deleted_sdks(dir.path() / "missing");
+}
+
+TEST(SdkCatalog, TheFileManagerGetsTheNativePath) {
+    const engine::ProcessDesc desc = launcher::folder_launch("C:/sdk/0.1.0");
+    ASSERT_EQ(desc.arguments.size(), 1u);
+#if defined(_WIN32)
+    EXPECT_EQ(desc.program, std::filesystem::path("explorer"));
+    EXPECT_EQ(desc.arguments[0], R"(C:\sdk\0.1.0)");
+#else
+    EXPECT_EQ(desc.arguments[0], "C:/sdk/0.1.0");
+#endif
+}
+
+TEST(LauncherState, RemembersWhereTheLastNewProjectWent) {
+    launcher::LauncherState state;
+    EXPECT_EQ(launcher::format_launcher_state(state).find("location="), std::string::npos) << "none yet, no line";
+    state.location = std::filesystem::path(u8"C:/Users/я/WindProjects");
+    const launcher::LauncherState again = launcher::parse_launcher_state(launcher::format_launcher_state(state));
+    EXPECT_EQ(again.location, state.location);
+}
+
+TEST(ProjectTemplate, TheTargetIsTheNameInLowerCaseWithDashes) {
+    EXPECT_EQ(launcher::project_target("My Game"), "my-game");
+    EXPECT_EQ(launcher::project_target("  Space -- Shooter 2 "), "space-shooter-2");
+    EXPECT_EQ(launcher::project_target("TicTacToe"), "tictactoe");
+    EXPECT_EQ(launcher::project_target("2048"), "game-2048");
+    EXPECT_EQ(launcher::project_target(reinterpret_cast<const char*>(u8"Гра 1")), "game-1");
+    EXPECT_EQ(launcher::project_target(reinterpret_cast<const char*>(u8"Гра")), "");
+}
+
+TEST(ProjectTemplate, SaysWhyAProjectCannotBeCreated) {
+    const TempDir dir;
+    const auto problem = [&](std::string name, std::filesystem::path location) {
+        return launcher::new_project_problem(
+                launcher::NewProject{.name = std::move(name), .location = std::move(location)});
+    };
+    EXPECT_FALSE(problem("My Game", dir.path()).has_value());
+    EXPECT_FALSE(problem("My Game", dir.path() / "not" / "made" / "yet").has_value()) << "the location is made";
+    EXPECT_TRUE(problem("", dir.path()).has_value());
+    EXPECT_TRUE(problem("a/b", dir.path()).has_value());
+    EXPECT_TRUE(problem("say \"hi\"", dir.path()).has_value());
+    EXPECT_TRUE(problem("trailing.", dir.path()).has_value());
+    EXPECT_TRUE(problem(" leading", dir.path()).has_value());
+    EXPECT_TRUE(problem("CON", dir.path()).has_value());
+    EXPECT_TRUE(problem("com1.txt", dir.path()).has_value());
+    EXPECT_FALSE(problem("Console", dir.path()).has_value());
+    EXPECT_TRUE(problem(reinterpret_cast<const char*>(u8"Гра"), dir.path()).has_value()) << "no target";
+    EXPECT_TRUE(problem("My Game", "").has_value());
+    EXPECT_TRUE(problem("My Game", "relative/path").has_value());
+
+#if defined(_WIN32)
+    const auto deep = problem("My Game", "C:/" + std::string(launcher::kMaxProjectPath, 'd'));
+    ASSERT_TRUE(deep.has_value()) << "MSBuild fails under a long path";
+    EXPECT_NE(deep->find("path this long"), std::string::npos);
+#endif
+
+    std::filesystem::create_directories(dir.path() / "Empty");
+    EXPECT_FALSE(problem("Empty", dir.path()).has_value()) << "an empty directory is fine";
+    dir.write("Taken/file.txt", "x");
+    const auto taken = problem("Taken", dir.path());
+    ASSERT_TRUE(taken.has_value());
+    EXPECT_NE(taken->find("already exists"), std::string::npos);
+}
+
+TEST(ProjectTemplate, CopiesTheTemplateAndFillsItIn) {
+    const TempDir dir;
+    dir.write("sdk/templates/empty/wind_project.toml",
+            "name = \"{{name}}\"\nengine = \"{{engine}}\"\ntarget = \"{{target}}\"\n");
+    dir.write("sdk/templates/empty/src/game.cpp", "title = \"{{name}}\"; // {{name}} twice, sdk {{sdk}}\n");
+    dir.write("sdk/templates/empty/assets/.gitkeep", "");
+    const launcher::NewProject project{
+            .name = "My Game",
+            .location = dir.path() / "projects",
+            .sdk_root = "C:/sdk/0.3.0",
+            .engine = "0.3.0",
+    };
+    const auto created = launcher::create_project(dir.path() / "sdk" / "templates" / "empty", project);
+    ASSERT_TRUE(created.has_value()) << created.error();
+    EXPECT_EQ(*created, dir.path() / "projects" / "My Game");
+
+    const launcher::ProjectEntry entry = launcher::read_project_entry(*created);
+    ASSERT_TRUE(entry.project.has_value()) << entry.problem;
+    EXPECT_EQ(entry.project->name, "My Game");
+    EXPECT_EQ(entry.project->engine, "0.3.0");
+    EXPECT_EQ(entry.project->target, "my-game");
+
+    std::ifstream game(*created / "src" / "game.cpp");
+    const std::string text((std::istreambuf_iterator<char>(game)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(text, "title = \"My Game\"; // My Game twice, sdk C:/sdk/0.3.0\n");
+    EXPECT_TRUE(std::filesystem::exists(*created / "assets" / ".gitkeep"));
+
+    const auto again = launcher::create_project(dir.path() / "sdk" / "templates" / "empty", project);
+    ASSERT_FALSE(again.has_value());
+    EXPECT_NE(again.error().find("already exists"), std::string::npos);
+    EXPECT_TRUE(std::filesystem::exists(*created / "wind_project.toml")) << "a refused create leaves the project be";
+}
+
+TEST(ProjectTemplate, AMissingTemplateMakesNothing) {
+    const TempDir dir;
+    const launcher::NewProject project{.name = "Game", .location = dir.path(), .sdk_root = {}, .engine = "0.1.0"};
+    const auto created = launcher::create_project(dir.path() / "no-template", project);
+    ASSERT_FALSE(created.has_value());
+    EXPECT_NE(created.error().find("no project template"), std::string::npos);
+    EXPECT_FALSE(std::filesystem::exists(dir.path() / "Game"));
+}
+
+TEST(ProjectTemplate, TheEnginesOwnTemplateNamesEveryPlaceholder) {
+    // templates/empty in this repo, the one the SDK installs: it makes a project that reads back.
+    const std::filesystem::path engine_template = std::filesystem::path(WIND_ENGINE_SOURCE_DIR) / "templates" / "empty";
+    ASSERT_TRUE(std::filesystem::is_directory(engine_template));
+    const TempDir dir;
+    const launcher::NewProject project{
+            .name = "Template Check", .location = dir.path(), .sdk_root = "C:/sdk", .engine = "9.9.9"};
+    const auto created = launcher::create_project(engine_template, project);
+    ASSERT_TRUE(created.has_value()) << created.error();
+    const launcher::ProjectEntry entry = launcher::read_project_entry(*created);
+    ASSERT_TRUE(entry.project.has_value()) << entry.problem;
+    EXPECT_EQ(entry.project->target, "template-check");
+    for (const auto& file : std::filesystem::recursive_directory_iterator(*created)) {
+        if (!file.is_regular_file()) {
+            continue;
+        }
+        std::ifstream in(file.path(), std::ios::binary);
+        const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        EXPECT_EQ(text.find("{{"), std::string::npos) << file.path() << " keeps a placeholder";
+    }
 }

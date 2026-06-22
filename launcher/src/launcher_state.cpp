@@ -9,10 +9,7 @@ namespace {
 
 constexpr std::string_view kProjectKey = "project=";
 constexpr std::string_view kSdkKey = "sdk=";
-
-std::filesystem::path path_from(std::string_view text) {
-    return std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(text.data()), text.size()));
-}
+constexpr std::string_view kLocationKey = "location=";
 
 std::string comparable(const std::filesystem::path& path) {
     std::filesystem::path normal = std::filesystem::absolute(path).lexically_normal();
@@ -38,6 +35,10 @@ std::string path_text(const std::filesystem::path& path) {
     return {reinterpret_cast<const char*>(text.data()), text.size()};
 }
 
+std::filesystem::path path_from_text(std::string_view text) {
+    return std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(text.data()), text.size()));
+}
+
 LauncherState parse_launcher_state(std::string_view text) {
     LauncherState state;
     while (!text.empty()) {
@@ -48,9 +49,11 @@ LauncherState parse_launcher_state(std::string_view text) {
             line.remove_suffix(1);
         }
         if (line.starts_with(kProjectKey) && line.size() > kProjectKey.size()) {
-            state.projects.push_back(path_from(line.substr(kProjectKey.size())));
+            state.projects.push_back(path_from_text(line.substr(kProjectKey.size())));
         } else if (line.starts_with(kSdkKey) && line.size() > kSdkKey.size()) {
-            state.sdks.push_back(path_from(line.substr(kSdkKey.size())));
+            state.sdks.push_back(path_from_text(line.substr(kSdkKey.size())));
+        } else if (line.starts_with(kLocationKey) && line.size() > kLocationKey.size()) {
+            state.location = path_from_text(line.substr(kLocationKey.size()));
         }
     }
     return state;
@@ -63,6 +66,9 @@ std::string format_launcher_state(const LauncherState& state) {
     }
     for (const std::filesystem::path& sdk : state.sdks) {
         text += std::string(kSdkKey) + path_text(sdk) + "\n";
+    }
+    if (!state.location.empty()) {
+        text += std::string(kLocationKey) + path_text(state.location) + "\n";
     }
     return text;
 }

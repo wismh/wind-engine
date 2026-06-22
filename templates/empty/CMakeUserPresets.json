@@ -1,0 +1,10 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "editor-local",
+      "inherits": "editor",
+      "cacheVariables": { "CMAKE_PREFIX_PATH": "{{sdk}}" }
+    }
+  ]
+}

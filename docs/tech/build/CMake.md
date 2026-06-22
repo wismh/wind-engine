@@ -187,6 +187,7 @@ out/sdk/
     WindConfigVersion.cmake  accepts only this engine version
     wind_game.cmake          game functions
   source/          the engine's build input (see below)
+  templates/       project templates (templates/empty/), which the launcher copies for a new project
   sdk.toml         version, commit, dirty, config, build_id
 ```
 
