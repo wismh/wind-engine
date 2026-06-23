@@ -96,6 +96,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/ui/profiler.h` | Profiler probe: attach, canvases, frames, Pause. No-ops without the macro | [UI Profiler](../features/UI%20Profiler.md) |
 | `include/engine/ui/splash.h` | `show_splash` and `SplashTimer` | [UI](../modules/UI.md) |
 | `include/engine/ui/stylesheet.h` | Parsed CSS rules | [UI Markup](../features/UI%20Markup.md) |
+| `include/engine/ui/tree.h` | `flatten_tree`, `TreeExpansion`, `tree_navigate`: a tree as flat rows | [UI](../modules/UI.md#trees) |
 | `include/engine/ui/text_line.h` | Wrapped rows and painted selection boxes | [UI Input](../features/UI%20Input.md) |
 | `include/engine/ui/view_model.h` | Property, command, and paint registration | [UI](../modules/UI.md) |
 
@@ -348,6 +349,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/ui_input_batch_test.cpp` | One bind per canvas inside `run_input` | [UI Input](../features/UI%20Input.md) |
 | `tests/ui_inspector_test.cpp` | Pick, paths, tree, select, toggle, detail, rules, overlay | [UI Inspector](../features/UI%20Inspector.md) |
 | `tests/ui_items_control_virtualization_test.cpp` | Row window and spacers | [UI](../modules/UI.md) |
+| `tests/ui_tree_test.cpp` | Tree rows, expansion, keys, `var()` indent, collapse in a virtualized list, scroll into view | [UI](../modules/UI.md#trees) |
 | `tests/ui_label_select_test.cpp` | Label selection and copy | [UI Input](../features/UI%20Input.md) |
 | `tests/ui_layout_dirty_gate_test.cpp` | Skip layout when the gate is clean | [UI](../modules/UI.md) |
 | `tests/ui_layout_hit_test.cpp` | Stack layout and hit order | [UI Input](../features/UI%20Input.md) |
@@ -423,7 +425,7 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/editor_cli.h` | `EditorCli`, `EditorFacts` | [Editor](../features/Editor.md#wind-cli) |
 | `editor/src/editor_options.cpp` | `--project` and `--play` | [Editor](../features/Editor.md) |
 | `editor/src/editor_options.h` | `EditorOptions` | [Editor](../features/Editor.md) |
-| `editor/src/editor_panels.cpp` | Panel canvases, tab placement, refresh, attach and detach | [Editor](../features/Editor.md) |
+| `editor/src/editor_panels.cpp` | Panel canvases, tab placement, tree keys, refresh, attach and detach | [Editor](../features/Editor.md) |
 | `editor/src/editor_panels.h` | `EditorPanels` | [Editor](../features/Editor.md) |
 | `editor/src/editor_tab.h` | `EditorTab` | [Editor](../features/Editor.md) |
 | `editor/src/editor_view_model.cpp` | Binds the view-model to `editor.xml` | [Editor](../features/Editor.md) |
@@ -432,7 +434,7 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/engine_host_play.h` | `EngineHostPlay` | [Editor](../features/Editor.md) |
 | `editor/src/inspector_panel.cpp` | Copies the inspector probe into the view-model | [UI Inspector](../features/UI%20Inspector.md) |
 | `editor/src/inspector_panel.h` | `InspectorPanel` | [UI Inspector](../features/UI%20Inspector.md) |
-| `editor/src/inspector_row_view_model.cpp` | Tree row text, twist, select and toggle methods | [UI Inspector](../features/UI%20Inspector.md) |
+| `editor/src/inspector_row_view_model.cpp` | Tree row label, depth, expanded, select and toggle methods | [UI Inspector](../features/UI%20Inspector.md) |
 | `editor/src/inspector_row_view_model.h` | `InspectorRowViewModel` | [UI Inspector](../features/UI%20Inspector.md) |
 | `editor/src/inspector_view_model.cpp` | Binds the view-model to `inspector.xml` | [UI Inspector](../features/UI%20Inspector.md) |
 | `editor/src/inspector_view_model.h` | `InspectorViewModel` | [UI Inspector](../features/UI%20Inspector.md) |

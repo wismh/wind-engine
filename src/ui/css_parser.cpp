@@ -33,6 +33,10 @@ std::string to_lower(std::string_view value) {
 }
 
 bool is_known_property(std::string_view name) {
+    // A custom property: cascaded, then read through var().
+    if (name.starts_with("--")) {
+        return true;
+    }
     static constexpr std::string_view kKnown[] = {
             "color",
             "background",

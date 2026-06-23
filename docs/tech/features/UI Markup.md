@@ -48,7 +48,7 @@ Pseudo-classes: `:hover`, `:pressed`, `:disabled`, `:focus`, `:checked`.
 
 Unknown properties warn and stay on the rule. The parser keeps going.
 
-`--name: value` is still stored at cascade time (`compute_style_uncached`), even though `is_known_property` warned. `var(--name)` and `var(--name, fallback)` substitute then, and only when the whole value is that call. The element's bound value wins over the sheet. No match and no fallback becomes an empty string. Any other unknown property does not change computed style.
+`--name: value` is stored at cascade time (`compute_style_uncached`); `is_known_property` accepts any `--` name. `var(--name)` and `var(--name, fallback)` substitute then, wherever they sit in the value: inside `calc()`, as one inset of `padding`, inside a fallback. A substituted value is resolved again, eight levels at most. The element's bound value wins over the sheet. A reference with no match and no fallback makes the whole value an empty string. Any other unknown property does not change computed style.
 
 Units are `px`, `%`, `em`, and `calc()` with `+ - * /`. A `font-size` of `em`, including `em` inside a `font-size` `calc()`, multiplies by 16 (`kDefaultFontSize`). A percent `font-size`, including inside that `calc()`, uses the parent content width. Other lengths use the resolved font size as the `em` basis.
 

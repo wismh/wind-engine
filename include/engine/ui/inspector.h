@@ -5,13 +5,13 @@
 #include <engine/core/window_desc.h>
 #include <engine/ecs/entity.h>
 #include <engine/ecs/world.h>
+#include <engine/ui/tree.h>
 
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace engine::ui {
@@ -49,12 +49,11 @@ namespace engine::ui {
         // What selecting this row writes (`active` is true).
         InspectorPick pick;
         WindowId window = kPrimaryWindow;
-        int depth = 0;
+        // Depth, children, expanded, and the parent row in inspector_tree's result.
+        TreeRowInfo tree;
         // `Kind #id .class`, then ` spacer`, ` display:none`, or ` hidden`. The root row starts with
         // `[window] ` when canvases of the world sit on more than one window.
         std::string label;
-        bool has_children = false;
-        bool expanded = true;
         bool selected = false;
     };
 
@@ -69,8 +68,8 @@ namespace engine::ui {
         // Which window's pick the detail shows. Updated on every pick and select.
         WindowId detail_window = kPrimaryWindow;
         std::unordered_map<WindowId, InspectorPick> selection;
-        // Tree rows the user collapsed. Every other row is expanded.
-        std::unordered_set<InspectorRowKey, InspectorRowKeyHash> collapsed;
+        // Tree rows start expanded; this keeps the ones the user collapsed.
+        TreeExpansion<InspectorRowKey, InspectorRowKeyHash> expansion;
     };
 
     // Attaching starts with no selection and pick off. Detaching clears the selection, the collapsed

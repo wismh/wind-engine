@@ -8,11 +8,11 @@
     <Stack class="columns" direction="horizontal">
       <Stack class="column-left" direction="vertical">
         <Label class="section" text="Tree"/>
-        <ScrollView class="box tree">
-          <ItemsControl class="rows" items_source="{binding rows}">
+        <ScrollView id="tree" class="box tree">
+          <ItemsControl id="tree-rows" class="rows" items_source="{binding rows}">
             <ItemTemplate>
-              <Stack class="rowline" direction="horizontal" var-row="{binding rowFill}">
-                <Button class="twist" command="{binding toggle}" content="{binding twist}"/>
+              <Stack class="rowline" direction="horizontal" var-row="{binding rowFill}" var-depth="{binding depth}">
+                <Checkbox class="expander" checked="{binding expanded}" command="{binding toggle}"/>
                 <Button class="row" command="{binding select}" content="{binding label}"/>
               </Stack>
             </ItemTemplate>

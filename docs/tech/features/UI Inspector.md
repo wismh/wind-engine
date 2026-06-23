@@ -49,11 +49,12 @@ The path is a child index per step. A step into `generated_items` sets `kGenerat
 | --- | --- |
 | `key` | Canvas, `owner`, and `relative`. A static element is its path from the root. An element in a generated row is its path from that row, and `owner` is the row's `generated_owner` as a number. Scrolling a virtualized list keeps the key |
 | `pick` | What `inspector_select` writes for this row |
-| `window`, `depth` | The canvas window and the depth from the root |
+| `window` | The canvas window |
+| `tree` | `TreeRowInfo`: depth from the root, `has_children`, `expanded` (false on a leaf), and the parent row in this result ([UI](../modules/UI.md#trees)) |
 | `label` | `Kind #id .class`, then ` spacer`, ` display:none`, or ` hidden`. When the world's canvases sit on more than one window, the root row starts with `[window] ` |
-| `has_children`, `expanded`, `selected` | `selected` is the row whose path equals that window's selection |
+| `selected` | The row whose path equals that window's selection |
 
-Collapsed keys live in `UiInspector::collapsed`. Keys of a gone canvas are dropped on the next `inspector_tree`.
+`inspector_tree` is `flatten_tree` over one root per canvas. Expansion lives in `UiInspector::expansion`, a `TreeExpansion` that starts every row expanded. Keys of a gone canvas are dropped on the next `inspector_tree`.
 
 ## Detail and rules
 
@@ -75,15 +76,17 @@ After the boxes, one badge is painted in the same scissor. Its text is the tag (
 
 The Inspector tab: a Pick checkbox and a hint, the tree on the left, Computed and Rules on the right (`editor/assets/ui/inspector.xml`, `editor/assets/css/panels.css`). See [Editor](Editor.md) for when it attaches.
 
-`InspectorPanel::refresh` runs in the editor world's `Phase::Game`, before that world's Bind, while the tab is visible. It copies `inspector_tree` into `InspectorRowViewModel`s, reused by key so a row keeps its element, and copies the detail and the rules of the detail window's selection. A row's label is indented two spaces per depth. The twist button calls `inspector_toggle`. The row button calls `inspector_select`. Pick is two-way: a checkbox click since the last refresh writes `pick_pointer`; otherwise the game's value is shown.
+`InspectorPanel::refresh` runs in the editor world's `Phase::Game`, before that world's Bind, while the tab is visible. It copies `inspector_tree` into `InspectorRowViewModel`s, reused by key so a row keeps its element, and copies the detail and the rules of the detail window's selection. A row binds its depth to `var-depth`; the row's left padding is `calc(var(--depth, 0) * 14px)`. The expander is a `Checkbox` drawn with `builtin::tree_chevron`, turned down while the row is expanded, and calls `inspector_toggle`; on a leaf it is disabled and draws nothing. The row button calls `inspector_select`. Pick is two-way: a checkbox click since the last refresh writes `pick_pointer`; otherwise the game's value is shown.
 
 The tree has fixed 22px rows in a scrolling `ScrollView`, so it is virtualized.
+
+While the Inspector tab is shown and the pointer is over the panel, the arrows, Home, and End move through the tree (`InspectorPanel::navigate`, `tree_navigate`): Up and Down move, Left collapses or goes to the parent, Right expands or goes to the first child. The start is the selected row of the detail window; with nothing selected, Down picks the first row. `EditorPanels` reads `KeyEvent` with its own cursor, repeats included, and calls `scroll_item_into_view` on `#tree` so the row stays visible. Keys are not `ActionId` bindings: the process has one binding table, which the game fills and Stop resets.
 
 The panel inspects the world bound to `kPrimaryWindow`. A second world of the game (a tool window in its own world) is not in the tree.
 
 ## Tests
 
-`tests/ui_inspector_test.cpp`: visual hit, paths and owner retarget, boxes, rule matching, attach and detach, pick and the command it skips, detail and rules text, tree rows, select, toggle, generated rows that move, several windows, hover canvas, overlay, badge. `editor/tests/inspector_panel_test.cpp`: rows to view-models, the row commands, Pick both ways, detach. No OS window.
+`tests/ui_inspector_test.cpp`: visual hit, paths and owner retarget, boxes, rule matching, attach and detach, pick and the command it skips, detail and rules text, tree rows, select, toggle (a leaf stays), generated rows that move, several windows, hover canvas, overlay, badge. `editor/tests/inspector_panel_test.cpp`: rows to view-models, depth and expanded, the row commands, tree keys, Pick both ways, detach. No OS window.
 
 ## See also
 
