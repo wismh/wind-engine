@@ -62,7 +62,7 @@ The path is a child index per step. A step into `generated_items` sets `kGenerat
 
 `inspector_detail` is read-only text: kind, id, classes, text (80 characters), pseudos, the three boxes, computed style from `style_cache_paint_` plus any running `motion_shown`, the bound fields, and the rule count. A `BindingId` is a hash, so a binding shows as `text: bound`, not as a path. With no active pick it is `Nothing selected`. When the element is gone it is `Selected element is not in the live tree.`
 
-`inspector_rules` uses the same match as `compute_style` (specificity, source order, `@media`, pseudos) for that element only. It calls `match_style_rules` with `window_size_for` of the canvas window. Paint and layout call `compute_style` with the design size (`reference_size`) for a `ScaleWithScreenSize` canvas whose `reference_size` sides are both positive, so that canvas can show a different `@media` winner than the one that was painted. Each string is `selector (specificity)`, then one indented line per declaration. The last one, the winner, ends its first line with ` winner`.
+`inspector_rules` uses the same match as `compute_style` (specificity, source order, `@media`, pseudos) for that element only. It calls `match_style_rules` with `media_size` of that canvas, the same box paint and layout use. Each string is `selector (specificity)`, then one indented line per declaration. The last one, the winner, ends its first line with ` winner`.
 
 Style and box numbers are from the last paint of the game world. `wind-cli` reads the same fields after `draw_all`, so its numbers are this frame. See [CLI](CLI.md).
 
