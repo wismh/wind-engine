@@ -963,3 +963,56 @@ TEST(UiMenu, BuilderCreatesMenuTree) {
     EXPECT_EQ(popup.children[1].kind, ElementKind::MenuSeparator);
     EXPECT_EQ(popup.children[2].kind, ElementKind::MenuItem);
 }
+
+TEST(UiMenu, ContextMenuSubmenuOpensToTheRight) {
+    MenuViewModel vm;
+    auto doc = engine::ui::parse_xml(R"(
+        <Canvas>
+          <ContextMenu id="ctx">
+            <Menu id="new_menu" text="New">
+              <MenuItem id="folder" text="Folder"/>
+            </Menu>
+          </ContextMenu>
+        </Canvas>
+    )", nullptr, &vm);
+    ASSERT_TRUE(doc.has_value());
+    Element* menu = find_id(doc->root, "new_menu");
+    ASSERT_NE(menu, nullptr);
+    ASSERT_EQ(menu->children.size(), 1u);
+    EXPECT_EQ(menu->children[0].kind, ElementKind::Popup);
+    EXPECT_EQ(menu->children[0].placement, PopupPlacement::RightStart);
+    const Element* folder = find_id(doc->root, "folder");
+    ASSERT_NE(folder, nullptr);
+    EXPECT_EQ(folder->text, "Folder");
+}
+
+TEST(UiMenu, RightClickOpensContextMenuAndDoesNotRunTheCommand) {
+    engine::ecs::World world;
+    set_window(world, 400, 300);
+    auto vm = std::make_shared<MenuViewModel>();
+    const char* xml = R"(
+        <Canvas>
+          <Stack>
+            <Button id="file" command="{binding under}">file</Button>
+            <ContextMenu id="ctx" open="{binding menuOpen}">
+              <MenuItem id="cut" text="Cut"/>
+            </ContextMenu>
+          </Stack>
+        </Canvas>
+    )";
+    const char* css = "Button { width: 120; height: 24; } ContextMenu { width: 80; height: 24; }";
+    add_canvas(world, xml, css, vm, Rect{0.0f, 0.0f, 400.0f, 300.0f});
+
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 10.0f, 10.0f, engine::kPrimaryWindow, false);
+    EXPECT_TRUE(vm->menuOpen.get());
+    EXPECT_EQ(vm->unders, 0);
+
+    // The press that opened the menu is still the anchor's neighbor, so this click only dismisses it.
+    click(world, 300.0f, 200.0f);
+    EXPECT_FALSE(vm->menuOpen.get());
+    EXPECT_EQ(vm->unders, 0);
+
+    click(world, 10.0f, 10.0f);
+    EXPECT_EQ(vm->unders, 1);
+}

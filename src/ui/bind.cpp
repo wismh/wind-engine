@@ -365,11 +365,24 @@ namespace engine::ui {
             return false;
         }
 
-        // Elements that carry a `generated_owner` pass it to their children, which have none of their own.
+        // A cloned row passes its item to descendants. An ItemTemplate is a blueprint: stamping it with the
+        // outer row's view-model makes a nested list's TextInput and Checkbox write through that outer model,
+        // where the property is not registered, so the keystroke never reaches the inner item.
         void inherit_owner(const Element &parent, Element &child) {
+            if (parent.kind == ElementKind::ItemTemplate || child.kind == ElementKind::ItemTemplate) {
+                return;
+            }
             if (parent.generated_owner != nullptr && child.generated_owner == nullptr) {
                 child.generated_owner = parent.generated_owner;
                 child.generated_serial = parent.generated_serial;
+            }
+        }
+
+        void clear_row_owner(Element &element) {
+            element.generated_owner = nullptr;
+            element.generated_serial = 0;
+            for (Element &child: element.children) {
+                clear_row_owner(child);
             }
         }
 
@@ -918,6 +931,8 @@ namespace engine::ui {
                 for (const Element &node: tmpl->children) {
                     Element clone = node;
                     clone.generated_items.clear();
+                    // Drop an owner copied off the template. inherit_owner then stamps this item onto the row.
+                    clear_row_owner(clone);
                     clone.generated_owner = item;
                     clone.generated_serial = item->serial();
                     bind_new(clone, *item);

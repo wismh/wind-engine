@@ -1,17 +1,24 @@
 #pragma once
 
+#include "command_history.h"
 #include "editor_selection.h"
+#include "inspector_field_view_model.h"
 #include "inspector_line_view_model.h"
 #include "inspector_section.h"
 #include "inspector_section_view_model.h"
 #include "inspector_view_model.h"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 #include <unordered_set>
 #include <vector>
+
+namespace engine {
+class AssetsDb;
+}
 
 namespace engine::ecs {
 class World;
@@ -43,25 +50,52 @@ public:
 
     // The Edit Mode preview world an entity selection is read from when not playing.
     void set_edit_world(engine::ecs::World* edit_world);
+    void set_assets(engine::AssetsDb* assets);
+    // Entity edits are pushed here. `on_history` runs after a step is recorded (the world view syncs its dirty flag).
+    void set_journal(CommandHistory* journal, std::function<void()> on_history);
 
     // While the tab is shown.
     void refresh();
 
+    // True while `refresh` is writing the view-models, so a binding write is not a user edit.
+    [[nodiscard]] bool refreshing() const { return refreshing_; }
+
     // The section with this heading: collapse it, or expand it again.
     void toggle_section(const std::string& heading);
+    // Opens or closes the list of components that can be added.
+    void toggle_add();
+    void add_component(const std::string& name);
+    void remove_component(const std::string& name);
+    // A text widget changed. `slot` below 0 is the whole value; zero and up is one axis of a vector.
+    void edit_text(const std::string& component, const std::string& key, int slot, const std::string& text);
+    void edit_bool(const std::string& component, const std::string& key, bool value);
+    // The next refresh copies every field from the world again.
+    void end_field_edit();
 
 private:
     void show_nothing(std::string title);
     void show_asset(const AssetSelection& asset);
     void show_ui_element(const UiElementSelection& element);
     void show_entity(const engine::ecs::World& world, engine::ecs::Entity entity);
+    void show_add(const engine::ecs::World* world, engine::ecs::Entity entity, bool editable);
     // Turns `content` into the section view-models, reusing them by index.
     void show_sections(std::vector<InspectorSection> content);
+    [[nodiscard]] bool can_edit() const;
+    [[nodiscard]] const EntitySelection* edited_entity() const;
+    void note_history();
 
     const EditorSelection* selection_;
     std::shared_ptr<InspectorViewModel> view_model_;
     engine::ecs::World* game_ = nullptr;
     engine::ecs::World* edit_world_ = nullptr;
+    engine::AssetsDb* assets_ = nullptr;
+    CommandHistory* journal_ = nullptr;
+    std::function<void()> on_history_;
+    bool refreshing_ = false;
+    bool add_open_ = false;
+    // component, key, and slot of the widget the user is typing into. Empty when they are not.
+    std::string editing_key_;
+    engine::ecs::Entity editing_entity_{};
     // EditorSelection::revision of the file read last; a file is read again only when it moves.
     std::optional<std::uint64_t> asset_revision_;
     // What the sections show, kept so a toggle shows it again without reading the disk.
@@ -69,6 +103,8 @@ private:
     std::vector<std::shared_ptr<InspectorSectionViewModel>> sections_;
     // Line view-models of each section, by index, reused across refreshes.
     std::vector<std::vector<std::shared_ptr<InspectorLineViewModel>>> lines_;
+    std::vector<std::vector<std::shared_ptr<InspectorFieldViewModel>>> fields_;
+    std::vector<std::shared_ptr<InspectorAddViewModel>> addables_;
     std::unordered_set<std::string> collapsed_;
 };
 
