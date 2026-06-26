@@ -1759,6 +1759,73 @@ namespace engine::ui {
 
     const Element *find_by_kind(const Element &root, ElementKind kind) { return find_by_kind_const(root, kind); }
 
+    Element *find_by_id(Element &root, std::string_view id) {
+        if (root.id == id) {
+            return &root;
+        }
+        if (root.kind == ElementKind::ItemTemplate) {
+            return nullptr;
+        }
+        for (Element &child: root.children) {
+            if (Element *found = find_by_id(child, id)) {
+                return found;
+            }
+        }
+        return nullptr;
+    }
+
+    bool scroll_item_into_view(Element &scroller, const Element &items_control, std::size_t index) {
+        const std::vector<Element> &generated = items_control.generated_items;
+        if (generated.empty()) {
+            return false;
+        }
+        // Item 0 starts where the first generated element does: a leading virtualization spacer stands in
+        // for the rows above the window at their full height.
+        const float items_top = generated.front().layout_rect.y;
+        const Element *first_row = nullptr;
+        const Element *second_row = nullptr;
+        std::size_t rows_shown = 0;
+        float spacer_height = 0.0f;
+        for (const Element &child: generated) {
+            if (child.is_virtualization_spacer) {
+                spacer_height += child.layout_rect.h;
+                continue;
+            }
+            ++rows_shown;
+            if (first_row == nullptr) {
+                first_row = &child;
+            } else if (second_row == nullptr) {
+                second_row = &child;
+            }
+        }
+        if (first_row == nullptr || first_row->layout_rect.h <= 0.0f) {
+            return false;
+        }
+        const float row_height = first_row->layout_rect.h;
+        const float stride =
+                second_row != nullptr ? second_row->layout_rect.y - first_row->layout_rect.y : row_height;
+        if (stride <= 0.0f) {
+            return false;
+        }
+        const auto items = static_cast<std::size_t>(std::lround(spacer_height / stride)) + rows_shown;
+        if (index >= items) {
+            return false;
+        }
+
+        const float top = items_top + static_cast<float>(index) * stride;
+        const float bottom = top + row_height;
+        const float view_top = scroller.layout_rect.y + scroller.scroll_y;
+        const float view_bottom = view_top + scroller.layout_rect.h;
+        float scroll = scroller.scroll_y;
+        if (top < view_top) {
+            scroll = top - scroller.layout_rect.y;
+        } else if (bottom > view_bottom) {
+            scroll = bottom - scroller.layout_rect.y - scroller.layout_rect.h;
+        }
+        scroller.scroll_y = std::clamp(scroll, 0.0f, scroller.max_scroll_y);
+        return true;
+    }
+
     // Finds the (non-template) Element bind_element() most recently stamped with this exact
     // generated_owner identity — i.e. the live generated clone of a specific ItemsControl item, right
     // now, in this already-rebound tree. `owner` must come from a *freshly* re-applied bind pass (see

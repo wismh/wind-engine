@@ -130,7 +130,7 @@ Immediately after 2. Does not need `Picture` or the new renderer. Uses the curre
 
 - Virtualization is a window over a stable row id (7a + `generated_owner`), not only the current `ItemsControl` case (vertical, one template root, fixed px height).
 - Row height is an estimate until measured, then cached on the row id. Variable heights are legal. Recycling a row whose text, font, size, and width match the cache does not shape again. The existing per-element measure/wrap caches stay; this is the height stored beside the row, plus reuse of an identical `(text, font, size, width)` measure across rows.
-- A collapsed tree node is not in the window. Its children are not bound or laid out.
+- A collapsed tree node is not in the window. Its children are not bound or laid out. As built for fixed-height rows (wind-184): a tree is flat rows from `flatten_tree` in a virtualized `ItemsControl`, so a collapsed branch is not a row ([UI](../modules/UI.md#trees), `tests/ui_tree_test.cpp`).
 - `Viewport` content that is a large world culls to the visible rect. Camera motion is a transform (step 4 will keep the surrounding picture). Culling is this step, because a strategy map cannot wait for the renderer.
 
 6b, and it does not block step 4: a 2D window (rows Ã— columns) for tables and inspectors.

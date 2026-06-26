@@ -105,7 +105,9 @@ A layout dirty gate (`layout_state_changed`) compares `text`, `custom_properties
 
 A `Popup` is out of flow and takes no space in its parent. See [Popup](#popup).
 
-`ItemsControl` virtualization (vertical, one template root, a fixed pixel row height) builds a window of rows plus spacers. `suppress_item_virtualization` turns it off. Variable-height windows and tree collapse are not this path. See [UI Performance Plan](../architecture/UI%20Performance%20Plan.md).
+`ItemsControl` virtualization (vertical, one template root, a fixed pixel row height) builds a window of rows plus spacers. `suppress_item_virtualization` turns it off. Variable-height windows are not this path. A tree is (see [Trees](#trees)). See [UI Performance Plan](../architecture/UI%20Performance%20Plan.md).
+
+`scroll_item_into_view(scroller, items_control, index)` scrolls a list so one item lies inside the scroller's box. It reads the rows of the last layout and assumes one row height, so it reaches an item the virtualized window has not built yet. It sets `Element::scroll_y` only. `find_by_id` finds an element by its `id` attribute, outside templates.
 
 ## Style
 
@@ -136,7 +138,7 @@ Cascade specificity (`compound_specificity` in `src/ui/paint.cpp`) is the sum of
 
 `@media` is re-checked against the size passed into layout and paint. A `ScaleWithScreenSize` canvas with both `reference_size` sides positive uses the design box (`reference_size`). Otherwise the width and height come from `window_size_for` (`Presentation.sizes`). `:hover` is the single topmost hit, not every rect that contains the pointer.
 
-A stylesheet `--name: value` is stored in `compute_style_uncached` even though `is_known_property` warned that the name is unknown. `var(--name)` and `var(--name, fallback)` substitute at cascade time, and only when the whole value is that call. The element's bound value wins over the sheet. No match and no fallback becomes an empty string. Any other unknown property does not change computed style.
+A stylesheet `--name: value` is stored in `compute_style_uncached`; `is_known_property` accepts any `--` name. `var(--name)` and `var(--name, fallback)` substitute at cascade time wherever they sit in the value: inside `calc()`, as one inset of `padding`, inside a fallback. A substituted value is resolved again, eight levels at most. The element's bound value wins over the sheet. A reference with no match and no fallback makes the whole value an empty string. Any other unknown property does not change computed style.
 
 `transition` and `@keyframes` interpolate numbers, colors, resolved px lengths, and `rotate` / `scale`. Keywords snap at eased progress 0.5. `@keyframes` wins on a property that also has a `transition`. The clock advances once per `paint_document` from `delta_time`. A layout property re-packs the chain that moved. Hit geometry during that animation is the previous frame's rects (`src/ui/style_anim.cpp`).
 
@@ -249,6 +251,42 @@ The subset is:
 
 Parsing does not fail the document. `ParseResult::root` is always laid out. A rejected command is drawn as its source text. `errors` lists `ParseErrorKind`.
 
+## Trees
+
+A tree is a flat list of rows, not a nested control. `include/engine/ui/tree.h` turns a caller's tree into rows; the document is a virtualized `ItemsControl` with one row template. There is no `TreeView` tag and no recursive template, so a collapsed branch is never a row: its children are not bound or laid out.
+
+| Name | Does |
+| --- | --- |
+| `TreeExpansion<Key, Hash>` | Which nodes are expanded, by a key that survives a rebuild. Expanded by default, or collapsed with `TreeExpansion(false)`. Stores only the keys that differ from the default. `retain` drops keys of gone nodes |
+| `flatten_tree(roots, expansion, source, row)` | Depth first. Calls `row(node, info)` once per visible row and returns the `TreeRowInfo`s. `source` has `key`, `has_children`, and `for_each_child`; a collapsed node's children are never made |
+| `TreeRowInfo` | `depth`, `has_children`, `expanded` (false on a leaf), `parent` row (`kNoTreeRow` on a root) |
+| `tree_navigate(rows, current, nav)` | Up, Down, First, Last move. Left collapses an expanded row, otherwise goes to the parent. Right expands a collapsed row, otherwise goes to the first child. Returns the row to select and whether to toggle it |
+| `tree_nav_for_key(key)` | Arrows, Home, and End. A tree reads `KeyEvent`, repeats included, like other UI, not an `ActionId` |
+
+The row recipe (the editor's inspector uses it):
+
+```xml
+<ScrollView id="tree" class="tree">
+  <ItemsControl id="tree-rows" items_source="{binding rows}">
+    <ItemTemplate>
+      <Stack class="row" direction="horizontal" var-depth="{binding depth}">
+        <Checkbox class="expander" checked="{binding expanded}" command="{binding toggle}"/>
+        <Button content="{binding label}" command="{binding select}"/>
+      </Stack>
+    </ItemTemplate>
+  </ItemsControl>
+</ScrollView>
+```
+
+```css
+.row { height: 22; padding: 0 0 0 calc(var(--depth, 0) * 14px); }
+Checkbox.expander { width: 12; height: 12; background-image: a0e1b2c3d4f5678901234567890abc07; transition: transform 0.12s ease-out; }
+Checkbox.expander:checked { transform: rotate(90deg); }
+Checkbox.expander:disabled { background-image: none; }
+```
+
+The indent is padding on the row, so the chevron moves with the text. `builtin::tree_chevron` points right; `:checked` turns it down. A leaf's `toggle` cannot execute, so its expander is `:disabled` and draws nothing. Keep the row height fixed, or the list is not virtualized.
+
 ## Splash
 
 `ui::show_splash` (`include/engine/ui/splash.h`) spawns two canvases on the given window: an opaque `FillWindow` backdrop and a `ScaleWithScreenSize` image. Both carry `SplashTimer`. `run_splash_timers` ages them with `Time::delta_time`, including while paused, and destroys them when `elapsed` passes `fade_in + hold + fade_out`. `nullopt` when `enabled` is false or the document cannot be built. The engine does not call `show_splash` itself. `image_size` is the decoded pixel size of `config.image`.
@@ -271,12 +309,13 @@ The engine keeps the probes and the editor shows the panels. `set_inspector_atta
 - `include/engine/ui/draw_list.h`
 - `include/engine/ui/text_line.h`
 - `include/engine/ui/splash.h`
+- `include/engine/ui/tree.h`
 - `include/engine/ui/inspector.h`
 - `include/engine/ui/profiler.h`
 
 ## Tests
 
-`tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_items_control_virtualization_test.cpp`, `tests/ui_text_wrap_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_refs_test.cpp`, `tests/ui_loc_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_inline_math_test.cpp`, `tests/ui_math_parser_test.cpp`, `tests/ui_math_layout_test.cpp`, `tests/ui_math_paint_test.cpp`, `tests/ui_math_font_test.cpp`, `tests/ui_math_stretch_test.cpp`, `tests/ui_math_element_test.cpp`, `tests/splash_test.cpp`, `tests/ui_inspector_test.cpp`, `tests/ui_profiler_test.cpp`, `tests/ui_popup_test.cpp`.
+`tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_items_control_virtualization_test.cpp`, `tests/ui_tree_test.cpp`, `tests/ui_text_wrap_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_refs_test.cpp`, `tests/ui_loc_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_inline_math_test.cpp`, `tests/ui_math_parser_test.cpp`, `tests/ui_math_layout_test.cpp`, `tests/ui_math_paint_test.cpp`, `tests/ui_math_font_test.cpp`, `tests/ui_math_stretch_test.cpp`, `tests/ui_math_element_test.cpp`, `tests/splash_test.cpp`, `tests/ui_inspector_test.cpp`, `tests/ui_profiler_test.cpp`, `tests/ui_popup_test.cpp`.
 
 ## See also
 
