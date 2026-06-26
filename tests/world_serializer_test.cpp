@@ -412,3 +412,21 @@ custom_gadget = { enabled = true, charge = 42.5 }
     EXPECT_TRUE(unknown2->components.contains("custom_gadget"));
 }
 
+TEST(WorldSerializer, RemoveDropsTheComponent) {
+    engine::ecs::World world;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::Transform>(entity, engine::Transform{.position = {1.0f, 2.0f, 3.0f}});
+    world.emplace<engine::render::Sprite>(entity, engine::render::Sprite{});
+    const engine::ecs::WorldSerializer::Entry* transform = world.ctx<engine::ecs::WorldSerializer>().find("transform");
+    const engine::ecs::WorldSerializer::Entry* sprite = world.ctx<engine::ecs::WorldSerializer>().find("sprite");
+    ASSERT_NE(transform, nullptr);
+    ASSERT_NE(sprite, nullptr);
+    ASSERT_TRUE(static_cast<bool>(transform->remove));
+    ASSERT_TRUE(static_cast<bool>(sprite->remove));
+    EXPECT_TRUE(transform->remove(world, entity));
+    EXPECT_EQ(world.try_get<engine::Transform>(entity), nullptr);
+    EXPECT_FALSE(transform->remove(world, entity));
+    EXPECT_TRUE(sprite->remove(world, entity));
+    EXPECT_EQ(world.try_get<engine::render::Sprite>(entity), nullptr);
+}
+

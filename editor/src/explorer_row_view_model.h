@@ -21,25 +21,50 @@ public:
     ExplorerRowViewModel(const ExplorerRowViewModel&) = delete;
     ExplorerRowViewModel& operator=(const ExplorerRowViewModel&) = delete;
 
-    void show(const ProjectEntry& entry, const engine::ui::TreeRowInfo& tree, bool selected);
+    void show(const ProjectEntry& entry, const engine::ui::TreeRowInfo& tree, bool selected, bool drop,
+            bool renaming);
+    void set_fill(bool selected, bool drop);
+    // The name in the rename field, once, when renaming starts.
+    void seed_edit(const std::string& name);
+
     [[nodiscard]] const std::string& key() const;
     [[nodiscard]] const engine::ui::TreeRowInfo& tree() const;
 
-    // The row button: select this file or folder.
     void select_row();
-    // The expander checkbox: collapse or expand. Disabled on a file and on an empty folder.
     void toggle_row();
     [[nodiscard]] bool can_toggle_row() const;
+    void commit_rename();
+    void new_folder();
+    void new_world();
+    void new_header();
+    void new_source();
+    void cut_row();
+    void copy_row();
+    void paste_row();
+    [[nodiscard]] bool can_paste_row() const;
+    void rename_row();
+    void remove_row();
 
     engine::ui::Bindable<std::string> label;
-    // Tree depth through `var-depth`: the row's indent.
     engine::ui::Bindable<int> depth;
-    // The expander's `checked`: the chevron turns down while the folder is expanded.
     engine::ui::Bindable<bool> expanded;
-    // Row background through `var-row`: the selected row is green.
     engine::ui::Bindable<std::string> rowFill;
+    engine::ui::Bindable<std::string> rowDisplay;
+    engine::ui::Bindable<std::string> renameDisplay;
+    engine::ui::Bindable<std::string> editText;
+    engine::ui::Bindable<bool> menuOpen;
     engine::ui::MethodCommand select;
     engine::ui::MethodCommand toggle;
+    engine::ui::MethodCommand commitRename;
+    engine::ui::MethodCommand newFolder;
+    engine::ui::MethodCommand newWorld;
+    engine::ui::MethodCommand newHeader;
+    engine::ui::MethodCommand newSource;
+    engine::ui::MethodCommand cut;
+    engine::ui::MethodCommand copy;
+    engine::ui::MethodCommand paste;
+    engine::ui::MethodCommand rename;
+    engine::ui::MethodCommand remove;
 
 private:
     ExplorerPanel* panel_;

@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "command_history.h"
 #include "edit_module.h"
 #include "editor_selection.h"
 #include "world_view_panel.h"
@@ -53,7 +54,7 @@ public:
 class WorldViewPanelTest : public ::testing::Test {
 protected:
     std::filesystem::path dir = std::filesystem::temp_directory_path() / "wind_world_view_panel_test" /
-            ::testing::UnitTest::GetInstance()->current_test_info()->name();
+                                ::testing::UnitTest::GetInstance()->current_test_info()->name();
     editor::EditorSelection selection;
     editor::WorldViewPanel panel{selection};
     engine::ecs::World editor_world;
@@ -86,6 +87,22 @@ protected:
         return path;
     }
 };
+
+TEST_F(WorldViewPanelTest, RetargetFollowsAMovedWorldAndKeepsItDirty) {
+    const std::filesystem::path path = write_world("level.world", "version = 1\n");
+    ASSERT_TRUE(panel.open_world(path));
+    panel.mark_dirty();
+    panel.retarget_open_file(dir, "level.world", "scenes/level.world");
+    EXPECT_EQ(panel.open_path(), dir / "scenes" / "level.world");
+    EXPECT_TRUE(panel.is_dirty());
+    panel.retarget_open_file(dir, "other.world", "nope.world");
+    EXPECT_EQ(panel.open_path(), dir / "scenes" / "level.world");
+
+    panel.release_deleted_file(dir, "other.world");
+    EXPECT_TRUE(panel.world_loaded());
+    panel.release_deleted_file(dir, "scenes");
+    EXPECT_FALSE(panel.world_loaded());
+}
 
 TEST_F(WorldViewPanelTest, StartsEmptyAndSyncSelectionOpensWorldFileAndIgnoresOtherSelections) {
     const editor::WorldViewViewModel& vm = *panel.view_model();
@@ -158,10 +175,10 @@ camera = { projection = "perspective", fov_y = 1.0, near_clip = 0.2, far_clip = 
     // Dolly via wheel, then reset via command.
     engine::ui::pointer_for(editor_world, kEditorWindow).position = {100.0f, 150.0f};
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Wheel,
-            .position = {100.0f, 150.0f},
-            .wheel_y = 2.0f,
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Wheel,
+        .position = {100.0f, 150.0f},
+        .wheel_y = 2.0f,
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -196,22 +213,22 @@ camera = { projection = "orthographic", ortho_size = 10.0 }
     // A click outside the viewport does not start a drag.
     engine::ui::pointer_for(editor_world, kEditorWindow).position = {10.0f, 10.0f};
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Down,
-            .position = {10.0f, 10.0f},
-            .button = engine::MouseButton::Right,
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Down,
+        .position = {10.0f, 10.0f},
+        .button = engine::MouseButton::Right,
     });
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Move,
-            .position = {50.0f, 50.0f},
-            .relative = {40.0f, 40.0f},
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Move,
+        .position = {50.0f, 50.0f},
+        .relative = {40.0f, 40.0f},
     });
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Up,
-            .position = {50.0f, 50.0f},
-            .button = engine::MouseButton::Right,
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Up,
+        .position = {50.0f, 50.0f},
+        .button = engine::MouseButton::Right,
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -220,22 +237,22 @@ camera = { projection = "orthographic", ortho_size = 10.0 }
     // Right-drag inside the viewport (height = 200, ortho_size = 10 -> 0.1 world units per pixel).
     engine::ui::pointer_for(editor_world, kEditorWindow).position = {100.0f, 150.0f};
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Down,
-            .position = {100.0f, 150.0f},
-            .button = engine::MouseButton::Right,
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Down,
+        .position = {100.0f, 150.0f},
+        .button = engine::MouseButton::Right,
     });
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Move,
-            .position = {120.0f, 180.0f},
-            .relative = {20.0f, 30.0f},
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Move,
+        .position = {120.0f, 180.0f},
+        .relative = {20.0f, 30.0f},
     });
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Up,
-            .position = {120.0f, 180.0f},
-            .button = engine::MouseButton::Right,
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Up,
+        .position = {120.0f, 180.0f},
+        .button = engine::MouseButton::Right,
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -244,10 +261,10 @@ camera = { projection = "orthographic", ortho_size = 10.0 }
 
     // Wheel zooms in.
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Wheel,
-            .position = {120.0f, 180.0f},
-            .wheel_y = 1.0f,
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Wheel,
+        .position = {120.0f, 180.0f},
+        .wheel_y = 1.0f,
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -268,15 +285,15 @@ camera = { projection = "perspective", fov_y = 1.0 }
     engine::ui::pointer_for(editor_world, kEditorWindow).position = {100.0f, 150.0f};
 
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Down,
-            .position = {100.0f, 150.0f},
-            .button = engine::MouseButton::Right,
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Down,
+        .position = {100.0f, 150.0f},
+        .button = engine::MouseButton::Right,
     });
     engine::ecs::EventWriter<engine::KeyEvent>{editor_world}.send(engine::KeyEvent{
-            .window = kEditorWindow,
-            .key = engine::KeyCode::W,
-            .down = true,
+        .window = kEditorWindow,
+        .key = engine::KeyCode::W,
+        .down = true,
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -290,9 +307,9 @@ TEST_F(WorldViewPanelTest, RenderPushesViewportSetViewWhenCanvasHasViewportArea)
 
     engine::render::CommandBuffer window_commands;
     const engine::EngineSystemDeps deps{
-            .commands_for_window = [&](engine::WindowId id) -> engine::render::CommandBuffer* {
-                return id == kEditorWindow ? &window_commands : nullptr;
-            },
+        .commands_for_window = [&](engine::WindowId id) -> engine::render::CommandBuffer* {
+            return id == kEditorWindow ? &window_commands : nullptr;
+        },
     };
 
     panel.render(editor_world, canvas, deps);
@@ -312,8 +329,7 @@ TEST_F(WorldViewPanelTest, BeforeModuleUnloadDropsPreviewWorldBeforeDllUnloadsAn
     engine::AssetsDb assets(fatal);
     StubPlayHost host;
     editor::EditModule edit{host, assets, dir / "live"};
-    panel.set_component_registrar(
-            [&edit](engine::ecs::WorldSerializer& s) { edit.register_components(s); });
+    panel.set_component_registrar([&edit](engine::ecs::WorldSerializer& s) { edit.register_components(s); });
     ASSERT_TRUE(edit.load(kFixture).has_value());
 
     const std::filesystem::path scene = write_world("beacon.world", R"(
@@ -339,7 +355,7 @@ fixture_component = { label = "preview", power = 7 }
     panel.reload();
     ASSERT_EQ(panel.edit_world().alive_entities().size(), 1u);
     const auto* reloaded =
-            panel.edit_world().try_get<fixture::FixtureComponent>(panel.edit_world().alive_entities()[0]);
+        panel.edit_world().try_get<fixture::FixtureComponent>(panel.edit_world().alive_entities()[0]);
     ASSERT_NE(reloaded, nullptr);
     EXPECT_EQ(reloaded->label, "preview");
     EXPECT_EQ(reloaded->power, 7);
@@ -361,16 +377,16 @@ camera = { projection = "perspective", fov_y = 1.0 }
 
     // Mouse down and drag diagonally: left (-50) and up (-40) simultaneously.
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Down,
-            .position = {100.0f, 150.0f},
-            .button = engine::MouseButton::Right,
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Down,
+        .position = {100.0f, 150.0f},
+        .button = engine::MouseButton::Right,
     });
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Move,
-            .position = {50.0f, 110.0f},
-            .relative = {-50.0f, -40.0f},
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Move,
+        .position = {50.0f, 110.0f},
+        .relative = {-50.0f, -40.0f},
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -396,10 +412,10 @@ TEST_F(WorldViewPanelTest, DraggingChangesCursorToMoveAndResetsOnRelease) {
 
     // Right drag starts: cursor becomes Move.
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Down,
-            .position = {100.0f, 150.0f},
-            .button = engine::MouseButton::Right,
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Down,
+        .position = {100.0f, 150.0f},
+        .button = engine::MouseButton::Right,
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -407,10 +423,10 @@ TEST_F(WorldViewPanelTest, DraggingChangesCursorToMoveAndResetsOnRelease) {
 
     // Mouse move: cursor stays Move.
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Move,
-            .position = {110.0f, 160.0f},
-            .relative = {10.0f, 10.0f},
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Move,
+        .position = {110.0f, 160.0f},
+        .relative = {10.0f, 10.0f},
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -418,10 +434,10 @@ TEST_F(WorldViewPanelTest, DraggingChangesCursorToMoveAndResetsOnRelease) {
 
     // Mouse up: cursor resets to Default.
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Up,
-            .position = {110.0f, 160.0f},
-            .button = engine::MouseButton::Right,
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Up,
+        .position = {110.0f, 160.0f},
+        .button = engine::MouseButton::Right,
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -482,10 +498,10 @@ transform = { position = [0.0, 0.0, 0.0] }
 
     // Left mouse down at (270, 216) starts dragging X axis:
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Down,
-            .position = {270.0f, 216.0f},
-            .button = engine::MouseButton::Left,
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Down,
+        .position = {270.0f, 216.0f},
+        .button = engine::MouseButton::Left,
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -493,10 +509,10 @@ transform = { position = [0.0, 0.0, 0.0] }
 
     // Drag 40px to the right: window position (310, 216)
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Move,
-            .position = {310.0f, 216.0f},
-            .relative = {40.0f, 0.0f},
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Move,
+        .position = {310.0f, 216.0f},
+        .relative = {40.0f, 0.0f},
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -509,10 +525,10 @@ transform = { position = [0.0, 0.0, 0.0] }
 
     // Release mouse:
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Up,
-            .position = {310.0f, 216.0f},
-            .button = engine::MouseButton::Left,
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Up,
+        .position = {310.0f, 216.0f},
+        .button = engine::MouseButton::Left,
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -536,7 +552,7 @@ transform = { position = [0.0, 0.0, 0.0] }
     ASSERT_TRUE(panel.open_world(scene_3d));
     const auto entities = panel.edit_world().alive_entities();
     engine::ecs::Entity target_ent{};
-    for (const auto e : entities) {
+    for (const auto e: entities) {
         if (panel.edit_world().try_get<engine::Camera>(e) == nullptr) {
             target_ent = e;
             break;
@@ -553,11 +569,11 @@ transform = { position = [0.0, 0.0, 0.0] }
     // Hover along X axis handle using exact projected midpoint
     const glm::vec3 x_mid_world = panel.gizmo_world_position() + glm::vec3{panel.gizmo_scale() * 0.5f, 0.0f, 0.0f};
     const engine::ui::WindowSize vp_size{
-            static_cast<int>(std::round(kViewportRect.w)),
-            static_cast<int>(std::round(kViewportRect.h)),
+        static_cast<int>(std::round(kViewportRect.w)),
+        static_cast<int>(std::round(kViewportRect.h)),
     };
     const glm::vec2 x_mid_screen =
-            engine::world_to_screen(x_mid_world, panel.camera(), panel.camera_world_matrix(), vp_size);
+        engine::world_to_screen(x_mid_world, panel.camera(), panel.camera_world_matrix(), vp_size);
     const glm::vec2 hover_window = glm::vec2{kViewportRect.x, kViewportRect.y} + x_mid_screen;
 
     engine::ui::pointer_for(editor_world, kEditorWindow).position = hover_window;
@@ -565,10 +581,10 @@ transform = { position = [0.0, 0.0, 0.0] }
     EXPECT_EQ(panel.hovered_gizmo_axis(), editor::GizmoAxis::X);
 
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Down,
-            .position = hover_window,
-            .button = engine::MouseButton::Left,
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Down,
+        .position = hover_window,
+        .button = engine::MouseButton::Left,
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -577,10 +593,10 @@ transform = { position = [0.0, 0.0, 0.0] }
     // Drag along X
     const glm::vec2 drag_window = hover_window + glm::vec2{40.0f, 0.0f};
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Move,
-            .position = drag_window,
-            .relative = {40.0f, 0.0f},
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Move,
+        .position = drag_window,
+        .relative = {40.0f, 0.0f},
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -598,19 +614,13 @@ public:
     std::shared_ptr<engine::render::IMesh> create_mesh(const engine::render::MeshDesc&) override {
         return std::make_shared<StubMesh>();
     }
-    std::shared_ptr<engine::render::IShader> create_shader(const engine::render::ShaderDesc&) override {
-        return {};
-    }
-    std::shared_ptr<engine::render::ITexture> create_texture(const engine::render::TextureDesc&) override {
-        return {};
-    }
+    std::shared_ptr<engine::render::IShader> create_shader(const engine::render::ShaderDesc&) override { return {}; }
+    std::shared_ptr<engine::render::ITexture> create_texture(const engine::render::TextureDesc&) override { return {}; }
 };
 
 class QuietFatal final : public engine::IFatalError {
 public:
-    [[noreturn]] void report(std::string_view) override {
-        throw std::runtime_error("unexpected fatal");
-    }
+    [[noreturn]] void report(std::string_view) override { throw std::runtime_error("unexpected fatal"); }
 };
 
 TEST_F(WorldViewPanelTest, WorldSpaceGizmoAndOutlineRenderingPushesDrawMeshCommands) {
@@ -638,10 +648,10 @@ sprite = { pixel_size = [100.0, 100.0], pixels_per_unit = 100.0 }
 
     engine::render::CommandBuffer window_commands;
     const engine::EngineSystemDeps deps{
-            .assets = &assets,
-            .commands_for_window = [&](engine::WindowId id) -> engine::render::CommandBuffer* {
-                return id == kEditorWindow ? &window_commands : nullptr;
-            },
+        .assets = &assets,
+        .commands_for_window = [&](engine::WindowId id) -> engine::render::CommandBuffer* {
+            return id == kEditorWindow ? &window_commands : nullptr;
+        },
     };
 
     panel.render(editor_world, canvas, deps);
@@ -650,7 +660,8 @@ sprite = { pixel_size = [100.0, 100.0], pixels_per_unit = 100.0 }
     ASSERT_GE(window_commands.size(), 2u);
     EXPECT_NE(std::get_if<engine::render::CmdSetView>(&window_commands[0]), nullptr);
 
-    // Followed by CmdDrawMesh for outline (4 edges for sprite) and gizmo (center + Y shaft/cone + X shaft/cone = 5).
+    // Followed by CmdDrawMesh for outline (4 edges for sprite) and gizmo (center + Y shaft/cone + X shaft/cone =
+    // 5).
     std::size_t mesh_draw_count = 0;
     for (std::size_t i = 1; i < window_commands.size(); ++i) {
         if (std::get_if<engine::render::CmdDrawMesh>(&window_commands[i]) != nullptr) {
@@ -713,9 +724,9 @@ transform = { position = [0.0, 0.0, 0.0] }
 
     // Hotkey W -> Translate
     engine::ecs::EventWriter<engine::KeyEvent>{editor_world}.send(engine::KeyEvent{
-            .window = kEditorWindow,
-            .key = engine::KeyCode::W,
-            .down = true,
+        .window = kEditorWindow,
+        .key = engine::KeyCode::W,
+        .down = true,
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -724,9 +735,9 @@ transform = { position = [0.0, 0.0, 0.0] }
 
     // Hotkey E -> Rotate
     engine::ecs::EventWriter<engine::KeyEvent>{editor_world}.send(engine::KeyEvent{
-            .window = kEditorWindow,
-            .key = engine::KeyCode::E,
-            .down = true,
+        .window = kEditorWindow,
+        .key = engine::KeyCode::E,
+        .down = true,
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -735,9 +746,9 @@ transform = { position = [0.0, 0.0, 0.0] }
 
     // Hotkey R -> Scale
     engine::ecs::EventWriter<engine::KeyEvent>{editor_world}.send(engine::KeyEvent{
-            .window = kEditorWindow,
-            .key = engine::KeyCode::R,
-            .down = true,
+        .window = kEditorWindow,
+        .key = engine::KeyCode::R,
+        .down = true,
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -767,10 +778,10 @@ transform = { position = [0.0, 0.0, 0.0], scale = [1.0, 1.0, 1.0] }
 
     // Left mouse down at (270, 216)
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Down,
-            .position = {270.0f, 216.0f},
-            .button = engine::MouseButton::Left,
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Down,
+        .position = {270.0f, 216.0f},
+        .button = engine::MouseButton::Left,
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -778,10 +789,10 @@ transform = { position = [0.0, 0.0, 0.0], scale = [1.0, 1.0, 1.0] }
 
     // Drag 40px right to (310, 216)
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Move,
-            .position = {310.0f, 216.0f},
-            .relative = {40.0f, 0.0f},
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Move,
+        .position = {310.0f, 216.0f},
+        .relative = {40.0f, 0.0f},
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -794,10 +805,10 @@ transform = { position = [0.0, 0.0, 0.0], scale = [1.0, 1.0, 1.0] }
 
     // Release mouse
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Up,
-            .position = {310.0f, 216.0f},
-            .button = engine::MouseButton::Left,
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Up,
+        .position = {310.0f, 216.0f},
+        .button = engine::MouseButton::Left,
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -808,10 +819,10 @@ transform = { position = [0.0, 0.0, 0.0], scale = [1.0, 1.0, 1.0] }
     EXPECT_EQ(panel.hovered_gizmo_axis(), editor::GizmoAxis::Center);
 
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Down,
-            .position = {240.0f, 216.0f},
-            .button = engine::MouseButton::Left,
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Down,
+        .position = {240.0f, 216.0f},
+        .button = engine::MouseButton::Left,
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -819,10 +830,10 @@ transform = { position = [0.0, 0.0, 0.0], scale = [1.0, 1.0, 1.0] }
 
     const glm::vec3 pre_center_scale = tr->scale;
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Move,
-            .position = {270.0f, 186.0f},
-            .relative = {30.0f, -30.0f},
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Move,
+        .position = {270.0f, 186.0f},
+        .relative = {30.0f, -30.0f},
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -853,10 +864,10 @@ transform = { position = [0.0, 0.0, 0.0] }
     EXPECT_EQ(panel.hovered_gizmo_axis(), editor::GizmoAxis::Z);
 
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Down,
-            .position = {305.0f, 216.0f},
-            .button = engine::MouseButton::Left,
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Down,
+        .position = {305.0f, 216.0f},
+        .button = engine::MouseButton::Left,
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -864,10 +875,10 @@ transform = { position = [0.0, 0.0, 0.0] }
 
     // Drag upwards to (305, 151) -> angle changes towards +Y
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Move,
-            .position = {240.0f, 151.0f},
-            .relative = {-65.0f, -65.0f},
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Move,
+        .position = {240.0f, 151.0f},
+        .relative = {-65.0f, -65.0f},
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -897,10 +908,10 @@ transform = { position = [0.0, 0.0, 0.0] }
     EXPECT_EQ(panel.hovered_gizmo_axis(), editor::GizmoAxis::X);
 
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Down,
-            .position = {270.0f, 216.0f},
-            .button = engine::MouseButton::Left,
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Down,
+        .position = {270.0f, 216.0f},
+        .button = engine::MouseButton::Left,
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -908,10 +919,10 @@ transform = { position = [0.0, 0.0, 0.0] }
 
     // Drag to (310, 216)
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Move,
-            .position = {310.0f, 216.0f},
-            .relative = {40.0f, 0.0f},
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Move,
+        .position = {310.0f, 216.0f},
+        .relative = {40.0f, 0.0f},
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -920,10 +931,10 @@ transform = { position = [0.0, 0.0, 0.0] }
 
     // Release mouse
     engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
-            .window = kEditorWindow,
-            .kind = engine::MouseEvent::Kind::Up,
-            .position = {280.0f, 216.0f},
-            .button = engine::MouseButton::Left,
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Up,
+        .position = {280.0f, 216.0f},
+        .button = engine::MouseButton::Left,
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -953,18 +964,18 @@ transform = { position = [0.0, 0.0, 0.0] }
 
     // LCtrl down
     engine::ecs::EventWriter<engine::KeyEvent>{editor_world}.send(engine::KeyEvent{
-            .window = kEditorWindow,
-            .key = engine::KeyCode::LCtrl,
-            .down = true,
+        .window = kEditorWindow,
+        .key = engine::KeyCode::LCtrl,
+        .down = true,
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
 
     // S down while Ctrl held
     engine::ecs::EventWriter<engine::KeyEvent>{editor_world}.send(engine::KeyEvent{
-            .window = kEditorWindow,
-            .key = engine::KeyCode::S,
-            .down = true,
+        .window = kEditorWindow,
+        .key = engine::KeyCode::S,
+        .down = true,
     });
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
@@ -972,6 +983,131 @@ transform = { position = [0.0, 0.0, 0.0] }
     EXPECT_FALSE(panel.is_dirty());
 }
 
+void drag(editor::WorldViewPanel& panel, engine::ecs::World& editor_world, engine::ecs::Entity canvas, glm::vec2 from,
+          glm::vec2 to) {
+    engine::ui::pointer_for(editor_world, kEditorWindow).position = from;
+    panel.frame(editor_world, canvas, true);
+    engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Down,
+        .position = from,
+        .button = engine::MouseButton::Left,
+    });
+    panel.frame(editor_world, canvas, true);
+    editor_world.flush_events();
+    engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Move,
+        .position = to,
+        .relative = to - from,
+    });
+    panel.frame(editor_world, canvas, true);
+    editor_world.flush_events();
+    engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Up,
+        .position = to,
+        .button = engine::MouseButton::Left,
+    });
+    panel.frame(editor_world, canvas, true);
+    editor_world.flush_events();
 }
 
+TEST_F(WorldViewPanelTest, GizmoDragsAreUndoCommands) {
+    editor::CommandHistory history;
+    panel.set_journal(&history, [&] { panel.sync_entity_dirty(history.count(editor::EditorCommand::Kind::Entity)); });
 
+    const std::filesystem::path scene = write_world("gizmo_undo.world", R"(
+version = 1
+[[entities]]
+id = "hero"
+transform = { position = [0.0, 0.0, 0.0], scale = [1.0, 1.0, 1.0] }
+)");
+    ASSERT_TRUE(panel.open_world(scene));
+    const engine::ecs::Entity ent = panel.edit_world().alive_entities()[0];
+    selection.select(editor::EntitySelection{.entity = ent});
+    panel.frame(editor_world, canvas, true);
+
+    drag(panel, editor_world, canvas, {270.0f, 216.0f}, {310.0f, 216.0f});
+    const float moved_x = panel.edit_world().get<engine::Transform>(ent).position.x;
+    EXPECT_GT(moved_x, 0.0f);
+    EXPECT_TRUE(panel.is_dirty());
+    EXPECT_EQ(history.count(editor::EditorCommand::Kind::Entity), 1);
+
+    EXPECT_TRUE(history.undo());
+    panel.sync_entity_dirty(history.count(editor::EditorCommand::Kind::Entity));
+    EXPECT_FLOAT_EQ(panel.edit_world().get<engine::Transform>(ent).position.x, 0.0f);
+    EXPECT_FALSE(panel.is_dirty());
+
+    EXPECT_TRUE(history.redo());
+    panel.sync_entity_dirty(history.count(editor::EditorCommand::Kind::Entity));
+    EXPECT_FLOAT_EQ(panel.edit_world().get<engine::Transform>(ent).position.x, moved_x);
+
+    drag(panel, editor_world, canvas, {310.0f, 216.0f}, {350.0f, 216.0f});
+    const float moved_again = panel.edit_world().get<engine::Transform>(ent).position.x;
+    EXPECT_GT(moved_again, moved_x);
+    EXPECT_EQ(history.count(editor::EditorCommand::Kind::Entity), 2);
+    EXPECT_TRUE(history.undo());
+    panel.sync_entity_dirty(history.count(editor::EditorCommand::Kind::Entity));
+    EXPECT_FLOAT_EQ(panel.edit_world().get<engine::Transform>(ent).position.x, moved_x);
+    EXPECT_TRUE(history.undo());
+    panel.sync_entity_dirty(history.count(editor::EditorCommand::Kind::Entity));
+    EXPECT_FLOAT_EQ(panel.edit_world().get<engine::Transform>(ent).position.x, 0.0f);
+    EXPECT_FALSE(panel.is_dirty());
+
+    panel.set_tool_rotate();
+    drag(panel, editor_world, canvas, {305.0f, 216.0f}, {240.0f, 151.0f});
+    EXPECT_GT(std::abs(panel.edit_world().get<engine::Transform>(ent).rotation.z), 0.1f);
+    EXPECT_TRUE(history.undo());
+    panel.sync_entity_dirty(history.count(editor::EditorCommand::Kind::Entity));
+    EXPECT_NEAR(panel.edit_world().get<engine::Transform>(ent).rotation.z, 0.0f, 1.0e-4f);
+
+    panel.set_tool_scale();
+    drag(panel, editor_world, canvas, {270.0f, 216.0f}, {310.0f, 216.0f});
+    EXPECT_GT(panel.edit_world().get<engine::Transform>(ent).scale.x, 1.0f);
+    EXPECT_TRUE(history.undo());
+    panel.sync_entity_dirty(history.count(editor::EditorCommand::Kind::Entity));
+    EXPECT_FLOAT_EQ(panel.edit_world().get<engine::Transform>(ent).scale.x, 1.0f);
+    EXPECT_FALSE(panel.is_dirty());
+
+    panel.set_tool_translate();
+    engine::ui::pointer_for(editor_world, kEditorWindow).position = {270.0f, 216.0f};
+    panel.frame(editor_world, canvas, true);
+    engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Down,
+        .position = {270.0f, 216.0f},
+        .button = engine::MouseButton::Left,
+    });
+    panel.frame(editor_world, canvas, true);
+    editor_world.flush_events();
+    engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Move,
+        .position = {310.0f, 216.0f},
+        .relative = {40.0f, 0.0f},
+    });
+    panel.frame(editor_world, canvas, true);
+    editor_world.flush_events();
+    EXPECT_GT(panel.edit_world().get<engine::Transform>(ent).position.x, 0.0f);
+    EXPECT_EQ(panel.active_gizmo_axis(), editor::GizmoAxis::X);
+
+    panel.finish_gizmo_drag();
+    EXPECT_TRUE(history.undo());
+    panel.sync_entity_dirty(history.count(editor::EditorCommand::Kind::Entity));
+    EXPECT_FLOAT_EQ(panel.edit_world().get<engine::Transform>(ent).position.x, 0.0f);
+    EXPECT_EQ(panel.active_gizmo_axis(), editor::GizmoAxis::None);
+    EXPECT_FALSE(panel.is_dirty());
+
+    engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
+        .window = kEditorWindow,
+        .kind = engine::MouseEvent::Kind::Move,
+        .position = {360.0f, 216.0f},
+        .relative = {50.0f, 0.0f},
+    });
+    panel.frame(editor_world, canvas, true);
+    editor_world.flush_events();
+    EXPECT_FLOAT_EQ(panel.edit_world().get<engine::Transform>(ent).position.x, 0.0f);
+}
+
+} // namespace

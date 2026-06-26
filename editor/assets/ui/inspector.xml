@@ -5,21 +5,46 @@
       <Label class="subtitle" text="{binding subtitle}"/>
     </Stack>
     <ScrollView id="sections" class="box sections">
-      <ItemsControl class="rows" items_source="{binding sections}">
-        <ItemTemplate>
-          <Stack class="inspector-section" direction="vertical">
-            <Stack class="section-head" direction="horizontal">
-              <Checkbox class="expander" checked="{binding expanded}" command="{binding toggle}"/>
-              <Button class="section-button" command="{binding toggle}" content="{binding heading}"/>
+      <Stack class="inspector-body" direction="vertical">
+        <ItemsControl class="rows" items_source="{binding sections}">
+          <ItemTemplate>
+            <Stack class="inspector-section" direction="vertical">
+              <Stack class="section-head" direction="horizontal">
+                <Checkbox class="expander" checked="{binding expanded}" command="{binding toggle}"/>
+                <Button class="section-button" command="{binding toggle}" content="{binding heading}"/>
+                <Button class="section-remove" var-remove-display="{binding removeDisplay}" command="{binding remove}" content="-"/>
+              </Stack>
+              <ItemsControl class="rows" items_source="{binding lines}">
+                <ItemTemplate>
+                  <Label class="line" text="{binding text}"/>
+                </ItemTemplate>
+              </ItemsControl>
+              <ItemsControl class="rows" items_source="{binding fields}">
+                <ItemTemplate>
+                  <Stack class="field-line" direction="horizontal">
+                    <Label class="field-name" var-name-display="{binding nameDisplay}" text="{binding label}"/>
+                    <Label class="field-value" var-text-display="{binding textDisplay}" text="{binding text}"/>
+                    <Checkbox class="field-check" var-check-display="{binding checkDisplay}" checked="{binding checked}"/>
+                    <TextInput class="field-input" var-input-display="{binding inputDisplay}" text="{binding value}"/>
+                    <TextInput class="field-num field-x" var-x-display="{binding xDisplay}" text="{binding x}"/>
+                    <TextInput class="field-num field-y" var-y-display="{binding yDisplay}" text="{binding y}"/>
+                    <TextInput class="field-num field-z" var-z-display="{binding zDisplay}" text="{binding z}"/>
+                    <TextInput class="field-num field-w" var-w-display="{binding wDisplay}" text="{binding w}"/>
+                  </Stack>
+                </ItemTemplate>
+              </ItemsControl>
             </Stack>
-            <ItemsControl class="rows" items_source="{binding lines}">
-              <ItemTemplate>
-                <Label class="line" text="{binding text}"/>
-              </ItemTemplate>
-            </ItemsControl>
-          </Stack>
-        </ItemTemplate>
-      </ItemsControl>
+          </ItemTemplate>
+        </ItemsControl>
+        <Stack class="add-block" direction="vertical" var-add-display="{binding addDisplay}">
+          <Button class="add-button" command="{binding toggleAdd}" content="Add Component"/>
+          <ItemsControl class="rows" items_source="{binding addables}">
+            <ItemTemplate>
+              <Button class="add-choice" command="{binding add}" content="{binding name}"/>
+            </ItemTemplate>
+          </ItemsControl>
+        </Stack>
+      </Stack>
     </ScrollView>
   </Stack>
 </Canvas>
