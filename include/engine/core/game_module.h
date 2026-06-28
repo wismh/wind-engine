@@ -11,8 +11,9 @@
 #include <string>
 #include <string_view>
 
-// The C ABI of a game module (`ENGINE_GAME` under `ENGINE_GAME_MODULE`). The editor resolves these
-// three symbols by name. wind_game_build_id returns the kBuildId the game was compiled against, not
+// The C ABI of a game module (`ENGINE_GAME` under `ENGINE_GAME_MODULE`). The editor resolves the
+// required symbols by name. `wind_register_game_components` and `wind_register_game_objects` are optional.
+// wind_game_build_id returns the kBuildId the game was compiled against, not
 // engine::build_id(): inside the editor that call would reach the editor's own engine.
 
 #if defined(_WIN32)
@@ -23,19 +24,23 @@
 
 namespace engine {
 
+class AssetsDb;
+
 namespace ecs {
 class WorldSerializer;
 }
 
-using CreateGameFn = IGame* (*)(const EngineServices& services);
+using CreateGameFn = IGame* (*) (const EngineServices& services);
 using DestroyGameFn = void (*)(IGame* game);
-using GameBuildIdFn = const char* (*)();
+using GameBuildIdFn = const char* (*) ();
 using RegisterGameComponentsFn = void (*)(ecs::WorldSerializer& serializer);
+using RegisterGameObjectsFn = void (*)(AssetsDb& assets);
 
 inline constexpr char kCreateGameSymbol[] = "wind_create_game";
 inline constexpr char kDestroyGameSymbol[] = "wind_destroy_game";
 inline constexpr char kGameBuildIdSymbol[] = "wind_game_build_id";
 inline constexpr char kRegisterGameComponentsSymbol[] = "wind_register_game_components";
+inline constexpr char kRegisterGameObjectsSymbol[] = "wind_register_game_objects";
 
 #if defined(ENGINE_WITH_WINDOW)
 
@@ -76,6 +81,10 @@ public:
     // module and must not outlive it.
     void register_components(ecs::WorldSerializer& serializer) const;
     [[nodiscard]] bool has_component_registration() const noexcept;
+    // `wind_register_game_objects` when exported. The loaders hold code from this module and must be cleared
+    // (`AssetsDb::clear_object_loaders`) before this module is destroyed.
+    void register_objects(AssetsDb& assets) const;
+    [[nodiscard]] bool has_object_registration() const noexcept;
 
     // What the module's `wind_game_build_id` returned. Equal to `build_id()` for a loaded module.
     [[nodiscard]] std::string_view build_id() const noexcept;
@@ -85,8 +94,8 @@ public:
     [[nodiscard]] const std::filesystem::path& live_path() const noexcept;
 
 private:
-    friend std::expected<GameModule, GameModuleError> load_game_module(
-            const std::filesystem::path& module, const std::filesystem::path& live_root);
+    friend std::expected<GameModule, GameModuleError> load_game_module(const std::filesystem::path& module,
+                                                                       const std::filesystem::path& live_root);
 
     GameModule() = default;
     void release() noexcept;
@@ -95,6 +104,7 @@ private:
     CreateGameFn create_ = nullptr;
     DestroyGameFn destroy_ = nullptr;
     RegisterGameComponentsFn register_components_ = nullptr;
+    RegisterGameObjectsFn register_objects_ = nullptr;
     std::string build_id_;
     std::filesystem::path source_path_;
     std::filesystem::path live_dir_;
@@ -105,8 +115,8 @@ private:
 // and loads that copy, so the original stays free for the next build. Then resolves the three exports
 // and compares `wind_game_build_id` with `build_id()`. Any failure unloads and deletes the copy.
 // Main thread only.
-[[nodiscard]] std::expected<GameModule, GameModuleError> load_game_module(
-        const std::filesystem::path& module, const std::filesystem::path& live_root);
+[[nodiscard]] std::expected<GameModule, GameModuleError> load_game_module(const std::filesystem::path& module,
+                                                                          const std::filesystem::path& live_root);
 
 // Deletes every directory under `live_root`: copies a crashed or killed process left behind. A copy
 // another process still has loaded cannot be deleted and stays. Returns how many directories went away.
@@ -114,4 +124,4 @@ std::size_t purge_game_module_copies(const std::filesystem::path& live_root);
 
 #endif
 
-}
+} // namespace engine

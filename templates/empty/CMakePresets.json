@@ -3,7 +3,17 @@
   "configurePresets": [
     {
       "name": "editor",
+      "displayName": "Game module for the Wind editor (Ninja Multi-Config)",
+      "generator": "Ninja Multi-Config",
       "binaryDir": "${sourceDir}/build-editor",
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "toolset": {
+        "value": "host=x64",
+        "strategy": "external"
+      },
       "cacheVariables": { "CMAKE_CONFIGURATION_TYPES": "DebugGame;Release" }
     }
   ]

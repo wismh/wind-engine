@@ -1,15 +1,21 @@
 #include <gtest/gtest.h>
 
+#include "command_history.h"
 #include "editor_selection.h"
+#include "inspector_euler.h"
 #include "inspector_panel.h"
 
 #include <engine/ecs/camera.h>
 #include <engine/ecs/hierarchy.h>
+#include <engine/ecs/physics_2d.h>
 #include <engine/ecs/transform.h>
 #include <engine/ecs/world.h>
 #include <engine/ecs/world_io.h>
 #include <engine/ecs/world_serializer.h>
 #include <engine/render/sprite.h>
+
+#include <glm/gtc/quaternion.hpp>
+#include <glm/trigonometric.hpp>
 #include <engine/ui/canvas.h>
 #include <engine/ui/document.h>
 #include <engine/ui/inspector.h>
@@ -93,6 +99,16 @@ std::vector<std::string> lines(const editor::InspectorSectionViewModel& section)
         out.push_back(line->text.get());
     }
     return out;
+}
+
+std::shared_ptr<editor::InspectorFieldViewModel> field_named(
+        const editor::InspectorSectionViewModel& section, std::string_view key) {
+    for (const auto& field : section.fields.get()) {
+        if (field->label.get() == key) {
+            return field;
+        }
+    }
+    return nullptr;
 }
 
 }
@@ -274,17 +290,40 @@ parent = "hero"
     EXPECT_NE(std::ranges::find(entity_lines, "children: 1"), entity_lines.end());
     EXPECT_NE(std::ranges::find(entity_lines, "active_camera: true"), entity_lines.end());
 
-    const std::vector<std::string> cam_lines = lines(*vm.sections.get()[1]);
-    EXPECT_NE(std::ranges::find(cam_lines, "projection = orthographic"), cam_lines.end());
-    EXPECT_NE(std::ranges::find(cam_lines, "ortho_size = 12"), cam_lines.end());
+    const editor::InspectorSectionViewModel& camera = *vm.sections.get()[1];
+    EXPECT_TRUE(lines(camera).empty());
+    const std::shared_ptr<editor::InspectorFieldViewModel> projection = field_named(camera, "projection");
+    const std::shared_ptr<editor::InspectorFieldViewModel> ortho = field_named(camera, "ortho_size");
+    ASSERT_NE(projection, nullptr);
+    ASSERT_NE(ortho, nullptr);
+    EXPECT_EQ(projection->value.get(), "orthographic");
+    EXPECT_EQ(projection->inputDisplay.get(), "flex");
+    EXPECT_EQ(ortho->value.get(), "12");
 
-    const std::vector<std::string> sprite_lines = lines(*vm.sections.get()[2]);
-    EXPECT_NE(std::ranges::find(sprite_lines, "layer = 2"), sprite_lines.end());
-    EXPECT_NE(std::ranges::find(sprite_lines, "order_in_layer = 5"), sprite_lines.end());
-    EXPECT_NE(std::ranges::find(sprite_lines, "flip_x = true"), sprite_lines.end());
+    const editor::InspectorSectionViewModel& sprite = *vm.sections.get()[2];
+    const std::shared_ptr<editor::InspectorFieldViewModel> layer = field_named(sprite, "layer");
+    const std::shared_ptr<editor::InspectorFieldViewModel> order = field_named(sprite, "order_in_layer");
+    const std::shared_ptr<editor::InspectorFieldViewModel> flip = field_named(sprite, "flip_x");
+    ASSERT_NE(layer, nullptr);
+    ASSERT_NE(order, nullptr);
+    ASSERT_NE(flip, nullptr);
+    EXPECT_EQ(layer->value.get(), "2");
+    EXPECT_EQ(order->value.get(), "5");
+    EXPECT_TRUE(flip->checked.get());
+    EXPECT_EQ(flip->checkDisplay.get(), "flex");
 
-    const std::vector<std::string> tr_lines = lines(*vm.sections.get()[3]);
-    EXPECT_NE(std::ranges::find(tr_lines, "position = [1.5, 2, 3]"), tr_lines.end());
+    const editor::InspectorSectionViewModel& transform = *vm.sections.get()[3];
+    const std::shared_ptr<editor::InspectorFieldViewModel> position = field_named(transform, "position");
+    ASSERT_NE(position, nullptr);
+    EXPECT_EQ(position->x.get(), "1.5");
+    EXPECT_EQ(position->y.get(), "2");
+    EXPECT_EQ(position->z.get(), "3");
+    EXPECT_EQ(position->xDisplay.get(), "flex");
+    EXPECT_EQ(position->wDisplay.get(), "none");
+    EXPECT_EQ(vm.sections.get()[0]->removeDisplay.get(), "none");
+    EXPECT_EQ(transform.removeDisplay.get(), "flex");
+    EXPECT_EQ(vm.sections.get()[4]->removeDisplay.get(), "none");
+    EXPECT_EQ(vm.addDisplay.get(), "flex");
 
     const std::vector<std::string> unknown_lines = lines(*vm.sections.get()[4]);
     EXPECT_NE(std::ranges::find(unknown_lines, "hp = 100"), unknown_lines.end());
@@ -304,10 +343,169 @@ parent = "hero"
     EXPECT_EQ(vm.title.get(), "boss");
     EXPECT_EQ(vm.subtitle.get(), "Entity");
     EXPECT_EQ(headings(vm), (std::vector<std::string>{"Entity", "transform"}));
+    EXPECT_EQ(vm.addDisplay.get(), "none");
+    EXPECT_EQ(vm.sections.get()[1]->removeDisplay.get(), "none");
+    panel.edit_text("transform", "position", 0, "99");
+    EXPECT_FLOAT_EQ(game_world.get<engine::Transform>(boss).position.x, 10.0f);
 
     // When the entity is destroyed, refreshing shows nothing selected.
     game_world.destroy(boss);
     panel.refresh();
     EXPECT_EQ(vm.title.get(), "Nothing selected");
+}
+
+TEST(InspectorPanel, ComponentEditsUndoAndRedo) {
+    constexpr std::string_view kWorldToml = R"(
+version = 1
+[[entities]]
+id = "hero"
+transform = { position = [1.5, 2, 3] }
+)";
+    engine::ecs::World world;
+    const auto loaded = engine::ecs::load_world_from_toml(
+            world, kWorldToml, nullptr, nullptr, engine::ecs::UnknownComponentMode::Preserve);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
+    const engine::ecs::Entity hero = loaded->by_id.at("hero");
+
+    editor::CommandHistory history;
+    editor::EditorSelection selection;
+    editor::InspectorPanel panel{selection};
+    int history_notes = 0;
+    panel.set_edit_world(&world);
+    panel.set_journal(&history, [&history_notes] { ++history_notes; });
+    selection.select(editor::EntitySelection{.entity = hero});
+    panel.refresh();
+
+    const std::shared_ptr<editor::InspectorFieldViewModel> position =
+            field_named(*panel.view_model()->sections.get()[1], "position");
+    ASSERT_NE(position, nullptr);
+    position->x = "4";
+    position->x = "5";
+    EXPECT_EQ(history_notes, 2);
+    EXPECT_FLOAT_EQ(world.get<engine::Transform>(hero).position.x, 5.0f);
+    EXPECT_TRUE(history.undo());
+    panel.end_field_edit();
+    panel.refresh();
+    EXPECT_FLOAT_EQ(world.get<engine::Transform>(hero).position.x, 1.5f);
+    EXPECT_EQ(field_named(*panel.view_model()->sections.get()[1], "position")->x.get(), "1.5");
+    EXPECT_TRUE(history.redo());
+    panel.end_field_edit();
+    panel.refresh();
+    EXPECT_FLOAT_EQ(world.get<engine::Transform>(hero).position.x, 5.0f);
+
+    position->x = "abc";
+    EXPECT_FLOAT_EQ(world.get<engine::Transform>(hero).position.x, 5.0f);
+
+    panel.add_component("rigid_body_2d");
+    EXPECT_NE(world.try_get<engine::RigidBody2D>(hero), nullptr);
+    EXPECT_TRUE(history.undo());
+    EXPECT_EQ(world.try_get<engine::RigidBody2D>(hero), nullptr);
+    EXPECT_TRUE(history.redo());
+    EXPECT_NE(world.try_get<engine::RigidBody2D>(hero), nullptr);
+
+    panel.remove_component("transform");
+    EXPECT_EQ(world.try_get<engine::Transform>(hero), nullptr);
+    EXPECT_TRUE(history.undo());
+    const engine::Transform* restored = world.try_get<engine::Transform>(hero);
+    ASSERT_NE(restored, nullptr);
+    EXPECT_FLOAT_EQ(restored->position.x, 5.0f);
+    EXPECT_FLOAT_EQ(restored->position.y, 2.0f);
+
+    panel.remove_component("health (unregistered)");
+    EXPECT_NE(world.try_get<engine::Transform>(hero), nullptr);
+}
+
+TEST(InspectorEuler, DegreesRoundTripThroughEulerXyz) {
+    const glm::vec3 samples[] = {
+            {0.0f, 0.0f, 0.0f},
+            {90.0f, 0.0f, 0.0f},
+            {0.0f, 90.0f, 0.0f},
+            {0.0f, 0.0f, 90.0f},
+            {10.0f, 20.0f, 30.0f},
+            {-15.0f, 40.0f, -25.0f},
+    };
+    for (const glm::vec3& degrees : samples) {
+        const glm::quat rotation = engine::euler_xyz(glm::radians(degrees));
+        const glm::vec3 back = editor::euler_degrees_xyz(rotation);
+        EXPECT_NEAR(back.x, degrees.x, 0.05f) << degrees.x << " " << degrees.y << " " << degrees.z;
+        EXPECT_NEAR(back.y, degrees.y, 0.05f) << degrees.x << " " << degrees.y << " " << degrees.z;
+        EXPECT_NEAR(back.z, degrees.z, 0.05f) << degrees.x << " " << degrees.y << " " << degrees.z;
+    }
+}
+
+TEST(InspectorPanel, RotationEditsAsEulerAndColorKeepsAlpha) {
+    engine::ecs::World world;
+    const engine::ecs::Entity hero = world.create();
+    world.emplace<engine::ecs::EntityName>(hero, engine::ecs::EntityName{.id = "hero"});
+    world.emplace<engine::Transform>(hero);
+    engine::render::Sprite sprite;
+    sprite.color = {1.0f, 0.0f, 0.0f, 0.5f};
+    world.emplace<engine::render::Sprite>(hero, std::move(sprite));
+
+    editor::CommandHistory history;
+    editor::EditorSelection selection;
+    editor::InspectorPanel panel{selection};
+    panel.set_edit_world(&world);
+    panel.set_journal(&history, [] {});
+    selection.select(editor::EntitySelection{.entity = hero});
+    panel.refresh();
+
+    const auto section_named = [&](std::string_view heading) -> const editor::InspectorSectionViewModel* {
+        for (const auto& section : panel.view_model()->sections.get()) {
+            if (section->heading.get() == heading) {
+                return section.get();
+            }
+        }
+        return nullptr;
+    };
+    const editor::InspectorSectionViewModel* transform = section_named("transform");
+    const editor::InspectorSectionViewModel* sprite_section = section_named("sprite");
+    ASSERT_NE(transform, nullptr);
+    ASSERT_NE(sprite_section, nullptr);
+
+    const std::shared_ptr<editor::InspectorFieldViewModel> rotation = field_named(*transform, "rotation");
+    ASSERT_NE(rotation, nullptr);
+    EXPECT_EQ(rotation->x.get(), "0");
+    EXPECT_EQ(rotation->y.get(), "0");
+    EXPECT_EQ(rotation->z.get(), "0");
+    EXPECT_EQ(rotation->xDisplay.get(), "flex");
+    EXPECT_EQ(rotation->wDisplay.get(), "none");
+
+    const std::shared_ptr<editor::InspectorFieldViewModel> color = field_named(*sprite_section, "color");
+    ASSERT_NE(color, nullptr);
+    EXPECT_EQ(color->x.get(), "1");
+    EXPECT_EQ(color->y.get(), "0");
+    EXPECT_EQ(color->z.get(), "0");
+    EXPECT_EQ(color->wDisplay.get(), "none");
+
+    panel.edit_text("transform", "rotation", 1, "90");
+    const glm::quat turned = engine::euler_xyz(glm::radians(glm::vec3{0.0f, 90.0f, 0.0f}));
+    const glm::quat stored = world.get<engine::Transform>(hero).rotation;
+    EXPECT_NEAR(stored.x, turned.x, 1.0e-4f);
+    EXPECT_NEAR(stored.y, turned.y, 1.0e-4f);
+    EXPECT_NEAR(stored.z, turned.z, 1.0e-4f);
+    EXPECT_NEAR(stored.w, turned.w, 1.0e-4f);
+
+    panel.end_field_edit();
+    panel.refresh();
+    transform = section_named("transform");
+    ASSERT_NE(transform, nullptr);
+    EXPECT_EQ(field_named(*transform, "rotation")->y.get(), "90");
+
+    EXPECT_TRUE(history.undo());
+    panel.refresh();
+    const glm::quat identity = world.get<engine::Transform>(hero).rotation;
+    EXPECT_NEAR(identity.w, 1.0f, 1.0e-4f);
+    EXPECT_NEAR(identity.x, 0.0f, 1.0e-4f);
+    transform = section_named("transform");
+    ASSERT_NE(transform, nullptr);
+    EXPECT_EQ(field_named(*transform, "rotation")->y.get(), "0");
+
+    panel.edit_text("sprite", "color", 1, "1");
+    const engine::render::Sprite& tint = world.get<engine::render::Sprite>(hero);
+    EXPECT_FLOAT_EQ(tint.color.x, 1.0f);
+    EXPECT_FLOAT_EQ(tint.color.y, 1.0f);
+    EXPECT_FLOAT_EQ(tint.color.z, 0.0f);
+    EXPECT_FLOAT_EQ(tint.color.w, 0.5f);
 }
 

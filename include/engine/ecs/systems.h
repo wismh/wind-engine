@@ -20,6 +20,7 @@ class IFatalError;
 class AssetsDb;
 class IAudioSystem;
 class IWindowControl;
+class JobSystem;
 class Worlds;
 
 struct EngineSystemsRegistered {
@@ -59,6 +60,8 @@ struct EngineSystemDeps {
     // world of its dock space. Either unset: such floats stay virtual.
     IWindowControl* windows = nullptr;
     Worlds* worlds = nullptr;
+    // Null integrates particle ranges on the caller.
+    JobSystem* jobs = nullptr;
 };
 
 struct WorldViewportRender {
@@ -87,6 +90,7 @@ void run_pointer_targets(ecs::World& world);
 // Frame / Input, after the pointer targets: close requests to their `UiWindow`, and the drag exclusions of the windows
 // that have a drag region. See <engine/ui/ui_window.h>.
 void run_ui_windows(ecs::World& world);
-void run_particles(ecs::World& world);
+// `jobs` null, or a pool with no workers, integrates on the caller. The call joins before it returns.
+void run_particles(ecs::World& world, JobSystem* jobs = nullptr);
 
 }

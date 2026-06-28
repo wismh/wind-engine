@@ -13,6 +13,8 @@ ctest --test-dir build -C Debug --output-on-failure
 
 SDL / OpenGL stay behind `ENGINE_WITH_WINDOW` (default **OFF** in this repo; local preset `vs-window`). Mixer stays behind `ENGINE_WITH_AUDIO` (default **OFF**; local preset `vs-audio`). `engine_tests` never calls `Engine::run` and never opens a mixer device.
 
+The Windows presets (`vs`, `vs-editor`, `vs-window`, `vs-audio`, `vs-bench`) build with Ninja Multi-Config and the MSVC compiler: CMake loads the Visual Studio environment, and Ninja has to be on `PATH` (Visual Studio's C++ CMake tools ship a copy the editor finds on its own). A build directory made by the Visual Studio generator cannot be reused. Delete `build`, `build-editor`, `build-window`, `build-audio`, and `build-bench` once. Configuring with a Visual Studio generator is an error.
+
 Editor build: `ENGINE_EDITOR=ON` makes `engine` a shared library (`engine.dll` beside the executables) and builds the editor, `wind_editor`. The `vs-editor` preset turns it on with the window and audio backends and builds to `build-editor`:
 
 ```bash
@@ -23,7 +25,7 @@ ctest --test-dir build-editor -C Debug --output-on-failure
 
 On Linux and macOS use the `linux-editor` or `macos-editor` preset instead (Ninja Multi-Config, `libengine.so` / `libengine.dylib`); the commands are the same, and the SDK holds `wind_editor` without `.exe`. See [CMake](docs/tech/build/CMake.md#linux-and-macos).
 
-Editor SDK: install one configuration of the editor build (`/out/` is gitignored). It holds `wind_editor.exe`, `engine.dll`, the host tools, their `.pdb` files, their assets, `engine.lib`, the public headers with that build's `build_id.h`, GoogleTest, the CMake package a game finds (`find_package(Wind)`), the engine source (`source/`), and `sdk.toml` (version, commit, build id). The engine version (`0.1.7a`: major, minor, patch, and the stage `a` alpha, `b` beta, none production) is set in `CMakeLists.txt` and counted by the release workflow; a local build is `0.1.0a-dev` ([Release](docs/tech/build/Release.md)). The editor build's Release is optimized with symbols and keeps the Profiler tab and the `wind-cli` server:
+Editor SDK: install one configuration of the editor build (`/out/` is gitignored). It holds `wind_editor.exe`, `engine.dll`, the host tools, their `.pdb` files, their assets, `engine.lib`, the public headers with that build's `build_id.h`, GoogleTest, the CMake package a game finds (`find_package(Wind)`), the engine source (`source/`), and `sdk.toml` (version, commit, build id). The engine version (`0.1.7a`: major, minor, patch, and the stage `a` alpha, `b` beta, none production) is set in `CMakeLists.txt` and counted by the release workflow; a local build is `0.2.6a-dev` ([Release](docs/tech/build/Release.md)). The editor build's Release is optimized with symbols and keeps the Profiler tab and the `wind-cli` server:
 
 ```bash
 cmake --build build-editor --config Release
@@ -65,13 +67,16 @@ engine_add_game(my_game src/main.cpp)
 
 ```bash
 git submodule update --init --recursive
-cmake -S . -B build -DENGINE_BUILD_TESTS=OFF
+# Windows. CMake loads MSVC. The binary is build/Debug/asset_codegen.exe
+cmake --preset vs -DENGINE_BUILD_TESTS=OFF
+cmake --build build --config Debug --target asset_codegen
+
+# Linux and macOS. The binary is build/asset_codegen
+cmake -S . -B build -G Ninja -DENGINE_BUILD_TESTS=OFF
 cmake --build build --target asset_codegen
 ```
 
-On Visual Studio the binary is `build/Debug/asset_codegen.exe` (or the active config dir). On Ninja/Make it is `build/asset_codegen`.
-
-3. Configure and build the game (or this repo) with Emscripten. `ENGINE_WITH_WEB` defaults **ON** when `EMSCRIPTEN` is set.
+3. Configure and build the game (or this repo) with Emscripten. `ENGINE_WITH_WEB` defaults **ON** when `EMSCRIPTEN` is set. Point `ENGINE_HOST_ASSET_CODEGEN` at the binary from step 2 (`build/Debug/asset_codegen.exe` on Windows, `build/asset_codegen` elsewhere).
 
 ```bash
 emcmake cmake --preset web -DENGINE_HOST_ASSET_CODEGEN="$PWD/build/asset_codegen"
@@ -126,13 +131,16 @@ Open the game HTML in a browser. Default `engine_tests` in this repo stay **head
 
 ```bash
 git submodule update --init --recursive
-cmake -S . -B build -DENGINE_BUILD_TESTS=OFF
+# Windows. CMake loads MSVC. The binary is build/Debug/asset_codegen.exe
+cmake --preset vs -DENGINE_BUILD_TESTS=OFF
+cmake --build build --config Debug --target asset_codegen
+
+# Linux and macOS. The binary is build/asset_codegen
+cmake -S . -B build -G Ninja -DENGINE_BUILD_TESTS=OFF
 cmake --build build --target asset_codegen
 ```
 
-On Visual Studio the binary is `build/Debug/asset_codegen.exe` (or the active config dir). On Ninja/Make it is `build/asset_codegen`.
-
-3. Optional: configure the native shared library with the NDK toolchain to compile-check `libmain.so`. `ENGINE_WITH_ANDROID` and `ENGINE_WITH_GLES` default **ON** when `ANDROID` is set. This does **not** populate APK assets for Gradle.
+3. Optional: configure the native shared library with the NDK toolchain to compile-check `libmain.so`. `ENGINE_WITH_ANDROID` and `ENGINE_WITH_GLES` default **ON** when `ANDROID` is set. This does **not** populate APK assets for Gradle. Point `ENGINE_HOST_ASSET_CODEGEN` at the binary from step 2 (`build/Debug/asset_codegen.exe` on Windows, `build/asset_codegen` elsewhere).
 
 ```bash
 cmake --preset android-arm64 \

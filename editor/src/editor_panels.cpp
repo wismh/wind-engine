@@ -10,8 +10,10 @@
 #include <engine/ui/tree.h>
 
 #include <algorithm>
+#include <expected>
 #include <optional>
 #include <ranges>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -86,7 +88,17 @@ EditorPanels::EditorPanels(DockLayoutFile layout_file)
       hierarchy_(selection_),
       world_view_(selection_),
       ui_tree_(selection_),
-      inspector_(selection_) {}
+      inspector_(selection_) {
+    explorer_.attach_journal(commands_);
+    commands_.set_after_push([this] { explorer_.discard_project_redo(); });
+    inspector_.set_journal(&commands_, [this] {
+        world_view_.sync_entity_dirty(commands_.count(EditorCommand::Kind::Entity));
+    });
+    world_view_.set_journal(&commands_, [this] {
+        world_view_.sync_entity_dirty(commands_.count(EditorCommand::Kind::Entity));
+    });
+    world_view_.set_edit_reset_hook([this] { commands_.discard(EditorCommand::Kind::Entity); });
+}
 
 DockLayout EditorPanels::default_layout() {
     DockLayout layout;
@@ -166,7 +178,17 @@ void EditorPanels::frame(engine::ecs::World& world) {
     const engine::ui::WindowSize size = engine::ui::window_size_for(world, window_);
     space.area = engine::render::Rect{0.0f, kToolbarHeight, static_cast<float>(size.width),
             std::max(0.0f, static_cast<float>(size.height) - kToolbarHeight)};
+    focus_project_rename(world);
     read_tree_keys(world);
+    read_project_drag(world);
+    if (!explorer_.directory().empty()) {
+        for (const ProjectRelocation& moved : explorer_.take_relocations()) {
+            world_view_.retarget_open_file(explorer_.directory(), moved.from, moved.to);
+        }
+        for (const std::string& removed : explorer_.take_removals()) {
+            world_view_.release_deleted_file(explorer_.directory(), removed);
+        }
+    }
     if (world_view_.sync_selection()) {
         show(kWorld);
     }
@@ -199,6 +221,7 @@ void EditorPanels::frame(engine::ecs::World& world) {
             break;
         }
     }
+    inspector_.set_assets(world_view_.assets());
     inspector_.set_edit_world(edit_world);
     world_view_.frame(world, world_canvas_, space.layout.is_visible(kWorld));
     if (space.layout.is_visible(kHierarchy)) {
@@ -343,6 +366,130 @@ engine::ecs::Entity EditorPanels::tree_canvas_under_pointer(engine::ecs::World& 
             : engine::ecs::Entity{};
 }
 
+namespace {
+
+engine::ui::Element* find_rename_input(engine::ui::Element& element) {
+    if (element.kind == engine::ui::ElementKind::TextInput && !element.display_none) {
+        return &element;
+    }
+    for (engine::ui::Element& child : element.children) {
+        if (engine::ui::Element* found = find_rename_input(child)) {
+            return found;
+        }
+    }
+    for (engine::ui::Element& child : element.generated_items) {
+        if (engine::ui::Element* found = find_rename_input(child)) {
+            return found;
+        }
+    }
+    return nullptr;
+}
+
+}
+
+void EditorPanels::focus_project_rename(engine::ecs::World& world) {
+    if (!explorer_.rename_focus_pending()) {
+        return;
+    }
+    engine::ui::UiInstance* instance = world.try_get<engine::ui::UiInstance>(explorer_canvas_);
+    if (instance == nullptr) {
+        return;
+    }
+    engine::ui::Element* input = find_rename_input(instance->document.root);
+    if (input == nullptr) {
+        return;
+    }
+    const engine::ui::UiCanvas& canvas = world.get<engine::ui::UiCanvas>(explorer_canvas_);
+    engine::ui::set_focus(world, canvas.window, explorer_canvas_, input);
+    explorer_.rename_focused();
+}
+
+std::string EditorPanels::project_row_at(engine::ecs::World& world, glm::vec2 window_point) const {
+    engine::ui::UiInstance* instance = world.try_get<engine::ui::UiInstance>(explorer_canvas_);
+    const engine::ui::UiCanvas* canvas = world.try_get<engine::ui::UiCanvas>(explorer_canvas_);
+    if (instance == nullptr || canvas == nullptr) {
+        return {};
+    }
+    const engine::ui::UiCanvasSpace space =
+            engine::ui::canvas_layout_space(canvas->rect, canvas->fit, canvas->reference_size);
+    const float x = (window_point.x - space.offset.x) / space.scale;
+    const float y = (window_point.y - space.offset.y) / space.scale;
+    engine::ui::Element* hit = engine::ui::hit_test(instance->document.root, x, y);
+    while (hit != nullptr) {
+        if (hit->generated_owner != nullptr) {
+            const std::string key =
+                    explorer_.key_for(static_cast<const engine::ui::ViewModel*>(hit->generated_owner));
+            if (!key.empty()) {
+                return key;
+            }
+        }
+        if (hit->parent.is_null()) {
+            break;
+        }
+        const std::expected<engine::ui::Element*, engine::ui::ElementLookupError> parent =
+                instance->document.find(hit->parent);
+        if (!parent) {
+            break;
+        }
+        hit = *parent;
+    }
+    return {};
+}
+
+void EditorPanels::read_project_drag(engine::ecs::World& world) {
+    constexpr float kDragSlop = 4.0f;
+    for (const engine::MouseEvent& event : engine::ecs::EventReader<engine::MouseEvent>{world, mouse_cursor_}) {
+        const engine::ui::UiCanvas* canvas = world.try_get<engine::ui::UiCanvas>(explorer_canvas_);
+        if (canvas == nullptr || event.window != canvas->window) {
+            continue;
+        }
+        if (event.kind == engine::MouseEvent::Kind::Down && event.button == engine::MouseButton::Left) {
+            drag_armed_ = false;
+            drag_active_ = false;
+            drag_folder_.reset();
+            explorer_.set_drop_highlight({});
+            if (!explorer_.renaming().empty() ||
+                    tree_canvas_under_pointer(world, event.window) != explorer_canvas_) {
+                continue;
+            }
+            const std::string key = project_row_at(world, event.position);
+            if (key.empty()) {
+                continue;
+            }
+            drag_armed_ = true;
+            drag_key_ = key;
+            drag_origin_ = event.position;
+            continue;
+        }
+        if (!drag_armed_) {
+            continue;
+        }
+        if (event.kind == engine::MouseEvent::Kind::Move) {
+            const float dx = event.position.x - drag_origin_.x;
+            const float dy = event.position.y - drag_origin_.y;
+            if (!drag_active_ && dx * dx + dy * dy < kDragSlop * kDragSlop) {
+                continue;
+            }
+            drag_active_ = true;
+            const std::string hover = tree_canvas_under_pointer(world, event.window) == explorer_canvas_
+                    ? project_row_at(world, event.position)
+                    : std::string{};
+            drag_folder_ = explorer_.drop_folder(drag_key_, hover);
+            explorer_.set_drop_highlight(drag_folder_.value_or(""));
+            continue;
+        }
+        if (event.kind == engine::MouseEvent::Kind::Up && event.button == engine::MouseButton::Left) {
+            if (drag_active_ && drag_folder_) {
+                explorer_.move_into(drag_key_, *drag_folder_);
+            }
+            drag_armed_ = false;
+            drag_active_ = false;
+            drag_folder_.reset();
+            explorer_.set_drop_highlight({});
+        }
+    }
+}
+
 void EditorPanels::read_tree_keys(engine::ecs::World& world) {
     // The tree under the pointer of the window the key went to: the editor window, or a panel's own float window.
     engine::ecs::Entity tree{};
@@ -352,12 +499,67 @@ void EditorPanels::read_tree_keys(engine::ecs::World& world) {
             held_ctrl_ = event.down;
             continue;
         }
+        if (event.key == engine::KeyCode::LShift || event.key == engine::KeyCode::RShift) {
+            held_shift_ = event.down;
+            continue;
+        }
         if (!event.down) {
+            continue;
+        }
+        if (held_ctrl_ && event.key == engine::KeyCode::Z) {
+            if (held_shift_) {
+                redo_edit();
+            } else {
+                undo_edit();
+            }
+            continue;
+        }
+        if (held_ctrl_ && !held_shift_ && event.key == engine::KeyCode::Y) {
+            redo_edit();
             continue;
         }
         if (held_ctrl_ && event.key == engine::KeyCode::S) {
             (void) world_view_.save_world();
             continue;
+        }
+        if (!explorer_.renaming().empty()) {
+            if (!event.repeat && event.key == engine::KeyCode::Escape) {
+                explorer_.cancel_rename();
+            } else if (!event.repeat && event.key == engine::KeyCode::Return) {
+                explorer_.commit_rename();
+            }
+            continue;
+        }
+        const engine::ui::Element* focused = engine::ui::focused_element(world, event.window);
+        if (focused != nullptr && focused->kind == engine::ui::ElementKind::TextInput) {
+            continue;
+        }
+        const bool over_project = tree_canvas_under_pointer(world, event.window) == explorer_canvas_;
+        if (over_project && !event.repeat) {
+            if (event.key == engine::KeyCode::F2 && !held_ctrl_ && !held_shift_) {
+                explorer_.begin_rename();
+                continue;
+            }
+            if (held_ctrl_ && held_shift_ && event.key == engine::KeyCode::N) {
+                explorer_.new_folder();
+                continue;
+            }
+            if (held_ctrl_ && !held_shift_ && event.key == engine::KeyCode::C) {
+                explorer_.copy();
+                continue;
+            }
+            if (held_ctrl_ && !held_shift_ && event.key == engine::KeyCode::X) {
+                explorer_.cut();
+                continue;
+            }
+            if (held_ctrl_ && !held_shift_ && event.key == engine::KeyCode::V) {
+                explorer_.paste();
+                continue;
+            }
+            if (event.key == engine::KeyCode::Delete && !held_ctrl_) {
+                explorer_.remove();
+                continue;
+            }
         }
         const std::optional<engine::ui::TreeNav> nav = engine::ui::tree_nav_for_key(event.key);
         const engine::ecs::Entity under = nav ? tree_canvas_under_pointer(world, event.window) : engine::ecs::Entity{};
@@ -389,6 +591,24 @@ void EditorPanels::read_tree_keys(engine::ecs::World& world) {
     if (scroller != nullptr && rows != nullptr) {
         (void) engine::ui::scroll_item_into_view(instance->document, *scroller, *rows, *keep_in_view);
     }
+}
+
+void EditorPanels::undo_edit() {
+    world_view_.finish_gizmo_drag();
+    if (!commands_.undo()) {
+        return;
+    }
+    world_view_.sync_entity_dirty(commands_.count(EditorCommand::Kind::Entity));
+    inspector_.end_field_edit();
+}
+
+void EditorPanels::redo_edit() {
+    world_view_.finish_gizmo_drag();
+    if (!commands_.redo()) {
+        return;
+    }
+    world_view_.sync_entity_dirty(commands_.count(EditorCommand::Kind::Entity));
+    inspector_.end_field_edit();
 }
 
 const EditorSelection& EditorPanels::selection() const {

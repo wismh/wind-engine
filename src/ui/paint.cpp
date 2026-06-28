@@ -640,6 +640,21 @@ namespace engine::ui {
             return score;
         }
 
+        // A bare non-negative number. `1px` and a negative are not a flex-grow.
+        std::optional<float> parse_flex_grow(std::string_view raw) {
+            const std::string_view value = trim(raw);
+            if (value.empty()) {
+                return std::nullopt;
+            }
+            const std::string tmp(value);
+            char *end = nullptr;
+            const float n = std::strtof(tmp.c_str(), &end);
+            if (end == tmp.c_str() || end != tmp.c_str() + tmp.size() || !(n >= 0.0f)) {
+                return std::nullopt;
+            }
+            return n;
+        }
+
         void apply_declaration(ComputedStyle &style, const CssDeclaration &decl) {
             if (decl.property == "color") {
                 if (const auto color = parse_color(decl.value)) {
@@ -689,6 +704,10 @@ namespace engine::ui {
                     style.direction = StackDirection::Horizontal;
                 } else {
                     style.direction = StackDirection::Vertical;
+                }
+            } else if (decl.property == "flex-grow") {
+                if (const std::optional<float> grow = parse_flex_grow(decl.value)) {
+                    style.flex_grow = *grow;
                 }
             } else if (decl.property == "padding") {
                 if (const auto padding = css_length::parse_insets(decl.value)) {
@@ -1276,6 +1295,7 @@ namespace engine::ui {
             element.min_height = style.min_height;
             element.justify = style.justify;
             element.align_items = style.align_items;
+            element.flex_grow = style.flex_grow;
             element.text_align = style.text_align;
             element.white_space = style.white_space;
             element.user_select = style.user_select;
@@ -1389,6 +1409,7 @@ namespace engine::ui {
             bool display_none = false;
             bool visible = true;
             bool repaint_boundary = false;
+            float flex_grow = 0.0f;
         };
 
         LayoutFields layout_fields_of(const Element &e) {
@@ -1396,7 +1417,8 @@ namespace engine::ui {
                                 e.height,      e.min_width,   e.max_width,    e.min_height,   e.justify,
                                 e.align_items, e.white_space, e.font_size,    e.line_height,  e.font_family,
                                 e.position,    e.inset_top,   e.inset_right,  e.inset_bottom, e.inset_left,
-                                e.overflow_x,  e.overflow_y,  e.display_none, e.visible,      e.repaint_boundary};
+                                e.overflow_x,  e.overflow_y,  e.display_none, e.visible,      e.repaint_boundary,
+                                e.flex_grow};
         }
 
         bool layout_fields_differ(const LayoutFields &a, const LayoutFields &b) {
@@ -1412,7 +1434,7 @@ namespace engine::ui {
                    !same_length(a.inset_right, b.inset_right) || !same_length(a.inset_bottom, b.inset_bottom) ||
                    !same_length(a.inset_left, b.inset_left) || a.overflow_x != b.overflow_x ||
                    a.overflow_y != b.overflow_y || a.display_none != b.display_none || a.visible != b.visible ||
-                   a.repaint_boundary != b.repaint_boundary;
+                   a.repaint_boundary != b.repaint_boundary || a.flex_grow != b.flex_grow;
         }
 
         // Restyles only what is marked: an element with `kDirtyStyle` gets its layout style written again, and if that
@@ -2018,6 +2040,18 @@ namespace engine::ui {
                                            style.text_align, style.align_items, style.color);
                     }
                     const float x = text_align_origin_x(content.x, content.w, style.text_align);
+                    // TextInput stores the left of the glyphs. text-align center/end draws from the anchor `x`,
+                    // and the caret, the selection, and a click all measure prefixes from this left edge.
+                    float glyph_left = x;
+                    if (element.kind == ElementKind::TextInput && style.text_align != UiAlign::Start) {
+                        const float text_w =
+                                painter.measure_text(element.text, style.font_family, font_size * input.ui_scale).x;
+                        if (style.text_align == UiAlign::Center) {
+                            glyph_left -= text_w * 0.5f;
+                        } else if (style.text_align == UiAlign::End) {
+                            glyph_left -= text_w;
+                        }
+                    }
                     float y = content.y;
                     if (style.align_items == UiAlign::Center) {
                         y = content.y + content.h * 0.5f;
@@ -2075,7 +2109,7 @@ namespace engine::ui {
                         // Cached regardless of focus: a click that *focuses* an unfocused TextInput still
                         // needs last frame's metrics to place the caret (see Element::painted_font_size_px).
                         element.painted_font_size_px = font_size * input.ui_scale;
-                        element.painted_content_origin_x = x;
+                        element.painted_content_origin_x = glyph_left;
                     }
                     if (element.kind == ElementKind::TextInput && element.focused) {
                         // The caret blinks with the clock: this picture is never replayed.
@@ -2102,8 +2136,9 @@ namespace engine::ui {
                             const float end_w = painter.measure_text(std::string_view(element.text).substr(0, sel_end),
                                                                      style.font_family, font_size * input.ui_scale)
                                                         .x;
-                            painter.fill_rounded_rect(render::Rect{x + start_w, glyph_y, end_w - start_w, glyph_h},
-                                                      0.0f, element.selection_color);
+                            painter.fill_rounded_rect(
+                                    render::Rect{glyph_left + start_w, glyph_y, end_w - start_w, glyph_h}, 0.0f,
+                                    element.selection_color);
                         }
 
                         const std::size_t committed_caret = std::min(element.caret_position, element.text.size());
@@ -2111,7 +2146,7 @@ namespace engine::ui {
                                 painter.measure_text(std::string_view(element.text).substr(0, committed_caret),
                                                      style.font_family, glyph_h)
                                         .x;
-                        const float composition_x = x + committed_w;
+                        const float composition_x = glyph_left + committed_w;
                         if (!element.composition.empty()) {
                             const std::string_view composition = element.composition;
                             painter.fill_text(composition, glm::vec2{composition_x, y}, style.color, UiAlign::Start,

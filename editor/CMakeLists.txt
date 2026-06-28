@@ -10,6 +10,7 @@ set(_wind_editor_parts
     src/asset_watch.cpp
     src/batch_run.cpp
     src/build_line_view_model.cpp
+    src/command_history.cpp
     src/build_panel.cpp
     src/build_view_model.cpp
     src/dock_layout_file.cpp
@@ -20,6 +21,7 @@ set(_wind_editor_parts
     src/editor_selection.cpp
     src/editor_view_model.cpp
     src/engine_host_play.cpp
+    src/entity_edit.cpp
     src/entity_inspection.cpp
     src/export_dialog.cpp
     src/export_view_model.cpp
@@ -29,10 +31,12 @@ set(_wind_editor_parts
     src/hierarchy_panel.cpp
     src/hierarchy_row_view_model.cpp
     src/hierarchy_view_model.cpp
+    src/inspector_field_view_model.cpp
     src/inspector_line_view_model.cpp
     src/inspector_panel.cpp
     src/inspector_section_view_model.cpp
     src/inspector_view_model.cpp
+    src/native_build.cpp
     src/opening_overlay.cpp
     src/opening_view_model.cpp
     src/play_session.cpp
@@ -43,6 +47,7 @@ set(_wind_editor_parts
     src/profiler_view_model.cpp
     src/project_build.cpp
     src/project_check.cpp
+    src/project_edit.cpp
     src/project_export.cpp
     src/project_scan.cpp
     src/toolbar.cpp
@@ -75,6 +80,7 @@ if(ENGINE_BUILD_TESTS)
         tests/asset_watch_test.cpp
         tests/batch_run_test.cpp
         tests/build_panel_test.cpp
+        tests/command_history_test.cpp
         tests/dock_layout_file_test.cpp
         tests/edit_module_test.cpp
         tests/editor_cli_test.cpp
@@ -84,11 +90,13 @@ if(ENGINE_BUILD_TESTS)
         tests/export_dialog_test.cpp
         tests/hierarchy_panel_test.cpp
         tests/inspector_panel_test.cpp
+        tests/native_build_test.cpp
         tests/opening_overlay_test.cpp
         tests/play_session_test.cpp
         tests/profiler_chart_test.cpp
         tests/profiler_panel_test.cpp
         tests/project_build_test.cpp
+        tests/project_edit_test.cpp
         tests/project_export_test.cpp
         tests/toolbar_test.cpp
         tests/ui_tree_panel_test.cpp
