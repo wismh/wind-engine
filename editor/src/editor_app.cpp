@@ -23,6 +23,8 @@ namespace {
 // kPrimaryWindow between plays. Play applies the game's own description; Stop puts title and style back.
 const engine::WindowDesc kIdleGameWindow{.title = "Game", .size = {800, 600}};
 const engine::WindowDesc kEditorWindow{.title = "Wind Editor", .size = {1280, 800}};
+constexpr char kNoProjectMessage[] =
+        "No project to open. Start the editor from the Wind launcher, or run wind_editor --project <dir>.";
 
 std::string path_text(const std::filesystem::path& path) {
     const std::u8string text = path.u8string();
@@ -77,6 +79,11 @@ int EditorApp::run(const EditorOptions& options) {
 
 bool EditorApp::start(const EditorOptions& options) {
     if (!host_.init()) {
+        return false;
+    }
+    if (!options.project) {
+        // The launcher passes --project; there is no Open dialog to fall back on.
+        host_.fatal().report(kNoProjectMessage);
         return false;
     }
     if (!host_.open_primary(kIdleGameWindow)) {
@@ -137,13 +144,8 @@ bool EditorApp::start(const EditorOptions& options) {
         engine::log::warn("Editor: not an installed SDK: " + engine::describe(manifest.error()));
     }
 
-    if (options.project) {
-        open_project(*options.project);
-        play_at_start_ = options.play;
-    } else {
-        toolbar_->show_status("Open a project.");
-        choose_project();
-    }
+    open_project(*options.project);
+    play_at_start_ = options.play;
     engine::log::info("Editor: started");
     return true;
 }
@@ -173,18 +175,12 @@ void EditorApp::on_frame_end() {
         app.quit();
         return;
     }
-    if (const std::optional<engine::FileDialogResult> answer = dialog_.take()) {
-        take_dialog_answer(*answer);
-    }
     // Before the toolbar's request, so a Play in the same frame builds the project just opened.
     if (const std::optional<std::filesystem::path> directory = cli_->take_open()) {
         open_project(*directory);
     }
     switch (toolbar_->take_request()) {
         case EditorRequest::None:
-            break;
-        case EditorRequest::OpenProject:
-            choose_project();
             break;
         case EditorRequest::Play:
             play();
@@ -211,32 +207,7 @@ EditorFacts EditorApp::facts() const {
             .project = project_ ? project_->name : std::string{},
             .project_dir = project_dir_,
             .sdk = sdk_ ? sdk_->version : std::string{},
-            .dialog_open = dialog_.pending(),
     };
-}
-
-void EditorApp::choose_project() {
-    if (dialog_.pending()) {
-        return;
-    }
-    std::vector<engine::FileFilter> filters{
-            engine::FileFilter{.name = "Wind project (wind_project.toml)", .pattern = "toml"},
-    };
-    dialog_ = host_.services().windows.request_open_file(window_, std::move(filters));
-}
-
-void EditorApp::take_dialog_answer(const engine::FileDialogResult& answer) {
-    if (!answer.path) {
-        if (!project_) {
-            toolbar_->show_status("No project open. Press Open project.");
-        }
-        return;
-    }
-    if (answer.path->filename() != engine::kWindProjectFile) {
-        toolbar_->show_status("Pick the project's wind_project.toml.");
-        return;
-    }
-    open_project(answer.path->parent_path());
 }
 
 void EditorApp::open_project(const std::filesystem::path& directory) {

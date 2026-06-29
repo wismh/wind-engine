@@ -25,12 +25,12 @@ The SDK's `bin/` holds `wind_editor.exe`, `wind-cli.exe`, `engine.dll`, their `.
 
 `EditorApp::start` (`editor/src/editor_app.cpp`):
 
-1. `EngineHost::init`, then `open_primary` with `WindowDesc{"Game", 800x600}`. That is `kPrimaryWindow`, the game's window.
+1. `EngineHost::init`. Without `--project` the editor reports "No project to open. Start the editor from the Wind launcher, or run wind_editor --project <dir>." through `IFatalError` (a message box) and exits with 1: a project opens only from the [Launcher](Launcher.md), the command line, or `wind-cli open`. Then `open_primary` with `WindowDesc{"Game", 800x600}`. That is `kPrimaryWindow`, the game's window.
 2. `load_catalog(assets_root() / "editor")`: the editor's own `catalog.toml`. A failure is fatal.
 3. `Worlds::add` for the editor world, `open_window({"Wind Editor", 1280x800})`, `bind_window`, `enable_ui`, and one `UiCanvas` (`FillWindow`) with `assets/ui/editor.xml` and `assets/css/editor.css` over `EditorViewModel`. `EditorPanels` spawns two more canvases (`Fixed`, `order` 1): `assets/ui/inspector.xml` and `assets/ui/profiler.xml`, both with `assets/css/panels.css`.
 4. `purge_game_module_copies(<user data>/live)`. The user data directory is `user_data_directory("Wind", "Editor")`. Without one the copies go to `<temp>/wind_editor/live`.
 5. `PlaySession` and `ProjectBuild` over `EngineServices::processes`. The SDK root is `<assets root>/../..`; `read_sdk_manifest` there gives the version and configuration. A missing or bad `sdk.toml` is logged and leaves the editor unable to build.
-6. `--project <dir>` opens that project and skips the dialog. Otherwise the editor opens the open-file dialog for `wind_project.toml` (filter `*.toml`). Nothing is remembered between runs.
+6. Opens the `--project` directory. Nothing is remembered between runs.
 
 Opening a project reads `<dir>/wind_project.toml` (`read_wind_project`). A read error, a missing SDK, or an `engine` version other than the SDK's `version` shows in the status line and leaves Play disabled: "The project needs engine 0.2.0; this editor is 0.1.0."
 
@@ -38,7 +38,7 @@ Command line:
 
 | Option | Effect |
 | --- | --- |
-| `--project <dir>` | Open this project (the directory with `wind_project.toml`). No dialog at start |
+| `--project <dir>` | Open this project (the directory with `wind_project.toml`). Required |
 | `--play` | Press Play when the loop starts: build, then play. Needs `--project` |
 
 ## Window
@@ -47,17 +47,16 @@ A toolbar, a tab strip, and the active panel.
 
 | Control | Binding | Does |
 | --- | --- | --- |
-| Open project… | `openProject` | Opens the dialog for `wind_project.toml`. Disabled while building or playing |
 | Play / Cancel / Stop | `togglePlay`, `playLabel`, `isPlaying` (`checked`, red while building or playing) | Idle: build and play. Building: cancel the build. Playing: stop. Disabled with no playable project |
 | Status line | `statusText` | Ready, Building, Playing, Stopped, the game quit, or why opening, building, or Play failed |
 | Project line | `projectText` | The project's name and directory |
 | Inspector / Profiler / Build tabs | `showInspector`, `showProfiler`, `showBuild`, `inspectorTab`, `profilerTab`, `buildTab` (`checked`) | Show that panel. Inspector is first |
 
-The commands are `MethodCommand` (`editor/src/method_command.h`) bound to `Toolbar` methods. Open project and Play/Stop only record an `EditorRequest` (`wind-cli` `play` and `stop` record the same one); `Toolbar::show_state` (`RunState` Idle, Building, Playing) sets what Play/Stop does. A tab button switches the tab at once. The editor window's `WindowCloseRequestedEvent` is read by one editor-world system that also only records. The dialog answer waits on the editor's `FileDialogCall` until `on_frame_end` takes it. Every transition runs in `RunHooks::on_frame_end`, after the frame drew, because Play and Stop create and destroy worlds that no system of that frame may still be walking.
+The commands are `MethodCommand` (`editor/src/method_command.h`) bound to `Toolbar` methods. Play/Stop only records an `EditorRequest` (`wind-cli` `play` and `stop` record the same one); `Toolbar::show_state` (`RunState` Idle, Building, Playing) sets what Play/Stop does. A tab button switches the tab at once. The editor window's `WindowCloseRequestedEvent` is read by one editor-world system that also only records. Every transition runs in `RunHooks::on_frame_end`, after the frame drew, because Play and Stop create and destroy worlds that no system of that frame may still be walking.
 
 ## wind-cli
 
-`EditorApp::run` passes `RunHooks::cli` with `kind` `editor`, so the descriptor says this process is an editor, and a `handle` that calls `EditorCli` (`editor/src/editor_cli.cpp`) with `EditorFacts` read from `EditorApp` (`facts()`: the project name when one is open and playable, its directory, the SDK version, whether the Open project dialog is pending). The commands and their replies are in [CLI](CLI.md#editor-commands).
+`EditorApp::run` passes `RunHooks::cli` with `kind` `editor`, so the descriptor says this process is an editor, and a `handle` that calls `EditorCli` (`editor/src/editor_cli.cpp`) with `EditorFacts` read from `EditorApp` (`facts()`: the project name when one is open and playable, its directory, the SDK version). The commands and their replies are in [CLI](CLI.md#editor-commands).
 
 `EditorCli` reads the toolbar (`Toolbar::state`, `playable`, `status`) and acts only through it, so a command and a button do the same thing:
 
@@ -139,7 +138,7 @@ The editor's assets and catalog land in `bin/assets/editor/` (`ENGINE_RUNTIME_AS
 - The game runs in the editor's process. A crash in game code, including code that keeps running after a fatal report, takes the editor down.
 - `transparent`, `resizable`, and `maximized` of the game window are fixed at editor start.
 - The game's window icon stays on `kPrimaryWindow` after Stop.
-- No project list and no remembered project: the launcher (wind-179) will own that.
+- The editor has no project list and no Open dialog: the [Launcher](Launcher.md) owns that and starts the editor with `--project`.
 - Play always builds `DebugGame` (or `Debug` against a Debug SDK). No Release play yet.
 - The game is built with CMake's default generator when the editor configures; a build directory configured with another generator keeps it.
 - Long log lines are cut at the panel's right edge; the summary line shows the first error in full width.
