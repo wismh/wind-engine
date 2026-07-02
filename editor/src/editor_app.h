@@ -9,7 +9,6 @@
 #include "toolbar.h"
 
 #include <engine/core/engine_host.h>
-#include <engine/core/file_dialog.h>
 #include <engine/core/window_desc.h>
 #include <engine/project/sdk_manifest.h>
 #include <engine/project/wind_project.h>
@@ -46,8 +45,6 @@ private:
     void on_quit();
     [[nodiscard]] EditorFacts facts() const;
 
-    void choose_project();
-    void take_dialog_answer(const engine::FileDialogResult& answer);
     void open_project(const std::filesystem::path& directory);
     void play();
     void poll_build();
@@ -73,7 +70,6 @@ private:
     // The open project, once read and checked against the SDK.
     std::filesystem::path project_dir_;
     std::optional<engine::WindProject> project_;
-    engine::FileDialogCall dialog_;
     bool play_at_start_ = false;
     bool close_requested_ = false;
     bool quitting_ = false;

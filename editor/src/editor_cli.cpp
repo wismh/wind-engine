@@ -50,7 +50,7 @@ std::optional<engine::CliReply> EditorCli::handle(const engine::CliCommand& comm
         return stop();
     }
     if (command.name == "open") {
-        return open(command.path, facts);
+        return open(command.path);
     }
     return std::nullopt;
 }
@@ -96,7 +96,7 @@ engine::CliReply EditorCli::stop() {
     return reply;
 }
 
-engine::CliReply EditorCli::open(const std::string& path, const EditorFacts& facts) {
+engine::CliReply EditorCli::open(const std::string& path) {
     if (path.empty()) {
         return failure("open needs a path");
     }
@@ -109,9 +109,6 @@ engine::CliReply EditorCli::open(const std::string& path, const EditorFacts& fac
     }
     if (toolbar_->state() != RunState::Idle) {
         return failure(std::string("stop first: the editor is ") + run_text(toolbar_->state()));
-    }
-    if (facts.dialog_open) {
-        return failure("the Open project dialog is open");
     }
     open_ = directory;
     engine::CliReply reply;

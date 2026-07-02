@@ -144,7 +144,7 @@ The editor's `RunHooks::cli` has `kind` `editor` and calls `EditorCli` ([Editor]
 | `state` | `run` (`idle`, `building`, `playing`), `playable`, `status` (the status line), `project`, `project_dir`, `sdk`; null when there is none |
 | `play` | `requested`: `play`. Refused with `already building` / `already playing`, or `not playable: <status line>` |
 | `stop` | `requested`: `stop`, `was`: `building` or `playing`. A build is cancelled. Refused with `not playing` |
-| `open <project>` | `requested`: `open`, `path`. The tool sends the absolute path; `wind_project.toml` is taken as its directory. Refused while building or playing, or while the Open project dialog is open |
+| `open <project>` | `requested`: `open`, `path`. The tool sends the absolute path; `wind_project.toml` is taken as its directory. Refused while building or playing. The editor has no Open dialog: this is how a running editor switches projects |
 
 `play` and `stop` answer before anything happens: the editor acts in `on_frame_end` of the same frame, so the next `state` already shows `building` (or `idle` with the reason in `status`).
 

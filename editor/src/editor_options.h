@@ -9,7 +9,8 @@
 namespace editor {
 
 // Command line of wind_editor.
-//   --project <dir>  open the project in <dir> (the directory with wind_project.toml) and skip the dialog at start
+//   --project <dir>  open the project in <dir> (the directory with wind_project.toml). Required: without it the
+//                    editor reports that and exits
 //   --play           press Play once the editor is up (needs --project)
 struct EditorOptions {
     std::optional<std::filesystem::path> project;
