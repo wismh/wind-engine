@@ -19,11 +19,13 @@ public:
     engine::ui::Bindable<std::string> playLabel{std::string("Play")};
     engine::ui::Bindable<bool> isPlaying;
     // The tab strip: `checked` of each tab button.
-    engine::ui::Bindable<bool> inspectorTab{true};
+    engine::ui::Bindable<bool> explorerTab{true};
+    engine::ui::Bindable<bool> inspectorTab;
     engine::ui::Bindable<bool> profilerTab;
     engine::ui::Bindable<bool> buildTab;
 
     MethodCommand togglePlay;
+    MethodCommand showExplorer;
     MethodCommand showInspector;
     MethodCommand showProfiler;
     MethodCommand showBuild;

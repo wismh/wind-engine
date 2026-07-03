@@ -8,6 +8,7 @@
       </Stack>
     </Stack>
     <Stack class="tabs" direction="horizontal">
+      <Button class="tab" command="{binding showExplorer}" checked="{binding explorerTab}" content="Project"/>
       <Button class="tab" command="{binding showInspector}" checked="{binding inspectorTab}" content="Inspector"/>
       <Button class="tab" command="{binding showProfiler}" checked="{binding profilerTab}" content="Profiler"/>
       <Button class="tab" command="{binding showBuild}" checked="{binding buildTab}" content="Build"/>

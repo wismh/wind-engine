@@ -26,7 +26,7 @@ enum class RunState {
     Playing,
 };
 
-// The editor window's top bar: Play/Stop, status line, project line, and the Inspector/Profiler/Build
+// The editor window's top bar: Play/Stop, status line, project line, and the Project/Inspector/Profiler/Build
 // tab strip. Owns the view-model and the button methods. Holds `this` in its commands, so it never moves.
 class Toolbar {
 public:
@@ -38,6 +38,7 @@ public:
     [[nodiscard]] const std::shared_ptr<EditorViewModel>& view_model() const;
 
     void toggle_play();
+    void show_explorer();
     void show_inspector();
     void show_profiler();
     void show_build();
@@ -63,7 +64,7 @@ private:
 
     std::shared_ptr<EditorViewModel> view_model_;
     EditorRequest request_ = EditorRequest::None;
-    EditorTab tab_ = EditorTab::Inspector;
+    EditorTab tab_ = EditorTab::Explorer;
     RunState state_ = RunState::Idle;
     bool playable_ = false;
 };

@@ -23,9 +23,9 @@ class World;
 
 namespace editor {
 
-// The editor process: one EngineHost, the editor's world and window, the toolbar, the Inspector, Profiler, and
-// Build panels, the open project, its build, and the play session. Play builds the project's game module with
-// cmake against this editor's SDK, then loads it.
+// The editor process: one EngineHost, the editor's world and window, the toolbar, the Project, Inspector,
+// Profiler, and Build panels, the open project, its build, and the play session. Play builds the project's game
+// module with cmake against this editor's SDK, then loads it.
 // kPrimaryWindow belongs to the game being played and is empty between plays. Holds `this` in its run
 // hooks and systems, so it never moves.
 class EditorApp {

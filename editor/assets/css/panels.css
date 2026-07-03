@@ -1,4 +1,4 @@
-/* Inspector and Profiler panels. Each is its own canvas under the toolbar and the tab strip, placed by
+/* Project, Inspector, Profiler, and Build panels. Each is its own canvas under the toolbar and the tab strip, placed by
    EditorPanels (editor/src/editor_panels.cpp). Same palette as editor.css. */
 
 Canvas {
@@ -97,6 +97,36 @@ ScrollView.box {
 
 ScrollView.tree {
   height: calc(100% - 22px);
+}
+
+/* Right column of the Project tab: the selected entry under its section. */
+ScrollView.selected {
+  height: calc(100% - 22px);
+}
+
+/* Refresh on the Project tab, in the 24 px .option-row. */
+Button.panel-button {
+  height: 24;
+  margin: 0;
+  padding: 0 12;
+  border-radius: 4;
+  font-size: 12;
+  color: #dfe1e5;
+  background: #3c3f41;
+  align-items: center;
+}
+
+Button.panel-button:hover {
+  background: #4b4f53;
+}
+
+Button.panel-button:pressed {
+  background: #5a5e62;
+}
+
+Button.panel-button:disabled {
+  color: #6f737a;
+  background: #313335;
 }
 
 /* Right column of the inspector: section, detail, section, rules, three gaps = 50 px of chrome. */
