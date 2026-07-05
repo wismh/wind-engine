@@ -5,7 +5,7 @@
 namespace engine::ui {
 namespace {
 
-void attach(Element &element, AssetsDb &assets) {
+void attach(Element& element, AssetsDb& assets) {
     if (element.kind == ElementKind::Svg) {
         if (element.source) {
             element.svg = assets.get<SvgPicture>(*element.source);
@@ -13,18 +13,16 @@ void attach(Element &element, AssetsDb &assets) {
             element.svg.reset();
         }
     }
-    for (Element &child: element.children) {
+    for (Element& child : element.children) {
         attach(child, assets);
     }
-    for (Element &child: element.generated_items) {
+    for (Element& child : element.generated_items) {
         attach(child, assets);
     }
 }
 
 }
 
-void attach_svg_pictures(UiDocument &document, AssetsDb &assets) {
-    attach(document.root, assets);
-}
+void attach_svg_pictures(UiDocument& document, AssetsDb& assets) { attach(document.root, assets); }
 
 }

@@ -34,7 +34,9 @@ public:
     LiveRoot(const LiveRoot&) = delete;
     LiveRoot& operator=(const LiveRoot&) = delete;
 
-    [[nodiscard]] const std::filesystem::path& path() const { return path_; }
+    [[nodiscard]] const std::filesystem::path& path() const {
+        return path_;
+    }
 
 private:
     std::filesystem::path path_;
@@ -46,7 +48,7 @@ std::size_t entry_count(const std::filesystem::path& dir) {
         return 0;
     }
     std::size_t count = 0;
-    for (const auto& entry: std::filesystem::directory_iterator(dir)) {
+    for (const auto& entry : std::filesystem::directory_iterator(dir)) {
         (void)entry;
         ++count;
     }
@@ -57,7 +59,7 @@ const std::filesystem::path kFixture{WIND_FIXTURE_GAME};
 const std::filesystem::path kWrongBuildId{WIND_FIXTURE_GAME_WRONG_BUILD_ID};
 const std::filesystem::path kNoDestroy{WIND_FIXTURE_GAME_NO_DESTROY};
 
-} // namespace
+}
 
 TEST(GameModule, LoadsACopyCreatesAndDestroysTheGame) {
     LiveRoot live;
@@ -79,7 +81,7 @@ TEST(GameModule, LoadsACopyCreatesAndDestroysTheGame) {
     std::filesystem::path pdb = module.live_path();
     pdb.replace_extension(".pdb");
     EXPECT_EQ(std::filesystem::is_regular_file(pdb), std::filesystem::is_regular_file(source_pdb))
-        << "the .pdb is copied beside the module when the source has one";
+            << "the .pdb is copied beside the module when the source has one";
 
     engine::IGame* const game = module.create(services.services);
     ASSERT_NE(game, nullptr);
@@ -91,7 +93,7 @@ TEST(GameModule, LoadsACopyCreatesAndDestroysTheGame) {
     services.assets.clear_object_loaders();
 
     EXPECT_EQ(keep.ctx<fixture::FixtureLog>().lines,
-              (std::vector<std::string>{"game.construct", "game.start", "game.quit", "game.destroy"}));
+            (std::vector<std::string>{"game.construct", "game.start", "game.quit", "game.destroy"}));
 }
 
 TEST(GameModule, UnloadDeletesTheCopy) {
@@ -222,6 +224,8 @@ fixture_component = { label = "alpha", power = 99 }
 
 #else
 
-TEST(GameModule, NeedsTheEditorBuild) { GTEST_SKIP() << "game module fixtures are built only with ENGINE_EDITOR"; }
+TEST(GameModule, NeedsTheEditorBuild) {
+    GTEST_SKIP() << "game module fixtures are built only with ENGINE_EDITOR";
+}
 
 #endif
