@@ -7,6 +7,7 @@
 #include "ui/painter.h"
 #include "ui/profile.h"
 
+#include <engine/core/parse_float.h>
 #include <engine/ui/canvas.h>
 #include <engine/ui/command.h>
 #include <engine/ui/document.h>
@@ -89,21 +90,11 @@ namespace engine::cli {
         }
 
         bool parse_number(std::string_view &in, double &out) {
-            // strtod, not from_chars: Apple's libc++ has no floating-point from_chars before Xcode 16.3.
-            std::size_t length = 0;
-            while (length < in.size() && std::string_view("+-0123456789.eE").find(in[length]) != std::string_view::npos) {
-                ++length;
-            }
-            if (length == 0) {
+            const std::size_t used = parse_float_prefix(in, out);
+            if (used == 0) {
                 return false;
             }
-            const std::string text(in.substr(0, length));
-            char *end = nullptr;
-            out = std::strtod(text.c_str(), &end);
-            if (end == text.c_str()) {
-                return false;
-            }
-            in.remove_prefix(static_cast<std::size_t>(end - text.c_str()));
+            in.remove_prefix(used);
             return true;
         }
 
