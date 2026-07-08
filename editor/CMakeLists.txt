@@ -43,6 +43,7 @@ if(ENGINE_BUILD_TESTS)
         tests/editor_cli_test.cpp
         tests/editor_options_test.cpp
         tests/editor_panels_test.cpp
+        tests/explorer_panel_test.cpp
         tests/inspector_panel_test.cpp
         tests/play_session_test.cpp
         tests/profiler_chart_test.cpp
