@@ -1,0 +1,29 @@
+<Canvas>
+  <Stack class="panel" direction="vertical">
+    <Stack class="option-row" direction="horizontal">
+      <Button class="panel-button" command="{binding refresh}" content="Refresh"/>
+      <Label class="hint" text="{binding rootText}"/>
+    </Stack>
+    <Stack class="columns" direction="horizontal">
+      <Stack class="column-left" direction="vertical">
+        <Label class="section" text="Files"/>
+        <ScrollView id="tree" class="box tree">
+          <ItemsControl id="tree-rows" class="rows" items_source="{binding rows}">
+            <ItemTemplate>
+              <Stack class="rowline" direction="horizontal" var-row="{binding rowFill}" var-depth="{binding depth}">
+                <Checkbox class="expander" checked="{binding expanded}" command="{binding toggle}"/>
+                <Button class="row" command="{binding select}" content="{binding label}"/>
+              </Stack>
+            </ItemTemplate>
+          </ItemsControl>
+        </ScrollView>
+      </Stack>
+      <Stack class="column-right" direction="vertical">
+        <Label class="section" text="Selected"/>
+        <ScrollView class="box selected">
+          <Label class="detail-text" text="{binding detail}"/>
+        </ScrollView>
+      </Stack>
+    </Stack>
+  </Stack>
+</Canvas>
