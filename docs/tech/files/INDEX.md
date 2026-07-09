@@ -297,7 +297,11 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ui/style_anim.h` | Motion clock types | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/stylesheet.cpp` | `next_stylesheet_generation` counter, one per engine | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/svg_attach.cpp`, `svg_attach.h` | Resolve an `Svg` element's source onto `Element::svg` | [UI](../modules/UI.md#paint) |
-| `src/ui/svg_parser.cpp`, `svg_parser.h` | Icon SVG subset to `SvgPicture` | [Assets](../features/Assets.md#svg-icons) |
+| `src/ui/svg_parser.cpp`, `svg_parser.h` | Icon SVG subset to `SvgPicture`: element walk and shape emit | [Assets](../features/Assets.md#svg-icons) |
+| `src/ui/svg_internal.h` | Pieces the SVG sources share (`svg_detail`): `Aff2`, `Numbers`, `Style`, path helpers | [Assets](../features/Assets.md#svg-icons) |
+| `src/ui/svg_lex.cpp` | Number lexer users: lengths, `transform` lists | [Assets](../features/Assets.md#svg-icons) |
+| `src/ui/svg_style.cpp` | Fill, stroke, and opacity declarations and colors | [Assets](../features/Assets.md#svg-icons) |
+| `src/ui/svg_path.cpp` | Path data, arcs, ellipses, rounded rects, points | [Assets](../features/Assets.md#svg-icons) |
 | `src/ui/text_select.cpp` | Word ranges and selection edits | [UI Input](../features/UI%20Input.md) |
 | `src/ui/text_select.h` | Selection helpers | [UI Input](../features/UI%20Input.md) |
 | `src/ui/text_wrap.cpp` | Break a string into rows | [UI](../modules/UI.md) |
@@ -569,8 +573,10 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/asset_selection.h` | `AssetSelection` | [Editor](../features/Editor.md#inspector) |
 | `editor/src/asset_sync.cpp` | Write missing `.meta`, delete an orphan `.meta` | [Editor](../features/Editor.md) |
 | `editor/src/asset_sync.h` | `sync_assets`, `AssetSyncCounts` | [Editor](../features/Editor.md) |
-| `editor/src/asset_watch.cpp` | OS watch of `assets/`, debounced fingerprint, sync | [Editor](../features/Editor.md) |
+| `editor/src/asset_watch.cpp` | Debounced fingerprint of `assets/`, sync | [Editor](../features/Editor.md) |
 | `editor/src/asset_watch.h` | `AssetWatch` | [Editor](../features/Editor.md) |
+| `editor/src/directory_watch.h`, `directory_watch.cpp` | `DirectoryWatch`: thread that raises a flag when `assets/` changes | [Editor](../features/Editor.md) |
+| `editor/src/directory_watch_win32.cpp`, `_linux.cpp`, `_macos.cpp` | The OS part: ReadDirectoryChangesW, inotify, FSEvents. The two other files compile to nothing | [Editor](../features/Editor.md) |
 | `editor/src/batch_run.cpp` | `--batch --export [--development]`: SDK and project check, export build, copy, exit code |
 | `editor/src/batch_run.h` | `BatchRun`, `BatchSetup`, the exit codes |
 | `editor/src/build_line_view_model.cpp` | Binds a log row | [Editor](../features/Editor.md) |
