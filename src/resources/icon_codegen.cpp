@@ -15,29 +15,11 @@
 #pragma warning(pop)
 #endif
 
-#define STB_IMAGE_WRITE_STATIC
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-
-#ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable : 4244)
-#pragma warning(disable : 4456)
-#pragma warning(disable : 4505)
-#pragma warning(disable : 4996)
-#endif
-
-#include "stb_image_write.h"
-
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif
-
 #include "icon_codegen.h"
 
 #include "importers.h"
 
 #include <array>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -130,23 +112,11 @@ render::TextureDesc icon_resize_rgba(const render::TextureDesc& src, int size) {
     return dst;
 }
 
-std::vector<std::uint8_t> icon_encode_png(const render::TextureDesc& image) {
-    int out_len = 0;
-    unsigned char* png = stbi_write_png_to_mem(
-            image.rgba.data(), 0, image.width, image.height, 4, &out_len);
-    if (png == nullptr || out_len <= 0) {
-        return {};
-    }
-    std::vector<std::uint8_t> out(png, png + out_len);
-    std::free(png);
-    return out;
-}
-
 std::vector<std::uint8_t> icon_encode_ico(const render::TextureDesc& master, std::span<const int> sizes) {
     std::vector<std::vector<std::uint8_t>> pngs;
     pngs.reserve(sizes.size());
     for (const int size : sizes) {
-        pngs.push_back(icon_encode_png(icon_resize_rgba(master, size)));
+        pngs.push_back(encode_png_rgba(icon_resize_rgba(master, size)));
     }
 
     std::vector<std::uint8_t> out;
@@ -180,7 +150,7 @@ std::vector<std::uint8_t> icon_encode_icns(const render::TextureDesc& master) {
     write_u32be(out, 0);           // total length patched below
 
     for (const IcnsSlot& slot : kIcnsSlots) {
-        const std::vector<std::uint8_t> png = icon_encode_png(icon_resize_rgba(master, slot.size));
+        const std::vector<std::uint8_t> png = encode_png_rgba(icon_resize_rgba(master, slot.size));
         for (int i = 0; i < 4; ++i) {
             out.push_back(static_cast<std::uint8_t>(slot.tag[i]));
         }
@@ -239,11 +209,11 @@ std::expected<void, IconCodegenError> icon_codegen_write(
     }
     for (const AndroidMipmap& mipmap : kAndroidMipmaps) {
         const std::filesystem::path rel = std::filesystem::path(mipmap.dir) / "ic_launcher.png";
-        if (auto r = write_binary_file(out_root / rel, icon_encode_png(icon_resize_rgba(*decoded, mipmap.size))); !r) {
+        if (auto r = write_binary_file(out_root / rel, encode_png_rgba(icon_resize_rgba(*decoded, mipmap.size))); !r) {
             return r;
         }
     }
-    if (auto r = write_binary_file(out_root / "favicon.png", icon_encode_png(icon_resize_rgba(*decoded, kFaviconSize)));
+    if (auto r = write_binary_file(out_root / "favicon.png", encode_png_rgba(icon_resize_rgba(*decoded, kFaviconSize)));
             !r) {
         return r;
     }

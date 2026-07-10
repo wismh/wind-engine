@@ -294,7 +294,17 @@ void WindowManager::wait_for_next_frame(bool vsync_waited) {
 #endif
 }
 
-void WindowManager::draw_all() {
+void WindowManager::draw_window(WindowId id, Entry& entry, std::span<FrameCapture> captures) {
+    entry.canvas->render();
+    for (FrameCapture& capture : captures) {
+        if (capture.window == id) {
+            capture.image = entry.canvas->read_pixels();
+        }
+    }
+    entry.canvas->present();
+}
+
+void WindowManager::draw_all(std::span<FrameCapture> captures) {
     // The primary slot's canvas object always exists (constructor), even before
     // create_primary_window() ever succeeds — gating on window.window() rather than on canvas
     // non-null avoids issuing raw GL calls through an OpenGLCanvas that was never init()'d (no GL
@@ -302,11 +312,11 @@ void WindowManager::draw_all() {
     const std::optional<WindowId> vsync = sync_vsync_window();
     for (auto& [id, entry] : windows_) {
         if (id != vsync && entry->canvas && entry->window.window() != nullptr) {
-            entry->canvas->draw();
+            draw_window(id, *entry, captures);
         }
     }
     if (vsync) {
-        windows_.at(*vsync)->canvas->draw();
+        draw_window(*vsync, *windows_.at(*vsync), captures);
     }
     wait_for_next_frame(vsync.has_value());
 }

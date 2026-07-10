@@ -114,6 +114,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/core/file_dialog_call.cpp` | `FileDialogCall` ownership and cancel | [Windowing](../features/Windowing.md) |
 | `src/core/file_dialog_state.h` | State shared by a call and the dialog callback, `FileDialogCompletions` | [Windowing](../features/Windowing.md) |
 | `src/core/fixed_step.cpp` | Accumulator and step cap | [Core](../modules/Core.md) |
+| `src/core/frame_capture.h` | `FrameCapture`: one window's pixels, read before its swap | [CLI](../features/CLI.md#screenshot) |
 | `src/core/frame_limiter.h`, `src/core/frame_limiter.cpp` | `FrameLimiter`: sleep schedule for frames no vsync swap waits on | [Windowing](../features/Windowing.md#frame-pacing) |
 | `src/core/frame_pacing.h`, `src/core/frame_pacing.cpp` | `choose_vsync_window`, `frame_period`, `limiter_period` | [Windowing](../features/Windowing.md#frame-pacing) |
 | `src/core/frame_step.cpp` | `flush_worlds` and `simulate_worlds` | [Runtime Loop](../architecture/Runtime%20Loop.md) |
@@ -129,7 +130,9 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/core/sdl_fatal_error.cpp` | Message box and quit | [Core](../modules/Core.md) |
 | `src/core/web_loop.cpp` | RAF vs blocking policy, ordered shutdown | [Core](../modules/Core.md) |
 | `src/core/worlds.cpp` | Add, destroy, bind, per-world clocks | [Core](../modules/Core.md) |
-| `src/cli/cli_commands.cpp` | JSON for `tree`, `element`, `hit`, `click`, `profile`, and host replies | [CLI](../features/CLI.md) |
+| `src/cli/cli_commands.cpp` | JSON for `tree`, `element`, `hit`, `click`, `profile`, and host replies; `element_window_rect` | [CLI](../features/CLI.md) |
+| `src/cli/json.h` | `Json`, the streaming writer of CLI bodies | [CLI](../features/CLI.md) |
+| `src/cli/screenshot.cpp`, `src/cli/screenshot.h` | `screenshot`: snap, crop, PNG, reply | [CLI](../features/CLI.md#screenshot) |
 | `src/cli/cli_server.cpp` | Loopback accept thread and descriptor file | [CLI](../features/CLI.md) |
 | `src/cli/cli_server.h` | Server API used by `GameLoop` | [CLI](../features/CLI.md) |
 
@@ -154,12 +157,13 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/resources/icon_codegen.cpp` | Resize and encode ico, icns, mipmaps, favicon | [Icon Codegen](../build/Icon%20Codegen.md) |
 | `src/resources/icon_codegen.h` | Icon encode API used by the host tool | [Icon Codegen](../build/Icon%20Codegen.md) |
 | `src/resources/importers.cpp` | Mesh text, shader XML, PNG decode entry points | [Assets](../features/Assets.md) |
-| `src/resources/importers.h` | Those parsers | [Assets](../features/Assets.md) |
+| `src/resources/importers.h` | Those parsers, and `encode_png_rgba` | [Assets](../features/Assets.md) |
 | `src/resources/meta.cpp` | TOML `.meta` and cooked catalog parse | [Resources](../modules/Resources.md) |
 | `src/resources/png_decode.cpp` | PNG bytes to RGBA `TextureDesc` | [Icon Codegen](../build/Icon%20Codegen.md) |
+| `src/resources/png_encode.cpp` | RGBA `TextureDesc` to PNG bytes (`encode_png_rgba`) | [Icon Codegen](../build/Icon%20Codegen.md) |
 | `src/resources/stb_image.h` | Vendored PNG/image decoder | [Resources](../modules/Resources.md) |
 | `src/resources/stb_image_resize2.h` | Vendored resampler used by icon codegen | [Icon Codegen](../build/Icon%20Codegen.md) |
-| `src/resources/stb_image_write.h` | Vendored PNG encoder used by icon codegen | [Icon Codegen](../build/Icon%20Codegen.md) |
+| `src/resources/stb_image_write.h` | Vendored PNG encoder behind `encode_png_rgba` | [Icon Codegen](../build/Icon%20Codegen.md) |
 | `src/resources/stb_truetype.h` | Vendored TrueType rasterizer used by the UI painter | [UI](../modules/UI.md) |
 
 ## `src/render/`
@@ -169,6 +173,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/.gitkeep` | Keeps the directory in Git | [Render](../modules/Render.md) |
 | `src/render/backend/opengl/.gitkeep` | Empty placeholder. The backend lives in `src/render/opengl/` | [Render](../modules/Render.md) |
 | `src/render/animation.cpp` | Parse animation TOML into a clip | [Render](../modules/Render.md) |
+| `src/render/framebuffer_image.cpp`, `src/render/framebuffer_image.h` | Read-back rows to a top-first image with straight alpha | [CLI](../features/CLI.md#screenshot) |
 | `src/render/material.cpp` | Parse `.mat` TOML | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `src/render/material_instance.h` | `IMaterial` for a loaded `.mat` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `src/render/particles.cpp` | Spawn, integrate, and collide particles | [Render](../modules/Render.md) |
@@ -182,7 +187,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/opengl/nanovg_painter.h` | Painter declaration | [UI](../modules/UI.md) |
 | `src/render/opengl/opengl_backend.cpp` | Execute mesh and particle commands | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_backend.h` | `OpenGLBackend` | [Render](../modules/Render.md) |
-| `src/render/opengl/opengl_canvas.cpp` | Per-window GL canvas, font and image upload, swap interval | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_canvas.cpp` | Per-window GL canvas: render, read back, present; font and image upload, swap interval | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_canvas.h` | `OpenGLCanvas` | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_factory.cpp` | Create GL mesh, shader, texture | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_factory.h` | `OpenGLFactory` | [Render](../modules/Render.md) |
