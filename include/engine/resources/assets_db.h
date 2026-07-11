@@ -57,7 +57,7 @@ public:
     void set_catalog(CookedCatalog catalog);
     void add_catalog(CookedCatalog catalog);
     [[nodiscard]] std::expected<void, MetaError> load_catalog(const std::filesystem::path& catalog_file,
-                                                              const std::filesystem::path& files_root);
+            const std::filesystem::path& files_root);
     // Removes the entries `load_catalog` added with this files root and evicts their cached assets.
     // Entries from other roots (engine builtins) and their cache stay.
     void unload_catalog(const std::filesystem::path& files_root);
@@ -113,8 +113,7 @@ private:
         }
     };
 
-    [[nodiscard]] std::expected<std::shared_ptr<void>, AssetError> try_get_erased(AssetId id,
-                                                                                  const std::type_info& type);
+    [[nodiscard]] std::expected<std::shared_ptr<void>, AssetError> try_get_erased(AssetId id, const std::type_info& type);
     [[noreturn]] void fail_get(AssetId id, AssetError error);
     void register_object_erased(const std::type_info& type, std::string key, ObjectLoadFn load);
     [[nodiscard]] std::expected<std::shared_ptr<void>, AssetError> load_object(const CatalogEntry& entry,
@@ -151,4 +150,4 @@ std::shared_ptr<T> AssetsDb::get(AssetId id) {
     fail_get(id, result.error());
 }
 
-} // namespace engine
+}

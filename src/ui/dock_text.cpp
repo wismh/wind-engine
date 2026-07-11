@@ -1,3 +1,4 @@
+#include <engine/core/parse_float.h>
 #include <engine/ui/dock_layout.h>
 
 #include <toml++/toml.hpp>
@@ -30,10 +31,9 @@ namespace {
         }
         std::array<char, 64> buffer{};
         auto [end, error] = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
-        // strtod, not from_chars: Apple's libc++ has no floating-point from_chars before Xcode 16.3. to_chars left the
-        // buffer zero past `end`, so the text is terminated.
-        const double back = std::strtod(buffer.data(), nullptr);
-        if (static_cast<float>(back) != value) {
+        double back = 0.0;
+        const std::string_view shortest(buffer.data(), static_cast<std::size_t>(end - buffer.data()));
+        if (!parse_float(shortest, back) || static_cast<float>(back) != value) {
             end = std::to_chars(buffer.data(), buffer.data() + buffer.size(), static_cast<double>(value)).ptr;
         }
         const std::string_view text(buffer.data(), static_cast<std::size_t>(end - buffer.data()));
