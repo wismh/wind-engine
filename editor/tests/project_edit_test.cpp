@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <system_error>
+#include <utility>
 
 namespace {
 
@@ -60,11 +61,61 @@ private:
     std::filesystem::path root_;
 };
 
+// The editor's undo stack with the listener a panel would be: runs the factories, keeps the step's last result.
+class Journal final : public editor::ProjectStepListener {
+public:
+    editor::ProjectEditResult relocate(const std::filesystem::path& root, std::string from, std::string to) {
+        return record(editor::ProjectStep::relocate(*this, root, std::move(from), std::move(to)));
+    }
+    editor::ProjectEditResult copy_entry(const std::filesystem::path& root, std::string from, std::string to) {
+        return record(editor::ProjectStep::copy_entry(*this, root, std::move(from), std::move(to)));
+    }
+    editor::ProjectEditResult create(const std::filesystem::path& root, std::string key,
+            editor::ProjectCreateKind kind) {
+        return record(editor::ProjectStep::create(*this, root, std::move(key), kind));
+    }
+    editor::ProjectEditResult remove(const std::filesystem::path& root, std::string key) {
+        return record(editor::ProjectStep::remove(*this, root, std::move(key)));
+    }
+
+    editor::ProjectEditResult undo() {
+        last_ = {};
+        (void) history_.undo();
+        return last_;
+    }
+    editor::ProjectEditResult redo() {
+        last_ = {};
+        (void) history_.redo();
+        return last_;
+    }
+
+    // False when a step no longer fits the disk, which drops the project steps.
+    bool matches() {
+        const int before = history_.count(editor::EditorCommand::Kind::Project);
+        history_.validate(editor::EditorCommand::Kind::Project);
+        return history_.count(editor::EditorCommand::Kind::Project) == before;
+    }
+    [[nodiscard]] bool can_undo() const { return history_.can_undo(); }
+
+    void project_step_ran(const editor::ProjectEditResult& result) override { last_ = result; }
+
+private:
+    editor::ProjectEditResult record(editor::ProjectEditOutcome outcome) {
+        if (outcome.step) {
+            history_.push(std::move(outcome.step));
+        }
+        return std::move(outcome.result);
+    }
+
+    editor::CommandHistory history_;
+    editor::ProjectEditResult last_;
+};
+
 }
 
 TEST(ProjectEdit, RelocateKeepsTheGuidAndUndoPutsItBack) {
     Tree tree;
-    editor::ProjectHistory history;
+    Journal history;
     const editor::ProjectEditResult moved =
             history.relocate(tree.root(), "assets/ui/menu.xml", "assets/ui/hud.xml");
     EXPECT_TRUE(moved.ok);
@@ -76,9 +127,9 @@ TEST(ProjectEdit, RelocateKeepsTheGuidAndUndoPutsItBack) {
     EXPECT_FALSE(tree.exists("assets/ui/menu.xml.meta"));
     EXPECT_EQ(tree.read("assets/ui/hud.xml"), "<Canvas/>");
     EXPECT_EQ(tree.guid("assets/ui/hud.xml.meta").value_or(""), "0123456789abcdef0123456789abcdef");
-    EXPECT_TRUE(history.matches(tree.root()));
+    EXPECT_TRUE(history.matches());
 
-    const editor::ProjectEditResult back = history.undo(tree.root());
+    const editor::ProjectEditResult back = history.undo();
     EXPECT_TRUE(back.ok);
     EXPECT_EQ(back.select, "assets/ui/menu.xml");
     ASSERT_EQ(back.moved.size(), 1u);
@@ -87,7 +138,7 @@ TEST(ProjectEdit, RelocateKeepsTheGuidAndUndoPutsItBack) {
     EXPECT_EQ(tree.guid("assets/ui/menu.xml.meta").value_or(""), "0123456789abcdef0123456789abcdef");
     EXPECT_FALSE(tree.exists("assets/ui/hud.xml"));
 
-    const editor::ProjectEditResult again = history.redo(tree.root());
+    const editor::ProjectEditResult again = history.redo();
     EXPECT_TRUE(again.ok);
     EXPECT_TRUE(tree.exists("assets/ui/hud.xml.meta"));
     EXPECT_FALSE(tree.exists("assets/ui/menu.xml"));
@@ -96,7 +147,7 @@ TEST(ProjectEdit, RelocateKeepsTheGuidAndUndoPutsItBack) {
 TEST(ProjectEdit, RelocateRefusesTheProjectFileADescendantAndATakenName) {
     Tree tree;
     tree.write("assets/ui/hud.xml", "x");
-    editor::ProjectHistory history;
+    Journal history;
     EXPECT_FALSE(history.relocate(tree.root(), "wind_project.toml", "moved.toml").ok);
     EXPECT_TRUE(tree.exists("wind_project.toml"));
     EXPECT_FALSE(history.relocate(tree.root(), "assets", "assets/ui/nested").ok);
@@ -104,13 +155,13 @@ TEST(ProjectEdit, RelocateRefusesTheProjectFileADescendantAndATakenName) {
     EXPECT_FALSE(history.relocate(tree.root(), "assets/ui/menu.xml", "assets/ui/hud.xml").ok);
     EXPECT_FALSE(history.relocate(tree.root(), "assets/ui/menu.xml", "../outside.xml").ok);
     EXPECT_FALSE(history.relocate(tree.root(), "assets/ui/menu.xml", "assets/ui/bad:name.xml").ok);
-    EXPECT_TRUE(history.matches(tree.root()));
+    EXPECT_TRUE(history.matches());
     EXPECT_FALSE(history.can_undo());
 }
 
 TEST(ProjectEdit, CopyWritesANewGuidAndUndoRemovesOnlyTheCopy) {
     Tree tree;
-    editor::ProjectHistory history;
+    Journal history;
     const editor::ProjectEditResult copied =
             history.copy_entry(tree.root(), "assets/ui/menu.xml", "assets/ui/menu_copy.xml");
     EXPECT_TRUE(copied.ok);
@@ -120,7 +171,7 @@ TEST(ProjectEdit, CopyWritesANewGuidAndUndoRemovesOnlyTheCopy) {
     EXPECT_NE(*copy_guid, "0123456789abcdef0123456789abcdef");
     EXPECT_EQ(tree.guid("assets/ui/menu.xml.meta").value_or(""), "0123456789abcdef0123456789abcdef");
 
-    EXPECT_TRUE(history.undo(tree.root()).ok);
+    EXPECT_TRUE(history.undo().ok);
     EXPECT_FALSE(tree.exists("assets/ui/menu_copy.xml"));
     EXPECT_FALSE(tree.exists("assets/ui/menu_copy.xml.meta"));
     EXPECT_TRUE(tree.exists("assets/ui/menu.xml"));
@@ -128,17 +179,17 @@ TEST(ProjectEdit, CopyWritesANewGuidAndUndoRemovesOnlyTheCopy) {
 
 TEST(ProjectEdit, CopyOfAFolderOutsideAssetsDoesNotInventASidecar) {
     Tree tree;
-    editor::ProjectHistory history;
+    Journal history;
     EXPECT_TRUE(history.copy_entry(tree.root(), "src/game.cpp", "src/game_copy.cpp").ok);
     EXPECT_EQ(tree.read("src/game_copy.cpp"), "int main(){return 0;}\n");
     EXPECT_FALSE(tree.exists("src/game_copy.cpp.meta"));
-    EXPECT_TRUE(history.undo(tree.root()).ok);
+    EXPECT_TRUE(history.undo().ok);
     EXPECT_FALSE(tree.exists("src/game_copy.cpp"));
 }
 
 TEST(ProjectEdit, CreateWorldHeaderAndFolderThenUndo) {
     Tree tree;
-    editor::ProjectHistory history;
+    Journal history;
     const editor::ProjectEditResult world =
             history.create(tree.root(), "assets/ui/New World.world", editor::ProjectCreateKind::World);
     EXPECT_TRUE(world.ok);
@@ -155,21 +206,21 @@ TEST(ProjectEdit, CreateWorldHeaderAndFolderThenUndo) {
     EXPECT_TRUE(history.create(tree.root(), "src/New Folder", editor::ProjectCreateKind::Directory).ok);
     EXPECT_TRUE(std::filesystem::is_directory(tree.root() / "src" / "New Folder"));
 
-    EXPECT_TRUE(history.undo(tree.root()).ok);
+    EXPECT_TRUE(history.undo().ok);
     EXPECT_FALSE(tree.exists("src/New Folder"));
-    EXPECT_TRUE(history.undo(tree.root()).ok);
+    EXPECT_TRUE(history.undo().ok);
     EXPECT_FALSE(tree.exists("src/New Header.hpp"));
-    EXPECT_TRUE(history.undo(tree.root()).ok);
+    EXPECT_TRUE(history.undo().ok);
     EXPECT_FALSE(tree.exists("assets/ui/New World.world"));
     EXPECT_FALSE(tree.exists("assets/ui/New World.world.meta"));
 }
 
 TEST(ProjectEdit, UndoOfACreateRefusesOnceTheFileChanged) {
     Tree tree;
-    editor::ProjectHistory history;
+    Journal history;
     ASSERT_TRUE(history.create(tree.root(), "src/New Source.cpp", editor::ProjectCreateKind::Source).ok);
     tree.write("src/New Source.cpp", "changed\n");
-    const editor::ProjectEditResult undone = history.undo(tree.root());
+    const editor::ProjectEditResult undone = history.undo();
     EXPECT_FALSE(undone.ok);
     EXPECT_TRUE(tree.exists("src/New Source.cpp"));
     EXPECT_TRUE(history.can_undo());
@@ -177,15 +228,15 @@ TEST(ProjectEdit, UndoOfACreateRefusesOnceTheFileChanged) {
 
 TEST(ProjectEdit, ExternalChangeDropsTheMatch) {
     Tree tree;
-    editor::ProjectHistory history;
+    Journal history;
     ASSERT_TRUE(history.relocate(tree.root(), "src/game.cpp", "src/play.cpp").ok);
     std::filesystem::remove(tree.root() / "src" / "play.cpp");
-    EXPECT_FALSE(history.matches(tree.root()));
+    EXPECT_FALSE(history.matches());
 }
 
 TEST(ProjectEdit, DeleteRestoresTheFileTheGuidAndTheFolder) {
     Tree tree;
-    editor::ProjectHistory history;
+    Journal history;
     const editor::ProjectEditResult removed = history.remove(tree.root(), "assets/ui/menu.xml");
     EXPECT_TRUE(removed.ok);
     EXPECT_EQ(removed.select, "assets/ui");
@@ -194,7 +245,7 @@ TEST(ProjectEdit, DeleteRestoresTheFileTheGuidAndTheFolder) {
     EXPECT_FALSE(tree.exists("assets/ui/menu.xml"));
     EXPECT_FALSE(tree.exists("assets/ui/menu.xml.meta"));
 
-    const editor::ProjectEditResult back = history.undo(tree.root());
+    const editor::ProjectEditResult back = history.undo();
     EXPECT_TRUE(back.ok);
     EXPECT_EQ(back.select, "assets/ui/menu.xml");
     EXPECT_TRUE(back.removed.empty());
@@ -203,19 +254,19 @@ TEST(ProjectEdit, DeleteRestoresTheFileTheGuidAndTheFolder) {
 
     EXPECT_TRUE(history.remove(tree.root(), "assets/ui").ok);
     EXPECT_FALSE(tree.exists("assets/ui/menu.xml"));
-    EXPECT_TRUE(history.undo(tree.root()).ok);
+    EXPECT_TRUE(history.undo().ok);
     EXPECT_EQ(tree.read("assets/ui/menu.xml"), "<Canvas/>");
     EXPECT_EQ(tree.guid("assets/ui/menu.xml.meta").value_or(""), "0123456789abcdef0123456789abcdef");
 }
 
 TEST(ProjectEdit, DeleteRefusesTheProjectFileAndATakenNameOnUndo) {
     Tree tree;
-    editor::ProjectHistory history;
+    Journal history;
     EXPECT_FALSE(history.remove(tree.root(), "wind_project.toml").ok);
     EXPECT_TRUE(tree.exists("wind_project.toml"));
     ASSERT_TRUE(history.remove(tree.root(), "src/game.cpp").ok);
     tree.write("src/game.cpp", "taken\n");
-    const editor::ProjectEditResult undone = history.undo(tree.root());
+    const editor::ProjectEditResult undone = history.undo();
     EXPECT_FALSE(undone.ok);
     EXPECT_EQ(tree.read("src/game.cpp"), "taken\n");
     EXPECT_TRUE(history.can_undo());

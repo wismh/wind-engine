@@ -41,7 +41,7 @@ bool is_gpu_type(const std::type_info& type) {
 
 bool needs_factory(const std::type_info& type) {
     return is_gpu_type(type) || type == typeid(render::IMaterial) || type == typeid(SpriteSheet) ||
-           type == typeid(render::SpriteAnimationClip);
+            type == typeid(render::SpriteAnimationClip);
 }
 
 std::optional<ImporterKind> importer_for_type(const std::type_info& type) {
@@ -109,8 +109,7 @@ std::filesystem::path lookup_path(const CatalogEntry& entry, const std::filesyst
 }
 
 std::expected<std::shared_ptr<void>, AssetError> load_gpu(const CatalogEntry& entry, const std::type_info& type,
-                                                          const std::filesystem::path& fallback_root,
-                                                          render::IGraphicFactory& factory) {
+        const std::filesystem::path& fallback_root, render::IGraphicFactory& factory) {
     const std::filesystem::path path = lookup_path(entry, fallback_root);
     std::error_code ec;
     if (!std::filesystem::is_regular_file(path, ec)) {
@@ -162,8 +161,8 @@ std::expected<std::shared_ptr<void>, AssetError> load_gpu(const CatalogEntry& en
     return std::unexpected(AssetError::Corrupt);
 }
 
-std::expected<std::shared_ptr<void>, AssetError> load_cpu(const CatalogEntry& entry, const std::type_info& type,
-                                                          const std::filesystem::path& fallback_root) {
+std::expected<std::shared_ptr<void>, AssetError> load_cpu(
+        const CatalogEntry& entry, const std::type_info& type, const std::filesystem::path& fallback_root) {
     const std::filesystem::path path = lookup_path(entry, fallback_root);
     std::error_code ec;
     if (!std::filesystem::is_regular_file(path, ec)) {
@@ -195,7 +194,7 @@ std::expected<std::shared_ptr<void>, AssetError> load_cpu(const CatalogEntry& en
         std::vector<std::string> warnings;
         auto parsed = ui::parse_css(*bytes, warnings);
         // A dropped declaration otherwise fails silently: the game just looks wrong.
-        for (const std::string& warning: warnings) {
+        for (const std::string& warning : warnings) {
             log::warn(std::format("stylesheet {}: {}", entry.relative_path, warning));
         }
         if (!parsed) {
@@ -288,8 +287,8 @@ std::expected<std::shared_ptr<void>, AssetError> load_cpu(const CatalogEntry& en
     return std::unexpected(AssetError::Corrupt);
 }
 
-std::expected<std::shared_ptr<void>, AssetError> load_material(AssetsDb& db, const CatalogEntry& entry,
-                                                               const std::filesystem::path& fallback_root) {
+std::expected<std::shared_ptr<void>, AssetError> load_material(
+        AssetsDb& db, const CatalogEntry& entry, const std::filesystem::path& fallback_root) {
     const std::filesystem::path path = lookup_path(entry, fallback_root);
     const auto bytes = read_all(path);
     if (!bytes) {
@@ -334,14 +333,14 @@ std::expected<std::shared_ptr<void>, AssetError> load_sprite_sheet(AssetsDb& db,
     auto sheet = std::make_shared<SpriteSheet>();
     sheet->texture = std::move(*texture);
     sheet->pixels_per_unit = entry.texture.pixels_per_unit;
-    for (const SpriteMeta& meta: entry.texture.sprites) {
+    for (const SpriteMeta& meta : entry.texture.sprites) {
         sheet->sprites[meta.name] = meta;
     }
     return std::static_pointer_cast<void>(std::move(sheet));
 }
 
-std::expected<std::shared_ptr<void>, AssetError> load_animation(AssetsDb& db, const CatalogEntry& entry,
-                                                                const std::filesystem::path& fallback_root) {
+std::expected<std::shared_ptr<void>, AssetError> load_animation(
+        AssetsDb& db, const CatalogEntry& entry, const std::filesystem::path& fallback_root) {
     const std::filesystem::path path = lookup_path(entry, fallback_root);
     std::error_code ec;
     if (!std::filesystem::is_regular_file(path, ec)) {
@@ -361,24 +360,26 @@ std::expected<std::shared_ptr<void>, AssetError> load_animation(AssetsDb& db, co
     clip->loop = desc->loop;
     const float default_duration = 1.0f / desc->fps;
 
-    for (const auto& frame_desc: desc->frames) {
+    for (const auto& frame_desc : desc->frames) {
         auto sprite_res = db.try_get_sprite(frame_desc.texture, frame_desc.sprite);
         if (!sprite_res) {
             return std::unexpected(sprite_res.error());
         }
         const float dur = frame_desc.duration.value_or(default_duration);
         clip->frames.push_back(render::SpriteAnimationFrame{
-            .sprite = std::move(*sprite_res),
-            .duration = dur,
+                .sprite = std::move(*sprite_res),
+                .duration = dur,
         });
     }
 
     return std::static_pointer_cast<void>(std::move(clip));
 }
 
-} // namespace
+}
 
-AssetsDb::AssetsDb(IFatalError& fatal_error) : fatal_error_(fatal_error) {}
+
+AssetsDb::AssetsDb(IFatalError& fatal_error)
+    : fatal_error_(fatal_error) {}
 
 void AssetsDb::set_catalog(CookedCatalog catalog) {
     catalog_ = std::move(catalog);
@@ -386,14 +387,14 @@ void AssetsDb::set_catalog(CookedCatalog catalog) {
 }
 
 void AssetsDb::add_catalog(CookedCatalog catalog) {
-    for (const CatalogEntry& entry: catalog.entries()) {
+    for (const CatalogEntry& entry : catalog.entries()) {
         catalog_.add(entry);
     }
     cache_.clear();
 }
 
-std::expected<void, MetaError> AssetsDb::load_catalog(const std::filesystem::path& catalog_file,
-                                                      const std::filesystem::path& files_root) {
+std::expected<void, MetaError> AssetsDb::load_catalog(
+        const std::filesystem::path& catalog_file, const std::filesystem::path& files_root) {
     std::error_code ec;
     if (!std::filesystem::is_regular_file(catalog_file, ec)) {
         return std::unexpected(MetaError::Io);
@@ -407,7 +408,7 @@ std::expected<void, MetaError> AssetsDb::load_catalog(const std::filesystem::pat
         return std::unexpected(parsed.error());
     }
     CookedCatalog rooted;
-    for (const CatalogEntry& entry: parsed->entries()) {
+    for (const CatalogEntry& entry : parsed->entries()) {
         CatalogEntry copy = entry;
         copy.files_root = files_root;
         rooted.add(std::move(copy));
@@ -422,7 +423,7 @@ void AssetsDb::unload_catalog(const std::filesystem::path& files_root) {
         return;
     }
     std::unordered_set<std::string_view> gone;
-    for (const AssetId& id: removed) {
+    for (const AssetId& id : removed) {
         gone.insert(id.hex());
     }
     std::erase_if(cache_, [&gone](const auto& item) { return gone.contains(item.first.id.hex()); });
@@ -546,8 +547,8 @@ std::expected<render::Sprite, AssetError> AssetsDb::try_get_sprite(AssetId id, s
         sprite.tiling = {1.0f, 1.0f};
         if (sprite.texture) {
             sprite.pixel_size = {
-                static_cast<float>(sprite.texture->width()),
-                static_cast<float>(sprite.texture->height()),
+                    static_cast<float>(sprite.texture->width()),
+                    static_cast<float>(sprite.texture->height()),
             };
         }
         sprite.pixels_per_unit = entry->texture.pixels_per_unit;
@@ -578,4 +579,4 @@ render::Sprite AssetsDb::get_sprite(AssetId id, std::string_view name) {
     fatal_error_.report(message);
 }
 
-} // namespace engine
+}

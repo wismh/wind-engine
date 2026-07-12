@@ -2,6 +2,7 @@
 
 #include "inspector_euler.h"
 
+#include <engine/core/parse_float.h>
 #include <engine/ecs/hierarchy.h>
 #include <engine/ecs/transform.h>
 #include <engine/ecs/world.h>
@@ -78,15 +79,8 @@ bool parse_all(std::string_view text, std::int64_t& out) {
     return parsed.ec == std::errc{} && parsed.ptr == end;
 }
 
-// strtod, not from_chars: Apple's libc++ has no floating-point from_chars before Xcode 16.3.
 bool parse_all(std::string_view text, double& out) {
-    if (text.empty() || text.size() > 64) {
-        return false;
-    }
-    const std::string copy(text);
-    char* end = nullptr;
-    out = std::strtod(copy.c_str(), &end);
-    return end == copy.c_str() + copy.size();
+    return engine::parse_float(text, out);
 }
 
 std::optional<engine::ecs::FieldValue> parse_number(std::string_view text, bool integer) {

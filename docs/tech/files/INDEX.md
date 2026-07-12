@@ -31,6 +31,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/core/file_dialog.h` | `FileFilter`, `FileDialogResult`, `FileDialogCall`: one owned dialog, `take`, `cancel` | [Windowing](../features/Windowing.md) |
 | `include/engine/core/game_module.h` | Game module export types and symbol names; `GameModule`, `load_game_module`, `purge_game_module_copies` | [Core](../modules/Core.md) |
 | `include/engine/core/host.h` | Headless tick host for tests | [Core](../modules/Core.md) |
+| `include/engine/core/parse_float.h` | `parse_float`, `parse_float_prefix`: locale-free number reading, `from_chars` or `strtod` | [Core](../modules/Core.md#parsing-numbers) |
 | `include/engine/core/job_system.h` | `JobSystem`: fork-join `parallel_for` | [Core](../modules/Core.md#jobs) |
 | `include/engine/core/input_system.h` | `ActionId` bindings and input events | [Input Mapper](../features/Input%20Mapper.md) |
 | `include/engine/core/key_code.h` | `KeyCode` values matching SDL scancodes | [Input Mapper](../features/Input%20Mapper.md) |
@@ -296,7 +297,11 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ui/style_anim.h` | Motion clock types | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/stylesheet.cpp` | `next_stylesheet_generation` counter, one per engine | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/svg_attach.cpp`, `svg_attach.h` | Resolve an `Svg` element's source onto `Element::svg` | [UI](../modules/UI.md#paint) |
-| `src/ui/svg_parser.cpp`, `svg_parser.h` | Icon SVG subset to `SvgPicture` | [Assets](../features/Assets.md#svg-icons) |
+| `src/ui/svg_parser.cpp`, `svg_parser.h` | Icon SVG subset to `SvgPicture`: element walk and shape emit | [Assets](../features/Assets.md#svg-icons) |
+| `src/ui/svg_internal.h` | Pieces the SVG sources share (`svg_detail`): `Aff2`, `Numbers`, `Style`, path helpers | [Assets](../features/Assets.md#svg-icons) |
+| `src/ui/svg_lex.cpp` | Number lexer users: lengths, `transform` lists | [Assets](../features/Assets.md#svg-icons) |
+| `src/ui/svg_style.cpp` | Fill, stroke, and opacity declarations and colors | [Assets](../features/Assets.md#svg-icons) |
+| `src/ui/svg_path.cpp` | Path data, arcs, ellipses, rounded rects, points | [Assets](../features/Assets.md#svg-icons) |
 | `src/ui/text_select.cpp` | Word ranges and selection edits | [UI Input](../features/UI%20Input.md) |
 | `src/ui/text_select.h` | Selection helpers | [UI Input](../features/UI%20Input.md) |
 | `src/ui/text_wrap.cpp` | Break a string into rows | [UI](../modules/UI.md) |
@@ -428,6 +433,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/haptics_test.cpp` | Clamp, no-op, and the fake counters | [Haptics](../modules/Haptics.md) |
 | `tests/http_test.cpp` | `HttpCall` ownership, completion queue, worker pool, URL and header parsing, `HttpClient` without a socket | [Net](../modules/Net.md) |
 | `tests/host_test.cpp` | `Host` tick and system registration | [Core](../modules/Core.md) |
+| `tests/parse_float_test.cpp` | Signs, exponents, rejected text, prefix length | [Core](../modules/Core.md#parsing-numbers) |
 | `tests/job_system_test.cpp` | Inline ranges, two workers, nested `parallel_for`, `stop` joins | [Core](../modules/Core.md#jobs) |
 | `tests/icon_codegen_test.cpp` | ICO, ICNS, and PNG sizes in memory | [Icon Codegen](../build/Icon%20Codegen.md) |
 | `tests/input_test.cpp` | Bind, hold, touch synthesis, `reset` | [Input Mapper](../features/Input%20Mapper.md) |
@@ -567,8 +573,12 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/asset_selection.h` | `AssetSelection` | [Editor](../features/Editor.md#inspector) |
 | `editor/src/asset_sync.cpp` | Write missing `.meta`, delete an orphan `.meta` | [Editor](../features/Editor.md) |
 | `editor/src/asset_sync.h` | `sync_assets`, `AssetSyncCounts` | [Editor](../features/Editor.md) |
-| `editor/src/asset_watch.cpp` | OS watch of `assets/`, debounced fingerprint, sync | [Editor](../features/Editor.md) |
+| `editor/src/asset_watch.cpp` | Debounced fingerprint of `assets/`, sync | [Editor](../features/Editor.md) |
 | `editor/src/asset_watch.h` | `AssetWatch` | [Editor](../features/Editor.md) |
+| `editor/src/explorer_input.h`, `explorer_input.cpp` | `ExplorerInput`: Project tab row drag, rename focus, shortcuts | [Editor](../features/Editor.md) |
+| `editor/src/canvas_pointer.h`, `canvas_pointer.cpp` | `top_canvas_at_pointer`: topmost canvas under the pointer of a window | [Editor](../features/Editor.md) |
+| `editor/src/directory_watch.h`, `directory_watch.cpp` | `DirectoryWatch`: thread that raises a flag when `assets/` changes | [Editor](../features/Editor.md) |
+| `editor/src/directory_watch_win32.cpp`, `_linux.cpp`, `_macos.cpp` | The OS part: ReadDirectoryChangesW, inotify, FSEvents. The two other files compile to nothing | [Editor](../features/Editor.md) |
 | `editor/src/batch_run.cpp` | `--batch --export [--development]`: SDK and project check, export build, copy, exit code |
 | `editor/src/batch_run.h` | `BatchRun`, `BatchSetup`, the exit codes |
 | `editor/src/build_line_view_model.cpp` | Binds a log row | [Editor](../features/Editor.md) |
