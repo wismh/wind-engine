@@ -4,6 +4,8 @@
 #include <gtest/gtest.h>
 
 #include "cli/cli_server.h"
+#include "cli/screenshot.h"
+#include "resources/importers.h"
 #include "ui/painter.h"
 
 #include <engine/ecs/world.h>
@@ -14,17 +16,20 @@
 #include <engine/ui/stylesheet.h>
 #include <engine/ui/view_model.h>
 
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <variant>
+#include <vector>
 
 #if defined(ENGINE_UI_PROFILER)
 #include "ui/profile.h"
@@ -140,6 +145,72 @@ namespace {
         return engine::cli::execute(world, request);
     }
 
+    struct ScratchDir {
+        std::filesystem::path path;
+
+        ScratchDir() {
+            static int seq = 0;
+            const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+            path = std::filesystem::temp_directory_path() /
+                   ("wind_cli_screenshot_" + std::to_string(stamp) + "_" + std::to_string(++seq));
+            std::filesystem::create_directories(path);
+        }
+
+        ~ScratchDir() {
+            std::error_code error;
+            std::filesystem::remove_all(path, error);
+        }
+
+        ScratchDir(const ScratchDir &) = delete;
+        ScratchDir &operator=(const ScratchDir &) = delete;
+
+        [[nodiscard]] std::string file(std::string_view name) const {
+            const std::u8string text = (path / name).u8string();
+            return {reinterpret_cast<const char *>(text.data()), text.size()};
+        }
+    };
+
+    // A Windows path inside a JSON string: each backslash doubled.
+    std::string json_path(std::string_view path) {
+        std::string escaped;
+        for (const char c: path) {
+            escaped += c == '\\' ? std::string("\\\\") : std::string(1, c);
+        }
+        return escaped;
+    }
+
+    // Pixel (x, y) is (x, y, 7, 255), so a crop's first pixel names its origin.
+    engine::render::TextureDesc coordinate_image(int width, int height) {
+        engine::render::TextureDesc image;
+        image.width = width;
+        image.height = height;
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                image.rgba.push_back(static_cast<std::uint8_t>(x));
+                image.rgba.push_back(static_cast<std::uint8_t>(y));
+                image.rgba.push_back(7);
+                image.rgba.push_back(255);
+            }
+        }
+        return image;
+    }
+
+    std::optional<engine::render::TextureDesc> read_png(const std::string &path) {
+        std::ifstream file(std::filesystem::path(std::u8string(reinterpret_cast<const char8_t *>(path.data()),
+                                                               path.size())),
+                           std::ios::binary);
+        const std::string bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        return engine::decode_png_rgba(bytes);
+    }
+
+    engine::cli::CliRequest screenshot_request(std::string path, std::string selector = {}) {
+        engine::cli::CliRequest request;
+        request.command = "screenshot";
+        request.path = std::move(path);
+        request.selector = std::move(selector);
+        return request;
+    }
+
     engine::cli::CliFrame frame_of(engine::ecs::World &world) {
         return engine::cli::CliFrame{.world_for = [&world](engine::WindowId window) -> engine::ecs::World * {
             return window == engine::kPrimaryWindow ? &world : nullptr;
@@ -250,6 +321,107 @@ TEST(Cli, HitAndClickBypassPick) {
     const std::string blocked = run(game.world, "click", "#go").json;
     EXPECT_NE(blocked.find("\"reason\":\"can_execute\""), std::string::npos);
     EXPECT_EQ(game.vm->clicks, 1);
+}
+
+TEST(Cli, SnapToPixelsGrowsOutwardAndClips) {
+    const engine::render::Rect inside = engine::cli::snap_to_pixels({1.5f, 2.25f, 3.0f, 1.5f}, 10, 10);
+    EXPECT_EQ(inside.x, 1.0f);
+    EXPECT_EQ(inside.y, 2.0f);
+    EXPECT_EQ(inside.w, 4.0f);
+    EXPECT_EQ(inside.h, 2.0f);
+
+    const engine::render::Rect clipped = engine::cli::snap_to_pixels({-3.0f, 8.0f, 6.0f, 6.0f}, 10, 10);
+    EXPECT_EQ(clipped.x, 0.0f);
+    EXPECT_EQ(clipped.y, 8.0f);
+    EXPECT_EQ(clipped.w, 3.0f);
+    EXPECT_EQ(clipped.h, 2.0f);
+
+    const engine::render::Rect outside = engine::cli::snap_to_pixels({20.0f, 0.0f, 5.0f, 5.0f}, 10, 10);
+    EXPECT_EQ(outside.w, 0.0f);
+}
+
+TEST(Cli, ScreenshotWritesTheWholeWindow) {
+    ScratchDir dir;
+    const std::string path = dir.file("whole.png");
+    const std::string json = engine::cli::screenshot_json(nullptr, screenshot_request(path), coordinate_image(6, 4));
+    EXPECT_EQ(json, std::format(R"({{"ok":true,"result":{{"path":"{}","window":0,"width":6,"height":4,)"
+                                R"("rect":{{"x":0,"y":0,"w":6,"h":4}}}}}})",
+                                json_path(path)));
+    const std::optional<engine::render::TextureDesc> png = read_png(path);
+    ASSERT_TRUE(png.has_value());
+    EXPECT_EQ(png->width, 6);
+    EXPECT_EQ(png->height, 4);
+    EXPECT_EQ(png->rgba, coordinate_image(6, 4).rgba);
+}
+
+TEST(Cli, ScreenshotCropsToTheElementBorderBox) {
+    GameCanvas game = spawn_game();
+    layout_instance(game.world, game.entity);
+    ScratchDir dir;
+    const std::string path = dir.file("label.png");
+
+    const std::string json =
+            engine::cli::screenshot_json(&game.world, screenshot_request(path, "#lab"), coordinate_image(200, 100));
+    EXPECT_NE(json.find(R"("width":80,"height":20,"rect":{"x":4,"y":4,"w":80,"h":20})"), std::string::npos) << json;
+    const std::optional<engine::render::TextureDesc> png = read_png(path);
+    ASSERT_TRUE(png.has_value());
+    ASSERT_EQ(png->width, 80);
+    ASSERT_EQ(png->height, 20);
+    EXPECT_EQ(png->rgba[0], 4);
+    EXPECT_EQ(png->rgba[1], 4);
+    const std::size_t last = png->rgba.size() - 4;
+    EXPECT_EQ(png->rgba[last], 83);
+    EXPECT_EQ(png->rgba[last + 1], 23);
+}
+
+TEST(Cli, ScreenshotMapsAScaledCanvasToWindowPixels) {
+    engine::ecs::World world;
+    const auto xml = engine::ui::parse_xml(R"(<Canvas><Button id="half"/></Canvas>)");
+    ASSERT_TRUE(xml.has_value());
+    std::vector<std::string> warnings;
+    auto sheet = engine::ui::parse_css("Button { width: 50px; height: 20px; margin: 10px; }", warnings);
+    ASSERT_TRUE(sheet.has_value());
+    engine::ui::UiCanvas canvas;
+    canvas.fit = engine::ui::UiFit::ScaleWithScreenSize;
+    canvas.reference_size = {100.0f, 50.0f};
+    canvas.rect = {0.0f, 0.0f, 200.0f, 100.0f};
+    const engine::ecs::Entity entity = engine::ui::spawn_canvas(world, canvas, *xml, std::move(*sheet));
+    engine::ui::UiInstance &instance = world.get<engine::ui::UiInstance>(entity);
+    const engine::ui::UiCanvasSpace space =
+            engine::ui::canvas_layout_space(canvas.rect, canvas.fit, canvas.reference_size);
+    engine::ui::apply_layout_style(instance.document.root, &*instance.stylesheet, 100.0f, 50.0f);
+    engine::ui::layout(instance.document, space.layout_rect);
+
+    const std::expected<engine::render::Rect, std::string> rect =
+            engine::cli::element_window_rect(world, screenshot_request({}, "#half"));
+    ASSERT_TRUE(rect.has_value()) << rect.error();
+    EXPECT_FLOAT_EQ(rect->x, space.offset.x + 10.0f * space.scale);
+    EXPECT_FLOAT_EQ(rect->w, 50.0f * space.scale);
+    EXPECT_FLOAT_EQ(space.scale, 2.0f);
+}
+
+TEST(Cli, ScreenshotRefusals) {
+    EXPECT_EQ(engine::cli::screenshot_request_error(screenshot_request("")),
+              std::optional<std::string>(R"({"ok":false,"error":"screenshot needs an absolute path"})"));
+    EXPECT_TRUE(engine::cli::screenshot_request_error(screenshot_request("shot.png")).has_value());
+
+    ScratchDir dir;
+    const engine::render::TextureDesc image = coordinate_image(200, 100);
+    EXPECT_FALSE(engine::cli::screenshot_request_error(screenshot_request(dir.file("a.png"))).has_value());
+    EXPECT_EQ(engine::cli::screenshot_json(nullptr, screenshot_request(dir.file("a.png"), "#go"), image),
+              R"({"ok":false,"error":"no world on window 0"})");
+
+    GameCanvas game = spawn_game();
+    layout_instance(game.world, game.entity);
+    EXPECT_EQ(engine::cli::screenshot_json(&game.world, screenshot_request(dir.file("a.png"), "#nope"), image),
+              R"({"ok":false,"error":"no element"})");
+    EXPECT_EQ(engine::cli::screenshot_json(&game.world, screenshot_request(dir.file("a.png"), "#go"),
+                                           coordinate_image(0, 0)),
+              R"({"ok":false,"error":"element is outside the window"})");
+    const std::string missing = dir.file("no/such/dir/a.png");
+    const std::string unwritable = engine::cli::screenshot_json(nullptr, screenshot_request(missing), image);
+    EXPECT_NE(unwritable.find("\"error\":\"could not write "), std::string::npos) << unwritable;
+    EXPECT_FALSE(std::filesystem::exists(dir.path / "a.png"));
 }
 
 TEST(Cli, HostRepliesAreWrittenAsJson) {
@@ -406,6 +578,75 @@ TEST_F(CliLoopback, EachWindowReachesItsOwnWorld) {
     client.join();
     EXPECT_NE(reply.body.find("\"id\":\"tool\""), std::string::npos) << reply.body;
     EXPECT_EQ(reply.body.find("\"id\":\"go\""), std::string::npos) << reply.body;
+}
+
+TEST_F(CliLoopback, ScreenshotReadsTheNextFrame) {
+    const cli_client::Descriptor descriptor = cli_client::read_descriptor();
+    ASSERT_GT(descriptor.port, 0);
+    ScratchDir dir;
+    const std::string path = dir.file("frame.png");
+
+    GameCanvas game = spawn_game();
+    layout_instance(game.world, game.entity);
+    cli_client::Reply reply;
+    std::thread client([&] {
+        reply = cli_client::post_authorized(
+                descriptor,
+                std::format(R"({{"command":"screenshot","selector":"#go","path":"{}"}})", json_path(path)));
+    });
+    engine::cli::wait_for_request();
+    EXPECT_TRUE(engine::cli::capture_requests().empty());
+    // The first drain arms it; draw_all then reads the window it names.
+    engine::cli::drain(frame_of(game.world));
+    const std::vector<engine::WindowId> windows = engine::cli::capture_requests();
+    ASSERT_EQ(windows.size(), 1u);
+    EXPECT_EQ(windows.front(), engine::kPrimaryWindow);
+    EXPECT_FALSE(std::filesystem::exists(dir.path / "frame.png"));
+
+    const std::vector<engine::FrameCapture> captures{
+            engine::FrameCapture{.window = engine::kPrimaryWindow, .image = coordinate_image(200, 100)}};
+    engine::cli::CliFrame frame = frame_of(game.world);
+    frame.captures = captures;
+    engine::cli::drain(frame);
+    client.join();
+    EXPECT_EQ(reply.status, 200);
+    EXPECT_NE(reply.body.find(R"("rect":{"x":0,"y":0,"w":100,"h":40})"), std::string::npos) << reply.body;
+    const std::optional<engine::render::TextureDesc> png = read_png(path);
+    ASSERT_TRUE(png.has_value());
+    EXPECT_EQ(png->width, 100);
+    EXPECT_EQ(png->height, 40);
+    EXPECT_TRUE(engine::cli::capture_requests().empty());
+}
+
+TEST_F(CliLoopback, ScreenshotOfAWindowThatDidNotDraw) {
+    const cli_client::Descriptor descriptor = cli_client::read_descriptor();
+    ASSERT_GT(descriptor.port, 0);
+    ScratchDir dir;
+    const std::string path = json_path(dir.file("none.png"));
+    const engine::cli::CliFrame frame{.world_for = [](engine::WindowId) -> engine::ecs::World * { return nullptr; }};
+
+    cli_client::Reply reply;
+    std::thread client([&] {
+        reply = cli_client::post_authorized(
+                descriptor, std::format(R"({{"command":"screenshot","window":3,"path":"{}"}})", path));
+    });
+    engine::cli::wait_for_request();
+    engine::cli::drain(frame);
+    ASSERT_EQ(engine::cli::capture_requests().size(), 1u);
+    engine::cli::drain(frame);
+    client.join();
+    EXPECT_EQ(reply.body,
+              R"({"ok":false,"error":"window 3 drew nothing: it is closed, hidden, or minimized"})");
+
+    cli_client::Reply relative;
+    std::thread second([&] {
+        relative = cli_client::post_authorized(descriptor, R"({"command":"screenshot","path":"shot.png"})");
+    });
+    engine::cli::wait_for_request();
+    engine::cli::drain(frame);
+    second.join();
+    EXPECT_EQ(relative.body, R"({"ok":false,"error":"screenshot needs an absolute path"})");
+    EXPECT_TRUE(engine::cli::capture_requests().empty());
 }
 
 TEST_F(CliLoopback, OtherCommandsGoToTheHostAfterTheFrameDrew) {
