@@ -51,7 +51,7 @@ Cross-compiles import `icon_codegen` from `ENGINE_HOST_ICON_CODEGEN`. A missing 
 
 ## Tests
 
-`tests/icon_codegen_test.cpp` calls `icon_resize_rgba`, `icon_encode_png`, `icon_encode_ico`, `icon_encode_icns`, and `icon_codegen_write` in process and decodes the PNG blobs back with `decode_png_rgba`. It does not spawn the executable.
+`tests/icon_codegen_test.cpp` calls `icon_resize_rgba`, `encode_png_rgba` (`src/resources/png_encode.cpp`, also used by `wind-cli screenshot`), `icon_encode_ico`, `icon_encode_icns`, and `icon_codegen_write` in process and decodes the PNG blobs back with `decode_png_rgba`. It does not spawn the executable.
 
 ## See also
 

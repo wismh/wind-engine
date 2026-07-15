@@ -6,6 +6,7 @@
 #endif
 #endif
 #include "cli/cli_server.h"
+#include "cli/screenshot.h"
 
 #include <engine/log.h>
 
@@ -21,6 +22,7 @@
 #include <format>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -268,7 +270,7 @@ namespace engine::cli {
 #endif
         }
 
-        enum class Phase { New, ClickArmed, ClickDone, ProfileWait };
+        enum class Phase { New, ClickArmed, ClickDone, ProfileWait, CaptureArmed };
 
         struct Job {
             std::mutex mutex;
@@ -278,7 +280,9 @@ namespace engine::cli {
             int http_status = 200;
             bool done = false;
             bool abandoned = false;
+            // Main thread only, like `phase`.
             Phase phase = Phase::New;
+            WindowId capture_window = kPrimaryWindow;
         };
 
         struct Server {
@@ -512,6 +516,30 @@ namespace engine::cli {
             }
         }
 
+        // The first drain arms the job; the next one answers from the pixels draw_all read in between.
+        void dispatch_screenshot(const CliFrame &frame, Job &job, const CliRequest &request) {
+            const WindowId window{request.window};
+            if (job.phase == Phase::New) {
+                if (std::optional<std::string> error = screenshot_request_error(request)) {
+                    finish(job, 200, std::move(*error));
+                    return;
+                }
+                job.phase = Phase::CaptureArmed;
+                job.capture_window = window;
+                return;
+            }
+            const auto capture = std::find_if(frame.captures.begin(), frame.captures.end(),
+                                              [&](const FrameCapture &each) { return each.window == window; });
+            if (capture == frame.captures.end() || capture->image.rgba.empty()) {
+                finish(job, 200,
+                       error_json(std::format("window {} drew nothing: it is closed, hidden, or minimized",
+                                              request.window)));
+                return;
+            }
+            ecs::World *const world = frame.world_for ? frame.world_for(window) : nullptr;
+            finish(job, 200, screenshot_json(world, request, capture->image));
+        }
+
         void dispatch(const CliFrame &frame, Job &job, bool begin) {
             if (job_done(job)) {
                 return;
@@ -519,6 +547,12 @@ namespace engine::cli {
             const CliRequest request = parse_request(job.body);
             if (!request.error.empty()) {
                 finish(job, 200, error_json(request.error));
+                return;
+            }
+            if (request.command == "screenshot") {
+                if (!begin) {
+                    dispatch_screenshot(frame, job, request);
+                }
                 return;
             }
             if (!is_ui_command(request.command)) {
@@ -719,6 +753,24 @@ namespace engine::cli {
         for (const std::shared_ptr<Job> &job: jobs) {
             dispatch(frame, *job, true);
         }
+    }
+
+    std::vector<WindowId> capture_requests() {
+        Server &self = server();
+        if (!self.running.load()) {
+            return {};
+        }
+        std::vector<WindowId> windows;
+        std::lock_guard lock(self.mutex);
+        for (const std::shared_ptr<Job> &job: self.jobs) {
+            if (job->phase != Phase::CaptureArmed || job_done(*job)) {
+                continue;
+            }
+            if (std::find(windows.begin(), windows.end(), job->capture_window) == windows.end()) {
+                windows.push_back(job->capture_window);
+            }
+        }
+        return windows;
     }
 
     void drain(const CliFrame &frame) {

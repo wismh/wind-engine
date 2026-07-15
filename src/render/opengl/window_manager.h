@@ -3,6 +3,7 @@
 #include "opengl_canvas.h"
 #include "window_system.h"
 
+#include "core/frame_capture.h"
 #include "core/frame_limiter.h"
 #include "core/frame_pacing.h"
 
@@ -14,6 +15,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -61,11 +63,12 @@ public:
     [[nodiscard]] WindowSystem& primary_window() noexcept;
     [[nodiscard]] const WindowSystem& primary_window() const noexcept;
 
-    // Draws + swaps every live window (OpenGLCanvas::draw() already swaps at the end), then waits for the next
+    // Draws + swaps every live window (OpenGLCanvas::render, then present), then waits for the next
     // frame once: the vsync window's swap waits for vblank and goes last, every other window swaps without
     // waiting, and with no vsync window FrameLimiter sleeps (limiter_period). Web is paced by
-    // requestAnimationFrame and never waits here.
-    void draw_all();
+    // requestAnimationFrame and never waits here. A window that draws fills every capture naming it between its
+    // drawing and its swap.
+    void draw_all(std::span<FrameCapture> captures = {});
 
     // IWindowControl::set_vsync / set_max_fps. Applied by the next draw_all.
     void set_vsync(bool enabled) noexcept {
@@ -118,6 +121,7 @@ private:
     // Moves vsync to the window choose_vsync_window picks this frame and returns it.
     std::optional<WindowId> sync_vsync_window();
     void wait_for_next_frame(bool vsync_waited);
+    static void draw_window(WindowId id, Entry& entry, std::span<FrameCapture> captures);
 
     render::IRenderBackend* backend_;
     // unique_ptr<Entry>: OpenGLCanvas captures WindowSystem&/CommandBuffer& by reference at

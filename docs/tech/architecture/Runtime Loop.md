@@ -61,7 +61,8 @@ flowchart TD
   C2 --> C3["ProcessLauncher::poll: output lines and exits to their calls"]
   C3 --> D["simulate_worlds"]
   D --> E["sync_frame"]
-  E --> F["draw_all, then wait for the next frame"]
+  E --> E2["cli::capture_requests"]
+  E2 --> F["draw_all, then wait for the next frame"]
   F --> G["cli::drain"]
   G --> H["RunHooks::on_frame_end"]
 ```
@@ -103,7 +104,7 @@ Frame systems, in phase order:
 
 `Phase::Physics` is not a frame phase. `kFixedPhases` is Physics then Game. `kFramePhases` omits Physics.
 
-After simulate, `sync_frame` applies click-through from `Worlds::presentation().mouse` (the set the hit-test filled) and syncs text-input activation. `draw_all` executes each window's command buffer and is where the tick waits: one window's swap waits for vblank, or, with no window that can, a sleep to the display's refresh rate. The loop has no other limit. See [Frame pacing](../features/Windowing.md#frame-pacing). `cli::drain` answers queries from the painted frame and arms a `click` for the next `begin_frame`.
+After simulate, `sync_frame` applies click-through from `Worlds::presentation().mouse` (the set the hit-test filled) and syncs text-input activation. `draw_all` executes each window's command buffer and is where the tick waits: one window's swap waits for vblank, or, with no window that can, a sleep to the display's refresh rate. The loop has no other limit. See [Frame pacing](../features/Windowing.md#frame-pacing). `draw_all` also reads back the windows `cli::capture_requests` named, between drawing and swap. `cli::drain` answers queries from the painted frame, answers a `screenshot` from those pixels, and arms a `click` for the next `begin_frame` ([CLI](../features/CLI.md#screenshot)).
 
 ## `GameLoop::end`
 

@@ -3,6 +3,7 @@
 #include "core/game_loop.h"
 #include "core/presentation.h"
 #include "fixtures/cli_client.h"
+#include "resources/importers.h"
 
 #include <engine/core/input_system.h>
 #include <engine/core/run_hooks.h>
@@ -11,8 +12,14 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
+#include <filesystem>
+#include <format>
+#include <fstream>
+#include <iterator>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -78,9 +85,22 @@ public:
         log_->push_back("poll");
     }
     void sync_frame(engine::Worlds&) override {}
-    void draw_all() override {
+    // Each window this frame captures reads back as a 3x2 image whose red channel is the window id.
+    void draw_all(std::span<engine::FrameCapture> captures) override {
         log_->push_back("draw");
+        for (engine::FrameCapture& capture : captures) {
+            capture.image.width = 3;
+            capture.image.height = 2;
+            capture.image.rgba.clear();
+            for (int i = 0; i < 6; ++i) {
+                capture.image.rgba.insert(capture.image.rgba.end(),
+                        {static_cast<std::uint8_t>(capture.window), 0, 0, 255});
+            }
+            ++captured;
+        }
     }
+
+    int captured = 0;
     void attach_loop(engine::Worlds&, std::function<void()>) override {
         log_->push_back("attach");
     }
@@ -216,6 +236,62 @@ TEST(GameLoop, CliReachesTheHostWithoutAPrimaryWorld) {
     EXPECT_EQ(state.body, R"({"ok":true,"result":{"run":"idle"}})");
     EXPECT_EQ(tree.body, R"({"ok":false,"error":"no world on window 0"})");
     EXPECT_TRUE(answered.load());
+}
+
+TEST(GameLoop, ScreenshotIsReadBetweenDrawingAndTheAnswer) {
+    QuietFatal fatal;
+    engine::Worlds worlds{fatal};
+    engine::InputSystem input;
+    std::vector<std::string> log;
+    FakePresentation presentation{log};
+
+    const std::filesystem::path png = std::filesystem::temp_directory_path() /
+            std::format("wind_loop_screenshot_{}.png", cli_client::this_pid());
+    std::filesystem::remove(png);
+    std::string escaped;
+    for (const char8_t c : png.u8string()) {
+        escaped += c == u8'\\' ? std::string("\\\\") : std::string(1, static_cast<char>(c));
+    }
+
+    cli_client::Reply shot;
+    std::atomic<bool> answered{false};
+    std::thread client;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+
+    engine::GameLoop loop;
+    const int result = loop.run(presentation,
+            engine::RunHooks{
+                    .on_start = {},
+                    .on_frame_end = [&] {
+                        if (!client.joinable()) {
+                            const cli_client::Descriptor descriptor = cli_client::read_descriptor();
+                            client = std::thread([&, descriptor] {
+                                shot = cli_client::post_authorized(descriptor,
+                                        std::format(R"({{"command":"screenshot","path":"{}"}})", escaped));
+                                answered = true;
+                            });
+                        }
+                        if (answered || std::chrono::steady_clock::now() > deadline) {
+                            worlds.application_state().quit();
+                        }
+                    },
+                    .on_quit = {},
+                    .cli = {},
+            },
+            worlds, input, nullptr, nullptr, nullptr, {});
+    client.join();
+
+    EXPECT_EQ(result, 0);
+    EXPECT_EQ(presentation.captured, 1);
+    EXPECT_NE(shot.body.find(R"("width":3,"height":2)"), std::string::npos) << shot.body;
+    std::ifstream file(png, std::ios::binary);
+    const std::string bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    file.close();
+    const std::optional<engine::render::TextureDesc> image = engine::decode_png_rgba(bytes);
+    ASSERT_TRUE(image.has_value());
+    EXPECT_EQ(image->width, 3);
+    EXPECT_EQ(image->height, 2);
+    std::filesystem::remove(png);
 }
 
 #endif

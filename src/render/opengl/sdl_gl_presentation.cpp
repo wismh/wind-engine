@@ -202,8 +202,8 @@ public:
         sync_text_input_activation(windows_, worlds);
     }
 
-    void draw_all() override {
-        windows_.draw_all();
+    void draw_all(std::span<FrameCapture> captures) override {
+        windows_.draw_all(captures);
     }
 
     void attach_loop(Worlds& worlds, std::function<void()> reentrant_tick) override {
