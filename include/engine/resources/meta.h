@@ -173,11 +173,10 @@ struct CodegenOutput {
 [[nodiscard]] AssetCppId identifier_from_path(std::string_view relative_path);
 
 [[nodiscard]] std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::path& assets_root,
-                                                                      std::span<const AssetId> reserved = {});
+        std::span<const AssetId> reserved = {});
 [[nodiscard]] std::expected<void, CodegenError> codegen_write(const std::filesystem::path& assets_root,
-                                                              const std::filesystem::path& output_dir,
-                                                              std::span<const AssetId> reserved = {});
+        const std::filesystem::path& output_dir, std::span<const AssetId> reserved = {});
 
 [[nodiscard]] std::string_view to_string(ImporterKind kind) noexcept;
 
-} // namespace engine
+}

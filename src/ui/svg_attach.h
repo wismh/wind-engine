@@ -6,6 +6,6 @@
 namespace engine::ui {
 
 // Resolves every `Svg` element's `source` onto `Element::svg` before the canvas is drawn.
-void attach_svg_pictures(UiDocument &document, AssetsDb &assets);
+void attach_svg_pictures(UiDocument& document, AssetsDb& assets);
 
 }
