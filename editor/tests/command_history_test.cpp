@@ -46,9 +46,7 @@ TEST(CommandHistory, FileAndEntityStepsUndoInReverse) {
     TempProject project;
     editor::CommandHistory history;
     editor::EditorSelection selection;
-    editor::ExplorerPanel explorer{selection};
-    explorer.attach_journal(history);
-    history.set_after_push([&explorer] { explorer.discard_project_redo(); });
+    editor::ExplorerPanel explorer{selection, history};
     explorer.open(project.root());
     explorer.new_folder();
     EXPECT_TRUE(std::filesystem::is_directory(project.root() / "New Folder"));
