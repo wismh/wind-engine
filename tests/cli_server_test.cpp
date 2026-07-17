@@ -272,6 +272,166 @@ TEST(Cli, TreeElementAndWinner) {
     EXPECT_NE(ambiguous.find("\"id\":\"b\""), std::string::npos);
 }
 
+namespace {
+
+    // Two canvases on one window that reuse the id `tree`, like the editor's Explorer and Inspector panels.
+    struct TwoPanels {
+        engine::ecs::World world;
+        std::shared_ptr<ClickViewModel> explorer_vm = std::make_shared<ClickViewModel>();
+        std::shared_ptr<ClickViewModel> inspector_vm = std::make_shared<ClickViewModel>();
+        engine::ecs::Entity explorer{};
+        engine::ecs::Entity inspector{};
+    };
+
+    engine::ecs::Entity spawn_panel(engine::ecs::World &world, std::string_view root_id, float x,
+                                    std::shared_ptr<ClickViewModel> vm) {
+        const auto parsed = engine::ui::parse_xml(
+                std::format(R"(<Canvas id="{}"><Button id="tree" command="{{binding click}}"/></Canvas>)", root_id));
+        EXPECT_TRUE(parsed.has_value());
+        std::vector<std::string> warnings;
+        auto sheet = engine::ui::parse_css("Button { width: 60px; height: 30px; margin: 5px; padding: 0; }", warnings);
+        EXPECT_TRUE(sheet.has_value());
+        engine::ui::UiCanvas canvas;
+        canvas.fit = engine::ui::UiFit::Fixed;
+        canvas.rect = {x, 0.0f, 200.0f, 100.0f};
+        canvas.data_context = std::move(vm);
+        if (!parsed.has_value() || !sheet.has_value()) {
+            return {};
+        }
+        const engine::ecs::Entity entity = engine::ui::spawn_canvas(world, canvas, *parsed, std::move(*sheet));
+        layout_instance(world, entity);
+        return entity;
+    }
+
+    TwoPanels spawn_two_panels() {
+        TwoPanels panels;
+        engine::ui::presentation_of(panels.world).sizes.sizes[engine::kPrimaryWindow] = {400, 100};
+        panels.explorer = spawn_panel(panels.world, "explorer", 0.0f, panels.explorer_vm);
+        panels.inspector = spawn_panel(panels.world, "inspector", 200.0f, panels.inspector_vm);
+        return panels;
+    }
+
+    engine::cli::CliResponse run_on(engine::ecs::World &world, std::string command, std::string selector,
+                                    std::variant<std::monostate, std::uint32_t, std::string> canvas) {
+        engine::cli::CliRequest request;
+        request.command = std::move(command);
+        request.selector = std::move(selector);
+        request.canvas = std::move(canvas);
+        return engine::cli::execute(world, request);
+    }
+
+} // namespace
+
+TEST(Cli, ParsesTheCanvasAsAPlaceOrARootId) {
+    const engine::cli::CliRequest place = engine::cli::parse_request(R"({"command":"tree","canvas":1})");
+    EXPECT_TRUE(place.error.empty());
+    EXPECT_EQ(place.canvas, (std::variant<std::monostate, std::uint32_t, std::string>{std::uint32_t{1}}));
+
+    const engine::cli::CliRequest root = engine::cli::parse_request(R"({"command":"tree","canvas":"inspector"})");
+    EXPECT_TRUE(root.error.empty());
+    EXPECT_EQ(root.canvas, (std::variant<std::monostate, std::uint32_t, std::string>{std::string("inspector")}));
+
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(engine::cli::parse_request(R"({"command":"tree"})").canvas));
+    for (const char *bad: {R"({"command":"tree","canvas":-1})", R"({"command":"tree","canvas":1.5})",
+                           R"({"command":"tree","canvas":""})", R"({"command":"tree","canvas":true})"}) {
+        EXPECT_EQ(engine::cli::parse_request(bad).error, "invalid request") << bad;
+    }
+}
+
+TEST(Cli, CanvasPicksOneOfTwoCanvasesThatShareAnId) {
+    TwoPanels panels = spawn_two_panels();
+    ASSERT_TRUE(panels.world.valid(panels.explorer));
+    ASSERT_TRUE(panels.world.valid(panels.inspector));
+
+    const std::string tree = run_on(panels.world, "tree", {}, {}).json;
+    EXPECT_NE(tree.find(R"("canvas":0,"canvas_id":"explorer","path":[0],"kind":"Button","id":"tree")"),
+              std::string::npos)
+            << tree;
+    EXPECT_NE(tree.find(R"("canvas":1,"canvas_id":"inspector","path":[0],"kind":"Button","id":"tree")"),
+              std::string::npos)
+            << tree;
+    const std::string one_tree = run_on(panels.world, "tree", {}, std::uint32_t{1}).json;
+    EXPECT_EQ(one_tree.find("\"explorer\""), std::string::npos) << one_tree;
+    EXPECT_NE(one_tree.find("\"canvas_id\":\"inspector\""), std::string::npos) << one_tree;
+
+    const std::string ambiguous = run_on(panels.world, "element", "#tree", {}).json;
+    EXPECT_NE(ambiguous.find("\"error\":\"ambiguous\""), std::string::npos) << ambiguous;
+    EXPECT_NE(ambiguous.find(R"({"window":0,"canvas":0,"canvas_id":"explorer","path":[0])"), std::string::npos)
+            << ambiguous;
+    EXPECT_NE(ambiguous.find(R"({"window":0,"canvas":1,"canvas_id":"inspector","path":[0])"), std::string::npos)
+            << ambiguous;
+    EXPECT_NE(run_on(panels.world, "element", "path:0", {}).json.find("\"error\":\"ambiguous\""), std::string::npos);
+
+    const std::string by_place = run_on(panels.world, "element", "#tree", std::uint32_t{1}).json;
+    EXPECT_NE(by_place.find(R"("ok":true,"result":{"window":0,"canvas":1,"canvas_id":"inspector")"),
+              std::string::npos)
+            << by_place;
+    EXPECT_NE(by_place.find(R"("border":{"x":205,"y":5,"w":60,"h":30})"), std::string::npos) << by_place;
+    const std::string by_root = run_on(panels.world, "element", "path:0", std::string("explorer")).json;
+    EXPECT_NE(by_root.find(R"("ok":true,"result":{"window":0,"canvas":0,"canvas_id":"explorer","path":[0])"),
+              std::string::npos)
+            << by_root;
+
+    const std::string clicked = run_on(panels.world, "click", "#tree", std::string("inspector")).json;
+    EXPECT_NE(clicked.find("\"executed\":true"), std::string::npos) << clicked;
+    EXPECT_EQ(panels.inspector_vm->clicks, 1);
+    EXPECT_EQ(panels.explorer_vm->clicks, 0);
+    EXPECT_NE(run_on(panels.world, "click", "#tree", std::uint32_t{0}).json.find("\"executed\":true"),
+              std::string::npos);
+    EXPECT_EQ(panels.explorer_vm->clicks, 1);
+    EXPECT_EQ(panels.inspector_vm->clicks, 1);
+
+    EXPECT_EQ(run_on(panels.world, "element", "#tree", std::uint32_t{2}).json,
+              R"({"ok":false,"error":"no canvas 2 on window 0"})");
+    EXPECT_EQ(run_on(panels.world, "tree", {}, std::string("nope")).json,
+              R"({"ok":false,"error":"no canvas \"nope\" on window 0"})");
+
+    engine::cli::CliRequest hit;
+    hit.command = "hit";
+    hit.x = 210.0;
+    hit.y = 10.0;
+    hit.has_x = true;
+    hit.has_y = true;
+    EXPECT_NE(engine::cli::execute(panels.world, hit).json.find("\"canvas_id\":\"inspector\""), std::string::npos);
+    hit.canvas = std::string("explorer");
+    EXPECT_NE(engine::cli::execute(panels.world, hit).json.find("\"result\":null"), std::string::npos);
+}
+
+TEST(Cli, ScreenshotOfOneCanvasOrOfAnElementOnIt) {
+    TwoPanels panels = spawn_two_panels();
+    ScratchDir dir;
+    const engine::render::TextureDesc image = coordinate_image(400, 100);
+
+    const std::string ambiguous =
+            engine::cli::screenshot_json(&panels.world, screenshot_request(dir.file("a.png"), "#tree"), image);
+    EXPECT_NE(ambiguous.find("\"error\":\"ambiguous\""), std::string::npos) << ambiguous;
+
+    engine::cli::CliRequest element = screenshot_request(dir.file("tree.png"), "#tree");
+    element.canvas = std::string("inspector");
+    const std::string element_json = engine::cli::screenshot_json(&panels.world, element, image);
+    EXPECT_NE(element_json.find(R"("rect":{"x":205,"y":5,"w":60,"h":30})"), std::string::npos) << element_json;
+    const std::optional<engine::render::TextureDesc> tree_png = read_png(element.path);
+    ASSERT_TRUE(tree_png.has_value());
+    EXPECT_EQ(tree_png->width, 60);
+    EXPECT_EQ(tree_png->rgba[0], 205);
+    EXPECT_EQ(tree_png->rgba[1], 5);
+
+    engine::cli::CliRequest whole = screenshot_request(dir.file("panel.png"));
+    whole.canvas = std::uint32_t{1};
+    const std::string whole_json = engine::cli::screenshot_json(&panels.world, whole, image);
+    EXPECT_NE(whole_json.find(R"("rect":{"x":200,"y":0,"w":200,"h":100})"), std::string::npos) << whole_json;
+    const std::optional<engine::render::TextureDesc> panel_png = read_png(whole.path);
+    ASSERT_TRUE(panel_png.has_value());
+    EXPECT_EQ(panel_png->width, 200);
+    EXPECT_EQ(panel_png->rgba[0], 200);
+
+    engine::cli::CliRequest missing = screenshot_request(dir.file("none.png"));
+    missing.canvas = std::uint32_t{7};
+    EXPECT_EQ(engine::cli::screenshot_json(&panels.world, missing, image),
+              R"({"ok":false,"error":"no canvas 7 on window 0"})");
+    EXPECT_EQ(engine::cli::screenshot_json(nullptr, missing, image), R"({"ok":false,"error":"no world on window 0"})");
+}
+
 TEST(Cli, HitAndClickBypassPick) {
     GameCanvas game = spawn_game();
     ASSERT_TRUE(game.world.valid(game.entity));
