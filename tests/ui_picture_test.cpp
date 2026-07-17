@@ -366,6 +366,117 @@ namespace {
     <Canvas><Viewport class="world"><Stack class="column"><Stack class="unit"/></Stack></Viewport></Canvas>
 )";
 
+    class ShownVm final : public engine::ui::ViewModel {
+    public:
+        engine::ui::Bindable<bool> shown{true};
+
+        ShownVm() { property(engine::ui::intern("shown"), shown); }
+    };
+
+    bool drew_text(const ui_test::LogPainter &painter, std::string_view text) {
+        for (const auto &call: painter.calls) {
+            if (call.op == "text" && call.text == text) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // A fixed box does not move when its only child leaves the flow, so nothing but that child is marked. The child's
+    // mark has to rewrite the picture that already shows it.
+    TEST(UiPicture, HidingWithIfDropsTheElementFromTheAncestorPicture) {
+        ShownVm vm;
+        auto parsed = engine::ui::parse_xml(R"(
+            <Canvas>
+              <Stack class="box"><Label class="gone" text="gone" if="{binding shown}"/></Stack>
+            </Canvas>)",
+                                            nullptr, &vm);
+        ASSERT_TRUE(parsed.has_value());
+        UiDocument document = std::move(*parsed);
+        const engine::ui::Stylesheet sheet = must_parse_css(
+                ".box { width: 200px; height: 80px; background: #112233; repaint-boundary: yes; }"
+                ".gone { font-size: 14px; width: 60px; height: 16px; color: #ffffff; }");
+        ui_test::LogPainter painter;
+        const engine::render::Rect canvas{0.0f, 0.0f, 400.0f, 300.0f};
+        const auto frame = [&] {
+            ASSERT_TRUE(engine::ui::apply_bindings(document, vm, nullptr, nullptr, &sheet).has_value());
+            painter.calls.clear();
+            engine::ui::paint_document(document, &sheet, painter,
+                                       engine::ui::UiPaintInput{.canvas_rect = canvas,
+                                                                .pointer = {-100.0f, -100.0f},
+                                                                .delta_time = 0.016f,
+                                                                .window_width = 400.0f,
+                                                                .window_height = 300.0f});
+        };
+        frame();
+        frame();
+        ASSERT_TRUE(drew_text(painter, "gone"));
+        Element *box = nullptr;
+        for (Element &child: document.root.children) {
+            if (std::ranges::find(child.classes, "box") != child.classes.end()) {
+                box = &child;
+            }
+        }
+        ASSERT_NE(box, nullptr);
+        ASSERT_NE(box->picture.content.picture, nullptr);
+        const Picture held = *box->picture.content.picture;
+
+        vm.shown.set(false);
+        frame();
+        EXPECT_FALSE(drew_text(painter, "gone")) << "the hidden label is still in the ancestor's picture";
+        EXPECT_FALSE(*box->picture.content.picture == held) << "the ancestor picture was not recorded again";
+
+        const auto recorded = document.counters.pictures_recorded;
+        frame();
+        EXPECT_EQ(document.counters.pictures_recorded, recorded) << "the following frame only replays";
+        EXPECT_FALSE(drew_text(painter, "gone"));
+
+        vm.shown.set(true);
+        frame();
+        EXPECT_TRUE(drew_text(painter, "gone"));
+    }
+
+    // The hidden element is itself a boundary: the picture above holds a call of its frame, not its commands.
+    TEST(UiPicture, HidingABoundaryWithIfDropsItsCallFromTheParentPicture) {
+        ShownVm vm;
+        auto parsed = engine::ui::parse_xml(R"(
+            <Canvas>
+              <Stack class="box" if="{binding shown}"><Label class="gone" text="gone"/></Stack>
+            </Canvas>)",
+                                            nullptr, &vm);
+        ASSERT_TRUE(parsed.has_value());
+        UiDocument document = std::move(*parsed);
+        const engine::ui::Stylesheet sheet = must_parse_css(
+                ".box { width: 200px; height: 80px; background: #112233; repaint-boundary: yes; }"
+                ".gone { font-size: 14px; width: 60px; height: 16px; color: #ffffff; }");
+        ui_test::LogPainter painter;
+        const auto frame = [&] {
+            ASSERT_TRUE(engine::ui::apply_bindings(document, vm, nullptr, nullptr, &sheet).has_value());
+            painter.calls.clear();
+            engine::ui::paint_document(document, &sheet, painter,
+                                       engine::ui::UiPaintInput{.canvas_rect = {0.0f, 0.0f, 400.0f, 300.0f},
+                                                                .pointer = {-100.0f, -100.0f},
+                                                                .delta_time = 0.016f,
+                                                                .window_width = 400.0f,
+                                                                .window_height = 300.0f});
+        };
+        frame();
+        frame();
+        ASSERT_TRUE(drew_text(painter, "gone"));
+        ASSERT_NE(document.root.picture.content.picture, nullptr);
+        const Picture held = *document.root.picture.content.picture;
+
+        vm.shown.set(false);
+        frame();
+        EXPECT_FALSE(drew_text(painter, "gone"));
+        EXPECT_FALSE(*document.root.picture.content.picture == held);
+
+        const auto recorded = document.counters.pictures_recorded;
+        frame();
+        EXPECT_EQ(document.counters.pictures_recorded, recorded);
+        EXPECT_FALSE(drew_text(painter, "gone"));
+    }
+
     TEST(UiPicture, ACameraPanWithinTheRecordedWorldReplaysTheSamePicture) {
         auto parsed = engine::ui::parse_xml(kWorldXml);
         ASSERT_TRUE(parsed.has_value());

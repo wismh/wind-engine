@@ -210,7 +210,8 @@ namespace engine::ui {
                 if (element.hidden_by_if != hidden) {
                     element.hidden_by_if = hidden;
                     // apply_layout_style folds it into display_none, so the element restyles and, being out of or back
-                    // in the flow, its parent is laid out again.
+                    // in the flow, its parent is laid out again. That restyle marks the picture above: once this
+                    // element is hidden, its own paint mark is not one the picture reads.
                     mark_dirty(*pass.document, element, kDirtyStyle | kDirtyLayout | kDirtyPaint, true);
                 }
             } else if (!in_template) {
