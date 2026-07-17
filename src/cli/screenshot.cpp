@@ -66,21 +66,25 @@ namespace engine::cli {
 
     std::string screenshot_json(ecs::World *world, const CliRequest &request, const render::TextureDesc &image) {
         render::Rect box{0.0f, 0.0f, static_cast<float>(image.width), static_cast<float>(image.height)};
-        if (!request.selector.empty()) {
+        const bool by_canvas = !std::holds_alternative<std::monostate>(request.canvas);
+        const bool cropped = !request.selector.empty() || by_canvas;
+        if (cropped) {
             if (world == nullptr) {
                 return error_json(std::format("no world on window {}", request.window));
             }
-            const std::expected<render::Rect, std::string> element = element_window_rect(*world, request);
-            if (!element) {
-                return element.error();
+            const std::expected<render::Rect, std::string> picked = request.selector.empty()
+                                                                            ? canvas_window_rect(*world, request)
+                                                                            : element_window_rect(*world, request);
+            if (!picked) {
+                return picked.error();
             }
-            box = snap_to_pixels(*element, image.width, image.height);
+            box = snap_to_pixels(*picked, image.width, image.height);
             if (box.w <= 0.0f || box.h <= 0.0f) {
-                return error_json("element is outside the window");
+                return error_json(request.selector.empty() ? "canvas is outside the window"
+                                                           : "element is outside the window");
             }
         }
-        const std::vector<std::uint8_t> png =
-                encode_png_rgba(request.selector.empty() ? image : crop_image(image, box));
+        const std::vector<std::uint8_t> png = encode_png_rgba(cropped ? crop_image(image, box) : image);
         if (png.empty()) {
             return error_json("could not encode the png");
         }

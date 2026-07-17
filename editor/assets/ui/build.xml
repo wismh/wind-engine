@@ -1,4 +1,4 @@
-<Canvas>
+<Canvas id="build">
   <Stack class="panel" direction="vertical">
     <Stack class="option-row" direction="horizontal">
       <Label class="summary" text="{binding summary}"/>

@@ -560,11 +560,11 @@ void usage() {
                  "       wind-cli play [--wait [S]] [--pid N]\n"
                  "       wind-cli stop [--pid N]\n"
                  "       wind-cli open <project> [--pid N]\n"
-                 "       wind-cli tree [--window N] [--pid N]\n"
-                 "       wind-cli element <selector> [--window N] [--pid N]\n"
-                 "       wind-cli hit <x> <y> [--window N] [--pid N]\n"
-                 "       wind-cli click <selector> [--window N] [--pid N]\n"
-                 "       wind-cli screenshot [selector] [--out FILE] [--window N] [--pid N]\n"
+                 "       wind-cli tree [--window N] [--canvas C] [--pid N]\n"
+                 "       wind-cli element <selector> [--window N] [--canvas C] [--pid N]\n"
+                 "       wind-cli hit <x> <y> [--window N] [--canvas C] [--pid N]\n"
+                 "       wind-cli click <selector> [--window N] [--canvas C] [--pid N]\n"
+                 "       wind-cli screenshot [selector] [--out FILE] [--window N] [--canvas C] [--pid N]\n"
                  "       wind-cli profile [stop] [--pid N]\n";
 }
 
@@ -589,6 +589,8 @@ int main(int argc, char **argv) {
     std::uint32_t pid = 0;
     bool has_window = false;
     std::uint32_t window = 0;
+    // `--canvas`: a number is the canvas's place in the window's draw order, anything else its root element's id.
+    std::optional<std::string> canvas;
     bool stop = false;
     bool play = false;
     bool wait = false;
@@ -639,6 +641,13 @@ int main(int argc, char **argv) {
             }
             ++i;
             editor = std::filesystem::path(argv[i]);
+        } else if (arg == "--canvas") {
+            if (i + 1 >= argc || std::string_view{argv[i + 1]}.empty()) {
+                usage();
+                return 2;
+            }
+            ++i;
+            canvas = argv[i];
         } else if (arg == "--out") {
             if (i + 1 >= argc) {
                 usage();
@@ -659,7 +668,10 @@ int main(int argc, char **argv) {
     }
     const std::string &command = positionals[0];
     const bool editor_command = command == "state" || command == "play" || command == "stop" || command == "open";
+    const bool canvas_command = command == "tree" || command == "element" || command == "hit" || command == "click" ||
+                                command == "screenshot";
     if ((play && command != "launch") || (editor && command != "launch") || (out_file && command != "screenshot") ||
+        (canvas && !canvas_command) ||
         (wait && !(command == "play" || (command == "launch" && play)))) {
         usage();
         return 2;
@@ -718,6 +730,14 @@ int main(int argc, char **argv) {
     std::string body = std::format("{{\"command\":\"{}\"", command);
     if (has_window) {
         body += std::format(",\"window\":{}", window);
+    }
+    if (canvas) {
+        std::uint32_t place = 0;
+        if (parse_uint(*canvas, place)) {
+            body += std::format(",\"canvas\":{}", place);
+        } else {
+            body += ",\"canvas\":\"" + json_escape(*canvas) + "\"";
+        }
     }
     if (command == "element" || command == "click") {
         if (positionals.size() != 2) {
