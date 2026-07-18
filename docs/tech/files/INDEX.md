@@ -50,7 +50,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/ecs/events.h` | Double-buffered `Events`, reader, writer, cursor | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/pointer_target.h` | `PointerTarget`, `PointerTargetEvent`, `pointer_target_at` | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `include/engine/ecs/physics_2d.h` | Colliders, `CollisionEvent2D`, `run_physics_2d` | [ECS](../modules/ECS.md) |
-| `include/engine/ecs/ray.h` | `Ray`: world-space origin and direction from `screen_to_ray` | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/ray.h` | `Ray`, `RayHit`, plane, sphere, AABB, triangle, quad, and segment queries | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/schedule.h` | `Schedule` and `Phase` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/systems.h` | `register_engine_systems` and its dependencies | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/transform.h` | Position, quaternion rotation, scale. No parent. `rotation_z`, `euler_xyz`, `angle_z` | [ECS](../modules/ECS.md) |
@@ -174,6 +174,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ecs/.gitkeep` | Keeps the directory in Git | [ECS](../modules/ECS.md) |
 | `src/ecs/camera.cpp` | View and projection matrices, perspective clip clamp, screen/world, screen/ray | [ECS](../modules/ECS.md) |
 | `src/ecs/pointer_target.cpp` | `pointer_target_at` and `run_pointer_targets` | [UI Input](../features/UI%20Input.md#pointer-targets) |
+| `src/ecs/ray.cpp` | Ray against a plane, sphere, box, triangle, quad, and segment | [ECS](../modules/ECS.md) |
 | `src/ecs/physics_2d.cpp` | Velocity integration and overlap events | [ECS](../modules/ECS.md) |
 | `src/ecs/systems.cpp` | Engine systems: input, dock input, splash, animation, particles, dock layout, bind, audio, render, UI render | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/ecs/world.cpp` | Create, destroy, flush, `run` | [ECS](../modules/ECS.md) |
@@ -450,6 +451,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/primitives_test.cpp` | Primitive counts, unit outward normals, winding, index range; builtin quad and cube files match | [Render](../modules/Render.md#primitives) |
 | `tests/physics_2d_test.cpp` | Overlap enter, stay, exit | [ECS](../modules/ECS.md) |
 | `tests/engine_version_test.cpp` | `EngineVersion` parse, refusals, round trip, order | [Project](../modules/Project.md#engine-version) |
+| `tests/ray_test.cpp` | Plane, sphere, AABB, triangle, quad, and segment hits | [ECS](../modules/ECS.md) |
 | `tests/random_test.cpp` | `Random`: golden sequences, ranges, streams, `IGame::random_seed` | [Core](../modules/Core.md) |
 | `tests/config_test.cpp` | `Config`: round trip, defaults, malformed input, failed save | [Core](../modules/Core.md) |
 | `tests/platform_test.cpp` | Assets root and `user_data_directory` names | [Core](../modules/Core.md) |
