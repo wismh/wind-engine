@@ -30,9 +30,9 @@ namespace ecs {
 class WorldSerializer;
 }
 
-using CreateGameFn = IGame* (*) (const EngineServices& services);
+using CreateGameFn = IGame* (*)(const EngineServices& services);
 using DestroyGameFn = void (*)(IGame* game);
-using GameBuildIdFn = const char* (*) ();
+using GameBuildIdFn = const char* (*)();
 using RegisterGameComponentsFn = void (*)(ecs::WorldSerializer& serializer);
 using RegisterGameObjectsFn = void (*)(AssetsDb& assets);
 
@@ -94,8 +94,8 @@ public:
     [[nodiscard]] const std::filesystem::path& live_path() const noexcept;
 
 private:
-    friend std::expected<GameModule, GameModuleError> load_game_module(const std::filesystem::path& module,
-                                                                       const std::filesystem::path& live_root);
+    friend std::expected<GameModule, GameModuleError> load_game_module(
+            const std::filesystem::path& module, const std::filesystem::path& live_root);
 
     GameModule() = default;
     void release() noexcept;
@@ -115,8 +115,8 @@ private:
 // and loads that copy, so the original stays free for the next build. Then resolves the three exports
 // and compares `wind_game_build_id` with `build_id()`. Any failure unloads and deletes the copy.
 // Main thread only.
-[[nodiscard]] std::expected<GameModule, GameModuleError> load_game_module(const std::filesystem::path& module,
-                                                                          const std::filesystem::path& live_root);
+[[nodiscard]] std::expected<GameModule, GameModuleError> load_game_module(
+        const std::filesystem::path& module, const std::filesystem::path& live_root);
 
 // Deletes every directory under `live_root`: copies a crashed or killed process left behind. A copy
 // another process still has loaded cannot be deleted and stays. Returns how many directories went away.
@@ -124,4 +124,4 @@ std::size_t purge_game_module_copies(const std::filesystem::path& live_root);
 
 #endif
 
-} // namespace engine
+}

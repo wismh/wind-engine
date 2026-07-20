@@ -282,7 +282,7 @@ namespace engine::ui {
                     return fallback;
                 }
                 float widest = 0.0f;
-                for (const TextLine &line: block.lines) {
+                for (const TextLine &line : block.lines) {
                     widest = std::max(widest, line.width);
                 }
                 return glm::vec2{widest, static_cast<float>(block.lines.size()) * block.line_height};
@@ -348,7 +348,7 @@ namespace engine::ui {
             children.clear();
             if (element.kind == ElementKind::ItemsControl) {
                 children.reserve(element.generated_items.size());
-                for (auto &child: element.generated_items) {
+                for (auto &child : element.generated_items) {
                     if (!is_popup_kind(child.kind) && !child.display_none) {
                         children.push_back(&child);
                     }
@@ -356,7 +356,7 @@ namespace engine::ui {
                 return;
             }
             children.reserve(element.children.size());
-            for (auto &child: element.children) {
+            for (auto &child : element.children) {
                 if (child.kind != ElementKind::ItemTemplate && !is_popup_kind(child.kind) && !child.display_none) {
                     children.push_back(&child);
                 }
@@ -563,7 +563,7 @@ namespace engine::ui {
         // percentages resolve against the anchor's content box. Layout leaves it at the anchor's top-left;
         // place_popups (popup.h) works out where it is shown.
         void layout_popups(Element &anchor, glm::vec2 basis, IUiPainter *painter, bool partial) {
-            for (Element &child: anchor.children) {
+            for (Element &child : anchor.children) {
                 if (!is_popup_kind(child.kind) || child.display_none) {
                     continue;
                 }
@@ -584,7 +584,7 @@ namespace engine::ui {
         // stops there and its unused share is split again. Stops once nothing remains open.
         void distribute_flex_grow(std::vector<GrowTarget> &targets, float &free_space) {
             float weight = 0.0f;
-            for (const GrowTarget &target: targets) {
+            for (const GrowTarget &target : targets) {
                 weight += target.grow;
             }
             for (int guard = static_cast<int>(targets.size());
@@ -592,7 +592,7 @@ namespace engine::ui {
                 const float pass_weight = weight;
                 bool capped = false;
                 float taken = 0.0f;
-                for (GrowTarget &target: targets) {
+                for (GrowTarget &target : targets) {
                     if (!(target.grow > 0.0f)) {
                         continue;
                     }
@@ -608,7 +608,7 @@ namespace engine::ui {
                     }
                 }
                 if (!capped) {
-                    for (GrowTarget &target: targets) {
+                    for (GrowTarget &target : targets) {
                         if (!(target.grow > 0.0f)) {
                             continue;
                         }
@@ -632,7 +632,7 @@ namespace engine::ui {
             std::vector<Element *> flow;
             std::vector<Element *> absolute;
             flow.reserve(children.size());
-            for (Element *child: children) {
+            for (Element *child : children) {
                 if (child->position == PositionMode::Absolute) {
                     absolute.push_back(child);
                 } else {
@@ -653,7 +653,7 @@ namespace engine::ui {
                 };
                 std::vector<FlowMetrics> metrics;
                 metrics.reserve(flow.size());
-                for (Element *child: flow) {
+                for (Element *child : flow) {
                     metrics.push_back({
                             resolve_box(*child, child_basis),
                             cached_used(*child, painter, child_basis, child_basis.x, partial),
@@ -761,7 +761,7 @@ namespace engine::ui {
                 }
             }
 
-            for (Element *child: absolute) {
+            for (Element *child : absolute) {
                 layout_absolute(*child, containing_block, painter, partial);
             }
         }
@@ -788,10 +788,10 @@ namespace engine::ui {
                     translate_layout(child, dx, dy, child_block, painter);
                 }
             };
-            for (Element &child: element.children) {
+            for (Element &child : element.children) {
                 translate_child(child);
             }
-            for (Element &child: element.generated_items) {
+            for (Element &child : element.generated_items) {
                 translate_child(child);
             }
         }
@@ -840,7 +840,7 @@ namespace engine::ui {
 
             std::vector<Element *> flow;
             std::vector<Element *> absolute;
-            for (Element &child: element.children) {
+            for (Element &child : element.children) {
                 if (child.kind == ElementKind::ItemTemplate || is_popup_kind(child.kind) || child.display_none) {
                     continue;
                 }
@@ -850,7 +850,7 @@ namespace engine::ui {
                     flow.push_back(&child);
                 }
             }
-            for (Element *child_ptr: flow) {
+            for (Element *child_ptr : flow) {
                 Element &child = *child_ptr;
                 const ResolvedBox child_box = resolve_box(child, child_basis);
                 const glm::vec2 used = cached_used(child, painter, child_basis, child_basis.x, partial);
@@ -860,7 +860,7 @@ namespace engine::ui {
                                painter, child_basis, child_containing_block, partial);
                 apply_relative_offset(child, child_basis, child_box.font_size);
             }
-            for (Element *child_ptr: absolute) {
+            for (Element *child_ptr : absolute) {
                 layout_absolute(*child_ptr, child_containing_block, painter, partial);
             }
             layout_popups(element, child_basis, painter, partial);
@@ -870,7 +870,7 @@ namespace engine::ui {
             if (root.kind == kind) {
                 return &root;
             }
-            for (const Element &child: root.children) {
+            for (const Element &child : root.children) {
                 if (const Element *found = find_by_kind_const(child, kind)) {
                     return found;
                 }
@@ -956,7 +956,7 @@ namespace engine::ui {
         float max_x = std::numeric_limits<float>::lowest();
         float min_y = std::numeric_limits<float>::max();
         float max_y = std::numeric_limits<float>::lowest();
-        for (const glm::vec2 &corner: corners) {
+        for (const glm::vec2 &corner : corners) {
             const float x = corner.x * cos_r - corner.y * sin_r;
             const float y = corner.x * sin_r + corner.y * cos_r;
             min_x = std::min(min_x, x);
@@ -970,7 +970,7 @@ namespace engine::ui {
     std::vector<Element *> child_stacking_order(std::vector<Element> &children) {
         std::vector<Element *> order;
         order.reserve(children.size());
-        for (Element &child: children) {
+        for (Element &child : children) {
             order.push_back(&child);
         }
         // Siblings that already ascend by z-index (every z-index equal, the default, included) are in paint order: a
@@ -989,7 +989,7 @@ namespace engine::ui {
         if (clips_children(element)) {
             return {};
         }
-        for (std::vector<Element> *list: {&element.children, &element.generated_items}) {
+        for (std::vector<Element> *list : {&element.children, &element.generated_items}) {
             std::vector<Element *> order = child_stacking_order(*list);
             for (auto it = order.rbegin(); it != order.rend(); ++it) {
                 if (is_popup_kind((*it)->kind) || (*it)->position != PositionMode::Absolute) {
@@ -1107,10 +1107,10 @@ namespace engine::ui {
                 out.push_back(element.layout_rect);
                 return;
             }
-            for (const Element &child: element.children) {
+            for (const Element &child : element.children) {
                 collect_interactive(child, out);
             }
-            for (const Element &child: element.generated_items) {
+            for (const Element &child : element.generated_items) {
                 collect_interactive(child, out);
             }
         }
@@ -1138,7 +1138,7 @@ namespace engine::ui {
             return inherit(visit_absolute_children(
                     element, [&](Element &child) { return cursor_at_element(child, x, y); }));
         }
-        for (const bool scrollable: {is_scrollable_y(element), is_scrollable_x(element)}) {
+        for (const bool scrollable : {is_scrollable_y(element), is_scrollable_x(element)}) {
             const render::Rect track = scrollable ? scrollbar_track_rect(element) : render::Rect{};
             if (track.w > 0.0f && track.h > 0.0f && rect_contains(track, x, y)) {
                 return element.cursor;
@@ -1154,7 +1154,7 @@ namespace engine::ui {
             child_x = x + element.scroll_x;
             child_y = y + element.scroll_y;
         }
-        for (std::vector<Element> *list: {&element.children, &element.generated_items}) {
+        for (std::vector<Element> *list : {&element.children, &element.generated_items}) {
             std::vector<Element *> order = child_stacking_order(*list);
             for (auto it = order.rbegin(); it != order.rend(); ++it) {
                 if (is_popup_kind((*it)->kind)) {
@@ -1170,7 +1170,7 @@ namespace engine::ui {
 
     // The cursor a shown popup takes from its document ancestors, nearest first. Auto when none sets one.
     static Cursor popup_ancestor_cursor(Element &root, const Element &popup) {
-        for (const OpenPopup &open: open_popups(root)) {
+        for (const OpenPopup &open : open_popups(root)) {
             if (open.popup != &popup) {
                 continue;
             }
@@ -1335,12 +1335,12 @@ namespace engine::ui {
         const auto map_for = [&](const Element &child) {
             return is_popup_kind(child.kind) ? SpaceMap{1.0f, child.popup_offset} : child_map;
         };
-        for (Element &child: element.children) {
+        for (Element &child : element.children) {
             if (find_layout_boxes(child, target, child_basis, map_for(child), out)) {
                 return true;
             }
         }
-        for (Element &child: element.generated_items) {
+        for (Element &child : element.generated_items) {
             if (find_layout_boxes(child, target, child_basis, map_for(child), out)) {
                 return true;
             }
@@ -1385,12 +1385,12 @@ namespace engine::ui {
             child_x = x + element.scroll_x;
             child_y = y + element.scroll_y;
         }
-        for (Element *child: child_stacking_order(element.children)) {
+        for (Element *child : child_stacking_order(element.children)) {
             if (!is_popup_kind(child->kind)) {
                 find_viewport_at_impl(*child, child_x, child_y, found);
             }
         }
-        for (Element *child: child_stacking_order(element.generated_items)) {
+        for (Element *child : child_stacking_order(element.generated_items)) {
             if (!is_popup_kind(child->kind)) {
                 find_viewport_at_impl(*child, child_x, child_y, found);
             }
@@ -1493,12 +1493,12 @@ namespace engine::ui {
             child_x = x + element.scroll_x;
             child_y = y + element.scroll_y;
         }
-        for (Element *child: child_stacking_order(element.children)) {
+        for (Element *child : child_stacking_order(element.children)) {
             if (!is_popup_kind(child->kind)) {
                 find_scrollable_at_impl(*child, child_x, child_y, found);
             }
         }
-        for (Element *child: child_stacking_order(element.generated_items)) {
+        for (Element *child : child_stacking_order(element.generated_items)) {
             if (!is_popup_kind(child->kind)) {
                 find_scrollable_at_impl(*child, child_x, child_y, found);
             }
@@ -1529,7 +1529,7 @@ namespace engine::ui {
         if (root.kind == ElementKind::ItemTemplate) {
             return nullptr;
         }
-        for (Element &child: root.children) {
+        for (Element &child : root.children) {
             if (Element *found = find_by_id(child, id)) {
                 return found;
             }
@@ -1550,7 +1550,7 @@ namespace engine::ui {
         const Element *second_row = nullptr;
         std::size_t rows_shown = 0;
         float spacer_height = 0.0f;
-        for (const Element &child: generated) {
+        for (const Element &child : generated) {
             if (child.is_virtualization_spacer) {
                 spacer_height += child.layout_rect.h;
                 continue;
@@ -1618,12 +1618,12 @@ namespace engine::ui {
         if (root.generated_owner == owner) {
             return &root;
         }
-        for (Element &child: root.children) {
+        for (Element &child : root.children) {
             if (Element *found = find_by_generated_owner(child, owner)) {
                 return found;
             }
         }
-        for (Element &child: root.generated_items) {
+        for (Element &child : root.generated_items) {
             if (Element *found = find_by_generated_owner(child, owner)) {
                 return found;
             }

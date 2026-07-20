@@ -19,18 +19,22 @@ namespace fixture {
 
 class Game final : public engine::GameBase {
 public:
-    explicit Game(const engine::EngineServices& services) :
-        engine::GameBase(services.worlds), input_(&services.input), windows_(&services.windows) {
+    explicit Game(const engine::EngineServices& services)
+        : engine::GameBase(services.worlds)
+        , input_(&services.input)
+        , windows_(&services.windows) {
         note("construct");
     }
 
-    ~Game() override { note("destroy"); }
+    ~Game() override {
+        note("destroy");
+    }
 
     engine::WindowDesc primary_window() const override {
         return engine::WindowDesc{
-            .title = "Fixture",
-            .size = {320, 200},
-            .style = engine::WindowStyle{.always_on_top = true, .transparent = true},
+                .title = "Fixture",
+                .size = {320, 200},
+                .style = engine::WindowStyle{.always_on_top = true, .transparent = true},
         };
     }
 
@@ -48,7 +52,9 @@ public:
         world().add_system(engine::ecs::Schedule::Frame, engine::ecs::Phase::Game, [](engine::ecs::World&) {});
     }
 
-    void on_quit() override { note("quit"); }
+    void on_quit() override {
+        note("quit");
+    }
 
 private:
     void note(const char* line) {
@@ -65,7 +71,7 @@ private:
     engine::IWindowControl* windows_;
 };
 
-} // namespace fixture
+}
 
 ENGINE_GAME_EXPORT void wind_register_game_components(engine::ecs::WorldSerializer& serializer) {
     serializer.register_component<fixture::FixtureComponent>(
@@ -94,7 +100,9 @@ ENGINE_GAME_EXPORT engine::IGame* wind_create_game(const engine::EngineServices&
 }
 
 #if !defined(FIXTURE_NO_DESTROY)
-ENGINE_GAME_EXPORT void wind_destroy_game(engine::IGame* game) { delete game; }
+ENGINE_GAME_EXPORT void wind_destroy_game(engine::IGame* game) {
+    delete game;
+}
 #endif
 
 ENGINE_GAME_EXPORT const char* wind_game_build_id() {

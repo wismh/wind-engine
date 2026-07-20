@@ -25,12 +25,14 @@ std::string path_text(const std::filesystem::path& path) {
     return {reinterpret_cast<const char*>(text.data()), text.size()};
 }
 
-} // namespace
+}
 
 EditModule::EditModule(IPlayHost& host, engine::AssetsDb& assets, std::filesystem::path live_root) :
     host_(&host), assets_(&assets), live_root_(std::move(live_root)) {}
 
-EditModule::~EditModule() { unload(); }
+EditModule::~EditModule() {
+    unload();
+}
 
 std::expected<void, std::string> EditModule::load(const std::filesystem::path& module) {
     unload();
@@ -54,7 +56,7 @@ void EditModule::unload(engine::ecs::World* edit_world) {
     if (edit_world != nullptr) {
         edit_world->ctx<engine::ecs::WorldSerializer>() = engine::ecs::WorldSerializer{};
     }
-    for (const std::weak_ptr<engine::ecs::WorldSerializer*>& weak: tracked_worlds_) {
+    for (const std::weak_ptr<engine::ecs::WorldSerializer*>& weak : tracked_worlds_) {
         if (const std::shared_ptr<engine::ecs::WorldSerializer*> slot = weak.lock(); slot && *slot != nullptr) {
             **slot = engine::ecs::WorldSerializer{};
         }
@@ -74,7 +76,9 @@ void EditModule::reset(engine::ecs::World* edit_world) {
     last_module_path_.clear();
 }
 
-void EditModule::remember_module(std::filesystem::path module) { last_module_path_ = std::move(module); }
+void EditModule::remember_module(std::filesystem::path module) {
+    last_module_path_ = std::move(module);
+}
 
 void EditModule::register_components(engine::ecs::WorldSerializer& serializer) const {
     serializer = engine::ecs::WorldSerializer{};
@@ -99,8 +103,12 @@ void EditModule::register_components(engine::ecs::World& world) const {
     tracked_worlds_.push_back(anchor.slot);
 }
 
-bool EditModule::loaded() const noexcept { return module_.has_value(); }
+bool EditModule::loaded() const noexcept {
+    return module_.has_value();
+}
 
-const std::filesystem::path& EditModule::module_path() const noexcept { return last_module_path_; }
+const std::filesystem::path& EditModule::module_path() const noexcept {
+    return last_module_path_;
+}
 
-} // namespace editor
+}

@@ -157,12 +157,12 @@ namespace engine::ui {
                 return true;
             }
             const glm::vec2 child_basis = content_basis(element, parent_content);
-            for (const Element &child: element.children) {
+            for (const Element &child : element.children) {
                 if (find_parent_content(child, target, child_basis, out)) {
                     return true;
                 }
             }
-            for (const Element &child: element.generated_items) {
+            for (const Element &child : element.generated_items) {
                 if (find_parent_content(child, target, child_basis, out)) {
                     return true;
                 }
@@ -287,7 +287,7 @@ namespace engine::ui {
 
     void apply_canvas_fit(ecs::World &world) {
         auto view = world.view<UiCanvas>();
-        for (ecs::Entity entity: view) {
+        for (ecs::Entity entity : view) {
             UiCanvas &canvas = view.get<UiCanvas>(entity);
             const WindowSize size = window_size_for(world, canvas.window);
             if (canvas.fit == UiFit::FillWindow) {
@@ -388,7 +388,7 @@ namespace engine::ui {
         std::vector<CanvasHit> canvases_top_first(ecs::World &world, WindowId window) {
             std::vector<CanvasHit> hits;
             auto view = world.view<UiCanvas>();
-            for (ecs::Entity entity: view) {
+            for (ecs::Entity entity : view) {
                 const UiCanvas &canvas = view.get<UiCanvas>(entity);
                 if (canvas.window == window) {
                     hits.push_back(CanvasHit{canvas.order, entity.index, entity});
@@ -464,7 +464,7 @@ namespace engine::ui {
             ecs::Entity timed{};
             ENGINE_UI_PROFILE(timed, Input);
             const std::vector<CanvasHit> hits = canvases_top_first(world, window);
-            for (const CanvasHit &hit: hits) {
+            for (const CanvasHit &hit : hits) {
                 UiInstance *instance = world.try_get<UiInstance>(hit.entity);
                 if (instance == nullptr || !has_open_popup(instance->document.root)) {
                     continue;
@@ -475,7 +475,7 @@ namespace engine::ui {
                     return prepared;
                 }
             }
-            for (const CanvasHit &hit: hits) {
+            for (const CanvasHit &hit : hits) {
                 if (!rect_contains(world.get<UiCanvas>(hit.entity).rect, x, y)) {
                     continue;
                 }
@@ -582,7 +582,7 @@ namespace engine::ui {
         }
 
         Element *find_menu_popup(Element &menu) {
-            for (Element &child: menu.children) {
+            for (Element &child : menu.children) {
                 if (is_popup_kind(child.kind)) {
                     return &child;
                 }
@@ -596,13 +596,13 @@ namespace engine::ui {
         bool close_popups_except(ecs::World &world, WindowId window, const Element *hit, bool &kept) {
             kept = false;
             bool closed = false;
-            for (const CanvasHit &entry: canvases_top_first(world, window)) {
+            for (const CanvasHit &entry : canvases_top_first(world, window)) {
                 UiInstance *instance = world.try_get<UiInstance>(entry.entity);
                 if (instance == nullptr) {
                     continue;
                 }
                 UiCanvas &canvas = world.get<UiCanvas>(entry.entity);
-                for (OpenPopup &open: open_popups(instance->document.root)) {
+                for (OpenPopup &open : open_popups(instance->document.root)) {
                     const bool anchor_hit = !open.ancestors.empty() && open.ancestors.back() == hit;
                     if (hit != nullptr && (anchor_hit || contains_element(*open.popup, hit))) {
                         kept = true;
@@ -617,7 +617,7 @@ namespace engine::ui {
 
         // Escape: closes the popup drawn last in `window`. Returns whether there was one.
         bool close_topmost_popup(ecs::World &world, WindowId window) {
-            for (const CanvasHit &entry: canvases_top_first(world, window)) {
+            for (const CanvasHit &entry : canvases_top_first(world, window)) {
                 UiInstance *instance = world.try_get<UiInstance>(entry.entity);
                 if (instance == nullptr) {
                     continue;
@@ -634,7 +634,7 @@ namespace engine::ui {
     } // namespace
 
     std::optional<ecs::Entity> popup_canvas_at(ecs::World &world, WindowId window, glm::vec2 point) {
-        for (const CanvasHit &entry: canvases_top_first(world, window)) {
+        for (const CanvasHit &entry : canvases_top_first(world, window)) {
             UiInstance *instance = world.try_get<UiInstance>(entry.entity);
             if (instance == nullptr || !has_open_popup(instance->document.root)) {
                 continue;
@@ -655,7 +655,7 @@ namespace engine::ui {
         if (canvas == nullptr || instance == nullptr) {
             return;
         }
-        for (OpenPopup &open: open_popups(instance->document.root)) {
+        for (OpenPopup &open : open_popups(instance->document.root)) {
             close_popup(world, canvas->window, canvas_entity, *canvas, *open.popup);
         }
         const auto &focus_map = world.ctx<UiFocusState>().focused;
@@ -689,7 +689,7 @@ namespace engine::ui {
             const PaintedTextLine *row = nullptr;
             float nearest_dy = 0.0f;
             bool row_contains = false;
-            for (const PaintedTextLine &line: lines) {
+            for (const PaintedTextLine &line : lines) {
                 const float height = std::max(line.height, 0.0f);
                 const bool inside = y >= line.y && y < line.y + height;
                 const float dy = std::abs(y - (line.y + height * 0.5f));
@@ -709,7 +709,7 @@ namespace engine::ui {
             const PaintedTextLine *best = nullptr;
             float best_dist = 0.0f;
             bool best_interior = false;
-            for (const PaintedTextLine &line: lines) {
+            for (const PaintedTextLine &line : lines) {
                 if (std::abs(line.y - row->y) > kRowEpsilon) {
                     continue;
                 }
@@ -828,7 +828,7 @@ namespace engine::ui {
             const glm::vec2 window_layout{(x - space.offset.x) / space.scale, (y - space.offset.y) / space.scale};
             glm::vec2 layout = window_layout;
             Element *node = &root;
-            for (const std::size_t step: path) {
+            for (const std::size_t step : path) {
                 if (node->kind == ElementKind::Viewport) {
                     layout = inverse_viewport_pointer(*node, layout);
                 } else if (node->scroll_x != 0.0f || node->scroll_y != 0.0f) {
@@ -945,7 +945,7 @@ namespace engine::ui {
         Element *context_menu_on(UiInstance &instance, Element *hit) {
             Element *node = hit;
             while (node != nullptr) {
-                for (Element &child: node->children) {
+                for (Element &child : node->children) {
                     if (child.kind == ElementKind::ContextMenu) {
                         return &child;
                     }
@@ -1510,7 +1510,7 @@ namespace engine::ui {
         const glm::vec2 point = pointer.position;
         std::optional<ecs::Entity> target = popup_canvas_at(world, window, point);
         if (!target) {
-            for (const CanvasHit &hit: canvases_top_first(world, window)) {
+            for (const CanvasHit &hit : canvases_top_first(world, window)) {
                 if (world.try_get<UiInstance>(hit.entity) != nullptr &&
                     rect_contains(world.get<UiCanvas>(hit.entity).rect, point.x, point.y)) {
                     target = hit.entity;
