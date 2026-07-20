@@ -67,4 +67,4 @@ private:
     mutable std::vector<std::weak_ptr<engine::ecs::WorldSerializer*>> tracked_worlds_;
 };
 
-} // namespace editor
+}

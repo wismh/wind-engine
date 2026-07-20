@@ -27,33 +27,34 @@ class NullPainter final : public engine::ui::IUiPainter {
 public:
     void save() override {}
     void restore() override {}
-    void scissor(const engine::render::Rect &) override {}
+    void scissor(const engine::render::Rect&) override {}
     void apply_transform(glm::vec2, float, float) override {}
     void apply_view(glm::vec2, glm::vec2, float) override {}
     void set_opacity(float) override {}
-    void fill_rounded_rect(const engine::render::Rect &, float, glm::vec4) override {}
-    void fill_rounded_rect_gradient(const engine::render::Rect &, float, const engine::ui::Gradient &) override {}
-    void stroke_rounded_rect(const engine::render::Rect &, float, float, glm::vec4) override {}
+    void fill_rounded_rect(const engine::render::Rect&, float, glm::vec4) override {}
+    void fill_rounded_rect_gradient(const engine::render::Rect&, float, const engine::ui::Gradient&) override {}
+    void stroke_rounded_rect(const engine::render::Rect&, float, float, glm::vec4) override {}
     void draw_line(glm::vec2, glm::vec2, glm::vec4, float) override {}
     void stroke_arc(glm::vec2, float, float, float, float, glm::vec4) override {}
     void fill_path(std::span<const engine::ui::PathSegment>, glm::vec4) override {}
     void stroke_path(std::span<const engine::ui::PathSegment>, float, glm::vec4) override {}
     void set_font(engine::AssetId, float) override {}
     void fill_text(std::string_view, glm::vec2, glm::vec4, engine::ui::UiAlign, engine::ui::UiAlign) override {}
-    void image(engine::AssetId, const engine::render::Rect &) override {}
-    void image_repeat(engine::AssetId, const engine::render::Rect &) override {}
-    void image_nine_slice(engine::AssetId, const engine::render::Rect &, const engine::ui::BoxInsets &) override {}
+    void image(engine::AssetId, const engine::render::Rect&) override {}
+    void image_repeat(engine::AssetId, const engine::render::Rect&) override {}
+    void image_nine_slice(engine::AssetId, const engine::render::Rect&, const engine::ui::BoxInsets&) override {}
     glm::vec2 measure_text(std::string_view, engine::AssetId, float) override { return {}; }
 };
 
 std::optional<engine::ui::SvgPicture> icon(std::string_view body) {
-    const std::string xml = std::string("<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" "
-                                        "stroke-width=\"2\">") +
+    const std::string xml = std::string(
+                                    "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" "
+                                    "stroke-width=\"2\">") +
                             std::string(body) + "</svg>";
     return engine::ui::parse_svg(xml);
 }
 
-glm::vec2 cubic_mid(glm::vec2 from, const engine::ui::PathSegment &segment) {
+glm::vec2 cubic_mid(glm::vec2 from, const engine::ui::PathSegment& segment) {
     constexpr float t = 0.5f;
     constexpr float u = 1.0f - t;
     return u * u * u * from + 3.0f * u * u * t * segment.c1 + 3.0f * u * t * t * segment.c2 + t * t * t * segment.p;
@@ -65,12 +66,12 @@ TEST(UiSvg, StrokeCrossUsesCurrentColorAndTheFileWidth) {
     ASSERT_EQ(picture->shapes.size(), 2u);
     EXPECT_FLOAT_EQ(picture->width, 24.0f);
     EXPECT_FLOAT_EQ(picture->height, 24.0f);
-    for (const engine::ui::SvgShape &shape: picture->shapes) {
+    for (const engine::ui::SvgShape& shape : picture->shapes) {
         EXPECT_EQ(shape.paint, engine::ui::SvgShape::Paint::Stroke);
         EXPECT_TRUE(shape.current_color);
         EXPECT_FLOAT_EQ(shape.width, 2.0f);
     }
-    const engine::ui::SvgShape &horizontal = picture->shapes[0];
+    const engine::ui::SvgShape& horizontal = picture->shapes[0];
     ASSERT_GE(horizontal.segments.size(), 2u);
     EXPECT_EQ(horizontal.segments[0].kind, engine::ui::PathSegment::Kind::Move);
     EXPECT_EQ(horizontal.segments[1].kind, engine::ui::PathSegment::Kind::Line);
@@ -87,13 +88,13 @@ TEST(UiSvg, FillKeepsAHoleAndALiteralColor) {
             "</svg>");
     ASSERT_TRUE(picture.has_value());
     ASSERT_EQ(picture->shapes.size(), 1u);
-    const engine::ui::SvgShape &shape = picture->shapes[0];
+    const engine::ui::SvgShape& shape = picture->shapes[0];
     EXPECT_EQ(shape.paint, engine::ui::SvgShape::Paint::Fill);
     EXPECT_FALSE(shape.current_color);
     EXPECT_NEAR(shape.color.b, 1.0f, 0.01f);
     int moves = 0;
     int closes = 0;
-    for (const engine::ui::PathSegment &segment: shape.segments) {
+    for (const engine::ui::PathSegment& segment : shape.segments) {
         moves += segment.kind == engine::ui::PathSegment::Kind::Move ? 1 : 0;
         closes += segment.kind == engine::ui::PathSegment::Kind::Close ? 1 : 0;
     }
@@ -109,7 +110,7 @@ TEST(UiSvg, GroupTransformScalesThenTranslates) {
             "</g></svg>");
     ASSERT_TRUE(picture.has_value());
     ASSERT_EQ(picture->shapes.size(), 1u);
-    const engine::ui::SvgShape &shape = picture->shapes[0];
+    const engine::ui::SvgShape& shape = picture->shapes[0];
     EXPECT_FLOAT_EQ(shape.width, 2.0f);
     ASSERT_GE(shape.segments.size(), 2u);
     EXPECT_FLOAT_EQ(shape.segments[0].p.x, 7.0f);
@@ -121,7 +122,7 @@ TEST(UiSvg, CircleAndArcBecomeCubicsOnTheCurve) {
             "<svg viewBox=\"0 0 20 20\"><circle cx=\"10\" cy=\"10\" r=\"10\" fill=\"#000000\"/></svg>");
     ASSERT_TRUE(circle.has_value());
     ASSERT_EQ(circle->shapes.size(), 1u);
-    const auto &segments = circle->shapes[0].segments;
+    const auto& segments = circle->shapes[0].segments;
     ASSERT_GE(segments.size(), 2u);
     EXPECT_EQ(segments[0].kind, engine::ui::PathSegment::Kind::Move);
     EXPECT_EQ(segments[1].kind, engine::ui::PathSegment::Kind::Cubic);
@@ -148,13 +149,13 @@ TEST(UiSvg, SmoothCommandsReflectThePreviousControl) {
             "</svg>");
     ASSERT_TRUE(picture.has_value());
     ASSERT_EQ(picture->shapes.size(), 2u);
-    const auto &cubic = picture->shapes[0].segments;
+    const auto& cubic = picture->shapes[0].segments;
     ASSERT_EQ(cubic.size(), 3u);
     EXPECT_EQ(cubic[2].kind, engine::ui::PathSegment::Kind::Cubic);
     EXPECT_FLOAT_EQ(cubic[2].c1.x, 10.0f);
     EXPECT_FLOAT_EQ(cubic[2].c1.y, -10.0f);
     EXPECT_FLOAT_EQ(cubic[2].p.x, 20.0f);
-    const auto &quad = picture->shapes[1].segments;
+    const auto& quad = picture->shapes[1].segments;
     ASSERT_EQ(quad.size(), 3u);
     EXPECT_EQ(quad[2].kind, engine::ui::PathSegment::Kind::Quad);
     EXPECT_FLOAT_EQ(quad[2].c1.x, 30.0f);
@@ -178,21 +179,23 @@ TEST(UiSvg, LiteralStrokeOverridesCurrentColor) {
 TEST(UiSvg, RejectsWhatThePainterCannotDraw) {
     EXPECT_FALSE(engine::ui::parse_svg("<svg><path d=\"M0 0 H1\"/></svg>").has_value());
     EXPECT_FALSE(engine::ui::parse_svg("<svg viewBox=\"0 0 1 1\"><text>Hi</text></svg>").has_value());
-    EXPECT_FALSE(engine::ui::parse_svg("<svg viewBox=\"0 0 1 1\"><path d=\"M0 0 H1\" fill-rule=\"evenodd\"/></svg>")
-                         .has_value());
+    EXPECT_FALSE(
+            engine::ui::parse_svg("<svg viewBox=\"0 0 1 1\"><path d=\"M0 0 H1\" fill-rule=\"evenodd\"/></svg>")
+                    .has_value());
     EXPECT_FALSE(
             engine::ui::parse_svg("<svg viewBox=\"0 0 1 1\"><path d=\"M0 0 H1\" stroke-dasharray=\"4 2\"/></svg>")
                     .has_value());
     EXPECT_FALSE(engine::ui::parse_svg("<svg viewBox=\"0 0 1 1\"><path d=\"M0 0 B1 1\"/></svg>").has_value());
-    EXPECT_TRUE(engine::ui::parse_svg(
-                        "<svg viewBox=\"0 0 1 1\" stroke-dasharray=\"none\">"
-                        "<path d=\"M0 0 H1\" fill=\"none\" stroke=\"#000\"/></svg>")
-                        .has_value());
+    EXPECT_TRUE(
+            engine::ui::parse_svg(
+                    "<svg viewBox=\"0 0 1 1\" stroke-dasharray=\"none\">"
+                    "<path d=\"M0 0 H1\" fill=\"none\" stroke=\"#000\"/></svg>")
+                    .has_value());
 }
 
 TEST(UiSvg, ElementReadsAnAssetIdAndRejectsAFilename) {
-    const auto parsed = engine::ui::parse_xml(
-            "<Canvas><Svg source=\"0123456789abcdef0123456789abcdef\"/></Canvas>", nullptr);
+    const auto parsed =
+            engine::ui::parse_xml("<Canvas><Svg source=\"0123456789abcdef0123456789abcdef\"/></Canvas>", nullptr);
     ASSERT_TRUE(parsed.has_value());
     ASSERT_EQ(parsed->root.children.size(), 1u);
     EXPECT_EQ(parsed->root.children[0].kind, engine::ui::ElementKind::Svg);
@@ -200,8 +203,8 @@ TEST(UiSvg, ElementReadsAnAssetIdAndRejectsAFilename) {
     EXPECT_EQ(parsed->root.children[0].source->hex(), "0123456789abcdef0123456789abcdef");
 
     fakes::RecordingFatal fatal;
-    EXPECT_THROW((void) engine::ui::parse_xml("<Canvas><Svg source=\"icon.svg\"/></Canvas>", &fatal),
-                 fakes::FatalReport);
+    EXPECT_THROW(
+            (void) engine::ui::parse_xml("<Canvas><Svg source=\"icon.svg\"/></Canvas>", &fatal), fakes::FatalReport);
     const auto rejected = engine::ui::parse_xml("<Canvas><Svg source=\"icon.svg\"/></Canvas>", nullptr);
     EXPECT_FALSE(rejected.has_value());
     EXPECT_EQ(rejected.error(), engine::ui::UiError::ForbiddenContent);
@@ -227,24 +230,23 @@ TEST(UiSvg, PaintFitsTheViewBoxAndKeepsALiteralColor) {
     NullPainter inner;
     engine::ui::Picture recorded;
     engine::ui::RecordingPainter painter(inner, recorded);
-    const engine::ui::UiPaintInput input{.canvas_rect = {0.0f, 0.0f, 200.0f, 100.0f},
-                                         .window_width = 200.0f,
-                                         .window_height = 100.0f};
+    const engine::ui::UiPaintInput input{
+            .canvas_rect = {0.0f, 0.0f, 200.0f, 100.0f}, .window_width = 200.0f, .window_height = 100.0f};
     engine::ui::paint_document(document, &*sheet, painter, input);
 
-    const engine::ui::Element &icon = document.root.children[0];
+    const engine::ui::Element& icon = document.root.children[0];
     EXPECT_FLOAT_EQ(icon.layout_rect.w, 40.0f);
     EXPECT_FLOAT_EQ(icon.layout_rect.h, 20.0f);
 
-    const engine::ui::Picture::StrokePath *stroke = nullptr;
-    const engine::ui::Picture::Path *fill = nullptr;
-    const auto walk = [&](const auto &self, const engine::ui::Picture &picture) -> void {
-        for (const engine::ui::Picture::Command &command: picture.commands) {
-            if (const auto *stroke_cmd = std::get_if<engine::ui::Picture::StrokePath>(&command)) {
+    const engine::ui::Picture::StrokePath* stroke = nullptr;
+    const engine::ui::Picture::Path* fill = nullptr;
+    const auto walk = [&](const auto& self, const engine::ui::Picture& picture) -> void {
+        for (const engine::ui::Picture::Command& command : picture.commands) {
+            if (const auto* stroke_cmd = std::get_if<engine::ui::Picture::StrokePath>(&command)) {
                 stroke = stroke_cmd;
-            } else if (const auto *fill_cmd = std::get_if<engine::ui::Picture::Path>(&command)) {
+            } else if (const auto* fill_cmd = std::get_if<engine::ui::Picture::Path>(&command)) {
                 fill = fill_cmd;
-            } else if (const auto *call = std::get_if<engine::ui::Picture::Call>(&command)) {
+            } else if (const auto* call = std::get_if<engine::ui::Picture::Call>(&command)) {
                 if (call->picture) {
                     self(self, *call->picture);
                 }
@@ -282,11 +284,11 @@ struct TempTree {
         std::filesystem::remove_all(path, ec);
     }
 
-    TempTree(const TempTree &) = delete;
-    TempTree &operator=(const TempTree &) = delete;
+    TempTree(const TempTree&) = delete;
+    TempTree& operator=(const TempTree&) = delete;
 };
 
-void write_file(const std::filesystem::path &path, std::string_view text) {
+void write_file(const std::filesystem::path& path, std::string_view text) {
     std::ofstream out(path, std::ios::trunc);
     ASSERT_TRUE(out.is_open());
     out << text;
@@ -294,8 +296,9 @@ void write_file(const std::filesystem::path &path, std::string_view text) {
 
 TEST(UiSvg, AssetImporterLoadsThePicture) {
     TempTree tree;
-    write_file(tree.path / "icon.svg",
-               "<svg viewBox=\"0 0 4 4\" fill=\"none\" stroke=\"#fff\" stroke-width=\"1\"><path d=\"M0 0 H4\"/></svg>");
+    write_file(
+            tree.path / "icon.svg",
+            "<svg viewBox=\"0 0 4 4\" fill=\"none\" stroke=\"#fff\" stroke-width=\"1\"><path d=\"M0 0 H4\"/></svg>");
     EXPECT_EQ(engine::write_missing_metas(tree.path), 1);
     const auto meta = engine::parse_asset_meta([&] {
         std::ifstream in(tree.path / "icon.svg.meta");
