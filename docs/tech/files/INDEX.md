@@ -485,6 +485,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/ui_bindable_version_test.cpp` | `Bindable` / `BindableList` / catalog versions | [UI](../modules/UI.md#bindings) |
 | `tests/ui_layout_dirty_gate_test.cpp` | Layout skipped when nothing is marked | [UI](../modules/UI.md) |
 | `tests/ui_layout_hit_test.cpp` | Stack layout and hit order | [UI Input](../features/UI%20Input.md) |
+| `tests/ui_pointer_events_test.cpp` | `pointer-events`: a panel box blocks the pointer, `none` falls through, cursor | [UI Input](../features/UI%20Input.md#what-a-hit-is) |
 | `tests/ui_loc_test.cpp` | `{tr}` bind and locale switch | [Localization](../modules/Localization.md) |
 | `tests/ui_math_element_test.cpp` | `Math` element in a document | [UI](../modules/UI.md) |
 | `tests/ui_math_font_test.cpp` | MATH table metrics | [UI](../modules/UI.md) |
@@ -560,6 +561,10 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/assets/css/editor.css.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
 | `editor/assets/css/panels.css` | Project, UI Tree, Inspector, Profiler, and Build panel style | [Editor](../features/Editor.md) |
 | `editor/assets/css/panels.css.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/textures/file.png` | File icon on a Project row | [Editor](../features/Editor.md) |
+| `editor/assets/textures/file.png.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/textures/folder.png` | Folder icon on a Project row, a neutral gray | [Editor](../features/Editor.md) |
+| `editor/assets/textures/folder.png.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
 | `editor/assets/ui/build.xml` | Build tab: summary and log | [Editor](../features/Editor.md) |
 | `editor/assets/ui/build.xml.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
 | `editor/assets/ui/editor.xml` | Editor window: the toolbar; the panels' dock space is below it | [Editor](../features/Editor.md) |
