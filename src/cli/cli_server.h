@@ -16,6 +16,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 namespace engine::cli {
@@ -24,6 +25,10 @@ namespace engine::cli {
         std::string command;
         std::string selector;
         std::uint32_t window = 0;
+        // `canvas`: which of the window's canvases a UI command or `screenshot` looks at. Unset is all of them; a
+        // number is the canvas's place in the window's draw order (0 is drawn first); a string is the id of its
+        // document's root element.
+        std::variant<std::monostate, std::uint32_t, std::string> canvas;
         double x = 0.0;
         double y = 0.0;
         bool has_x = false;
@@ -63,6 +68,11 @@ namespace engine::cli {
     // canvas's layout box mapped through its offset and scale. Otherwise the error body `element` would answer.
     [[nodiscard]] std::expected<render::Rect, std::string> element_window_rect(ecs::World &world,
                                                                               const CliRequest &request);
+
+    // The rect, in window pixels, of the one canvas `request.canvas` names on the request's window. Otherwise
+    // `no canvas`, or `ambiguous` with the candidates when a root id names more than one.
+    [[nodiscard]] std::expected<render::Rect, std::string> canvas_window_rect(ecs::World &world,
+                                                                             const CliRequest &request);
 
     // Any other command: the host's reply, or `unknown command` when there is no host or it does not know it.
     [[nodiscard]] std::string execute_host(const CliCommands *host, const CliRequest &request);
