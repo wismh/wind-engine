@@ -80,7 +80,7 @@ The Inspector tab: a Pick checkbox and a hint, the tree on the left, Computed an
 
 The tree has fixed 22px rows in a scrolling `ScrollView`, so it is virtualized.
 
-While the Inspector tab is shown and the pointer is over the panel, the arrows, Home, and End move through the tree (`InspectorPanel::navigate`, `tree_navigate`): Up and Down move, Left collapses or goes to the parent, Right expands or goes to the first child. The start is the selected row of the detail window; with nothing selected, Down picks the first row. `EditorPanels` reads `KeyEvent` with its own cursor, repeats included, and calls `scroll_item_into_view` on `#tree` so the row stays visible. Keys are not `ActionId` bindings: the process has one binding table, which the game fills and Stop resets.
+While the Inspector tab is shown and its canvas is the topmost one of the editor window under the pointer (docked or floated), the arrows, Home, and End move through the tree (`InspectorPanel::navigate`, `tree_navigate`): Up and Down move, Left collapses or goes to the parent, Right expands or goes to the first child. The start is the selected row of the detail window; with nothing selected, Down picks the first row. `EditorPanels` reads `KeyEvent` with its own cursor, repeats included, and calls `scroll_item_into_view` on `#tree` so the row stays visible. Keys are not `ActionId` bindings: the process has one binding table, which the game fills and Stop resets.
 
 The panel inspects the world bound to `kPrimaryWindow`. A second world of the game (a tool window in its own world) is not in the tree.
 

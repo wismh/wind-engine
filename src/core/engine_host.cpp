@@ -152,6 +152,8 @@ bool EngineHost::open_primary(const WindowDesc& desc) {
             .ensure_ui_font = [&runtime, &assets](WindowId window, AssetId id) {
                 (void)runtime.add_font_for_window(window, id, *assets.get<Font>(id));
             },
+            .windows = &runtime.window_control(),
+            .worlds = impl_->worlds.get(),
     });
     impl_->opened = true;
     return true;

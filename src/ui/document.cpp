@@ -352,6 +352,9 @@ namespace engine::ui {
             const float child_avail_x = content_width_limit(box, avail_x);
             std::vector<const Element *> children;
             collect_layout_children(element, children);
+            // `position: absolute` is out of flow: it is placed against its containing block and adds nothing to
+            // the size its parent hugs.
+            std::erase_if(children, [](const Element *child) { return child->position == PositionMode::Absolute; });
             float main = 0.0f;
             float cross = 0.0f;
             for (std::size_t i = 0; i < children.size(); ++i) {
@@ -1365,12 +1368,43 @@ namespace engine::ui {
         return order;
     }
 
+    // An element that shows nothing of its children outside its own box: overflow other than visible, or a Viewport.
+    // Its absolute children outside it take no pointer either.
+    static bool clips_children(const Element &element) {
+        return element.overflow_x != Overflow::Visible || element.overflow_y != Overflow::Visible ||
+               element.kind == ElementKind::Viewport;
+    }
+
+    // `position: absolute` children of `element`, front to back, that may lie outside its box: out of flow, they are
+    // painted wherever they are placed, so they take the pointer there too.
+    template<typename Visit>
+    static auto visit_absolute_children(Element &element, Visit visit) -> decltype(visit(element)) {
+        if (clips_children(element)) {
+            return {};
+        }
+        for (std::vector<Element> *list: {&element.children, &element.generated_items}) {
+            std::vector<Element *> order = child_stacking_order(*list);
+            for (auto it = order.rbegin(); it != order.rend(); ++it) {
+                if ((*it)->kind == ElementKind::Popup || (*it)->position != PositionMode::Absolute) {
+                    continue;
+                }
+                if (auto hit = visit(**it); hit) {
+                    return hit;
+                }
+            }
+        }
+        return {};
+    }
+
     static Element *hit_test_at(Element &element, float x, float y, bool under_control) {
         if (!element.visible || element.display_none) {
             return nullptr;
         }
         if (!rect_contains(hit_bounds(element), x, y)) {
-            return nullptr;
+            const bool child_under_control =
+                    under_control || element.kind == ElementKind::Button || element.kind == ElementKind::Checkbox;
+            return visit_absolute_children(
+                    element, [&](Element &child) { return hit_test_at(child, x, y, child_under_control); });
         }
         if (is_scrollable_y(element)) {
             const render::Rect track = scrollbar_track_rect(element);
@@ -1522,7 +1556,13 @@ namespace engine::ui {
             return {};
         }
         if (!rect_contains(hit_bounds(element), x, y)) {
-            return {};
+            const glm::vec2 child_basis = content_size_of(element, parent_content);
+            const SpaceMap child_map = child_map_of(element, map);
+            const VisualHit hit = visit_absolute_children(element, [&](Element &child) -> std::optional<VisualHit> {
+                VisualHit nested = hit_visual_at(child, x, y, child_basis, child_map);
+                return nested.element != nullptr ? std::optional<VisualHit>(nested) : std::nullopt;
+            }).value_or(VisualHit{});
+            return hit;
         }
         if (is_scrollable_y(element) || is_scrollable_x(element)) {
             const render::Rect track = scrollbar_track_rect(element);

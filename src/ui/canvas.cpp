@@ -530,6 +530,22 @@ namespace engine::ui {
         return std::nullopt;
     }
 
+    void release_canvas(ecs::World &world, ecs::Entity canvas_entity) {
+        UiCanvas *canvas = world.try_get<UiCanvas>(canvas_entity);
+        UiInstance *instance = world.try_get<UiInstance>(canvas_entity);
+        if (canvas == nullptr || instance == nullptr) {
+            return;
+        }
+        for (OpenPopup &open: open_popups(instance->document.root)) {
+            close_popup(world, canvas->window, *canvas, *open.popup);
+        }
+        const auto &focus_map = world.ctx<UiFocusState>().focused;
+        if (const auto it = focus_map.find(canvas->window);
+            it != focus_map.end() && it->second.canvas_entity == canvas_entity) {
+            clear_focus(world, canvas->window);
+        }
+    }
+
     namespace {
 
         enum class TextSelectUnit : std::uint8_t { Character, Word, All };

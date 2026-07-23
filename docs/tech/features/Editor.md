@@ -27,10 +27,10 @@ The SDK's `bin/` holds `wind_editor.exe`, `wind-cli.exe`, `engine.dll`, their `.
 
 1. `EngineHost::init`. Without `--project` the editor reports "No project to open. Start the editor from the Wind launcher, or run wind_editor --project <dir>." through `IFatalError` (a message box) and exits with 1: a project opens only from the [Launcher](Launcher.md), the command line, or `wind-cli open`. Then `open_primary` with `WindowDesc{"Game", 800x600}`. That is `kPrimaryWindow`, the game's window.
 2. `load_catalog(assets_root() / "editor")`: the editor's own `catalog.toml`. A failure is fatal.
-3. `Worlds::add` for the editor world, `open_window({"Wind Editor", 1280x800})`, `bind_window`, `enable_ui`, and one `UiCanvas` (`FillWindow`) with `assets/ui/editor.xml` and `assets/css/editor.css` over `EditorViewModel`. `EditorPanels` spawns four more canvases (`Fixed`, `order` 1): `assets/ui/explorer.xml`, `assets/ui/inspector.xml`, `assets/ui/profiler.xml`, and `assets/ui/build.xml`, all with `assets/css/panels.css`.
-4. `purge_game_module_copies(<user data>/live)`. The user data directory is `user_data_directory("Wind", "Editor")`. Without one the copies go to `<temp>/wind_editor/live`.
+3. `Worlds::add` for the editor world, `open_window({"Wind Editor", 1280x800})`, `bind_window`, `enable_ui`, and one `UiCanvas` (`FillWindow`) with `assets/ui/editor.xml` and `assets/css/editor.css` over `EditorViewModel`. `EditorPanels` spawns four panel canvases (`Fixed`): `assets/ui/explorer.xml`, `assets/ui/inspector.xml`, `assets/ui/profiler.xml`, and `assets/ui/build.xml`, all with `assets/css/panels.css`, and one `DockSpace` (order 1) that places them, with the saved layout ([Panels](#panels)).
+4. `purge_game_module_copies(<user data>/live)`. The user data directory is `user_data_directory("Wind", "Editor")`, read once at start; it also holds `dock_layout.toml` ([Layout file](#layout-file)). Without one the copies go to `<temp>/wind_editor/live` and the layout is not kept (logged).
 5. `PlaySession` and `ProjectBuild` over `EngineServices::processes`. The SDK root is `<assets root>/../..`; `read_sdk_manifest` there gives the version and configuration. A missing or bad `sdk.toml` is logged and leaves the editor unable to build.
-6. Opens the `--project` directory. Nothing is remembered between runs.
+6. Opens the `--project` directory. Only the panel layout is remembered between runs.
 
 Opening a project reads `<dir>/wind_project.toml` (`read_wind_project`). A read error, a missing SDK, or an `engine` version other than the SDK's `version` shows in the status line and leaves Play disabled: "The project needs engine 0.2.0; this editor is 0.1.0."
 
@@ -43,16 +43,15 @@ Command line:
 
 ## Window
 
-A toolbar, a tab strip, and the active panel.
+A toolbar, and the panels' dock space below it ([Panels](#panels)).
 
 | Control | Binding | Does |
 | --- | --- | --- |
 | Play / Cancel / Stop | `togglePlay`, `playLabel`, `isPlaying` (`checked`, red while building or playing) | Idle: build and play. Building: cancel the build. Playing: stop. Disabled with no playable project |
 | Status line | `statusText` | Ready, Building, Playing, Stopped, the game quit, or why opening, building, or Play failed |
 | Project line | `projectText` | The project's name and directory |
-| Project / Inspector / Profiler / Build tabs | `showExplorer`, `showInspector`, `showProfiler`, `showBuild`, `explorerTab`, `inspectorTab`, `profilerTab`, `buildTab` (`checked`) | Show that panel. Project is first |
 
-The commands are `MethodCommand` (`editor/src/method_command.h`) bound to `Toolbar` methods. Play/Stop only records an `EditorRequest` (`wind-cli` `play` and `stop` record the same one); `Toolbar::show_state` (`RunState` Idle, Building, Playing) sets what Play/Stop does. A tab button switches the tab at once. The editor window's `WindowCloseRequestedEvent` is read by one editor-world system that also only records. Every transition runs in `RunHooks::on_frame_end`, after the frame drew, because Play and Stop create and destroy worlds that no system of that frame may still be walking.
+The commands are `MethodCommand` (`editor/src/method_command.h`) bound to `Toolbar` methods. Play/Stop only records an `EditorRequest` (`wind-cli` `play` and `stop` record the same one); `Toolbar::show_state` (`RunState` Idle, Building, Playing) sets what Play/Stop does. The editor window's `WindowCloseRequestedEvent` is read by one editor-world system that also only records. Every transition runs in `RunHooks::on_frame_end`, after the frame drew, because Play and Stop create and destroy worlds that no system of that frame may still be walking.
 
 ## wind-cli
 
@@ -68,7 +67,31 @@ The commands are `MethodCommand` (`editor/src/method_command.h`) bound to `Toolb
 
 ## Panels
 
-`EditorPanels` (`editor/src/editor_panels.cpp`) owns `ExplorerPanel`, `InspectorPanel`, `ProfilerPanel`, and `BuildPanel`. One editor-world system in `Phase::Game` places the canvases, hands tree keys to the Project or Inspector tab while the pointer is over it ([UI Inspector](UI%20Inspector.md#editor-panel)), and refreshes the visible panel. `Game`, not `Bind`: `run_bind` of the editor world must see this frame's copy. The active panel's canvas covers the window below `kPanelTop` (88px: the 56px toolbar and the 32px tab strip of `editor.css`). The others are `Fixed` with an empty rect, so they take no clicks. The Build panel is filled by the editor as a build runs, not refreshed.
+`EditorPanels` (`editor/src/editor_panels.cpp`) owns `ExplorerPanel`, `InspectorPanel`, `ProfilerPanel`, and `BuildPanel`, their canvases, and one engine `DockSpace` ([Docking](Docking.md#host)) on the editor window. The dock space fills the window below the 56px toolbar (`EditorPanels::kToolbarHeight`, `.toolbar` of `editor.css`), from `order` 1 (`kDockOrder`, above the editor's own canvas). The engine's dock systems draw the tab strips, splitters, floats, and drop preview, handle the pointer on them, and write each panel canvas's rect, order, and window; an inactive tab is `Fixed` with an empty rect, so it takes no clicks. Tabs are as wide as their titles ([Tab width](Docking.md#tab-width)).
+
+| Key | Title | Canvas |
+| --- | --- | --- |
+| `project` | Project | `explorer.xml` |
+| `inspector` | Inspector | `inspector.xml` |
+| `profiler` | Profiler | `profiler.xml` |
+| `build` | Build | `build.xml` |
+
+`EditorPanels::default_layout()`: Project on the left (25% of the width, full height); on the right, Inspector and Profiler as tabs (Inspector shown) over Build (Build 30% of that column). No panel is closable yet: there is nothing to reopen one with. Tabs can be reordered, split, tabbed together, and floated. The dock space is `DockFloatMode::OsWindow`: a panel dropped outside the dock area or Shift-dragged opens in an OS window of its own, bound to the editor's world, titled with its active tab, moved and resized by the OS, a tool window of the editor window (above it, minimized with it, no taskbar entry); tabs drag between the editor window and those windows, and a float window's close button docks its panels back ([OS window floats](Docking.md#os-window-floats)).
+
+One editor-world system in `Phase::Game` (`EditorPanels::frame`) sets the dock area from `window_size_for`, hands tree keys to the Project or Inspector panel when its canvas is the topmost canvas under the pointer of the window the key went to (the editor window or the panel's float window) ([UI Inspector](UI%20Inspector.md#editor-panel)), refreshes the Inspector and the Profiler only while `layout.is_visible` says their tab is shown, and saves the layout when `DockSpace::revision` moved. `Game`, not `Bind`: `run_bind` of the editor world must see this frame's copy, and `run_dock_layout` (Bind) applies this frame's area. The Build panel is filled by the editor as a build runs, not refreshed.
+
+`EditorPanels::show(key)` brings a panel to the front: `activate` its tab and `raise_float` its float; a float in an OS window is raised and focused (`dock_panel_os_window`, `IWindowControl::raise`, the window control `spawn` was given). A panel the layout lost is put back by `reconcile_dock_layout` first. A failed build calls `show("build")`.
+
+### Layout file
+
+`<user data>/dock_layout.toml` (`%APPDATA%/Wind/Editor/dock_layout.toml` on Windows): `dock_layout_to_text` of the layout. `DockLayoutFile` (`editor/src/dock_layout_file.cpp`) reads it and writes it to `dock_layout.toml.tmp` first, then renames it over the file, creating the directory; an empty path (no user data directory) reads and writes nothing.
+
+| When | Does |
+| --- | --- |
+| Start | `load`. Missing, unreadable, not TOML, an unknown version, or a broken layout: the default (a warning when the file exists but is bad). A layout with none of the four panels: the default. Otherwise `reconcile_dock_layout` drops unknown keys and puts a missing panel beside the Inspector (Center), or in the first stack when the Inspector is missing too |
+| Each frame | `save` when `DockSpace::revision` differs from the last one written: a tab activated, a float raised, a drag committed, a float window moved, resized, or closed (saved the frame after: the dock layout pass runs after `EditorPanels::frame`). Changes the editor makes itself (`show`) are not saved until the next one or quit |
+| Start, floats | Each float of the loaded layout opens its window at its stored rect, relative to where the editor window is. A float whose top row is on no display is moved onto the editor window's display (and saved there) |
+| Quit | `save` in `on_quit` |
 
 The Project tab (`explorer.xml`, `ExplorerPanel`) is the open project's files as a tree, built with `<engine/ui/tree.h>` and the row recipe of [UI](../modules/UI.md#trees). `scan_project` (`editor/src/project_scan.cpp`) reads the project directory into `ProjectEntry` values when a project opens and on Refresh; nothing watches the disk between scans. It hides names that start with `.`, the build trees (`build`, `build-*`, `cmake-build-*`, `out`), and `.meta` sidecars, does not follow directory symlinks, and stops at 20000 entries (the line above the tree says so). Folders come first, then files, each by name ignoring case. A node's key is its path under the project (`assets/ui/menu.xml`), so Refresh keeps the folders that were expanded and the selection while they still exist. Folders start collapsed; opening a project starts over. The right column shows the selected path, then `File, 2.0 KB` or `Folder, 3 items`. A project that does not read leaves the tab empty.
 
@@ -84,7 +107,7 @@ Play first builds the project's game module. `ProjectBuild` (`editor/src/project
 2. `cmake --build <project>/build-editor --config DebugGame --target <target> --parallel` (`Debug` against a Debug SDK). CMake reruns its configure itself when the game's `CMakeLists.txt` changed.
 3. The module is the path `engine_add_game` recorded in `<build>/wind/<target>.<config>.module` ([CMake](../build/CMake.md#game-module-engine_editor-or-sdk-mode)). No record is an error that names the target.
 
-Both steps run in the project directory with `VSLANG=1033` (MSBuild writes English) and `MSBUILDDISABLENODEREUSE=1` (no MSBuild node outlives the build; the call's job would end it anyway). Each step's command line (`> cmake ...`) and output go to the Build tab and the command to the log. A step that exits non-zero ends the build with "Configure failed" or "Build failed (exit code N)"; CMake missing from `PATH` is "CMake was not found". On failure the editor shows the Build tab, the status line says why, and the summary above the log is the first error line.
+Both steps run in the project directory with `VSLANG=1033` (MSBuild writes English) and `MSBUILDDISABLENODEREUSE=1` (no MSBuild node outlives the build; the call's job would end it anyway). Each step's command line (`> cmake ...`) and output go to the Build tab and the command to the log. A step that exits non-zero ends the build with "Configure failed" or "Build failed (exit code N)"; CMake missing from `PATH` is "CMake was not found". On failure the editor brings the Build panel to the front (`EditorPanels::show`), the status line says why, and the summary above the log is the first error line.
 
 The Build tab (`build.xml`, `BuildPanel`): a summary line and the log, one 18px row per line (virtualized), the last 5000 lines. `tone_of` colors a line red for `: error `, `: fatal error `, or `CMake Error`, and amber for `: warning ` or `CMake Warning`. New lines scroll the log to the end: `logScroll` is set past it, and the bound scroll is clamped to the content ([UI Input](UI%20Input.md)).
 
@@ -109,8 +132,8 @@ After a successful build, `PlaySession::play` (`editor/src/play_session.cpp`) wi
 1. `IPlayHost::detach_tools`: detach the inspector and profiler from the game world and clear both panels. The game world still exists and is still bound.
 2. `on_quit`.
 3. `EngineHost::detach_game`: unbind `kPrimaryWindow`, clear its command buffer (its `CmdDrawUI` entries point into game documents), reset its NanoVG context and register `builtin::font_ui` again, clear drag region and click-through, overlay mode `Auto`, `paused` false.
-4. Destroy every world that did not exist before Play.
-5. Close every window that was not open before Play.
+4. Destroy every world that did not exist before Play. `Worlds::destroy` closes the dock float windows of a game world's `DockSpace` with it ([Docking](Docking.md#os-window-floats)).
+5. Close every window that was not open before Play, except one bound to a world that was (a panel's float window opened while playing).
 6. `InputSystem::reset`, then `IAudioSystem::stop_all`.
 7. `unload_catalog(<module dir>/assets)`.
 8. `wind_destroy_game`.
@@ -147,11 +170,14 @@ The editor's assets and catalog land in `bin/assets/editor/` (`ENGINE_RUNTIME_AS
 - Against a Release SDK, game code gets no STL checks or CRT debug heap (`DebugGame` is `/MD`). That needs a Debug SDK and a Debug game.
 - The panels show only the world of `kPrimaryWindow`.
 - The Project tab only browses: no open, rename, create, delete, or drag. Files changed on disk show after Refresh.
+- Panels cannot be closed or reset to the default layout from the UI; delete `dock_layout.toml` to start from the default.
+- `taskkill` without `/F` posts `WM_CLOSE` to one top-level window of the process, which may be a float window: that float docks back and the editor keeps running.
+- `wind-cli click` cannot switch dock tabs: tabs answer the mouse, not a command.
 - `wind-cli launch` is Windows only, like `ProcessLauncher::launch`.
 
 ## Tests
 
-`editor/tests/play_session_test.cpp` (`wind_editor_tests`) drives `PlaySession` with headless services (`tests/fixtures/fake_services.h`), a recording `IPlayHost`, and the fixture module: Play applies the window and attaches the game and then the tools to the game world, Stop runs in the order above (tools first, while the game world is still bound), puts back the frame pacing the fixture changed, and deletes the copy, Play again works, a wrong build id and a catalog error leave nothing behind, the destructor stops. `editor/tests/project_build_test.cpp` drives `ProjectBuild` with a scripted `IProcessLauncher`: configure then build of a fresh directory and the module record, a cache for this SDK skips configure, a cache for another SDK configures again, a Debug SDK builds Debug, a failed configure or build, CMake missing, no module record, and cancel. `build_panel_test.cpp` covers the tones, the first error, scrolling, and the line cap; `editor_options_test.cpp` the command line; `editor_cli_test.cpp` the `wind-cli` replies in each `RunState`, the refusals, and the toolbar request each command records. `editor/tests/editor_panels_test.cpp` covers the tabs and canvas placement; `explorer_panel_test.cpp` covers what the scan hides and its order, the Project rows, expanding, selecting, tree keys, and Refresh keeping what still exists; `inspector_panel_test.cpp`, `profiler_panel_test.cpp`, and `profiler_chart_test.cpp` cover the panels. `wind_editor_tests` compiles every editor source except `main.cpp` and `editor_app.cpp`, with wind_editor's generated `asset_ids.h`. `tests/game_module_test.cpp` covers the loader.
+`editor/tests/play_session_test.cpp` (`wind_editor_tests`) drives `PlaySession` with headless services (`tests/fixtures/fake_services.h`), a recording `IPlayHost`, and the fixture module: Play applies the window and attaches the game and then the tools to the game world, Stop runs in the order above (tools first, while the game world is still bound), puts back the frame pacing the fixture changed, and deletes the copy, Play again works, a wrong build id and a catalog error leave nothing behind, the destructor stops. `editor/tests/project_build_test.cpp` drives `ProjectBuild` with a scripted `IProcessLauncher`: configure then build of a fresh directory and the module record, a cache for this SDK skips configure, a cache for another SDK configures again, a Debug SDK builds Debug, a failed configure or build, CMake missing, no module record, and cancel. `build_panel_test.cpp` covers the tones, the first error, scrolling, and the line cap; `editor_options_test.cpp` the command line; `editor_cli_test.cpp` the `wind-cli` replies in each `RunState`, the refusals, and the toolbar request each command records. `editor/tests/editor_panels_test.cpp` covers the default layout, the dock area and panel canvases (and a window resize), visible-only refresh of the Inspector and Profiler, `show` (hidden, lost, and under another float), the layout saved on a revision change and read by the next start, `save_layout`, a corrupt file and a layout of unknown panels falling back to the default, reconcile of a saved layout, tree keys only to the Project panel under the pointer, and attach and detach, and with the fake window control (`EditorPanelsWindowsTest`): a floated panel's OS window bound to the editor world, a float window owned by the editor window with the utility style, `show` raising a floated panel's window (and not a docked one's), a saved float reopening its window at its rect and a native move saved, and tree keys in a float window; `play_session_test.cpp` also checks that Stop keeps a window the editor's world opened while playing; `dock_layout_file_test.cpp` covers the layout file round trip, a missing or corrupt file, and an empty path; `explorer_panel_test.cpp` covers what the scan hides and its order, the Project rows, expanding, selecting, tree keys, and Refresh keeping what still exists; `inspector_panel_test.cpp`, `profiler_panel_test.cpp`, and `profiler_chart_test.cpp` cover the panels. `wind_editor_tests` compiles every editor source except `main.cpp` and `editor_app.cpp`, with wind_editor's generated `asset_ids.h`. `tests/game_module_test.cpp` covers the loader.
 
 ## See also
 

@@ -1,5 +1,7 @@
 #include <engine/core/worlds.h>
 
+#include "ui/dock_runtime.h"
+
 #include <algorithm>
 
 namespace engine {
@@ -23,6 +25,11 @@ void Worlds::destroy(ecs::World& world) {
     Slot* const slot = find(world);
     if (slot == nullptr) {
         return;
+    }
+    if (slot->ui) {
+        // Dock float windows are the world's own: they close with it, not stay open unbound with a command buffer
+        // whose UI draws point into this world's documents.
+        ui::close_world_dock_float_windows(world, deps_);
     }
     const std::vector<WindowId> bound = world.ctx<BoundWindows>().ids;
     for (const WindowId id : bound) {

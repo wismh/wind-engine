@@ -1,5 +1,7 @@
 #include "window_system.h"
 
+#include <engine/log.h>
+
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -59,7 +61,7 @@ WindowSystem::~WindowSystem() {
     destroy();
 }
 
-bool WindowSystem::create(const WindowDesc& desc) {
+bool WindowSystem::create(const WindowDesc& desc, SDL_Window* owner) {
     destroy();
 
 #if defined(ENGINE_WITH_GLES)
@@ -94,7 +96,12 @@ bool WindowSystem::create(const WindowDesc& desc) {
         SDL_SetHint("SDL_BORDERLESS_WINDOWED_STYLE", "0");
     }
 
-    const SDL_WindowFlags flags = SDL_WINDOW_OPENGL | window_style_flags(desc.style);
+    // An owned window is created hidden and shown once it has its owner: Windows decides on a taskbar entry when a
+    // window is shown, and an owned window gets none.
+    SDL_WindowFlags flags = SDL_WINDOW_OPENGL | window_style_flags(desc.style);
+    if (owner != nullptr) {
+        flags |= SDL_WINDOW_HIDDEN;
+    }
     window_ = SDL_CreateWindow(desc.title.c_str(), desc.size.x, desc.size.y, flags);
     if (window_ == nullptr) {
         return false;
@@ -102,6 +109,16 @@ bool WindowSystem::create(const WindowDesc& desc) {
     transparent_ = desc.style.transparent;
     if (desc.position) {
         SDL_SetWindowPosition(window_, desc.position->x, desc.position->y);
+    }
+    if (owner != nullptr) {
+        // Not SDL_PROP_WINDOW_CREATE_PARENT_POINTER: with SDL_WINDOW_UTILITY, SDL's Windows backend makes a hidden
+        // window of its own the owner at creation and ignores the parent (WIN_CreateWindow). SDL_SetWindowParent
+        // afterwards sets the real owner (GWLP_HWNDPARENT) and SDL still destroys its own one with the window. SDL
+        // destroys an owned window before its owner (SDL_DestroyWindow); WindowManager closes owned windows first.
+        if (!SDL_SetWindowParent(window_, owner)) {
+            log::warn(std::string("Window: no owner for a window (") + SDL_GetError() + "); it opens unowned");
+        }
+        SDL_ShowWindow(window_);
     }
     // a drag-region click is handled manually (begin_drag_if_in_region()) instead of
     // being routed through the OS's own HTCAPTION/modal-loop drag, so nothing needs SDL to know
@@ -202,6 +219,16 @@ void WindowSystem::set_always_on_top(bool always_on_top) {
     if (window_ != nullptr) {
         SDL_SetWindowAlwaysOnTop(window_, always_on_top);
     }
+}
+
+void WindowSystem::raise() {
+    if (window_ == nullptr) {
+        return;
+    }
+    if ((SDL_GetWindowFlags(window_) & SDL_WINDOW_MINIMIZED) != 0) {
+        SDL_RestoreWindow(window_);
+    }
+    SDL_RaiseWindow(window_);
 }
 
 void WindowSystem::set_position(glm::ivec2 position) {
@@ -406,6 +433,9 @@ SDL_WindowFlags window_style_flags(const WindowStyle& style) {
     }
     if (style.maximized) {
         flags |= SDL_WINDOW_MAXIMIZED;
+    }
+    if (style.utility) {
+        flags |= SDL_WINDOW_UTILITY;
     }
     return flags;
 }
