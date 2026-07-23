@@ -55,6 +55,11 @@ namespace engine::ui {
     // until it is brought up to date, a hidden element keeps them until it is shown (showing it marks it again).
     void clear_region_marks(Element &boundary, std::vector<Element> &children);
 
+    // The nearest boundary above `element` keeps the picture that drew it. Marks that boundary for paint. A hidden
+    // element's own paint mark does not: `plain_dirty` skips it, and a fixed ancestor does not move, so without this
+    // the picture replays with the element still in it. The root has nothing above it.
+    void mark_containing_picture(UiDocument &document, Element &element);
+
     // What a recording notes: the picture being recorded will not be reusable (a blinking caret, an `IPaint` that
     // cannot say when it changed), or depends on an `IPaint`'s version.
     void note_volatile();
