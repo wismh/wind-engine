@@ -311,7 +311,7 @@ Marks: `kDirtyPaint` rewrites the boundary that holds the element (the element i
 
 Pictures that cannot be replayed are *volatile* and recorded every frame, as paint was before: a focused `TextInput` (the caret blinks with the clock), an `IPaint` whose `version()` is `kVersionUnknown` (the default), and anything that measured a non-empty string as zero wide (a font that is not ready). An `IPaint` that returns a version, with the same meaning as `Bindable::version`, is recorded again only when it moves. A `Viewport` records its children for half a screen of world more than its box shows on every side and replays them while the camera looks at nothing outside that; children wholly outside the recorded world are culled ([Paint](#paint)).
 
-A hidden element (`display: none`, `visibility`, a closed popup) holds no mark that any picture above cares about; showing it marks it again.
+A hidden element (`display: none`, `visibility`, `if`) holds no mark that the picture above reads (`plain_dirty` skips it), and a fixed ancestor does not move, so the restyle that changes `display_none` or `visible` marks that picture (`mark_containing_picture`) and it records again without the element. Showing the element marks the same picture. A closed popup is not in it.
 
 The debug check of [Debug layout check](#debug-layout-check) covers pictures: after each paint, every boundary records afresh and is compared with the picture it holds, and a difference means a change reached an element without marking it for paint (`UiWorkCounters::picture_check_failures`).
 
