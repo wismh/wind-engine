@@ -662,6 +662,66 @@ TEST(UiPainter, AbsoluteChildDoesNotConsumeFlowSpace) {
     EXPECT_FLOAT_EQ(fills[1].y, 0.0f);
 }
 
+// An absolute child is out of flow: the size its parent hugs is the flow children's alone. It used to count, so a
+// list of absolutely placed rows (the dock chrome) hugged a column of all of them and clipped hit tests to it.
+TEST(UiPainter, AbsoluteChildAddsNothingToTheSizeItsParentHugs) {
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Stack class="hug">
+            <Label class="item" text="X"/>
+            <Stack class="far"/>
+          </Stack>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .hug { position: relative; }
+        .item { width: 30; height: 10; }
+        .far { position: absolute; left: 100; top: 120; width: 50; height: 60; }
+    )");
+    engine::ui::apply_layout_style(parsed->root, &sheet);
+    engine::ui::layout(*parsed, engine::render::Rect{0.0f, 0.0f, 400.0f, 300.0f});
+
+    const engine::ui::Element& hug = parsed->root.children[0];
+    EXPECT_EQ(hug.layout_rect, (engine::render::Rect{0.0f, 0.0f, 30.0f, 10.0f}));
+    EXPECT_EQ(hug.children[1].layout_rect, (engine::render::Rect{100.0f, 120.0f, 50.0f, 60.0f}));
+}
+
+// An absolute child is painted where it is placed, so it takes the pointer there, outside its parent's box too,
+// unless the parent clips (overflow other than visible).
+TEST(UiPainter, AnAbsoluteChildOutsideItsParentIsHitUnlessTheParentClips) {
+    auto parsed = engine::ui::parse_xml(R"(
+        <Canvas>
+          <Stack class="hug">
+            <Label class="item" text="X"/>
+            <Button class="far" content="Go"/>
+          </Stack>
+        </Canvas>
+    )");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .hug { position: relative; }
+        .item { width: 30; height: 10; }
+        .far { position: absolute; left: 100; top: 120; width: 50; height: 60; }
+    )");
+    engine::ui::apply_layout_style(parsed->root, &sheet);
+    engine::ui::layout(*parsed, engine::render::Rect{0.0f, 0.0f, 400.0f, 300.0f});
+    engine::ui::Element& far = parsed->root.children[0].children[1];
+    EXPECT_EQ(engine::ui::hit_test(parsed->root, 125.0f, 150.0f), &far);
+    EXPECT_EQ(engine::ui::hit_test_visual(parsed->root, 125.0f, 150.0f).element, &far);
+    EXPECT_EQ(engine::ui::hit_test_visual(parsed->root, 300.0f, 250.0f).element, &parsed->root);
+
+    const engine::ui::Stylesheet clipped = must_parse_css(R"(
+        .hug { position: relative; overflow: hidden; }
+        .item { width: 30; height: 10; }
+        .far { position: absolute; left: 100; top: 120; width: 50; height: 60; }
+    )");
+    engine::ui::apply_layout_style(parsed->root, &clipped);
+    engine::ui::layout(*parsed, engine::render::Rect{0.0f, 0.0f, 400.0f, 300.0f});
+    EXPECT_EQ(engine::ui::hit_test(parsed->root, 125.0f, 150.0f), nullptr);
+    EXPECT_EQ(engine::ui::hit_test_visual(parsed->root, 125.0f, 150.0f).element, &parsed->root);
+}
+
 TEST(UiPainter, AbsoluteChildStretchesWhenOppositeInsetsSetAndNoExplicitSize) {
     auto parsed = engine::ui::parse_xml(R"(<Canvas><Label class="stretch" text="S"/></Canvas>)");
     ASSERT_TRUE(parsed.has_value());
