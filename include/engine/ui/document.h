@@ -113,10 +113,20 @@ namespace engine::ui {
         SpaceBetween,
     };
 
-    // `white-space` for Label/Button text. Normal wraps at the content width; NoWrap keeps one line.
+    // `white-space` for Label/Button text, and for a multiline TextInput. Normal wraps at the content
+    // width; NoWrap keeps one line (a multiline field still breaks at `\n`).
     enum class WhiteSpace {
         Normal,
         NoWrap,
+    };
+
+    // TextInput only. None is the single-line field: Return runs the command, a `\n` in a text event
+    // submits. Newline inserts a line break on Return (Ctrl+Return runs the command). Submit keeps
+    // Return as the command and inserts a break on Shift+Return.
+    enum class TextMultiline {
+        None,
+        Newline,
+        Submit,
     };
 
     // `user-select` for a Label. None (the default) leaves the label out of hit-testing. Text is a normal
@@ -868,6 +878,18 @@ namespace engine::ui {
         // allow_paste. A Label never cuts or pastes; allow_copy still blocks Ctrl+C.
         bool allow_copy = true;
         bool allow_paste = true;
+        // TextInput. XML `multiline` (literal only). None ignores `white-space` and rejects line breaks.
+        TextMultiline multiline = TextMultiline::None;
+        // Multiline only. Vertical pan of the glyphs inside the content box, in design pixels. The
+        // element's own `scroll_y` pans children after the text is drawn, so it cannot move these glyphs.
+        float text_scroll_y = 0.0f;
+        // How far `text_scroll_y` may go: the text block minus the content height, from the last paint.
+        float text_scroll_max = 0.0f;
+        // Preferred caret x in design pixels, kept across Up/Down. Left/Right, Home/End, and a click replace it.
+        float caret_goal_x = 0.0f;
+        bool caret_goal_valid = false;
+        // The next paint scrolls `text_scroll_y` so the caret row is inside the content box.
+        bool reveal_caret = false;
         // TextInput, and a selectable Label: real-screen-pixel text metrics as last painted. TextInput
         // stores the resolved font size and the text's x-origin (paint.cpp). A Label stores the font
         // size plus one PaintedTextLine per row (glyph left/top, not the text-align anchor).
