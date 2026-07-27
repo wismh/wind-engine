@@ -7,6 +7,7 @@
 #include <engine/core/time.h>
 #include <engine/ecs/camera.h>
 #include <engine/ecs/hierarchy.h>
+#include <engine/ecs/ray.h>
 #include <engine/ecs/systems.h>
 #include <engine/ecs/transform.h>
 #include <engine/ecs/world_serializer.h>
@@ -20,10 +21,12 @@
 
 #include <glm/geometric.hpp>
 #include <glm/gtc/constants.hpp>
+#include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <format>
 #include <fstream>
@@ -50,62 +53,7 @@ constexpr float kMaxPitchRadians = 1.55f;
 constexpr float kPan3DSensitivity = 0.02f;
 constexpr float kWheel3DStep = 1.5f;
 constexpr float kFlySpeed = 10.0f;
-
-bool test_axis_segment(
-        const engine::Ray& ray,
-        glm::vec3 p0,
-        glm::vec3 u,
-        float length,
-        float threshold,
-        float& out_ray_t) {
-    const glm::vec3 r0 = ray.origin;
-    const glm::vec3 r = glm::normalize(ray.direction);
-    const glm::vec3 w = p0 - r0;
-
-    const float b = glm::dot(u, r);
-    const float wu = glm::dot(u, w);
-    const float wr = glm::dot(r, w);
-
-    const float denom = 1.0f - b * b;
-    float s = 0.0f;
-    float t = 0.0f;
-
-    if (denom > 1e-4f) {
-        s = std::clamp((b * wr - wu) / denom, 0.0f, length);
-        t = b * s + wr;
-    } else {
-        s = 0.0f;
-        t = wr;
-    }
-
-    t = std::max(0.0f, t);
-    const glm::vec3 pt_seg = p0 + s * u;
-    const glm::vec3 pt_ray = r0 + t * r;
-    const float dist = glm::distance(pt_seg, pt_ray);
-    if (dist <= threshold) {
-        out_ray_t = t;
-        return true;
-    }
-    return false;
-}
-
-bool test_center_sphere(
-        const engine::Ray& ray,
-        glm::vec3 p0,
-        float radius,
-        float& out_ray_t) {
-    const glm::vec3 r0 = ray.origin;
-    const glm::vec3 r = glm::normalize(ray.direction);
-    const glm::vec3 w = p0 - r0;
-    const float t = glm::dot(w, r);
-    const glm::vec3 pt_ray = r0 + std::max(0.0f, t) * r;
-    const float dist = glm::distance(p0, pt_ray);
-    if (dist <= radius) {
-        out_ray_t = std::max(0.0f, t);
-        return true;
-    }
-    return false;
-}
+constexpr float kClickSlop = 4.0f;
 
 bool test_rotation_ring(
         const engine::Ray& ray,
@@ -114,21 +62,104 @@ bool test_rotation_ring(
         float radius,
         float threshold,
         float& out_ray_t) {
-    const float denom = glm::dot(ray.direction, normal);
-    if (std::abs(denom) < 1e-4f) {
+    const std::optional<engine::RayHit> hit = engine::ray_plane(ray, center, normal);
+    if (!hit) {
         return false;
     }
-    const float t = glm::dot(center - ray.origin, normal) / denom;
-    if (t < 0.0f) {
-        return false;
-    }
-    const glm::vec3 hit_pt = ray.origin + t * ray.direction;
-    const float dist_from_center = glm::distance(hit_pt, center);
-    if (std::abs(dist_from_center - radius) <= threshold) {
-        out_ray_t = t;
+    if (std::abs(glm::distance(hit->point, center) - radius) <= threshold) {
+        out_ray_t = hit->t;
         return true;
     }
     return false;
+}
+
+std::array<glm::vec3, 4> sprite_outline_corners(const glm::mat4& world, const engine::render::Sprite& sprite) {
+    glm::mat4 model = world;
+    if (sprite.pixel_size.x > 0.0f && sprite.pixel_size.y > 0.0f && sprite.pixels_per_unit > 0.0f) {
+        const glm::vec2 world_size = sprite.pixel_size / sprite.pixels_per_unit;
+        const glm::vec3 pivot_offset{
+                (0.5f - sprite.pivot.x) * world_size.x, (0.5f - sprite.pivot.y) * world_size.y, 0.0f};
+        model = glm::translate(model, pivot_offset);
+        model = glm::scale(model, glm::vec3{world_size.x, world_size.y, 1.0f});
+    }
+    if (sprite.flip_x || sprite.flip_y) {
+        model = glm::scale(model, glm::vec3{sprite.flip_x ? -1.0f : 1.0f, sprite.flip_y ? -1.0f : 1.0f, 1.0f});
+    }
+    return {
+            glm::vec3(model * glm::vec4(-0.5f, -0.5f, 0.0f, 1.0f)),
+            glm::vec3(model * glm::vec4(0.5f, -0.5f, 0.0f, 1.0f)),
+            glm::vec3(model * glm::vec4(0.5f, 0.5f, 0.0f, 1.0f)),
+            glm::vec3(model * glm::vec4(-0.5f, 0.5f, 0.0f, 1.0f)),
+    };
+}
+
+struct PickHit {
+    engine::ecs::Entity entity{};
+    float t = 0.0f;
+    int layer = 0;
+    int order = 0;
+};
+
+bool better_pick(const PickHit& next, const PickHit& best) {
+    const float scale = std::max(1.0f, std::max(std::abs(next.t), std::abs(best.t)));
+    if (std::abs(next.t - best.t) > 1e-4f * scale) {
+        return next.t < best.t;
+    }
+    if (next.layer != best.layer) {
+        return next.layer > best.layer;
+    }
+    if (next.order != best.order) {
+        return next.order > best.order;
+    }
+    return next.entity.index > best.entity.index;
+}
+
+void consider_pick(std::optional<PickHit>& best, PickHit next) {
+    if (!best || better_pick(next, *best)) {
+        best = next;
+    }
+}
+
+// The sprite quad, or otherwise the renderable's unit cube, matching the selection outline. The nearer hit wins; a
+// tie goes to layer, then order, then the later entity.
+std::optional<engine::ecs::Entity> pick_entity(engine::ecs::World& world, const engine::Ray& ray) {
+    std::optional<PickHit> best;
+    auto sprites = world.view<engine::render::Sprite, engine::Transform>();
+    for (const engine::ecs::Entity entity : sprites) {
+        const engine::render::Sprite& sprite = sprites.get<engine::render::Sprite>(entity);
+        const std::array<glm::vec3, 4> corners =
+                sprite_outline_corners(engine::ecs::world_matrix(world, entity), sprite);
+        const std::optional<engine::RayHit> hit = engine::ray_quad(ray, corners[0], corners[1], corners[2], corners[3]);
+        if (!hit) {
+            continue;
+        }
+        consider_pick(best, PickHit{entity, hit->t, sprite.layer, sprite.order_in_layer});
+    }
+    auto meshes = world.view<engine::render::Renderable, engine::Transform>();
+    for (const engine::ecs::Entity entity : meshes) {
+        if (world.try_get<engine::render::Sprite>(entity) != nullptr) {
+            continue;
+        }
+        const glm::mat4 model = engine::ecs::world_matrix(world, entity);
+        if (std::abs(glm::determinant(model)) <= 1e-12f) {
+            continue;
+        }
+        const glm::mat4 inverse = glm::inverse(model);
+        const engine::Ray local{
+                glm::vec3(inverse * glm::vec4(ray.origin, 1.0f)),
+                glm::vec3(inverse * glm::vec4(ray.direction, 0.0f)),
+        };
+        const std::optional<engine::RayHit> hit = engine::ray_aabb(local, glm::vec3{-0.5f}, glm::vec3{0.5f});
+        if (!hit) {
+            continue;
+        }
+        const engine::render::Renderable& renderable = meshes.get<engine::render::Renderable>(entity);
+        consider_pick(best, PickHit{entity, hit->t, renderable.layer, renderable.order_in_layer});
+    }
+    if (!best) {
+        return std::nullopt;
+    }
+    return best->entity;
 }
 
 float compute_rotation_angle(
@@ -164,11 +195,8 @@ float compute_rotation_angle(
             v = glm::vec3{0.0f, 1.0f, 0.0f};
             break;
     }
-    const float denom = glm::dot(ray.direction, n);
-    if (std::abs(denom) > 1e-5f) {
-        const float t = glm::dot(world_pos - ray.origin, n) / denom;
-        const glm::vec3 hit_pt = ray.origin + t * ray.direction;
-        const glm::vec3 offset = hit_pt - world_pos;
+    if (const std::optional<engine::RayHit> hit = engine::line_plane(ray, world_pos, n)) {
+        const glm::vec3 offset = hit->point - world_pos;
         return std::atan2(glm::dot(offset, v), glm::dot(offset, u));
     }
     return 0.0f;
@@ -226,7 +254,7 @@ engine::render::Rect viewport_rect_of(const engine::render::Rect& canvas_rect) {
 
 }
 
-WorldViewPanel::WorldViewPanel(const EditorSelection& selection)
+WorldViewPanel::WorldViewPanel(EditorSelection& selection)
     : selection_(&selection)
     , view_model_(std::make_shared<WorldViewViewModel>()) {
     view_model_->toggleProjection.bind_to<WorldViewPanel, &WorldViewPanel::toggle_projection>(*this);
@@ -575,6 +603,10 @@ void WorldViewPanel::set_tool_scale() {
     set_gizmo_mode(GizmoMode::Scale);
 }
 
+void WorldViewPanel::set_entity_picking(bool enabled) {
+    entity_picking_ = enabled;
+}
+
 void WorldViewPanel::update_tool_labels() {
     view_model_->moveBtnLabel = gizmo_mode_ == GizmoMode::Translate ? std::string("[ Move ]") : std::string("Move");
     view_model_->rotateBtnLabel = gizmo_mode_ == GizmoMode::Rotate ? std::string("[ Rotate ]") : std::string("Rotate");
@@ -701,6 +733,7 @@ void WorldViewPanel::handle_input(
                             gizmo_drag_start_scale_ = tr->scale;
                         }
                         const glm::vec2 pointer_local = event.position - glm::vec2{viewport.x, viewport.y};
+                        drag_start_pos_ = event.position;
                         gizmo_drag_start_screen_pos_ = pointer_local;
                         gizmo_drag_start_t_ = compute_axis_param(pointer_local, gizmo_drag_axis_, viewport);
                         if (gizmo_mode_ == GizmoMode::Rotate) {
@@ -720,12 +753,16 @@ void WorldViewPanel::handle_input(
                 gizmo_drag_axis_ = GizmoAxis::None;
                 drag_button_ = event.button;
                 drag_window_ = event.window;
+                drag_start_pos_ = event.position;
                 last_drag_pos_ = event.position;
                 engine::ui::presentation_of(editor_world).cursors.cursors[drag_window_] = engine::ui::Cursor::Move;
             }
         } else if (event.kind == engine::MouseEvent::Kind::Up) {
             if (event.button == drag_button_ || event.button == engine::MouseButton::None) {
                 const bool gizmo = gizmo_drag_axis_ != GizmoAxis::None;
+                const bool click = entity_picking_ && !gizmo && drag_button_ == engine::MouseButton::Left &&
+                        glm::distance(event.position, drag_start_pos_) <= kClickSlop;
+                const glm::vec2 click_at = drag_start_pos_;
                 if (!gizmo && drag_button_ != engine::MouseButton::None && drag_window_ != engine::WindowId{}) {
                     engine::ui::presentation_of(editor_world).cursors.cursors[drag_window_] =
                             engine::ui::Cursor::Default;
@@ -735,6 +772,9 @@ void WorldViewPanel::handle_input(
                     release_drag_cursor(editor_world);
                 } else {
                     drag_button_ = engine::MouseButton::None;
+                }
+                if (click) {
+                    select_entity_at(viewport, click_at);
                 }
                 update_gizmo(viewport, event.position);
             }
@@ -1022,8 +1062,7 @@ void WorldViewPanel::update_gizmo(const engine::render::Rect& viewport, glm::vec
         return;
     }
 
-    float t_center = 0.0f;
-    if (test_center_sphere(ray, world_pos, 0.18f * gizmo_scale_, t_center)) {
+    if (engine::ray_sphere(ray, world_pos, 0.18f * gizmo_scale_)) {
         gizmo_hovered_ = GizmoAxis::Center;
         return;
     }
@@ -1043,15 +1082,32 @@ void WorldViewPanel::update_gizmo(const engine::render::Rect& viewport, glm::vec
     GizmoAxis best_axis = GizmoAxis::None;
     float min_t = std::numeric_limits<float>::max();
     for (const auto& cand : candidates) {
-        float ray_t = 0.0f;
-        if (test_axis_segment(ray, world_pos, cand.dir, gizmo_scale_, 0.15f * gizmo_scale_, ray_t)) {
-            if (ray_t < min_t) {
-                min_t = ray_t;
+        if (const std::optional<engine::RayHit> hit =
+                    engine::ray_segment(ray, world_pos, cand.dir, gizmo_scale_, 0.15f * gizmo_scale_)) {
+            if (hit->t < min_t) {
+                min_t = hit->t;
                 best_axis = cand.axis;
             }
         }
     }
     gizmo_hovered_ = best_axis;
+}
+
+void WorldViewPanel::select_entity_at(const engine::render::Rect& viewport, glm::vec2 pointer) {
+    if (selection_ == nullptr) {
+        return;
+    }
+    const engine::ui::WindowSize vp_size{
+            std::max(1, static_cast<int>(std::round(viewport.w))),
+            std::max(1, static_cast<int>(std::round(viewport.h))),
+    };
+    const glm::vec2 pointer_local = pointer - glm::vec2{viewport.x, viewport.y};
+    const engine::Ray ray = engine::screen_to_ray(pointer_local, camera_, camera_world_matrix(), vp_size);
+    if (const std::optional<engine::ecs::Entity> hit = pick_entity(edit_world_, ray)) {
+        selection_->select(EntitySelection{.entity = *hit});
+    } else {
+        selection_->clear();
+    }
 }
 
 void WorldViewPanel::apply_gizmo_drag(const engine::render::Rect& viewport, glm::vec2 pointer) {
@@ -1137,14 +1193,12 @@ void WorldViewPanel::apply_gizmo_drag(const engine::render::Rect& viewport, glm:
             const engine::Ray ray_start =
                     engine::screen_to_ray(gizmo_drag_start_screen_pos_, camera_, cam_world, vp_size);
 
-            const float ndotd_curr = glm::dot(cam_fwd, ray_curr.direction);
-            const float ndotd_start = glm::dot(cam_fwd, ray_start.direction);
-            if (std::abs(ndotd_curr) > 1e-5f && std::abs(ndotd_start) > 1e-5f) {
-                const float s_curr = glm::dot(gizmo_drag_start_world_pos_ - ray_curr.origin, cam_fwd) / ndotd_curr;
-                const float s_start = glm::dot(gizmo_drag_start_world_pos_ - ray_start.origin, cam_fwd) / ndotd_start;
-                const glm::vec3 hit_curr = ray_curr.origin + s_curr * ray_curr.direction;
-                const glm::vec3 hit_start = ray_start.origin + s_start * ray_start.direction;
-                const glm::vec3 new_pos = gizmo_drag_start_world_pos_ + (hit_curr - hit_start);
+            const std::optional<engine::RayHit> hit_curr =
+                    engine::line_plane(ray_curr, gizmo_drag_start_world_pos_, cam_fwd);
+            const std::optional<engine::RayHit> hit_start =
+                    engine::line_plane(ray_start, gizmo_drag_start_world_pos_, cam_fwd);
+            if (hit_curr && hit_start) {
+                const glm::vec3 new_pos = gizmo_drag_start_world_pos_ + (hit_curr->point - hit_start->point);
                 engine::ecs::set_world_position(edit_world_, *selected, new_pos);
                 engine::ecs::update_world_transforms(edit_world_);
                 note_gizmo_edit();
@@ -1208,11 +1262,8 @@ float WorldViewPanel::compute_axis_param(
     }
 
     const glm::vec3 cam_fwd = camera_rotation() * glm::vec3{0.0f, 0.0f, -1.0f};
-    const float ndotd = glm::dot(cam_fwd, r);
-    if (std::abs(ndotd) > 1e-5f) {
-        const float s = glm::dot(p0 - r0, cam_fwd) / ndotd;
-        const glm::vec3 hit_pt = r0 + s * r;
-        return glm::dot(hit_pt - p0, u);
+    if (const std::optional<engine::RayHit> hit = engine::line_plane(engine::Ray{r0, r}, p0, cam_fwd)) {
+        return glm::dot(hit->point - p0, u);
     }
     return 0.0f;
 }
@@ -1296,27 +1347,12 @@ void WorldViewPanel::render_gizmo_and_outline(
     };
 
     if (sprite != nullptr) {
-        glm::mat4 sprite_model = engine::ecs::world_matrix(edit_world_, *selected);
-        if (sprite->pixel_size.x > 0.0f && sprite->pixel_size.y > 0.0f && sprite->pixels_per_unit > 0.0f) {
-            const glm::vec2 world_size = sprite->pixel_size / sprite->pixels_per_unit;
-            const glm::vec3 pivot_offset{
-                    (0.5f - sprite->pivot.x) * world_size.x, (0.5f - sprite->pivot.y) * world_size.y, 0.0f};
-            sprite_model = glm::translate(sprite_model, pivot_offset);
-            sprite_model = glm::scale(sprite_model, glm::vec3{world_size.x, world_size.y, 1.0f});
-        }
-        if (sprite->flip_x || sprite->flip_y) {
-            sprite_model = glm::scale(
-                    sprite_model, glm::vec3{sprite->flip_x ? -1.0f : 1.0f, sprite->flip_y ? -1.0f : 1.0f, 1.0f});
-        }
-        const glm::vec3 c0 = glm::vec3(sprite_model * glm::vec4(-0.5f, -0.5f, 0.0f, 1.0f));
-        const glm::vec3 c1 = glm::vec3(sprite_model * glm::vec4(0.5f, -0.5f, 0.0f, 1.0f));
-        const glm::vec3 c2 = glm::vec3(sprite_model * glm::vec4(0.5f, 0.5f, 0.0f, 1.0f));
-        const glm::vec3 c3 = glm::vec3(sprite_model * glm::vec4(-0.5f, 0.5f, 0.0f, 1.0f));
-
-        draw_edge(c0, c1);
-        draw_edge(c1, c2);
-        draw_edge(c2, c3);
-        draw_edge(c3, c0);
+        const std::array<glm::vec3, 4> corners =
+                sprite_outline_corners(engine::ecs::world_matrix(edit_world_, *selected), *sprite);
+        draw_edge(corners[0], corners[1]);
+        draw_edge(corners[1], corners[2]);
+        draw_edge(corners[2], corners[3]);
+        draw_edge(corners[3], corners[0]);
     } else if (renderable != nullptr) {
         const glm::mat4 obj_model = engine::ecs::world_matrix(edit_world_, *selected);
         const glm::vec3 c0 = glm::vec3(obj_model * glm::vec4(-0.5f, -0.5f, -0.5f, 1.0f));
