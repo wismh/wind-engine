@@ -1458,3 +1458,245 @@ TEST(UiTextInput, CenteredTextStoresTheGlyphLeft) {
     EXPECT_FLOAT_EQ(text_w, 10.0f);
     EXPECT_FLOAT_EQ(input->painted_content_origin_x, input->layout_rect.x + (input->layout_rect.w - text_w) * 0.5f);
 }
+
+namespace {
+
+engine::ui::Element* mount_field(engine::ecs::World& world, const std::shared_ptr<CardViewModel>& vm,
+                                 std::string_view xml) {
+    auto parsed = engine::ui::parse_xml(xml, nullptr, vm.get());
+    EXPECT_TRUE(parsed.has_value());
+    if (!parsed) {
+        return nullptr;
+    }
+    engine::ui::UiCanvas canvas;
+    canvas.rect = {0.0f, 0.0f, 200.0f, 200.0f};
+    canvas.fit = engine::ui::UiFit::Fixed;
+    canvas.data_context = vm;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, canvas);
+    world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{std::move(*parsed), test_sheet()});
+    engine::ui::begin_frame(world);
+    engine::ui::handle_pointer(world, 20.0f, 15.0f);
+    return engine::ui::focused_element(world);
+}
+
+}
+
+TEST(UiTextInput, MultilineAttribute) {
+    CardViewModel vm;
+    auto newline = engine::ui::parse_xml(R"(<Canvas><TextInput multiline="true"/></Canvas>)", nullptr, &vm);
+    ASSERT_TRUE(newline.has_value());
+    EXPECT_EQ(engine::ui::find_by_kind(newline->root, engine::ui::ElementKind::TextInput)->multiline,
+              engine::ui::TextMultiline::Newline);
+    auto named = engine::ui::parse_xml(R"(<Canvas><TextInput multiline="newline"/></Canvas>)", nullptr, &vm);
+    ASSERT_TRUE(named.has_value());
+    EXPECT_EQ(engine::ui::find_by_kind(named->root, engine::ui::ElementKind::TextInput)->multiline,
+              engine::ui::TextMultiline::Newline);
+    auto submit = engine::ui::parse_xml(R"(<Canvas><TextInput multiline="submit"/></Canvas>)", nullptr, &vm);
+    ASSERT_TRUE(submit.has_value());
+    EXPECT_EQ(engine::ui::find_by_kind(submit->root, engine::ui::ElementKind::TextInput)->multiline,
+              engine::ui::TextMultiline::Submit);
+    auto off = engine::ui::parse_xml(R"(<Canvas><TextInput multiline="false"/></Canvas>)", nullptr, &vm);
+    ASSERT_TRUE(off.has_value());
+    EXPECT_EQ(engine::ui::find_by_kind(off->root, engine::ui::ElementKind::TextInput)->multiline,
+              engine::ui::TextMultiline::None);
+    auto bad = engine::ui::parse_xml(R"(<Canvas><TextInput multiline="rows"/></Canvas>)", nullptr, &vm);
+    EXPECT_FALSE(bad.has_value());
+    EXPECT_EQ(bad.error(), engine::ui::UiError::InvalidMarkup);
+
+    auto built = engine::ui::make_document(
+            engine::ui::canvas().add(engine::ui::text_input().multiline(engine::ui::TextMultiline::Submit)));
+    ASSERT_TRUE(built.has_value());
+    EXPECT_EQ(engine::ui::find_by_kind(built->root, engine::ui::ElementKind::TextInput)->multiline,
+              engine::ui::TextMultiline::Submit);
+}
+
+TEST(UiTextInput, SingleLineNewlineStillSubmits) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<CardViewModel>();
+    engine::ui::Element* field = mount_field(
+            world, vm, R"(<Canvas><TextInput text="{binding word}" command="{binding submit}"/></Canvas>)");
+    ASSERT_NE(field, nullptr);
+    EXPECT_EQ(field->text, "cat");
+    engine::ui::handle_text_input(world, "\n");
+    EXPECT_EQ(vm->submits, 1);
+    EXPECT_EQ(engine::ui::focused_element(world), nullptr);
+    EXPECT_EQ(field->text, "cat");
+}
+
+TEST(UiTextInput, NewlineModeReturnInsertsAndCtrlReturnSubmits) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<CardViewModel>();
+    engine::ui::Element* field = mount_field(
+            world, vm,
+            R"(<Canvas><TextInput multiline="newline" text="{binding word}" command="{binding submit}"/></Canvas>)");
+    ASSERT_NE(field, nullptr);
+    engine::ui::handle_key(world, engine::KeyCode::Return, true);
+    EXPECT_EQ(field->text, "cat\n");
+    EXPECT_EQ(vm->submits, 0);
+    EXPECT_EQ(engine::ui::focused_element(world), field);
+    press_ctrl(world, engine::KeyCode::Return);
+    EXPECT_EQ(vm->submits, 1);
+    EXPECT_EQ(engine::ui::focused_element(world), field);
+    EXPECT_EQ(field->text, "cat\n");
+}
+
+TEST(UiTextInput, SubmitModeShiftReturnInserts) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<CardViewModel>();
+    engine::ui::Element* field = mount_field(
+            world, vm,
+            R"(<Canvas><TextInput multiline="submit" text="{binding word}" command="{binding submit}"/></Canvas>)");
+    ASSERT_NE(field, nullptr);
+    engine::ui::handle_key(world, engine::KeyCode::Return, true);
+    EXPECT_EQ(vm->submits, 1);
+    EXPECT_EQ(field->text, "cat");
+    EXPECT_EQ(engine::ui::focused_element(world), field);
+    engine::ui::handle_key(world, engine::KeyCode::LShift, true);
+    engine::ui::handle_key(world, engine::KeyCode::Return, true);
+    engine::ui::handle_key(world, engine::KeyCode::LShift, false);
+    EXPECT_EQ(field->text, "cat\n");
+    EXPECT_EQ(vm->submits, 1);
+}
+
+TEST(UiTextInput, MultilineTextEventKeepsNewlines) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<CardViewModel>();
+    vm->word.set("");
+    engine::ui::Element* field = mount_field(
+            world, vm, R"(<Canvas><TextInput multiline="true" text="{binding word}"/></Canvas>)");
+    ASSERT_NE(field, nullptr);
+    engine::ui::handle_text_input(world, "a\r\nb");
+    EXPECT_EQ(field->text, "a\nb");
+    EXPECT_EQ(vm->submits, 0);
+    EXPECT_EQ(engine::ui::focused_element(world), field);
+}
+
+TEST(UiTextInput, MultilinePasteFoldsCrLf) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<CardViewModel>();
+    vm->word.set("");
+    auto storage = std::make_shared<std::string>("a\r\nb");
+    install_fake_clipboard(world, storage);
+    engine::ui::Element* field = mount_field(
+            world, vm, R"(<Canvas><TextInput multiline="newline" text="{binding word}"/></Canvas>)");
+    ASSERT_NE(field, nullptr);
+    press_ctrl(world, engine::KeyCode::V);
+    EXPECT_EQ(field->text, "a\nb");
+}
+
+TEST(UiTextInput, MultilineUpDownAndClickSecondRow) {
+    engine::ecs::World world;
+    auto vm = std::make_shared<CardViewModel>();
+    vm->word.set("aa\nbb");
+    engine::ui::Element* field = mount_field(
+            world, vm, R"(<Canvas><TextInput multiline="newline" text="{binding word}"/></Canvas>)");
+    ASSERT_NE(field, nullptr);
+    field->caret_position = 0;
+    field->caret_goal_valid = false;
+    engine::ui::handle_key(world, engine::KeyCode::Down, true);
+    EXPECT_EQ(field->caret_position, 3u);
+    engine::ui::handle_key(world, engine::KeyCode::Up, true);
+    EXPECT_EQ(field->caret_position, 0u);
+    engine::ui::handle_key(world, engine::KeyCode::End, true);
+    EXPECT_EQ(field->caret_position, 2u);
+    press_ctrl(world, engine::KeyCode::End);
+    EXPECT_EQ(field->caret_position, field->text.size());
+
+    engine::ui::Stylesheet sheet = test_sheet();
+    auto instances = world.view<engine::ui::UiInstance>();
+    engine::ui::UiInstance& instance = instances.get<engine::ui::UiInstance>(*instances.begin());
+    FakePainter painter;
+    engine::ui::paint_document(instance.document, &sheet, painter,
+                               engine::ui::UiPaintInput{.canvas_rect = {0.0f, 0.0f, 200.0f, 200.0f}});
+    ASSERT_GE(field->painted_text_lines.size(), 2u);
+    const engine::ui::PaintedTextLine& second = field->painted_text_lines[1];
+    engine::ui::handle_pointer(world, second.x + 1.0f, second.y + second.height * 0.5f);
+    EXPECT_GE(field->caret_position, second.begin);
+    EXPECT_LE(field->caret_position, second.end);
+}
+
+TEST(UiTextInput, MultilineHugGrowsAndWraps) {
+    CardViewModel vm;
+    vm.word.set("a\nb\nc");
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><TextInput multiline="true" text="{binding word}"/></Canvas>)",
+                                        nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    engine::ui::UiDocument document = std::move(*parsed);
+    ASSERT_TRUE(engine::ui::apply_bindings(document, vm).has_value());
+    FakePainter painter;
+    engine::ui::paint_document(document, nullptr, painter,
+                               engine::ui::UiPaintInput{.canvas_rect = {0.0f, 0.0f, 200.0f, 200.0f}});
+    engine::ui::Element* input = engine::ui::find_by_kind(document.root, engine::ui::ElementKind::TextInput);
+    ASSERT_NE(input, nullptr);
+    EXPECT_GE(input->layout_rect.h, 48.0f);
+
+    std::vector<std::string> warnings;
+    auto sheet = engine::ui::parse_css("TextInput { padding: 0; font-size: 16; width: 20; }", warnings);
+    ASSERT_TRUE(sheet.has_value());
+    vm.word.set("aa bb");
+    auto wrapped = engine::ui::parse_xml(R"(<Canvas><TextInput multiline="true" text="{binding word}"/></Canvas>)",
+                                         nullptr, &vm);
+    ASSERT_TRUE(wrapped.has_value());
+    engine::ui::UiDocument wrapped_doc = std::move(*wrapped);
+    ASSERT_TRUE(engine::ui::apply_bindings(wrapped_doc, vm).has_value());
+    engine::ui::paint_document(wrapped_doc, &*sheet, painter,
+                               engine::ui::UiPaintInput{.canvas_rect = {0.0f, 0.0f, 200.0f, 200.0f}});
+    input = engine::ui::find_by_kind(wrapped_doc.root, engine::ui::ElementKind::TextInput);
+    ASSERT_NE(input, nullptr);
+    EXPECT_GE(input->layout_rect.h, 32.0f);
+
+    auto nowrap_sheet =
+            engine::ui::parse_css("TextInput { padding: 0; font-size: 16; width: 20; white-space: nowrap; }", warnings);
+    ASSERT_TRUE(nowrap_sheet.has_value());
+    auto nowrap = engine::ui::parse_xml(R"(<Canvas><TextInput multiline="true" text="{binding word}"/></Canvas>)",
+                                        nullptr, &vm);
+    ASSERT_TRUE(nowrap.has_value());
+    engine::ui::UiDocument nowrap_doc = std::move(*nowrap);
+    ASSERT_TRUE(engine::ui::apply_bindings(nowrap_doc, vm).has_value());
+    engine::ui::paint_document(nowrap_doc, &*nowrap_sheet, painter,
+                               engine::ui::UiPaintInput{.canvas_rect = {0.0f, 0.0f, 200.0f, 200.0f}});
+    input = engine::ui::find_by_kind(nowrap_doc.root, engine::ui::ElementKind::TextInput);
+    ASSERT_NE(input, nullptr);
+    EXPECT_LT(input->layout_rect.h, 32.0f);
+}
+
+TEST(UiTextInput, MultilineCaretScrollsIntoView) {
+    CardViewModel vm;
+    vm.word.set("a\na\na\na\na\na\na\na");
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><TextInput multiline="true" text="{binding word}"/></Canvas>)",
+                                        nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    std::vector<std::string> warnings;
+    auto sheet = engine::ui::parse_css("TextInput { padding: 0; font-size: 16; width: 80; height: 20; }", warnings);
+    ASSERT_TRUE(sheet.has_value());
+    engine::ui::UiDocument document = std::move(*parsed);
+    ASSERT_TRUE(engine::ui::apply_bindings(document, vm).has_value());
+    engine::ui::Element* input = engine::ui::find_by_kind(document.root, engine::ui::ElementKind::TextInput);
+    ASSERT_NE(input, nullptr);
+    input->caret_position = input->text.size();
+    input->reveal_caret = true;
+    FakePainter painter;
+    engine::ui::paint_document(document, &*sheet, painter,
+                               engine::ui::UiPaintInput{.canvas_rect = {0.0f, 0.0f, 200.0f, 200.0f}});
+    EXPECT_GT(input->text_scroll_max, 0.0f);
+    EXPECT_GT(input->text_scroll_y, 0.0f);
+    EXPECT_FALSE(input->reveal_caret);
+
+    engine::ecs::World world;
+    auto hold = std::shared_ptr<CardViewModel>(&vm, [](CardViewModel*) {});
+    engine::ui::UiCanvas canvas;
+    canvas.rect = {0.0f, 0.0f, 200.0f, 200.0f};
+    canvas.fit = engine::ui::UiFit::Fixed;
+    canvas.data_context = hold;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::ui::UiCanvas>(entity, std::move(canvas));
+    world.emplace<engine::ui::UiInstance>(entity, engine::ui::UiInstance{std::move(document), std::move(*sheet)});
+    engine::ui::begin_frame(world);
+    input = engine::ui::find_by_kind(world.get<engine::ui::UiInstance>(entity).document.root,
+                                     engine::ui::ElementKind::TextInput);
+    ASSERT_NE(input, nullptr);
+    const float before = input->text_scroll_y;
+    engine::ui::handle_wheel(world, 20.0f, 10.0f, 1.0f);
+    EXPECT_LT(input->text_scroll_y, before);
+}

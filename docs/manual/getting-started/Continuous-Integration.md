@@ -15,7 +15,7 @@ An engine version is `<major>.<minor>.<patch><stage>`:
 | `0.1.7a` | Alpha: the eighth release of 0.1. Alpha is the current stage |
 | `0.2.6b` | Beta |
 | `1.0.0` | Production (no letter) |
-| `0.2.6a-dev` | An SDK somebody built on their own machine. Never a release |
+| `0.2.7a-dev` | An SDK somebody built on their own machine. Never a release |
 
 Every merge into the engine's `main` branch publishes a release, so the patch grows quickly (`0.1.99a` is followed by `0.1.100a`). The number goes on when the stage changes (`0.2.5a`, then `0.2.6b`). Versions are ordered by number, then alpha, beta, production.
 

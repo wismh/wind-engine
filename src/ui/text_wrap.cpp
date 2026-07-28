@@ -108,6 +108,121 @@ std::vector<TextLine> break_text_lines(
     return lines;
 }
 
+std::vector<TextLine> editor_lines(
+        std::string_view text, float max_width, const std::function<float(std::string_view)>& width_of) {
+    std::vector<TextLine> lines = break_text_lines(text, max_width, width_of);
+    if (lines.empty()) {
+        lines.push_back(TextLine{0, 0, 0.0f});
+    }
+    if (!text.empty() && text.back() == '\n') {
+        lines.push_back(TextLine{text.size(), text.size(), 0.0f});
+    }
+    return lines;
+}
+
+std::size_t editor_line_index(const std::vector<TextLine>& lines, std::size_t caret) {
+    if (lines.empty()) {
+        return 0;
+    }
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        const bool next_owns = i + 1 < lines.size() && lines[i + 1].begin == caret && lines[i].end != caret;
+        if (!next_owns && caret >= lines[i].begin && caret <= lines[i].end) {
+            return i;
+        }
+    }
+    return lines.size() - 1;
+}
+
+float editor_caret_x(std::string_view text, const TextLine& line, std::size_t caret,
+        const std::function<float(std::string_view)>& width_of) {
+    if (caret <= line.begin || line.begin > text.size()) {
+        return 0.0f;
+    }
+    const std::size_t end = std::min(caret, std::min(line.end, text.size()));
+    if (end <= line.begin) {
+        return 0.0f;
+    }
+    return width_of(text.substr(line.begin, end - line.begin));
+}
+
+namespace {
+
+std::size_t next_byte(std::string_view text, std::size_t pos) {
+    if (pos >= text.size()) {
+        return text.size();
+    }
+    ++pos;
+    while (pos < text.size() && (static_cast<unsigned char>(text[pos]) & 0xC0) == 0x80) {
+        ++pos;
+    }
+    return pos;
+}
+
+std::size_t prev_byte(std::string_view text, std::size_t pos) {
+    if (pos == 0 || pos > text.size()) {
+        return 0;
+    }
+    --pos;
+    while (pos > 0 && (static_cast<unsigned char>(text[pos]) & 0xC0) == 0x80) {
+        --pos;
+    }
+    return pos;
+}
+
+}
+
+std::size_t editor_caret_at_x(std::string_view text, const TextLine& line, float goal_x,
+        const std::function<float(std::string_view)>& width_of) {
+    if (line.begin >= line.end || line.end > text.size() || goal_x <= 0.0f) {
+        return line.begin;
+    }
+    std::size_t pos = line.begin;
+    float measured = 0.0f;
+    while (pos < line.end) {
+        const std::size_t next = std::min(next_byte(text, pos), line.end);
+        if (next <= pos) {
+            break;
+        }
+        const float next_w = width_of(text.substr(line.begin, next - line.begin));
+        if (goal_x < (measured + next_w) * 0.5f) {
+            return pos;
+        }
+        pos = next;
+        measured = next_w;
+    }
+    return line.end;
+}
+
+std::size_t step_editor_caret(std::string_view text, const std::vector<TextLine>& lines, std::size_t caret,
+        bool backward) {
+    const std::size_t next = backward ? prev_byte(text, caret) : next_byte(text, caret);
+    if (next == caret || lines.size() < 2) {
+        return next;
+    }
+    for (std::size_t i = 0; i + 1 < lines.size(); ++i) {
+        if (next > lines[i].end && next < lines[i + 1].begin) {
+            return backward ? lines[i].end : lines[i + 1].begin;
+        }
+    }
+    return next;
+}
+
+std::string normalize_line_breaks(std::string_view text) {
+    std::string out;
+    out.reserve(text.size());
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        if (text[i] == '\r') {
+            out.push_back('\n');
+            if (i + 1 < text.size() && text[i + 1] == '\n') {
+                ++i;
+            }
+        } else {
+            out.push_back(text[i]);
+        }
+    }
+    return out;
+}
+
 TextFontMetrics IUiPainter::font_metrics(AssetId font, float size) {
     const float measured = measure_text("M", font, size).y;
     const float line = measured > 0.0f ? measured : size;

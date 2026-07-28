@@ -186,6 +186,11 @@ Node& Node::allow_paste(bool value) {
     return *this;
 }
 
+Node& Node::multiline(TextMultiline mode) {
+    element_.multiline = mode;
+    return *this;
+}
+
 Node& Node::pan_x_bind(BindingId id) {
     element_.pan_x_binding = id;
     return *this;
