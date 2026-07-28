@@ -99,9 +99,12 @@ void PlaySession::stop() {
         services_->worlds.destroy(*world);
     }
 
+    // Windows the game opened go. A window opened meanwhile by a kept world (an editor panel's float window) stays.
     engine::IWindowControl& windows = services_->windows;
     for (const engine::WindowId id : windows.open_windows()) {
-        if (std::ranges::find(kept_windows_, id) == kept_windows_.end()) {
+        engine::ecs::World* const owner = services_->worlds.world_for(id);
+        const bool kept_owner = owner != nullptr && std::ranges::find(kept_worlds_, owner) != kept_worlds_.end();
+        if (std::ranges::find(kept_windows_, id) == kept_windows_.end() && !kept_owner) {
             windows.close_window(id);
         }
     }

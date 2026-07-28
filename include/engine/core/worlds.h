@@ -28,7 +28,9 @@ public:
     // Creates a world. Simulation systems are registered once `set_deps` has run.
     [[nodiscard]] ecs::World& add();
 
-    // Drops the world and unbinds its windows. The reference is dead after this returns.
+    // Drops the world and unbinds its windows. The OS windows its dock spaces opened for floats
+    // (DockFloatMode::OsWindow) close; other windows stay open. Not from inside a draw. The reference is dead
+    // after this returns.
     void destroy(ecs::World& world);
 
     // One window belongs to one world. Binding it again to a different world is fatal.

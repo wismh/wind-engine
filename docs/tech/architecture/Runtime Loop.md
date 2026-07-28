@@ -94,9 +94,11 @@ Frame systems, in phase order:
 | Phase | System |
 | --- | --- |
 | `Input` | `run_input` calls `begin_frame`, then drains `MouseEvent` into UI |
+| `Input` | `run_dock_input`: dock chrome presses and gestures, its own `MouseEvent` and `KeyEvent` cursors ([Docking](../features/Docking.md#host)) |
 | `Input` | `run_splash_timers` (`Time::delta_time`, including while paused) |
 | `Game` | `run_sprite_animations` |
 | `Game` | `run_particles` |
+| `Bind` | `run_dock_layout`: panel and chrome canvases of every `DockSpace` from its geometry |
 | `Bind` | `run_bind` |
 | `Audio` | `PlaySfxEvent` / `PlayMusicEvent` via `EventCursor`, then `get<Sound>` |
 | `Render` | `run_render`. An empty `ctx<BoundWindows>()` returns before a command-buffer clear. A non-empty list clears those buffers, then returns without scene commands when the `Renderable`+`Transform`, `Sprite`+`Transform`, and `ParticleEmitter` views are all empty, when `ActiveCamera`'s entity is not valid, or when that entity has no `Camera` or `Transform` (fatal). The sorted draws are pushed only after a live camera with both components, each with `window_size_for` |

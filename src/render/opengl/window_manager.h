@@ -38,7 +38,9 @@ public:
     ~WindowManager();
 
     [[nodiscard]] bool create_primary_window(const WindowDesc& desc);
+    // nullopt without a primary window, or when desc.owner is not a live window.
     [[nodiscard]] std::optional<WindowId> create_window(const WindowDesc& desc);
+    // Destroys the windows `id` owns (WindowDesc::owner) first, then `id`.
     void destroy_window(WindowId id);
     void shutdown();
 
@@ -114,6 +116,8 @@ private:
         std::shared_ptr<render::OpenGLCanvas> canvas;   // constructed after window/commands are stable addresses
         // False once the driver refused this context's swap interval; such a window never paces.
         bool vsync_supported = false;
+        // WindowDesc::owner: destroy_window of the owner destroys this one first.
+        std::optional<WindowId> owner;
     };
 
     // Turns vsync off on a fresh context, whatever the driver's default is, so only the vsync window waits.

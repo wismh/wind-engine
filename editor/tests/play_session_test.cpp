@@ -185,6 +185,24 @@ TEST(PlaySession, StopTearsDownInOrderAndUnloadsTheModule) {
     EXPECT_EQ(live.copies(), 0u) << "the live copy is deleted on Stop";
 }
 
+TEST(PlaySession, StopKeepsAWindowTheEditorOpenedWhilePlaying) {
+    LiveRoot live;
+    fakes::Services services;
+    EditorSide editor{services};
+    editor::PlaySession session{services.services, editor.host, live.path(), kIdle};
+    ASSERT_TRUE(session.play(kFixture).has_value());
+    // A panel floated into its own window during play: bound to the editor's world.
+    const engine::WindowId float_window = *services.windows.open_window(engine::WindowDesc{.title = "Inspector"});
+    services.worlds.bind_window(float_window, editor.world);
+
+    session.stop();
+
+    EXPECT_TRUE(services.windows.is_open(float_window));
+    EXPECT_EQ(services.worlds.world_for(float_window), &editor.world);
+    EXPECT_EQ(services.windows.open_windows(),
+            (std::vector<engine::WindowId>{engine::kPrimaryWindow, editor.window, float_window}));
+}
+
 TEST(PlaySession, PlayAgainAfterStop) {
     LiveRoot live;
     fakes::Services services;

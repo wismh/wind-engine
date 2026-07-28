@@ -88,6 +88,9 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/ui/builder.h` | `ui::Node` document builder | [UI Markup](../features/UI%20Markup.md) |
 | `include/engine/ui/canvas.h` | `UiCanvas`, pointer, focus, `MouseConsumed` | [UI](../modules/UI.md) |
 | `include/engine/ui/command.h` | `ICommand` and `RelayCommand` | [UI](../modules/UI.md) |
+| `include/engine/ui/dock_geometry.h` | Dock rects, chrome and drop hit tests, splitter and float resize helpers | [Docking](../features/Docking.md) |
+| `include/engine/ui/dock_layout.h` | `DockLayout`: tab stacks, splits, floats, operations, text, reconcile | [Docking](../features/Docking.md) |
+| `include/engine/ui/dock_space.h` | `DockSpace` component, `DockFloatMode`, `DockPanel`, `DockPanelCloseRequested`, order count, close button rect | [Docking](../features/Docking.md#host) |
 | `include/engine/ui/document.h` | `Element`, layout boxes, `UiDocument` | [UI Markup](../features/UI%20Markup.md) |
 | `include/engine/ui/draw_list.h` | `IDrawList` for `IPaint` | [UI](../modules/UI.md) |
 | `include/engine/ui/inspector.h` | Inspector probe: attach, pick state, tree, select, toggle, detail, rules | [UI Inspector](../features/UI%20Inspector.md) |
@@ -116,6 +119,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/core/fixed_step.cpp` | Accumulator and step cap | [Core](../modules/Core.md) |
 | `src/core/frame_capture.h` | `FrameCapture`: one window's pixels, read before its swap | [CLI](../features/CLI.md#screenshot) |
 | `src/core/frame_limiter.h`, `src/core/frame_limiter.cpp` | `FrameLimiter`: sleep schedule for frames no vsync swap waits on | [Windowing](../features/Windowing.md#frame-pacing) |
+| `src/core/event_window.h`, `src/core/event_window.cpp` | `event_window`: the window an SDL event goes to; a closed window's id is dropped | [Windowing](../features/Windowing.md#events-of-a-window) |
 | `src/core/frame_pacing.h`, `src/core/frame_pacing.cpp` | `choose_vsync_window`, `frame_period`, `limiter_period` | [Windowing](../features/Windowing.md#frame-pacing) |
 | `src/core/frame_step.cpp` | `flush_worlds` and `simulate_worlds` | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/core/frame_step.h` | Declarations for those two functions | [Runtime Loop](../architecture/Runtime%20Loop.md) |
@@ -143,7 +147,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ecs/.gitkeep` | Keeps the directory in Git | [ECS](../modules/ECS.md) |
 | `src/ecs/camera.cpp` | View and projection matrices, screen/world | [ECS](../modules/ECS.md) |
 | `src/ecs/physics.cpp` | Velocity integration and overlap events | [ECS](../modules/ECS.md) |
-| `src/ecs/systems.cpp` | Engine systems: input, splash, animation, particles, bind, audio, render, UI render | [Runtime Loop](../architecture/Runtime%20Loop.md) |
+| `src/ecs/systems.cpp` | Engine systems: input, dock input, splash, animation, particles, dock layout, bind, audio, render, UI render | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/ecs/world.cpp` | Create, destroy, flush, `run` | [ECS](../modules/ECS.md) |
 
 ## `src/resources/`
@@ -215,6 +219,17 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ui/canvas.cpp` | Fit, hit routing, focus, text edit, splash timers' frame hook | [UI](../modules/UI.md) |
 | `src/ui/css_length.h` | Parse `px`, `%`, `em`, and `calc()` | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/css_parser.cpp` | Stylesheet parser | [UI Markup](../features/UI%20Markup.md) |
+| `src/ui/dock_chrome.cpp`, `dock_chrome.h` | Chrome document (an ItemsControl per box kind), its view-models, the tab probe | [Docking](../features/Docking.md#host) |
+| `src/ui/dock_float_windows.cpp` | OS float windows: open as tool windows of the space's window, follow native moves, apply rects and titles, close (also when the world goes); re-dock on the close button | [Docking](../features/Docking.md#os-window-floats) |
+| `src/ui/dock_geometry.cpp` | Stack, splitter, and float rects; split, resize, and clamp helpers | [Docking](../features/Docking.md) |
+| `src/ui/dock_hit.cpp` | Chrome hit test and drop targets | [Docking](../features/Docking.md) |
+| `src/ui/dock_layout.cpp` | Dock tree, operations, invariants | [Docking](../features/Docking.md) |
+| `src/ui/dock_reconcile.cpp` | Drop unknown panels, add missing ones | [Docking](../features/Docking.md) |
+| `src/ui/dock_runtime.h` | Private dock state: chrome canvases, float windows, gesture, cursors, measured tab widths; the two dock systems; tab measuring, metrics, float home, per-window geometry, and order helpers | [Docking](../features/Docking.md#host) |
+| `src/ui/dock_space_input.cpp` | `run_dock_input`: chrome presses, gestures across windows, Escape, float window close, `MouseConsumed` | [Docking](../features/Docking.md#host) |
+| `src/ui/dock_space_layout.cpp` | `run_dock_layout`: panel and chrome canvases from the geometry of each window, float home, orders | [Docking](../features/Docking.md#host) |
+| `src/ui/dock_tab_measure.cpp` | Tab widths from the titles, the window's painter, and the theme's `.dock-tab` | [Docking](../features/Docking.md#tab-width) |
+| `src/ui/dock_text.cpp` | Layout to and from TOML | [Docking](../features/Docking.md) |
 | `src/ui/document.cpp` | Bind, layout, hit-test, virtualization | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/draw_list_adapter.h` | `IDrawList` over `IUiPainter` | [UI](../modules/UI.md) |
 | `src/ui/element_path.cpp` | Resolve a child-index path, including generated rows | [UI Inspector](../features/UI%20Inspector.md) |
@@ -314,13 +329,17 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/cli_server_test.cpp` | Descriptor, HTTP, window routing, host commands, and UI commands without `GameLoop` | [CLI](../features/CLI.md) |
 | `tests/cmake_sanity_test.cpp` | Public headers compile, build id, CMake file checks (game functions, SDK package) | [CMake](../build/CMake.md) |
 | `tests/command_buffer_test.cpp` | Push and iterate the three command types | [Render](../modules/Render.md) |
+| `tests/dock_layout_test.cpp` | Dock operations and invariants, geometry, drop zones, chrome hits, text round trip, reconcile | [Docking](../features/Docking.md) |
+| `tests/dock_space_test.cpp` | Dock systems: panel rects and orders, chrome lists and default theme, every tab and splitter hit, tab click and drag, splitter, float move, resize, raise, dock, Escape, consumption, close request, tab widths from titles | [Docking](../features/Docking.md#host) |
+| `tests/dock_float_window_test.cpp` | OS window floats with the fake window control: open, bind, title, rect, mode switch, tear-out, drags across windows, native move and resize, close button, space removed, world destroyed, space window closed, owner and utility style, `dock_panel_os_window`, open failure, saved rect, off-display float | [Docking](../features/Docking.md#os-window-floats) |
 | `tests/ecs_test.cpp` | Create, destroy, views, deferred destroy | [ECS](../modules/ECS.md) |
 | `tests/events_test.cpp` | Double buffer and cursors | [ECS](../modules/ECS.md) |
 | `tests/file_dialog_test.cpp` | `FileDialogCall` delivery, cancel, and ownership | [Windowing](../features/Windowing.md) |
 | `tests/fixtures/cli_client.h` | Loopback client: this process's descriptor and `POST /exec` | [CLI](../features/CLI.md) |
-| `tests/fixtures/fake_services.h` | Headless `EngineServices` fakes for tests that create a game | [Core](../modules/Core.md) |
+| `tests/fixtures/fake_services.h` | Headless `EngineServices` fakes for tests that create a game; the window control keeps each window's description, position, size, and title | [Core](../modules/Core.md) |
 | `tests/fixtures/game_module/fixture_game.cpp` | Fixture game module, built three ways in the editor build | [Core](../modules/Core.md) |
 | `tests/fixtures/game_module/fixture_log.h` | `FixtureLog` the fixture game writes into | [Core](../modules/Core.md) |
+| `tests/event_window_test.cpp` | `event_window`: a live window, a closed window's id dropped, id 0 per event kind | [Windowing](../features/Windowing.md#events-of-a-window) |
 | `tests/frame_pacing_test.cpp` | Vsync window choice, refresh period, limiter period, `FrameLimiter` schedule | [Windowing](../features/Windowing.md#frame-pacing) |
 | `tests/game_entry_test.cpp` | `ENGINE_GAME` module exports and build id (window builds) | [Core](../modules/Core.md) |
 | `tests/game_module_test.cpp` | `load_game_module` against the fixture modules (editor build) | [Core](../modules/Core.md) |
@@ -375,7 +394,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/ui_xml_test.cpp` | Tags, bindings, unknown elements | [UI Markup](../features/UI%20Markup.md) |
 | `tests/web_loop_test.cpp` | RAF policy and shutdown order | [Core](../modules/Core.md) |
 | `tests/window_icon_test.cpp` | `make_icon_surface` byte layout | [Windowing](../features/Windowing.md) |
-| `tests/window_style_test.cpp` | Style flags, overlay mode, window control without a window | [Windowing](../features/Windowing.md) |
+| `tests/window_style_test.cpp` | Style flags (`utility` included), overlay mode, window control without a window, `raise` of no window, a primary window with an owner refused | [Windowing](../features/Windowing.md) |
 | `tests/worlds_test.cpp` | World isolation, window routing, per-window draw, registration order | [Core](../modules/Core.md) |
 
 ## `tools/`
@@ -412,7 +431,7 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/assets/css/panels.css.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
 | `editor/assets/ui/build.xml` | Build tab: summary and log | [Editor](../features/Editor.md) |
 | `editor/assets/ui/build.xml.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
-| `editor/assets/ui/editor.xml` | Editor window: toolbar, tab strip, content area | [Editor](../features/Editor.md) |
+| `editor/assets/ui/editor.xml` | Editor window: the toolbar; the panels' dock space is below it | [Editor](../features/Editor.md) |
 | `editor/assets/ui/editor.xml.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
 | `editor/assets/ui/inspector.xml` | Inspector tab: Pick, tree, Computed, Rules | [UI Inspector](../features/UI%20Inspector.md) |
 | `editor/assets/ui/inspector.xml.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
@@ -424,15 +443,16 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/build_panel.h` | `BuildPanel`, `LineTone`, `tone_of` | [Editor](../features/Editor.md) |
 | `editor/src/build_view_model.cpp` | Binds the view-model to `build.xml` and its scroll | [Editor](../features/Editor.md) |
 | `editor/src/build_view_model.h` | `BuildViewModel` | [Editor](../features/Editor.md) |
+| `editor/src/dock_layout_file.cpp` | Read and atomically write the panel layout file | [Editor](../features/Editor.md#layout-file) |
+| `editor/src/dock_layout_file.h` | `DockLayoutFile` | [Editor](../features/Editor.md#layout-file) |
 | `editor/src/editor_app.cpp` | Start, SDK and project, build and play, frame-end transitions, quit | [Editor](../features/Editor.md) |
 | `editor/src/editor_app.h` | `EditorApp` | [Editor](../features/Editor.md) |
 | `editor/src/editor_cli.cpp` | `state`, `play`, `stop`, `open` for `wind-cli` | [Editor](../features/Editor.md#wind-cli) |
 | `editor/src/editor_cli.h` | `EditorCli`, `EditorFacts` | [Editor](../features/Editor.md#wind-cli) |
 | `editor/src/editor_options.cpp` | `--project` and `--play` | [Editor](../features/Editor.md) |
 | `editor/src/editor_options.h` | `EditorOptions` | [Editor](../features/Editor.md) |
-| `editor/src/editor_panels.cpp` | Panel canvases, tab placement, tree keys, refresh, attach and detach | [Editor](../features/Editor.md) |
+| `editor/src/editor_panels.cpp` | Panel canvases in a `DockSpace` with OS window floats, default layout, show, tree keys, visible-only refresh, layout saves, attach and detach | [Editor](../features/Editor.md#panels) |
 | `editor/src/editor_panels.h` | `EditorPanels` | [Editor](../features/Editor.md) |
-| `editor/src/editor_tab.h` | `EditorTab` | [Editor](../features/Editor.md) |
 | `editor/src/editor_view_model.cpp` | Binds the view-model to `editor.xml` | [Editor](../features/Editor.md) |
 | `editor/src/editor_view_model.h` | `EditorViewModel` | [Editor](../features/Editor.md) |
 | `editor/src/engine_host_play.cpp` | `IPlayHost` over `EngineHost` and `EditorPanels` | [Editor](../features/Editor.md) |
@@ -461,12 +481,13 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/project_build.h` | `ProjectBuild`, `BuildSetup`, `configured_for` | [Editor](../features/Editor.md) |
 | `editor/src/rule_line_view_model.cpp` | Binds a rule row | [UI Inspector](../features/UI%20Inspector.md) |
 | `editor/src/rule_line_view_model.h` | `RuleLineViewModel` | [UI Inspector](../features/UI%20Inspector.md) |
-| `editor/src/toolbar.cpp` | Button methods, tabs, and shown state | [Editor](../features/Editor.md) |
+| `editor/src/toolbar.cpp` | Play/Stop method and shown state | [Editor](../features/Editor.md) |
 | `editor/src/toolbar.h` | `Toolbar`, `EditorRequest`, `RunState` | [Editor](../features/Editor.md) |
 | `editor/tests/build_panel_test.cpp` | Log tones, first error, scroll, line cap | [Editor](../features/Editor.md) |
+| `editor/tests/dock_layout_file_test.cpp` | Layout file round trip, missing, corrupt, empty path | [Editor](../features/Editor.md#layout-file) |
 | `editor/tests/editor_cli_test.cpp` | `EditorCli` replies and the requests it records | [Editor](../features/Editor.md#wind-cli) |
 | `editor/tests/editor_options_test.cpp` | `--project` and `--play` | [Editor](../features/Editor.md) |
-| `editor/tests/editor_panels_test.cpp` | Tabs and panel canvas placement, attach and detach | [Editor](../features/Editor.md) |
+| `editor/tests/editor_panels_test.cpp` | Default layout, dock area and panel canvases, visible-only refresh, show, layout save and load, tree keys, attach and detach; OS float windows, saved float restore | [Editor](../features/Editor.md#panels) |
 | `editor/tests/inspector_panel_test.cpp` | Inspector view-models against a headless world | [UI Inspector](../features/UI%20Inspector.md) |
 | `editor/tests/play_session_test.cpp` | Play, Stop order, play again, refusals, against the fixture module | [Editor](../features/Editor.md) |
 | `editor/tests/profiler_chart_test.cpp` | Chart geometry and the chart paint | [UI Profiler](../features/UI%20Profiler.md) |

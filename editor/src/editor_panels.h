@@ -1,16 +1,21 @@
 #pragma once
 
 #include "build_panel.h"
-#include "editor_tab.h"
+#include "dock_layout_file.h"
 #include "explorer_panel.h"
 #include "inspector_panel.h"
 #include "profiler_panel.h"
 
 #include <engine/core/input_system.h>
+#include <engine/core/window_control.h>
 #include <engine/core/window_desc.h>
 #include <engine/ecs/entity.h>
 #include <engine/ecs/events.h>
-#include <engine/render/commands.h>
+#include <engine/ui/dock_layout.h>
+
+#include <array>
+#include <cstdint>
+#include <string_view>
 
 namespace engine::ecs {
 class World;
@@ -18,36 +23,58 @@ class World;
 
 namespace editor {
 
-class Toolbar;
-
-// The Project, Inspector, Profiler, and Build tabs. Each panel is its own canvas in the editor's world, under the
-// toolbar and the tab strip; an inactive one is a Fixed canvas with an empty rect, so it takes no clicks.
-// While playing, the Inspector and Profiler are attached to the world of kPrimaryWindow; only the visible one
-// refreshes. The Build panel is filled by the editor as a build runs, and the Project panel scans when a project
-// opens and on its Refresh.
+// The Project, Inspector, Profiler, and Build panels in an engine dock space that fills the editor window below the
+// toolbar; a floated panel lives in an OS window of its own (DockFloatMode::OsWindow). Each panel is its own canvas in
+// the editor's world; the dock space places it, so an inactive tab is a Fixed canvas with an empty rect and takes no
+// clicks. While playing, the Inspector and Profiler are attached to the
+// world of kPrimaryWindow and refresh only while their tab is shown. The Build panel is filled by the editor as a
+// build runs, and the Project panel scans when a project opens and on its Refresh. The layout is read from
+// `layout_file` at spawn and written back when the user changes it and at quit.
 class EditorPanels {
 public:
-    // y of the panels in the editor window: the toolbar (56) and the tab strip (32) of
-    // assets/css/editor.css.
-    static constexpr float kPanelTop = 88.0f;
+    static constexpr std::string_view kProject = "project";
+    static constexpr std::string_view kInspector = "inspector";
+    static constexpr std::string_view kProfiler = "profiler";
+    static constexpr std::string_view kBuild = "build";
+    // Dock order: the default layout's tabs and where reconcile puts a panel a saved layout lacks.
+    static constexpr std::array<std::string_view, 4> kKeys{kProject, kInspector, kProfiler, kBuild};
 
-    explicit EditorPanels(const Toolbar& toolbar);
+    // Height of the toolbar in the editor window: `.toolbar` of assets/css/editor.css. The dock space is below it.
+    static constexpr float kToolbarHeight = 56.0f;
+    // Lowest canvas order of the dock space: above the editor's own canvas (order 0).
+    static constexpr int kDockOrder = 1;
+
+    explicit EditorPanels(DockLayoutFile layout_file);
 
     EditorPanels(const EditorPanels&) = delete;
     EditorPanels& operator=(const EditorPanels&) = delete;
 
-    // Spawns the panel canvases in `world` for `window`. Called once, at editor start.
-    void spawn(engine::ecs::World& world, engine::WindowId window);
+    // Project on the left, Inspector and Profiler tabbed on the right (Inspector shown), Build under them.
+    [[nodiscard]] static engine::ui::DockLayout default_layout();
+
+    // Spawns the panel canvases and the dock space in `world` for `window`, with the saved layout when it reads, else
+    // the default. Called once, at editor start. `windows` raises a float's OS window in show().
+    void spawn(engine::ecs::World& world, engine::WindowId window, engine::IWindowControl& windows);
 
     // Play, after the game started: attach the Inspector and Profiler to `game`.
     void attach(engine::ecs::World& game);
     // First step of Stop: detach the Inspector and Profiler and drop everything they copied from the game.
     void detach();
 
-    // Editor world, Phase::Game (before Bind): places the canvases for the active tab, gives tree keys to
-    // the Project or Inspector tab while the pointer is over it, and refreshes the visible panel, so this
-    // frame's bindings see this frame's copy.
+    // Editor world, Phase::Game (before Bind): keeps the dock area under the toolbar, gives tree keys to the Project
+    // or Inspector panel under the pointer, refreshes the Inspector and Profiler while shown, so this frame's bindings
+    // see this frame's copy, and saves the layout when the dock space changed it.
     void frame(engine::ecs::World& world);
+
+    // Brings the panel to the front: its tab becomes active and its float, if any, goes on top; a float in an OS
+    // window is raised and focused. A panel the layout lost goes back where reconcile puts it.
+    void show(std::string_view key);
+    // Writes the layout to the layout file. At quit.
+    void save_layout();
+
+    [[nodiscard]] const engine::ui::DockLayout& layout() const;
+    [[nodiscard]] engine::ecs::Entity dock() const;
+    [[nodiscard]] engine::ecs::Entity canvas(std::string_view key) const;
 
     [[nodiscard]] ExplorerPanel& explorer();
     [[nodiscard]] InspectorPanel& inspector();
@@ -55,11 +82,16 @@ public:
     [[nodiscard]] BuildPanel& build();
 
 private:
-    // Arrow, Home, and End presses (repeats too) on the editor window while the pointer is inside `panel` and
-    // `tab` is a tree. Every frame reads the queue, so a key pressed elsewhere is not replayed later.
-    void read_tree_keys(engine::ecs::World& world, const engine::render::Rect& panel, EditorTab tab);
+    // Arrow, Home, and End presses (repeats too) on the editor window, or on a float's window, while the pointer is
+    // over the Project or Inspector panel there, whichever canvas is on top. Every frame reads the queue, so a key
+    // pressed elsewhere is not replayed later.
+    void read_tree_keys(engine::ecs::World& world);
+    // The Project or Inspector canvas when it is the topmost canvas of `window` under its pointer.
+    [[nodiscard]] engine::ecs::Entity tree_canvas_under_pointer(engine::ecs::World& world,
+            engine::WindowId window) const;
+    [[nodiscard]] engine::ui::DockLayout& layout_mut();
 
-    const Toolbar* toolbar_;
+    DockLayoutFile layout_file_;
     ExplorerPanel explorer_;
     InspectorPanel inspector_;
     ProfilerPanel profiler_;
@@ -68,7 +100,12 @@ private:
     engine::ecs::Entity inspector_canvas_{};
     engine::ecs::Entity profiler_canvas_{};
     engine::ecs::Entity build_canvas_{};
+    engine::ecs::Entity dock_{};
+    engine::ecs::World* world_ = nullptr;
+    engine::IWindowControl* windows_ = nullptr;
     engine::WindowId window_{};
+    // DockSpace::revision last written to the layout file.
+    std::uint64_t saved_revision_ = 0;
     // Its own cursor: the UI's run_input reads KeyEvent through the world's.
     engine::ecs::EventCursor<engine::KeyEvent> key_cursor_;
 };

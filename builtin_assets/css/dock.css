@@ -1,0 +1,58 @@
+/* Default dock space chrome (docs/tech/features/Docking.md#host). A host restyles it with its own sheets in
+   DockSpace::stylesheets. Every chrome box is placed by the engine through --x, --y, --w, --h. */
+
+.dock-box { position: absolute; left: var(--x); top: var(--y); width: var(--w); height: var(--h); }
+
+.dock-stack { background: #1e1f22; }
+.dock-strip { background: #2b2d30; }
+
+/* The engine sizes each tab from this rule: title width at this font, plus the left and right padding. --reserve is
+   the room a closable tab's close button takes at its right (0 without one), so the title never runs under it. */
+.dock-tab {
+    width: 100%;
+    height: 100%;
+    padding: 0 calc(8px + var(--reserve, 0px)) 0 8px;
+    background: #2b2d30;
+    color: #9da0a8;
+    font-size: 12px;
+    text-align: center;
+    align-items: center;
+    white-space: nowrap;
+    border-width: 1px;
+    border-color: #1e1f22;
+}
+.dock-tab:hover { background: #35373b; color: #dfe1e5; }
+.dock-tab:checked { background: #1e1f22; color: #ffffff; }
+
+.dock-tab-close {
+    position: absolute;
+    left: var(--cx);
+    top: var(--cy);
+    width: var(--cs);
+    height: var(--cs);
+    display: var(--close, none);
+    background: #00000000;
+    color: #9da0a8;
+    font-size: 12px;
+    text-align: center;
+    align-items: center;
+    border-radius: 3px;
+}
+.dock-tab-close:hover { background: #4e5157; color: #ffffff; }
+
+.dock-splitter { background: #2b2d30; }
+.dock-splitter:hover { background: #3574f0; }
+.dock-splitter:pressed { background: #3574f0; }
+
+.dock-frame { background: #2b2d30; border-width: 1px; border-color: #43454a; }
+.dock-title {
+    padding: 0 8px 0 8px;
+    background: #393b40;
+    color: #dfe1e5;
+    font-size: 12px;
+    align-items: center;
+    white-space: nowrap;
+}
+.dock-title:hover { background: #43454a; }
+
+.dock-preview { background: #3574f040; border-width: 2px; border-color: #3574f0; border-radius: 2px; }
