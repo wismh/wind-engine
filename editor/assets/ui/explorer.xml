@@ -18,9 +18,10 @@
         <ItemTemplate>
           <Stack class="rowline" direction="horizontal" var-row="{binding rowFill}" var-depth="{binding depth}">
             <Checkbox class="expander" checked="{binding expanded}" command="{binding toggle}"/>
-            <Button class="row" var-row-display="{binding rowDisplay}" command="{binding select}"
+            <Image class="entry-icon" source="{binding icon}" command="{binding select}"/>
+            <Button class="row entry" var-row-display="{binding rowDisplay}" command="{binding select}"
                     content="{binding label}"/>
-            <TextInput class="rename" var-rename-display="{binding renameDisplay}" text="{binding editText}"
+            <TextInput class="rename entry" var-rename-display="{binding renameDisplay}" text="{binding editText}"
                     command="{binding commitRename}"/>
             <ContextMenu open="{binding menuOpen}">
               <Menu text="New">
