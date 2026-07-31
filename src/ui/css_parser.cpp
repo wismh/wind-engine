@@ -94,6 +94,7 @@ bool is_known_property(std::string_view name) {
             "margin",
             "gap",
             "flex-direction",
+            "flex-wrap",
             "flex-grow",
             "align-items",
             "justify-content",
@@ -636,7 +637,8 @@ namespace {
         static constexpr std::string_view kLayout[] = {
                 "width",           "height",      "min-width",    "max-width", "min-height",
                 "margin",          "padding",     "border-width", "gap",       "flex-direction",
-                "flex-grow",       "justify-content", "align-items", "white-space", "display", "visibility",
+                "flex-wrap",       "flex-grow",   "justify-content", "align-items", "white-space",
+                "display",         "visibility",
                 "position",        "top",         "right",        "bottom",    "left",
                 "overflow",        "overflow-x",  "overflow-y",   "font-size", "line-height",
                 "font-family",

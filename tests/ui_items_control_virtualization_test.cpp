@@ -176,6 +176,25 @@ TEST(UiItemsControlVirtualization, FlexGrowOnTheRowRootGeneratesEveryRow) {
     EXPECT_EQ(items->generated_items.size(), kCount);
 }
 
+TEST(UiItemsControlVirtualization, FlexWrapGeneratesEveryRow) {
+    constexpr std::size_t kCount = 40;
+    ListVm vm;
+    vm.items.set(make_rows(kCount));
+
+    auto parsed = engine::ui::parse_xml(kEligibleXml, nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .list { overflow-y: auto; height: 100px; gap: 2px; flex-wrap: wrap; }
+        .row { height: 20px; }
+    )");
+
+    run_frame(*parsed, vm, sheet);
+    run_frame(*parsed, vm, sheet);
+    engine::ui::Element *items = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::ItemsControl);
+    ASSERT_NE(items, nullptr);
+    EXPECT_EQ(items->generated_items.size(), kCount);
+}
+
 TEST(UiItemsControlVirtualization, MaxScrollYMatchesFullGeneration) {
     constexpr std::size_t kCount = 500;
     ListVm vm_virtualized;
