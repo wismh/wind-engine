@@ -386,6 +386,18 @@ namespace engine::ui {
             return UserSelect::None;
         }
 
+        // Unknown values stay Auto, same as an absent property. `auto` is the interactive-only hit test.
+        PointerEvents parse_pointer_events(std::string_view raw) {
+            const std::string_view value = trim(raw);
+            if (value == "all") {
+                return PointerEvents::All;
+            }
+            if (value == "none") {
+                return PointerEvents::None;
+            }
+            return PointerEvents::Auto;
+        }
+
         // Unknown values stay Auto, same as an absent property.
         Cursor parse_cursor(std::string_view raw) {
             static constexpr std::pair<std::string_view, Cursor> kCursors[] = {
@@ -741,6 +753,8 @@ namespace engine::ui {
                 style.repaint_boundary = decl.value == "true" || decl.value == "yes" || decl.value == "on";
             } else if (decl.property == "cursor") {
                 style.cursor = parse_cursor(decl.value);
+            } else if (decl.property == "pointer-events") {
+                style.pointer_events = parse_pointer_events(decl.value);
             } else if (decl.property == "border-radius") {
                 if (const auto radius = css_length::parse_length(decl.value)) {
                     style.border_radius = *radius;
@@ -1301,6 +1315,7 @@ namespace engine::ui {
             element.user_select = style.user_select;
             element.repaint_boundary = style.repaint_boundary;
             element.cursor = style.cursor;
+            element.pointer_events = style.pointer_events;
             element.font_size = style.font_size;
             element.line_height = style.line_height;
             element.font_family = style.font_family;

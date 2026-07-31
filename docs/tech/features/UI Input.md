@@ -35,7 +35,7 @@ Results are `ecs::EventWriter<PointerTargetEvent>` events and component state: `
 
 An open `Popup` is above every canvas of its window. Canvases with an open popup are bound, laid out, and placed first, from highest `order` to lowest; the first with a popup under the point takes the event, even when the point is outside that canvas's rect. Otherwise canvases whose rect contains the point are tried from highest `order` to lowest. The top canvas is bound and laid out, then `hit_test`.
 
-A hit from `hit_test_at` is any of these:
+A hit from `hit_test_at` is any of these, unless that element sets `pointer-events: none`:
 
 - a Button or a Checkbox
 - an open Popup, anywhere inside it that no child takes
@@ -45,8 +45,11 @@ A hit from `hit_test_at` is any of these:
 - an element with a bound `command` or `drag`
 - a Viewport with a camera binding (`pan-x`, `pan-y`, or `zoom`)
 - a Label whose `user-select` is `text` or `all`, when it is not under a Button or Checkbox
+- an element with `pointer-events: all`. Its box is the hit when no child took the point, so a HUD `Stack` keeps the pointer off the world under its background, labels, and images. A child Button still wins
 
-A plain Label, Stack, or Image does not consume the click.
+`pointer-events` is `auto` (default), `all`, or `none` (`PointerEvents`). `auto` is the list above. `none` is not a hit, including a Button or a scrollbar, and its descendants are still tested. An unknown value stays `auto`. It does not inherit. Like `cursor` it is copied with the layout style, so a `:hover` rule does not change it. An open popup is still tested instead of the tree under it: `none` on that popup drops its own box and does not go on to the canvas behind it.
+
+A plain Label, Stack, or Image does not consume the click while it stays `auto`.
 
 Children are tested first, except that scrollbar track. A selectable Label is the only child suppressed under a Button or Checkbox, so `user-select: text` on that label does not steal the button. A Label with a bound `command` or `drag` stays that hit and is not a text selection.
 
@@ -146,7 +149,7 @@ The SDL text-input session follows a focused enabled TextInput only. `sync_frame
 
 ## Cursor
 
-`cursor_at(root, x, y)` (`include/engine/ui/document.h`) finds the topmost shown element under the point in the same order as the hit test: open popups first, siblings by z-index, absolute children outside a parent that does not clip, scroll and Viewport cameras. Unlike the hit test it takes any element, interactive or not, so a plain `Stack` with a `cursor` shows it. Its `cursor` wins; `auto` takes the nearest ancestor's that is not `auto` (a popup's ancestors are its anchor's). An `auto` TextInput or selectable Label is `text`, whatever its ancestors set. A chain of `auto` is `default`, and so is a point outside the root.
+`cursor_at(root, x, y)` (`include/engine/ui/document.h`) finds the topmost shown element under the point in the same order as the hit test: open popups first, siblings by z-index, absolute children outside a parent that does not clip, scroll and Viewport cameras. Unlike the hit test it takes any element, interactive or not, so a plain `Stack` with a `cursor` shows it. `pointer-events: none` does not claim the point; a descendant still can. Its `cursor` wins; `auto` takes the nearest ancestor's that is not `auto` (a popup's ancestors are its anchor's). An `auto` TextInput or selectable Label is `text`, whatever its ancestors set. A chain of `auto` is `default`, and so is a point outside the root.
 
 `update_cursor(world, window)` (`include/engine/ui/canvas.h`) picks the canvas a click there goes to: a canvas with a shown popup under the pointer, else the topmost canvas whose rect holds it. Another canvas under that one never shows through, even where the top one sets nothing. It reads the layout and popup placement of the last input or paint pass and lays nothing out. The result is kept in `Presentation::cursors` (`UiCursors`, per window). `run_input` also calls it on each `Down` before setting `down`, so the kept cursor is the one under the press even when no frame resolved it since the pointer got there. While the window's `UiPointer::down` is set it returns the kept cursor, so a press keeps the cursor it started with until release: a splitter drag that outruns the bar keeps `ew-resize`, and a drag that starts elsewhere does not change cursor over a splitter.
 
@@ -164,7 +167,7 @@ Scroll, drag, and pan write through `generated_owner` when that pointer is set, 
 
 ## Tests
 
-`tests/pointer_target_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_cursor_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_popup_test.cpp`.
+`tests/pointer_target_test.cpp`, `tests/ui_pointer_events_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_cursor_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_popup_test.cpp`.
 
 ## See also
 
