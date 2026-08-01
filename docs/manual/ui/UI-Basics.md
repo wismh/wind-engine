@@ -80,7 +80,7 @@ Styles are authored in CSS files (`importer = "css"`; keep them in their own fol
 
 The supported subset:
 
-- Selectors: type (`Label`), class (`.c`), id (`#id`), `Label.c`, descendant (`A B`), child (`A > B`). Pseudo-classes `:hover`, `:pressed`, `:disabled`, `:focus`, `:checked`. No `+`, `~`, or comma lists.
+- Selectors: type (`Label`), class (`.c`), id (`#id`), `Label.c`, descendant (`A B`), child (`A > B`). Pseudo-classes `:hover`, `:pressed`, `:disabled`, `:focus`, `:checked`. Comma lists (`A, B`) are supported; `+` and `~` are not.
 - Layout: `width`, `height`, `min-width`, `max-width`, `min-height`, `padding`, `margin`, `gap`, `flex-direction` (`row`/`horizontal`, otherwise vertical), `justify-content` (`start`, `center`, `end`, `space-between`), `align-items`, `position` (`static`, `relative`, `absolute`), `top`, `right`, `bottom`, `left`, `z-index`, `display: none`, `visibility`, `overflow`.
 - Paint: `color`, `background` (a color or a gradient), `background-image`, `border-width`, `border-color`, `border-radius`, `opacity`, `transform` (`rotate`, `scale`), `font-size`, `font-family`, `line-height`, `text-align`.
 - Motion: `transition` and `@keyframes` / `animation`. `@media (min-width: N)` is supported.
