@@ -86,7 +86,7 @@ The supported subset:
 - Motion: `transition` and `@keyframes` / `animation`. `@media (min-width: N)` is supported.
 - Units: `px`, `%`, `em`, bare numbers (pixels), and `calc()`. Colors are `#rgb`, `#rrggbb`, or `#rrggbbaa` only.
 
-Things that look like CSS but are not there: `display: flex` (accepted and ignored; a `Stack` is always the layout), `background-color`, the `border` shorthand, and `rgb()`. Styles do not inherit: set `color` and `font-size` on every element that needs them. An unknown property only logs a warning, so check `game.log`. The full list is in [UI](../../tech/modules/UI.md#style).
+Things that look like CSS but are not there: `display: flex` (accepted and ignored; a `Stack` is always the layout), `background-color`, the `border` shorthand, and `rgb()`. Text properties inherit (`color`, `font-family`, `font-size`, `line-height`, `text-align`, `white-space`, `visibility`, `user-select`, `selection-color`): set them on a container and its children take them unless a rule on the child says otherwise. Box properties (padding, background, border, opacity) do not inherit. An unknown property only logs a warning, so check `game.log`. The full list is in [UI](../../tech/modules/UI.md#style).
 
 ---
 

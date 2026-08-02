@@ -691,6 +691,13 @@ namespace engine::ui {
         // container restyles only the descendants a rule like `A:hover B` can match.
         std::uint8_t self_dep = 0;
         std::vector<std::uint8_t> ancestor_dep;
+        // Inheritance: `inherited_stamp` names the inherited properties of `style` (color, font, text-align,
+        // white-space, visibility, user-select, selection-color). It takes a new value from a global counter
+        // whenever a rebuild produces different inherited values (or the cache was empty), and keeps it when they are
+        // equal. `parent_stamp` is the parent's `inherited_stamp` this style was cascaded against (0 for a root); a
+        // hit requires the parent's stamp to still be it, so a child restyles exactly when what it inherits moved.
+        std::uint64_t inherited_stamp = 0;
+        std::uint64_t parent_stamp = 0;
     };
 
     struct SvgPicture;
