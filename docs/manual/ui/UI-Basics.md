@@ -80,13 +80,13 @@ Styles are authored in CSS files (`importer = "css"`; keep them in their own fol
 
 The supported subset:
 
-- Selectors: type (`Label`), class (`.c`), id (`#id`), `Label.c`, descendant (`A B`), child (`A > B`). Pseudo-classes `:hover`, `:pressed`, `:disabled`, `:focus`, `:checked`. No `+`, `~`, or comma lists.
+- Selectors: type (`Label`), class (`.c`), id (`#id`), `Label.c`, descendant (`A B`), child (`A > B`). Pseudo-classes `:hover`, `:pressed`, `:disabled`, `:focus`, `:checked`. Comma lists (`A, B`) are supported; `+` and `~` are not.
 - Layout: `width`, `height`, `min-width`, `max-width`, `min-height`, `padding`, `margin`, `gap`, `flex-direction` (`row`/`horizontal`, otherwise vertical), `justify-content` (`start`, `center`, `end`, `space-between`), `align-items`, `position` (`static`, `relative`, `absolute`), `top`, `right`, `bottom`, `left`, `z-index`, `display: none`, `visibility`, `overflow`.
 - Paint: `color`, `background` (a color or a gradient), `background-image`, `border-width`, `border-color`, `border-radius`, `opacity`, `transform` (`rotate`, `scale`), `font-size`, `font-family`, `line-height`, `text-align`.
 - Motion: `transition` and `@keyframes` / `animation`. `@media (min-width: N)` is supported.
 - Units: `px`, `%`, `em`, bare numbers (pixels), and `calc()`. Colors are `#rgb`, `#rrggbb`, or `#rrggbbaa` only.
 
-Things that look like CSS but are not there: `display: flex` (accepted and ignored; a `Stack` is always the layout), `background-color`, the `border` shorthand, and `rgb()`. Styles do not inherit: set `color` and `font-size` on every element that needs them. An unknown property only logs a warning, so check `game.log`. The full list is in [UI](../../tech/modules/UI.md#style).
+Things that look like CSS but are not there: `display: flex` (accepted and ignored; a `Stack` is always the layout), `background-color`, the `border` shorthand, and `rgb()`. Text properties inherit (`color`, `font-family`, `font-size`, `line-height`, `text-align`, `white-space`, `visibility`, `user-select`, `selection-color`): set them on a container and its children take them unless a rule on the child says otherwise. Box properties (padding, background, border, opacity) do not inherit. An unknown property only logs a warning, so check `game.log`. The full list is in [UI](../../tech/modules/UI.md#style).
 
 ---
 

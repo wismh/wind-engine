@@ -1105,10 +1105,74 @@ namespace engine::ui {
             return matched;
         }
 
+        // The properties a child takes from its parent's computed style when no rule of its own sets them: text colour
+        // and font, alignment, wrapping, visibility, selection. Everything else (box, background, border, opacity,
+        // custom properties) is the child's own. `cursor` stays out: `auto` already takes the nearest ancestor's
+        // cursor at hit time (`cursor_at`) and keeps a text field's I-beam, which an inherited value would hide.
+        void seed_inherited(ComputedStyle &style, const ComputedStyle &parent) {
+            style.color = parent.color;
+            style.font_family = parent.font_family;
+            style.font_size = parent.font_size;
+            style.line_height = parent.line_height;
+            style.text_align = parent.text_align;
+            style.white_space = parent.white_space;
+            style.visible = parent.visible;
+            style.user_select = parent.user_select;
+            style.selection_color = parent.selection_color;
+            style.has_selection_color = parent.has_selection_color;
+        }
+
+        // Turns the lengths the rules left relative into px: `font-size` against the parent's computed size, a
+        // `line-height` length against the element's own size. What a child inherits is therefore always computed.
+        void resolve_inherited(ComputedStyle &style, float parent_font_px) {
+            Length &size = style.font_size;
+            if (!size.calc.empty()) {
+                size = Length{resolve_length(size, parent_font_px, parent_font_px), LengthUnit::Px, {}};
+            } else if (size.unit != LengthUnit::Px) {
+                size = Length{resolve_literal(size.value, size.unit, parent_font_px, parent_font_px), LengthUnit::Px, {}};
+            }
+            LineHeight &line = style.line_height;
+            if (line.kind == LineHeightKind::Length && (line.length.unit != LengthUnit::Px || !line.length.calc.empty())) {
+                const float px = resolve_length(line.length, size.value, size.value);
+                line.length = Length{px, LengthUnit::Px, {}};
+            }
+        }
+
+        // True when the inherited properties of `a` and `b` differ. Both come out of a cascade, so the lengths are px.
+        bool inherited_differs(const ComputedStyle &a, const ComputedStyle &b) {
+            return a.color != b.color || a.font_family != b.font_family || a.font_size.value != b.font_size.value ||
+                   a.line_height.kind != b.line_height.kind || a.line_height.factor != b.line_height.factor ||
+                   a.line_height.length.value != b.line_height.length.value || a.text_align != b.text_align ||
+                   a.white_space != b.white_space || a.visible != b.visible ||
+                   a.user_select != b.user_select || a.selection_color != b.selection_color ||
+                   a.has_selection_color != b.has_selection_color;
+        }
+
+        // Counts the inherited-property changes of every cache entry, so a child can tell with one compare that what it
+        // inherits moved. Main thread only, like the rest of the UI.
+        std::uint64_t next_inherited_stamp() {
+            static std::uint64_t counter = 0;
+            return ++counter;
+        }
+
+        // The stamp a child cascaded against: its parent's, in the slot (paint or layout) the child is computed for.
+        std::uint64_t parent_inherited_stamp(const std::vector<const Element *> &ancestors, bool paint_slot) {
+            if (ancestors.empty()) {
+                return 0;
+            }
+            const Element &parent = *ancestors.back();
+            return (paint_slot ? parent.style_cache_paint_ : parent.style_cache_layout_).inherited_stamp;
+        }
+
         ComputedStyle compute_style_uncached(const Element &element, const Stylesheet *sheet, bool allow_pseudo,
                                              const std::vector<const Element *> &ancestors, float window_width,
-                                             float window_height) {
+                                             float window_height, const ComputedStyle *parent_style) {
             ComputedStyle style;
+            float parent_font_px = kDefaultFontSize;
+            if (parent_style != nullptr) {
+                seed_inherited(style, *parent_style);
+                parent_font_px = parent_style->font_size.value;
+            }
             for (const RankedRule &item:
                  ranked_matches(element, sheet, allow_pseudo, ancestors, window_width, window_height)) {
                 for (const CssDeclaration &decl : item.rule->declarations) {
@@ -1119,6 +1183,7 @@ namespace engine::ui {
                     apply_declaration(style, resolve_var(decl, element, style, sheet));
                 }
             }
+            resolve_inherited(style, parent_font_px);
             return style;
         }
 
@@ -1139,10 +1204,12 @@ namespace engine::ui {
         // ancestor cannot change the result, so hovering a container leaves a descendant no rule can reach through it
         // alone.
         bool style_cache_hits(const StyleCacheEntry &cache, const Element &element, const Stylesheet *sheet,
-                              const std::vector<const Element *> &ancestors, float window_width, float window_height) {
+                              const std::vector<const Element *> &ancestors, float window_width, float window_height,
+                              std::uint64_t parent_stamp) {
             const std::uint64_t sheet_generation = sheet != nullptr ? sheet->generation : 0;
             if (!cache.valid || cache.sheet != sheet || cache.sheet_generation != sheet_generation ||
-                cache.window_width != window_width || cache.window_height != window_height) {
+                cache.window_width != window_width || cache.window_height != window_height ||
+                cache.parent_stamp != parent_stamp) {
                 return false;
             }
             if (cache.id != element.id || cache.classes != element.classes) {
@@ -1225,7 +1292,13 @@ namespace engine::ui {
 
         void style_cache_store(StyleCacheEntry &cache, const Element &element, const Stylesheet *sheet,
                                const std::vector<const Element *> &ancestors, float window_width, float window_height,
-                               bool layout_style, ComputedStyle style) {
+                               bool layout_style, std::uint64_t parent_stamp, ComputedStyle style) {
+            // A new stamp only when what children inherit moved, so a rebuild that changed a background restyles nothing
+            // below.
+            if (!cache.valid || cache.inherited_stamp == 0 || inherited_differs(cache.style, style)) {
+                cache.inherited_stamp = next_inherited_stamp();
+            }
+            cache.parent_stamp = parent_stamp;
             cache.valid = true;
             cache.sheet = sheet;
             cache.sheet_generation = sheet != nullptr ? sheet->generation : 0;
@@ -1258,14 +1331,29 @@ namespace engine::ui {
                                            const std::vector<const Element *> &ancestors, float window_width,
                                            float window_height) {
             StyleCacheEntry &cache = allow_pseudo ? element.style_cache_paint_ : element.style_cache_layout_;
-            if (style_cache_hits(cache, element, sheet, ancestors, window_width, window_height)) {
+            const ComputedStyle *parent_style = nullptr;
+            std::uint64_t parent_stamp = 0;
+            if (!ancestors.empty()) {
+                // The parent is styled before its children in every walk. One that was not (a row whose container never
+                // painted, a cache from an older sheet) is styled now, so a child never inherits from a stale entry.
+                const Element &parent = *ancestors.back();
+                const StyleCacheEntry &parent_cache = allow_pseudo ? parent.style_cache_paint_ : parent.style_cache_layout_;
+                const std::uint64_t generation = sheet != nullptr ? sheet->generation : 0;
+                if (!parent_cache.valid || parent_cache.sheet != sheet || parent_cache.sheet_generation != generation) {
+                    const std::vector<const Element *> up(ancestors.begin(), ancestors.end() - 1);
+                    compute_style(parent, sheet, allow_pseudo, up, window_width, window_height);
+                }
+                parent_style = &parent_cache.style;
+                parent_stamp = parent_cache.inherited_stamp;
+            }
+            if (style_cache_hits(cache, element, sheet, ancestors, window_width, window_height, parent_stamp)) {
                 return cache.style;
             }
             ++element.style_rebuilds;
-            ComputedStyle style =
-                    compute_style_uncached(element, sheet, allow_pseudo, ancestors, window_width, window_height);
+            ComputedStyle style = compute_style_uncached(element, sheet, allow_pseudo, ancestors, window_width,
+                                                         window_height, parent_style);
             style_cache_store(cache, element, sheet, ancestors, window_width, window_height, !allow_pseudo,
-                              std::move(style));
+                              parent_stamp, std::move(style));
             return cache.style;
         }
 
@@ -1477,7 +1565,17 @@ namespace engine::ui {
             if ((element.dirty_self & kDirtyStyle) != 0) {
                 const LayoutFields before = layout_fields_of(element);
                 const int z_before = element.z_index;
+                const std::uint64_t inherited_before = element.style_cache_layout_.inherited_stamp;
                 apply_layout_style_to(element, sheet, ancestors, window_width, window_height);
+                if (element.style_cache_layout_.inherited_stamp != inherited_before) {
+                    // What the children inherit moved: they restyle, and pass it on only if theirs moved in turn.
+                    for (Element &child : element.children) {
+                        mark_dirty(document, child, kDirtyStyle | kDirtyPaint, true);
+                    }
+                    for (Element &child : element.generated_items) {
+                        mark_dirty(document, child, kDirtyStyle | kDirtyPaint, true);
+                    }
+                }
                 // A running transition or animation still owns the layout properties it animates: the cascade is its
                 // target, not what is shown.
                 commit_motion_layout(element);
@@ -2682,8 +2780,8 @@ namespace engine::ui {
             }
             element.layout_inputs_changed = false;
             element.height_motion_active = false;
-            const bool cache_hit = style_cache_hits(
-                    element.style_cache_paint_, element, sheet, ancestors, window_width, window_height);
+            const bool cache_hit = style_cache_hits(element.style_cache_paint_, element, sheet, ancestors, window_width,
+                                                    window_height, parent_inherited_stamp(ancestors, true));
             const bool skip =
                     cache_hit && motion_clocks_idle(element) && held_motion_basis_matches(element, parent_basis);
             if (!skip) {
