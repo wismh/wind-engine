@@ -8,6 +8,7 @@
 #include "ui/dirty.h"
 #include "ui/text_cache.h"
 #include "ui/text_select.h"
+#include "ui/text_wrap.h"
 
 #include <engine/loc/catalog.h>
 #include <engine/ui/canvas.h> // rect_contains
@@ -389,9 +390,36 @@ namespace engine::ui {
                 };
             }
             if (element.kind == ElementKind::TextInput) {
-                const glm::vec2 text = measure_element_text(element, painter, box.font_size);
                 constexpr float kDefaultTextInputWidth = 100.0f;
                 constexpr float kDefaultTextInputHeight = 24.0f;
+                glm::vec2 text = measure_element_text(element, painter, box.font_size);
+                if (element.multiline != TextMultiline::None) {
+                    const float wrap = element.white_space == WhiteSpace::NoWrap
+                                               ? kUnboundedWidth
+                                               : content_width_limit(box, avail_x);
+                    float line_h = box.font_size;
+                    const auto width_of = [&](std::string_view slice) {
+                        if (painter != nullptr) {
+                            return painter->measure_text(slice, element.font_family, box.font_size).x;
+                        }
+                        return fallback_measure_text(slice, box.font_size).x;
+                    };
+                    if (painter != nullptr) {
+                        const float measured = painter->measure_text("M", element.font_family, box.font_size).y;
+                        if (measured > 0.0f) {
+                            line_h = measured;
+                        }
+                    }
+                    TextBlock block;
+                    block.line_height = line_h;
+                    block.lines = editor_lines(element.text, wrap, width_of);
+                    apply_used_line_height(element, box.font_size, block);
+                    float widest = 0.0f;
+                    for (const TextLine &line : block.lines) {
+                        widest = std::max(widest, line.width);
+                    }
+                    text = {widest, static_cast<float>(block.lines.size()) * block.line_height};
+                }
                 const float text_w = std::max(text.x, kDefaultTextInputWidth);
                 const float text_h = std::max(text.y, kDefaultTextInputHeight);
                 return {

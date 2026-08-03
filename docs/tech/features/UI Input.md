@@ -102,15 +102,19 @@ Ctrl and Shift are `ctx<UiModifierState>()`, per window, from `LCtrl` / `RCtrl` 
 | Key | TextInput | Selectable Label |
 | --- | --- | --- |
 | character / Backspace / Delete | edits | ignored |
-| Left / Right / Home / End | moves the caret | moves the caret across the whole string, not one visual row |
+| Left / Right / Home / End | moves the caret. A multiline field's Home/End stay on the visual row; Ctrl+Home/End go to the ends of the string. Left/Right cross a `\n` in one press | moves the caret across the whole string, not one visual row |
+| Up / Down | multiline only: the previous or next visual row, keeping the caret's x | ignored |
 | Ctrl+Left / Ctrl+Right | not a word jump | not a word jump |
 | Escape | clears focus | clears focus |
-| Return | runs `command` when `can_execute()`; keeps focus | runs `command` when `can_execute()`; keeps focus |
+| Return | single line and `multiline="submit"`: runs `command` when `can_execute()`; keeps focus. `multiline="newline"` (or `true`): inserts `\n`. Ctrl+Return still runs `command` | runs `command` when `can_execute()`; keeps focus |
+| Shift+Return | `multiline="submit"`: inserts `\n` | runs `command`, same as Return |
 | Ctrl+A | selects all | selects all |
 | Ctrl+C | copies the selection | copies the selection, including `\n` between rows |
-| Ctrl+X / Ctrl+V | cut and paste | do not change the text. Ctrl+X does not write the clipboard |
+| Ctrl+X / Ctrl+V | cut and paste. A multiline paste turns `\r\n` and a lone `\r` into `\n` | do not change the text. Ctrl+X does not write the clipboard |
 
-A `\n` inside a text-input event submits and clears focus. Physical Return submits and keeps focus.
+A `\n` inside a text-input event submits and clears focus on a single-line field. Physical Return submits and keeps focus. A multiline field inserts the whole event, including newlines, and does not submit or clear focus.
+
+`multiline` is an XML literal (`false`, `true`/`newline`, `submit`), not CSS. `white-space` applies only once the field is multiline: `normal` wraps at the content width, `nowrap` breaks only at `\n`. A block taller than the box is clipped to the content box and panned by `Element::text_scroll_y` (not `scroll_y`, which pans children after the glyphs are drawn). Moving the caret scrolls that row into view. The wheel pans it too, and then does not scroll a parent.
 
 `allow-copy="false"` blocks Ctrl+C on a Label and a TextInput. Cut checks `allow_copy`. `allow-paste` applies to TextInput only. Both attributes are literals.
 
@@ -137,15 +141,15 @@ A Label maps the click through `painted_text_lines` (glyph boxes in the pixels p
 
 An inline formula is one atomic box, delimiters included. A click in the left half is before the opener. The right half is after the closer. Drag, double-click, and Left/Right take the whole span. `\\(` / `\\)` stay ordinary text. The painted box keeps a drawn-byte to source-byte map because the escape is shorter on screen.
 
-A TextInput uses `caret_index_for_click` (x only). It measures prefixes with the font size and content origin paint stored, so the click matches the caret paint drew. The same fallback (`text.size()`) applies before the first paint or with no painter.
+A single-line TextInput uses `caret_index_for_click` (x only). It measures prefixes with the font size and content origin paint stored, so the click matches the caret paint drew. A multiline field uses the same row boxes as a Label (`painted_text_lines`), shifted by `text_scroll_y`. The same fallback (`text.size()`) applies before the first paint or with no painter.
 
 The highlight is `selection-color`, drawn before the glyphs, not tied to caret blink. Unset is a translucent blue.
 
 ## IME
 
-Desktop `TextEditingEvent` is `Element::composition`, separate from the bound string. An empty editing event clears it. Text input commits and clears the preedit. While composition is non-empty, only Escape and Return are honored: Escape clears focus and the preedit, Return runs the command and drops the preedit without clearing focus. The Android SDL backend does not emit text-editing events.
+Desktop `TextEditingEvent` is `Element::composition`, separate from the bound string. An empty editing event clears it. Text input commits and clears the preedit. While composition is non-empty, only Escape and Return are honored: Escape clears focus and the preedit, Return drops the preedit. On a single-line field and on `multiline="submit"` it then runs the command. On `multiline="newline"` it does not insert a line and does not run the command. The Android SDL backend does not emit text-editing events.
 
-The SDL text-input session follows a focused enabled TextInput only. `sync_frame` passes that field's window-pixel rect and caret offset to `SDL_SetTextInputArea` before `SDL_StartTextInput`, and refreshes the area every frame the session stays up.
+The SDL text-input session follows a focused enabled TextInput only. `sync_frame` passes that field's window-pixel rect and caret offset to `SDL_SetTextInputArea` before `SDL_StartTextInput`, and refreshes the area every frame the session stays up. A multiline field passes the caret's row, not the whole box, and `SDL_PROP_TEXTINPUT_MULTILINE_BOOLEAN`. The session restarts when that flag changes.
 
 ## Cursor
 
