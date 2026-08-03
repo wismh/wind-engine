@@ -1291,26 +1291,34 @@ namespace engine::ui {
             const float screen_border_radius = border_radius * input.ui_scale;
             const float screen_border_width = border_width * input.ui_scale;
 
-            painter.save();
-            painter.set_opacity(style.opacity);
-            if (style.rotation_deg != 0.0f || style.scale != 1.0f) {
-                // Read from this call's own pseudo-aware `style` (allow_pseudo=true above), not
-                // element.rotation_deg/element.scale — those are apply_layout_style's allow_pseudo=false
-                // values, frozen at layout time. transform is purely a paint-time visual effect (it never
-                // affects layout_rect, unlike width/height/padding/etc, which genuinely can't be
-                // pseudo-reactive without re-running layout), so a `:hover`/`:pressed` rule that changes
-                // `transform` has no reason to wait for the next layout pass — reading the stale field
-                // here silently dropped that effect entirely.
-                constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
-                const glm::vec2 center{screen_rect.x + screen_rect.w * 0.5f, screen_rect.y + screen_rect.h * 0.5f};
-                painter.apply_transform(center, style.rotation_deg * kDegToRad, style.scale);
-            }
-            // Must come after apply_transform: nvgScissor() bakes in whatever transform is active when
-            // called, so a scissor set before a rotation clips against the element's un-rotated
-            // axis-aligned rect instead of rotating along with the content — a rotated thin/long element
-            // (e.g. a strike-through line) then gets clipped down to little more than where its rotated
-            // bounds cross that stale rect, rather than its full rotated length.
-            painter.scissor(screen_rect);
+            // This element's opacity and transform, and with `clip` its own box as the scissor. Its own drawing and its
+            // in-flow children are clipped to its box; an absolute child of an element that does not clip is not.
+            const auto enter = [&](bool clip) {
+                painter.save();
+                painter.set_opacity(style.opacity);
+                if (style.rotation_deg != 0.0f || style.scale != 1.0f) {
+                    // Read from this call's own pseudo-aware `style` (allow_pseudo=true above), not
+                    // element.rotation_deg/element.scale — those are apply_layout_style's allow_pseudo=false
+                    // values, frozen at layout time. transform is purely a paint-time visual effect (it never
+                    // affects layout_rect, unlike width/height/padding/etc, which genuinely can't be
+                    // pseudo-reactive without re-running layout), so a `:hover`/`:pressed` rule that changes
+                    // `transform` has no reason to wait for the next layout pass — reading the stale field
+                    // here silently dropped that effect entirely.
+                    constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
+                    const glm::vec2 center{screen_rect.x + screen_rect.w * 0.5f,
+                                           screen_rect.y + screen_rect.h * 0.5f};
+                    painter.apply_transform(center, style.rotation_deg * kDegToRad, style.scale);
+                }
+                // Must come after apply_transform: nvgScissor() bakes in whatever transform is active when
+                // called, so a scissor set before a rotation clips against the element's un-rotated
+                // axis-aligned rect instead of rotating along with the content — a rotated thin/long element
+                // (e.g. a strike-through line) then gets clipped down to little more than where its rotated
+                // bounds cross that stale rect, rather than its full rotated length.
+                if (clip) {
+                    painter.scissor(screen_rect);
+                }
+            };
+            enter(true);
 
             if (style.background.a > 0.0f) {
                 painter.fill_rounded_rect(screen_rect, screen_border_radius, style.background);
@@ -1557,17 +1565,23 @@ namespace engine::ui {
                 painter.apply_view(origin, pan, 1.0f);
             }
             // A Popup is not painted with its anchor: paint_popup_layer draws the open ones above every canvas.
-            if (element.kind == ElementKind::ItemsControl) {
-                for (Element *child: child_stacking_order(element.generated_items)) {
-                    if (child->kind != ElementKind::Popup) {
-                        paint_element(*child, sheet, painter, ancestors, child_content, input);
-                    }
+            // Out of flow, an absolute child of an element that does not clip shows outside its box, as it takes the
+            // pointer there (clips_children): it is drawn under the scissor of the ancestors only.
+            const bool absolute_escapes = !clips_children(element) && !viewport_camera && !has_scroll;
+            std::vector<Element> &child_list =
+                    element.kind == ElementKind::ItemsControl ? element.generated_items : element.children;
+            for (Element *child: child_stacking_order(child_list)) {
+                if (child->kind == ElementKind::Popup) {
+                    continue;
                 }
-            } else {
-                for (Element *child: child_stacking_order(element.children)) {
-                    if (child->kind != ElementKind::Popup) {
-                        paint_element(*child, sheet, painter, ancestors, child_content, input);
-                    }
+                if (absolute_escapes && child->position == PositionMode::Absolute) {
+                    painter.restore();
+                    enter(false);
+                    paint_element(*child, sheet, painter, ancestors, child_content, input);
+                    painter.restore();
+                    enter(true);
+                } else {
+                    paint_element(*child, sheet, painter, ancestors, child_content, input);
                 }
             }
             if (viewport_camera || has_scroll) {
