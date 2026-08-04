@@ -138,11 +138,17 @@ void HierarchyPanel::refresh() {
         return;
     }
 
-    if (selected_ != engine::ecs::Entity{} && !world->valid(selected_)) {
-        clear_selection_if_entity();
-    } else if (const auto* ent_sel = std::get_if<EntitySelection>(&selection_->target());
-            ent_sel != nullptr && !world->valid(ent_sel->entity)) {
-        selection_->clear();
+    if (const auto* ent_sel = std::get_if<EntitySelection>(&selection_->target())) {
+        if (!world->valid(ent_sel->entity)) {
+            selection_->clear();
+            selected_ = {};
+        } else {
+            selected_ = ent_sel->entity;
+        }
+    } else if (std::holds_alternative<std::monostate>(selection_->target())) {
+        selected_ = {};
+    } else if (selected_ != engine::ecs::Entity{} && !world->valid(selected_)) {
+        selected_ = {};
     }
 
     show_rows(*world);

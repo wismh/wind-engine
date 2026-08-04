@@ -19,7 +19,7 @@ cmake --build build-editor --config Release
 cmake --install build-editor --config Release --prefix out/sdk
 ```
 
-`out/sdk/` now holds the editor (`bin/wind_editor.exe`), the engine, its headers, and the CMake package your game finds. `out/sdk/sdk.toml` names its engine version: `0.1.7a` for the release of that number (`a` alpha, `b` beta, none production), `0.2.6a-dev` for an SDK you built yourself. To get a released SDK in your game's CI, see [Continuous Integration](Continuous-Integration.md).
+`out/sdk/` now holds the editor (`bin/wind_editor.exe`), the engine, its headers, and the CMake package your game finds. `out/sdk/sdk.toml` names its engine version: `0.1.7a` for the release of that number (`a` alpha, `b` beta, none production), `0.2.7a-dev` for an SDK you built yourself. To get a released SDK in your game's CI, see [Continuous Integration](Continuous-Integration.md).
 
 ---
 

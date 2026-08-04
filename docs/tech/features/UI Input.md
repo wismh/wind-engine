@@ -27,7 +27,7 @@ A right click does not place a caret and does not clear focus. `clicks` is the O
 2. For each `Down` / `Up` and for the last position of every window the world has seen, a target is tested only if its window is not in `Presentation.mouse` already. A target under the cursor also asks the UI once more at that position (`update_pointer_hover`), because a pointer resting on UI sends no event and the UI marks a window only when it handles one.
 3. The target under the cursor, if the UI has not taken it, gets `hovered`; leaving it (or UI coming over it, or `enabled = false`) clears it. The window is then added to `Presentation.mouse`, which is the click-through input, so a click on a sprite does not fall through a transparent window and a Game-phase system that ignores `consumed_for(window)` ignores that click too.
 
-Hit-testing is `pointer_target_at(world, window, screen)`: the cursor goes through the world's `ActiveCamera` with that window's size (`screen_to_world`, so pan and zoom count), then through the inverse of the entity's world matrix, so a rotated, scaled, or parented target is tested in its own space. The rectangle is `PointerTarget::size` at `pivot`, or `pixel_size / pixels_per_unit` at the sprite's pivot when the size is `{0, 0}`; a target with neither is never hit. The topmost target wins: the sprite's `layer`, then `order_in_layer` (the target's own fields when there is no sprite), then the later entity, the draw order. Matrices are the last `Phase::Transform`'s, which is what the player saw.
+Hit-testing is `pointer_target_at(world, window, screen)`: the cursor's `screen_to_ray` meets the plane at the target's world z (`line_plane`, so pan and zoom count and a plane behind the camera still yields a point), then that point goes through the inverse of the entity's world matrix, so a rotated, scaled, or parented target is tested in its own space. The rectangle is `PointerTarget::size` at `pivot`, or `pixel_size / pixels_per_unit` at the sprite's pivot when the size is `{0, 0}`; a target with neither is never hit. The topmost target wins: the sprite's `layer`, then `order_in_layer` (the target's own fields when there is no sprite), then the later entity, the draw order. Matrices are the last `Phase::Transform`'s, which is what the player saw.
 
 Results are `ecs::EventWriter<PointerTargetEvent>` events and component state: `Enter`, `Exit`, `Press` (a button went down on it), and `Click` (the same button came up on the same target), plus `PointerTarget::hovered` and `pressed`. There is no callback on the component. A `Press` that the UI took is not sent.
 
@@ -35,7 +35,7 @@ Results are `ecs::EventWriter<PointerTargetEvent>` events and component state: `
 
 An open `Popup` is above every canvas of its window. Canvases with an open popup are bound, laid out, and placed first, from highest `order` to lowest; the first with a popup under the point takes the event, even when the point is outside that canvas's rect. Otherwise canvases whose rect contains the point are tried from highest `order` to lowest. The top canvas is bound and laid out, then `hit_test`.
 
-A hit from `hit_test_at` is any of these:
+A hit from `hit_test_at` is any of these, unless that element sets `pointer-events: none`:
 
 - a Button or a Checkbox
 - an open Popup, anywhere inside it that no child takes
@@ -45,8 +45,11 @@ A hit from `hit_test_at` is any of these:
 - an element with a bound `command` or `drag`
 - a Viewport with a camera binding (`pan-x`, `pan-y`, or `zoom`)
 - a Label whose `user-select` is `text` or `all`, when it is not under a Button or Checkbox
+- an element with `pointer-events: all`. Its box is the hit when no child took the point, so a HUD `Stack` keeps the pointer off the world under its background, labels, and images. A child Button still wins
 
-A plain Label, Stack, or Image does not consume the click.
+`pointer-events` is `auto` (default), `all`, or `none` (`PointerEvents`). `auto` is the list above. `none` is not a hit, including a Button or a scrollbar, and its descendants are still tested. An unknown value stays `auto`. It does not inherit. Like `cursor` it is copied with the layout style, so a `:hover` rule does not change it. An open popup is still tested instead of the tree under it: `none` on that popup drops its own box and does not go on to the canvas behind it.
+
+A plain Label, Stack, or Image does not consume the click while it stays `auto`.
 
 Children are tested first, except that scrollbar track. A selectable Label is the only child suppressed under a Button or Checkbox, so `user-select: text` on that label does not steal the button. A Label with a bound `command` or `drag` stays that hit and is not a text selection.
 
@@ -99,15 +102,19 @@ Ctrl and Shift are `ctx<UiModifierState>()`, per window, from `LCtrl` / `RCtrl` 
 | Key | TextInput | Selectable Label |
 | --- | --- | --- |
 | character / Backspace / Delete | edits | ignored |
-| Left / Right / Home / End | moves the caret | moves the caret across the whole string, not one visual row |
+| Left / Right / Home / End | moves the caret. A multiline field's Home/End stay on the visual row; Ctrl+Home/End go to the ends of the string. Left/Right cross a `\n` in one press | moves the caret across the whole string, not one visual row |
+| Up / Down | multiline only: the previous or next visual row, keeping the caret's x | ignored |
 | Ctrl+Left / Ctrl+Right | not a word jump | not a word jump |
 | Escape | clears focus | clears focus |
-| Return | runs `command` when `can_execute()`; keeps focus | runs `command` when `can_execute()`; keeps focus |
+| Return | single line and `multiline="submit"`: runs `command` when `can_execute()`; keeps focus. `multiline="newline"` (or `true`): inserts `\n`. Ctrl+Return still runs `command` | runs `command` when `can_execute()`; keeps focus |
+| Shift+Return | `multiline="submit"`: inserts `\n` | runs `command`, same as Return |
 | Ctrl+A | selects all | selects all |
 | Ctrl+C | copies the selection | copies the selection, including `\n` between rows |
-| Ctrl+X / Ctrl+V | cut and paste | do not change the text. Ctrl+X does not write the clipboard |
+| Ctrl+X / Ctrl+V | cut and paste. A multiline paste turns `\r\n` and a lone `\r` into `\n` | do not change the text. Ctrl+X does not write the clipboard |
 
-A `\n` inside a text-input event submits and clears focus. Physical Return submits and keeps focus.
+A `\n` inside a text-input event submits and clears focus on a single-line field. Physical Return submits and keeps focus. A multiline field inserts the whole event, including newlines, and does not submit or clear focus.
+
+`multiline` is an XML literal (`false`, `true`/`newline`, `submit`), not CSS. `white-space` applies only once the field is multiline: `normal` wraps at the content width, `nowrap` breaks only at `\n`. A block taller than the box is clipped to the content box and panned by `Element::text_scroll_y` (not `scroll_y`, which pans children after the glyphs are drawn). Moving the caret scrolls that row into view. The wheel pans it too, and then does not scroll a parent.
 
 `allow-copy="false"` blocks Ctrl+C on a Label and a TextInput. Cut checks `allow_copy`. `allow-paste` applies to TextInput only. Both attributes are literals.
 
@@ -134,19 +141,19 @@ A Label maps the click through `painted_text_lines` (glyph boxes in the pixels p
 
 An inline formula is one atomic box, delimiters included. A click in the left half is before the opener. The right half is after the closer. Drag, double-click, and Left/Right take the whole span. `\\(` / `\\)` stay ordinary text. The painted box keeps a drawn-byte to source-byte map because the escape is shorter on screen.
 
-A TextInput uses `caret_index_for_click` (x only). It measures prefixes with the font size and content origin paint stored, so the click matches the caret paint drew. The same fallback (`text.size()`) applies before the first paint or with no painter.
+A single-line TextInput uses `caret_index_for_click` (x only). It measures prefixes with the font size and content origin paint stored, so the click matches the caret paint drew. A multiline field uses the same row boxes as a Label (`painted_text_lines`), shifted by `text_scroll_y`. The same fallback (`text.size()`) applies before the first paint or with no painter.
 
 The highlight is `selection-color`, drawn before the glyphs, not tied to caret blink. Unset is a translucent blue.
 
 ## IME
 
-Desktop `TextEditingEvent` is `Element::composition`, separate from the bound string. An empty editing event clears it. Text input commits and clears the preedit. While composition is non-empty, only Escape and Return are honored: Escape clears focus and the preedit, Return runs the command and drops the preedit without clearing focus. The Android SDL backend does not emit text-editing events.
+Desktop `TextEditingEvent` is `Element::composition`, separate from the bound string. An empty editing event clears it. Text input commits and clears the preedit. While composition is non-empty, only Escape and Return are honored: Escape clears focus and the preedit, Return drops the preedit. On a single-line field and on `multiline="submit"` it then runs the command. On `multiline="newline"` it does not insert a line and does not run the command. The Android SDL backend does not emit text-editing events.
 
-The SDL text-input session follows a focused enabled TextInput only. `sync_frame` passes that field's window-pixel rect and caret offset to `SDL_SetTextInputArea` before `SDL_StartTextInput`, and refreshes the area every frame the session stays up.
+The SDL text-input session follows a focused enabled TextInput only. `sync_frame` passes that field's window-pixel rect and caret offset to `SDL_SetTextInputArea` before `SDL_StartTextInput`, and refreshes the area every frame the session stays up. A multiline field passes the caret's row, not the whole box, and `SDL_PROP_TEXTINPUT_MULTILINE_BOOLEAN`. The session restarts when that flag changes.
 
 ## Cursor
 
-`cursor_at(root, x, y)` (`include/engine/ui/document.h`) finds the topmost shown element under the point in the same order as the hit test: open popups first, siblings by z-index, absolute children outside a parent that does not clip, scroll and Viewport cameras. Unlike the hit test it takes any element, interactive or not, so a plain `Stack` with a `cursor` shows it. Its `cursor` wins; `auto` takes the nearest ancestor's that is not `auto` (a popup's ancestors are its anchor's). An `auto` TextInput or selectable Label is `text`, whatever its ancestors set. A chain of `auto` is `default`, and so is a point outside the root.
+`cursor_at(root, x, y)` (`include/engine/ui/document.h`) finds the topmost shown element under the point in the same order as the hit test: open popups first, siblings by z-index, absolute children outside a parent that does not clip, scroll and Viewport cameras. Unlike the hit test it takes any element, interactive or not, so a plain `Stack` with a `cursor` shows it. `pointer-events: none` does not claim the point; a descendant still can. Its `cursor` wins; `auto` takes the nearest ancestor's that is not `auto` (a popup's ancestors are its anchor's). An `auto` TextInput or selectable Label is `text`, whatever its ancestors set. A chain of `auto` is `default`, and so is a point outside the root.
 
 `update_cursor(world, window)` (`include/engine/ui/canvas.h`) picks the canvas a click there goes to: a canvas with a shown popup under the pointer, else the topmost canvas whose rect holds it. Another canvas under that one never shows through, even where the top one sets nothing. It reads the layout and popup placement of the last input or paint pass and lays nothing out. The result is kept in `Presentation::cursors` (`UiCursors`, per window). `run_input` also calls it on each `Down` before setting `down`, so the kept cursor is the one under the press even when no frame resolved it since the pointer got there. While the window's `UiPointer::down` is set it returns the kept cursor, so a press keeps the cursor it started with until release: a splitter drag that outruns the bar keeps `ew-resize`, and a drag that starts elsewhere does not change cursor over a splitter.
 
@@ -164,7 +171,7 @@ Scroll, drag, and pan write through `generated_owner` when that pointer is set, 
 
 ## Tests
 
-`tests/pointer_target_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_cursor_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_popup_test.cpp`.
+`tests/pointer_target_test.cpp`, `tests/ui_pointer_events_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_cursor_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_popup_test.cpp`.
 
 ## See also
 

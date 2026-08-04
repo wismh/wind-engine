@@ -42,6 +42,7 @@ void ExplorerRowViewModel::show(const ProjectEntry& entry, const engine::ui::Tre
     key_ = entry.key;
     tree_ = tree;
     label = entry.name;
+    icon = entry.directory ? assets::textures::folder : assets::textures::file;
     depth = tree.depth;
     expanded = tree.expanded;
     set_fill(selected, drop);

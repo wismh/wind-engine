@@ -341,6 +341,19 @@ std::expected<void, UiError> assign_popup_attributes(
 // `allow-copy`/`allow-paste`: a static per-field capability, unlike `checked` — no VM tie,
 // literal-only, defaults to true (attribute absent = both allowed). TextInput honors both.
 // A selectable Label honors allow-copy (Ctrl+C); it never pastes, so allow-paste does not apply.
+std::optional<TextMultiline> parse_multiline(std::string_view value) {
+    if (value == "false" || value == "0") {
+        return TextMultiline::None;
+    }
+    if (value == "true" || value == "newline") {
+        return TextMultiline::Newline;
+    }
+    if (value == "submit") {
+        return TextMultiline::Submit;
+    }
+    return std::nullopt;
+}
+
 void assign_bool_attribute(bool& dest, const char* attr) {
     if (attr == nullptr) {
         return;
@@ -535,6 +548,17 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
     }
     assign_bool_attribute(element.allow_copy, xml->Attribute("allow-copy"));
     assign_bool_attribute(element.allow_paste, xml->Attribute("allow-paste"));
+    if (element.kind == ElementKind::TextInput) {
+        if (const char* multiline = xml->Attribute("multiline")) {
+            const auto mode = parse_multiline(trim(multiline));
+            if (!mode) {
+                report(fatal, "UI TextInput multiline is not false, true, newline, or submit: " +
+                                      std::string(multiline));
+                return std::unexpected(UiError::InvalidMarkup);
+            }
+            element.multiline = *mode;
+        }
+    }
     if (auto result = assign_required_property_binding(element.if_binding, xml->Attribute("if"), "if", fatal, vm,
                 in_template);
             !result) {

@@ -1,5 +1,7 @@
 #include "ui/picture_paint.h"
 
+#include "ui/element_index.h"
+
 namespace engine::ui {
 
     PictureContext &picture_context() {
@@ -82,6 +84,20 @@ namespace engine::ui {
         each(e.generated_items);
         e.dirty_below = static_cast<std::uint8_t>((e.dirty_below & ~kPaintMarks) | remaining);
         return remaining;
+    }
+
+    void mark_containing_picture(UiDocument &document, Element &element) {
+        thread_local std::vector<Element *> chain;
+        if (!ancestor_chain(document, element, chain)) {
+            mark_dirty(document, document.root, kDirtyPaint);
+            return;
+        }
+        for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+            if (is_boundary_element(**it)) {
+                mark_dirty(document, **it, kDirtyPaint);
+                return;
+            }
+        }
     }
 
     void clear_region_marks(Element &boundary, std::vector<Element> &children) {
