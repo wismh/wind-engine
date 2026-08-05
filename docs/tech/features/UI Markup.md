@@ -44,7 +44,7 @@ An attribute that is still unknown is ignored. `var-` with an empty name is igno
 
 ## Style sheet
 
-Selectors: `E`, `.c`, `#id`, `E.c`, descendant `A B`, child `A > B`. `+`, `~`, and comma groups are unsupported and warn.
+Selectors: `E`, `.c`, `#id`, `E.c`, descendant `A B`, child `A > B`. A comma list `A, B { ... }` makes one rule per part (each with its own specificity); an empty part warns and is skipped. `+` and `~` are unsupported and warn.
 
 Pseudo-classes: `:hover`, `:pressed`, `:disabled`, `:focus`, `:checked`.
 
@@ -100,6 +100,8 @@ A builder document has no generated binder. The game calls `intern` itself.
 Stack children are packed by used size, margin, and gap. Used size is the specified size or the hug size, passed through `clamp_axis`: the max cap is applied first, then min-size wins, then the result is at least 0. Percent on a layout length resolves against the parent content box. `em` on those lengths uses this element's resolved font size. A `font-size` of `em`, including inside `calc()`, is a multiple of 16. A percent `font-size` uses the parent content width.
 
 `flex-grow` (a number, default 0) takes a share of free main-axis space when the stack's main size is definite. Shares are proportional. A horizontal child stops at `max-width` and the unused share is split again. What remains is placed by `justify-content`. A hug-sized stack has no free space. `position: absolute` does not grow.
+
+`flex-wrap` is `nowrap` (the default), `wrap`, or `wrap-reverse`. `wrap` moves the next child onto a new line when it does not fit the stack's definite main size. A horizontal stack wraps at its `width`, or at the width its parent offers, and `max-width` caps that. A vertical stack wraps only when `height` is set. The gap is the same on both axes. `flex-grow` and `justify-content` apply to each line. `align-items` aligns inside the line. Lines pack from the start; `wrap-reverse` packs from the end. A card row is a horizontal stack with `flex-wrap: wrap` and a width (often `100%` of the panel). Give each card a width. An unknown value leaves the property as it was.
 
 `justify-content` is the main axis (`start`, `center`, `end`, `space-between`). `align-items` is the cross axis. `text-align` moves glyphs and does not change the stack.
 

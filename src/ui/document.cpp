@@ -364,6 +364,52 @@ namespace engine::ui {
             }
         }
 
+        // One child's outer size on a stack's main and cross axes (margins included).
+        struct FlowItemSize {
+            float main = 0.0f;
+            float cross = 0.0f;
+        };
+
+        // One flex line. `end` is exclusive. `main` includes the gaps between the items on the line.
+        struct FlowLine {
+            std::size_t begin = 0;
+            std::size_t end = 0;
+            float main = 0.0f;
+            float cross = 0.0f;
+        };
+
+        // Greedy pack. `wrap` with a finite `limit` starts a new line when the next item does not fit. An item wider
+        // than the line still takes a line of its own. NoWrap, or a limit nothing bounds, is one line.
+        [[nodiscard]] std::vector<FlowLine> pack_lines(const std::vector<FlowItemSize> &items, float limit, float gap,
+                                                       bool wrap) {
+            std::vector<FlowLine> lines;
+            if (items.empty()) {
+                return lines;
+            }
+            constexpr float kFitSlack = 0.01f;
+            const bool can_wrap = wrap && std::isfinite(limit);
+            FlowLine line;
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                const float item_main = items[i].main;
+                const bool starts_line = line.end == line.begin;
+                if (!starts_line && can_wrap && line.main + gap + item_main > limit + kFitSlack) {
+                    lines.push_back(line);
+                    line = FlowLine{};
+                }
+                if (line.end == line.begin) {
+                    line.begin = i;
+                    line.main = item_main;
+                    line.cross = items[i].cross;
+                } else {
+                    line.main += gap + item_main;
+                    line.cross = std::max(line.cross, items[i].cross);
+                }
+                line.end = i + 1;
+            }
+            lines.push_back(line);
+            return lines;
+        }
+
         // `avail_x` is the width the element's container can offer it (see outer_width_limit); only wrapping text reads
         // it.
         [[nodiscard]] glm::vec2 intrinsic_size(const Element &element, IUiPainter *painter, glm::vec2 parent_content,
@@ -460,21 +506,43 @@ namespace engine::ui {
             // `position: absolute` is out of flow: it is placed against its containing block and adds nothing to
             // the size its parent hugs.
             std::erase_if(children, [](const Element *child) { return child->position == PositionMode::Absolute; });
+            const bool horizontal = element.direction == StackDirection::Horizontal;
+            std::vector<FlowItemSize> items;
+            items.reserve(children.size());
+            for (const Element *child : children) {
+                const ResolvedBox child_box = resolve_box(*child, child_basis);
+                const glm::vec2 used = compute_used(*child, painter, child_basis, child_avail_x);
+                if (horizontal) {
+                    items.push_back({
+                            child_box.margin.left + used.x + child_box.margin.right,
+                            child_box.margin.top + used.y + child_box.margin.bottom,
+                    });
+                } else {
+                    items.push_back({
+                            child_box.margin.top + used.y + child_box.margin.bottom,
+                            child_box.margin.left + used.x + child_box.margin.right,
+                    });
+                }
+            }
+            // A horizontal stack wraps at the width it may take. A vertical one wraps only when its height is
+            // definite: there is no available-height to wrap a hug column against.
+            float line_limit = kUnboundedWidth;
+            if (element.flex_wrap != FlexWrap::NoWrap) {
+                if (horizontal) {
+                    line_limit = child_avail_x;
+                } else if (box.height) {
+                    line_limit = std::max(0.0f, *box.height - box.padding.top - box.padding.bottom);
+                }
+            }
+            const std::vector<FlowLine> lines =
+                    pack_lines(items, line_limit, box.gap, element.flex_wrap != FlexWrap::NoWrap);
             float main = 0.0f;
             float cross = 0.0f;
-            for (std::size_t i = 0; i < children.size(); ++i) {
-                const Element &child = *children[i];
-                const ResolvedBox child_box = resolve_box(child, child_basis);
-                const glm::vec2 used = compute_used(child, painter, child_basis, child_avail_x);
-                if (element.direction == StackDirection::Horizontal) {
-                    main += child_box.margin.left + used.x + child_box.margin.right;
-                    cross = std::max(cross, child_box.margin.top + used.y + child_box.margin.bottom);
-                } else {
-                    main += child_box.margin.top + used.y + child_box.margin.bottom;
-                    cross = std::max(cross, child_box.margin.left + used.x + child_box.margin.right);
-                }
-                if (i + 1 < children.size()) {
-                    main += box.gap;
+            for (std::size_t i = 0; i < lines.size(); ++i) {
+                main = std::max(main, lines[i].main);
+                cross += lines[i].cross;
+                if (i + 1 < lines.size()) {
+                    cross += box.gap;
                 }
             }
             if (element.direction == StackDirection::Horizontal) {
@@ -649,6 +717,170 @@ namespace engine::ui {
             }
         }
 
+        // `flex-wrap: wrap` / `wrap-reverse`. Lines pack at the cross start (wrap-reverse at the cross end). Each
+        // line's cross size is its tallest item; `align-items` aligns inside that line, and `flex-grow` /
+        // `justify-content` run per line. The same gap is used on both axes.
+        void layout_wrapped_flow(Element &element, const std::vector<Element *> &flow, const render::Rect &allocated,
+                                 IUiPainter *painter, const ResolvedBox &self, const render::Rect &containing_block,
+                                 bool partial) {
+            const bool horizontal = element.direction == StackDirection::Horizontal;
+            const glm::vec2 child_basis{allocated.w, allocated.h};
+            struct FlowMetrics {
+                ResolvedBox box;
+                glm::vec2 used;
+            };
+            std::vector<FlowMetrics> metrics;
+            metrics.reserve(flow.size());
+            std::vector<FlowItemSize> items;
+            items.reserve(flow.size());
+            for (Element *child : flow) {
+                FlowMetrics metric{
+                        resolve_box(*child, child_basis),
+                        cached_used(*child, painter, child_basis, child_basis.x, partial),
+                };
+                if (horizontal) {
+                    items.push_back({
+                            metric.box.margin.left + metric.used.x + metric.box.margin.right,
+                            metric.box.margin.top + metric.used.y + metric.box.margin.bottom,
+                    });
+                } else {
+                    items.push_back({
+                            metric.box.margin.top + metric.used.y + metric.box.margin.bottom,
+                            metric.box.margin.left + metric.used.x + metric.box.margin.right,
+                    });
+                }
+                metrics.push_back(metric);
+            }
+
+            const float limit = horizontal ? allocated.w : allocated.h;
+            std::vector<FlowLine> lines = pack_lines(items, limit, self.gap, true);
+            for (FlowLine &line : lines) {
+                float leftover = std::max(0.0f, limit - line.main);
+                if (leftover > 0.0f) {
+                    std::vector<GrowTarget> targets;
+                    targets.reserve(line.end - line.begin);
+                    for (std::size_t i = line.begin; i < line.end; ++i) {
+                        const float grow = flow[i]->flex_grow;
+                        if (!(grow > 0.0f)) {
+                            continue;
+                        }
+                        float &main = horizontal ? metrics[i].used.x : metrics[i].used.y;
+                        float cap = std::numeric_limits<float>::infinity();
+                        if (horizontal && metrics[i].box.max_width) {
+                            cap = *metrics[i].box.max_width;
+                        }
+                        if (!(main < cap)) {
+                            continue;
+                        }
+                        targets.push_back(GrowTarget{&main, grow, cap});
+                    }
+                    distribute_flex_grow(targets, leftover);
+                }
+                line.main = 0.0f;
+                for (std::size_t i = line.begin; i < line.end; ++i) {
+                    const ResolvedBox &box = metrics[i].box;
+                    const glm::vec2 &used = metrics[i].used;
+                    line.main += horizontal ? box.margin.left + used.x + box.margin.right
+                                            : box.margin.top + used.y + box.margin.bottom;
+                    if (i + 1 < line.end) {
+                        line.main += self.gap;
+                    }
+                }
+            }
+
+            float content_main = 0.0f;
+            float content_cross = 0.0f;
+            for (std::size_t i = 0; i < lines.size(); ++i) {
+                content_main = std::max(content_main, lines[i].main);
+                content_cross += lines[i].cross;
+                if (i + 1 < lines.size()) {
+                    content_cross += self.gap;
+                }
+            }
+            if (horizontal) {
+                element.max_scroll_x = std::max(0.0f, content_main - allocated.w);
+                element.max_scroll_y = std::max(0.0f, content_cross - allocated.h);
+            } else {
+                element.max_scroll_x = std::max(0.0f, content_cross - allocated.w);
+                element.max_scroll_y = std::max(0.0f, content_main - allocated.h);
+            }
+            element.scroll_x = std::clamp(element.scroll_x, 0.0f, element.max_scroll_x);
+            element.scroll_y = std::clamp(element.scroll_y, 0.0f, element.max_scroll_y);
+
+            std::vector<float> origin(lines.size());
+            if (element.flex_wrap == FlexWrap::WrapReverse) {
+                float cursor = horizontal ? allocated.y + allocated.h : allocated.x + allocated.w;
+                for (std::size_t i = 0; i < lines.size(); ++i) {
+                    cursor -= lines[i].cross;
+                    origin[i] = cursor;
+                    if (i + 1 < lines.size()) {
+                        cursor -= self.gap;
+                    }
+                }
+            } else {
+                float cursor = horizontal ? allocated.y : allocated.x;
+                for (std::size_t i = 0; i < lines.size(); ++i) {
+                    origin[i] = cursor;
+                    cursor += lines[i].cross;
+                    if (i + 1 < lines.size()) {
+                        cursor += self.gap;
+                    }
+                }
+            }
+
+            for (std::size_t n = 0; n < lines.size(); ++n) {
+                const FlowLine &line = lines[n];
+                float leftover = std::max(0.0f, limit - line.main);
+                float cursor = horizontal ? allocated.x : allocated.y;
+                float justify_gap = 0.0f;
+                const std::size_t count = line.end - line.begin;
+                if (element.justify == UiAlign::Center) {
+                    cursor += leftover * 0.5f;
+                } else if (element.justify == UiAlign::End) {
+                    cursor += leftover;
+                } else if (element.justify == UiAlign::SpaceBetween && count > 1) {
+                    justify_gap = leftover / static_cast<float>(count - 1);
+                }
+                for (std::size_t i = line.begin; i < line.end; ++i) {
+                    Element &child = *flow[i];
+                    const ResolvedBox &child_box = metrics[i].box;
+                    const glm::vec2 &used = metrics[i].used;
+                    if (horizontal) {
+                        cursor += child_box.margin.left;
+                        const float extra = std::max(
+                                0.0f, line.cross - child_box.margin.top - child_box.margin.bottom - used.y);
+                        float y = origin[n] + child_box.margin.top;
+                        if (element.align_items == UiAlign::Center) {
+                            y += extra * 0.5f;
+                        } else if (element.align_items == UiAlign::End) {
+                            y += extra;
+                        }
+                        layout_element(child, render::Rect{cursor, y, used.x, used.y}, painter, child_basis,
+                                       containing_block, partial);
+                        apply_relative_offset(child, child_basis, child_box.font_size);
+                        cursor += used.x + child_box.margin.right;
+                    } else {
+                        cursor += child_box.margin.top;
+                        const float extra = std::max(
+                                0.0f, line.cross - child_box.margin.left - child_box.margin.right - used.x);
+                        float x = origin[n] + child_box.margin.left;
+                        if (element.align_items == UiAlign::Center) {
+                            x += extra * 0.5f;
+                        } else if (element.align_items == UiAlign::End) {
+                            x += extra;
+                        }
+                        layout_element(child, render::Rect{x, cursor, used.x, used.y}, painter, child_basis,
+                                       containing_block, partial);
+                        apply_relative_offset(child, child_basis, child_box.font_size);
+                        cursor += used.y + child_box.margin.bottom;
+                    }
+                    if (i + 1 < line.end) {
+                        cursor += self.gap + justify_gap;
+                    }
+                }
+            }
+        }
+
         void layout_stack(Element &element, const render::Rect &allocated, IUiPainter *painter, const ResolvedBox &self,
                           const render::Rect &containing_block, bool partial) {
             std::vector<Element *> children;
@@ -669,7 +901,9 @@ namespace engine::ui {
             }
 
             const glm::vec2 child_basis{allocated.w, allocated.h};
-            if (!flow.empty()) {
+            if (!flow.empty() && element.flex_wrap != FlexWrap::NoWrap) {
+                layout_wrapped_flow(element, flow, allocated, painter, self, containing_block, partial);
+            } else if (!flow.empty()) {
                 // Resolve each flow child's box + used size exactly once per layout_stack call and
                 // reuse it below for both the packed/cross accumulation and the actual placement —
                 // resolve_box/compute_used recurse into the child's own subtree (and, for
