@@ -207,6 +207,15 @@ void OpenGLCanvas::present() {
 }
 
 void OpenGLCanvas::destroy_context() {
+    // The painter's VAO and this context are deleted in whatever context is current. A VAO is not shared between
+    // contexts: its name means another VAO in another window's context, so deleting it there would break that
+    // window's UI (a dock float window closed while the editor window's context is current turned the editor black).
+    // Make this context current for the teardown, then put back the one that was.
+    SDL_Window* const previous_window = SDL_GL_GetCurrentWindow();
+    const SDL_GLContext previous_context = SDL_GL_GetCurrentContext();
+    if (context_ != nullptr) {
+        make_current();
+    }
     // Only clear the shared backend_'s ui_painter_ if THIS canvas is the one that set it
     // (ui_painter_ != nullptr): backend_ is the one OpenGLRenderBackend shared by every window
     //, so a secondary window's canvas — which never created a painter — would
@@ -222,6 +231,9 @@ void OpenGLCanvas::destroy_context() {
         return;
     }
     SDL_GL_DestroyContext(context_);
+    if (previous_context != nullptr && previous_context != context_ && previous_window != nullptr) {
+        SDL_GL_MakeCurrent(previous_window, previous_context);
+    }
     context_ = nullptr;
 }
 
