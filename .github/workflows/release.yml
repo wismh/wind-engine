@@ -93,8 +93,22 @@ jobs:
       - name: Tests
         if: matrix.os != 'linux'
         run: ctest --test-dir build-editor -C Release --output-on-failure --parallel 4
+      # The .pdb files are the component "symbols": the SDK package leaves them out, the symbols package (Windows) is
+      # only them, plus symbols.toml with the version and build id of the SDK they belong to.
       - name: Install the SDK
-        run: cmake --install build-editor --config Release --prefix out/sdk
+        run: cmake --install build-editor --config Release --prefix out/sdk --component Unspecified
+      - name: Install the symbols
+        if: matrix.os == 'windows'
+        shell: bash
+        run: |
+          cmake --install build-editor --config Release --prefix out/symbols --component symbols
+          test -n "$(ls out/symbols/bin/*.pdb)" || { echo "no .pdb in the symbols"; exit 1; }
+          test -z "$(ls out/sdk/bin/*.pdb 2>/dev/null)" || { echo ".pdb files in the SDK"; exit 1; }
+          {
+            echo "# Wind SDK symbols. Unpack over the SDK of the same version and build."
+            grep -E '^(version|build_id|platform) = ' out/sdk/sdk.toml
+          } > out/symbols/symbols.toml
+          cat out/symbols/symbols.toml
       - name: The SDK is this version, from a clean checkout
         shell: bash
         run: |
@@ -114,17 +128,23 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          mv out/sdk "out/${WIND_ARTIFACT}"
-          if [ "${{ matrix.os }}" = "windows" ]; then
-            file="${WIND_ARTIFACT}.zip"
-            (cd out && cmake -E tar cf "../dist/${file}" --format=zip "${WIND_ARTIFACT}")
-          else
-            file="${WIND_ARTIFACT}.tar.gz"
-            tar -C out -czf "dist/${file}" "${WIND_ARTIFACT}"
+          pack() {  # <directory under out/> <archive name without the extension>
+            mv "out/$1" "out/$2"
+            if [ "${{ matrix.os }}" = "windows" ]; then
+              file="$2.zip"
+              (cd out && cmake -E tar cf "../dist/${file}" --format=zip "$2")
+            else
+              file="$2.tar.gz"
+              tar -C out -czf "dist/${file}" "$2"
+            fi
+            (cd dist && cmake -E sha256sum "${file}" > "${file}.sha256")
+            cat "dist/${file}.sha256"
+          }
+          pack sdk "${WIND_ARTIFACT}"
+          if [ -d out/symbols ]; then
+            pack symbols "wind-sdk-symbols-${WIND_VERSION}-${{ matrix.os }}-${{ matrix.arch }}"
           fi
-          (cd dist && cmake -E sha256sum "${file}" > "${file}.sha256")
           ls -l dist
-          cat "dist/${file}.sha256"
       - uses: actions/upload-artifact@v4
         with:
           name: sdk-${{ matrix.os }}-${{ matrix.arch }}
@@ -152,8 +172,10 @@ jobs:
         run: |
           version="${{ needs.version.outputs.version }}"
           ls -l dist
-          test "$(ls dist/*.sha256 | wc -l)" = 3
-          test "$(ls dist | wc -l)" = 6
+          # Three SDKs and the symbols of Windows, each with its .sha256.
+          test "$(ls dist/*.sha256 | wc -l)" = 4
+          test "$(ls dist | wc -l)" = 8
+          test -f "dist/wind-sdk-symbols-${version}-windows-x86_64.zip"
           if [ "${{ needs.version.outputs.prerelease }}" = "true" ]; then
             flags="--prerelease"
           else
