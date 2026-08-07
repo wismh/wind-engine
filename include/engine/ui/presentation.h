@@ -5,12 +5,13 @@
 namespace engine::ui {
 
 // Process-owned window state shared by every world that draws UI or meshes.
-// Sizes, the pointer, and mouse consumption are per window, not per simulation.
+// Sizes, the pointer, the cursor, and mouse consumption are per window, not per simulation.
 struct Presentation {
     WindowSizes sizes;
     MouseConsumed mouse;
     UiPointer pointer;
     UiPointers pointers;
+    UiCursors cursors;
 };
 
 void bind_presentation(ecs::World& world, Presentation& presentation);

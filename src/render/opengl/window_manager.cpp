@@ -189,6 +189,7 @@ void WindowManager::shutdown() {
         }
     }
     destroy_window(kPrimaryWindow);
+    cursors_.destroy();
     // next_id_ is intentionally not reset: keeps window ids from ever being reused across a
     // shutdown/recreate cycle within one process, matching this codebase's "never reuse a GUID"
     // hygiene for asset ids, applied here by analogy.
@@ -231,6 +232,11 @@ WindowSystem& WindowManager::primary_window() noexcept {
 
 const WindowSystem& WindowManager::primary_window() const noexcept {
     return windows_.at(kPrimaryWindow)->window;
+}
+
+std::optional<WindowId> WindowManager::mouse_focus() const {
+    SDL_Window* const focus = SDL_GetMouseFocus();
+    return focus != nullptr ? find_by_sdl_id(SDL_GetWindowID(focus)) : std::nullopt;
 }
 
 std::optional<WindowId> WindowManager::find_by_sdl_id(SDL_WindowID sdl_id) const {

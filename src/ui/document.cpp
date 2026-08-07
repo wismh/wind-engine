@@ -1467,6 +1467,82 @@ namespace engine::ui {
         return hit_test_at(element, x, y, false);
     }
 
+    // nullopt when (x, y) misses `element` and every absolute child shown outside it. Otherwise the cursor of the
+    // topmost element hit there, Auto when it and every ancestor up to `element` leave it unset.
+    static std::optional<Cursor> cursor_at_element(Element &element, float x, float y) {
+        if (!element.visible || element.display_none || element.kind == ElementKind::ItemTemplate) {
+            return std::nullopt;
+        }
+        Cursor own = element.cursor;
+        if (own == Cursor::Auto && (element.kind == ElementKind::TextInput || label_text_selectable(element))) {
+            own = Cursor::Text;
+        }
+        const auto inherit = [own](std::optional<Cursor> hit) -> std::optional<Cursor> {
+            return hit && *hit == Cursor::Auto ? own : hit;
+        };
+        if (!rect_contains(hit_bounds(element), x, y)) {
+            return inherit(visit_absolute_children(
+                    element, [&](Element &child) { return cursor_at_element(child, x, y); }));
+        }
+        for (const bool scrollable: {is_scrollable_y(element), is_scrollable_x(element)}) {
+            const render::Rect track = scrollable ? scrollbar_track_rect(element) : render::Rect{};
+            if (track.w > 0.0f && track.h > 0.0f && rect_contains(track, x, y)) {
+                return element.cursor;
+            }
+        }
+        float child_x = x;
+        float child_y = y;
+        if (element.kind == ElementKind::Viewport) {
+            const glm::vec2 inverted = inverse_viewport_pointer(element, glm::vec2{x, y});
+            child_x = inverted.x;
+            child_y = inverted.y;
+        } else if (element.scroll_x != 0.0f || element.scroll_y != 0.0f) {
+            child_x = x + element.scroll_x;
+            child_y = y + element.scroll_y;
+        }
+        for (std::vector<Element> *list: {&element.children, &element.generated_items}) {
+            std::vector<Element *> order = child_stacking_order(*list);
+            for (auto it = order.rbegin(); it != order.rend(); ++it) {
+                if ((*it)->kind == ElementKind::Popup) {
+                    continue;
+                }
+                if (const std::optional<Cursor> hit = cursor_at_element(**it, child_x, child_y)) {
+                    return inherit(hit);
+                }
+            }
+        }
+        return own;
+    }
+
+    // The cursor a shown popup takes from its document ancestors, nearest first. Auto when none sets one.
+    static Cursor popup_ancestor_cursor(Element &root, const Element &popup) {
+        for (const OpenPopup &open: open_popups(root)) {
+            if (open.popup != &popup) {
+                continue;
+            }
+            for (auto it = open.ancestors.rbegin(); it != open.ancestors.rend(); ++it) {
+                if ((*it)->cursor != Cursor::Auto) {
+                    return (*it)->cursor;
+                }
+            }
+        }
+        return Cursor::Auto;
+    }
+
+    Cursor cursor_at(Element &root, float x, float y) {
+        std::optional<Cursor> hit;
+        if (Element *popup = popup_at(root, x, y)) {
+            hit = cursor_at_element(*popup, x - popup->popup_offset.x, y - popup->popup_offset.y);
+            // A popup's ancestors are its anchor's: an Auto popup takes their cursor.
+            if (hit && *hit == Cursor::Auto) {
+                hit = popup_ancestor_cursor(root, *popup);
+            }
+        } else {
+            hit = cursor_at_element(root, x, y);
+        }
+        return hit && *hit != Cursor::Auto ? *hit : Cursor::Default;
+    }
+
     struct ElementInsets {
         BoxInsets padding{};
         BoxInsets margin{};

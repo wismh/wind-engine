@@ -125,6 +125,7 @@ Known properties:
 - Paint: `background`, `background-image`, `background-slice`, `background-repeat`, `opacity`, `border-radius`, `border-width`, `border-color`, `transform`
 - Motion: `animation`, `animation-name`, `animation-duration`, `animation-delay`, `animation-timing-function`, `animation-iteration-count`, `transition`, `transition-property`, `transition-duration`, `transition-delay`, `transition-timing-function`
 - Line: `x1`, `y1`, `x2`, `y2`, `stroke`, `stroke-width`
+- Pointer: `cursor`
 - Scroll: `overflow`, `overflow-x`, `overflow-y`, `scrollbar-width`, `scrollbar-color`, `scrollbar-thumb-color`, `scrollbar-track-color`, `scrollbar-thumb-hover-color`, `scrollbar-border-radius`
 
 Styles do not inherit:
@@ -133,6 +134,8 @@ Styles do not inherit:
 - Color, `font-size`, and `font-family` do not inherit. Defaults are white, 16px, and `builtin::font_ui`.
 
 `user-select` is `none` (default), `text`, or `all`. Buttons ignore it. An unknown value stays `none`.
+
+`cursor` is `auto` (default), `default`, `pointer`, `text`, `crosshair`, `wait`, `progress`, `move`, `not-allowed`, `ew-resize`, `ns-resize`, `nwse-resize`, or `nesw-resize` (`Cursor`, `<engine/ui/cursor.h>`). An unknown value stays `auto`. Like the layout fields it is read without pseudo-classes: a `:hover` or `:disabled` rule does not change it. It does not inherit in the cascade either, but `auto` takes the nearest ancestor's cursor when the window resolves it ([UI Input](../features/UI%20Input.md#cursor)).
 
 Cascade specificity (`compound_specificity` in `src/ui/paint.cpp`) is the sum of every compound in the chain, including ancestors. A compound scores element 1, class 2, element-and-class 3, or id 4. A pseudo-class on that compound adds 10. Two class compounds score 4, the same as one id. One `:hover` beats an id. Equal scores keep the later rule.
 
