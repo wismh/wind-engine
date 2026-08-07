@@ -321,13 +321,14 @@ TEST(UiTextWrapLayout, LineHeightParsesFactorLengthAndDropsBadValues) {
 
     const engine::ui::LineHeight em = styled_line_height(".t { line-height: 1.5em; }");
     EXPECT_EQ(em.kind, engine::ui::LineHeightKind::Length);
-    EXPECT_EQ(em.length.unit, engine::ui::LengthUnit::Em);
-    EXPECT_FLOAT_EQ(em.length.value, 1.5f);
+    // A length line-height is computed to px against the element's font size (16px by default).
+    EXPECT_EQ(em.length.unit, engine::ui::LengthUnit::Px);
+    EXPECT_FLOAT_EQ(em.length.value, 24.0f);
 
     const engine::ui::LineHeight percent = styled_line_height(".t { line-height: 150%; }");
     EXPECT_EQ(percent.kind, engine::ui::LineHeightKind::Length);
-    EXPECT_EQ(percent.length.unit, engine::ui::LengthUnit::Percent);
-    EXPECT_FLOAT_EQ(percent.length.value, 150.0f);
+    EXPECT_EQ(percent.length.unit, engine::ui::LengthUnit::Px);
+    EXPECT_FLOAT_EQ(percent.length.value, 24.0f);
 
     EXPECT_EQ(styled_line_height(".t { line-height: nope; }").kind, engine::ui::LineHeightKind::Normal);
     EXPECT_EQ(styled_line_height(".t { line-height: 0; }").kind, engine::ui::LineHeightKind::Normal);
