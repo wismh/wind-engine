@@ -16,6 +16,12 @@ inputs:
     description: The repository with the Wind releases.
     required: false
     default: wismh/wind-engine
+  symbols:
+    description: >
+      Also install the debug symbols package (the .pdb files, Windows only; nothing on Linux and macOS) over the SDK,
+      for a debugger or crash reports. Default false.
+    required: false
+    default: "false"
   token:
     description: A token for the GitHub download, only to be under the rate limit; the releases are public.
     required: false
@@ -38,11 +44,14 @@ runs:
       env:
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_PROJECT: ${{ inputs.project-dir }}
+        INPUT_SYMBOLS: ${{ inputs.symbols }}
       run: |
         PY=python3
         command -v python3 >/dev/null 2>&1 || PY=python
+        flags=()
+        [ "$INPUT_SYMBOLS" = "true" ] && flags+=(--symbols)
         "$PY" "$GITHUB_ACTION_PATH/../../../tools/ci/setup_sdk.py" --print-key --version "$INPUT_VERSION" \
-          --project "$INPUT_PROJECT" | tr -d '\r' >> "$GITHUB_OUTPUT"
+          --project "$INPUT_PROJECT" "${flags[@]}" | tr -d '\r' >> "$GITHUB_OUTPUT"
     - name: Cache the SDK
       uses: actions/cache@v4
       with:
@@ -55,11 +64,14 @@ runs:
         GH_TOKEN: ${{ inputs.token }}
         INPUT_REPO: ${{ inputs.repo }}
         SDK_VERSION: ${{ steps.key.outputs.version }}
+        INPUT_SYMBOLS: ${{ inputs.symbols }}
       run: |
         PY=python3
         command -v python3 >/dev/null 2>&1 || PY=python
+        flags=()
+        [ "$INPUT_SYMBOLS" = "true" ] && flags+=(--symbols)
         sdk="$("$PY" "$GITHUB_ACTION_PATH/../../../tools/ci/setup_sdk.py" --version "$SDK_VERSION" \
-          --repo "$INPUT_REPO" --dest "$RUNNER_TEMP/wind-sdk/$SDK_VERSION")"
+          --repo "$INPUT_REPO" --dest "$RUNNER_TEMP/wind-sdk/$SDK_VERSION" "${flags[@]}")"
         sdk="${sdk%$'\r'}"
         echo "sdk-dir=$sdk" >> "$GITHUB_OUTPUT"
         echo "WIND_SDK_DIR=$sdk" >> "$GITHUB_ENV"
