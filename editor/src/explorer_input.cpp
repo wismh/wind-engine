@@ -105,6 +105,13 @@ void ExplorerInput::read_drag(engine::ecs::World& world, engine::ecs::Entity can
             if (key.empty()) {
                 continue;
             }
+            if (event.clicks >= 2 && explorer_->open_entry(key)) {
+                drag_armed_ = false;
+                drag_active_ = false;
+                drag_folder_.reset();
+                explorer_->set_drop_highlight({});
+                continue;
+            }
             drag_armed_ = true;
             drag_key_ = key;
             drag_origin_ = event.position;
@@ -165,6 +172,13 @@ bool ExplorerInput::handle_key(const engine::KeyEvent& event, bool ctrl, bool sh
     }
     if (event.key == engine::KeyCode::Delete && !ctrl) {
         explorer_->remove();
+        return true;
+    }
+    if (!ctrl && !shift && event.key == engine::KeyCode::Return && explorer_->open_entry(explorer_->selected())) {
+        return true;
+    }
+    if (!ctrl && !shift && event.key == engine::KeyCode::Backspace && explorer_->can_grid_up()) {
+        explorer_->grid_up();
         return true;
     }
     return false;
