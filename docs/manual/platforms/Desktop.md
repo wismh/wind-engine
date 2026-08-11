@@ -19,7 +19,7 @@ A game that you open in the editor is built as a **module** (`my_game.dll`) that
 
 The SDK ships the engine already built (the player libraries in `<sdk>/player/`: one for the Development build, one for Release), so an export only compiles your game and links: seconds, not minutes. Both builds share `<project>/build-export/`, so switching between them recompiles only your code. Your `CMakeLists.txt` does not change: it keeps `find_package(Wind REQUIRED)` and `engine_add_game`.
 
-An SDK that has no player libraries (a Debug SDK, or macOS) builds the engine from its source instead: the first export takes minutes, and it is always a `Release` build. The Build tab's first lines say which of the two happened.
+An SDK that has no player libraries (a Debug SDK) builds the engine from its source instead (the release's separate source package): the first export takes minutes, and it is always a `Release` build. The Build tab's first lines say which of the two happened.
 
 The target directory is emptied by every export, so Export only does that to a directory that does not exist, is empty, or already holds a `.wind_export` file from an earlier export. Any other directory is refused and nothing in it is deleted. Add `/export/` to the project's `.gitignore` (the template already ignores `/build*/`).
 
@@ -81,7 +81,7 @@ sudo apt-get install build-essential cmake ninja-build \
 macOS needs the Xcode Command Line Tools.
 
 > [!NOTE]
-> Export of a new project from the empty template runs on GitHub's Windows, Linux, and macOS runners with every release, and the player libraries are built on Windows and Linux. macOS has no player libraries, so an export there builds the engine from the SDK source. On macOS check that the result is a complete application before you ship it.
+> Export of a new project from the empty template runs on GitHub's Windows, Linux, and macOS runners with every release, and the player libraries are built on all three. On macOS check that the result is a complete application before you ship it.
 
 ---
 

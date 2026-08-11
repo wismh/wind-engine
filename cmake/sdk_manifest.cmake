@@ -44,7 +44,7 @@ else()
 endif()
 
 # The player flavours this install has (player/<flavour>/cmake/wind_player.cmake, written by the player's own install,
-# which runs before this file). A Debug SDK has none: an Export against it builds the engine from source/.
+# which runs before this file). A Debug SDK has none: an Export against it builds the engine from source/ (the source package of a release).
 set(_players)
 if(NOT WIND_SDK_CONFIG STREQUAL "Debug")
     foreach(_flavour IN ITEMS Development Shipping)

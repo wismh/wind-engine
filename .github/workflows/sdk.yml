@@ -35,8 +35,13 @@ jobs:
         run: cmake --build build-editor --config Release --parallel -- -k 0
       - name: Tests
         run: xvfb-run -a ctest --test-dir build-editor -C Release --output-on-failure --parallel 4
+      # The shape of the release: no source/ and no debug information in the SDK (release.yml).
       - name: Install the SDK
-        run: cmake --install build-editor --config Release --prefix out/sdk
+        run: |
+          cmake --install build-editor --config Release --prefix out/sdk --component Unspecified
+          python3 tools/ci/split_symbols.py --os linux --sdk out/sdk --symbols out/symbols
+          test -f out/symbols/symbols.toml
+          test ! -e out/sdk/source
       - name: Game against the SDK
         run: tools/ci/sdk_smoke.sh out/sdk out/smoke
       - name: Editor plays the game
@@ -71,8 +76,13 @@ jobs:
         run: cmake --build build-editor --config Release --parallel -- -k 0
       - name: Tests
         run: ctest --test-dir build-editor -C Release --output-on-failure --parallel 4
+      # The shape of the release: no source/ and no debug information in the SDK (release.yml).
       - name: Install the SDK
-        run: cmake --install build-editor --config Release --prefix out/sdk
+        run: |
+          cmake --install build-editor --config Release --prefix out/sdk --component Unspecified
+          python3 tools/ci/split_symbols.py --os macos --sdk out/sdk --symbols out/symbols
+          test -f out/symbols/symbols.toml
+          test ! -e out/sdk/source
       - name: Game against the SDK
         run: tools/ci/sdk_smoke.sh out/sdk out/smoke
       - name: Editor plays the game
