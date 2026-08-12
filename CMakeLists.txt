@@ -679,7 +679,9 @@ if(ENGINE_EDITOR)
         ARCHIVE DESTINATION lib)
     if(MSVC)
         foreach(_tool IN LISTS _engine_tools_runtime)
-            install(FILES "$<TARGET_PDB_FILE:${_tool}>" DESTINATION bin OPTIONAL)
+            # Component "symbols": a plain `cmake --install` still installs them; the release installs
+            # `--component Unspecified` for the SDK and `--component symbols` for the separate symbols package.
+            install(FILES "$<TARGET_PDB_FILE:${_tool}>" DESTINATION bin COMPONENT symbols OPTIONAL)
         endforeach()
     endif()
     install(DIRECTORY "${ENGINE_BUILTIN_ASSETS_DIR}/" DESTINATION bin/assets/engine)
