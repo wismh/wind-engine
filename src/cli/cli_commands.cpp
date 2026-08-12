@@ -1,4 +1,5 @@
 #include "cli/cli_server.h"
+#include "cli/dock_commands.h"
 #include "cli/json.h"
 
 #include "ui/element_path.h"
@@ -899,7 +900,7 @@ namespace engine::cli {
 
     bool is_ui_command(std::string_view command) {
         return command == "tree" || command == "element" || command == "hit" || command == "click" ||
-               command == "profile";
+               command == "profile" || command == "dock";
     }
 
     std::expected<render::Rect, std::string> element_window_rect(ecs::World &world, const CliRequest &request) {
@@ -1008,7 +1009,8 @@ namespace engine::cli {
             }
             body.remove_prefix(1);
             skip_ws(body);
-            if (key == "command" || key == "selector" || key == "path") {
+            if (key == "command" || key == "selector" || key == "path" || key == "action" || key == "panel" ||
+                key == "zone" || key == "mode") {
                 std::string value;
                 if (!parse_string(body, value)) {
                     request.error = "invalid request";
@@ -1018,8 +1020,16 @@ namespace engine::cli {
                     request.command = std::move(value);
                 } else if (key == "selector") {
                     request.selector = std::move(value);
-                } else {
+                } else if (key == "path") {
                     request.path = std::move(value);
+                } else if (key == "action") {
+                    request.action = std::move(value);
+                } else if (key == "panel") {
+                    request.panel = std::move(value);
+                } else if (key == "zone") {
+                    request.zone = std::move(value);
+                } else {
+                    request.mode = std::move(value);
                 }
                 continue;
             }
@@ -1042,24 +1052,38 @@ namespace engine::cli {
                 request.canvas = static_cast<std::uint32_t>(place);
                 continue;
             }
-            if (key == "window" || key == "x" || key == "y") {
+            if (key == "window" || key == "node" || key == "space" || key == "x" || key == "y" || key == "w" ||
+                key == "h") {
                 double value = 0.0;
                 if (!parse_number(body, value) || !std::isfinite(value)) {
                     request.error = "invalid request";
                     return request;
                 }
-                if (key == "window") {
+                if (key == "window" || key == "node" || key == "space") {
                     if (value < 0.0 || value > 4294967295.0 || std::floor(value) != value) {
                         request.error = "invalid request";
                         return request;
                     }
-                    request.window = static_cast<std::uint32_t>(value);
+                    const auto id = static_cast<std::uint32_t>(value);
+                    if (key == "window") {
+                        request.window = id;
+                    } else if (key == "node") {
+                        request.node = id;
+                    } else {
+                        request.space = id;
+                    }
                 } else if (key == "x") {
                     request.x = value;
                     request.has_x = true;
-                } else {
+                } else if (key == "y") {
                     request.y = value;
                     request.has_y = true;
+                } else if (key == "w") {
+                    request.w = value;
+                    request.has_w = true;
+                } else {
+                    request.h = value;
+                    request.has_h = true;
                 }
                 continue;
             }
@@ -1096,6 +1120,9 @@ namespace engine::cli {
         }
         if (request.command == "profile") {
             return profile_response(world, request);
+        }
+        if (request.command == "dock") {
+            return CliResponse{dock_json(world, request), false};
         }
         if (request.command != "element" && request.command != "click") {
             return CliResponse{error_json("unknown command"), false};

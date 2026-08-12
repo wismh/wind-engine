@@ -241,7 +241,7 @@ Screen and client pixels are taken as the same unit (true on Windows, where SDL'
 
 ## Next
 
-- Tabs are driven by `MouseEvent` on the chrome, not by `ICommand`: `wind-cli click` on a `.dock-tab` answers `no command`, so the CLI cannot switch tabs.
+- Tabs are driven by `MouseEvent` on the chrome, not by `ICommand`: `wind-cli click` on a `.dock-tab` answers `no command`. `wind-cli dock` switches tabs, moves and floats panels, and switches the float mode through `DockLayout` instead ([CLI](CLI.md#dock)).
 - Clicking a float window raises it by the OS; that does not reorder the layout's floats (`raise_float`), so the saved z order is the last one the dock system or host set.
 - Where SDL cannot set an owner (`SDL_SetWindowParent` unsupported) a float window opens unowned: a top-level window that can fall behind the space's window.
 - A drop between windows ignores other applications' windows above the space's windows.
