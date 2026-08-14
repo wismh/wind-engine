@@ -44,10 +44,11 @@ The engine repository has a composite action that downloads the SDK of your proj
 | `version` | `engine` in `wind_project.toml` | The version to install, like `0.1.7a` |
 | `project-dir` | `.` | Where `wind_project.toml` is, when `version` is not given |
 | `repo` | `wismh/wind-engine` | The repository with the releases |
-| `symbols` | `false` | `true` also installs the debug symbols package (the `.pdb` files of the SDK, Windows only; ignored on Linux and macOS). Not needed to build or run; for a debugger or crash reports |
+| `symbols` | `false` | `true` also installs the debug symbols package over the SDK (`.pdb` files, `.debug` files or `.dSYM` bundles, and the player libraries with debug information). Not needed to build or run; for a debugger or crash reports |
+| `source` | `false` | `true` also installs the engine source as `<sdk>/source`. Needed only for a Web or Android build, which `add_subdirectory`s it |
 | `token` | `github.token` | Only to stay under the download rate limit; the releases are public |
 
-After the step, `WIND_SDK_DIR` is the SDK root, `<sdk>/bin` (`wind_editor`, `wind-cli`) is on `PATH`, and the step outputs `sdk-dir` and `version`. The SDK is cached under the key `wind-sdk-<version>-<os>-<arch>` (`-symbols` is added to the key on Windows when `symbols` is `true`), so a run with a cache hit downloads nothing.
+After the step, `WIND_SDK_DIR` is the SDK root, `<sdk>/bin` (`wind_editor`, `wind-cli`) is on `PATH`, and the step outputs `sdk-dir` and `version`. The SDK is cached under the key `wind-sdk-<version>-<os>-<arch>` (`-symbols` and `-source` are added to the key when those inputs are `true`), so a run with a cache hit downloads nothing.
 
 `@main` is the newest action. To pin it, use the release tag of the engine version you build with, `@v0.1.7a`: a release is a tag of the engine repository, with the action in it.
 
@@ -139,7 +140,7 @@ jobs:
 
 The packages are the ones the SDK's own CI installs; the game links the engine statically with SDL3 and needs their headers. `--batch` opens no window. The exit code is `0` for an export, `1` when the SDK, the project, the build, or the copy failed (the last line of the log says why), and `2` for a usage error ([Desktop](../platforms/Desktop.md#2-exporting-without-a-window-ci-cloud-builds)). `--development` exports the Development Build (with the profiler and `wind-cli`) instead of `Release`.
 
-macOS runners work the same way (`macos-14`, `.tar.gz`). The SDK ships player libraries there too, so the export links them and takes seconds; an older macOS SDK without `player/` compiles the engine instead, which takes minutes.
+macOS runners work the same way (`macos-14`, `.tar.gz`). The SDK ships player libraries there too, so the export links them and takes seconds.
 
 ---
 
