@@ -1,6 +1,7 @@
 #pragma once
 
 #include "opengl_canvas.h"
+#include "system_cursors.h"
 #include "window_system.h"
 
 #include "core/frame_capture.h"
@@ -10,6 +11,7 @@
 #include <engine/core/window_desc.h>
 #include <engine/render/backend.h>
 #include <engine/render/command_buffer.h>
+#include <engine/ui/cursor.h>
 
 #include <cstdint>
 #include <functional>
@@ -91,6 +93,14 @@ public:
     // event is fine.
     [[nodiscard]] std::optional<WindowId> find_by_sdl_id(SDL_WindowID sdl_id) const;
 
+    // The live window the mouse is over (SDL mouse focus), or nullopt.
+    [[nodiscard]] std::optional<WindowId> mouse_focus() const;
+
+    // Shows `cursor` over whichever window has the mouse. SDL has one cursor per process, not one per window.
+    void set_cursor(ui::Cursor cursor) {
+        cursors_.set(cursor);
+    }
+
     // Visits every live (window.window() != nullptr) window other than kPrimaryWindow — mirrors
     // draw_all()'s liveness check. SdlGlPresentation::poll uses this to backfill a freshly opened
     // secondary window's WindowSizes entry before that window's first real resize event, if any, arrives.
@@ -142,6 +152,7 @@ private:
     std::optional<WindowId> vsync_window_;
     std::vector<PacingWindow> pacing_;   // reused by sync_vsync_window every frame
     FrameLimiter limiter_;
+    SystemCursors cursors_;
 };
 
 }

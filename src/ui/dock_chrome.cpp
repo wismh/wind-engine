@@ -3,6 +3,7 @@
 #include <engine/ui/binding_id.h>
 #include <engine/ui/builder.h>
 
+#include <algorithm>
 #include <string_view>
 #include <utility>
 
@@ -21,8 +22,10 @@ namespace engine::ui {
         constexpr BindingId kCloseY = intern("cy");
         constexpr BindingId kCloseSize = intern("cs");
         constexpr BindingId kReserve = intern("reserve");
+        constexpr BindingId kResize = intern("resize");
 
         constexpr BindingId kFrames = intern("frames");
+        constexpr BindingId kEdges = intern("edges");
         constexpr BindingId kTitles = intern("titles");
         constexpr BindingId kStacks = intern("stacks");
         constexpr BindingId kStrips = intern("strips");
@@ -84,6 +87,7 @@ namespace engine::ui {
                 item.cy.set(has_close ? box.close.y - box.rect.y : 0.0f);
                 item.cs.set(has_close ? box.close.w : 0.0f);
                 item.reserve.set(has_close ? box.rect.x + box.rect.w - box.close.x : 0.0f);
+                item.resize.set(box.resize);
             }
         }
 
@@ -101,10 +105,12 @@ namespace engine::ui {
         property(kCloseY, cy);
         property(kCloseSize, cs);
         property(kReserve, reserve);
+        property(kResize, resize);
     }
 
     DockChromeViewModel::DockChromeViewModel() {
         property(kFrames, frames);
+        property(kEdges, edges);
         property(kTitles, titles);
         property(kStacks, stacks);
         property(kStrips, strips);
@@ -113,16 +119,49 @@ namespace engine::ui {
         property(kPreviews, previews);
     }
 
+    std::vector<DockChromeBox> dock_frame_edges(render::Rect frame, float border) {
+        const float b = std::min(std::max(border, 0.0f), std::min(frame.w, frame.h) * 0.5f);
+        if (b <= 0.0f) {
+            return {};
+        }
+        const float left = frame.x;
+        const float right = frame.x + frame.w - b;
+        const float top = frame.y;
+        const float bottom = frame.y + frame.h - b;
+        const float inner_w = frame.w - 2.0f * b;
+        const float inner_h = frame.h - 2.0f * b;
+        const auto box = [](float x, float y, float w, float h, std::string_view resize) {
+            DockChromeBox edge{render::Rect{x, y, w, h}};
+            edge.resize = resize;
+            return edge;
+        };
+        return {
+                box(left + b, top, inner_w, b, "ns-resize"),
+                box(left + b, bottom, inner_w, b, "ns-resize"),
+                box(left, top + b, b, inner_h, "ew-resize"),
+                box(right, top + b, b, inner_h, "ew-resize"),
+                box(left, top, b, b, "nwse-resize"),
+                box(right, bottom, b, b, "nwse-resize"),
+                box(right, top, b, b, "nesw-resize"),
+                box(left, bottom, b, b, "nesw-resize"),
+        };
+    }
+
     UiDocument build_dock_chrome_document() {
         Node root = canvas();
         root.with_class("dock-chrome");
         root.add(list("dock-frames", kFrames, placed(stack(), "dock-frame")));
+        Node edge = placed(stack(), "dock-edge");
+        edge.var("resize", kResize);
+        root.add(list("dock-edges", kEdges, std::move(edge)));
         Node title = placed(button(), "dock-title");
         title.content_bind(kTitle);
         root.add(list("dock-titles", kTitles, std::move(title)));
         root.add(list("dock-stacks", kStacks, placed(stack(), "dock-stack")));
         root.add(list("dock-strips", kStrips, placed(stack(), "dock-strip")));
-        root.add(list("dock-splitters", kSplitters, placed(button(), "dock-splitter")));
+        Node splitter = placed(button(), "dock-splitter");
+        splitter.var("resize", kResize);
+        root.add(list("dock-splitters", kSplitters, std::move(splitter)));
         root.add(list("dock-tabs", kTabs, tab_row()));
         root.add(list("dock-previews", kPreviews, placed(stack(), "dock-preview")));
         // The builder takes no {tr} here and every binding is an interned id, so the tree always builds.
@@ -146,6 +185,7 @@ namespace engine::ui {
 
     void fill_dock_chrome(DockChromeViewModel &vm, const DockChromeContent &content, glm::vec2 origin) {
         fill_list(vm.frames, content.frames, origin);
+        fill_list(vm.edges, content.edges, origin);
         fill_list(vm.titles, content.titles, origin);
         fill_list(vm.stacks, content.stacks, origin);
         fill_list(vm.strips, content.strips, origin);

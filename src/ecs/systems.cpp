@@ -63,6 +63,9 @@ namespace engine {
                     pointer.position = event.position;
                 }
                 if (event.kind == MouseEvent::Kind::Down) {
+                    // The cursor under the press is the one the press keeps, even when no frame resolved it
+                    // since the pointer got there.
+                    (void) ui::update_cursor(world, event.window);
                     pointer.down = true;
                     ui::handle_pointer_for_run_input(world, event.position.x, event.position.y, event.window,
                                                      input_batch, event.button == MouseButton::Left, event.clicks);

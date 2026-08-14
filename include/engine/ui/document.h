@@ -8,6 +8,7 @@
 #include <engine/resources/fatal_error.h>
 #include <engine/ui/binding_id.h>
 #include <engine/ui/command.h>
+#include <engine/ui/cursor.h>
 #include <engine/ui/paint.h>
 #include <engine/ui/stylesheet.h>
 #include <engine/ui/text_line.h>
@@ -466,6 +467,7 @@ namespace engine::ui {
         UiAlign text_align = UiAlign::Start;
         WhiteSpace white_space = WhiteSpace::Normal;
         UserSelect user_select = UserSelect::None;
+        Cursor cursor = Cursor::Auto;
         Length border_radius{};
         Length border_width{};
         glm::vec4 border_color{0.0f, 0.0f, 0.0f, 0.0f};
@@ -643,6 +645,8 @@ namespace engine::ui {
         UiAlign text_align = UiAlign::Start;
         WhiteSpace white_space = WhiteSpace::Normal;
         UserSelect user_select = UserSelect::None;
+        // Pseudo-less `cursor`, like the other layout copies. cursor_at() resolves Auto.
+        Cursor cursor = Cursor::Auto;
         Length font_size{kDefaultFontSize, LengthUnit::Px};
         LineHeight line_height{};
         AssetId font_family{};
@@ -963,6 +967,12 @@ namespace engine::ui {
     // Viewport camera inverses the pointer for descendants and clips to the unpanned layout_rect.
     // Shared by click resolution (canvas.cpp) and hover resolution (paint.cpp).
     [[nodiscard]] Element *hit_test(Element &root, float x, float y);
+
+    // The cursor at (x, y): the topmost shown element under the point, any kind, interactive or not, walking the
+    // same stacking order, popups, scroll and Viewport cameras as hit_test(). Its `cursor`, or the nearest
+    // ancestor's that is not Auto. When the whole chain is Auto, Text over a TextInput or a selectable Label, else
+    // Default. Default when nothing is under the point.
+    [[nodiscard]] Cursor cursor_at(Element &root, float x, float y);
 
     // Margin / border / content in canvas layout space (after ancestor scroll and Viewport cameras,
     // before the canvas scale/offset). Border is hit_bounds (the layout rect, or its AABB when the
