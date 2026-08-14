@@ -94,6 +94,7 @@ bool is_known_property(std::string_view name) {
             "margin",
             "gap",
             "flex-direction",
+            "flex-wrap",
             "flex-grow",
             "align-items",
             "justify-content",
@@ -238,8 +239,7 @@ bool parse_selector_chain(std::string_view raw, CssRule& rule, CssWarnings& warn
     if (selector.empty()) {
         return false;
     }
-    if (selector.find(',') != std::string_view::npos || selector.find('+') != std::string_view::npos ||
-            selector.find('~') != std::string_view::npos) {
+    if (selector.find('+') != std::string_view::npos || selector.find('~') != std::string_view::npos) {
         warnings.add(selector, "unsupported combinator in selector: " + std::string(selector));
         return false;
     }
@@ -584,17 +584,35 @@ bool parse_stylesheet_body(std::string_view css, std::size_t& i, std::size_t lim
             return false;
         }
 
-        CssRule rule;
-        rule.media = media;
-        if (!parse_selector_chain(selector_text, rule, warnings)) {
-            continue;
+        // `A, B { ... }` is one rule per part: the declarations are parsed once and each part that parses keeps a
+        // copy. A part that does not (empty, `+`, `~`) warns and is skipped; the others still apply.
+        std::vector<CssDeclaration> declarations;
+        bool declarations_parsed = false;
+        std::size_t part_begin = 0;
+        while (part_begin <= selector_text.size()) {
+            std::size_t part_end = selector_text.find(',', part_begin);
+            if (part_end == std::string_view::npos) {
+                part_end = selector_text.size();
+            }
+            const std::string_view part = selector_text.substr(part_begin, part_end - part_begin);
+            CssRule rule;
+            rule.media = media;
+            if (parse_selector_chain(part, rule, warnings)) {
+                if (!declarations_parsed) {
+                    parse_declarations(css.substr(body_begin, body_end - body_begin), declarations, warnings);
+                    declarations_parsed = true;
+                }
+                rule.declarations = declarations;
+                // The part's first non-blank character, not the blank line before it.
+                const std::size_t part_start = selector_begin + part_begin + (part.size() - trim_left(part).size());
+                rule.line = warnings.line_at(part_start);
+                analyze_rule(rule);
+                sheet.rules.push_back(std::move(rule));
+            } else if (trim(part).empty() && selector_text.find(',') != std::string_view::npos) {
+                warnings.add(selector_text, "empty selector in selector list");
+            }
+            part_begin = part_end + 1;
         }
-        parse_declarations(css.substr(body_begin, body_end - body_begin), rule.declarations, warnings);
-        // The selector's first non-blank character, not the blank line before it.
-        const std::size_t selector_start = selector_begin + (selector_text.size() - trim_left(selector_text).size());
-        rule.line = warnings.line_at(selector_start);
-        analyze_rule(rule);
-        sheet.rules.push_back(std::move(rule));
     }
     return true;
 }
@@ -636,7 +654,8 @@ namespace {
         static constexpr std::string_view kLayout[] = {
                 "width",           "height",      "min-width",    "max-width", "min-height",
                 "margin",          "padding",     "border-width", "gap",       "flex-direction",
-                "flex-grow",       "justify-content", "align-items", "white-space", "display", "visibility",
+                "flex-wrap",       "flex-grow",   "justify-content", "align-items", "white-space",
+                "display",         "visibility",
                 "position",        "top",         "right",        "bottom",    "left",
                 "overflow",        "overflow-x",  "overflow-y",   "font-size", "line-height",
                 "font-family",
