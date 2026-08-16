@@ -295,7 +295,7 @@ Pictures: a boundary replays what it recorded ([Pictures](#pictures)). Per-eleme
 
 `Viewport` paints chrome unpanned, then `apply_view` so children see `displayed = origin + zoom * (layout - origin + pan)`. Pan and zoom are bound floats. A camera paints what its box shows: a child with its subtree wholly outside the visible part of the world (`[origin - pan, origin - pan + size / zoom]` in layout space, with a 16 px margin) is not painted, at any depth until a scroll, a transform, or another camera changes the space (`Element::culled_children` counts them). A child is only culled when its reach is known: an element with a transform, an `IPaint`, a `Line`, `Svg`, `Math`, `TextInput`, `Popup`, a nested `Viewport`, text that was not measured, or a style never resolved counts as reaching the view, and one that clips its children reaches only its box. A world drawn by an `IPaint` culls itself. Hit-testing is not culled.
 
-`background-image` and `Image` `source` both call `IUiPainter::image(AssetId, rect)`. `run_ui_render` collects referenced images and fonts (`src/ui/ui_refs.h`) and calls `ensure_ui_image` / `ensure_ui_font`. `builtin::font_ui` is ensured even when no element names it.
+`background-image` and `Image` `source` both call `IUiPainter::image(AssetId, rect)`. `run_ui_render` collects those images and the fonts (`src/ui/ui_refs.h`) and calls `ensure_ui_image` / `ensure_ui_font`. An `Svg` `source` is not in that list. `builtin::font_ui` is ensured even when no element names it.
 
 `Svg` `source` is that same AssetId. `run_ui_render` calls `attach_svg_pictures` (`src/ui/svg_attach.cpp`), which stores the `SvgPicture` on the element. Paint fits the viewBox into the content box, keeping the aspect and centering it, and draws each shape with `fill_path` or `stroke_path`. `currentColor` in the file is the element's CSS `color`. A color written in the file stays that color. The stroke width is the file's width times that fit. The viewBox does not size the element.
 
@@ -383,7 +383,7 @@ The subset is:
 
 - Letters and digits. A Latin letter becomes math italic. `h` is U+210E. Digits stay upright.
 - Operators, `{}` groups, `^`, `_`, and `'`.
-- `\frac`, `\sqrt[n]{}`, and `\vec`. The accent table is only `\vec`.
+- `\frac`, `\sqrt[n]{}`, and `\vec`. The accent table is `\vec`, `\hat` and `\bar`.
 - Large operators `\sum`, `\prod`, `\coprod`, `\int`, `\iint`, `\iiint`, `\oint`, `\bigcup`, `\bigcap`, `\bigvee`, `\bigwedge`, `\bigoplus`, `\bigotimes`, with `\limits` and `\nolimits`. Integrals do not take limits in display style; the others do, until `\limits` or `\nolimits` overrides that.
 - `\left`…`\right`.
 - Greek letters (lowercase italic, uppercase upright), and relation, binary, and arrow symbols.
