@@ -39,7 +39,8 @@ if(WIND_EXPORT)
         if(NOT EXISTS "${_wind_sdk_dir}/source/CMakeLists.txt")
             message(FATAL_ERROR
                 "Wind editor SDK at ${_wind_sdk_dir} has no player libraries (${_wind_player_problem}) and no source/: "
-                "WIND_EXPORT needs one of them")
+                "WIND_EXPORT needs one of them. The engine source is the separate package wind-sdk-source-<version> "
+                "of the release (setup_sdk.py --source, the setup-wind input `source`)")
         endif()
         message(STATUS
             "Wind ${Wind_VERSION_FULL}: export build of the engine at ${_wind_sdk_dir}/source (no player libraries: "

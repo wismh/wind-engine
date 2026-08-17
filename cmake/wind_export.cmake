@@ -5,8 +5,8 @@
 #   the player libraries   <sdk>/player/Development and <sdk>/player/Shipping: the engine and its static libraries,
 #                          built when the SDK was (cmake/player_build.cmake). The game compiles and links: seconds.
 #   <sdk>/source           the engine's build input, compiled for the game on every export: minutes. The fallback when
-#                          the SDK has no player for this platform (a Debug SDK), and what Web and Android
-#                          builds always use.
+#                          the SDK has no player (a Debug SDK), and what Web and Android builds always use. Not in the
+#                          SDK package of a release: the package wind-sdk-source-<version> unpacks to it.
 # The player libraries serve two game configurations: DebugGame links Development, Release links Shipping.
 
 set(WIND_EXPORT_FLAVOURS Development Shipping)
