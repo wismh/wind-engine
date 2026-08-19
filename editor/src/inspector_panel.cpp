@@ -1,22 +1,47 @@
 #include "inspector_panel.h"
 
-#include <engine/ecs/world.h>
+#include "asset_inspection.h"
 
-#include <string>
-#include <vector>
+#include <engine/ecs/world.h>
+#include <engine/ui/inspector.h>
+
+#include <filesystem>
+#include <iterator>
+#include <string_view>
 #include <utility>
+#include <variant>
 
 namespace editor {
 namespace {
 
-constexpr char kIdleHint[] = "Play the game to inspect its UI.";
-constexpr char kPickOffHint[] = "Tick Pick, then click the game window to select an element.";
-constexpr char kPickOnHint[] = "Clicks in the game window select. Untick Pick to play.";
+constexpr char kNothingSelected[] = "Nothing selected";
+constexpr char kSelectHint[] = "Select a file in Project, or an element in UI Tree.";
+constexpr char kUiElement[] = "UI element";
+
+std::string path_text(const std::filesystem::path& path) {
+    const std::u8string text = path.u8string();
+    return {reinterpret_cast<const char*>(text.data()), text.size()};
+}
+
+std::vector<std::string> split_lines(std::string_view text) {
+    std::vector<std::string> lines;
+    std::size_t start = 0;
+    while (start < text.size()) {
+        std::size_t end = text.find('\n', start);
+        if (end == std::string_view::npos) {
+            end = text.size();
+        }
+        lines.emplace_back(text.substr(start, end - start));
+        start = end + 1;
+    }
+    return lines;
+}
 
 }
 
-InspectorPanel::InspectorPanel() : view_model_(std::make_shared<InspectorViewModel>()) {
-    view_model_->hint = std::string(kIdleHint);
+InspectorPanel::InspectorPanel(const EditorSelection& selection)
+    : selection_(&selection), view_model_(std::make_shared<InspectorViewModel>()) {
+    show_nothing(kNothingSelected);
 }
 
 const std::shared_ptr<InspectorViewModel>& InspectorPanel::view_model() const {
@@ -25,24 +50,13 @@ const std::shared_ptr<InspectorViewModel>& InspectorPanel::view_model() const {
 
 void InspectorPanel::attach(engine::ecs::World& game) {
     game_ = &game;
-    engine::ui::set_inspector_attached(game, true);
-    pick_shown_ = game.ctx<engine::ui::UiInspector>().pick_pointer;
-    view_model_->pick = pick_shown_;
 }
 
 void InspectorPanel::detach() {
-    if (game_ != nullptr) {
-        engine::ui::set_inspector_attached(*game_, false);
-    }
     game_ = nullptr;
-    rows_.clear();
-    rules_.clear();
-    view_model_->rows.set({});
-    view_model_->rules.set({});
-    view_model_->detail = std::string();
-    pick_shown_ = false;
-    view_model_->pick = false;
-    view_model_->hint = std::string(kIdleHint);
+    if (!std::holds_alternative<AssetSelection>(selection_->target())) {
+        show_nothing(kNothingSelected);
+    }
 }
 
 bool InspectorPanel::attached() const {
@@ -50,103 +64,94 @@ bool InspectorPanel::attached() const {
 }
 
 void InspectorPanel::refresh() {
-    if (game_ == nullptr) {
+    const SelectionTarget& target = selection_->target();
+    if (const auto* asset = std::get_if<AssetSelection>(&target)) {
+        if (asset_revision_ != selection_->revision()) {
+            asset_revision_ = selection_->revision();
+            show_asset(*asset);
+        }
         return;
     }
-    engine::ui::UiInspector& inspector = game_->ctx<engine::ui::UiInspector>();
-    if (view_model_->pick.get() != pick_shown_) {
-        inspector.pick_pointer = view_model_->pick.get();
-    }
-    pick_shown_ = inspector.pick_pointer;
-    view_model_->pick = pick_shown_;
-    view_model_->hint = std::string(pick_shown_ ? kPickOnHint : kPickOffHint);
-    show_rows();
-    show_selection();
-}
-
-void InspectorPanel::select(const engine::ui::InspectorTreeRow& row) {
-    if (game_ != nullptr) {
-        engine::ui::inspector_select(*game_, row.window, row.pick);
+    asset_revision_.reset();
+    const auto* element = std::get_if<UiElementSelection>(&target);
+    if (element != nullptr && game_ != nullptr) {
+        show_ui_element(*element);
+    } else {
+        show_nothing(kNothingSelected);
     }
 }
 
-void InspectorPanel::toggle(const engine::ui::InspectorRowKey& key) {
-    if (game_ != nullptr) {
-        engine::ui::inspector_toggle(*game_, key);
+void InspectorPanel::toggle_section(const std::string& heading) {
+    if (collapsed_.erase(heading) == 0) {
+        collapsed_.insert(heading);
     }
+    show_sections(std::move(content_));
 }
 
-std::optional<std::size_t> InspectorPanel::navigate(engine::ui::TreeNav nav) {
-    if (game_ == nullptr) {
-        return std::nullopt;
+void InspectorPanel::show_nothing(std::string title) {
+    view_model_->title = std::move(title);
+    view_model_->subtitle = std::string(kSelectHint);
+    show_sections({});
+}
+
+void InspectorPanel::show_asset(const AssetSelection& asset) {
+    view_model_->title = path_text(asset.path.filename());
+    view_model_->subtitle = std::string(asset.directory ? "Folder" : "File");
+    show_sections(inspect_asset(asset));
+}
+
+void InspectorPanel::show_ui_element(const UiElementSelection& element) {
+    const engine::ui::InspectorPick pick = engine::ui::inspector_selection(*game_, element.window);
+    std::vector<std::string> detail = split_lines(engine::ui::inspector_detail(*game_, pick));
+    if (detail.size() < 2) {
+        // Nothing selected, or the element left the live tree: one line that says so.
+        show_nothing(detail.empty() ? std::string(kNothingSelected) : std::move(detail.front()));
+        view_model_->subtitle = std::string(kUiElement);
+        return;
     }
-    const std::vector<std::shared_ptr<InspectorRowViewModel>>& rows = view_model_->rows.get();
-    const engine::WindowId detail = game_->ctx<engine::ui::UiInspector>().detail_window;
-    std::vector<engine::ui::TreeRowInfo> infos;
-    infos.reserve(rows.size());
-    std::size_t current = engine::ui::kNoTreeRow;
-    for (std::size_t i = 0; i < rows.size(); ++i) {
-        const engine::ui::InspectorTreeRow& row = rows[i]->row();
-        infos.push_back(row.tree);
-        if (row.selected && (current == engine::ui::kNoTreeRow || row.window == detail)) {
-            current = i;
+    view_model_->title = std::move(detail.front());
+    view_model_->subtitle = std::string(kUiElement);
+    std::vector<InspectorSection> content;
+    content.push_back(InspectorSection{.heading = "Computed",
+            .lines = std::vector<std::string>(std::make_move_iterator(detail.begin() + 1),
+                    std::make_move_iterator(detail.end()))});
+    InspectorSection rules{.heading = "Rules"};
+    for (const std::string& rule : engine::ui::inspector_rules(*game_, pick)) {
+        for (std::string& line : split_lines(rule)) {
+            rules.lines.push_back(std::move(line));
         }
     }
-    const engine::ui::TreeNavResult result = engine::ui::tree_navigate(infos, current, nav);
-    if (result.row == engine::ui::kNoTreeRow) {
-        return std::nullopt;
+    if (rules.lines.empty()) {
+        rules.lines.emplace_back("No rule matches.");
     }
-    const engine::ui::InspectorTreeRow& target = rows[result.row]->row();
-    if (result.toggle) {
-        toggle(target.key);
-    }
-    if (result.row != current) {
-        select(target);
-    }
-    return result.row;
+    content.push_back(std::move(rules));
+    show_sections(std::move(content));
 }
 
-void InspectorPanel::show_rows() {
-    std::vector<engine::ui::InspectorTreeRow> tree = engine::ui::inspector_tree(*game_);
-    std::vector<std::shared_ptr<InspectorRowViewModel>> visible;
-    visible.reserve(tree.size());
-    std::unordered_map<engine::ui::InspectorRowKey, std::shared_ptr<InspectorRowViewModel>,
-            engine::ui::InspectorRowKeyHash>
-            kept;
-    kept.reserve(tree.size());
-    for (engine::ui::InspectorTreeRow& row : tree) {
-        std::shared_ptr<InspectorRowViewModel> slot;
-        if (!kept.contains(row.key)) {
-            if (const auto it = rows_.find(row.key); it != rows_.end()) {
-                slot = it->second;
+void InspectorPanel::show_sections(std::vector<InspectorSection> content) {
+    content_ = std::move(content);
+    sections_.resize(content_.size());
+    lines_.resize(content_.size());
+    for (std::size_t i = 0; i < content_.size(); ++i) {
+        const InspectorSection& section = content_[i];
+        if (!sections_[i]) {
+            sections_[i] = std::make_shared<InspectorSectionViewModel>(*this);
+        }
+        const bool expanded = !collapsed_.contains(section.heading);
+        InspectorSectionViewModel& view = *sections_[i];
+        view.heading = section.heading;
+        view.expanded = expanded;
+        std::vector<std::shared_ptr<InspectorLineViewModel>>& lines = lines_[i];
+        lines.resize(expanded ? section.lines.size() : 0);
+        for (std::size_t j = 0; j < lines.size(); ++j) {
+            if (!lines[j]) {
+                lines[j] = std::make_shared<InspectorLineViewModel>();
             }
+            lines[j]->text = section.lines[j];
         }
-        if (!slot) {
-            slot = std::make_shared<InspectorRowViewModel>(*this);
-        }
-        const engine::ui::InspectorRowKey key = row.key;
-        slot->show(std::move(row));
-        visible.push_back(slot);
-        kept.emplace(key, std::move(slot));
+        view.lines.set(lines);
     }
-    rows_ = std::move(kept);
-    view_model_->rows.set(std::move(visible));
-}
-
-void InspectorPanel::show_selection() {
-    const engine::ui::UiInspector& inspector = game_->ctx<engine::ui::UiInspector>();
-    const engine::ui::InspectorPick pick = engine::ui::inspector_selection(*game_, inspector.detail_window);
-    view_model_->detail = engine::ui::inspector_detail(*game_, pick);
-
-    std::vector<std::string> lines = engine::ui::inspector_rules(*game_, pick);
-    rules_.resize(lines.size());
-    for (std::size_t i = 0; i < lines.size(); ++i) {
-        if (!rules_[i]) {
-            rules_[i] = std::make_shared<RuleLineViewModel>();
-        }
-        rules_[i]->line = std::move(lines[i]);
-    }
-    view_model_->rules.set(rules_);
+    view_model_->sections.set(sections_);
 }
 
 }

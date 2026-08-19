@@ -266,7 +266,7 @@ A tree is a flat list of rows, not a nested control. `include/engine/ui/tree.h` 
 | `tree_navigate(rows, current, nav)` | Up, Down, First, Last move. Left collapses an expanded row, otherwise goes to the parent. Right expands a collapsed row, otherwise goes to the first child. Returns the row to select and whether to toggle it |
 | `tree_nav_for_key(key)` | Arrows, Home, and End. A tree reads `KeyEvent`, repeats included, like other UI, not an `ActionId` |
 
-The row recipe (the editor's Inspector and Project tabs use it):
+The row recipe (the editor's UI Tree and Project tabs use it):
 
 ```xml
 <ScrollView id="tree" class="tree">

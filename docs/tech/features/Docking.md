@@ -4,7 +4,7 @@ Panels tabbed together, split side by side, resized by splitters, dragged by the
 
 1. **Model**: `include/engine/ui/dock_layout.h`, `include/engine/ui/dock_geometry.h`. Plain data. No ECS, no rendering, no input, no fonts. Covered by `tests/dock_layout_test.cpp`.
 2. **Host**: `include/engine/ui/dock_space.h`. A `DockSpace` component and two engine systems that draw the chrome, place panel canvases, and turn pointer gestures into model operations. Floats are virtual windows inside the space's window, or OS windows of their own (`DockFloatMode`). Covered by `tests/dock_space_test.cpp` and `tests/dock_float_window_test.cpp`. See [Host](#host) and [OS window floats](#os-window-floats).
-3. **Editor**: `wind_editor`'s Project, Inspector, Profiler, and Build panels live in one `DockSpace` under the toolbar, with a default layout and a layout file. A floated panel gets an OS window ([Editor](Editor.md#panels)).
+3. **Editor**: `wind_editor`'s Project, UI Tree, Inspector, Profiler, and Build panels live in one `DockSpace` under the toolbar, with a default layout and a layout file. A floated panel gets an OS window ([Editor](Editor.md#panels)).
 
 Each panel stays its own `UiCanvas` with its own document and view-model. The model only says where each panel goes. A host writes the rect, order, and window of each panel canvas from the geometry.
 

@@ -1,8 +1,9 @@
-<Canvas id="explorer">
+<Canvas id="ui_tree">
   <Stack class="panel" direction="vertical">
     <Stack class="option-row" direction="horizontal">
-      <Button class="panel-button" command="{binding refresh}" content="Refresh"/>
-      <Label class="hint" text="{binding rootText}"/>
+      <Checkbox class="option-box" checked="{binding pick}"/>
+      <Label class="option-label" text="Pick"/>
+      <Label class="hint" text="{binding hint}"/>
     </Stack>
     <ScrollView id="tree" class="box tree fill">
       <ItemsControl id="tree-rows" class="rows" items_source="{binding rows}">

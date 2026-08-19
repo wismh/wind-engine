@@ -569,6 +569,7 @@ namespace engine::ui {
         pick.active = true;
         inspector.detail_window = window;
         inspector.selection[window] = std::move(pick);
+        ++inspector.selections;
     }
 
     void inspector_toggle(ecs::World &world, const InspectorRowKey &key) {
