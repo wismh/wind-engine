@@ -13,6 +13,7 @@
 #include <expected>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -34,6 +35,19 @@ namespace engine::cli {
         bool has_x = false;
         bool has_y = false;
         bool stop = false;
+        // `dock`: the sub-command (`activate`, `move`, `float`, `mode`; empty lists the spaces), the panel key, the
+        // target node and zone of `move`, the float mode of `mode`, and which space (its place, lowest order first).
+        // `float` takes its frame from `x`, `y`, `w`, `h`.
+        std::string action;
+        std::string panel;
+        std::string zone;
+        std::string mode;
+        std::optional<std::uint32_t> node;
+        std::optional<std::uint32_t> space;
+        double w = 0.0;
+        double h = 0.0;
+        bool has_w = false;
+        bool has_h = false;
         // `open`: the project directory, passed to the host as `CliCommand::path`. `screenshot`: the PNG to write.
         // Both are absolute, UTF-8.
         std::string path;
@@ -60,7 +74,7 @@ namespace engine::cli {
     // `{"ok":false,"error":message}`.
     [[nodiscard]] std::string error_json(std::string_view message);
 
-    // `tree`, `element`, `hit`, `click`, and `profile`: answered from the world bound to the request's window.
+    // `tree`, `element`, `hit`, `click`, `profile`, and `dock`: answered from the world bound to the request's window.
     // `screenshot` is not one: it reads the window's pixels and needs a world only for a selector.
     [[nodiscard]] bool is_ui_command(std::string_view command);
 

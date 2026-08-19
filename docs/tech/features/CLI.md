@@ -12,6 +12,7 @@ Debug, RelWithDebInfo, and every configuration of the editor build (`ENGINE_EDIT
 | `src/cli/cli_server.h` | request types, `CliFrame`, `start` / `stop` / `begin_frame` / `drain` |
 | `src/cli/cli_server.cpp` | socket, descriptor, accept thread, routing. Empty translation unit without the macro |
 | `src/cli/cli_commands.cpp` | `tree`, `element`, `hit`, `click`, `profile`, `element_window_rect`, `canvas_window_rect`, canvas picking, and the JSON of a host reply |
+| `src/cli/dock_commands.cpp` | `dock`: list, `activate`, `move`, `float`, `mode` ([Dock](#dock)) |
 | `src/cli/screenshot.cpp` | `screenshot`: crop, PNG, reply ([Screenshot](#screenshot)) |
 | `src/cli/json.h` | `Json`, the streaming writer both use |
 | `editor/src/editor_cli.cpp` | the editor's `state`, `play`, `stop`, `open` ([Editor](Editor.md#wind-cli)) |
@@ -27,9 +28,9 @@ The tool does not check the engine build id.
 
 1. `cli::begin_frame` runs an armed `click` before `flush_events` and simulate.
 2. Before `draw_all`, `cli::capture_requests` names the windows an armed `screenshot` waits for. `draw_all` reads each of them back ([Screenshot](#screenshot)).
-3. After `draw_all`, `cli::drain` answers `tree`, `element`, `hit`, and `profile` from this frame's painted tree, answers an armed `screenshot` from `CliFrame::captures`, arms a `click` for the next `begin_frame` and a new `screenshot` for the next `draw_all`, and passes every other command to the host.
+3. After `draw_all`, `cli::drain` answers `tree`, `element`, `hit`, `profile`, and `dock` from this frame's painted tree, answers an armed `screenshot` from `CliFrame::captures`, arms a `click` for the next `begin_frame` and a new `screenshot` for the next `draw_all`, and passes every other command to the host.
 
-A UI command (`tree`, `element`, `hit`, `click`, `profile`) runs against the world bound to the request's `window` (default 0, `kPrimaryWindow`). When that window has no world, the next `drain` answers `{"ok":false,"error":"no world on window N"}` at once; there is no 504. In the editor between plays `kPrimaryWindow` has no world; `--window` with the editor window's id reaches the editor's own canvases.
+A UI command (`tree`, `element`, `hit`, `click`, `profile`, `dock`) runs against the world bound to the request's `window` (default 0, `kPrimaryWindow`). When that window has no world, the next `drain` answers `{"ok":false,"error":"no world on window N"}` at once; there is no 504. In the editor between plays `kPrimaryWindow` has no world; `--window` with the editor window's id reaches the editor's own canvases.
 
 `execute()` inside the command runs a click immediately. The deferral is only the socket path, so the response is the drain after the click has been painted. `tests/cli_server_test.cpp` pumps the queue on the test thread. It does not go through `GameLoop`.
 
@@ -63,7 +64,7 @@ On Windows the descriptor file is created with an owner-only ACL (`D:P(A;;FA;;;O
 
 `status` lists live descriptors (`pid`, `port`, `kind`, `exe`) and does not contact the process. It does not print the token. A dead pid's file is removed. One live process is the target of a UI command. Several require `--pid`. The editor commands consider only `kind` `editor`, so a standalone game beside the editor does not need `--pid`. `--window` selects a `WindowId` (default 0, `kPrimaryWindow`). `--canvas` selects one canvas on it ([Canvases](#canvases)).
 
-The JSON body is `{"command":"…"}` plus optional `selector`, `window`, `canvas`, `x`, `y`, and `path` (absolute, UTF-8). `profile stop` (and `--stop`) also sends `"stop":true`.
+The JSON body is `{"command":"…"}` plus optional `selector`, `window`, `canvas`, `x`, `y`, and `path` (absolute, UTF-8). `profile stop` (and `--stop`) also sends `"stop":true`. `dock` adds `action`, `panel`, `node`, `zone`, `mode`, `space`, and `w`, `h` ([Dock](#dock)).
 
 | Command | Result |
 | --- | --- |
@@ -74,6 +75,7 @@ The JSON body is `{"command":"…"}` plus optional `selector`, `window`, `canvas
 | `screenshot [selector]` | `path`, `window`, `width`, `height`, `rect`. Writes a PNG ([Screenshot](#screenshot)) |
 | `profile` | `result` timings below. `paused` is the editor panel's Pause |
 | `profile stop` | `result.capturing` is false. Clears CLI capture only. Does not detach the editor's profiler panel |
+| `dock [activate\|move\|float\|mode …]` | The world's dock spaces, or one layout change ([Dock](#dock)) |
 
 `tree` nodes: `window`, `canvas`, `canvas_id`, `path`, `kind`, `id`, `classes`, `display` (`none` or `shown`), `border` `{x,y,w,h}`. `path` is the inspector's child-index array, including `kGeneratedPathBit`. An empty path is the canvas root.
 
@@ -166,6 +168,60 @@ A selector uses the same matching as `element` (limited to `--canvas` when given
 | `could not write PATH`, `could not encode the png` | the file could not be written (the directory must exist) |
 
 `tests/cli_server_test.cpp` covers snapping, a crop of a `Fixed` canvas, a crop to one of two canvases and to an element on it, a `ScaleWithScreenSize` mapping, the refusals, and the two-drain exchange with a fake capture. `tests/game_loop_test.cpp` runs one through `GameLoop` with a presentation that fills the capture. `tests/framebuffer_image_test.cpp` covers the flip and alpha. The `glReadPixels` call needs a GPU and is not in `engine_tests` ([Boundaries](../architecture/Boundaries.md)).
+
+## Dock
+
+`wind-cli dock` drives the dock spaces ([Docking](Docking.md#host)) of the world bound to `--window`: every `DockSpace` entity in it, whatever its own `window` (a float's OS window reaches the same world). Tabs are pressed on chrome, not through an `ICommand`, so `click .dock-tab` cannot switch them; this command can. `--space S` picks one space by its place: lowest `DockSpace::order` first, then entity index. `--space` with another command is a usage error.
+
+```
+wind-cli dock [--window N] [--space S]
+wind-cli dock activate <panel>
+wind-cli dock move <panel> <node> <center|left|right|top|bottom>
+wind-cli dock float <panel> [<x> <y> <w> <h>]
+wind-cli dock mode <virtual|os>
+```
+
+| Request | Does |
+| --- | --- |
+| `{"command":"dock"}` | Lists the spaces (all, or the one `space` names) |
+| `"action":"activate","panel":K` | `DockLayout::activate`. A panel in a virtual float also raises that float (`raise_float`), as a press on its tab does; an OS window float is not raised |
+| `"action":"move","panel":K,"node":N,"zone":Z` | `DockLayout::move` to `DockTarget{N, Z}`. Node 0 is the dock area. `zone` defaults to `center` |
+| `"action":"float","panel":K` | `DockLayout::float_panel`. The frame is `x`, `y`, `w`, `h` (window pixels; all four, `w` and `h` positive), or `metrics.float_size` centered in `area` |
+| `"action":"mode","mode":M` | `DockSpace::float_mode`: `virtual` or `os`. The floats convert on the next layout pass |
+
+A layout change goes through the `DockLayout` operation and bumps `DockSpace::revision` once when the layout differs afterwards, as the dock system does for a user's change, so a host that saves on a new revision saves it. No difference (the tab is already active, `move` to Center of its own stack) is `"changed":false` and keeps the revision. `mode` does not touch the layout and does not bump it. The command answers in `drain`, after the frame drew; the next frame's layout pass places the canvases, so a `tree`, `hit`, or `screenshot` sent after the answer sees the change.
+
+A panel action takes the one space whose layout holds `panel`; `mode` takes the only space. More than one is `"error":"ambiguous"` with `candidates` (`space`, `window`, `order`); pass `--space`.
+
+The list is `result.spaces[]`, each:
+
+| Field | Value |
+| --- | --- |
+| `space`, `window`, `order` | Its place, `DockSpace::window`, `DockSpace::order` |
+| `area` | `{x,y,w,h}` |
+| `float_mode` | `virtual` or `os` |
+| `revision` | `DockSpace::revision` |
+| `gesture` | True while a pointer gesture (tab press or drag, splitter, float move or resize) is in progress |
+| `root` | The docked root's node id, 0 when empty |
+| `nodes[]` | `id`, `parent`, `float` (0 when docked), `kind`. `tabs`: `panels` and `active` (a key). `split`: `axis` (`horizontal`, `vertical`), `ratio`, `first`, `second` |
+| `floats[]` | Bottom to top: `id`, `root`, `rect` (the stored frame), `os_window` (its window id, or null) |
+| `panels[]` | The layout's panels (docked tree depth first, then floats), then registered panels the layout lacks: `key`, `registered`, `title`, `closable`, `stack` and `index` (null when not in the layout), `float`, `visible` (the active tab of its stack), `os_window` (`dock_panel_os_window`) |
+| `layout` | `dock_layout_to_text`: the TOML a host saves |
+
+A change answers `space`, `action`, `changed`, `revision`, `float_mode`, and `layout` (the text after the change).
+
+| Error | When |
+| --- | --- |
+| `no dock space on window N` | the world has no `DockSpace` |
+| `no dock space S on window N` | `space` is past the last place |
+| `no panel K` | no space's layout holds `panel` |
+| `X needs a panel` | `activate`, `move`, or `float` without `panel` |
+| `no node N` | `move` to a node the layout lacks |
+| `unknown zone Z`, `unknown float mode M`, `unknown dock action X` | as named |
+| `float needs x, y, and a positive w and h` | part of a frame, or an empty one |
+| `a dock gesture is in progress` | the space is in a gesture; a change would race it. The list still answers |
+
+`tests/cli_dock_test.cpp` covers the parse, the list (nodes, floats, panels, a registered panel the layout lacks, the text), each action with its revision and the next layout pass, the refusals, two spaces picked by panel or place, a gesture in progress, and one exchange through `drain`.
 
 ## Host commands
 
