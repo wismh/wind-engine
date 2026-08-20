@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <expected>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -30,5 +31,8 @@ struct HttpUrl {
 // `Name: value` lines split by CRLF or LF. A leading `HTTP/` status line and lines without a colon are
 // skipped. Whitespace around the value is trimmed.
 [[nodiscard]] std::vector<HttpHeader> parse_raw_headers(std::string_view raw);
+
+// The Content-Length of a response, if it has one that is a plain number.
+[[nodiscard]] std::optional<std::uint64_t> content_length(const HttpResponse& response);
 
 }
