@@ -567,6 +567,21 @@ TEST(MathLayoutAccent, MarkIsCentredOnTheBaseGlyphsTopAccentAttachment) {
     EXPECT_GT(e_attach, advance(kCapitalE, kU) * 0.5f);
 }
 
+TEST(MathLayoutAccent, HatAndBarSitOverTheBaseWithoutWideningIt) {
+    const MathLayout bare = lay(R"(x)");
+    for (const auto& [source, mark_cp] : {std::pair{R"(\hat{x})", char32_t{0x0302}},
+                 std::pair{R"(\bar{x})", char32_t{0x0304}}}) {
+        const MathLayout l = lay(source);
+        ASSERT_EQ(l.glyphs.size(), 2u) << source;
+        const PlacedGlyph& x = glyph(l, kX);
+        const PlacedGlyph& mark = glyph(l, mark_cp);
+        EXPECT_NEAR(l.width, bare.width, kEps) << source;
+        EXPECT_GT(ink_top(x) - ink_bottom(mark), 0.0f) << source;
+        const float base_attach = stix().top_accent_attachment(x.glyph).value() * x.scale;
+        EXPECT_NEAR(mark.origin.x + mark_attach(mark), x.origin.x + base_attach, kEps) << source;
+    }
+}
+
 TEST(MathLayoutAccent, CapitalsLiftTheMarkByTheirExtraHeight) {
     const MathLayout l = lay(R"(\vec{E})");
     const PlacedGlyph& e = glyph(l, kCapitalE);

@@ -265,6 +265,17 @@ TEST(MathParser, ParsesLargeOperatorsWithLimits) {
     EXPECT_EQ(parsed("\\prod_{k}"), "[(scripts [U+220F:op+lim] sub=[k])]");
 }
 
+TEST(MathParser, ParsesHatAndBarAccents) {
+    EXPECT_EQ(parsed(R"(\hat x)"), "[(accent U+0302 [x])]");
+    EXPECT_EQ(parsed(R"(\hat{xy})"), "[(accent U+0302 [x y])]");
+    EXPECT_EQ(parsed(R"(\bar x)"), "[(accent U+0304 [x])]");
+    EXPECT_EQ(parsed(R"(\bar{x+y})"), "[(accent U+0304 [x +:bin y])]");
+    EXPECT_EQ(parsed(R"(\hat\alpha)"), "[(accent U+0302 [U+1D6FC])]");
+    EXPECT_EQ(parsed(R"(\hat{\bar{x}})"), "[(accent U+0302 [(accent U+0304 [x])])]");
+    EXPECT_EQ(parsed(R"(\hat x_1)"), "[(scripts [(accent U+0302 [x])] sub=[1])]");
+    EXPECT_EQ(parsed(R"(\bar{x}^2)"), "[(scripts [(accent U+0304 [x])] sup=[2])]");
+}
+
 TEST(MathParser, ParsesVectorAccents) {
     EXPECT_EQ(parsed(R"(\vec E)"), "[(accent U+20D7 [E])]");
     EXPECT_EQ(parsed(R"(\vec{F})"), "[(accent U+20D7 [F])]");
@@ -418,6 +429,11 @@ TEST(MathParserErrors, AccentWithoutAnArgument) {
     EXPECT_EQ(bare.tree, "[(accent U+20D7 [])]");
     ASSERT_EQ(bare.errors.size(), 1u);
     EXPECT_EQ(bare.errors[0].kind, ParseErrorKind::MissingArgument);
+    for (const char* source : {R"(\hat)", R"(\bar)"}) {
+        const Recovered missing = recover(source);
+        ASSERT_EQ(missing.errors.size(), 1u) << source;
+        EXPECT_EQ(missing.errors[0].kind, ParseErrorKind::MissingArgument) << source;
+    }
 
     const Recovered before_brace = recover(R"({\vec})");
     ASSERT_EQ(before_brace.errors.size(), 1u);
@@ -499,7 +515,7 @@ TEST(MathParserErrors, InvalidUtf8IsReportedOnce) {
 }
 
 TEST(MathParserErrors, CollectsEveryErrorInSourceOrder) {
-    const Recovered r = recover("\\foo $ \\bar");
+    const Recovered r = recover("\\foo $ \\baz");
     ASSERT_EQ(r.errors.size(), 3u);
     EXPECT_EQ(r.errors[0].offset, 0u);
     EXPECT_EQ(r.errors[1].offset, 5u);
