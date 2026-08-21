@@ -1,13 +1,16 @@
 #include <gtest/gtest.h>
 
+#include "editor_selection.h"
 #include "explorer_panel.h"
 #include "project_scan.h"
 
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <string>
 #include <system_error>
+#include <variant>
 #include <vector>
 
 namespace {
@@ -75,6 +78,15 @@ std::shared_ptr<editor::ExplorerRowViewModel> row_of(const editor::ExplorerViewM
     return nullptr;
 }
 
+editor::AssetSelection asset_of(const editor::EditorSelection& selection) {
+    const auto* asset = std::get_if<editor::AssetSelection>(&selection.target());
+    if (asset == nullptr) {
+        ADD_FAILURE() << "the selection is not a file or folder";
+        return {};
+    }
+    return *asset;
+}
+
 }
 
 TEST(ProjectScan, HidesDotNamesBuildTreesAndMetaFiles) {
@@ -117,7 +129,8 @@ TEST(ProjectScan, AMissingDirectoryIsEmpty) {
 }
 
 TEST(ExplorerPanel, NoProjectShowsNothingAndCannotRefresh) {
-    editor::ExplorerPanel panel;
+    editor::EditorSelection selection;
+    editor::ExplorerPanel panel{selection};
     const editor::ExplorerViewModel& vm = *panel.view_model();
     EXPECT_TRUE(vm.rows.get().empty());
     EXPECT_EQ(vm.rootText.get(), "No project open.");
@@ -126,12 +139,13 @@ TEST(ExplorerPanel, NoProjectShowsNothingAndCannotRefresh) {
 
 TEST(ExplorerPanel, OpenShowsTheCollapsedRootsAndExpandsOnToggle) {
     const ProjectDir dir;
-    editor::ExplorerPanel panel;
+    editor::EditorSelection selection;
+    editor::ExplorerPanel panel{selection};
     panel.open(dir.root());
     editor::ExplorerViewModel& vm = *panel.view_model();
     EXPECT_TRUE(vm.refresh.can_execute());
     EXPECT_EQ(labels(vm), (std::vector<std::string>{"assets", "src", "CMakeLists.txt", "wind_project.toml"}));
-    EXPECT_EQ(vm.detail.get(), "Select a file or folder.");
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(selection.target()));
     EXPECT_FALSE(row_of(vm, "assets")->expanded.get());
     EXPECT_FALSE(row_of(vm, "CMakeLists.txt")->toggle.can_execute()) << "a file has no expander";
 
@@ -145,28 +159,34 @@ TEST(ExplorerPanel, OpenShowsTheCollapsedRootsAndExpandsOnToggle) {
     EXPECT_EQ(vm.rows.get().size(), 4u);
 }
 
-TEST(ExplorerPanel, SelectShowsThePathAndWhatItIs) {
+TEST(ExplorerPanel, SelectBecomesTheEditorSelection) {
     const ProjectDir dir;
-    editor::ExplorerPanel panel;
+    editor::EditorSelection selection;
+    editor::ExplorerPanel panel{selection};
     panel.open(dir.root());
     editor::ExplorerViewModel& vm = *panel.view_model();
     panel.toggle("src");
     row_of(vm, "src/game.cpp")->select.execute();
     EXPECT_EQ(panel.selected(), "src/game.cpp");
-    EXPECT_EQ(vm.detail.get(), "src/game.cpp\nFile, 2.0 KB");
+    EXPECT_EQ(asset_of(selection),
+            (editor::AssetSelection{.key = "src/game.cpp", .path = dir.root() / "src/game.cpp", .size = 2048}));
     EXPECT_NE(row_of(vm, "src/game.cpp")->rowFill.get(), row_of(vm, "src")->rowFill.get());
 
     row_of(vm, "src")->select.execute();
-    EXPECT_EQ(vm.detail.get(), "src\nFolder, 1 item");
-    panel.select("CMakeLists.txt");
-    EXPECT_EQ(vm.detail.get(), "CMakeLists.txt\nFile, 0 bytes");
+    EXPECT_EQ(asset_of(selection),
+            (editor::AssetSelection{.key = "src", .path = dir.root() / "src", .directory = true, .items = 1}));
+    const std::uint64_t revision = selection.revision();
+    panel.select("src");
+    EXPECT_GT(selection.revision(), revision) << "selecting again is a new selection: the Inspector reads it again";
     panel.select("no/such");
-    EXPECT_EQ(panel.selected(), "CMakeLists.txt") << "an unknown key leaves the selection";
+    EXPECT_EQ(panel.selected(), "src") << "an unknown key leaves the selection";
+    EXPECT_EQ(asset_of(selection).key, "src");
 }
 
 TEST(ExplorerPanel, RowsKeepTheirViewModelWhileTheTreeChanges) {
     const ProjectDir dir;
-    editor::ExplorerPanel panel;
+    editor::EditorSelection selection;
+    editor::ExplorerPanel panel{selection};
     panel.open(dir.root());
     editor::ExplorerViewModel& vm = *panel.view_model();
     const std::shared_ptr<editor::ExplorerRowViewModel> src = row_of(vm, "src");
@@ -176,7 +196,8 @@ TEST(ExplorerPanel, RowsKeepTheirViewModelWhileTheTreeChanges) {
 
 TEST(ExplorerPanel, TreeKeysMoveExpandAndCollapse) {
     const ProjectDir dir;
-    editor::ExplorerPanel panel;
+    editor::EditorSelection selection;
+    editor::ExplorerPanel panel{selection};
     panel.open(dir.root());
     editor::ExplorerViewModel& vm = *panel.view_model();
 
@@ -196,7 +217,8 @@ TEST(ExplorerPanel, TreeKeysMoveExpandAndCollapse) {
 
 TEST(ExplorerPanel, RefreshKeepsExpansionAndSelectionThatStillExist) {
     const ProjectDir dir;
-    editor::ExplorerPanel panel;
+    editor::EditorSelection selection;
+    editor::ExplorerPanel panel{selection};
     panel.open(dir.root());
     editor::ExplorerViewModel& vm = *panel.view_model();
     panel.toggle("assets");
@@ -208,17 +230,40 @@ TEST(ExplorerPanel, RefreshKeepsExpansionAndSelectionThatStillExist) {
     EXPECT_EQ(labels(vm), (std::vector<std::string>{"assets", "  Images", "  ui", "    hud.xml", "    menu.xml",
                                   "src", "CMakeLists.txt", "wind_project.toml"}));
     EXPECT_EQ(panel.selected(), "assets/ui/menu.xml");
+    EXPECT_EQ(asset_of(selection).key, "assets/ui/menu.xml");
 
     std::filesystem::remove(dir.root() / "assets/ui/menu.xml");
     vm.refresh.execute();
     EXPECT_TRUE(panel.selected().empty()) << "the selected file is gone";
-    EXPECT_EQ(vm.detail.get(), "Select a file or folder.");
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(selection.target()));
     EXPECT_TRUE(row_of(vm, "assets/ui")->expanded.get());
+}
+
+TEST(ExplorerPanel, RefreshLeavesAnotherPanelsSelection) {
+    const ProjectDir dir;
+    editor::EditorSelection selection;
+    editor::ExplorerPanel panel{selection};
+    panel.open(dir.root());
+    panel.select("src");
+    selection.select(editor::UiElementSelection{});
+    const std::uint64_t revision = selection.revision();
+
+    panel.rescan();
+    EXPECT_TRUE(std::holds_alternative<editor::UiElementSelection>(selection.target()));
+    EXPECT_EQ(selection.revision(), revision);
+    EXPECT_EQ(panel.selected(), "src") << "the Project tab keeps its own highlight";
+
+    std::filesystem::remove_all(dir.root() / "src");
+    panel.rescan();
+    EXPECT_TRUE(std::holds_alternative<editor::UiElementSelection>(selection.target()));
+    panel.close();
+    EXPECT_TRUE(std::holds_alternative<editor::UiElementSelection>(selection.target()));
 }
 
 TEST(ExplorerPanel, OpenAgainStartsCollapsedAndCloseClears) {
     const ProjectDir dir;
-    editor::ExplorerPanel panel;
+    editor::EditorSelection selection;
+    editor::ExplorerPanel panel{selection};
     panel.open(dir.root());
     panel.toggle("assets");
     panel.select("assets");
@@ -226,8 +271,11 @@ TEST(ExplorerPanel, OpenAgainStartsCollapsedAndCloseClears) {
     editor::ExplorerViewModel& vm = *panel.view_model();
     EXPECT_EQ(vm.rows.get().size(), 4u);
     EXPECT_TRUE(panel.selected().empty());
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(selection.target()));
 
+    panel.select("src");
     panel.close();
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(selection.target()));
     EXPECT_TRUE(vm.rows.get().empty());
     EXPECT_EQ(vm.rootText.get(), "No project open.");
     EXPECT_FALSE(vm.refresh.can_execute());
