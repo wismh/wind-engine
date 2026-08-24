@@ -804,6 +804,13 @@ private:
                 out += cps_[pos_++];
                 continue;
             }
+            // Spacing control symbols inside raw text stay spaces (`\mathrm{correct\;answers}`); `\!` is dropped.
+            if (c == U'\\' && !at_end() && std::u32string_view(U",:; !").find(peek()) != std::u32string_view::npos) {
+                if (cps_[pos_++] != U'!') {
+                    out += U' ';
+                }
+                continue;
+            }
             out += c;
         }
         report(ParseErrorKind::MissingClosingBrace);
