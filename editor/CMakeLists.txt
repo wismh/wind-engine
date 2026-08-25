@@ -5,6 +5,7 @@
 
 # Everything but main.cpp and the EditorApp shell, so wind_editor_tests compiles the same panels.
 set(_wind_editor_parts
+    src/asset_inspection.cpp
     src/build_line_view_model.cpp
     src/build_panel.cpp
     src/build_view_model.cpp
@@ -12,13 +13,15 @@ set(_wind_editor_parts
     src/editor_cli.cpp
     src/editor_options.cpp
     src/editor_panels.cpp
+    src/editor_selection.cpp
     src/editor_view_model.cpp
     src/engine_host_play.cpp
     src/explorer_panel.cpp
     src/explorer_row_view_model.cpp
     src/explorer_view_model.cpp
+    src/inspector_line_view_model.cpp
     src/inspector_panel.cpp
-    src/inspector_row_view_model.cpp
+    src/inspector_section_view_model.cpp
     src/inspector_view_model.cpp
     src/play_session.cpp
     src/profiler_chart_paint.cpp
@@ -27,8 +30,10 @@ set(_wind_editor_parts
     src/profiler_view_model.cpp
     src/project_build.cpp
     src/project_scan.cpp
-    src/rule_line_view_model.cpp
-    src/toolbar.cpp)
+    src/toolbar.cpp
+    src/ui_tree_panel.cpp
+    src/ui_tree_row_view_model.cpp
+    src/ui_tree_view_model.cpp)
 
 add_executable(wind_editor src/main.cpp src/editor_app.cpp ${_wind_editor_parts})
 set_property(TARGET wind_editor PROPERTY ENGINE_RUNTIME_ASSETS_DIR editor)
@@ -40,6 +45,7 @@ if(ENGINE_BUILD_TESTS)
     # and the panels' view-models against headless worlds. The view-models use wind_editor's generated
     # asset_ids.h.
     add_executable(wind_editor_tests
+        tests/asset_inspection_test.cpp
         tests/build_panel_test.cpp
         tests/dock_layout_file_test.cpp
         tests/editor_cli_test.cpp
@@ -51,6 +57,7 @@ if(ENGINE_BUILD_TESTS)
         tests/profiler_chart_test.cpp
         tests/profiler_panel_test.cpp
         tests/project_build_test.cpp
+        tests/ui_tree_panel_test.cpp
         ${_wind_editor_parts})
     set_target_properties(wind_editor_tests PROPERTIES
         CXX_STANDARD 23

@@ -3,13 +3,13 @@
 #include <format>
 #include <string_view>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace editor {
 namespace {
 
 constexpr char kNoProject[] = "No project open.";
-constexpr char kNothingSelected[] = "Select a file or folder.";
 
 std::string path_text(const std::filesystem::path& path) {
     const std::u8string text = path.u8string();
@@ -50,31 +50,10 @@ const ProjectEntry* find_entry(const std::vector<ProjectEntry>& roots, std::stri
     return found;
 }
 
-std::string size_text(std::uintmax_t bytes) {
-    if (bytes < 1024) {
-        return std::format("{} bytes", bytes);
-    }
-    constexpr const char* kUnits[] = {"KB", "MB", "GB", "TB"};
-    double value = static_cast<double>(bytes) / 1024.0;
-    std::size_t unit = 0;
-    while (value >= 1024.0 && unit + 1 < std::size(kUnits)) {
-        value /= 1024.0;
-        ++unit;
-    }
-    return std::format("{:.1f} {}", value, kUnits[unit]);
 }
 
-std::string detail_text(const ProjectEntry& entry) {
-    if (!entry.directory) {
-        return entry.key + "\nFile, " + size_text(entry.size);
-    }
-    const std::size_t items = entry.children.size();
-    return entry.key + "\nFolder, " + std::to_string(items) + (items == 1 ? " item" : " items");
-}
-
-}
-
-ExplorerPanel::ExplorerPanel() : view_model_(std::make_shared<ExplorerViewModel>()) {
+ExplorerPanel::ExplorerPanel(EditorSelection& selection)
+    : selection_(&selection), view_model_(std::make_shared<ExplorerViewModel>()) {
     view_model_->refresh.bind_to<ExplorerPanel, &ExplorerPanel::rescan, &ExplorerPanel::can_rescan>(*this);
     view_model_->rootText = std::string(kNoProject);
 }
@@ -98,8 +77,8 @@ void ExplorerPanel::close() {
     selected_.clear();
     rows_.clear();
     view_model_->rows.set({});
-    view_model_->detail = std::string();
     view_model_->rootText = std::string(kNoProject);
+    publish_selection(false);
 }
 
 void ExplorerPanel::rescan() {
@@ -117,7 +96,7 @@ void ExplorerPanel::rescan() {
     }
     view_model_->rootText = std::move(root);
     show_rows();
-    show_selection();
+    publish_selection(false);
 }
 
 bool ExplorerPanel::can_rescan() const {
@@ -130,7 +109,7 @@ void ExplorerPanel::select(const std::string& key) {
     }
     selected_ = key;
     show_rows();
-    show_selection();
+    publish_selection(true);
 }
 
 void ExplorerPanel::toggle(const std::string& key) {
@@ -196,9 +175,24 @@ void ExplorerPanel::show_rows() {
     view_model_->rows.set(std::move(visible));
 }
 
-void ExplorerPanel::show_selection() {
+void ExplorerPanel::publish_selection(bool take) {
+    if (!take && !std::holds_alternative<AssetSelection>(selection_->target())) {
+        return;
+    }
     const ProjectEntry* entry = selected_.empty() ? nullptr : find_entry(scan_.roots, selected_);
-    view_model_->detail = entry != nullptr ? detail_text(*entry) : std::string(kNothingSelected);
+    if (entry == nullptr) {
+        if (std::holds_alternative<AssetSelection>(selection_->target())) {
+            selection_->clear();
+        }
+        return;
+    }
+    selection_->select(AssetSelection{
+            .key = entry->key,
+            .path = directory_ / std::filesystem::path(std::u8string(entry->key.begin(), entry->key.end())),
+            .directory = entry->directory,
+            .size = entry->size,
+            .items = entry->children.size(),
+    });
 }
 
 }

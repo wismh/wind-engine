@@ -44,12 +44,12 @@ std::vector<std::string> registered_keys() {
     return keys;
 }
 
-// Drops panels this editor does not have and puts back the ones the layout lacks: tabbed with the Inspector, or the
-// first stack when the Inspector is missing too.
+// Drops panels this editor does not have and puts back the ones the layout lacks: tabbed with the Profiler, or the
+// first stack when the Profiler is missing too.
 bool reconcile(DockLayout& layout) {
     const std::vector<std::string> keys = registered_keys();
     return engine::ui::reconcile_dock_layout(layout, keys,
-            engine::ui::DockSpot{.beside = std::string(EditorPanels::kInspector), .zone = DockZone::Center});
+            engine::ui::DockSpot{.beside = std::string(EditorPanels::kProfiler), .zone = DockZone::Center});
 }
 
 // The saved layout when it holds at least one of the editor's panels, else the default.
@@ -65,7 +65,8 @@ DockLayout initial_layout(const DockLayoutFile& file) {
 
 }
 
-EditorPanels::EditorPanels(DockLayoutFile layout_file) : layout_file_(std::move(layout_file)) {}
+EditorPanels::EditorPanels(DockLayoutFile layout_file)
+    : layout_file_(std::move(layout_file)), explorer_(selection_), ui_tree_(selection_), inspector_(selection_) {}
 
 DockLayout EditorPanels::default_layout() {
     DockLayout layout;
@@ -73,12 +74,17 @@ DockLayout EditorPanels::default_layout() {
     const DockNodeId project = layout.find(kProject)->stack;
     layout.add(std::string(kInspector), {project, DockZone::Right});
     const DockNodeId inspector = layout.find(kInspector)->stack;
-    layout.add(std::string(kBuild), {inspector, DockZone::Bottom});
-    layout.add(std::string(kProfiler), {inspector, DockZone::Center});
-    layout.activate(kInspector);
-    // Project | right column: a quarter of the width. Inspector and Profiler over Build: Build gets 30%.
-    layout.set_ratio(layout.root(), 0.25f);
-    layout.set_ratio(layout.node(inspector)->parent, 0.7f);
+    layout.add(std::string(kUiTree), {inspector, DockZone::Left});
+    const DockNodeId tools = layout.find(kUiTree)->stack;
+    layout.add(std::string(kBuild), {tools, DockZone::Bottom});
+    layout.add(std::string(kProfiler), {tools, DockZone::Center});
+    layout.activate(kUiTree);
+    // Project | the rest: a fifth of the width. Tools | Inspector: the Inspector gets 40% of the rest. UI Tree and
+    // Profiler over Build: Build gets 30%.
+    layout.set_ratio(layout.root(), 0.2f);
+    const DockNodeId column = layout.node(tools)->parent;
+    layout.set_ratio(column, 0.7f);
+    layout.set_ratio(layout.node(column)->parent, 0.6f);
     return layout;
 }
 
@@ -87,6 +93,7 @@ void EditorPanels::spawn(engine::ecs::World& world, engine::WindowId window, eng
     windows_ = &windows;
     window_ = window;
     explorer_canvas_ = spawn_panel(world, window, assets::ui::explorer, explorer_.view_model());
+    ui_tree_canvas_ = spawn_panel(world, window, assets::ui::ui_tree, ui_tree_.view_model());
     inspector_canvas_ = spawn_panel(world, window, assets::ui::inspector, inspector_.view_model());
     profiler_canvas_ = spawn_panel(world, window, assets::ui::profiler, profiler_.view_model());
     build_canvas_ = spawn_panel(world, window, assets::ui::build, build_.view_model());
@@ -98,6 +105,7 @@ void EditorPanels::spawn(engine::ecs::World& world, engine::WindowId window, eng
     space.float_mode = engine::ui::DockFloatMode::OsWindow;
     space.panels = {
             {std::string(kProject), "Project", explorer_canvas_},
+            {std::string(kUiTree), "UI Tree", ui_tree_canvas_},
             {std::string(kInspector), "Inspector", inspector_canvas_},
             {std::string(kProfiler), "Profiler", profiler_canvas_},
             {std::string(kBuild), "Build", build_canvas_},
@@ -109,11 +117,13 @@ void EditorPanels::spawn(engine::ecs::World& world, engine::WindowId window, eng
 }
 
 void EditorPanels::attach(engine::ecs::World& game) {
+    ui_tree_.attach(game);
     inspector_.attach(game);
     profiler_.attach(game);
 }
 
 void EditorPanels::detach() {
+    ui_tree_.detach();
     inspector_.detach();
     profiler_.detach();
 }
@@ -124,6 +134,11 @@ void EditorPanels::frame(engine::ecs::World& world) {
     space.area = engine::render::Rect{0.0f, kToolbarHeight, static_cast<float>(size.width),
             std::max(0.0f, static_cast<float>(size.height) - kToolbarHeight)};
     read_tree_keys(world);
+    if (space.layout.is_visible(kUiTree)) {
+        ui_tree_.refresh();
+    } else {
+        ui_tree_.sync_selection();
+    }
     if (space.layout.is_visible(kInspector)) {
         inspector_.refresh();
     }
@@ -175,6 +190,9 @@ engine::ecs::Entity EditorPanels::canvas(std::string_view key) const {
     if (key == kProject) {
         return explorer_canvas_;
     }
+    if (key == kUiTree) {
+        return ui_tree_canvas_;
+    }
     if (key == kInspector) {
         return inspector_canvas_;
     }
@@ -202,7 +220,7 @@ engine::ecs::Entity EditorPanels::tree_canvas_under_pointer(engine::ecs::World& 
             top_order = canvas.order;
         }
     }
-    return top == explorer_canvas_ || top == inspector_canvas_ ? top : engine::ecs::Entity{};
+    return top == explorer_canvas_ || top == ui_tree_canvas_ ? top : engine::ecs::Entity{};
 }
 
 void EditorPanels::read_tree_keys(engine::ecs::World& world) {
@@ -220,7 +238,7 @@ void EditorPanels::read_tree_keys(engine::ecs::World& world) {
         }
         tree = under;
         const std::optional<std::size_t> row =
-                tree == explorer_canvas_ ? explorer_.navigate(*nav) : inspector_.navigate(*nav);
+                tree == explorer_canvas_ ? explorer_.navigate(*nav) : ui_tree_.navigate(*nav);
         if (row) {
             keep_in_view = row;
         }
@@ -239,8 +257,16 @@ void EditorPanels::read_tree_keys(engine::ecs::World& world) {
     }
 }
 
+const EditorSelection& EditorPanels::selection() const {
+    return selection_;
+}
+
 ExplorerPanel& EditorPanels::explorer() {
     return explorer_;
+}
+
+UiTreePanel& EditorPanels::ui_tree() {
+    return ui_tree_;
 }
 
 InspectorPanel& EditorPanels::inspector() {

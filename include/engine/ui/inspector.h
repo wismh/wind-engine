@@ -68,6 +68,9 @@ namespace engine::ui {
         // Which window's pick the detail shows. Updated on every pick and select.
         WindowId detail_window = kPrimaryWindow;
         std::unordered_map<WindowId, InspectorPick> selection;
+        // Counts inspector_select calls since attach: a pick click and a tree row both select, a
+        // retarget does not. A host compares it with the count it last saw to notice a new selection.
+        std::uint64_t selections = 0;
         // Tree rows start expanded; this keeps the ones the user collapsed.
         TreeExpansion<InspectorRowKey, InspectorRowKeyHash> expansion;
     };
