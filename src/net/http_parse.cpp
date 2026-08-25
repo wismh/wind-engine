@@ -147,6 +147,19 @@ std::vector<HttpHeader> parse_raw_headers(std::string_view raw) {
     return headers;
 }
 
+std::optional<std::uint64_t> content_length(const HttpResponse& response) {
+    const std::optional<std::string_view> text = response.header("Content-Length");
+    if (!text || text->empty()) {
+        return std::nullopt;
+    }
+    std::uint64_t value = 0;
+    const auto [end, error] = std::from_chars(text->data(), text->data() + text->size(), value);
+    if (error != std::errc{} || end != text->data() + text->size()) {
+        return std::nullopt;
+    }
+    return value;
+}
+
 std::optional<std::string_view> HttpResponse::header(std::string_view name) const {
     const auto found = std::ranges::find_if(
             headers, [name](const HttpHeader& header) { return equals_ignore_case(header.name, name); });

@@ -13,13 +13,18 @@
 
 #include "net/http_call_state.h"
 #include "net/http_parse.h"
+#include "net/http_stall.h"
 
 #include <windows.h>
 #include <winhttp.h>
 
 #include <algorithm>
+#include <chrono>
 #include <climits>
 #include <cmath>
+#include <cstdint>
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -55,6 +60,22 @@ HttpError error_from(DWORD code) {
     case ERROR_WINHTTP_INVALID_URL:
     case ERROR_WINHTTP_UNRECOGNIZED_SCHEME:
         return HttpError::InvalidUrl;
+    case ERROR_WINHTTP_NAME_NOT_RESOLVED:
+        return HttpError::Dns;
+    case ERROR_WINHTTP_SECURE_FAILURE:
+    case ERROR_WINHTTP_SECURE_CHANNEL_ERROR:
+    case ERROR_WINHTTP_SECURE_CERT_DATE_INVALID:
+    case ERROR_WINHTTP_SECURE_CERT_CN_INVALID:
+    case ERROR_WINHTTP_SECURE_CERT_WRONG_USAGE:
+    case ERROR_WINHTTP_SECURE_CERT_REV_FAILED:
+    case ERROR_WINHTTP_SECURE_CERT_REVOKED:
+    case ERROR_WINHTTP_SECURE_INVALID_CA:
+    case ERROR_WINHTTP_SECURE_INVALID_CERT:
+        return HttpError::Tls;
+    case ERROR_WINHTTP_CONNECTION_ERROR:
+        return HttpError::ConnectionReset;
+    case ERROR_WINHTTP_REDIRECT_FAILED:
+        return HttpError::RedirectRefused;
     default:
         return HttpError::Network;
     }
@@ -70,6 +91,10 @@ int timeout_ms(float seconds) {
     }
     const double ms = std::ceil(static_cast<double>(seconds) * 1000.0);
     return static_cast<int>(std::clamp(ms, 1.0, static_cast<double>(INT_MAX)));
+}
+
+double now_seconds() {
+    return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
 std::wstring header_block(const std::vector<HttpHeader>& headers) {
@@ -89,6 +114,17 @@ HttpResult exchange(HttpCallState& state, HINTERNET handle, const HttpRequest& r
 
     const int ms = timeout_ms(request.timeout_seconds);
     WinHttpSetTimeouts(handle, ms, ms, ms, ms);
+
+    // Redirects are the caller's call. WinHTTP's own default (up to 10, never https to http) is spelled out.
+    DWORD redirect_policy = WINHTTP_OPTION_REDIRECT_POLICY_DISALLOW_HTTPS_TO_HTTP;
+    if (request.max_redirects <= 0) {
+        redirect_policy = WINHTTP_OPTION_REDIRECT_POLICY_NEVER;
+    } else if (request.allow_insecure_redirect) {
+        redirect_policy = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
+    }
+    WinHttpSetOption(handle, WINHTTP_OPTION_REDIRECT_POLICY, &redirect_policy, sizeof(redirect_policy));
+    DWORD max_redirects = static_cast<DWORD>(std::max(request.max_redirects, 0));
+    WinHttpSetOption(handle, WINHTTP_OPTION_MAX_HTTP_AUTOMATIC_REDIRECTS, &max_redirects, sizeof(max_redirects));
 #if defined(WINHTTP_OPTION_DECOMPRESSION)
     DWORD decompression = WINHTTP_DECOMPRESSION_FLAG_ALL;
     WinHttpSetOption(handle, WINHTTP_OPTION_DECOMPRESSION, &decompression, sizeof(decompression));
@@ -138,22 +174,38 @@ HttpResult exchange(HttpCallState& state, HINTERNET handle, const HttpRequest& r
     if (request.method == HttpMethod::Head) {
         return response;
     }
+    if (const std::optional<std::uint64_t> total = content_length(response)) {
+        state.set_total(*total);
+    }
     std::vector<char> buffer(64 * 1024);
+    StallWatch stall(request.min_bytes_per_second, request.stall_seconds, now_seconds());
     for (;;) {
         if (state.cancelled()) {
             return cancelled;
         }
+        // WinHttpReadData waits until its whole buffer is full, which stalls progress and the stall check on a
+        // slow body. Asking for what has arrived keeps every read short.
+        DWORD available = 0;
+        if (!WinHttpQueryDataAvailable(handle, &available)) {
+            return last_error();
+        }
+        if (available == 0) {
+            break;
+        }
         DWORD read = 0;
-        if (!WinHttpReadData(handle, buffer.data(), static_cast<DWORD>(buffer.size()), &read)) {
+        if (!WinHttpReadData(handle, buffer.data(), std::min(available, static_cast<DWORD>(buffer.size())), &read)) {
             return last_error();
         }
         if (read == 0) {
             break;
         }
-        if (response.body.size() + read > kHttpMaxResponseBytes) {
-            return std::unexpected(HttpError::TooLarge);
+        if (const std::optional<HttpError> error =
+                        state.accept(response.status, std::as_bytes(std::span(buffer.data(), read)), response.body)) {
+            return std::unexpected(*error);
         }
-        response.body.append(buffer.data(), read);
+        if (stall.stalled(now_seconds(), state.received())) {
+            return std::unexpected(HttpError::Timeout);
+        }
     }
     return response;
 }
