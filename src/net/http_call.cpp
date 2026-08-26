@@ -40,6 +40,10 @@ std::optional<HttpResult> HttpCall::take() {
     return result;
 }
 
+HttpProgress HttpCall::progress() const {
+    return state_ != nullptr ? state_->progress() : HttpProgress{};
+}
+
 void HttpCall::cancel() {
     if (state_ == nullptr || state_->result.has_value()) {
         state_.reset();
