@@ -15,6 +15,8 @@ namespace engine {
 //              permission (the engine manifest has it). Cleartext http:// is blocked from API 28 unless
 //              the game's manifest allows it.
 //   - Web:     emscripten_fetch. The browser applies CORS.
+//   - Linux, macOS: the system libcurl, opened with dlopen. Without it, every request answers
+//              HttpError::Unsupported and is_supported() == false.
 //   - Others:  every request answers HttpError::Unsupported. is_supported() == false.
 //
 // `send` returns at once. The answer lands in the returned HttpCall during a later frame. Main thread only.

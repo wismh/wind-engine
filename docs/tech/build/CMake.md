@@ -109,7 +109,7 @@ The header also defines `ENGINE_BUILD_DEBUG_CRT` (1 when that configuration link
 
 Always, PRIVATE: spdlog, tinyxml2, tomlplusplus. PUBLIC: glm.
 
-Windows also links `ws2_32`, `advapi32`, and `winhttp` PUBLIC, because `cli_server.cpp` uses WinSock and ACL APIs, `src/net/winhttp_session.cpp` uses WinHTTP, and a static library does not propagate PRIVATE system libs. The shared editor build keeps the same rule.
+Windows also links `ws2_32`, `advapi32`, and `winhttp` PUBLIC, because `cli_server.cpp` uses WinSock and ACL APIs, `src/net/winhttp_session.cpp` uses WinHTTP, and a static library does not propagate PRIVATE system libs. The shared editor build keeps the same rule. Linux and macOS link `${CMAKE_DL_LIBS}` PUBLIC (`dl` before glibc 2.34, nothing on macOS) for `dlopen` of the system libcurl in `src/net/curl_library.cpp`; no libcurl is needed to build.
 
 `ENGINE_WITH_WINDOW` adds SDL3 (static, except Android where SDL is shared) and either glad plus `OpenGL::GL` or, with GLES, SDL alone (Android also GLESv3, EGL, `android`, `log`).
 
