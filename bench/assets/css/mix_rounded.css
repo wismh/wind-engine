@@ -1,0 +1,6 @@
+/* paint-mix rounded: one fill_rounded_rect per cell. */
+
+Stack.cell {
+  background: #4c78a8;
+  border-radius: 6;
+}

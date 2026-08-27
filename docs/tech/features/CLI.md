@@ -121,7 +121,7 @@ A checkbox `click` toggles `checked` first, then takes that command path because
 
 `profile` is `result` with `paused`, `capturing`, `canvases[]`, and `shared`.
 
-Each canvas has `window`, `id` (the document root id), `frames`, `elements`, `generated`, `layout_skipped`, and `stages`. The stage names are `bindings`, `stylesheets`, `input`, `layout`, `motion`, and `paint`. Each stage is `{last_ms,avg_ms,max_ms}` in milliseconds. `shared` has `frames`, plus `begin_frame` and `commands` in that same timing shape.
+Each canvas has `window`, `id` (the document root id), `frames`, `elements`, `generated`, `layout_skipped`, `stages`, `draw_calls`, and `paint_commands`. The stage names are `bindings`, `stylesheets`, `input`, `layout`, `motion`, and `paint`. Each stage is `{last_ms,avg_ms,max_ms}` in milliseconds. `draw_calls` is a count `{last,avg,max}` over the ring: integers, `avg` to two places. `paint_commands` has every `ProfilerPaintKind` name (`save` … `nine_slice`), each a count in that shape, zeros included ([UI Profiler](UI%20Profiler.md#counters)). `shared` has `frames`, plus `begin_frame` and `commands` in the timing shape.
 
 Selectors: `#id`, `.class`, or `path:` plus the tree path joined by `/`. `path:` alone is the root. `path:0/1` is child 1 of child 0. Several matches are `"error":"ambiguous"` and a `candidates` list; each candidate has the `tree` node's identity fields (`window`, `canvas`, `canvas_id`, `path`, `kind`, `id`, `classes`).
 

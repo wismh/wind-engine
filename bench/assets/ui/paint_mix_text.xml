@@ -1,0 +1,15 @@
+<!-- Paint-mix scene, text cells: 25 rows of 40 equal cells, every cell one painter call kind. -->
+<Canvas id="paint_mix">
+  <Stack class="grid" direction="vertical">
+    <Label id="rest" class="title" text="Paint mix"/>
+    <ItemsControl class="mix-rows" items_source="{binding rows}">
+      <ItemTemplate>
+        <ItemsControl class="mix-row" direction="horizontal" items_source="{binding cells}">
+          <ItemTemplate>
+            <Label class="cell text-cell" text="Ab12"/>
+          </ItemTemplate>
+        </ItemsControl>
+      </ItemTemplate>
+    </ItemsControl>
+  </Stack>
+</Canvas>

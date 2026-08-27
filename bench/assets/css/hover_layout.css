@@ -1,0 +1,5 @@
+/* The layout hover rule of the reference scenes (hover/layout): the hovered `hot` element changes its padding. */
+
+.hot:hover {
+  padding: 2 10;
+}

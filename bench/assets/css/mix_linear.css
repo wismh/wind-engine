@@ -1,0 +1,5 @@
+/* paint-mix linear: one linear gradient per cell. */
+
+Stack.cell {
+  background: linear-gradient(90deg, #4c78a8, #f58518);
+}

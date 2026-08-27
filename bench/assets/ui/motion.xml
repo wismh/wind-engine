@@ -1,0 +1,21 @@
+<!-- Motion scene: 200 boxes (10 rows of 20) that the paint-props sheet animates in opacity and transform, and 20 bars
+     that the layout-props sheet animates in width. The variant sheet (motion_*.css) starts one group or both. -->
+<Canvas id="motion">
+  <Stack class="page" direction="vertical">
+    <Label id="rest" class="title" text="Motion"/>
+    <ItemsControl class="box-rows" items_source="{binding rows}">
+      <ItemTemplate>
+        <ItemsControl class="box-row" direction="horizontal" items_source="{binding cells}">
+          <ItemTemplate>
+            <Stack class="box"/>
+          </ItemTemplate>
+        </ItemsControl>
+      </ItemTemplate>
+    </ItemsControl>
+    <ItemsControl class="bars" items_source="{binding bars}">
+      <ItemTemplate>
+        <Stack class="bar"/>
+      </ItemTemplate>
+    </ItemsControl>
+  </Stack>
+</Canvas>

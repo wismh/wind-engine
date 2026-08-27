@@ -10,7 +10,7 @@ Header: `include/engine/ui/profiler.h`. Private: `src/ui/profile.h`. Panel: `edi
 
 ## What is timed
 
-CPU time only. There is no GPU timer query and no per-element graph.
+CPU time, plus the counters below. There is no GPU timer query and no per-element graph.
 
 One world records at a time: the last one attached with `set_ui_profiler_attached` or captured by `wind-cli profile`. Every engine pass over a world (`begin_frame`, input, bind, command build) starts with `profiler_attach(world)`. Scopes record only while that pass is over the recording world. Paint has no world: `run_ui_render` sets `CmdDrawUI::canvas` only when its world is the recording one, and `paint_document` records exactly when that field is set. So the editor's own canvases, in the editor's world, never reach the game's rings, even when an entity has the same index in both worlds.
 
@@ -42,6 +42,32 @@ Per canvas (`ProfilerStage`, the order a chart stacks them from the bottom):
 
 After the paint timer, the canvas's elements and generated items are counted. That walk is not part of the paint time.
 
+## Counters
+
+Per canvas, on `ProfilerFrame`, recorded under the same rule as the paint scope (`CmdDrawUI::canvas` set):
+
+| Field | What it counts |
+| --- | --- |
+| `paint_commands[ProfilerPaintKind]` | calls into `IUiPainter` during the paint pass: the element tree, `IPaint` through `IDrawList`, and the inspector boxes. Base pass and popup layer add up |
+| `draw_calls` | GPU draw calls the painter queued during those calls |
+
+`ProfilerPaintKind` has one bucket per drawing or state call of `IUiPainter` (`src/ui/painter.h`): `save`, `restore`, `scissor`, `transform`, `view`, `opacity`, `fill_rect` / `fill_rounded_rect` (`fill_rounded_rect` with a zero or a positive radius), `linear_gradient` / `radial_gradient` / `conic_gradient` (`fill_rounded_rect_gradient` by `GradientKind`), `stroke_rect`, `line`, `arc`, `path`, `font`, `text`, `image`, `image_repeat`, `nine_slice`. `profiler_paint_kind_name` gives the names. Text measuring is not counted.
+
+`paint_document` paints through `ProfilerPaintCounter` (`src/ui/profiler_paint_counter.h`), a decorator that counts and forwards every call. When the canvas is not recorded it hands out the wrapped painter itself. Layout keeps the wrapped painter, because the layout dirty gate compares painter identity. The counter adds its counts with `profiler_add_paint` after the paint timer stops. While a canvas is recorded, its Paint time includes the counter's forwarding: one extra virtual call per painter call.
+
+Draw calls are per canvas, not per flush. One painter per window queues every canvas of that window, and NanoVG flushes the queue once, at `nvgEndFrame` after the last canvas. `IUiPainter::queued_draw_calls` returns the draw calls queued so far this frame; the counter reads it before and after the canvas and records the difference. So the canvases of one world on one window sum to that world's share of the flush, and another world's canvases on the same window are not in it. A painter that does not override it reports 0.
+
+`NanoVgPainter::queued_draw_calls` walks the NanoVG GL backend's queued calls (`GLNVGcontext::calls`, through `nvgInternalParams(vg)->userPtr`; the implementation is compiled into `nanovg_painter.cpp`) and adds the `glDrawArrays` that `glnvg__renderFlush` will issue for each. It keeps a cursor, so each call is read once per frame. `begin_frame` resets it.
+
+| Call type | `glDrawArrays` |
+| --- | --- |
+| `GLNVG_FILL` | per path a stencil fan, plus a fringe strip with `NVG_ANTIALIAS`; then one cover quad |
+| `GLNVG_CONVEXFILL` | per path a fan, plus a fringe strip when the path has one |
+| `GLNVG_STROKE` | per path 3 strips with `NVG_STENCIL_STROKES` (the engine creates the context with it), else 1 |
+| `GLNVG_TRIANGLES` | 1 (a text run, `nvgText`) |
+
+That table follows `glnvg__fill`, `glnvg__convexFill`, `glnvg__stroke`, and `glnvg__triangles`; a NanoVG update must check it. Uniform and buffer uploads are not counted.
+
 ## Snapshot
 
 | Function | Returns |
@@ -50,8 +76,10 @@ After the paint timer, the canvas's elements and generated items are counted. Th
 | `profiler_canvases(world)` | `ProfilerCanvas` per canvas with a live tree, by window, then `order`, then entity index: entity, window, label, `selected`, frames stored |
 | `profiler_select(world, canvas)`, `profiler_selected(world)` | The selected canvas. When it is gone, `profiler_canvases` selects the first |
 | `set_profiler_paused(world, on)`, `profiler_paused(world)` | Pause |
-| `profiler_frames(world, canvas)` | That canvas's ring, oldest first: `ProfilerFrame` (`stage_ns` per stage, `layout_ran`, `saw_paint`, `saw_bindings`, element and generated counts, `layout_skipped()`) |
+| `profiler_frames(world, canvas)` | That canvas's ring, oldest first: `ProfilerFrame` (`stage_ns` per stage, `layout_ran`, `saw_paint`, `saw_bindings`, element and generated counts, `paint_commands`, `draw_calls`, `layout_skipped()`) |
 | `profiler_shared_frames(world)` | The shared ring, oldest first |
+| `profiler_clear(world)` | Empties every ring. The open frame, selection, Pause, and recording stay, so the next commit is a whole tick. `wind_ui_bench` clears after its warmup ([UI Bench](UI%20Bench.md)) |
+| `profiler_json(world)` | The `wind-cli profile` result object: `paused`, `capturing`, per canvas `window`, `id`, `frames`, `elements`, `generated`, `layout_skipped`, `stages` (`last_ms`, `avg_ms`, `max_ms` each), `draw_calls` and every `paint_commands` kind (`last`, `avg`, `max`), and `shared`. Empty without `ENGINE_UI_PROFILER` |
 
 A label is the root id, or `Canvas` when the id is empty. When two or more windows have a canvas, the label starts with `[{id}] `.
 
@@ -68,13 +96,13 @@ The Profiler tab: a Pause checkbox and a hint, the canvas list on the left, the 
 
 Both charts are `ProfilerChartPaint`, an `IPaint` on the view-model drawn through `IDrawList`. The geometry is `editor/src/profiler_chart.h`. Y is milliseconds. The ceiling is the smallest of 1, 2, 4, 8, … ms that covers the tallest column, and is never below 1 ms; the title above the chart shows it. When that ceiling is above 16.7 ms, a horizontal line marks the 60 fps budget. A frame that painted and skipped layout draws a 2px tick at the bottom of its column. An empty ring draws no columns. Paint draws the columns copied during refresh; it does not read the game world.
 
-The numbers are last, average, and max of each stage over the ring, `skipped` after layout when the last frame skipped it, the element and generated counts of the last frame, then the two shared stages.
+The numbers (`editor/src/profiler_stats.h`) are last, average, and max of each stage over the ring, `skipped` after layout when the last frame skipped it, the element and generated counts of the last frame, last, average, and max draw calls, the painter calls of the last frame that are not zero (`paint  fill_rect 12  text 3`), then the two shared stages.
 
 The panel profiles the world bound to `kPrimaryWindow`. A second world of the game is not listed.
 
 ## Tests
 
-`tests/ui_profiler_test.cpp`: nothing stored while detached, the shared ring, bind samples per canvas, another world's passes stay out, layout then a skip, Pause, the ring size, the canvas list and selection, the window prefix, capture keeps the rings. `profile` over the socket is `tests/cli_server_test.cpp`. `tests/ui_profiler_test.cpp` also has `CompiledOutApiIsANoOp` for a build without the macro. `editor/tests/profiler_panel_test.cpp` and `editor/tests/profiler_chart_test.cpp`: the panel with and without frames, Pause, detach, chart geometry, and the chart paint.
+`tests/ui_profiler_test.cpp`: nothing stored while detached, the shared ring, bind samples per canvas, another world's passes stay out, layout then a skip, Pause, the ring size, the canvas list and selection, the window prefix, capture keeps the rings, painter calls by kind against a recording painter, no counts while not recorded, draw calls as each canvas's share of one painter's queue, counts per frame through the ring, and the JSON counters. `profile` over the socket is `tests/cli_server_test.cpp`. `tests/ui_profiler_test.cpp` also has `CompiledOutApiIsANoOp` for a build without the macro. `editor/tests/profiler_panel_test.cpp` and `editor/tests/profiler_chart_test.cpp`: the panel with and without frames, Pause, detach, the draw-call and painter-call lines, chart geometry, and the chart paint.
 
 ## See also
 

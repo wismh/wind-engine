@@ -1,0 +1,5 @@
+/* paint-mix solid: one solid fill_rect per cell. */
+
+Stack.cell {
+  background: #4c78a8;
+}
