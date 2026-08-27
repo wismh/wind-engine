@@ -171,20 +171,36 @@ TEST(ExplorerPanel, OpenShowsTheCollapsedRootsAndExpandsOnToggle) {
 
 TEST(ExplorerPanel, RowsUseFolderAndFileIcons) {
     const ProjectDir dir;
+    dir.write("sheet.css", "");
+    dir.write("level.world", "");
+    dir.write("sprite.png", "");
+    dir.write("photo.PNG", "");
+    dir.write("player.object", "");
+    dir.write("widget.hpp", "");
+    dir.write("rules.cmake", "");
     editor::EditorSelection selection;
     editor::CommandHistory history;
     editor::ExplorerPanel panel{selection, history};
     panel.open(dir.root());
     editor::ExplorerViewModel& vm = *panel.view_model();
-    EXPECT_EQ(row_of(vm, "assets")->icon.get(), assets::textures::folder);
-    EXPECT_EQ(row_of(vm, "src")->icon.get(), assets::textures::folder);
-    EXPECT_EQ(row_of(vm, "CMakeLists.txt")->icon.get(), assets::textures::file);
-    EXPECT_EQ(row_of(vm, "wind_project.toml")->icon.get(), assets::textures::file);
+    EXPECT_EQ(row_of(vm, "assets")->icon.get(), assets::icons::folder);
+    EXPECT_EQ(row_of(vm, "src")->icon.get(), assets::icons::folder);
+    EXPECT_EQ(row_of(vm, "CMakeLists.txt")->icon.get(), assets::icons::file_cmake);
+    EXPECT_EQ(row_of(vm, "rules.cmake")->icon.get(), assets::icons::file_cmake);
+    EXPECT_EQ(row_of(vm, "wind_project.toml")->icon.get(), assets::icons::file);
+    EXPECT_EQ(row_of(vm, "sheet.css")->icon.get(), assets::icons::file_css);
+    EXPECT_EQ(row_of(vm, "level.world")->icon.get(), assets::icons::file_world);
+    EXPECT_EQ(row_of(vm, "sprite.png")->icon.get(), assets::icons::file_png);
+    EXPECT_EQ(row_of(vm, "photo.PNG")->icon.get(), assets::icons::file_png);
+    EXPECT_EQ(row_of(vm, "player.object")->icon.get(), assets::icons::file_object);
+    EXPECT_EQ(row_of(vm, "widget.hpp")->icon.get(), assets::icons::file_hpp);
 
     panel.toggle("assets");
-    EXPECT_EQ(row_of(vm, "assets/Images")->icon.get(), assets::textures::folder);
+    EXPECT_EQ(row_of(vm, "assets/Images")->icon.get(), assets::icons::folder);
     panel.toggle("assets/ui");
-    EXPECT_EQ(row_of(vm, "assets/ui/menu.xml")->icon.get(), assets::textures::file);
+    EXPECT_EQ(row_of(vm, "assets/ui/menu.xml")->icon.get(), assets::icons::file_xml);
+    panel.toggle("src");
+    EXPECT_EQ(row_of(vm, "src/game.cpp")->icon.get(), assets::icons::file_cpp);
 }
 
 TEST(ExplorerPanel, SelectBecomesTheEditorSelection) {
@@ -408,7 +424,9 @@ TEST(ExplorerPanel, GridShowsOneFolderAndStepsBack) {
     panel.open(dir.root());
     editor::ExplorerViewModel& vm = *panel.view_model();
 
+    EXPECT_EQ(vm.viewIcon.get(), assets::icons::view_grid);
     panel.show_grid();
+    EXPECT_EQ(vm.viewIcon.get(), assets::icons::view_list);
     EXPECT_EQ(panel.view(), editor::ExplorerView::Grid);
     EXPECT_TRUE(panel.grid_folder().empty());
     EXPECT_TRUE(vm.rows.get().empty());
@@ -450,6 +468,7 @@ TEST(ExplorerPanel, GridFollowsTheSelectionAndReturnsToTheTree) {
     EXPECT_EQ(panel.selected(), "assets/ui/menu.xml");
 
     panel.show_tree();
+    EXPECT_EQ(vm.viewIcon.get(), assets::icons::view_grid);
     EXPECT_EQ(panel.view(), editor::ExplorerView::Tree);
     EXPECT_TRUE(vm.tiles.get().empty());
     EXPECT_EQ(panel.selected(), "assets/ui/menu.xml");
