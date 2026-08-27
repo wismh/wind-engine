@@ -652,6 +652,33 @@ TEST(Cli, ProfileCaptureWithoutWindow) {
     EXPECT_TRUE(engine::ui::profiler_shared_frames(world).empty());
 }
 
+TEST(Cli, ProfileHasPaintCountsPerCanvas) {
+    GameCanvas game = spawn_game();
+    ASSERT_TRUE(game.world.valid(game.entity));
+    struct Stop {
+        engine::ecs::World &world;
+        ~Stop() { (void) run(world, "profile", {}, true); }
+    } stop{game.world};
+    EXPECT_TRUE(run(game.world, "profile").pending);
+
+    NullPainter painter;
+    engine::ui::UiInstance &instance = game.world.get<engine::ui::UiInstance>(game.entity);
+    engine::ui::paint_document(instance.document, instance.stylesheet ? &*instance.stylesheet : nullptr, painter,
+                               engine::ui::UiPaintInput{
+                                       .canvas_rect = {0.0f, 0.0f, 200.0f, 100.0f},
+                                       .window_width = 800.0f,
+                                       .window_height = 600.0f,
+                                       .canvas = game.entity,
+                               });
+    engine::ui::begin_frame(game.world);
+    const std::string json = run(game.world, "profile").json;
+    // NullPainter queues no draw calls; the base pass saves once around the canvas and draws the label's text.
+    EXPECT_NE(json.find(R"("draw_calls":{"last":0,"avg":0.00,"max":0})"), std::string::npos) << json;
+    EXPECT_NE(json.find(R"("paint_commands":{"save":{"last":)"), std::string::npos) << json;
+    EXPECT_NE(json.find(R"("text":{"last":1,"avg":1.00,"max":1})"), std::string::npos) << json;
+    EXPECT_NE(json.find(R"("nine_slice":{"last":0,"avg":0.00,"max":0}})"), std::string::npos) << json;
+}
+
 #else
 
 // Without ENGINE_UI_PROFILER: an exported game's Release. The editor build always has it.

@@ -9,8 +9,10 @@
 #include <engine/ui/document.h>
 #include <engine/ui/presentation.h>
 #include <engine/ui/profiler.h>
+#include <engine/ui/stylesheet.h>
 #include <engine/ui/view_model.h>
 
+#include <array>
 #include <format>
 #include <memory>
 #include <span>
@@ -50,9 +52,108 @@ namespace {
         }
     };
 
+    // Counts what it receives by profiler kind, and queues one draw call per drawing call, like a batching painter.
+    class RecordingPainter final : public engine::ui::IUiPainter {
+    public:
+        using Kind = engine::ui::ProfilerPaintKind;
+
+        std::array<int, engine::ui::kProfilerPaintKindCount> counts{};
+        int queued = 0;
+
+        [[nodiscard]] int count(Kind kind) const { return counts[static_cast<std::size_t>(kind)]; }
+
+        void save() override { add(Kind::Save, false); }
+        void restore() override { add(Kind::Restore, false); }
+        void scissor(const engine::render::Rect &) override { add(Kind::Scissor, false); }
+        void apply_transform(glm::vec2, float, float) override { add(Kind::Transform, false); }
+        void apply_view(glm::vec2, glm::vec2, float) override { add(Kind::View, false); }
+        void set_opacity(float) override { add(Kind::Opacity, false); }
+        void fill_rounded_rect(const engine::render::Rect &, float radius, glm::vec4) override {
+            add(radius > 0.0f ? Kind::FillRoundedRect : Kind::FillRect, true);
+        }
+        void fill_rounded_rect_gradient(const engine::render::Rect &, float,
+                                        const engine::ui::Gradient &gradient) override {
+            switch (gradient.kind) {
+                case engine::ui::GradientKind::Linear:
+                    add(Kind::LinearGradient, true);
+                    break;
+                case engine::ui::GradientKind::Radial:
+                    add(Kind::RadialGradient, true);
+                    break;
+                case engine::ui::GradientKind::Conic:
+                    add(Kind::ConicGradient, true);
+                    break;
+            }
+        }
+        void stroke_rounded_rect(const engine::render::Rect &, float, float, glm::vec4) override {
+            add(Kind::StrokeRect, true);
+        }
+        void draw_line(glm::vec2, glm::vec2, glm::vec4, float) override { add(Kind::Line, true); }
+        void stroke_arc(glm::vec2, float, float, float, float, glm::vec4) override { add(Kind::Arc, true); }
+        void fill_path(std::span<const engine::ui::PathSegment>, glm::vec4) override { add(Kind::Path, true); }
+        void set_font(engine::AssetId, float) override { add(Kind::Font, false); }
+        void fill_text(std::string_view, glm::vec2, glm::vec4, engine::ui::UiAlign, engine::ui::UiAlign) override {
+            add(Kind::Text, true);
+        }
+        void image(engine::AssetId, const engine::render::Rect &) override { add(Kind::Image, true); }
+        void image_repeat(engine::AssetId, const engine::render::Rect &) override { add(Kind::ImageRepeat, true); }
+        void image_nine_slice(engine::AssetId, const engine::render::Rect &, const engine::ui::BoxInsets &) override {
+            add(Kind::NineSlice, true);
+        }
+        glm::vec2 measure_text(std::string_view text, engine::AssetId, float size) override {
+            return {static_cast<float>(text.size()) * size * 0.5f, size};
+        }
+        int queued_draw_calls() override { return queued; }
+
+    private:
+        void add(Kind kind, bool draws) {
+            ++counts[static_cast<std::size_t>(kind)];
+            if (draws) {
+                ++queued;
+            }
+        }
+    };
+
+    // Solid, rounded, linear and radial gradient fills, a border, and a text run.
+    engine::ecs::Entity spawn_styled(engine::ecs::World &world) {
+        const auto parsed = engine::ui::parse_xml(R"(<Canvas id="styled"><Stack id="solid"/><Stack id="round"/>)"
+                                                  R"(<Stack id="ramp"/><Stack id="ring"/><Stack id="edge"/>)"
+                                                  R"(<Label text="Hi"/></Canvas>)");
+        std::vector<std::string> warnings;
+        auto sheet = engine::ui::parse_css("Stack { width: 20px; height: 10px; }\n"
+                                           "#solid { background: #ff0000; }\n"
+                                           "#round { background: #00ff00; border-radius: 4px; }\n"
+                                           "#ramp { background: linear-gradient(90deg, #000000, #ffffff); }\n"
+                                           "#ring { background: radial-gradient(#000000, #ffffff); }\n"
+                                           "#edge { border-width: 1px; border-color: #ffffff; }\n",
+                                           warnings);
+        if (!parsed.has_value() || !sheet.has_value()) {
+            ADD_FAILURE() << "styled canvas did not parse";
+            return {};
+        }
+        EXPECT_TRUE(warnings.empty());
+        engine::ui::UiCanvas canvas;
+        canvas.fit = engine::ui::UiFit::Fixed;
+        canvas.rect = {0.0f, 0.0f, 120.0f, 80.0f};
+        canvas.data_context = std::make_shared<EmptyModel>();
+        return engine::ui::spawn_canvas(world, std::move(canvas), *parsed, std::move(*sheet));
+    }
+
+    void paint_styled(engine::ecs::World &world, engine::ecs::Entity entity, engine::ui::IUiPainter &painter,
+                      engine::ecs::Entity timed) {
+        engine::ui::UiInstance &instance = world.get<engine::ui::UiInstance>(entity);
+        engine::ui::paint_document(instance.document, instance.stylesheet ? &*instance.stylesheet : nullptr, painter,
+                                   engine::ui::UiPaintInput{
+                                           .canvas_rect = {0.0f, 0.0f, 120.0f, 80.0f},
+                                           .window_width = 120.0f,
+                                           .window_height = 80.0f,
+                                           .canvas = timed,
+                                   });
+    }
+
     engine::ecs::Entity spawn_named(engine::ecs::World &world, std::string_view id, bool with_label,
                                     engine::WindowId window = engine::kPrimaryWindow) {
-        const std::string xml = with_label ? std::format(R"(<Canvas id="{}"><Label>Hi</Label></Canvas>)", id)
+        const std::string xml = with_label ? std::format(R"(<Canvas id="{}"><Label text="Hi"/></Canvas>)", id)
                                            : std::format(R"(<Canvas id="{}"/>)", id);
         const auto parsed = engine::ui::parse_xml(xml);
         if (!parsed.has_value()) {
@@ -227,6 +328,32 @@ TEST(UiProfiler, RingKeepsTheLastFramesOldestFirst) {
     EXPECT_EQ(frames.size(), static_cast<std::size_t>(engine::ui::kProfilerRingFrames));
 }
 
+TEST(UiProfiler, ClearEmptiesTheRingsAndKeepsTheOpenFrame) {
+    engine::ecs::World world;
+    const engine::ecs::Entity hud = spawn_named(world, "hud", true);
+    Attached attached{world};
+    NullPainter painter;
+    paint_canvas(world, hud, painter);
+    engine::ui::begin_frame(world);
+    engine::ui::begin_frame(world);
+    ASSERT_EQ(engine::ui::profiler_frames(world, hud).size(), 1u);
+    ASSERT_FALSE(engine::ui::profiler_shared_frames(world).empty());
+
+    // A tick in flight: its paint is open when the rings are cleared, and is the first frame stored after.
+    paint_canvas(world, hud, painter);
+    engine::ui::profiler_clear(world);
+    EXPECT_TRUE(engine::ui::profiler_frames(world, hud).empty());
+    EXPECT_TRUE(engine::ui::profiler_shared_frames(world).empty());
+    EXPECT_TRUE(engine::ui::ui_profiler_attached(world));
+
+    engine::ui::begin_frame(world);
+    const std::vector<engine::ui::ProfilerFrame> frames = engine::ui::profiler_frames(world, hud);
+    ASSERT_EQ(frames.size(), 1u);
+    EXPECT_TRUE(frames[0].saw_paint);
+    EXPECT_GE(frames[0].elements, 2);
+    EXPECT_EQ(engine::ui::profiler_canvases(world).front().frames, 1);
+}
+
 TEST(UiProfiler, CanvasListSelectsTheFirstAndFollowsSelect) {
     engine::ecs::World world;
     const engine::ecs::Entity alpha = spawn_named(world, "alpha", false);
@@ -280,6 +407,129 @@ TEST(UiProfiler, DetachDropsTheRingsUnlessCaptureIsOn) {
     EXPECT_TRUE(engine::ui::profiler_frames(world, hud).empty());
 }
 
+TEST(UiProfiler, PaintCountsPainterCallsByKind) {
+    engine::ecs::World world;
+    const engine::ecs::Entity styled = spawn_styled(world);
+    Attached attached{world};
+    RecordingPainter painter;
+    paint_styled(world, styled, painter, styled);
+    engine::ui::begin_frame(world);
+
+    const std::vector<engine::ui::ProfilerFrame> frames = engine::ui::profiler_frames(world, styled);
+    ASSERT_EQ(frames.size(), 1u);
+    const engine::ui::ProfilerFrame &frame = frames[0];
+    EXPECT_EQ(frame.paint_commands, painter.counts) << "every call the painter received is counted once";
+    using Kind = engine::ui::ProfilerPaintKind;
+    EXPECT_GE(frame.paint(Kind::FillRect), 1);
+    EXPECT_GE(frame.paint(Kind::FillRoundedRect), 1);
+    EXPECT_GE(frame.paint(Kind::LinearGradient), 1);
+    EXPECT_GE(frame.paint(Kind::RadialGradient), 1);
+    EXPECT_EQ(frame.paint(Kind::ConicGradient), 0);
+    EXPECT_GE(frame.paint(Kind::StrokeRect), 1);
+    EXPECT_GE(frame.paint(Kind::Text), 1);
+    EXPECT_GE(frame.paint(Kind::Scissor), 1);
+    EXPECT_GE(frame.paint(Kind::Save), 1);
+    EXPECT_EQ(frame.paint(Kind::Save), frame.paint(Kind::Restore));
+    EXPECT_EQ(frame.draw_calls, painter.queued);
+    EXPECT_GT(frame.draw_calls, 0);
+}
+
+TEST(UiProfiler, PaintIsCountedOnlyWhileRecorded) {
+    engine::ecs::World world;
+    const engine::ecs::Entity styled = spawn_styled(world);
+    RecordingPainter painter;
+    paint_styled(world, styled, painter, styled);
+    engine::ui::begin_frame(world);
+    EXPECT_GT(painter.count(engine::ui::ProfilerPaintKind::Text), 0) << "an unrecorded paint still draws";
+    EXPECT_TRUE(engine::ui::profiler_frames(world, styled).empty()) << "detached";
+
+    Attached attached{world};
+    RecordingPainter unprofiled;
+    // run_ui_render leaves CmdDrawUI::canvas empty for a world that is not the recorded one.
+    paint_styled(world, styled, unprofiled, engine::ecs::Entity{});
+    engine::ui::begin_frame(world);
+    EXPECT_GT(unprofiled.count(engine::ui::ProfilerPaintKind::Text), 0);
+    EXPECT_TRUE(engine::ui::profiler_frames(world, styled).empty()) << "an empty canvas field records nothing";
+}
+
+TEST(UiProfiler, DrawCallsAreTheQueueGrowthDuringEachCanvas) {
+    engine::ecs::World world;
+    const engine::ecs::Entity first = spawn_styled(world);
+    const engine::ecs::Entity second = spawn_named(world, "hud", true);
+    Attached attached{world};
+    // One painter per window, shared by its canvases; its queue is flushed once after all of them.
+    RecordingPainter painter;
+    painter.queued = 7;
+    paint_styled(world, first, painter, first);
+    const int after_first = painter.queued;
+    paint_styled(world, second, painter, second);
+    engine::ui::begin_frame(world);
+
+    const std::vector<engine::ui::ProfilerFrame> first_frames = engine::ui::profiler_frames(world, first);
+    const std::vector<engine::ui::ProfilerFrame> second_frames = engine::ui::profiler_frames(world, second);
+    ASSERT_EQ(first_frames.size(), 1u);
+    ASSERT_EQ(second_frames.size(), 1u);
+    EXPECT_EQ(first_frames[0].draw_calls, after_first - 7);
+    EXPECT_EQ(second_frames[0].draw_calls, painter.queued - after_first);
+    EXPECT_GT(second_frames[0].draw_calls, 0);
+}
+
+TEST(UiProfiler, PaintCountsStartOverEachFrame) {
+    engine::ecs::World world;
+    const engine::ecs::Entity styled = spawn_styled(world);
+    Attached attached{world};
+    RecordingPainter painter;
+    paint_styled(world, styled, painter, styled);
+    engine::ui::begin_frame(world);
+    const std::array<int, engine::ui::kProfilerPaintKindCount> one_frame = painter.counts;
+    const int one_frame_draws = painter.queued;
+    paint_styled(world, styled, painter, styled);
+    engine::ui::begin_frame(world);
+
+    std::vector<engine::ui::ProfilerFrame> frames = engine::ui::profiler_frames(world, styled);
+    ASSERT_EQ(frames.size(), 2u);
+    EXPECT_EQ(frames[0].paint_commands, one_frame);
+    EXPECT_EQ(frames[1].paint_commands, one_frame) << "the same document paints the same calls";
+    EXPECT_EQ(frames[1].draw_calls, one_frame_draws);
+
+    // Two paint passes of one canvas in a frame (base and popup layer) add up.
+    paint_styled(world, styled, painter, styled);
+    paint_styled(world, styled, painter, styled);
+    engine::ui::begin_frame(world);
+    frames = engine::ui::profiler_frames(world, styled);
+    ASSERT_EQ(frames.size(), 3u);
+    const engine::ui::ProfilerPaintKind text = engine::ui::ProfilerPaintKind::Text;
+    EXPECT_EQ(frames[2].paint(text), 2 * frames[0].paint(text));
+    EXPECT_EQ(frames[2].draw_calls, 2 * one_frame_draws);
+
+    for (int i = 0; i < engine::ui::kProfilerRingFrames; ++i) {
+        paint_styled(world, styled, painter, styled);
+        engine::ui::begin_frame(world);
+    }
+    frames = engine::ui::profiler_frames(world, styled);
+    ASSERT_EQ(frames.size(), static_cast<std::size_t>(engine::ui::kProfilerRingFrames));
+    EXPECT_EQ(frames.front().paint_commands, one_frame) << "the doubled frame left the ring";
+}
+
+TEST(UiProfiler, CliJsonHasDrawCallsAndPaintCommands) {
+    engine::ecs::World world;
+    const engine::ecs::Entity styled = spawn_styled(world);
+    Attached attached{world};
+    RecordingPainter painter;
+    paint_styled(world, styled, painter, styled);
+    engine::ui::begin_frame(world);
+    const std::string json = engine::ui::profiler_json(world);
+    const int draws = painter.queued;
+    EXPECT_NE(json.find(std::format(R"("draw_calls":{{"last":{},"avg":{}.00,"max":{}}})", draws, draws, draws)),
+              std::string::npos)
+            << json;
+    const int texts = painter.count(engine::ui::ProfilerPaintKind::Text);
+    EXPECT_NE(json.find(std::format(R"("text":{{"last":{},"avg":{}.00,"max":{}}})", texts, texts, texts)),
+              std::string::npos)
+            << json;
+    EXPECT_NE(json.find(R"("conic_gradient":{"last":0,"avg":0.00,"max":0})"), std::string::npos) << json;
+}
+
 #else
 
 // Without ENGINE_UI_PROFILER: an exported game's Release and MinSizeRel. The editor build always has it.
@@ -290,6 +540,15 @@ TEST(UiProfiler, CompiledOutApiIsANoOp) {
     EXPECT_FALSE(engine::ui::ui_profiler_attached(world));
     EXPECT_TRUE(engine::ui::profiler_canvases(world).empty());
     EXPECT_TRUE(engine::ui::profiler_shared_frames(world).empty());
+    engine::ui::profiler_clear(world);
+    EXPECT_TRUE(engine::ui::profiler_json(world).empty());
+    // The painted document still draws; nothing counts its calls.
+    const engine::ecs::Entity styled = spawn_styled(world);
+    RecordingPainter painter;
+    paint_styled(world, styled, painter, styled);
+    EXPECT_GT(painter.count(engine::ui::ProfilerPaintKind::Text), 0);
+    EXPECT_TRUE(engine::ui::profiler_frames(world, styled).empty());
+    EXPECT_EQ(engine::ui::profiler_paint_kind_name(engine::ui::ProfilerPaintKind::NineSlice), "nine_slice");
 }
 
 #endif
