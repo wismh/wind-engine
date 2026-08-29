@@ -2,7 +2,7 @@
 
 #if defined(ENGINE_WITH_WINDOW)
 
-#if defined(__EMSCRIPTEN__)
+#if defined(ENGINE_WITH_GLES)
 #include <GLES3/gl3.h>
 #include <SDL3/SDL.h>
 #elif __has_include(<glad/glad.h>)

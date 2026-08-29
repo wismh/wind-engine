@@ -70,6 +70,10 @@ TEST(Input, KeyCodeSpaceEqualsFortyFour) {
     EXPECT_EQ(engine::KeyCode::Space, engine::KeyCode{44});
 }
 
+TEST(Input, KeyCodeAcBackEqualsSdlScancode) {
+    EXPECT_EQ(engine::KeyCode::AcBack, engine::KeyCode{282});
+}
+
 TEST(Input, BindScancodeToAction) {
     engine::ecs::World world;
     engine::InputSystem input{world};

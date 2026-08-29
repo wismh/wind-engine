@@ -10,7 +10,7 @@ namespace engine::render {
 namespace {
 
 bool load_gl_entry_points() {
-#if defined(__EMSCRIPTEN__)
+#if defined(ENGINE_WITH_GLES)
     return true;
 #elif __has_include(<glad/glad.h>)
     return gladLoadGLLoader(reinterpret_cast<GLADloadproc>(SDL_GL_GetProcAddress)) != 0;
@@ -36,7 +36,7 @@ bool OpenGLCanvas::init() {
         return false;
     }
 
-#if defined(__EMSCRIPTEN__)
+#if defined(ENGINE_WITH_GLES)
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
