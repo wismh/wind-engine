@@ -59,6 +59,20 @@ TEST(UiRefs, CollectsElementSourceRecursively) {
     EXPECT_EQ(images.size(), 2u);
 }
 
+TEST(UiRefs, SvgSourceIsNotAnImage) {
+    const auto document = must_parse_xml(R"(
+<Canvas>
+  <Svg source=")" + std::string(kImageId) + R"("/>
+  <Image source=")" + std::string(kNestedImageId) + R"("/>
+</Canvas>
+)");
+
+    const auto images = collect_referenced_images(document, nullptr);
+    EXPECT_FALSE(contains(images, kImageId));
+    EXPECT_TRUE(contains(images, kNestedImageId));
+    EXPECT_EQ(images.size(), 1u);
+}
+
 TEST(UiRefs, CollectsBackgroundImageFromStylesheetIgnoringNone) {
     const auto document = must_parse_xml("<Canvas><Button class=\"a\"/><Button class=\"b\"/></Canvas>");
     const auto sheet = must_parse_css(".a { background-image: " + std::string(kCssImageId) +
