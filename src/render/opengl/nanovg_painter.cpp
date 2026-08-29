@@ -2,7 +2,11 @@
 
 #include "gl_includes.h"
 
+#if defined(ENGINE_WITH_GLES)
+#define NANOVG_GLES3_IMPLEMENTATION
+#else
 #define NANOVG_GL3_IMPLEMENTATION
+#endif
 #include <nanovg.h>
 #include <nanovg_gl.h>
 
@@ -41,7 +45,12 @@ NanoVgPainter::~NanoVgPainter() {
 
 bool NanoVgPainter::create() {
     destroy();
-    impl_->vg = nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
+    impl_->vg =
+#if defined(ENGINE_WITH_GLES)
+            nvgCreateGLES3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
+#else
+            nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
+#endif
     return impl_->vg != nullptr;
 }
 
@@ -94,7 +103,11 @@ void NanoVgPainter::destroy() {
         return;
     }
     if (impl_->vg != nullptr) {
+#if defined(ENGINE_WITH_GLES)
+        nvgDeleteGLES3(impl_->vg);
+#else
         nvgDeleteGL3(impl_->vg);
+#endif
         impl_->vg = nullptr;
     }
     impl_->fonts.clear();

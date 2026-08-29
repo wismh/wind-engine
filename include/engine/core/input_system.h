@@ -63,6 +63,12 @@ struct MouseEvent {
     MouseButton button = MouseButton::None;
 };
 
+[[nodiscard]] inline glm::vec2 denormalize_touch(glm::vec2 normalized, glm::ivec2 drawable) {
+    const float width = static_cast<float>(drawable.x < 0 ? 0 : drawable.x);
+    const float height = static_cast<float>(drawable.y < 0 ? 0 : drawable.y);
+    return {normalized.x * width, normalized.y * height};
+}
+
 class InputSystem {
 public:
     InputSystem() = default;
@@ -92,14 +98,19 @@ public:
     void handle_key(KeyCode key, bool down);
     void handle_mouse_button(MouseButton button, bool down, glm::vec2 position);
     void handle_mouse_move(glm::vec2 position, glm::vec2 relative);
+    void handle_touch(std::uint32_t finger_id, bool down, glm::vec2 position);
+    void handle_touch_move(std::uint32_t finger_id, glm::vec2 position, glm::vec2 relative);
 
     [[nodiscard]] bool is_held(ActionId action) const;
+
+    [[nodiscard]] std::optional<std::uint32_t> primary_touch_finger() const;
 
 private:
     void apply_digital(Control control, bool down);
     void release_held(Control control, ActionId action);
 
     ecs::World* world_ = nullptr;
+    std::optional<std::uint32_t> primary_finger_;
     std::deque<std::string> interned_names_;
     std::unordered_map<std::string_view, ActionId> name_to_id_;
     std::unordered_map<Control, ActionId> bindings_;
