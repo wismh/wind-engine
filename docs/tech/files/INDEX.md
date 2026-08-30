@@ -361,6 +361,11 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/haptics/haptics_system.cpp` | No-op, `navigator.vibrate`, or Android JNI | [Haptics](../modules/Haptics.md) |
 | `src/net/android_http.cpp` | `AndroidHttp`: `HttpURLConnection` through JNI | [Net](../modules/Net.md) |
 | `src/net/android_http.h` | Android backend API | [Net](../modules/Net.md) |
+| `src/net/curl_api.h` | The libcurl functions and option numbers the backend uses, with no curl header | [Net](../modules/Net.md) |
+| `src/net/curl_library.cpp` | `dlopen` of the system libcurl | [Net](../modules/Net.md) |
+| `src/net/curl_library.h` | `CurlLibrary` API | [Net](../modules/Net.md) |
+| `src/net/curl_transfer.cpp` | One transfer through a libcurl function table; error mapping | [Net](../modules/Net.md) |
+| `src/net/curl_transfer.h` | `curl_transfer`, `curl_error` | [Net](../modules/Net.md) |
 | `src/net/http_call.cpp` | `HttpCall` ownership and cancel | [Net](../modules/Net.md) |
 | `src/net/http_call_state.cpp` | `HttpCallState::accept`: progress, body sink, bounded main-thread queue, cancel | [Net](../modules/Net.md) |
 | `src/net/http_call_state.h` | State shared by a call, the queue, and the backend | [Net](../modules/Net.md) |
@@ -434,6 +439,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/game_loop_test.cpp` | `RunHooks` order, frame-end restart, and `RunHooks::cli` without a primary world, with a fake presentation | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `tests/gl_error_log_test.cpp` | GL error names, one report per error and command | [Render](../modules/Render.md) |
 | `tests/haptics_test.cpp` | Clamp, no-op, and the fake counters | [Haptics](../modules/Haptics.md) |
+| `tests/curl_transfer_test.cpp` | `curl_transfer` against a fake libcurl | [Net](../modules/Net.md) |
 | `tests/http_test.cpp` | `HttpCall` ownership, completion queue, worker pool, URL and header parsing, `HttpClient` without a socket | [Net](../modules/Net.md) |
 | `tests/host_test.cpp` | `Host` tick and system registration | [Core](../modules/Core.md) |
 | `tests/parse_float_test.cpp` | Signs, exponents, rejected text, prefix length | [Core](../modules/Core.md#parsing-numbers) |
