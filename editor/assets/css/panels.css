@@ -58,9 +58,9 @@ Checkbox.option-box:checked {
   color: #8c9096;
 }
 
-/* The Project path shares the header with Tree / Grid, so a long path stops short of those buttons. */
+/* The Project path shares the header with the icon buttons, so a long path stops short of them. */
 Label.project-path {
-  max-width: calc(100% - 220px);
+  max-width: calc(100% - 80px);
   overflow: hidden;
 }
 
@@ -127,8 +127,33 @@ Button.panel-button {
   align-items: center;
 }
 
-Button.view-toggle {
-  background: var(--on, #3c3f41);
+/* Icon-only header buttons: the grid's up arrow, and the button that switches tree and grid. */
+Stack.icon-button {
+  width: 24;
+  height: 24;
+  border-radius: 4;
+  background: #3c3f41;
+  align-items: center;
+  justify-content: center;
+}
+
+Stack.icon-button:hover {
+  background: #4b4f53;
+}
+
+Stack.icon-button:pressed {
+  background: #5a5e62;
+}
+
+Stack.icon-button:disabled {
+  opacity: 0.4;
+  background: #313335;
+}
+
+Svg.icon-glyph {
+  width: 14;
+  height: 14;
+  color: #dfe1e5;
 }
 
 Button.panel-button:hover {
@@ -181,7 +206,7 @@ Checkbox.expander:disabled {
 }
 
 /* Project rows: a 16 px icon between the expander and the name. The name loses another 20 px. */
-Image.entry-icon {
+Svg.entry-icon {
   width: 16;
   height: 16;
   margin: 3 4 3 0;
@@ -240,7 +265,7 @@ ItemsControl.tiles {
   background: var(--row, #00000000);
 }
 
-Image.tile-icon {
+Svg.tile-icon {
   width: 32;
   height: 32;
 }

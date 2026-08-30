@@ -220,6 +220,8 @@ constexpr FunctionName kFunctionNames[] = {
 // row here (the font needs the mark: tests check every entry has a glyph).
 constexpr AccentCommand kAccentCommands[] = {
         {"vec", 0x20D7},  // COMBINING RIGHT ARROW ABOVE
+        {"hat", 0x0302},  // COMBINING CIRCUMFLEX ACCENT
+        {"bar", 0x0304},  // COMBINING MACRON
 };
 
 constexpr std::size_t kMaxDepth = 64;
@@ -800,6 +802,13 @@ private:
             }
             if (c == U'\\' && !at_end() && std::u32string_view(U"{}%$&#_").find(peek()) != std::u32string_view::npos) {
                 out += cps_[pos_++];
+                continue;
+            }
+            // Spacing control symbols inside raw text stay spaces (`\mathrm{correct\;answers}`); `\!` is dropped.
+            if (c == U'\\' && !at_end() && std::u32string_view(U",:; !").find(peek()) != std::u32string_view::npos) {
+                if (cps_[pos_++] != U'!') {
+                    out += U' ';
+                }
                 continue;
             }
             out += c;

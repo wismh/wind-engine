@@ -361,12 +361,19 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/haptics/haptics_system.cpp` | No-op, `navigator.vibrate`, or Android JNI | [Haptics](../modules/Haptics.md) |
 | `src/net/android_http.cpp` | `AndroidHttp`: `HttpURLConnection` through JNI | [Net](../modules/Net.md) |
 | `src/net/android_http.h` | Android backend API | [Net](../modules/Net.md) |
+| `src/net/curl_api.h` | The libcurl functions and option numbers the backend uses, with no curl header | [Net](../modules/Net.md) |
+| `src/net/curl_library.cpp` | `dlopen` of the system libcurl | [Net](../modules/Net.md) |
+| `src/net/curl_library.h` | `CurlLibrary` API | [Net](../modules/Net.md) |
+| `src/net/curl_transfer.cpp` | One transfer through a libcurl function table; error mapping | [Net](../modules/Net.md) |
+| `src/net/curl_transfer.h` | `curl_transfer`, `curl_error` | [Net](../modules/Net.md) |
 | `src/net/http_call.cpp` | `HttpCall` ownership and cancel | [Net](../modules/Net.md) |
+| `src/net/http_call_state.cpp` | `HttpCallState::accept`: progress, body sink, bounded main-thread queue, cancel | [Net](../modules/Net.md) |
 | `src/net/http_call_state.h` | State shared by a call, the queue, and the backend | [Net](../modules/Net.md) |
 | `src/net/http_client.cpp` | `HttpClient`: backend choice, `send`, `poll`, `dispose` | [Net](../modules/Net.md) |
 | `src/net/http_completions.h` | `HttpCompletions`, the `CallCompletions` of HTTP calls | [Net](../modules/Net.md) |
 | `src/net/http_parse.cpp` | URL check, method names, raw headers, `HttpResponse::header` | [Net](../modules/Net.md) |
 | `src/net/http_parse.h` | `HttpUrl` and the parse functions | [Net](../modules/Net.md) |
+| `src/net/http_stall.h` | `StallWatch`: minimum speed over a window | [Net](../modules/Net.md) |
 | `src/net/http_worker_pool.cpp` | Threads for blocking backends | [Net](../modules/Net.md) |
 | `src/net/http_worker_pool.h` | Worker pool API | [Net](../modules/Net.md) |
 | `src/net/web_fetch.cpp` | `emscripten_fetch` backend | [Net](../modules/Net.md) |
@@ -432,6 +439,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/game_loop_test.cpp` | `RunHooks` order, frame-end restart, and `RunHooks::cli` without a primary world, with a fake presentation | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `tests/gl_error_log_test.cpp` | GL error names, one report per error and command | [Render](../modules/Render.md) |
 | `tests/haptics_test.cpp` | Clamp, no-op, and the fake counters | [Haptics](../modules/Haptics.md) |
+| `tests/curl_transfer_test.cpp` | `curl_transfer` against a fake libcurl | [Net](../modules/Net.md) |
 | `tests/http_test.cpp` | `HttpCall` ownership, completion queue, worker pool, URL and header parsing, `HttpClient` without a socket | [Net](../modules/Net.md) |
 | `tests/host_test.cpp` | `Host` tick and system registration | [Core](../modules/Core.md) |
 | `tests/parse_float_test.cpp` | Signs, exponents, rejected text, prefix length | [Core](../modules/Core.md#parsing-numbers) |
@@ -561,10 +569,32 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/assets/css/editor.css.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
 | `editor/assets/css/panels.css` | Project, UI Tree, Inspector, Profiler, and Build panel style | [Editor](../features/Editor.md) |
 | `editor/assets/css/panels.css.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
-| `editor/assets/textures/file.png` | File icon on a Project row | [Editor](../features/Editor.md) |
-| `editor/assets/textures/file.png.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
-| `editor/assets/textures/folder.png` | Folder icon on a Project row, a neutral gray | [Editor](../features/Editor.md) |
-| `editor/assets/textures/folder.png.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/file.svg` | Document icon on a Project row | [Editor](../features/Editor.md) |
+| `editor/assets/icons/file.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/file_cmake.svg` | `.cmake` and `CMakeLists.txt` icon | [Editor](../features/Editor.md) |
+| `editor/assets/icons/file_cmake.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/file_cpp.svg` | `.cpp` icon | [Editor](../features/Editor.md) |
+| `editor/assets/icons/file_cpp.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/file_css.svg` | `.css` icon | [Editor](../features/Editor.md) |
+| `editor/assets/icons/file_css.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/file_hpp.svg` | `.hpp` icon | [Editor](../features/Editor.md) |
+| `editor/assets/icons/file_hpp.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/file_object.svg` | `.object` icon | [Editor](../features/Editor.md) |
+| `editor/assets/icons/file_object.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/file_png.svg` | `.png` icon | [Editor](../features/Editor.md) |
+| `editor/assets/icons/file_png.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/file_world.svg` | `.world` icon | [Editor](../features/Editor.md) |
+| `editor/assets/icons/file_world.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/file_xml.svg` | `.xml` icon | [Editor](../features/Editor.md) |
+| `editor/assets/icons/file_xml.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/folder.svg` | Folder icon on a Project row | [Editor](../features/Editor.md) |
+| `editor/assets/icons/folder.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/folder_up.svg` | Up button in the Project grid | [Editor](../features/Editor.md) |
+| `editor/assets/icons/folder_up.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/view_grid.svg` | Header button while the tree is showing | [Editor](../features/Editor.md) |
+| `editor/assets/icons/view_grid.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/view_list.svg` | Header button while the grid is showing | [Editor](../features/Editor.md) |
+| `editor/assets/icons/view_list.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
 | `editor/assets/ui/build.xml` | Build tab: summary and log | [Editor](../features/Editor.md) |
 | `editor/assets/ui/build.xml.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
 | `editor/assets/ui/editor.xml` | Editor window: the toolbar; the panels' dock space is below it | [Editor](../features/Editor.md) |
