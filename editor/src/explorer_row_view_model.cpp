@@ -4,12 +4,74 @@
 
 #include <asset_ids.h>
 
+#include <string_view>
+
 namespace editor {
 namespace {
 
 constexpr char kSelectedFill[] = "#2f5d3a";
 constexpr char kDropFill[] = "#2a4a6a";
 constexpr char kPlainFill[] = "#00000000";
+
+char ascii_lower(unsigned char c) {
+    return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : static_cast<char>(c);
+}
+
+bool equal_ascii(std::string_view a, std::string_view b) {
+    if (a.size() != b.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        if (ascii_lower(static_cast<unsigned char>(a[i])) != ascii_lower(static_cast<unsigned char>(b[i]))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string_view extension_of(std::string_view name) {
+    const std::size_t dot = name.rfind('.');
+    if (dot == std::string_view::npos || dot == 0 || dot + 1 == name.size()) {
+        return {};
+    }
+    return name.substr(dot + 1);
+}
+
+// A folder, a typed document, or the plain document. CMakeLists.txt shares the .cmake icon.
+engine::AssetId icon_for(const ProjectEntry& entry) {
+    if (entry.directory) {
+        return assets::icons::folder;
+    }
+    if (equal_ascii(entry.name, "CMakeLists.txt")) {
+        return assets::icons::file_cmake;
+    }
+    const std::string_view ext = extension_of(entry.name);
+    if (equal_ascii(ext, "css")) {
+        return assets::icons::file_css;
+    }
+    if (equal_ascii(ext, "world")) {
+        return assets::icons::file_world;
+    }
+    if (equal_ascii(ext, "xml")) {
+        return assets::icons::file_xml;
+    }
+    if (equal_ascii(ext, "png")) {
+        return assets::icons::file_png;
+    }
+    if (equal_ascii(ext, "object")) {
+        return assets::icons::file_object;
+    }
+    if (equal_ascii(ext, "cpp")) {
+        return assets::icons::file_cpp;
+    }
+    if (equal_ascii(ext, "hpp")) {
+        return assets::icons::file_hpp;
+    }
+    if (equal_ascii(ext, "cmake")) {
+        return assets::icons::file_cmake;
+    }
+    return assets::icons::file;
+}
 
 }
 
@@ -42,7 +104,7 @@ void ExplorerRowViewModel::show(const ProjectEntry& entry, const engine::ui::Tre
     key_ = entry.key;
     tree_ = tree;
     label = entry.name;
-    icon = entry.directory ? assets::textures::folder : assets::textures::file;
+    icon = icon_for(entry);
     depth = tree.depth;
     expanded = tree.expanded;
     set_fill(selected, drop);

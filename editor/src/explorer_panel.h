@@ -151,6 +151,7 @@ private:
     [[nodiscard]] std::string container_of(const std::string& anchor) const;
     void create_at(const std::string& anchor, ProjectCreateKind kind);
     void remember(const std::string& key, bool cut);
+    void toggle_view();
     void sync_chrome();
     void publish_root_text();
     // Walks to a folder that still exists. Empty is the project root.

@@ -2,6 +2,7 @@
 
 #include "explorer_row_view_model.h"
 
+#include <engine/resources/asset_id.h>
 #include <engine/ui/bindable.h>
 #include <engine/ui/command.h>
 #include <engine/ui/view_model.h>
@@ -24,11 +25,9 @@ public:
     engine::ui::Bindable<bool> treeShown;
     engine::ui::Bindable<bool> gridShown;
     engine::ui::Bindable<float> gridScroll;
-    // Active mode button background. The idle one matches `.panel-button`.
-    engine::ui::Bindable<std::string> treeOn;
-    engine::ui::Bindable<std::string> gridOn;
-    engine::ui::MethodCommand showTree;
-    engine::ui::MethodCommand showGrid;
+    // The icon of the view the header button switches to: a grid while the tree is showing, a list in the grid.
+    engine::ui::Bindable<engine::AssetId> viewIcon;
+    engine::ui::MethodCommand toggleView;
     engine::ui::MethodCommand gridUp;
     // The menu of an empty part of the list. The tree writes into the project root; the grid writes into the
     // open folder.

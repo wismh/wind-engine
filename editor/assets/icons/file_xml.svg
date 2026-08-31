@@ -1,0 +1,7 @@
+<svg viewBox="0 0 16 16">
+  <path d="M3.25 1.75 H9.15 L12.75 5.35 V14.25 H3.25 Z" fill="#e8eaef"/>
+  <path d="M9.15 1.75 V5.35 H12.75 Z" fill="#ef8f2f"/>
+  <rect x="3.25" y="6.6" width="1.35" height="7.65" fill="#ef8f2f"/>
+  <polyline points="7.1,7.6 5.3,10.1 7.1,12.6" fill="none" stroke="#ef8f2f" stroke-width="1.25"/>
+  <polyline points="8.5,7.6 10.3,10.1 8.5,12.6" fill="none" stroke="#ef8f2f" stroke-width="1.25"/>
+</svg>
