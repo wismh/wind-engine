@@ -12,7 +12,7 @@ Every merge into `main` is a release: a numbered editor SDK for Windows, Linux, 
 
 `0.1.7a` is the eighth alpha of 0.1 (patch 0 is the first). `0.1.7b` is the same number as a beta, `0.1.7` as production. There is no upper limit on the patch: `0.1.99a` is followed by `0.1.100a`, and only a person starting `0.2.0a` ends the line. The stage does not reset the patch: after `0.2.5a` the first beta is `0.2.6b`, not `0.2.5b` (tags are unique by number). A new minor starts again at patch 0.
 
-Without `ENGINE_VERSION_PATCH` (every build outside the release workflow) the build is local: its version is `<major>.<minor>.7<stage>-dev`, `0.2.7a-dev` now. CMake prints it (`Wind engine 0.2.7a-dev`) and the SDK installed from it says so in `sdk.toml`. `ENGINE_VERSION_PATCH` must be a whole number without leading zeros, or the configure fails; `ENGINE_VERSION_STAGE` must be `a`, `b`, or empty.
+Without `ENGINE_VERSION_PATCH` (every build outside the release workflow) the build is local: its version is `0.2.10-dev`. CMake prints it (`Wind engine 0.2.10-dev`) and the SDK installed from it says so in `sdk.toml`. A release keeps `ENGINE_VERSION_STAGE`. `ENGINE_VERSION_PATCH` must be a whole number without leading zeros, or the configure fails; `ENGINE_VERSION_STAGE` must be `a`, `b`, or empty.
 
 Order (`engine::EngineVersion`, [Project](../modules/Project.md#engine-version)): the number `major.minor.patch` first, numerically. For one number a `-dev` build comes before every release of it, then alpha, beta, production:
 

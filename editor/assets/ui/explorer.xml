@@ -3,9 +3,12 @@
     <Stack class="option-row" direction="horizontal">
       <Label class="hint project-path" text="{binding rootText}"/>
       <Stack class="option-spacer"/>
-      <Button class="panel-button" if="{binding gridShown}" command="{binding gridUp}" content="Up"/>
-      <Button class="panel-button view-toggle" var-on="{binding treeOn}" command="{binding showTree}" content="Tree"/>
-      <Button class="panel-button view-toggle" var-on="{binding gridOn}" command="{binding showGrid}" content="Grid"/>
+      <Stack class="icon-button" if="{binding gridShown}" command="{binding gridUp}">
+        <Svg class="icon-glyph" source="2d7a9c4e6b1f4830a8e5d3c19f7b6042"/>
+      </Stack>
+      <Stack class="icon-button" command="{binding toggleView}">
+        <Svg class="icon-glyph" source="{binding viewIcon}"/>
+      </Stack>
     </Stack>
     <ScrollView id="tree" class="box tree fill" if="{binding treeShown}">
       <ContextMenu open="{binding blankMenuOpen}">
@@ -20,9 +23,10 @@
       </ContextMenu>
       <ItemsControl id="tree-rows" class="rows" items_source="{binding rows}">
         <ItemTemplate>
-          <Stack class="rowline" direction="horizontal" var-row="{binding rowFill}" var-depth="{binding depth}">
+          <Stack class="rowline" direction="horizontal" var-row="{binding rowFill}" var-depth="{binding depth}"
+                  command="{binding select}">
             <Checkbox class="expander" checked="{binding expanded}" command="{binding toggle}"/>
-            <Image class="entry-icon" source="{binding icon}" command="{binding select}"/>
+            <Svg class="entry-icon" source="{binding icon}" command="{binding select}"/>
             <Button class="row entry" var-row-display="{binding rowDisplay}" command="{binding select}"
                     content="{binding label}"/>
             <TextInput class="rename entry" var-rename-display="{binding renameDisplay}" text="{binding editText}"
@@ -59,8 +63,8 @@
       </ContextMenu>
       <ItemsControl id="grid-tiles" class="tiles" items_source="{binding tiles}">
         <ItemTemplate>
-          <Stack class="tile" direction="vertical" var-row="{binding rowFill}">
-            <Image class="tile-icon" source="{binding icon}" command="{binding select}"/>
+          <Stack class="tile" direction="vertical" var-row="{binding rowFill}" command="{binding select}">
+            <Svg class="tile-icon" source="{binding icon}" command="{binding select}"/>
             <Button class="tile-name" var-row-display="{binding rowDisplay}" command="{binding select}"
                     content="{binding label}"/>
             <TextInput class="tile-rename" var-rename-display="{binding renameDisplay}" text="{binding editText}"
