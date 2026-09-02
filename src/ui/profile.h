@@ -3,7 +3,9 @@
 #include <engine/ecs/entity.h>
 #include <engine/ecs/world.h>
 #include <engine/ui/document.h>
+#include <engine/ui/profiler.h>
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <string>
@@ -72,6 +74,14 @@ namespace engine::ui {
     // paint_document records exactly when `canvas` is set.
     void profiler_begin_paint(const ecs::Entity &canvas);
 
+    // True while paint of `canvas` records: the canvas is set and its world is the profiled one.
+    [[nodiscard]] bool profiler_records_canvas(const ecs::Entity &canvas);
+
+    // Adds painter calls by kind and the GPU draw calls they queued to the open frame of `canvas`. Called once per
+    // paint pass (base and popup layer) by ProfilerPaintCounter; records nothing unless profiler_records_canvas.
+    void profiler_add_paint(const ecs::Entity &canvas, const std::array<int, kProfilerPaintKindCount> &commands,
+                            int draw_calls);
+
     // Pushes the open frame into the rings, unless Pause is on (then the open frame is dropped).
     void profiler_commit_frame(ecs::World &world);
 
@@ -82,8 +92,6 @@ namespace engine::ui {
     // frame committed while capture was on, an attached panel already has samples, or Pause is on.
     void profiler_cli_set_capture(ecs::World &world, bool on);
     [[nodiscard]] bool profiler_cli_ready(ecs::World &world);
-    // Result object (not the ok/error envelope): paused, capturing, canvases, shared stages.
-    [[nodiscard]] std::string profiler_cli_json(ecs::World &world);
 #else
 #define ENGINE_UI_PROFILE(canvas, stage) ((void) 0)
 #define ENGINE_UI_PROFILE_SHARED(stage) ((void) 0)

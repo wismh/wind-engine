@@ -101,6 +101,9 @@ namespace engine::ui {
         // Breaks `text` into rows no wider than `max_width` at `font`/`size` (see break_text_lines). The default wraps
         // through measure_text, so a painter only overrides it to use its own shaper's line breaker.
         [[nodiscard]] virtual TextBlock break_lines(std::string_view text, AssetId font, float size, float max_width);
+        // GPU draw calls queued since the painter's frame began. The UI profiler reads it before and after a canvas
+        // paints. A painter that does not batch into draw calls keeps the default 0.
+        [[nodiscard]] virtual int queued_draw_calls() { return 0; }
     };
 
     struct UiPaintInput {

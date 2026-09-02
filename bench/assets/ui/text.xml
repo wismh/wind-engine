@@ -1,0 +1,29 @@
+<!-- Text scene: wrapped paragraphs at three font sizes, then 200 identical one-line rows, in one ScrollView. No row has
+     a fixed px height, so nothing is virtualized. -->
+<Canvas id="text">
+  <ScrollView id="wheel" class="text-scroll">
+    <Stack class="column" direction="vertical">
+      <Label id="rest" class="heading" text="Text"/>
+      <ItemsControl class="paragraphs" items_source="{binding large}">
+        <ItemTemplate>
+          <Label class="p-large" text="{binding text}"/>
+        </ItemTemplate>
+      </ItemsControl>
+      <ItemsControl class="paragraphs" items_source="{binding medium}">
+        <ItemTemplate>
+          <Label class="p-medium" text="{binding text}"/>
+        </ItemTemplate>
+      </ItemsControl>
+      <ItemsControl class="paragraphs" items_source="{binding small}">
+        <ItemTemplate>
+          <Label class="p-small" text="{binding text}"/>
+        </ItemTemplate>
+      </ItemsControl>
+      <ItemsControl class="lines" items_source="{binding lines}">
+        <ItemTemplate>
+          <Label class="line" text="{binding text}"/>
+        </ItemTemplate>
+      </ItemsControl>
+    </Stack>
+  </ScrollView>
+</Canvas>

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "profiler_panel.h"
+#include "profiler_stats.h"
 
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/systems.h>
@@ -14,6 +15,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -81,6 +83,7 @@ TEST(ProfilerPanel, FramesFillTheChartsAndTheNumbers) {
     EXPECT_FALSE(vm.shared.columns().empty());
     EXPECT_NE(vm.stats.get().find("bindings  last"), std::string::npos) << vm.stats.get();
     EXPECT_NE(vm.stats.get().find("begin frame"), std::string::npos);
+    EXPECT_NE(vm.stats.get().find("draw calls  last 0"), std::string::npos) << "no painter ran";
     EXPECT_NE(vm.chartTitle.get().find("alpha"), std::string::npos) << vm.chartTitle.get();
 
     vm.canvases.get()[1]->select.execute();
@@ -113,4 +116,21 @@ TEST(ProfilerPanel, PauseIsTwoWayAndDetachClears) {
     EXPECT_TRUE(vm.chart.columns().empty());
     kept->select.execute();
     EXPECT_EQ(engine::ui::profiler_selected(game), engine::ecs::Entity{}) << "a stale row does nothing";
+}
+
+TEST(ProfilerPanel, StatsShowDrawCallsAndTheLastFramesPaintCalls) {
+    using Kind = engine::ui::ProfilerPaintKind;
+    std::vector<engine::ui::ProfilerFrame> frames(2);
+    frames[0].draw_calls = 10;
+    frames[0].paint_commands[static_cast<std::size_t>(Kind::Image)] = 4;
+    frames[1].draw_calls = 30;
+    frames[1].paint_commands[static_cast<std::size_t>(Kind::FillRect)] = 12;
+    frames[1].paint_commands[static_cast<std::size_t>(Kind::Text)] = 3;
+    const std::vector<engine::ui::ProfilerSharedFrame> shared(1);
+
+    const std::string text = editor::profiler_stats_text(frames, shared);
+    EXPECT_NE(text.find("draw calls  last 30  avg 20.0  max 30\n"), std::string::npos) << text;
+    EXPECT_NE(text.find("paint  fill_rect 12  text 3\n"), std::string::npos) << text;
+    EXPECT_EQ(text.find("image"), std::string::npos) << "only the last frame's calls, and only the ones not zero";
+    EXPECT_EQ(editor::profiler_stats_text({}, shared), "No frames yet");
 }

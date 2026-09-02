@@ -1,0 +1,57 @@
+/* Text scene: a 1100 px column of wrapped paragraphs in a full-window ScrollView. */
+
+Canvas {
+  background: #fbfaf7;
+}
+
+Label {
+  color: #2e3440;
+}
+
+ScrollView.text-scroll {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+}
+
+Stack.column {
+  width: 1100;
+  padding: 24 32;
+  gap: 18;
+}
+
+Label.heading {
+  font-size: 28;
+  white-space: nowrap;
+}
+
+ItemsControl.paragraphs {
+  width: 100%;
+  gap: 12;
+}
+
+Label.p-large {
+  width: 100%;
+  font-size: 22;
+}
+
+Label.p-medium {
+  width: 100%;
+  font-size: 16;
+}
+
+Label.p-small {
+  width: 100%;
+  font-size: 12;
+  color: #4c566a;
+}
+
+ItemsControl.lines {
+  width: 100%;
+  gap: 2;
+}
+
+Label.line {
+  font-size: 14;
+  white-space: nowrap;
+}

@@ -1,0 +1,6 @@
+/* The paint hover rule of the reference scenes: the hovered `hot` element changes only its background. Every mode but
+   hover/layout merges this sheet after the scene's own. */
+
+.hot:hover {
+  background: #4c566a;
+}

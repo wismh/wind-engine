@@ -1,0 +1,5 @@
+/* paint-mix conic: one conic gradient per cell (one baked texture: every cell is the same). */
+
+Stack.cell {
+  background: conic-gradient(#4c78a8 0% 40%, #f58518 40% 75%, #54a24b 75% 100%);
+}

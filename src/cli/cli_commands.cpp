@@ -881,7 +881,7 @@ namespace engine::cli {
             if (!ui::profiler_cli_ready(world)) {
                 return CliResponse{{}, true};
             }
-            return CliResponse{std::string("{\"ok\":true,\"result\":") + ui::profiler_cli_json(world) + "}", false};
+            return CliResponse{std::string("{\"ok\":true,\"result\":") + ui::profiler_json(world) + "}", false};
 #endif
         }
 

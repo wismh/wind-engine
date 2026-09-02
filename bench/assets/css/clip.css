@@ -1,0 +1,98 @@
+/* Clip scene. Every ScrollView has a fixed size and overflow-y: auto, so each one clips and scrolls on its own. */
+
+Canvas {
+  background: #1b1f27;
+}
+
+Label {
+  font-size: 13;
+  color: #d8dee9;
+  white-space: nowrap;
+}
+
+ScrollView.outer {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+}
+
+Stack.columns {
+  padding: 16;
+  gap: 24;
+}
+
+Stack.notes {
+  width: 280;
+  gap: 4;
+}
+
+Label.title {
+  height: 28;
+  font-size: 18;
+  color: #ffffff;
+}
+
+ItemsControl.note-list {
+  width: 100%;
+  gap: 2;
+}
+
+Label.note {
+  height: 20;
+  color: #8f9bb3;
+}
+
+Stack.panes {
+  gap: 24;
+}
+
+ItemsControl.pane-rows {
+  gap: 16;
+}
+
+ItemsControl.pane-row {
+  gap: 16;
+}
+
+ScrollView.pane {
+  width: 320;
+  height: 200;
+  padding: 6;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  background: #2e3440;
+  border-width: 1;
+  border-color: #4c566a;
+}
+
+ItemsControl.pane-lines {
+  width: 100%;
+}
+
+Label.pane-line {
+  height: 18;
+}
+
+Stack.tilted {
+  width: 720;
+  padding: 12;
+  gap: 8;
+  background: #3b4252;
+  transform: rotate(6deg);
+}
+
+Label.tilted-title {
+  height: 22;
+  font-size: 16;
+}
+
+ScrollView.wide {
+  width: 680;
+  height: 280;
+}
+
+ScrollView.inner {
+  width: 300;
+  height: 120;
+  background: #434c5e;
+}

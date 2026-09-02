@@ -1,0 +1,7 @@
+# run_matrix.ps1 output. Only the baseline's summaries are kept; raw per-run reports and other runs stay local.
+/*
+!/.gitignore
+!/baseline/
+/baseline/*
+!/baseline/summary.md
+!/baseline/summary.json

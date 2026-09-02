@@ -23,6 +23,7 @@ namespace engine::ui {
         constexpr int kRingFrames = kProfilerRingFrames;
         static_assert(static_cast<std::size_t>(ProfileStage::Paint) + 1 == kProfilerStageCount);
         static_assert(static_cast<std::size_t>(ProfilerStage::Paint) + 1 == kProfilerStageCount);
+        static_assert(static_cast<std::size_t>(ProfilerPaintKind::NineSlice) + 1 == kProfilerPaintKindCount);
 
         template<typename T>
         struct Ring {
@@ -229,6 +230,12 @@ namespace engine::ui {
             return out;
         }
 
+        // A count (draw calls, painter calls of one kind): last and max as integers, avg to two places.
+        std::string count_json(std::string_view name, const StageNumbers &numbers) {
+            return std::format("\"{}\":{{\"last\":{},\"avg\":{:.2f},\"max\":{}}}", name, numbers.last,
+                               numbers.average, numbers.max);
+        }
+
         std::string stage_json(std::string_view name, const StageNumbers &numbers) {
             const auto ms = [](double ns) { return ns / 1000000.0; };
             return std::format("\"{}\":{{\"last_ms\":{:.4f},\"avg_ms\":{:.4f},\"max_ms\":{:.4f}}}", name,
@@ -279,6 +286,25 @@ namespace engine::ui {
                                                 [stage](const ProfilerFrame &frame) { return frame.stage_ns[stage]; })
                                 : StageNumbers{};
                     out += stage_json(kStageJsonNames[stage], numbers);
+                }
+                out += "},";
+                out += count_json("draw_calls", has ? stage_numbers(ring->second,
+                                                                    [](const ProfilerFrame &frame) {
+                                                                        return std::int64_t{frame.draw_calls};
+                                                                    })
+                                                    : StageNumbers{});
+                out += ",\"paint_commands\":{";
+                for (std::size_t kind = 0; kind < kProfilerPaintKindCount; ++kind) {
+                    if (kind > 0) {
+                        out += ',';
+                    }
+                    const StageNumbers numbers =
+                            has ? stage_numbers(ring->second,
+                                                [kind](const ProfilerFrame &frame) {
+                                                    return std::int64_t{frame.paint_commands[kind]};
+                                                })
+                                : StageNumbers{};
+                    out += count_json(profiler_paint_kind_name(static_cast<ProfilerPaintKind>(kind)), numbers);
                 }
                 out += "}}";
             }
@@ -382,6 +408,21 @@ namespace engine::ui {
         if (pushed && state.capture) {
             state.capture_saw_commit = true;
         }
+    }
+
+    bool profiler_records_canvas(const ecs::Entity &canvas) { return profiler_recording() && !is_empty(canvas); }
+
+    void profiler_add_paint(const ecs::Entity &canvas, const std::array<int, kProfilerPaintKindCount> &commands,
+                            int draw_calls) {
+        if (!profiler_records_canvas(canvas)) {
+            return;
+        }
+        OpenSlot &slot = g_profiled->ctx<ProfilerState>().open[canvas];
+        slot.touched = true;
+        for (std::size_t kind = 0; kind < kProfilerPaintKindCount; ++kind) {
+            slot.frame.paint_commands[kind] += commands[kind];
+        }
+        slot.frame.draw_calls += draw_calls;
     }
 
     void profiler_finish_paint(const ecs::Entity &canvas, const Element &root, bool layout_ran) {
@@ -501,7 +542,13 @@ namespace engine::ui {
         return state.attached && (state.shared.size > 0 || any_ring(state));
     }
 
-    std::string profiler_cli_json(ecs::World &world) { return snapshot_json(world, world.ctx<ProfilerState>()); }
+    void profiler_clear(ecs::World &world) {
+        ProfilerState &state = world.ctx<ProfilerState>();
+        state.rings.clear();
+        state.shared = {};
+    }
+
+    std::string profiler_json(ecs::World &world) { return snapshot_json(world, world.ctx<ProfilerState>()); }
 
 } // namespace engine::ui
 
