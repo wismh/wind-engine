@@ -322,7 +322,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/android_assets_test.cpp` | Android asset staging without a device | [Runtime Assets](../build/Runtime%20Assets.md) |
 | `tests/android_lifecycle_test.cpp` | Pause, resume, back key routing | [Core](../modules/Core.md) |
 | `tests/animation_test.cpp` | Sprite clip parse and playback | [Render](../modules/Render.md) |
-| `tests/assets_test.cpp` | Catalog, `get` / `try_get`, `unload_catalog`, codegen failures | [Assets](../features/Assets.md) |
+| `tests/assets_test.cpp` | Catalog, `get` / `try_get`, `unload_catalog`, codegen failures, stylesheet warnings in `game.log` | [Assets](../features/Assets.md) |
 | `tests/audio_test.cpp` | Pool, music fade, looping handles, `stop_all` without opening a device | [Audio](../modules/Audio.md) |
 | `tests/builtin_test.cpp` | Frozen builtin ids and files | [Resources](../modules/Resources.md) |
 | `tests/camera_test.cpp` | Ortho matrices and screen/world | [ECS](../modules/ECS.md) |
@@ -367,7 +367,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/sprite_test.cpp` | Sprite sheet UVs and `get_sprite` | [Assets](../features/Assets.md) |
 | `tests/time_test.cpp` | Clamp, pause, and the step cap | [Core](../modules/Core.md) |
 | `tests/ui_builder_test.cpp` | `ui::Node` tree matches XML | [UI Markup](../features/UI%20Markup.md) |
-| `tests/ui_css_test.cpp` | Selectors, lengths, unknown properties, stylesheet generation | [UI Markup](../features/UI%20Markup.md) |
+| `tests/ui_css_test.cpp` | Selectors, lengths, unknown properties, warning lines, stylesheet generation | [UI Markup](../features/UI%20Markup.md) |
 | `tests/ui_display_none_test.cpp` | `display: none` skips layout and hit-test | [UI Markup](../features/UI%20Markup.md) |
 | `tests/ui_inline_math_test.cpp` | `\(...\)` splits inside a label | [UI](../modules/UI.md) |
 | `tests/ui_input_batch_test.cpp` | One bind per canvas inside `run_input` | [UI Input](../features/UI%20Input.md) |

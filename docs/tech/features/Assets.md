@@ -40,7 +40,7 @@ Where `<assets>` is: [Runtime Assets](../build/Runtime%20Assets.md).
 
 `get_sprite(id, name)` resolves a named rect. `try_get_sprite` returns `AssetError` instead of calling the fatal hook. An empty name on a single-layout texture is the whole image (`offset` 0, `tiling` 1,1). An empty name when `layout` is `multiple` is `AssetError::NotFound`.
 
-UI documents and stylesheets are CPU assets (`UiDocument`, `Stylesheet`). Fonts are the file bytes (`Font`). UI images used by NanoVG are `render::TextureDesc` (`importer = "ui_image"`), uploaded per window when a canvas references them. World textures go through the graphic factory.
+UI documents and stylesheets are CPU assets (`UiDocument`, `Stylesheet`). A stylesheet's parser warnings go to the engine log on load, as `stylesheet <relative path>: line N: <warning>` ([UI Markup](UI%20Markup.md)). Fonts are the file bytes (`Font`). UI images used by NanoVG are `render::TextureDesc` (`importer = "ui_image"`), uploaded per window when a canvas references them. World textures go through the graphic factory.
 
 The cache key is the GUID plus `std::type_index`. The same GUID requested as two types is two loads, and the wrong type is `TypeMismatch`.
 
