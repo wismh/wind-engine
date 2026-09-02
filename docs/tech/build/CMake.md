@@ -77,12 +77,12 @@ Build preset `tests` builds `engine_tests` from the `vs` configure.
 On Linux (needs the SDL3 build dependencies that `.github/workflows/sdk.yml` installs: X11 and Wayland dev packages, Mesa): `cmake --preset linux-bench && cmake --build --preset linux-bench`, or the plain lines `cmake -S . -B build-bench -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DENGINE_BUILD_TESTS=ON -DENGINE_WITH_WINDOW=ON -DENGINE_WITH_AUDIO=OFF -DENGINE_BENCH=ON` and `cmake --build build-bench --target wind_ui_bench`. The binary is `build-bench/bin/wind_ui_bench`. Run it under `xvfb-run` with `LIBGL_ALWAYS_SOFTWARE=1`; see [UI Bench](../features/UI%20Bench.md#linux). Ninja Multi-Config's default `CMAKE_CONFIGURATION_TYPES` includes RelWithDebInfo; nothing in the tree narrows that list. See [UI Bench](../features/UI%20Bench.md).
 ## Version
 
-The engine version is `<major>.<minor>.<patch><stage>` (`0.1.7a`; `a` alpha, `b` beta, none production), the scheme and the release flow of [Release](Release.md). The root `CMakeLists.txt` sets `ENGINE_VERSION_MAJOR`, `ENGINE_VERSION_MINOR`, and `ENGINE_VERSION_STAGE` (`"a"`, `"b"`, or `""`). `ENGINE_VERSION_PATCH` is a cache entry, empty by default: the release workflow passes `-DENGINE_VERSION_PATCH=N`. Without it the build is local and its version carries `-dev` on patch 7, `0.2.7a-dev`.
+The engine version is `<major>.<minor>.<patch><stage>` (`0.1.7a`; `a` alpha, `b` beta, none production), the scheme and the release flow of [Release](Release.md). The root `CMakeLists.txt` sets `ENGINE_VERSION_MAJOR`, `ENGINE_VERSION_MINOR`, and `ENGINE_VERSION_STAGE` (`"a"`, `"b"`, or `""`). `ENGINE_VERSION_PATCH` is a cache entry, empty by default: the release workflow passes `-DENGINE_VERSION_PATCH=N`. Without it the build is local: `0.2.10-dev`. A release keeps the stage.
 
 | Variable | Value for `0.1.7a` | For a local build |
 | --- | --- | --- |
-| `ENGINE_VERSION_FULL` | `0.1.7a` | `0.2.7a-dev` |
-| `ENGINE_VERSION_NUMBER`, `PROJECT_VERSION` (`project(engine VERSION ...)`) | `0.1.7` | `0.2.6` |
+| `ENGINE_VERSION_FULL` | `0.1.7a` | `0.2.10-dev` |
+| `ENGINE_VERSION_NUMBER`, `PROJECT_VERSION` (`project(engine VERSION ...)`) | `0.1.7` | `0.2.10` |
 
 `project(VERSION)` stays the three numbers, because CMake versions are numeric: `WindConfigVersion.cmake` compares only them. `ENGINE_VERSION_FULL` is what `sdk.toml` records, what the configure prints (`Wind engine 0.1.7a`), and what the bench report names. A bad `ENGINE_VERSION_PATCH` (not a whole number, a leading zero) or `ENGINE_VERSION_STAGE` is a configure error. The player libraries and the engine built from `<sdk>/source` get the same patch (`cmake/player_build.cmake` passes it on; `WindConfig.cmake` sets it from `wind_version.cmake`), so every part of one SDK has one version. A release is tagged `v<full version>`, so an SDK of an old version can be built again from its tag. The version is not a build id input: two builds of one version from different commits still get different ids when a public header differs.
 
@@ -109,7 +109,7 @@ The header also defines `ENGINE_BUILD_DEBUG_CRT` (1 when that configuration link
 
 Always, PRIVATE: spdlog, tinyxml2, tomlplusplus. PUBLIC: glm.
 
-Windows also links `ws2_32`, `advapi32`, and `winhttp` PUBLIC, because `cli_server.cpp` uses WinSock and ACL APIs, `src/net/winhttp_session.cpp` uses WinHTTP, and a static library does not propagate PRIVATE system libs. The shared editor build keeps the same rule.
+Windows also links `ws2_32`, `advapi32`, and `winhttp` PUBLIC, because `cli_server.cpp` uses WinSock and ACL APIs, `src/net/winhttp_session.cpp` uses WinHTTP, and a static library does not propagate PRIVATE system libs. The shared editor build keeps the same rule. Linux and macOS link `${CMAKE_DL_LIBS}` PUBLIC (`dl` before glibc 2.34, nothing on macOS) for `dlopen` of the system libcurl in `src/net/curl_library.cpp`; no libcurl is needed to build.
 
 `ENGINE_WITH_WINDOW` adds SDL3 (static, except Android where SDL is shared) and either glad plus `OpenGL::GL` or, with GLES, SDL alone (Android also GLESv3, EGL, `android`, `log`).
 
@@ -217,7 +217,7 @@ GoogleTest is the editor build's own `gtest` and `gtest_main` (shared CRT, the S
 `sdk.toml` is written last, by `cmake/sdk_manifest.cmake` from an `install(CODE)` step:
 
 ```toml
-version = "0.1.7a"                                  # ENGINE_VERSION_FULL: 0.2.7a-dev for a local build
+version = "0.1.7a"                                  # ENGINE_VERSION_FULL: 0.2.10-dev for a local build
 commit = "50c292f95fec1d06617eeb17409cee2b612691e2" # git rev-parse HEAD of the engine checkout
 dirty = false                                       # git status --porcelain was not empty
 config = "Release"

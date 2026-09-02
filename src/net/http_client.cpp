@@ -1,5 +1,6 @@
 #include <engine/net/http_client.h>
 
+#include "net/curl_api.h"
 #include "net/http_call_state.h"
 #include "net/http_completions.h"
 #include "net/http_parse.h"
@@ -12,6 +13,10 @@
 #include "net/http_worker_pool.h"
 #elif defined(__EMSCRIPTEN__)
 #include "net/web_fetch.h"
+#elif defined(ENGINE_NET_CURL)
+#include "net/curl_library.h"
+#include "net/curl_transfer.h"
+#include "net/http_worker_pool.h"
 #endif
 
 #include <algorithm>
@@ -22,11 +27,14 @@
 namespace engine {
 namespace {
 
-#if defined(_WIN32) || defined(__ANDROID__)
+#if defined(_WIN32) || defined(__ANDROID__) || defined(ENGINE_NET_CURL)
 constexpr int kWorkerThreads = 4;
+constexpr bool kHasWorkers = true;
+#else
+constexpr bool kHasWorkers = false;
 #endif
 
-#if defined(_WIN32) || defined(__ANDROID__) || defined(__EMSCRIPTEN__)
+#if defined(_WIN32) || defined(__ANDROID__) || defined(__EMSCRIPTEN__) || defined(ENGINE_NET_CURL)
 constexpr bool kHasBackend = true;
 #else
 constexpr bool kHasBackend = false;
@@ -47,6 +55,9 @@ struct HttpClient::Impl {
 #elif defined(__ANDROID__)
     AndroidHttp android;
     std::optional<HttpWorkerPool> pool;
+#elif defined(ENGINE_NET_CURL)
+    CurlLibrary curl;
+    std::optional<HttpWorkerPool> pool;
 #endif
 
     [[nodiscard]] bool start() {
@@ -64,6 +75,14 @@ struct HttpClient::Impl {
         }
         pool.emplace([this](HttpCallState& state, const HttpRequest& request) {
             return android.transfer(state, request);
+        }, completions, kWorkerThreads);
+        return true;
+#elif defined(ENGINE_NET_CURL)
+        if (!curl.load()) {
+            return false;
+        }
+        pool.emplace([this](HttpCallState& state, const HttpRequest& request) {
+            return curl_transfer(curl.api(), state, request);
         }, completions, kWorkerThreads);
         return true;
 #else
@@ -84,11 +103,14 @@ struct HttpClient::Impl {
 #elif defined(__ANDROID__)
         pool.reset();
         android.release();
+#elif defined(ENGINE_NET_CURL)
+        pool.reset();
+        curl.unload();
 #endif
     }
 
     void start_transfer(std::shared_ptr<HttpCallState> state, HttpRequest request, const HttpUrl& url) {
-#if defined(_WIN32) || defined(__ANDROID__)
+#if defined(_WIN32) || defined(__ANDROID__) || defined(ENGINE_NET_CURL)
         (void)url;
         pool->submit(std::move(state), std::move(request));
 #elif defined(__EMSCRIPTEN__)
@@ -133,6 +155,13 @@ HttpCall HttpClient::send(HttpRequest request) {
     } else if (!impl_->ready) {
         impl_->completions.push(std::move(state), std::unexpected(HttpError::Unsupported));
     } else {
+        if (request.sink) {
+            // A worker-thread sink only exists where the backend has workers. Web runs in the main thread.
+            const SinkRoute route = !kHasWorkers                                  ? SinkRoute::Inline
+                                    : request.sink_thread == HttpSinkThread::Main ? SinkRoute::Queued
+                                                                                  : SinkRoute::Worker;
+            state->set_sink(std::move(request.sink), route);
+        }
         impl_->live.push_back(state);
         impl_->start_transfer(std::move(state), std::move(request), *url);
     }
@@ -144,6 +173,12 @@ bool HttpClient::is_supported() const {
 }
 
 void HttpClient::poll() {
+    // Chunks first: a result is delivered only after the sink has seen the whole body.
+    for (const std::weak_ptr<HttpCallState>& weak : impl_->live) {
+        if (const std::shared_ptr<HttpCallState> state = weak.lock()) {
+            state->drain_sink();
+        }
+    }
     impl_->completions.deliver();
     std::erase_if(impl_->live, [](const std::weak_ptr<HttpCallState>& weak) {
         const std::shared_ptr<HttpCallState> state = weak.lock();
