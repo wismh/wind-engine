@@ -1,6 +1,6 @@
 # external/
 
-Git submodules. Engine CMake owns these targets. **Do not add EnTT.** Do not use FetchContent for these.
+Git submodules. Engine CMake owns these targets. 
 
 ## Required before `engine_tests` (cloned in this tree)
 
@@ -24,5 +24,3 @@ Git submodules. Engine CMake owns these targets. **Do not add EnTT.** Do not use
 | Dir | Repo |
 | --- | --- |
 | `SDL_mixer` | https://github.com/libsdl-org/SDL_mixer.git (`release-3.2.4`) |
-
-WAV only; OGG off (see `docs/tech/architecture/Principles.md`).
