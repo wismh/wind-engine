@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "net/curl_api.h"
 #include "net/http_call_state.h"
 #include "net/http_completions.h"
 #include "net/http_parse.h"
@@ -334,10 +335,15 @@ TEST(HttpClient, BeforeInitEveryRequestIsUnsupported) {
 
 TEST(HttpClient, InitStartsTheBackendWhereThereIsOne) {
     engine::HttpClient client;
-    ASSERT_TRUE(client.init());
+    const bool started = client.init();
 #if defined(_WIN32) || defined(__ANDROID__) || defined(__EMSCRIPTEN__)
+    ASSERT_TRUE(started);
     EXPECT_TRUE(client.is_supported());
+#elif defined(ENGINE_NET_CURL)
+    // libcurl is opened at run time: supported exactly when the machine has it.
+    EXPECT_EQ(client.is_supported(), started);
 #else
+    ASSERT_TRUE(started);
     EXPECT_FALSE(client.is_supported());
 #endif
     client.dispose();
