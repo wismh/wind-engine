@@ -6,6 +6,7 @@
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
 #include <engine/loc/catalog.h>
+#include <engine/log.h>
 #include <engine/resources/asset_guid.h>
 #include <engine/resources/asset_id.h>
 #include <engine/resources/assets_db.h>
@@ -586,6 +587,38 @@ TEST(Assets, GetStyleSheet) {
     ASSERT_NE(sheet, nullptr);
     ASSERT_FALSE(sheet->rules.empty());
     EXPECT_EQ(sheet->rules[0].selector.class_name, "hud");
+}
+
+TEST(Assets, StyleSheetWarningsGoToGameLogOncePerLoad) {
+    TempTree tree;
+    write_file(tree.path / "ui" / "hud.css", ".hud { padding: 16; }\n.bad {\n    frobnicate: 1;\n}\n");
+
+    SilentFatalError fatal;
+    engine::AssetsDb db(fatal);
+    db.set_root(tree.path);
+
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kCssGuid}, "ui/hud.css", engine::ImporterKind::Css});
+    db.set_catalog(std::move(catalog));
+
+    const std::filesystem::path log_dir = tree.path / "log";
+    std::filesystem::create_directories(log_dir);
+    engine::log::init(log_dir);
+    const auto first = db.get<engine::ui::Stylesheet>(engine::AssetId{kCssGuid});
+    const auto second = db.get<engine::ui::Stylesheet>(engine::AssetId{kCssGuid});
+    // Swap the file sink back to the null sink so game.log is closed before it is read and removed.
+    engine::log::init();
+    ASSERT_NE(first, nullptr);
+    EXPECT_EQ(first, second);
+    ASSERT_EQ(first->rules.size(), 2u);
+
+    const std::string log = read_file(log_dir / "game.log");
+    std::size_t lines = 0;
+    for (std::size_t pos = log.find("frobnicate"); pos != std::string::npos; pos = log.find("frobnicate", pos + 1)) {
+        ++lines;
+    }
+    EXPECT_EQ(lines, 1u) << log;
+    EXPECT_NE(log.find("stylesheet ui/hud.css: line 3: unknown CSS property: frobnicate"), std::string::npos) << log;
 }
 
 TEST(Assets, GetSoundFromCatalog) {
