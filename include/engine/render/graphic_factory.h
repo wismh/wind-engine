@@ -43,12 +43,22 @@ struct TextureDesc {
     WrapMode wrap = WrapMode::Clamp;
 };
 
+// Starts transparent black. `update` fills it.
+struct DynamicTextureDesc {
+    int width = 0;
+    int height = 0;
+    FilterMode filter = FilterMode::Linear;
+    WrapMode wrap = WrapMode::Clamp;
+};
+
 class IGraphicFactory {
 public:
     virtual ~IGraphicFactory() = default;
     virtual std::shared_ptr<IMesh> create_mesh(const MeshDesc& desc) = 0;
     virtual std::shared_ptr<IShader> create_shader(const ShaderDesc& desc) = 0;
     virtual std::shared_ptr<ITexture> create_texture(const TextureDesc& desc) = 0;
+    // Null for a size that is not positive.
+    virtual std::shared_ptr<IDynamicTexture> create_dynamic_texture(const DynamicTextureDesc& desc) = 0;
 };
 
 }
