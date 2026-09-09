@@ -59,6 +59,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/ecs/world_asset.h` | `WorldAsset`, `EntityRecord`, `WorldLoadError`, `parse_world_asset`, `serialize_world_asset`, `parse_field_table` | [ECS](../modules/ECS.md#world-serialization) |
 | `include/engine/ecs/world_io.h` | `WIND_COMPONENT`, `WIND_SERIALIZABLE`, `EntityName`, `FieldValue`, `ComponentWriter`, `ComponentReader` | [ECS](../modules/ECS.md#world-serialization) |
 | `include/engine/ecs/world_serializer.h` | `WorldSerializer`, `instantiate_world`, `load_world_from_toml`, `capture_world_asset`, `save_world_to_toml` | [ECS](../modules/ECS.md#world-serialization) |
+| `include/engine/capture/capture_system.h` | `ICapture`, `ICaptureSession`, `CaptureSystem`, `CaptureFrame`, `CaptureFormat` | [Capture](../modules/Capture.md) |
 | `include/engine/haptics/haptics_system.h` | `IHaptics` and `HapticsSystem` | [Haptics](../modules/Haptics.md) |
 | `include/engine/net/http_call.h` | `HttpCall`: one owned request, `take`, `cancel` | [Net](../modules/Net.md) |
 | `include/engine/net/http_client.h` | `IHttpClient` and `HttpClient` | [Net](../modules/Net.md) |
@@ -349,7 +350,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ui/render/ui_vertex.cpp`, `ui_vertex.h` | `UiVertex` and `UiBatch` | [UI](../modules/UI.md) |
 | `src/ui/render/utf8_decoder.cpp`, `utf8_decoder.h` | Byte-at-a-time UTF-8 decoder of the text layout | [UI](../modules/UI.md) |
 
-## `src/audio/`, `src/haptics/`, `src/net/`, `src/loc/`
+## `src/audio/`, `src/capture/`, `src/haptics/`, `src/net/`, `src/loc/`
 
 | Path | What it does | Page |
 | --- | --- | --- |
@@ -357,6 +358,9 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/audio/clip.cpp` | Decode a WAV into the opaque clip | [Audio](../modules/Audio.md) |
 | `src/audio/clip.h` | Clip storage. Mixer types stay here | [Audio](../modules/Audio.md) |
 | `src/audio/fake_mixer.h` | In-memory tracks for tests and the no-audio build | [Audio](../modules/Audio.md) |
+| `src/capture/capture_system.cpp` | SDL3 camera backend and the session registry; no devices without a window | [Capture](../modules/Capture.md) |
+| `src/capture/format_select.cpp`, `src/capture/format_select.h` | `pick_format`: the offered format closest to the request | [Capture](../modules/Capture.md) |
+| `src/capture/frame_convert.cpp`, `src/capture/frame_convert.h` | SDL surface (RGB or YUV) to RGBA8 | [Capture](../modules/Capture.md) |
 | `src/haptics/fake_haptics.h` | Records vibrate and cancel on every backend | [Haptics](../modules/Haptics.md) |
 | `src/haptics/haptics_system.cpp` | No-op, `navigator.vibrate`, or Android JNI | [Haptics](../modules/Haptics.md) |
 | `src/net/android_http.cpp` | `AndroidHttp`: `HttpURLConnection` through JNI | [Net](../modules/Net.md) |
@@ -438,6 +442,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/game_module_test.cpp` | `load_game_module` against the fixture modules (editor build) | [Core](../modules/Core.md) |
 | `tests/game_loop_test.cpp` | `RunHooks` order, frame-end restart, and `RunHooks::cli` without a primary world, with a fake presentation | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `tests/gl_error_log_test.cpp` | GL error names, one report per error and command | [Render](../modules/Render.md) |
+| `tests/capture_test.cpp` | Format choice, uninitialized system, surface conversion | [Capture](../modules/Capture.md) |
 | `tests/haptics_test.cpp` | Clamp, no-op, and the fake counters | [Haptics](../modules/Haptics.md) |
 | `tests/curl_transfer_test.cpp` | `curl_transfer` against a fake libcurl | [Net](../modules/Net.md) |
 | `tests/http_test.cpp` | `HttpCall` ownership, completion queue, worker pool, URL and header parsing, `HttpClient` without a socket | [Net](../modules/Net.md) |
