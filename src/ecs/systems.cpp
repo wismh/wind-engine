@@ -13,6 +13,7 @@
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/transform.h>
 #include <engine/loc/catalog.h>
+#include <engine/log.h>
 #include <engine/render/animation.h>
 #include <engine/render/command_buffer.h>
 #include <engine/render/particles.h>
@@ -38,6 +39,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <variant>
@@ -120,6 +123,26 @@ namespace engine {
                 }
             }
         }
+
+        // Logs each bind error of one canvas once: run_bind binds every frame, and a missing binding fails every frame.
+        class BindErrorLog final : public IFatalError {
+        public:
+            BindErrorLog(const ui::UiCanvas &canvas, ui::UiInstance &instance)
+                : canvas_(canvas)
+                , instance_(instance) {}
+
+            void report(std::string_view message) override {
+                if (!instance_.reported_bind_errors.emplace(message).second) {
+                    return;
+                }
+                const std::string document = canvas_.document ? std::string(canvas_.document->hex()) : "(none)";
+                log::warn("UI document " + document + ": " + std::string(message));
+            }
+
+        private:
+            const ui::UiCanvas &canvas_;
+            ui::UiInstance &instance_;
+        };
 
         bool instance_needs_rebuild(const ui::UiInstance *instance, const ui::UiCanvas &canvas) {
             if (!canvas.document.has_value()) {
@@ -219,7 +242,8 @@ namespace engine {
                 }
                 {
                     ENGINE_UI_PROFILE(entity, Bindings);
-                    (void) ui::apply_bindings(instance->document, *canvas.data_context, nullptr,
+                    BindErrorLog errors(canvas, *instance);
+                    (void) ui::apply_bindings(instance->document, *canvas.data_context, &errors,
                                               &world.ctx<loc::Catalog>());
                 }
                 if (deps.assets == nullptr) {

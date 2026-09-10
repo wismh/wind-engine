@@ -200,10 +200,16 @@ void emit_binder(std::ostringstream& os, const std::string& name, const ui::Bind
     }
     for (const ui::BindMember& member : binder.members) {
         const std::string ident = to_identifier(member.path);
-        if (member.is_command) {
-            os << body << "vm.command(" << ident << ", vm." << ident << ");\n";
-        } else {
-            os << body << "vm.property(" << ident << ", vm." << ident << ");\n";
+        switch (member.kind) {
+            case ui::BindKind::Property:
+                os << body << "vm.property(" << ident << ", vm." << ident << ");\n";
+                break;
+            case ui::BindKind::Command:
+                os << body << "vm.command(" << ident << ", vm." << ident << ");\n";
+                break;
+            case ui::BindKind::Paint:
+                os << body << "vm.paint(" << ident << ", vm." << ident << ");\n";
+                break;
         }
     }
     os << inner << "}\n";

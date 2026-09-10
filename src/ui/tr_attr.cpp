@@ -148,6 +148,7 @@ TrParse parse_tr_attribute(std::string_view raw) {
             return error("UI {tr} argument must be a {binding} path");
         }
         parsed.args.push_back(TrArg{std::move(name), intern(*path)});
+        parsed.arg_paths.push_back(std::move(*path));
     }
 }
 

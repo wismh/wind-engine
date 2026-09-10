@@ -14,9 +14,11 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <format>
 #include <limits>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -725,108 +727,104 @@ namespace engine::ui {
             return static_cast<std::int64_t>(n);
         }
 
-        std::expected<void, UiError> bind_element(Element &element, ViewModel &vm, IFatalError *fatal, bool in_template,
-                                                  const Element *scroll_context, const engine::loc::Catalog *catalog) {
-            const auto require_property = [&](BindingId binding) -> std::expected<void, UiError> {
-                if (!is_bound(binding)) {
-                    return {};
-                }
-                if (in_template) {
-                    return {};
-                }
-                if (vm.has_property(binding)) {
-                    return {};
-                }
+        // One apply_bindings call. A failure is reported and remembered, and the walk goes on: one missing binding
+        // must not leave the rest of the document unbound.
+        struct BindPass {
+            IFatalError *fatal = nullptr;
+            const engine::loc::Catalog *catalog = nullptr;
+            const std::unordered_map<BindingId, std::string> *paths = nullptr;
+            std::optional<UiError> first_error;
+
+            void fail(UiError error, std::string_view message) {
                 if (fatal != nullptr) {
-                    fatal->report("UI binding name is not registered");
+                    fatal->report(message);
                 }
-                return std::unexpected(UiError::MissingBinding);
+                if (!first_error) {
+                    first_error = error;
+                }
+            }
+
+            void fail_missing(std::string_view what, BindingId binding) {
+                if (fatal == nullptr) {
+                    fail(UiError::MissingBinding, {});
+                    return;
+                }
+                std::string name;
+                if (const auto path = paths->find(binding); path != paths->end()) {
+                    name = '"' + path->second + '"';
+                } else {
+                    name = std::format("#{:08x}", binding.value);
+                }
+                fail(UiError::MissingBinding,
+                     std::format("UI {} binding {} is not registered on the data context", what, name));
+            }
+        };
+
+        void bind_element(Element &element, ViewModel &vm, BindPass &pass, bool in_template,
+                          const Element *scroll_context) {
+            // False (and reported) when `binding` is set but `vm` has no such property: the caller skips it.
+            const auto require_property = [&](BindingId binding, std::string_view what) {
+                if (!is_bound(binding) || in_template || vm.has_property(binding)) {
+                    return true;
+                }
+                pass.fail_missing(what, binding);
+                return false;
             };
 
-            if (auto result = require_property(element.text_binding); !result) {
-                return result;
-            }
-            if (auto result = require_property(element.content_binding); !result) {
-                return result;
-            }
-            if (auto result = require_property(element.source_binding); !result) {
-                return result;
-            }
-            if (auto result = require_property(element.items_source_binding); !result) {
-                return result;
-            }
-            if (auto result = require_property(element.pan_x_binding); !result) {
-                return result;
-            }
-            if (auto result = require_property(element.pan_y_binding); !result) {
-                return result;
-            }
-            if (auto result = require_property(element.zoom_binding); !result) {
-                return result;
-            }
-            if (auto result = require_property(element.checked_binding); !result) {
-                return result;
-            }
-            if (auto result = require_property(element.open_binding); !result) {
-                return result;
-            }
+            const bool has_text = require_property(element.text_binding, "text");
+            const bool has_content = require_property(element.content_binding, "content");
+            const bool has_source = require_property(element.source_binding, "source");
+            const bool has_items_source = require_property(element.items_source_binding, "items_source");
+            (void) require_property(element.pan_x_binding, "pan-x");
+            (void) require_property(element.pan_y_binding, "pan-y");
+            (void) require_property(element.zoom_binding, "zoom");
+            (void) require_property(element.checked_binding, "checked");
+            (void) require_property(element.open_binding, "open");
             for (const CustomPropertyBinding &custom: element.custom_property_bindings) {
-                if (auto result = require_property(custom.binding); !result) {
-                    return result;
-                }
+                (void) require_property(custom.binding, "var-" + custom.name);
             }
             if (!in_template) {
                 for (const TrArg &arg: element.tr_args) {
-                    if (auto result = require_property(arg.binding); !result) {
-                        return result;
-                    }
+                    (void) require_property(arg.binding, "{tr} argument");
                 }
             }
 
             if (is_bound(element.command_binding) && !in_template) {
                 ICommand *command = vm.find_command(element.command_binding);
-                if (command == nullptr) {
-                    if (fatal != nullptr) {
-                        fatal->report("UI binding name is not registered");
-                    }
-                    return std::unexpected(UiError::MissingBinding);
-                }
                 element.command = command;
-                // A TextInput commonly carries a command only for Enter-to-submit (canvas.cpp handle_key's
-                // Return case). Disabling the field whenever that command cannot execute yet (for example
-                // because this same field is still empty) makes it permanently untypeable: handle_text_input
-                // and handle_key both bail out on a disabled element, so it can never receive the keystroke
-                // that would make the command executable. Buttons still grey out; only TextInput is exempt.
-                if (element.kind != ElementKind::TextInput) {
+                if (command == nullptr) {
+                    pass.fail_missing("command", element.command_binding);
+                } else if (element.kind != ElementKind::TextInput) {
+                    // A TextInput commonly carries a command only for Enter-to-submit (canvas.cpp handle_key's
+                    // Return case). Disabling the field whenever that command cannot execute yet (for example
+                    // because this same field is still empty) makes it permanently untypeable: handle_text_input
+                    // and handle_key both bail out on a disabled element, so it can never receive the keystroke
+                    // that would make the command executable. Buttons still grey out; only TextInput is exempt.
                     element.disabled = !command->can_execute();
                 }
             }
 
             if (is_bound(element.paint_binding) && !in_template) {
-                IPaint *paint = vm.find_paint(element.paint_binding);
-                if (paint == nullptr) {
-                    if (fatal != nullptr) {
-                        fatal->report("UI binding name is not registered");
-                    }
-                    return std::unexpected(UiError::MissingBinding);
+                element.paint = vm.find_paint(element.paint_binding);
+                if (element.paint == nullptr) {
+                    pass.fail_missing("paint", element.paint_binding);
                 }
-                element.paint = paint;
             }
 
-            if (is_bound(element.text_binding)) {
+            if (is_bound(element.text_binding) && has_text) {
                 (void) vm.assign_property_string(element.text_binding, element.text);
             }
-            if (is_bound(element.content_binding)) {
+            if (is_bound(element.content_binding) && has_content) {
                 (void) vm.assign_property_string(element.content_binding, element.text);
             }
             if (!element.tr_key.empty() && !in_template) {
+                const engine::loc::Catalog *catalog = pass.catalog;
                 if (catalog == nullptr) {
                     if (element.text != element.tr_key) {
                         element.text = element.tr_key;
                     }
-                    if (fatal != nullptr) {
-                        fatal->report("missing string key \"" + element.tr_key + "\"");
-                        return std::unexpected(UiError::MissingString);
+                    if (pass.fatal != nullptr) {
+                        pass.fail(UiError::MissingString, "missing string key \"" + element.tr_key + "\"");
                     }
                 } else {
                     std::vector<std::string> held;
@@ -845,21 +843,17 @@ namespace engine::ui {
                     if (element.text != translated.text) {
                         element.text = std::move(translated.text);
                     }
-                    if (translated.missing_from_source && fatal != nullptr) {
-                        fatal->report("missing string key \"" + element.tr_key + "\"");
-                        return std::unexpected(UiError::MissingString);
+                    if (translated.missing_from_source && pass.fatal != nullptr) {
+                        pass.fail(UiError::MissingString, "missing string key \"" + element.tr_key + "\"");
                     }
                 }
             }
-            if (is_bound(element.source_binding) && !in_template) {
-                const auto value = vm.read_property_asset_id(element.source_binding);
-                if (!value) {
-                    if (fatal != nullptr) {
-                        fatal->report("UI binding name is not registered");
-                    }
-                    return std::unexpected(UiError::MissingBinding);
+            if (is_bound(element.source_binding) && !in_template && has_source) {
+                if (const auto value = vm.read_property_asset_id(element.source_binding)) {
+                    element.source = *value;
+                } else {
+                    pass.fail_missing("source (AssetId)", element.source_binding);
                 }
-                element.source = *value;
             }
             if (is_bound(element.pan_x_binding)) {
                 if (auto value = vm.read_property_float(element.pan_x_binding)) {
@@ -918,13 +912,11 @@ namespace engine::ui {
                 if (element.generated_owner != nullptr && child.generated_owner == nullptr) {
                     child.generated_owner = element.generated_owner;
                 }
-                if (auto result = bind_element(child, vm, fatal, nested_template, child_scroll_context, catalog);
-                    !result) {
-                    return result;
-                }
+                bind_element(child, vm, pass, nested_template, child_scroll_context);
             }
 
-            if (element.kind == ElementKind::ItemsControl && is_bound(element.items_source_binding) && !in_template) {
+            if (element.kind == ElementKind::ItemsControl && is_bound(element.items_source_binding) && !in_template &&
+                has_items_source) {
                 const Element *tmpl = nullptr;
                 for (const Element &child: element.children) {
                     if (child.kind == ElementKind::ItemTemplate) {
@@ -1132,11 +1124,8 @@ namespace engine::ui {
                                     continue;
                                 }
                                 for (std::size_t n = 0; n < expected_count; ++n) {
-                                    if (auto result = bind_element(element.generated_items[index++], *item, fatal,
-                                                                   false, child_scroll_context, catalog);
-                                        !result) {
-                                        return result;
-                                    }
+                                    bind_element(element.generated_items[index++], *item, pass, false,
+                                                 child_scroll_context);
                                 }
                             }
                         }
@@ -1168,11 +1157,7 @@ namespace engine::ui {
                             if (const auto reused = previous_by_owner.find(item);
                                 reused != previous_by_owner.end() && reused->second.size() == expected_count) {
                                 for (Element &clone: reused->second) {
-                                    if (auto result =
-                                                bind_element(clone, *item, fatal, false, child_scroll_context, catalog);
-                                        !result) {
-                                        return result;
-                                    }
+                                    bind_element(clone, *item, pass, false, child_scroll_context);
                                     element.generated_items.push_back(std::move(clone));
                                 }
                                 previous_by_owner.erase(reused);
@@ -1183,11 +1168,7 @@ namespace engine::ui {
                                 clone.kind = ElementKind::Stack;
                                 clone.children.clear();
                                 clone.generated_owner = item;
-                                if (auto result =
-                                            bind_element(clone, *item, fatal, false, child_scroll_context, catalog);
-                                    !result) {
-                                    return result;
-                                }
+                                bind_element(clone, *item, pass, false, child_scroll_context);
                                 element.generated_items.push_back(std::move(clone));
                                 continue;
                             }
@@ -1195,11 +1176,7 @@ namespace engine::ui {
                                 Element clone = node;
                                 clone.generated_items.clear();
                                 clone.generated_owner = item;
-                                if (auto result =
-                                            bind_element(clone, *item, fatal, false, child_scroll_context, catalog);
-                                    !result) {
-                                    return result;
-                                }
+                                bind_element(clone, *item, pass, false, child_scroll_context);
                                 element.generated_items.push_back(std::move(clone));
                             }
                         }
@@ -1213,7 +1190,6 @@ namespace engine::ui {
                     }
                 }
             }
-            return {};
         }
 
         const Element *find_by_kind_const(const Element &root, ElementKind kind) {
@@ -1292,7 +1268,12 @@ namespace engine::ui {
 
     std::expected<void, UiError> apply_bindings(UiDocument &document, ViewModel &data_context, IFatalError *fatal,
                                                 const engine::loc::Catalog *catalog) {
-        return bind_element(document.root, data_context, fatal, false, nullptr, catalog);
+        BindPass pass{fatal, catalog, &document.binding_paths};
+        bind_element(document.root, data_context, pass, false, nullptr);
+        if (pass.first_error) {
+            return std::unexpected(*pass.first_error);
+        }
+        return {};
     }
 
     void layout(UiDocument &document, const render::Rect &canvas_rect, IUiPainter *painter, bool partial) {
