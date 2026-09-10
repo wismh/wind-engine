@@ -27,6 +27,7 @@
 #include <engine/ecs/world_asset.h>
 #include <engine/ecs/world_io.h>
 #include <engine/ecs/world_serializer.h>
+#include <engine/capture/capture_system.h>
 #include <engine/haptics/haptics_system.h>
 #include <engine/igame.h>
 #include <engine/loc/catalog.h>
