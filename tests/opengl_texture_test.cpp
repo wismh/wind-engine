@@ -25,6 +25,44 @@ TEST(OpenGLFactory, ContextActivatorIsInvokedOnResourceCreation) {
     EXPECT_EQ(activator_calls, 3);
 }
 
+TEST(OpenGLFactory, DynamicTextureCreationRunsTheActivatorAndRejectsAnEmptySize) {
+    int activator_calls = 0;
+    engine::render::OpenGLFactory factory([&activator_calls] {
+        ++activator_calls;
+    });
+
+    EXPECT_EQ(factory.create_dynamic_texture(engine::render::DynamicTextureDesc{}), nullptr);
+    EXPECT_EQ(activator_calls, 1);
+    EXPECT_EQ(factory.create_dynamic_texture(engine::render::DynamicTextureDesc{.width = 4, .height = 0}), nullptr);
+    EXPECT_EQ(factory.create_dynamic_texture(engine::render::DynamicTextureDesc{.width = -1, .height = 4}), nullptr);
+}
+
+TEST(OpenGLTexture, FlipIntoMatchesFlipAndReusesTheBuffer) {
+    const std::vector<std::uint8_t> input = {
+            1, 2, 3, 4, 5, 6, 7, 8,
+            9, 10, 11, 12, 13, 14, 15, 16,
+    };
+    std::vector<std::uint8_t> out;
+    ASSERT_TRUE(engine::render::flip_image_vertically_into(input, 2, 2, out));
+    EXPECT_EQ(out, engine::render::flip_image_vertically(input, 2, 2));
+
+    out.reserve(64);
+    const std::uint8_t* storage = out.data();
+    ASSERT_TRUE(engine::render::flip_image_vertically_into(input, 2, 2, out));
+    EXPECT_EQ(out.data(), storage);
+}
+
+TEST(OpenGLTexture, FlipIntoRefusesBadInputAndLeavesTheBufferAlone) {
+    const std::vector<std::uint8_t> input(16, 7);
+    std::vector<std::uint8_t> out{1, 2, 3};
+
+    EXPECT_FALSE(engine::render::flip_image_vertically_into(input, 0, 2, out));
+    EXPECT_FALSE(engine::render::flip_image_vertically_into(input, 2, -1, out));
+    // 3x2 needs 24 bytes.
+    EXPECT_FALSE(engine::render::flip_image_vertically_into(input, 3, 2, out));
+    EXPECT_EQ(out, (std::vector<std::uint8_t>{1, 2, 3}));
+}
+
 TEST(OpenGLFactory, SetContextActivatorUpdatesCallback) {
     int first_calls = 0;
     int second_calls = 0;
