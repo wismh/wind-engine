@@ -38,6 +38,7 @@ Product name: Wind. CMake target and C++ namespace: `engine`. Build instructions
 | [UI](modules/UI.md) | Documents, CSS, layout, input, paint, MVVM |
 | [Localization](modules/Localization.md) | String tables and `{tr}` |
 | [Audio](modules/Audio.md) | SFX pool, music, looping handles |
+| [Capture](modules/Capture.md) | Physical camera: devices, permission, RGBA frames |
 | [Haptics](modules/Haptics.md) | Duration and intensity vibration |
 | [Net](modules/Net.md) | HTTP requests owned by the caller |
 | [Process](modules/Process.md) | Child processes owned by the caller, independent programs |
