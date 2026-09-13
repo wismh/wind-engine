@@ -79,6 +79,11 @@ public:
     // the property untouched when `id` isn't registered or was registered with a non-string T.
     bool write_property_string(BindingId id, std::string_view value);
     [[nodiscard]] std::vector<ViewModel*> read_item_source(BindingId id) const;
+    // True when `id` was registered as a `Bindable<std::shared_ptr<T>>` of view-models: the source of a `data-context`.
+    [[nodiscard]] bool has_scope(BindingId id) const;
+    // The child view-model a `data-context="{id}"` element binds its subtree against. Null when `id` is not a scope or
+    // holds no view-model; the caller keeps the pointer for as long as the document reads from it.
+    [[nodiscard]] std::shared_ptr<ViewModel> read_scope(BindingId id) const;
     [[nodiscard]] ICommand* find_command(BindingId id);
     [[nodiscard]] const ICommand* find_command(BindingId id) const;
     [[nodiscard]] IPaint* find_paint(BindingId id);
@@ -89,6 +94,11 @@ public:
 
     template<typename T>
     void property(BindingId id, BindableList<std::shared_ptr<T>>& list);
+
+    // A child view-model for a `data-context="{id}"` element. Replacing it (or setting it to null) makes the document
+    // bind that element's subtree again.
+    template<typename T>
+    void property(BindingId id, Bindable<std::shared_ptr<T>>& child);
 
     void command(BindingId id, ICommand& command);
     void paint(BindingId id, IPaint& paint);
@@ -104,6 +114,7 @@ private:
         void (*write_float)(void*, float) = nullptr;
         void (*write_string)(void*, std::string_view) = nullptr;
         std::vector<ViewModel*> (*items)(void*) = nullptr;
+        std::shared_ptr<ViewModel> (*scope)(void*) = nullptr;
     };
 
     static inline std::atomic<std::uint64_t> g_serial{0};
@@ -195,6 +206,26 @@ void ViewModel::property(BindingId id, BindableList<std::shared_ptr<T>>& list) {
             }
         }
         return out;
+    };
+    properties_.insert_or_assign(id, ref);
+    ++registration_version_;
+}
+
+template<typename T>
+void ViewModel::property(BindingId id, Bindable<std::shared_ptr<T>>& child) {
+    static_assert(std::is_base_of_v<ViewModel, T>, "a data-context must be a ViewModel");
+    PropertyRef ref;
+    ref.bindable = &child;
+    ref.version = [](const void *ptr) { return static_cast<const Bindable<std::shared_ptr<T>> *>(ptr)->version(); };
+    ref.scope = [](void* ptr) -> std::shared_ptr<ViewModel> {
+        return static_cast<Bindable<std::shared_ptr<T>>*>(ptr)->get();
+    };
+    ref.store_string = [](void*, std::string& dest) {
+        if (!dest.empty()) {
+            dest.clear();
+            return true;
+        }
+        return false;
     };
     properties_.insert_or_assign(id, ref);
     ++registration_version_;
