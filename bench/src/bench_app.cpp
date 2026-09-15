@@ -105,8 +105,8 @@ void BenchApp::set_up() {
     }
     const engine::ui::WindowSize size = engine::ui::window_size_for(world(), engine::kPrimaryWindow);
     const engine::render::Rect bounds{0.0f, 0.0f, static_cast<float>(size.width), static_cast<float>(size.height)};
-    // The engine's bind pass drops this error and leaves the rest of the tree unbound; a run on such a tree measures
-    // the wrong scene.
+    // The engine's bind pass only logs this error and binds the rest; a run on a tree with a hole measures the wrong
+    // scene.
     if (!engine::ui::apply_bindings(instance->document, *scene_->view_model())) {
         fail("a binding of the document is not registered on its view-model");
         return;

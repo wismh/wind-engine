@@ -243,7 +243,7 @@ TEST(UiPopup, CodegenScanRegistersOpen) {
     const auto open = std::find_if(members.begin(), members.end(),
             [](const engine::ui::BindMember& member) { return member.path == "menuOpen"; });
     ASSERT_NE(open, members.end());
-    EXPECT_FALSE(open->is_command);
+    EXPECT_EQ(open->kind, engine::ui::BindKind::Property);
 }
 
 TEST(UiPopup, BuilderMakesPopup) {

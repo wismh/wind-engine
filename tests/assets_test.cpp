@@ -999,6 +999,22 @@ TEST(Assets, CodegenEmitsUiBindStructs) {
     EXPECT_NE(header.find("engine::ui::intern(\"title\")"), std::string::npos);
 }
 
+TEST(Assets, CodegenBindsPaintAndScrollBindings) {
+    TempTree tree;
+    write_ui_asset(tree.path / "ui" / "map.xml",
+            R"(<Canvas><ScrollView scroll-y="{binding logScroll}"><Component paint="{binding world}"/></ScrollView>
+</Canvas>)",
+            kUiGuid);
+
+    const auto scanned = engine::codegen_scan(tree.path);
+    ASSERT_TRUE(scanned.has_value()) << (scanned ? "" : scanned.error().message);
+    const std::string& header = scanned->asset_ids_header;
+
+    EXPECT_NE(header.find("vm.paint(world, vm.world);"), std::string::npos) << header;
+    EXPECT_EQ(header.find("vm.property(world"), std::string::npos) << header;
+    EXPECT_NE(header.find("vm.property(logScroll, vm.logScroll);"), std::string::npos) << header;
+}
+
 TEST(Assets, CodegenHeaderOmitsBindingIdWithoutUi) {
     TempTree tree;
     write_file(tree.path / "textures" / "player.png", "png");
