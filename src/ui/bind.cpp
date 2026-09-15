@@ -355,6 +355,8 @@ namespace engine::ui {
 
         void bind_element(BindPass &pass, Element &element, ViewModel &vm, bool in_template,
                           const Element *scroll_context);
+        void bind_element_body(BindPass &pass, Element &element, ViewModel &vm, bool in_template,
+                               const Element *scroll_context);
 
         // False (and reported) when `binding` is set but `vm` has no such property: the caller skips it.
         bool require_property(BindPass &pass, ViewModel &vm, bool in_template, BindingId binding,
@@ -379,6 +381,20 @@ namespace engine::ui {
             }
         }
 
+        // Gives every element below a scope element the scope's view-model, replacing the owner it had: a child that
+        // was swapped leaves no element pointing at the old one. A nested ItemsControl keeps its rows (they live in
+        // `generated_items`, each with its own item), and a template stays a blueprint.
+        void stamp_scope_owner(Element &element, ViewModel &scope) {
+            for (Element &child : element.children) {
+                if (child.kind == ElementKind::ItemTemplate) {
+                    continue;
+                }
+                child.generated_owner = &scope;
+                child.generated_serial = scope.serial();
+                stamp_scope_owner(child, scope);
+            }
+        }
+
         void clear_row_owner(Element &element) {
             element.generated_owner = nullptr;
             element.generated_serial = 0;
@@ -392,8 +408,54 @@ namespace engine::ui {
         // `refresh` runs it from a slot, with the bound rows already carrying their slots.
         void reconcile_items(BindPass &pass, Element &element, ViewModel &vm, const Element *scroll_context);
 
+        // A `data-context` element: reads the child view-model, hides the element while there is none, and otherwise
+        // binds the element and its subtree against the child. `generated_owner` of the subtree becomes the child, so
+        // the commands, drags and writes that input resolves through it reach the child too. A scope element inside a
+        // template is not bound (a template is a blueprint), and one on the root of a row is refused by the reconcile.
+        void bind_scope(BindPass &pass, Element &element, ViewModel &vm, const Element *scroll_context) {
+            const BindingId binding = element.data_context_binding;
+            const auto set_hidden = [&](bool hidden) {
+                if (element.hidden_by_scope != hidden) {
+                    element.hidden_by_scope = hidden;
+                    mark_dirty(*pass.document, element, kDirtyStyle | kDirtyLayout | kDirtyPaint, true);
+                }
+            };
+            if (!vm.has_scope(binding)) {
+                if (vm.has_property(binding)) {
+                    pass.fail_type("data-context", "a Bindable<std::shared_ptr<T>> of a ViewModel", binding);
+                } else {
+                    pass.fail_missing("data-context", binding);
+                }
+                set_hidden(true);
+                return;
+            }
+            pass.count_read();
+            std::shared_ptr<ViewModel> child = vm.read_scope(binding);
+            if (pass.collecting) {
+                add_slot(pass, element, BindField::DataContext, 0, binding, vm);
+                pass.table().slots.back().held = child;
+            }
+            set_hidden(child == nullptr);
+            if (child == nullptr) {
+                return;
+            }
+            element.generated_owner = child.get();
+            element.generated_serial = child->serial();
+            stamp_scope_owner(element, *child);
+            bind_element_body(pass, element, *child, false, scroll_context);
+        }
+
         void bind_element(BindPass &pass, Element &element, ViewModel &vm, bool in_template,
                           const Element *scroll_context) {
+            if (is_bound(element.data_context_binding) && !in_template) {
+                bind_scope(pass, element, vm, scroll_context);
+                return;
+            }
+            bind_element_body(pass, element, vm, in_template, scroll_context);
+        }
+
+        void bind_element_body(BindPass &pass, Element &element, ViewModel &vm, bool in_template,
+                               const Element *scroll_context) {
             const bool has_text = require_property(pass, vm, in_template, element.text_binding, "text");
             const bool has_content = require_property(pass, vm, in_template, element.content_binding, "content");
             const bool has_source = require_property(pass, vm, in_template, element.source_binding, "source");
@@ -894,6 +956,12 @@ namespace engine::ui {
             };
             // A cloned row is bound against its own item and, with its subtree, wants every pass.
             const auto bind_new = [&](Element &clone, ViewModel &item) {
+                if (is_bound(clone.data_context_binding)) {
+                    // The row is known by its item (`generated_owner`); a scope on it would take that over.
+                    pass.fail(UiError::InvalidMarkup,
+                              "UI data-context cannot sit on the root of an ItemTemplate row; wrap it in a Stack");
+                    clone.data_context_binding = {};
+                }
                 index_subtree(arena, clone, element.handle, 0, true, true);
                 const bool was_collecting = pass.collecting;
                 pass.collecting = true;
@@ -1051,6 +1119,7 @@ namespace engine::ui {
                 }
                 case BindField::Command:
                 case BindField::Paint:
+                case BindField::DataContext: // apply_bindings builds the table again
                     break;
             }
             return true;
@@ -1147,6 +1216,12 @@ namespace engine::ui {
                 continue;
             }
             slot.seen = now;
+            if (slot.field == BindField::DataContext) {
+                // The child changed: the slots below it read the old one, so everything is bound again.
+                build_table(pass, data_context);
+                return pass.first_error ? std::expected<void, UiError>(std::unexpected(*pass.first_error))
+                                        : std::expected<void, UiError>{};
+            }
             // A refresh may reconcile: it drops the slots of the rows that left and appends the new rows' slots. A
             // row's slots come after its ItemsControl's, so nothing at or before this index moves; copy it anyway, the
             // reference does not survive the append.
