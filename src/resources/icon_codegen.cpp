@@ -19,7 +19,9 @@
 
 #include "importers.h"
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -109,6 +111,31 @@ render::TextureDesc icon_resize_rgba(const render::TextureDesc& src, int size) {
     dst.rgba.assign(static_cast<std::size_t>(size) * static_cast<std::size_t>(size) * 4u, 0u);
 
     stbir_resize_uint8_linear(src.rgba.data(), src.width, src.height, 0, dst.rgba.data(), size, size, 0, STBIR_RGBA);
+    return dst;
+}
+
+render::TextureDesc fit_within(const render::TextureDesc& image, int max_edge) {
+    const std::size_t expected =
+            static_cast<std::size_t>(image.width) * static_cast<std::size_t>(image.height) * 4u;
+    if (max_edge < 1 || image.width <= 0 || image.height <= 0 || image.rgba.size() != expected) {
+        return {};
+    }
+    if (image.width <= max_edge && image.height <= max_edge) {
+        return image;
+    }
+    const bool wide = image.width >= image.height;
+    const double scale = static_cast<double>(max_edge) / static_cast<double>(wide ? image.width : image.height);
+    const auto scaled = [scale, max_edge](int edge) {
+        return std::clamp(static_cast<int>(std::lround(static_cast<double>(edge) * scale)), 1, max_edge);
+    };
+    render::TextureDesc dst;
+    dst.width = wide ? max_edge : scaled(image.width);
+    dst.height = wide ? scaled(image.height) : max_edge;
+    dst.filter = image.filter;
+    dst.wrap = image.wrap;
+    dst.rgba.assign(static_cast<std::size_t>(dst.width) * static_cast<std::size_t>(dst.height) * 4u, 0u);
+    stbir_resize_uint8_linear(image.rgba.data(), image.width, image.height, 0, dst.rgba.data(), dst.width, dst.height,
+            0, STBIR_RGBA);
     return dst;
 }
 
