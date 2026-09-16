@@ -2,8 +2,14 @@
 
 #include "process/process_call_state.h"
 
-#if defined(_WIN32)
+#include "process/posix_process.h"
 #include "process/windows_process.h"
+
+// The platform's process backend: both classes have the same shape.
+#if defined(_WIN32)
+#define ENGINE_PROCESS_NATIVE 1
+#elif defined(ENGINE_PROCESS_POSIX)
+#define ENGINE_PROCESS_NATIVE 1
 #endif
 
 #include <algorithm>
@@ -13,6 +19,12 @@
 
 namespace engine {
 
+#if defined(_WIN32)
+using NativeProcess = WindowsProcess;
+#elif defined(ENGINE_PROCESS_POSIX)
+using NativeProcess = PosixProcess;
+#endif
+
 struct ProcessLauncher::Impl {
     // Calls whose program never started. Their error reaches them on the next poll.
     struct Failed {
@@ -21,10 +33,10 @@ struct ProcessLauncher::Impl {
     };
     std::vector<Failed> failed;
 
-#if defined(_WIN32)
+#if defined(ENGINE_PROCESS_NATIVE)
     struct Running {
         std::shared_ptr<ProcessCallState> state;
-        std::unique_ptr<WindowsProcess> process;
+        std::unique_ptr<NativeProcess> process;
         std::optional<int> exit_code;
         bool done = false;
     };
@@ -76,15 +88,15 @@ void ProcessLauncher::dispose() {
         entry.state->cancel();
     }
     impl_->failed.clear();
-#if defined(_WIN32)
+#if defined(ENGINE_PROCESS_NATIVE)
     impl_->end_running();
 #endif
 }
 
 ProcessCall ProcessLauncher::run(ProcessDesc desc) {
     auto state = std::make_shared<ProcessCallState>();
-#if defined(_WIN32)
-    if (auto started = WindowsProcess::start(desc, state)) {
+#if defined(ENGINE_PROCESS_NATIVE)
+    if (auto started = NativeProcess::start(desc, state)) {
         impl_->running.push_back(Impl::Running{.state = state, .process = std::move(*started)});
     } else {
         impl_->failed.push_back(Impl::Failed{.state = state, .error = started.error()});
@@ -99,6 +111,8 @@ ProcessCall ProcessLauncher::run(ProcessDesc desc) {
 std::expected<void, ProcessError> ProcessLauncher::launch(const ProcessDesc& desc) {
 #if defined(_WIN32)
     return launch_windows_process(desc);
+#elif defined(ENGINE_PROCESS_POSIX)
+    return launch_posix_process(desc);
 #else
     (void)desc;
     return std::unexpected(ProcessError::Unsupported);
@@ -106,7 +120,7 @@ std::expected<void, ProcessError> ProcessLauncher::launch(const ProcessDesc& des
 }
 
 bool ProcessLauncher::is_supported() const {
-#if defined(_WIN32)
+#if defined(ENGINE_PROCESS_NATIVE)
     return true;
 #else
     return false;
@@ -120,7 +134,7 @@ void ProcessLauncher::poll() {
         }
     }
     impl_->failed.clear();
-#if defined(_WIN32)
+#if defined(ENGINE_PROCESS_NATIVE)
     impl_->poll_running();
 #endif
 }
