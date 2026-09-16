@@ -168,6 +168,10 @@ std::expected<void, EngineError> EngineHost::open_primary(const WindowDesc& desc
             .audio = impl_->audio.get(),
             .commands_for_window = [&runtime](WindowId id) { return runtime.commands_for_window(id); },
             .ensure_ui_image = [&runtime, &assets](WindowId window, AssetId id) {
+                if (const render::TextureDesc* const made = assets.runtime_texture(id)) {
+                    (void)runtime.add_image_for_window(window, id, *made);
+                    return;
+                }
                 (void)runtime.add_image_for_window(window, id, *assets.get<render::TextureDesc>(id));
             },
             .ensure_ui_font = [&runtime, &assets](WindowId window, AssetId id) {
