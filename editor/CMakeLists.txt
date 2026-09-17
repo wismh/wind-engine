@@ -39,6 +39,9 @@ set(_wind_editor_parts
 add_executable(wind_editor src/main.cpp src/editor_app.cpp ${_wind_editor_parts})
 set_property(TARGET wind_editor PROPERTY ENGINE_RUNTIME_ASSETS_DIR editor)
 engine_configure_app(wind_editor)
+# Not a .app bundle on macOS (engine_configure_app makes every executable one): the SDK is bin/wind_editor with
+# assets/ and libengine beside it, and the launcher starts it by that path.
+set_target_properties(wind_editor PROPERTIES MACOSX_BUNDLE OFF)
 target_include_directories(wind_editor PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 if(ENGINE_BUILD_TESTS)

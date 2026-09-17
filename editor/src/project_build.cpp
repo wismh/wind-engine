@@ -96,11 +96,16 @@ void ProjectBuild::start(BuildSetup setup) {
         start_build(pending_lines_);
         return;
     }
-    run(Step::Configure,
-            {"-S", path_text(setup_.project), "-B", path_text(build_dir), "-DCMAKE_PREFIX_PATH=" + path_text(setup_.sdk),
-                    "-DWind_DIR=" + path_text(setup_.sdk / "cmake"),
-                    "-DCMAKE_CONFIGURATION_TYPES=" + game_configurations(setup_.sdk_config)},
-            pending_lines_);
+    std::vector<std::string> arguments{"-S", path_text(setup_.project), "-B", path_text(build_dir)};
+#if !defined(_WIN32)
+    // CMake's default here is single-configuration Makefiles, which cannot hold DebugGame and Release together.
+    // (On Windows the default is Visual Studio, which can.) A build directory that exists keeps its generator.
+    arguments.insert(arguments.end(), {"-G", "Ninja Multi-Config"});
+#endif
+    arguments.insert(arguments.end(),
+            {"-DCMAKE_PREFIX_PATH=" + path_text(setup_.sdk), "-DWind_DIR=" + path_text(setup_.sdk / "cmake"),
+                    "-DCMAKE_CONFIGURATION_TYPES=" + game_configurations(setup_.sdk_config)});
+    run(Step::Configure, std::move(arguments), pending_lines_);
 }
 
 void ProjectBuild::cancel() {
