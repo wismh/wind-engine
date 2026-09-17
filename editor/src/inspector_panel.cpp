@@ -12,6 +12,7 @@
 #include <format>
 #include <iterator>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <variant>
 
@@ -106,9 +107,11 @@ void InspectorPanel::refresh() {
             asset_revision_ = selection_->revision();
             show_asset(*asset);
         }
+        show_preview();
         return;
     }
     asset_revision_.reset();
+    hide_preview();
     if (const auto* element = std::get_if<UiElementSelection>(&target)) {
         if (game_ != nullptr) {
             show_ui_element(*element);
@@ -141,6 +144,44 @@ void InspectorPanel::show_nothing(std::string title) {
     view_model_->subtitle = std::string(kSelectHint);
     show_sections({});
     show_add(nullptr, {}, false);
+}
+
+void InspectorPanel::set_previews(ThumbnailService* previews) {
+    previews_ = previews;
+    preview_asset_.reset();
+    hide_preview();
+}
+
+void InspectorPanel::hide_preview() {
+    preview_asset_.reset();
+    view_model_->previewDisplay = std::string("none");
+}
+
+void InspectorPanel::show_preview() {
+    const auto* asset = std::get_if<AssetSelection>(&selection_->target());
+    if (previews_ == nullptr || asset == nullptr || asset->directory || !asset->key.ends_with(".png")) {
+        hide_preview();
+        return;
+    }
+    if (!preview_asset_ || !(*preview_asset_ == *asset) || preview_revision_ != selection_->revision()) {
+        preview_asset_ = *asset;
+        preview_revision_ = selection_->revision();
+        std::error_code error;
+        const auto written = std::filesystem::last_write_time(asset->path, error);
+        preview_stamp_ = ThumbnailStamp{asset->size,
+                error ? 0 : static_cast<std::int64_t>(written.time_since_epoch().count())};
+    }
+    const std::optional<PreviewImage> image =
+            previews_->find_or_request_preview(asset->key, asset->path, preview_stamp_);
+    if (!image) {
+        view_model_->previewDisplay = std::string("none");
+        return;
+    }
+    // The image is at most kPreviewEdge on its longer side; the box is the same, so it never outgrows a narrow tab.
+    view_model_->preview = image->id;
+    view_model_->previewWidth = std::format("{}px", image->width);
+    view_model_->previewHeight = std::format("{}px", image->height);
+    view_model_->previewDisplay = std::string("flex");
 }
 
 void InspectorPanel::show_asset(const AssetSelection& asset) {

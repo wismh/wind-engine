@@ -16,6 +16,8 @@ struct ProjectEntry {
     bool directory = false;
     // Bytes of a file; 0 for a folder.
     std::uintmax_t size = 0;
+    // Last write time of a file, in file-clock ticks; 0 for a folder or when it could not be read.
+    std::int64_t modified = 0;
     // Folders first, then files, each by name ignoring case.
     std::vector<ProjectEntry> children;
 };
