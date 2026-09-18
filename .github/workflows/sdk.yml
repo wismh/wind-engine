@@ -1,0 +1,87 @@
+name: SDK
+
+# The editor build and its SDK on every desktop platform: build, engine and editor tests, install, and a game built
+# against the installed SDK (tools/ci/sdk_smoke.sh). docs/tech/build/CMake.md
+
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: sdk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux (Ubuntu 24.04, GCC)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build xvfb \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
+            libxkbcommon-dev libwayland-dev libdecor-0-dev libdrm-dev libgbm-dev libgl1-mesa-dev libgles2-mesa-dev \
+            libegl1-mesa-dev libgl1-mesa-dri libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libibus-1.0-dev
+      - name: Configure
+        run: cmake --preset linux-editor
+      - name: Build
+        run: cmake --build build-editor --config Release --parallel
+      - name: Tests
+        run: xvfb-run -a ctest --test-dir build-editor -C Release --output-on-failure --parallel 4
+      - name: Install the SDK
+        run: cmake --install build-editor --config Release --prefix out/sdk
+      - name: Game against the SDK
+        run: tools/ci/sdk_smoke.sh out/sdk out/smoke
+      - name: Editor plays the game
+        run: xvfb-run -a tools/ci/sdk_smoke.sh out/sdk out/smoke-e2e --e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-logs
+          path: |
+            out/smoke*/game/build-editor/CMakeFiles/CMakeConfigureLog.yaml
+            out/sdk/bin/game.log
+          if-no-files-found: ignore
+
+  macos:
+    name: macOS (arm64, Apple Clang)
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure
+        run: cmake --preset macos-editor
+      - name: Build
+        run: cmake --build build-editor --config Release --parallel
+      - name: Tests
+        run: ctest --test-dir build-editor -C Release --output-on-failure --parallel 4
+      - name: Install the SDK
+        run: cmake --install build-editor --config Release --prefix out/sdk
+      - name: Game against the SDK
+        run: tools/ci/sdk_smoke.sh out/sdk out/smoke
+
+  windows:
+    name: Windows (MSVC)
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure
+        run: >
+          cmake -S . -B build-editor -G "Visual Studio 17 2022" -DENGINE_BUILD_TESTS=ON -DENGINE_WITH_WINDOW=ON
+          -DENGINE_WITH_AUDIO=ON -DENGINE_EDITOR=ON
+      - name: Build
+        run: cmake --build build-editor --config Release --parallel
+      - name: Tests
+        run: ctest --test-dir build-editor -C Release --output-on-failure --parallel 4
