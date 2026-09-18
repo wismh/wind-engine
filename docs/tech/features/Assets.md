@@ -84,6 +84,12 @@ Meshes on the GPU: [Render](../modules/Render.md#meshes).
 
 Eleven frozen GUIDs. The splash image and the tree chevron are `importer = "ui_image"`. The list is [Resources](../modules/Resources.md) and `builtin_assets/README.md`.
 
+## Runtime textures
+
+`AssetsDb::set_runtime_texture(id, desc)` keeps a `TextureDesc` made at runtime (the editor's thumbnails) under an id that is not in the catalog; `runtime_texture` finds it and `clear_runtime_textures` drops them all. The host's `ensure_ui_image` looks there before the catalog, so a UI `Image` or `background-image` can name such an id like any other. Main thread only. A window that already registered an id keeps those pixels until its UI cache is reset, so a changed picture needs a new id.
+
+`<engine/resources/image_io.h>` is the CPU-only half of image work: `decode_png_rgba`, `encode_png_rgba`, and `fit_within(image, max_edge)` (linear downscale keeping the aspect; an image that fits is returned as it is). They touch no GPU and no `AssetsDb`, so a worker thread may call them.
+
 ## See also
 
 - [Asset Codegen](../build/Asset%20Codegen.md)
