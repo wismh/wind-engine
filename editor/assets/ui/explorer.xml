@@ -26,7 +26,9 @@
           <Stack class="rowline" direction="horizontal" var-row="{binding rowFill}" var-depth="{binding depth}"
                   command="{binding select}">
             <Checkbox class="expander" checked="{binding expanded}" command="{binding toggle}"/>
-            <Svg class="entry-icon" source="{binding icon}" command="{binding select}"/>
+            <Svg class="entry-icon" if="{binding noThumbnail}" source="{binding icon}" command="{binding select}"/>
+            <Image class="entry-icon" if="{binding hasThumbnail}" source="{binding thumbnail}"
+                    command="{binding select}"/>
             <Button class="row entry" var-row-display="{binding rowDisplay}" command="{binding select}"
                     content="{binding label}"/>
             <TextInput class="rename entry" var-rename-display="{binding renameDisplay}" text="{binding editText}"
@@ -64,7 +66,9 @@
       <ItemsControl id="grid-tiles" class="tiles" items_source="{binding tiles}">
         <ItemTemplate>
           <Stack class="tile" direction="vertical" var-row="{binding rowFill}" command="{binding select}">
-            <Svg class="tile-icon" source="{binding icon}" command="{binding select}"/>
+            <Svg class="tile-icon" if="{binding noThumbnail}" source="{binding icon}" command="{binding select}"/>
+            <Image class="tile-icon" if="{binding hasThumbnail}" source="{binding thumbnail}"
+                    command="{binding select}"/>
             <Button class="tile-name" var-row-display="{binding rowDisplay}" command="{binding select}"
                     content="{binding label}"/>
             <TextInput class="tile-rename" var-rename-display="{binding renameDisplay}" text="{binding editText}"
