@@ -7,6 +7,7 @@
 #include "inspector_section.h"
 #include "inspector_section_view_model.h"
 #include "inspector_view_model.h"
+#include "thumbnail_cache.h"
 
 #include <cstdint>
 #include <functional>
@@ -51,6 +52,8 @@ public:
     // The Edit Mode preview world an entity selection is read from when not playing.
     void set_edit_world(engine::ecs::World* edit_world);
     void set_assets(engine::AssetsDb* assets);
+    // Makes the preview of a selected texture. Not owned; nullptr shows no preview.
+    void set_previews(ThumbnailService* previews);
     // Entity edits are pushed here. `on_history` runs after a step is recorded (the world view syncs its dirty flag).
     void set_journal(CommandHistory* journal, std::function<void()> on_history);
 
@@ -83,12 +86,20 @@ private:
     [[nodiscard]] bool can_edit() const;
     [[nodiscard]] const EntitySelection* edited_entity() const;
     void note_history();
+    // The preview of the selected file when it is a PNG, otherwise none. Each refresh: the image may still be coming.
+    void show_preview();
+    void hide_preview();
 
     const EditorSelection* selection_;
     std::shared_ptr<InspectorViewModel> view_model_;
     engine::ecs::World* game_ = nullptr;
     engine::ecs::World* edit_world_ = nullptr;
     engine::AssetsDb* assets_ = nullptr;
+    ThumbnailService* previews_ = nullptr;
+    // The selected PNG while its preview is shown or coming.
+    std::optional<AssetSelection> preview_asset_;
+    ThumbnailStamp preview_stamp_;
+    std::uint64_t preview_revision_ = 0;
     CommandHistory* journal_ = nullptr;
     std::function<void()> on_history_;
     bool refreshing_ = false;

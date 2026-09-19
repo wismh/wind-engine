@@ -206,7 +206,7 @@ Checkbox.expander:disabled {
 }
 
 /* Project rows: a 16 px icon between the expander and the name. The name loses another 20 px. */
-Svg.entry-icon {
+Svg.entry-icon, Image.entry-icon {
   width: 16;
   height: 16;
   margin: 3 4 3 0;
@@ -265,7 +265,7 @@ ItemsControl.tiles {
   background: var(--row, #00000000);
 }
 
-Svg.tile-icon {
+Svg.tile-icon, Image.tile-icon {
   width: 32;
   height: 32;
 }
@@ -411,6 +411,23 @@ ScrollView.sections {
    so headings and the add row lay out with nothing to paint. */
 .inspector-body {
   width: 100%;
+}
+
+/* The selected texture under the sections: a dark well with the image centered in it. */
+.preview {
+  width: 100%;
+  margin: 8 0 0 0;
+  padding: 8;
+  background: #1b1d21;
+  border-width: 1;
+  border-color: #121417;
+  align-items: center;
+  display: var(--preview-display, none);
+}
+
+.preview-image {
+  width: var(--preview-width, 0px);
+  height: var(--preview-height, 0px);
 }
 
 .inspector-section {

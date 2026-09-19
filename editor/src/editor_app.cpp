@@ -250,6 +250,7 @@ void EditorApp::on_frame_end() {
     if (assets_watch_.poll(std::chrono::steady_clock::now())) {
         panels_->explorer().rescan();
     }
+    panels_->explorer().poll_thumbnails(host_.services().assets);
     if (std::string notice = panels_->explorer().take_notice(); !notice.empty()) {
         toolbar_->show_status(std::move(notice));
     }

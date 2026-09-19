@@ -1167,6 +1167,10 @@ public:
     engine::ui::Bindable<std::string> title;
     engine::ui::Bindable<std::string> subtitle;
     engine::ui::BindableList<std::shared_ptr<InspectorSectionVm>> sections;
+    engine::ui::Bindable<engine::AssetId> preview;
+    engine::ui::Bindable<std::string> previewDisplay{std::string("none")};
+    engine::ui::Bindable<std::string> previewWidth{std::string("0px")};
+    engine::ui::Bindable<std::string> previewHeight{std::string("0px")};
     engine::ui::Bindable<std::string> addDisplay{std::string("flex")};
     engine::ui::BindableList<std::shared_ptr<InspectorSectionVm>> addables;
 
@@ -1174,6 +1178,10 @@ public:
         property(engine::ui::intern("title"), title);
         property(engine::ui::intern("subtitle"), subtitle);
         property(engine::ui::intern("sections"), sections);
+        property(engine::ui::intern("preview"), preview);
+        property(engine::ui::intern("previewDisplay"), previewDisplay);
+        property(engine::ui::intern("previewWidth"), previewWidth);
+        property(engine::ui::intern("previewHeight"), previewHeight);
         property(engine::ui::intern("addDisplay"), addDisplay);
         property(engine::ui::intern("addables"), addables);
         command(engine::ui::intern("toggleAdd"), toggle_add_);

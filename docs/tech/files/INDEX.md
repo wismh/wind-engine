@@ -198,6 +198,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/resources/importers.h` | Those parsers, and `encode_png_rgba` | [Assets](../features/Assets.md) |
 | `src/resources/meta.cpp` | TOML `.meta` and cooked catalog parse | [Resources](../modules/Resources.md) |
 | `src/resources/png_decode.cpp` | PNG bytes to RGBA `TextureDesc` | [Icon Codegen](../build/Icon%20Codegen.md) |
+| `include/engine/resources/image_io.h` | `decode_png_rgba`, `encode_png_rgba`, `fit_within` (CPU only) | [Assets](../features/Assets.md#runtime-textures) |
 | `src/resources/png_encode.cpp` | RGBA `TextureDesc` to PNG bytes (`encode_png_rgba`) | [Icon Codegen](../build/Icon%20Codegen.md) |
 | `src/resources/stb_image.h` | Vendored PNG/image decoder | [Resources](../modules/Resources.md) |
 | `src/resources/stb_image_resize2.h` | Vendored resampler used by icon codegen | [Icon Codegen](../build/Icon%20Codegen.md) |
@@ -618,6 +619,8 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/asset_sync.h` | `sync_assets`, `AssetSyncCounts` | [Editor](../features/Editor.md) |
 | `editor/src/asset_watch.cpp` | Debounced fingerprint of `assets/`, sync | [Editor](../features/Editor.md) |
 | `editor/src/asset_watch.h` | `AssetWatch` | [Editor](../features/Editor.md) |
+| `editor/src/thumbnail_cache.cpp` | `ThumbnailService`, `build_thumbnail`, `.wind/cache` files | [Editor](../features/Editor.md#thumbnails) |
+| `editor/src/thumbnail_cache.h` | `ThumbnailStamp`, `ThumbnailService`, cache constants | [Editor](../features/Editor.md#thumbnails) |
 | `editor/src/explorer_input.h`, `explorer_input.cpp` | `ExplorerInput`: Project tab row drag, rename focus, shortcuts | [Editor](../features/Editor.md) |
 | `editor/src/canvas_pointer.h`, `canvas_pointer.cpp` | `top_canvas_at_pointer`: topmost canvas under the pointer of a window | [Editor](../features/Editor.md) |
 | `editor/src/directory_watch.h`, `directory_watch.cpp` | `DirectoryWatch`: thread that raises a flag when `assets/` changes | [Editor](../features/Editor.md) |
@@ -687,6 +690,7 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/ui_tree_view_model.h` | `UiTreeViewModel` | [UI Inspector](../features/UI%20Inspector.md) |
 | `editor/tests/asset_inspection_test.cpp` | Folder, text, meta, broken meta, PNG, cut text, empty and gone files | [Editor](../features/Editor.md#inspector) |
 | `editor/tests/asset_watch_test.cpp` | `sync_assets` and the debounced `AssetWatch` | [Editor](../features/Editor.md) |
+| `editor/tests/thumbnail_cache_test.cpp` | Thumbnail cache files and `ThumbnailService` | [Editor](../features/Editor.md#thumbnails) |
 | `editor/tests/batch_run_test.cpp` | `BatchRun` exit codes against a scripted launcher, `--development` |
 | `editor/tests/build_panel_test.cpp` | Log tones, first error, scroll, line cap | [Editor](../features/Editor.md) |
 | `editor/tests/dock_layout_file_test.cpp` | Layout file round trip, missing, corrupt, empty path | [Editor](../features/Editor.md#layout-file) |
