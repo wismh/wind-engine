@@ -56,6 +56,7 @@ set(_wind_editor_parts
     src/project_edit.cpp
     src/project_export.cpp
     src/project_scan.cpp
+    src/thumbnail_cache.cpp
     src/toolbar.cpp
     src/ui_tree_panel.cpp
     src/ui_tree_row_view_model.cpp
@@ -104,6 +105,7 @@ if(ENGINE_BUILD_TESTS)
         tests/project_build_test.cpp
         tests/project_edit_test.cpp
         tests/project_export_test.cpp
+        tests/thumbnail_cache_test.cpp
         tests/toolbar_test.cpp
         tests/ui_tree_panel_test.cpp
         tests/world_view_panel_test.cpp

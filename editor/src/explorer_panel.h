@@ -6,6 +6,7 @@
 #include "explorer_view_model.h"
 #include "project_edit.h"
 #include "project_scan.h"
+#include "thumbnail_cache.h"
 
 #include <engine/ui/tree.h>
 #include <engine/ui/view_model.h>
@@ -19,6 +20,10 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+namespace engine {
+class AssetsDb;
+}
 
 namespace editor {
 
@@ -131,6 +136,14 @@ public:
     // The row view-model `owner` shows, or empty.
     [[nodiscard]] std::string key_for(const engine::ui::ViewModel* owner) const;
 
+    // The UI image of a texture's thumbnail once it is made, otherwise nullopt (the type icon stays) and the
+    // thumbnail is asked for. Only a PNG of the open project has one.
+    [[nodiscard]] std::optional<engine::AssetId> thumbnail_for(const ProjectEntry& entry);
+    // The service behind `thumbnail_for`; the Inspector asks it for previews too.
+    [[nodiscard]] ThumbnailService& thumbnails() { return thumbnails_; }
+    // Registers finished thumbnails with `assets` and shows the rows that were waiting for them. Each frame.
+    void poll_thumbnails(engine::AssetsDb& assets);
+
     // A status line from the last edit, then cleared.
     [[nodiscard]] std::string take_notice();
     // Paths the last edits moved, then cleared. Undo reports them reversed.
@@ -175,6 +188,7 @@ private:
     std::shared_ptr<ExplorerViewModel> view_model_;
     std::filesystem::path directory_;
     ProjectScan scan_;
+    ThumbnailService thumbnails_;
     ExplorerView view_ = ExplorerView::Tree;
     // The grid's open folder. Empty is the project root. Kept while the tree is showing, until the next show_grid.
     std::string grid_folder_;
