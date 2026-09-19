@@ -579,7 +579,9 @@ constexpr std::string_view kVolumeChannelDragXml = R"(
 <Canvas>
   <ItemsControl items_source="{binding channels}">
     <ItemTemplate>
-      <Image drag="{binding fraction}"/>
+      <Stack direction="vertical">
+        <Image drag="{binding fraction}"/>
+      </Stack>
     </ItemTemplate>
   </ItemsControl>
 </Canvas>
