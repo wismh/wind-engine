@@ -89,6 +89,19 @@ std::vector<ViewModel*> ViewModel::read_item_source(BindingId id) const {
     return it->second.items(it->second.bindable);
 }
 
+bool ViewModel::has_scope(BindingId id) const {
+    const auto it = properties_.find(id);
+    return it != properties_.end() && it->second.scope != nullptr;
+}
+
+std::shared_ptr<ViewModel> ViewModel::read_scope(BindingId id) const {
+    const auto it = properties_.find(id);
+    if (it == properties_.end() || it->second.scope == nullptr) {
+        return nullptr;
+    }
+    return it->second.scope(it->second.bindable);
+}
+
 ICommand* ViewModel::find_command(BindingId id) {
     const auto it = commands_.find(id);
     if (it == commands_.end()) {

@@ -48,6 +48,10 @@ public:
     engine::ui::Bindable<std::string> label;
     // `icons/folder.svg`, a typed document (`file_css.svg` and the rest), or `file.svg`.
     engine::ui::Bindable<engine::AssetId> icon;
+    // The texture's own thumbnail, drawn in place of `icon` once `hasThumbnail`.
+    engine::ui::Bindable<engine::AssetId> thumbnail;
+    engine::ui::Bindable<bool> hasThumbnail;
+    engine::ui::Bindable<bool> noThumbnail;
     engine::ui::Bindable<int> depth;
     engine::ui::Bindable<bool> expanded;
     engine::ui::Bindable<std::string> rowFill;
