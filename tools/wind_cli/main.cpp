@@ -3,6 +3,7 @@
 #endif
 #include <charconv>
 #include <chrono>
+#include <csignal>
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>

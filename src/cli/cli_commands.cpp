@@ -15,6 +15,7 @@
 #include <charconv>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <expected>
 #include <format>
 #include <functional>
@@ -87,13 +88,21 @@ namespace engine::cli {
         }
 
         bool parse_number(std::string_view &in, double &out) {
-            const char *begin = in.data();
-            const char *end = begin + in.size();
-            auto [ptr, ec] = std::from_chars(begin, end, out);
-            if (ec != std::errc{}) {
+            // strtod, not from_chars: Apple's libc++ has no floating-point from_chars before Xcode 16.3.
+            std::size_t length = 0;
+            while (length < in.size() && std::string_view("+-0123456789.eE").find(in[length]) != std::string_view::npos) {
+                ++length;
+            }
+            if (length == 0) {
                 return false;
             }
-            in.remove_prefix(static_cast<std::size_t>(ptr - begin));
+            const std::string text(in.substr(0, length));
+            char *end = nullptr;
+            out = std::strtod(text.c_str(), &end);
+            if (end == text.c_str()) {
+                return false;
+            }
+            in.remove_prefix(static_cast<std::size_t>(end - text.c_str()));
             return true;
         }
 
