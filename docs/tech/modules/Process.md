@@ -55,7 +55,8 @@ Same reason as [Net](Net.md#why-a-call-and-not-an-event): the launcher belongs t
 | Build | Backend |
 | --- | --- |
 | `_WIN32` | `CreateProcessW` (`src/process/windows_process.cpp`) |
-| Otherwise | None. `is_supported()` is false, every `run` answers `Unsupported` on the next poll, and `launch` returns it |
+| Linux and macOS | `fork` and `execve` (`src/process/posix_process.cpp`) |
+| Otherwise (Android, Web) | None. `is_supported()` is false, every `run` answers `Unsupported` on the next poll, and `launch` returns it |
 
 ### Windows
 
@@ -78,13 +79,27 @@ Same reason as [Net](Net.md#why-a-call-and-not-an-event): the launcher belongs t
 
 `ProcessCallState` (`src/process/process_call_state.h`) is shared by the call, the launcher, and the reader thread. The reader only calls `push_lines` and `close_output` under the state's mutex. `output`, `result`, and `result_taken` are main-thread only; `deliver_output` moves pushed lines over in the poll and drops them once the call is cancelled. `cancel` is an atomic flag; the launcher acts on it in its next poll.
 
+### Linux and macOS
+
+`run`:
+
+1. A missing `working_directory` is `StartFailed`. A `program` with a directory part is made absolute (the child changes directory before it runs) and must be a regular file the user can execute; a bare name is looked up in the child's `PATH` (the parent's, with `environment` on top), `/usr/local/bin:/usr/bin:/bin` when there is none. Neither found is `NotFound`. This is decided before `fork`, so the call fails on the next poll without a process.
+2. Two close-on-exec pipes: the output pipe, and an error pipe the child writes its `errno` to when it cannot reach `exec`. The parent reads the error pipe to its end before `run` returns: nothing means `exec` happened (the pipe closed with it); an `errno` is `NotFound` for `ENOENT` and `ENOTDIR`, `StartFailed` otherwise.
+3. `fork`, then in the child only async-signal-safe calls (everything it needs is built before): `setpgid(0, 0)` (a new process group, the Windows job), standard input from `/dev/null`, standard output and standard error `dup2`'d onto the output pipe, `chdir`, `execve`. The parent calls `setpgid` too, so the group exists whichever runs first.
+4. `environment` is merged into the parent's `environ` by name, case-sensitively (`merge_environment`).
+5. A reader thread per child reads the pipe until it closes, cuts lines (`LineSplitter`), and pushes them to the call's state.
+
+`poll`, per child: a cancelled call sends `SIGKILL` to the group (`kill(-pgid)`); otherwise `waitpid(WNOHANG)` brings the exit, and the group is killed then, which ends the processes the program left behind (a `sleep &`). A process that left the group with `setsid` is not reached. The exit code is `WEXITSTATUS`, or 128 plus the signal that ended the program, as a shell reports it. The result waits for the reader to see the pipe close.
+
+`launch`: two forks, so the program is a child of `init` and leaves no zombie. The grandchild calls `setsid`, puts `/dev/null` on all three standard streams, changes directory, and `execve`s. The same error pipe reports `NotFound` or `StartFailed`.
+
 ## Not in scope yet
 
-Backends for Linux and macOS (`posix_spawn` and a process group), standard input, separate standard error, a limit on buffered output.
+Standard input, separate standard error, a limit on buffered output.
 
 ## Tests
 
-`tests/process_test.cpp`: line cutting, argument quoting and the command line, environment merging, call ownership (`resolved`, `take` once with output kept, cancel and destroy, move-assign), state delivery, and errors on the next poll. On Windows, through `cmd.exe`: lines and exit code, standard error in order, environment, working directory, a missing working directory, a `start /b` child that does not hold the call open, cancel and `dispose` ending a 30-second `ping` at once, and `launch`.
+`tests/process_test.cpp`: line cutting, argument quoting and the command line, environment merging, call ownership (`resolved`, `take` once with output kept, cancel and destroy, move-assign), state delivery, and errors on the next poll. On Windows, through `cmd.exe`, and on Linux and macOS through `/bin/sh -c`: lines and exit code, standard error in order, environment, working directory, a missing working directory, a background child (`start /b`, `sleep &`) that does not hold the call open, cancel and `dispose` ending a 30-second child at once, and `launch`. On Linux and macOS also a bare program found on `PATH` with arguments that arrive unchanged, and a signal reported as 128 plus its number.
 
 ## See also
 
