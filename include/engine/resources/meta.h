@@ -40,6 +40,7 @@ enum class ImporterKind {
     Svg,
     Object,
     Data,
+    Tilemap,
 };
 
 enum class ColorSpace {
@@ -155,6 +156,7 @@ enum class CodegenErrorKind {
     World,
     ComponentCodegen,
     Object,
+    Tilemap,
 };
 
 struct CodegenError {
