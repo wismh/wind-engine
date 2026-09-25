@@ -40,6 +40,9 @@ jobs:
       - name: Game against the SDK
         run: tools/ci/sdk_smoke.sh out/sdk out/smoke
       - name: Editor plays the game
+        # A CI machine has no sound card: SDL's dummy driver stands in, or the editor refuses to start.
+        env:
+          SDL_AUDIODRIVER: dummy
         run: xvfb-run -a tools/ci/sdk_smoke.sh out/sdk out/smoke-e2e --e2e
       - uses: actions/upload-artifact@v4
         if: always()
