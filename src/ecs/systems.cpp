@@ -23,6 +23,7 @@
 #include <engine/render/particles.h>
 #include <engine/render/renderable.h>
 #include <engine/render/sprite.h>
+#include <engine/render/tilemap.h>
 #include <engine/resources/assets_db.h>
 #include <engine/resources/default_fatal_error.h>
 #include <engine/resources/fatal_error.h>
@@ -48,6 +49,7 @@
 #include <cstdint>
 #include <optional>
 #include <set>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -364,8 +366,11 @@ namespace engine {
             }
         }
 
+        // `view_projections`: one per window the draws go to; a tilemap chunk outside all of them is skipped. Empty: no
+        // culling.
         std::vector<DrawItem> collect_world_draws(ecs::World &world, const glm::mat4 &view, AssetsDb *assets,
-                                                  IFatalError *fatal) {
+                                                  IFatalError *fatal,
+                                                  std::span<const glm::mat4> view_projections = {}) {
             auto renderables = world.view<render::Renderable, Transform>();
             auto sprites = world.view<render::Sprite, Transform>();
             auto emitters = world.view<render::ParticleEmitter>();
@@ -466,6 +471,39 @@ namespace engine {
                 items.push_back(DrawItem{.key = key, .command = std::move(cmd)});
             }
 
+            if (assets != nullptr && assets->graphic_factory() != nullptr && default_shader != nullptr) {
+                render::IGraphicFactory &factory = *assets->graphic_factory();
+                auto tilemaps = world.view<render::Tilemap, Transform>();
+                for (ecs::Entity entity: tilemaps) {
+                    auto &map = tilemaps.get<render::Tilemap>(entity);
+                    if (map.asset == nullptr || map.asset->texture == nullptr) {
+                        continue;
+                    }
+                    const render::ITexture *texture = map.asset->texture.get();
+                    std::shared_ptr<render::IMaterial> &material = cache.materials[texture];
+                    if (material == nullptr) {
+                        material = std::make_shared<render::Material>(
+                                default_shader, map.asset->texture, glm::vec4{1.0f, 1.0f, 1.0f, 1.0f},
+                                render::RenderState{.blend = render::BlendMode::Alpha});
+                    }
+                    const glm::mat4 model = ecs::world_matrix(world, entity);
+                    for (render::TilemapChunkDraw &chunk: render::visible_tilemap_chunks(map, factory, model,
+                                                                                        view_projections)) {
+                        render::CmdDrawMesh cmd;
+                        cmd.mesh = std::move(chunk.mesh);
+                        cmd.material = material;
+                        cmd.model = model;
+                        cmd.color = map.color;
+                        cmd.uv_scale = {1.0f, 1.0f};
+                        cmd.uv_offset = {0.0f, 0.0f};
+                        const render::DrawSortKey key = render::make_draw_sort_key(
+                                material.get(), map.layer, map.order_in_layer + chunk.layer_index,
+                                glm::vec3(model[3]), view, entity);
+                        items.push_back(DrawItem{.key = key, .command = std::move(cmd)});
+                    }
+                }
+            }
+
             for (ecs::Entity entity: emitters) {
                 const auto &em = emitters.get<render::ParticleEmitter>(entity);
                 if (em.particles.empty()) {
@@ -551,8 +589,9 @@ namespace engine {
             auto renderables = world.view<render::Renderable, Transform>();
             auto sprites = world.view<render::Sprite, Transform>();
             auto emitters = world.view<render::ParticleEmitter>();
+            auto tilemaps = world.view<render::Tilemap, Transform>();
             if (renderables.begin() == renderables.end() && sprites.begin() == sprites.end() &&
-                emitters.begin() == emitters.end()) {
+                emitters.begin() == emitters.end() && tilemaps.begin() == tilemaps.end()) {
                 return;
             }
 
@@ -569,7 +608,13 @@ namespace engine {
 
             const glm::mat4 camera_world = ecs::world_matrix(world, active.entity);
             const glm::mat4 view = view_matrix(camera_world);
-            const std::vector<DrawItem> items = collect_world_draws(world, view, deps.assets, deps.fatal);
+            std::vector<glm::mat4> view_projections;
+            view_projections.reserve(windows.size());
+            for (const WindowId id: windows) {
+                view_projections.push_back(projection_matrix(*camera, ui::window_size_for(world, id)) * view);
+            }
+            const std::vector<DrawItem> items =
+                    collect_world_draws(world, view, deps.assets, deps.fatal, view_projections);
             const render::SceneLights lights = render::collect_scene_lights(world);
 
             for (const WindowId id: windows) {
@@ -750,12 +795,13 @@ namespace engine {
         run_sprite_animations(scene);
 
         const glm::mat4 view = view_matrix(target.camera_world);
-        std::vector<DrawItem> items = collect_world_draws(scene, view, target.assets, target.fatal);
-
         const ui::WindowSize viewport_size{
                 .width = std::max(1, static_cast<int>(std::lround(target.viewport.w))),
                 .height = std::max(1, static_cast<int>(std::lround(target.viewport.h))),
         };
+        const glm::mat4 view_projection = projection_matrix(target.camera, viewport_size) * view;
+        std::vector<DrawItem> items = collect_world_draws(scene, view, target.assets, target.fatal, {&view_projection, 1});
+
         target.commands->push(render::CmdSetView{
                 .view = view,
                 .projection = projection_matrix(target.camera, viewport_size),

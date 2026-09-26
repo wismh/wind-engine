@@ -1,5 +1,6 @@
 #include <engine/ecs/world_asset.h>
 #include <engine/loc/catalog.h>
+#include <engine/render/tilemap.h>
 #include <engine/resources/meta.h>
 #include <engine/ui/binding_id.h>
 #include <engine/ui/document.h>
@@ -388,6 +389,17 @@ std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::p
             if (!world_asset) {
                 return std::unexpected(
                     CodegenError{CodegenErrorKind::World, relative + ": " + world_asset.error().message});
+            }
+        }
+
+        if (parsed->importer == ImporterKind::Tilemap) {
+            std::ifstream tilemap_in(file);
+            if (!tilemap_in) {
+                return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to read " + file.generic_string()});
+            }
+            const std::string body((std::istreambuf_iterator<char>(tilemap_in)), std::istreambuf_iterator<char>());
+            if (!render::parse_tilemap(body)) {
+                return std::unexpected(CodegenError{CodegenErrorKind::Tilemap, relative + ": not a valid .tilemap"});
             }
         }
 
