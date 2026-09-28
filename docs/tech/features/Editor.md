@@ -175,7 +175,7 @@ A file or folder is read when it is selected (the revision moved), not every fra
 | --- | --- |
 | Folder | `Path:` and `Items:` (what the scan shows) |
 | File | `Path:` and `Size:`; a file that does not open says so |
-| Import | When `<file>.meta` exists: `GUID:` and `Importer:` from `parse_asset_meta`; for `texture` and `ui_image` the color space, filter, wrap, layout, pixels per unit, and sprite count; for `audio` the bank, volume, pitch, and loop; for `strings` whether it is the key source; for `world` the entity count and active camera. A sidecar that does not parse says why |
+| Import | When `<file>.meta` exists: `GUID:` and `Importer:` from `parse_asset_meta`; for `texture` and `ui_image` the color space, filter, wrap, layout, pixels per unit, and sprite count; for `audio` the bank, volume, pitch, and loop; for `strings` whether it is the key source; for `world` the entity count and active camera; for `tilemap` the cell size, tile size, and layer count. A sidecar that does not parse says why |
 | Content | A PNG: `PNG image, W x H` from its IHDR. Otherwise the first 64 KB, when they hold no NUL byte, as text: CR dropped, tabs as 4 spaces, at most 500 lines, and `... the first N lines of SIZE` when cut. An empty file is `Empty`. A binary file has no Content |
 
 An entity (`EntitySelection`) is inspected on every refresh while the tab is shown via `inspect_entity` (`editor/src/entity_inspection.cpp`) against the active world (`game_` during Play, or `edit_world_` in Edit Mode):

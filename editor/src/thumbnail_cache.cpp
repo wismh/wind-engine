@@ -207,7 +207,10 @@ ThumbnailService::~ThumbnailService() {
 
 void ThumbnailService::stop_worker() {
     if (worker_.joinable()) {
-        worker_.request_stop();
+        {
+            const std::scoped_lock lock(mutex_);
+            stopping_ = true;
+        }
         wake_.notify_all();
         worker_.join();
     }
@@ -227,7 +230,8 @@ void ThumbnailService::open(const std::filesystem::path& project) {
     stop_worker();
     reset();
     project_ = project;
-    worker_ = std::jthread([this, project](std::stop_token stop) { work(stop, project); });
+    stopping_ = false;
+    worker_ = std::thread([this, project] { work(project); });
 }
 
 void ThumbnailService::close() {
@@ -319,13 +323,13 @@ std::size_t ThumbnailService::pending_count() const {
     return jobs_.size() + (busy_ ? 1u : 0u);
 }
 
-void ThumbnailService::work(std::stop_token stop, std::filesystem::path project) {
+void ThumbnailService::work(std::filesystem::path project) {
     for (;;) {
         Job job;
         {
             std::unique_lock lock(mutex_);
-            wake_.wait(lock, stop, [this] { return !jobs_.empty(); });
-            if (stop.stop_requested()) {
+            wake_.wait(lock, [this] { return stopping_ || !jobs_.empty(); });
+            if (stopping_) {
                 return;
             }
             job = std::move(jobs_.back());

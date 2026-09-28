@@ -136,7 +136,7 @@ private:
     void stop_worker();
     void reset();
     void request(bool preview, const std::string& key, const std::filesystem::path& png, const ThumbnailStamp& stamp);
-    void work(std::stop_token stop, std::filesystem::path project);
+    void work(std::filesystem::path project);
 
     std::filesystem::path project_;
     std::unordered_map<std::string, Entry> entries_;
@@ -145,11 +145,12 @@ private:
     std::size_t previews_ready_ = 0;
 
     mutable std::mutex mutex_;
-    std::condition_variable_any wake_;
+    std::condition_variable wake_;
     std::vector<Job> jobs_;
     std::vector<Done> done_;
     bool busy_ = false;
-    std::jthread worker_;
+    bool stopping_ = false;
+    std::thread worker_;
 };
 
 }
