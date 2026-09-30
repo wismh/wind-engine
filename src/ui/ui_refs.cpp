@@ -11,7 +11,8 @@ namespace {
 
 void collect_element_images(const Element& element, std::set<AssetId>& out) {
     // An Svg source is an SvgPicture, loaded by attach_svg_pictures. ensure_ui_image asks for a texture.
-    if (element.kind == ElementKind::Image && element.source) {
+    // A bound source that is still unset (a thumbnail that has not loaded) names no texture to load.
+    if (element.kind == ElementKind::Image && element.source && *element.source != AssetId{}) {
         out.insert(*element.source);
     }
     for (const Element& child : element.children) {
