@@ -73,8 +73,10 @@ jobs:
         run: tools/ci/sdk_smoke.sh out/sdk out/smoke
 
   windows:
-    name: Windows (MSVC)
-    runs-on: windows-2022
+    # tests/cli_server_test.cpp does not compile with Visual Studio 2022's MSVC (C2017 on a raw string with quotes in
+    # a macro argument). The repository's presets use Visual Studio 2026, so this job does too.
+    name: Windows (MSVC, Visual Studio 2026)
+    runs-on: windows-2025-vs2026
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -82,7 +84,7 @@ jobs:
           submodules: recursive
       - name: Configure
         run: >
-          cmake -S . -B build-editor -G "Visual Studio 17 2022" -DENGINE_BUILD_TESTS=ON -DENGINE_WITH_WINDOW=ON
+          cmake -S . -B build-editor -G "Visual Studio 18 2026" -DENGINE_BUILD_TESTS=ON -DENGINE_WITH_WINDOW=ON
           -DENGINE_WITH_AUDIO=ON -DENGINE_EDITOR=ON
       - name: Build
         run: cmake --build build-editor --config Release --parallel
