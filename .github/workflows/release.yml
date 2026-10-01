@@ -50,7 +50,7 @@ jobs:
       matrix:
         include:
           - { name: Linux, runner: ubuntu-24.04, os: linux, arch: x86_64 }
-          - { name: macOS, runner: macos-14, os: macos, arch: arm64 }
+          - { name: macOS, runner: macos-15, os: macos, arch: arm64 }
           # tests/cli_server_test.cpp does not compile with Visual Studio 2022's MSVC; the compiler is Visual Studio 2026.
           # The generator is Ninja Multi-Config (preset vs-editor).
           - { name: Windows, runner: windows-2025-vs2026, os: windows, arch: x86_64 }
