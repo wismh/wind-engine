@@ -140,7 +140,7 @@ jobs:
 
 The packages are the ones the SDK's own CI installs; the game links the engine statically with SDL3 and needs their headers. `--batch` opens no window. The exit code is `0` for an export, `1` when the SDK, the project, the build, or the copy failed (the last line of the log says why), and `2` for a usage error ([Desktop](../platforms/Desktop.md#2-exporting-without-a-window-ci-cloud-builds)). `--development` exports the Development Build (with the profiler and `wind-cli`) instead of `Release`.
 
-macOS runners work the same way (`macos-14`, `.tar.gz`). The SDK ships player libraries there too, so the export links them and takes seconds.
+macOS runners work the same way (`macos-15`, `.tar.gz`). The SDK ships player libraries there too, so the export links them and takes seconds.
 
 ---
 
@@ -159,7 +159,7 @@ Every release is a tag `v<version>`, so a version stays available. The engine's 
 
 ## 6. Limits
 
-- The SDK and your build must agree on the compiler: Visual Studio 2026 on Windows, the GCC of Ubuntu 24.04 on Linux, Apple Clang on `macos-14`. A runner image with a newer compiler may not load the older SDK until the engine publishes a new release.
+- The SDK and your build must agree on the compiler: Visual Studio 2026 on Windows, the GCC of Ubuntu 24.04 on Linux, Apple Clang on `macos-15`. A runner image with a newer compiler may not load the older SDK until the engine publishes a new release.
 - There is no Docker image.
 - The releases are public. `setup-wind` needs no secret; its token only keeps the download under the rate limit.
 - `setup-wind` and `wind_editor --batch --export` of the `templates/empty` project run on GitHub's Windows, Linux, and macOS runners against every release (the engine's `Setup Wind check` workflow), so the steps above work as written. The two complete workflows on this page are those steps with your project in place of the template; the exported game was built there, not started: an export check proves the build, not how the game plays.
