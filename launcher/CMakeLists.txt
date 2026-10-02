@@ -19,6 +19,9 @@ add_executable(wind_launcher
     src/sdk_row_view_model.cpp
     ${_wind_launcher_parts})
 engine_configure_app(wind_launcher)
+# Not a .app bundle on macOS (engine_configure_app makes every executable one): it installs as bin/wind_launcher with
+# assets/ beside it, like the editor.
+set_target_properties(wind_launcher PROPERTIES MACOSX_BUNDLE OFF)
 target_include_directories(wind_launcher PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 if(ENGINE_BUILD_TESTS)
