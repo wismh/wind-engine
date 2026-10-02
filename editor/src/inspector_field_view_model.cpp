@@ -15,6 +15,8 @@ const char* shown(bool visible) {
 
 InspectorFieldViewModel::InspectorFieldViewModel(InspectorPanel& panel) : panel_(&panel) {
     assets::ui::Inspector::Sections::Fields::bind(*this);
+    chooseAsset.bind_to<InspectorFieldViewModel, &InspectorFieldViewModel::on_choose_asset>(*this);
+    clearAsset.bind_to<InspectorFieldViewModel, &InspectorFieldViewModel::on_clear_asset>(*this);
     value.on_changed([this](const std::string& text) { on_value(text); });
     x.on_changed([this](const std::string& text) { on_axis(0, text); });
     y.on_changed([this](const std::string& text) { on_axis(1, text); });
@@ -63,6 +65,26 @@ void InspectorFieldViewModel::show(
             w = field.axes[3];
         }
     }
+    const bool asset_row = field.editable && field.kind == InspectorFieldKind::Asset;
+    assetDisplay = std::string(shown(asset_row));
+    if (asset_row) {
+        assetName = field.asset_name.empty() ? std::string("(None)") : field.asset_name;
+        asset_filter_ = field.asset_filter;
+    }
+}
+
+void InspectorFieldViewModel::on_choose_asset() {
+    if (panel_->refreshing()) {
+        return;
+    }
+    panel_->choose_asset(component_, key_, asset_filter_);
+}
+
+void InspectorFieldViewModel::on_clear_asset() {
+    if (panel_->refreshing()) {
+        return;
+    }
+    panel_->clear_asset(component_, key_);
 }
 
 void InspectorFieldViewModel::on_value(const std::string& next) {

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <engine/resources/asset_filter.h>
+
 #include <array>
 #include <string>
 #include <vector>
@@ -7,7 +9,7 @@
 namespace editor {
 
 // How one field of a component is edited. Text is a read-only line (`text` is the whole row).
-enum class InspectorFieldKind { Text, Bool, String, Number, Vec };
+enum class InspectorFieldKind { Text, Bool, String, Number, Vec, Asset };
 
 struct InspectorField {
     std::string key;
@@ -21,6 +23,8 @@ struct InspectorField {
     int axis_count = 0;
     bool integer = false;
     bool editable = false;
+    std::string asset_name;
+    engine::AssetFilter asset_filter{};
 
     bool operator==(const InspectorField&) const = default;
 };

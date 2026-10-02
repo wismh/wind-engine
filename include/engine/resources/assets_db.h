@@ -6,6 +6,7 @@
 #include <engine/render/graphic_factory.h>
 #include <engine/render/sprite.h>
 #include <engine/resources/asset_id.h>
+#include <engine/resources/asset_ref.h>
 #include <engine/resources/fatal_error.h>
 #include <engine/resources/meta.h>
 
@@ -136,6 +137,9 @@ public:
 
     void clear_object_loaders();
 
+    void set_object_field_filter(std::string_view object_key, std::string_view field, AssetFilter filter);
+    [[nodiscard]] std::optional<AssetFilter> object_field_filter(std::string_view object_key, std::string_view field) const;
+
 private:
     struct CacheKey {
         AssetId id;
@@ -174,6 +178,7 @@ private:
         std::size_t operator()(const AssetId& id) const noexcept { return std::hash<std::string_view>{}(id.hex()); }
     };
     std::unordered_map<AssetId, render::TextureDesc, IdHash> runtime_textures_;
+    std::map<std::pair<std::string, std::string>, AssetFilter, std::less<>> object_field_filters_;
 };
 
 template<typename T>
@@ -194,4 +199,14 @@ std::shared_ptr<T> AssetsDb::get(AssetId id) {
     fail_get(id, result.error());
 }
 
+template<typename T>
+std::shared_ptr<T> AssetRef<T>::get(AssetsDb& db) const {
+    return db.get<T>(id_);
 }
+
+template<typename T>
+std::expected<std::shared_ptr<T>, AssetError> AssetRef<T>::try_get(AssetsDb& db) const {
+    return db.try_get<T>(id_);
+}
+
+} // namespace engine

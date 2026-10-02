@@ -499,6 +499,17 @@ void AssetsDb::evict_object(AssetId id) {
 void AssetsDb::clear_object_loaders() {
     clear_object_cache();
     object_loaders_.clear();
+    object_field_filters_.clear();
+}
+
+void AssetsDb::set_object_field_filter(std::string_view object_key, std::string_view field, AssetFilter filter) {
+    object_field_filters_.insert_or_assign(
+            std::make_pair(std::string(object_key), std::string(field)), std::move(filter));
+}
+
+std::optional<AssetFilter> AssetsDb::object_field_filter(std::string_view object_key, std::string_view field) const {
+    const auto it = object_field_filters_.find(std::make_pair(std::string(object_key), std::string(field)));
+    return it == object_field_filters_.end() ? std::nullopt : std::optional<AssetFilter>(it->second);
 }
 
 std::expected<std::shared_ptr<void>, AssetError> AssetsDb::load_object(const CatalogEntry& entry,
