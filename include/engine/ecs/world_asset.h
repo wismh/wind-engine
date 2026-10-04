@@ -77,5 +77,6 @@ struct WorldAsset {
 
 // A TOML document whose root is one table, as field values. Dates and other unsupported nodes fail.
 [[nodiscard]] std::expected<FieldTable, std::string> parse_field_table(std::string_view toml_text);
+[[nodiscard]] std::string serialize_field_table(const FieldTable& table);
 
 } // namespace engine::ecs

@@ -202,6 +202,10 @@ InspectorSection make_component_section(std::string heading, const engine::ecs::
 
 }
 
+InspectorField make_inspector_field(std::string key, const engine::ecs::FieldValue& value, bool editable) {
+    return make_field(std::move(key), value, editable);
+}
+
 std::string entity_display_name(const engine::ecs::World& world, engine::ecs::Entity entity) {
     if (const auto* name = world.try_get<engine::ecs::EntityName>(entity); name != nullptr && !name->id.empty()) {
         return name->id;

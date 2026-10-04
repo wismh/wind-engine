@@ -3,6 +3,7 @@
 #include "inspector_section.h"
 
 #include <engine/ecs/entity.h>
+#include <engine/ecs/world_io.h>
 
 #include <string>
 #include <vector>
@@ -14,6 +15,9 @@ class World;
 namespace editor {
 
 // Display name of `entity` in `world`: `EntityName::id` when non-empty, otherwise `entity_<index>`.
+[[nodiscard]] InspectorField make_inspector_field(
+        std::string key, const engine::ecs::FieldValue& value, bool editable);
+
 [[nodiscard]] std::string entity_display_name(const engine::ecs::World& world, engine::ecs::Entity entity);
 
 // What the Inspector shows for an entity in `world`:
