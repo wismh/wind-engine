@@ -1,9 +1,14 @@
+#include "fixtures/fake_services.h"
+#include <engine/resources/assets_db.h>
 #include <gtest/gtest.h>
 
 #include "command_history.h"
 #include "editor_selection.h"
 #include "inspector_euler.h"
 #include "inspector_panel.h"
+#include "asset_picker_overlay.h"
+#include "entity_edit.h"
+#include <engine/resources/asset_ref.h>
 
 #include <engine/ecs/camera.h>
 #include <engine/ecs/hierarchy.h>
@@ -509,3 +514,447 @@ TEST(InspectorPanel, RotationEditsAsEulerAndColorKeepsAlpha) {
     EXPECT_FLOAT_EQ(tint.color.w, 0.5f);
 }
 
+
+TEST(InspectorPanel, InspectsAndEditsObjectFileWithUndoRedo) {
+    const std::filesystem::path dir =
+            std::filesystem::temp_directory_path() / "wind_inspector_obj_test";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+
+    const std::filesystem::path obj_path = dir / "sword.object";
+    {
+        std::ofstream out(obj_path, std::ios::binary);
+        out << "type = \"sword\"\nname = \"blade\"\ncount = 3\nequipped = true\n";
+    }
+
+    editor::CommandHistory history;
+    editor::EditorSelection selection;
+    editor::InspectorPanel panel{selection};
+    int history_notes = 0;
+    panel.set_journal(&history, [&history_notes] { ++history_notes; });
+
+    const editor::AssetSelection asset_sel{
+            .key = "assets/items/sword.object",
+            .path = obj_path,
+            .directory = false,
+            .size = std::filesystem::file_size(obj_path),
+    };
+
+    selection.select(asset_sel);
+    panel.refresh();
+
+    EXPECT_EQ(panel.view_model()->title.get(), "sword.object");
+    EXPECT_EQ(panel.view_model()->subtitle.get(), "Object");
+
+    const auto section_named = [&](std::string_view heading) -> const editor::InspectorSectionViewModel* {
+        for (const auto& section : panel.view_model()->sections.get()) {
+            if (section->heading.get() == heading) {
+                return section.get();
+            }
+        }
+        return nullptr;
+    };
+
+    const editor::InspectorSectionViewModel* sword_sec = section_named("sword");
+    ASSERT_NE(sword_sec, nullptr);
+
+
+
+    const auto count_field = field_named(*sword_sec, "count");
+    ASSERT_NE(count_field, nullptr);
+    EXPECT_EQ(count_field->value.get(), "3");
+
+    const auto name_field = field_named(*sword_sec, "name");
+    ASSERT_NE(name_field, nullptr);
+    EXPECT_EQ(name_field->value.get(), "blade");
+
+    const auto eq_field = field_named(*sword_sec, "equipped");
+    ASSERT_NE(eq_field, nullptr);
+    EXPECT_TRUE(eq_field->checked.get());
+
+    // Edit number field
+    panel.edit_text("sword", "count", -1, "10");
+    EXPECT_EQ(history_notes, 1);
+
+    // Verify on disk
+    std::string text_now;
+    {
+        std::ifstream in(obj_path, std::ios::binary);
+        text_now.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    auto parsed = engine::ecs::parse_field_table(text_now);
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(*parsed->at("count").as_int(), 10);
+
+    // Edit bool field
+    panel.edit_bool("sword", "equipped", false);
+    EXPECT_EQ(history_notes, 2);
+
+    {
+        std::ifstream in(obj_path, std::ios::binary);
+        text_now.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    parsed = engine::ecs::parse_field_table(text_now);
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_FALSE(*parsed->at("equipped").as_bool());
+
+    // Undo bool edit
+    EXPECT_TRUE(history.undo());
+    {
+        std::ifstream in(obj_path, std::ios::binary);
+        text_now.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    parsed = engine::ecs::parse_field_table(text_now);
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_TRUE(*parsed->at("equipped").as_bool());
+
+    // Undo text edit
+    EXPECT_TRUE(history.undo());
+    {
+        std::ifstream in(obj_path, std::ios::binary);
+        text_now.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    parsed = engine::ecs::parse_field_table(text_now);
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(*parsed->at("count").as_int(), 3);
+
+    // Redo text edit
+    EXPECT_TRUE(history.redo());
+    {
+        std::ifstream in(obj_path, std::ios::binary);
+        text_now.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    parsed = engine::ecs::parse_field_table(text_now);
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(*parsed->at("count").as_int(), 10);
+
+    std::filesystem::remove_all(dir);
+}
+
+TEST(InspectorPanel, HybridObjectSchemaPopulatesDefaultsAndEvictsAssetsDbCache) {
+    const std::filesystem::path dir =
+            std::filesystem::temp_directory_path() / "wind_inspector_hybrid_test";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+
+    struct Weapon {
+        std::string name = "steel";
+        int count = 1;
+        bool magical = false;
+    };
+
+    fakes::QuietFatal fatal;
+    engine::AssetsDb db(fatal);
+    db.register_object<Weapon>(
+            "weapon",
+            [](engine::ecs::ComponentReader& in, Weapon& w) {
+                (void)in.field("name", w.name);
+                (void)in.field("count", w.count);
+                (void)in.field("magical", w.magical);
+            },
+            [](engine::ecs::ComponentWriter& out, const Weapon& w) {
+                out.field("name", w.name);
+                out.field("count", w.count);
+                out.field("magical", w.magical);
+            });
+
+    // File only specifies name; count and magical should come from defaults!
+    const std::filesystem::path obj_path = dir / "dagger.object";
+    {
+        std::ofstream out(obj_path, std::ios::binary);
+        out << "type = \"weapon\"\nname = \"dagger\"\n";
+    }
+
+    editor::CommandHistory history;
+    editor::EditorSelection selection;
+    editor::InspectorPanel panel{selection};
+    panel.set_assets(&db);
+    panel.set_journal(&history, [] {});
+
+    const editor::AssetSelection asset_sel{
+            .key = "assets/items/dagger.object",
+            .path = obj_path,
+            .directory = false,
+            .size = std::filesystem::file_size(obj_path),
+    };
+
+    selection.select(asset_sel);
+    panel.refresh();
+
+    const auto section_named = [&](std::string_view heading) -> const editor::InspectorSectionViewModel* {
+        for (const auto& section : panel.view_model()->sections.get()) {
+            if (section->heading.get() == heading) {
+                return section.get();
+            }
+        }
+        return nullptr;
+    };
+
+    const editor::InspectorSectionViewModel* weapon_sec = section_named("weapon");
+    ASSERT_NE(weapon_sec, nullptr);
+
+
+
+    // "name" came from file
+    EXPECT_EQ(field_named(*weapon_sec, "name")->value.get(), "dagger");
+    // "count" and "magical" populated from C++ default schema!
+    EXPECT_EQ(field_named(*weapon_sec, "count")->value.get(), "1");
+    EXPECT_FALSE(field_named(*weapon_sec, "magical")->checked.get());
+
+    // Edit the defaulted field
+    panel.edit_bool("weapon", "magical", true);
+
+    std::string text_now;
+    {
+        std::ifstream in(obj_path, std::ios::binary);
+        text_now.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    auto parsed = engine::ecs::parse_field_table(text_now);
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_TRUE(*parsed->at("magical").as_bool());
+    EXPECT_EQ(*parsed->at("name").as_string(), "dagger");
+    EXPECT_EQ(*parsed->at("count").as_int(), 1);
+
+    std::filesystem::remove_all(dir);
+}
+
+struct WeaponComponent {
+    engine::AssetRef<engine::render::ITexture> icon;
+    int damage = 10;
+};
+
+TEST(InspectorPanel, AssetFieldDisplaysFilenameAndChooseUpdatesFieldWithUndo) {
+    const std::filesystem::path dir =
+            std::filesystem::temp_directory_path() / "wind_inspector_asset_field_test";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir / "textures");
+
+    const std::string kSwordGuid = "11111111111111111111111111111111";
+    const std::string kShieldGuid = "22222222222222222222222222222222";
+
+    {
+        std::ofstream out(dir / "textures" / "sword.png", std::ios::binary);
+        out << "fake png";
+    }
+    {
+        std::ofstream out(dir / "textures" / "shield.png", std::ios::binary);
+        out << "fake png";
+    }
+
+    fakes::QuietFatal fatal;
+    engine::AssetsDb db(fatal);
+    engine::CookedCatalog catalog;
+    catalog.add(engine::CatalogEntry{
+            .guid = engine::AssetId::parse(kSwordGuid).value(),
+            .relative_path = "textures/sword.png",
+            .importer = engine::ImporterKind::Texture,
+    });
+    catalog.add(engine::CatalogEntry{
+            .guid = engine::AssetId::parse(kShieldGuid).value(),
+            .relative_path = "textures/shield.png",
+            .importer = engine::ImporterKind::Texture,
+    });
+    db.set_catalog(std::move(catalog));
+
+    engine::ecs::World edit_world;
+    engine::ecs::WorldSerializer serializer;
+    serializer.register_component<WeaponComponent>(
+            "Weapon",
+            [](engine::ecs::ComponentWriter& out, const WeaponComponent& comp) {
+                out.field("icon", comp.icon);
+                out.field("damage", comp.damage);
+            },
+            [](engine::ecs::ComponentReader& in, WeaponComponent& comp) {
+                (void)in.field("icon", comp.icon);
+                (void)in.field("damage", comp.damage);
+            });
+    serializer.set_field_filter("Weapon", "icon", engine::AssetRef<engine::render::ITexture>::filter());
+    edit_world.ctx<engine::ecs::WorldSerializer>() = std::move(serializer);
+
+    const engine::ecs::Entity hero = edit_world.create();
+    edit_world.emplace<engine::ecs::EntityName>(hero, engine::ecs::EntityName{.id = "hero"});
+    edit_world.emplace<WeaponComponent>(hero, WeaponComponent{
+            .icon = engine::AssetRef<engine::render::ITexture>{engine::AssetId::parse(kSwordGuid).value()},
+            .damage = 25,
+    });
+
+    editor::CommandHistory history;
+    editor::EditorSelection selection;
+    editor::InspectorPanel panel{selection};
+    panel.set_edit_world(&edit_world);
+    panel.set_assets(&db);
+    panel.set_journal(&history, [] {});
+
+    selection.select(editor::EntitySelection{.entity = hero});
+    panel.refresh();
+
+    const auto section_named = [&](std::string_view heading) -> const editor::InspectorSectionViewModel* {
+        for (const auto& section : panel.view_model()->sections.get()) {
+            if (section->heading.get() == heading) {
+                return section.get();
+            }
+        }
+        return nullptr;
+    };
+
+    const editor::InspectorSectionViewModel* weapon_sec = section_named("Weapon");
+    ASSERT_NE(weapon_sec, nullptr);
+
+    const auto icon_field = field_named(*weapon_sec, "icon");
+    ASSERT_NE(icon_field, nullptr);
+
+    // Displays filename instead of GUID
+    EXPECT_EQ(icon_field->assetDisplay.get(), "flex");
+    EXPECT_EQ(icon_field->assetName.get(), "sword.png");
+
+    // Wire asset chooser
+    std::string picked_title;
+    engine::AssetFilter captured_filter;
+    panel.set_asset_chooser([&](const std::string& title, const engine::AssetFilter& filter,
+                                std::function<void(const engine::AssetId&, const std::string&)> on_picked) {
+        picked_title = title;
+        captured_filter = filter;
+        on_picked(engine::AssetId::parse(kShieldGuid).value(), "shield.png");
+    });
+
+    // Choose asset
+    panel.choose_asset("Weapon", "icon", engine::AssetRef<engine::render::ITexture>::filter());
+    EXPECT_EQ(captured_filter.importer, engine::ImporterKind::Texture);
+
+    // Name updated to shield.png
+    panel.refresh();
+    const auto icon_updated = field_named(*weapon_sec, "icon");
+    ASSERT_NE(icon_updated, nullptr);
+    EXPECT_EQ(icon_updated->assetName.get(), "shield.png");
+    EXPECT_EQ(std::string(edit_world.get<WeaponComponent>(hero).icon.guid().hex()), kShieldGuid);
+
+    // Undo restores sword.png
+    EXPECT_TRUE(history.can_undo());
+    EXPECT_TRUE(history.undo());
+    panel.refresh();
+    EXPECT_EQ(field_named(*weapon_sec, "icon")->assetName.get(), "sword.png");
+    EXPECT_EQ(std::string(edit_world.get<WeaponComponent>(hero).icon.guid().hex()), kSwordGuid);
+
+    // Clear asset sets to (None)
+    panel.clear_asset("Weapon", "icon");
+    panel.refresh();
+    EXPECT_EQ(field_named(*weapon_sec, "icon")->assetName.get(), "(None)");
+    EXPECT_FALSE(edit_world.get<WeaponComponent>(hero).icon.valid());
+
+    std::filesystem::remove_all(dir);
+}
+
+TEST(InspectorPanel, AssetPickerOverlayCandidateFilteringAndSearch) {
+    const std::filesystem::path dir =
+            std::filesystem::temp_directory_path() / "wind_picker_overlay_test";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir / "textures");
+    std::filesystem::create_directories(dir / "items");
+
+    const std::string kSwordGuid = "11111111111111111111111111111111";
+    const std::string kShieldGuid = "22222222222222222222222222222222";
+    const std::string kDaggerGuid = "33333333333333333333333333333333";
+    const std::string kHealGuid   = "44444444444444444444444444444444";
+
+    {
+        std::ofstream out(dir / "textures" / "sword.png", std::ios::binary);
+        out << "png";
+    }
+    {
+        std::ofstream out(dir / "textures" / "shield.png", std::ios::binary);
+        out << "png";
+    }
+    {
+        std::ofstream out(dir / "items" / "dagger.object", std::ios::binary);
+        out << "type = \"weapon\"\n";
+    }
+    {
+        std::ofstream out(dir / "items" / "heal.object", std::ios::binary);
+        out << "type = \"spell\"\n";
+    }
+
+    fakes::QuietFatal fatal;
+    engine::AssetsDb db(fatal);
+    engine::CookedCatalog catalog;
+    catalog.add(engine::CatalogEntry{
+            .guid = engine::AssetId::parse(kSwordGuid).value(),
+            .relative_path = "textures/sword.png",
+            .importer = engine::ImporterKind::Texture,
+    });
+    catalog.add(engine::CatalogEntry{
+            .guid = engine::AssetId::parse(kShieldGuid).value(),
+            .relative_path = "textures/shield.png",
+            .importer = engine::ImporterKind::Texture,
+    });
+    catalog.add(engine::CatalogEntry{
+            .guid = engine::AssetId::parse(kDaggerGuid).value(),
+            .relative_path = "items/dagger.object",
+            .importer = engine::ImporterKind::Object,
+    });
+    catalog.add(engine::CatalogEntry{
+            .guid = engine::AssetId::parse(kHealGuid).value(),
+            .relative_path = "items/heal.object",
+            .importer = engine::ImporterKind::Object,
+    });
+    db.set_catalog(std::move(catalog));
+
+    engine::ecs::World ui_world;
+    editor::AssetPickerOverlay picker;
+    picker.spawn(ui_world, engine::kPrimaryWindow);
+    picker.set_assets(&db, dir);
+
+    EXPECT_FALSE(picker.is_open());
+
+    // 1. Filter by Texture
+    std::optional<engine::AssetId> chosen;
+    picker.open("Choose Texture", engine::AssetFilter{.importer = engine::ImporterKind::Texture},
+                [&](engine::AssetId id) { chosen = id; });
+
+    EXPECT_TRUE(picker.is_open());
+    EXPECT_EQ(picker.view_model()->title.get(), "Choose Texture");
+    // (None), shield.png, sword.png
+    auto tiles = picker.view_model()->tiles.get();
+    ASSERT_EQ(tiles.size(), 3u);
+    EXPECT_EQ(tiles[0]->label.get(), "(None)");
+    EXPECT_EQ(tiles[1]->label.get(), "shield.png");
+    EXPECT_EQ(tiles[2]->label.get(), "sword.png");
+
+    // Search filter: (None) is preserved + matching tile
+    picker.filter_tiles("shie");
+    tiles = picker.view_model()->tiles.get();
+    ASSERT_EQ(tiles.size(), 2u);
+    EXPECT_EQ(tiles[0]->label.get(), "(None)");
+    EXPECT_EQ(tiles[1]->label.get(), "shield.png");
+
+    // Clear search
+    picker.filter_tiles("");
+    tiles = picker.view_model()->tiles.get();
+    ASSERT_EQ(tiles.size(), 3u);
+
+    // Pick shield.png
+    tiles[1]->select_tile();
+    EXPECT_FALSE(picker.is_open());
+    ASSERT_TRUE(chosen.has_value());
+    EXPECT_EQ(chosen->hex(), kShieldGuid);
+
+    // 2. Filter by Object with object_type = "weapon"
+    chosen.reset();
+    picker.open("Choose Weapon", engine::AssetFilter{
+            .importer = engine::ImporterKind::Object,
+            .object_type = "weapon",
+    }, [&](engine::AssetId id) { chosen = id; });
+
+    EXPECT_TRUE(picker.is_open());
+    tiles = picker.view_model()->tiles.get();
+    // Candidates should include (None) and dagger.object, but NOT heal.object!
+    ASSERT_EQ(tiles.size(), 2u);
+    EXPECT_EQ(tiles[0]->label.get(), "(None)");
+    EXPECT_EQ(tiles[1]->label.get(), "dagger.object");
+
+    // Close without picking
+    picker.close();
+    EXPECT_FALSE(picker.is_open());
+    EXPECT_FALSE(chosen.has_value());
+
+    std::filesystem::remove_all(dir);
+}
