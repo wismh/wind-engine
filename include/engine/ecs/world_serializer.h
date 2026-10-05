@@ -81,8 +81,12 @@ public:
     [[nodiscard]] const Entry* find(std::string_view name) const;
     [[nodiscard]] const std::map<std::string, Entry, std::less<>>& entries() const noexcept { return entries_; }
 
+    void set_field_filter(std::string_view component, std::string_view field, AssetFilter filter);
+    [[nodiscard]] std::optional<AssetFilter> field_filter(std::string_view component, std::string_view field) const;
+
 private:
     std::map<std::string, Entry, std::less<>> entries_;
+    std::map<std::pair<std::string, std::string>, AssetFilter, std::less<>> field_filters_;
 };
 
 struct UnknownComponents {

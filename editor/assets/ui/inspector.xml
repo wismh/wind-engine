@@ -30,6 +30,11 @@
                     <TextInput class="field-num field-y" var-y-display="{binding yDisplay}" text="{binding y}"/>
                     <TextInput class="field-num field-z" var-z-display="{binding zDisplay}" text="{binding z}"/>
                     <TextInput class="field-num field-w" var-w-display="{binding wDisplay}" text="{binding w}"/>
+                    <Stack class="field-asset" var-asset-display="{binding assetDisplay}" direction="horizontal">
+                      <Button class="field-asset-name" command="{binding chooseAsset}" content="{binding assetName}"/>
+                      <Button class="field-asset-choose" command="{binding chooseAsset}" content="Choose"/>
+                      <Button class="field-asset-clear" command="{binding clearAsset}" content="-"/>
+                    </Stack>
                   </Stack>
                 </ItemTemplate>
               </ItemsControl>
