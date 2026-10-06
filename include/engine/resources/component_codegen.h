@@ -19,6 +19,7 @@ struct ScannedComponent {
     std::string struct_name;
     std::string toml_key;
     std::vector<std::string> fields;
+    std::vector<std::string> field_types;
 
     [[nodiscard]] std::string qualified_name() const;
     bool operator==(const ScannedComponent&) const = default;
@@ -31,6 +32,7 @@ struct ScannedSerializable {
     std::string struct_name;
     std::string toml_key;
     std::vector<std::string> fields;
+    std::vector<std::string> field_types;
 
     [[nodiscard]] std::string qualified_name() const;
     bool operator==(const ScannedSerializable&) const = default;

@@ -4,6 +4,7 @@
 
 #include <engine/ecs/entity.h>
 #include <engine/resources/asset_id.h>
+#include <engine/resources/asset_ref.h>
 
 #include <glm/gtc/quaternion.hpp>
 #include <glm/vec2.hpp>
@@ -139,6 +140,11 @@ public:
             return FieldValue{std::string{}};
         }
         return FieldValue{std::string(id.hex())};
+    }
+
+    template<typename T>
+    [[nodiscard]] FieldValue encode(const AssetRef<T>& ref) const {
+        return encode(ref.id());
     }
 
     [[nodiscard]] FieldValue encode(Entity entity) const {
@@ -353,6 +359,16 @@ public:
             return false;
         }
         out = *parsed;
+        return true;
+    }
+
+    template<typename T>
+    [[nodiscard]] bool decode(const FieldValue& node, AssetRef<T>& out) const {
+        AssetId temp;
+        if (!decode(node, temp)) {
+            return false;
+        }
+        out = AssetRef<T>{temp};
         return true;
     }
 

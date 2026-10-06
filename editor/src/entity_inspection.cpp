@@ -7,6 +7,8 @@
 #include <engine/ecs/world.h>
 #include <engine/ecs/world_io.h>
 #include <engine/ecs/world_serializer.h>
+#include <engine/resources/asset_filter.h>
+#include <engine/resources/assets_db.h>
 
 #include <cmath>
 #include <cstddef>
@@ -86,9 +88,49 @@ bool numeric_array(const engine::ecs::FieldArray& array) {
     return true;
 }
 
-InspectorField make_field(std::string key, const engine::ecs::FieldValue& value, bool editable) {
+InspectorField make_field(
+        std::string key, const engine::ecs::FieldValue& value, bool editable,
+        const engine::AssetsDb* assets, const std::optional<engine::AssetFilter>& filter) {
     InspectorField field;
     field.key = std::move(key);
+
+    if (filter.has_value()) {
+        field.kind = InspectorFieldKind::Asset;
+        field.asset_filter = filter.value_or(engine::AssetFilter{});
+        field.editable = editable;
+        const std::string* s = value.as_string();
+        const std::string str = s != nullptr ? *s : "";
+        field.text = str;
+        if (str.empty() || str == "00000000000000000000000000000000") {
+            field.asset_name = "(None)";
+        } else {
+            auto id = engine::AssetId::parse(str);
+            if (id && assets != nullptr) {
+                if (const auto* entry = assets->catalog().find(*id)) {
+                    field.asset_name = std::filesystem::path(entry->relative_path).filename().string();
+                } else {
+                    field.asset_name = str;
+                }
+            } else {
+                field.asset_name = str;
+            }
+        }
+        return field;
+    }
+
+    if (const std::string* s = value.as_string(); s != nullptr && s->size() == 32) {
+        if (auto id = engine::AssetId::parse(*s); id && assets != nullptr) {
+            if (const auto* entry = assets->catalog().find(*id)) {
+                field.kind = InspectorFieldKind::Asset;
+                field.asset_filter = engine::AssetFilter{.importer = entry->importer};
+                field.editable = editable;
+                field.text = *s;
+                field.asset_name = std::filesystem::path(entry->relative_path).filename().string();
+                return field;
+            }
+        }
+    }
+
     if (editable) {
         if (const bool* flag = value.as_bool()) {
             field.kind = InspectorFieldKind::Bool;
@@ -180,7 +222,9 @@ InspectorField make_field(std::string key, const engine::ecs::FieldValue& value,
     return field;
 }
 
-InspectorSection make_component_section(std::string heading, const engine::ecs::FieldTable& table, bool editable) {
+InspectorSection make_component_section(
+        std::string heading, const engine::ecs::FieldTable& table, bool editable,
+        const engine::ecs::WorldSerializer* serializer, const engine::AssetsDb* assets) {
     InspectorSection section{.heading = std::move(heading), .removable = editable};
     if (table.empty()) {
         section.lines.emplace_back("(no fields)");
@@ -189,17 +233,51 @@ InspectorSection make_component_section(std::string heading, const engine::ecs::
     if (!editable) {
         section.lines.reserve(table.size());
         for (const auto& [key, val] : table) {
-            section.lines.push_back(std::format("{} = {}", key, format_field_value(val)));
+            std::optional<engine::AssetFilter> filter;
+            if (serializer != nullptr) {
+                filter = serializer->field_filter(section.heading, key);
+            }
+            if (filter.has_value()) {
+                const std::string* s = val.as_string();
+                const std::string str = s != nullptr ? *s : "";
+                std::string display = "(None)";
+                if (!str.empty() && str != "00000000000000000000000000000000") {
+                    auto id = engine::AssetId::parse(str);
+                    if (id && assets != nullptr) {
+                        if (const auto* entry = assets->catalog().find(*id)) {
+                            display = std::filesystem::path(entry->relative_path).filename().string();
+                        } else {
+                            display = str;
+                        }
+                    } else {
+                        display = str;
+                    }
+                }
+                section.lines.push_back(std::format("{} = {}", key, display));
+            } else {
+                section.lines.push_back(std::format("{} = {}", key, format_field_value(val)));
+            }
         }
         return section;
     }
     section.fields.reserve(table.size());
     for (const auto& [key, val] : table) {
-        section.fields.push_back(make_field(key, val, true));
+        std::optional<engine::AssetFilter> filter;
+        if (serializer != nullptr) {
+            filter = serializer->field_filter(section.heading, key);
+        }
+        section.fields.push_back(make_field(key, val, true, assets, filter));
     }
     return section;
 }
 
+}
+
+InspectorField make_inspector_field(
+        std::string key, const engine::ecs::FieldValue& value, bool editable,
+        const engine::AssetsDb* assets,
+        const std::optional<engine::AssetFilter>& filter) {
+    return make_field(std::move(key), value, editable, assets, filter);
 }
 
 std::string entity_display_name(const engine::ecs::World& world, engine::ecs::Entity entity) {
@@ -210,7 +288,8 @@ std::string entity_display_name(const engine::ecs::World& world, engine::ecs::En
 }
 
 std::vector<InspectorSection> inspect_entity(
-        const engine::ecs::World& world, engine::ecs::Entity entity, bool editable) {
+        const engine::ecs::World& world, engine::ecs::Entity entity, bool editable,
+        const engine::AssetsDb* assets) {
     if (!world.valid(entity)) {
         return {};
     }
@@ -260,12 +339,16 @@ std::vector<InspectorSection> inspect_entity(
         return entity_display_name(world, target);
     };
 
+    if (assets == nullptr) {
+        assets = world.try_ctx<engine::AssetsDb>();
+    }
+
     std::unordered_set<std::string> written;
     for (const auto& [comp_name, entry] : serializer.entries()) {
         engine::ecs::FieldTable table;
         engine::ecs::ComponentWriter writer(table, entity_to_id);
         if (entry.write(world, entity, writer)) {
-            sections.push_back(make_component_section(comp_name, table, editable));
+            sections.push_back(make_component_section(comp_name, table, editable, &serializer, assets));
             written.insert(comp_name);
         }
     }
@@ -273,7 +356,7 @@ std::vector<InspectorSection> inspect_entity(
     if (const auto* unknown = world.try_get<engine::ecs::UnknownComponents>(entity)) {
         for (const auto& [comp_name, table] : unknown->components) {
             if (!written.contains(comp_name)) {
-                sections.push_back(make_component_section(comp_name + " (unregistered)", table, false));
+                sections.push_back(make_component_section(comp_name + " (unregistered)", table, false, &serializer, assets));
             }
         }
     }

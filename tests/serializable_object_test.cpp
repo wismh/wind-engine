@@ -234,3 +234,39 @@ TEST(SerializableObject, AssetsDbLoadsClearsAndRejectsABadObjectFile) {
     EXPECT_EQ(after_clear.error(), engine::AssetError::TypeMismatch);
     EXPECT_EQ(loaded->name, "blade");
 }
+
+TEST(SerializableObject, DefaultObjectFieldsAndSerialization) {
+    fakes::QuietFatal fatal;
+    engine::AssetsDb db(fatal);
+
+    EXPECT_FALSE(db.default_object_fields("sword").has_value());
+
+    db.register_object<game::Sword>(
+            "sword",
+            [](engine::ecs::ComponentReader& in, game::Sword& s) {
+                (void)in.field("name", s.name);
+                (void)in.field("count", s.count);
+            },
+            [](engine::ecs::ComponentWriter& out, const game::Sword& s) {
+                out.field("name", s.name);
+                out.field("count", s.count);
+            });
+
+    const auto defaults = db.default_object_fields("sword");
+    ASSERT_TRUE(defaults.has_value());
+    EXPECT_EQ(defaults->size(), 2u);
+    EXPECT_EQ(*defaults->at("name").as_string(), "");
+    EXPECT_EQ(*defaults->at("count").as_int(), 1);
+
+    engine::ecs::FieldTable table = *defaults;
+    table["type"] = engine::ecs::FieldValue{std::string("sword")};
+    table["name"] = engine::ecs::FieldValue{std::string("steel")};
+    table["count"] = engine::ecs::FieldValue{static_cast<std::int64_t>(5)};
+
+    const std::string toml_str = engine::ecs::serialize_field_table(table);
+    const auto parsed = engine::ecs::parse_field_table(toml_str);
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(*parsed->at("type").as_string(), "sword");
+    EXPECT_EQ(*parsed->at("name").as_string(), "steel");
+    EXPECT_EQ(*parsed->at("count").as_int(), 5);
+}

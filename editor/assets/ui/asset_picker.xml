@@ -1,0 +1,25 @@
+<Canvas id="asset-picker">
+  <Stack class="picker-backdrop" direction="vertical">
+    <Stack class="picker-card" direction="vertical">
+      <Stack class="picker-header" direction="horizontal">
+        <Label class="picker-title" text="{binding title}"/>
+        <Stack class="picker-spacer"/>
+        <Button class="picker-close" command="{binding close}" content="-"/>
+      </Stack>
+      <Stack class="picker-search-row" direction="horizontal">
+        <TextInput class="picker-search" text="{binding search}"/>
+      </Stack>
+      <ScrollView id="picker-scroll" class="box picker-tiles-box fill">
+        <ItemsControl class="tiles" items_source="{binding tiles}">
+          <ItemTemplate>
+            <Stack class="tile" direction="vertical" command="{binding select}">
+              <Svg class="tile-icon" if="{binding noThumbnail}" source="{binding icon}" command="{binding select}"/>
+              <Image class="tile-icon" if="{binding hasThumbnail}" source="{binding thumbnail}" command="{binding select}"/>
+              <Button class="tile-name" command="{binding select}" content="{binding label}"/>
+            </Stack>
+          </ItemTemplate>
+        </ItemsControl>
+      </ScrollView>
+    </Stack>
+  </Stack>
+</Canvas>
