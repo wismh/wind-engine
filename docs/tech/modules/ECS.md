@@ -161,6 +161,17 @@ The physics is 2D: `include/engine/ecs/physics_2d.h`. Its components, event and 
 - `UnknownComponentMode::Reject` (default) fails with `WorldErrorKind::UnknownComponent` when a component key is not registered in the active `WorldSerializer`. `UnknownComponentMode::Preserve` stores unregistered component tables in `UnknownComponents` (`std::map<std::string, FieldTable, std::less<>> components`) on the entity so the editor can inspect and round-trip game components without losing data when the game module is not loaded.
 - `capture_world_asset` and `save_world_to_toml` snapshot all alive entities (`World::alive_entities()`), their registered components, and any preserved `UnknownComponents` entries back to a `WorldAsset` or TOML string.
 
+## Prototypes
+
+`include/engine/ecs/prototype_asset.h`, `src/ecs/prototype_asset.cpp`.
+
+`.prototype` TOML files (`importer = "prototype"`) define reusable entity templates and hierarchies, optionally inheriting from a `base` prototype GUID (Prototype Variants):
+
+- `PrototypeAsset` contains `version = 1`, optional `base` (`AssetId`), and `[[entities]]` records.
+- `resolve_prototype_asset(asset, &assets)` resolves the variant inheritance chain, detecting cyclic references (`PrototypeCycle`), deep-merging component `FieldTable`s (via `merge_field_tables`), preserving base children, and adding new entities or components.
+- In `.world` files, entities reference prototypes via `prototype = "<AssetId>"`. During `instantiate_world`, prototype hierarchies are automatically expanded, world-level entity overrides (including child entity overrides via `id = "<entity_id>/<child_id>"`) are deep-merged, and `PrototypeInstance{ prototype, entity_sub_id }` is attached to every spawned entity.
+- Programmatic spawning in C++: `spawn_prototype(world, prototype_id, assets, params)` spawns a prototype into an active world with optional position, rotation, scale, and parent entity.
+
 ## Public headers
 
 - `include/engine/ecs/world.h`
@@ -168,6 +179,7 @@ The physics is 2D: `include/engine/ecs/physics_2d.h`. Its components, event and 
 - `include/engine/ecs/world_io.h`
 - `include/engine/ecs/world_asset.h`
 - `include/engine/ecs/world_serializer.h`
+- `include/engine/ecs/prototype_asset.h`
 - `include/engine/ecs/entity.h`
 - `include/engine/ecs/schedule.h`
 - `include/engine/ecs/events.h`
@@ -180,7 +192,7 @@ The physics is 2D: `include/engine/ecs/physics_2d.h`. Its components, event and 
 
 ## Tests
 
-`tests/ecs_test.cpp`, `tests/hierarchy_test.cpp`, `tests/hierarchy_systems_test.cpp`, `tests/events_test.cpp`, `tests/camera_test.cpp`, `tests/physics_2d_test.cpp`, `tests/pointer_target_test.cpp`, `tests/world_serializer_test.cpp`.
+`tests/ecs_test.cpp`, `tests/hierarchy_test.cpp`, `tests/hierarchy_systems_test.cpp`, `tests/events_test.cpp`, `tests/camera_test.cpp`, `tests/physics_2d_test.cpp`, `tests/pointer_target_test.cpp`, `tests/world_serializer_test.cpp`, `tests/prototype_test.cpp`.
 
 ## See also
 

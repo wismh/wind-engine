@@ -1,4 +1,5 @@
 #include <engine/ecs/world_asset.h>
+#include <engine/ecs/prototype_asset.h>
 #include <engine/loc/catalog.h>
 #include <engine/render/tilemap.h>
 #include <engine/resources/meta.h>
@@ -400,6 +401,19 @@ std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::p
             const std::string body((std::istreambuf_iterator<char>(tilemap_in)), std::istreambuf_iterator<char>());
             if (!render::parse_tilemap(body)) {
                 return std::unexpected(CodegenError{CodegenErrorKind::Tilemap, relative + ": not a valid .tilemap"});
+            }
+        }
+
+        if (parsed->importer == ImporterKind::Prototype) {
+            std::ifstream proto_in(file);
+            if (!proto_in) {
+                return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to read " + file.generic_string()});
+            }
+            const std::string body((std::istreambuf_iterator<char>(proto_in)), std::istreambuf_iterator<char>());
+            auto proto_asset = ecs::parse_prototype_asset(body);
+            if (!proto_asset) {
+                return std::unexpected(
+                    CodegenError{CodegenErrorKind::Prototype, relative + ": " + proto_asset.error().message});
             }
         }
 
