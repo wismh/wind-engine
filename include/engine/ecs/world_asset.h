@@ -59,6 +59,7 @@ struct WorldLoadError {
 struct EntityRecord {
     std::string id;
     std::string parent;
+    std::optional<AssetId> prototype;
     std::map<std::string, FieldTable, std::less<>> components;
 
     bool operator==(const EntityRecord&) const = default;
