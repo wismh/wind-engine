@@ -250,7 +250,7 @@ The editor build, its SDK, and SDK mode work on Linux (GCC, Clang) and macOS (Ap
 
 ### CI
 
-`.github/workflows/sdk.yml` runs on every push to `main` and `feat/**` and on pull requests: on `ubuntu-24.04` (GCC 13), `macos-14`, and `windows-2022`, it configures the editor build, builds `Release`, runs `ctest` (Linux under `xvfb-run`), and on Linux and macOS installs the SDK and runs `tools/ci/sdk_smoke.sh`. The script makes a project from the SDK's `templates/empty`, configures it the way `ProjectBuild` does (`Ninja Multi-Config`, `DebugGame;Release`, `-DWind_DIR=<sdk>/cmake`), builds both configurations, and checks the `.module` record. On Linux a second run (`--e2e`) starts the editor with `wind-cli launch --play --wait`, reads `state`, and stops it.
+`.github/workflows/sdk.yml` runs on every push to `main` and `feat/**` and on pull requests: on `ubuntu-24.04` (GCC 13), `macos-14`, and `windows-2022`, it configures the editor build, builds `Release`, runs `ctest` (Linux under `xvfb-run`), and on Linux and macOS installs the SDK and runs `tools/ci/sdk_smoke.sh`. The script makes a project from the SDK's `templates/empty`, configures it the way `ProjectBuild` does (`Ninja Multi-Config`, `DebugGame;Release`, `-DWind_DIR=<sdk>/cmake`), builds both configurations, and checks the `.module` record. On Linux (under `xvfb-run`) and macOS a second run (`--e2e`) starts the editor with `wind-cli launch --play --wait`, reads `state`, and stops it, so the editor builds the project through the POSIX `ProcessLauncher` and plays the module it loaded with `dlopen`.
 
 ## SDK mode
 
