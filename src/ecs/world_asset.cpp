@@ -1,5 +1,7 @@
 #include <engine/ecs/world_asset.h>
 
+#include "toml_field_helpers.h"
+
 #include <engine/ecs/hierarchy.h>
 
 #include <toml++/toml.hpp>
@@ -16,113 +18,11 @@
 #include <vector>
 
 namespace engine::ecs {
-namespace {
-
-std::optional<FieldValue> toml_node_to_field(const toml::node& node);
-
-std::optional<FieldTable> toml_table_to_field_table(const toml::table& table) {
-    FieldTable out;
-    for (const auto& [k, v] : table) {
-        auto converted = toml_node_to_field(v);
-        if (!converted) {
-            return std::nullopt;
-        }
-        out.emplace(std::string(k.str()), std::move(*converted));
-    }
-    return out;
-}
-
-std::optional<FieldValue> toml_node_to_field(const toml::node& node) {
-    if (const auto* b = node.as_boolean()) {
-        return FieldValue{b->get()};
-    }
-    if (const auto* i = node.as_integer()) {
-        return FieldValue{i->get()};
-    }
-    if (const auto* f = node.as_floating_point()) {
-        return FieldValue{f->get()};
-    }
-    if (const auto* s = node.as_string()) {
-        return FieldValue{s->get()};
-    }
-    if (const toml::array* arr = node.as_array()) {
-        FieldArray items;
-        items.reserve(arr->size());
-        for (const toml::node& elem : *arr) {
-            auto converted = toml_node_to_field(elem);
-            if (!converted) {
-                return std::nullopt;
-            }
-            items.push_back(std::move(*converted));
-        }
-        return FieldValue{std::move(items)};
-    }
-    if (const toml::table* tab = node.as_table()) {
-        auto converted = toml_table_to_field_table(*tab);
-        if (!converted) {
-            return std::nullopt;
-        }
-        return FieldValue{std::move(*converted)};
-    }
-    return std::nullopt;
-}
-
-void field_to_toml_table(const FieldTable& src, toml::table& dst);
-
-void insert_field_into_array(const FieldValue& val, toml::array& arr) {
-    if (const auto* i = val.as_int()) {
-        arr.push_back(*i);
-    } else if (const auto* b = val.as_bool()) {
-        arr.push_back(*b);
-    } else if (const auto* s = val.as_string()) {
-        arr.push_back(*s);
-    } else if (const auto* sub_arr = val.as_array()) {
-        toml::array child;
-        for (const FieldValue& elem : *sub_arr) {
-            insert_field_into_array(elem, child);
-        }
-        arr.push_back(std::move(child));
-    } else if (const auto* sub_tab = val.as_table()) {
-        toml::table child;
-        field_to_toml_table(*sub_tab, child);
-        child.is_inline(true);
-        arr.push_back(std::move(child));
-    } else if (const auto num = val.as_number()) {
-        arr.push_back(*num);
-    }
-}
-
-void field_to_toml_table(const FieldTable& src, toml::table& dst) {
-    for (const auto& [k, val] : src) {
-        if (const auto* i = val.as_int()) {
-            dst.insert_or_assign(k, *i);
-        } else if (const auto* b = val.as_bool()) {
-            dst.insert_or_assign(k, *b);
-        } else if (const auto* s = val.as_string()) {
-            dst.insert_or_assign(k, *s);
-        } else if (const auto* sub_arr = val.as_array()) {
-            toml::array child;
-            for (const FieldValue& elem : *sub_arr) {
-                insert_field_into_array(elem, child);
-            }
-            dst.insert_or_assign(k, std::move(child));
-        } else if (const auto* sub_tab = val.as_table()) {
-            toml::table child;
-            field_to_toml_table(*sub_tab, child);
-            child.is_inline(true);
-            dst.insert_or_assign(k, std::move(child));
-        } else if (const auto num = val.as_number()) {
-            dst.insert_or_assign(k, *num);
-        }
-    }
-}
-
-} // namespace
 
 std::expected<FieldTable, std::string> parse_field_table(std::string_view toml_text) {
     try {
         const toml::table root = toml::parse(toml_text);
-        auto converted = toml_table_to_field_table(root);
+        auto converted = detail::toml_table_to_field_table(root);
         if (!converted) {
             return std::unexpected(std::string("unsupported TOML value"));
         }
@@ -138,7 +38,7 @@ std::string serialize_field_table(const FieldTable& table) {
     if (type_field != table.end() && type_field->second.as_string() != nullptr) {
         root.insert("type", *type_field->second.as_string());
     }
-    field_to_toml_table(table, root);
+    detail::field_to_toml_table(table, root);
     std::ostringstream os;
     os << root << '\n';
     return os.str();
@@ -229,9 +129,25 @@ std::expected<WorldAsset, WorldLoadError> parse_world_asset(std::string_view tom
                 record.parent = *parent_str;
             }
 
+            if (const toml::node* proto_node = ent_tab->get("prototype")) {
+                const auto proto_str = proto_node->value<std::string>();
+                if (!proto_str) {
+                    return std::unexpected(WorldLoadError{
+                            WorldErrorKind::InvalidField,
+                            std::format("entity \"{}\": prototype must be a string", record.id)});
+                }
+                const auto parsed_id = AssetId::parse(*proto_str);
+                if (!parsed_id) {
+                    return std::unexpected(WorldLoadError{
+                            WorldErrorKind::InvalidField,
+                            std::format("entity \"{}\": invalid prototype guid \"{}\"", record.id, *proto_str)});
+                }
+                record.prototype = *parsed_id;
+            }
+
             for (const auto& [k, v] : *ent_tab) {
                 const std::string_view key = k.str();
-                if (key == "id" || key == "parent") {
+                if (key == "id" || key == "parent" || key == "prototype") {
                     continue;
                 }
                 const toml::table* comp_tab = v.as_table();
@@ -240,7 +156,7 @@ std::expected<WorldAsset, WorldLoadError> parse_world_asset(std::string_view tom
                             WorldErrorKind::InvalidField,
                             std::format("entity \"{}\": component \"{}\" must be a table", record.id, key)});
                 }
-                auto converted = toml_table_to_field_table(*comp_tab);
+                auto converted = detail::toml_table_to_field_table(*comp_tab);
                 if (!converted) {
                     return std::unexpected(WorldLoadError{
                             WorldErrorKind::InvalidField,
@@ -307,9 +223,12 @@ std::string serialize_world_asset(const WorldAsset& asset) {
             if (!record.parent.empty()) {
                 ent_tab.insert("parent", record.parent);
             }
+            if (record.prototype.has_value()) {
+                ent_tab.insert("prototype", record.prototype->hex());
+            }
             for (const auto& [comp_name, comp_fields] : record.components) {
                 toml::table comp_tab;
-                field_to_toml_table(comp_fields, comp_tab);
+                detail::field_to_toml_table(comp_fields, comp_tab);
                 comp_tab.is_inline(true);
                 ent_tab.insert(comp_name, std::move(comp_tab));
             }

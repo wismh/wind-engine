@@ -45,9 +45,11 @@ namespace engine::render {
         SceneLights lights{};
         // Sub-rectangle of the window in top-left window pixels. Empty (nullopt) means the full window.
         std::optional<Rect> viewport;
+
         // When set alongside `viewport`, clears the scissored viewport to this RGBA color and clears its depth buffer
         // before drawing the commands that follow.
         std::optional<glm::vec4> clear_color;
+        float time = 0.0f;
     };
 
     struct CmdDrawMesh {

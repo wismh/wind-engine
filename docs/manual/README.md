@@ -29,6 +29,8 @@ Wind is a high-performance 2D-first C++23 game engine tailored for production ti
 
 ### 4. [Rendering & 2D Graphics](rendering/Sprites-and-Animation.md)
 * [Sprites & Animation](rendering/Sprites-and-Animation.md) — Sprites, spritesheets, UV mapping, and clip animators.
+* [Tilemaps](rendering/Tilemaps.md) — Chunk-based 2D grid maps (`.tilemap` TOML), multi-layer rendering, frustum culling, and dynamic runtime tile updates (`set_tile`).
+* [Particle Systems](rendering/Particles.md) — 2D/3D particle emitters, emission shapes, animation curves, 2D collisions, multithreading, and bursts.
 * [Materials & Shaders](rendering/Materials-and-Shaders.md) — Material definitions (`.mat`), GLSL shaders in CDATA, and uniforms.
 * [Command Buffer & Sorting](rendering/Command-Buffer-and-Sort.md) — `Renderable`, how the engine turns drawable components into commands, and draw order (layer, order in layer).
 * [Camera](rendering/Camera.md) — Orthographic camera, `ActiveCamera`, and screen-to-world coordinate conversion.

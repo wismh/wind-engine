@@ -72,6 +72,38 @@ std::optional<TilemapDesc> parse_tilemap(std::string_view toml_text) {
             desc.pixels_per_unit = static_cast<float>(*ppu);
         }
 
+        if (const toml::node* anims_node = table.get("animations")) {
+            if (const toml::array* anims = anims_node->as_array()) {
+                for (const toml::node& anim_node : *anims) {
+                    const toml::table* const anim_table = anim_node.as_table();
+                    if (anim_table == nullptr) {
+                        return std::nullopt;
+                    }
+                    TileAnimationDesc anim;
+                    const auto tile_val = (*anim_table)["tile"].value<std::int64_t>();
+                    if (!tile_val || *tile_val <= 0 || *tile_val > 0xFFFF) {
+                        return std::nullopt;
+                    }
+                    anim.tile = static_cast<std::uint16_t>(*tile_val);
+
+                    const auto frames_val = (*anim_table)["frames"].value<std::int64_t>();
+                    if (!frames_val || *frames_val <= 0) {
+                        return std::nullopt;
+                    }
+                    anim.frames = static_cast<int>(*frames_val);
+
+                    if (const toml::node* fps_node = anim_table->get("fps")) {
+                        const auto fps_val = fps_node->value<double>();
+                        if (!fps_val || *fps_val <= 0.0) {
+                            return std::nullopt;
+                        }
+                        anim.fps = static_cast<float>(*fps_val);
+                    }
+                    desc.animations.push_back(anim);
+                }
+            }
+        }
+
         const toml::node* layers_node = table.get("layers");
         const toml::array* const layers = layers_node == nullptr ? nullptr : layers_node->as_array();
         if (layers == nullptr) {
@@ -146,11 +178,20 @@ MeshDesc bake_tilemap_chunk(
             const float y1 = -static_cast<float>(y) * cell.y;
             const float y0 = y1 - cell.y;
 
+            glm::vec3 anim_params{0.0f, 0.0f, 0.0f};
+            for (const auto& anim : desc.animations) {
+                if (anim.tile == tile && anim.frames > 1) {
+                    const float step_u = static_cast<float>(desc.tile_size.x) / texture_size.x;
+                    anim_params = glm::vec3{static_cast<float>(anim.frames), anim.fps, step_u};
+                    break;
+                }
+            }
+
             const auto base = static_cast<std::uint32_t>(mesh.vertices.size());
-            mesh.vertices.push_back(MeshVertex{.position = {x0, y0, 0.0f}, .uv = {u0, v0}});
-            mesh.vertices.push_back(MeshVertex{.position = {x1, y0, 0.0f}, .uv = {u1, v0}});
-            mesh.vertices.push_back(MeshVertex{.position = {x1, y1, 0.0f}, .uv = {u1, v1}});
-            mesh.vertices.push_back(MeshVertex{.position = {x0, y1, 0.0f}, .uv = {u0, v1}});
+            mesh.vertices.push_back(MeshVertex{.position = {x0, y0, 0.0f}, .normal = anim_params, .uv = {u0, v0}});
+            mesh.vertices.push_back(MeshVertex{.position = {x1, y0, 0.0f}, .normal = anim_params, .uv = {u1, v0}});
+            mesh.vertices.push_back(MeshVertex{.position = {x1, y1, 0.0f}, .normal = anim_params, .uv = {u1, v1}});
+            mesh.vertices.push_back(MeshVertex{.position = {x0, y1, 0.0f}, .normal = anim_params, .uv = {u0, v1}});
             for (const std::uint32_t i : {0u, 1u, 2u, 0u, 2u, 3u}) {
                 mesh.indices.push_back(base + i);
             }

@@ -1,6 +1,7 @@
 #include <engine/ecs/world_serializer.h>
 
 #include <engine/ecs/camera.h>
+#include <engine/ecs/prototype_asset.h>
 #include <engine/ecs/hierarchy.h>
 #include <engine/ecs/physics_2d.h>
 #include <engine/ecs/pointer_target.h>
@@ -532,6 +533,17 @@ void register_builtin_components(
                 (void)in.field("order_in_layer", c.order_in_layer);
                 (void)in.field("enabled", c.enabled);
             });
+
+    serializer.register_component<PrototypeInstance>(
+            "prototype_instance",
+            [](ComponentWriter& out, const PrototypeInstance& c) {
+                out.field("prototype", c.prototype);
+                out.field("entity_sub_id", c.entity_sub_id);
+            },
+            [](ComponentReader& in, PrototypeInstance& c) {
+                (void)in.field("prototype", c.prototype);
+                (void)in.field("entity_sub_id", c.entity_sub_id);
+            });
 }
 
 } // namespace
@@ -566,8 +578,107 @@ std::expected<InstantiatedWorld, WorldLoadError> instantiate_world(
     const WorldSerializer& active_serializer =
             serializer != nullptr ? *serializer : world.ctx<WorldSerializer>();
 
+    std::vector<EntityRecord> expanded_entities;
+    expanded_entities.reserve(asset.entities.size());
+
+    std::unordered_map<std::string, const EntityRecord*> explicit_entity_overrides;
+    for (const EntityRecord& record : asset.entities) {
+        explicit_entity_overrides.emplace(record.id, &record);
+    }
+
+    std::unordered_set<std::string> handled_child_overrides;
+
+    for (const EntityRecord& record : asset.entities) {
+        if (!record.prototype.has_value()) {
+            if (handled_child_overrides.contains(record.id)) {
+                continue;
+            }
+            expanded_entities.push_back(record);
+            continue;
+        }
+
+        if (assets == nullptr) {
+            return std::unexpected(WorldLoadError{
+                    WorldErrorKind::AssetError,
+                    std::format("entity \"{}\" specifies prototype \"{}\" but no AssetsDb provided",
+                                record.id, record.prototype->hex())});
+        }
+
+        auto proto = assets->try_get<PrototypeAsset>(*record.prototype);
+        if (!proto) {
+            return std::unexpected(WorldLoadError{
+                    WorldErrorKind::AssetError,
+                    std::format("entity \"{}\": failed to load prototype \"{}\"",
+                                record.id, record.prototype->hex())});
+        }
+
+        auto resolved_proto = resolve_prototype_asset(**proto, assets);
+        if (!resolved_proto) {
+            return std::unexpected(WorldLoadError{
+                    resolved_proto.error().kind == PrototypeErrorKind::AssetError
+                            ? WorldErrorKind::AssetError
+                            : WorldErrorKind::InvalidEntity,
+                    std::format("entity \"{}\": {}", record.id, resolved_proto.error().message)});
+        }
+
+        if (resolved_proto->entities.empty()) {
+            return std::unexpected(WorldLoadError{
+                    WorldErrorKind::InvalidEntity,
+                    std::format("entity \"{}\": prototype \"{}\" has no entities",
+                                record.id, record.prototype->hex())});
+        }
+
+        const std::string& root_proto_id = resolved_proto->entities[0].id;
+        for (const EntityRecord& p_ent : resolved_proto->entities) {
+            EntityRecord spawned;
+            const bool is_root = (&p_ent == &resolved_proto->entities[0]);
+            if (is_root) {
+                spawned.id = record.id;
+                spawned.parent = record.parent;
+                spawned.components = p_ent.components;
+                for (const auto& [comp_name, comp_table] : record.components) {
+                    auto comp_it = spawned.components.find(comp_name);
+                    if (comp_it != spawned.components.end()) {
+                        merge_field_tables(comp_it->second, comp_table);
+                    } else {
+                        spawned.components.insert_or_assign(comp_name, comp_table);
+                    }
+                }
+            } else {
+                spawned.id = record.id + "/" + p_ent.id;
+                if (p_ent.parent == root_proto_id || p_ent.parent.empty()) {
+                    spawned.parent = record.id;
+                } else {
+                    spawned.parent = record.id + "/" + p_ent.parent;
+                }
+                spawned.components = p_ent.components;
+
+                auto override_it = explicit_entity_overrides.find(spawned.id);
+                if (override_it != explicit_entity_overrides.end()) {
+                    const EntityRecord* child_override = override_it->second;
+                    for (const auto& [comp_name, comp_table] : child_override->components) {
+                        auto comp_it = spawned.components.find(comp_name);
+                        if (comp_it != spawned.components.end()) {
+                            merge_field_tables(comp_it->second, comp_table);
+                        } else {
+                            spawned.components.insert_or_assign(comp_name, comp_table);
+                        }
+                    }
+                    handled_child_overrides.insert(spawned.id);
+                }
+            }
+
+            FieldTable proto_inst_table;
+            proto_inst_table["prototype"] = FieldValue{record.prototype->hex()};
+            proto_inst_table["entity_sub_id"] = FieldValue{p_ent.id};
+            spawned.components.insert_or_assign("prototype_instance", std::move(proto_inst_table));
+
+            expanded_entities.push_back(std::move(spawned));
+        }
+    }
+
     if (unknown_mode == UnknownComponentMode::Reject) {
-        for (const EntityRecord& record : asset.entities) {
+        for (const EntityRecord& record : expanded_entities) {
             for (const auto& [comp_name, _] : record.components) {
                 if (active_serializer.find(comp_name) == nullptr) {
                     return std::unexpected(WorldLoadError{
@@ -579,8 +690,8 @@ std::expected<InstantiatedWorld, WorldLoadError> instantiate_world(
     }
 
     InstantiatedWorld result;
-    result.entities.reserve(asset.entities.size());
-    for (const EntityRecord& record : asset.entities) {
+    result.entities.reserve(expanded_entities.size());
+    for (const EntityRecord& record : expanded_entities) {
         const Entity entity = world.create();
         world.emplace<EntityName>(entity, EntityName{record.id});
         result.entities.push_back(entity);
@@ -603,8 +714,8 @@ std::expected<InstantiatedWorld, WorldLoadError> instantiate_world(
         }
     };
 
-    for (std::size_t i = 0; i < asset.entities.size(); ++i) {
-        const EntityRecord& record = asset.entities[i];
+    for (std::size_t i = 0; i < expanded_entities.size(); ++i) {
+        const EntityRecord& record = expanded_entities[i];
         const Entity entity = result.entities[i];
         if (!record.parent.empty()) {
             const auto parent_it = result.by_id.find(record.parent);
@@ -623,8 +734,8 @@ std::expected<InstantiatedWorld, WorldLoadError> instantiate_world(
         }
     }
 
-    for (std::size_t i = 0; i < asset.entities.size(); ++i) {
-        const EntityRecord& record = asset.entities[i];
+    for (std::size_t i = 0; i < expanded_entities.size(); ++i) {
+        const EntityRecord& record = expanded_entities[i];
         const Entity entity = result.entities[i];
         for (const auto& [comp_name, comp_fields] : record.components) {
             const WorldSerializer::Entry* entry = active_serializer.find(comp_name);
