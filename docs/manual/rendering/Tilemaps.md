@@ -113,7 +113,76 @@ tilemap.set_tile(0, 10, 5, 0);
 
 ---
 
-## 5. World Serialization
+## 5. Animated Tiles (GPU Shader-Driven)
+
+Wind supports GPU-accelerated animated tiles without CPU mesh re-baking every frame. Tile animation metadata is specified in the `.tilemap` TOML document:
+
+```toml
+# assets/maps/overworld.tilemap
+texture = "0123456789abcdef0123456789abcdef"
+size = [64, 64]
+tile_size = [16, 16]
+
+[[animations]]
+tile = 5         # 1-based base tile index in the layers
+frames = 4       # Number of consecutive horizontal frames in the tileset
+fps = 8.0        # Playback speed (frames per second)
+```
+
+### How It Works:
+- During chunk baking (`bake_tilemap_chunk`), quads for animated tiles encode `[frames, fps, uv_step_u]` into the vertex animation parameters (`MeshVertex::normal`).
+- The unlit vertex shader calculates `uv.x += floor(mod(uTime * fps, frames)) * uv_step_u` on the GPU.
+- Static tiles incur zero shader overhead (`aAnim.x <= 1.0`).
+- No CPU vertex buffer allocations or chunk rebuilds happen during playback, providing maximum performance for large water bodies, lava, or waterfalls.
+
+---
+
+## 6. RuleTiles (Autotiling)
+
+Wind provides a declarative RuleTile system (`<engine/render/rule_tile.h>`) for automatic neighbor-aware tile selection (Blob / 8-neighbor / 3×3 autotiling).
+
+### The `.ruletile` Definition (TOML)
+
+```toml
+# assets/tiles/grass.ruletile
+default_tile = 1
+
+# 8 neighbors clockwise starting from North: [N, NE, E, SE, S, SW, W, NW]
+# Condition strings:
+#  - "this", "require", "x", "1": neighbor must be of this rule tile family
+#  - "not_this", "forbid", "!", "0": neighbor must be different or empty
+#  - "any", "ignore", "*": condition ignored
+
+[[rules]]
+name = "full_surrounded"
+tile = 5
+neighbors = ["this", "this", "this", "this", "this", "this", "this", "this"]
+
+[[rules]]
+name = "top_edge"
+tile = 2
+neighbors = ["not_this", "any", "this", "any", "this", "any", "this", "any"]
+```
+
+### Placing and Clearing RuleTiles
+
+```cpp
+#include <engine/render/rule_tile.h>
+
+// Parse rule tile asset or load from TOML
+auto desc = engine::render::parse_rule_tile(ruletile_toml);
+engine::render::RuleTileAsset grass_rule = engine::render::RuleTileAsset::from_desc(std::move(*desc));
+
+// Place rule tile at (x=10, y=5) and automatically propagate to all 8 neighbors:
+engine::render::set_rule_tile(tilemap, /*layer=*/0, /*x=*/10, /*y=*/5, grass_rule, /*update_neighbors=*/true);
+
+// Clear rule tile and automatically update neighbor border edges:
+engine::render::clear_rule_tile(tilemap, /*layer=*/0, /*x=*/10, /*y=*/5, grass_rule, /*update_neighbors=*/true);
+```
+
+---
+
+## 7. World Serialization
 
 Tilemaps are fully integrated with Wind's `.world` scene serializer:
 - The `tilemap` serializer entry persists the asset GUID, `color`, `layer`, and `order_in_layer`.

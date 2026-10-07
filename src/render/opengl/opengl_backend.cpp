@@ -155,6 +155,7 @@ void main() {
             shader.set_vec3_array("uLightDirections", view.lights.directions);
             shader.set_vec3_array("uLightColors", view.lights.colors);
             shader.set_vec3("uAmbient", view.lights.ambient);
+            shader.set_float("uTime", view.time);
         }
 
         struct ExecuteVisitor {

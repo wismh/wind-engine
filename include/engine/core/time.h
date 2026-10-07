@@ -15,6 +15,7 @@ struct Time {
 
     float delta_time = 0.0f;
     float fixed_delta_time = 0.0f;
+    float total_time = 0.0f;
     float alpha = 0.0f;
     float accumulator = 0.0f;
 };
