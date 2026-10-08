@@ -30,6 +30,14 @@ struct TilemapLayerDesc {
     std::vector<std::uint16_t> tiles;
 };
 
+// An animation definition for a tile in the tileset: `tile` is the 1-based tile index in the layers,
+// `frames` is the number of consecutive horizontal frames, and `fps` is the playback speed.
+struct TileAnimationDesc {
+    std::uint16_t tile = 0;
+    int frames = 1;
+    float fps = 10.0f;
+};
+
 // The `.tilemap` file: the tileset (one texture cut into a grid) and the cell layers.
 struct TilemapDesc {
     AssetId texture;
@@ -39,6 +47,7 @@ struct TilemapDesc {
     // Tiles per tileset row. 0: the texture width divided by `tile_size.x`, resolved when the asset loads.
     int columns = 0;
     float pixels_per_unit = 100.0f;
+    std::vector<TileAnimationDesc> animations;
     std::vector<TilemapLayerDesc> layers;
 };
 

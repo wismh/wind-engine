@@ -26,6 +26,7 @@ int FixedStepClock::advance(float real_dt) {
     }
 
     time_->delta_time = frame_dt;
+    time_->total_time += frame_dt;
     time_->alpha = time_->accumulator / kFixed;
     return steps;
 }
