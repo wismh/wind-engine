@@ -91,6 +91,33 @@ TEST(Tilemap, ParsesLayersAndSizes) {
     EXPECT_EQ(desc->layers[0].tiles, (std::vector<std::uint16_t>{0, 1, 2, 0}));
 }
 
+TEST(Tilemap, ParsesAnimatedTiles) {
+    const std::string toml = toml_with_tiles("[0, 2, 0, 0]") +
+            "[[animations]]\ntile = 2\nframes = 4\nfps = 8.0\n";
+    const auto desc = engine::render::parse_tilemap(toml);
+    ASSERT_TRUE(desc.has_value());
+    ASSERT_EQ(desc->animations.size(), 1u);
+    EXPECT_EQ(desc->animations[0].tile, 2);
+    EXPECT_EQ(desc->animations[0].frames, 4);
+    EXPECT_FLOAT_EQ(desc->animations[0].fps, 8.0f);
+}
+
+TEST(Tilemap, BakeChunkEncodesTileAnimation) {
+    auto asset = make_asset();
+    asset->desc.animations.push_back({.tile = 2, .frames = 4, .fps = 12.0f});
+    asset->desc.layers[0].tiles[0] = 1;
+    asset->desc.layers[0].tiles[1] = 2;
+
+    const auto mesh = engine::render::bake_tilemap_chunk(*asset, asset->desc.layers[0].tiles, 0, 0);
+    ASSERT_EQ(mesh.vertices.size(), 8u);
+
+    EXPECT_FLOAT_EQ(mesh.vertices[0].normal.x, 0.0f);
+
+    EXPECT_FLOAT_EQ(mesh.vertices[4].normal.x, 4.0f);
+    EXPECT_FLOAT_EQ(mesh.vertices[4].normal.y, 12.0f);
+    EXPECT_FLOAT_EQ(mesh.vertices[4].normal.z, 16.0f / 64.0f);
+}
+
 TEST(Tilemap, ParseRejectsWrongTileCountBadGuidAndNegativeTile) {
     EXPECT_FALSE(engine::render::parse_tilemap(toml_with_tiles("[0, 1, 2]")).has_value());
     EXPECT_FALSE(engine::render::parse_tilemap(toml_with_tiles("[0, 1, 2, -1]")).has_value());

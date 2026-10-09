@@ -41,6 +41,7 @@ enum class ImporterKind {
     Object,
     Data,
     Tilemap,
+    Prototype,
 };
 
 enum class ColorSpace {
@@ -157,6 +158,7 @@ enum class CodegenErrorKind {
     ComponentCodegen,
     Object,
     Tilemap,
+    Prototype,
 };
 
 struct CodegenError {

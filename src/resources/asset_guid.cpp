@@ -90,6 +90,9 @@ ImporterKind importer_from_extension(const std::filesystem::path& path) {
     if (ext == ".tilemap") {
         return ImporterKind::Tilemap;
     }
+    if (ext == ".prototype") {
+        return ImporterKind::Prototype;
+    }
     return ImporterKind::Data;
 }
 
