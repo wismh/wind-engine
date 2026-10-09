@@ -15,6 +15,7 @@
 #include <engine/ui/presentation.h>
 #include <engine/ui/stylesheet.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iterator>

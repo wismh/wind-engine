@@ -188,7 +188,7 @@ The editor's assets and catalog land in `bin/assets/editor/` (`ENGINE_RUNTIME_AS
 - The game's window icon stays on `kPrimaryWindow` after Stop.
 - The editor has no project list and no Open dialog: the [Launcher](Launcher.md) owns that and starts the editor with `--project`.
 - Play always builds `DebugGame` (or `Debug` against a Debug SDK). No Release play yet.
-- The game is built with CMake's default generator when the editor configures; a build directory configured with another generator keeps it.
+- The game is built with CMake's default generator on Windows (Visual Studio) and `Ninja Multi-Config` on Linux and macOS when the editor configures; a build directory configured with another generator keeps it.
 - Long log lines are cut at the panel's right edge; the summary line shows the first error in full width.
 - Against a Release SDK, game code gets no STL checks or CRT debug heap (`DebugGame` is `/MD`). That needs a Debug SDK and a Debug game.
 - The panels show only the world of `kPrimaryWindow`.
@@ -197,7 +197,7 @@ The editor's assets and catalog land in `bin/assets/editor/` (`ENGINE_RUNTIME_AS
 - Panels cannot be closed or reset to the default layout from the UI; delete `dock_layout.toml` to start from the default.
 - `taskkill` without `/F` posts `WM_CLOSE` to one top-level window of the process, which may be a float window: that float docks back and the editor keeps running.
 - `wind-cli click` cannot switch dock tabs: tabs answer the mouse, not a command.
-- `wind-cli launch` is Windows only, like `ProcessLauncher::launch`.
+- The editor needs an audio device (SDL opens one at start). With none, set `SDL_AUDIODRIVER=dummy`.
 
 ## Tests
 

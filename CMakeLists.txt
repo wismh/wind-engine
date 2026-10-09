@@ -103,6 +103,14 @@ if(ENGINE_EDITOR)
     # Every static library linked into the shared engine (spdlog, tinyxml2, glad, nanovg, SDL3,
     # SDL3_mixer) must be position independent off Windows. Set before the submodules are added.
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+    # The installed SDK is relocatable: wind_editor and the host tools find libengine beside themselves. (Windows
+    # looks for engine.dll in the executable's directory without help.) The build tree keeps CMake's absolute
+    # rpath, so it runs from where it was built.
+    if(APPLE)
+        set(CMAKE_INSTALL_RPATH "@loader_path")
+    elseif(UNIX)
+        set(CMAKE_INSTALL_RPATH "$ORIGIN")
+    endif()
     # A game module shares the C++ runtime with engine.dll, so the CRT is fixed here (the CMake default, made
     # explicit) and recorded in <engine/build_id.h> for the guard in <engine/game_entry.h>.
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")

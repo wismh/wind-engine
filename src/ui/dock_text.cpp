@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <limits>
 #include <map>
 #include <utility>
@@ -29,8 +30,9 @@ namespace {
         }
         std::array<char, 64> buffer{};
         auto [end, error] = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
-        double back = 0.0;
-        std::from_chars(buffer.data(), end, back);
+        // strtod, not from_chars: Apple's libc++ has no floating-point from_chars before Xcode 16.3. to_chars left the
+        // buffer zero past `end`, so the text is terminated.
+        const double back = std::strtod(buffer.data(), nullptr);
         if (static_cast<float>(back) != value) {
             end = std::to_chars(buffer.data(), buffer.data() + buffer.size(), static_cast<double>(value)).ptr;
         }

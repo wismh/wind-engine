@@ -365,6 +365,16 @@ function(engine_add_game target)
         add_library(${target} SHARED ${ARGN})
         target_compile_definitions(${target} PRIVATE ENGINE_GAME_MODULE=1)
         set_target_properties(${target} PROPERTIES PREFIX "")
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+            # libstdc++ marks inline variables and template statics STB_GNU_UNIQUE, which keeps a module mapped after
+            # dlclose and binds the next Play's copy to the old module's statics.
+            target_compile_options(${target} PRIVATE -fno-gnu-unique)
+        endif()
+        if(ENGINE_FROM_SDK AND NOT WIN32)
+            # The module links the SDK's libengine by its SONAME / @rpath name. The editor process has it loaded
+            # already; the rpath makes the module loadable on its own too (a debugger, the fixture tests).
+            set_target_properties(${target} PROPERTIES BUILD_RPATH "${WIND_SDK_DIR}/bin")
+        endif()
         # Where the module of each configuration lands, for the editor that builds and loads it: one line, the
         # absolute path, in <build>/wind/<target>.<config>.module. Written when CMake generates, so before a build.
         file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/wind/${target}.$<CONFIG>.module" CONTENT "$<TARGET_FILE:${target}>")
