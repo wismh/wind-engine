@@ -88,7 +88,7 @@ if(GIT_FOUND)
 endif()
 target_compile_definitions(wind_ui_bench PRIVATE
     "WIND_BENCH_CONFIG=\"$<CONFIG>\""
-    "WIND_BENCH_ENGINE_VERSION=\"${PROJECT_VERSION}\""
+    "WIND_BENCH_ENGINE_VERSION=\"${ENGINE_VERSION_FULL}\""
     "WIND_BENCH_COMMIT=\"${_wind_ui_bench_commit}\""
     "WIND_BENCH_DIRTY=${_wind_ui_bench_dirty}")
 

@@ -55,7 +55,7 @@ $p = Start-Process -Wait -PassThru -FilePath "$sdk\bin\wind_editor.exe" `
 if ($p.ExitCode -ne 0) { Get-Content $log; exit $p.ExitCode }
 ```
 
-The project's `engine` version in `wind_project.toml` must equal the SDK's, as for Play. With the SDK's player libraries an export takes seconds, so there is nothing to cache between CI runs except `<project>/build-export/` if you want your own code compiled incrementally. MSBuild refuses to build under a temporary directory (`MSB8029`), so do not put the project in `%TEMP%`.
+The project's `engine` version in `wind_project.toml` must equal the SDK's, character for character (`0.1.7a`, not `0.1.7`), as for Play. A CI gets the SDK of that version from the engine's Releases: [Continuous Integration](../getting-started/Continuous-Integration.md). With the SDK's player libraries an export takes seconds, so there is nothing to cache between CI runs except `<project>/build-export/` if you want your own code compiled incrementally. MSBuild refuses to build under a temporary directory (`MSB8029`), so do not put the project in `%TEMP%`.
 
 ---
 

@@ -9,7 +9,7 @@ This guide walks you through setting up a minimal game using the Wind engine, op
 - **CMake 3.20+**
 - **Visual Studio 2026** (MSVC, C++23)
 - **Git**
-- A **Wind editor SDK**. Build it once from the engine repo:
+- A **Wind editor SDK**. Take a ready one from the engine's [Releases](https://github.com/wismh/wind-engine/releases) (`wind-sdk-<version>-<os>-<arch>`: unpack it anywhere, or let the launcher find it in `%LOCALAPPDATA%\Programs\Wind\Sdks\<version>`), or build it once from the engine repo:
 
 ```bash
 git clone --recursive https://github.com/wismh/wind-engine.git
@@ -19,7 +19,7 @@ cmake --build build-editor --config Release
 cmake --install build-editor --config Release --prefix out/sdk
 ```
 
-`out/sdk/` now holds the editor (`bin/wind_editor.exe`), the engine, its headers, and the CMake package your game finds. `out/sdk/sdk.toml` names its engine version.
+`out/sdk/` now holds the editor (`bin/wind_editor.exe`), the engine, its headers, and the CMake package your game finds. `out/sdk/sdk.toml` names its engine version: `0.1.7a` for the release of that number (`a` alpha, `b` beta, none production), `0.1.0a-dev` for an SDK you built yourself. To get a released SDK in your game's CI, see [Continuous Integration](Continuous-Integration.md).
 
 ---
 
@@ -64,7 +64,7 @@ Add `wind_project.toml` beside it. It makes the directory a project the editor o
 
 ```toml
 name = "My First Wind Game"
-engine = "0.1.0"   # the version in your SDK's sdk.toml
+engine = "0.1.7a"  # the version in your SDK's sdk.toml, character for character
 target = "my_game"
 ```
 

@@ -8,6 +8,8 @@
 #   WIND_PLAYER_BINARY_DIR       parent of the build trees (<build>/player)
 #   WIND_PLAYER_PREFIX           where the flavours are installed (<sdk>/player); empty: build only
 #   WIND_PLAYER_FLAVOURS         comma-separated: Development,Shipping
+#   WIND_PLAYER_VERSION_PATCH    the editor build's ENGINE_VERSION_PATCH (empty for a local build), so the players have
+#                                the version of the SDK
 #   WIND_PLAYER_SDK_BUILD_ID_HEADER  the SDK's generated <engine/build_id.h>; its kBuildId is stamped into each player
 #   WIND_PLAYER_GENERATOR, WIND_PLAYER_GENERATOR_PLATFORM, WIND_PLAYER_GENERATOR_TOOLSET, WIND_PLAYER_MAKE_PROGRAM,
 #   WIND_PLAYER_C_COMPILER, WIND_PLAYER_CXX_COMPILER   the editor build's own, so the players use the same toolchain
@@ -71,6 +73,7 @@ foreach(_flavour IN LISTS WIND_PLAYER_FLAVOURS)
     _wind_player_run("configure ${_flavour}"
         "${CMAKE_COMMAND}" -S "${WIND_PLAYER_SOURCE_DIR}" -B "${_tree}" ${_configure}
         -DENGINE_PLAYER=${_flavour}
+        "-DENGINE_VERSION_PATCH=${WIND_PLAYER_VERSION_PATCH}"
         -DENGINE_BUILD_TESTS=OFF -DENGINE_WITH_GTEST=OFF
         -DENGINE_WITH_WINDOW=ON -DENGINE_WITH_AUDIO=ON
         -DWIND_PLAYER_SDK_BUILD_ID=${_sdk_build_id})
