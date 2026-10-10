@@ -30,6 +30,23 @@ engine_add_game(my_game
 
 ---
 
+## Two Builds of One Project
+
+The same `CMakeLists.txt` gives two different builds, picked by how CMake is configured:
+
+| | Play (editor) | Export (standalone) |
+| --- | --- | --- |
+| Build directory | `build-editor/` | `build-export/` |
+| Configure flag | none (`CMAKE_PREFIX_PATH=<sdk>`) | `-DWIND_EXPORT=ON` besides it |
+| Configurations | `DebugGame;Release` (`Debug` against a Debug SDK) | `Release` |
+| Engine | the SDK's shared `engine.dll`, imported | the SDK's engine source, built static |
+| `engine_add_game` makes | a module (`my_game.dll`) | an executable |
+| Recorded in | `build-editor/wind/<target>.<config>.module` | `build-export/wind/<target>.Release.export` |
+
+The editor's Export button and `wind_editor --batch --export` run the second one for you ([Desktop](../platforms/Desktop.md#1-exporting-from-the-editor)). Keep your own presets for `build-editor`; do not point one at `build-export`, because its cache is made for the other mode.
+
+---
+
 ## Configuration Options
 
 These options apply to a standalone build, which adds the SDK's engine source instead of importing the SDK's engine: the editor's Export (`-DWIND_EXPORT=ON`), or `add_subdirectory(<sdk>/source wind)` for Web and Android. Against the SDK they are fixed by the SDK.
