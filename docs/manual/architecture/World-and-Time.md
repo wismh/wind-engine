@@ -41,7 +41,7 @@ The active `Time` struct is stored as a context resource inside the `World`:
 void update_camera_system(engine::ecs::World& world) {
     const auto& time = world.ctx<engine::Time>();
 
-    float dt = time.delta_time;            // Current frame delta time in seconds
+    float dt = time.delta_time;            // Current frame delta time in seconds (capped at 0.25)
     float fixed_dt = time.fixed_delta_time;// 1/60th second
     float alpha = time.alpha;              // Interpolation alpha between fixed ticks [0.0 .. 1.0]
 }
@@ -82,10 +82,12 @@ void MyGame::on_start() {
 
 ## 4. Pausing the Game
 
-To pause simulation without stopping the UI, animations, or menus:
+The engine pauses by itself when the app goes to the background (Android): `ApplicationState::paused` is set, the `Schedule::Fixed` steps stop, and `Schedule::Frame` keeps running only for worlds that have a window bound, so the UI stays alive. `Worlds::set_stepping(world, false)` stops both schedules of one world. You reach `ApplicationState` through `worlds().application_state()` in a `GameBase`; `quit()` on it ends the game.
+
+To pause gameplay from a menu while the UI, animations, and menus keep running:
 
 1. Implement a pause flag on your game state / clock resource.
-2. Check the pause flag in your `Schedule::Fixed` or `Schedule::Frame` gameplay systems:
+2. Check the pause flag in your gameplay systems:
 
 ```cpp
 struct GameClock {
@@ -93,19 +95,19 @@ struct GameClock {
     float time_scale = 1.0f;
 };
 
-void movement_system(engine::ecs::World& world) {
+void movement_system(engine::ecs::World& world) {   // registered on Schedule::Fixed, Phase::Game
     const auto& clock = world.ctx<GameClock>();
     if (clock.paused) {
         return;
     }
 
     const auto& time = world.ctx<engine::Time>();
-    float dt = time.delta_time * clock.time_scale;
+    float dt = time.fixed_delta_time * clock.time_scale;
     // Update player movement...
 }
 ```
 
-Because `engine::ecs::Schedule::Frame` continues running, UI interactions and animations remain fully responsive while the game simulation is frozen.
+A pause flag in your own resource leaves `engine::ecs::Schedule::Frame` running, so UI interactions and animations remain fully responsive while the game simulation is frozen. Engine systems such as `run_physics` (which integrates `RigidBody::velocity`) and sprite animation do not read `GameClock`; zero those velocities yourself while paused. `Worlds::set_stepping(world, false)` freezes a whole world, including its UI.
 
 ---
 

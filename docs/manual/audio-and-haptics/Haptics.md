@@ -1,31 +1,37 @@
 # Haptics
 
-Wind provides force-feedback and vibration support through `engine::IHaptics`, enabling physical tactile responses for collisions, weapon recoil, and UI taps.
+Wind provides device vibration through `engine::IHaptics`: a duration and an intensity, nothing more. It suits collisions, weapon recoil, and UI taps on phones.
 
 ---
 
 ## 1. Triggering Vibrations
 
-Access `services.haptics` and call `vibrate()`:
+Keep `services.haptics` (an `engine::IHaptics&`) and call `vibrate()`. The duration is in **seconds**:
 
 ```cpp
+#include <engine/core/engine_services.h>
 #include <engine/haptics/haptics_system.h>
 
-void trigger_hit_feedback(engine::EngineServices& services) {
+void trigger_hit_feedback(engine::IHaptics& haptics) {
     // Vibrate for 150 milliseconds at 80% intensity
-    services.haptics.vibrate(/*duration_ms=*/150, /*intensity=*/0.8f);
+    haptics.vibrate(0.15f, 0.8f);
 }
 ```
+
+- `intensity` is clamped to `[0, 1]` (default `1`).
+- A duration `<= 0`, or a clamped intensity `<= 0`, requests nothing. A vibration that is already running keeps running: `vibrate()` never cancels one. Call `haptics.cancel()` for that.
+- Calls are fire-and-forget. There is no per-frame update.
+- `haptics.is_supported()` asks the device at run time. Use it to hide a "Vibration" setting.
 
 ---
 
 ## 2. Platform Support & Intensity
 
-- **Mobile (Android):** Maps to Android's `Vibrator` service. On Android 8.0+ (API 26+), variable intensity amplitude is honored.
-- **Gamepads (Desktop):** Controls rumble motors in connected gamepads.
-- **Web:** Uses the HTML5 Gamepad / Vibration API where permitted by browser security policies.
+- **Android:** Uses the system `Vibrator`. On Android 8.0+ (API 26+) the intensity is a real amplitude. On API 21 to 25 the amplitude is ignored (on/off).
+- **Web:** Uses `navigator.vibrate(ms)` where the browser has it. It is on/off: any intensity above 0 buzzes at full strength. Firefox removed it and Safari/iOS never had it, so `is_supported()` is false there.
+- **Desktop:** No hardware backend. `is_supported()` is false and `vibrate()` does nothing. Gamepad rumble is not supported.
 
-If haptics are unsupported on the user's device, `vibrate()` degrades gracefully into a harmless no-op.
+On a device without support, `vibrate()` is a harmless no-op.
 
 ---
 

@@ -34,6 +34,10 @@ To maintain a clean codebase and ensure seamless upgrades when moving to a new e
 - **No Scene-Graph Hierarchy:** Do not add a `parent` pointer or `children` array to `Transform`. World transformations are absolute coordinates. Hierarchical attachments should be resolved explicitly through relationship components or systems.
 - **No Direct EventBus Subscriptions:** Do not build a monolithic publish/subscribe bus with arbitrary callback lambdas. Use double-buffered `Events<T>` queues read by systems during frame updates.
 - **No Third-Party ECS Integration:** Do not pull EnTT into game code; use Wind's built-in generational `ecs::World`.
+- **No Service Locator:** Take what you need from `EngineServices` in your game's constructor and keep the references; there is no `Engine::get_audio()`.
+- **UI Talks to Game Through Commands:** A button is an `ICommand` on a view model, bound by `command="{binding name}"`. There is no `onClick` lambda in markup or in the builder.
+- **Assets by `AssetId` Only:** Load with `AssetsDb::get<T>(assets::folder::name)`, never by file name.
+- **Gameplay Input by `ActionId`:** Bind keys with `InputSystem::bind`; do not switch on `KeyCode` in gameplay.
 
 ---
 

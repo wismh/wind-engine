@@ -22,29 +22,29 @@ Wind is a high-performance 2D C++23 game engine tailored for production titles. 
 * [Entities & Components](ecs/Entities-and-Components.md) — Generational IDs, pools, `World`, and `View<Ts...>`.
 * [Systems & Schedules](ecs/Systems-and-Schedules.md) — `Schedule::Frame`, `Schedule::Fixed`, and execution phases.
 * [Events](ecs/Events.md) — Double-buffered event queues (`Events<T>`, `EventReader`, `EventWriter`).
-* [Physics & Collisions](ecs/Physics-and-Collisions.md) — AABB colliders, triggers, and `run_physics` collision probes.
+* [Physics & Collisions](ecs/Physics-and-Collisions.md) — Box and circle colliders, triggers, velocity integration, and `CollisionEvent` (the engine runs `run_physics` itself).
 
 ### 4. [Rendering & 2D Graphics](rendering/Sprites-and-Animation.md)
 * [Sprites & Animation](rendering/Sprites-and-Animation.md) — Sprites, spritesheets, UV mapping, and clip animators.
 * [Materials & Shaders](rendering/Materials-and-Shaders.md) — Material definitions (`.mat`), GLSL shaders in CDATA, and uniforms.
-* [Command Buffer & Sorting](rendering/Command-Buffer-and-Sort.md) — Queuing draw commands, renderable layers, and sort predicates.
-* [Camera](rendering/Camera.md) — Orthographic camera, zoom, and screen-to-world coordinate conversion.
+* [Command Buffer & Sorting](rendering/Command-Buffer-and-Sort.md) — `Renderable`, how the engine turns drawable components into commands, and draw order (layer, order in layer).
+* [Camera](rendering/Camera.md) — Orthographic camera, `ActiveCamera`, and screen-to-world coordinate conversion.
 
 ### 5. [Wind UI System](ui/UI-Basics.md)
-* [UI Basics](ui/UI-Basics.md) — Declarative XML markup, CSS styling, and `UiCanvas`.
-* [MVVM & Data Binding](ui/MVVM-and-Bindings.md) — `ViewModel`, properties, `camelCase` binding names, and codegen.
-* [HUD & Controls](ui/HUD-and-Controls.md) — Panels, HUD command pattern, `TextInput`, and virtualized `ItemsControl`.
+* [UI Basics](ui/UI-Basics.md) — Declarative XML markup (`Canvas`, `Stack`, `Label`, `Button`, ...), the CSS subset, and `UiCanvas`.
+* [MVVM & Data Binding](ui/MVVM-and-Bindings.md) — `ViewModel`, `{binding name}`, `camelCase` binding names, and generated binders.
+* [HUD & Controls](ui/HUD-and-Controls.md) — Panels, HUD command pattern, `TextInput`, and `ItemsControl` lists with their virtualization rules.
 * [Custom Painting](ui/Custom-Painting.md) — Custom 2D vector drawing using `IPaint` and `IDrawList`.
 * [Math Formulae](ui/Math-Formulae.md) — Native LaTeX mathematical typography via `<Math>`.
 
 ### 6. [Input Handling](input/Action-Mapping.md)
-* [Action Mapping](input/Action-Mapping.md) — Named `ActionId` bindings, multi-device mappings, and input cursors.
-* [Raw Input & Mouse](input/Raw-Input-and-Mouse.md) — `MouseEvent`, held key repeat (`KeyEvent`), and the `MouseConsumed` latch.
-* [Multi-Window Input](input/Multi-Window-Input.md) — Window routing, overlay focus, and click-through prevention.
+* [Action Mapping](input/Action-Mapping.md) — Named `ActionId` bindings for keys, mouse buttons, and touch, and reading `InputEvent`.
+* [Raw Input & Mouse](input/Raw-Input-and-Mouse.md) — `MouseEvent`, held key repeat (`KeyEvent`), and checking whether the UI consumed the mouse.
+* [Multi-Window Input](input/Multi-Window-Input.md) — Opening windows, binding them to worlds, window close requests, and transparent click-through overlays.
 
 ### 7. [Audio & Haptics](audio-and-haptics/Sound-and-Music.md)
 * [Sound & Music](audio-and-haptics/Sound-and-Music.md) — SFX pool, music fading, looping sound handles, and audio buses.
-* [Haptics](audio-and-haptics/Haptics.md) — Device vibration, duration, and intensity control.
+* [Haptics](audio-and-haptics/Haptics.md) — Device vibration on Android and the Web: duration in seconds and intensity.
 
 ### 8. [Assets & Localization](assets-and-loc/Asset-Pipeline.md)
 * [Asset Pipeline](assets-and-loc/Asset-Pipeline.md) — The `assets/` directory, `.meta` sidecars, GUIDs, and `asset_codegen`.
@@ -53,8 +53,8 @@ Wind is a high-performance 2D C++23 game engine tailored for production titles. 
 
 ### 9. [Target Platforms](platforms/Desktop.md)
 * [Desktop](platforms/Desktop.md) — Exporting a Release build from the editor or in batch mode (CI), exporting by hand, and distribution on Windows, Linux, and macOS.
-* [Web (WebAssembly)](platforms/Web-Wasm.md) — Emscripten, WebGL2, host codegen prerequisite, and asset preloading.
-* [Android](platforms/Android.md) — Gradle packaging, application identifiers, assets staging, and back button.
+* [Web (WebAssembly)](platforms/Web-Wasm.md) — Building from the SDK's engine source with Emscripten, the SDK's native codegen tools, and asset preloading.
+* [Android](platforms/Android.md) — Gradle packaging from the SDK's engine source, application identifiers, assets staging, and back button.
 
 ### 10. [Best Practices & Conventions](best-practices/Rules-and-Conventions.md)
 * [Rules & Conventions](best-practices/Rules-and-Conventions.md) — C++23 standards, naming, file boundaries, and architecture rules.

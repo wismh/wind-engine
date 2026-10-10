@@ -31,7 +31,7 @@ int main() {
 - `app.init()`: Initializes platform subsystems (SDL, windowing, audio device, OpenGL context, `AssetsDb`) through `engine::EngineHost`. Returns `false` on failure.
 - `app.run()`: Enters the main frame loop. It runs until the application receives a close event, returning the process exit code.
 
-In the editor build (`ENGINE_EDITOR`, the game repo's `editor` preset) the same line builds the game as a module the editor loads, so `main.cpp` does not change between the two.
+When the game is built for the editor (`build-editor`, configured against the SDK), the same line instead writes the three exports the editor loads the game module through (`wind_create_game`, `wind_destroy_game`, `wind_game_build_id`), so `main.cpp` does not change between Play and Export. `ENGINE_GAME` also checks at compile time that the class derives from `engine::IGame` and is constructible from `const engine::EngineServices&`.
 
 ---
 
@@ -78,7 +78,7 @@ public:
         engine::WindowDesc desc;
         desc.title = "Star Quest";
         desc.size = {1280, 720};
-        desc.resizable = true;
+        desc.style.resizable = true;   // flags are in WindowDesc::style: borderless, always_on_top, ...
         return desc;
     }
 
@@ -101,8 +101,10 @@ struct EngineServices {
     AssetsDb& assets;                  // Asset registry and loader
     InputSystem& input;                // Action mapping and input management
     IAudioSystem& audio;              // Sound effects and music
-    IHaptics& haptics;                // Force feedback & vibration
-    IWindowControl& windows;          // Secondary window management
+    IHaptics& haptics;                // Device vibration
+    IHttpClient& http;                // HTTP requests
+    IProcessLauncher& processes;      // Child processes
+    IWindowControl& windows;          // Window management and frame pacing
     render::IGraphicFactory& graphics; // Low-level graphics allocation
     render::IRenderBackend& backend;   // Render backend
     render::ICanvas& canvas;           // 2D canvas primitives
@@ -119,16 +121,27 @@ struct EngineServices {
 ## 4. Lifecycle Hooks
 
 ### `on_start()`
-Invoked when the engine is fully initialized and the initial splash screen has completed.
+Invoked once, on the main thread, when the engine is fully initialized (window open, catalogs loaded) and before the first frame. The engine shows no splash screen by itself (`engine::ui::show_splash` is there if you want one).
 - Register all ECS systems on `world()`.
 - Bind gameplay actions via `services_.input.bind(...)`.
 - Spawn initial entities (camera, UI canvases, game scenes).
 - Construct UI view models and panels.
 
 ### `on_quit()`
-Invoked on the main thread when a close event is triggered or shutdown is requested.
+Invoked once on the main thread when the main loop ends, before the engine's services are destroyed.
 - Persist state or trigger final saves.
 - Release game-specific non-RAII resources.
+
+The engine never quits on its own when the player closes the window: it sends `engine::ui::WindowCloseRequestedEvent` and your game decides. To end the game, call `worlds().application_state().quit()` (a `GameBase` has `worlds()`); the loop stops after the current frame and `on_quit()` runs.
+
+```cpp
+for (const engine::ui::WindowCloseRequestedEvent& event : engine::ecs::EventReader<engine::ui::WindowCloseRequestedEvent>{
+             world, world.ctx<engine::ecs::EventCursor<engine::ui::WindowCloseRequestedEvent>>()}) {
+    if (event.window == engine::kPrimaryWindow) {
+        worlds().application_state().quit();   // or show a "Quit?" dialog first
+    }
+}
+```
 
 ---
 
