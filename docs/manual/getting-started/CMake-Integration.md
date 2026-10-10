@@ -32,7 +32,7 @@ engine_add_game(my_game
 
 ## Configuration Options
 
-These options apply to a standalone build, which adds the SDK's engine source with `add_subdirectory(<sdk>/source wind)` instead of `find_package` (until the editor exports games). Against the SDK they are fixed by the SDK.
+These options apply to a standalone build, which adds the SDK's engine source instead of importing the SDK's engine: the editor's Export (`-DWIND_EXPORT=ON`), or `add_subdirectory(<sdk>/source wind)` for Web and Android. Against the SDK they are fixed by the SDK.
 
 | Option | Default as a subdirectory | Description |
 | --- | --- | --- |

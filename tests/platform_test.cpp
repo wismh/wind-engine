@@ -167,3 +167,15 @@ TEST(Platform, UserDataDirectoryHeadlessDoesNotTouchTheFilesystem) {
     accept(".hidden", "My.Game");
 #endif
 }
+
+TEST(Platform, ExecutableDirectoryIsTheDirectoryOfTheRunningTest) {
+    const std::filesystem::path directory = engine::executable_directory();
+#if defined(_WIN32) || defined(__APPLE__) || (defined(__linux__) && !defined(__ANDROID__))
+    ASSERT_FALSE(directory.empty());
+    EXPECT_TRUE(directory.is_absolute());
+    std::error_code error;
+    EXPECT_TRUE(std::filesystem::is_directory(directory, error));
+#else
+    EXPECT_TRUE(directory.empty());
+#endif
+}
