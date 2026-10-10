@@ -149,6 +149,33 @@ if(ENGINE_BENCH)
             "ENGINE_WITH_WINDOW=ON and ENGINE_EDITOR=OFF, and no Emscripten or Android. Use the vs-bench preset.")
     endif()
 endif()
+# Player build: the prebuilt static engine the editor SDK ships in <sdk>/player/<flavour>/, so an Export compiles the
+# game and links instead of compiling the engine. Configured by cmake/player_build.cmake, never by hand. Two flavours:
+#   Development  optimized, with symbols, with the UI profiler and the CLI server (the game's DebugGame configuration)
+#   Shipping     optimized, without symbols, profiler, or CLI server (the game's Release configuration)
+# Both link the release DLL CRT, have the window and the mixer, and are not the editor build. docs/tech/build/CMake.md
+set(ENGINE_PLAYER "" CACHE STRING "Player build of the static engine for the editor SDK: Development, Shipping, or empty")
+set_property(CACHE ENGINE_PLAYER PROPERTY STRINGS "" Development Shipping)
+if(ENGINE_PLAYER)
+    if(NOT ENGINE_PLAYER STREQUAL "Development" AND NOT ENGINE_PLAYER STREQUAL "Shipping")
+        message(FATAL_ERROR "ENGINE_PLAYER is \"${ENGINE_PLAYER}\"; it is Development or Shipping.")
+    endif()
+    if(NOT _engine_is_root OR ENGINE_EDITOR OR EMSCRIPTEN OR ANDROID OR NOT ENGINE_WITH_WINDOW OR NOT ENGINE_WITH_AUDIO
+            OR ENGINE_BUILD_TESTS OR ENGINE_LAUNCHER OR ENGINE_BENCH)
+        message(FATAL_ERROR
+            "ENGINE_PLAYER builds the desktop player libraries of the editor SDK: engine repo root, ENGINE_WITH_WINDOW=ON, "
+            "ENGINE_WITH_AUDIO=ON, and no ENGINE_EDITOR, tests, launcher, bench, Emscripten, or Android. "
+            "cmake/player_build.cmake configures it; see docs/tech/build/CMake.md")
+    endif()
+    # The game executable links the release DLL CRT, like the SDK's engine.dll and game modules.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+    if(ENGINE_PLAYER STREQUAL "Development")
+        # Debug information inside the object files (/Z7), so the static libraries carry it into the game's own .pdb
+        # and no compile .pdb has to travel with them.
+        add_compile_options("$<IF:$<BOOL:${MSVC}>,/Z7,-g>")
+    endif()
+endif()
 set(ENGINE_WEB_SHELL "" CACHE FILEPATH "Optional HTML shell for Emscripten (defaults to cmake/web/shell.html)")
 set(ENGINE_HOST_ASSET_CODEGEN "" CACHE FILEPATH "Native asset_codegen when cross-compiling (Emscripten or Android)")
 set(ENGINE_HOST_ICON_CODEGEN "" CACHE FILEPATH "Native icon_codegen when cross-compiling (Emscripten or Android)")
@@ -235,30 +262,36 @@ add_custom_command(
 add_custom_target(engine_build_id DEPENDS "${_engine_build_id_dir}/build_id.stamp")
 add_dependencies(engine engine_build_id)
 
-# The UI profiler and the CLI server: Debug, RelWithDebInfo, and every configuration of the editor build, so the
-# Release editor has the Profiler tab and wind-cli. An exported game's Release and MinSizeRel compile the profiler
-# call sites out. The CLI server is a separate switch, desktop only.
-if(ENGINE_EDITOR)
+# The UI profiler and the CLI server: Debug, RelWithDebInfo, DebugGame (a fallback Export built from <sdk>/source), and
+# every configuration of the editor build, so the Release editor has the Profiler tab and wind-cli. An exported game's
+# Release and MinSizeRel compile the profiler call sites out. The player libraries have it by flavour: Development
+# yes, Shipping no. The CLI server is a separate switch, desktop only.
+if(ENGINE_EDITOR OR ENGINE_PLAYER STREQUAL "Development")
     set(_engine_tools_config 1)
+elseif(ENGINE_PLAYER STREQUAL "Shipping")
+    set(_engine_tools_config 0)
 else()
-    set(_engine_tools_config "$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>")
+    set(_engine_tools_config "$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>,$<CONFIG:DebugGame>>")
 endif()
 target_compile_definitions(engine PUBLIC "$<${_engine_tools_config}:ENGINE_UI_PROFILER>")
 if(NOT EMSCRIPTEN AND NOT ANDROID)
     target_compile_definitions(engine PUBLIC "$<${_engine_tools_config}:ENGINE_CLI_SERVER>")
 endif()
 
+# BUILD_INTERFACE: the include directories are the source tree's; an installed player (install(EXPORT) below) names none,
+# its consumer takes the SDK's include/.
 target_include_directories(engine
     PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        "${_engine_build_id_dir}"
+        "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+        "$<BUILD_INTERFACE:${_engine_build_id_dir}>"
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
-# glm is part of the public API (IGame, Transform). spdlog/tinyxml2/toml stay PRIVATE.
+# glm is part of the public API (IGame, Transform). spdlog/tinyxml2/toml stay PRIVATE. A player build does not
+# export glm: its consumer brings glm::glm from the SDK's include/.
 target_link_libraries(engine
     PUBLIC
-        glm::glm
+        "$<BUILD_INTERFACE:glm::glm>"
     PRIVATE
         spdlog::spdlog
         tinyxml2::tinyxml2
@@ -550,6 +583,79 @@ if(ENGINE_BENCH)
     add_subdirectory(bench)
 endif()
 
+# The player libraries (ENGINE_PLAYER): engine and every static library it links, exported as imported targets in
+# the namespace WindPlayer<Flavour>:: and installed into <prefix>/lib and <prefix>/cmake, with cmake/wind_player.cmake
+# beside them. cmake/player_build.cmake runs the configure, the build, and this install for the editor SDK
+# (<sdk>/player/<Flavour>/). A target the engine reaches and this project builds is exported with it, so a library SDK
+# or the mixer adds later needs no list here. Alias names resolve to the real target. glm, header-only toml++, and the
+# system libraries are not libraries to install.
+if(ENGINE_PLAYER)
+    set(WIND_PLAYER_SDK_BUILD_ID "" CACHE STRING "kBuildId of the editor SDK this player belongs to (cmake/player_build.cmake)")
+    function(_engine_player_closure root out)
+        set(_found "${root}")
+        set(_queue "${root}")
+        while(_queue)
+            list(POP_FRONT _queue _target)
+            foreach(_property IN ITEMS LINK_LIBRARIES INTERFACE_LINK_LIBRARIES)
+                get_target_property(_items ${_target} ${_property})
+                if(NOT _items)
+                    continue()
+                endif()
+                foreach(_item IN LISTS _items)
+                    # $<LINK_ONLY:x> and $<TARGET_NAME:x> name a target; any other expression (BUILD_INTERFACE of glm,
+                    # a compile feature) does not.
+                    if(_item MATCHES "^\\$<(LINK_ONLY|TARGET_NAME):([^>$]+)>$")
+                        set(_item "${CMAKE_MATCH_2}")
+                    endif()
+                    if(NOT TARGET "${_item}")
+                        continue()
+                    endif()
+                    get_target_property(_real ${_item} ALIASED_TARGET)
+                    if(_real)
+                        set(_item "${_real}")
+                    endif()
+                    get_target_property(_imported ${_item} IMPORTED)
+                    if(_imported OR _item IN_LIST _found)
+                        continue()
+                    endif()
+                    list(APPEND _found "${_item}")
+                    list(APPEND _queue "${_item}")
+                endforeach()
+            endforeach()
+        endwhile()
+        set(${out} "${_found}" PARENT_SCOPE)
+    endfunction()
+    _engine_player_closure(engine _engine_player_targets)
+    message(STATUS "Wind player ${ENGINE_PLAYER}: ${_engine_player_targets}")
+    # A third-party library names its include directories in the source tree (glad does) or in an install tree
+    # (INSTALL_INTERFACE). Only this build's targets use them: the exported targets carry none, because the game's
+    # compile needs none of these headers and an imported target with a missing include directory is an error.
+    foreach(_target IN LISTS _engine_player_targets)
+        get_target_property(_directories ${_target} INTERFACE_INCLUDE_DIRECTORIES)
+        if(NOT _directories)
+            continue()
+        endif()
+        set(_wrapped)
+        foreach(_directory IN LISTS _directories)
+            if(_directory MATCHES "^\\$<INSTALL_INTERFACE:")
+                continue()
+            elseif(_directory MATCHES "^\\$<")
+                list(APPEND _wrapped "${_directory}")
+            else()
+                list(APPEND _wrapped "$<BUILD_INTERFACE:${_directory}>")
+            endif()
+        endforeach()
+        set_property(TARGET ${_target} PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${_wrapped}")
+    endforeach()
+
+    install(TARGETS ${_engine_player_targets} EXPORT WindPlayer ARCHIVE DESTINATION lib)
+    install(EXPORT WindPlayer NAMESPACE "WindPlayer${ENGINE_PLAYER}::" FILE wind_player_targets.cmake DESTINATION cmake)
+    string(TOLOWER "${CMAKE_SYSTEM_NAME}" WIND_PLAYER_PLATFORM)
+    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/wind_player.cmake.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/wind_player.cmake" @ONLY)
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/generated/wind_player.cmake" DESTINATION cmake)
+endif()
+
 # The editor host and the SDK. ENGINE_EDITOR is ON only in the engine repo (vs-editor); a game builds its
 # module against the installed SDK instead (find_package(Wind)).
 if(ENGINE_EDITOR)
@@ -620,16 +726,63 @@ if(ENGINE_EDITOR)
         "${_engine_sdk_dir}/$<CONFIG>/WindConfig.cmake"
         "${_engine_sdk_dir}/WindConfigVersion.cmake"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/wind_game.cmake"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/wind_export.cmake"
         DESTINATION cmake)
 
     # Project templates the launcher copies for a new project, so a project starts from this version's API.
     install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/templates/" DESTINATION templates)
 
-    # sdk.toml last: version, commit, dirty, configuration, and build id of what was just installed.
+    # The player libraries (<sdk>/player/<flavour>/): the static engine built once for every Export, so an Export
+    # compiles the game and links. They come from build trees of their own (ENGINE_PLAYER, cmake/player_build.cmake),
+    # configured, built, and installed by `cmake --install` of a Release SDK; the target wind_player builds them
+    # without installing. Windows and Linux; the macOS SDK has none, and an Export there builds the engine from
+    # source/. A Debug SDK has none either: it is for the engine's own debugging.
+    set(_engine_sdk_player_default OFF)
+    if(WIN32 OR (UNIX AND NOT APPLE))
+        set(_engine_sdk_player_default ON)
+    endif()
+    option(ENGINE_SDK_PLAYER "Build the player libraries (Development, Shipping) into a Release editor SDK"
+        ${_engine_sdk_player_default})
+    if(ENGINE_SDK_PLAYER)
+        set(_engine_player_defines
+            "-DWIND_PLAYER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+            "-DWIND_PLAYER_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/player"
+            "-DWIND_PLAYER_FLAVOURS=Development,Shipping"
+            "-DWIND_PLAYER_SDK_BUILD_ID_HEADER=${_engine_build_id_dir}/engine/build_id.h"
+            "-DWIND_PLAYER_GENERATOR=${CMAKE_GENERATOR}"
+            "-DWIND_PLAYER_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+            "-DWIND_PLAYER_GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
+            "-DWIND_PLAYER_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
+            "-DWIND_PLAYER_C_COMPILER=${CMAKE_C_COMPILER}"
+            "-DWIND_PLAYER_CXX_COMPILER=${CMAKE_CXX_COMPILER}")
+        add_custom_target(wind_player
+            COMMAND ${CMAKE_COMMAND} ${_engine_player_defines} -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/player_build.cmake"
+            COMMENT "Wind player libraries (Development, Shipping)"
+            USES_TERMINAL VERBATIM)
+        set(_engine_player_code)
+        foreach(_define IN LISTS _engine_player_defines)
+            string(APPEND _engine_player_code " \"${_define}\"")
+        endforeach()
+        install(CODE "
+            if(NOT \"$<CONFIG>\" STREQUAL \"Debug\")
+                execute_process(COMMAND \"${CMAKE_COMMAND}\"${_engine_player_code}
+                    \"-DWIND_PLAYER_PREFIX=\${CMAKE_INSTALL_PREFIX}/player\"
+                    -P \"${CMAKE_CURRENT_SOURCE_DIR}/cmake/player_build.cmake\"
+                    RESULT_VARIABLE _wind_player_result)
+                if(NOT _wind_player_result EQUAL 0)
+                    message(FATAL_ERROR \"The player libraries of the SDK failed to build (exit code \${_wind_player_result})\")
+                endif()
+            endif()")
+    endif()
+
+    # sdk.toml last: version, commit, dirty, configuration, and build id of what was just installed, and the platform
+    # and the player flavours this SDK ships (none for a Debug SDK).
+    string(TOLOWER "${CMAKE_SYSTEM_NAME}" _engine_sdk_platform)
     install(CODE "
         set(WIND_SDK_SOURCE_DIR \"${CMAKE_CURRENT_SOURCE_DIR}\")
         set(WIND_SDK_VERSION \"${PROJECT_VERSION}\")
         set(WIND_SDK_CONFIG \"$<CONFIG>\")
         set(WIND_SDK_BUILD_ID_HEADER \"${_engine_build_id_dir}/engine/build_id.h\")
+        set(WIND_SDK_PLATFORM \"${_engine_sdk_platform}\")
         include(\"${CMAKE_CURRENT_SOURCE_DIR}/cmake/sdk_manifest.cmake\")")
 endif()

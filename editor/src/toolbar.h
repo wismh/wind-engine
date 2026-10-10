@@ -1,6 +1,7 @@
 #pragma once
 
 #include "editor_view_model.h"
+#include "export_dialog.h"
 
 #include <memory>
 #include <string>
@@ -13,7 +14,7 @@ enum class EditorRequest {
     None,
     Play,
     Stop,
-    // Build the standalone game and copy it out.
+    // Open (or close) the Export dialog, which then asks for the folder and the flavour of the standalone game.
     Export,
 };
 
@@ -27,8 +28,8 @@ enum class RunState {
     Playing,
 };
 
-// The editor window's top bar: Play/Stop, status line, and project line. Owns the view-model and the button
-// methods. Holds `this` in its commands, so it never moves.
+// The editor window's top bar: Play/Stop, Export, status line, and project line. Owns the view-model, the button
+// methods, and the Export dialog the Export button opens. Holds `this` in its commands, so it never moves.
 class Toolbar {
 public:
     Toolbar();
@@ -41,9 +42,12 @@ public:
     void toggle_play();
     [[nodiscard]] bool can_toggle_play() const;
 
-    // The Export button: only when nothing runs (a build shows Cancel on the Play button).
+    // The Export button: only when nothing runs (a build shows Cancel on the Play button). It asks the editor to open
+    // the dialog; Export in the dialog is what starts a build.
     void export_game();
     [[nodiscard]] bool can_export_game() const;
+
+    [[nodiscard]] ExportDialog& export_dialog();
 
     // The project line. `playable` enables Play and Export: the project was read and fits this editor's SDK.
     void show_project(std::string text, bool playable);
@@ -63,6 +67,7 @@ private:
     EditorRequest request_ = EditorRequest::None;
     RunState state_ = RunState::Idle;
     bool playable_ = false;
+    ExportDialog export_dialog_;
 };
 
 }

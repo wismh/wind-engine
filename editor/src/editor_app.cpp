@@ -199,6 +199,11 @@ void EditorApp::on_frame_end() {
     if (const std::optional<std::filesystem::path> directory = cli_->take_open()) {
         open_project(*directory);
     }
+    ExportDialog& export_dialog = toolbar_->export_dialog();
+    export_dialog.frame(host_.services().windows, window_);
+    if (const std::optional<ExportChoice> choice = export_dialog.take_choice()) {
+        start_export(*choice);
+    }
     switch (toolbar_->take_request()) {
         case EditorRequest::None:
             break;
@@ -236,6 +241,7 @@ EditorFacts EditorApp::facts() const {
 
 void EditorApp::open_project(const std::filesystem::path& directory) {
     project_.reset();
+    toolbar_->export_dialog().close();
     ProjectCheck check = check_project(directory, sdk_);
     project_dir_ = check.directory;
     if (!check.project) {
@@ -262,25 +268,40 @@ void EditorApp::play() {
     start_build(BuildKind::Module);
 }
 
+// The Export button opens the dialog (or closes it); Export in the dialog starts the build.
 void EditorApp::export_game() {
-    start_build(BuildKind::Export);
+    ExportDialog& export_dialog = toolbar_->export_dialog();
+    if (export_dialog.is_open()) {
+        export_dialog.close();
+    } else if (project_ && sdk_) {
+        export_dialog.show(project_dir_, project_->target, sdk_->config);
+    }
+}
+
+void EditorApp::start_export(const ExportChoice& choice) {
+    if (!project_ || !sdk_ || session_->playing() || build_->running()) {
+        return;
+    }
+    export_directory_ = choice.directory;
+    start_build(BuildKind::Export, choice.development);
 }
 
 // One operation at a time: not while the game runs, not while a build runs.
-void EditorApp::start_build(BuildKind kind) {
+void EditorApp::start_build(BuildKind kind, bool development) {
     if (!project_ || !sdk_ || session_->playing() || build_->running()) {
         return;
     }
     building_ = kind;
     BuildPanel& log = panels_->build();
     log.clear();
-    log.show_summary("Building " + project_->target + " (" + game_config(sdk_->config, kind) + ")...");
+    log.show_summary("Building " + project_->target + " (" + game_config(sdk_->config, kind, development) + ")...");
     build_->start(BuildSetup{
             .kind = kind,
             .project = project_dir_,
             .sdk = sdk_root_,
             .target = project_->target,
             .sdk_config = sdk_->config,
+            .development = development,
     });
     toolbar_->show_state(RunState::Building);
     toolbar_->show_status((kind == BuildKind::Export ? "Exporting " : "Building ") + project_->name + "...");
@@ -313,9 +334,8 @@ void EditorApp::poll_build() {
 // The build ended: copy what it made out of the build directory.
 void EditorApp::finish_export(const std::filesystem::path& built) {
     BuildPanel& log = panels_->build();
-    const std::filesystem::path directory = default_export_directory(project_dir_, project_->target);
     toolbar_->show_state(RunState::Idle);
-    const auto copied = copy_export(built, directory);
+    const auto copied = copy_export(built, export_directory_);
     if (!copied) {
         toolbar_->show_status(copied.error());
         log.show_summary(copied.error());
