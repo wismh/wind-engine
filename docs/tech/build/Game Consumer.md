@@ -123,16 +123,14 @@ The game includes `<engine/…>` only. It does not add `engine/src` to its inclu
 
 ## Standalone executable
 
-Export from the editor (a standalone executable, Web, Android) is not built yet ([Editor Plan](../architecture/Editor%20Plan.md#next-projects-launcher-build-on-play)). Until it is, a game builds the static engine of its SDK's exact version from `<sdk>/source` in a separate configure, with `add_subdirectory` instead of `find_package`:
+The editor exports a desktop game (Windows, Linux, macOS) as a standalone executable with the static engine of its SDK's exact version: the Export button, or `wind_editor --batch --project <dir> --export [<dir>]` ([Editor](../features/Editor.md#export)). The game's `CMakeLists.txt` does not change: it keeps `find_package(Wind REQUIRED)` and `engine_add_game`. The editor configures a separate build directory, `<project>/build-export`, with `-DWIND_EXPORT=ON` besides the SDK variables, and builds Release:
 
-```cmake
-cmake_minimum_required(VERSION 3.20)
-project(my_game_standalone CXX C)
-add_subdirectory("C:/path/to/engine/out/sdk/source" wind)
-engine_add_game(my_game src/main.cpp src/game.cpp)
+```
+cmake -S . -B build-export -DWIND_EXPORT=ON -DCMAKE_PREFIX_PATH=<sdk> -DWind_DIR=<sdk>/cmake -DCMAKE_CONFIGURATION_TYPES=Release
+cmake --build build-export --config Release --target my_game
 ```
 
-That is the engine's own `CMakeLists.txt` as a subdirectory, so the source build rules apply: `engine` is static, `ENGINE_WITH_WINDOW` and `ENGINE_WITH_AUDIO` default ON, `ENGINE_BUILD_TESTS` defaults OFF, `ENGINE_WITH_GTEST=ON` adds GoogleTest from `<sdk>/source/external/googletest`, and `engine_add_game` makes an executable in `bin/<config>/` with `assets/engine/` beside it. To drop the mixer, `set(ENGINE_WITH_AUDIO OFF CACHE BOOL "" FORCE)` before `add_subdirectory` (`option()` does not replace an existing cache entry). The Android and Web sections below are this kind of build: their engine paths (`cmake/android/app/`, `cmake/toolchains/`, `cmake/web/`) are under `<sdk>/source/`.
+The same two commands by hand give the same executable, in `build-export/bin/Release/` (`bin/` on a single-configuration generator) with `assets/` beside it. With `WIND_EXPORT` on, `WindConfig.cmake` adds `<sdk>/source` as a subdirectory (binary directory `wind-engine`) instead of importing the SDK's shared engine ([CMake](CMake.md#standalone-executable-wind_export)), so the source build rules apply: `engine` is static, `ENGINE_WITH_WINDOW` and `ENGINE_WITH_AUDIO` default ON, `ENGINE_BUILD_TESTS` defaults OFF, `ENGINE_WITH_GTEST=ON` adds GoogleTest from `<sdk>/source/external/googletest`, and `engine_add_game` makes an executable in `bin/<config>/` with `assets/engine/` beside it. To drop the mixer, configure with `-DENGINE_WITH_AUDIO=OFF` (a cache entry that exists before the engine's `option()` is kept). Release only and desktop only: the editor does not export Web or Android. Those builds still add the engine source themselves (`add_subdirectory(<sdk>/source wind)` in their own configure, with the Emscripten or NDK toolchain); the Android and Web sections below are that kind of build, and their engine paths (`cmake/android/app/`, `cmake/toolchains/`, `cmake/web/`) are under `<sdk>/source/`.
 
 ## Android identity
 

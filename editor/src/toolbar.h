@@ -13,6 +13,8 @@ enum class EditorRequest {
     None,
     Play,
     Stop,
+    // Build the standalone game and copy it out.
+    Export,
 };
 
 // What the Play button does now.
@@ -39,7 +41,11 @@ public:
     void toggle_play();
     [[nodiscard]] bool can_toggle_play() const;
 
-    // The project line. `playable` enables Play: the project was read and fits this editor's SDK.
+    // The Export button: only when nothing runs (a build shows Cancel on the Play button).
+    void export_game();
+    [[nodiscard]] bool can_export_game() const;
+
+    // The project line. `playable` enables Play and Export: the project was read and fits this editor's SDK.
     void show_project(std::string text, bool playable);
     void show_status(std::string text);
     void show_state(RunState state);

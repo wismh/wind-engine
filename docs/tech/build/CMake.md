@@ -201,7 +201,7 @@ The `.pdb` rules are `OPTIONAL` (a configuration without symbols would have none
 
 GoogleTest is the editor build's own `gtest` and `gtest_main` (shared CRT, the SDK's configuration), so a game's tests need no submodule. Built with `/Zi`, their objects point at a compile `.pdb`; the SDK puts `gtest.pdb` and `gtest_main.pdb` beside the libraries, where the linker of a game's test looks for them, or every `/DEBUG` link warns LNK4099. The Debug compile `.pdb` is renamed from googletest's `gtestpdb_debug_postfix-NOTFOUND.pdb` (its name when `CMAKE_DEBUG_POSTFIX` is unset) to `gtest.pdb`.
 
-`source/` holds `CMakeLists.txt`, `cmake/`, `include/`, `src/`, `tools/`, `builtin_assets/`, and `external/` without `.git` and `.github`, about 120 MB. The editor and SDK mode do not use it. It builds the static engine of exactly this version: `add_subdirectory(<sdk>/source wind)` in a game's own configure. That is the input of the future export, and until then the way to build a standalone executable by hand ([Game Consumer](Game%20Consumer.md#standalone-executable)). Those files are installed without a line of output each (`CMAKE_INSTALL_MESSAGE NEVER`).
+`source/` holds `CMakeLists.txt`, `cmake/`, `include/`, `src/`, `tools/`, `builtin_assets/`, and `external/` without `.git` and `.github`, about 120 MB. The editor and SDK mode do not use it. It builds the static engine of exactly this version, and `-DWIND_EXPORT=ON` makes `WindConfig.cmake` do that for a game: the input of the editor's Export ([below](#standalone-executable-wind_export), [Game Consumer](Game%20Consumer.md#standalone-executable)). Those files are installed without a line of output each (`CMAKE_INSTALL_MESSAGE NEVER`).
 
 `sdk.toml` is written last, by `cmake/sdk_manifest.cmake` from an `install(CODE)` step:
 
@@ -246,7 +246,7 @@ The editor build, its SDK, and SDK mode work on Linux (GCC, Clang) and macOS (Ap
 - **Symbol visibility.** The engine keeps default visibility, so every engine symbol is exported, as `WINDOWS_EXPORT_ALL_SYMBOLS` does on Windows. `ENGINE_GAME_EXPORT` and `ENGINE_API` are `visibility("default")`.
 - **Processes.** `IProcessLauncher` runs `cmake` through `fork`/`execve` in a process group ([Process](../modules/Process.md#linux-and-macos)); `wind-cli launch` starts the editor in its own session.
 - **No audio device.** The editor does not start without one. Set `SDL_AUDIODRIVER=dummy` on a machine with no sound card (CI, a container).
-- **Not done:** HTTP ([Net](../modules/Net.md)), `.app` bundles for exported games' signing and notarization, and a headless editor ([Editor Plan](../architecture/Editor%20Plan.md)).
+- **Not done:** HTTP ([Net](../modules/Net.md)), `.app` bundles for exported games' signing and notarization, and batch commands of the editor other than `--export` ([Editor](../features/Editor.md#export)).
 
 ### CI
 
@@ -285,6 +285,16 @@ A Debug SDK (`cmake --build build-editor --config Debug`, then `cmake --install 
 ### CRT guard
 
 Under `ENGINE_GAME_MODULE` on MSVC, `<engine/game_entry.h>` compares the module's `_DEBUG` and `_ITERATOR_DEBUG_LEVEL` with `ENGINE_BUILD_DEBUG_CRT` and `ENGINE_BUILD_ITERATOR_DEBUG_LEVEL` from the SDK's `<engine/build_id.h>` and stops the compile with `#error` on a mismatch ("Build it in DebugGame or Release against a Release SDK", or "Build it in Debug" against a Debug SDK). A wrong CRT is a compile error, not a heap corruption on Play. The guard sits in the header of `ENGINE_GAME`, so a module that writes the three exports by hand (the test fixtures) is not checked.
+
+### Standalone executable (`WIND_EXPORT`)
+
+A game configured with `-DWIND_EXPORT=ON` (a cache variable, off by default) does not import the SDK's shared engine. At the top of `WindConfig.cmake`, after `_wind_sdk_dir`, the export branch checks `<sdk>/source/CMakeLists.txt`, prints a status line, calls `add_subdirectory("<sdk>/source" wind-engine)`, and `return()`s. The engine's own `CMakeLists.txt` then defines `engine` (static), `engine_add_game`, and the rest in the game's directory scope, so the source-build rules apply ([`engine_add_game`](#engine_add_game)): `engine_add_game` makes an executable in `bin/<config>/` with `assets/` beside it, and nothing of SDK mode (imported targets, `engine_sdk_configurations`, `ENGINE_FROM_SDK`) is set. The game's own `CMakeLists.txt` does not change.
+
+The engine's binary directory is `wind-engine`, because `<build>/wind/` holds the records of `engine_add_game`. The branch has no generator expressions: `WindConfig.cmake` is generated per SDK configuration, and `$<CONFIG>` and the other expressions in the file are evaluated then.
+
+For an executable (not Android, not Emscripten) `engine_add_game` writes `file(GENERATE)` `<build>/wind/<target>.<config>.export`: one line, the absolute directory of the built executable (`$<TARGET_FILE_DIR>`), which also holds `assets/`. The editor's Export reads it after the build ([Editor](../features/Editor.md#export)) and copies that directory. The record is written in the source build too (a game under the engine root); nothing reads it there.
+
+The editor configures `<project>/build-export` with `-DWIND_EXPORT=ON -DCMAKE_PREFIX_PATH=<sdk> -DWind_DIR=<sdk>/cmake -DCMAKE_CONFIGURATION_TYPES=Release`. Release only. By hand, the same three variables in a configure of the game give the same build.
 
 ## Tests
 

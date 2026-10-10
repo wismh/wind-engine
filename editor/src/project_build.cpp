@@ -55,33 +55,49 @@ void append(std::vector<std::string>& into, std::vector<std::string> lines) {
 
 }
 
-std::filesystem::path build_directory(const std::filesystem::path& project) {
-    return project / "build-editor";
+std::filesystem::path build_directory(const std::filesystem::path& project, BuildKind kind) {
+    return project / (kind == BuildKind::Export ? "build-export" : "build-editor");
 }
 
-std::string game_config(const std::string& sdk_config) {
+std::string game_config(const std::string& sdk_config, BuildKind kind) {
+    if (kind == BuildKind::Export) {
+        return "Release";
+    }
     return sdk_config == "Debug" ? "Debug" : "DebugGame";
 }
 
-std::string game_configurations(const std::string& sdk_config) {
+std::string game_configurations(const std::string& sdk_config, BuildKind kind) {
+    if (kind == BuildKind::Export) {
+        return "Release";
+    }
     return sdk_config == "Debug" ? "Debug" : "DebugGame;Release";
 }
 
-bool configured_for(const std::filesystem::path& build_dir, const std::filesystem::path& sdk) {
+bool configured_for(const std::filesystem::path& build_dir, const std::filesystem::path& sdk, BuildKind kind) {
     std::ifstream cache(build_dir / "CMakeCache.txt");
-    constexpr std::string_view kKey = "Wind_DIR:";
+    constexpr std::string_view kSdkKey = "Wind_DIR:";
+    constexpr std::string_view kExportKey = "WIND_EXPORT:";
+    bool sdk_matches = false;
+    bool export_on = false;
     for (std::string line; std::getline(cache, line);) {
-        if (!line.starts_with(kKey)) {
+        const bool is_sdk = line.starts_with(kSdkKey);
+        const bool is_export = line.starts_with(kExportKey);
+        if (!is_sdk && !is_export) {
             continue;
         }
         const std::size_t equals = line.find('=');
         if (equals == std::string::npos) {
-            return false;
+            continue;
         }
-        std::error_code error;
-        return std::filesystem::equivalent(path_from(std::string_view(line).substr(equals + 1)), sdk / "cmake", error);
+        const std::string_view value = std::string_view(line).substr(equals + 1);
+        if (is_sdk) {
+            std::error_code error;
+            sdk_matches = std::filesystem::equivalent(path_from(value), sdk / "cmake", error);
+        } else {
+            export_on = value == "ON" || value == "TRUE" || value == "1" || value == "YES" || value == "Y";
+        }
     }
-    return false;
+    return sdk_matches && (kind == BuildKind::Module || export_on);
 }
 
 ProjectBuild::ProjectBuild(engine::IProcessLauncher& processes)
@@ -91,8 +107,8 @@ void ProjectBuild::start(BuildSetup setup) {
     cancel();
     setup_ = std::move(setup);
     pending_lines_.clear();
-    const std::filesystem::path build_dir = build_directory(setup_.project);
-    if (configured_for(build_dir, setup_.sdk)) {
+    const std::filesystem::path build_dir = build_directory(setup_.project, setup_.kind);
+    if (configured_for(build_dir, setup_.sdk, setup_.kind)) {
         start_build(pending_lines_);
         return;
     }
@@ -102,9 +118,13 @@ void ProjectBuild::start(BuildSetup setup) {
     // (On Windows the default is Visual Studio, which can.) A build directory that exists keeps its generator.
     arguments.insert(arguments.end(), {"-G", "Ninja Multi-Config"});
 #endif
+    if (setup_.kind == BuildKind::Export) {
+        // WindConfig.cmake builds the static engine from <sdk>/source for this game (docs/tech/build/CMake.md).
+        arguments.push_back("-DWIND_EXPORT=ON");
+    }
     arguments.insert(arguments.end(),
             {"-DCMAKE_PREFIX_PATH=" + path_text(setup_.sdk), "-DWind_DIR=" + path_text(setup_.sdk / "cmake"),
-                    "-DCMAKE_CONFIGURATION_TYPES=" + game_configurations(setup_.sdk_config)});
+                    "-DCMAKE_CONFIGURATION_TYPES=" + game_configurations(setup_.sdk_config, setup_.kind)});
     run(Step::Configure, std::move(arguments), pending_lines_);
 }
 
@@ -162,23 +182,27 @@ void ProjectBuild::run(Step step, std::vector<std::string> arguments, std::vecto
 
 void ProjectBuild::start_build(std::vector<std::string>& lines) {
     run(Step::Build,
-            {"--build", path_text(build_directory(setup_.project)), "--config", game_config(setup_.sdk_config),
-                    "--target", setup_.target, "--parallel"},
+            {"--build", path_text(build_directory(setup_.project, setup_.kind)), "--config", config(), "--target",
+                    setup_.target, "--parallel"},
             lines);
 }
 
+std::string ProjectBuild::config() const {
+    return game_config(setup_.sdk_config, setup_.kind);
+}
+
 BuildOutcome ProjectBuild::finish_build() const {
-    const std::string config = game_config(setup_.sdk_config);
-    const std::filesystem::path record =
-            build_directory(setup_.project) / "wind" / (setup_.target + "." + config + ".module");
+    const bool exporting = setup_.kind == BuildKind::Export;
+    const std::filesystem::path record = build_directory(setup_.project, setup_.kind) / "wind" /
+            (setup_.target + "." + config() + (exporting ? ".export" : ".module"));
     std::ifstream in(record, std::ios::binary);
     std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) {
         text.pop_back();
     }
     if (text.empty()) {
-        return std::unexpected("The build recorded no module for " + setup_.target + " (" + path_text(record) +
-                "). Is it an engine_add_game target of this project?");
+        return std::unexpected("The build recorded no " + std::string(exporting ? "executable" : "module") + " for " +
+                setup_.target + " (" + path_text(record) + "). Is it an engine_add_game target of this project?");
     }
     return path_from(text);
 }

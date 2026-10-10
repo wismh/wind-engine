@@ -1,5 +1,8 @@
 #include "editor_app.h"
 
+#include "project_check.h"
+#include "project_export.h"
+
 #include <asset_ids.h>
 
 #include <engine/core/application_state.h>
@@ -205,6 +208,9 @@ void EditorApp::on_frame_end() {
         case EditorRequest::Stop:
             stop("Stopped.");
             break;
+        case EditorRequest::Export:
+            export_game();
+            break;
     }
     poll_build();
 }
@@ -229,53 +235,55 @@ EditorFacts EditorApp::facts() const {
 }
 
 void EditorApp::open_project(const std::filesystem::path& directory) {
-    std::error_code error;
-    const std::filesystem::path dir = std::filesystem::weakly_canonical(std::filesystem::absolute(directory), error);
     project_.reset();
-    project_dir_ = error ? std::filesystem::absolute(directory) : dir;
-    auto project = engine::read_wind_project(project_dir_);
-    if (!project) {
+    ProjectCheck check = check_project(directory, sdk_);
+    project_dir_ = check.directory;
+    if (!check.project) {
         panels_->explorer().close();
         toolbar_->show_project(path_text(project_dir_), false);
-        toolbar_->show_status(engine::describe(project.error()));
-        engine::log::warn("Editor: " + engine::describe(project.error()));
+        toolbar_->show_status(check.problem);
+        engine::log::warn("Editor: " + check.problem);
         return;
     }
-    const std::string line = project->name + "  (" + path_text(project_dir_) + ")";
+    const std::string line = check.project->name + "  (" + path_text(project_dir_) + ")";
     panels_->explorer().open(project_dir_);
-    if (!sdk_) {
+    if (!check.fits) {
         toolbar_->show_project(line, false);
-        toolbar_->show_status("This editor is not an installed SDK (no sdk.toml beside bin/): install it with "
-                              "cmake --install to build projects.");
+        toolbar_->show_status(check.problem);
         return;
     }
-    if (project->engine != sdk_->version) {
-        toolbar_->show_project(line, false);
-        toolbar_->show_status("The project needs engine " + project->engine + "; this editor is " + sdk_->version +
-                ". Open it with that version.");
-        return;
-    }
-    project_ = std::move(*project);
+    project_ = std::move(check.project);
     toolbar_->show_project(line, true);
     toolbar_->show_status("Ready. Press Play.");
     engine::log::info("Editor: project " + project_->name + " at " + path_text(project_dir_));
 }
 
 void EditorApp::play() {
+    start_build(BuildKind::Module);
+}
+
+void EditorApp::export_game() {
+    start_build(BuildKind::Export);
+}
+
+// One operation at a time: not while the game runs, not while a build runs.
+void EditorApp::start_build(BuildKind kind) {
     if (!project_ || !sdk_ || session_->playing() || build_->running()) {
         return;
     }
+    building_ = kind;
     BuildPanel& log = panels_->build();
     log.clear();
-    log.show_summary("Building " + project_->target + " (" + game_config(sdk_->config) + ")...");
+    log.show_summary("Building " + project_->target + " (" + game_config(sdk_->config, kind) + ")...");
     build_->start(BuildSetup{
+            .kind = kind,
             .project = project_dir_,
             .sdk = sdk_root_,
             .target = project_->target,
             .sdk_config = sdk_->config,
     });
     toolbar_->show_state(RunState::Building);
-    toolbar_->show_status("Building " + project_->name + "...");
+    toolbar_->show_status((kind == BuildKind::Export ? "Exporting " : "Building ") + project_->name + "...");
 }
 
 void EditorApp::poll_build() {
@@ -295,7 +303,30 @@ void EditorApp::poll_build() {
         return;
     }
     log.show_summary("Built " + path_text(**outcome) + ".");
+    if (building_ == BuildKind::Export) {
+        finish_export(**outcome);
+        return;
+    }
     start_game(**outcome);
+}
+
+// The build ended: copy what it made out of the build directory.
+void EditorApp::finish_export(const std::filesystem::path& built) {
+    BuildPanel& log = panels_->build();
+    const std::filesystem::path directory = default_export_directory(project_dir_, project_->target);
+    toolbar_->show_state(RunState::Idle);
+    const auto copied = copy_export(built, directory);
+    if (!copied) {
+        toolbar_->show_status(copied.error());
+        log.show_summary(copied.error());
+        panels_->show(EditorPanels::kBuild);
+        engine::log::warn("Editor: " + copied.error());
+        return;
+    }
+    const std::string status = "Exported to " + path_text(*copied);
+    toolbar_->show_status(status);
+    log.show_summary(status);
+    engine::log::info("Editor: " + status);
 }
 
 void EditorApp::start_game(const std::filesystem::path& module) {

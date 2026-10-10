@@ -63,6 +63,10 @@ Button:disabled {
   background: #b3322f;
 }
 
+.export-button {
+  width: 88;
+}
+
 .info {
   gap: 2;
   padding: 0 0 0 10;
