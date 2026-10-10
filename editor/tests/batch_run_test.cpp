@@ -8,6 +8,7 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -52,12 +53,13 @@ void write(const fs::path& path, const std::string& text) {
 // An SDK and a project under the temp directory, removed with the object.
 class Dirs {
 public:
-    explicit Dirs(const std::string& project_engine = "0.1.0")
+    explicit Dirs(const std::string& project_engine = "0.1.0", const std::string& sdk_config = "Release")
         : root_(fs::temp_directory_path() / "wind_batch_run_test" /
                   ::testing::UnitTest::GetInstance()->current_test_info()->name()) {
         fs::remove_all(root_);
         write(sdk() / "sdk.toml",
-                "version = \"0.1.0\"\ncommit = \"abc\"\ndirty = false\nconfig = \"Release\"\nbuild_id = \"b\"\n");
+                "version = \"0.1.0\"\ncommit = \"abc\"\ndirty = false\nconfig = \"" + sdk_config +
+                        "\"\nbuild_id = \"b\"\n");
         write(project() / "wind_project.toml",
                 "name = \"My Game\"\nengine = \"" + project_engine + "\"\ntarget = \"my_game\"\n");
         // What the build would have made, and what the export record points at.
@@ -65,6 +67,11 @@ public:
         write(built() / "my_game.pdb", "symbols");
         write(built() / "assets" / "catalog.toml", "catalog");
         write(project() / "build-export" / "wind" / "my_game.Release.export", built().generic_string());
+        // The Development build's directory, with the profiler in it.
+        write(built("DebugGame") / "my_game.exe", "development exe");
+        write(built("DebugGame") / "my_game.pdb", "symbols");
+        write(built("DebugGame") / "assets" / "catalog.toml", "catalog");
+        write(project() / "build-export" / "wind" / "my_game.DebugGame.export", built("DebugGame").generic_string());
     }
     ~Dirs() {
         std::error_code error;
@@ -77,17 +84,18 @@ public:
     [[nodiscard]] fs::path project() const {
         return root_ / "game";
     }
-    [[nodiscard]] fs::path built() const {
-        return project() / "build-export" / "bin" / "Release";
+    [[nodiscard]] fs::path built(const std::string& config = "Release") const {
+        return project() / "build-export" / "bin" / config;
     }
     [[nodiscard]] fs::path out() const {
         return root_ / "out";
     }
 
-    [[nodiscard]] editor::BatchSetup setup(bool with_directory = true) const {
+    [[nodiscard]] editor::BatchSetup setup(bool with_directory = true, bool development = false) const {
         return editor::BatchSetup{.sdk = sdk(),
                 .project = project(),
-                .export_directory = with_directory ? std::optional<fs::path>(out()) : std::nullopt};
+                .export_directory = with_directory ? std::optional<fs::path>(out()) : std::nullopt,
+                .development = development};
     }
 
 private:
@@ -124,6 +132,7 @@ TEST(BatchRun, ExportsAndCopiesTheGame) {
 
     ASSERT_EQ(launcher.runs.size(), 2u);
     EXPECT_TRUE(has_argument(launcher.runs[0], "-DWIND_EXPORT=ON"));
+    EXPECT_TRUE(has_argument(launcher.runs[0], "-DCMAKE_CONFIGURATION_TYPES=DebugGame;Release"));
     EXPECT_TRUE(has_argument(launcher.runs[1], "--build"));
     EXPECT_TRUE(has_argument(launcher.runs[1], "Release"));
     EXPECT_TRUE(fs::exists(dirs.out() / "my_game.exe"));
@@ -136,6 +145,40 @@ TEST(BatchRun, ExportsAndCopiesTheGame) {
     EXPECT_TRUE(lines.back().starts_with("Exported to "));
     // Nothing more once it ended.
     EXPECT_FALSE(run.poll().has_value());
+}
+
+TEST(BatchRun, DevelopmentExportsTheDebugGameBuild) {
+    const Dirs dirs;
+    ScriptedLauncher launcher;
+    std::vector<std::string> lines;
+    editor::BatchRun run(launcher, [&](const std::string& line) { lines.push_back(line); });
+    const std::optional<int> code = run_to_end(run, run.start(dirs.setup(true, true)));
+    ASSERT_TRUE(code.has_value());
+    EXPECT_EQ(*code, editor::kBatchOk);
+    ASSERT_EQ(launcher.runs.size(), 2u);
+    EXPECT_TRUE(has_argument(launcher.runs[1], "DebugGame"));
+    EXPECT_FALSE(has_argument(launcher.runs[1], "Release"));
+    // The copy is the DebugGame directory's.
+    std::ifstream exe(dirs.out() / "my_game.exe", std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(exe)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(text, "development exe");
+    ASSERT_FALSE(lines.empty());
+    EXPECT_TRUE(std::ranges::any_of(lines, [](const std::string& l) {
+        return l.starts_with("Exporting ") && l.find("DebugGame, Development build") != std::string::npos;
+    }));
+}
+
+TEST(BatchRun, ADevelopmentBuildAgainstADebugSdkEndsWithOneWithoutBuilding) {
+    const Dirs dirs("0.1.0", "Debug");
+    ScriptedLauncher launcher;
+    std::vector<std::string> lines;
+    editor::BatchRun run(launcher, [&](const std::string& line) { lines.push_back(line); });
+    const std::optional<int> code = run.start(dirs.setup(true, true));
+    ASSERT_TRUE(code.has_value());
+    EXPECT_EQ(*code, editor::kBatchFailed);
+    EXPECT_TRUE(launcher.runs.empty());
+    ASSERT_FALSE(lines.empty());
+    EXPECT_NE(lines.back().find("Release SDK"), std::string::npos);
 }
 
 TEST(BatchRun, WithoutADirectoryTheGameGoesUnderTheProject) {

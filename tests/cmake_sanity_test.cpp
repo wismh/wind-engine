@@ -539,3 +539,84 @@ TEST(Scaffold, EditorSdkIsAFindPackageConfig) {
     GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
 #endif
 }
+
+TEST(Scaffold, ExportLinksThePrebuiltPlayerLibrariesWhenTheSdkHasThemAndFallsBackToSource) {
+#ifdef ENGINE_SOURCE_DIR
+    const std::filesystem::path root{ENGINE_SOURCE_DIR};
+    const auto slurp = [](const std::filesystem::path& path) {
+        std::ifstream in(path);
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    };
+    const std::string cmake = slurp(root / "CMakeLists.txt");
+    const std::string sdk = slurp(root / "cmake" / "WindConfig.cmake.in");
+    const std::string game = slurp(root / "cmake" / "wind_game.cmake");
+    const std::string exports = slurp(root / "cmake" / "wind_export.cmake");
+    const std::string driver = slurp(root / "cmake" / "player_build.cmake");
+    const std::string player = slurp(root / "cmake" / "wind_player.cmake.in");
+    const std::string manifest = slurp(root / "cmake" / "sdk_manifest.cmake");
+    ASSERT_FALSE(cmake.empty());
+    ASSERT_FALSE(sdk.empty());
+    ASSERT_FALSE(game.empty());
+    ASSERT_FALSE(exports.empty());
+    ASSERT_FALSE(driver.empty());
+    ASSERT_FALSE(player.empty());
+    ASSERT_FALSE(manifest.empty());
+
+    // The engine repo builds a player (static engine of one flavour) in a tree of its own, exports it with every static
+    // library it links, and installs it for the SDK in <sdk>/player/<flavour>/. Development has the profiler and the
+    // CLI server in every configuration, Shipping neither; both link the release DLL CRT.
+    EXPECT_NE(cmake.find("set(ENGINE_PLAYER \"\" CACHE STRING"), std::string::npos);
+    EXPECT_NE(cmake.find("if(ENGINE_EDITOR OR ENGINE_PLAYER STREQUAL \"Development\")\n    set(_engine_tools_config 1)"),
+            std::string::npos);
+    EXPECT_NE(cmake.find("elseif(ENGINE_PLAYER STREQUAL \"Shipping\")\n    set(_engine_tools_config 0)"), std::string::npos);
+    EXPECT_NE(cmake.find("set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL)"), std::string::npos);
+    EXPECT_NE(cmake.find("install(EXPORT WindPlayer NAMESPACE \"WindPlayer${ENGINE_PLAYER}::\""), std::string::npos);
+    EXPECT_NE(cmake.find("cmake/wind_player.cmake.in"), std::string::npos);
+    EXPECT_NE(cmake.find("\"${CMAKE_CURRENT_SOURCE_DIR}/cmake/wind_export.cmake\""), std::string::npos);
+
+    // The SDK install builds both flavours (a Release SDK only), the target wind_player builds them without installing,
+    // and sdk.toml names what was installed, only adding keys.
+    EXPECT_NE(cmake.find("option(ENGINE_SDK_PLAYER"), std::string::npos);
+    EXPECT_NE(cmake.find("add_custom_target(wind_player"), std::string::npos);
+    EXPECT_NE(cmake.find("-DWIND_PLAYER_FLAVOURS=Development,Shipping"), std::string::npos);
+    EXPECT_LT(cmake.find("RESULT_VARIABLE _wind_player_result"), cmake.find("cmake/sdk_manifest.cmake"));
+    EXPECT_NE(driver.find("-DENGINE_PLAYER=${_flavour}"), std::string::npos);
+    EXPECT_NE(driver.find("--config Release --target engine"), std::string::npos);
+    EXPECT_NE(driver.find("--install \"${_tree}\" --config Release --prefix \"${WIND_PLAYER_PREFIX}/${_flavour}\""),
+            std::string::npos);
+    EXPECT_NE(manifest.find("player_flavours = ["), std::string::npos);
+    EXPECT_NE(manifest.find("platform = "), std::string::npos);
+    EXPECT_NE(manifest.find("build_id = "), std::string::npos);
+
+    // WindConfig.cmake takes the players when both flavours are there and the SDK is not Debug, else the source build
+    // with the DebugGame flags, and in both cases returns before the SDK's shared engine is imported. The players
+    // become `engine`: Development for DebugGame, Shipping for the rest, and must belong to this SDK build.
+    const std::size_t export_branch = sdk.find("if(WIND_EXPORT)");
+    ASSERT_NE(export_branch, std::string::npos);
+    const std::size_t problem = sdk.find("wind_export_player_problem(", export_branch);
+    ASSERT_NE(problem, std::string::npos);
+    const std::size_t flags = sdk.find("engine_debuggame_flags()", problem);
+    ASSERT_NE(flags, std::string::npos);
+    const std::size_t source = sdk.find("add_subdirectory(\"${_wind_sdk_dir}/source\" wind-engine)", flags);
+    ASSERT_NE(source, std::string::npos);
+    EXPECT_NE(sdk.find("return()", source), std::string::npos);
+    EXPECT_LT(source, sdk.find("add_library(engine SHARED IMPORTED GLOBAL)"));
+    EXPECT_NE(sdk.find("wind_export_import_player(\"${_wind_sdk_dir}\")"), std::string::npos);
+    EXPECT_NE(sdk.find("set(ENGINE_PLAYER_SDK ${_wind_player} CACHE INTERNAL"), std::string::npos);
+    EXPECT_NE(exports.find("$<$<CONFIG:DebugGame>:WindPlayerDevelopment::engine>"), std::string::npos);
+    EXPECT_NE(exports.find("$<$<NOT:$<CONFIG:DebugGame>>:WindPlayerShipping::engine>"), std::string::npos);
+    EXPECT_NE(exports.find("WIND_PLAYER_SDK_BUILD_ID"), std::string::npos);
+    EXPECT_NE(exports.find("a Debug SDK ships no player libraries"), std::string::npos);
+    EXPECT_NE(player.find("set(WIND_PLAYER_SDK_BUILD_ID"), std::string::npos);
+    EXPECT_NE(player.find("find_package(Threads REQUIRED)"), std::string::npos);
+
+    // The game of an export against the players is an executable (not a module), built in DebugGame and Release by the
+    // same configuration check and DebugGame flags as SDK mode.
+    EXPECT_NE(game.find("elseif((ENGINE_EDITOR OR ENGINE_FROM_SDK) AND NOT ENGINE_PLAYER_SDK)"), std::string::npos);
+    EXPECT_NE(game.find("function(engine_debuggame_flags)"), std::string::npos);
+    EXPECT_NE(game.find("    engine_debuggame_flags()\nendfunction()"), std::string::npos);
+    EXPECT_NE(game.find("\"${CMAKE_BINARY_DIR}/wind/${target}.$<CONFIG>.export\""), std::string::npos);
+#else
+    GTEST_SKIP() << "ENGINE_SOURCE_DIR is not defined";
+#endif
+}

@@ -65,6 +65,27 @@ TEST(EditorOptions, ExportWithoutADirectoryMeansTheDefault) {
     EXPECT_TRUE(editor::usage_error(options).empty());
 }
 
+TEST(EditorOptions, DevelopmentGoesWithExport) {
+    editor::EditorOptions options = parse({"--batch", "--project", "p", "--export", "D:/out", "--development"});
+    EXPECT_TRUE(options.development);
+    ASSERT_TRUE(options.export_directory.has_value());
+    EXPECT_EQ(*options.export_directory, std::filesystem::path("D:/out"));
+    EXPECT_TRUE(options.unknown.empty());
+    EXPECT_TRUE(editor::usage_error(options).empty());
+
+    // It is not taken for the directory, and may come before --export.
+    options = parse({"--batch", "--project", "p", "--export", "--development"});
+    EXPECT_TRUE(options.development);
+    EXPECT_FALSE(options.export_directory.has_value());
+    EXPECT_TRUE(editor::usage_error(options).empty());
+    options = parse({"--development", "--batch", "--project", "p", "--export"});
+    EXPECT_TRUE(options.development);
+    EXPECT_TRUE(editor::usage_error(options).empty());
+
+    EXPECT_FALSE(parse({"--batch", "--project", "p", "--export"}).development);
+    EXPECT_NE(editor::usage_error(parse({"--project", "p", "--development"})).find("--export"), std::string::npos);
+}
+
 TEST(EditorOptions, BatchNeedsACommandAndAProject) {
     EXPECT_NE(editor::usage_error(parse({"--batch", "--project", "p"})).find("--export"), std::string::npos);
     EXPECT_NE(editor::usage_error(parse({"--batch", "--export"})).find("--project"), std::string::npos);

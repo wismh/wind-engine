@@ -241,8 +241,9 @@ public:
     engine::FileDialogCall request_open_file(engine::WindowId, std::vector<engine::FileFilter>) override {
         return engine::FileDialogCall::resolved(engine::FileDialogResult{});
     }
-    engine::FileDialogCall request_open_folder(engine::WindowId, std::filesystem::path) override {
-        return engine::FileDialogCall::resolved(engine::FileDialogResult{});
+    engine::FileDialogCall request_open_folder(engine::WindowId, std::filesystem::path start) override {
+        folder_starts.push_back(std::move(start));
+        return engine::FileDialogCall::resolved(engine::FileDialogResult{.path = folder_answer});
     }
     engine::render::Rect usable_display_bounds(int display_index) const override {
         if (displays.empty()) {
@@ -269,6 +270,9 @@ public:
     std::vector<engine::render::Rect> displays;
     // open_window answers nullopt.
     bool refuse_open = false;
+    // What the next request_open_folder answers at once (nullopt: the user cancelled), and the `start` of each.
+    std::optional<std::filesystem::path> folder_answer;
+    std::vector<std::filesystem::path> folder_starts;
     std::string title;
     glm::ivec2 primary_size{0, 0};
     bool borderless = false;
