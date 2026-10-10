@@ -195,9 +195,9 @@ Play builds your game (`DebugGame`: your code unoptimized with symbols) and load
 
 ---
 
-## 6. Export a Release Build
+## 6. Export a Build
 
-Play runs your game inside the editor as a module. To get something you can give to players, press **Export** next to Play: the editor builds a standalone `Release` executable with the engine linked in and copies it, with its `assets/`, to `<project>/export/<target>/`. The first export takes minutes (it compiles the engine); later ones are fast. For a build server with no display, run `wind_editor --batch --project . --export out --log-file export.log` (exit code `0` on success). See [Desktop](../platforms/Desktop.md#1-exporting-from-the-editor).
+Play runs your game inside the editor as a module. To get something you can give to players, press **Export** next to Play and choose the folder (it starts as `<project>/export/<target>/`; **Browse...** picks another). The editor builds a standalone executable with the engine linked in and copies it, with its `assets/`, there. Leave **Development Build** off for the `Release` build players get; turn it on for a test build with your code unoptimized, symbols, the profiler, and `wind-cli`. The SDK ships the engine already built, so an export compiles only your game and takes seconds. For a build server with no display, run `wind_editor --batch --project . --export out --log-file export.log` (add `--development` for the test build; exit code `0` on success). See [Desktop](../platforms/Desktop.md#1-exporting-from-the-editor).
 
 ---
 

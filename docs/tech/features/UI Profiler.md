@@ -4,7 +4,7 @@ The profiler has two halves. The engine keeps the probe: the `ENGINE_UI_PROFILE`
 
 Header: `include/engine/ui/profiler.h`. Private: `src/ui/profile.h`. Panel: `editor/src/profiler_panel.h`.
 
-`ENGINE_UI_PROFILER` is defined for Debug, RelWithDebInfo, and every configuration of the editor build (`ENGINE_EDITOR`), so the Release editor from the SDK profiles. An exported game's Release and MinSizeRel do not define it. The public functions are then inline no-ops that return nothing, and `kUiProfilerBuilt` is false. `ENGINE_UI_PROFILE` is `((void)0)`, so those call sites do not read the clock. The rings and the stage strings in `src/ui/profiler.cpp` are under the macro.
+`ENGINE_UI_PROFILER` is defined for Debug, RelWithDebInfo, and every configuration of the editor build (`ENGINE_EDITOR`), so the Release editor from the SDK profiles; a game exported as a Development Build has it too (the Development player). An exported game's Release (the Shipping player) and MinSizeRel do not define it. The public functions are then inline no-ops that return nothing, and `kUiProfilerBuilt` is false. `ENGINE_UI_PROFILE` is `((void)0)`, so those call sites do not read the clock. The rings and the stage strings in `src/ui/profiler.cpp` are under the macro.
 
 `CmdDrawUI::canvas` is present in every configuration so the command layout does not change. Copying it is not a clock.
 

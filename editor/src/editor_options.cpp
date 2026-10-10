@@ -32,6 +32,8 @@ EditorOptions parse_editor_options(std::span<char* const> args) {
             if (has_value(args, i + 1) && !std::string_view(args[i + 1]).starts_with("--")) {
                 options.export_directory = path_of(args[++i]);
             }
+        } else if (arg == "--development") {
+            options.development = true;
         } else if (arg == "--log-file" && has_value(args, i + 1)) {
             options.log_file = path_of(args[++i]);
         } else {
@@ -50,6 +52,9 @@ std::string usage_error(const EditorOptions& options) {
     }
     if (!options.batch && options.export_game) {
         return "--export runs without a window: add --batch.";
+    }
+    if (options.development && !options.export_game) {
+        return "--development goes with --export.";
     }
     return {};
 }

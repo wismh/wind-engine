@@ -48,7 +48,8 @@ private:
     void open_project(const std::filesystem::path& directory);
     void play();
     void export_game();
-    void start_build(BuildKind kind);
+    void start_export(const ExportChoice& choice);
+    void start_build(BuildKind kind, bool development = false);
     void poll_build();
     void start_game(const std::filesystem::path& module);
     void finish_export(const std::filesystem::path& built);
@@ -73,8 +74,9 @@ private:
     // The open project, once read and checked against the SDK.
     std::filesystem::path project_dir_;
     std::optional<engine::WindProject> project_;
-    // What the build that runs, or ran last, makes.
+    // What the build that runs, or ran last, makes, and for an Export where its output goes.
     BuildKind building_ = BuildKind::Module;
+    std::filesystem::path export_directory_;
     bool play_at_start_ = false;
     bool close_requested_ = false;
     bool quitting_ = false;

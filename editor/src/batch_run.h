@@ -28,6 +28,8 @@ struct BatchSetup {
     std::filesystem::path project;
     // Where the game goes (--export <dir>); `<project>/export/<target>` when empty.
     std::optional<std::filesystem::path> export_directory;
+    // --development: the Development build (DebugGame, the Development player) instead of Release (Shipping).
+    bool development = false;
 };
 
 // The editor's Export without a window: reads the SDK and the project, checks them the way the editor does when it

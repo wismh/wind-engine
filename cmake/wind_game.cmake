@@ -5,6 +5,8 @@
 # The functions run in the calling directory's scope, so everything they read from the engine is a cache
 # variable that both contexts set:
 #   ENGINE_FROM_SDK            ON when `engine`, `asset_codegen`, and `icon_codegen` are imported from an SDK
+#   ENGINE_PLAYER_SDK          ON (with ENGINE_FROM_SDK) in an export build against the SDK's prebuilt static engine
+#                              (WIND_EXPORT, <sdk>/player/<flavour>/): the game is an executable, not a module
 #   ENGINE_BUILTIN_ASSETS_DIR  builtin assets copied to <output>/assets/engine/
 #   ENGINE_COOKED_CATALOG      cooked catalog.toml for those builtins
 #   ENGINE_CMAKE_DIR           the engine source tree (cmake/web/link_flags.cmake)
@@ -21,6 +23,8 @@
 #   Debug SDK: the configuration Debug only, with CMake's Debug flags (/MDd).
 # The list has to be set before the game's project(), so it comes from the game's editor preset
 # (CMAKE_CONFIGURATION_TYPES, or CMAKE_BUILD_TYPE for a single-configuration generator). This only checks it.
+# An export build against the SDK's player libraries (ENGINE_PLAYER_SDK) calls it too: the same configurations and CRT,
+# DebugGame linked with the Development player and Release with the Shipping one.
 function(engine_sdk_configurations)
     if(WIND_SDK_CONFIG STREQUAL "Debug")
         set(_allowed Debug)
@@ -60,6 +64,13 @@ function(engine_sdk_configurations)
     if(WIND_SDK_CONFIG STREQUAL "Debug")
         return()
     endif()
+    engine_debuggame_flags()
+endfunction()
+
+# The DebugGame flags as cache defaults, and the release DLL CRT. SDK mode and the export builds (the SDK's player
+# libraries, or the engine built from <sdk>/source when the SDK has none) call it: CMake has no flags for a
+# configuration it does not know.
+function(engine_debuggame_flags)
     # Every game target uses the release DLL CRT. Targets whose directory sets CMP0091 OLD (googletest asks for
     # CMake 3.13) read the runtime from the flags instead, hence /MD in the DebugGame flags too.
     set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL CACHE STRING "Wind SDK mode: the release DLL CRT of engine.dll")
@@ -343,7 +354,8 @@ endfunction()
 # Windowed game: executable + C++23 + asset_codegen + runtime asset copy.
 # Call after find_package(Wind) (or, for a static build, add_subdirectory of the engine source). Remaining args are
 # sources. Under ENGINE_EDITOR, and always in SDK mode, the game is a shared module instead
-# (ENGINE_GAME_MODULE, see <engine/game_entry.h>) that the editor loads on Play.
+# (ENGINE_GAME_MODULE, see <engine/game_entry.h>) that the editor loads on Play; except in an export build against the
+# SDK's player libraries (ENGINE_PLAYER_SDK), which is an executable again.
 function(engine_add_game target)
     if(NOT ARGN)
         message(FATAL_ERROR "engine_add_game(${target}): pass at least one source file")
@@ -360,7 +372,7 @@ function(engine_add_game target)
     if(ANDROID)
         add_library(${target} SHARED ${ARGN})
         set_target_properties(${target} PROPERTIES OUTPUT_NAME main)
-    elseif(ENGINE_EDITOR OR ENGINE_FROM_SDK)
+    elseif((ENGINE_EDITOR OR ENGINE_FROM_SDK) AND NOT ENGINE_PLAYER_SDK)
         # ENGINE_GAME expands to the wind_create_game / wind_destroy_game / wind_game_build_id exports.
         add_library(${target} SHARED ${ARGN})
         target_compile_definitions(${target} PRIVATE ENGINE_GAME_MODULE=1)
@@ -395,6 +407,10 @@ function(engine_add_game target)
         endif()
     else()
         add_executable(${target} ${ARGN})
+        if(ENGINE_PLAYER_SDK AND MSVC)
+            # The CRT of the player libraries (and of the tools that cooked the assets).
+            set_target_properties(${target} PROPERTIES MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
+        endif()
         if(NOT EMSCRIPTEN)
             # Where the executable of each configuration lands, for the editor's Export: one line, the absolute
             # directory, in <build>/wind/<target>.<config>.export. The directory also holds assets/.

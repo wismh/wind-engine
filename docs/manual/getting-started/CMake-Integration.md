@@ -38,18 +38,18 @@ The same `CMakeLists.txt` gives two different builds, picked by how CMake is con
 | --- | --- | --- |
 | Build directory | `build-editor/` | `build-export/` |
 | Configure flag | none (`CMAKE_PREFIX_PATH=<sdk>`) | `-DWIND_EXPORT=ON` besides it |
-| Configurations | `DebugGame;Release` (`Debug` against a Debug SDK) | `Release` |
-| Engine | the SDK's shared `engine.dll`, imported | the SDK's engine source, built static |
+| Configurations | `DebugGame;Release` (`Debug` against a Debug SDK) | `DebugGame;Release` (`Release` against a Debug SDK) |
+| Engine | the SDK's shared `engine.dll`, imported | the SDK's prebuilt static engine: `DebugGame` links the Development player, `Release` the Shipping one (the engine is built from the SDK's source only when the SDK has no players) |
 | `engine_add_game` makes | a module (`my_game.dll`) | an executable |
-| Recorded in | `build-editor/wind/<target>.<config>.module` | `build-export/wind/<target>.Release.export` |
+| Recorded in | `build-editor/wind/<target>.<config>.module` | `build-export/wind/<target>.<config>.export` |
 
-The editor's Export button and `wind_editor --batch --export` run the second one for you ([Desktop](../platforms/Desktop.md#1-exporting-from-the-editor)). Keep your own presets for `build-editor`; do not point one at `build-export`, because its cache is made for the other mode.
+The editor's Export button and `wind_editor --batch --export [--development]` run the second one
 
 ---
 
 ## Configuration Options
 
-These options apply to a standalone build, which adds the SDK's engine source instead of importing the SDK's engine: the editor's Export (`-DWIND_EXPORT=ON`), or `add_subdirectory(<sdk>/source wind)` for Web and Android. Against the SDK they are fixed by the SDK.
+These options apply to a standalone build that adds the SDK's engine source: a Web or Android build, or an export when the SDK has no player libraries or when you turn the mixer off. An export against the SDK's player libraries (the normal case) links the engine as built, with the window and the mixer, and ignores them. Against the SDK they are fixed by the SDK.
 
 | Option | Default as a subdirectory | Description |
 | --- | --- | --- |
@@ -59,7 +59,7 @@ These options apply to a standalone build, which adds the SDK's engine source in
 | `ENGINE_WITH_GTEST` | `OFF` | Vendors GoogleTest for the game's own test targets. |
 
 ### Disabling Audio (Headless or Audio-Free Titles)
-If your game does not need audio, turn `ENGINE_WITH_AUDIO` off **before** the engine source is added. For an export build, pass it on the command line:
+If your game does not need audio, turn `ENGINE_WITH_AUDIO` off. For an export, `-DENGINE_WITH_AUDIO=OFF` makes `find_package(Wind)` skip the player libraries (they have the mixer) and build the engine from the SDK's source: minutes, and `Release` or `DebugGame` with the unoptimized engine. Set it **before** the engine source is added. For an export build, pass it on the command line:
 
 ```bash
 cmake -S . -B build-export -DWIND_EXPORT=ON -DCMAKE_PREFIX_PATH=<sdk> -DWind_DIR=<sdk>/cmake \

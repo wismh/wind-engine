@@ -41,13 +41,19 @@ std::optional<int> BatchRun::start(BatchSetup setup) {
     if (const std::string problem = export_directory_problem(check.directory, export_directory_); !problem.empty()) {
         return fail(problem);
     }
-    sink_("Exporting " + project.name + " (" + project.target + ", Release) to " + path_text(export_directory_));
+    if (const std::string problem = export_flavour_problem(sdk->config, setup.development); !problem.empty()) {
+        return fail(problem);
+    }
+    sink_("Exporting " + project.name + " (" + project.target + ", " +
+            game_config(sdk->config, BuildKind::Export, setup.development) +
+            (setup.development ? ", Development build" : "") + ") to " + path_text(export_directory_));
     build_.start(BuildSetup{
             .kind = BuildKind::Export,
             .project = check.directory,
             .sdk = setup.sdk,
             .target = project.target,
             .sdk_config = sdk->config,
+            .development = setup.development,
     });
     running_ = true;
     return std::nullopt;
