@@ -25,7 +25,7 @@ engine_add_game(my_game
    - `<build>/generated/<game>/asset_ids.h`
    - `<build>/generated/<game>/catalog.toml`
 4. **Include Directories:** Adds `<build>/generated/<game>` as a `PRIVATE` include path, so you can `#include <asset_ids.h>`.
-5. **Icon Processing:** If `icon.png` exists in the game root, runs `icon_codegen` to generate multi-resolution platform icons.
+5. **Icon Processing:** If `icon.png` exists next to the `CMakeLists.txt` that calls `engine_add_game`, runs `icon_codegen` to generate multi-resolution platform icons. The image must be square and at least 1024x1024, or the build fails.
 6. **Post-Build Asset Staging:** Runs `engine_prepare_runtime`, copying assets and cooked catalogs adjacent to the output binary.
 
 ---
@@ -59,7 +59,14 @@ These options apply to a standalone build, which adds the SDK's engine source in
 | `ENGINE_WITH_GTEST` | `OFF` | Vendors GoogleTest for the game's own test targets. |
 
 ### Disabling Audio (Headless or Audio-Free Titles)
-If your game does not need audio, override `ENGINE_WITH_AUDIO` **before** `add_subdirectory`:
+If your game does not need audio, turn `ENGINE_WITH_AUDIO` off **before** the engine source is added. For an export build, pass it on the command line:
+
+```bash
+cmake -S . -B build-export -DWIND_EXPORT=ON -DCMAKE_PREFIX_PATH=<sdk> -DWind_DIR=<sdk>/cmake \
+      -DCMAKE_CONFIGURATION_TYPES=Release -DENGINE_WITH_AUDIO=OFF
+```
+
+For a `CMakeLists.txt` that calls `add_subdirectory` itself (Web and Android), set the cache entry first:
 
 ```cmake
 set(ENGINE_WITH_AUDIO OFF CACHE BOOL "" FORCE)
@@ -67,7 +74,7 @@ add_subdirectory(path/to/sdk/source wind)
 ```
 
 > [!NOTE]
-> Setting the cache variable with `FORCE` is required before `add_subdirectory` because CMake's `option()` command does not overwrite existing cache variables.
+> A cache entry that exists before the engine's `option()` call is kept, so the value has to be set before the engine source is added. The editor's Play build imports the SDK's engine and ignores this option.
 
 ---
 

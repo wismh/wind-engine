@@ -38,7 +38,7 @@ class Game {
 };
 ```
 
-**Good Practice:** The HUD/Panel owns its view model and button callbacks. Buttons are member functions on the panel class (e.g. `Panel::on_click_play()`).
+**Good Practice:** The HUD/Panel owns its view model and button callbacks. Buttons are member functions on the panel class (e.g. `Panel::on_click_play()`), bound to the view model's `ICommand` members by member pointer ([HUD & Controls](../ui/HUD-and-Controls.md#1-the-hud-pattern-methods-on-the-hud-type)).
 
 ---
 
@@ -105,6 +105,24 @@ Because `.shader` files are parsed as XML, GLSL relational operators (`<`, `<=`)
 ## 7. Never Rename `user_data_directory` Parameters
 
 `user_data_directory("MyStudio", "MyGame")` uses the organization and application names as the persistent folder identifier. If you rename either string, existing player saves will not be discovered.
+
+---
+
+## 8. Do Not Register the Engine's Own Systems
+
+The engine already registers `run_physics`, sprite animation, particles, UI input and binding, audio events, and rendering on every world. Adding `run_physics` to your own schedule integrates velocities twice. Register only your gameplay systems, on `Schedule::Fixed` / `Phase::Game` or `Schedule::Frame` / `Phase::Game` ([Systems & Schedules](../ecs/Systems-and-Schedules.md)).
+
+---
+
+## 9. UI Bindings Are `{binding name}`
+
+In UI XML a dynamic value is written `text="{binding healthText}"` and `command="{binding togglePause}"`. A bare `{healthText}` is a literal string. There are no `<Panel>` or `<Text>` elements: use `<Stack>` and `<Label>` ([UI Basics](../ui/UI-Basics.md)). A binding name the view model does not register is not a build error; it is skipped and logged once in `game.log`.
+
+---
+
+## 10. Click-Through Is Checked on the Presentation
+
+Whether the UI took the mouse this frame is `ui::presentation_of(world).mouse.consumed_for(window)`. `world.ctx<ui::MouseConsumed>()` never sees those hits ([Raw Input & Mouse](../input/Raw-Input-and-Mouse.md#2-preventing-click-through)).
 
 ---
 

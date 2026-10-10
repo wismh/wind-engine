@@ -1,76 +1,59 @@
 # Command Buffer & Sorting
 
-Rendering in Wind is completely decoupled from system execution order. Systems submit drawing commands into an `engine::render::CommandBuffer`, which are subsequently sorted and executed during the render phase.
+Rendering in Wind is data-driven. A game does not issue draw calls: it puts `Renderable`, `Sprite`, and `ParticleEmitter` components on entities that have a `Transform`. The engine's render system (`Schedule::Frame`, `Phase::Render`) turns them into commands, sorts them once per frame, and pushes them into the `engine::render::CommandBuffer` of every window the world is bound to. The backend then executes the buffer.
 
 ---
 
 ## 1. The `Renderable` Component
 
-Entities with visual representations carry an `engine::render::Renderable` component defining their sorting keys:
+An entity drawn as a mesh with a material carries an `engine::render::Renderable` and an `engine::Transform`:
 
 ```cpp
+#include <engine/builtin_ids.h>
+#include <engine/ecs/transform.h>
 #include <engine/render/renderable.h>
+#include <engine/resources/assets_db.h>
+#include <asset_ids.h>
 
-struct Renderable {
-    int layer = 0;              // Major layer (e.g., Background = -10, World = 0, Foreground = 10)
-    int order_in_layer = 0;     // Sub-order within the layer
-    float y_sort = 0.0f;        // Optional Y-coordinate for top-down depth sorting
-    bool transparent = true;    // Sorting flag
-};
+engine::ecs::Entity tile = world.create();
+world.emplace<engine::Transform>(tile, engine::Transform{.position = {2.0f, 1.0f, 0.0f}, .scale = {1.5f, 1.5f, 1.0f}});
+world.emplace<engine::render::Renderable>(tile, engine::render::Renderable{
+    .mesh = services.assets.get<engine::render::IMesh>(engine::builtin::mesh_quad),
+    .material = services.assets.get<engine::render::IMaterial>(assets::materials::board),
+    .color = {1.0f, 1.0f, 1.0f, 1.0f},   // tint, multiplied by the material color
+    .layer = 0,
+    .order_in_layer = 10,
+});
 ```
 
-During rendering, entities are sorted deterministically:
-1. Primary key: `layer` (ascending)
-2. Secondary key: `order_in_layer` (ascending)
-3. Tertiary key: `y_sort` (ascending or descending depending on camera projection)
+`Renderable` has `mesh`, `material` (both required: an entity missing one is reported and skipped), `color`, `layer`, `order_in_layer`, and an optional `material_override`. The mesh is drawn with the model matrix of the `Transform` (translate, rotate X then Y then Z in radians, scale). For a textured picture use a `Sprite` ([Sprites & Animation](Sprites-and-Animation.md)), which supplies the quad and the material for you. An entity with both `Renderable` and `Sprite` draws only the `Renderable`.
 
 ---
 
-## 2. Submitting Commands to `CommandBuffer`
+## 2. Draw Order
 
-In your game's render phase system (`Schedule::Frame`, `Phase::Render`), access `services.commands`:
+Draws of meshes, sprites, and particle batches are sorted together; the first difference decides:
 
-```cpp
-#include <engine/render/command_buffer.h>
-#include <engine/render/commands.h>
+1. `layer` ascending (a low layer is drawn first, behind)
+2. `order_in_layer` ascending
+3. the material (entities that share a material are grouped; the order between two materials is by address)
+4. the entity index
 
-void render_system(engine::ecs::World& world, engine::render::CommandBuffer& cmd_buffer) {
-    // Clear the screen
-    cmd_buffer.push(engine::render::CmdClear{
-        .color = {0.1f, 0.1f, 0.15f, 1.0f},
-        .depth = 1.0f,
-        .clear_color = true,
-        .clear_depth = true
-    });
-
-    // Draw textured meshes
-    for (auto [e, transform, sprite, renderable] : 
-         world.view<engine::ecs::Transform, engine::render::Sprite, engine::render::Renderable>().each()) {
-         
-        cmd_buffer.push(engine::render::CmdDrawMesh{
-            .material = sprite.material_id,
-            .mesh = quad_mesh_id,
-            .transform = transform.matrix(),
-            .layer = renderable.layer,
-            .order = renderable.order_in_layer
-        });
-    }
-}
-```
+There is no depth test and no Y-sort. For a top-down game, set `order_in_layer` from the entity's Y yourself. UI is separate: canvases are drawn after the world, sorted by `UiCanvas::order`.
 
 ---
 
-## 3. Custom Vector Drawing via `ICanvas`
+## 3. What a `CommandBuffer` Is
 
-For immediate-mode vector drawing (debug shapes, bounding boxes, trajectories, lines), use `services.canvas`:
+`engine::render::CommandBuffer` holds a `std::vector` of `render::Command`, a variant of exactly three types:
 
-```cpp
-#include <engine/render/canvas.h>
+| Command | Pushed by |
+| --- | --- |
+| `CmdDrawMesh` | the render system, for each `Renderable` and `Sprite` |
+| `CmdDrawParticles` | the render system, for each `ParticleEmitter` with live particles |
+| `CmdDrawUI` | the UI system, for each `UiCanvas` |
 
-services.canvas.draw_line({100.0f, 100.0f}, {400.0f, 300.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, 2.0f);
-services.canvas.draw_rect({50.0f, 50.0f, 200.0f, 100.0f}, {0.0f, 1.0f, 0.0f, 0.5f});
-services.canvas.draw_circle({300.0f, 200.0f}, 40.0f, {0.2f, 0.6f, 1.0f, 1.0f});
-```
+A game does not push commands itself and there is no custom draw callback. If you need something the components do not give you, the options are a material with your own shader ([Materials & Shaders](Materials-and-Shaders.md)) and, for vector shapes in the UI, `IPaint` ([Custom Painting](../ui/Custom-Painting.md)). The buffer is exposed (`services.commands`, `size()`, iteration) for tests and tools: with a headless `Host` a test can run a frame and inspect which commands were produced.
 
 ---
 
