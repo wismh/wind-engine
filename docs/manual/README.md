@@ -52,7 +52,7 @@ Wind is a high-performance 2D C++23 game engine tailored for production titles. 
 * [Localization](assets-and-loc/Localization.md) — `.strings` message catalogs, fallback locales, and `{tr}` UI patterns.
 
 ### 9. [Target Platforms](platforms/Desktop.md)
-* [Desktop](platforms/Desktop.md) — Windows, Linux, and macOS compilation and distribution.
+* [Desktop](platforms/Desktop.md) — Exporting a Release build from the editor or in batch mode (CI), exporting by hand, and distribution on Windows, Linux, and macOS.
 * [Web (WebAssembly)](platforms/Web-Wasm.md) — Emscripten, WebGL2, host codegen prerequisite, and asset preloading.
 * [Android](platforms/Android.md) — Gradle packaging, application identifiers, assets staging, and back button.
 
