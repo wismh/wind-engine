@@ -103,6 +103,17 @@ TEST(SdkManifest, ReadsWhatTheInstallWrites) {
     EXPECT_EQ(sdk->build_id, "5266d5a5ebe5603e");
 }
 
+TEST(SdkManifest, TheVersionIsTheFullTextWithItsStageAndDev) {
+    for (const std::string version : {"0.1.7a", "0.2.6b", "1.0.0", "0.1.0a-dev"}) {
+        const TempDir dir{"sdk_version"};
+        dir.write(engine::kSdkManifestFile,
+                "version = \"" + version + "\"\ncommit = \"a\"\ndirty = false\nconfig = \"Release\"\nbuild_id = \"b\"\n");
+        const auto sdk = engine::read_sdk_manifest(dir.path());
+        ASSERT_TRUE(sdk.has_value()) << engine::describe(sdk.error());
+        EXPECT_EQ(sdk->version, version);
+    }
+}
+
 TEST(SdkManifest, IgnoresNewKeysAndNeedsEveryKnownOne) {
     const TempDir dir{"sdk_keys"};
     dir.write(engine::kSdkManifestFile, std::string(kSdk) + "platform = \"windows-x64\"\n");
