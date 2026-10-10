@@ -78,10 +78,17 @@ Build preset `tests` builds `engine_tests` from the `vs` configure.
 
 ## Bench build
 
-`ENGINE_BENCH` (preset `vs-bench`) adds `bench/`: `wind_ui_bench`, an executable through `engine_configure_app` against the static engine, linked as a console program in every configuration, and with tests `wind_ui_bench_tests` (command line, matrix, schedule, frame plan, data, report, hover points, and a parse of every bench asset). It records the configuration (`$<CONFIG>`), `PROJECT_VERSION`, and the git commit and dirty flag read at configure time. Build it in RelWithDebInfo: `cmake --build build-bench --config RelWithDebInfo --target wind_ui_bench`, or `cmake --build --preset bench`. The Visual Studio generator offers RelWithDebInfo by default; nothing in the tree narrows `CMAKE_CONFIGURATION_TYPES`. See [UI Bench](../features/UI%20Bench.md).
+`ENGINE_BENCH` (preset `vs-bench`) adds `bench/`: `wind_ui_bench`, an executable through `engine_configure_app` against the static engine, linked as a console program in every configuration, and with tests `wind_ui_bench_tests` (command line, matrix, schedule, frame plan, data, report, hover points, and a parse of every bench asset). It records the configuration (`$<CONFIG>`), `ENGINE_VERSION_FULL`, and the git commit and dirty flag read at configure time. Build it in RelWithDebInfo: `cmake --build build-bench --config RelWithDebInfo --target wind_ui_bench`, or `cmake --build --preset bench`. The Visual Studio generator offers RelWithDebInfo by default; nothing in the tree narrows `CMAKE_CONFIGURATION_TYPES`. See [UI Bench](../features/UI%20Bench.md).
 ## Version
 
-`project(engine VERSION x.y.z)` in the root `CMakeLists.txt` is the engine version (`PROJECT_VERSION`), semver. The editor SDK records it in `sdk.toml` and `WindConfigVersion.cmake`. A release is a commit on `main` that sets the version, tagged `vx.y.z`, so an SDK of an old version can be built again from its tag. The version is not a build id input: two builds of one version from different commits still get different ids when a public header differs.
+The engine version is `<major>.<minor>.<patch><stage>` (`0.1.7a`; `a` alpha, `b` beta, none production), the scheme and the release flow of [Release](Release.md). The root `CMakeLists.txt` sets `ENGINE_VERSION_MAJOR`, `ENGINE_VERSION_MINOR`, and `ENGINE_VERSION_STAGE` (`"a"`, `"b"`, or `""`). `ENGINE_VERSION_PATCH` is a cache entry, empty by default: the release workflow passes `-DENGINE_VERSION_PATCH=N`. Without it the build is local and its version carries `-dev`, `0.1.0a-dev`.
+
+| Variable | Value for `0.1.7a` | For a local build |
+| --- | --- | --- |
+| `ENGINE_VERSION_FULL` | `0.1.7a` | `0.1.0a-dev` |
+| `ENGINE_VERSION_NUMBER`, `PROJECT_VERSION` (`project(engine VERSION ...)`) | `0.1.7` | `0.1.0` |
+
+`project(VERSION)` stays the three numbers, because CMake versions are numeric: `WindConfigVersion.cmake` compares only them. `ENGINE_VERSION_FULL` is what `sdk.toml` records, what the configure prints (`Wind engine 0.1.7a`), and what the bench report names. A bad `ENGINE_VERSION_PATCH` (not a whole number, a leading zero) or `ENGINE_VERSION_STAGE` is a configure error. The player libraries and the engine built from `<sdk>/source` get the same patch (`cmake/player_build.cmake` passes it on; `WindConfig.cmake` sets it from `wind_version.cmake`), so every part of one SDK has one version. A release is tagged `v<full version>`, so an SDK of an old version can be built again from its tag. The version is not a build id input: two builds of one version from different commits still get different ids when a public header differs.
 
 `WINDOWS_EXPORT_ALL_SYMBOLS` exports functions, not data. Mutable state a module must share stays in a `.cpp` behind an `ENGINE_API` function. See [Boundaries](../architecture/Boundaries.md).
 
@@ -196,7 +203,8 @@ out/sdk/
   lib/gtest.lib  gtest_main.lib  (+ gtest.pdb, gtest_main.pdb on MSVC)
   cmake/
     WindConfig.cmake         imported targets, game functions, configuration check
-    WindConfigVersion.cmake  accepts only this engine version
+    WindConfigVersion.cmake  accepts only this engine version (its three numbers)
+    wind_version.cmake       Wind_VERSION_FULL, the full version, and the release patch
     wind_game.cmake          game functions
     wind_export.cmake        the export branch: the player libraries as `engine`
   source/          the engine's build input (see below)
@@ -213,7 +221,7 @@ GoogleTest is the editor build's own `gtest` and `gtest_main` (shared CRT, the S
 `sdk.toml` is written last, by `cmake/sdk_manifest.cmake` from an `install(CODE)` step:
 
 ```toml
-version = "0.1.0"                                   # project(engine VERSION)
+version = "0.1.7a"                                  # ENGINE_VERSION_FULL: 0.1.0a-dev for a local build
 commit = "50c292f95fec1d06617eeb17409cee2b612691e2" # git rev-parse HEAD of the engine checkout
 dirty = false                                       # git status --porcelain was not empty
 config = "Release"
@@ -222,7 +230,7 @@ platform = "windows"                                # lower-case CMAKE_SYSTEM_NA
 player_flavours = ["Development", "Shipping"]       # what player/ holds; [] for a Debug SDK
 ```
 
-It is how the launcher and the editor know an SDK; its keys are only added, never renamed. `platform` (lower-case `CMAKE_SYSTEM_NAME`: `windows`, `linux`) and `player_flavours` (the flavours found under `player/` after the player install, empty for a Debug SDK) say what the SDK ships for an Export. An SDK with `dirty = true` is not the build of its version's tag. The install fails without git.
+It is how the launcher and the editor know an SDK; its keys are only added, never renamed. `version` is the full version with its stage, and readers treat it as an opaque text: the editor compares it with a project's `engine` for equality, and only the launcher orders versions (`engine::EngineVersion`). `platform` (lower-case `CMAKE_SYSTEM_NAME`: `windows`, `linux`) and `player_flavours` (the flavours found under `player/` after the player install, empty for a Debug SDK) say what the SDK ships for an Export. An SDK with `dirty = true` is not the build of its version's tag. The install fails without git.
 
 `WindConfig.cmake` is generated per configuration from `cmake/WindConfig.cmake.in` with `file(GENERATE)`, so it holds the evaluated values of the installed configuration, not generator expressions a game would evaluate against its own configuration. It finds the SDK root from its own location (the SDK can move), sets the cache entries of [Game functions](#game-functions) plus `WIND_SDK_DIR` and `WIND_SDK_CONFIG` (for example `Release`), checks that the files it imports exist, and defines:
 
@@ -233,7 +241,7 @@ It is how the launcher and the editor know an SDK; its keys are only added, neve
 | `asset_codegen`, `icon_codegen` | `IMPORTED GLOBAL` executables in `bin/`. They load `engine.dll` from beside themselves |
 | `GTest::gtest`, `GTest::gtest_main` | `STATIC IMPORTED GLOBAL` on `lib/`, includes `include/`; `gtest_main` links `gtest` |
 
-Then it includes CMake's `GoogleTest` module (`gtest_discover_tests`) and `wind_game.cmake`, prints `Wind <version>: <config> SDK at <dir>`, and calls `engine_sdk_configurations()` ([Configurations](#configurations)). `WindConfigVersion.cmake` comes from `write_basic_package_version_file` with `ExactVersion`, so `find_package(Wind 0.2.0)` refuses a 0.1.0 SDK and lists it.
+Then it includes CMake's `GoogleTest` module (`gtest_discover_tests`) and `wind_game.cmake`, prints `Wind <Wind_VERSION_FULL>: <config> SDK at <dir>`, and calls `engine_sdk_configurations()` ([Configurations](#configurations)). `WindConfigVersion.cmake` comes from `write_basic_package_version_file` with `ExactVersion` over the three numbers, so `find_package(Wind 0.2.0)` refuses a 0.1.7a SDK and lists it, and `find_package(Wind 0.1.7)` accepts the SDKs `0.1.7a`, `0.1.7b`, and `0.1.7`. `wind_version.cmake` (generated at configure time, installed beside it, included first by `WindConfig.cmake`) sets `Wind_VERSION_FULL` (`0.1.7a`) for a game to print or log, and `WIND_SDK_VERSION_PATCH`. `WindConfig.cmake` does not compare the full version with the project's `engine`: the editor checks that.
 
 ## Player libraries
 

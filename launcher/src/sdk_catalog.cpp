@@ -3,8 +3,11 @@
 #include "launcher_state.h"
 #include "user_paths.h"
 
+#include <engine/project/engine_version.h>
+
 #include <algorithm>
-#include <charconv>
+#include <compare>
+#include <optional>
 #include <system_error>
 
 namespace launcher {
@@ -16,13 +19,6 @@ bool hidden(const std::filesystem::path& directory) {
     return path_text(directory.filename()).starts_with('.');
 }
 
-std::string_view next_part(std::string_view& version) {
-    const std::size_t dot = version.find('.');
-    const std::string_view part = version.substr(0, dot);
-    version = dot == std::string_view::npos ? std::string_view{} : version.substr(dot + 1);
-    return part;
-}
-
 bool known(const std::vector<SdkEntry>& sdks, const std::filesystem::path& root) {
     return std::ranges::any_of(sdks, [&](const SdkEntry& entry) { return same_directory(entry.root, root); });
 }
@@ -30,24 +26,17 @@ bool known(const std::vector<SdkEntry>& sdks, const std::filesystem::path& root)
 }
 
 int compare_versions(std::string_view a, std::string_view b) {
-    while (!a.empty() || !b.empty()) {
-        const std::string_view left = next_part(a);
-        const std::string_view right = next_part(b);
-        unsigned long long left_number = 0;
-        unsigned long long right_number = 0;
-        const auto [left_end, left_error] = std::from_chars(left.data(), left.data() + left.size(), left_number);
-        const auto [right_end, right_error] = std::from_chars(right.data(), right.data() + right.size(), right_number);
-        const bool numbers = left_error == std::errc{} && right_error == std::errc{} &&
-                             left_end == left.data() + left.size() && right_end == right.data() + right.size();
-        if (numbers) {
-            if (left_number != right_number) {
-                return left_number < right_number ? -1 : 1;
-            }
-        } else if (const int text = left.compare(right); text != 0) {
-            return text < 0 ? -1 : 1;
-        }
+    const std::optional<engine::EngineVersion> left = engine::parse_engine_version(a);
+    const std::optional<engine::EngineVersion> right = engine::parse_engine_version(b);
+    if (left && right) {
+        const std::strong_ordering order = *left <=> *right;
+        return order < 0 ? -1 : (order > 0 ? 1 : 0);
     }
-    return 0;
+    if (left || right) {
+        return left ? 1 : -1;
+    }
+    const int text = a.compare(b);
+    return text < 0 ? -1 : (text > 0 ? 1 : 0);
 }
 
 std::filesystem::path sdk_install_directory() {

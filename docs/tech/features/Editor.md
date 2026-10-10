@@ -32,7 +32,7 @@ The SDK's `bin/` holds `wind_editor.exe`, `wind-cli.exe`, `engine.dll`, their `.
 5. `PlaySession` and `ProjectBuild` over `EngineServices::processes`. The SDK root is `<assets root>/../..`; `read_sdk_manifest` there gives the version and configuration. A missing or bad `sdk.toml` is logged and leaves the editor unable to build.
 6. Opens the `--project` directory. Only the panel layout is remembered between runs.
 
-Opening a project reads `<dir>/wind_project.toml` (`read_wind_project`). A read error, a missing SDK, or an `engine` version other than the SDK's `version` shows in the status line and leaves Play and Export disabled: "The project needs engine 0.2.0; this editor is 0.1.0." The check is `check_project` (`editor/src/project_check.cpp`), shared by the GUI and the batch run, so both say the same thing.
+Opening a project reads `<dir>/wind_project.toml` (`read_wind_project`). A read error, a missing SDK, or an `engine` version other than the SDK's `version` shows in the status line and leaves Play and Export disabled: "The project needs engine 0.2.0; this editor is 0.1.7a." The versions are compared as exact text, stage included (`0.1.7` is not `0.1.7a`). The check is `check_project` (`editor/src/project_check.cpp`), shared by the GUI and the batch run, so both say the same thing.
 
 Command line:
 

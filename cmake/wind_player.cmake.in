@@ -5,7 +5,7 @@
 # imported targets WindPlayer@ENGINE_PLAYER@::engine and what it links.
 
 set(WIND_PLAYER_FLAVOUR "@ENGINE_PLAYER@")
-# project(engine VERSION) these libraries were built from.
+# project(engine VERSION) these libraries were built from: the three numbers, like Wind_VERSION.
 set(WIND_PLAYER_VERSION "@PROJECT_VERSION@")
 set(WIND_PLAYER_PLATFORM "@WIND_PLAYER_PLATFORM@")
 # kBuildId of the editor SDK that installed them. WindConfig.cmake compares it with the SDK's own
