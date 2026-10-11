@@ -44,7 +44,7 @@ out/sdk/bin/wind_editor.exe --project path/to/my_game --play  # build, then play
 
 Play loads a copy of the module and runs the game in the "Game" window. Stop unloads it, so the game can be rebuilt while the editor stays open. See [Editor](docs/tech/features/Editor.md).
 
-The Wind Launcher lists your projects and installed editors, installs SDKs, and opens a project in the editor of its version. It lives in its own repository, [wismh/wind-laucnher](https://github.com/wismh/wind-laucnher), and is downloaded from its [releases](https://github.com/wismh/wind-laucnher/releases) ([Launcher](docs/tech/features/Launcher.md)).
+The Wind Launcher lists your projects and installed editors, installs SDKs, and opens a project in the editor of its version. It lives in its own repository, [wismh/wind-launcher](https://github.com/wismh/wind-launcher), and is downloaded from its [releases](https://github.com/wismh/wind-launcher/releases) ([Launcher](docs/tech/features/Launcher.md)).
 
 Exported games, web, and Android stay on the static library. See [CMake](docs/tech/build/CMake.md#editor-build).
 
@@ -178,3 +178,7 @@ Change `applicationId` / `namespace` (`org.windengine.app`) before shipping. The
 v1 ABI is **arm64-v8a**, minSdk **21**. Mixer stays off on the `android-arm64` preset (`ENGINE_WITH_AUDIO=OFF`).
 
 Default `engine_tests` in this repo stay **headless native**; they do not boot `Engine::run`, EGL, or a mixer. An emulator/GPU golden is not a merge gate.
+
+## License
+
+The Wind engine is licensed under the [Apache License, Version 2.0](LICENSE). The libraries in `external/` are separate projects and keep their own licenses.

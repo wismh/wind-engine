@@ -201,7 +201,7 @@ out/sdk/
     wind_game.cmake          game functions
     wind_export.cmake        the export branch: the player libraries as `engine`
   source/          the engine's build input (see below)
-  templates/       project templates (templates/empty/), which the launcher (github.com/wismh/wind-laucnher) copies for a new project
+  templates/       project templates (templates/empty/), which the launcher (github.com/wismh/wind-launcher) copies for a new project
   sdk.toml         version, commit, dirty, config, build_id, platform, player_flavours
 ```
 
