@@ -23,7 +23,7 @@ struct EngineVersion {
 
     // Release order: number, then a `-dev` build before the releases of its number, then alpha, beta, production.
     // 0.1.99a < 0.1.100a < 0.2.0a-dev < 0.2.0a < 0.2.0b < 0.2.0.
-    [[nodiscard]] friend std::strong_ordering operator<=>(const EngineVersion& a, const EngineVersion& b) noexcept;
+    friend std::strong_ordering operator<=>(const EngineVersion& a, const EngineVersion& b) noexcept;
     [[nodiscard]] friend bool operator==(const EngineVersion& a, const EngineVersion& b) noexcept = default;
 };
 
