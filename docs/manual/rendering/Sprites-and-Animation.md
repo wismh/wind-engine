@@ -35,6 +35,8 @@ world.emplace<engine::render::Renderable>(entity, engine::render::Renderable{
 });
 ```
 
+A sprite on a child entity is drawn at its world transform: the parent's position, rotation and scale apply to it (see [Hierarchy](../ecs/Hierarchy.md)). The sprite's own pivot, size and flip are applied after that.
+
 ---
 
 ## 2. Sprite Sheets and Atlases

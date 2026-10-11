@@ -11,7 +11,7 @@ The editor is in progress. See [Editor Plan](Editor%20Plan.md). Today `wind_edit
 - Editor tools. UI Inspector and UI Profiler live in the editor window only. The engine keeps the data they read. A game does not open them.
 - Window, GL context, input actions, mouse to UI. Multiple windows for one running game. See [Windowing](../features/Windowing.md).
 - A process holds any number of `ecs::World`. A world is one simulation: no parent and no scene graph. A window belongs to one world. That world's meshes go to each window bound to it. UI is `UiCanvas` plus a document instance plus a view-model. The document comes from XML or the C++ builder.
-- Homemade ECS. EnTT is an API reference only, not a dependency.
+- Homemade ECS. EnTT is an API reference only, not a dependency. Entities can have a `Parent` (a separate component, not a field of `Transform`); the engine derives `WorldTransform` from it. This is not a scene graph.
 - Render abstractions and an OpenGL 3.3 backend: materials, instance tint, layer sort. NanoVG executes `CmdDrawUI`. Particles are `CmdDrawParticles`.
 - `AssetsDb` and a GUID catalog: sidecar TOML `.meta`, `asset_guid`, and `asset_codegen`.
 - Localization: `.strings` tables by `AssetId`, `{tr}` in UI, integer plural categories. The game selects the active locale and persists that choice.
@@ -30,7 +30,6 @@ Open engine work, not game concerns:
 - Editor: export, new projects from a template, SDK downloads, and the remaining tools. Today the launcher lists projects and installed editors and opens a project in its editor, and the editor builds it on Play and plays it.
 - Packed asset bundles (still GUID-addressed).
 - A separate cue `Sound` that references a clip GUID. Today one file is one cue.
-- `Transform` parent and a world-matrix chain.
 - CSS `@import`. WPF `IValueConverter` and `Mode=TwoWay` as a general converter. Checkbox `checked` already writes a `Bindable` back.
 - Widget-as-ECS-entity. That would replace the XML instance tree inside `UiCanvas`.
 - Input: SDL gamepad poll and bind (`ControlKind::GamepadButton` and `GamepadAxis` exist; events are not wired), WASD composites, action maps.

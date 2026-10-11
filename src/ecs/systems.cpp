@@ -9,6 +9,7 @@
 #include <engine/core/time.h>
 #include <engine/ecs/camera.h>
 #include <engine/ecs/events.h>
+#include <engine/ecs/hierarchy.h>
 #include <engine/ecs/physics.h>
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/transform.h>
@@ -275,16 +276,6 @@ namespace engine {
             }
         }
 
-        glm::mat4 model_matrix(const Transform &transform) {
-            glm::mat4 model(1.0f);
-            model = glm::translate(model, transform.position);
-            model = glm::rotate(model, transform.rotation.x, glm::vec3{1.0f, 0.0f, 0.0f});
-            model = glm::rotate(model, transform.rotation.y, glm::vec3{0.0f, 1.0f, 0.0f});
-            model = glm::rotate(model, transform.rotation.z, glm::vec3{0.0f, 0.0f, 1.0f});
-            model = glm::scale(model, transform.scale);
-            return model;
-        }
-
         void report_fatal(IFatalError *fatal, std::string_view message) {
             if (fatal != nullptr) {
                 fatal->report(message);
@@ -378,7 +369,7 @@ namespace engine {
                 return;
             }
 
-            const glm::mat4 view = view_matrix(*camera_transform);
+            const glm::mat4 view = view_matrix(ecs::world_matrix(world, active.entity));
             const glm::mat4 projection{1.0f};
 
             std::vector<DrawItem> items;
@@ -389,11 +380,10 @@ namespace engine {
                     report_fatal(deps.fatal, "Renderable is missing mesh or material");
                     continue;
                 }
-                const Transform &transform = world.get<Transform>(entity);
                 render::CmdDrawMesh cmd;
                 cmd.mesh = r.mesh;
                 cmd.material = r.material;
-                cmd.model = model_matrix(transform);
+                cmd.model = ecs::world_matrix(world, entity);
                 cmd.view = view;
                 cmd.projection = projection;
                 cmd.color = r.color;
@@ -454,8 +444,7 @@ namespace engine {
                     report_fatal(deps.fatal, "Sprite is missing mesh or material");
                     continue;
                 }
-                const Transform &transform = world.get<Transform>(entity);
-                glm::mat4 model = model_matrix(transform);
+                glm::mat4 model = ecs::world_matrix(world, entity);
                 if (s.pixel_size.x > 0.0f && s.pixel_size.y > 0.0f && s.pixels_per_unit > 0.0f) {
                     const glm::vec2 world_size = s.pixel_size / s.pixels_per_unit;
                     const glm::vec3 pivot_offset{(0.5f - s.pivot.x) * world_size.x, (0.5f - s.pivot.y) * world_size.y,
@@ -519,9 +508,7 @@ namespace engine {
 
                 glm::mat4 model{1.0f};
                 if (em.simulation_space == render::SimulationSpace::Local) {
-                    if (const auto *transform = world.try_get<Transform>(entity)) {
-                        model = model_matrix(*transform);
-                    }
+                    model = ecs::world_matrix(world, entity);
                 }
 
                 render::CmdDrawParticles cmd;
@@ -768,6 +755,8 @@ namespace engine {
 
     void run_particles(ecs::World &world) {
         const float dt = world.ctx<Time>().delta_time;
+        // Runs before Phase::Transform, so refresh the matrices that emitters and colliders read (idempotent).
+        ecs::update_world_transforms(world);
         auto view = world.view<render::ParticleEmitter>();
 
         bool any_collisions = false;
@@ -780,22 +769,23 @@ namespace engine {
 
         std::vector<render::ParticleCollider> colliders;
         if (any_collisions) {
-            world.view<Transform, BoxCollider>().each([&](const Transform &transform, const BoxCollider &box) {
+            world.view<Transform, BoxCollider>().each([&](ecs::Entity entity, const Transform &, const BoxCollider &box) {
                 if (!box.is_trigger) {
                     colliders.push_back(render::ParticleCollider{
                             .shape = render::ParticleCollider::Shape::Box,
-                            .position = transform.position,
+                            .position = ecs::world_position(world, entity),
                             .box_size = box.size,
                             .circle_radius = 0.0f,
                             .layer = box.layer,
                     });
                 }
             });
-            world.view<Transform, CircleCollider>().each([&](const Transform &transform, const CircleCollider &circle) {
+            world.view<Transform, CircleCollider>().each(
+                    [&](ecs::Entity entity, const Transform &, const CircleCollider &circle) {
                 if (!circle.is_trigger) {
                     colliders.push_back(render::ParticleCollider{
                             .shape = render::ParticleCollider::Shape::Circle,
-                            .position = transform.position,
+                            .position = ecs::world_position(world, entity),
                             .box_size = glm::vec3{0.0f},
                             .circle_radius = circle.radius,
                             .layer = circle.layer,
@@ -806,11 +796,7 @@ namespace engine {
 
         for (ecs::Entity entity: view) {
             auto &emitter = view.get<render::ParticleEmitter>(entity);
-            glm::mat4 model{1.0f};
-            if (const auto *transform = world.try_get<Transform>(entity)) {
-                model = model_matrix(*transform);
-            }
-            render::update_emitter(emitter, dt, model, colliders);
+            render::update_emitter(emitter, dt, ecs::world_matrix(world, entity), colliders);
         }
     }
 
@@ -822,6 +808,8 @@ namespace engine {
         world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics, [](ecs::World &w) { run_physics(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_sprite_animations(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_particles(w); });
+        world.add_system(ecs::Schedule::Frame, ecs::Phase::Transform,
+                         [](ecs::World &w) { ecs::update_world_transforms(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Render, [deps](ecs::World &w) { run_render(w, deps); });
     }
 

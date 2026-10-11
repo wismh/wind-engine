@@ -27,10 +27,11 @@ Within each schedule, systems execute sequentially across predefined phases (`en
 ```
 1. Phase::Input    --> Window and hardware input collection
 2. Phase::Game     --> Visual interpolation, gameplay animations, camera updates
-3. Phase::Bind     --> UI ViewModel data synchronization
-4. Phase::Audio    --> Audio event processing and music playback
-5. Phase::Render   --> Game rendering, sprite sorting, CommandBuffer submission
-6. Phase::UiRender --> UI layout, document painting, NanoVG rendering
+3. Phase::Transform --> Engine: world matrices of parented entities (update_world_transforms)
+4. Phase::Bind     --> UI ViewModel data synchronization
+5. Phase::Audio    --> Audio event processing and music playback
+6. Phase::Render   --> Game rendering, sprite sorting, CommandBuffer submission
+7. Phase::UiRender --> UI layout, document painting, NanoVG rendering
 ```
 
 ---
@@ -98,3 +99,4 @@ world.add_system(Schedule::Frame, Phase::Game, [hidden_counter](World& w) mutabl
 
 - Decouple systems using the [Events](Events.md) queue.
 - Implement 2D collisions with [Physics & Collisions](Physics-and-Collisions.md).
+- Attach entities to each other with [Hierarchy](Hierarchy.md).

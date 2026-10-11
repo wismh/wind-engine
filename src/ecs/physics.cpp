@@ -2,6 +2,7 @@
 
 #include <engine/core/time.h>
 #include <engine/ecs/events.h>
+#include <engine/ecs/hierarchy.h>
 #include <engine/ecs/transform.h>
 
 #include <algorithm>
@@ -87,12 +88,16 @@ void run_physics(ecs::World& world) {
         transform.position += body.velocity * dt;
     });
 
+    // Colliders sit in world space. RigidBody integrated the local position above (a child's velocity is in its
+    // parent's space), so refresh the world matrices before reading them.
+    ecs::update_world_transforms(world);
+
     std::vector<ColliderItem> colliders;
     world.view<Transform, BoxCollider>().each(
-            [&](ecs::Entity entity, const Transform& transform, const BoxCollider& collider) {
+            [&](ecs::Entity entity, const Transform&, const BoxCollider& collider) {
                 colliders.push_back(ColliderItem{
                         .entity = entity,
-                        .position = transform.position,
+                        .position = ecs::world_position(world, entity),
                         .shape = ColliderShape::Box,
                         .box_size = collider.size,
                         .layer = collider.layer,
@@ -101,10 +106,10 @@ void run_physics(ecs::World& world) {
                 });
             });
     world.view<Transform, CircleCollider>().each(
-            [&](ecs::Entity entity, const Transform& transform, const CircleCollider& collider) {
+            [&](ecs::Entity entity, const Transform&, const CircleCollider& collider) {
                 colliders.push_back(ColliderItem{
                         .entity = entity,
-                        .position = transform.position,
+                        .position = ecs::world_position(world, entity),
                         .shape = ColliderShape::Circle,
                         .radius = collider.radius,
                         .layer = collider.layer,
