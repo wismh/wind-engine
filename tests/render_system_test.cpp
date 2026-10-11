@@ -40,6 +40,7 @@
 #include <utility>
 #include <variant>
 #include <vector>
+#include "fixtures/fatal_fakes.h"
 
 namespace {
 
@@ -62,18 +63,6 @@ public:
 
     engine::render::BlendMode blend() const override {
         return engine::render::BlendMode::Opaque;
-    }
-};
-
-class RecordingFatalError final : public engine::IFatalError {
-public:
-    int call_count = 0;
-    std::string last_message;
-
-    void report(std::string_view message) override {
-        ++call_count;
-        last_message = std::string(message);
-        throw std::runtime_error(last_message);
     }
 };
 
@@ -282,7 +271,7 @@ TEST(RenderSystem, MaterialOverridePropagatesToCommand) {
 TEST(RenderSystem, MissingMeshOrMaterialIsFatal) {
     {
         engine::render::CommandBuffer commands;
-        RecordingFatalError fatal;
+        fakes::RecordingFatal fatal;
         engine::ecs::World world;
         engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands, .fatal = &fatal});
         spawn_camera(world);
@@ -298,7 +287,7 @@ TEST(RenderSystem, MissingMeshOrMaterialIsFatal) {
     }
     {
         engine::render::CommandBuffer commands;
-        RecordingFatalError fatal;
+        fakes::RecordingFatal fatal;
         engine::ecs::World world;
         engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands, .fatal = &fatal});
         spawn_camera(world);
@@ -510,7 +499,7 @@ TEST(RenderSystem, BindPhaseClonesDocumentFromAssets) {
     catalog.add({engine::AssetId{kOtherGuid}, "other.xml", engine::ImporterKind::Ui});
     write_file(tree.path / "catalog.toml", catalog.serialize());
 
-    RecordingFatalError fatal;
+    fakes::RecordingFatal fatal;
     engine::AssetsDb db(fatal);
     const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
     ASSERT_TRUE(loaded.has_value());
@@ -573,7 +562,7 @@ TEST(RenderSystem, BindPhaseInMemoryInstanceDoesNotCloneFromAssets) {
     catalog.add({engine::AssetId{kHudGuid}, "hud.xml", engine::ImporterKind::Ui});
     write_file(tree.path / "catalog.toml", catalog.serialize());
 
-    RecordingFatalError fatal;
+    fakes::RecordingFatal fatal;
     engine::AssetsDb db(fatal);
     const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
     ASSERT_TRUE(loaded.has_value());
@@ -615,7 +604,7 @@ TEST(RenderSystem, BindPhaseSpawnCanvasDoesNotCloneFromAssets) {
     catalog.add({engine::AssetId{kHudGuid}, "hud.xml", engine::ImporterKind::Ui});
     write_file(tree.path / "catalog.toml", catalog.serialize());
 
-    RecordingFatalError fatal;
+    fakes::RecordingFatal fatal;
     engine::AssetsDb db(fatal);
     const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
     ASSERT_TRUE(loaded.has_value());
@@ -657,7 +646,7 @@ TEST(RenderSystem, BindPhaseCatalogRebindsWithoutReplacingTreeWhenDataContextCha
     catalog.add({engine::AssetId{kHudGuid}, "hud.xml", engine::ImporterKind::Ui});
     write_file(tree.path / "catalog.toml", catalog.serialize());
 
-    RecordingFatalError fatal;
+    fakes::RecordingFatal fatal;
     engine::AssetsDb db(fatal);
     const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
     ASSERT_TRUE(loaded.has_value());
@@ -704,7 +693,7 @@ TEST(RenderSystem, BindPhaseWithoutDocumentDoesNotLoadFromAssets) {
     catalog.add({engine::AssetId{kHudGuid}, "hud.xml", engine::ImporterKind::Ui});
     write_file(tree.path / "catalog.toml", catalog.serialize());
 
-    RecordingFatalError fatal;
+    fakes::RecordingFatal fatal;
     engine::AssetsDb db(fatal);
     const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
     ASSERT_TRUE(loaded.has_value());
@@ -731,7 +720,7 @@ TEST(RenderSystem, BindPhaseInMemoryKeepsAuthoredStylesheetWhenNoAssetSheets) {
     catalog.add({engine::AssetId{kHudGuid}, "hud.xml", engine::ImporterKind::Ui});
     write_file(tree.path / "catalog.toml", catalog.serialize());
 
-    RecordingFatalError fatal;
+    fakes::RecordingFatal fatal;
     engine::AssetsDb db(fatal);
     const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
     ASSERT_TRUE(loaded.has_value());
@@ -776,7 +765,7 @@ TEST(RenderSystem, BindXmlStylesheetWhenExtrasEmpty) {
     catalog.add({engine::AssetId{kCssGuid}, "red.css", engine::ImporterKind::Css});
     write_file(tree.path / "catalog.toml", catalog.serialize());
 
-    RecordingFatalError fatal;
+    fakes::RecordingFatal fatal;
     engine::AssetsDb db(fatal);
     const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
     ASSERT_TRUE(loaded.has_value());
@@ -818,7 +807,7 @@ TEST(RenderSystem, BindMergesExtraStylesheets) {
     catalog.add({engine::AssetId{kCssGreen}, "green.css", engine::ImporterKind::Css});
     write_file(tree.path / "catalog.toml", catalog.serialize());
 
-    RecordingFatalError fatal;
+    fakes::RecordingFatal fatal;
     engine::AssetsDb db(fatal);
     const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
     ASSERT_TRUE(loaded.has_value());
@@ -866,7 +855,7 @@ TEST(RenderSystem, BindMergesKeyframesOfEveryStylesheet) {
     catalog.add({engine::AssetId{kCssExtra}, "extra.css", engine::ImporterKind::Css});
     write_file(tree.path / "catalog.toml", catalog.serialize());
 
-    RecordingFatalError fatal;
+    fakes::RecordingFatal fatal;
     engine::AssetsDb db(fatal);
     const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
     ASSERT_TRUE(loaded.has_value());
@@ -913,7 +902,7 @@ TEST(RenderSystem, BindReloadsWhenExtraStylesheetsChange) {
     catalog.add({engine::AssetId{kCssGreen}, "green.css", engine::ImporterKind::Css});
     write_file(tree.path / "catalog.toml", catalog.serialize());
 
-    RecordingFatalError fatal;
+    fakes::RecordingFatal fatal;
     engine::AssetsDb db(fatal);
     const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
     ASSERT_TRUE(loaded.has_value());
@@ -960,7 +949,7 @@ TEST(RenderSystem, BindSkipsMissingExtraStylesheet) {
     catalog.add({engine::AssetId{kCssRed}, "red.css", engine::ImporterKind::Css});
     write_file(tree.path / "catalog.toml", catalog.serialize());
 
-    RecordingFatalError fatal;
+    fakes::RecordingFatal fatal;
     engine::AssetsDb db(fatal);
     const auto loaded = db.load_catalog(tree.path / "catalog.toml", tree.path);
     ASSERT_TRUE(loaded.has_value());
@@ -1036,7 +1025,7 @@ TEST(Audio, PlaySfxGetWhenDepsSet) {
         ASSERT_TRUE(out.is_open());
     }
 
-    RecordingFatalError fatal;
+    fakes::RecordingFatal fatal;
     engine::AssetsDb db(fatal);
     db.set_root(dir.path);
     const engine::AssetId id{"b1c2d3e4f567890123456789012345ab"};
@@ -1064,7 +1053,7 @@ TEST(Audio, PlaySfxGetWhenDepsSet) {
 }
 
 TEST(Audio, PlaySfxMissingCueIsFatal) {
-    RecordingFatalError fatal;
+    fakes::RecordingFatal fatal;
     engine::AssetsDb db(fatal);
     engine::AudioSystem audio;
 

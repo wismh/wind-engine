@@ -15,19 +15,9 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include "fixtures/fatal_fakes.h"
 
 namespace {
-
-class RecordingFatalError final : public engine::IFatalError {
-public:
-    int call_count = 0;
-    std::string last_message;
-
-    void report(std::string_view message) override {
-        ++call_count;
-        last_message = std::string(message);
-    }
-};
 
 class HudViewModel final : public engine::ui::ViewModel {
 public:
@@ -172,8 +162,9 @@ TEST(UiBuilder, AddPreservesChildOrder) {
 }
 
 TEST(UiBuilder, MakeDocumentRejectsNonCanvasRoot) {
-    RecordingFatalError fatal;
-    const auto document = engine::ui::make_document(engine::ui::label().text("nope"), &fatal);
+    fakes::RecordingFatal fatal;
+    EXPECT_THROW((void) engine::ui::make_document(engine::ui::label().text("nope"), &fatal), fakes::FatalReport);
+    const auto document = engine::ui::make_document(engine::ui::label().text("nope"), nullptr);
     EXPECT_FALSE(document.has_value());
     EXPECT_EQ(document.error(), engine::ui::UiError::InvalidMarkup);
     EXPECT_GE(fatal.call_count, 1);

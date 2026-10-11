@@ -20,6 +20,7 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#include "fixtures/bind_error_fakes.h"
 
 #if defined(NANOVG_H) || defined(NANOVG_GL_H) || defined(NANOVG_GL3)
 #error "ui painter tests must not include nvg headers"
@@ -224,17 +225,6 @@ public:
 
     explicit StringIconVm(std::string value) : icon(std::move(value)) {
         property(engine::ui::intern("icon"), icon);
-    }
-};
-
-class RecordingFatalError final : public engine::IFatalError {
-public:
-    int call_count = 0;
-    std::string last_message;
-
-    void report(std::string_view message) override {
-        ++call_count;
-        last_message = std::string(message);
     }
 };
 
@@ -1398,7 +1388,7 @@ TEST(UiPainter, ImageSourceLiteralGuidPaints) {
 
 TEST(UiPainter, ImageSourceStringBindingFailsAtApply) {
     StringIconVm vm{std::string(kIconGuid.hex())};
-    RecordingFatalError fatal;
+    fakes::RecordingBindErrors fatal;
     auto parsed = engine::ui::parse_xml(R"(<Canvas><Image source="{binding icon}"/></Canvas>)", nullptr, &vm);
     ASSERT_TRUE(parsed.has_value());
 
