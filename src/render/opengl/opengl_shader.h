@@ -26,6 +26,8 @@ public:
     void set_vec4(std::string_view name, const glm::vec4& value) const;
     void set_vec2(std::string_view name, const glm::vec2& value) const;
     void set_int(std::string_view name, int value) const;
+    // The vec4 uniform's current value in the program, or zero when the shader has no such uniform.
+    [[nodiscard]] glm::vec4 vec4_value(std::string_view name) const;
 
     [[nodiscard]] bool valid() const noexcept {
         return program_ != 0;

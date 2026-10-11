@@ -127,6 +127,22 @@ SpriteFrame&)` or first-frame auto-init in `SpriteAnimator`.
 Done when: tests cover override isolation between two instances of one material and frame-to-sprite initialization;
 `Materials and Sort.md` updated.
 
+Status: in progress (wind-218).
+
+### Migration (wind-218, E10, E15)
+
+- E10, old: a tag component, a per-frame system rewriting the `MaterialOverride`, and a dedicated material per effect.
+  The override already lived on the component and was copied per entity, so the real defect was in the OpenGL backend: the
+  override uniforms stayed in the shader program after the draw, so the next draw of the same material inherited the flash.
+  New: `sprite.set_param("uFlash", glm::vec4{...})` (also `Renderable::set_param`), once; it persists until set again or
+  `clear_overrides()`. The backend restores each overridden uniform and unbinds the override texture after the draw, so
+  two entities on one shared material never see each other's value. Delete the tag, the rewriting system, and the extra
+  materials; keep one shared `.mat`, and have the shader default the uniform to zero.
+- E15, old: copy `texture`, `tiling`, `offset`, `pixel_size`, `pixels_per_unit`, `pivot` from the clip frame onto the
+  `Sprite` by hand when spawning. New: `Sprite::from_frame(clip->frames[0])`, or just emplace a default `Sprite` beside
+  the `SpriteAnimator`: the animation system puts the frame on the sprite on the first tick, also for a paused animator.
+  Delete the hand-written copy.
+
 ## wind-219 feat: public config read/write and `engine::Random` (E13, E14)
 
 Problem: games hand-parse JSON-ish files because tomlplusplus is private; every game keeps its own `mt19937`, so
