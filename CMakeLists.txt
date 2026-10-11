@@ -151,16 +151,6 @@ if(ENGINE_EDITOR)
 else()
     set(_engine_library_kind STATIC)
 endif()
-# Wind Launcher (launcher/): a static app that lists projects and installed editor SDKs and starts the editor a project
-# needs. Static so it serves every SDK version; preset vs-launcher. docs/tech/features/Launcher.md
-option(ENGINE_LAUNCHER "Build wind_launcher (static engine, desktop window)" OFF)
-if(ENGINE_LAUNCHER)
-    if(NOT _engine_is_root OR ENGINE_EDITOR OR EMSCRIPTEN OR ANDROID OR NOT ENGINE_WITH_WINDOW)
-        message(FATAL_ERROR
-            "ENGINE_LAUNCHER builds wind_launcher in the engine repo against the static desktop engine: it needs "
-            "ENGINE_WITH_WINDOW=ON and ENGINE_EDITOR=OFF, and no Emscripten or Android. Use the vs-launcher preset.")
-    endif()
-endif()
 # UI bench (bench/): renders one UI scene in one mode, records the UI profiler for a fixed number of frames, writes the
 # snapshot JSON, and exits. The baseline of docs/tech/architecture/UI Performance Plan.md; preset vs-bench, measured in
 # RelWithDebInfo. docs/tech/features/UI Bench.md
@@ -184,10 +174,10 @@ if(ENGINE_PLAYER)
         message(FATAL_ERROR "ENGINE_PLAYER is \"${ENGINE_PLAYER}\"; it is Development or Shipping.")
     endif()
     if(NOT _engine_is_root OR ENGINE_EDITOR OR EMSCRIPTEN OR ANDROID OR NOT ENGINE_WITH_WINDOW OR NOT ENGINE_WITH_AUDIO
-            OR ENGINE_BUILD_TESTS OR ENGINE_LAUNCHER OR ENGINE_BENCH)
+            OR ENGINE_BUILD_TESTS OR ENGINE_BENCH)
         message(FATAL_ERROR
             "ENGINE_PLAYER builds the desktop player libraries of the editor SDK: engine repo root, ENGINE_WITH_WINDOW=ON, "
-            "ENGINE_WITH_AUDIO=ON, and no ENGINE_EDITOR, tests, launcher, bench, Emscripten, or Android. "
+            "ENGINE_WITH_AUDIO=ON, and no ENGINE_EDITOR, tests, bench, Emscripten, or Android. "
             "cmake/player_build.cmake configures it; see docs/tech/build/CMake.md")
     endif()
     # The game executable links the release DLL CRT, like the SDK's engine.dll and game modules.
@@ -585,22 +575,6 @@ if(ENGINE_BUILD_TESTS)
     endif()
 endif()
 
-# Wind Launcher and its install: `cmake --install build-launcher --config Release --prefix out/launcher` gives bin/ with
-# wind_launcher, its .pdb, assets/ (the launcher's catalog), and assets/engine/.
-if(ENGINE_LAUNCHER)
-    add_subdirectory(launcher)
-    install(TARGETS wind_launcher RUNTIME DESTINATION bin)
-    if(MSVC)
-        install(FILES "$<TARGET_PDB_FILE:wind_launcher>" DESTINATION bin OPTIONAL)
-    endif()
-    install(DIRECTORY "${ENGINE_BUILTIN_ASSETS_DIR}/" DESTINATION bin/assets/engine)
-    install(FILES "${ENGINE_COOKED_CATALOG}" DESTINATION bin/assets/engine)
-    get_property(_wind_launcher_catalog TARGET wind_launcher PROPERTY ENGINE_GAME_CATALOG)
-    get_property(_wind_launcher_assets TARGET wind_launcher PROPERTY ENGINE_GAME_ASSETS)
-    install(DIRECTORY "${_wind_launcher_assets}/" DESTINATION bin/assets)
-    install(FILES "${_wind_launcher_catalog}" DESTINATION bin/assets)
-endif()
-
 # The UI bench. Nothing to install: it runs from build-bench/bin.
 if(ENGINE_BENCH)
     add_subdirectory(bench)
@@ -761,7 +735,7 @@ if(ENGINE_EDITOR)
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/wind_export.cmake"
         DESTINATION cmake)
 
-    # Project templates the launcher copies for a new project, so a project starts from this version's API.
+    # Project templates the launcher (github.com/wismh/wind-laucnher) copies for a new project, so a project starts from this version's API.
     install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/templates/" DESTINATION templates)
 
     # The player libraries (<sdk>/player/<flavour>/): the static engine built once for every Export, so an Export

@@ -1,5 +1,5 @@
 # wind_ui_bench: the UI bench (ENGINE_BENCH only). Renders one scene in one mode, records the UI profiler, writes the
-# snapshot with the run's metadata, and exits. Built against the static engine like wind_launcher; reference numbers
+# snapshot with the run's metadata, and exits. Built against the static engine; reference numbers
 # come from RelWithDebInfo (the profiler is compiled in Debug and RelWithDebInfo). docs/tech/features/UI Bench.md
 
 # The command line, matrix, schedule, frame plan, data, report, and hover-point logic, so wind_ui_bench_tests compiles

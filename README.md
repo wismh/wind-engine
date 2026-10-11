@@ -44,14 +44,7 @@ out/sdk/bin/wind_editor.exe --project path/to/my_game --play  # build, then play
 
 Play loads a copy of the module and runs the game in the "Game" window. Stop unloads it, so the game can be rebuilt while the editor stays open. See [Editor](docs/tech/features/Editor.md).
 
-Wind Launcher lists your projects and installed editors and opens a project in the editor of its version ([Launcher](docs/tech/features/Launcher.md)):
-
-```bash
-cmake --preset vs-launcher
-cmake --build build-launcher --config Release
-cmake --install build-launcher --config Release --prefix out/launcher
-out/launcher/bin/wind_launcher.exe
-```
+The Wind Launcher lists your projects and installed editors, installs SDKs, and opens a project in the editor of its version. It lives in its own repository, [wismh/wind-laucnher](https://github.com/wismh/wind-laucnher), and is downloaded from its [releases](https://github.com/wismh/wind-laucnher/releases) ([Launcher](docs/tech/features/Launcher.md)).
 
 Exported games, web, and Android stay on the static library. See [CMake](docs/tech/build/CMake.md#editor-build).
 
