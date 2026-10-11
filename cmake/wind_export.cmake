@@ -47,10 +47,8 @@ endfunction()
 # installed by another SDK build, is a configure error. `engine` takes glm::glm and the include directory from the SDK.
 function(wind_export_import_player sdk_dir)
     wind_export_sdk_build_id("${sdk_dir}" _sdk_build_id)
-    # Targets the exported files find (OpenGL::GL, Threads::Threads) are as visible as `engine` is. The players have one
-    # configuration, Release; the game's DebugGame links it too.
+    # Targets the exported files find (OpenGL::GL, Threads::Threads) are as visible as `engine` is.
     set(CMAKE_FIND_PACKAGE_TARGETS_GLOBAL ON)
-    set(CMAKE_MAP_IMPORTED_CONFIG_DEBUGGAME Release)
     foreach(_flavour IN LISTS WIND_EXPORT_FLAVOURS)
         set(_dir "${sdk_dir}/player/${_flavour}/cmake")
         include("${_dir}/wind_player.cmake")
@@ -73,6 +71,10 @@ function(wind_export_import_player sdk_dir)
         foreach(_declaration IN LISTS _declarations)
             string(REGEX REPLACE "add_library\\(([^ )]+) .*" "\\1" _name "${_declaration}")
             set_property(TARGET ${_name} PROPERTY IMPORTED_GLOBAL TRUE)
+            # The players have one configuration, Release; the game's DebugGame links it too. Only these targets are
+            # mapped: CMAKE_MAP_IMPORTED_CONFIG_DEBUGGAME would also map OpenGL::OpenGL and the other targets the
+            # find modules make, which have one unsuffixed location and no Release one (a configure error on Linux).
+            set_property(TARGET ${_name} PROPERTY MAP_IMPORTED_CONFIG_DEBUGGAME Release)
         endforeach()
         if(NOT TARGET WindPlayer${_flavour}::engine)
             message(FATAL_ERROR "Wind player ${sdk_dir}/player/${_flavour} defines no WindPlayer${_flavour}::engine")
