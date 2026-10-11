@@ -1,6 +1,6 @@
 # Project
 
-The two small files that tie a game repo to an editor SDK, and their readers. The editor reads both when it opens a project; the launcher (wind-179) will read them to list projects and SDKs. In the engine library, not the editor, so both tools share one reader.
+The two small files that tie a game repo to an editor SDK, and their readers. The editor reads both when it opens a project; the launcher (its own repository, `wismh/wind-laucnher`) reads them to list projects and SDKs. In the engine library, not the editor, so both tools share one reader.
 
 ## Files
 
