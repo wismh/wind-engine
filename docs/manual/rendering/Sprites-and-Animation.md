@@ -97,6 +97,8 @@ animator.speed = 1.0f;
 world.emplace<engine::render::SpriteAnimator>(entity, std::move(animator));
 ```
 
+A new animator shows its first frame on its first tick, even when it starts paused, so the entity needs no `Sprite` filled by hand. To build a sprite from a frame yourself (for example to size a collider before the first tick), use `engine::render::Sprite::from_frame(clip->frames[0])`; it copies the texture, UV region, pixel size, pixels per unit, and pivot, and leaves the tint, layer, flips, and material at their defaults. `sprite.apply_frame(frame)` does the same onto an existing sprite without touching those fields.
+
 Every frame the engine's animation system (`Schedule::Frame`, `Phase::Game`) advances `elapsed` by `Time::delta_time * speed` and copies the current frame's texture, UV region, pixel size, pixels per unit, and pivot onto the entity's `Sprite`. A clip without `loop` stops on its last frame (`playing` becomes false). `SpriteAnimator` also has `pause()`, `resume()`, and `stop()`, and `play(other_clip)` to switch clips (it does nothing when `other_clip` is already playing, unless `restart` is true).
 
 ---
