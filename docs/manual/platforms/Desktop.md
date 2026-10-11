@@ -81,7 +81,7 @@ sudo apt-get install build-essential cmake ninja-build \
 macOS needs the Xcode Command Line Tools.
 
 > [!NOTE]
-> Export has been run end to end on Windows only, and the player libraries built there. The Linux path builds them the same way (the SDK install runs the same script with its Ninja generator) but has not been tried; macOS has no player libraries, so an export there builds the engine from the SDK source. On macOS check that the result is a complete application before you ship it.
+> Export of a new project from the empty template runs on GitHub's Windows, Linux, and macOS runners with every release, and the player libraries are built on Windows and Linux. macOS has no player libraries, so an export there builds the engine from the SDK source. On macOS check that the result is a complete application before you ship it.
 
 ---
 
