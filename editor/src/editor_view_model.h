@@ -1,8 +1,8 @@
 #pragma once
 
-#include "method_command.h"
 
 #include <engine/ui/bindable.h>
+#include <engine/ui/command.h>
 #include <engine/ui/view_model.h>
 
 #include <string>
@@ -27,12 +27,12 @@ public:
     engine::ui::Bindable<std::string> exportMessage;
     engine::ui::Bindable<std::string> exportMessageTone;
 
-    MethodCommand togglePlay;
+    engine::ui::MethodCommand togglePlay;
     // The Export button: opens the dialog.
-    MethodCommand exportGame;
-    MethodCommand exportBrowse;
-    MethodCommand exportConfirm;
-    MethodCommand exportCancel;
+    engine::ui::MethodCommand exportGame;
+    engine::ui::MethodCommand exportBrowse;
+    engine::ui::MethodCommand exportConfirm;
+    engine::ui::MethodCommand exportCancel;
 };
 
 }

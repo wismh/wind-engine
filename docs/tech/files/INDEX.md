@@ -92,7 +92,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/ui/binding_id.h` | FNV-1a `BindingId` | [UI](../modules/UI.md) |
 | `include/engine/ui/builder.h` | `ui::Node` document builder | [UI Markup](../features/UI%20Markup.md) |
 | `include/engine/ui/canvas.h` | `UiCanvas`, pointer, focus, `MouseConsumed` | [UI](../modules/UI.md) |
-| `include/engine/ui/command.h` | `ICommand` and `RelayCommand` | [UI](../modules/UI.md) |
+| `include/engine/ui/command.h` | `ICommand`, `RelayCommand` and `MethodCommand` | [UI](../modules/UI.md) |
 | `include/engine/ui/dock_geometry.h` | Dock rects, chrome and drop hit tests, splitter and float resize helpers | [Docking](../features/Docking.md) |
 | `include/engine/ui/dock_layout.h` | `DockLayout`: tab stacks, splits, floats, operations, text, reconcile | [Docking](../features/Docking.md) |
 | `include/engine/ui/dock_space.h` | `DockSpace` component, `DockFloatMode`, `DockPanel`, `DockPanelCloseRequested`, order count, close button rect | [Docking](../features/Docking.md#host) |
@@ -506,7 +506,6 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/inspector_view_model.cpp` | Binds the view-model to `inspector.xml` | [Editor](../features/Editor.md#inspector) |
 | `editor/src/inspector_view_model.h` | `InspectorViewModel` | [Editor](../features/Editor.md#inspector) |
 | `editor/src/main.cpp` | `wind_editor` entry | [Editor](../features/Editor.md) |
-| `editor/src/method_command.h` | `MethodCommand`: an `ICommand` bound to one method | [Editor](../features/Editor.md) |
 | `editor/src/play_host.h` | `IPlayHost`: the window, catalog, and panel half of Play and Stop | [Editor](../features/Editor.md) |
 | `editor/src/play_session.cpp` | Play and the Stop order | [Editor](../features/Editor.md) |
 | `editor/src/play_session.h` | `PlaySession` | [Editor](../features/Editor.md) |
