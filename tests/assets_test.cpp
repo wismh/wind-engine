@@ -999,6 +999,20 @@ TEST(Assets, CodegenBindsPaintAndScrollBindings) {
     EXPECT_NE(header.find("vm.property(logScroll, vm.logScroll);"), std::string::npos) << header;
 }
 
+TEST(Assets, CodegenBindsTheIfBinding) {
+    TempTree tree;
+    write_ui_asset(tree.path / "ui" / "panel.xml",
+            R"(<Canvas><Stack class="body" if="{binding bodyShown}"/></Canvas>)", kUiGuid);
+
+    const auto scanned = engine::codegen_scan(tree.path);
+    ASSERT_TRUE(scanned.has_value()) << (scanned ? "" : scanned.error().message);
+    const std::string& header = scanned->asset_ids_header;
+
+    EXPECT_NE(header.find("static constexpr engine::ui::BindingId bodyShown = engine::ui::intern(\"bodyShown\");"),
+            std::string::npos) << header;
+    EXPECT_NE(header.find("vm.property(bodyShown, vm.bodyShown);"), std::string::npos) << header;
+}
+
 TEST(Assets, CodegenHeaderOmitsBindingIdWithoutUi) {
     TempTree tree;
     write_file(tree.path / "textures" / "player.png", "png");
