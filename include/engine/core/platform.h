@@ -157,6 +157,16 @@ bool stage_android_assets(const std::filesystem::path& src_root, const std::file
     return internal_storage / "user";
 }
 
+// Directory of the running executable, from the operating system (no SDL, so a process that never opens a window
+// can ask). Empty on web and Android, and when the platform cannot tell. Windows and Linux.
+[[nodiscard]] std::filesystem::path executable_directory();
+
+// A Windows GUI executable (no console of its own) that was started from a terminal: connects standard output and
+// standard error to that terminal, unless they already go somewhere (a pipe or a file). For a process that runs
+// without a window and has to print, such as `wind_editor --batch`. Nothing to do elsewhere. Returns whether
+// standard output reaches something.
+bool attach_parent_console();
+
 // Writable per-user directory for this organization and application. Both names are one path
 // segment: non-empty valid UTF-8, no leading or trailing ASCII space, no trailing dot, none of
 // / \ : * ? " < > | or ASCII controls, and not a Windows device name (CON, PRN, AUX, NUL,

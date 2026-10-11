@@ -385,6 +385,12 @@ function(engine_add_game target)
         endif()
     else()
         add_executable(${target} ${ARGN})
+        if(NOT EMSCRIPTEN)
+            # Where the standalone build of each configuration lands (the executable, assets/, assets/engine/), for
+            # the editor that exports it: one line, the absolute directory, in <build>/wind/<target>.<config>.export.
+            file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/wind/${target}.$<CONFIG>.export"
+                CONTENT "$<TARGET_FILE_DIR:${target}>")
+        endif()
     endif()
     engine_configure_app(${target})
 endfunction()
