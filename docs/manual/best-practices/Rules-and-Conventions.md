@@ -41,6 +41,20 @@ To maintain a clean codebase and ensure seamless upgrades when moving to a new e
 
 ---
 
+## 4. Error Handling
+
+Pick the mechanism by who can fix the problem:
+
+- **Content that may be missing (optional assets, mods, files):** call `try_get` / `try_get_sprite` or another `try_*` function. It returns `std::expected` and never stops the game.
+- **Content the game cannot run without:** call `get`. A miss goes to `IFatalError::report`, which shows the error and ends the process; it does not return, so write nothing after it.
+- **Engine invariants (a dead entity passed to `world.get`):** these are `assert`s in debug builds. Use `world.valid` or `try_get` if the entity may be gone.
+- **Content quality (an unknown CSS property, a missing stylesheet):** the engine logs a warning once and carries on.
+- **Startup:** `Engine::init` returns `std::expected<void, EngineError>`. Only the entry point (`ENGINE_GAME`) shows the cause to the user.
+
+A headless world (tests, tools) simply omits the systems whose dependencies it lacks: no audio system means sound events are never read. That is not an error. A scene with something to draw and no valid `ActiveCamera` is one.
+
+---
+
 ## Next Steps
 
 - Avoid critical runtime mistakes in [Common Pitfalls](Common-Pitfalls.md).
