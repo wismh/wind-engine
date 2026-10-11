@@ -175,7 +175,7 @@ After a successful build, `PlaySession::play` (`editor/src/play_session.cpp`) wi
 
 | What happened | Result |
 | --- | --- |
-| The game sets `ApplicationState::running = false` while playing (its own menu, a fatal report) | `on_frame_end` sets it back and stops the game. The editor keeps running |
+| The game sets `ApplicationState::running = false` while playing (its own menu) | `on_frame_end` sets it back and stops the game. The editor keeps running |
 | Close button of the editor window | Editor quits. A running game is stopped in `on_quit`, before the host disposes |
 | Close button of `kPrimaryWindow` while playing | `WindowCloseRequestedEvent` in the game world, as in an exported build |
 | Close button of `kPrimaryWindow` between plays | No world, the event is dropped |
@@ -230,7 +230,7 @@ The editor's assets and catalog land in `bin/assets/editor/` (`ENGINE_RUNTIME_AS
 ## Limits
 
 - `engine.dll` is loaded once and stays locked while the editor runs. An engine change needs an editor restart and a game rebuilt against it. A module with another build id is refused with both ids in the status line.
-- The game runs in the editor's process. A crash in game code, including code that keeps running after a fatal report, takes the editor down.
+- The game runs in the editor's process. A crash in game code, takes the editor down.
 - `transparent`, `resizable`, and `maximized` of the game window are fixed at editor start.
 - The game's window icon stays on `kPrimaryWindow` after Stop.
 - The editor has no project list and no Open dialog: the [Launcher](Launcher.md) owns that and starts the editor with `--project`.

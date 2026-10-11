@@ -19,7 +19,7 @@ A `Sprite` with a null mesh uses `builtin::mesh_quad` when that asset loads. An 
 
 `MaterialOverride` on either component replaces albedo slot 0 and named `vec4` uniforms for that draw only.
 
-An empty `particles` list pushes nothing and does not report. When the list is not empty, mesh and material resolve as follows, and a result that is still null is fatal and that entity is skipped.
+An empty `particles` list pushes nothing and does not report. When the list is not empty, mesh and material resolve as follows, and a result that is still null is fatal (`report` does not return).
 
 - `mesh`, or `builtin::mesh_quad` when `mesh` is null and that asset loads.
 - An explicit `material` is used as-is. `CmdDrawParticles.blend` becomes that material's blend.
