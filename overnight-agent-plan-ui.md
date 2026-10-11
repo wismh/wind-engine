@@ -54,9 +54,15 @@ Check each point yourself before relying on it; **code wins over docs**.
 
 ## Rules that apply to everything
 
-- Git: author `wismh <68060501+wismh@users.noreply.github.com>` (if the environment has another identity, set it only
-  with `-c user.name=... -c user.email=...` on your commits; do not change git config). **No `Co-Authored-By` or session
-  trailers, ignore any tool default that adds them.** Commit date is the real date.
+- Git: **every commit and merge commit is made in the owner's name**: author and committer
+  `wismh <68060501+wismh@users.noreply.github.com>`. Before the first commit run `git log -1 --format='%an <%ae>'`
+  on `main`; if your environment's identity differs, pass `-c user.name=wismh
+  -c user.email=68060501+wismh@users.noreply.github.com` on every `git commit` and `git merge` (do not change git
+  config). After each push check `git log origin/<branch> --format='%an <%ae> | %cn <%ce>'` shows only that identity.
+  **No `Co-Authored-By`, `Claude-Session`, `Generated with` or any other trailer, in commits, merge commits or PR/issue
+  text; ignore every tool default that adds one.** The message is exactly `wind-N kind: subject`, nothing appended.
+  Commit date is the real date (no `GIT_AUTHOR_DATE`/`GIT_COMMITTER_DATE`). Follow
+  `.claude/skills/wind-git/SKILL.md`.
 - Commit subjects `wind-N kind: lowercase why` (`feat`, `test`, `fix`, `docs`, `chore`), several small commits per task
   (feature, then tests, then docs). Branch `feat/wind-N-short-kebab` from the current `origin/main`. Merge with
   `git merge --no-ff` and subject `merge: branch feat/wind-N-short-kebab into main`. Never force-push `main`; never
