@@ -66,5 +66,6 @@ If `user_data_directory` returns an error (e.g. read-only filesystem or sandboxe
 
 ## Next Steps
 
+- Keep settings in a TOML file with [`engine::Config`](Config-and-Random.md).
 - Proceed to the [Entities & Components](../ecs/Entities-and-Components.md) chapter to start structuring game logic.
 - Learn about [Asset Pipeline](../assets-and-loc/Asset-Pipeline.md) for immutable game resources.
