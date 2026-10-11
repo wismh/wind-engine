@@ -744,19 +744,30 @@ namespace engine::ui {
                 }
             }
 
+            [[nodiscard]] std::string name_of(BindingId binding) const {
+                if (const auto path = paths->find(binding); path != paths->end()) {
+                    return '"' + path->second + '"';
+                }
+                return std::format("#{:08x}", binding.value);
+            }
+
             void fail_missing(std::string_view what, BindingId binding) {
                 if (errors == nullptr) {
                     fail(UiError::MissingBinding, {});
                     return;
                 }
-                std::string name;
-                if (const auto path = paths->find(binding); path != paths->end()) {
-                    name = '"' + path->second + '"';
-                } else {
-                    name = std::format("#{:08x}", binding.value);
+                fail(UiError::MissingBinding,
+                     std::format("UI {} binding {} is not registered on the data context", what, name_of(binding)));
+            }
+
+            // The name is registered, but its Bindable holds a type this attribute cannot read.
+            void fail_type(std::string_view what, std::string_view expected, BindingId binding) {
+                if (errors == nullptr) {
+                    fail(UiError::MissingBinding, {});
+                    return;
                 }
                 fail(UiError::MissingBinding,
-                     std::format("UI {} binding {} is not registered on the data context", what, name));
+                     std::format("UI {} binding {} must be {}", what, name_of(binding), expected));
             }
         };
 
@@ -775,6 +786,7 @@ namespace engine::ui {
             const bool has_content = require_property(element.content_binding, "content");
             const bool has_source = require_property(element.source_binding, "source");
             const bool has_items_source = require_property(element.items_source_binding, "items_source");
+            const bool has_if = require_property(element.if_binding, "if");
             (void) require_property(element.pan_x_binding, "pan-x");
             (void) require_property(element.pan_y_binding, "pan-y");
             (void) require_property(element.zoom_binding, "zoom");
@@ -853,6 +865,13 @@ namespace engine::ui {
                     element.source = *value;
                 } else {
                     pass.fail_missing("source (AssetId)", element.source_binding);
+                }
+            }
+            if (is_bound(element.if_binding) && has_if) {
+                if (auto value = vm.read_property_float(element.if_binding)) {
+                    element.hidden_by_if = *value == 0.0f;
+                } else {
+                    pass.fail_type("if", "a Bindable<bool> (or another number)", element.if_binding);
                 }
             }
             if (is_bound(element.pan_x_binding)) {
@@ -1230,6 +1249,11 @@ namespace engine::ui {
             changed = true;
         }
         element.layout_dirty_check_text = element.text;
+
+        if (!element.layout_dirty_check_initialized || element.hidden_by_if != element.layout_dirty_check_hidden_by_if) {
+            changed = true;
+        }
+        element.layout_dirty_check_hidden_by_if = element.hidden_by_if;
 
         if (!element.layout_dirty_check_initialized ||
             element.custom_properties != element.layout_dirty_check_custom_properties) {
