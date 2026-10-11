@@ -145,6 +145,12 @@ Main thread only. On Android, call it after `Engine::init` (`EngineHost::init`).
 
 Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 
+## Random and Config
+
+`engine::Random` (`include/engine/core/random.h`, `src/core/random.cpp`) is PCG32 (XSH-RR). `Random(seed, stream)` and `seed(seed, stream)` follow the reference initialisation, so seed 42 on stream 54 gives `0xa15c02b7`, `0x7b47f409`, ... A given seed and stream give the same sequence on every platform: `next_u32`, `next_u64` (two draws, high word first), `next_float` (`(next_u32() >> 8) / 2^24`, in [0, 1)), `uniform(int, int)` (inclusive, rejection sampling, no modulo bias), `uniform(float, float)` (`lo + (hi - lo) * next_float()`), `chance(p)`, and `pick(range)` are written in the engine, not taken from `<random>`, whose distributions differ between standard libraries. A default-constructed `Random` seeds from the clock. A world holds one as `world.ctx<Random>()`; the first access builds it, so it is clock-seeded unless the game seeds it. `IGame::random_seed()` returns an optional fixed seed; `EngineHost::attach_game` applies it to `game.world()`'s `Random` (tests and replays, or a daily seed). A world added later, or another world, calls `ctx<Random>().seed(n)` itself.
+
+`engine::Config` (`include/engine/core/config.h`, `src/core/config.cpp`) is a flat table of strings, ints, floats, and bools stored as a TOML file. A key is `name` or `section.name`: one level, written as `name` in the file or in `[section]`. `Config::load(path)` treats a missing file as an empty config and returns `ConfigError::InvalidToml` for text that does not parse, and `ConfigError::Unsupported` for valid TOML that is not a flat table of scalars (an array, a date, a table in a table). The old file is never touched by a failed load. `save(path)` creates the parent directories, writes `<name>.tmp` beside the file, and renames it over the file; a failed write or rename removes the temp file and keeps the old file, and returns `ConfigError::Io`. A getter takes a default and returns it for a missing key or another type (`get_float` also reads an int). A setter with an invalid key (`Config::valid_key`) or a key that is both a value and a section is an `assert` and writes nothing. `user_config_path(organization, application, file_name)` is `user_data_directory(...) / file_name` and fails like it. tomlplusplus stays in `src/core/config.cpp`; the header has no toml type.
+
 ## Log and fatal errors
 
 `engine::log::init()` is a null sink for tests. `init(exe_dir)` writes `<exe_dir>/game.log`. `info`, `warn`, and `error` are the public facade. spdlog stays in `src/core/log.cpp`.
@@ -179,6 +185,8 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 | `src/core/input_system.cpp` | bind table and event enqueue |
 | `src/core/log.cpp` | spdlog |
 | `src/core/platform.cpp` | paths, staging, `executable_directory`, `user_data_directory` |
+| `src/core/random.cpp` | `Random`, PCG32 |
+| `src/core/config.cpp` | `Config` over tomlplusplus, `user_config_path` |
 | `src/core/frame_step.cpp` | `flush_worlds`, `simulate_worlds` |
 | `src/core/worlds.cpp` | process worlds, window binding, per-world clocks |
 | `src/core/game_loop.cpp` | frame clock and `RunHooks`. Calls `IPresentation`, not SDL |
@@ -213,6 +221,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 - `include/engine/core/application_state.h`
 - `include/engine/core/app_lifecycle.h`
 - `include/engine/core/build_info.h`
+- `include/engine/core/config.h`
 - `include/engine/core/engine.h`
 - `include/engine/core/engine_error.h`
 - `include/engine/core/engine_host.h`
@@ -225,6 +234,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 - `include/engine/core/input_system.h`
 - `include/engine/core/key_code.h`
 - `include/engine/core/platform.h`
+- `include/engine/core/random.h`
 - `include/engine/core/run_hooks.h`
 - `include/engine/core/sdl_fatal_error.h`
 - `include/engine/resources/default_fatal_error.h`
@@ -238,7 +248,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 
 ## Tests
 
-`tests/cmake_sanity_test.cpp`, `tests/host_test.cpp`, `tests/time_test.cpp`, `tests/input_test.cpp`, `tests/log_test.cpp`, `tests/platform_test.cpp`, `tests/web_loop_test.cpp`, `tests/android_lifecycle_test.cpp`, `tests/android_assets_test.cpp`, `tests/window_icon_test.cpp`, `tests/window_style_test.cpp`, `tests/event_window_test.cpp`, `tests/cli_server_test.cpp`, `tests/worlds_test.cpp`, `tests/game_loop_test.cpp` (`RunHooks` order, and `RunHooks::cli` answered without a primary world, with a fake `IPresentation`), `tests/engine_error_test.cpp` (names and messages), `tests/engine_host_test.cpp` (a failing `init_video` returns `VideoInit` over a fake `IPresentation`, no fatal report; window builds only), `tests/game_entry_test.cpp` (module exports, window builds only), `tests/game_module_test.cpp` (loader against the fixture modules, editor build only; skipped elsewhere), `tests/file_dialog_test.cpp` (`FileDialogCall`).
+`tests/cmake_sanity_test.cpp`, `tests/host_test.cpp`, `tests/time_test.cpp`, `tests/input_test.cpp`, `tests/log_test.cpp`, `tests/platform_test.cpp`, `tests/web_loop_test.cpp`, `tests/android_lifecycle_test.cpp`, `tests/android_assets_test.cpp`, `tests/window_icon_test.cpp`, `tests/window_style_test.cpp`, `tests/event_window_test.cpp`, `tests/cli_server_test.cpp`, `tests/worlds_test.cpp`, `tests/game_loop_test.cpp` (`RunHooks` order, and `RunHooks::cli` answered without a primary world, with a fake `IPresentation`), `tests/engine_error_test.cpp` (names and messages), `tests/engine_host_test.cpp` (a failing `init_video` returns `VideoInit` over a fake `IPresentation`, no fatal report; window builds only), `tests/game_entry_test.cpp` (module exports, window builds only), `tests/game_module_test.cpp` (loader against the fixture modules, editor build only; skipped elsewhere), `tests/file_dialog_test.cpp` (`FileDialogCall`), `tests/random_test.cpp` (golden sequences, ranges, streams), `tests/config_test.cpp` (round trip, defaults, malformed input, failed save).
 
 ## See also
 
