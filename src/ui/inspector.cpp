@@ -298,6 +298,7 @@ namespace engine::ui {
             append_binding(text, "source", element.source_binding);
             append_binding(text, "items", element.items_source_binding);
             append_binding(text, "drag", element.drag_binding);
+            append_binding(text, "if", element.if_binding);
             append_binding(text, "paint", element.paint_binding);
             append_binding(text, "pan-x", element.pan_x_binding);
             append_binding(text, "pan-y", element.pan_y_binding);

@@ -130,6 +130,11 @@ Node& Node::drag_bind(BindingId id) {
     return *this;
 }
 
+Node& Node::if_bind(BindingId id) {
+    element_.if_binding = id;
+    return *this;
+}
+
 Node& Node::checked(bool value) {
     element_.checked = value;
     return *this;
