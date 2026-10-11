@@ -10,7 +10,7 @@ Unknown tags call `IFatalError` when one was passed (it does not return) and oth
 | --- | --- |
 | `text`, `content` | literal, `{binding path}`, `{tr key}`, `{tr key name={binding path}}` |
 | `formula` | literal or `{binding}`. `{tr}` is rejected |
-| `command`, `paint`, `drag`, `pan-x`, `pan-y`, `zoom`, `scroll-x`, `scroll-y` | `{binding}` only |
+| `command`, `paint`, `drag`, `if`, `pan-x`, `pan-y`, `zoom`, `scroll-x`, `scroll-y` | `{binding}` only. `if` is a bool (or any number): zero removes the element from layout |
 | `source` | 32 lowercase hex, or `{binding}`. Not a filename |
 | `checked`, `open` on `Popup` | Trimmed `true` or `1` sets it. Any other non-binding literal, including `false` and `0`, sets it false and is not an error. Or `{binding}` |
 | `placement` on `Popup` | `bottom-start`, `bottom-end`, `top-start`, `top-end`, `right-start`, `right-end`, `left-start`, `left-end`. Anything else is `UiError::InvalidMarkup` |
@@ -19,7 +19,7 @@ Unknown tags call `IFatalError` when one was passed (it does not return) and oth
 | `allow-copy`, `allow-paste` | bool literals. Default true. Not bindings |
 | `stylesheet` | on the root element, a CSS asset id |
 | `src` on `ItemTemplate` | another XML document. A cycle is `UiError::CyclicInclude` |
-| `var-<name>` | `{binding}` only, interned to a `BindingId`. A literal is `UiError::ForbiddenContent` |
+| `var-<name>` | `{binding}` only, interned to a `BindingId`. A literal is `UiError::ForbiddenContent`. A float or int Bindable is a bare number, which every CSS length reads as pixels |
 | `gap` | `strtof` of the attribute, stored as px. `Stack`, `ScrollView`, and `Popup` only |
 | `overflow` | `visible`, `hidden`, `scroll`, `auto`. Sets both axes. Any other token is not applied |
 | `overflow-x`, `overflow-y` | the same tokens for one axis, after `overflow`. Any other token does not change that axis |
@@ -70,6 +70,10 @@ Color, gradient, `background-repeat`, easing, and `transform` values are on [UI]
 
 A binding the view-model does not register is skipped; the rest of the document still binds. `apply_bindings` reports each failure to its `IBindErrorSink` (not an `IFatalError`: the pass keeps walking, so the sink returns; `UI paint binding "world" is not registered on the data context`; a builder document has no paths and shows `#<id hex>`) and returns the first error. `run_bind` passes a sink that logs each message once per canvas with `log::warn`, prefixed by the document id, and remembers it in `UiInstance::reported_bind_errors`, so a missing binding is one log line, not one per frame. A new document starts a fresh set.
 
+`if="{binding}"` sets `Element::hidden_by_if` (zero hides) on every bind. `apply_layout_style` ORs it into `display_none` after the cascade (so a rule that says `display: block` cannot show the element) and `paint_element` skips the element, which is the `display: none` path: out of layout, paint, and hit-testing, with its geometry cleared. The layout dirty gate (`layout_state_changed`) compares the flag, so a toggle re-runs layout. A missing name is reported as `UI if binding "name" is not registered on the data context`; a `Bindable` that is not a number as `UI if binding "name" must be a Bindable<bool> (or another number)`.
+
+A `Bindable<T>` reports a change through `on_changed`, so a game does not poll a value the document writes (a drag fraction, a `TextInput` text, a `Checkbox`): see [UI](../modules/UI.md#bindings).
+
 A bound command sets `disabled` from `!can_execute()` on every bind, except `TextInput`. See [UI Input](UI%20Input.md).
 
 `ItemsControl` clones `ItemTemplate` once per `BindableList` element. The row's `generated_owner` is that item view-model.
@@ -79,7 +83,7 @@ A bound command sets `disabled` from `!can_execute()` on every bind, except `Tex
 - one `constexpr BindingId` per `{binding}` path
 - a struct such as `assets::ui::Hud` with `template<typename T> static void bind(T& vm)` that calls `vm.property`, `vm.command`, or `vm.paint` using the C++ member name
 
-The scan (`collect_bind_element` in `src/ui/xml_parser.cpp`) reads every bindable attribute `parse_element` reads: `command` is a command, `paint` is a paint, and `text`, `content` (and each `{binding}` argument of a `{tr}` there), `formula`, `drag`, `checked`, `open`, `pan-x`, `pan-y`, `zoom`, `scroll-x`, `scroll-y`, `source`, `items_source`, and `var-<name>` are properties. A new bindable attribute goes in both places, or generated `bind()` misses it.
+The scan (`collect_bind_element` in `src/ui/xml_parser.cpp`) reads every bindable attribute `parse_element` reads: `command` is a command, `paint` is a paint, and `text`, `content` (and each `{binding}` argument of a `{tr}` there), `formula`, `drag`, `if`, `checked`, `open`, `pan-x`, `pan-y`, `zoom`, `scroll-x`, `scroll-y`, `source`, `items_source`, and `var-<name>` are properties. A new bindable attribute goes in both places, or generated `bind()` misses it.
 
 Two paths that hash to the same `BindingId` fail the build. Codegen does not emit a `ViewModel` class or the `Bindable` fields. The game writes those and calls `Hud::bind(*this)`.
 
@@ -127,7 +131,7 @@ Non-stack children (Canvas, Button, Label) overlay the same content rect. Each c
 
 ## Tests
 
-`tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_popup_test.cpp`, `tests/ui_bind_error_test.cpp`, `tests/assets_test.cpp`.
+`tests/ui_bindable_visibility_test.cpp`, `tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_popup_test.cpp`, `tests/ui_bind_error_test.cpp`, `tests/assets_test.cpp`.
 
 ## See also
 
