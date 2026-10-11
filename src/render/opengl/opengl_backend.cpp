@@ -18,6 +18,8 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace engine::render {
     namespace {
@@ -117,18 +119,34 @@ void main() {
                 }
             }
 
+            std::vector<std::pair<std::string_view, glm::vec4>> previous;
+            bool override_bound = false;
             if (cmd.material_override) {
                 if (const auto override_tex = std::dynamic_pointer_cast<OpenGLTexture>(cmd.material_override->albedo)) {
                     if (override_tex->valid()) {
                         override_tex->bind(0);
+                        override_bound = true;
                     }
                 }
+                // A uniform stays in the program after the draw, so an override must not leak into the next
+                // draw that uses this material: remember what each overridden uniform held and put it back.
+                previous.reserve(cmd.material_override->vec4_params.size());
                 for (const auto &[name, value]: cmd.material_override->vec4_params) {
+                    previous.emplace_back(name, shader->vec4_value(name));
                     shader->set_vec4(name, value);
                 }
             }
 
             mesh->draw();
+
+            for (auto it = previous.rbegin(); it != previous.rend(); ++it) {
+                shader->set_vec4(it->first, it->second);
+            }
+            if (override_bound) {
+                // The next draw binds its own texture; one without a texture must not sample this one.
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, 0);
+            }
         }
 
         struct ExecuteVisitor {
