@@ -810,7 +810,11 @@ if(ENGINE_EDITOR)
 
     # sdk.toml last: version, commit, dirty, configuration, and build id of what was just installed, and the platform
     # and the player flavours this SDK ships (none for a Debug SDK).
+    # The names of the release assets: windows, linux, macos.
     string(TOLOWER "${CMAKE_SYSTEM_NAME}" _engine_sdk_platform)
+    if(_engine_sdk_platform STREQUAL "darwin")
+        set(_engine_sdk_platform "macos")
+    endif()
     install(CODE "
         set(WIND_SDK_SOURCE_DIR \"${CMAKE_CURRENT_SOURCE_DIR}\")
         set(WIND_SDK_VERSION \"${ENGINE_VERSION_FULL}\")
