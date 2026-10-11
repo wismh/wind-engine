@@ -88,6 +88,25 @@ Do:
 Done when: tests cover drag inside a templated item and slider value round-trip; `UI Markup.md` lists the new tag and
 function.
 
+Status: in progress (wind-215).
+
+### Migration (wind-215, E5, E9)
+
+- E5, old: every inventory item written by hand in five places, because an `ItemTemplate` was believed to take no
+  per-item position or drag. Per-item `var-x` / `var-y` (a `Bindable<float>` is pixels, from wind-213) and
+  `drag="{binding}"` already resolved against the row view-model; what did break such a list was virtualization, which
+  treated absolute rows as stacked ones and built only the first screenful (24 items showed 9). That is fixed: a list
+  whose rows are `position: absolute` is never virtualized. New: one template (`position: absolute; left: var(--x);
+  top: var(--y); z-index: var(--z)`) over a `BindableList` of slot view models, each with `x`, `y`, `z`, `fraction`.
+  Delete the hand-written copies. A name a row's view model lacks is now reported per row, and so is a missing `drag`
+  name anywhere.
+- E9, old: a hand-built slider from a drag-bound element, a pixel constant in C++ and in CSS for the handle, and a
+  conversion from fraction to value. New: `<Slider value="{binding v}" min max step/>` (+ `drag-orientation="vertical"`);
+  the engine writes the stepped value into the `Bindable<float>` and sets `--fraction` on the slider, `slider-fill`, and
+  `slider-handle`; CSS places them (`left: calc(var(--fraction) * (100% - var(--handle)))`), with the handle width in
+  one CSS custom property. `translate()` was not added to `transform`: nothing needed it. Delete the slider code and the
+  duplicated constant.
+
 ## wind-216 feat: global cursor, mouse capture and pointer targets for sprites (E6, E7)
 
 Problem: dragging across or out of secondary windows needs Win32 `GetCursorPos`/`GetAsyncKeyState` in game code;

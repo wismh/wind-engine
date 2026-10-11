@@ -42,6 +42,7 @@ A `UiCanvas` is a component on an entity (`include/engine/ui/canvas.h`).
 | `Button` | Text plus `command` |
 | `Image` | `source` asset |
 | `Checkbox` | `checked` literal or binding |
+| `Slider` | `<Slider value="{binding v}" min max step/>`. See [Slider](#slider) |
 | `TextInput` | Editable string |
 | `ItemsControl` | Clones `ItemTemplate` from `items_source` |
 | `ItemTemplate` | The row. `src` includes another XML document |
@@ -107,7 +108,7 @@ A `Popup` is out of flow and takes no space in its parent. See [Popup](#popup).
 
 `ItemsControl` virtualization (vertical, one template root, a fixed pixel row height) builds a window of rows plus spacers. `suppress_item_virtualization` turns it off. Variable-height windows are not this path.
 
-Eligibility is `bind_element` in `src/ui/document.cpp`, and all of it must hold: `suppress_item_virtualization` is false, the template has one root, the `ItemsControl` is `Vertical` with a `px` gap, a vertical scroll context exists (the `ItemsControl` itself with `overflow-y` `scroll` or `auto`, or the nearest scrollable ancestor, which must be vertical and have a layout height), and the first generated row has a `px` `height` (no `calc()`). That `height` is the row height of the whole list. It is read from the generated row root, so a CSS `height` in `px` on the template root turns virtualization on, **whatever `position` the rows have**. The window is computed from that height and the scroll offset as if the rows were stacked in flow; a `position: absolute` row adds no height to the stack, so the spacers and the window do not match where the rows are drawn, and only the first screenful is generated (a list of 24 absolute rows showed 9). Fix it by breaking one condition: `flex-direction: row` on the list, a `height` on a child of the template root instead of on the root, or a non-`px` root height. `suppress_item_virtualization` is not reachable from XML, CSS, or `ui::Node`: `advance_tree` (`src/ui/paint.cpp`) sets it for one bind while a row's `height`, `padding`, `gap`, or `font-size` is animating (`height_motion_active`). A tree is (see [Trees](#trees)). See [UI Performance Plan](../architecture/UI%20Performance%20Plan.md).
+Eligibility is `bind_element` in `src/ui/document.cpp`, and all of it must hold: `suppress_item_virtualization` is false, the template has one root, the `ItemsControl` is `Vertical` with a `px` gap, a vertical scroll context exists (the `ItemsControl` itself with `overflow-y` `scroll` or `auto`, or the nearest scrollable ancestor, which must be vertical and have a layout height), and the first generated row has a `px` `height` (no `calc()`). That `height` is the row height of the whole list. It is read from the generated row root. A row with `position: absolute` is the exception: it adds no height to a stack, so a window computed from its height and the scroll offset would not match where the rows are drawn. `bind_element` therefore never virtualizes a list whose generated rows are absolute (it also forgets a row height cached before), and a list of 24 absolute rows builds 24 rows. The first frame builds every row either way, because the row height is sampled from the previous frame. A list laid out by `var-left` / `var-top` needs nothing else; a row that is in flow but must not virtualize still needs one of: `flex-direction: row` on the list, a `height` on a child of the template root instead of on the root, or a non-`px` root height. `suppress_item_virtualization` is not reachable from XML, CSS, or `ui::Node`: `advance_tree` (`src/ui/paint.cpp`) sets it for one bind while a row's `height`, `padding`, `gap`, or `font-size` is animating (`height_motion_active`). A tree is (see [Trees](#trees)). See [UI Performance Plan](../architecture/UI%20Performance%20Plan.md).
 
 `scroll_item_into_view(scroller, items_control, index)` scrolls a list so one item lies inside the scroller's box. It reads the rows of the last layout and assumes one row height, so it reaches an item the virtualized window has not built yet. It sets `Element::scroll_y` only. `find_by_id` finds an element by its `id` attribute, outside templates.
 
@@ -204,6 +205,23 @@ Per-element scissor is `nvgIntersectScissor`. `overflow` and `Viewport` clip. A 
 `CmdDrawUI` carries the document, stylesheet, pointer, `delta_time`, the width and height used for `@media`, letterbox offset and scale, optional inspector paths, `popup_bounds` (the window in layout units), and `popup_layer`. A `ScaleWithScreenSize` canvas with both `reference_size` sides positive supplies that width and height from the design box (`reference_size`). Otherwise those values come from `window_size_for` (`Presentation.sizes`).
 
 NanoVG is `src/render/opengl/nanovg_painter.cpp`, only in a windowed build. Tests use a recording `IUiPainter`.
+
+## Slider
+
+`<Slider value="{binding level}" min="0" max="100" step="5"/>` is a value picker over the `drag="{binding}"` machinery ([UI Input](../features/UI%20Input.md#drag-and-scroll)). `value` is a `{binding}` to a `Bindable<float>` (or any number) and is required; `min` (default 0), `max` (default 1, must be above `min`), and `step` (default 0, continuous; not negative) are literals. `drag-orientation="vertical"` makes it vertical; a horizontal slider grows to the right, a vertical one **upward**. XML children are ignored: the parser (or `ui::slider()`) generates two plain Stacks, `children[0]` with class `slider-fill` and `children[1]` with class `slider-handle`. `slider_fraction` and `slider_snap` (`document.h`) are the arithmetic.
+
+**Placement is the stylesheet's.** Every bind sets the custom property `--fraction` (0 to 1, from the value, clamped to the range) on the slider and on both parts, so CSS alone positions them, and the layout dirty gate relayouts when it changes. The slider is a containing block, so `100%` in the parts' insets is the track:
+
+```css
+.volume { width: 200; height: 20; background: #222; }
+.slider-handle { --handle: 20px; position: absolute; top: 0; width: var(--handle); height: 20;
+                 left: calc(var(--fraction) * (100% - var(--handle))); background: #ccc; }
+.slider-fill { position: absolute; left: 0; top: 0; height: 20; width: calc(var(--fraction) * 100%); background: #58a; }
+```
+
+The handle width is written once, in CSS (`--handle`). The engine reads it back from the laid-out handle: a drag maps the pointer to the value as `(pointer - track start - handle / 2) / (track length - handle)`, clamped to 0..1 (a vertical slider turned over), so the handle's centre follows the pointer and the ends reach `min` and `max` exactly. The value is `min + t * (max - min)`, snapped to the nearest multiple of `step` from `min`, and written with `write_property_float` on the slider's owner (the row view-model inside an `ItemsControl`). A drag keeps writing while the pointer is outside the track, like any `drag`. A missing `value` name or a non-numeric `Bindable` is reported to the `IBindErrorSink` (`UI value binding "name" ...`). `Bindable::on_changed` fires once per snapped value, so a game reacts without polling. `translate()` is not part of the CSS `transform` subset: this placement needs no pixel constant in two places, so it was not added.
+
+A missing name on any `drag` binding is now reported too (`UI drag binding "name" is not registered on the data context`); it used to be skipped silently.
 
 ## Popup
 
@@ -329,7 +347,7 @@ The engine keeps the probes and the editor shows the panels. `set_inspector_atta
 
 ## Tests
 
-`tests/ui_bindable_visibility_test.cpp`, `tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_items_control_virtualization_test.cpp`, `tests/ui_tree_test.cpp`, `tests/dock_layout_test.cpp`, `tests/dock_space_test.cpp`, `tests/dock_float_window_test.cpp`, `tests/ui_text_wrap_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_refs_test.cpp`, `tests/ui_loc_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_inline_math_test.cpp`, `tests/ui_math_parser_test.cpp`, `tests/ui_math_layout_test.cpp`, `tests/ui_math_paint_test.cpp`, `tests/ui_math_font_test.cpp`, `tests/ui_math_stretch_test.cpp`, `tests/ui_math_element_test.cpp`, `tests/splash_test.cpp`, `tests/ui_inspector_test.cpp`, `tests/ui_profiler_test.cpp`, `tests/ui_popup_test.cpp`.
+`tests/ui_bindable_visibility_test.cpp`, `tests/ui_slider_test.cpp`, `tests/ui_absolute_items_test.cpp`, `tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_items_control_virtualization_test.cpp`, `tests/ui_tree_test.cpp`, `tests/dock_layout_test.cpp`, `tests/dock_space_test.cpp`, `tests/dock_float_window_test.cpp`, `tests/ui_text_wrap_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_refs_test.cpp`, `tests/ui_loc_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_inline_math_test.cpp`, `tests/ui_math_parser_test.cpp`, `tests/ui_math_layout_test.cpp`, `tests/ui_math_paint_test.cpp`, `tests/ui_math_font_test.cpp`, `tests/ui_math_stretch_test.cpp`, `tests/ui_math_element_test.cpp`, `tests/splash_test.cpp`, `tests/ui_inspector_test.cpp`, `tests/ui_profiler_test.cpp`, `tests/ui_popup_test.cpp`.
 
 ## See also
 

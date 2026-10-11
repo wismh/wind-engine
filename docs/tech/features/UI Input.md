@@ -142,6 +142,8 @@ The platform applies it in `sync_frame` (`sync_cursor`, `src/render/opengl/sdl_g
 
 ## Drag and scroll
 
+A `Slider` (`<Slider value="{binding v}" min max step/>`, [UI](../modules/UI.md#slider)) is a drag with a range: the same start on pointer down, the same continuation on Move and outside the element, the same owner re-resolution inside an `ItemsControl`, but it writes `min + t * (max - min)` snapped to `step` (`ActiveDrag::slider`), with `t` measured so the handle's centre follows the pointer (the handle part's laid-out extent is subtracted from the track), and a vertical slider growing upward. It is also what writes through `drag="{binding}"` for every other element: the raw 0..1 fraction along the element, from its start (top for vertical).
+
 A drag starts only when `drag` is bound and `data_context` is set. It writes a 0–1 fraction through `write_property_float` as the pointer moves. `drag-orientation` picks the axis. A later move drops that drag if `data_context` is gone.
 
 A pan starts only on a Viewport with a camera binding when `data_context` is set. `pan-x` and `pan-y` take deltas in layout pixels. A later move drops that pan if `data_context` is gone.
