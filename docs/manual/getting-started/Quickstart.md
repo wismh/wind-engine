@@ -9,7 +9,7 @@ This guide walks you through setting up a minimal game using the Wind engine, op
 - **CMake 3.20+**
 - **Visual Studio 2026** (MSVC, C++23)
 - **Git**
-- A **Wind editor SDK**. Take a ready one from the engine's [Releases](https://github.com/wismh/wind-engine/releases) (`wind-sdk-<version>-<os>-<arch>`: unpack it anywhere, or into `%LOCALAPPDATA%\Programs\Wind\Sdks\<name>`, where the [Wind Launcher](https://github.com/wismh/wind-laucnher/releases/latest) finds it), or build it once from the engine repo:
+- A **Wind editor SDK**. Take a ready one from the engine's [Releases](https://github.com/wismh/wind-engine/releases) (`wind-sdk-<version>-<os>-<arch>`: unpack it anywhere, or into `%LOCALAPPDATA%\Programs\Wind\Sdks\<name>`, where the [Wind Launcher](https://github.com/wismh/wind-laucnher/releases/latest) finds it; the launcher's SDKs page also downloads and installs a released SDK for you, which is the easiest way), or build it once from the engine repo:
 
 ```bash
 git clone --recursive https://github.com/wismh/wind-engine.git

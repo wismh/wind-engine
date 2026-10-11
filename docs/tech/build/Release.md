@@ -46,7 +46,7 @@ A failed `sdk` job leaves no tag and no release; the next push counts the same p
 | `linux` | `x86_64` | `wind-sdk-<version>-linux-x86_64.tar.gz` | `.sha256` |
 | `macos` | `arm64` | `wind-sdk-<version>-macos-arm64.tar.gz` | `.sha256` |
 
-The `.sha256` is `sha256sum` format (`<hex>  <file name>`). `<os>` is the `platform` key of `sdk.toml` (`windows`, `linux`, `macos`; CMake's `Darwin` is written as `macos`). An archive holds one top directory (`wind-sdk-<version>-<os>-<arch>/`) with the contents of `out/sdk`, the same layout [CMake](CMake.md#editor-sdk) describes. Unpacking it anywhere gives an SDK: the launcher's Locate takes that directory, and `%LOCALAPPDATA%\Programs\Wind\Sdks\<name>` is where it looks on its own.
+The `.sha256` is `sha256sum` format (`<hex>  <file name>`). `<os>` is the `platform` key of `sdk.toml` (`windows`, `linux`, `macos`; CMake's `Darwin` is written as `macos`). An archive holds one top directory (`wind-sdk-<version>-<os>-<arch>/`) with the contents of `out/sdk`, the same layout [CMake](CMake.md#editor-sdk) describes. The launcher's Install button downloads this archive, checks the `.sha256`, unpacks it, and checks the directory and `sdk.toml` before moving it to `sdk-<version>` in its install directory; it is the normal way to get an SDK on a developer machine, and `setup-wind` below is for CI. Unpacking it anywhere gives an SDK: the launcher's Locate takes that directory, and `%LOCALAPPDATA%\Programs\Wind\Sdks\<name>` is where it looks on its own.
 
 ## Getting an SDK in a game's CI
 
