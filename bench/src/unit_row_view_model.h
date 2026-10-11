@@ -1,8 +1,8 @@
 #pragma once
 
-#include "method_command.h"
 
 #include <engine/ui/bindable.h>
+#include <engine/ui/command.h>
 #include <engine/ui/view_model.h>
 
 #include <string>
@@ -19,7 +19,7 @@ public:
     engine::ui::Bindable<std::string> name;
     engine::ui::Bindable<std::string> hp;
     engine::ui::Bindable<std::string> task;
-    MethodCommand select;
+    engine::ui::MethodCommand select;
 
 private:
     bool picked_ = false;
