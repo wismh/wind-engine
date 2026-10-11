@@ -1,8 +1,8 @@
 #pragma once
 
-#include "method_command.h"
 
 #include <engine/ui/bindable.h>
+#include <engine/ui/command.h>
 #include <engine/ui/view_model.h>
 
 #include <string>
@@ -19,8 +19,8 @@ public:
 
     engine::ui::Bindable<std::string> name;
     engine::ui::Bindable<std::string> value;
-    MethodCommand decrease;
-    MethodCommand increase;
+    engine::ui::MethodCommand decrease;
+    engine::ui::MethodCommand increase;
 
 private:
     int number_ = 0;

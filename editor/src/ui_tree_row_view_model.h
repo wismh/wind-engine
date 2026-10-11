@@ -1,8 +1,8 @@
 #pragma once
 
-#include "method_command.h"
 
 #include <engine/ui/bindable.h>
+#include <engine/ui/command.h>
 #include <engine/ui/inspector.h>
 #include <engine/ui/view_model.h>
 
@@ -37,8 +37,8 @@ public:
     engine::ui::Bindable<bool> expanded;
     // Row background through `var-row`: the selected row is green.
     engine::ui::Bindable<std::string> rowFill;
-    MethodCommand select;
-    MethodCommand toggle;
+    engine::ui::MethodCommand select;
+    engine::ui::MethodCommand toggle;
 
 private:
     UiTreePanel* panel_;

@@ -1,9 +1,9 @@
 #pragma once
 
-#include "method_command.h"
 
 #include <engine/ecs/entity.h>
 #include <engine/ui/bindable.h>
+#include <engine/ui/command.h>
 #include <engine/ui/profiler.h>
 #include <engine/ui/view_model.h>
 
@@ -31,7 +31,7 @@ public:
     engine::ui::Bindable<std::string> label;
     // Row background through `var-row`: the selected canvas is green.
     engine::ui::Bindable<std::string> rowFill;
-    MethodCommand select;
+    engine::ui::MethodCommand select;
 
 private:
     ProfilerPanel* panel_;
