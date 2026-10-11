@@ -18,7 +18,7 @@ TEST(Camera, OrthoBounds) {
     engine::Camera camera;
     camera.ortho_size = 10.f;
     camera.auto_aspect = true;
-    const engine::Transform transform{};
+    const glm::mat4 transform{1.0f};
     const engine::ui::WindowSize window = window_800x600();
 
     const float aspect = static_cast<float>(window.width) / static_cast<float>(window.height);
@@ -53,7 +53,7 @@ TEST(Camera, ScreenWorldRoundTrip) {
     engine::Camera camera;
     camera.ortho_size = 10.f;
     camera.auto_aspect = true;
-    const engine::Transform transform{};
+    const glm::mat4 transform{1.0f};
     const engine::ui::WindowSize window = window_800x600();
 
     const glm::vec2 screen{120.f, 80.f};
@@ -74,7 +74,7 @@ TEST(Camera, YFlip) {
     engine::Camera camera;
     camera.ortho_size = 10.f;
     camera.auto_aspect = true;
-    const engine::Transform transform{};
+    const glm::mat4 transform{1.0f};
     const engine::ui::WindowSize window = window_800x600();
 
     const glm::vec3 top_left = engine::screen_to_world({0.f, 0.f}, camera, transform, window);

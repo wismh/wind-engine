@@ -32,6 +32,7 @@ No other component is needed. An entity that also has a `Renderable` draws the `
 How big the sprite is: its size in world units is `pixel_size / pixels_per_unit` (`pixels_per_unit` defaults to 100, or the value in the texture's `.meta`), with the quad's `pivot` (`{0.5, 0.5}` is the center) at the `Transform` position. `Transform::scale` scales it further. If you build a `Sprite` by hand and leave `pixel_size` at `{0, 0}`, the quad is drawn at the mesh's own size and the `Transform` alone controls it.
 
 Other fields: `flip_x`, `flip_y`, `tiling` and `offset` (the UV scale and offset), and the optional `mesh`, `material`, and `material_override`. With no `material`, the engine draws the texture with the builtin unlit shader and alpha blending.
+A sprite on a child entity is drawn at its world transform: the parent's position, rotation and scale apply to it (see [Hierarchy](../ecs/Hierarchy.md)). The sprite's own pivot, size and flip are applied after that.
 
 ---
 

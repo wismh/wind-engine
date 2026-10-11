@@ -27,26 +27,27 @@ world.ctx<engine::ActiveCamera>().entity = cam;
 
 ## 2. Coordinate Conversions
 
-`screen_to_world` and `world_to_screen` are free functions. They take the camera, its transform, and the size of the window, which you read with `ui::window_size_for`:
+The free functions in `<engine/ecs/camera.h>` translate between screen space (mouse position, window pixels) and world space. They take the camera's **world matrix**, so a rotated camera or a camera attached to another entity works:
 
 ```cpp
-#include <engine/ecs/camera.h>
-#include <engine/ui/canvas.h>
+#include <engine/ecs/hierarchy.h>
 
 const auto& camera = world.get<engine::Camera>(cam);
-const auto& cam_transform = world.get<engine::Transform>(cam);
+const glm::mat4 camera_world = engine::ecs::world_matrix(world, cam);
 const engine::ui::WindowSize window = engine::ui::window_size_for(world, engine::kPrimaryWindow);
 
-// Window pixel -> world coordinates (the plane halfway between near_clip and far_clip, z = 0 here)
-glm::vec2 mouse_screen_pos = {640.0f, 360.0f};   // e.g. MouseEvent::position
-glm::vec3 mouse_world_pos = engine::screen_to_world(mouse_screen_pos, camera, cam_transform, window);
+// Screen pixel -> World coordinates
+glm::vec3 mouse_world = engine::screen_to_world({640.0f, 360.0f}, camera, camera_world, window);
 
-// World coordinates -> window pixel
-glm::vec3 enemy_world_pos = {2.5f, -1.0f, 0.0f};
-glm::vec2 enemy_screen_pos = engine::world_to_screen(enemy_world_pos, camera, cam_transform, window);
+// World coordinates -> Screen pixel
+glm::vec2 enemy_screen = engine::world_to_screen({250.0f, -100.0f, 0.0f}, camera, camera_world, window);
 ```
 
-`view_matrix(transform)`, `projection_matrix(camera, window)`, and `camera_aspect(camera, window)` give the matrices the engine itself uses.
+`view_matrix(camera_world)` is the inverse of that matrix. The engine refreshes `world_matrix` in `Phase::Transform`; a system in `Phase::Game` that moved the camera's parent this frame should call `engine::ecs::compute_world_matrix` instead.
+
+### Camera on a moving rig
+
+Make the camera a child of the entity it follows (`engine::ecs::set_parent(world, cam, rig)`, see [Hierarchy](../ecs/Hierarchy.md)). Its local `Transform` is then an offset from the rig and the view follows the rig, including its rotation.
 
 ---
 

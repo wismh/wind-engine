@@ -11,8 +11,8 @@ float camera_aspect(const Camera& camera, const ui::WindowSize& window) {
     return camera.aspect;
 }
 
-glm::mat4 view_matrix(const Transform& transform) {
-    return glm::translate(glm::mat4(1.0f), -transform.position);
+glm::mat4 view_matrix(const glm::mat4& camera_world) {
+    return glm::inverse(camera_world);
 }
 
 glm::mat4 projection_matrix(const Camera& camera, const ui::WindowSize& window) {
@@ -23,8 +23,8 @@ glm::mat4 projection_matrix(const Camera& camera, const ui::WindowSize& window) 
 }
 
 glm::vec3 screen_to_world(
-        glm::vec2 screen, const Camera& camera, const Transform& transform, const ui::WindowSize& window) {
-    const glm::mat4 view = view_matrix(transform);
+        glm::vec2 screen, const Camera& camera, const glm::mat4& camera_world, const ui::WindowSize& window) {
+    const glm::mat4 view = view_matrix(camera_world);
     const glm::mat4 proj = projection_matrix(camera, window);
     const glm::vec4 viewport{
             0.0f, 0.0f, static_cast<float>(window.width), static_cast<float>(window.height)};
@@ -33,8 +33,8 @@ glm::vec3 screen_to_world(
 }
 
 glm::vec2 world_to_screen(
-        glm::vec3 world, const Camera& camera, const Transform& transform, const ui::WindowSize& window) {
-    const glm::mat4 view = view_matrix(transform);
+        glm::vec3 world, const Camera& camera, const glm::mat4& camera_world, const ui::WindowSize& window) {
+    const glm::mat4 view = view_matrix(camera_world);
     const glm::mat4 proj = projection_matrix(camera, window);
     const glm::vec4 viewport{
             0.0f, 0.0f, static_cast<float>(window.width), static_cast<float>(window.height)};

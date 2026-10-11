@@ -174,6 +174,8 @@ TEST(Host, PhaseOrderFrame) {
             [&](engine::ecs::World&) { record_phase(order, "Input"); });
     world.add_system(engine::ecs::Schedule::Frame, engine::ecs::Phase::Game,
             [&](engine::ecs::World&) { record_phase(order, "Game"); });
+    world.add_system(engine::ecs::Schedule::Frame, engine::ecs::Phase::Transform,
+            [&](engine::ecs::World&) { record_phase(order, "Transform"); });
     world.add_system(engine::ecs::Schedule::Frame, engine::ecs::Phase::Bind,
             [&](engine::ecs::World&) { record_phase(order, "Bind"); });
     world.add_system(engine::ecs::Schedule::Frame, engine::ecs::Phase::Audio,
@@ -185,7 +187,7 @@ TEST(Host, PhaseOrderFrame) {
 
     world.run(engine::ecs::Schedule::Frame);
 
-    EXPECT_EQ(order, (std::vector<std::string>{"Input", "Game", "Bind", "Audio", "Render", "UiRender"}));
+    EXPECT_EQ(order, (std::vector<std::string>{"Input", "Game", "Transform", "Bind", "Audio", "Render", "UiRender"}));
 }
 
 TEST(Host, PhaseOrderFixed) {

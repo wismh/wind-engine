@@ -115,6 +115,7 @@ private:
     void begin_view();
     void end_view();
     void destroy_immediate(Entity entity);
+    void release(Entity entity);
     void flush_destroyed();
 
     template<typename T>

@@ -27,10 +27,11 @@ Within each schedule, systems execute sequentially across predefined phases (`en
 ```
 1. Phase::Input    --> Engine: window and hardware input delivered to the UI
 2. Phase::Game     --> Engine: sprite animation, particles. Yours: gameplay, camera updates
-3. Phase::Bind     --> Engine: UI bindings (ViewModel -> document)
-4. Phase::Audio    --> Engine: PlaySfxEvent / PlayMusicEvent
-5. Phase::Render   --> Engine: sprites and meshes into the CommandBuffer
-6. Phase::UiRender --> Engine: UI canvases into the CommandBuffer
+3. Phase::Transform --> Engine: world matrices of parented entities (update_world_transforms)
+4. Phase::Bind     --> Engine: UI bindings (ViewModel -> document)
+5. Phase::Audio    --> Engine: PlaySfxEvent / PlayMusicEvent
+6. Phase::Render   --> Engine: sprites and meshes into the CommandBuffer
+7. Phase::UiRender --> Engine: UI canvases into the CommandBuffer
 ```
 
 An engine system exists only when the host gave it what it needs. A headless world (tests, tools) has no audio system, so a `PlaySfxEvent` or `PlayMusicEvent` there is never read and is not an error; with no command buffer it has no render systems either. A game with a scene to draw must have a valid `ActiveCamera`, or rendering reports a fatal error.
@@ -104,3 +105,4 @@ world().add_system(engine::ecs::Schedule::Frame, engine::ecs::Phase::Game,
 
 - Decouple systems using the [Events](Events.md) queue.
 - Implement 2D collisions with [Physics & Collisions](Physics-and-Collisions.md).
+- Attach entities to each other with [Hierarchy](Hierarchy.md).

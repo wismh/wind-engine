@@ -36,6 +36,7 @@ world.emplace<engine::CircleCollider>(coin, engine::CircleCollider{
 Two colliders are tested against each other only when each one's `layer` hits the other's `mask`: `(a.layer & b.mask) != 0 && (b.layer & a.mask) != 0`. Give the player `layer = 1u << 1` and a `mask` that includes the wall and coin layers.
 
 An entity with `engine::RigidBody` (a `velocity`) and a `Transform` is moved by `position += velocity * fixed_delta_time` in the same pass.
+Colliders are tested at the entity's **world position**. A collider on a child entity (see [Hierarchy](Hierarchy.md)) follows its parent; its `size` and `radius` are world units and are not scaled or rotated by the parent. A `RigidBody` moves the local `Transform.position`, so the velocity of a child is in its parent's space.
 
 ---
 
