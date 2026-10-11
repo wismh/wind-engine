@@ -153,7 +153,17 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 | `DefaultFatalError` (`include/engine/resources/default_fatal_error.h`, `default_fatal_error()`) | writes the message to stderr, then `std::abort()`. Used where no host supplied one |
 | a test double | throws, so a test asserts on the report (`tests/fixtures/fatal_fakes.h`: `FatalReport`) |
 
-`EngineSystemDeps::fatal` left unset becomes `default_fatal_error()` when `register_*_systems` runs, so the systems always dereference it. `Worlds::set_deps` fills in the `Worlds` fatal instead. `IBindErrorSink` (`ui/document.h`) is not a fatal exit: `apply_bindings` keeps walking after a failure, so it reports to a sink that returns.
+`EngineSystemDeps::fatal` left unset becomes `default_fatal_error()` when `register_*_systems` runs, so the systems always dereference it. `Worlds::set_deps` fills in the `Worlds` fatal instead. `EngineSystemDeps` null members mean "subsystem not connected" and are read once, at registration, not per frame:
+
+| Dep | Without it |
+| --- | --- |
+| `commands` and `commands_for_window` both unset | `run_render` and `run_ui_render` are not registered |
+| `assets` | the document-clone and stylesheet-merge systems are not registered. `run_bind` still binds whatever `UiInstance` a canvas already has |
+| `assets` or `audio` | `run_audio` is not registered, so `PlaySfxEvent` and `PlayMusicEvent` are never read and nothing reports (the headless contract) |
+
+`AudioSystemsRegistered` is set by `register_audio_systems` even when no audio system was added; a second call with other deps does not add one. `run_stylesheets` warns once per world and `AssetId` about a stylesheet missing from the catalog, and looks it up again each frame because a catalog loaded later can supply it.
+
+`IBindErrorSink` (`ui/document.h`) is not a fatal exit: `apply_bindings` keeps walking after a failure, so it reports to a sink that returns.
 
 ## Always compiled
 

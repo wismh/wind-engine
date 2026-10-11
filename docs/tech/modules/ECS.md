@@ -54,9 +54,9 @@ The usual per-frame cursor is `ctx<EventCursor<T>>()`. A second independent read
 
 `ActiveCamera` is a `ctx` resource holding one entity. When `ctx<BoundWindows>().ids` is empty, `run_render` returns before a command-buffer clear and before the camera check.
 
-When the list is not empty, it clears each bound window's buffer, then returns when nothing is drawable. An invalid or default camera returns after that clear and does not call the fatal hook.
+When the list is not empty, it clears each bound window's buffer, then returns when nothing is drawable. A drawable scene (any `Renderable`, `Sprite`, or `ParticleEmitter`) with an invalid or default `ActiveCamera` entity is fatal.
 
-Fatal is only a live entity that lacks `Camera` or `Transform`, and that frame also draws no world commands. `run_ui_render` still pushes `CmdDrawUI`. A window `run_render` already cleared is not cleared again. Each bound window uses the same view matrix. Its projection is `window_size_for` for that id (`Presentation.sizes`).
+Fatal is also a live entity that lacks `Camera` or `Transform`. Either way that frame draws no world commands. A world with only UI needs no camera. `run_ui_render` still pushes `CmdDrawUI`. A window `run_render` already cleared is not cleared again. Each bound window uses the same view matrix. Its projection is `window_size_for` for that id (`Presentation.sizes`).
 
 `screen_to_world` and `world_to_screen` take that camera, its transform, and a `WindowSize`.
 
