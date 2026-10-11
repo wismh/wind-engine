@@ -113,6 +113,12 @@ public:
         return windows_->max_fps();
     }
 
+    void set_drag_exclusions(std::vector<render::Rect> exclusions, WindowId window) override {
+        if (WindowSystem* target = windows_->window(window)) {
+            target->set_drag_exclusions(std::move(exclusions));
+        }
+    }
+
     [[nodiscard]] std::optional<glm::vec2> cursor_screen_position() const override {
         return global_cursor_position();
     }

@@ -1370,6 +1370,14 @@ namespace engine::ui {
         return {};
     }
 
+    // What hit_test_at returns for an element that no child took (selectable labels are decided separately).
+    bool is_interactive_element(const Element &element) {
+        return element.kind == ElementKind::Button || element.kind == ElementKind::Checkbox ||
+               element.kind == ElementKind::Popup || element.kind == ElementKind::TextInput ||
+               element.kind == ElementKind::ScrollView || is_scrollable(element) ||
+               is_bound(element.command_binding) || is_bound(element.drag_binding) || has_viewport_camera(element);
+    }
+
     static Element *hit_test_at(Element &element, float x, float y, bool under_control) {
         if (!element.visible || element.display_none) {
             return nullptr;
@@ -1428,11 +1436,7 @@ namespace engine::ui {
             }
         }
         // An open popup owns every point inside it, so a click on its padding does not reach what is under it.
-        if (element.kind == ElementKind::Button || element.kind == ElementKind::Checkbox ||
-            element.kind == ElementKind::Popup || element.kind == ElementKind::TextInput ||
-            element.kind == ElementKind::ScrollView ||
-            is_scrollable(element) || is_bound(element.command_binding) || is_bound(element.drag_binding) ||
-            has_viewport_camera(element)) {
+        if (is_interactive_element(element)) {
             return &element;
         }
         if (!under_control && label_text_selectable(element)) {
@@ -1446,6 +1450,39 @@ namespace engine::ui {
             return hit_test_at(*popup, x - popup->popup_offset.x, y - popup->popup_offset.y, false);
         }
         return hit_test_at(element, x, y, false);
+    }
+
+    namespace {
+
+        void collect_interactive(const Element &element, std::vector<render::Rect> &out) {
+            if (element.kind == ElementKind::ItemTemplate || !element.visible || element.display_none) {
+                return;
+            }
+            if (element.kind == ElementKind::Popup) {
+                if (element.open) {
+                    render::Rect shown = element.layout_rect;
+                    shown.x += element.popup_offset.x;
+                    shown.y += element.popup_offset.y;
+                    out.push_back(shown);
+                }
+                return;
+            }
+            if (is_interactive_element(element)) {
+                out.push_back(element.layout_rect);
+                return;
+            }
+            for (const Element &child: element.children) {
+                collect_interactive(child, out);
+            }
+            for (const Element &child: element.generated_items) {
+                collect_interactive(child, out);
+            }
+        }
+
+    } // namespace
+
+    void collect_interactive_rects(const Element &root, std::vector<render::Rect> &out) {
+        collect_interactive(root, out);
     }
 
     // nullopt when (x, y) misses `element` and every absolute child shown outside it. Otherwise the cursor of the

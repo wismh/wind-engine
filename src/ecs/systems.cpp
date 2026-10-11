@@ -854,6 +854,7 @@ namespace engine {
         // After the UI, always: a target only sees the pointer the UI did not take, and only then adds its window to
         // the click-through set. The order is the registration order, so no caller can get it wrong.
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Input, [](ecs::World &w) { run_pointer_targets(w); });
+        world.add_system(ecs::Schedule::Frame, ecs::Phase::Input, [](ecs::World &w) { run_ui_windows(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Input, [](ecs::World &w) { run_splash_timers(w); });
         // Before run_bind: panel and chrome canvases follow the layout the Game phase left.
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Bind, [deps](ecs::World &w) { ui::run_dock_layout(w, deps); });

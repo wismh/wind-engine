@@ -167,6 +167,7 @@ void WindowSystem::destroy() {
     transparent_ = false;
     click_through_applied_ = false;
     drag_region_.reset();
+    drag_exclusions_.clear();
     // Releases capture (harmless if it was never held) rather than leaving a captured
     // mouse dangling past the window it was captured for.
     if (dragging_) {
@@ -450,14 +451,24 @@ bool should_be_click_through(bool click_through_enabled, bool window_is_transpar
     return click_through_enabled && window_is_transparent && !pointer_hit_something;
 }
 
-bool WindowSystem::is_in_drag_region(glm::vec2 point) const noexcept {
-    if (!drag_region_) {
+bool drag_region_contains(const std::optional<render::Rect>& region, std::span<const render::Rect> exclusions,
+        glm::vec2 point) noexcept {
+    const auto inside = [point](const render::Rect& rect) {
+        return point.x >= rect.x && point.y >= rect.y && point.x < (rect.x + rect.w) && point.y < (rect.y + rect.h);
+    };
+    if (!region || !inside(*region)) {
         return false;
     }
-    const render::Rect& region = *drag_region_;
-    return point.x >= region.x && point.y >= region.y &&
-           point.x < (region.x + region.w) &&
-           point.y < (region.y + region.h);
+    for (const render::Rect& hole : exclusions) {
+        if (inside(hole)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool WindowSystem::is_in_drag_region(glm::vec2 point) const noexcept {
+    return drag_region_contains(drag_region_, drag_exclusions_, point);
 }
 
 SDL_Surface* make_icon_surface(const render::TextureDesc& desc) {

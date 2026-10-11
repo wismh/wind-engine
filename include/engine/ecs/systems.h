@@ -68,6 +68,9 @@ void run_sprite_animations(ecs::World& world);
 // Frame / Input, after the UI input systems: hover, press, and click on `PointerTarget`s, and their share of the
 // click-through set. See `PointerTarget` in <engine/ecs/pointer_target.h>.
 void run_pointer_targets(ecs::World& world);
+// Frame / Input, after the pointer targets: close requests to their `UiWindow`, and the drag exclusions of the windows
+// that have a drag region. See <engine/ui/ui_window.h>.
+void run_ui_windows(ecs::World& world);
 void run_particles(ecs::World& world);
 
 }
