@@ -15,44 +15,9 @@ vm->restartLevel = [this]() { reload_level(); };
 ```
 
 ### The Recommended Architecture
-Make the HUD / panel a dedicated class that owns its view model. Each button is a **member function** of the panel, and the panel binds it to the view model's command by member pointer. The engine gives you `ICommand` (`can_execute`, `execute`) and `RelayCommand` (a `std::function` holder); a small member-pointer command is a few lines of your own code:
+Make the HUD / panel a dedicated class that owns its view model. Each button is a **member function** of the panel, and the panel binds it to the view model's command by member pointer. The engine gives you `ICommand` (`can_execute`, `execute`), `RelayCommand` (a `std::function` holder, for tests and quick scripts), and `MethodCommand`, which holds a pointer to the owner and a plain function pointer: no `std::function`, no allocation. The view model exists before its owner, so `MethodCommand` is bound after construction with `bind_to<Owner, &Owner::method>(owner)`. Until then it does nothing and `can_execute()` is `false`. Calling `bind_to` again moves the command to a new owner. A second method pointer, `bind_to<Owner, &Owner::method, &Owner::can_method>(owner)`, takes a `bool can_method() const` that decides `can_execute()`:
 
-```cpp
-// src/ui/member_command.h (game code)
-#pragma once
-
-#include <engine/ui/command.h>
-
-namespace game {
-
-// An ICommand that calls one member function of one owner.
-class MemberCommand final : public engine::ui::ICommand {
-public:
-    template<typename Owner, void (Owner::*Method)()>
-    void bind_to(Owner& owner) {
-        owner_ = &owner;
-        invoke_ = [](void* self) { (static_cast<Owner*>(self)->*Method)(); };
-    }
-
-    [[nodiscard]] bool can_execute() const override {
-        return invoke_ != nullptr;
-    }
-
-    void execute() override {
-        if (invoke_ != nullptr) {
-            invoke_(owner_);
-        }
-    }
-
-private:
-    void* owner_ = nullptr;
-    void (*invoke_)(void*) = nullptr;
-};
-
-} // namespace game
-```
-
-The view model holds `MemberCommand` members. They are `ICommand`s, so the generated `bind()` registers them like any other command:
+The view model holds `engine::ui::MethodCommand` members. They are `ICommand`s, so the generated `bind()` registers them like any other command:
 
 ```cpp
 // hud_view_model.h
@@ -62,8 +27,8 @@ public:
         assets::ui::Hud::bind(*this);
     }
 
-    MemberCommand togglePause;
-    MemberCommand restartLevel;
+    engine::ui::MethodCommand togglePause;
+    engine::ui::MethodCommand restartLevel;
 };
 ```
 
