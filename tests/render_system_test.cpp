@@ -3,6 +3,7 @@
 #include <engine/audio/audio_system.h>
 #include <engine/audio/events.h>
 #include <engine/core/input_system.h>
+#include <engine/log.h>
 #include <engine/ecs/camera.h>
 #include <engine/ecs/events.h>
 #include <engine/ecs/schedule.h>
@@ -33,6 +34,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -303,10 +305,13 @@ TEST(RenderSystem, MissingMeshOrMaterialIsFatal) {
     }
 }
 
-TEST(RenderSystem, SkipsScenePassWhenActiveCameraUnset) {
+TEST(RenderSystem, SceneWithoutValidActiveCameraIsFatal) {
     engine::render::CommandBuffer commands;
+    fakes::RecordingFatal fatal;
     engine::ecs::World world;
-    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    engine::register_engine_systems(world,
+            engine::EngineSystemDeps{.commands = &commands, .fatal = &fatal});
+    world.ctx<engine::BoundWindows>().ids = {engine::kPrimaryWindow};
 
     const auto mesh = std::make_shared<FakeMesh>();
     const auto material = std::make_shared<FakeMaterial>();
@@ -314,16 +319,59 @@ TEST(RenderSystem, SkipsScenePassWhenActiveCameraUnset) {
     world.emplace<engine::Transform>(entity, engine::Transform{});
     world.emplace<engine::render::Renderable>(entity, make_renderable(mesh, material, 0));
 
+    EXPECT_THROW(world.run(engine::ecs::Schedule::Frame), fakes::FatalReport);
+    EXPECT_EQ(fatal.call_count, 1);
+}
+
+TEST(RenderSystem, SpriteWithoutValidActiveCameraIsFatal) {
+    engine::render::CommandBuffer commands;
+    fakes::RecordingFatal fatal;
+    engine::ecs::World world;
+    engine::register_engine_systems(world,
+            engine::EngineSystemDeps{.commands = &commands, .fatal = &fatal});
+    world.ctx<engine::BoundWindows>().ids = {engine::kPrimaryWindow};
+
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::Transform>(entity, engine::Transform{});
+    world.emplace<engine::render::Sprite>(entity, engine::render::Sprite{});
+
+    EXPECT_THROW(world.run(engine::ecs::Schedule::Frame), fakes::FatalReport);
+    EXPECT_EQ(fatal.call_count, 1);
+}
+
+TEST(RenderSystem, UiOnlyWorldNeedsNoCamera) {
+    engine::render::CommandBuffer commands;
+    fakes::RecordingFatal fatal;
+    engine::ecs::World world;
+    engine::register_engine_systems(world,
+            engine::EngineSystemDeps{.commands = &commands, .fatal = &fatal});
+    world.ctx<engine::BoundWindows>().ids = {engine::kPrimaryWindow};
+
     engine::ui::UiCanvas canvas;
     canvas.fit = engine::ui::UiFit::Fixed;
     canvas.rect = engine::render::Rect{8.0f, 16.0f, 32.0f, 48.0f};
-    const engine::ecs::Entity hud = world.create();
-    world.emplace<engine::ui::UiCanvas>(hud, canvas);
+    world.emplace<engine::ui::UiCanvas>(world.create(), canvas);
 
     world.run(engine::ecs::Schedule::Frame);
 
+    EXPECT_EQ(fatal.call_count, 0);
     ASSERT_EQ(commands.size(), 1u);
     ASSERT_TRUE(std::holds_alternative<engine::render::CmdDrawUI>(commands[0]));
+}
+
+TEST(RenderSystem, SceneWithoutCommandBuffersRegistersNoRenderSystem) {
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{});
+    world.ctx<engine::BoundWindows>().ids = {engine::kPrimaryWindow};
+
+    const auto mesh = std::make_shared<FakeMesh>();
+    const auto material = std::make_shared<FakeMaterial>();
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::Transform>(entity, engine::Transform{});
+    world.emplace<engine::render::Renderable>(entity, make_renderable(mesh, material, 0));
+
+    // A headless world has nothing to draw into, so even a scene with no camera is not a broken world.
+    EXPECT_NO_THROW(world.run(engine::ecs::Schedule::Frame));
 }
 
 TEST(RenderSystem, SkipsScenePassWhenNoRenderables) {
@@ -1065,4 +1113,75 @@ TEST(Audio, PlaySfxMissingCueIsFatal) {
     });
     EXPECT_THROW(world.run(engine::ecs::Schedule::Frame), std::runtime_error);
     EXPECT_EQ(fatal.call_count, 1);
+}
+
+TEST(Audio, HeadlessWorldIgnoresSoundEvents) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    const engine::AssetId id{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"};
+    engine::ecs::EventWriter<engine::PlaySfxEvent>{world}.send(engine::PlaySfxEvent{.id = id, .volume_scale = 1.0f});
+    engine::ecs::EventWriter<engine::PlayMusicEvent>{world}.send(
+            engine::PlayMusicEvent{.id = id, .loop = true, .fade_seconds = 0.0f});
+
+    EXPECT_NO_THROW(world.run(engine::ecs::Schedule::Frame));
+}
+
+TEST(Audio, AssetsAloneRegisterNoAudioSystem) {
+    fakes::RecordingFatal fatal;
+    engine::AssetsDb db(fatal);
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.fatal = &fatal, .assets = &db});
+    engine::ecs::EventWriter<engine::PlaySfxEvent>{world}.send(engine::PlaySfxEvent{
+            .id = engine::AssetId{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+            .volume_scale = 0.5f,
+    });
+
+    // The cue is not in the catalog, but nothing reads the event without an audio device.
+    EXPECT_NO_THROW(world.run(engine::ecs::Schedule::Frame));
+    EXPECT_EQ(fatal.call_count, 0);
+}
+
+TEST(RenderSystem, MissingStylesheetWarnsOncePerWorldAcrossFrames) {
+    constexpr std::string_view kHudGuid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa7";
+    constexpr std::string_view kMissing = "cccccccccccccccccccccccccccccc02";
+
+    TempDir tree;
+    write_ui_asset(tree.path / "hud.xml", R"(<Canvas><Button content="Go"/></Canvas>)", kHudGuid);
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kHudGuid}, "hud.xml", engine::ImporterKind::Ui});
+    write_file(tree.path / "catalog.toml", catalog.serialize());
+
+    fakes::RecordingFatal fatal;
+    engine::AssetsDb db(fatal);
+    ASSERT_TRUE(db.load_catalog(tree.path / "catalog.toml", tree.path).has_value());
+
+    const std::filesystem::path log_dir = tree.path / "log";
+    std::filesystem::create_directories(log_dir);
+    engine::log::init(log_dir);
+
+    auto vm = std::make_shared<TitleViewModel>();
+    for (int round = 0; round < 2; ++round) {
+        engine::ecs::World world;
+        engine::register_engine_systems(world, engine::EngineSystemDeps{.fatal = &fatal, .assets = &db});
+        engine::ui::UiCanvas canvas;
+        canvas.document = engine::AssetId{kHudGuid};
+        canvas.extra_stylesheets = {engine::AssetId{kMissing}};
+        canvas.data_context = vm;
+        canvas.fit = engine::ui::UiFit::Fixed;
+        world.emplace<engine::ui::UiCanvas>(world.create(), canvas);
+        for (int frame = 0; frame < 4; ++frame) {
+            world.run(engine::ecs::Schedule::Frame);
+        }
+    }
+    engine::log::init();
+
+    std::ifstream in(log_dir / "game.log");
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    std::size_t warnings = 0;
+    for (std::size_t at = text.find(kMissing); at != std::string::npos; at = text.find(kMissing, at + 1)) {
+        ++warnings;
+    }
+    // Once for each of the two worlds, not once per frame.
+    EXPECT_EQ(warnings, 2u);
 }
