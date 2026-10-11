@@ -44,6 +44,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/ecs/camera.h` | Orthographic `Camera` and screen/world conversion | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/entity.h` | Generational `Entity` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/events.h` | Double-buffered `Events`, reader, writer, cursor | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/pointer_target.h` | `PointerTarget`, `PointerTargetEvent`, `pointer_target_at` | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `include/engine/ecs/physics.h` | Colliders, `CollisionEvent`, `run_physics` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/schedule.h` | `Schedule` and `Phase` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/systems.h` | `register_engine_systems` and its dependencies | [ECS](../modules/ECS.md) |
@@ -149,6 +150,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | --- | --- | --- |
 | `src/ecs/.gitkeep` | Keeps the directory in Git | [ECS](../modules/ECS.md) |
 | `src/ecs/camera.cpp` | View and projection matrices, screen/world | [ECS](../modules/ECS.md) |
+| `src/ecs/pointer_target.cpp` | `pointer_target_at` and `run_pointer_targets` | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `src/ecs/physics.cpp` | Velocity integration and overlap events | [ECS](../modules/ECS.md) |
 | `src/ecs/systems.cpp` | Engine systems: input, dock input, splash, animation, particles, dock layout, bind, audio, render, UI render | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/ecs/world.cpp` | Create, destroy, flush, `run` | [ECS](../modules/ECS.md) |
@@ -208,6 +210,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/opengl/sdl_gl_presentation.cpp` | SDL poll, present, and `IPresentation` | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/sdl_gl_presentation.h` | `SdlGlPresentation` | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/window_control.h` | `IWindowControl` adapter over `WindowManager` | [Windowing](../features/Windowing.md) |
+| `src/render/opengl/mouse_capture.cpp` | `MouseCapture`, the one switch for SDL mouse capture, and the global cursor and button state | [Windowing](../features/Windowing.md#cursor-buttons-and-capture) |
 | `src/render/opengl/window_manager.cpp` | One window, canvas, and command buffer per id; frame pacing in `draw_all` | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/window_manager.h` | `WindowManager` | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/window_system.cpp` | One SDL window and GL context, including `set_icon` | [Windowing](../features/Windowing.md) |
@@ -366,6 +369,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/mvvm_test.cpp` | View-model properties, commands, checkbox write-back | [UI](../modules/UI.md) |
 | `tests/opengl_texture_test.cpp` | CPU texture description. No GL draw | [Render](../modules/Render.md) |
 | `tests/particle_test.cpp` | Emitter step and curves | [Render](../modules/Render.md) |
+| `tests/pointer_target_test.cpp` | `PointerTarget`: hit-test, order, windows, camera, hover, click, click-through, UI first | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `tests/physics_test.cpp` | Overlap enter, stay, exit | [ECS](../modules/ECS.md) |
 | `tests/engine_version_test.cpp` | `EngineVersion` parse, refusals, round trip, order | [Project](../modules/Project.md#engine-version) |
 | `tests/platform_test.cpp` | Assets root and `user_data_directory` names | [Core](../modules/Core.md) |
@@ -405,6 +409,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/ui_xml_test.cpp` | Tags, bindings, unknown elements | [UI Markup](../features/UI%20Markup.md) |
 | `tests/web_loop_test.cpp` | RAF policy and shutdown order | [Core](../modules/Core.md) |
 | `tests/window_icon_test.cpp` | `make_icon_surface` byte layout | [Windowing](../features/Windowing.md) |
+| `tests/mouse_capture_test.cpp` | `MouseCapture` and `global_mouse_supported` (window builds) | [Windowing](../features/Windowing.md#cursor-buttons-and-capture) |
+| `tests/window_cursor_test.cpp` | Cursor, buttons, capture on the window-control double, `cursor_client_position` | [Windowing](../features/Windowing.md#cursor-buttons-and-capture) |
 | `tests/window_style_test.cpp` | Style flags (`utility` included), overlay mode, window control without a window, `raise` of no window, a primary window with an owner refused | [Windowing](../features/Windowing.md) |
 | `tests/worlds_test.cpp` | World isolation, window routing, per-window draw, registration order | [Core](../modules/Core.md) |
 

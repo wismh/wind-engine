@@ -57,7 +57,7 @@ The system must have `set_router`. A handler asks the router for the world bound
 
 `denormalize_touch` maps a 0–1 finger position onto a drawable size. Negative drawable extents are treated as 0.
 
-Poll does not look at `Presentation.mouse`. UI has not run yet. A game system on `Phase::Game` that should ignore a click the UI ate checks `presentation_of(world).mouse.consumed_for(window)`. `world.ctx<ui::MouseConsumed>()` does not see those hits.
+Poll does not look at `Presentation.mouse`. UI has not run yet; `run_pointer_targets` (hover, press, and click on `PointerTarget` entities) runs after it, in the same Input phase ([UI Input](UI%20Input.md#pointer-targets)). A game system on `Phase::Game` that should ignore a click the UI ate checks `presentation_of(world).mouse.consumed_for(window)`. `world.ctx<ui::MouseConsumed>()` does not see those hits.
 
 ## Where SDL is decoded
 

@@ -69,7 +69,34 @@ While click-through is on, the window lets mouse events pass to the windows behi
 
 `services_.windows.set_overlay_mode(engine::OverlayMode::...)` is engine-wide, not per window. `Auto` (the default) runs the overlay hooks (cursor polling, per-window hit-test sync) as soon as any open window is transparent; `AlwaysDisabled` keeps them off, `AlwaysEnabled` runs them before a transparent window exists. Set it before opening the first transparent window.
 
+While click-through is on, a world entity with a `PointerTarget` under the cursor also keeps the click on the window (the engine adds the window to `presentation.mouse` for it), so a transparent overlay needs no hit-testing code for its sprites ([Raw Input & Mouse](Raw-Input-and-Mouse.md#3-clickable-sprites-with-pointertarget)).
+
 A borderless window has no title bar to drag. `services_.windows.set_drag_region(rect, window)` marks a region (window pixels) as a drag handle. A left click inside it starts a window drag and never reaches the UI, so a button inside that rectangle cannot be clicked: keep the rectangle clear of interactive controls.
+
+---
+
+## 4. The Global Cursor and Mouse Capture
+
+To follow the cursor across windows, or outside all of them (dragging a panel out of a window, a tooltip that tracks the mouse over the desktop), ask the window control. No platform header is needed:
+
+```cpp
+#include <engine/core/window_control.h>
+
+// Screen coordinates, the same space as windows.position(window).
+if (const auto cursor = windows.cursor_screen_position()) {
+    const auto client = engine::cursor_client_position(windows, secondary_window);   // vs the window's top-left
+}
+
+const bool left_held = windows.is_mouse_button_down(engine::MouseButton::Left);   // the OS state, anywhere
+
+// A drag that starts in a window keeps receiving events after the cursor leaves it:
+windows.capture_mouse(window, true);     // on button down
+windows.capture_mouse(window, false);    // on button up: always release it
+```
+
+`cursor_screen_position()` is `nullopt` and `is_mouse_button_down` is false where the platform cannot say: Wayland, the browser, and Android. `capture_mouse` returns whether the capture is now on and is false on those platforms (nothing is held, nothing fails). A window that is not open cannot capture. Check the return value, and use the events you already get when it is false.
+
+One window holds the capture at a time, and closing that window releases it. The capture does not conflict with the engine's own: moving a borderless window by its drag region captures too, and neither switches the other off. A capture left on after the button went up keeps other applications from getting clicks, so release it on button up.
 
 ---
 
