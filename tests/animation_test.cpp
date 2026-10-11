@@ -374,3 +374,151 @@ TEST(Animation, FullFrameScheduleAppliesAndRendersAnimatedSprite) {
     EXPECT_FLOAT_EQ(cmd->model[0][0], 2.0f);
     EXPECT_FLOAT_EQ(cmd->model[1][1], 2.0f);
 }
+
+namespace {
+
+engine::render::SpriteAnimationFrame distinct_frame(const std::shared_ptr<FakeTexture>& texture) {
+    engine::render::SpriteAnimationFrame frame;
+    frame.sprite.texture = texture;
+    frame.sprite.tiling = {0.5f, 0.25f};
+    frame.sprite.offset = {0.125f, 0.75f};
+    frame.sprite.pixel_size = {24.0f, 12.0f};
+    frame.sprite.pixels_per_unit = 32.0f;
+    frame.sprite.pivot = {0.25f, 0.0f};
+    // Fields that belong to the entity, not to a frame: a frame may carry them, but they are never copied.
+    frame.sprite.color = {0.1f, 0.2f, 0.3f, 0.4f};
+    frame.sprite.layer = 9;
+    frame.sprite.order_in_layer = 8;
+    frame.sprite.flip_x = true;
+    frame.sprite.flip_y = true;
+    return frame;
+}
+
+std::shared_ptr<engine::render::SpriteAnimationClip> one_frame_clip(const engine::render::SpriteAnimationFrame& frame,
+        bool loop = true) {
+    auto clip = std::make_shared<engine::render::SpriteAnimationClip>();
+    clip->loop = loop;
+    clip->frames.push_back(frame);
+    clip->frames.back().duration = 0.1f;
+    return clip;
+}
+
+}
+
+TEST(Animation, FromFrameCopiesEveryFrameOwnedFieldAndNothingElse) {
+    const auto texture = std::make_shared<FakeTexture>(32, 16);
+    const engine::render::SpriteAnimationFrame frame = distinct_frame(texture);
+
+    const engine::render::Sprite sprite = engine::render::Sprite::from_frame(frame);
+
+    EXPECT_EQ(sprite.texture, texture);
+    EXPECT_EQ(sprite.tiling, (glm::vec2{0.5f, 0.25f}));
+    EXPECT_EQ(sprite.offset, (glm::vec2{0.125f, 0.75f}));
+    EXPECT_EQ(sprite.pixel_size, (glm::vec2{24.0f, 12.0f}));
+    EXPECT_FLOAT_EQ(sprite.pixels_per_unit, 32.0f);
+    EXPECT_EQ(sprite.pivot, (glm::vec2{0.25f, 0.0f}));
+
+    const engine::render::Sprite defaults;
+    EXPECT_EQ(sprite.color, defaults.color);
+    EXPECT_EQ(sprite.layer, defaults.layer);
+    EXPECT_EQ(sprite.order_in_layer, defaults.order_in_layer);
+    EXPECT_EQ(sprite.flip_x, defaults.flip_x);
+    EXPECT_EQ(sprite.flip_y, defaults.flip_y);
+    EXPECT_EQ(sprite.mesh, nullptr);
+    EXPECT_EQ(sprite.material, nullptr);
+    EXPECT_FALSE(sprite.material_override.has_value());
+}
+
+TEST(Animation, ApplyFrameLeavesTheEntitysOwnFieldsAlone) {
+    const auto texture = std::make_shared<FakeTexture>(32, 16);
+    const auto material = std::make_shared<FakeMaterial>();
+    engine::render::Sprite sprite;
+    sprite.color = {1.0f, 0.0f, 0.0f, 1.0f};
+    sprite.layer = 3;
+    sprite.order_in_layer = 4;
+    sprite.flip_x = true;
+    sprite.material = material;
+    sprite.set_param("uFlash", glm::vec4{1.0f});
+
+    sprite.apply_frame(distinct_frame(texture));
+
+    EXPECT_EQ(sprite.texture, texture);
+    EXPECT_EQ(sprite.pixel_size, (glm::vec2{24.0f, 12.0f}));
+    EXPECT_EQ(sprite.color, (glm::vec4{1.0f, 0.0f, 0.0f, 1.0f}));
+    EXPECT_EQ(sprite.layer, 3);
+    EXPECT_EQ(sprite.order_in_layer, 4);
+    EXPECT_TRUE(sprite.flip_x);
+    EXPECT_FALSE(sprite.flip_y);
+    EXPECT_EQ(sprite.material, material);
+    EXPECT_TRUE(sprite.material_override.has_value());
+}
+
+TEST(Animation, FirstTickInitializesAFreshlySpawnedSprite) {
+    const auto texture = std::make_shared<FakeTexture>(32, 16);
+    engine::ecs::World world;
+    world.ctx<engine::Time>().delta_time = 0.0f;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::render::Sprite>(entity);
+    world.emplace<engine::render::SpriteAnimator>(entity, engine::render::SpriteAnimator{
+            .clip = one_frame_clip(distinct_frame(texture)),
+    });
+
+    engine::run_sprite_animations(world);
+
+    const auto& sprite = world.get<engine::render::Sprite>(entity);
+    EXPECT_EQ(sprite.texture, texture);
+    EXPECT_EQ(sprite.pixel_size, (glm::vec2{24.0f, 12.0f}));
+    EXPECT_FLOAT_EQ(sprite.pixels_per_unit, 32.0f);
+    EXPECT_TRUE(world.get<engine::render::SpriteAnimator>(entity).frame_applied);
+}
+
+TEST(Animation, APausedAnimatorShowsItsFrameOnceAndThenLeavesTheSpriteAlone) {
+    const auto first = std::make_shared<FakeTexture>(1, 1);
+    const auto second = std::make_shared<FakeTexture>(2, 2);
+    engine::ecs::World world;
+    world.ctx<engine::Time>().delta_time = 0.016f;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::render::Sprite>(entity);
+    world.emplace<engine::render::SpriteAnimator>(entity, engine::render::SpriteAnimator{
+            .clip = one_frame_clip(distinct_frame(first)),
+            .playing = false,
+    });
+
+    engine::run_sprite_animations(world);
+    auto& sprite = world.get<engine::render::Sprite>(entity);
+    EXPECT_EQ(sprite.texture, first);
+
+    // The game swaps the texture itself while paused; the animation system does not fight it.
+    const auto manual = std::make_shared<FakeTexture>(5, 5);
+    sprite.texture = manual;
+    engine::run_sprite_animations(world);
+    EXPECT_EQ(sprite.texture, manual);
+
+    // A different clip shows its frame on the next tick even though it is still paused.
+    auto& anim = world.get<engine::render::SpriteAnimator>(entity);
+    anim.play(one_frame_clip(distinct_frame(second)));
+    anim.pause();
+    engine::run_sprite_animations(world);
+    EXPECT_EQ(sprite.texture, second);
+}
+
+TEST(Animation, StopShowsTheFirstFrameAgain) {
+    const auto texture = std::make_shared<FakeTexture>(1, 1);
+    auto clip = std::make_shared<engine::render::SpriteAnimationClip>();
+    clip->frames.push_back(engine::render::SpriteAnimationFrame{.sprite = {.texture = texture}, .duration = 0.1f});
+    const auto other = std::make_shared<FakeTexture>(2, 2);
+    clip->frames.push_back(engine::render::SpriteAnimationFrame{.sprite = {.texture = other}, .duration = 0.1f});
+
+    engine::ecs::World world;
+    world.ctx<engine::Time>().delta_time = 0.12f;
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::render::Sprite>(entity);
+    world.emplace<engine::render::SpriteAnimator>(entity, engine::render::SpriteAnimator{.clip = clip});
+
+    engine::run_sprite_animations(world);
+    EXPECT_EQ(world.get<engine::render::Sprite>(entity).texture, other);
+
+    world.get<engine::render::SpriteAnimator>(entity).stop();
+    engine::run_sprite_animations(world);
+    EXPECT_EQ(world.get<engine::render::Sprite>(entity).texture, texture);
+}
