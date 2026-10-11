@@ -10,6 +10,13 @@
 namespace engine::render {
 namespace {
 
+// Sprite::apply_frame copies the frame-owned fields by name. A field added to Sprite breaks this binding on purpose:
+// decide whether it belongs to a frame (copy it in apply_frame) or to the entity (leave it), then update the count.
+[[maybe_unused]] void sprite_field_count_is_checked() {
+    [[maybe_unused]] const auto& [texture, color, layer, order_in_layer, flip_x, flip_y, tiling, offset, pixel_size,
+            pixels_per_unit, pivot, mesh, material, material_override] = Sprite{};
+}
+
 std::optional<float> node_as_float(const toml::node& node) {
     if (const auto f = node.value<double>()) {
         return static_cast<float>(*f);
@@ -20,6 +27,21 @@ std::optional<float> node_as_float(const toml::node& node) {
     return std::nullopt;
 }
 
+}
+
+void Sprite::apply_frame(const SpriteAnimationFrame& frame) {
+    texture = frame.sprite.texture;
+    tiling = frame.sprite.tiling;
+    offset = frame.sprite.offset;
+    pixel_size = frame.sprite.pixel_size;
+    pixels_per_unit = frame.sprite.pixels_per_unit;
+    pivot = frame.sprite.pivot;
+}
+
+Sprite Sprite::from_frame(const SpriteAnimationFrame& frame) {
+    Sprite sprite;
+    sprite.apply_frame(frame);
+    return sprite;
 }
 
 std::optional<AnimationDesc> parse_animation(std::string_view toml_text) {

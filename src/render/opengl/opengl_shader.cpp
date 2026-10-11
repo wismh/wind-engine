@@ -76,6 +76,15 @@ void OpenGLShader::set_vec4(std::string_view name, const glm::vec4& value) const
     glUniform4fv(uniform_location(name), 1, glm::value_ptr(value));
 }
 
+glm::vec4 OpenGLShader::vec4_value(std::string_view name) const {
+    glm::vec4 value{0.0f};
+    const int location = uniform_location(name);
+    if (location >= 0) {
+        glGetUniformfv(program_, location, glm::value_ptr(value));
+    }
+    return value;
+}
+
 void OpenGLShader::set_vec2(std::string_view name, const glm::vec2& value) const {
     glUniform2fv(uniform_location(name), 1, glm::value_ptr(value));
 }

@@ -559,3 +559,110 @@ TEST(Sprite, PivotOffsetShiftsModelPosition) {
 
 }
 
+
+namespace {
+
+const engine::render::CmdDrawMesh* draw_of(const engine::render::CommandBuffer& commands, std::size_t index) {
+    return std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[index]);
+}
+
+engine::ecs::Entity spawn_sprite(engine::ecs::World& world, const std::shared_ptr<engine::render::IMaterial>& material,
+        const std::shared_ptr<engine::render::IMesh>& mesh, int order) {
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::Transform>(entity, engine::Transform{});
+    world.emplace<engine::render::Sprite>(entity, engine::render::Sprite{
+            .texture = std::make_shared<FakeTexture>(),
+            .order_in_layer = order,
+            .mesh = mesh,
+            .material = material,
+    });
+    return entity;
+}
+
+}
+
+TEST(Sprite, TwoInstancesOfOneMaterialKeepTheirOwnParameters) {
+    engine::ecs::World world;
+    spawn_camera(world);
+    const auto mesh = std::make_shared<FakeMesh>();
+    const std::shared_ptr<engine::render::IMaterial> shared = std::make_shared<FakeMaterial>();
+
+    const engine::ecs::Entity flashing = spawn_sprite(world, shared, mesh, 0);
+    const engine::ecs::Entity dim = spawn_sprite(world, shared, mesh, 1);
+    const engine::ecs::Entity plain = spawn_sprite(world, shared, mesh, 2);
+    world.get<engine::render::Sprite>(flashing).set_param("uFlash", glm::vec4{1.0f, 0.0f, 0.0f, 1.0f});
+    world.get<engine::render::Sprite>(dim).set_param("uFlash", glm::vec4{0.25f, 0.0f, 0.0f, 1.0f});
+
+    engine::render::CommandBuffer commands;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    world.run(engine::ecs::Schedule::Frame);
+
+    ASSERT_EQ(commands.size(), 3u);
+    ASSERT_TRUE(draw_of(commands, 0)->material_override.has_value());
+    ASSERT_TRUE(draw_of(commands, 1)->material_override.has_value());
+    EXPECT_EQ(draw_of(commands, 0)->material_override->vec4_params[0].second, (glm::vec4{1.0f, 0.0f, 0.0f, 1.0f}));
+    EXPECT_EQ(draw_of(commands, 1)->material_override->vec4_params[0].second, (glm::vec4{0.25f, 0.0f, 0.0f, 1.0f}));
+    // The entity that never set a parameter has no override, and the material object is untouched.
+    EXPECT_FALSE(draw_of(commands, 2)->material_override.has_value());
+    EXPECT_EQ(draw_of(commands, 0)->material, shared);
+    EXPECT_EQ(draw_of(commands, 2)->material, shared);
+    EXPECT_FALSE(world.get<engine::render::Sprite>(plain).material_override.has_value());
+}
+
+TEST(Sprite, ParameterSetOnceReachesEveryFrameUntilChanged) {
+    engine::ecs::World world;
+    spawn_camera(world);
+    const auto mesh = std::make_shared<FakeMesh>();
+    const std::shared_ptr<engine::render::IMaterial> material = std::make_shared<FakeMaterial>();
+    const engine::ecs::Entity entity = spawn_sprite(world, material, mesh, 0);
+    world.get<engine::render::Sprite>(entity).set_param("uFlash", glm::vec4{1.0f});
+
+    engine::render::CommandBuffer commands;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    for (int frame = 0; frame < 3; ++frame) {
+        commands.clear();
+        world.run(engine::ecs::Schedule::Frame);
+        ASSERT_EQ(commands.size(), 1u) << frame;
+        ASSERT_TRUE(draw_of(commands, 0)->material_override.has_value()) << frame;
+        EXPECT_EQ(draw_of(commands, 0)->material_override->vec4_params[0].second, glm::vec4{1.0f}) << frame;
+    }
+
+    world.get<engine::render::Sprite>(entity).set_param("uFlash", glm::vec4{0.0f});
+    commands.clear();
+    world.run(engine::ecs::Schedule::Frame);
+    ASSERT_EQ(commands.size(), 1u);
+    ASSERT_EQ(draw_of(commands, 0)->material_override->vec4_params.size(), 1u);
+    EXPECT_EQ(draw_of(commands, 0)->material_override->vec4_params[0].second, glm::vec4{0.0f});
+
+    world.get<engine::render::Sprite>(entity).clear_overrides();
+    commands.clear();
+    world.run(engine::ecs::Schedule::Frame);
+    ASSERT_EQ(commands.size(), 1u);
+    EXPECT_FALSE(draw_of(commands, 0)->material_override.has_value());
+}
+
+TEST(Sprite, SetParamKeepsTheAlbedoOverrideAndOtherParameters) {
+    engine::render::Sprite sprite;
+    const auto texture = std::make_shared<FakeTexture>();
+    sprite.material_override = engine::render::MaterialOverride{.albedo = texture};
+    sprite.set_param("uA", glm::vec4{1.0f});
+    sprite.set_param("uB", glm::vec4{2.0f});
+    sprite.set_param("uA", glm::vec4{3.0f});
+
+    ASSERT_TRUE(sprite.material_override.has_value());
+    EXPECT_EQ(sprite.material_override->albedo, texture);
+    ASSERT_EQ(sprite.material_override->vec4_params.size(), 2u);
+    EXPECT_EQ(sprite.material_override->vec4_params[0].second, glm::vec4{3.0f});
+    EXPECT_EQ(sprite.material_override->vec4_params[1].second, glm::vec4{2.0f});
+}
+
+TEST(Renderable, SetParamAndClearOverrides) {
+    engine::render::Renderable renderable;
+    EXPECT_FALSE(renderable.material_override.has_value());
+    renderable.set_param("uFlash", glm::vec4{0.5f});
+    ASSERT_TRUE(renderable.material_override.has_value());
+    ASSERT_EQ(renderable.material_override->vec4_params.size(), 1u);
+    EXPECT_EQ(renderable.material_override->vec4_params[0].first, "uFlash");
+    renderable.clear_overrides();
+    EXPECT_FALSE(renderable.material_override.has_value());
+}
