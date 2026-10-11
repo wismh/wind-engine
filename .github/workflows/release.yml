@@ -8,6 +8,13 @@ name: Release
 on:
   push:
     branches: [main]
+  # A dry run on any branch: everything but the publish job. gh workflow run release.yml --ref <branch> -f publish=false
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the GitHub Release (false is a dry run)
+        type: boolean
+        default: false
 
 concurrency:
   group: release
@@ -69,7 +76,7 @@ jobs:
         if: matrix.os == 'windows'
         run: >
           cmake -S . -B build-editor -G "Visual Studio 18 2026" -DENGINE_BUILD_TESTS=ON -DENGINE_WITH_WINDOW=ON
-          -DENGINE_WITH_AUDIO=ON -DENGINE_EDITOR=ON -DENGINE_VERSION_PATCH=$env:WIND_PATCH
+          -DENGINE_WITH_AUDIO=ON -DENGINE_EDITOR=ON "-DENGINE_VERSION_PATCH=$env:WIND_PATCH"
       - name: Build
         run: cmake --build build-editor --config Release --parallel
       - name: Tests
@@ -120,6 +127,7 @@ jobs:
   publish:
     name: Publish ${{ needs.version.outputs.version }}
     needs: [version, sdk]
+    if: github.event_name == 'push' || inputs.publish
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
