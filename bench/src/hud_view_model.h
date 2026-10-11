@@ -1,12 +1,12 @@
 #pragma once
 
-#include "method_command.h"
 #include "minimap_paint.h"
 #include "unit_marker.h"
 #include "unit_row_view_model.h"
 #include "world_paint.h"
 
 #include <engine/ui/bindable.h>
+#include <engine/ui/command.h>
 #include <engine/ui/view_model.h>
 
 #include <memory>
@@ -48,12 +48,12 @@ public:
     WorldPaint world;
     MinimapPaint minimap;
 
-    MethodCommand move;
-    MethodCommand attack;
-    MethodCommand hold;
-    MethodCommand patrol;
-    MethodCommand build;
-    MethodCommand stop;
+    engine::ui::MethodCommand move;
+    engine::ui::MethodCommand attack;
+    engine::ui::MethodCommand hold;
+    engine::ui::MethodCommand patrol;
+    engine::ui::MethodCommand build;
+    engine::ui::MethodCommand stop;
 };
 
 }
