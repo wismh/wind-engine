@@ -46,7 +46,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 150
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
           - { name: Linux, runner: ubuntu-24.04, os: linux, arch: x86_64 }
