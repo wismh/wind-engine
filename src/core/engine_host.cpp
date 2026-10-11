@@ -6,6 +6,7 @@
 #include <engine/builtin_ids.h>
 #include <engine/core/engine_runtime.h>
 #include <engine/core/input_system.h>
+#include <engine/core/random.h>
 #include <engine/core/sdl_fatal_error.h>
 #include <engine/core/window_control.h>
 #include <engine/core/worlds.h>
@@ -190,6 +191,9 @@ void EngineHost::attach_game(IGame& game) {
         runtime.set_window_icon(*impl_->assets->get<render::TextureDesc>(*icon_id));
     }
     ecs::World& world = game.world();
+    if (const std::optional<std::uint64_t> seed = game.random_seed(); seed.has_value()) {
+        world.ctx<Random>().seed(*seed);
+    }
     worlds.bind_window(kPrimaryWindow, world);
     worlds.enable_ui(world);
     worlds.enable_audio(world);
