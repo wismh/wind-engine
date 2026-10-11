@@ -9,10 +9,12 @@
 #include <engine/core/app_lifecycle.h>
 #include <engine/core/application_state.h>
 #include <engine/core/build_info.h>
+#include <engine/core/config.h>
 #include <engine/core/fixed_step.h>
 #include <engine/core/host.h>
 #include <engine/core/input_system.h>
 #include <engine/core/platform.h>
+#include <engine/core/random.h>
 #include <engine/core/time.h>
 #include <engine/core/web_loop.h>
 #include <engine/ecs/camera.h>

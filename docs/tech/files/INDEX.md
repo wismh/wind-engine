@@ -26,12 +26,14 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/core/engine_runtime.h` | Windowed presentation and `GameLoop` owner | [Core](../modules/Core.md) |
 | `include/engine/core/engine_services.h` | References passed into the game constructor | [Core](../modules/Core.md) |
 | `include/engine/core/export.h` | `ENGINE_API` export and import macro | [CMake](../build/CMake.md) |
+| `include/engine/core/config.h` | `Config`, `ConfigError`, `user_config_path` | [Core](../modules/Core.md) |
 | `include/engine/core/fixed_step.h` | `FixedStepClock` | [Core](../modules/Core.md) |
 | `include/engine/core/file_dialog.h` | `FileFilter`, `FileDialogResult`, `FileDialogCall`: one owned dialog, `take`, `cancel` | [Windowing](../features/Windowing.md) |
 | `include/engine/core/game_module.h` | Game module export types and symbol names; `GameModule`, `load_game_module`, `purge_game_module_copies` | [Core](../modules/Core.md) |
 | `include/engine/core/host.h` | Headless tick host for tests | [Core](../modules/Core.md) |
 | `include/engine/core/input_system.h` | `ActionId` bindings and input events | [Input Mapper](../features/Input%20Mapper.md) |
 | `include/engine/core/key_code.h` | `KeyCode` values matching SDL scancodes | [Input Mapper](../features/Input%20Mapper.md) |
+| `include/engine/core/random.h` | `Random`, PCG32 | [Core](../modules/Core.md) |
 | `include/engine/core/platform.h` | Platform, assets root, `executable_directory`, `user_data_directory` | [Core](../modules/Core.md) |
 | `include/engine/core/run_hooks.h` | `RunHooks`: `on_start`, `on_frame_end`, `on_quit`, `cli` | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `include/engine/core/sdl_fatal_error.h` | SDL message-box `IFatalError` | [Core](../modules/Core.md) |
@@ -120,6 +122,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/core/engine_runtime.cpp` | `EngineRuntime` pimpl over the presentation | [Core](../modules/Core.md) |
 | `src/core/file_dialog_call.cpp` | `FileDialogCall` ownership and cancel | [Windowing](../features/Windowing.md) |
 | `src/core/file_dialog_state.h` | State shared by a call and the dialog callback, `FileDialogCompletions` | [Windowing](../features/Windowing.md) |
+| `src/core/config.cpp` | `Config` over tomlplusplus, atomic save | [Core](../modules/Core.md) |
 | `src/core/fixed_step.cpp` | Accumulator and step cap | [Core](../modules/Core.md) |
 | `src/core/frame_capture.h` | `FrameCapture`: one window's pixels, read before its swap | [CLI](../features/CLI.md#screenshot) |
 | `src/core/frame_limiter.h`, `src/core/frame_limiter.cpp` | `FrameLimiter`: sleep schedule for frames no vsync swap waits on | [Windowing](../features/Windowing.md#frame-pacing) |
@@ -133,6 +136,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/core/host.cpp` | Registers systems and ticks a fake canvas | [Core](../modules/Core.md) |
 | `src/core/input_system.cpp` | Bind table and event enqueue | [Input Mapper](../features/Input%20Mapper.md) |
 | `src/core/log.cpp` | spdlog sinks | [Core](../modules/Core.md) |
+| `src/core/random.cpp` | `Random`, PCG32 | [Core](../modules/Core.md) |
 | `src/core/platform.cpp` | Assets root, Android staging, executable directory, user-data path | [Core](../modules/Core.md) |
 | `src/core/presentation.h` | `IPresentation` seam the loop calls | [Core](../modules/Core.md) |
 | `src/core/sdl_fatal_error.cpp` | Message box, quit, `std::exit(1)` | [Core](../modules/Core.md) |
@@ -372,6 +376,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/pointer_target_test.cpp` | `PointerTarget`: hit-test, order, windows, camera, hover, click, click-through, UI first | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `tests/physics_test.cpp` | Overlap enter, stay, exit | [ECS](../modules/ECS.md) |
 | `tests/engine_version_test.cpp` | `EngineVersion` parse, refusals, round trip, order | [Project](../modules/Project.md#engine-version) |
+| `tests/random_test.cpp` | `Random`: golden sequences, ranges, streams, `IGame::random_seed` | [Core](../modules/Core.md) |
+| `tests/config_test.cpp` | `Config`: round trip, defaults, malformed input, failed save | [Core](../modules/Core.md) |
 | `tests/platform_test.cpp` | Assets root and `user_data_directory` names | [Core](../modules/Core.md) |
 | `tests/process_test.cpp` | Line cutting, quoting, environment, `ProcessCall` ownership, and real `cmd.exe` children on Windows (output, exit, cancel, leftovers) | [Process](../modules/Process.md) |
 | `tests/project_test.cpp` | `wind_project.toml` and `sdk.toml` reading and their errors | [Project](../modules/Project.md) |
