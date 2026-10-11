@@ -1,6 +1,6 @@
 # Continuous Integration
 
-On your own machine, the normal way to get an SDK is the [Wind Launcher](https://github.com/wismh/wind-laucnher/releases/latest): its SDKs page lists every released SDK for your system and installs one with a button. `setup-wind`, on this page, is for CI, where no one clicks.
+On your own machine, the normal way to get an SDK is the [Wind Launcher](https://github.com/wismh/wind-launcher/releases/latest): its SDKs page lists every released SDK for your system and installs one with a button. `setup-wind`, on this page, is for CI, where no one clicks.
 
 A game's CI does not build the engine. It downloads the Wind editor SDK of the engine version your project names, and runs `wind_editor --batch --export` to build and export the game. This page shows how to get the SDK with `setup-wind`, two complete GitHub Actions workflows (Windows and Linux), and how to move a project to a newer engine.
 
