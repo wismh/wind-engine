@@ -181,4 +181,4 @@ Default `engine_tests` in this repo stay **headless native**; they do not boot `
 
 ## License
 
-The Wind engine is licensed under the [Apache License, Version 2.0](LICENSE). The libraries in `external/` are separate projects and keep their own licenses.
+Copyright 2026 Yevhenii Tertychnyi. The Wind engine is licensed under the [Apache License, Version 2.0](LICENSE) (see also [NOTICE](NOTICE)). The libraries in `external/` are separate projects and keep their own licenses.
