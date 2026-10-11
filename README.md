@@ -178,3 +178,7 @@ Change `applicationId` / `namespace` (`org.windengine.app`) before shipping. The
 v1 ABI is **arm64-v8a**, minSdk **21**. Mixer stays off on the `android-arm64` preset (`ENGINE_WITH_AUDIO=OFF`).
 
 Default `engine_tests` in this repo stay **headless native**; they do not boot `Engine::run`, EGL, or a mixer. An emulator/GPU golden is not a merge gate.
+
+## License
+
+The Wind engine is licensed under the [Apache License, Version 2.0](LICENSE). The libraries in `external/` are separate projects and keep their own licenses.
