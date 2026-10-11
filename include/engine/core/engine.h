@@ -58,8 +58,6 @@ bool Engine<GameT>::init() {
     }
     if (!host_.load_catalog(host_.assets_root())) {
         host_.fatal().report("Failed to load game catalog");
-        host_.dispose();
-        return false;
     }
     host_.attach_game(*game_);
     initialized_ = true;

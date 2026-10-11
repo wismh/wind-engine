@@ -38,6 +38,8 @@ struct AudioSystemsRegistered {
 
 struct EngineSystemDeps {
     render::CommandBuffer* commands = nullptr;
+    // Where the registered systems report a broken world. Left unset, register_* fills in default_fatal_error()
+    // (stderr + abort); Worlds::set_deps fills in its own.
     IFatalError* fatal = nullptr;
     AssetsDb* assets = nullptr;
     IAudioSystem* audio = nullptr;

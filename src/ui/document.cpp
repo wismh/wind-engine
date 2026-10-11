@@ -730,14 +730,14 @@ namespace engine::ui {
         // One apply_bindings call. A failure is reported and remembered, and the walk goes on: one missing binding
         // must not leave the rest of the document unbound.
         struct BindPass {
-            IFatalError *fatal = nullptr;
+            IBindErrorSink *errors = nullptr;
             const engine::loc::Catalog *catalog = nullptr;
             const std::unordered_map<BindingId, std::string> *paths = nullptr;
             std::optional<UiError> first_error;
 
             void fail(UiError error, std::string_view message) {
-                if (fatal != nullptr) {
-                    fatal->report(message);
+                if (errors != nullptr) {
+                    errors->bind_error(message);
                 }
                 if (!first_error) {
                     first_error = error;
@@ -745,7 +745,7 @@ namespace engine::ui {
             }
 
             void fail_missing(std::string_view what, BindingId binding) {
-                if (fatal == nullptr) {
+                if (errors == nullptr) {
                     fail(UiError::MissingBinding, {});
                     return;
                 }
@@ -823,7 +823,7 @@ namespace engine::ui {
                     if (element.text != element.tr_key) {
                         element.text = element.tr_key;
                     }
-                    if (pass.fatal != nullptr) {
+                    if (pass.errors != nullptr) {
                         pass.fail(UiError::MissingString, "missing string key \"" + element.tr_key + "\"");
                     }
                 } else {
@@ -843,7 +843,7 @@ namespace engine::ui {
                     if (element.text != translated.text) {
                         element.text = std::move(translated.text);
                     }
-                    if (translated.missing_from_source && pass.fatal != nullptr) {
+                    if (translated.missing_from_source && pass.errors != nullptr) {
                         pass.fail(UiError::MissingString, "missing string key \"" + element.tr_key + "\"");
                     }
                 }
@@ -1266,9 +1266,9 @@ namespace engine::ui {
         return changed;
     }
 
-    std::expected<void, UiError> apply_bindings(UiDocument &document, ViewModel &data_context, IFatalError *fatal,
+    std::expected<void, UiError> apply_bindings(UiDocument &document, ViewModel &data_context, IBindErrorSink *errors,
                                                 const engine::loc::Catalog *catalog) {
-        BindPass pass{fatal, catalog, &document.binding_paths};
+        BindPass pass{errors, catalog, &document.binding_paths};
         bind_element(document.root, data_context, pass, false, nullptr);
         if (pass.first_error) {
             return std::unexpected(*pass.first_error);

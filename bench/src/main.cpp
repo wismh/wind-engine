@@ -52,8 +52,6 @@ int main(int argc, char** argv) {
     }
     if (!host.load_catalog(host.assets_root())) {
         host.fatal().report("Failed to load the bench catalog");
-        host.dispose();
-        return 1;
     }
     host.attach_game(app);
     const int code = host.run(engine::RunHooks{

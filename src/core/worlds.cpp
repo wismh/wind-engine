@@ -3,6 +3,7 @@
 #include "ui/dock_runtime.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace engine {
 
@@ -22,11 +23,8 @@ ecs::World& Worlds::add() {
 }
 
 void Worlds::destroy(ecs::World& world) {
-    Slot* const slot = find(world);
-    if (slot == nullptr) {
-        return;
-    }
-    if (slot->ui) {
+    Slot& slot = find(world);
+    if (slot.ui) {
         // Dock float windows are the world's own: they close with it, not stay open unbound with a command buffer
         // whose UI draws point into this world's documents.
         ui::close_world_dock_float_windows(world, deps_);
@@ -39,14 +37,10 @@ void Worlds::destroy(ecs::World& world) {
 }
 
 void Worlds::bind_window(WindowId id, ecs::World& world) {
-    Slot* const slot = find(world);
-    if (slot == nullptr) {
-        return;
-    }
+    (void) find(world);
     const auto existing = windows_.find(id);
     if (existing != windows_.end() && existing->second != &world) {
         fatal_->report("Window is already bound to a world");
-        return;
     }
     if (existing == windows_.end()) {
         windows_.emplace(id, &world);
@@ -73,6 +67,9 @@ ecs::World* Worlds::world_for(WindowId id) const {
 
 void Worlds::set_deps(EngineSystemDeps deps) {
     deps_ = std::move(deps);
+    if (deps_.fatal == nullptr) {
+        deps_.fatal = fatal_;
+    }
     deps_set_ = true;
     for (const std::unique_ptr<Slot>& slot : slots_) {
         register_simulation(*slot);
@@ -80,33 +77,30 @@ void Worlds::set_deps(EngineSystemDeps deps) {
 }
 
 void Worlds::enable_ui(ecs::World& world) {
-    Slot* const slot = find(world);
-    if (slot == nullptr || slot->ui) {
+    Slot& slot = find(world);
+    if (slot.ui) {
         return;
     }
     ui::bind_presentation(world, presentation_);
     register_ui_systems(world, deps_);
-    slot->ui = true;
+    slot.ui = true;
     if (ui_installer_) {
         ui_installer_(world);
     }
 }
 
 void Worlds::enable_audio(ecs::World& world) {
-    Slot* const slot = find(world);
-    if (slot == nullptr || slot->audio) {
+    Slot& slot = find(world);
+    if (slot.audio) {
         return;
     }
     register_audio_systems(world, deps_);
-    slot->audio = true;
+    slot.audio = true;
 }
 
 void Worlds::set_stepping(ecs::World& world, bool stepping) {
-    Slot* const slot = find(world);
-    if (slot == nullptr) {
-        return;
-    }
-    slot->stepping = stepping;
+    Slot& slot = find(world);
+    slot.stepping = stepping;
 }
 
 void Worlds::set_ui_installer(std::function<void(ecs::World&)> installer) {
@@ -128,8 +122,7 @@ void Worlds::advance_clocks(float real_dt) {
 }
 
 int Worlds::pending_steps(const ecs::World& world) const {
-    const Slot* const slot = find(world);
-    return slot == nullptr ? 0 : slot->pending_steps;
+    return find(world).pending_steps;
 }
 
 ApplicationState& Worlds::application_state() {
@@ -149,22 +142,21 @@ bool Worlds::has_window(ecs::World& world) const {
 }
 
 bool Worlds::draws_ui(const ecs::World& world) const {
-    const Slot* const slot = find(world);
-    return slot != nullptr && slot->ui;
+    return find(world).ui;
 }
 
-Worlds::Slot* Worlds::find(ecs::World& world) {
-    return const_cast<Slot*>(static_cast<const Worlds*>(this)->find(world));
+Worlds::Slot& Worlds::find(ecs::World& world) {
+    return const_cast<Slot&>(static_cast<const Worlds*>(this)->find(world));
 }
 
-const Worlds::Slot* Worlds::find(const ecs::World& world) const {
+const Worlds::Slot& Worlds::find(const ecs::World& world) const {
     for (const std::unique_ptr<Slot>& slot : slots_) {
         if (slot->world.get() == &world) {
-            return slot.get();
+            return *slot;
         }
     }
     fatal_->report("World is not in this process");
-    return nullptr;
+    std::unreachable(); // MSVC does not take [[noreturn]] through a virtual call
 }
 
 void Worlds::register_simulation(Slot& slot) {

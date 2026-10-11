@@ -120,22 +120,16 @@ bool EngineHost::open_primary(const WindowDesc& desc) {
     const std::filesystem::path root = runtime.assets_root();
     if (root.empty()) {
         impl_->fatal->report("Assets root is missing");
-        dispose();
-        return false;
     }
     assets.set_root(root);
     if (!assets.load_catalog(root / "engine" / "catalog.toml", root / "engine")) {
         impl_->fatal->report("Failed to load engine catalog");
-        dispose();
-        return false;
     }
     // Only builtin::font_ui loads eagerly here — it's the fallback for any UI element with no
     // font-family at all. Every other font, and every UI image, is loaded lazily: run_ui_render
     // resolves what a drawn canvas actually references and calls ensure_ui_font/ensure_ui_image.
     if (!runtime.add_font_for_window(kPrimaryWindow, builtin::font_ui, *assets.get<Font>(builtin::font_ui))) {
         impl_->fatal->report("Failed to load UI font");
-        dispose();
-        return false;
     }
 
     // set_deps registers simulation systems on every world that exists already (a game constructed

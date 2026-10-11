@@ -12,7 +12,8 @@ namespace engine {
 class SdlFatalError final : public IFatalError {
 public:
     void attach(ApplicationState& app, void* native_window = nullptr);
-    void report(std::string_view message) override;
+    // Shows a message box, asks the attached application to quit, then exits the process with code 1.
+    [[noreturn]] void report(std::string_view message) override;
 
 private:
     ApplicationState* app_ = nullptr;
