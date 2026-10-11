@@ -21,14 +21,14 @@ In a normal build `ENGINE_GAME` expands to this `main`:
 ```cpp
 int main() {
     engine::Engine<game::MyGame> app;
-    if (!app.init()) {
-        return 1;
+    if (const auto started = app.init(); !started) {
+        engine::report_startup_error(started.error());
     }
     return app.run();
 }
 ```
 
-- `app.init()`: Initializes platform subsystems (SDL, windowing, audio device, OpenGL context, `AssetsDb`) through `engine::EngineHost`. Returns `false` on failure.
+- `app.init()`: Initializes platform subsystems (SDL, windowing, audio device, OpenGL context, `AssetsDb`) through `engine::EngineHost`. Returns `std::expected<void, engine::EngineError>`. On failure it has already disposed everything and the error names the cause (`VideoInit`, `WindowCreate`, `AudioInit`, `HapticsInit`, `AssetsRoot`, `EngineCatalog`, `UiFont`, `GameCatalog`). `ENGINE_GAME` passes it to `engine::report_startup_error`, which shows one dialog with the cause and exits with 1.
 - `app.run()`: Enters the main frame loop. It runs until the application receives a close event, returning the process exit code.
 
 When the game is built for the editor (`build-editor`, configured against the SDK), the same line instead writes the three exports the editor loads the game module through (`wind_create_game`, `wind_destroy_game`, `wind_game_build_id`), so `main.cpp` does not change between Play and Export. `ENGINE_GAME` also checks at compile time that the class derives from `engine::IGame` and is constructible from `const engine::EngineServices&`.

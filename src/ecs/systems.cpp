@@ -20,6 +20,7 @@
 #include <engine/render/renderable.h>
 #include <engine/render/sprite.h>
 #include <engine/resources/assets_db.h>
+#include <engine/resources/default_fatal_error.h>
 #include <engine/resources/fatal_error.h>
 #include <engine/ui/canvas.h>
 #include <engine/ui/presentation.h>
@@ -39,6 +40,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -125,13 +127,13 @@ namespace engine {
         }
 
         // Logs each bind error of one canvas once: run_bind binds every frame, and a missing binding fails every frame.
-        class BindErrorLog final : public IFatalError {
+        class BindErrorLog final : public ui::IBindErrorSink {
         public:
             BindErrorLog(const ui::UiCanvas &canvas, ui::UiInstance &instance)
                 : canvas_(canvas)
                 , instance_(instance) {}
 
-            void report(std::string_view message) override {
+            void bind_error(std::string_view message) override {
                 if (!instance_.reported_bind_errors.emplace(message).second) {
                     return;
                 }
@@ -182,7 +184,20 @@ namespace engine {
             return ids;
         }
 
-        void load_merged_stylesheets(ui::UiInstance &instance, const ui::UiCanvas &canvas, AssetsDb &assets) {
+        // A stylesheet the canvas names but the catalog does not hold is reported once per world and id. It is still
+        // looked up every frame, because a catalog loaded later (a mod) can make it appear.
+        struct MissingStylesheets {
+            std::set<AssetId> warned;
+        };
+
+        void warn_missing_stylesheet(ecs::World &world, const AssetId &id) {
+            if (world.ctx<MissingStylesheets>().warned.insert(id).second) {
+                log::warn("UI stylesheet " + std::string(id.hex()) + " is not in the asset catalog");
+            }
+        }
+
+        void load_merged_stylesheets(ecs::World &world, ui::UiInstance &instance, const ui::UiCanvas &canvas,
+                                     AssetsDb &assets) {
             const std::vector<AssetId> wanted = resolved_stylesheet_ids(canvas, instance);
             if (instance.loaded_sheet_ids == wanted) {
                 return;
@@ -215,6 +230,7 @@ namespace engine {
                     }
                 } else {
                     all_found = false;
+                    warn_missing_stylesheet(world, id);
                 }
             }
             instance.stylesheet = std::move(merged);
@@ -223,7 +239,20 @@ namespace engine {
             }
         }
 
-        void run_bind(ecs::World &world, const EngineSystemDeps &deps) {
+        // Registered only with deps.assets: builds each canvas's UiInstance from its document asset.
+        void run_clone_documents(ecs::World &world, AssetsDb &assets) {
+            auto view = world.view<ui::UiCanvas>();
+            for (ecs::Entity entity: view) {
+                ui::UiCanvas &canvas = view.get<ui::UiCanvas>(entity);
+                ui::UiInstance *instance = world.try_get<ui::UiInstance>(entity);
+                if (instance_needs_rebuild(instance, canvas)) {
+                    clone_document(world, entity, canvas, assets, instance);
+                }
+            }
+        }
+
+        // Works on whatever UiInstance a canvas already has, with or without assets.
+        void run_bind(ecs::World &world) {
 #if defined(ENGINE_UI_PROFILER)
             ui::profiler_attach(world);
 #endif
@@ -231,47 +260,41 @@ namespace engine {
             for (ecs::Entity entity: view) {
                 ui::UiCanvas &canvas = view.get<ui::UiCanvas>(entity);
                 ui::UiInstance *instance = world.try_get<ui::UiInstance>(entity);
-                if (deps.assets != nullptr && instance_needs_rebuild(instance, canvas)) {
-                    clone_document(world, entity, canvas, *deps.assets, instance);
-                }
-                if (!canvas.data_context) {
+                if (!canvas.data_context || instance == nullptr) {
                     continue;
                 }
-                if (instance == nullptr) {
-                    continue;
-                }
-                {
-                    ENGINE_UI_PROFILE(entity, Bindings);
-                    BindErrorLog errors(canvas, *instance);
-                    (void) ui::apply_bindings(instance->document, *canvas.data_context, &errors,
-                                              &world.ctx<loc::Catalog>());
-                }
-                if (deps.assets == nullptr) {
-                    continue;
-                }
-                {
-                    ENGINE_UI_PROFILE(entity, Stylesheets);
-                    load_merged_stylesheets(*instance, canvas, *deps.assets);
-                }
+                ENGINE_UI_PROFILE(entity, Bindings);
+                BindErrorLog errors(canvas, *instance);
+                (void) ui::apply_bindings(instance->document, *canvas.data_context, &errors,
+                                          &world.ctx<loc::Catalog>());
             }
         }
 
-        void run_audio(ecs::World &world, const EngineSystemDeps &deps) {
-            for (const PlaySfxEvent &event:
-                 ecs::EventReader<PlaySfxEvent>{world, world.ctx<ecs::EventCursor<PlaySfxEvent>>()}) {
-                if (deps.assets == nullptr || deps.audio == nullptr) {
+        // Registered only with deps.assets: merges the stylesheets of every bound canvas.
+        void run_stylesheets(ecs::World &world, AssetsDb &assets) {
+            auto view = world.view<ui::UiCanvas>();
+            for (ecs::Entity entity: view) {
+                ui::UiCanvas &canvas = view.get<ui::UiCanvas>(entity);
+                ui::UiInstance *instance = world.try_get<ui::UiInstance>(entity);
+                if (!canvas.data_context || instance == nullptr) {
                     continue;
                 }
-                auto sound = deps.assets->get<Sound>(event.id);
-                deps.audio->play_sfx(*sound, event.volume_scale);
+                ENGINE_UI_PROFILE(entity, Stylesheets);
+                load_merged_stylesheets(world, *instance, canvas, assets);
+            }
+        }
+
+        // Registered only with deps.assets and deps.audio. Without them PlaySfxEvent and PlayMusicEvent are never read.
+        void run_audio(ecs::World &world, AssetsDb &assets, IAudioSystem &audio) {
+            for (const PlaySfxEvent &event:
+                 ecs::EventReader<PlaySfxEvent>{world, world.ctx<ecs::EventCursor<PlaySfxEvent>>()}) {
+                auto sound = assets.get<Sound>(event.id);
+                audio.play_sfx(*sound, event.volume_scale);
             }
             for (const PlayMusicEvent &event:
                  ecs::EventReader<PlayMusicEvent>{world, world.ctx<ecs::EventCursor<PlayMusicEvent>>()}) {
-                if (deps.assets == nullptr || deps.audio == nullptr) {
-                    continue;
-                }
-                auto sound = deps.assets->get<Sound>(event.id);
-                deps.audio->play_music(*sound, event.loop, event.fade_seconds);
+                auto sound = assets.get<Sound>(event.id);
+                audio.play_music(*sound, event.loop, event.fade_seconds);
             }
         }
 
@@ -285,10 +308,12 @@ namespace engine {
             return model;
         }
 
-        void report_fatal(IFatalError *fatal, std::string_view message) {
-            if (fatal != nullptr) {
-                fatal->report(message);
+        // The systems read `*deps.fatal`; an unset one becomes the default exit once, here.
+        EngineSystemDeps with_fatal(EngineSystemDeps deps) {
+            if (deps.fatal == nullptr) {
+                deps.fatal = &default_fatal_error();
             }
+            return deps;
         }
 
         struct SpriteMaterialCache {
@@ -319,6 +344,10 @@ namespace engine {
         struct WindowClears {
             std::unordered_set<WindowId> ids;
         };
+
+        bool has_command_buffers(const EngineSystemDeps &deps) {
+            return deps.commands != nullptr || static_cast<bool>(deps.commands_for_window);
+        }
 
         render::CommandBuffer *command_buffer_for(const EngineSystemDeps &deps, WindowId id) {
             if (deps.commands_for_window) {
@@ -368,14 +397,13 @@ namespace engine {
 
             const ActiveCamera &active = world.ctx<ActiveCamera>();
             if (!world.valid(active.entity)) {
-                return;
+                deps.fatal->report("The scene has renderables but ActiveCamera is not a valid entity");
             }
 
             const Camera *camera = world.try_get<Camera>(active.entity);
             const Transform *camera_transform = world.try_get<Transform>(active.entity);
             if (camera == nullptr || camera_transform == nullptr) {
-                report_fatal(deps.fatal, "ActiveCamera is missing Camera or Transform");
-                return;
+                deps.fatal->report("ActiveCamera is missing Camera or Transform");
             }
 
             const glm::mat4 view = view_matrix(*camera_transform);
@@ -386,8 +414,7 @@ namespace engine {
             for (ecs::Entity entity: renderables) {
                 const auto &r = renderables.get<render::Renderable>(entity);
                 if (!r.mesh || !r.material) {
-                    report_fatal(deps.fatal, "Renderable is missing mesh or material");
-                    continue;
+                    deps.fatal->report("Renderable is missing mesh or material");
                 }
                 const Transform &transform = world.get<Transform>(entity);
                 render::CmdDrawMesh cmd;
@@ -451,8 +478,7 @@ namespace engine {
                 }
 
                 if (!mesh || !material) {
-                    report_fatal(deps.fatal, "Sprite is missing mesh or material");
-                    continue;
+                    deps.fatal->report("Sprite is missing mesh or material");
                 }
                 const Transform &transform = world.get<Transform>(entity);
                 glm::mat4 model = model_matrix(transform);
@@ -513,8 +539,7 @@ namespace engine {
                 }
 
                 if (!mesh || !material) {
-                    report_fatal(deps.fatal, "ParticleEmitter is missing mesh or material");
-                    continue;
+                    deps.fatal->report("ParticleEmitter is missing mesh or material");
                 }
 
                 glm::mat4 model{1.0f};
@@ -562,6 +587,8 @@ namespace engine {
             for (const WindowId id: windows) {
                 render::CommandBuffer *buffer = command_buffer_for(deps, id);
                 if (buffer == nullptr) {
+                    // A bound window can outlive its buffer for a frame: the OS (or the user) closes it after the
+                    // Bind phase synced the dock floats, and Worlds::unbind_window runs on the next sync.
                     continue;
                 }
                 const glm::mat4 window_projection = projection_matrix(*camera, ui::window_size_for(world, id));
@@ -586,9 +613,6 @@ namespace engine {
         };
 
         void run_ui_render(ecs::World &world, const EngineSystemDeps &deps) {
-            if (deps.commands == nullptr && !deps.commands_for_window) {
-                return;
-            }
 #if defined(ENGINE_UI_PROFILER)
             ui::profiler_attach(world);
 #endif
@@ -654,6 +678,7 @@ namespace engine {
                         space.reference_space ? space.layout_rect.h : static_cast<float>(size.height);
                 render::CommandBuffer *target = command_buffer_for(deps, canvas.window);
                 if (target == nullptr) {
+                    // As in run_render: a canvas of a window closed since the last dock sync.
                     continue;
                 }
                 clear_window_buffer(world, target, canvas.window);
@@ -815,6 +840,7 @@ namespace engine {
     }
 
     void register_simulation_systems(ecs::World &world, EngineSystemDeps deps) {
+        deps = with_fatal(std::move(deps));
         if (world.ctx<SimulationSystemsRegistered>().value) {
             return;
         }
@@ -822,10 +848,14 @@ namespace engine {
         world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics, [](ecs::World &w) { run_physics(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_sprite_animations(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_particles(w); });
-        world.add_system(ecs::Schedule::Frame, ecs::Phase::Render, [deps](ecs::World &w) { run_render(w, deps); });
+        // Without a command buffer there is nothing to render into.
+        if (has_command_buffers(deps)) {
+            world.add_system(ecs::Schedule::Frame, ecs::Phase::Render, [deps](ecs::World &w) { run_render(w, deps); });
+        }
     }
 
     void register_ui_systems(ecs::World &world, EngineSystemDeps deps) {
+        deps = with_fatal(std::move(deps));
         if (world.ctx<UiSystemsRegistered>().value) {
             return;
         }
@@ -836,16 +866,38 @@ namespace engine {
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Input, [](ecs::World &w) { run_splash_timers(w); });
         // Before run_bind: panel and chrome canvases follow the layout the Game phase left.
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Bind, [deps](ecs::World &w) { ui::run_dock_layout(w, deps); });
-        world.add_system(ecs::Schedule::Frame, ecs::Phase::Bind, [deps](ecs::World &w) { run_bind(w, deps); });
-        world.add_system(ecs::Schedule::Frame, ecs::Phase::UiRender, [deps](ecs::World &w) { run_ui_render(w, deps); });
+        // Without assets no document is cloned and no stylesheet merged: a canvas keeps the UiInstance it was given.
+        if (deps.assets != nullptr) {
+            AssetsDb &assets = *deps.assets;
+            world.add_system(ecs::Schedule::Frame, ecs::Phase::Bind,
+                             [&assets](ecs::World &w) { run_clone_documents(w, assets); });
+        }
+        world.add_system(ecs::Schedule::Frame, ecs::Phase::Bind, [](ecs::World &w) { run_bind(w); });
+        if (deps.assets != nullptr) {
+            AssetsDb &assets = *deps.assets;
+            world.add_system(ecs::Schedule::Frame, ecs::Phase::Bind,
+                             [&assets](ecs::World &w) { run_stylesheets(w, assets); });
+        }
+        // Without a command buffer there is nothing to draw into.
+        if (has_command_buffers(deps)) {
+            world.add_system(ecs::Schedule::Frame, ecs::Phase::UiRender,
+                             [deps](ecs::World &w) { run_ui_render(w, deps); });
+        }
     }
 
     void register_audio_systems(ecs::World &world, EngineSystemDeps deps) {
+        deps = with_fatal(std::move(deps));
         if (world.ctx<AudioSystemsRegistered>().value) {
             return;
         }
         world.ctx<AudioSystemsRegistered>().value = true;
-        world.add_system(ecs::Schedule::Frame, ecs::Phase::Audio, [deps](ecs::World &w) { run_audio(w, deps); });
+        // Without assets and audio the world has no audio system: PlaySfxEvent and PlayMusicEvent are never read.
+        if (deps.assets != nullptr && deps.audio != nullptr) {
+            AssetsDb &assets = *deps.assets;
+            IAudioSystem &audio = *deps.audio;
+            world.add_system(ecs::Schedule::Frame, ecs::Phase::Audio,
+                             [&assets, &audio](ecs::World &w) { run_audio(w, assets, audio); });
+        }
     }
 
     void register_engine_systems(ecs::World &world, EngineSystemDeps deps) {

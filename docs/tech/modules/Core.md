@@ -72,10 +72,10 @@ Any failure unloads the copy and deletes its directory. `GameModuleError` is the
 
 | Call | Does |
 | --- | --- |
-| `init()` | SDL video, `log::init`, every service, the input router, the fatal hook. Returns true at once after a success |
+| `init()` | SDL video, `log::init`, every service, the input router, the fatal hook. Returns `std::expected<void, EngineError>`: `VideoInit` when SDL video does not start, success at once after a success |
 | `services()` | `EngineServices` over the owned objects. Valid after `init` |
 | `fatal()` | the `IFatalError` the services use |
-| `open_primary(desc)` | creates `kPrimaryWindow`, starts audio and haptics, starts HTTP (a failure only warns, see [Net](Net.md)), sets the graphic factory and assets root, loads the engine catalog and `builtin::font_ui`, then `Worlds::set_deps`. A failure disposes the host and returns false |
+| `open_primary(desc)` | creates `kPrimaryWindow`, starts audio and haptics, starts HTTP (a failure only warns, see [Net](Net.md)), sets the graphic factory and assets root, loads the engine catalog and `builtin::font_ui`, then `Worlds::set_deps`. A failure disposes the host and returns `WindowCreate`, `AudioInit`, `HapticsInit`, `AssetsRoot`, `EngineCatalog`, or `UiFont`. Returns `VideoInit` when `init` has not succeeded |
 | `assets_root()` | the runtime assets root ([Runtime Assets](../build/Runtime%20Assets.md)) |
 | `load_catalog(dir)` | `<dir>/catalog.toml` with `dir` as its files root. A missing file (`MetaError::Io`) is success. Other errors return the `MetaError`. The game catalog and the editor's own catalog both load this way |
 | `unload_catalog(dir)` | `AssetsDb::unload_catalog(dir)`. Pass the same path `load_catalog` got |
@@ -86,7 +86,11 @@ Any failure unloads the copy and deletes its directory. `GameModuleError` is the
 
 `set_deps` registers simulation systems on worlds that already exist and on every later `Worlds::add`. `enable_ui` and `enable_audio` add the rest. Each registration is guarded by its `ctx` flag, so a world never gets a system twice, whether it was added before or after `set_deps`.
 
-`Engine<GameT>` (`include/engine/core/engine.h`) is a thin template: `init` runs `EngineHost::init`, constructs `GameT` from `services()`, `open_primary(game.primary_window())`, `load_catalog(assets_root())` (an error is fatal), and `attach_game`. `run` passes `RunHooks` that call `on_start` and `on_quit`. The game is destroyed before the host.
+`Engine<GameT>` (`include/engine/core/engine.h`) is a thin template: `init` runs `EngineHost::init`, constructs `GameT` from `services()`, `open_primary(game.primary_window())`, `load_catalog(assets_root())` (an error disposes the host and returns `GameCatalog`), and `attach_game`. It returns `std::expected<void, EngineError>`. `run` passes `RunHooks` that call `on_start` and `on_quit`. The game is destroyed before the host.
+
+### Startup errors
+
+`EngineError` (`include/engine/core/engine_error.h`, header only, all builds) names why the engine could not start: `VideoInit`, `WindowCreate`, `AudioInit`, `HapticsInit`, `AssetsRoot`, `EngineCatalog`, `UiFont`, `GameCatalog`. `to_string(error)` is the enumerator name (logs, tests), `message(error)` the sentence for the dialog. A startup failure is returned, never reported where it happens: `EngineHost::init`, `open_primary`, and `Engine<GameT>::init` show nothing and exit nothing, and each failure after `init` disposes the host first. The entry point is the one place that tells the user. `report_startup_error(error)` (declared in `engine_host.h`) logs the name and shows `message(error)` through a fresh `SdlFatalError`, so it also works for `VideoInit`, when the host has no fatal hook yet. `ENGINE_GAME`, the bench `main`, and `EditorApp::start` call it; a failure that belongs to one entry (the editor's missing project or its own catalog) calls its `IFatalError` directly. The detail of a `MetaError` from the game catalog is not part of the error. `EngineHost` and `EngineRuntime` have a constructor taking an `IPresentation` so a test can stand in for SDL.
 
 `SplashScreen` lives on this header (enabled, `builtin::splash_wind`, fade 0.4s, hold 1.0s, fade 0.4s). `IGame` has no splash method. A game calls `ui::show_splash`. See [UI](UI.md).
 
@@ -145,7 +149,25 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 
 `engine::log::init()` is a null sink for tests. `init(exe_dir)` writes `<exe_dir>/game.log`. `info`, `warn`, and `error` are the public facade. spdlog stays in `src/core/log.cpp`.
 
-`IFatalError::report` is the fatal hook (`include/engine/resources/fatal_error.h`). `SdlFatalError` shows an SDL message box and quits. It is compiled only with `ENGINE_WITH_WINDOW`.
+`IFatalError` (`include/engine/resources/fatal_error.h`) is the single fatal exit. `report` is `[[noreturn]]`: no caller writes code after it, and an implementation ends the process (or, in a test, throws). Two public contracts lead to it. `try_*` (I/O, mods, parsing) returns `std::expected` and never reports. `get` (a programmer or shipping-data bug) reports. `assert` stays for engine invariants and `log::warn` for content quality.
+
+| Implementation | `report` |
+| --- | --- |
+| `SdlFatalError` (`ENGINE_WITH_WINDOW` only) | SDL message box, `ApplicationState::quit()` when attached, then `std::exit(1)` |
+| `DefaultFatalError` (`include/engine/resources/default_fatal_error.h`, `default_fatal_error()`) | writes the message to stderr, then `std::abort()`. Used where no host supplied one |
+| a test double | throws, so a test asserts on the report (`tests/fixtures/fatal_fakes.h`: `FatalReport`) |
+
+`EngineSystemDeps::fatal` left unset becomes `default_fatal_error()` when `register_*_systems` runs, so the systems always dereference it. `Worlds::set_deps` fills in the `Worlds` fatal instead. `EngineSystemDeps` null members mean "subsystem not connected" and are read once, at registration, not per frame:
+
+| Dep | Without it |
+| --- | --- |
+| `commands` and `commands_for_window` both unset | `run_render` and `run_ui_render` are not registered |
+| `assets` | the document-clone and stylesheet-merge systems are not registered. `run_bind` still binds whatever `UiInstance` a canvas already has |
+| `assets` or `audio` | `run_audio` is not registered, so `PlaySfxEvent` and `PlayMusicEvent` are never read and nothing reports (the headless contract) |
+
+`AudioSystemsRegistered` is set by `register_audio_systems` even when no audio system was added; a second call with other deps does not add one. `run_stylesheets` warns once per world and `AssetId` about a stylesheet missing from the catalog, and looks it up again each frame because a catalog loaded later can supply it.
+
+`IBindErrorSink` (`ui/document.h`) is not a fatal exit: `apply_bindings` keeps walking after a failure, so it reports to a sink that returns.
 
 ## Always compiled
 
@@ -175,7 +197,8 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 | `src/core/engine_host.cpp` | `EngineHost`: services, primary window, catalogs, game attach and detach, run |
 | `src/core/engine_runtime.cpp` | owns `IPresentation` and `GameLoop` |
 | `src/core/engine_instantiate.cpp` | explicit instantiation of `Engine<WindowSmokeGame>` |
-| `src/core/sdl_fatal_error.cpp` | message box and quit |
+| `src/core/sdl_fatal_error.cpp` | message box, quit, exit |
+| `src/resources/default_fatal_error.cpp` | stderr and abort |
 | `src/core/game_module.cpp` | `load_game_module`, `GameModule`, `purge_game_module_copies` |
 | `src/render/opengl/sdl_gl_presentation.cpp` | SDL init, poll, windows, GL factory |
 
@@ -191,6 +214,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 - `include/engine/core/app_lifecycle.h`
 - `include/engine/core/build_info.h`
 - `include/engine/core/engine.h`
+- `include/engine/core/engine_error.h`
 - `include/engine/core/engine_host.h`
 - `include/engine/core/engine_runtime.h`
 - `include/engine/core/engine_services.h`
@@ -203,6 +227,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 - `include/engine/core/platform.h`
 - `include/engine/core/run_hooks.h`
 - `include/engine/core/sdl_fatal_error.h`
+- `include/engine/resources/default_fatal_error.h`
 - `include/engine/core/time.h`
 - `include/engine/core/web_loop.h`
 - `include/engine/core/file_dialog.h`
@@ -213,7 +238,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 
 ## Tests
 
-`tests/cmake_sanity_test.cpp`, `tests/host_test.cpp`, `tests/time_test.cpp`, `tests/input_test.cpp`, `tests/log_test.cpp`, `tests/platform_test.cpp`, `tests/web_loop_test.cpp`, `tests/android_lifecycle_test.cpp`, `tests/android_assets_test.cpp`, `tests/window_icon_test.cpp`, `tests/window_style_test.cpp`, `tests/event_window_test.cpp`, `tests/cli_server_test.cpp`, `tests/worlds_test.cpp`, `tests/game_loop_test.cpp` (`RunHooks` order, and `RunHooks::cli` answered without a primary world, with a fake `IPresentation`), `tests/game_entry_test.cpp` (module exports, window builds only), `tests/game_module_test.cpp` (loader against the fixture modules, editor build only; skipped elsewhere), `tests/file_dialog_test.cpp` (`FileDialogCall`).
+`tests/cmake_sanity_test.cpp`, `tests/host_test.cpp`, `tests/time_test.cpp`, `tests/input_test.cpp`, `tests/log_test.cpp`, `tests/platform_test.cpp`, `tests/web_loop_test.cpp`, `tests/android_lifecycle_test.cpp`, `tests/android_assets_test.cpp`, `tests/window_icon_test.cpp`, `tests/window_style_test.cpp`, `tests/event_window_test.cpp`, `tests/cli_server_test.cpp`, `tests/worlds_test.cpp`, `tests/game_loop_test.cpp` (`RunHooks` order, and `RunHooks::cli` answered without a primary world, with a fake `IPresentation`), `tests/engine_error_test.cpp` (names and messages), `tests/engine_host_test.cpp` (a failing `init_video` returns `VideoInit` over a fake `IPresentation`, no fatal report; window builds only), `tests/game_entry_test.cpp` (module exports, window builds only), `tests/game_module_test.cpp` (loader against the fixture modules, editor build only; skipped elsewhere), `tests/file_dialog_test.cpp` (`FileDialogCall`).
 
 ## See also
 

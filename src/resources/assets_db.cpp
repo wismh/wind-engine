@@ -485,7 +485,6 @@ render::Sprite AssetsDb::get_sprite(AssetId id, std::string_view name) {
 [[noreturn]] void AssetsDb::fail_get(AssetId id, AssetError error) {
     const std::string message = std::format("Asset {} error: {}", id.hex(), to_string(error));
     fatal_error_.report(message);
-    std::abort();
 }
 
 }

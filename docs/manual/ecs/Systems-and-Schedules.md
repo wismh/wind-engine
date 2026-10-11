@@ -33,6 +33,8 @@ Within each schedule, systems execute sequentially across predefined phases (`en
 6. Phase::UiRender --> Engine: UI canvases into the CommandBuffer
 ```
 
+An engine system exists only when the host gave it what it needs. A headless world (tests, tools) has no audio system, so a `PlaySfxEvent` or `PlayMusicEvent` there is never read and is not an error; with no command buffer it has no render systems either. A game with a scene to draw must have a valid `ActiveCamera`, or rendering reports a fatal error.
+
 `Phase::Physics` is not a frame phase: a system registered on `Frame` with that phase never runs. The engine registers its own systems before your `on_start`, so your `Phase::Game` systems run after the engine's of the same phase. Code that reads what the UI just did this frame (a click) belongs on `Schedule::Frame`, `Phase::Game`.
 
 ---

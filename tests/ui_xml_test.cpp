@@ -10,19 +10,9 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include "fixtures/fatal_fakes.h"
 
 namespace {
-
-class RecordingFatalError final : public engine::IFatalError {
-public:
-    int call_count = 0;
-    std::string last_message;
-
-    void report(std::string_view message) override {
-        ++call_count;
-        last_message = std::string(message);
-    }
-};
 
 class HudViewModel final : public engine::ui::ViewModel {
 public:
@@ -94,8 +84,9 @@ TEST(UiXml, ParseViewportCameraBindings) {
 }
 
 TEST(UiXml, ViewportLiteralPanIsFatal) {
-    RecordingFatalError fatal;
-    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Viewport pan-x="10"/></Canvas>)", &fatal);
+    fakes::RecordingFatal fatal;
+    EXPECT_THROW((void) engine::ui::parse_xml(R"(<Canvas><Viewport pan-x="10"/></Canvas>)", &fatal), fakes::FatalReport);
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Viewport pan-x="10"/></Canvas>)", nullptr);
     EXPECT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::MissingBinding);
     EXPECT_GE(fatal.call_count, 1);
@@ -128,8 +119,9 @@ TEST(UiXml, ParseSpaceSeparatedClasses) {
 }
 
 TEST(UiXml, UnknownElementIsFatal) {
-    RecordingFatalError fatal;
-    const auto parsed = engine::ui::parse_xml("<Canvas><Nope/></Canvas>", &fatal);
+    fakes::RecordingFatal fatal;
+    EXPECT_THROW((void) engine::ui::parse_xml("<Canvas><Nope/></Canvas>", &fatal), fakes::FatalReport);
+    const auto parsed = engine::ui::parse_xml("<Canvas><Nope/></Canvas>", nullptr);
     EXPECT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::UnknownElement);
     EXPECT_GE(fatal.call_count, 1);
@@ -138,8 +130,9 @@ TEST(UiXml, UnknownElementIsFatal) {
 
 TEST(UiXml, MissingBindingNameIsFatal) {
     HudViewModel vm;
-    RecordingFatalError fatal;
-    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Label text="{binding score}"/></Canvas>)", &fatal, &vm);
+    fakes::RecordingFatal fatal;
+    EXPECT_THROW((void) engine::ui::parse_xml(R"(<Canvas><Label text="{binding score}"/></Canvas>)", &fatal, &vm), fakes::FatalReport);
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Label text="{binding score}"/></Canvas>)", nullptr, &vm);
     EXPECT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::MissingBinding);
     EXPECT_GE(fatal.call_count, 1);
@@ -147,8 +140,9 @@ TEST(UiXml, MissingBindingNameIsFatal) {
 }
 
 TEST(UiXml, EmptyBindingPathIsFatal) {
-    RecordingFatalError fatal;
-    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Label text="{binding}"/></Canvas>)", &fatal);
+    fakes::RecordingFatal fatal;
+    EXPECT_THROW((void) engine::ui::parse_xml(R"(<Canvas><Label text="{binding}"/></Canvas>)", &fatal), fakes::FatalReport);
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Label text="{binding}"/></Canvas>)", nullptr);
     EXPECT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::MissingBinding);
     EXPECT_GE(fatal.call_count, 1);
@@ -185,8 +179,9 @@ TEST(UiXml, DragOrientationDefaultsHorizontal) {
 }
 
 TEST(UiXml, DragLiteralValueIsFatal) {
-    RecordingFatalError fatal;
-    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack drag="0.5"/></Canvas>)", &fatal);
+    fakes::RecordingFatal fatal;
+    EXPECT_THROW((void) engine::ui::parse_xml(R"(<Canvas><Stack drag="0.5"/></Canvas>)", &fatal), fakes::FatalReport);
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack drag="0.5"/></Canvas>)", nullptr);
     EXPECT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::MissingBinding);
     EXPECT_GE(fatal.call_count, 1);
@@ -194,8 +189,9 @@ TEST(UiXml, DragLiteralValueIsFatal) {
 
 TEST(UiXml, DragUnregisteredBindingIsFatal) {
     HudViewModel vm;
-    RecordingFatalError fatal;
-    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack drag="{binding nope}"/></Canvas>)", &fatal, &vm);
+    fakes::RecordingFatal fatal;
+    EXPECT_THROW((void) engine::ui::parse_xml(R"(<Canvas><Stack drag="{binding nope}"/></Canvas>)", &fatal, &vm), fakes::FatalReport);
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack drag="{binding nope}"/></Canvas>)", nullptr, &vm);
     EXPECT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::MissingBinding);
     EXPECT_GE(fatal.call_count, 1);
@@ -236,8 +232,9 @@ TEST(UiXml, CheckboxBindingAttributeParsesAndReadsInitialValue) {
 
 TEST(UiXml, CheckboxUnregisteredBindingIsFatal) {
     HudViewModel vm;
-    RecordingFatalError fatal;
-    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Checkbox checked="{binding nope}"/></Canvas>)", &fatal, &vm);
+    fakes::RecordingFatal fatal;
+    EXPECT_THROW((void) engine::ui::parse_xml(R"(<Canvas><Checkbox checked="{binding nope}"/></Canvas>)", &fatal, &vm), fakes::FatalReport);
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Checkbox checked="{binding nope}"/></Canvas>)", nullptr, &vm);
     EXPECT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::MissingBinding);
     EXPECT_GE(fatal.call_count, 1);
@@ -257,9 +254,11 @@ TEST(UiXml, ImageWithSliceParses) {
 }
 
 TEST(UiXml, InvalidSliceIsFatal) {
-    RecordingFatalError fatal;
+    fakes::RecordingFatal fatal;
+    EXPECT_THROW((void) engine::ui::parse_xml(
+            R"(<Canvas><Image source="a0e1b2c3d4f5678901234567890abc05" slice="bad-slice"/></Canvas>)", &fatal), fakes::FatalReport);
     const auto parsed = engine::ui::parse_xml(
-            R"(<Canvas><Image source="a0e1b2c3d4f5678901234567890abc05" slice="bad-slice"/></Canvas>)", &fatal);
+            R"(<Canvas><Image source="a0e1b2c3d4f5678901234567890abc05" slice="bad-slice"/></Canvas>)", nullptr);
     EXPECT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::InvalidMarkup);
     EXPECT_GE(fatal.call_count, 1);
@@ -310,63 +309,67 @@ TEST(UiXml, ItemTemplateSrcResolvesNestedIncludes) {
 }
 
 TEST(UiXml, ItemTemplateSrcWithoutResolverIsFatal) {
-    RecordingFatalError fatal;
-    const auto parsed = engine::ui::parse_xml(R"(<Canvas><ItemTemplate src="row.xml"/></Canvas>)", &fatal);
+    fakes::RecordingFatal fatal;
+    EXPECT_THROW((void) engine::ui::parse_xml(R"(<Canvas><ItemTemplate src="row.xml"/></Canvas>)", &fatal), fakes::FatalReport);
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><ItemTemplate src="row.xml"/></Canvas>)", nullptr);
     EXPECT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::Io);
     EXPECT_GE(fatal.call_count, 1);
 }
 
 TEST(UiXml, ItemTemplateSrcMissingFileIsFatal) {
-    RecordingFatalError fatal;
+    fakes::RecordingFatal fatal;
     const engine::ui::UiIncludeResolver resolve = [](std::string_view) -> std::optional<std::string> {
         return std::nullopt;
     };
-    const auto parsed =
-            engine::ui::parse_xml(R"(<Canvas><ItemTemplate src="missing.xml"/></Canvas>)", &fatal, nullptr, resolve);
+    EXPECT_THROW((void) engine::ui::parse_xml(R"(<Canvas><ItemTemplate src="missing.xml"/></Canvas>)", &fatal, nullptr, resolve), fakes::FatalReport);
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><ItemTemplate src="missing.xml"/></Canvas>)", nullptr, nullptr, resolve);
     EXPECT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::Io);
 }
 
 TEST(UiXml, ItemTemplateSrcInvalidXmlIsFatal) {
-    RecordingFatalError fatal;
+    fakes::RecordingFatal fatal;
     const engine::ui::UiIncludeResolver resolve = [](std::string_view) -> std::optional<std::string> {
         return std::string("not xml <<<");
     };
-    const auto parsed =
-            engine::ui::parse_xml(R"(<Canvas><ItemTemplate src="broken.xml"/></Canvas>)", &fatal, nullptr, resolve);
+    EXPECT_THROW((void) engine::ui::parse_xml(R"(<Canvas><ItemTemplate src="broken.xml"/></Canvas>)", &fatal, nullptr, resolve), fakes::FatalReport);
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><ItemTemplate src="broken.xml"/></Canvas>)", nullptr, nullptr, resolve);
     EXPECT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::InvalidMarkup);
 }
 
 TEST(UiXml, ItemTemplateSrcWithInlineChildrenIsFatal) {
-    RecordingFatalError fatal;
+    fakes::RecordingFatal fatal;
     const engine::ui::UiIncludeResolver resolve = [](std::string_view) -> std::optional<std::string> {
         return std::string(R"(<Label content="hi"/>)");
     };
-    const auto parsed = engine::ui::parse_xml(
+    EXPECT_THROW((void) engine::ui::parse_xml(
             R"(<Canvas><ItemTemplate src="row.xml"><Label content="inline"/></ItemTemplate></Canvas>)", &fatal, nullptr,
+            resolve), fakes::FatalReport);
+    const auto parsed = engine::ui::parse_xml(
+            R"(<Canvas><ItemTemplate src="row.xml"><Label content="inline"/></ItemTemplate></Canvas>)", nullptr, nullptr,
             resolve);
     EXPECT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::InvalidMarkup);
 }
 
 TEST(UiXml, ItemTemplateSrcSelfIncludeIsFatal) {
-    RecordingFatalError fatal;
+    fakes::RecordingFatal fatal;
     const engine::ui::UiIncludeResolver resolve = [](std::string_view src) -> std::optional<std::string> {
         if (src == "self.xml") {
             return std::string(R"(<ItemTemplate src="self.xml"/>)");
         }
         return std::nullopt;
     };
-    const auto parsed =
-            engine::ui::parse_xml(R"(<Canvas><ItemTemplate src="self.xml"/></Canvas>)", &fatal, nullptr, resolve);
+    EXPECT_THROW((void) engine::ui::parse_xml(R"(<Canvas><ItemTemplate src="self.xml"/></Canvas>)", &fatal, nullptr, resolve), fakes::FatalReport);
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><ItemTemplate src="self.xml"/></Canvas>)", nullptr, nullptr, resolve);
     EXPECT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::CyclicInclude);
 }
 
 TEST(UiXml, ItemTemplateSrcIndirectCycleIsFatal) {
-    RecordingFatalError fatal;
+    fakes::RecordingFatal fatal;
     const engine::ui::UiIncludeResolver resolve = [](std::string_view src) -> std::optional<std::string> {
         if (src == "a.xml") {
             return std::string(R"(<ItemTemplate src="b.xml"/>)");
@@ -376,8 +379,8 @@ TEST(UiXml, ItemTemplateSrcIndirectCycleIsFatal) {
         }
         return std::nullopt;
     };
-    const auto parsed =
-            engine::ui::parse_xml(R"(<Canvas><ItemTemplate src="a.xml"/></Canvas>)", &fatal, nullptr, resolve);
+    EXPECT_THROW((void) engine::ui::parse_xml(R"(<Canvas><ItemTemplate src="a.xml"/></Canvas>)", &fatal, nullptr, resolve), fakes::FatalReport);
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><ItemTemplate src="a.xml"/></Canvas>)", nullptr, nullptr, resolve);
     EXPECT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::CyclicInclude);
 }
@@ -394,8 +397,9 @@ TEST(UiXml, CustomPropertyAttributeParsesAsBinding) {
 }
 
 TEST(UiXml, CustomPropertyWithoutBindingIsFatal) {
-    RecordingFatalError fatal;
-    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Label var-tint="red"/></Canvas>)", &fatal);
+    fakes::RecordingFatal fatal;
+    EXPECT_THROW((void) engine::ui::parse_xml(R"(<Canvas><Label var-tint="red"/></Canvas>)", &fatal), fakes::FatalReport);
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Label var-tint="red"/></Canvas>)", nullptr);
     EXPECT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::ForbiddenContent);
     EXPECT_GE(fatal.call_count, 1);
@@ -471,16 +475,18 @@ TEST(UiXml, TrAttributeStoresKeyAndBindingArg) {
 }
 
 TEST(UiXml, TrAttributeRejectsMissingKey) {
-    RecordingFatalError fatal;
-    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Label text="{tr}"/></Canvas>)", &fatal);
+    fakes::RecordingFatal fatal;
+    EXPECT_THROW((void) engine::ui::parse_xml(R"(<Canvas><Label text="{tr}"/></Canvas>)", &fatal), fakes::FatalReport);
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Label text="{tr}"/></Canvas>)", nullptr);
     ASSERT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::InvalidMarkup);
     EXPECT_GE(fatal.call_count, 1);
 }
 
 TEST(UiXml, FormulaRejectsTr) {
-    RecordingFatalError fatal;
-    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Math formula="{tr menu.play}"/></Canvas>)", &fatal);
+    fakes::RecordingFatal fatal;
+    EXPECT_THROW((void) engine::ui::parse_xml(R"(<Canvas><Math formula="{tr menu.play}"/></Canvas>)", &fatal), fakes::FatalReport);
+    const auto parsed = engine::ui::parse_xml(R"(<Canvas><Math formula="{tr menu.play}"/></Canvas>)", nullptr);
     ASSERT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::InvalidMarkup);
     EXPECT_NE(fatal.last_message.find("formula"), std::string::npos);

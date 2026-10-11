@@ -27,6 +27,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include "fixtures/fatal_fakes.h"
 
 namespace {
 
@@ -68,11 +69,6 @@ public:
     std::shared_ptr<engine::render::ITexture> create_texture(const engine::render::TextureDesc& desc) override {
         return std::make_shared<FakeTexture>(desc.width, desc.height);
     }
-};
-
-class SilentFatalError final : public engine::IFatalError {
-public:
-    void report(std::string_view) override {}
 };
 
 struct TempTree {
@@ -218,7 +214,7 @@ duration = 0.2
     }
 
     FakeGraphicFactory factory;
-    SilentFatalError fatal;
+    fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
     db.set_catalog(std::move(catalog));
     db.set_root(tree.path);

@@ -66,9 +66,9 @@ Do not `#include` glad in tests. Command execution can record calls instead of d
 
 | Case | Result |
 | --- | --- |
-| Unknown UI element, missing `{binding}` name | Fatal (`IFatalError`) |
+| Unknown UI element, missing `{binding}` name | Fatal (`IFatalError`) when one is passed to `parse_xml` / `make_document`; `UiError` only when it is null |
 | Unknown CSS property | Warn, continue |
-| `AssetsDb::get` miss or type mismatch | Fatal hook |
+| `AssetsDb::get` miss or type mismatch | Fatal (`IFatalError::report`, which does not return) |
 | `try_get` | `std::expected<…, AssetError>`, no dialog |
 
 ## See also

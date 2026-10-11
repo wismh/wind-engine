@@ -9,6 +9,7 @@
 namespace engine::ui {
 namespace {
 
+// A null `fatal` is the caller opting out of reports: the failure is only the returned UiError.
 void report(IFatalError* fatal, std::string_view message) {
     if (fatal != nullptr) {
         fatal->report(message);

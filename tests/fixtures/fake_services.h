@@ -18,6 +18,8 @@
 #include <engine/resources/assets_db.h>
 #include <engine/resources/fatal_error.h>
 
+#include "fatal_fakes.h"
+
 #include <algorithm>
 #include <cstdint>
 #include <map>
@@ -28,11 +30,6 @@
 #include <vector>
 
 namespace fakes {
-
-class QuietFatal final : public engine::IFatalError {
-public:
-    void report(std::string_view) override {}
-};
 
 class FakeAudio final : public engine::IAudioSystem {
 public:

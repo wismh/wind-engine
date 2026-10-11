@@ -9,6 +9,8 @@
 #include <memory>
 #include <string_view>
 
+#include "fixtures/fatal_fakes.h"
+
 #if defined(ENGINE_WITH_WINDOW)
 #include "render/opengl/desktop_overlay_policy.h"
 #include "render/opengl/opengl_backend.h"
@@ -18,11 +20,6 @@
 #endif
 
 namespace {
-
-class QuietFatal final : public engine::IFatalError {
-public:
-    void report(std::string_view) override {}
-};
 
 class DummyGame final : public engine::GameBase {
 public:
@@ -35,7 +32,7 @@ TEST(WindowId, PrimaryWindowIsZero) {
 }
 
 TEST(PrimaryWindow, DefaultsMatchSdd) {
-    QuietFatal fatal;
+    fakes::QuietFatal fatal;
     engine::Worlds worlds{fatal};
     DummyGame game{worlds};
     const engine::WindowDesc desc = game.primary_window();

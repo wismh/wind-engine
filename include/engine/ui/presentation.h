@@ -16,7 +16,8 @@ struct Presentation {
 
 void bind_presentation(ecs::World& world, Presentation& presentation);
 
-// Fatal when this world was never bound. The report goes through `ctx<IFatalError*>` when set.
+// A world owned by Worlds (its `ctx<IFatalError*>` is set) must have been bound: otherwise this reports fatally.
+// A bare World, with no IFatalError, owns its Presentation in `ctx<Presentation>()`.
 [[nodiscard]] Presentation& presentation_of(ecs::World& world);
 
 void reset_pointer_frame(Presentation& presentation);

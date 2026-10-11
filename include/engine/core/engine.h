@@ -6,13 +6,14 @@
 #error "engine::Engine requires ENGINE_WITH_WINDOW"
 #endif
 
+#include <engine/core/engine_error.h>
 #include <engine/core/engine_host.h>
 #include <engine/core/engine_services.h>
 #include <engine/core/run_hooks.h>
 #include <engine/igame.h>
-#include <engine/resources/fatal_error.h>
 
 #include <concepts>
+#include <expected>
 #include <memory>
 
 namespace engine {
@@ -33,7 +34,9 @@ public:
     Engine(const Engine&) = delete;
     Engine& operator=(const Engine&) = delete;
 
-    bool init();
+    // Builds the host and the game. A failure disposes everything and returns the cause; nothing is shown to the
+    // user, `ENGINE_GAME` passes it to `report_startup_error`.
+    [[nodiscard]] std::expected<void, EngineError> init();
     int run();
     void dispose();
 
@@ -45,25 +48,26 @@ private:
 };
 
 template<EngineGame GameT>
-bool Engine<GameT>::init() {
+std::expected<void, EngineError> Engine<GameT>::init() {
     if (initialized_) {
-        return true;
+        return {};
     }
-    if (!host_.init()) {
-        return false;
+    if (const auto started = host_.init(); !started) {
+        return started;
     }
     game_ = std::make_unique<GameT>(host_.services());
-    if (!host_.open_primary(game_->primary_window())) {
-        return false;
+    if (const auto opened = host_.open_primary(game_->primary_window()); !opened) {
+        game_.reset();
+        return opened;
     }
-    if (!host_.load_catalog(host_.assets_root())) {
-        host_.fatal().report("Failed to load game catalog");
+    if (const auto loaded = host_.load_catalog(host_.assets_root()); !loaded) {
+        game_.reset();
         host_.dispose();
-        return false;
+        return std::unexpected(EngineError::GameCatalog);
     }
     host_.attach_game(*game_);
     initialized_ = true;
-    return true;
+    return {};
 }
 
 template<EngineGame GameT>

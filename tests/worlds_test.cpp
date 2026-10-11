@@ -20,15 +20,9 @@
 #include <string>
 #include <string_view>
 #include <variant>
+#include "fixtures/fatal_fakes.h"
 
 namespace {
-
-class ThrowingFatal final : public engine::IFatalError {
-public:
-    void report(std::string_view message) override {
-        throw std::runtime_error(std::string(message));
-    }
-};
 
 class FakeMesh final : public engine::render::IMesh {};
 
@@ -72,7 +66,7 @@ void spawn_drawable(engine::ecs::World& world, const std::shared_ptr<engine::ren
 }
 
 TEST(Worlds, EventInOneWorldIsNotVisibleInAnother) {
-    ThrowingFatal fatal;
+    fakes::QuietFatal fatal;
     engine::Worlds worlds{fatal};
     engine::ecs::World& first = worlds.add();
     engine::ecs::World& second = worlds.add();
@@ -84,7 +78,7 @@ TEST(Worlds, EventInOneWorldIsNotVisibleInAnother) {
 }
 
 TEST(Worlds, WindowEventGoesToTheBoundWorld) {
-    ThrowingFatal fatal;
+    fakes::QuietFatal fatal;
     engine::Worlds worlds{fatal};
     engine::ecs::World& first = worlds.add();
     engine::ecs::World& second = worlds.add();
@@ -102,7 +96,7 @@ TEST(Worlds, WindowEventGoesToTheBoundWorld) {
 }
 
 TEST(Worlds, SteppingFalseSkipsFixed) {
-    ThrowingFatal fatal;
+    fakes::QuietFatal fatal;
     engine::Worlds worlds{fatal};
     engine::ecs::World& first = worlds.add();
     engine::ecs::World& second = worlds.add();
@@ -129,7 +123,7 @@ TEST(Worlds, SteppingFalseSkipsFixed) {
 }
 
 TEST(Worlds, SecondBindOnTheSameWindowIsFatal) {
-    ThrowingFatal fatal;
+    fakes::QuietFatal fatal;
     engine::Worlds worlds{fatal};
     engine::ecs::World& first = worlds.add();
     engine::ecs::World& second = worlds.add();
@@ -140,7 +134,7 @@ TEST(Worlds, SecondBindOnTheSameWindowIsFatal) {
 }
 
 TEST(Worlds, MeshesGoToEachBoundWindowWithThatWindowSize) {
-    ThrowingFatal fatal;
+    fakes::QuietFatal fatal;
     engine::Worlds worlds{fatal};
     engine::render::CommandBuffer primary_buffer;
     engine::render::CommandBuffer guest_buffer;
@@ -182,7 +176,7 @@ TEST(Worlds, MeshesGoToEachBoundWindowWithThatWindowSize) {
 }
 
 TEST(Worlds, WindowlessWorldDoesNotTouchACommandBuffer) {
-    ThrowingFatal fatal;
+    fakes::QuietFatal fatal;
     engine::Worlds worlds{fatal};
     engine::render::CommandBuffer buffer;
     buffer.push(engine::render::CmdDrawMesh{});
@@ -200,7 +194,7 @@ TEST(Worlds, WindowlessWorldDoesNotTouchACommandBuffer) {
 }
 
 TEST(Worlds, DestroyUnbindsAndTheOtherWorldKeepsStepping) {
-    ThrowingFatal fatal;
+    fakes::QuietFatal fatal;
     engine::Worlds worlds{fatal};
     engine::ecs::World& first = worlds.add();
     engine::ecs::World& second = worlds.add();
@@ -217,7 +211,7 @@ TEST(Worlds, DestroyUnbindsAndTheOtherWorldKeepsStepping) {
 }
 
 TEST(Worlds, OsPauseRunsFrameOnlyForWorldsWithAWindow) {
-    ThrowingFatal fatal;
+    fakes::QuietFatal fatal;
     engine::Worlds worlds{fatal};
     engine::ecs::World& windowed = worlds.add();
     engine::ecs::World& windowless = worlds.add();
@@ -241,7 +235,7 @@ TEST(Worlds, OsPauseRunsFrameOnlyForWorldsWithAWindow) {
 }
 
 TEST(Worlds, BeginFrameDoesNotClearSharedMouseConsumption) {
-    ThrowingFatal fatal;
+    fakes::QuietFatal fatal;
     engine::Worlds worlds{fatal};
     engine::ecs::World& first = worlds.add();
     engine::ecs::World& second = worlds.add();
@@ -256,7 +250,7 @@ TEST(Worlds, BeginFrameDoesNotClearSharedMouseConsumption) {
 }
 
 TEST(Worlds, SystemsRegisterOnceWhetherTheWorldComesBeforeOrAfterSetDeps) {
-    ThrowingFatal fatal;
+    fakes::QuietFatal fatal;
     engine::Worlds worlds{fatal};
     engine::render::CommandBuffer early_buffer;
     engine::render::CommandBuffer late_buffer;
