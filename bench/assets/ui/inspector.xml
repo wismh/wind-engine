@@ -11,7 +11,7 @@
         <ItemTemplate>
           <Stack class="section" direction="vertical">
             <Button class="section-header hot" command="{binding toggle}" content="{binding title}"/>
-            <Stack class="section-body" direction="vertical" var-display="{binding bodyDisplay}">
+            <Stack class="section-body" direction="vertical" if="{binding bodyShown}">
               <ItemsControl class="groups" items_source="{binding groups}">
                 <ItemTemplate>
                   <Stack class="group" direction="vertical">
