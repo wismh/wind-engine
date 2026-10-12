@@ -1,5 +1,6 @@
 #pragma once
 
+#include "mouse_capture.h"
 #include "opengl_canvas.h"
 #include "system_cursors.h"
 #include "window_system.h"
@@ -93,6 +94,15 @@ public:
     // event is fine.
     [[nodiscard]] std::optional<WindowId> find_by_sdl_id(SDL_WindowID sdl_id) const;
 
+    // The one switch for SDL's process-wide mouse capture: the engine's drag-region window move and a game's
+    // IWindowControl::capture_mouse both go through it, so neither can switch off the other's capture.
+    [[nodiscard]] MouseCapture& mouse_capture() noexcept {
+        return capture_;
+    }
+    [[nodiscard]] const MouseCapture& mouse_capture() const noexcept {
+        return capture_;
+    }
+
     // The live window the mouse is over (SDL mouse focus), or nullopt.
     [[nodiscard]] std::optional<WindowId> mouse_focus() const;
 
@@ -138,6 +148,8 @@ private:
     static void draw_window(WindowId id, Entry& entry, std::span<FrameCapture> captures);
 
     render::IRenderBackend* backend_;
+    // Before windows_: a window's teardown ends its drag, which releases this capture.
+    MouseCapture capture_;
     // unique_ptr<Entry>: OpenGLCanvas captures WindowSystem&/CommandBuffer& by reference at
     // construction, so an Entry's address (and its members') must never move — a bare Entry value
     // in the map would dangle on rehash. The kPrimaryWindow entry, once inserted by the

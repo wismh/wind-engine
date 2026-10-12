@@ -19,6 +19,18 @@ A right click does not place a caret and does not clear focus. `clicks` is the O
 
 `run_dock_input` runs after `run_input` and also inserts the window for Down, Move, and Wheel on dock chrome and on virtual floats, including their empty parts, and on the tab strips and splitters of a dock float's own window ([Docking](Docking.md#input)).
 
+## Pointer targets
+
+`PointerTarget` (`include/engine/ecs/pointer_target.h`) makes a world entity hoverable and clickable. `run_pointer_targets` (`src/ecs/pointer_target.cpp`, Frame / Input) is registered after `run_input` and `run_dock_input`, so the order is fixed by the schedule: **the UI takes the pointer first, then the targets, then click-through reads the result.**
+
+1. `run_input` and `run_dock_input` fill `Presentation.mouse` for the events of the frame.
+2. For each `Down` / `Up` and for the last position of every window the world has seen, a target is tested only if its window is not in `Presentation.mouse` already. A target under the cursor also asks the UI once more at that position (`update_pointer_hover`), because a pointer resting on UI sends no event and the UI marks a window only when it handles one.
+3. The target under the cursor, if the UI has not taken it, gets `hovered`; leaving it (or UI coming over it, or `enabled = false`) clears it. The window is then added to `Presentation.mouse`, which is the click-through input, so a click on a sprite does not fall through a transparent window and a Game-phase system that ignores `consumed_for(window)` ignores that click too.
+
+Hit-testing is `pointer_target_at(world, window, screen)`: the cursor goes through the world's `ActiveCamera` with that window's size (`screen_to_world`, so pan and zoom count), then through the inverse of the entity's world matrix, so a rotated, scaled, or parented target is tested in its own space. The rectangle is `PointerTarget::size` at `pivot`, or `pixel_size / pixels_per_unit` at the sprite's pivot when the size is `{0, 0}`; a target with neither is never hit. The topmost target wins: the sprite's `layer`, then `order_in_layer` (the target's own fields when there is no sprite), then the later entity, the draw order. Matrices are the last `Phase::Transform`'s, which is what the player saw.
+
+Results are `ecs::EventWriter<PointerTargetEvent>` events and component state: `Enter`, `Exit`, `Press` (a button went down on it), and `Click` (the same button came up on the same target), plus `PointerTarget::hovered` and `pressed`. There is no callback on the component. A `Press` that the UI took is not sent.
+
 ## What a hit is
 
 An open `Popup` is above every canvas of its window. Canvases with an open popup are bound, laid out, and placed first, from highest `order` to lowest; the first with a popup under the point takes the event, even when the point is outside that canvas's rect. Otherwise canvases whose rect contains the point are tried from highest `order` to lowest. The top canvas is bound and laid out, then `hit_test`.
@@ -152,7 +164,7 @@ Scroll, drag, and pan write through `generated_owner` when that pointer is set, 
 
 ## Tests
 
-`tests/ui_layout_hit_test.cpp`, `tests/ui_cursor_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_popup_test.cpp`.
+`tests/pointer_target_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_cursor_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_popup_test.cpp`.
 
 ## See also
 

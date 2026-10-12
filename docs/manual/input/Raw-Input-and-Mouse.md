@@ -53,11 +53,44 @@ void gameplay_click_system(engine::ecs::World& world) {
 }
 ```
 
-The set is cleared once at the start of every frame and filled again while a mouse Move, Down, or Wheel event lands on an interactive UI element (a button, a text field, a scrollable area, an open popup). A plain label or empty panel does not consume the mouse. `world.ctx<engine::ui::MouseConsumed>()` is not that set: it never sees the UI's hits.
+The set is cleared once at the start of every frame and filled again while a mouse Move, Down, or Wheel event lands on an interactive UI element (a button, a text field, a scrollable area, an open popup). A plain label or empty panel does not consume the mouse. `world.ctx<engine::ui::MouseConsumed>()` is not that set: it never sees the UI's hits. For sprites and other world entities use [`PointerTarget`](#3-clickable-sprites-with-pointertarget) instead of testing the cursor yourself.
 
 ---
 
-## 3. Key Repeat Handling (`KeyEvent`)
+## 3. Clickable Sprites with `PointerTarget`
+
+For things in the world (a unit, a coin, a world-space button), give the entity a `PointerTarget` instead of hit-testing by hand. The engine tests the cursor against it, after the UI has had its turn, and counts it for click-through itself: you never write into `Presentation.mouse` for a sprite.
+
+```cpp
+#include <engine/ecs/pointer_target.h>
+
+// A 2 x 1 unit rectangle around the entity's position. With a Sprite that has a pixel_size,
+// leave size at {0, 0} and the sprite's own size and pivot are used.
+world.emplace<engine::PointerTarget>(coin, engine::PointerTarget{.size = {2.0f, 1.0f}});
+
+void coin_system(engine::ecs::World& world) {
+    for (const engine::PointerTargetEvent& e : engine::ecs::EventReader<engine::PointerTargetEvent>{
+             world, world.ctx<engine::ecs::EventCursor<engine::PointerTargetEvent>>()}) {
+        switch (e.kind) {
+        case engine::PointerTargetEvent::Kind::Enter: highlight(e.entity, true); break;
+        case engine::PointerTargetEvent::Kind::Exit: highlight(e.entity, false); break;
+        case engine::PointerTargetEvent::Kind::Click: collect(e.entity); break;   // press and release on it
+        case engine::PointerTargetEvent::Kind::Press: break;                      // button went down
+        }
+    }
+}
+```
+
+`PointerTarget::hovered` and `pressed` hold the same state if you would rather poll. Rules:
+
+- The rectangle is in the entity's space: it follows `Transform` (position, rotation, scale) and a `Parent`. The camera's pan and zoom, and each window's size, are applied for you.
+- Overlapping targets: the topmost wins, using the sprite's `layer` and `order_in_layer` (the target's own fields when the entity has no sprite), then the later entity, which is the draw order. `enabled = false` takes a target out. `window` limits it to one window.
+- UI first. A button, scroll area, or popup under the cursor takes the pointer: the target below it gets no hover, press, or click, and an `Exit` if it was hovered. Plain labels and empty panels do not take the pointer.
+- A window with a target under the cursor is added to `Presentation.mouse`, so a transparent click-through window keeps the click, and a gameplay system that checks `consumed_for(window)` before acting on the ground ignores that click too. The order (UI, then targets, then click-through) is fixed by the engine's system order, so you cannot call it in the wrong order.
+
+---
+
+## 4. Key Repeat Handling (`KeyEvent`)
 
 `InputSystem` suppresses OS key auto-repeat for `InputEvent` (so holding Space only fires one Jump action).
 

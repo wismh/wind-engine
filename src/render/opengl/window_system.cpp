@@ -1,5 +1,7 @@
 #include "window_system.h"
 
+#include "mouse_capture.h"
+
 #include <engine/log.h>
 
 #include <cmath>
@@ -383,7 +385,9 @@ bool WindowSystem::begin_drag_if_in_region(glm::vec2 window_local_pos) {
     int window_y = 0;
     SDL_GetWindowPosition(window_, &window_x, &window_y);
     drag_start_window_pos_ = glm::ivec2{window_x, window_y};
-    SDL_CaptureMouse(true);
+    if (capture_ != nullptr) {
+        capture_->begin_window_drag();
+    }
     dragging_ = true;
     return true;
 }
@@ -405,7 +409,9 @@ void WindowSystem::end_drag() {
         return;
     }
     dragging_ = false;
-    SDL_CaptureMouse(false);
+    if (capture_ != nullptr) {
+        capture_->end_window_drag();
+    }
 }
 
 glm::ivec2 WindowSystem::drawable_size() const {
