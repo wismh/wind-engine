@@ -30,6 +30,7 @@ UI hierarchies are authored as XML documents in `assets/ui/`. The root element i
 - `<Button>`: text from `content` (or `text`) plus `command="{binding name}"`, an `ICommand` on the view model.
 - `<Image source="...">`: a picture. `source` is an asset id (32 hex characters) or `{binding path}` to an `AssetId` property, never a file name. The asset is a PNG whose `.meta` says `importer = "ui_image"` (a PNG used only by the UI) or `"texture"`.
 - `<Checkbox checked="..." command="{binding name}"/>`: a toggle; `checked` is `true`/`1` or a `{binding}`.
+- `<Slider value="{binding name}" min="0" max="1" step="0"/>`: drag to pick a number in a range; the engine places the `slider-handle` and `slider-fill` parts from your CSS ([HUD & Controls](HUD-and-Controls.md#4-sliders)).
 - `<TextInput>`: an editable string bound with `text="{binding name}"`.
 - `<ItemsControl items_source="{binding name}">` with an `<ItemTemplate>`: one clone of the template per list item ([HUD & Controls](HUD-and-Controls.md#3-lists-with-itemscontrol)).
 - `<Line>`: a segment, styled with `x1`, `y1`, `x2`, `y2`, `stroke`, `stroke-width`.
@@ -38,7 +39,7 @@ UI hierarchies are authored as XML documents in `assets/ui/`. The root element i
 - `<Component>`: an empty layout hole.
 - `<Math formula="...">`: LaTeX math ([Math Formulae](Math-Formulae.md)).
 
-There is no `<Panel>` or `<Text>`: an unknown tag is a load error. Every element accepts `id`, `class` (space separated), and `name`. A custom style variable is `var-<name>="{binding path}"`. Colors, sizes, and paint come from CSS, not from attributes.
+There is no `<Panel>` or `<Text>`: an unknown tag is a load error. Every element accepts `id`, `class` (space separated), and `name`. A custom style variable is `var-<name>="{binding path}"`; any element also takes `if="{binding visible}"` to remove it from the layout while the bound bool is false ([MVVM & Bindings](MVVM-and-Bindings.md#4-showing-and-hiding-with-if)). Colors, sizes, and paint come from CSS, not from attributes.
 
 ---
 

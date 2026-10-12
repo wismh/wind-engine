@@ -11,6 +11,7 @@ Unknown tags call `IFatalError` when one was passed (it does not return) and oth
 | `text`, `content` | literal, `{binding path}`, `{tr key}`, `{tr key name={binding path}}` |
 | `formula` | literal or `{binding}`. `{tr}` is rejected |
 | `command`, `paint`, `drag`, `if`, `pan-x`, `pan-y`, `zoom`, `scroll-x`, `scroll-y` | `{binding}` only. `if` is a bool (or any number): zero removes the element from layout |
+| `value` on `Slider` | `{binding}` only, required. `min`, `max`, `step` are number literals (`max` above `min`, `step` not negative) |
 | `source` | 32 lowercase hex, or `{binding}`. Not a filename |
 | `checked`, `open` on `Popup` | Trimmed `true` or `1` sets it. Any other non-binding literal, including `false` and `0`, sets it false and is not an error. Or `{binding}` |
 | `placement` on `Popup` | `bottom-start`, `bottom-end`, `top-start`, `top-end`, `right-start`, `right-end`, `left-start`, `left-end`. Anything else is `UiError::InvalidMarkup` |
@@ -33,6 +34,8 @@ One `slice` length applies to every side, two to block and inline, three to top 
 An attribute that is still unknown is ignored. `var-` with an empty name is ignored. `Node::var` (`src/ui/builder.cpp`) is the builder path: an empty name or an unbound id does nothing.
 
 `{binding}` is interned to a `BindingId` at parse time. The element keeps only the id. `parse_xml` also fills `UiDocument::binding_paths` (id to path, item templates included) so a bind error can name the path.
+
+`Slider` ignores XML children and generates its two parts; see [UI](../modules/UI.md#slider).
 
 `Label` and `Button` text may contain `\(...\)`. `\\(` and `\\)` are the literals `\(` and `\)`. An unclosed `\(` stays plain text. A display formula is `<Math display="true">`.
 
@@ -76,7 +79,7 @@ A `Bindable<T>` reports a change through `on_changed`, so a game does not poll a
 
 A bound command sets `disabled` from `!can_execute()` on every bind, except `TextInput`. See [UI Input](UI%20Input.md).
 
-`ItemsControl` clones `ItemTemplate` once per `BindableList` element. The row's `generated_owner` is that item view-model.
+`ItemsControl` clones `ItemTemplate` once per `BindableList` element. Every binding inside the template (`var-<name>`, `drag`, `if`, `value`, `text`, ...) resolves against the row view-model, and a name that row does not register is reported once for that row. So a list of slots can be laid out by position and dragged: the template root takes `var-x="{binding x}"` / `var-y="{binding y}"` (a `Bindable<float>` is pixels), `var-z="{binding z}"` and `z-index: var(--z)` for the order, and `drag="{binding fraction}"`, with `position: absolute; left: var(--x); top: var(--y)` in CSS. The items are placed against the nearest positioned ancestor. A list of absolute rows is never virtualized ([UI](../modules/UI.md)), so every slot exists. The row's `generated_owner` is that item view-model.
 
 `asset_codegen` scans `importer = "ui"` XML (`src/ui/bind_scan.h`) and emits, in `asset_ids.h`:
 
@@ -131,7 +134,7 @@ Non-stack children (Canvas, Button, Label) overlay the same content rect. Each c
 
 ## Tests
 
-`tests/ui_bindable_visibility_test.cpp`, `tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_popup_test.cpp`, `tests/ui_bind_error_test.cpp`, `tests/assets_test.cpp`.
+`tests/ui_bindable_visibility_test.cpp`, `tests/ui_slider_test.cpp`, `tests/ui_absolute_items_test.cpp`, `tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_popup_test.cpp`, `tests/ui_bind_error_test.cpp`, `tests/assets_test.cpp`.
 
 ## See also
 

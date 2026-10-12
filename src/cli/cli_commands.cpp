@@ -201,6 +201,8 @@ namespace engine::cli {
                     return "Math";
                 case ui::ElementKind::Popup:
                     return "Popup";
+                case ui::ElementKind::Slider:
+                    return "Slider";
             }
             return "Element";
         }
