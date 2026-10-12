@@ -14,7 +14,7 @@ notification on `Bindable`, a cursor/capture API, a Slider control, or a RNG exi
 
 ---
 
-## wind-213 feat: bindable change notification, visibility and typed length bindings (E1, E3, E4)
+## wind-213 feat: bindable change notification, visibility and typed length bindings (E1, E3, E4) — done (wind-213, release v0.1.10a)
 
 Problem: a value the XML changes itself (drag, TextInput, Checkbox) can only be read by polling; show/hide needs a
 0-or-1-item `ItemsControl` or a `"none"`/`"flex"` string; positions are formatted as `"12.5px"` strings every frame.
@@ -30,7 +30,7 @@ Done when: tests in `engine_tests` cover XML-originated change notification, vis
 residue, and a float-bound `left`; `docs/tech/features/UI Markup.md` and `docs/manual` updated; no string-formatting
 path left as the only way to move an element.
 
-Status: in progress (wind-213).
+Status: done (wind-213, release v0.1.10a).
 
 ### Migration (wind-213, E1, E3, E4)
 
@@ -46,7 +46,7 @@ Status: in progress (wind-213).
   `var-x="{binding x}"` with `left: var(--x)`. A bare number in a CSS length is pixels, and that worked before; it is
   now tested and documented. `em` and `%` still take a string. Delete the pixel formatting helpers.
 
-## wind-214 feat: `RelayCommand::bind_to` and late-owner commands (E2)
+## wind-214 feat: `RelayCommand::bind_to` and late-owner commands (E2) — done (wind-214, release v0.1.8a)
 
 Problem: `RelayCommand` takes only `std::function`; each button costs a lambda plus a public hook in the view model.
 `MemberCommand<Owner,&Method>` could not work because generated `Asset::bind()` needs the view model before its owner
@@ -59,7 +59,7 @@ Do:
 
 Done when: tests cover both forms and re-binding to a new owner; the `wind-cpp` skill and manual match the real API.
 
-Status: in progress (wind-214).
+Status: done (wind-214, release v0.1.8a).
 
 ### Migration (wind-214, E2)
 
@@ -73,7 +73,7 @@ Status: in progress (wind-214).
   the game's own member-command header and change the members to `engine::ui::MethodCommand`. `RelayCommand` stays for
   tests and quick scripts.
 
-## wind-215 feat: absolute-positioned, drag-bound `ItemsControl` items and a Slider control (E5, E9)
+## wind-215 feat: absolute-positioned, drag-bound `ItemsControl` items and a Slider control (E5, E9) — done (wind-215, release v0.1.12a)
 
 RFC: td-over `docs/engine-proposals/drag-binding-in-itemscontrol.md`. Needs wind-213.
 
@@ -88,7 +88,7 @@ Do:
 Done when: tests cover drag inside a templated item and slider value round-trip; `UI Markup.md` lists the new tag and
 function.
 
-Status: in progress (wind-215).
+Status: done (wind-215, release v0.1.12a).
 
 ### Migration (wind-215, E5, E9)
 
@@ -107,7 +107,7 @@ Status: in progress (wind-215).
   one CSS custom property. `translate()` was not added to `transform`: nothing needed it. Delete the slider code and the
   duplicated constant.
 
-## wind-216 feat: global cursor, mouse capture and pointer targets for sprites (E6, E7)
+## wind-216 feat: global cursor, mouse capture and pointer targets for sprites (E6, E7) — done (wind-216, release v0.1.13a)
 
 Problem: dragging across or out of secondary windows needs Win32 `GetCursorPos`/`GetAsyncKeyState` in game code;
 click-through over sprites needs hand-rolled hit tests and writes into `mouse.consumed_windows`, with a hidden
@@ -122,7 +122,7 @@ Do:
 Done when: headless tests cover hit-testing and capture state; `Windowing.md` and `UI Input.md` updated; a game needs
 no `windows.h` for drag or click-through.
 
-Status: in progress (wind-216).
+Status: done (wind-216, release v0.1.13a).
 
 ### Migration (wind-216, E6, E7)
 
@@ -143,7 +143,7 @@ Status: in progress (wind-216).
 - Breaking for any code that implements `IWindowControl` (a test double in a game): the four new pure virtuals
   above must be added.
 
-## wind-217 feat: RAII `UiWindow` for secondary windows (E8)
+## wind-217 feat: RAII `UiWindow` for secondary windows (E8) — done (wind-217, release v0.1.14a)
 
 Problem: open window, bind world, create canvas, set drag region (excluding the close button), then the mirror
 sequence on close, repeated per window; close requests are dispatched by an `if-else` chain over `WindowId`.
@@ -154,7 +154,7 @@ helper.
 
 Done when: tests cover open/close/destroy ordering without a real window; `Windowing.md` updated.
 
-Status: in progress (wind-217).
+Status: done (wind-217, release v0.1.14a).
 
 ### Migration (wind-217, E8)
 
@@ -171,7 +171,7 @@ Status: in progress (wind-217).
 - Breaking for code that implements `IWindowControl` (a test double): `set_drag_exclusions(rects, window)` is a new pure
   virtual (besides the wind-216 ones).
 
-## wind-218 feat: per-instance material parameters and `Sprite` from animation frame (E10, E15)
+## wind-218 feat: per-instance material parameters and `Sprite` from animation frame (E10, E15) — done (wind-218, release v0.1.11a)
 
 RFC: td-over `docs/engine-proposals/per-instance-shader-overrides.md`.
 
@@ -184,7 +184,7 @@ SpriteFrame&)` or first-frame auto-init in `SpriteAnimator`.
 Done when: tests cover override isolation between two instances of one material and frame-to-sprite initialization;
 `Materials and Sort.md` updated.
 
-Status: in progress (wind-218).
+Status: done (wind-218, release v0.1.11a).
 
 ### Migration (wind-218, E10, E15)
 
@@ -200,7 +200,7 @@ Status: in progress (wind-218).
   the `SpriteAnimator`: the animation system puts the frame on the sprite on the first tick, also for a paused animator.
   Delete the hand-written copy.
 
-## wind-219 feat: public config read/write and `engine::Random` (E13, E14)
+## wind-219 feat: public config read/write and `engine::Random` (E13, E14) — done (wind-219, release v0.1.9a)
 
 Problem: games hand-parse JSON-ish files because tomlplusplus is private; every game keeps its own `mt19937`, so
 tests and replays are not deterministic.
@@ -210,7 +210,7 @@ Do: `engine::config` (key-value or table, over `user_data_directory`); `engine::
 Done when: tests cover round-trip and malformed input (error, not UB); same seed gives the same sequence; no
 toml/random third-party header leaks into `include/`.
 
-Status: in progress (wind-219).
+Status: done (wind-219, release v0.1.9a).
 
 ### Migration (wind-219, E13, E14)
 
