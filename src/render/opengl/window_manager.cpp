@@ -133,6 +133,9 @@ std::optional<WindowId> WindowManager::create_window(const WindowDesc& desc) {
         return std::nullopt;
     }
 
+    // Keep the primary context current: secondary init() created and bound its own context.
+    SDL_GL_MakeCurrent(primary->window.window(), primary->canvas->native_context());
+
     const WindowId id{next_id_++};
     init_swap_interval(id, *entry);
     windows_[id] = std::move(entry);
@@ -169,6 +172,11 @@ void WindowManager::destroy_window(WindowId id) {
         return;
     }
     windows_.erase(id);
+    if (has_window(kPrimaryWindow) && SDL_GL_GetCurrentContext() == nullptr) {
+        if (render::OpenGLCanvas* const primary = canvas(kPrimaryWindow)) {
+            primary->make_current();
+        }
+    }
 }
 
 void WindowManager::shutdown() {
