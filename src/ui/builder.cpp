@@ -125,6 +125,17 @@ Node& Node::paint_bind(BindingId id) {
     return *this;
 }
 
+Node& Node::slider_range(float min, float max, float step) {
+    if (!(max > min) || !(step >= 0.0f)) {
+        error_ = "UI Slider needs max > min and step >= 0";
+        return *this;
+    }
+    element_.slider_min = min;
+    element_.slider_max = max;
+    element_.slider_step = step;
+    return *this;
+}
+
 Node& Node::drag_bind(BindingId id) {
     element_.drag_binding = id;
     return *this;
@@ -328,6 +339,12 @@ Node scroll_view() {
 
 Node checkbox() {
     return Node(ElementKind::Checkbox);
+}
+
+Node slider() {
+    Node node(ElementKind::Slider);
+    add_slider_parts(node.element_);
+    return node;
 }
 
 Node math_formula() {

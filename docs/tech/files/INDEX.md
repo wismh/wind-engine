@@ -388,6 +388,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/sprite_test.cpp` | Sprite sheet UVs and `get_sprite` | [Assets](../features/Assets.md) |
 | `tests/time_test.cpp` | Clamp, pause, and the step cap | [Core](../modules/Core.md) |
 | `tests/ui_bindable_visibility_test.cpp` | `Bindable::on_changed`, the `if` binding, float-bound lengths | [UI Markup](../features/UI%20Markup.md) |
+| `tests/ui_slider_test.cpp` | `Slider`: parse, value to handle rect, pointer to value with step, vertical, rows, errors, builder | [UI](../modules/UI.md#slider) |
+| `tests/ui_absolute_items_test.cpp` | Items placed by bound position, drag per item, z order, add and remove, no virtualization of absolute rows | [UI Markup](../features/UI%20Markup.md) |
 | `tests/ui_builder_test.cpp` | `ui::Node` tree matches XML | [UI Markup](../features/UI%20Markup.md) |
 | `tests/ui_css_test.cpp` | Selectors, lengths, unknown properties, warning lines, stylesheet generation | [UI Markup](../features/UI%20Markup.md) |
 | `tests/ui_display_none_test.cpp` | `display: none` skips layout and hit-test | [UI Markup](../features/UI%20Markup.md) |
