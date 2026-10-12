@@ -336,6 +336,10 @@ if(WIN32)
     # cli_server.cpp (ENGINE_CLI_SERVER) calls WinSock and the ACL APIs; src/net/winhttp_session.cpp calls
     # WinHTTP. A static library does not propagate PRIVATE link libs, so games that link engine need them PUBLIC.
     target_link_libraries(engine PUBLIC ws2_32 advapi32 winhttp)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets")
+        target_include_directories(engine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/include")
+        target_link_libraries(engine PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/lib/x64/GameNetworkingSockets.lib")
+    endif()
 elseif(UNIX AND NOT ANDROID AND NOT EMSCRIPTEN)
     # src/net/curl_library.cpp opens the system libcurl with dlopen (no libcurl header or library is needed to
     # build). glibc before 2.34 keeps dlopen in libdl; CMAKE_DL_LIBS is empty on macOS.
@@ -551,6 +555,15 @@ if(ENGINE_BUILD_TESTS)
         "ENGINE_BUILTIN_ASSETS_DIR=\"${_engine_builtin_assets}\""
         "ENGINE_SOURCE_DIR=\"${_engine_source_dir}\"")
     engine_prepare_runtime(engine_tests)
+    if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/bin/x64")
+        file(GLOB _gns_dlls "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/bin/x64/*.dll")
+        add_custom_command(TARGET engine_tests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${_gns_dlls}
+                "$<TARGET_FILE_DIR:engine_tests>"
+            COMMENT "Copy GameNetworkingSockets DLLs beside engine_tests"
+            VERBATIM)
+    endif()
     if(ENGINE_EDITOR)
         # Game modules for tests/game_module_test.cpp and editor/tests/play_session_test.cpp, built from
         # tests/fixtures/game_module/ like a game module: as is, with another build id, and without
