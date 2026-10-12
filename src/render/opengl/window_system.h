@@ -9,11 +9,17 @@
 #include <glm/vec2.hpp>
 
 #include <optional>
+#include <span>
 #include <string_view>
+#include <vector>
 
 namespace engine {
 
 class MouseCapture;
+
+// Whether `point` (client pixels) is in `region` and in none of `exclusions`. The drag region test of WindowSystem.
+[[nodiscard]] bool drag_region_contains(const std::optional<render::Rect>& region,
+        std::span<const render::Rect> exclusions, glm::vec2 point) noexcept;
 
 class WindowSystem {
 public:
@@ -107,6 +113,11 @@ public:
         drag_region_ = region;
     }
 
+    // Rectangles inside the drag region that do not start a drag (and are not counted as drag region by click-through).
+    void set_drag_exclusions(std::vector<render::Rect> exclusions) noexcept {
+        drag_exclusions_ = std::move(exclusions);
+    }
+
     // starts a manually-implemented drag if `window_local_pos` (client pixels, e.g. from
     // an SDL_EVENT_MOUSE_BUTTON_DOWN's x/y) falls inside drag_region_, deliberately *without* ever
     // going through the OS's native HTCAPTION/DefWindowProc-modal-loop path. That path hands control
@@ -151,6 +162,7 @@ private:
     bool click_through_enabled_ = false;
     bool click_through_applied_ = false;
     std::optional<render::Rect> drag_region_;
+    std::vector<render::Rect> drag_exclusions_;
     MouseCapture* capture_ = nullptr;
     bool dragging_ = false;
     glm::ivec2 drag_start_cursor_screen_{};        // valid only while dragging_

@@ -154,6 +154,23 @@ helper.
 
 Done when: tests cover open/close/destroy ordering without a real window; `Windowing.md` updated.
 
+Status: in progress (wind-217).
+
+### Migration (wind-217, E8)
+
+- Old: per window, `open_window`, `Worlds::bind_window`, `enable_ui`, a `UiCanvas` with `window = id`, a drag region
+  notched by hand around the close button, and on close the mirror sequence; close requests dispatched with an `if`
+  chain over `WindowId` from `WindowCloseRequestedEvent`.
+- New: `engine::UiWindow::open(services.windows, services.worlds, world, window_desc, canvas)` (`<engine/ui/ui_window.h>`)
+  returns `std::expected<UiWindow, UiWindowError>`. Keep it in a `std::optional<UiWindow>` declared after the services
+  and world; the destructor (or `close()`) destroys the window's canvases, unbinds it, and closes it. `take_close_requested()`
+  is true once per OS close request of that window (no `WindowId` chain; the callback form was not added: the engine's
+  UI-to-game rule is events and flags, not lambdas). `set_drag_region(rect)` drags the window by `rect` and leaves out
+  every button, text field, slider, scroll area, and open popup inside it by itself. `center_on_work_area()` replaces the
+  hand-written work-area maths. Delete the open/close sequences, the close-event dispatch, and the hand-notched rectangle.
+- Breaking for code that implements `IWindowControl` (a test double): `set_drag_exclusions(rects, window)` is a new pure
+  virtual (besides the wind-216 ones).
+
 ## wind-218 feat: per-instance material parameters and `Sprite` from animation frame (E10, E15)
 
 RFC: td-over `docs/engine-proposals/per-instance-shader-overrides.md`.
