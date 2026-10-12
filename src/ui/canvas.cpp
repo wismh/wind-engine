@@ -440,6 +440,28 @@ namespace engine::ui {
         // resolve_pointer_hit() applies before hit-testing) and returns the clamped [0,1] fraction along
         // `orientation`'s axis of `rect`. No min/max/step — remapping a raw fraction into a domain-specific
         // range belongs to the game's ViewModel, not the engine.
+        // What a drag writes for a Slider: the pointer's place on the track (the handle's centre follows the pointer, so
+        // the travel is the track less the handle) mapped into [min, max], vertical sliders growing upward, and
+        // snapped to `step`. Layout pixels, like compute_drag_fraction.
+        float compute_slider_value(const ActiveDrag &drag, float x, float y) {
+            const bool horizontal = drag.orientation == StackDirection::Horizontal;
+            const float local = horizontal ? (x - drag.space_offset.x) / drag.space_scale
+                                           : (y - drag.space_offset.y) / drag.space_scale;
+            const float start = horizontal ? drag.rect.x : drag.rect.y;
+            const float length = horizontal ? drag.rect.w : drag.rect.h;
+            const float travel = length - drag.slider_handle;
+            float t = travel > 0.0f ? (local - start - drag.slider_handle * 0.5f) / travel : 0.0f;
+            t = std::clamp(t, 0.0f, 1.0f);
+            if (!horizontal) {
+                t = 1.0f - t;
+            }
+            Element range;
+            range.slider_min = drag.slider_min;
+            range.slider_max = drag.slider_max;
+            range.slider_step = drag.slider_step;
+            return slider_snap(range, drag.slider_min + t * (drag.slider_max - drag.slider_min));
+        }
+
         float compute_drag_fraction(StackDirection orientation, const render::Rect &rect, glm::vec2 space_offset,
                                     float space_scale, float x, float y) {
             const float local_x = (x - space_offset.x) / space_scale;
@@ -891,10 +913,7 @@ namespace engine::ui {
                     shown.x += hit->popup->popup_offset.x;
                     shown.y += hit->popup->popup_offset.y;
                 }
-                const float fraction = compute_drag_fraction(hit->element->drag_orientation, shown, hit->space.offset,
-                                                             hit->space.scale, x, y);
-                target->write_property_float(hit->element->drag_binding, fraction);
-                world.ctx<UiActiveDrags>().drags[window] = ActiveDrag{
+                ActiveDrag drag{
                         hit->entity,
                         hit->element->drag_binding,
                         shown,
@@ -903,6 +922,23 @@ namespace engine::ui {
                         hit->element->drag_orientation,
                         hit->element->generated_owner,
                 };
+                float written = 0.0f;
+                if (hit->element->kind == ElementKind::Slider) {
+                    drag.slider = true;
+                    drag.slider_min = hit->element->slider_min;
+                    drag.slider_max = hit->element->slider_max;
+                    drag.slider_step = hit->element->slider_step;
+                    if (hit->element->children.size() > 1) {
+                        const render::Rect &handle = hit->element->children[1].layout_rect;
+                        drag.slider_handle = drag.orientation == StackDirection::Horizontal ? handle.w : handle.h;
+                    }
+                    written = compute_slider_value(drag, x, y);
+                } else {
+                    written = compute_drag_fraction(hit->element->drag_orientation, shown, hit->space.offset,
+                                                    hit->space.scale, x, y);
+                }
+                target->write_property_float(hit->element->drag_binding, written);
+                world.ctx<UiActiveDrags>().drags[window] = drag;
             }
 
             bool clicked_scrollbar = false;
@@ -1065,9 +1101,11 @@ namespace engine::ui {
                 target = static_cast<ViewModel *>(const_cast<void *>(drag.owner));
             }
 
-            const float fraction =
-                    compute_drag_fraction(drag.orientation, drag.rect, drag.space_offset, drag.space_scale, x, y);
-            target->write_property_float(drag.value_binding, fraction);
+            const float written =
+                    drag.slider ? compute_slider_value(drag, x, y)
+                                : compute_drag_fraction(drag.orientation, drag.rect, drag.space_offset,
+                                                        drag.space_scale, x, y);
+            target->write_property_float(drag.value_binding, written);
         }
 
     } // namespace
