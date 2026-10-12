@@ -1,12 +1,45 @@
 #include <gtest/gtest.h>
 
 #if defined(ENGINE_WITH_WINDOW)
+#include "render/opengl/opengl_factory.h"
 #include "render/opengl/opengl_texture.h"
 
 #include <cstdint>
 #include <vector>
 
 namespace {
+
+TEST(OpenGLFactory, ContextActivatorIsInvokedOnResourceCreation) {
+    int activator_calls = 0;
+    engine::render::OpenGLFactory factory([&activator_calls] {
+        ++activator_calls;
+    });
+
+    (void)factory.create_texture(engine::render::TextureDesc{});
+    EXPECT_EQ(activator_calls, 1);
+
+    (void)factory.create_mesh(engine::render::MeshDesc{});
+    EXPECT_EQ(activator_calls, 2);
+
+    (void)factory.create_shader(engine::render::ShaderDesc{});
+    EXPECT_EQ(activator_calls, 3);
+}
+
+TEST(OpenGLFactory, SetContextActivatorUpdatesCallback) {
+    int first_calls = 0;
+    int second_calls = 0;
+    engine::render::OpenGLFactory factory([&first_calls] {
+        ++first_calls;
+    });
+
+    factory.set_context_activator([&second_calls] {
+        ++second_calls;
+    });
+
+    (void)factory.create_texture(engine::render::TextureDesc{});
+    EXPECT_EQ(first_calls, 0);
+    EXPECT_EQ(second_calls, 1);
+}
 
 TEST(OpenGLTexture, FlipImageVertically1x2SwapsRows) {
     // 1x2 image: row 0 is Red, row 1 is Green
