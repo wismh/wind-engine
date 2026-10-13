@@ -29,6 +29,13 @@
 #include <engine/ecs/world_serializer.h>
 #include <engine/capture/capture_system.h>
 #include <engine/haptics/haptics_system.h>
+#include <engine/net/byte_stream.h>
+#include <engine/net/http_client.h>
+#include <engine/net/net_entity_map.h>
+#include <engine/net/net_id.h>
+#include <engine/net/network_transport.h>
+#include <engine/net/packet_dispatcher.h>
+#include <engine/net/packet_types.h>
 #include <engine/igame.h>
 #include <engine/loc/catalog.h>
 #include <engine/log.h>

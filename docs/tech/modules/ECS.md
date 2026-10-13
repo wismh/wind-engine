@@ -133,7 +133,7 @@ Staleness contract: the engine refreshes `WorldTransform` in `Phase::Transform` 
 
 ### Multiplayer readiness
 
-Replicate `Transform` and `Parent` only. `WorldTransform` and `Children` are derived and rebuilt on the receiving side. `Entity` handles (index + generation) are not stable across machines, so the net layer needs its own stable id (a `NetId` component and a map to local entities) and has to translate `Parent.entity` through it. That layer is not part of the engine ECS.
+Replicate `Transform` and `Parent` only. `WorldTransform` and `Children` are derived and rebuilt on the receiving side. `Entity` handles (index + generation) are not stable across machines, so the net layer provides `engine::net::NetId` and `engine::net::NetEntityMap` (`set_parent_by_net_id`, `get_parent_net_id`) to translate `Parent.entity` across machines (see [Net](Net.md#netid--entity-mapping)).
 
 ## Physics
 
