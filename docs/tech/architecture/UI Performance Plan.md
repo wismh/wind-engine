@@ -1,4 +1,4 @@
-﻿# UI performance plan
+# UI performance plan
 
 This is a plan. It is not a description of the engine as it runs today. As-built behavior is [UI](../modules/UI.md).
 
@@ -15,7 +15,7 @@ None of steps 0 through 8 are closed. NanoVG is still the UI painter.
 
 The live tree stays one `Element` tree: document, layout, and hit-test. A retained command list (`Picture`) is a second structure, produced by paint and consumed by the renderer. NanoVG is removed when that renderer lands. An offscreen texture is an explicit opt-in on top of the renderer, not the way retention works.
 
-[Principles](Principles.md) stays in force: UI is document + style + view-model, UI â†’ game is `ICommand` / `IPaint`, engine APIs stay main-thread until a step below says otherwise. [Boundaries](Boundaries.md) stays in force: no `EventBus`. Dirty tracking is a version counter polled by the bind pass, not a subscription.
+[Principles](Principles.md) stays in force: UI is document + style + view-model, UI → game is `ICommand` / `IPaint`, engine APIs stay main-thread until a step below says otherwise. [Boundaries](Boundaries.md) stays in force: no `EventBus`. Dirty tracking is a version counter polled by the bind pass, not a subscription.
 
 ## Consumers
 
@@ -58,7 +58,19 @@ Recorded in [bench/results/baseline/summary.md](../../../bench/results/baseline/
 
 A quiet frame skips layout in all three. The rest of a quiet frame is bindings (0.75 ms in `inspector`), motion, and paint. Sub-millisecond rows move by up to about 15% between runs ([UI Bench](../features/UI%20Bench.md#repeatability)).
 
-Every later step is closed by re-running the matrix (`bench/run_matrix.ps1 -Repeat 3`) and `bench/compare.ps1 -Base bench/results/baseline -Head <run>`, the same three numbers per scene. After steps 2 and 4, a quiet frame is the target: no style match, no layout, no picture rebuild. Draw calls are the target of step 5, not of the earlier steps.
+The Windows table is the owner's reference machine. The numbers below are the Linux baseline of the overnight work, the one every step's before/after table compares against ([bench/results/baseline-linux/summary.md](../../../bench/results/baseline-linux/summary.md), all 34 rows, `-Repeat 5`, medians). Machine: a 4-thread Intel Xeon @ 2.10 GHz shared VM, Ubuntu 24.04, Mesa software GL (llvmpipe) under `xvfb-run`, RelWithDebInfo (GCC), 1600 x 900, vsync off, commit `4f4af64` (clean tree). **Read only the CPU stages Bind, Style, Layout, and Motion as comparable with Windows. Paint includes NanoVG on llvmpipe, so it is relative: compare it with itself from step to step, not with the Windows column.** The VM is shared and noisy: the `spread` column of the summary is 5 to 40% on sub-millisecond rows, so a change under about 20% there is noise. Counters (draw calls, painter calls, element counts, layout `skip`) are exact and repeat.
+
+| Scene | Elements | Quiet total | Quiet paint | One-change total | One-change layout | One-change paint | Draw calls | State calls |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `table` | 244 | 0.38 | 0.28 | 0.48 | 0.12 | 0.27 | 278 | 1,144 |
+| `inspector` | 2,926 | 1.84 | 1.16 | 3.26 | 1.42 | 1.15 | 1,707 | 4,999 |
+| `hud` | 184 | 0.52 | 0.43 | 0.60 | 0.13 | 0.40 | 1,995 | 873 |
+
+Same counters as Windows (278, 1,707, and 1,995 draw calls; 244, 2,926, and 184 elements), so the scenes are the same scenes. A quiet frame skips layout in all three here too, and the `hover layout` rows run layout on no frame (the fact the plan notes under pseudo-classes). Quiet bindings: `table` 0.054 ms, `inspector` 0.28 ms, `hud` 0.031 ms. The outliers hold: `paint-mix/conic-gradient` 5.9 ms of paint against 0.5 for the other box kinds, `math` 7.9 ms, `nine-slice` 2.6 ms.
+
+To repeat it on Linux: [UI Bench](../features/UI%20Bench.md#linux). The scripts run under PowerShell 7 (`pwsh`) too, so one tool serves both systems.
+
+Every later step is closed by re-running the matrix (`bench/run_matrix.ps1 -Repeat 3` on Windows) and `bench/compare.ps1 -Base bench/results/baseline -Head <run>`, the same three numbers per scene. The overnight steps compare against `bench/results/baseline-linux` with `-Repeat 5`. After steps 2 and 4, a quiet frame is the target: no style match, no layout, no picture rebuild. Draw calls are the target of step 5, not of the earlier steps.
 
 ## Facts the steps rely on
 
@@ -77,11 +89,11 @@ Every later step is closed by re-running the matrix (`bench/run_matrix.ps1 -Repe
 
 ## Order
 
-0 â†’ 1 â†’ 7a â†’ 2 â†’ 3 â†’ 6 â†’ 4 â†’ 5 â†’ 7b â†’ 8.
+0 → 1 → 7a → 2 → 3 → 6 → 4 → 5 → 7b → 8.
 
-### 0 â€” Measurements
+### 0 — Measurements
 
-Capture the baseline above. Step 5 stays after step 4 unless those numbers show draw calls dominating a small tree; only then an in-frame batcher may jump ahead of `Picture`. The "most draws are solid rects, text, and images" assumption is checked here. If buttons are gradients, step 5's gradient path is on the hot set, not a side case.
+As built (wind-225): the Linux baseline above, a `linux-bench` preset, and the matrix scripts running under PowerShell 7. Capture the baseline above. Step 5 stays after step 4 unless those numbers show draw calls dominating a small tree; only then an in-frame batcher may jump ahead of `Picture`. The "most draws are solid rects, text, and images" assumption is checked here. If buttons are gradients, step 5's gradient path is on the hot set, not a side case.
 
 Baseline answer (painter calls per frame, [baseline summary](../../../bench/results/baseline/summary.md)):
 
@@ -93,7 +105,7 @@ Baseline answer (painter calls per frame, [baseline summary](../../../bench/resu
 
 Most draws are solid rects (square or rounded) and text. The reference scenes draw no image or nine-slice, and one gradient in all three, so gradients are not on the hot set; images are absent because these scenes have none, not because they are cheap. Draw calls follow the rect count, not the tree: `hud` has the fewest elements and the most draw calls (1,995), almost all from its `IPaint`s. Outliers in `paint-mix` (1,000 cells each; linear, radial, solid, image, and border all paint in about 0.85 ms): `conic_gradient` paints in 13.8 ms with the same 2 draws a cell, so its cost is CPU, not draw calls: every call looks its baked texture up by a string key built with a `std::to_string` per angle and stop component (`gradient_cache_key` / `ensure_conic_texture`, `src/render/opengl/nanovg_painter.cpp`), although every cell shares one texture; `<Math>` (`path`) paints in 10.3 ms with 9 draws a formula; `nine_slice` 3.5 ms and 18 draws a cell.
 
-### 1 â€” Stop the wasted work on the current tree
+### 1 — Stop the wasted work on the current tree
 
 No new model. Makes the baseline readable.
 
@@ -105,7 +117,7 @@ No new model. Makes the baseline readable.
 
 Done when the three scenes are faster on a quiet frame and a one-change frame, and the profiler still attributes Bind, Layout, Motion, and Paint separately.
 
-### 7a â€” Stable identity and parent
+### 7a — Stable identity and parent
 
 Required before dirty flags can move without a full walk. Not the hot/cold split (that is 7b).
 
@@ -117,7 +129,7 @@ Traversal, hit-test, and paint keep using the arena. Pointers held across a stru
 
 Done when a reconcile that reuses a row keeps the same id, a new row gets a new id, and a destroyed row's id does not alias a later row. Covered by `engine_tests` without a window.
 
-### 2 â€” Versions, dirty flags, pseudo-class invalidation
+### 2 — Versions, dirty flags, pseudo-class invalidation
 
 Replaces both full walks: `apply_bindings` and `layout_state_changed`.
 
@@ -138,7 +150,7 @@ Hover, focus, and pressed then dirty the subject, plus descendants only where so
 
 Done when the quiet HUD and the quiet inspector do not match style and do not layout, including with the pointer resting on a control whose `:hover` rules are paint-only. A test counts style rebuilds and layout rebuilds per element for "no change", "one string changed", and "hover a paint-only control".
 
-### 3 â€” Animation as tracks
+### 3 — Animation as tracks
 
 `@keyframes` and `transition` are parsed into numeric tracks when the style is applied, not on each tick. `sample_prop` stops rebuilding a `ComputedStyle` from declaration strings.
 
@@ -146,7 +158,7 @@ Done when the quiet HUD and the quiet inspector do not match style and do not la
 
 Done when a steady opacity animation does not layout, and a width animation lays out only the chain whose size changed. Headless test: track sample equals the old string-sampled value on a fixture stylesheet.
 
-### 6 â€” Lists, trees, grids
+### 6 — Lists, trees, grids
 
 Immediately after 2. Does not need `Picture` or the new renderer. Uses the current painter's `measure_text` until step 5.
 
@@ -155,11 +167,11 @@ Immediately after 2. Does not need `Picture` or the new renderer. Uses the curre
 - A collapsed tree node is not in the window. Its children are not bound or laid out. As built for fixed-height rows (wind-184): a tree is flat rows from `flatten_tree` in a virtualized `ItemsControl`, so a collapsed branch is not a row ([UI](../modules/UI.md#trees), `tests/ui_tree_test.cpp`).
 - `Viewport` content that is a large world culls to the visible rect. Camera motion is a transform (step 4 will keep the surrounding picture). Culling is this step, because a strategy map cannot wait for the renderer.
 
-6b, and it does not block step 4: a 2D window (rows Ã— columns) for tables and inspectors.
+6b, and it does not block step 4: a 2D window (rows × columns) for tables and inspectors.
 
-Done when the 10k-row scene binds and lays out a window plus overscan, and a collapsed branch adds nothing to those counts. Tests in `engine_tests` cover estimate â†’ measured height, recycle, collapse, and viewport culling with a fake painter.
+Done when the 10k-row scene binds and lays out a window plus overscan, and a collapsed branch adds nothing to those counts. Tests in `engine_tests` cover estimate → measured height, recycle, collapse, and viewport culling with a fake painter.
 
-### 4 â€” Retained Picture
+### 4 — Retained Picture
 
 A repaint boundary owns a `Picture`: canvas, scroll viewport, popup, or an element marked as a boundary. The picture is a list of engine commands (rounded rect, glyphs, image, gradient, arc, path, clip, layer opacity/transform). It is not a NanoVG command stream and not an offscreen texture.
 
@@ -173,7 +185,7 @@ Scissor stays on `overflow` and `Viewport` only. Per-element scissor goes away h
 
 Done when the quiet HUD replays pictures and the profiler paint scope does not walk their elements. One changed label rewrites that label's picture, not the screen. A test asserts the recorded command list is unchanged across two frames with no dirty flags.
 
-### 5 â€” Renderer, NanoVG removed
+### 5 — Renderer, NanoVG removed
 
 The only GPU implementation of `Picture`. Playback may stay on the main thread. A second thread is legal only as a consumer of an immutable picture snapshot, and only after this step; the library still does not spawn threads (same split as a Noesis `Update` / `UpdateRenderTree`, client-driven).
 
@@ -187,11 +199,11 @@ Included, or NanoVG cannot be deleted:
 - `fill_path` for formula outlines (`src/ui/math/math_paint.cpp`).
 - Clips. An axis-aligned rect is a vertex attribute and a fragment discard, so it does not split a batch. A clip that is rotated with `apply_transform` is implemented in this renderer (stencil or a path), not left on `nvgScissor`.
 
-`external/nanovg` and `src/render/opengl/nanovg_painter.cpp` leave in this step. GPU tests stay outside `engine_tests` ([Boundaries](Boundaries.md)). CPU coverage is the batch list: input commands â†’ batches, asserted in `engine_tests`.
+`external/nanovg` and `src/render/opengl/nanovg_painter.cpp` leave in this step. GPU tests stay outside `engine_tests` ([Boundaries](Boundaries.md)). CPU coverage is the batch list: input commands → batches, asserted in `engine_tests`.
 
 Done when the three scenes match step 4's pictures without linking NanoVG, and the HUD draw-call count is the batch-list count from the test.
 
-### 7b â€” Hot and cold element
+### 7b — Hot and cold element
 
 After pictures exist, a quiet frame no longer walks style caches. Hit-test and a dirty frame still do.
 
@@ -199,7 +211,7 @@ The hot record is the tree link, parent id, `layout_rect`, and the dirty flags. 
 
 Done when a hit-test walk touches the hot record, and a test that paints a quiet picture does not read the side block.
 
-### 8 â€” Explicit offscreen target
+### 8 — Explicit offscreen target
 
 A marked subtree may rasterize into a texture. The engine does not infer one. The mark is honored only when the picture is expensive and stable, or when the effect requires it (group opacity, blur, shadow). A subtree whose picture is dirty every frame ignores the mark and draws in the main target.
 
