@@ -18,7 +18,7 @@ Reference numbers come from RelWithDebInfo. The profiler (`ENGINE_UI_PROFILER`) 
 
 ```
 wind_ui_bench --scene <name> --mode <name> [--variant <name>] [--warmup N] [--frames N] [--out path.json]
-              [--width N --height N]
+              [--width N --height N] [--hold MS]
 wind_ui_bench --list
 ```
 
@@ -28,6 +28,7 @@ wind_ui_bench --list
 | `--frames` | `kProfilerRingFrames` (120) | measured frames, 1 to 120, so the ring is exactly the measured window |
 | `--out` | `ui_bench-<scene>-<mode>[-<variant>].json` | in the working directory |
 | `--width`, `--height` | 1600, 900 | window size |
+| `--hold` | 0 | milliseconds the window stays up, still drawing, after the report is written (0 to 600000), so a screenshot can be taken of the measured scene. 0 quits at once |
 | `--list` | | every row of the matrix, one per line: `scene mode [variant]` |
 
 A bad argument or a combination outside the matrix prints what is wrong and what is valid there, and exits with 2. A run that does not record its frames exits with 1.
