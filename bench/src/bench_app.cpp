@@ -70,6 +70,10 @@ void BenchApp::on_start() {
 
 void BenchApp::frame() {
     if (finished_) {
+        if (hold_until_ && std::chrono::steady_clock::now() >= *hold_until_) {
+            hold_until_.reset();
+            worlds().application_state().quit();
+        }
         return;
     }
     const int tick = tick_++;
@@ -186,6 +190,10 @@ void BenchApp::finish() {
     std::printf("wind_ui_bench: %s: %d frames written to %s\n", bench_case_name(case_).c_str(), options_.frames,
             path.string().c_str());
     exit_code_ = 0;
+    if (options_.hold_ms > 0) {
+        hold_until_ = std::chrono::steady_clock::now() + std::chrono::milliseconds(options_.hold_ms);
+        return;
+    }
     worlds().application_state().quit();
 }
 
