@@ -1297,7 +1297,8 @@ namespace engine::ui {
         bool owners_differ = !element.layout_dirty_check_initialized ||
                              element.generated_items.size() != element.layout_dirty_check_generated_owners.size();
         for (std::size_t i = 0; !owners_differ && i < element.generated_items.size(); ++i) {
-            owners_differ = element.generated_items[i].generated_owner != element.layout_dirty_check_generated_owners[i];
+            owners_differ =
+                    element.generated_items[i].generated_owner != element.layout_dirty_check_generated_owners[i];
         }
         if (owners_differ) {
             changed = true;
