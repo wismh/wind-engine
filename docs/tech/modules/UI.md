@@ -78,6 +78,22 @@ An attribute that is still unknown is ignored.
 
 Inline math: a `Label` or `Button` string may contain `\(...\)`. `\\(` and `\\)` are the two-character literals. An unclosed `\(` stays plain text. A display formula stays `<Math display="true">`.
 
+## Element identity
+
+Every `Element` of a `UiDocument` has an `ElementId` (`Element::handle`, `include/engine/ui/element_id.h`) and stores its parent's (`Element::parent`). An id is a slot of the document's `ElementArena` (`UiDocument::arena`, `include/engine/ui/element_arena.h`) and the generation that slot is on. `UiDocument::find(id)` returns the element or an `ElementLookupError`: `Null` (no id), `Stale` (the element is gone: its row left the window, the slot was freed or reused), `Misplaced` (the tree was edited by hand and not re-indexed). `element_lookup_error_name` names each. A lookup never returns a pointer to another element or to freed memory.
+
+The tree stays `std::vector<Element>` by value: `children` and `generated_items` hold the elements, so an element may move or relocate (a vector grows, a document is copied or moved) and its id stays valid. An arena slot holds no `Element` address. It holds the parent's id, the position in the parent's `children` or `generated_items`, and which of the two. `find` climbs the parent slots to the root, walks the positions back down with bounds checks, and requires that the element it reaches carries the id. A pointer or an index into a `children` vector is not an id: it is invalid across any structural edit.
+
+Who writes ids:
+
+- `parse_xml` and `make_document` call `UiDocument::reindex()`. It gives an id to every element without one (an `ItemTemplate`'s subtree too), sets every `parent`, rewrites every slot's place, gives a fresh id to an element that copies another's, and frees the slots whose element is gone. An element that already has an id keeps it.
+- The ItemsControl reconcile (`bind_element`, `src/ui/document.cpp`). A row the window keeps is moved into the new `generated_items` and keeps its id (and its motion clocks and caches, as before). A row cloned from the template, and every element under it, gets new ids: the clone's copied ids belong to the template. A spacer gets a new id each time. A row that leaves the window has its whole subtree's ids freed, and a freed slot comes back only on a new generation, so a dead id never names a later row. After the reconcile every row's `parent` and slot position are rewritten.
+- `apply_bindings` calls `reindex()` for a tree built by hand and never indexed (a test that fills `children` itself).
+
+`generated_owner` is unchanged. It is the identity of the data a row shows (the item view-model), compared and never dereferenced. The element id is the identity of the element. A reused row has the same owner and the same id. A row rebuilt for the same owner has the same owner and a new id.
+
+Code that edits `children` or `generated_items` of a live document calls `reindex()` afterwards. Code that holds an element across frames holds its `ElementId`: the focus (`UiFocus::element`), a scrollbar drag (`ActiveScrollbarDrag::element`), and the ancestor chain of the style cache (`StyleCacheEntry::ancestors`, which never matches an ancestor without an id). A focus whose element is gone resolves to nothing and is dropped. The inspector's selection and a text-selection gesture keep a child-index path and a `generated_owner`, and resolve them again on every use (`src/ui/element_path.h`).
+
 ## Layout
 
 `src/ui/document.cpp` lays out a content box.
@@ -327,6 +343,8 @@ The engine keeps the probes and the editor shows the panels. `set_inspector_atta
 ## Public headers
 
 - `include/engine/ui/document.h`
+- `include/engine/ui/element_id.h`
+- `include/engine/ui/element_arena.h`
 - `include/engine/ui/builder.h`
 - `include/engine/ui/canvas.h`
 - `include/engine/ui/stylesheet.h`
@@ -347,7 +365,7 @@ The engine keeps the probes and the editor shows the panels. `set_inspector_atta
 
 ## Tests
 
-`tests/ui_bindable_visibility_test.cpp`, `tests/ui_slider_test.cpp`, `tests/ui_absolute_items_test.cpp`, `tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_items_control_virtualization_test.cpp`, `tests/ui_tree_test.cpp`, `tests/dock_layout_test.cpp`, `tests/dock_space_test.cpp`, `tests/dock_float_window_test.cpp`, `tests/ui_text_wrap_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_refs_test.cpp`, `tests/ui_loc_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_inline_math_test.cpp`, `tests/ui_math_parser_test.cpp`, `tests/ui_math_layout_test.cpp`, `tests/ui_math_paint_test.cpp`, `tests/ui_math_font_test.cpp`, `tests/ui_math_stretch_test.cpp`, `tests/ui_math_element_test.cpp`, `tests/splash_test.cpp`, `tests/ui_inspector_test.cpp`, `tests/ui_profiler_test.cpp`, `tests/ui_popup_test.cpp`.
+`tests/ui_element_id_test.cpp` (ids, parents, reuse, aliasing, stale lookups), `tests/ui_wasted_work_test.cpp`, `tests/ui_bindable_visibility_test.cpp`, `tests/ui_slider_test.cpp`, `tests/ui_absolute_items_test.cpp`, `tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_items_control_virtualization_test.cpp`, `tests/ui_tree_test.cpp`, `tests/dock_layout_test.cpp`, `tests/dock_space_test.cpp`, `tests/dock_float_window_test.cpp`, `tests/ui_text_wrap_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_refs_test.cpp`, `tests/ui_loc_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_inline_math_test.cpp`, `tests/ui_math_parser_test.cpp`, `tests/ui_math_layout_test.cpp`, `tests/ui_math_paint_test.cpp`, `tests/ui_math_font_test.cpp`, `tests/ui_math_stretch_test.cpp`, `tests/ui_math_element_test.cpp`, `tests/splash_test.cpp`, `tests/ui_inspector_test.cpp`, `tests/ui_profiler_test.cpp`, `tests/ui_popup_test.cpp`.
 
 ## See also
 
