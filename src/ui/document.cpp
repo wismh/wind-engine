@@ -1266,9 +1266,9 @@ namespace engine::ui {
     //   - compares the current sequence of generated_items[*].generated_owner against
     //     layout_dirty_check_generated_owners (order and count matter: a reorder or a window shift is
     //     itself a layout-relevant change even when the set of owners is unchanged)
-    // then unconditionally overwrites all three cached copies with the current values — regardless of
-    // whether this element compared equal — so next frame's comparison is always against the most
-    // recent real state, never against a stale "first ever seen" snapshot. The traversal never
+    // then brings the cached copies up to date, assigning one only when it differs (an equal text or map is
+    // compared, not copied again), so next frame's comparison is always against the most recent real state, never
+    // against a stale "first ever seen" snapshot. The traversal never
     // short-circuits on finding a change: every element's cache must be refreshed every call, so the
     // "changed" result is only ever OR-accumulated into a local, not used to skip visiting the rest of
     // the tree. layout_dirty_check_initialized is false only before the very first call on a given
@@ -1279,8 +1279,8 @@ namespace engine::ui {
 
         if (!element.layout_dirty_check_initialized || element.text != element.layout_dirty_check_text) {
             changed = true;
+            element.layout_dirty_check_text = element.text;
         }
-        element.layout_dirty_check_text = element.text;
 
         if (!element.layout_dirty_check_initialized || element.hidden_by_if != element.layout_dirty_check_hidden_by_if) {
             changed = true;
@@ -1290,18 +1290,23 @@ namespace engine::ui {
         if (!element.layout_dirty_check_initialized ||
             element.custom_properties != element.layout_dirty_check_custom_properties) {
             changed = true;
+            element.layout_dirty_check_custom_properties = element.custom_properties;
         }
-        element.layout_dirty_check_custom_properties = element.custom_properties;
 
-        std::vector<const void *> current_owners;
-        current_owners.reserve(element.generated_items.size());
-        for (const Element &item: element.generated_items) {
-            current_owners.push_back(item.generated_owner);
+        // The owner sequence is compared in place, and the copy is rewritten only when it differs.
+        bool owners_differ = !element.layout_dirty_check_initialized ||
+                             element.generated_items.size() != element.layout_dirty_check_generated_owners.size();
+        for (std::size_t i = 0; !owners_differ && i < element.generated_items.size(); ++i) {
+            owners_differ = element.generated_items[i].generated_owner != element.layout_dirty_check_generated_owners[i];
         }
-        if (!element.layout_dirty_check_initialized || current_owners != element.layout_dirty_check_generated_owners) {
+        if (owners_differ) {
             changed = true;
+            element.layout_dirty_check_generated_owners.clear();
+            element.layout_dirty_check_generated_owners.reserve(element.generated_items.size());
+            for (const Element &item: element.generated_items) {
+                element.layout_dirty_check_generated_owners.push_back(item.generated_owner);
+            }
         }
-        element.layout_dirty_check_generated_owners = std::move(current_owners);
 
         element.layout_dirty_check_initialized = true;
 
@@ -1412,8 +1417,12 @@ namespace engine::ui {
         for (Element &child: children) {
             order.push_back(&child);
         }
-        std::stable_sort(order.begin(), order.end(),
-                         [](const Element *a, const Element *b) { return a->z_index < b->z_index; });
+        // Siblings that already ascend by z-index (every z-index equal, the default, included) are in paint order: a
+        // stable sort would move nothing.
+        const auto by_z = [](const Element *a, const Element *b) { return a->z_index < b->z_index; };
+        if (!std::is_sorted(order.begin(), order.end(), by_z)) {
+            std::stable_sort(order.begin(), order.end(), by_z);
+        }
         return order;
     }
 
