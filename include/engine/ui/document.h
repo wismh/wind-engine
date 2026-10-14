@@ -9,6 +9,8 @@
 #include <engine/ui/binding_id.h>
 #include <engine/ui/command.h>
 #include <engine/ui/cursor.h>
+#include <engine/ui/element_arena.h>
+#include <engine/ui/element_id.h>
 #include <engine/ui/paint.h>
 #include <engine/ui/stylesheet.h>
 #include <engine/ui/text_line.h>
@@ -567,13 +569,21 @@ namespace engine::ui {
         float window_width = 0.0f;
         float window_height = 0.0f;
         std::unordered_map<std::string, std::string> custom_properties;
-        std::vector<const Element *> ancestors;
+        // The ancestor chain by element id (descendant and child combinators match through it). An ancestor with no
+        // id (a tree built by hand and never indexed) never matches, so such a tree misses and restyles.
+        std::vector<ElementId> ancestors;
         // Packed (hovered|pressed<<1|disabled<<2|focused<<3|checked<<4) per ancestors[i], same order/length.
         std::vector<std::uint8_t> ancestor_pseudo_state;
     };
 
     struct Element {
         ElementKind kind = ElementKind::Canvas;
+        // The element's identity in its document's arena (`UiDocument::find`) and its parent's. Null on an element no
+        // `UiDocument::reindex` has reached (a tree built by hand). Written by the engine: parse, `reindex`, and the
+        // ItemsControl reconcile. `generated_owner` stays the identity of the data a row shows; this is the
+        // identity of the element, and a row that is reused keeps it.
+        ElementId handle{};
+        ElementId parent{};
         std::string id;
         std::vector<std::string> classes;
         std::string name;
@@ -908,6 +918,20 @@ namespace engine::ui {
 
     struct UiDocument {
         Element root;
+        // The slot table behind every `Element::handle` of this document. Parse and `make_document` fill it.
+        ElementArena arena;
+
+        // The element `id` names, or why there is none. A stale id (its row left the window, its slot was reused) and
+        // an id the tree no longer matches (children edited by hand without `reindex`) are errors, never a pointer to
+        // another element or to freed memory. The pointer is valid until the next structural edit of the tree.
+        [[nodiscard]] std::expected<Element *, ElementLookupError> find(ElementId id);
+        [[nodiscard]] std::expected<const Element *, ElementLookupError> find(ElementId id) const;
+
+        // Walks the whole tree: gives an id to every element that has none (an ItemTemplate's subtree included), sets
+        // every `parent`, brings every slot's place in the tree up to date, and frees the slots whose element is gone.
+        // Elements that already have an id keep it. Parse and `make_document` call it; call it again after editing
+        // `children` or `generated_items` by hand.
+        void reindex();
         std::optional<AssetId> stylesheet;
         // The `{binding path}` text behind every BindingId the markup names, item templates included, so a bind
         // error can name the path. parse_xml fills it; a `ui::Node` document has none, and the error shows the id.

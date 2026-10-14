@@ -1036,13 +1036,15 @@ namespace engine::ui {
             if (cache.custom_properties != element.custom_properties) {
                 return false;
             }
-            if (cache.ancestors != ancestors) {
+            if (cache.ancestors.size() != ancestors.size()) {
                 return false;
             }
-            // Same length as `ancestors` (the identity compare above passed), so compare in place: this runs for every
-            // element on every frame, a hit included.
+            // Identity and pseudo-state of every ancestor, in place: this runs for every element on every frame, a hit
+            // included.
             for (std::size_t i = 0; i < ancestors.size(); ++i) {
-                if (cache.ancestor_pseudo_state[i] != pseudo_state_bits(*ancestors[i])) {
+                const ElementId handle = ancestors[i]->handle;
+                if (handle.is_null() || cache.ancestors[i] != handle ||
+                    cache.ancestor_pseudo_state[i] != pseudo_state_bits(*ancestors[i])) {
                     return false;
                 }
             }
@@ -1065,7 +1067,10 @@ namespace engine::ui {
             cache.focused = element.focused;
             cache.checked = element.checked;
             cache.custom_properties = element.custom_properties;
-            cache.ancestors = ancestors;
+            cache.ancestors.clear();
+            for (const Element *ancestor: ancestors) {
+                cache.ancestors.push_back(ancestor->handle);
+            }
             cache.ancestor_pseudo_state = ancestor_pseudo_state_bits(ancestors);
             cache.style = std::move(style);
         }
