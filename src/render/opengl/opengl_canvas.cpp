@@ -1,5 +1,6 @@
 #include "opengl_canvas.h"
 
+#include "context_vao.h"
 #include "gl_includes.h"
 #include "nanovg_painter.h"
 
@@ -61,6 +62,7 @@ bool OpenGLCanvas::init(bool with_ui_painter) {
     if (context_ == nullptr) {
         return false;
     }
+    gl_contexts().add_context(context_);
     if (!load_gl_entry_points()) {
         destroy_context();
         return false;
@@ -142,6 +144,8 @@ void OpenGLCanvas::draw() {
 
 void OpenGLCanvas::render() {
     make_current();
+    // VAOs of this context that a mesh or the backend released while another window's context was current.
+    flush_current_gl_context();
     if (window_ != nullptr) {
         const glm::ivec2 size = window_->drawable_size();
         if (size.x > 0 && size.y > 0) {
@@ -230,6 +234,7 @@ void OpenGLCanvas::destroy_context() {
     if (context_ == nullptr) {
         return;
     }
+    gl_contexts().remove_context(context_);
     SDL_GL_DestroyContext(context_);
     if (previous_context != nullptr && previous_context != context_ && previous_window != nullptr) {
         SDL_GL_MakeCurrent(previous_window, previous_context);
