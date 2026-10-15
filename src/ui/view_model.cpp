@@ -107,6 +107,7 @@ const ICommand* ViewModel::find_command(BindingId id) const {
 
 void ViewModel::command(BindingId id, ICommand& command) {
     commands_.insert_or_assign(id, &command);
+    ++registration_version_;
 }
 
 IPaint* ViewModel::find_paint(BindingId id) {
@@ -127,6 +128,7 @@ const IPaint* ViewModel::find_paint(BindingId id) const {
 
 void ViewModel::paint(BindingId id, IPaint& paint) {
     paints_.insert_or_assign(id, &paint);
+    ++registration_version_;
 }
 
 }

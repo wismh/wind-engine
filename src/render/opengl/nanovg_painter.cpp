@@ -323,14 +323,25 @@ void NanoVgPainter::fill_rounded_rect(const Rect& rect, float radius, glm::vec4 
     nvgFill(impl_->vg);
 }
 
+// Baked conic textures kept at once.
+constexpr std::size_t kMaxConicTextures = 64;
+
 int NanoVgPainter::ensure_conic_texture(const ui::Gradient& gradient) {
     if (impl_->vg == nullptr) {
         return -1;
     }
-    for (const auto &entry: impl_->gradient_textures) {
-        if (same_gradient(entry.gradient, gradient)) {
-            return entry.image;
+    auto &textures = impl_->gradient_textures;
+    for (auto it = textures.begin(); it != textures.end(); ++it) {
+        if (same_gradient(it->gradient, gradient)) {
+            // Most recently used last, so what falls out below is what nothing asked for the longest.
+            std::rotate(it, it + 1, textures.end());
+            return textures.back().image;
         }
+    }
+    // A gradient animated every frame bakes a texture per value: the list is bounded, the oldest texture goes.
+    if (textures.size() >= kMaxConicTextures) {
+        nvgDeleteImage(impl_->vg, textures.front().image);
+        textures.erase(textures.begin());
     }
     std::vector<std::uint8_t> pixels(static_cast<std::size_t>(kConicTextureSize) * kConicTextureSize * 4);
     const float center = (static_cast<float>(kConicTextureSize) - 1.0f) * 0.5f;
