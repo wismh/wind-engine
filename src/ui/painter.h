@@ -164,13 +164,26 @@ namespace engine::ui {
     [[nodiscard]] const TextBlock *wrapped_text_rows(const Element &element, IUiPainter &painter, float font_size,
                                                      float content_width);
 
-    // wind-129 layout dirty-gate (document.cpp): true if any layout-relevant field changed anywhere in
-    // `element`'s subtree (text, custom_properties, or ItemsControl generated_owner sequence) since the
-    // last call on the same Element(s) — see Element's layout_dirty_check_* fields (document.h) for why
-    // this narrow set is exactly what layout depends on. Not yet wired into prepare_top_canvas/
-    // paint_document; declared here (like apply_layout_style/layout above) purely so tests linking
-    // against `engine` can call it without a second public entry point.
-    [[nodiscard]] bool layout_state_changed(Element &element);
+    // Brings the layout up to date with what changed, and says whether it laid anything out. Everything is restyled
+    // and laid out when the document was never laid out or the canvas rect, the media size, the stylesheet (pointer or
+    // generation), the painter, or its math font differ from the last call. Otherwise only what the `dirty_*` bits
+    // mark: the marked elements restyle (`kDirtyStyle`), and the chain from the root to each marked element, or from
+    // each relayout boundary, lays out again (`kDirtyLayout`), the rest keeping its rects. A pass that finds nothing
+    // marked does nothing. Both `prepare_top_canvas` and `paint_document` call it, so they cannot disagree.
+    bool sync_layout(UiDocument &document, const Stylesheet *sheet, IUiPainter *painter,
+                     const render::Rect &canvas_rect, float media_width, float media_height);
+
+    // Writes the values of running transitions and animations onto the layout and visual fields of `element` and its
+    // subtree, over what `apply_layout_style` just wrote.
+    void commit_motion_after_layout(Element &element);
+
+    // Lays out `element` and its subtree again in the rect it has, from the parent content size and containing block
+    // of its last layout: how a relayout boundary is laid out without its parent.
+    void layout_from(Element &element, IUiPainter *painter);
+
+    // True when `rule` would match `element` under `ancestors` if every pseudo-class were satisfied.
+    [[nodiscard]] bool rule_could_match(const CssRule &rule, const Element &element,
+                                        const std::vector<const Element *> &ancestors);
 
     // An element that shows nothing of its children outside its own box: overflow other than visible, or a Viewport.
     // Paint and hit-test share it: the `position: absolute` children of an element that does not clip are drawn and

@@ -34,6 +34,7 @@
 #include "ui/input_batch.h"
 #include "ui/popup.h"
 #include "ui/profile.h"
+#include "ui/pseudo_warning.h"
 #include "ui/ui_refs.h"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -266,8 +267,21 @@ namespace engine {
                 }
                 ENGINE_UI_PROFILE(entity, Bindings);
                 BindErrorLog errors(canvas, *instance);
-                (void) ui::apply_bindings(instance->document, *canvas.data_context, &errors,
-                                          &world.ctx<loc::Catalog>());
+                (void) ui::apply_bindings(instance->document, *canvas.data_context, &errors, &world.ctx<loc::Catalog>(),
+                                          instance->stylesheet ? &*instance->stylesheet : nullptr);
+#if defined(ENGINE_UI_PROFILER)
+                // Debug and editor builds name a layout-affecting pseudo-class rule in a big tree, once per document.
+                if (instance->stylesheet &&
+                    (instance->pseudo_checked_generation != instance->stylesheet->generation ||
+                     instance->pseudo_checked_builds != instance->document.counters.table_builds)) {
+                    instance->pseudo_checked_generation = instance->stylesheet->generation;
+                    instance->pseudo_checked_builds = instance->document.counters.table_builds;
+                    const std::string name = canvas.document ? std::string(canvas.document->hex()) : "(none)";
+                    ui::warn_layout_under_pseudo(instance->document, *instance->stylesheet, name,
+                                                 instance->reported_bind_errors,
+                                                 [](const std::string &message) { log::warn(message); });
+                }
+#endif
             }
         }
 
