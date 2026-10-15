@@ -78,6 +78,22 @@ An attribute that is still unknown is ignored.
 
 Inline math: a `Label` or `Button` string may contain `\(...\)`. `\\(` and `\\)` are the two-character literals. An unclosed `\(` stays plain text. A display formula stays `<Math display="true">`.
 
+## Element identity
+
+Every `Element` of a `UiDocument` has an `ElementId` (`Element::handle`, `include/engine/ui/element_id.h`) and stores its parent's (`Element::parent`). An id is a slot of the document's `ElementArena` (`UiDocument::arena`, `include/engine/ui/element_arena.h`) and the generation that slot is on. `UiDocument::find(id)` returns the element or an `ElementLookupError`: `Null` (no id), `Stale` (the element is gone: its row left the window, the slot was freed or reused), `Misplaced` (the tree was edited by hand and not re-indexed). `element_lookup_error_name` names each. A lookup never returns a pointer to another element or to freed memory.
+
+The tree stays `std::vector<Element>` by value: `children` and `generated_items` hold the elements, so an element may move or relocate (a vector grows, a document is copied or moved) and its id stays valid. An arena slot holds no `Element` address. It holds the parent's id, the position in the parent's `children` or `generated_items`, and which of the two. `find` climbs the parent slots to the root, walks the positions back down with bounds checks, and requires that the element it reaches carries the id. A pointer or an index into a `children` vector is not an id: it is invalid across any structural edit.
+
+Who writes ids:
+
+- `parse_xml` and `make_document` call `UiDocument::reindex()`. It gives an id to every element without one (an `ItemTemplate`'s subtree too), sets every `parent`, rewrites every slot's place, gives a fresh id to an element that copies another's, and frees the slots whose element is gone. An element that already has an id keeps it.
+- The ItemsControl reconcile (`bind_element`, `src/ui/document.cpp`). A row the window keeps is moved into the new `generated_items` and keeps its id (and its motion clocks and caches, as before). A row cloned from the template, and every element under it, gets new ids: the clone's copied ids belong to the template. A spacer gets a new id each time. A row that leaves the window has its whole subtree's ids freed, and a freed slot comes back only on a new generation, so a dead id never names a later row. After the reconcile every row's `parent` and slot position are rewritten.
+- `apply_bindings` calls `reindex()` for a tree built by hand and never indexed (a test that fills `children` itself).
+
+`generated_owner` is unchanged. It is the identity of the data a row shows (the item view-model), compared and never dereferenced. The element id is the identity of the element. A reused row has the same owner and the same id. A row rebuilt for the same owner has the same owner and a new id.
+
+Code that edits `children` or `generated_items` of a live document calls `reindex()` afterwards. Code that holds an element across frames holds its `ElementId`: the focus (`UiFocus::element`), a scrollbar drag (`ActiveScrollbarDrag::element`), and the ancestor chain of the style cache (`StyleCacheEntry::ancestors`, which never matches an ancestor without an id). A focus whose element is gone resolves to nothing and is dropped. The inspector's selection and a text-selection gesture keep a child-index path and a `generated_owner`, and resolve them again on every use (`src/ui/element_path.h`).
+
 ## Layout
 
 `src/ui/document.cpp` lays out a content box.
@@ -102,15 +118,53 @@ Stack main axis is the child's used size (explicit size, otherwise hug), plus ma
 
 `z-index`, `transform`, and opacity do not change layout sizes.
 
-A layout dirty gate (`layout_state_changed`) compares `text`, `custom_properties`, and the generated-item owner list with the previous values. On the prepare path, `canvas.cpp` skips `layout()` when that compare is clean, `layout_computed_once` is set, and the canvas layout rect, media width, media height, stylesheet pointer, stylesheet generation, layout painter, and math-font identity all match the last layout. The copies are still stored every call.
+What lays out again is decided by marks, not by a walk that compares the tree ([Dirty flags](#dirty-flags)). `sync_layout` (`src/ui/paint.cpp`) runs on both paths, `prepare_top_canvas` (`canvas.cpp`) and `paint_document`. It lays everything out when the document was never laid out or the canvas layout rect, the media width or height, the stylesheet pointer or generation, the layout painter, or the math-font identity differ from the last layout. Otherwise it restyles the elements marked `kDirtyStyle` and lays out the chain marked `kDirtyLayout` (plus the relayout boundaries), and a pass that finds nothing marked does nothing.
 
 A `Popup` is out of flow and takes no space in its parent. See [Popup](#popup).
 
-`ItemsControl` virtualization (vertical, one template root, a fixed pixel row height) builds a window of rows plus spacers. `suppress_item_virtualization` turns it off. Variable-height windows are not this path.
+`ItemsControl` virtualization (vertical, one template root, a pixel `gap`, a vertical scroll context) builds a window of rows plus spacers. `suppress_item_virtualization` turns it off. Two shapes of row: a root with a fixed pixel `height` (the whole list is `N * height` plus gaps, as before), and a root of no fixed height (a label that wraps, a row of varying content), which is windowed over heights measured so far ([Rows of no fixed height](#rows-of-no-fixed-height)).
 
-Eligibility is `bind_element` in `src/ui/document.cpp`, and all of it must hold: `suppress_item_virtualization` is false, the template has one root, the `ItemsControl` is `Vertical` with a `px` gap, a vertical scroll context exists (the `ItemsControl` itself with `overflow-y` `scroll` or `auto`, or the nearest scrollable ancestor, which must be vertical and have a layout height), and the first generated row has a `px` `height` (no `calc()`). That `height` is the row height of the whole list. It is read from the generated row root. A row with `position: absolute` is the exception: it adds no height to a stack, so a window computed from its height and the scroll offset would not match where the rows are drawn. `bind_element` therefore never virtualizes a list whose generated rows are absolute (it also forgets a row height cached before), and a list of 24 absolute rows builds 24 rows. The first frame builds every row either way, because the row height is sampled from the previous frame. A list laid out by `var-left` / `var-top` needs nothing else; a row that is in flow but must not virtualize still needs one of: `flex-direction: row` on the list, a `height` on a child of the template root instead of on the root, or a non-`px` root height. `suppress_item_virtualization` is not reachable from XML, CSS, or `ui::Node`: `advance_tree` (`src/ui/paint.cpp`) sets it for one bind while a row's `height`, `padding`, `gap`, or `font-size` is animating (`height_motion_active`). A tree is (see [Trees](#trees)). See [UI Performance Plan](../architecture/UI%20Performance%20Plan.md).
+Eligibility is `bind_element` in `src/ui/bind.cpp`, and all of it must hold: `suppress_item_virtualization` is false, the template has one root, the `ItemsControl` is `Vertical` with a `px` gap, a vertical scroll context exists (the `ItemsControl` itself with `overflow-y` `scroll` or `auto`, or the nearest scrollable ancestor, which must be vertical and have a layout height), and either the first generated row has a `px` `height` (no `calc()`) or the rows have none. In the first case that `height` is the row height of the whole list, read from the generated row root; in the second the list is windowed over measured heights ([Rows of no fixed height](#rows-of-no-fixed-height)). A row with `position: absolute` is the exception: it adds no height to a stack, so a window computed from its height and the scroll offset would not match where the rows are drawn. `bind_element` therefore never virtualizes a list whose generated rows are absolute (it also forgets a row height cached before), and a list of 24 absolute rows builds 24 rows. The first frame builds every row either way, because the row height is sampled from the previous frame. A list laid out by `var-left` / `var-top` needs nothing else; a row that is in flow but must not virtualize still needs `flex-direction: row` on the list or no vertical scroll context. `suppress_item_virtualization` is not reachable from XML, CSS, or `ui::Node`: `advance_tree` (`src/ui/paint.cpp`) sets it for one bind while a row's `height`, `padding`, `gap`, or `font-size` is animating (`height_motion_active`). A tree is (see [Trees](#trees)). See [UI Performance Plan](../architecture/UI%20Performance%20Plan.md).
 
-`scroll_item_into_view(scroller, items_control, index)` scrolls a list so one item lies inside the scroller's box. It reads the rows of the last layout and assumes one row height, so it reaches an item the virtualized window has not built yet. It sets `Element::scroll_y` only. `find_by_id` finds an element by its `id` attribute, outside templates.
+`scroll_item_into_view(document, scroller, items_control, index)` scrolls a list so one item lies inside the scroller's box. It reads the rows of the last layout and assumes one row height (or, for rows of no fixed height, the tops measured so far, estimates included), so it reaches an item the virtualized window has not built yet. It sets `Element::scroll_y` only and marks the scroller for paint (its frame). `find_by_id` finds an element by its `id` attribute, outside templates.
+
+## Dirty flags
+
+Three bits, independent: `kDirtyStyle` (the layout style of the element is written again from the cascade), `kDirtyLayout` (the element is laid out again), `kDirtyPaint` (it is painted again). Each element has `dirty_self` (what it needs) and `dirty_below` (what some descendant needs). `mark_dirty` (`src/ui/dirty.h`) sets `dirty_self` and walks up by `Element::parent`, setting `dirty_below` on each ancestor, and stops at the first ancestor that already has the bit. That is how a pass reaches the dirty element from the root without visiting the rest of the tree, and how `UiWorkCounters` and the per-element counters (`style_rebuilds`, `layout_runs`) let a test say "only that chain". The pass that consumes a bit clears it (`clear_dirty`, which follows `dirty_below`). Layout is the only bit that stops early, at a relayout boundary.
+
+A relayout boundary is an element with a fixed `px` width and height, not `position: relative`, that has been laid out once (`is_relayout_boundary`): nothing below it can change its size or position. A layout mark from below stops at it, and the boundary goes on `UiDocument::layout_roots`; `sync_layout` lays it out again with `layout_from` from the rect and the parent content size and containing block of its last layout (`Element::layout_parent_content`, `layout_containing_block`), without its parent. A mark that starts in the boundary's own style (its size or margin may have changed: `own_box`) passes through it.
+
+What marks what:
+
+| Source of change | Marks |
+| --- | --- |
+| `text` / `content` binding, a `{tr}` result, text typed into a `TextInput` | layout and paint on the element |
+| `if` binding | style, layout, paint (`own_box`): the cascade folds `hidden_by_if` into `display` |
+| `var-` custom property, slider `--fraction` | style and paint (`own_box`); the restyle's geometry diff decides layout |
+| `src`, pan, zoom, scroll, popup `open` | paint |
+| a pseudo-class of the element (`set_pseudo`) | paint; style too only when a rule that also lays out tests that bit on it ([Hover and layout](#hover-and-layout)) |
+| a restyle that moved a layout field (width, height, min/max, margin, padding, gap, direction, justify, align-items, white-space, font, line height, position, insets, overflow, display, visibility) | layout and paint (`own_box`) |
+| an ItemsControl reconcile | layout and paint on the control; a cloned row and its subtree, and a spacer, want all three |
+| a spacer's height | style, layout, paint (`own_box`) |
+| canvas rect, media size, stylesheet pointer or generation, painter, math font | everything: the next `sync_layout` restyles and lays out the whole tree |
+| motion | an element whose sampled value moved a layout field (`Element::layout_inputs_changed`, set by `advance_motion`) is marked `kDirtyStyle`; the restyle writes the sample onto the fields and marks layout where a field moved ([Style](#style)) |
+
+Paint walks the whole tree until a repaint boundary exists, so it only clears its bit.
+
+## Hover and layout
+
+A pseudo-class may change layout: `.x:hover { padding: 8px }` restyles the element in the layout cascade and lays out the chain above it, on enter and on leave. It costs nothing where it is not used. At stylesheet parse time each rule records `subject_pseudo` (the bits on the subject compound), `ancestor_pseudo` (the bits on an ancestor compound, `A:hover B`), and `dirties` (`kDirtyStyle`, `kDirtyLayout`, `kDirtyPaint`: custom properties and `var()` are all three, geometry and text-shaping properties lay out, everything else only paints), and the line of its selector (`CssRule`, `parse_css`, `analyze_rule`). `style_analysis(sheet)` derives the rules that have a pseudo-class, the ones among them that also lay out, and the bits any rule tests on an ancestor.
+
+- The layout cascade (`apply_layout_style`) reads the real pseudo-state for a rule that has a pseudo-class and lays out; a rule that only paints is not part of it, so an element that only such a rule touches keeps the layout cache it always had.
+- A cascade records which pseudo bits it read (`StyleCacheEntry::self_dep`, `ancestor_dep[i]`: a rule that could match the element, or an ancestor, ignoring pseudo-classes, depends on that bit). A cache hit compares the state only through those masks. Hovering a container restyles only the descendants a rule like `A:hover B` can match, and a sheet with no ancestor pseudo-class rules restyles none.
+- A pseudo-class change goes through `set_pseudo`: the element is marked for paint, and for style (so the layout cascade is written again, and layout is marked if a layout field moved) only when a layout rule tests that bit on it; descendants a layout rule can match through it are marked the same way.
+- The hover target is not searched every frame. `apply_interaction` searches again only when the pointer or its button moved, a layout pass ran, something was marked (`UiDocument::epoch`), or motion is running, and a change of target sets the state on the two elements concerned, not on the whole tree. A hover that changes what lays out is laid out in the frame it starts, before the motion pass samples it.
+- A rule that changes layout under a pseudo-class in a tree of more than 500 elements is named once per document in the log in Debug and editor builds (`warn_layout_under_pseudo`): the document, the stylesheet line, and the properties.
+- A `:hover` that removes the element from under the pointer (`display: none`) un-hovers it, as in a browser; a transition on the property keeps the shown value in layout until it snaps.
+
+## Debug layout check
+
+A build with `ENGINE_UI_LAYOUT_CHECK` (always in Debug, otherwise `-DENGINE_UI_LAYOUT_CHECK=ON`; never in the editor, a player, or Release) lays a copy of the document out from scratch after every `sync_layout` (`src/ui/layout_check.cpp`): all caches and marks dropped, a full restyle, the motion values committed, a full layout. Every element's rect must equal the live tree's. A difference means a change reached the tree without marking what it feeds, so layout skipped work it owed: the check prints the first one with the element's path, counts it (`UiWorkCounters::layout_check_failures`), and ends the process (`UiDocument::abort_on_layout_mismatch`) so a suite cannot pass over it. `UiDocument::verify_layout` switches it off for a test that edits elements on purpose. The whole UI test suite and the bench scenes run under it.
 
 ## Style
 
@@ -129,6 +183,7 @@ Known properties:
 - Motion: `animation`, `animation-name`, `animation-duration`, `animation-delay`, `animation-timing-function`, `animation-iteration-count`, `transition`, `transition-property`, `transition-duration`, `transition-delay`, `transition-timing-function`
 - Line: `x1`, `y1`, `x2`, `y2`, `stroke`, `stroke-width`
 - Pointer: `cursor`
+- Picture: `repaint-boundary` (`yes`, `true`, or `on` makes the element keep a picture of its own, [Pictures](#pictures); anything else does not; not pseudo-reactive)
 - Scroll: `overflow`, `overflow-x`, `overflow-y`, `scrollbar-width`, `scrollbar-color`, `scrollbar-thumb-color`, `scrollbar-track-color`, `scrollbar-thumb-hover-color`, `scrollbar-border-radius`
 
 Styles do not inherit:
@@ -146,7 +201,7 @@ Cascade specificity (`compound_specificity` in `src/ui/paint.cpp`) is the sum of
 
 A stylesheet `--name: value` is stored in `compute_style_uncached`; `is_known_property` accepts any `--` name. `var(--name)` and `var(--name, fallback)` substitute at cascade time wherever they sit in the value: inside `calc()`, as one inset of `padding`, inside a fallback. A substituted value is resolved again, eight levels at most. The element's bound value wins over the sheet. A reference with no match and no fallback makes the whole value an empty string. Any other unknown property does not change computed style.
 
-`transition` and `@keyframes` interpolate numbers, colors, resolved px lengths, and `rotate` / `scale`. Keywords snap at eased progress 0.5. `@keyframes` wins on a property that also has a `transition`. The clock advances once per `paint_document` from `delta_time`. A layout property re-packs the chain that moved. Hit geometry during that animation is the previous frame's rects (`src/ui/style_anim.cpp`).
+`transition` and `@keyframes` interpolate numbers, colors, resolved px lengths, and `rotate` / `scale`. Keywords snap at eased progress 0.5. `@keyframes` wins on a property that also has a `transition`. The clock advances once per `paint_document` from `delta_time`. `@keyframes` are compiled once into numeric tracks (`CompiledKeyframes`, one per animated property with its stops sorted, built on the first sample and kept on `Keyframes::compiled`; rebuilt when the stops were edited), so a sample parses no declaration string: it reads the two neighbouring stops and interpolates. `opacity`, `transform`, scroll, and a `Viewport` camera are paint only and mark no layout. A layout property (`width`, `height`, `min-*`, `max-*`, `font-size`, `padding`, `margin`, `gap`, ...) marks the animated element for layout on the frames its value moved, and only that chain lays out again: the element's own box can change, so the mark passes through a relayout boundary, the siblings and the rest of the tree are untouched. A finished `@keyframes` or transition keeps its end value in `motion_shown`, costs no cascade on later frames, and no longer keeps the hover target search running. Hit geometry during that animation is the previous frame's rects (`src/ui/style_anim.cpp`).
 
 ### Value grammar
 
@@ -170,11 +225,13 @@ The stylesheet parser still warns when `background-image` is not `none` or an `A
 
 `BindingId` is an FNV-1a hash of the path (`include/engine/ui/binding_id.h`). Zero means unbound. Two different paths that hash equal fail codegen (`CodegenErrorKind::Collision`).
 
-`Bindable<T>` stores a value. `set` compares with `==` (a type without `==` always counts as changed) and, on a change, calls the one handler registered with `on_changed(std::function<void(const T&)>)`, synchronously, once. A write from C++ and a write from the document (`ViewModel::write_property_float` / `write_property_string`: drag, `TextInput`, `Checkbox`, popup close) take the same path; an unchanged value is silent. The handler runs inside input handling for a document write, so it must not destroy the view model or its canvas. `BindableList::get()` returns a mutable `vector&`, so a list can change with no signal.
+`Bindable<T>` stores a value and a version. `set` compares with `==` (a type without `==` always counts as changed) and, on a change, raises `version()` by one and calls the one handler registered with `on_changed(std::function<void(const T&)>)`, synchronously, once. A write from C++ and a write from the document (`ViewModel::write_property_float` / `write_property_string`: drag, `TextInput`, `Checkbox`, popup close) take the same path; an unchanged value is silent and does not move the version. The handler runs inside input handling for a document write, so it must not destroy the view model or its canvas. `BindableList` has a version too and no mutable `get()`: it changes through `set(vector)` and `edit(fn)`, and each raises the version once, only when the items differ afterwards (`edit` compares against a copy taken before). Nothing subscribes: the bind pass polls the versions. `Catalog::version()` moves when a table, the active or fallback locale, or the pseudo mode changes.
 
 `ViewModel::property`, `command`, and `paint` register those objects by `BindingId`. `assign_property_string` writes only when the formatted text differs. `write_property_float` / `write_property_string` write back when the registered type matches. Arithmetic types format with `std::to_string`.
 
-`apply_bindings` (`src/ui/document.cpp`) resolves properties, commands, and paint against the view-model, then `{tr}` against a `Catalog` pointer. A bound command sets `disabled` from `!can_execute()`, except on `TextInput`. `ItemsControl` clones its template per list item.
+`apply_bindings` (`src/ui/bind.cpp`) resolves properties, commands, and paint against the view-model, then `{tr}` against a `Catalog` pointer. A bound command sets `disabled` from `!can_execute()`, except on `TextInput`. `ItemsControl` clones its template per list item.
+
+The first call for a document, and any call after the data context, the catalog pointer or its version, or the tree's structure (an ItemsControl reconcile that dropped rows) changed, walks the tree, reads every binding, and records a flat table of slots in `UiDocument::bind_table`: the element id, the field (`BindField`: text, content, source, `if`, slider value, pan, zoom, scroll, checked, open, `var-` custom property, `{tr}` argument, `items_source`, command, paint), the `BindingId`, the view-model the slot reads (the canvas data context, or a row's item inside an ItemsControl), and the property version it last saw. Every other call is one integer compare per slot (`UiWorkCounters::slots_checked`); a slot whose version moved reads its one property again (`bound_reads`) and marks what that field feeds dirty only if the value differs. A bound command has no version: `can_execute()` is polled each call and a change sets `disabled`. A slot whose element a reconcile dropped is dropped with it, so no slot outlives the view-model of a row that left the list. A scroll position and an ItemsControl window are read again after a layout pass (`UiDocument::windows_dirty`), because they depend on the layout's extents and not only on the property. The failures of the build (a binding the view-model lacks) are kept and reported again by every call, like the old walk did. Something that edits a field a binding fills behind the bind pass keeps its edit until the property changes.
 
 Without `EngineSystemDeps::assets` the clone and stylesheet systems are not registered. `run_bind` itself only applies bindings. With assets, it clones from `AssetsDb` only when `UiCanvas::document` is set and the id changed. Stylesheet asset ids merge via `try_get<Stylesheet>`; one missing from the catalog logs a warning once per world and is retried each frame. An empty id list does not wipe a sheet authored in memory.
 
@@ -192,19 +249,49 @@ Pointer, wheel, keys, text, and IME enter as ECS events from [Input Mapper](../f
 
 Details: [UI Input](../features/UI%20Input.md).
 
+### Rows of no fixed height
+
+A row whose root has no pixel `height` is virtualized too, once the list has been laid out. The first bind cannot know any height (no layout has run, no scroller has a size), so it builds every row; the next pass reads each row's `layout_rect.h` into `Element::row_heights` (`measured`, keyed by `generated_owner`, the item's view-model) and from then on builds a window. The tops of all rows (`tops`, a prefix sum of the measured heights plus the gap) are rebuilt when a measure changed, a row was added, or the item list differs; a row never measured counts as the mean of the measured ones until it has been laid out once. The first and last row of the window come from a binary search over `tops` (plus two rows of overscan), and the two spacers are the heights of the rows before and after it. A row that leaves the window keeps its measured height, so scrolling back builds the same spacers; entries of items that left the list are dropped once the map is twice the list. Unchanged heights do not rebuild anything: a quiet scroll costs the search and the rows it enters.
+
+What it does not do: the scroll offset is not anchored. When a row above the window measures differently than its estimate, content moves under the pointer by the difference. Heights are not remeasured for rows outside the window when the width changes (wrapped text); they are when they come back. Rows that are `position: absolute` still never virtualize.
+
+Text is measured once per distinct `(text, font, size)` and wrapped once per `(text, font, size, width)` for a whole document: `UiDocument::text_cache` (`src/ui/text_cache.h`) sits behind the per-element caches, so a row cloned from the template, a recycled row, and a row with the same text as a hundred others do not reach the painter again. It is dropped when the painter changes and bounded in size.
+
 ## Paint
 
-`paint_element` (`src/ui/paint.cpp`) stable-sorts siblings by `z-index` (low behind, document order on ties) through `child_stacking_order`. Hit-testing uses the same function.
+`paint_element` (`src/ui/paint.cpp`) orders siblings by `z-index` (low behind, document order on ties) through `child_stacking_order`. Siblings that already ascend by `z-index`, every one equal included, are not sorted at all. Hit-testing uses the same function.
 
-Per-element scissor is `nvgIntersectScissor`. `overflow` and `Viewport` clip. A non-identity `transform` calls `apply_transform` around the element's own visuals and its children. `layout_rect` stays axis-aligned.
+Pictures: a boundary replays what it recorded ([Pictures](#pictures)). Per-element scissor is `nvgIntersectScissor`: every element draws and passes its in-flow children under its own box. An element enters no painter state (`save`, `set_opacity`, `apply_transform`, `scissor`, `restore`) when it has nothing to set: its opacity is the one the painter already holds (`state_opacity`, the nearest entered ancestor's; a canvas root and a popup always set theirs), it has no transform, and its scissor would clip nothing. `paint_stays_in_box` decides the last: a text-only or box-only element with no border, whose measured text fits its content box and whose in-flow children lie inside its box and carry no transform. A border (its stroke is centred on the edge), a `Line`, `Math`, `TextInput`, `Viewport` or `ScrollView`, a custom `IPaint`, `overflow` other than `visible`, and anything the measure caches cannot vouch for keep the scissor. A held motion sample is drawn from a style that carries only the fields `paint_element` reads (`copy_paint_fields`), not a copy of the whole cascade. `overflow` and `Viewport` clip. A non-identity `transform` calls `apply_transform` around the element's own visuals and its children. `layout_rect` stays axis-aligned.
 
-`Viewport` paints chrome unpanned, then `apply_view` so children see `displayed = origin + zoom * (layout - origin + pan)`. Pan and zoom are bound floats.
+`Viewport` paints chrome unpanned, then `apply_view` so children see `displayed = origin + zoom * (layout - origin + pan)`. Pan and zoom are bound floats. A camera paints what its box shows: a child with its subtree wholly outside the visible part of the world (`[origin - pan, origin - pan + size / zoom]` in layout space, with a 16 px margin) is not painted, at any depth until a scroll, a transform, or another camera changes the space (`Element::culled_children` counts them). A child is only culled when its reach is known: an element with a transform, an `IPaint`, a `Line`, `Math`, `TextInput`, `Popup`, a nested `Viewport`, text that was not measured, or a style never resolved counts as reaching the view, and one that clips its children reaches only its box. A world drawn by an `IPaint` culls itself. Hit-testing is not culled.
 
 `background-image` and `Image` `source` both call `IUiPainter::image(AssetId, rect)`. `run_ui_render` collects referenced images and fonts (`src/ui/ui_refs.h`) and calls `ensure_ui_image` / `ensure_ui_font`. `builtin::font_ui` is ensured even when no element names it.
 
 `CmdDrawUI` carries the document, stylesheet, pointer, `delta_time`, the width and height used for `@media`, letterbox offset and scale, optional inspector paths, `popup_bounds` (the window in layout units), and `popup_layer`. A `ScaleWithScreenSize` canvas with both `reference_size` sides positive supplies that width and height from the design box (`reference_size`). Otherwise those values come from `window_size_for` (`Presentation.sizes`).
 
 NanoVG is `src/render/opengl/nanovg_painter.cpp`, only in a windowed build. Tests use a recording `IUiPainter`.
+
+### Pictures
+
+A **repaint boundary** keeps what it paints as a `Picture` (`src/ui/picture.h`): the list of `IUiPainter` calls its subtree made, in order, with their arguments. It is not a NanoVG command stream and not a texture; any painter replays it, and `RecordingPainter` writes one without a GPU (measuring is answered by the painter it wraps), which is what `engine_tests` use to see what a document paints. The boundaries are the root, anything that scrolls (`overflow` `scroll` or `auto`, a `ScrollView`), a `Viewport`, a `Popup`, and an element the stylesheet marks with `repaint-boundary: yes` (`Element::repaint_boundary`, from the layout style, so not pseudo-reactive). Everything else is a plain element and is recorded into the picture of the nearest boundary above it.
+
+A boundary owns three pictures in `Element::picture`:
+
+| Part | Holds | Rewritten |
+| --- | --- | --- |
+| `chrome` | the element's own drawing: box, border, text, custom `IPaint` | when the element holds a paint mark, or the key moved |
+| `content` | its children; a nested boundary appears as a `Call` of that boundary's frame | when a plain element in its region holds a mark, or the key moved |
+| `frame` | the state the element sets itself (opacity, transform, scissor, scroll offset, camera), the calls of `chrome` and `content`, and the scrollbar | every time paint reaches the element: a few commands |
+
+So opacity, transform, scroll and a `Viewport` camera are parameters of the frame: the picture below them is not rewritten. The key (`PictureKey`) is the element's rect, the canvas offset and scale, the parent content size, the window size, and the stylesheet and its generation. A boundary records its children with the opacity of its caller unknown, so what it holds does not depend on its parent's opacity.
+
+Marks: `kDirtyPaint` rewrites the boundary that holds the element (the element itself when it is one); `kDirtyFrame` (scroll offset, camera, scrollbar hover and drag, an animated opacity or transform on a boundary) rewrites only its frame. A layout pass that moved or resized an element marks it for paint (`Element::rect_seen`). The pass that draws follows `dirty_below` from the root: a boundary whose region holds no mark and whose key still matches is not visited, so a quiet frame replays the root's frame and paints no element (`UiWorkCounters::painted_elements` does not move, `pictures_replayed` goes up by one).
+
+Pictures that cannot be replayed are *volatile* and recorded every frame, as paint was before: a focused `TextInput` (the caret blinks with the clock), an `IPaint` whose `version()` is `kVersionUnknown` (the default), and anything that measured a non-empty string as zero wide (a font that is not ready). An `IPaint` that returns a version, with the same meaning as `Bindable::version`, is recorded again only when it moves. A `Viewport` records its children for half a screen of world more than its box shows on every side and replays them while the camera looks at nothing outside that; children wholly outside the recorded world are culled ([Paint](#paint)).
+
+A hidden element (`display: none`, `visibility`, a closed popup) holds no mark that any picture above cares about; showing it marks it again.
+
+The debug check of [Debug layout check](#debug-layout-check) covers pictures: after each paint, every boundary records afresh and is compared with the picture it holds, and a difference means a change reached an element without marking it for paint (`UiWorkCounters::picture_check_failures`).
 
 ## Slider
 
@@ -327,6 +414,8 @@ The engine keeps the probes and the editor shows the panels. `set_inspector_atta
 ## Public headers
 
 - `include/engine/ui/document.h`
+- `include/engine/ui/element_id.h`
+- `include/engine/ui/element_arena.h`
 - `include/engine/ui/builder.h`
 - `include/engine/ui/canvas.h`
 - `include/engine/ui/stylesheet.h`
@@ -347,7 +436,7 @@ The engine keeps the probes and the editor shows the panels. `set_inspector_atta
 
 ## Tests
 
-`tests/ui_bindable_visibility_test.cpp`, `tests/ui_slider_test.cpp`, `tests/ui_absolute_items_test.cpp`, `tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_items_control_virtualization_test.cpp`, `tests/ui_tree_test.cpp`, `tests/dock_layout_test.cpp`, `tests/dock_space_test.cpp`, `tests/dock_float_window_test.cpp`, `tests/ui_text_wrap_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_refs_test.cpp`, `tests/ui_loc_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_inline_math_test.cpp`, `tests/ui_math_parser_test.cpp`, `tests/ui_math_layout_test.cpp`, `tests/ui_math_paint_test.cpp`, `tests/ui_math_font_test.cpp`, `tests/ui_math_stretch_test.cpp`, `tests/ui_math_element_test.cpp`, `tests/splash_test.cpp`, `tests/ui_inspector_test.cpp`, `tests/ui_profiler_test.cpp`, `tests/ui_popup_test.cpp`.
+`tests/ui_element_id_test.cpp` (ids, parents, reuse, aliasing, stale lookups), `tests/ui_animation_tracks_test.cpp` (compiled keyframe tracks, motion layout chains), `tests/ui_picture_test.cpp` (pictures: quiet frames, one changed label, frame-only marks, `IPaint::version`), `tests/ui_list_windows_test.cpp` (variable-height windows, text cache, tree counts, camera culling), `tests/ui_dirty_flags_test.cpp` (quiet frames, one-string chain, relayout boundary, hover and layout, the layout checker), `tests/ui_bindable_version_test.cpp` (versions of `Bindable`, `BindableList`, `Catalog`), `tests/ui_wasted_work_test.cpp`, `tests/ui_bindable_visibility_test.cpp`, `tests/ui_slider_test.cpp`, `tests/ui_absolute_items_test.cpp`, `tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_scroll_test.cpp`, `tests/ui_items_control_virtualization_test.cpp`, `tests/ui_tree_test.cpp`, `tests/dock_layout_test.cpp`, `tests/dock_space_test.cpp`, `tests/dock_float_window_test.cpp`, `tests/ui_text_wrap_test.cpp`, `tests/ui_text_input_test.cpp`, `tests/ui_label_select_test.cpp`, `tests/ui_input_batch_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_refs_test.cpp`, `tests/ui_loc_test.cpp`, `tests/mvvm_test.cpp`, `tests/ui_inline_math_test.cpp`, `tests/ui_math_parser_test.cpp`, `tests/ui_math_layout_test.cpp`, `tests/ui_math_paint_test.cpp`, `tests/ui_math_font_test.cpp`, `tests/ui_math_stretch_test.cpp`, `tests/ui_math_element_test.cpp`, `tests/splash_test.cpp`, `tests/ui_inspector_test.cpp`, `tests/ui_profiler_test.cpp`, `tests/ui_popup_test.cpp`.
 
 ## See also
 

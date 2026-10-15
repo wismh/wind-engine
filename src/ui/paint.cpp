@@ -1,14 +1,18 @@
 #include "css_length.h"
+#include "dirty.h"
 #include "draw_list_adapter.h"
 #include "element_path.h"
 #include "inline_math.h"
+#include "layout_check.h"
 #include "math/math_element.h"
 #include "painter.h"
+#include "picture.h"
 #include "popup.h"
 #include "profile.h"
 #include "profiler_paint_counter.h"
 #include "style_anim.h"
 #include "text_select.h"
+#include "ui/text_cache.h"
 
 #include <engine/builtin_ids.h>
 #include <engine/ui/canvas.h>
@@ -19,6 +23,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <format>
 #include <optional>
@@ -657,6 +662,8 @@ namespace engine::ui {
                 style.white_space = parse_white_space(decl.value);
             } else if (decl.property == "user-select") {
                 style.user_select = parse_user_select(decl.value);
+            } else if (decl.property == "repaint-boundary") {
+                style.repaint_boundary = decl.value == "true" || decl.value == "yes" || decl.value == "on";
             } else if (decl.property == "cursor") {
                 style.cursor = parse_cursor(decl.value);
             } else if (decl.property == "border-radius") {
@@ -964,12 +971,15 @@ namespace engine::ui {
             if (sheet == nullptr) {
                 return matched;
             }
+            const StyleAnalysis &analysis = style_analysis(*sheet);
             for (std::size_t i = 0; i < sheet->rules.size(); ++i) {
                 const CssRule &rule = sheet->rules[i];
                 if (!media_matches(rule.media, window_width, window_height)) {
                     continue;
                 }
-                if (!selector_matches(rule, element, ancestors, allow_pseudo)) {
+                // The layout cascade (no pseudo-classes) still reads the real state for a pseudo-class rule that also
+                // changes layout: that is how `.x:hover { padding: ... }` reaches layout.
+                if (!selector_matches(rule, element, ancestors, allow_pseudo || analysis.layout_pseudo[i] != 0)) {
                     continue;
                 }
                 matched.push_back(RankedRule{specificity(rule), i, &rule});
@@ -1000,14 +1010,8 @@ namespace engine::ui {
             return style;
         }
 
-        // Packs one element's pseudo-state into a byte so StyleCacheEntry::ancestor_pseudo_state can
-        // detect "A:hover B" reacting to ancestor A's hover changing, even though the ancestor pointer
-        // chain to B (identity, checked separately) didn't change.
-        std::uint8_t pseudo_state_bits(const Element &element) {
-            return static_cast<std::uint8_t>((element.hovered ? 1u : 0u) | (element.pressed ? 2u : 0u) |
-                                             (element.disabled ? 4u : 0u) | (element.focused ? 8u : 0u) |
-                                             (element.checked ? 16u : 0u));
-        }
+        // Packs one element's pseudo-state into a byte (the stylesheet's kPseudo* bits).
+        std::uint8_t pseudo_state_bits(const Element &element) { return pseudo_state_of(element); }
 
         std::vector<std::uint8_t> ancestor_pseudo_state_bits(const std::vector<const Element *> &ancestors) {
             std::vector<std::uint8_t> bits;
@@ -1018,6 +1022,10 @@ namespace engine::ui {
             return bits;
         }
 
+        // A hit needs everything the cascade read to be what it was. The pseudo-state is compared only through the
+        // masks the last cascade recorded (`self_dep`, `ancestor_dep`): bits no rule tested on this element or on that
+        // ancestor cannot change the result, so hovering a container leaves a descendant no rule can reach through it
+        // alone.
         bool style_cache_hits(const StyleCacheEntry &cache, const Element &element, const Stylesheet *sheet,
                               const std::vector<const Element *> &ancestors, float window_width, float window_height) {
             const std::uint64_t sheet_generation = sheet != nullptr ? sheet->generation : 0;
@@ -1028,23 +1036,84 @@ namespace engine::ui {
             if (cache.id != element.id || cache.classes != element.classes) {
                 return false;
             }
-            if (cache.hovered != element.hovered || cache.pressed != element.pressed ||
-                cache.disabled != element.disabled || cache.focused != element.focused ||
-                cache.checked != element.checked) {
+            if (((cache.pseudo ^ pseudo_state_bits(element)) & cache.self_dep) != 0) {
                 return false;
             }
             if (cache.custom_properties != element.custom_properties) {
                 return false;
             }
-            if (cache.ancestors != ancestors) {
+            if (cache.ancestors.size() != ancestors.size()) {
                 return false;
             }
-            return cache.ancestor_pseudo_state == ancestor_pseudo_state_bits(ancestors);
+            // Identity and the tested pseudo-state of every ancestor, in place: this runs for every element on every
+            // frame, a hit included.
+            for (std::size_t i = 0; i < ancestors.size(); ++i) {
+                const ElementId handle = ancestors[i]->handle;
+                if (handle.is_null() || cache.ancestors[i] != handle ||
+                    ((cache.ancestor_pseudo_state[i] ^ pseudo_state_bits(*ancestors[i])) & cache.ancestor_dep[i]) !=
+                            0) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // True when `rule` could match `element` under `ancestors` if every pseudo-class were satisfied: the structure
+        // (tag, class, id, combinators) matches for some choice of the ancestors a descendant combinator leaves open.
+        bool place_ancestors(const CssRule &rule, std::size_t remaining, std::size_t pos,
+                             const std::vector<const Element *> &ancestors) {
+            if (remaining == 0) {
+                return true;
+            }
+            const CssSelector &compound = rule.ancestors[remaining - 1];
+            if (rule.combinators[remaining - 1] == CssCombinator::Child) {
+                return pos > 0 && compound_matches(compound, *ancestors[pos - 1]) &&
+                       place_ancestors(rule, remaining - 1, pos - 1, ancestors);
+            }
+            for (std::size_t j = pos; j > 0; --j) {
+                if (compound_matches(compound, *ancestors[j - 1]) &&
+                    place_ancestors(rule, remaining - 1, j - 1, ancestors)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Which pseudo bits the cascade of `element` can depend on, for the rules this cascade reads: all the
+        // pseudo-class rules (the paint style), or those that also lay out (the layout style).
+        void collect_pseudo_dependency(const Element &element, const Stylesheet *sheet, bool layout_style,
+                                       const std::vector<const Element *> &ancestors, StyleCacheEntry &cache) {
+            cache.self_dep = 0;
+            cache.ancestor_dep.assign(ancestors.size(), 0);
+            if (sheet == nullptr) {
+                return;
+            }
+            const StyleAnalysis &analysis = style_analysis(*sheet);
+            const std::vector<std::uint32_t> &list =
+                    layout_style ? analysis.layout_pseudo_rules : analysis.pseudo_rules;
+            for (const std::uint32_t index: list) {
+                const CssRule &rule = sheet->rules[index];
+                if (!rule_could_match(rule, element, ancestors)) {
+                    continue;
+                }
+                cache.self_dep |= pseudo_class_bit(rule.selector.pseudo);
+                for (const CssSelector &compound: rule.ancestors) {
+                    const std::uint8_t bits = pseudo_class_bit(compound.pseudo);
+                    if (bits == 0) {
+                        continue;
+                    }
+                    for (std::size_t j = 0; j < ancestors.size(); ++j) {
+                        if (compound_matches(compound, *ancestors[j])) {
+                            cache.ancestor_dep[j] |= bits;
+                        }
+                    }
+                }
+            }
         }
 
         void style_cache_store(StyleCacheEntry &cache, const Element &element, const Stylesheet *sheet,
                                const std::vector<const Element *> &ancestors, float window_width, float window_height,
-                               ComputedStyle style) {
+                               bool layout_style, ComputedStyle style) {
             cache.valid = true;
             cache.sheet = sheet;
             cache.sheet_generation = sheet != nullptr ? sheet->generation : 0;
@@ -1052,21 +1121,22 @@ namespace engine::ui {
             cache.window_height = window_height;
             cache.id = element.id;
             cache.classes = element.classes;
-            cache.hovered = element.hovered;
-            cache.pressed = element.pressed;
-            cache.disabled = element.disabled;
-            cache.focused = element.focused;
-            cache.checked = element.checked;
+            cache.pseudo = pseudo_state_bits(element);
             cache.custom_properties = element.custom_properties;
-            cache.ancestors = ancestors;
+            cache.ancestors.clear();
+            for (const Element *ancestor: ancestors) {
+                cache.ancestors.push_back(ancestor->handle);
+            }
             cache.ancestor_pseudo_state = ancestor_pseudo_state_bits(ancestors);
+            collect_pseudo_dependency(element, sheet, layout_style, ancestors, cache);
             cache.style = std::move(style);
         }
 
         // Returns the pre-motion cascade stored on the element. apply_layout_style() calls with
         // allow_pseudo false and paint / advance_tree with true, so they land in independent
         // StyleCacheEntry slots and never invalidate each other. See StyleCacheEntry (document.h) for
-        // what a hit requires.
+        // what a hit requires. The layout cascade reads a pseudo-class rule's real state only when the rule also
+        // changes layout (kDirtyLayout); one that only paints is not part of it.
         //
         // advance_tree steps clocks only when the paint slot misses, a transition is still running, an
         // animation has not reached its end (delay included), or a held sample's parent basis changed.
@@ -1079,9 +1149,11 @@ namespace engine::ui {
             if (style_cache_hits(cache, element, sheet, ancestors, window_width, window_height)) {
                 return cache.style;
             }
+            ++element.style_rebuilds;
             ComputedStyle style =
                     compute_style_uncached(element, sheet, allow_pseudo, ancestors, window_width, window_height);
-            style_cache_store(cache, element, sheet, ancestors, window_width, window_height, std::move(style));
+            style_cache_store(cache, element, sheet, ancestors, window_width, window_height, !allow_pseudo,
+                              std::move(style));
             return cache.style;
         }
 
@@ -1094,8 +1166,10 @@ namespace engine::ui {
             };
         }
 
-        void apply_layout_style(Element &element, const Stylesheet *sheet, std::vector<const Element *> &ancestors,
-                                float window_width, float window_height) {
+        // Writes the layout style of one element (not its descendants) from the cascade onto its fields.
+        void apply_layout_style_to(Element &element, const Stylesheet *sheet,
+                                   const std::vector<const Element *> &ancestors, float window_width,
+                                   float window_height) {
             if (element.kind == ElementKind::ItemTemplate) {
                 return;
             }
@@ -1117,6 +1191,7 @@ namespace engine::ui {
             if (element.display_none) {
                 // Layout skips it from now on, so drop any geometry left from when it was displayed.
                 element.layout_rect = render::Rect{};
+                element.layout_hidden = true;
             }
             if (style.has_gap) {
                 element.gap = style.gap;
@@ -1136,6 +1211,7 @@ namespace engine::ui {
             element.text_align = style.text_align;
             element.white_space = style.white_space;
             element.user_select = style.user_select;
+            element.repaint_boundary = style.repaint_boundary;
             element.cursor = style.cursor;
             element.font_size = style.font_size;
             element.line_height = style.line_height;
@@ -1172,6 +1248,14 @@ namespace engine::ui {
             if (style.has_selection_color) {
                 element.selection_color = style.selection_color;
             }
+        }
+
+        void apply_layout_style(Element &element, const Stylesheet *sheet, std::vector<const Element *> &ancestors,
+                                float window_width, float window_height) {
+            if (element.kind == ElementKind::ItemTemplate) {
+                return;
+            }
+            apply_layout_style_to(element, sheet, ancestors, window_width, window_height);
             ancestors.push_back(&element);
             for (Element &child: element.children) {
                 apply_layout_style(child, sheet, ancestors, window_width, window_height);
@@ -1182,11 +1266,135 @@ namespace engine::ui {
             ancestors.pop_back();
         }
 
+        bool same_length(const Length &a, const Length &b) {
+            if (a.value != b.value || a.unit != b.unit || a.calc.size() != b.calc.size()) {
+                return false;
+            }
+            for (std::size_t i = 0; i < a.calc.size(); ++i) {
+                const CalcNode &x = a.calc[i];
+                const CalcNode &y = b.calc[i];
+                if (x.kind != y.kind || x.value != y.value || x.unit != y.unit || x.op != y.op || x.left != y.left ||
+                    x.right != y.right) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        bool same_length(const std::optional<Length> &a, const std::optional<Length> &b) {
+            if (a.has_value() != b.has_value()) {
+                return false;
+            }
+            return !a.has_value() || same_length(*a, *b);
+        }
+
+        bool same_insets(const LengthInsets &a, const LengthInsets &b) {
+            return same_length(a.top, b.top) && same_length(a.right, b.right) && same_length(a.bottom, b.bottom) &&
+                   same_length(a.left, b.left);
+        }
+
+        // The element fields layout and hit-testing read and a restyle can change: what `apply_layout_style_to` writes
+        // that places or sizes a box, shapes its text, or takes it out of the flow.
+        struct LayoutFields {
+            Length gap;
+            StackDirection direction = StackDirection::Vertical;
+            LengthInsets padding;
+            LengthInsets margin;
+            std::optional<Length> width;
+            std::optional<Length> height;
+            std::optional<Length> min_width;
+            std::optional<Length> max_width;
+            std::optional<Length> min_height;
+            UiAlign justify = UiAlign::Start;
+            UiAlign align_items = UiAlign::Start;
+            WhiteSpace white_space = WhiteSpace::Normal;
+            Length font_size;
+            LineHeight line_height;
+            AssetId font_family;
+            PositionMode position = PositionMode::Static;
+            std::optional<Length> inset_top;
+            std::optional<Length> inset_right;
+            std::optional<Length> inset_bottom;
+            std::optional<Length> inset_left;
+            Overflow overflow_x = Overflow::Visible;
+            Overflow overflow_y = Overflow::Visible;
+            bool display_none = false;
+            bool visible = true;
+            bool repaint_boundary = false;
+        };
+
+        LayoutFields layout_fields_of(const Element &e) {
+            return LayoutFields{e.gap,         e.direction,   e.padding,      e.margin,       e.width,
+                                e.height,      e.min_width,   e.max_width,    e.min_height,   e.justify,
+                                e.align_items, e.white_space, e.font_size,    e.line_height,  e.font_family,
+                                e.position,    e.inset_top,   e.inset_right,  e.inset_bottom, e.inset_left,
+                                e.overflow_x,  e.overflow_y,  e.display_none, e.visible,      e.repaint_boundary};
+        }
+
+        bool layout_fields_differ(const LayoutFields &a, const LayoutFields &b) {
+            return !same_length(a.gap, b.gap) || a.direction != b.direction || !same_insets(a.padding, b.padding) ||
+                   !same_insets(a.margin, b.margin) || !same_length(a.width, b.width) ||
+                   !same_length(a.height, b.height) || !same_length(a.min_width, b.min_width) ||
+                   !same_length(a.max_width, b.max_width) || !same_length(a.min_height, b.min_height) ||
+                   a.justify != b.justify || a.align_items != b.align_items || a.white_space != b.white_space ||
+                   !same_length(a.font_size, b.font_size) || a.line_height.kind != b.line_height.kind ||
+                   a.line_height.factor != b.line_height.factor ||
+                   !same_length(a.line_height.length, b.line_height.length) || a.font_family != b.font_family ||
+                   a.position != b.position || !same_length(a.inset_top, b.inset_top) ||
+                   !same_length(a.inset_right, b.inset_right) || !same_length(a.inset_bottom, b.inset_bottom) ||
+                   !same_length(a.inset_left, b.inset_left) || a.overflow_x != b.overflow_x ||
+                   a.overflow_y != b.overflow_y || a.display_none != b.display_none || a.visible != b.visible ||
+                   a.repaint_boundary != b.repaint_boundary;
+        }
+
+        // Restyles only what is marked: an element with `kDirtyStyle` gets its layout style written again, and if that
+        // moved a layout field its layout is marked (its own box can have changed, so the mark passes through a
+        // relayout boundary). The walk goes only where `dirty_below` says a descendant is marked.
+        void restyle_dirty(UiDocument &document, Element &element, const Stylesheet *sheet,
+                           std::vector<const Element *> &ancestors, float window_width, float window_height) {
+            if (element.kind == ElementKind::ItemTemplate) {
+                return;
+            }
+            if ((element.dirty_self & kDirtyStyle) != 0) {
+                const LayoutFields before = layout_fields_of(element);
+                apply_layout_style_to(element, sheet, ancestors, window_width, window_height);
+                // A running transition or animation still owns the layout properties it animates: the cascade is its
+                // target, not what is shown.
+                commit_motion_layout(element);
+                commit_motion_visuals(element);
+                if (layout_fields_differ(before, layout_fields_of(element))) {
+                    mark_dirty(document, element, kDirtyLayout | kDirtyPaint, true);
+                }
+            }
+            if ((element.dirty_below & kDirtyStyle) == 0) {
+                return;
+            }
+            ancestors.push_back(&element);
+            for (Element &child: element.children) {
+                if (((child.dirty_self | child.dirty_below) & kDirtyStyle) != 0) {
+                    restyle_dirty(document, child, sheet, ancestors, window_width, window_height);
+                }
+            }
+            for (Element &child: element.generated_items) {
+                if (((child.dirty_self | child.dirty_below) & kDirtyStyle) != 0) {
+                    restyle_dirty(document, child, sheet, ancestors, window_width, window_height);
+                }
+            }
+            ancestors.pop_back();
+        }
+
     } // namespace
 
     void apply_layout_style(Element &root, const Stylesheet *sheet, float window_width, float window_height) {
         std::vector<const Element *> ancestors;
         apply_layout_style(root, sheet, ancestors, window_width, window_height);
+    }
+
+    bool rule_could_match(const CssRule &rule, const Element &element, const std::vector<const Element *> &ancestors) {
+        if (rule.ancestors.size() != rule.combinators.size() || !compound_matches(rule.selector, element)) {
+            return false;
+        }
+        return place_ancestors(rule, rule.ancestors.size(), ancestors.size(), ancestors);
     }
 
     namespace {
@@ -1258,39 +1466,453 @@ namespace engine::ui {
             return lines;
         }
 
-        void clear_interaction(Element &element) {
-            element.hovered = false;
-            element.pressed = false;
-            if (element.kind == ElementKind::ItemTemplate) {
-                return;
-            }
-            for (Element &child: element.children) {
-                clear_interaction(child);
-            }
-            for (Element &child: element.generated_items) {
-                clear_interaction(child);
-            }
-        }
-
         // Only the single topmost element under the pointer (the same stacking order paint and click
         // resolution use, via the shared hit_test()) gets :hover/:pressed. Previously every
         // geometrically-overlapping Button was hovered independently, which z-index/position/rotation
         // turn from a rare accident into a common, intentional case.
-        void apply_interaction(Element &root, glm::vec2 pointer, bool pointer_down) {
-            clear_interaction(root);
-            Element *hit = hit_test(root, pointer.x, pointer.y);
-            if (hit != nullptr && !hit->disabled) {
-                hit->hovered = true;
-                hit->pressed = pointer_down;
+        //
+        // The target is searched again only when something that decides it moved: the pointer or its button, a
+        // layout pass, a mark on the tree (a scroll, a popup, a visibility change), or motion under the pointer. A
+        // change of target sets the state on the two elements concerned (`set_pseudo`), not on the whole tree.
+        void apply_interaction(UiDocument &document, const Stylesheet *sheet, glm::vec2 pointer, bool pointer_down) {
+            UiDocument::Interaction &state = document.interaction;
+            if (state.valid && !state.motion && state.pointer == pointer && state.pointer_down == pointer_down &&
+                state.epoch == document.epoch && state.layout_passes == document.counters.layout_passes) {
+                return;
             }
+            Element *hit = hit_test(document.root, pointer.x, pointer.y);
+            if (hit != nullptr && hit->disabled) {
+                hit = nullptr;
+            }
+            Element *previous = nullptr;
+            if (!state.hovered.is_null()) {
+                if (const auto found = document.find(state.hovered)) {
+                    previous = *found;
+                }
+            }
+            if (previous != nullptr && previous != hit) {
+                set_pseudo(document, *previous, kPseudoHover, false, sheet);
+                set_pseudo(document, *previous, kPseudoPressed, false, sheet);
+            }
+            if (hit != nullptr) {
+                set_pseudo(document, *hit, kPseudoHover, true, sheet);
+                set_pseudo(document, *hit, kPseudoPressed, pointer_down, sheet);
+            }
+            state.hovered = hit != nullptr ? hit->handle : ElementId{};
+            state.pressed = hit != nullptr && pointer_down;
+            state.pointer = pointer;
+            state.pointer_down = pointer_down;
+            state.epoch = document.epoch;
+            state.layout_passes = document.counters.layout_passes;
+            state.valid = true;
+        }
+
+        // Every ComputedStyle field paint_element reads. Keep it in step with that function: a field read there and not
+        // copied here is a default while a motion sample is held.
+        void copy_paint_fields(const ComputedStyle &from, ComputedStyle &to) {
+            to.visible = from.visible;
+            to.display_none = from.display_none;
+            to.opacity = from.opacity;
+            to.rotation_deg = from.rotation_deg;
+            to.scale = from.scale;
+            to.color = from.color;
+            to.background = from.background;
+            to.background_gradient = from.background_gradient;
+            to.background_image = from.background_image;
+            to.background_slice = from.background_slice;
+            to.background_repeat = from.background_repeat;
+            to.border_radius = from.border_radius;
+            to.border_width = from.border_width;
+            to.border_color = from.border_color;
+            to.x1 = from.x1;
+            to.y1 = from.y1;
+            to.x2 = from.x2;
+            to.y2 = from.y2;
+            to.stroke = from.stroke;
+            to.stroke_width = from.stroke_width;
+            to.padding = from.padding;
+            to.font_size = from.font_size;
+            to.font_family = from.font_family;
+            to.text_align = from.text_align;
+            to.align_items = from.align_items;
+        }
+
+        // True when nothing this element draws, nor any in-flow child, can land outside its own box, so its scissor
+        // would clip nothing. Conservative: anything that can draw past the box keeps the scissor (a border, whose
+        // stroke is centred on the edge; a line; a formula; a text input; a custom `IPaint`; a scrolling or Viewport
+        // element; text wider or taller than its content box; a child that leaves the box or has its own transform).
+        // Text is judged by the measure caches layout filled; with none that matches, the answer is no.
+        render::Rect union_rect(const render::Rect &a, const render::Rect &b) {
+            const float x0 = std::min(a.x, b.x);
+            const float y0 = std::min(a.y, b.y);
+            const float x1 = std::max(a.x + a.w, b.x + b.w);
+            const float y1 = std::max(a.y + a.h, b.y + b.h);
+            return render::Rect{x0, y0, x1 - x0, y1 - y0};
+        }
+
+        bool rects_overlap(const render::Rect &a, const render::Rect &b) {
+            return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+        }
+
+        // True when `element` or anything under it can paint inside `visible` (a rect of layout space), or when that
+        // cannot be known cheaply and safely: a transform, a custom `IPaint`, a formula, a line, a text input, a popup,
+        // a nested camera, text whose size was not measured, or a style that was never resolved. An element that
+        // clips its children (`overflow`) reaches no further than its own box. The walk stops at the first element
+        // that reaches `visible`.
+        bool may_reach(const Element &element, const render::Rect &visible) {
+            if (element.kind == ElementKind::ItemTemplate || element.display_none || element.hidden_by_if) {
+                return false;
+            }
+            switch (element.kind) {
+                case ElementKind::Line:
+                case ElementKind::Math:
+                case ElementKind::TextInput:
+                case ElementKind::Viewport:
+                case ElementKind::Popup:
+                    return true;
+                default:
+                    break;
+            }
+            if (element.paint != nullptr || element.rotation_deg != 0.0f || element.scale != 1.0f ||
+                !element.style_cache_paint_.valid) {
+                return true;
+            }
+            const ComputedStyle &style = element.style_cache_paint_.style;
+            if (style.rotation_deg != 0.0f || style.scale != 1.0f) {
+                return true;
+            }
+            render::Rect box = element.layout_rect;
+            if (style.border_width.value != 0.0f) {
+                if (style.border_width.unit != LengthUnit::Px) {
+                    return true;
+                }
+                const float half = style.border_width.value * 0.5f;
+                box = render::Rect{box.x - half, box.y - half, box.w + 2.0f * half, box.h + 2.0f * half};
+            }
+            if ((element.kind == ElementKind::Label || element.kind == ElementKind::Button) && !element.text.empty()) {
+                if (!element.text_measure_cache_valid || text_has_inline_markup(element.text)) {
+                    return true;
+                }
+                // Unwrapped text can run past the box; wrapped text stays inside its width and below its height.
+                const render::Rect text{element.layout_rect.x, element.layout_rect.y,
+                                        std::max(element.layout_rect.w, element.text_measure_cache_result.x),
+                                        std::max(element.layout_rect.h, element.text_measure_cache_result.y)};
+                box = union_rect(box, text);
+            }
+            if (rects_overlap(box, visible)) {
+                return true;
+            }
+            if (clips_children(element)) {
+                return false;
+            }
+            for (const Element &child: element.children) {
+                if (may_reach(child, visible)) {
+                    return true;
+                }
+            }
+            for (const Element &child: element.generated_items) {
+                if (may_reach(child, visible)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // A camera skips a child (with its subtree) that lies wholly outside the visible part of the world.
+        bool outside_view(const Element &child, const render::Rect &visible) {
+            return child.kind != ElementKind::Popup && !child.display_none && !may_reach(child, visible);
+        }
+
+        bool paint_stays_in_box(Element &element, const ComputedStyle &style, IUiPainter &painter, float font_size,
+                                const BoxInsets &padding, float border_width, const std::vector<Element> &child_list) {
+            switch (element.kind) {
+                case ElementKind::Line:
+                case ElementKind::Math:
+                case ElementKind::TextInput:
+                case ElementKind::Viewport:
+                case ElementKind::ScrollView:
+                case ElementKind::Popup:
+                    return false;
+                default:
+                    break;
+            }
+            if (element.paint != nullptr || clips_children(element) || is_scrollable(element) ||
+                element.scroll_x != 0.0f || element.scroll_y != 0.0f) {
+                return false;
+            }
+            if (border_width > 0.0f && style.border_color.a > 0.0f) {
+                return false;
+            }
+            constexpr float kEpsilon = 0.01f;
+            const render::Rect &box = element.layout_rect;
+            if ((element.kind == ElementKind::Label || element.kind == ElementKind::Button) && !element.text.empty()) {
+                if (text_has_inline_markup(element.text)) {
+                    return false;
+                }
+                const float content_w = std::max(0.0f, box.w - padding.left - padding.right);
+                const float content_h = std::max(0.0f, box.h - padding.top - padding.bottom);
+                if (const TextBlock *rows = wrapped_text_rows(element, painter, font_size, content_w)) {
+                    if (rows->line_height * static_cast<float>(rows->lines.size()) > content_h + kEpsilon) {
+                        return false;
+                    }
+                    for (const TextLine &line: rows->lines) {
+                        if (line.width > content_w + kEpsilon) {
+                            return false;
+                        }
+                    }
+                } else {
+                    const bool measured = element.text_measure_cache_valid &&
+                                          element.text_measure_cache_font_size == font_size &&
+                                          element.text_measure_cache_font_family == element.font_family &&
+                                          element.text_measure_cache_text == element.text;
+                    if (!measured || element.text_measure_cache_result.x > content_w + kEpsilon ||
+                        element.text_measure_cache_result.y > content_h + kEpsilon) {
+                        return false;
+                    }
+                }
+            }
+            for (const Element &child: child_list) {
+                if (child.kind == ElementKind::ItemTemplate || child.kind == ElementKind::Popup ||
+                    child.position == PositionMode::Absolute || child.display_none || !child.visible) {
+                    continue;
+                }
+                const render::Rect &r = child.layout_rect;
+                if (child.rotation_deg != 0.0f || child.scale != 1.0f || r.x < box.x - kEpsilon ||
+                    r.y < box.y - kEpsilon || r.x + r.w > box.x + box.w + kEpsilon ||
+                    r.y + r.h > box.y + box.h + kEpsilon) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // The `state_opacity` of a call that does not know the painter's global alpha (a canvas root, a popup): it
+        // always sets its own.
+        constexpr float kUnknownOpacity = -1.0f;
+
+        // Pictures are used while a document paints through `paint_document` (or its popup layer). Outside it, and
+        // while the inspector draws over the document, an element is painted straight to the painter.
+        struct PictureContext {
+            UiDocument *document = nullptr;
+            // The part being recorded: what it draws that changes without a mark makes it volatile.
+            PicturePart *recording = nullptr;
+            ElementId recording_owner{};
+            // The debug check: every boundary records afresh and is compared with what it holds.
+            bool checking = false;
+            std::uint64_t check_failures = 0;
+        };
+
+        PictureContext &picture_context() {
+            thread_local PictureContext context;
+            return context;
+        }
+
+        // Not painted now: nothing under it changes what a picture above it shows. A closed popup is painted by nobody.
+        bool element_hidden(const Element &e) noexcept {
+            return e.display_none || e.hidden_by_if || !e.visible || (e.kind == ElementKind::Popup && !e.open);
+        }
+
+        // Elements that keep a picture of their own: the root, anything that scrolls, a camera, a popup, and what the
+        // stylesheet marks with `repaint-boundary`. Decided from the element alone, so a pass that looks for marks can
+        // tell where one picture ends and the next begins without a style.
+        bool is_boundary_element(const Element &e) noexcept {
+            return e.parent.is_null() || e.repaint_boundary || e.kind == ElementKind::Viewport ||
+                   e.kind == ElementKind::ScrollView || e.kind == ElementKind::Popup || is_scrollable(e);
+        }
+
+        bool contains_rect(const render::Rect &outer, const render::Rect &inner) noexcept {
+            return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.w <= outer.x + outer.w &&
+                   inner.y + inner.h <= outer.y + outer.h;
+        }
+
+        constexpr std::uint8_t kPaintMarks = kDirtyPaint | kDirtyFrame;
+
+        const std::vector<Element> &paint_children(const Element &e) {
+            return e.kind == ElementKind::ItemsControl ? e.generated_items : e.children;
+        }
+
+        // A plain element of a boundary's region (not a boundary itself, not hidden) holds a paint mark: the
+        // boundary's picture shows something that changed. Looks only along the marks.
+        bool plain_dirty(const Element &e) {
+            if (e.kind == ElementKind::ItemTemplate || element_hidden(e) || is_boundary_element(e)) {
+                return false;
+            }
+            if ((e.dirty_self & kPaintMarks) != 0) {
+                return true;
+            }
+            if ((e.dirty_below & kPaintMarks) == 0) {
+                return false;
+            }
+            for (const Element &child: paint_children(e)) {
+                if (((child.dirty_self | child.dirty_below) & kPaintMarks) != 0 && plain_dirty(child)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        bool region_dirty(const std::vector<Element> &children) {
+            for (const Element &child: children) {
+                if (((child.dirty_self | child.dirty_below) & kPaintMarks) != 0 && plain_dirty(child)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Clears the marks of a boundary's region once its pictures are up to date, and says what is left below: a
+        // nested boundary keeps its own marks until it is brought up to date, a hidden element keeps them until it is
+        // shown (showing it marks it again).
+        std::uint8_t clear_plain_marks(Element &e) {
+            if (e.kind == ElementKind::ItemTemplate || element_hidden(e)) {
+                return 0;
+            }
+            if (is_boundary_element(e)) {
+                return static_cast<std::uint8_t>((e.dirty_self | e.dirty_below) & kPaintMarks);
+            }
+            std::uint8_t remaining = 0;
+            const auto each = [&](std::vector<Element> &list) {
+                for (Element &child: list) {
+                    if (((child.dirty_self | child.dirty_below) & kPaintMarks) != 0) {
+                        remaining |= clear_plain_marks(child);
+                    }
+                }
+            };
+            e.dirty_self &= static_cast<std::uint8_t>(~kPaintMarks);
+            each(e.children);
+            each(e.generated_items);
+            e.dirty_below = static_cast<std::uint8_t>((e.dirty_below & ~kPaintMarks) | remaining);
+            return remaining;
+        }
+
+        void clear_region_marks(Element &boundary, std::vector<Element> &children) {
+            std::uint8_t remaining = 0;
+            for (Element &child: children) {
+                if (((child.dirty_self | child.dirty_below) & kPaintMarks) != 0) {
+                    remaining |= clear_plain_marks(child);
+                }
+            }
+            boundary.dirty_self &= static_cast<std::uint8_t>(~kPaintMarks);
+            boundary.dirty_below = static_cast<std::uint8_t>((boundary.dirty_below & ~kPaintMarks) | remaining);
         }
 
         void paint_element(Element &element, const Stylesheet *sheet, IUiPainter &painter,
-                           std::vector<const Element *> &ancestors, glm::vec2 parent_content,
-                           const UiPaintInput &input) {
+                           std::vector<const Element *> &ancestors, glm::vec2 parent_content, const UiPaintInput &input,
+                           float state_opacity, const render::Rect *cull, bool ensure_only);
+
+        // Brings the boundaries under `children` that hold marks up to date without drawing them.
+        void refresh_children(std::vector<Element> &children, const Stylesheet *sheet, IUiPainter &painter,
+                              std::vector<const Element *> &ancestors, glm::vec2 parent_content,
+                              const UiPaintInput &input) {
+            for (Element &child: children) {
+                if (child.kind == ElementKind::ItemTemplate || child.kind == ElementKind::Popup ||
+                    ((child.dirty_self | child.dirty_below) & kPaintMarks) == 0) {
+                    continue;
+                }
+                paint_element(child, sheet, painter, ancestors, parent_content, input, kUnknownOpacity, nullptr, true);
+            }
+        }
+
+        // Runs `body` against a recording painter into `part`, as the picture of `owner`, and notes what the picture
+        // depends on beyond its key. In the debug check the fresh recording is compared with the picture the part
+        // holds and dropped.
+        template<typename Body>
+        void record_part(PictureContext &context, Element &owner, PicturePart &part, IUiPainter &painter, Body &&body) {
+            PicturePart fresh;
+            PicturePart *target = context.checking ? &fresh : &part;
+            if (!target->picture) {
+                target->picture = std::make_shared<Picture>();
+            }
+            target->picture->clear();
+            target->volatile_part = false;
+            target->watches.clear();
+            PicturePart *outer = context.recording;
+            const ElementId outer_owner = context.recording_owner;
+            context.recording = target;
+            context.recording_owner = owner.handle;
+            {
+                RecordingPainter recording(painter, *target->picture);
+                body(recording);
+                if (recording.saw_empty_measure()) {
+                    target->volatile_part = true;
+                }
+            }
+            context.recording = outer;
+            context.recording_owner = outer_owner;
+            target->valid = true;
+            UiDocument &document = *context.document;
+            if (context.checking) {
+                ++document.counters.picture_checks;
+                if (part.valid && !part.volatile_part && !target->volatile_part && part.picture != nullptr &&
+                    !(*part.picture == *target->picture)) {
+                    ++document.counters.picture_check_failures;
+                    ++context.check_failures;
+                    std::string classes;
+                    for (const std::string &name: owner.classes) {
+                        classes += "." + name;
+                    }
+                    std::fprintf(stderr,
+                                 "UI picture check: a replayed picture differs from a fresh recording: %s %s "
+                                 "(%zu commands held, %zu recorded)\n",
+                                 owner.kind == ElementKind::Viewport ? "Viewport" : "element", classes.c_str(),
+                                 part.picture->commands.size(), target->picture->commands.size());
+                    std::fflush(stderr);
+                    if (document.abort_on_layout_mismatch) {
+                        std::abort();
+                    }
+                }
+                return;
+            }
+            ++document.counters.pictures_recorded;
+            document.counters.picture_commands += part.picture->commands.size();
+            if (part.volatile_part) {
+                if (std::ranges::find(document.picture_volatile, owner.handle) == document.picture_volatile.end()) {
+                    document.picture_volatile.push_back(owner.handle);
+                }
+            }
+            for (const PictureWatch &watch: part.watches) {
+                auto it = std::ranges::find_if(document.picture_watches, [&](const UiDocument::PaintWatch &w) {
+                    return w.element == owner.handle && w.paint == watch.paint;
+                });
+                if (it == document.picture_watches.end()) {
+                    document.picture_watches.push_back({owner.handle, watch.paint, watch.version});
+                } else {
+                    it->seen = watch.version;
+                }
+            }
+        }
+
+        // What a recording notes: the picture being recorded will not be reusable (a blinking caret, an `IPaint` that
+        // cannot say when it changed), or depends on an `IPaint`'s version.
+        void note_volatile() {
+            PictureContext &context = picture_context();
+            if (context.recording != nullptr) {
+                context.recording->volatile_part = true;
+            }
+        }
+
+        void note_paint(const IPaint &paint) {
+            PictureContext &context = picture_context();
+            if (context.recording == nullptr) {
+                return;
+            }
+            const std::uint64_t version = paint.version();
+            if (version == IPaint::kVersionUnknown) {
+                context.recording->volatile_part = true;
+            } else {
+                context.recording->watches.push_back(PictureWatch{&paint, version});
+            }
+        }
+
+        // `state_opacity` is the global alpha the painter holds on entry: the nearest entered ancestor's opacity.
+        // `ensure_only`: bring the pictures under this element up to date and draw nothing.
+        void paint_element(Element &element, const Stylesheet *sheet, IUiPainter &painter,
+                           std::vector<const Element *> &ancestors, glm::vec2 parent_content, const UiPaintInput &input,
+                           float state_opacity, const render::Rect *cull = nullptr, bool ensure_only = false) {
             if (element.kind == ElementKind::ItemTemplate) {
                 return;
             }
+            PictureContext &pictures_ctx = picture_context();
 
             const ComputedStyle &cached =
                     compute_style(element, sheet, true, ancestors, input.window_width, input.window_height);
@@ -1299,7 +1921,10 @@ namespace engine::ui {
             std::optional<ComputedStyle> overlay;
             const ComputedStyle *used = &cached;
             if (!element.motion_shown.empty()) {
-                overlay.emplace(cached);
+                // Not a copy of the whole cascade (its vectors and maps are none of paint's business): the fields this
+                // function reads, then the animated ones on top.
+                overlay.emplace();
+                copy_paint_fields(cached, *overlay);
                 apply_motion_shown(element, *overlay);
                 used = &(*overlay);
             }
@@ -1317,12 +1942,20 @@ namespace engine::ui {
             const float screen_border_radius = border_radius * input.ui_scale;
             const float screen_border_width = border_width * input.ui_scale;
 
+            std::vector<Element> &child_list =
+                    element.kind == ElementKind::ItemsControl ? element.generated_items : element.children;
             // This element's opacity and transform, and with `clip` its own box as the scissor. Its own drawing and its
             // in-flow children are clipped to its box; an absolute child of an element that does not clip is not.
-            const auto enter = [&](bool clip) {
+            // An element with nothing to set (the opacity the painter already holds, no transform, a scissor that
+            // would clip nothing) enters no state at all: no save, opacity, scissor, or restore.
+            const bool has_transform = style.rotation_deg != 0.0f || style.scale != 1.0f;
+            const bool needs_clip =
+                    !paint_stays_in_box(element, style, painter, font_size, padding, border_width, child_list);
+            const bool entered = has_transform || needs_clip || style.opacity != state_opacity;
+            const auto enter = [&](IUiPainter &painter, bool clip) {
                 painter.save();
                 painter.set_opacity(style.opacity);
-                if (style.rotation_deg != 0.0f || style.scale != 1.0f) {
+                if (has_transform) {
                     // Read from this call's own pseudo-aware `style` (allow_pseudo=true above), not
                     // element.rotation_deg/element.scale — those are apply_layout_style's allow_pseudo=false
                     // values, frozen at layout time. transform is purely a paint-time visual effect (it never
@@ -1344,278 +1977,334 @@ namespace engine::ui {
                     painter.scissor(screen_rect);
                 }
             };
-            enter(true);
+            const float child_state_opacity = entered ? style.opacity : state_opacity;
+            const glm::vec2 child_content{
+                    std::max(0.0f, element.layout_rect.w - padding.left - padding.right),
+                    std::max(0.0f, element.layout_rect.h - padding.top - padding.bottom),
+            };
+            const bool viewport_camera = element.kind == ElementKind::Viewport;
+            const bool has_scroll = (element.scroll_x != 0.0f || element.scroll_y != 0.0f);
+            // A Popup is not painted with its anchor: paint_popup_layer draws the open ones above every canvas.
+            // Out of flow, an absolute child of an element that does not clip shows outside its box, as it takes the
+            // pointer there (clips_children): it is drawn under the scissor of the ancestors only.
+            const bool absolute_escapes = !clips_children(element) && !viewport_camera && !has_scroll;
+            // The scissor of an element that clips only itself is dropped for its escaping absolute children: the
+            // element's state (opacity, transform) is set again without it.
+            const bool leaves_scissor = absolute_escapes && entered && needs_clip;
+            const bool boundary = pictures_ctx.document != nullptr && is_boundary_element(element);
 
-            if (style.background.a > 0.0f) {
-                painter.fill_rounded_rect(screen_rect, screen_border_radius, style.background);
-            }
-            if (style.background_gradient) {
-                painter.fill_rounded_rect_gradient(screen_rect, screen_border_radius, *style.background_gradient);
-            } else if (style.background_image) {
-                if (style.background_slice) {
-                    const BoxInsets slice = resolve_insets(*style.background_slice, parent_content, font_size);
-                    const BoxInsets screen_slice{
-                            slice.top * input.ui_scale,
-                            slice.right * input.ui_scale,
-                            slice.bottom * input.ui_scale,
-                            slice.left * input.ui_scale,
-                    };
-                    painter.image_nine_slice(*style.background_image, screen_rect, screen_slice);
-                } else if (style.background_repeat == BackgroundRepeat::Repeat) {
-                    painter.image_repeat(*style.background_image, screen_rect);
-                } else {
-                    painter.image(*style.background_image, screen_rect);
+            // The element's own drawing: its box, its text, its custom paint.
+            const auto paint_own = [&](IUiPainter &painter) {
+                if (style.background.a > 0.0f) {
+                    painter.fill_rounded_rect(screen_rect, screen_border_radius, style.background);
                 }
-            }
-            if (border_width > 0.0f && style.border_color.a > 0.0f) {
-                painter.stroke_rounded_rect(screen_rect, screen_border_radius, screen_border_width, style.border_color);
-            }
-            if (element.kind == ElementKind::Line) {
-                const float x1 = resolve_length(style.x1, parent_content.x, font_size);
-                const float y1 = resolve_length(style.y1, parent_content.y, font_size);
-                const float x2 = resolve_length(style.x2, parent_content.x, font_size);
-                const float y2 = resolve_length(style.y2, parent_content.y, font_size);
-                const float stroke_width = resolve_length(style.stroke_width, parent_content.x, font_size);
-                const glm::vec2 from{screen_rect.x + x1 * input.ui_scale, screen_rect.y + y1 * input.ui_scale};
-                const glm::vec2 to{screen_rect.x + x2 * input.ui_scale, screen_rect.y + y2 * input.ui_scale};
-                painter.draw_line(from, to, style.stroke, stroke_width * input.ui_scale);
-            }
-
-            if (element.paint != nullptr) {
-                const render::Rect content_local{
-                        0.0f,
-                        0.0f,
-                        std::max(0.0f, element.layout_rect.w - padding.left - padding.right),
-                        std::max(0.0f, element.layout_rect.h - padding.top - padding.bottom),
-                };
-                const glm::vec2 origin{
-                        screen_rect.x + padding.left * input.ui_scale,
-                        screen_rect.y + padding.top * input.ui_scale,
-                };
-                DrawListAdapter list(painter, origin, input.ui_scale);
-                element.paint->paint(list, content_local);
-            }
-
-            if (element.kind == ElementKind::Math) {
-                if (const math::MathFont *math_font = painter.math_font()) {
-                    const render::Rect content{
-                            screen_rect.x + padding.left * input.ui_scale,
-                            screen_rect.y + padding.top * input.ui_scale,
-                            std::max(0.0f, screen_rect.w - (padding.left + padding.right) * input.ui_scale),
-                            std::max(0.0f, screen_rect.h - (padding.top + padding.bottom) * input.ui_scale),
-                    };
-                    math::paint_element(painter, *math_font, element, font_size, content, input.ui_scale,
-                                        style.text_align, style.align_items, style.color);
-                }
-            }
-
-            if (element.kind == ElementKind::Label || element.kind == ElementKind::Button ||
-                element.kind == ElementKind::TextInput) {
-                painter.set_font(style.font_family, font_size * input.ui_scale);
-                const render::Rect content{
-                        screen_rect.x + padding.left * input.ui_scale,
-                        screen_rect.y + padding.top * input.ui_scale,
-                        std::max(0.0f, screen_rect.w - (padding.left + padding.right) * input.ui_scale),
-                        std::max(0.0f, screen_rect.h - (padding.top + padding.bottom) * input.ui_scale),
-                };
-                const bool inline_math = (element.kind == ElementKind::Label || element.kind == ElementKind::Button) &&
-                                         text_has_inline_markup(element.text);
-                if (inline_math) {
-                    const float content_width = std::max(0.0f, element.layout_rect.w - padding.left - padding.right);
-                    paint_label_inline(painter, element, font_size, content_width, content, input.ui_scale,
-                                       style.text_align, style.align_items, style.color);
-                }
-                const float x = text_align_origin_x(content.x, content.w, style.text_align);
-                float y = content.y;
-                if (style.align_items == UiAlign::Center) {
-                    y = content.y + content.h * 0.5f;
-                } else if (style.align_items == UiAlign::End) {
-                    y = content.y + content.h;
-                }
-                const TextBlock *rows = nullptr;
-                if (!inline_math && (element.kind == ElementKind::Label || element.kind == ElementKind::Button) &&
-                    !element.text.empty()) {
-                    const float content_width = std::max(0.0f, element.layout_rect.w - padding.left - padding.right);
-                    rows = wrapped_text_rows(element, painter, font_size, content_width);
-                }
-                if (element.kind == ElementKind::Label && !inline_math) {
-                    // Highlight before the glyphs. An inline label caches its own boxes inside paint_label_inline,
-                    // one per segment, and draws that highlight before its glyphs.
-                    if (element.user_select != UserSelect::None) {
-                        element.painted_font_size_px = font_size * input.ui_scale;
-                        element.painted_text_lines =
-                                label_glyph_lines(painter, element, rows, content, x, y, element.painted_font_size_px,
-                                                  input.ui_scale, style.text_align, style.align_items);
-                        paint_text_selection(painter, element);
-                    } else {
-                        element.painted_text_lines.clear();
-                    }
-                }
-                if (rows != nullptr) {
-                    // One fill_text per row, top-aligned, stacked from where align-items puts the whole block. Rows are
-                    // the ones layout broke at design size, so a scaled font cannot re-break them differently.
-                    // text_block_top is the same placement label_glyph_lines used for the highlight above.
-                    const float row_h = rows->line_height * input.ui_scale;
-                    const float block_h = row_h * static_cast<float>(rows->lines.size());
-                    const float top = text_block_top(content.y, content.h, block_h, style.align_items);
-                    for (std::size_t i = 0; i < rows->lines.size(); ++i) {
-                        const TextLine &line = rows->lines[i];
-                        if (line.begin == line.end) {
-                            continue;
-                        }
-                        painter.fill_text(std::string_view(element.text).substr(line.begin, line.end - line.begin),
-                                          glm::vec2{x, top + static_cast<float>(i) * row_h}, style.color,
-                                          style.text_align, UiAlign::Start);
-                    }
-                } else if (!inline_math && !element.text.empty()) {
-                    painter.fill_text(element.text, glm::vec2{x, y}, style.color, style.text_align, style.align_items);
-                }
-                if (element.kind == ElementKind::TextInput) {
-                    // Cached regardless of focus: a click that *focuses* an unfocused TextInput still
-                    // needs last frame's metrics to place the caret (see Element::painted_font_size_px).
-                    element.painted_font_size_px = font_size * input.ui_scale;
-                    element.painted_content_origin_x = x;
-                }
-                if (element.kind == ElementKind::TextInput && element.focused) {
-                    float glyph_y = content.y;
-                    if (style.align_items == UiAlign::Center) {
-                        glyph_y = content.y + std::max(0.0f, content.h - font_size * input.ui_scale) * 0.5f;
-                    } else if (style.align_items == UiAlign::End) {
-                        glyph_y = content.y + std::max(0.0f, content.h - font_size * input.ui_scale);
-                    }
-                    const float glyph_h = font_size * input.ui_scale;
-
-                    // Highlight behind the text, drawn whenever a real (non-collapsed) selection exists —
-                    // unlike the caret below, not gated on the blink phase.
-                    if (element.selection_anchor && *element.selection_anchor != element.caret_position) {
-                        const std::size_t sel_start = std::min(
-                                std::min(*element.selection_anchor, element.caret_position), element.text.size());
-                        const std::size_t sel_end = std::min(
-                                std::max(*element.selection_anchor, element.caret_position), element.text.size());
-                        const float start_w = painter.measure_text(std::string_view(element.text).substr(0, sel_start),
-                                                                   style.font_family, font_size * input.ui_scale)
-                                                      .x;
-                        const float end_w = painter.measure_text(std::string_view(element.text).substr(0, sel_end),
-                                                                 style.font_family, font_size * input.ui_scale)
-                                                    .x;
-                        painter.fill_rounded_rect(render::Rect{x + start_w, glyph_y, end_w - start_w, glyph_h}, 0.0f,
-                                                  element.selection_color);
-                    }
-
-                    const std::size_t committed_caret = std::min(element.caret_position, element.text.size());
-                    const float committed_w =
-                            painter.measure_text(std::string_view(element.text).substr(0, committed_caret),
-                                                 style.font_family, glyph_h)
-                                    .x;
-                    const float composition_x = x + committed_w;
-                    if (!element.composition.empty()) {
-                        const std::string_view composition = element.composition;
-                        painter.fill_text(composition, glm::vec2{composition_x, y}, style.color, UiAlign::Start,
-                                          style.align_items);
-                        const float composition_w = painter.measure_text(composition, style.font_family, glyph_h).x;
-                        const float underline_y = glyph_y + glyph_h;
-                        painter.draw_line(glm::vec2{composition_x, underline_y},
-                                          glm::vec2{composition_x + composition_w, underline_y}, style.color,
-                                          1.0f * input.ui_scale);
-                        if (element.composition_length > 0) {
-                            const std::size_t range_begin = utf8_byte_offset(composition, element.composition_start);
-                            std::size_t range_end = range_begin;
-                            for (int step = 0; step < element.composition_length; ++step) {
-                                if (range_end >= composition.size()) {
-                                    break;
-                                }
-                                range_end = next_utf8_char(composition, range_end);
-                            }
-                            const float range_start_w =
-                                    painter.measure_text(composition.substr(0, range_begin), style.font_family, glyph_h)
-                                            .x;
-                            const float range_end_w =
-                                    painter.measure_text(composition.substr(0, range_end), style.font_family, glyph_h)
-                                            .x;
-                            painter.fill_rounded_rect(
-                                    render::Rect{composition_x + range_start_w, glyph_y, range_end_w - range_start_w,
-                                                 glyph_h},
-                                    0.0f, element.selection_color);
-                        }
-                    }
-
-                    element.caret_blink_timer += input.delta_time;
-                    if (std::fmod(element.caret_blink_timer, 1.0f) < 0.5f) {
-                        float caret_x = composition_x;
-                        if (!element.composition.empty()) {
-                            const std::size_t composition_caret =
-                                    utf8_byte_offset(element.composition, element.composition_start);
-                            const std::string_view composition_prefix =
-                                    std::string_view(element.composition).substr(0, composition_caret);
-                            caret_x += painter.measure_text(composition_prefix, style.font_family, glyph_h).x;
-                        }
-                        painter.draw_line(glm::vec2{caret_x, glyph_y}, glm::vec2{caret_x, glyph_y + glyph_h},
-                                          style.color, 1.0f * input.ui_scale);
-                    }
-                }
-            }
-            if (element.kind == ElementKind::Image && element.source) {
-                if (!style.background_image || *element.source != *style.background_image) {
-                    const auto &slice_insets = element.slice ? element.slice : style.background_slice;
-                    if (slice_insets) {
-                        const BoxInsets slice = resolve_insets(*slice_insets, parent_content, font_size);
+                if (style.background_gradient) {
+                    painter.fill_rounded_rect_gradient(screen_rect, screen_border_radius, *style.background_gradient);
+                } else if (style.background_image) {
+                    if (style.background_slice) {
+                        const BoxInsets slice = resolve_insets(*style.background_slice, parent_content, font_size);
                         const BoxInsets screen_slice{
                                 slice.top * input.ui_scale,
                                 slice.right * input.ui_scale,
                                 slice.bottom * input.ui_scale,
                                 slice.left * input.ui_scale,
                         };
-                        painter.image_nine_slice(*element.source, screen_rect, screen_slice);
+                        painter.image_nine_slice(*style.background_image, screen_rect, screen_slice);
+                    } else if (style.background_repeat == BackgroundRepeat::Repeat) {
+                        painter.image_repeat(*style.background_image, screen_rect);
                     } else {
-                        painter.image(*element.source, screen_rect);
+                        painter.image(*style.background_image, screen_rect);
                     }
                 }
-            }
+                if (border_width > 0.0f && style.border_color.a > 0.0f) {
+                    painter.stroke_rounded_rect(screen_rect, screen_border_radius, screen_border_width,
+                                                style.border_color);
+                }
+                if (element.kind == ElementKind::Line) {
+                    const float x1 = resolve_length(style.x1, parent_content.x, font_size);
+                    const float y1 = resolve_length(style.y1, parent_content.y, font_size);
+                    const float x2 = resolve_length(style.x2, parent_content.x, font_size);
+                    const float y2 = resolve_length(style.y2, parent_content.y, font_size);
+                    const float stroke_width = resolve_length(style.stroke_width, parent_content.x, font_size);
+                    const glm::vec2 from{screen_rect.x + x1 * input.ui_scale, screen_rect.y + y1 * input.ui_scale};
+                    const glm::vec2 to{screen_rect.x + x2 * input.ui_scale, screen_rect.y + y2 * input.ui_scale};
+                    painter.draw_line(from, to, style.stroke, stroke_width * input.ui_scale);
+                }
 
-            const glm::vec2 child_content{
-                    std::max(0.0f, element.layout_rect.w - padding.left - padding.right),
-                    std::max(0.0f, element.layout_rect.h - padding.top - padding.bottom),
+                if (element.paint != nullptr) {
+                    note_paint(*element.paint);
+                    const render::Rect content_local{
+                            0.0f,
+                            0.0f,
+                            std::max(0.0f, element.layout_rect.w - padding.left - padding.right),
+                            std::max(0.0f, element.layout_rect.h - padding.top - padding.bottom),
+                    };
+                    const glm::vec2 origin{
+                            screen_rect.x + padding.left * input.ui_scale,
+                            screen_rect.y + padding.top * input.ui_scale,
+                    };
+                    DrawListAdapter list(painter, origin, input.ui_scale);
+                    element.paint->paint(list, content_local);
+                }
+
+                if (element.kind == ElementKind::Math) {
+                    if (const math::MathFont *math_font = painter.math_font()) {
+                        const render::Rect content{
+                                screen_rect.x + padding.left * input.ui_scale,
+                                screen_rect.y + padding.top * input.ui_scale,
+                                std::max(0.0f, screen_rect.w - (padding.left + padding.right) * input.ui_scale),
+                                std::max(0.0f, screen_rect.h - (padding.top + padding.bottom) * input.ui_scale),
+                        };
+                        math::paint_element(painter, *math_font, element, font_size, content, input.ui_scale,
+                                            style.text_align, style.align_items, style.color);
+                    }
+                }
+
+                if (element.kind == ElementKind::Label || element.kind == ElementKind::Button ||
+                    element.kind == ElementKind::TextInput) {
+                    painter.set_font(style.font_family, font_size * input.ui_scale);
+                    const render::Rect content{
+                            screen_rect.x + padding.left * input.ui_scale,
+                            screen_rect.y + padding.top * input.ui_scale,
+                            std::max(0.0f, screen_rect.w - (padding.left + padding.right) * input.ui_scale),
+                            std::max(0.0f, screen_rect.h - (padding.top + padding.bottom) * input.ui_scale),
+                    };
+                    const bool inline_math =
+                            (element.kind == ElementKind::Label || element.kind == ElementKind::Button) &&
+                            text_has_inline_markup(element.text);
+                    if (inline_math) {
+                        const float content_width =
+                                std::max(0.0f, element.layout_rect.w - padding.left - padding.right);
+                        paint_label_inline(painter, element, font_size, content_width, content, input.ui_scale,
+                                           style.text_align, style.align_items, style.color);
+                    }
+                    const float x = text_align_origin_x(content.x, content.w, style.text_align);
+                    float y = content.y;
+                    if (style.align_items == UiAlign::Center) {
+                        y = content.y + content.h * 0.5f;
+                    } else if (style.align_items == UiAlign::End) {
+                        y = content.y + content.h;
+                    }
+                    const TextBlock *rows = nullptr;
+                    if (!inline_math && (element.kind == ElementKind::Label || element.kind == ElementKind::Button) &&
+                        !element.text.empty()) {
+                        const float content_width =
+                                std::max(0.0f, element.layout_rect.w - padding.left - padding.right);
+                        rows = wrapped_text_rows(element, painter, font_size, content_width);
+                    }
+                    if (element.kind == ElementKind::Label && !inline_math) {
+                        // Highlight before the glyphs. An inline label caches its own boxes inside paint_label_inline,
+                        // one per segment, and draws that highlight before its glyphs.
+                        if (element.user_select != UserSelect::None) {
+                            element.painted_font_size_px = font_size * input.ui_scale;
+                            element.painted_text_lines = label_glyph_lines(painter, element, rows, content, x, y,
+                                                                           element.painted_font_size_px, input.ui_scale,
+                                                                           style.text_align, style.align_items);
+                            paint_text_selection(painter, element);
+                        } else {
+                            element.painted_text_lines.clear();
+                        }
+                    }
+                    if (rows != nullptr) {
+                        // One fill_text per row, top-aligned, stacked from where align-items puts the whole block. Rows
+                        // are the ones layout broke at design size, so a scaled font cannot re-break them differently.
+                        // text_block_top is the same placement label_glyph_lines used for the highlight above.
+                        const float row_h = rows->line_height * input.ui_scale;
+                        const float block_h = row_h * static_cast<float>(rows->lines.size());
+                        const float top = text_block_top(content.y, content.h, block_h, style.align_items);
+                        for (std::size_t i = 0; i < rows->lines.size(); ++i) {
+                            const TextLine &line = rows->lines[i];
+                            if (line.begin == line.end) {
+                                continue;
+                            }
+                            painter.fill_text(std::string_view(element.text).substr(line.begin, line.end - line.begin),
+                                              glm::vec2{x, top + static_cast<float>(i) * row_h}, style.color,
+                                              style.text_align, UiAlign::Start);
+                        }
+                    } else if (!inline_math && !element.text.empty()) {
+                        painter.fill_text(element.text, glm::vec2{x, y}, style.color, style.text_align,
+                                          style.align_items);
+                    }
+                    if (element.kind == ElementKind::TextInput) {
+                        // Cached regardless of focus: a click that *focuses* an unfocused TextInput still
+                        // needs last frame's metrics to place the caret (see Element::painted_font_size_px).
+                        element.painted_font_size_px = font_size * input.ui_scale;
+                        element.painted_content_origin_x = x;
+                    }
+                    if (element.kind == ElementKind::TextInput && element.focused) {
+                        // The caret blinks with the clock: this picture is never replayed.
+                        note_volatile();
+                        float glyph_y = content.y;
+                        if (style.align_items == UiAlign::Center) {
+                            glyph_y = content.y + std::max(0.0f, content.h - font_size * input.ui_scale) * 0.5f;
+                        } else if (style.align_items == UiAlign::End) {
+                            glyph_y = content.y + std::max(0.0f, content.h - font_size * input.ui_scale);
+                        }
+                        const float glyph_h = font_size * input.ui_scale;
+
+                        // Highlight behind the text, drawn whenever a real (non-collapsed) selection exists —
+                        // unlike the caret below, not gated on the blink phase.
+                        if (element.selection_anchor && *element.selection_anchor != element.caret_position) {
+                            const std::size_t sel_start = std::min(
+                                    std::min(*element.selection_anchor, element.caret_position), element.text.size());
+                            const std::size_t sel_end = std::min(
+                                    std::max(*element.selection_anchor, element.caret_position), element.text.size());
+                            const float start_w =
+                                    painter.measure_text(std::string_view(element.text).substr(0, sel_start),
+                                                         style.font_family, font_size * input.ui_scale)
+                                            .x;
+                            const float end_w = painter.measure_text(std::string_view(element.text).substr(0, sel_end),
+                                                                     style.font_family, font_size * input.ui_scale)
+                                                        .x;
+                            painter.fill_rounded_rect(render::Rect{x + start_w, glyph_y, end_w - start_w, glyph_h},
+                                                      0.0f, element.selection_color);
+                        }
+
+                        const std::size_t committed_caret = std::min(element.caret_position, element.text.size());
+                        const float committed_w =
+                                painter.measure_text(std::string_view(element.text).substr(0, committed_caret),
+                                                     style.font_family, glyph_h)
+                                        .x;
+                        const float composition_x = x + committed_w;
+                        if (!element.composition.empty()) {
+                            const std::string_view composition = element.composition;
+                            painter.fill_text(composition, glm::vec2{composition_x, y}, style.color, UiAlign::Start,
+                                              style.align_items);
+                            const float composition_w = painter.measure_text(composition, style.font_family, glyph_h).x;
+                            const float underline_y = glyph_y + glyph_h;
+                            painter.draw_line(glm::vec2{composition_x, underline_y},
+                                              glm::vec2{composition_x + composition_w, underline_y}, style.color,
+                                              1.0f * input.ui_scale);
+                            if (element.composition_length > 0) {
+                                const std::size_t range_begin =
+                                        utf8_byte_offset(composition, element.composition_start);
+                                std::size_t range_end = range_begin;
+                                for (int step = 0; step < element.composition_length; ++step) {
+                                    if (range_end >= composition.size()) {
+                                        break;
+                                    }
+                                    range_end = next_utf8_char(composition, range_end);
+                                }
+                                const float range_start_w = painter.measure_text(composition.substr(0, range_begin),
+                                                                                 style.font_family, glyph_h)
+                                                                    .x;
+                                const float range_end_w = painter.measure_text(composition.substr(0, range_end),
+                                                                               style.font_family, glyph_h)
+                                                                  .x;
+                                painter.fill_rounded_rect(render::Rect{composition_x + range_start_w, glyph_y,
+                                                                       range_end_w - range_start_w, glyph_h},
+                                                          0.0f, element.selection_color);
+                            }
+                        }
+
+                        element.caret_blink_timer += input.delta_time;
+                        if (std::fmod(element.caret_blink_timer, 1.0f) < 0.5f) {
+                            float caret_x = composition_x;
+                            if (!element.composition.empty()) {
+                                const std::size_t composition_caret =
+                                        utf8_byte_offset(element.composition, element.composition_start);
+                                const std::string_view composition_prefix =
+                                        std::string_view(element.composition).substr(0, composition_caret);
+                                caret_x += painter.measure_text(composition_prefix, style.font_family, glyph_h).x;
+                            }
+                            painter.draw_line(glm::vec2{caret_x, glyph_y}, glm::vec2{caret_x, glyph_y + glyph_h},
+                                              style.color, 1.0f * input.ui_scale);
+                        }
+                    }
+                }
+                if (element.kind == ElementKind::Image && element.source) {
+                    if (!style.background_image || *element.source != *style.background_image) {
+                        const auto &slice_insets = element.slice ? element.slice : style.background_slice;
+                        if (slice_insets) {
+                            const BoxInsets slice = resolve_insets(*slice_insets, parent_content, font_size);
+                            const BoxInsets screen_slice{
+                                    slice.top * input.ui_scale,
+                                    slice.right * input.ui_scale,
+                                    slice.bottom * input.ui_scale,
+                                    slice.left * input.ui_scale,
+                            };
+                            painter.image_nine_slice(*element.source, screen_rect, screen_slice);
+                        } else {
+                            painter.image(*element.source, screen_rect);
+                        }
+                    }
+                }
             };
-            ancestors.push_back(&element);
-            const bool viewport_camera = element.kind == ElementKind::Viewport;
-            const bool has_scroll = (element.scroll_x != 0.0f || element.scroll_y != 0.0f);
-            if (viewport_camera) {
-                painter.save();
-                const glm::vec2 origin{screen_rect.x, screen_rect.y};
-                const glm::vec2 pan{element.pan_x * input.ui_scale, element.pan_y * input.ui_scale};
-                painter.apply_view(origin, pan, viewport_zoom(element.zoom));
-            } else if (has_scroll) {
-                painter.save();
-                const glm::vec2 origin{screen_rect.x, screen_rect.y};
-                const glm::vec2 pan{-element.scroll_x * input.ui_scale, -element.scroll_y * input.ui_scale};
-                painter.apply_view(origin, pan, 1.0f);
-            }
-            // A Popup is not painted with its anchor: paint_popup_layer draws the open ones above every canvas.
-            // Out of flow, an absolute child of an element that does not clip shows outside its box, as it takes the
-            // pointer there (clips_children): it is drawn under the scissor of the ancestors only.
-            const bool absolute_escapes = !clips_children(element) && !viewport_camera && !has_scroll;
-            std::vector<Element> &child_list =
-                    element.kind == ElementKind::ItemsControl ? element.generated_items : element.children;
-            for (Element *child: child_stacking_order(child_list)) {
-                if (child->kind == ElementKind::Popup) {
-                    continue;
+            const auto begin_view = [&](IUiPainter &painter) {
+                if (viewport_camera) {
+                    painter.save();
+                    const glm::vec2 origin{screen_rect.x, screen_rect.y};
+                    const glm::vec2 pan{element.pan_x * input.ui_scale, element.pan_y * input.ui_scale};
+                    painter.apply_view(origin, pan, viewport_zoom(element.zoom));
+                } else if (has_scroll) {
+                    painter.save();
+                    const glm::vec2 origin{screen_rect.x, screen_rect.y};
+                    const glm::vec2 pan{-element.scroll_x * input.ui_scale, -element.scroll_y * input.ui_scale};
+                    painter.apply_view(origin, pan, 1.0f);
                 }
-                if (absolute_escapes && child->position == PositionMode::Absolute) {
+            };
+            const auto end_view = [&](IUiPainter &painter) {
+                if (viewport_camera || has_scroll) {
                     painter.restore();
-                    enter(false);
-                    paint_element(*child, sheet, painter, ancestors, child_content, input);
-                    painter.restore();
-                    enter(true);
-                } else {
-                    paint_element(*child, sheet, painter, ancestors, child_content, input);
                 }
-            }
-            if (viewport_camera || has_scroll) {
-                painter.restore();
-            }
-            ancestors.pop_back();
-
-            if (is_scrollable_y(element)) {
+            };
+            // A camera paints what its box shows: a child (with its subtree) wholly outside the visible part of the
+            // world is skipped, at any depth below the camera until a scroll, a transform or another camera changes
+            // the space. L maps to origin + zoom * (L - origin + pan), so the box shows
+            // [origin - pan, origin - pan + size / zoom] in layout space. A boundary records its children for a
+            // larger part of the world than the camera shows, so a small pan replays the same picture.
+            constexpr float kCullMargin = 16.0f;
+            const float camera_zoom = viewport_zoom(element.zoom);
+            const render::Rect world_now{element.layout_rect.x - element.pan_x, element.layout_rect.y - element.pan_y,
+                                         element.layout_rect.w / camera_zoom, element.layout_rect.h / camera_zoom};
+            // The children of a boundary other than a camera are recorded without a cull rect of an ancestor: the
+            // picture must not depend on where that camera looks.
+            const render::Rect *inherited_cull = (has_scroll || has_transform || boundary) ? nullptr : cull;
+            const auto paint_kids = [&](IUiPainter &painter, const render::Rect *camera_world) {
+                render::Rect visible_world{};
+                const render::Rect *child_cull = inherited_cull;
+                if (viewport_camera) {
+                    // A margin covers what the cached style of a child that was not painted for a while no longer says.
+                    visible_world =
+                            camera_world != nullptr
+                                    ? *camera_world
+                                    : render::Rect{world_now.x - kCullMargin, world_now.y - kCullMargin,
+                                                   world_now.w + 2.0f * kCullMargin, world_now.h + 2.0f * kCullMargin};
+                    child_cull = &visible_world;
+                }
+                element.culled_children = 0;
+                const float kids_opacity = boundary ? kUnknownOpacity : child_state_opacity;
+                for (Element *child: child_stacking_order(child_list)) {
+                    if (child->kind == ElementKind::Popup) {
+                        continue;
+                    }
+                    if (child_cull != nullptr && outside_view(*child, *child_cull)) {
+                        ++element.culled_children;
+                        continue;
+                    }
+                    if (absolute_escapes && child->position == PositionMode::Absolute) {
+                        const bool leave = leaves_scissor;
+                        if (leave) {
+                            // Leave this element's scissor (not its opacity or transform) for the child.
+                            painter.restore();
+                            enter(painter, false);
+                        }
+                        paint_element(*child, sheet, painter, ancestors, child_content, input, kids_opacity,
+                                      child_cull);
+                        if (leave) {
+                            painter.restore();
+                            enter(painter, needs_clip);
+                        }
+                    } else {
+                        paint_element(*child, sheet, painter, ancestors, child_content, input, kids_opacity,
+                                      child_cull);
+                    }
+                }
+            };
+            const auto paint_scrollbar = [&](IUiPainter &painter) {
+                if (!is_scrollable_y(element)) {
+                    return;
+                }
                 const render::Rect track = scrollbar_track_rect(element, input.ui_scale);
                 const render::Rect thumb = scrollbar_thumb_rect(element, input.ui_scale);
                 if (track.w > 0.0f && track.h > 0.0f) {
@@ -1633,9 +2322,118 @@ namespace engine::ui {
                         painter.fill_rounded_rect(screen_thumb, radius, thumb_color);
                     }
                 }
+            };
+
+            if (!boundary) {
+                if (pictures_ctx.document != nullptr && !ensure_only) {
+                    ++pictures_ctx.document->counters.painted_elements;
+                }
+                if (ensure_only) {
+                    // Not a boundary: look for the boundaries below that changed.
+                    ancestors.push_back(&element);
+                    refresh_children(child_list, sheet, painter, ancestors, child_content, input);
+                    ancestors.pop_back();
+                    return;
+                }
+                if (entered) {
+                    enter(painter, needs_clip);
+                }
+                paint_own(painter);
+                ancestors.push_back(&element);
+                begin_view(painter);
+                paint_kids(painter, nullptr);
+                end_view(painter);
+                ancestors.pop_back();
+                paint_scrollbar(painter);
+                if (entered) {
+                    painter.restore();
+                }
+                return;
             }
 
-            painter.restore();
+            // A repaint boundary. Its drawing (`chrome`) and its children (`content`) are recorded once and replayed
+            // while nothing they show changed; the state it sets itself and its scrollbar (`frame`) are written again
+            // each time paint reaches it, which costs a few commands.
+            PictureSlot &slot = element.picture;
+            PictureKey key{
+                    element.layout_rect, input.ui_offset,     input.ui_scale, parent_content,
+                    input.window_width,  input.window_height, sheet,          sheet != nullptr ? sheet->generation : 0};
+            if (leaves_scissor) {
+                // The children were recorded with this element's state set again around them: it is part of what they
+                // show.
+                key.baked_opacity = style.opacity;
+                key.baked_rotation = style.rotation_deg;
+                key.baked_scale = style.scale;
+            }
+            const bool key_same = slot.key == key;
+            const bool self_dirty = (element.dirty_self & kDirtyPaint) != 0;
+            // A camera's picture holds half a screen of world more than its box shows on every side; it is kept while
+            // the camera looks at nothing outside that.
+            render::Rect camera_world{};
+            bool world_kept = false;
+            if (viewport_camera) {
+                world_kept = key_same && slot.content.valid && contains_rect(slot.content.world, world_now);
+                if (world_kept) {
+                    camera_world = slot.content.world;
+                } else {
+                    const float pad_x = world_now.w * 0.5f + kCullMargin;
+                    const float pad_y = world_now.h * 0.5f + kCullMargin;
+                    camera_world = render::Rect{world_now.x - pad_x, world_now.y - pad_y, world_now.w + 2.0f * pad_x,
+                                                world_now.h + 2.0f * pad_y};
+                }
+            }
+            const bool chrome_ok = key_same && slot.chrome.valid && !slot.chrome.volatile_part && !self_dirty &&
+                                   !pictures_ctx.checking;
+            const bool content_ok = key_same && slot.content.valid && !slot.content.volatile_part && !self_dirty &&
+                                    !region_dirty(child_list) && !pictures_ctx.checking &&
+                                    (!viewport_camera || world_kept);
+            slot.key = key;
+            if ((!chrome_ok || !content_ok) && !pictures_ctx.checking) {
+                ++pictures_ctx.document->counters.painted_elements;
+            }
+            ancestors.push_back(&element);
+            if (!chrome_ok) {
+                ancestors.pop_back();
+                record_part(pictures_ctx, element, slot.chrome, painter, [&](IUiPainter &rec) { paint_own(rec); });
+                ancestors.push_back(&element);
+            }
+            if (!content_ok) {
+                record_part(pictures_ctx, element, slot.content, painter,
+                            [&](IUiPainter &rec) { paint_kids(rec, viewport_camera ? &camera_world : nullptr); });
+                if (!pictures_ctx.checking) {
+                    slot.content.world = camera_world;
+                }
+            } else if (((element.dirty_below & (kDirtyPaint | kDirtyFrame)) != 0)) {
+                refresh_children(child_list, sheet, painter, ancestors, child_content, input);
+            }
+            ancestors.pop_back();
+            if (!slot.frame) {
+                slot.frame = std::make_shared<Picture>();
+            }
+            slot.frame->clear();
+            {
+                RecordingPainter rec(painter, *slot.frame);
+                if (entered) {
+                    enter(rec, needs_clip);
+                }
+                draw_picture(rec, slot.chrome.picture);
+                begin_view(rec);
+                draw_picture(rec, slot.content.picture);
+                end_view(rec);
+                paint_scrollbar(rec);
+                if (entered) {
+                    rec.restore();
+                }
+            }
+            if (!pictures_ctx.checking) {
+                clear_region_marks(element, child_list);
+            }
+            if (!ensure_only) {
+                if (dynamic_cast<RecordingPainter *>(&painter) == nullptr) {
+                    ++pictures_ctx.document->counters.pictures_replayed;
+                }
+                draw_picture(painter, slot.frame);
+            }
         }
 
         // True while elapsed has not reached the end, including the delay before the first sample.
@@ -1687,15 +2485,19 @@ namespace engine::ui {
             }
         }
 
-        // Returns whether this element or a descendant changed a layout input. One walk also refreshes
-        // ItemsControl virtualization and commits visuals for elements that actually stepped.
-        bool advance_tree(Element &element, const Stylesheet *sheet, float dt, glm::vec2 parent_basis,
-                          std::vector<const Element *> &ancestors, float window_width, float window_height) {
+        // One walk steps every motion clock, commits the visuals of elements that stepped and refreshes ItemsControl
+        // virtualization. An element whose sampled value moved a layout field is appended to `layout_marks`: the
+        // caller restyles those elements and lays out only the chains that really changed size, instead of the whole
+        // tree. `motion_active` is set while a clock is running or an element's sample moved this frame (a clock that
+        // finished holds its end value without stepping): elements move under a resting pointer, so the hover target
+        // is searched again.
+        void advance_tree(UiDocument &document, Element &element, const Stylesheet *sheet, float dt,
+                          glm::vec2 parent_basis, std::vector<const Element *> &ancestors, float window_width,
+                          float window_height, bool &motion_active, std::vector<ElementId> &layout_marks) {
             if (element.kind == ElementKind::ItemTemplate) {
-                return false;
+                return;
             }
             element.layout_inputs_changed = false;
-            element.layout_descendant_inputs_changed = false;
             element.height_motion_active = false;
             const bool cache_hit = style_cache_hits(
                     element.style_cache_paint_, element, sheet, ancestors, window_width, window_height);
@@ -1705,7 +2507,19 @@ namespace engine::ui {
                 const ComputedStyle &target =
                         cache_hit ? element.style_cache_paint_.style
                                   : compute_style(element, sheet, true, ancestors, window_width, window_height);
+                const bool had_shown = !element.motion_shown.empty();
                 advance_motion(element, target, sheet, dt, parent_basis);
+                if (had_shown || !element.motion_shown.empty()) {
+                    // The sample moved (or stopped holding one): what the element paints is different. A boundary whose
+                    // opacity and transform are all that moved only needs its frame written again.
+                    bool frame_only = is_boundary_element(element);
+                    for (const ShownMotion &shown: element.motion_shown) {
+                        frame_only = frame_only &&
+                                     (shown.prop == MotionProp::Opacity || shown.prop == MotionProp::Transform);
+                    }
+                    mark_dirty(document, element,
+                               frame_only && had_shown == !element.motion_shown.empty() ? kDirtyFrame : kDirtyPaint);
+                }
                 if (element.motion_shown.empty()) {
                     element.motion_sample_basis_valid = false;
                 } else {
@@ -1713,6 +2527,15 @@ namespace engine::ui {
                     element.motion_sample_basis_valid = true;
                 }
                 commit_motion_visuals(element);
+                if (!element.motion_shown.empty()) {
+                    motion_active = true;
+                }
+                if (element.layout_inputs_changed) {
+                    layout_marks.push_back(element.handle);
+                }
+            }
+            if (!motion_clocks_idle(element)) {
+                motion_active = true;
             }
             const float font_size = resolve_font_size(element.font_size, parent_basis.x);
             const BoxInsets padding = resolve_insets(element.padding, parent_basis, font_size);
@@ -1724,17 +2547,15 @@ namespace engine::ui {
                 child_basis = parent_basis;
             }
             ancestors.push_back(&element);
-            bool descendant = false;
             for (Element &child: element.children) {
-                descendant = advance_tree(child, sheet, dt, child_basis, ancestors, window_width, window_height) ||
-                             descendant;
+                advance_tree(document, child, sheet, dt, child_basis, ancestors, window_width, window_height,
+                             motion_active, layout_marks);
             }
             for (Element &child: element.generated_items) {
-                descendant = advance_tree(child, sheet, dt, child_basis, ancestors, window_width, window_height) ||
-                             descendant;
+                advance_tree(document, child, sheet, dt, child_basis, ancestors, window_width, window_height,
+                             motion_active, layout_marks);
             }
             ancestors.pop_back();
-            element.layout_descendant_inputs_changed = descendant;
             if (element.kind == ElementKind::ItemsControl) {
                 bool any = element.height_motion_active;
                 for (const Element &row: element.generated_items) {
@@ -1742,7 +2563,6 @@ namespace engine::ui {
                 }
                 element.suppress_item_virtualization = any;
             }
-            return element.layout_inputs_changed || descendant;
         }
 
     } // namespace
@@ -1855,6 +2675,62 @@ namespace engine::ui {
 
     namespace {
 
+        // Makes `document` the one whose elements keep pictures while it lives, and marks what has to be recorded again
+        // without anything having changed in the tree: the pictures that can never be replayed and the ones whose
+        // `IPaint` moved to another version.
+        class PictureScope {
+        public:
+            explicit PictureScope(UiDocument &document, bool mark_unstable = true) : context_(picture_context()) {
+                previous_ = context_.document;
+                context_.document = &document;
+                if (mark_unstable) {
+                    mark_unstable_pictures(document);
+                }
+            }
+            ~PictureScope() { context_.document = previous_; }
+            PictureScope(const PictureScope &) = delete;
+            PictureScope &operator=(const PictureScope &) = delete;
+
+        private:
+            static void mark_unstable_pictures(UiDocument &document) {
+                std::erase_if(document.picture_volatile, [&](ElementId id) {
+                    const auto found = document.find(id);
+                    if (!found) {
+                        return true;
+                    }
+                    Element &element = **found;
+                    if (!element.picture.chrome.volatile_part && !element.picture.content.volatile_part) {
+                        return true;
+                    }
+                    mark_dirty(document, element, kDirtyPaint);
+                    return false;
+                });
+                std::erase_if(document.picture_watches, [&](UiDocument::PaintWatch &watch) {
+                    const auto found = document.find(watch.element);
+                    if (!found) {
+                        return true;
+                    }
+                    Element &element = **found;
+                    const auto holds = [&](const PicturePart &part) {
+                        return std::ranges::any_of(part.watches,
+                                                   [&](const PictureWatch &w) { return w.paint == watch.paint; });
+                    };
+                    if (!holds(element.picture.chrome) && !holds(element.picture.content)) {
+                        // The boundary records something else now.
+                        return true;
+                    }
+                    if (watch.paint->version() != watch.seen) {
+                        watch.seen = watch.paint->version();
+                        mark_dirty(document, element, kDirtyPaint);
+                    }
+                    return false;
+                });
+            }
+
+            PictureContext &context_;
+            UiDocument *previous_ = nullptr;
+        };
+
         render::Rect popup_room(const UiPaintInput &input) {
             return input.popup_bounds.w > 0.0f && input.popup_bounds.h > 0.0f ? input.popup_bounds : input.canvas_rect;
         }
@@ -1875,12 +2751,14 @@ namespace engine::ui {
             IUiPainter &target = painter;
 #endif
             ENGINE_UI_PROFILE(input.canvas, Paint);
+            const PictureScope pictures(document, false);
             target.save();
             target.scissor(scale_rect(popup_room(input), input.ui_offset, input.ui_scale));
             for (OpenPopup &open: popups) {
                 target.save();
                 target.apply_view(glm::vec2{0.0f, 0.0f}, open.popup->popup_offset * input.ui_scale, 1.0f);
-                paint_element(*open.popup, stylesheet, target, open.ancestors, open.parent_content, input);
+                paint_element(*open.popup, stylesheet, target, open.ancestors, open.parent_content, input,
+                              kUnknownOpacity);
                 target.restore();
             }
             paint_inspector_overlay(document.root, target, input);
@@ -1889,8 +2767,155 @@ namespace engine::ui {
 
     } // namespace
 
+    void commit_motion_after_layout(Element &element) { commit_motion_after_layout_style(element); }
+
+    // The marks under the relayout boundaries a change queued: they stop at the boundary, so a pass that did not lay
+    // the boundary out from its own entry (a full layout) clears them here.
+    static void clear_boundary_marks(UiDocument &document) {
+        for (const ElementId id: document.layout_roots) {
+            if (const auto found = document.find(id)) {
+                clear_dirty(**found, kDirtyStyle | kDirtyLayout);
+            }
+        }
+    }
+
+    // An element a layout pass moved or resized shows something else: the picture it is in is recorded again. Looks at
+    // every element, but only on a frame that laid out.
+    static void mark_moved_for_paint(UiDocument &document, Element &element) {
+        if (element.kind == ElementKind::ItemTemplate) {
+            return;
+        }
+        if (!(element.layout_rect == element.rect_seen)) {
+            element.rect_seen = element.layout_rect;
+            mark_dirty(document, element, kDirtyPaint);
+        }
+        for (Element &child: element.children) {
+            mark_moved_for_paint(document, child);
+        }
+        for (Element &item: element.generated_items) {
+            mark_moved_for_paint(document, item);
+        }
+    }
+
+    bool sync_layout(UiDocument &document, const Stylesheet *sheet, IUiPainter *painter,
+                     const render::Rect &canvas_rect, float media_width, float media_height) {
+        const TextCacheScope text_cache(document, painter);
+        const std::uint64_t sheet_generation = sheet != nullptr ? sheet->generation : 0;
+        const bool everything = !document.layout_computed_once || document.last_canvas_layout_rect != canvas_rect ||
+                                document.last_media_width != media_width ||
+                                document.last_media_height != media_height || document.last_layout_sheet != sheet ||
+                                document.last_layout_sheet_generation != sheet_generation ||
+                                document.last_layout_painter != static_cast<const void *>(painter) ||
+                                document.last_layout_math_font != math_font_identity(painter);
+        const auto stamp = [&] {
+            document.layout_computed_once = true;
+            document.last_canvas_layout_rect = canvas_rect;
+            document.last_media_width = media_width;
+            document.last_media_height = media_height;
+            document.last_layout_sheet = sheet;
+            document.last_layout_painter = painter;
+            document.last_layout_math_font = math_font_identity(painter);
+            document.last_layout_sheet_generation = sheet_generation;
+        };
+        constexpr std::uint8_t kAll = kDirtyStyle | kDirtyLayout | kDirtyPaint;
+        Element &root = document.root;
+        if (everything) {
+            // A new document, a resized canvas or window, another stylesheet, another painter or math font: every
+            // element restyles and lays out.
+            apply_layout_style(root, sheet, media_width, media_height);
+            commit_motion_after_layout_style(root);
+            layout(document, canvas_rect, painter, false);
+            stamp();
+            clear_dirty(root, kDirtyStyle | kDirtyLayout);
+            clear_boundary_marks(document);
+            document.layout_roots.clear();
+            ++document.counters.restyle_passes;
+            ++document.counters.layout_passes;
+            document.windows_dirty = true;
+            mark_moved_for_paint(document, root);
+            verify_layout(document, sheet, painter, canvas_rect, media_width, media_height);
+            return true;
+        }
+        const auto pending = [&](std::uint8_t mask) { return ((root.dirty_self | root.dirty_below) & mask) != 0; };
+        if (!pending(kDirtyStyle | kDirtyLayout) && document.layout_roots.empty()) {
+            // The frame the check exists for: nothing marked, so layout owes nothing, and a from-scratch layout must
+            // agree.
+            verify_layout(document, sheet, painter, canvas_rect, media_width, media_height);
+            return false;
+        }
+        if (pending(kDirtyStyle)) {
+            std::vector<const Element *> ancestors;
+            restyle_dirty(document, root, sheet, ancestors, media_width, media_height);
+            clear_dirty(root, kDirtyStyle);
+            ++document.counters.restyle_passes;
+        }
+        bool ran = false;
+        if (pending(kDirtyLayout)) {
+            layout(document, canvas_rect, painter, true);
+            ran = true;
+        }
+        if (!document.layout_roots.empty()) {
+            // Fixed-size elements a change inside could not resize: each is laid out again from where it is.
+            const std::vector<ElementId> roots = std::move(document.layout_roots);
+            document.layout_roots.clear();
+            for (const ElementId id: roots) {
+                if (const auto found = document.find(id)) {
+                    layout_from(**found, painter);
+                    // The marks below a boundary never reached the root, so the root's clear does not find them.
+                    clear_dirty(**found, kDirtyLayout);
+                    ran = true;
+                }
+            }
+        }
+        clear_dirty(root, kDirtyLayout);
+        if (ran) {
+            ++document.counters.layout_passes;
+            document.windows_dirty = true;
+            mark_moved_for_paint(document, root);
+        }
+        stamp();
+        (void) kAll;
+        verify_layout(document, sheet, painter, canvas_rect, media_width, media_height);
+        return ran;
+    }
+
+    // The debug picture check (builds with `ENGINE_UI_LAYOUT_CHECK`): every boundary records afresh and is compared
+    // with the picture it holds, so a change that reached an element without marking it for paint is found where it
+    // happens. The fresh recordings are dropped and nothing is drawn.
+    static void verify_pictures(UiDocument &document, const Stylesheet *stylesheet, IUiPainter &painter,
+                                const UiPaintInput &input) {
+#if defined(ENGINE_UI_LAYOUT_CHECK)
+        if (!document.verify_layout) {
+            return;
+        }
+        PictureContext &context = picture_context();
+        const PictureScope scope(document, false);
+        const UiWorkCounters saved = document.counters;
+        context.checking = true;
+        UiPaintInput quiet = input;
+        quiet.delta_time = 0.0f;
+        Picture sink;
+        RecordingPainter recording(painter, sink);
+        std::vector<const Element *> ancestors;
+        paint_element(document.root, stylesheet, recording, ancestors,
+                      glm::vec2{input.canvas_rect.w, input.canvas_rect.h}, quiet, kUnknownOpacity);
+        context.checking = false;
+        const std::uint64_t checks = document.counters.picture_checks;
+        const std::uint64_t failures = document.counters.picture_check_failures;
+        document.counters = saved;
+        document.counters.picture_checks = checks;
+        document.counters.picture_check_failures = failures;
+#else
+        (void) document;
+        (void) stylesheet;
+        (void) painter;
+        (void) input;
+#endif
+    }
+
     void paint_document(UiDocument &document, const Stylesheet *stylesheet, IUiPainter &painter,
                         const UiPaintInput &input) {
+        const TextCacheScope text_cache(document, &painter);
         if (input.popup_layer) {
             paint_popup_layer(document, stylesheet, painter, input);
             return;
@@ -1898,67 +2923,59 @@ namespace engine::ui {
 #if defined(ENGINE_UI_PROFILER)
         profiler_begin_paint(input.canvas);
 #endif
-        // wind-129 layout dirty-gate. Same "call layout_state_changed() unconditionally, never as a
-        // short-circuited `||` operand" rule as prepare_top_canvas (canvas.cpp) — see that call site
-        // for why. run_bind (systems.cpp) already called apply_bindings() unconditionally earlier this
-        // frame's Bind phase, so document.root's text/custom_properties/generated_items are already
-        // this frame's values by the time paint_document runs.
-        const bool per_element_changed = layout_state_changed(document.root);
-        const std::uint64_t sheet_generation = stylesheet != nullptr ? stylesheet->generation : 0;
-        const bool structural =
-                per_element_changed || !document.layout_computed_once ||
-                document.last_canvas_layout_rect != input.canvas_rect ||
-                document.last_media_width != input.window_width || document.last_media_height != input.window_height ||
-                document.last_layout_sheet != stylesheet || document.last_layout_sheet_generation != sheet_generation ||
-                document.last_layout_painter != static_cast<const void *>(&painter) ||
-                document.last_layout_math_font != math_font_identity(&painter);
-        const auto stamp_layout = [&] {
-            document.layout_computed_once = true;
-            document.last_canvas_layout_rect = input.canvas_rect;
-            document.last_media_width = input.window_width;
-            document.last_media_height = input.window_height;
-            document.last_layout_sheet = stylesheet;
-            document.last_layout_painter = &painter;
-            document.last_layout_math_font = math_font_identity(&painter);
-            document.last_layout_sheet_generation = sheet_generation;
-        };
+        if (!document.arena.alive(document.root.handle)) {
+            document.reindex(); // a tree built by hand: marks and the hover target need its ids
+        }
         // Establish rects before hit-testing on a structural frame so :hover is known to the motion
         // pass in the same paint. Later frames hit-test last frame's rects (one frame behind a size
-        // animation) and do not relayout unless a motion layout input actually changed.
+        // animation) and do not relayout unless a motion layout input actually changed. `sync_layout` does the
+        // layout work the bind pass and the other sources of change marked, and nothing when nothing is marked.
         bool layout_ran = false;
-        if (structural) {
-            {
-                ENGINE_UI_PROFILE(input.canvas, Layout);
-                apply_layout_style(document.root, stylesheet, input.window_width, input.window_height);
-                layout(document, input.canvas_rect, &painter, false);
-                stamp_layout();
-            }
-            layout_ran = true;
+        {
+            ENGINE_UI_PROFILE(input.canvas, Layout);
+            layout_ran = sync_layout(document, stylesheet, &painter, input.canvas_rect, input.window_width,
+                                     input.window_height);
         }
         // Every frame, not only after layout: scroll and a Viewport camera move anchors without a relayout.
         place_popups(document.root, popup_room(input));
-        apply_interaction(document.root, input.pointer, input.pointer_down);
+        apply_interaction(document, stylesheet, input.pointer, input.pointer_down);
+        // A hover that changed what lays out (`.x:hover { padding: ... }`) is laid out in the frame it starts, before
+        // the motion pass samples it.
+        {
+            ENGINE_UI_PROFILE(input.canvas, Layout);
+            const bool ran = sync_layout(document, stylesheet, &painter, input.canvas_rect, input.window_width,
+                                         input.window_height);
+            if (ran) {
+                layout_ran = true;
+                place_popups(document.root, popup_room(input));
+            }
+        }
 
-        bool motion_layout = false;
+        bool motion_active = false;
+        std::vector<ElementId> motion_layout;
         {
             ENGINE_UI_PROFILE(input.canvas, Motion);
             std::vector<const Element *> motion_ancestors;
-            motion_layout = advance_tree(document.root, stylesheet, input.delta_time,
-                                         glm::vec2{input.canvas_rect.w, input.canvas_rect.h}, motion_ancestors,
-                                         input.window_width, input.window_height);
+            advance_tree(document, document.root, stylesheet, input.delta_time,
+                         glm::vec2{input.canvas_rect.w, input.canvas_rect.h}, motion_ancestors, input.window_width,
+                         input.window_height, motion_active, motion_layout);
         }
-        if (motion_layout) {
-            {
-                ENGINE_UI_PROFILE(input.canvas, Layout);
-                apply_layout_style(document.root, stylesheet, input.window_width, input.window_height);
-                commit_motion_after_layout_style(document.root);
-                layout(document, input.canvas_rect, &painter, true);
-                stamp_layout();
+        document.interaction.motion = motion_active;
+        if (!motion_layout.empty()) {
+            // An animated width, padding or font moved a layout field: restyle just those elements (which writes the
+            // sampled value onto the fields and marks layout where the field moved) and lay out their chains.
+            for (const ElementId id: motion_layout) {
+                if (const auto found = document.find(id)) {
+                    mark_dirty(document, **found, kDirtyStyle, true);
+                }
             }
-            layout_ran = true;
-            place_popups(document.root, popup_room(input));
+            ENGINE_UI_PROFILE(input.canvas, Layout);
+            if (sync_layout(document, stylesheet, &painter, input.canvas_rect, input.window_width,
+                            input.window_height)) {
+                layout_ran = true;
+                place_popups(document.root, popup_room(input));
+            }
         }
-
         {
             // Painter calls are counted on the paint pass only; layout above keeps `painter` (its dirty gate
             // compares painter identity).
@@ -1969,17 +2986,19 @@ namespace engine::ui {
             IUiPainter &target = painter;
 #endif
             ENGINE_UI_PROFILE(input.canvas, Paint);
+            const PictureScope pictures(document);
             target.save();
             target.scissor(scale_rect(input.canvas_rect, input.ui_offset, input.ui_scale));
             std::vector<const Element *> ancestors;
             paint_element(document.root, stylesheet, target, ancestors,
-                          glm::vec2{input.canvas_rect.w, input.canvas_rect.h}, input);
+                          glm::vec2{input.canvas_rect.w, input.canvas_rect.h}, input, kUnknownOpacity);
             // With a popup open the boxes are drawn by the popup layer, above it.
             if (!has_open_popup(document.root)) {
                 paint_inspector_overlay(document.root, target, input);
             }
             target.restore();
         }
+        verify_pictures(document, stylesheet, painter, input);
 #if defined(ENGINE_UI_PROFILER)
         profiler_finish_paint(input.canvas, document.root, layout_ran);
 #endif

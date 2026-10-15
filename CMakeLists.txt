@@ -286,6 +286,16 @@ elseif(ENGINE_PLAYER STREQUAL "Shipping")
 else()
     set(_engine_tools_config "$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>,$<CONFIG:DebugGame>>")
 endif()
+# The debug layout check (src/ui/layout_check.cpp): after every layout sync it lays a copy of the document out from
+# scratch and compares the rects, so a change that skipped work it owed is found by the whole UI test suite and the
+# bench scenes. Debug configurations always have it; any other build opts in with -DENGINE_UI_LAYOUT_CHECK=ON. Never
+# in a Release build by default, and never in the editor or a player.
+option(ENGINE_UI_LAYOUT_CHECK "Check every UI layout sync against a layout from scratch (slow; tests and Debug)" OFF)
+if(ENGINE_UI_LAYOUT_CHECK AND NOT ENGINE_EDITOR AND NOT ENGINE_PLAYER)
+    target_compile_definitions(engine PUBLIC ENGINE_UI_LAYOUT_CHECK)
+elseif(NOT ENGINE_EDITOR AND NOT ENGINE_PLAYER)
+    target_compile_definitions(engine PUBLIC "$<$<CONFIG:Debug>:ENGINE_UI_LAYOUT_CHECK>")
+endif()
 target_compile_definitions(engine PUBLIC "$<${_engine_tools_config}:ENGINE_UI_PROFILER>")
 if(NOT EMSCRIPTEN AND NOT ANDROID)
     target_compile_definitions(engine PUBLIC "$<${_engine_tools_config}:ENGINE_CLI_SERVER>")

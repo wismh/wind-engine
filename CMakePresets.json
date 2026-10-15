@@ -98,6 +98,20 @@
       }
     },
     {
+      "name": "linux-bench",
+      "displayName": "Linux UI bench (Ninja, static engine, RelWithDebInfo)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-bench",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "ENGINE_BUILD_TESTS": "ON",
+        "ENGINE_WITH_WINDOW": "ON",
+        "ENGINE_WITH_AUDIO": "OFF",
+        "ENGINE_BENCH": "ON"
+      }
+    },
+    {
       "name": "web",
       "displayName": "Emscripten WebGL2 (configure with emcmake)",
       "generator": "Ninja",
@@ -147,6 +161,11 @@
       "name": "bench",
       "configurePreset": "vs-bench",
       "configuration": "RelWithDebInfo",
+      "targets": ["wind_ui_bench"]
+    },
+    {
+      "name": "linux-bench",
+      "configurePreset": "linux-bench",
       "targets": ["wind_ui_bench"]
     }
   ]

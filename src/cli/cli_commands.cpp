@@ -2,6 +2,7 @@
 #include "cli/dock_commands.h"
 #include "cli/json.h"
 
+#include "ui/dirty.h"
 #include "ui/element_path.h"
 #include "ui/painter.h"
 #include "ui/profile.h"
@@ -777,7 +778,15 @@ namespace engine::cli {
             bool did = false;
             ui::UiCanvas &canvas = *match.canvas.ui;
             if (element.kind == ui::ElementKind::Checkbox) {
-                element.checked = !element.checked;
+                if (ui::UiInstance *instance = match.canvas.instance) {
+                    if (!instance->document.arena.alive(element.handle)) {
+                        instance->document.reindex();
+                    }
+                    ui::set_pseudo(instance->document, element, ui::kPseudoChecked, !element.checked,
+                                   instance->stylesheet ? &*instance->stylesheet : nullptr);
+                } else {
+                    element.checked = !element.checked;
+                }
                 if (ui::is_bound(element.checked_binding) && canvas.data_context) {
                     ui::ViewModel *target =
                             element.generated_owner != nullptr

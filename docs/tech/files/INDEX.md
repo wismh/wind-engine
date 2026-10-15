@@ -98,6 +98,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/ui/dock_layout.h` | `DockLayout`: tab stacks, splits, floats, operations, text, reconcile | [Docking](../features/Docking.md) |
 | `include/engine/ui/dock_space.h` | `DockSpace` component, `DockFloatMode`, `DockPanel`, `DockPanelCloseRequested`, order count, close button rect | [Docking](../features/Docking.md#host) |
 | `include/engine/ui/document.h` | `Element`, layout boxes, `UiDocument` | [UI Markup](../features/UI%20Markup.md) |
+| `include/engine/ui/element_id.h` | `ElementId`, `ElementLookupError` | [UI](../modules/UI.md#element-identity) |
+| `include/engine/ui/element_arena.h` | `ElementArena`: the slot table behind element ids | [UI](../modules/UI.md#element-identity) |
 | `include/engine/ui/draw_list.h` | `IDrawList` for `IPaint` | [UI](../modules/UI.md) |
 | `include/engine/ui/inspector.h` | Inspector probe: attach, pick state, tree, select, toggle, detail, rules | [UI Inspector](../features/UI%20Inspector.md) |
 | `include/engine/ui/paint.h` | `IPaint` and `RelayPaint` | [UI](../modules/UI.md) |
@@ -243,10 +245,18 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ui/dock_space_layout.cpp` | `run_dock_layout`: panel and chrome canvases from the geometry of each window, float home, orders | [Docking](../features/Docking.md#host) |
 | `src/ui/dock_tab_measure.cpp` | Tab widths from the titles, the window's painter, and the theme's `.dock-tab` | [Docking](../features/Docking.md#tab-width) |
 | `src/ui/dock_text.cpp` | Layout to and from TOML | [Docking](../features/Docking.md) |
-| `src/ui/document.cpp` | Bind, layout, hit-test, virtualization | [UI Markup](../features/UI%20Markup.md) |
+| `src/ui/bind.cpp` | Bind pass: bind table, version polling, `bind_element`, ItemsControl reconcile | [UI](../modules/UI.md#bindings) |
+| `src/ui/picture.h`, `src/ui/picture.cpp` | `Picture` (a list of painter commands, replayed on any `IUiPainter`) and `RecordingPainter` | [UI](../modules/UI.md#pictures) |
+| `src/ui/text_cache.h`, `src/ui/text_cache.cpp` | `TextCacheScope`, the document's shared text measure and wrap cache | [UI](../modules/UI.md#rows-of-no-fixed-height) |
+| `src/ui/dirty.h`, `src/ui/dirty.cpp` | `mark_dirty`, relayout boundaries, `set_pseudo`, `clear_dirty` | [UI](../modules/UI.md#dirty-flags) |
+| `src/ui/layout_check.h`, `src/ui/layout_check.cpp` | Debug layout check against a from-scratch copy | [UI](../modules/UI.md#debug-layout-check) |
+| `src/ui/pseudo_warning.h`, `src/ui/pseudo_warning.cpp` | Debug warning for layout properties under a pseudo-class | [UI](../modules/UI.md#hover-and-layout) |
+| `src/ui/document.cpp` | Layout, hit-test, virtualization | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/draw_list_adapter.h` | `IDrawList` over `IUiPainter` | [UI](../modules/UI.md) |
 | `src/ui/element_path.cpp` | Resolve a child-index path, including generated rows | [UI Inspector](../features/UI%20Inspector.md) |
 | `src/ui/element_path.h` | `kGeneratedPathBit` and path helpers | [UI Inspector](../features/UI%20Inspector.md) |
+| `src/ui/element_arena.cpp` | Slot allocation, free list, generations, mark and sweep | [UI](../modules/UI.md#element-identity) |
+| `src/ui/element_index.h`, `src/ui/element_index.cpp` | `index_subtree`, `release_subtree`, `UiDocument::reindex`, `find` and `ancestor_chain` | [UI](../modules/UI.md#element-identity) |
 | `src/ui/inline_math.cpp` | Split `\(...\)` out of label text | [UI](../modules/UI.md) |
 | `src/ui/inline_math.h` | Inline-math split API | [UI](../modules/UI.md) |
 | `src/ui/input_batch.h` | Per-`run_input` bind and layout cache | [UI Input](../features/UI%20Input.md) |
@@ -257,7 +267,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ui/profiler.cpp` | Profiler rings, recording world, snapshots, CLI JSON | [UI Profiler](../features/UI%20Profiler.md) |
 | `src/ui/splash.cpp` | Build the two splash documents | [UI](../modules/UI.md) |
 | `src/ui/splash.h` | Splash document structs used by `show_splash` | [UI](../modules/UI.md) |
-| `src/ui/style_anim.cpp` | Sample `transition` and `@keyframes` | [UI Markup](../features/UI%20Markup.md) |
+| `src/ui/style_anim.cpp` | Sample `transition` and compiled `@keyframes` tracks | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/style_anim.h` | Motion clock types | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/stylesheet.cpp` | `next_stylesheet_generation` counter, one per engine | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/text_select.cpp` | Word ranges and selection edits | [UI Input](../features/UI%20Input.md) |
@@ -401,7 +411,12 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/ui_items_control_virtualization_test.cpp` | Row window and spacers | [UI](../modules/UI.md) |
 | `tests/ui_tree_test.cpp` | Tree rows, expansion, keys, `var()` indent, collapse in a virtualized list, scroll into view | [UI](../modules/UI.md#trees) |
 | `tests/ui_label_select_test.cpp` | Label selection and copy | [UI Input](../features/UI%20Input.md) |
-| `tests/ui_layout_dirty_gate_test.cpp` | Skip layout when the gate is clean | [UI](../modules/UI.md) |
+| `tests/ui_picture_test.cpp` | Boundaries keep pictures: quiet frames, one changed label, scroll and camera as parameters, `IPaint::version`, volatile pictures | [UI](../modules/UI.md#pictures) |
+| `tests/ui_list_windows_test.cpp` | Windows over rows of no fixed height, estimate then measured, shared text measure, collapsed tree, Viewport camera culling | [UI](../modules/UI.md#rows-of-no-fixed-height) |
+| `tests/ui_animation_tracks_test.cpp` | Track sample against the declaration-parsed sample, tracks built once, opacity and width animations, a finished track | [UI](../modules/UI.md#style) |
+| `tests/ui_dirty_flags_test.cpp` | Dirty flags, quiet frames, relayout boundary, hover and layout, ancestor pseudo, layout checker | [UI](../modules/UI.md#dirty-flags) |
+| `tests/ui_bindable_version_test.cpp` | `Bindable` / `BindableList` / catalog versions | [UI](../modules/UI.md#bindings) |
+| `tests/ui_layout_dirty_gate_test.cpp` | Layout skipped when nothing is marked | [UI](../modules/UI.md) |
 | `tests/ui_layout_hit_test.cpp` | Stack layout and hit order | [UI Input](../features/UI%20Input.md) |
 | `tests/ui_loc_test.cpp` | `{tr}` bind and locale switch | [Localization](../modules/Localization.md) |
 | `tests/ui_math_element_test.cpp` | `Math` element in a document | [UI](../modules/UI.md) |
@@ -412,6 +427,9 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/ui_math_stretch_test.cpp` | Stretched delimiters | [UI](../modules/UI.md) |
 | `tests/ui_paint_binding_test.cpp` | `IPaint` draw order | [UI](../modules/UI.md) |
 | `tests/ui_painter_test.cpp` | Recording painter, no GL | [UI](../modules/UI.md) |
+| `tests/ui_element_id_test.cpp` | `Element::handle` and `parent`: parse, builder, ItemsControl reuse, no aliasing, reindex, stale lookups | [UI](../modules/UI.md#element-identity) |
+| `tests/ui_log_painter.h` | `LogPainter`: every painter call with the clip and opacity it ran under, for tests | [UI](../modules/UI.md) |
+| `tests/ui_wasted_work_test.cpp` | Stacking order against a stable sort, clip equivalence of an element that enters no state, opacity, held motion sample | [UI](../modules/UI.md#paint) |
 | `tests/ui_profiler_test.cpp` | Profiler scopes, world isolation, rings, snapshots, and the no-op build | [UI Profiler](../features/UI%20Profiler.md) |
 | `tests/ui_refs_test.cpp` | Referenced images and fonts | [UI](../modules/UI.md) |
 | `tests/ui_scroll_test.cpp` | Scroll view and wheel | [UI Input](../features/UI%20Input.md) |

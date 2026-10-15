@@ -9,6 +9,8 @@
 #include <engine/ui/binding_id.h>
 #include <engine/ui/command.h>
 #include <engine/ui/cursor.h>
+#include <engine/ui/element_arena.h>
+#include <engine/ui/element_id.h>
 #include <engine/ui/paint.h>
 #include <engine/ui/stylesheet.h>
 #include <engine/ui/text_line.h>
@@ -470,6 +472,8 @@ namespace engine::ui {
         UiAlign text_align = UiAlign::Start;
         WhiteSpace white_space = WhiteSpace::Normal;
         UserSelect user_select = UserSelect::None;
+        // `repaint-boundary`: the element keeps its own picture (see Element::picture).
+        bool repaint_boundary = false;
         Cursor cursor = Cursor::Auto;
         Length border_radius{};
         Length border_width{};
@@ -552,28 +556,103 @@ namespace engine::ui {
     // reads Element motion clocks, so a cached ComputedStyle is the pre-motion cascade. advance_motion()
     // samples on top of that style when the cache misses or a clock still needs time. A quiet hit
     // leaves the previous sample in place.
+    class Picture;
+
+    // What a picture was recorded for. A picture is replayed only while every part of this still holds.
+    struct PictureKey {
+        render::Rect rect{};
+        glm::vec2 offset{};
+        float scale = 1.0f;
+        glm::vec2 parent_content{};
+        float window_width = 0.0f;
+        float window_height = 0.0f;
+        const Stylesheet *sheet = nullptr;
+        std::uint64_t sheet_generation = 0;
+        // Set when the children were recorded with the element's own state (opacity, transform) set again around them:
+        // that state is then part of what they show.
+        float baked_opacity = 0.0f;
+        float baked_rotation = 0.0f;
+        float baked_scale = 0.0f;
+
+        bool operator==(const PictureKey &) const = default;
+    };
+
+    // An `IPaint` an element's picture drew, and the version it had then.
+    struct PictureWatch {
+        const IPaint *paint = nullptr;
+        std::uint64_t version = 0;
+    };
+
+    // One recorded picture of a boundary and what it depends on besides its key.
+    struct PicturePart {
+        std::shared_ptr<Picture> picture;
+        bool valid = false;
+        // Recorded something that changes without a mark (a focused text input's caret, an `IPaint` with no version):
+        // never replayed.
+        bool volatile_part = false;
+        std::vector<PictureWatch> watches;
+        // A `Viewport`'s content: the part of the world (layout space) its children were recorded for. The picture is
+        // replayed while the camera shows nothing outside it.
+        render::Rect world{};
+    };
+
+    // The retained paint of a repaint boundary: its own drawing (`chrome`) and its children (`content`), both recorded
+    // in screen coordinates under the state the element sets itself (opacity, transform, scissor, camera), which is
+    // applied live and so is a parameter of the picture, not part of it. A copy of an element starts with no picture.
+    struct PictureSlot {
+        PictureKey key{};
+        // The state the element sets itself (opacity, transform, scissor, scroll or camera), the calls of `chrome` and
+        // `content` between them, and the scrollbar: written again whenever paint reaches the element, a few commands.
+        std::shared_ptr<Picture> frame;
+        PicturePart chrome;
+        PicturePart content;
+
+        PictureSlot() = default;
+        PictureSlot(const PictureSlot &) {}
+        PictureSlot &operator=(const PictureSlot &other) {
+            if (this != &other) {
+                *this = PictureSlot{};
+            }
+            return *this;
+        }
+        PictureSlot(PictureSlot &&) noexcept = default;
+        PictureSlot &operator=(PictureSlot &&) noexcept = default;
+    };
+
     struct StyleCacheEntry {
         bool valid = false;
         ComputedStyle style{};
         std::vector<std::string> classes;
         std::string id;
-        bool hovered = false;
-        bool pressed = false;
-        bool disabled = false;
-        bool focused = false;
-        bool checked = false;
+        // The element's own state, packed like `kPseudo*` (hover, pressed, disabled, focus, checked), as it was when
+        // the cascade ran. A hit compares it only through `self_dep`.
+        std::uint8_t pseudo = 0;
         const Stylesheet *sheet = nullptr;
         std::uint64_t sheet_generation = 0;
         float window_width = 0.0f;
         float window_height = 0.0f;
         std::unordered_map<std::string, std::string> custom_properties;
-        std::vector<const Element *> ancestors;
-        // Packed (hovered|pressed<<1|disabled<<2|focused<<3|checked<<4) per ancestors[i], same order/length.
+        // The ancestor chain by element id (descendant and child combinators match through it). An ancestor with no
+        // id (a tree built by hand and never indexed) never matches, so such a tree misses and restyles.
+        std::vector<ElementId> ancestors;
+        // The same packing per ancestors[i], same order/length.
         std::vector<std::uint8_t> ancestor_pseudo_state;
+        // Which of those bits the cascade actually read: `self_dep` for the element's own state, `ancestor_dep[i]` for
+        // ancestors[i]. A rule with a pseudo-class on a compound that the element (or that ancestor) matches
+        // structurally depends on that bit. A hit compares the state only through these masks, so hovering a
+        // container restyles only the descendants a rule like `A:hover B` can match.
+        std::uint8_t self_dep = 0;
+        std::vector<std::uint8_t> ancestor_dep;
     };
 
     struct Element {
         ElementKind kind = ElementKind::Canvas;
+        // The element's identity in its document's arena (`UiDocument::find`) and its parent's. Null on an element no
+        // `UiDocument::reindex` has reached (a tree built by hand). Written by the engine: parse, `reindex`, and the
+        // ItemsControl reconcile. `generated_owner` stays the identity of the data a row shows; this is the
+        // identity of the element, and a row that is reused keeps it.
+        ElementId handle{};
+        ElementId parent{};
         std::string id;
         std::vector<std::string> classes;
         std::string name;
@@ -668,7 +747,8 @@ namespace engine::ui {
         // Motion clocks. Reconcile moves the Element, so these survive an ItemsControl row reuse.
         // advance_motion() rebuilds `motion_shown` when the paint style cache misses, a clock is still
         // running (animation delay included), or a held sample's parent basis changed. A quiet frame
-        // leaves the vectors alone. layout reads `layout_inputs_changed` to decide which subtrees to re-pack.
+        // leaves the vectors alone. `layout_inputs_changed` is set when the sample moved a layout field: the paint pass
+        // then marks the element for restyle and layout.
         std::vector<TransitionRuntime> transition_players;
         std::vector<AnimationRuntime> animation_players;
         std::vector<ShownMotion> motion_shown;
@@ -678,10 +758,17 @@ namespace engine::ui {
         glm::vec2 motion_sample_basis{};
         bool motion_sample_basis_valid = false;
         bool layout_inputs_changed = false;
-        bool layout_descendant_inputs_changed = false;
         // True while a row-box property (height, padding, gap, font-size, ...) is still interpolating.
         // ItemsControl turns that into suppress_item_virtualization for the following bind.
         bool height_motion_active = false;
+        // A `Viewport` only: how many children the last paint skipped because they lie wholly outside the camera.
+        mutable std::uint32_t culled_children = 0;
+        // The element keeps its own picture (`repaint-boundary`, written by the layout style). A scroll container, a
+        // `Viewport`, a `Popup` and the root are boundaries whatever this says.
+        bool repaint_boundary = false;
+        // The rect this element had when paint last looked at it: a layout pass that moved it marks it for paint.
+        render::Rect rect_seen{};
+        PictureSlot picture;
         bool suppress_item_virtualization = false;
         glm::vec2 layout_used_cache{};
         bool layout_used_cache_valid = false;
@@ -822,6 +909,20 @@ namespace engine::ui {
         // to cover. `mutable` for the same reason as the caches above: read from a `const Element&`,
         // and it survives frames on a generated_owner Element like the rest of its runtime state.
         mutable std::optional<float> virtualization_row_height_cache;
+        // An ItemsControl whose rows have no fixed pixel height: the height each row last measured, by row owner (the
+        // item's view-model, `generated_owner`), and the running prefix of tops built from them. A row not measured yet
+        // counts as the mean of the measured ones.
+        struct RowHeights {
+            std::unordered_map<const void *, float> measured;
+            double measured_sum = 0.0;
+            // Goes up whenever a measured height changed or was added, so the prefix is built again.
+            std::uint64_t epoch = 1;
+            std::vector<const void *> items;
+            std::vector<float> tops;
+            std::uint64_t tops_epoch = 0;
+            float tops_gap = 0.0f;
+        };
+        std::optional<RowHeights> row_heights;
 
         std::vector<Element> children;
         std::vector<Element> generated_items;
@@ -843,39 +944,27 @@ namespace engine::ui {
         // nullopt. Never true for a real generated item, template, or hand-authored document Element.
         bool is_virtualization_spacer = false;
 
-        // wind-129 layout dirty-gate: last-frame copies compared by layout_state_changed()
-        // (document.cpp) to decide whether apply_layout_style()+layout() can be skipped this frame.
-        // Layout depends on this narrow set of fields and nothing else on Element:
-        //   - apply_layout_style (paint.cpp) always calls compute_style() with allow_pseudo=false, so
-        //     :hover/:pressed/:disabled/:focus/:checked do not change the cascaded layout fields it
-        //     writes (width/height/padding/margin/gap/justify/align_items/direction/...).
-        //     subject_matches (paint.cpp) returns false for any pseudo-class selector whenever
-        //     allow_pseudo is false, so those flags (including Checkbox's `checked`) are absent from
-        //     this list. A transition or @keyframes samples compute_style(allow_pseudo=true) afterwards
-        //     and can still move a layout input; that path is layout_inputs_changed, not this gate.
-        //   - intrinsic_size/compute_used (document.cpp) never read element.source (Image always hugs
-        //     kDefaultImageSize, independent of the actual asset), pan_x/pan_y/zoom (Viewport is a
-        //     paint-time-only camera — "layout_rect of descendants does not move", per UI.md's
-        //     Viewport section), motion clocks, or caret_blink_timer at all. A transition or @keyframes
-        //     that changes a layout input sets Element::layout_inputs_changed and paint_document
-        //     re-packs only the chain that shift actually moves; paint-only motion (opacity, color)
-        //     does not.
-        //   - scroll_x/scroll_y do not move a plain scrolled container's children's layout_rect
-        //     (paint-time pan, same as Viewport) — the one place scroll position affects layout is
-        //     indirectly, through ItemsControl virtualization (wind-127/128): a different scroll
-        //     position can change *which* items are generated (different generated_owner sequence),
-        //     and that is exactly what layout_dirty_check_generated_owners below already detects, so
-        //     scroll_x/scroll_y themselves don't need a separate copy.
-        // What's left is: text/content-bindings (both write element.text), `hidden_by_if` (the `if` binding), custom_properties (read
-        // unconditionally by var(--x) resolution, not gated by allow_pseudo), and — for ItemsControl —
-        // the generated_owner sequence. layout_dirty_check_initialized starts false so the first call
-        // on a freshly constructed/cloned Element always reports "changed" (there is nothing yet to
-        // compare against).
-        mutable bool layout_dirty_check_initialized = false;
-        mutable bool layout_dirty_check_hidden_by_if = false;
-        mutable std::string layout_dirty_check_text;
-        mutable std::unordered_map<std::string, std::string> layout_dirty_check_custom_properties;
-        mutable std::vector<const void *> layout_dirty_check_generated_owners;
+        // Dirty state (wind-228). `dirty_self` is what this element's own state needs again, `dirty_below` what some
+        // descendant needs; each holds `kDirtyStyle`, `kDirtyLayout`, and `kDirtyPaint` bits (stylesheet.h). The bind
+        // pass, a pseudo-class change, and the other sources of change set them through `mark_dirty` (src/ui/dirty.h),
+        // which walks up by `parent` so a pass can find the dirty element from the root without visiting the rest, and
+        // the pass that consumes a bit clears it. Layout stops marking at a relayout boundary. A document built by
+        // hand is all dirty until its first pass. Motion keeps its own `layout_inputs_changed` pair above.
+        std::uint8_t dirty_self = 0;
+        std::uint8_t dirty_below = 0;
+        // Diagnostic counters, never reset by the engine: how many times this element's cascade was computed (the
+        // layout style and the paint style each count) and how many times layout placed it (a skipped subtree does
+        // not count). Tests assert a quiet frame leaves them alone.
+        mutable std::uint32_t style_rebuilds = 0;
+        std::uint32_t layout_runs = 0;
+        // What `layout_element` was last given for this element: the parent's content size and the containing block of
+        // its absolutely positioned descendants. A relayout boundary is laid out again from these without its parent.
+        glm::vec2 layout_parent_content{};
+        render::Rect layout_containing_block{};
+        // The element was `display: none` (or hidden by `if`) when it was last restyled, so layout has not visited its
+        // subtree since: the marks inside it were consumed unseen, and the rects below are stale. The next layout that
+        // reaches the element lays its whole subtree out again.
+        bool layout_hidden = false;
     };
 
     // Slider arithmetic, shared by the bind pass (value to `--fraction`) and the pointer drag (position to value).
@@ -906,8 +995,142 @@ namespace engine::ui {
     // (class `slider-handle`), both plain Stacks styled by the stylesheet. The XML parser and `ui::slider()` call it.
     void add_slider_parts(Element &slider);
 
+    // The field of an element a binding slot feeds.
+    enum class BindField : std::uint8_t {
+        Text,
+        Content,
+        Source,
+        If,
+        SliderValue,
+        PanX,
+        PanY,
+        Zoom,
+        ScrollX,
+        ScrollY,
+        Checked,
+        Open,
+        Var,
+        TrArg,
+        ItemsSource,
+        Command,
+        Paint,
+    };
+
+    // One binding of one element: the version of the view-model property it read last. A quiet frame compares
+    // `version.read()` with `seen` for every slot and does nothing else (a `Command` slot has no version, it polls
+    // `can_execute()`, and a `Paint` slot reads nothing).
+    struct BindSlot {
+        ElementId element{};
+        BindField field = BindField::Text;
+        // The `Var` or `TrArg` entry of the element.
+        std::uint16_t index = 0;
+        BindingId binding{};
+        // The view-model the slot reads: the canvas's data context, or the row's item inside an ItemsControl.
+        ViewModel *source = nullptr;
+        std::optional<ViewModel::PropertyVersion> version;
+        std::uint64_t seen = 0;
+        // A `Command` slot: what `can_execute()` said last.
+        bool executable = true;
+    };
+
+    // A binding the build could not satisfy, kept so every pass reports it again like a full walk did.
+    struct BindFailure {
+        UiError error = UiError::MissingBinding;
+        std::string message;
+    };
+
+    struct BindTable {
+        std::vector<BindSlot> slots;
+        std::vector<BindFailure> failures;
+        // What the table was built against. Another data context or catalog, or a changed catalog version, builds it
+        // again; so does a change of the tree's structure.
+        const ViewModel *context = nullptr;
+        const void *catalog = nullptr;
+        std::uint64_t catalog_version = 0;
+        bool built = false;
+    };
+
+    // Work the passes did on one document, never reset by the engine. Tests assert a quiet frame adds nothing.
+    struct UiWorkCounters {
+        // Binding slots compared with their view-model's version, and property reads a slot or a rebuild made.
+        std::uint64_t slots_checked = 0;
+        std::uint64_t bound_reads = 0;
+        // Times the bind table was built again, layout passes that ran, and style passes that restyled elements.
+        std::uint64_t table_builds = 0;
+        std::uint64_t layout_passes = 0;
+        std::uint64_t restyle_passes = 0;
+        // The debug layout check (builds with `ENGINE_UI_LAYOUT_CHECK`): times it laid a copy out from scratch, and
+        // times a rect of the live tree differed. A correct engine leaves the second at 0.
+        std::uint64_t layout_checks = 0;
+        std::uint64_t layout_check_failures = 0;
+        // Paint: elements `paint_element` drew (a replayed boundary draws none of the elements under it), pictures
+        // recorded and replayed, and the commands a replay issued.
+        std::uint64_t painted_elements = 0;
+        std::uint64_t pictures_recorded = 0;
+        std::uint64_t pictures_replayed = 0;
+        std::uint64_t picture_commands = 0;
+        // The debug picture check: boundaries compared with a fresh recording, and differences found.
+        std::uint64_t picture_checks = 0;
+        std::uint64_t picture_check_failures = 0;
+    };
+
+    // What the painter measured and broke, shared by every element of one document: two rows with the same text, font,
+    // size (and width) shape once. The per-element caches stay in front of it; this is what a recycled or cloned row
+    // finds when its own cache is empty (`src/ui/text_cache.h`). It is dropped when the painter changes and bounded.
+    struct SharedTextCache {
+        const void *painter = nullptr;
+        std::unordered_map<std::string, glm::vec2> measures;
+        std::unordered_map<std::string, TextBlock> blocks;
+        // Calls that reached the painter, and lookups the cache answered.
+        std::uint64_t painter_measures = 0;
+        std::uint64_t painter_breaks = 0;
+        std::uint64_t hits = 0;
+    };
+
     struct UiDocument {
         Element root;
+        // The slot table behind every `Element::handle` of this document. Parse and `make_document` fill it.
+        ElementArena arena;
+        // Every binding of the tree, filled by `apply_bindings` and kept while the structure and the context stay.
+        BindTable bind_table;
+        mutable UiWorkCounters counters;
+        mutable SharedTextCache text_cache;
+        // The debug layout check runs after every layout sync in a build that has it. A test that edits elements behind
+        // the engine's back on purpose switches it off. `abort_on_layout_mismatch`: a difference ends the process
+        // (after naming the element), so a suite cannot pass over it; a test of the check itself turns that off.
+        bool verify_layout = true;
+        bool abort_on_layout_mismatch = true;
+        // Relayout boundaries (a fixed-size element) that a change below them marked, and that the next layout pass
+        // lays out from where they are.
+        std::vector<ElementId> layout_roots;
+        // Boundaries whose picture can never be replayed (they record again every frame), and the `IPaint`s whose
+        // version decides when a picture is recorded again. Paint marks them each frame; entries whose element is gone
+        // leave.
+        std::vector<ElementId> picture_volatile;
+        struct PaintWatch {
+            ElementId element{};
+            const IPaint *paint = nullptr;
+            std::uint64_t seen = 0;
+        };
+        std::vector<PaintWatch> picture_watches;
+        // Goes up on every `mark_dirty`. Work that reads a pointer or a hit test (the hover target) repeats only when
+        // it moved, the pointer moved, or a layout pass ran.
+        std::uint64_t epoch = 0;
+        // Something the ItemsControl windows depend on may have changed (a layout pass ran, a scroll moved, a list was
+        // edited): the bind pass checks every ItemsControl against it once and clears it.
+        bool windows_dirty = true;
+
+        // The element `id` names, or why there is none. A stale id (its row left the window, its slot was reused) and
+        // an id the tree no longer matches (children edited by hand without `reindex`) are errors, never a pointer to
+        // another element or to freed memory. The pointer is valid until the next structural edit of the tree.
+        [[nodiscard]] std::expected<Element *, ElementLookupError> find(ElementId id);
+        [[nodiscard]] std::expected<const Element *, ElementLookupError> find(ElementId id) const;
+
+        // Walks the whole tree: gives an id to every element that has none (an ItemTemplate's subtree included), sets
+        // every `parent`, brings every slot's place in the tree up to date, and frees the slots whose element is gone.
+        // Elements that already have an id keep it. Parse and `make_document` call it; call it again after editing
+        // `children` or `generated_items` by hand.
+        void reindex();
         std::optional<AssetId> stylesheet;
         // The `{binding path}` text behind every BindingId the markup names, item templates included, so a bind
         // error can name the path. parse_xml fills it; a `ui::Node` document has none, and the error shows the id.
@@ -922,6 +1145,20 @@ namespace engine::ui {
         // prepare_top_canvas (canvas.cpp) reaches them the same way, via instance->document.
         // layout_computed_once starts false so the very first frame for a freshly spawned canvas
         // always computes layout instead of trying to "skip" a layout that never happened.
+        // The hover and press the pointer put on the tree: which element, and what the target search was for, so a
+        // frame where none of it moved does not search again.
+        struct Interaction {
+            ElementId hovered{};
+            bool pressed = false;
+            glm::vec2 pointer{-1.0e9f, -1.0e9f};
+            bool pointer_down = false;
+            std::uint64_t epoch = 0;
+            std::uint64_t layout_passes = 0;
+            bool valid = false;
+            // The last motion pass left a clock running: elements move under a resting pointer.
+            bool motion = false;
+        };
+        mutable Interaction interaction;
         mutable bool layout_computed_once = false;
         mutable render::Rect last_canvas_layout_rect{};
         mutable float last_media_width = 0.0f;
@@ -956,6 +1193,10 @@ namespace engine::ui {
         // Bind errors run_bind has already logged for this instance, so a missing binding logs once, not every
         // frame. An instance rebuilt for a new document starts empty and logs again.
         std::unordered_set<std::string> reported_bind_errors;
+        // The stylesheet generation and bind-table build the layout-under-pseudo-class check last ran for (debug
+        // builds).
+        std::uint64_t pseudo_checked_generation = 0;
+        std::uint64_t pseudo_checked_builds = 0;
     };
 
     // Resolves an `<ItemTemplate src="...">` reference to the referenced file's raw XML text.
@@ -982,9 +1223,17 @@ namespace engine::ui {
     // A binding the data context does not register is skipped, not fatal to the rest: every other element and
     // binding still binds. `errors` (null: none) gets one message per failure (naming the path from
     // `binding_paths`), and the result is the first error. Nothing here is fatal; the caller decides.
+    //
+    // The first call, and any after the data context, the catalog, or the tree's structure changed, reads every binding
+    // and records a slot for each (`UiDocument::bind_table`). Every other call compares each slot's property version
+    // with the one it saw and reads only the slots that moved, marking what they feed dirty (`dirty_self`). A document
+    // whose elements were edited behind the bind pass (a field a binding fills) keeps that edit until the property
+    // changes. `stylesheet` lets a change of a pseudo-class state (a command that became executable, a checkbox) tell
+    // which elements restyle; null marks them all.
     std::expected<void, UiError> apply_bindings(UiDocument &document, ViewModel &data_context,
                                                 IBindErrorSink *errors = nullptr,
-                                                const engine::loc::Catalog *catalog = nullptr);
+                                                const engine::loc::Catalog *catalog = nullptr,
+                                                const Stylesheet *stylesheet = nullptr);
 
     void layout(UiDocument &document, const render::Rect &canvas_rect);
 
@@ -999,8 +1248,10 @@ namespace engine::ui {
     // `index` of the ItemsControl's items_source lies inside the scroller's box. Reads the rows of the last
     // layout and assumes they share one height, so it works on a virtualized list whose item has no Element
     // yet. Sets Element::scroll_y only: a `scroll-y` binding on the scroller reads its own value back on the
-    // next bind. False when the ItemsControl has no laid-out row or `index` is past the items.
-    bool scroll_item_into_view(Element &scroller, const Element &items_control, std::size_t index);
+    // next bind. `document` is the one the elements belong to: the scroller is marked for paint (its frame) and the
+    // list windows are refreshed. False when the ItemsControl has no laid-out row or `index` is past the items.
+    bool scroll_item_into_view(UiDocument &document, Element &scroller, const Element &items_control,
+                               std::size_t index);
 
     // Finds the generated Element currently stamped with this exact Element::generated_owner value
     // (see that field's comment) — used by canvas.cpp's drag write-back to re-resolve which item

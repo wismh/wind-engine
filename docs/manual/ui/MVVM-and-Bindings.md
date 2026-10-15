@@ -104,7 +104,7 @@ vm_->name.on_changed([this](const std::string& text) { rename(text); });
 - The handler runs once per change, with the new value. `set` with the value it already holds is silent, and so is a drag that ends where it started.
 - A write from C++ (`vm.volume.set(0.5f)`) and a write from the document (the player drags, types, or ticks) are both reported.
 - It runs immediately, on the main thread, inside `set`; for a document write that is inside input handling. Do not destroy the view model or its canvas from the handler: record what happened and act on it later in a system.
-- A new `on_changed` replaces the old handler; an empty `std::function` removes it. `BindableList` has no notification.
+- A new `on_changed` replaces the old handler; an empty `std::function` removes it. `BindableList` has no notification: it changes through `set` or `edit(fn)`, and each counts one version when the items differ afterwards.
 
 ## 4. Showing and Hiding with `if`
 
@@ -157,7 +157,7 @@ void hud_sync_system(engine::ecs::World& world, HudViewModel& vm) {
 }
 ```
 
-Register the sync as a lambda system on `Schedule::Frame`, `Phase::Game` (the view model reference is captured from the game or panel that owns it). The engine rebinds every canvas each frame in `Phase::Bind`, copies only values that changed, and re-lays-out only when bound text changed.
+Register the sync as a lambda system on `Schedule::Frame`, `Phase::Game` (the view model reference is captured from the game or panel that owns it). Every canvas checks its bindings each frame in `Phase::Bind` by comparing the version of each `Bindable` with the one it saw last; only a `Bindable` whose `set` really changed the value is read again, and only the elements it feeds are restyled and laid out again. Write through `set` (or `edit` on a `BindableList`): a change that bypasses them is not seen.
 
 ---
 

@@ -98,6 +98,9 @@ std::expected<BenchOptions, std::string> parse_bench_options(std::span<const std
         } else if (flag == "--height") {
             parsed_number = number(kMinWindowSide, kMaxWindowSide);
             options.height = parsed_number.value_or(0);
+        } else if (flag == "--hold") {
+            parsed_number = number(0, 600000);
+            options.hold_ms = parsed_number.value_or(0);
         } else {
             return std::unexpected(std::format("unknown argument '{}'", flag));
         }
@@ -150,20 +153,21 @@ std::filesystem::path default_report_path(const BenchCase& bench_case) {
 }
 
 std::string bench_usage() {
-    return std::format(
-            "wind_ui_bench --scene <name> --mode <name> [--variant <name>] [--warmup N] [--frames N]\n"
-            "              [--out path.json] [--width N --height N]\n"
-            "wind_ui_bench --list\n"
-            "\n"
-            "Renders one UI scene in one mode, records the UI profiler for --frames frames after --warmup\n"
-            "frames, writes the snapshot with the run's metadata to --out, and exits.\n"
-            "  --warmup   frames before the rings are cleared (default {}, at least {})\n"
-            "  --frames   measured frames, 1 to the ring size {} (default {})\n"
-            "  --out      report path (default ui_bench-<scene>-<mode>[-<variant>].json)\n"
-            "  --width, --height   window size (default 1600 x 900)\n"
-            "  --list     every scene, mode, and variant, one per line\n"
-            "Scenes: {}\n",
-            kDefaultWarmup, kMinWarmup, engine::ui::kProfilerRingFrames, engine::ui::kProfilerRingFrames, all_scenes());
+    return std::format("wind_ui_bench --scene <name> --mode <name> [--variant <name>] [--warmup N] [--frames N]\n"
+                       "              [--out path.json] [--width N --height N] [--hold MS]\n"
+                       "wind_ui_bench --list\n"
+                       "\n"
+                       "Renders one UI scene in one mode, records the UI profiler for --frames frames after --warmup\n"
+                       "frames, writes the snapshot with the run's metadata to --out, and exits.\n"
+                       "  --warmup   frames before the rings are cleared (default {}, at least {})\n"
+                       "  --frames   measured frames, 1 to the ring size {} (default {})\n"
+                       "  --out      report path (default ui_bench-<scene>-<mode>[-<variant>].json)\n"
+                       "  --width, --height   window size (default 1600 x 900)\n"
+                       "  --hold     milliseconds the window stays up after the report (default 0), for a screenshot\n"
+                       "  --list     every scene, mode, and variant, one per line\n"
+                       "Scenes: {}\n",
+                       kDefaultWarmup, kMinWarmup, engine::ui::kProfilerRingFrames, engine::ui::kProfilerRingFrames,
+                       all_scenes());
 }
 
 }

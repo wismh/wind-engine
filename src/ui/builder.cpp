@@ -366,6 +366,7 @@ std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal) 
     }
     UiDocument document;
     document.root = std::move(root.element_);
+    document.reindex();
     document.stylesheet = root.stylesheet_;
     return document;
 }
