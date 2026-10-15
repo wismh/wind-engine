@@ -150,17 +150,37 @@ namespace engine::ui {
         return area;
     }
 
-    std::optional<TextInputScreenArea> focused_text_input_area(ecs::World &world, WindowId window) {
-        const auto &focus_map = world.ctx<UiFocusState>().focused;
+    // The element `window` has focus on, or null: no focus, or the focused element is gone (its row left the
+    // ItemsControl window, its canvas was rebuilt). A focus that no longer resolves is dropped. `canvas` gets the
+    // canvas entity the focus belongs to.
+    Element *resolve_focus(ecs::World &world, WindowId window, ecs::Entity *canvas = nullptr) {
+        auto &focus_map = world.ctx<UiFocusState>().focused;
         const auto it = focus_map.find(window);
-        if (it == focus_map.end() || it->second.element == nullptr) {
+        if (it == focus_map.end()) {
+            return nullptr;
+        }
+        UiInstance *instance = world.try_get<UiInstance>(it->second.canvas_entity);
+        if (instance != nullptr) {
+            if (const auto found = instance->document.find(it->second.element)) {
+                if (canvas != nullptr) {
+                    *canvas = it->second.canvas_entity;
+                }
+                return *found;
+            }
+        }
+        focus_map.erase(it);
+        return nullptr;
+    }
+
+    std::optional<TextInputScreenArea> focused_text_input_area(ecs::World &world, WindowId window) {
+        ecs::Entity canvas_entity{};
+        const Element *element = resolve_focus(world, window, &canvas_entity);
+        if (element == nullptr) {
             return std::nullopt;
         }
-        const Element *element = it->second.element;
         if (element->kind != ElementKind::TextInput || element->disabled) {
             return std::nullopt;
         }
-        const ecs::Entity canvas_entity = it->second.canvas_entity;
         const UiCanvas *canvas = world.try_get<UiCanvas>(canvas_entity);
         UiInstance *instance = world.try_get<UiInstance>(canvas_entity);
         if (canvas == nullptr || instance == nullptr || canvas->window != window) {
@@ -705,13 +725,12 @@ namespace engine::ui {
         // window point, so an unscrolled label is unchanged.
         glm::vec2 pointer_in_painted_space(ecs::World &world, WindowId window, const Element &element, float x,
                                            float y) {
-            const auto &focus_map = world.ctx<UiFocusState>().focused;
-            const auto focused = focus_map.find(window);
-            if (focused == focus_map.end() || focused->second.element != &element) {
+            ecs::Entity canvas_entity{};
+            if (resolve_focus(world, window, &canvas_entity) != &element) {
                 return {x, y};
             }
-            UiCanvas *canvas = world.try_get<UiCanvas>(focused->second.canvas_entity);
-            UiInstance *instance = world.try_get<UiInstance>(focused->second.canvas_entity);
+            UiCanvas *canvas = world.try_get<UiCanvas>(canvas_entity);
+            UiInstance *instance = world.try_get<UiInstance>(canvas_entity);
             if (canvas == nullptr || instance == nullptr) {
                 return {x, y};
             }
@@ -950,10 +969,13 @@ namespace engine::ui {
                     clicked_scrollbar = true;
                     UiInstance &inst = world.get<UiInstance>(hit->entity);
                     if (rect_contains(thumb, local_pointer.x, local_pointer.y)) {
+                        if (!inst.document.arena.alive(hit->element->handle)) {
+                            inst.document.reindex(); // a tree built by hand: the drag needs the element's id
+                        }
                         hit->element->scrollbar_dragging = true;
                         world.ctx<UiActiveScrollbars>().drags[window] = ActiveScrollbarDrag{
                                 hit->entity,
-                                find_element_path(inst.document.root, hit->element),
+                                hit->element->handle,
                                 hit->element->generated_owner,
                                 // Canvas layout units, as update_drag measures the moves: only the
                                 // difference counts, so a popup's offset must not be in one end of it.
@@ -1040,7 +1062,8 @@ namespace engine::ui {
                 const ActiveScrollbarDrag &sdrag = sit->second;
                 UiInstance *instance = world.try_get<UiInstance>(sdrag.canvas_entity);
                 if (instance != nullptr) {
-                    Element *elem = resolve_element_path(instance->document.root, sdrag.path);
+                    const auto found = instance->document.find(sdrag.element);
+                    Element *elem = found ? *found : nullptr;
                     if (elem != nullptr) {
                         const float local_y = (y - sdrag.space_offset.y) / sdrag.space_scale;
                         const float dy = local_y - sdrag.drag_start_pointer_y;
@@ -1123,7 +1146,8 @@ namespace engine::ui {
         if (const auto sit = scroll_drags.find(window); sit != scroll_drags.end()) {
             UiInstance *instance = world.try_get<UiInstance>(sit->second.canvas_entity);
             if (instance != nullptr) {
-                Element *elem = resolve_element_path(instance->document.root, sit->second.path);
+                const auto found = instance->document.find(sit->second.element);
+                Element *elem = found ? *found : nullptr;
                 if (elem != nullptr) {
                     elem->scrollbar_dragging = false;
                 }
@@ -1418,62 +1442,53 @@ namespace engine::ui {
     } // namespace
 
     void clear_focus(ecs::World &world, WindowId window) {
-        auto &focus_map = world.ctx<UiFocusState>().focused;
-        const auto it = focus_map.find(window);
-        if (it != focus_map.end()) {
-            if (it->second.element != nullptr) {
-                it->second.element->focused = false;
-                it->second.element->caret_blink_timer = 0.0f;
-                it->second.element->selection_anchor.reset();
-                clear_composition(*it->second.element);
-            }
-            focus_map.erase(it);
+        if (Element *focused = resolve_focus(world, window)) {
+            focused->focused = false;
+            focused->caret_blink_timer = 0.0f;
+            focused->selection_anchor.reset();
+            clear_composition(*focused);
         }
+        world.ctx<UiFocusState>().focused.erase(window);
     }
 
     void set_focus(ecs::World &world, WindowId window, ecs::Entity canvas_entity, Element *element) {
-        auto &focus_map = world.ctx<UiFocusState>().focused;
-        const auto it = focus_map.find(window);
-        if (it != focus_map.end() && it->second.element != element) {
-            if (it->second.element != nullptr) {
-                it->second.element->focused = false;
-                it->second.element->caret_blink_timer = 0.0f;
-                it->second.element->selection_anchor.reset();
-                clear_composition(*it->second.element);
-            }
+        Element *previous = resolve_focus(world, window);
+        if (previous != nullptr && previous != element) {
+            previous->focused = false;
+            previous->caret_blink_timer = 0.0f;
+            previous->selection_anchor.reset();
+            clear_composition(*previous);
         }
+        auto &focus_map = world.ctx<UiFocusState>().focused;
         if (element != nullptr) {
+            if (UiInstance *instance = world.try_get<UiInstance>(canvas_entity);
+                instance != nullptr && !instance->document.arena.alive(element->handle)) {
+                // A tree built by hand and never indexed: the focus needs the element's id.
+                instance->document.reindex();
+            }
             element->focused = true;
             element->caret_blink_timer = 0.0f;
             element->selection_anchor.reset();
             if (element->caret_position > element->text.size()) {
                 element->caret_position = element->text.size();
             }
-            focus_map[window] = UiFocus{canvas_entity, element};
+            focus_map[window] = UiFocus{canvas_entity, element->handle};
         } else {
             focus_map.erase(window);
         }
     }
 
-    Element *focused_element(ecs::World &world, WindowId window) {
-        auto &focus_map = world.ctx<UiFocusState>().focused;
-        const auto it = focus_map.find(window);
-        if (it == focus_map.end()) {
-            return nullptr;
-        }
-        return it->second.element;
-    }
+    Element *focused_element(ecs::World &world, WindowId window) { return resolve_focus(world, window); }
 
     void handle_text_input(ecs::World &world, std::string_view text, WindowId window) {
         if (text.empty()) {
             return;
         }
-        auto &focus_map = world.ctx<UiFocusState>().focused;
-        const auto it = focus_map.find(window);
-        if (it == focus_map.end() || it->second.element == nullptr) {
+        ecs::Entity canvas_entity{};
+        Element *element = resolve_focus(world, window, &canvas_entity);
+        if (element == nullptr) {
             return;
         }
-        Element *element = it->second.element;
         if (element->disabled || element->kind != ElementKind::TextInput) {
             return;
         }
@@ -1482,7 +1497,6 @@ namespace engine::ui {
         // or be inserted a second time.
         clear_composition(*element);
 
-        const ecs::Entity canvas_entity = it->second.canvas_entity;
         // Single-line. A soft-keyboard action arrives as '\n' in the text event; anything after it
         // is discarded. Insert nothing when the prefix is empty.
         const std::size_t newline = text.find('\n');
@@ -1519,12 +1533,10 @@ namespace engine::ui {
     }
 
     void handle_text_editing(ecs::World &world, std::string_view text, int start, int length, WindowId window) {
-        auto &focus_map = world.ctx<UiFocusState>().focused;
-        const auto it = focus_map.find(window);
-        if (it == focus_map.end() || it->second.element == nullptr) {
+        Element *element = resolve_focus(world, window);
+        if (element == nullptr) {
             return;
         }
-        Element *element = it->second.element;
         if (element->disabled || element->kind != ElementKind::TextInput) {
             return;
         }
@@ -1557,12 +1569,11 @@ namespace engine::ui {
         if (key == KeyCode::Escape && close_topmost_popup(world, window)) {
             return;
         }
-        auto &focus_map = world.ctx<UiFocusState>().focused;
-        const auto it = focus_map.find(window);
-        if (it == focus_map.end() || it->second.element == nullptr) {
+        ecs::Entity canvas_entity{};
+        Element *element = resolve_focus(world, window, &canvas_entity);
+        if (element == nullptr) {
             return;
         }
-        Element *element = it->second.element;
         if (element->disabled) {
             return;
         }
@@ -1587,7 +1598,7 @@ namespace engine::ui {
         }
 
         if (key == KeyCode::Return) {
-            ViewModel *target = binding_target(world, it->second.canvas_entity, element);
+            ViewModel *target = binding_target(world, canvas_entity, element);
             if (element->kind == ElementKind::Checkbox) {
                 element->checked = !element->checked;
                 if (is_bound(element->checked_binding) && target != nullptr) {
@@ -1640,7 +1651,7 @@ namespace engine::ui {
                 element->caret_position = selection_start;
                 element->selection_anchor.reset();
                 element->caret_blink_timer = 0.0f;
-                write_text_binding(world, it->second.canvas_entity, element);
+                write_text_binding(world, canvas_entity, element);
             }
             return;
         }
@@ -1661,7 +1672,7 @@ namespace engine::ui {
                         element->text.insert(insert_at, *pasted);
                         element->caret_position = insert_at + pasted->size();
                         element->caret_blink_timer = 0.0f;
-                        write_text_binding(world, it->second.canvas_entity, element);
+                        write_text_binding(world, canvas_entity, element);
                     }
                 }
             }
@@ -1762,7 +1773,7 @@ namespace engine::ui {
         }
 
         if (text_changed) {
-            write_text_binding(world, it->second.canvas_entity, element);
+            write_text_binding(world, canvas_entity, element);
         }
     }
 

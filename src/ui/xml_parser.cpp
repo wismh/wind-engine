@@ -805,6 +805,7 @@ std::expected<UiDocument, UiError> parse_xml(std::string_view xml, IFatalError* 
 
     UiDocument document;
     document.root = std::move(*root);
+    document.reindex();
     BindBinder binder;
     collect_bind_element(doc.RootElement(), binder, resolve_include, include_stack);
     note_binding_paths(binder, document.binding_paths);

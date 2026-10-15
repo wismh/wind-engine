@@ -11,7 +11,7 @@ These exist. They are not the numbered steps below, and the steps are not done.
 - `assign_property_string` skips an equal string. The other step 1 items (no temporary pseudo-state vector, skipping a sibling sort, a motion overlay that does not copy a whole `ComputedStyle`, entering no painter state for an element with nothing to set) landed in wind-226; see step 1.
 - The UI profiler records the stages, the draw calls, and the painter calls by kind this plan uses as a baseline. See [UI Profiler](../features/UI%20Profiler.md).
 
-Steps 0 and 1 are closed (see their sections). Steps 7a through 8 are not. NanoVG is still the UI painter.
+Steps 0, 1, and 7a are closed (see their sections). Steps 2 through 8 are not. NanoVG is still the UI painter.
 
 The live tree stays one `Element` tree: document, layout, and hit-test. A retained command list (`Picture`) is a second structure, produced by paint and consumed by the renderer. NanoVG is removed when that renderer lands. An offscreen texture is an explicit opt-in on top of the renderer, not the way retention works.
 
@@ -77,7 +77,7 @@ Every later step is closed by re-running the matrix (`bench/run_matrix.ps1 -Repe
 - `Bindable` stores a value. `set` does not publish a change. `BindableList::get()` returns a mutable `std::vector&`, so a list can change with no signal (`include/engine/ui/bindable.h`).
 - `run_bind` (`src/ecs/systems.cpp`) calls `apply_bindings` for every canvas with a view-model, every frame. That walks the tree (`src/ui/document.cpp` `bind_element`). The pointer path in `src/ui/canvas.cpp` can walk it again.
 - `layout_state_changed` walks every element every time it is called and assigns `layout_dirty_check_text` and `layout_dirty_check_custom_properties` even when they compare equal.
-- `children` and `generated_items` are `std::vector<Element>` by value. There is no parent link (`include/engine/ui/document.h`). An `Element*` and an index into that vector both die when the vector reallocates or splices.
+- `children` and `generated_items` are `std::vector<Element>` by value (`include/engine/ui/document.h`). An `Element*` and an index into that vector both die when the vector reallocates or splices. Until step 7a (wind-227) there was no parent link and no element id; since then every element carries `handle` and `parent` (see 7a). The inspector's selection path and a text-selection gesture still re-resolve a child-index path on every use.
 - (Step 1 fixed) `style_cache_hits` (`src/ui/paint.cpp`) allocated `ancestor_pseudo_state_bits` on a hit for every non-root element; it now compares in place. `compute_style` and `advance_tree` both call it.
 - `child_stacking_order` (`src/ui/document.cpp`) builds a pointer vector for every parent during paint and hit-test. Since step 1 it stable-sorts only siblings whose `z-index` does not already ascend.
 - While `motion_shown` is non-empty, paint overlays the held sample on a style that carries only the fields `paint_element` reads (step 1; it used to copy the whole `ComputedStyle`). A finished `@keyframes` sample leaves `motion_shown` filled. `sample_prop` (`src/ui/style_anim.cpp`) rebuilds a `ComputedStyle` from raw declarations on each tick.
@@ -145,6 +145,17 @@ Required before dirty flags can move without a full walk. Not the hot/cold split
 Traversal, hit-test, and paint keep using the arena. Pointers held across a structural edit are illegal.
 
 Done when a reconcile that reuses a row keeps the same id, a new row gets a new id, and a destroyed row's id does not alias a later row. Covered by `engine_tests` without a window.
+
+As built (wind-227). The arena is a slot table, not the storage of the elements: `children` and `generated_items` stay `std::vector<Element>` by value, so the ~440 call sites that walk them (engine, editor, tests) are untouched, and nothing about traversal, hit-test, or paint changed (the bench element counts are the same). What is new:
+
+- `ElementId` (`index`, `generation`; the null id names nothing) in `include/engine/ui/element_id.h`, `ElementArena` in `element_arena.h`, one per `UiDocument`. A slot stores the parent's id, the position in the parent's `children` or `generated_items`, and which list, never an address. `UiDocument::find(id)` climbs parent slots, walks the positions down with bounds checks, and requires the element it reaches to carry the id: a stale id, a null id, and a tree edited without `reindex()` are `ElementLookupError::Stale`, `Null`, `Misplaced`, named by `element_lookup_error_name`, not a pointer to the wrong element or freed memory. Because a slot holds no address, a copied or moved document keeps valid ids and a vector may relocate its elements freely. The alternative that stores `Element*` in the slots needs a fix-up on every relocation and is UB when a caller forgets.
+- `Element::handle` and `Element::parent`. `parse_xml` and `make_document` call `UiDocument::reindex()`; `apply_bindings` does for a hand-built tree. The ItemsControl reconcile keeps a reused row's id (and so its clocks and caches), gives a cloned row and its subtree new ids (the clone copied the template's), frees the ids of every dropped row's subtree, and rewrites every row's parent and position. A freed slot comes back on a new generation, so a dead id never names a later row (a test walks a 200-row window down and up and checks no id is handed out twice).
+- `generated_owner` is the data identity and unchanged.
+- Held pointers replaced: the focus (`UiFocus::element`, which dangled when the focused row left the window), a scrollbar drag (`ActiveScrollbarDrag::element`, was a child-index path), and the ancestor chain of the style cache (`StyleCacheEntry::ancestors`, was an address, so a relocated vector could alias a different element). An ancestor with no id never matches, so a hand-built tree restyles every frame; every parsed or built document has ids.
+
+`tests/ui_element_id_test.cpp`: ids and parents after parse and builder, reuse and new rows, no aliasing over a long scroll, parents after reconcile and splice, stale and misplaced lookups with their names, a copied and moved document, a hand-copied element, `apply_bindings` on a hand-built tree. No window.
+
+Against step 1 (`-Repeat 3` on the rows below, medians; element and generated counts are exact): `table` 244/38, `inspector` 2,926/395, `hud` 184/32 elements/generated, unchanged; draw calls unchanged. Quiet total ms `table` 0.38 -> 0.39, `hud` 0.49 -> 0.47, `inspector` 1.58 -> 1.78 (bindings 0.25 -> 0.29; inside the noise of a shared VM, re-measured with step 2).
 
 ### 2 — Versions, dirty flags, pseudo-class invalidation
 
