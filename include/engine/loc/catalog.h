@@ -71,6 +71,11 @@ public:
     void set_fallback(std::string locale);
     void set_pseudo(bool enabled);
 
+    // Goes up whenever a table, the active or fallback locale, or the pseudo mode changes, so a document that shows
+    // `{tr}` text knows to translate it again (the UI bind pass compares it, it does not read every string every
+    // frame).
+    [[nodiscard]] std::uint64_t version() const noexcept { return version_; }
+
     [[nodiscard]] std::string_view active() const noexcept;
     [[nodiscard]] std::string_view fallback() const noexcept;
     [[nodiscard]] bool pseudo() const noexcept;
@@ -85,6 +90,7 @@ private:
     std::string active_;
     std::string fallback_;
     bool pseudo_ = false;
+    std::uint64_t version_ = 0;
     mutable std::unordered_set<std::string> warned_;
 };
 

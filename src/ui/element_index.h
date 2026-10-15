@@ -4,6 +4,8 @@
 
 #include <engine/ui/document.h>
 
+#include <vector>
+
 namespace engine::ui {
 
     // Gives `element` and everything under it (children, generated items) an id and a parent, in `arena`. With `fresh`
@@ -13,6 +15,12 @@ namespace engine::ui {
     // reached in the sweep gets a new one.
     void index_subtree(ElementArena &arena, Element &element, ElementId parent, std::uint32_t position, bool generated,
                        bool fresh);
+
+    // The ancestors of `element`, root first and its parent last, in one climb and one descent (a lookup per ancestor
+    // would
+    // repeat both for each). False, with an empty chain, when `element`'s parent id no longer leads anywhere. An
+    // element without a parent gets an empty chain and true.
+    bool ancestor_chain(UiDocument &document, const Element &element, std::vector<Element *> &chain);
 
     // Frees the slot of `element` and of everything under it.
     void release_subtree(ElementArena &arena, const Element &element);

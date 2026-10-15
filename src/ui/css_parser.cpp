@@ -19,6 +19,22 @@ namespace {
 struct CssWarnings {
     std::string_view source;
     std::vector<std::string>& out;
+    // The parser walks the text front to back, so a rule's line is counted from the last one asked for.
+    std::size_t line_offset = 0;
+    std::uint32_t line_number = 1;
+
+    std::uint32_t line_at(std::size_t offset) {
+        if (offset < line_offset) {
+            line_offset = 0;
+            line_number = 1;
+        }
+        offset = std::min(offset, source.size());
+        line_number +=
+                static_cast<std::uint32_t>(std::count(source.begin() + static_cast<std::ptrdiff_t>(line_offset),
+                                                      source.begin() + static_cast<std::ptrdiff_t>(offset), '\n'));
+        line_offset = offset;
+        return line_number;
+    }
 
     void add(std::string_view at, std::string_view message) {
         std::size_t offset = source.size();
@@ -40,6 +56,14 @@ std::string_view trim(std::string_view value) {
         --end;
     }
     return value.substr(begin, end - begin);
+}
+
+std::string_view trim_left(std::string_view value) {
+    std::size_t begin = 0;
+    while (begin < value.size() && std::isspace(static_cast<unsigned char>(value[begin])) != 0) {
+        ++begin;
+    }
+    return value.substr(begin);
 }
 
 std::string to_lower(std::string_view value) {
@@ -563,6 +587,10 @@ bool parse_stylesheet_body(std::string_view css, std::size_t& i, std::size_t lim
             continue;
         }
         parse_declarations(css.substr(body_begin, body_end - body_begin), rule.declarations, warnings);
+        // The selector's first non-blank character, not the blank line before it.
+        const std::size_t selector_start = selector_begin + (selector_text.size() - trim_left(selector_text).size());
+        rule.line = warnings.line_at(selector_start);
+        analyze_rule(rule);
         sheet.rules.push_back(std::move(rule));
     }
     return true;
@@ -580,4 +608,86 @@ std::expected<Stylesheet, CssError> parse_css(std::string_view css, std::vector<
     return sheet;
 }
 
+std::uint8_t pseudo_class_bit(std::string_view pseudo) noexcept {
+    if (pseudo == "hover") {
+        return kPseudoHover;
+    }
+    if (pseudo == "pressed") {
+        return kPseudoPressed;
+    }
+    if (pseudo == "disabled") {
+        return kPseudoDisabled;
+    }
+    if (pseudo == "focus") {
+        return kPseudoFocus;
+    }
+    if (pseudo == "checked") {
+        return kPseudoChecked;
+    }
+    return 0;
+}
+
+namespace {
+
+    bool is_layout_property(std::string_view property) noexcept {
+        static constexpr std::string_view kLayout[] = {
+                "width",           "height",      "min-width",    "max-width", "min-height",
+                "margin",          "padding",     "border-width", "gap",       "flex-direction",
+                "justify-content", "align-items", "white-space",  "display",   "visibility",
+                "position",        "top",         "right",        "bottom",    "left",
+                "overflow",        "overflow-x",  "overflow-y",   "font-size", "line-height",
+                "font-family",
+        };
+        return std::ranges::find(kLayout, property) != std::end(kLayout);
+    }
+
+    bool has_var(std::string_view value) noexcept { return value.find("var(") != std::string_view::npos; }
+
+} // namespace
+
+std::uint8_t declaration_dirties(const CssDeclaration &declaration) noexcept {
+    // A custom property or a `var()` could feed any property.
+    if (declaration.property.starts_with("--") || has_var(declaration.value)) {
+        return kDirtyStyle | kDirtyLayout | kDirtyPaint;
+    }
+    return kDirtyStyle | (is_layout_property(declaration.property) ? kDirtyLayout : kDirtyPaint);
+}
+
+void analyze_rule(CssRule &rule) noexcept {
+    rule.subject_pseudo = pseudo_class_bit(rule.selector.pseudo);
+    rule.ancestor_pseudo = 0;
+    for (const CssSelector &ancestor: rule.ancestors) {
+        rule.ancestor_pseudo |= pseudo_class_bit(ancestor.pseudo);
+    }
+    rule.dirties = 0;
+    for (const CssDeclaration &declaration: rule.declarations) {
+        rule.dirties |= declaration_dirties(declaration);
+    }
+}
+
+const StyleAnalysis &style_analysis(const Stylesheet &sheet) {
+    StyleAnalysis &analysis = sheet.analysis;
+    if (analysis.valid && analysis.generation == sheet.generation && analysis.rule_count == sheet.rules.size()) {
+        return analysis;
+    }
+    analysis = StyleAnalysis{};
+    analysis.generation = sheet.generation;
+    analysis.rule_count = sheet.rules.size();
+    analysis.layout_pseudo.assign(sheet.rules.size(), 0);
+    for (std::size_t i = 0; i < sheet.rules.size(); ++i) {
+        CssRule rule = sheet.rules[i];
+        analyze_rule(rule);
+        if ((rule.subject_pseudo | rule.ancestor_pseudo) == 0) {
+            continue;
+        }
+        analysis.pseudo_rules.push_back(static_cast<std::uint32_t>(i));
+        if ((rule.dirties & kDirtyLayout) != 0) {
+            analysis.layout_pseudo_rules.push_back(static_cast<std::uint32_t>(i));
+            analysis.layout_pseudo[i] = 1;
+        }
+        analysis.ancestor_pseudo_mask |= rule.ancestor_pseudo;
+    }
+    analysis.valid = true;
+    return analysis;
+}
 }

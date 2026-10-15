@@ -1,7 +1,9 @@
 #include "css_length.h"
+#include "dirty.h"
 #include "draw_list_adapter.h"
 #include "element_path.h"
 #include "inline_math.h"
+#include "layout_check.h"
 #include "math/math_element.h"
 #include "painter.h"
 #include "popup.h"
@@ -964,12 +966,15 @@ namespace engine::ui {
             if (sheet == nullptr) {
                 return matched;
             }
+            const StyleAnalysis &analysis = style_analysis(*sheet);
             for (std::size_t i = 0; i < sheet->rules.size(); ++i) {
                 const CssRule &rule = sheet->rules[i];
                 if (!media_matches(rule.media, window_width, window_height)) {
                     continue;
                 }
-                if (!selector_matches(rule, element, ancestors, allow_pseudo)) {
+                // The layout cascade (no pseudo-classes) still reads the real state for a pseudo-class rule that also
+                // changes layout: that is how `.x:hover { padding: ... }` reaches layout.
+                if (!selector_matches(rule, element, ancestors, allow_pseudo || analysis.layout_pseudo[i] != 0)) {
                     continue;
                 }
                 matched.push_back(RankedRule{specificity(rule), i, &rule});
@@ -1000,14 +1005,8 @@ namespace engine::ui {
             return style;
         }
 
-        // Packs one element's pseudo-state into a byte so StyleCacheEntry::ancestor_pseudo_state can
-        // detect "A:hover B" reacting to ancestor A's hover changing, even though the ancestor pointer
-        // chain to B (identity, checked separately) didn't change.
-        std::uint8_t pseudo_state_bits(const Element &element) {
-            return static_cast<std::uint8_t>((element.hovered ? 1u : 0u) | (element.pressed ? 2u : 0u) |
-                                             (element.disabled ? 4u : 0u) | (element.focused ? 8u : 0u) |
-                                             (element.checked ? 16u : 0u));
-        }
+        // Packs one element's pseudo-state into a byte (the stylesheet's kPseudo* bits).
+        std::uint8_t pseudo_state_bits(const Element &element) { return pseudo_state_of(element); }
 
         std::vector<std::uint8_t> ancestor_pseudo_state_bits(const std::vector<const Element *> &ancestors) {
             std::vector<std::uint8_t> bits;
@@ -1018,6 +1017,10 @@ namespace engine::ui {
             return bits;
         }
 
+        // A hit needs everything the cascade read to be what it was. The pseudo-state is compared only through the
+        // masks the last cascade recorded (`self_dep`, `ancestor_dep`): bits no rule tested on this element or on that
+        // ancestor cannot change the result, so hovering a container leaves a descendant no rule can reach through it
+        // alone.
         bool style_cache_hits(const StyleCacheEntry &cache, const Element &element, const Stylesheet *sheet,
                               const std::vector<const Element *> &ancestors, float window_width, float window_height) {
             const std::uint64_t sheet_generation = sheet != nullptr ? sheet->generation : 0;
@@ -1028,9 +1031,7 @@ namespace engine::ui {
             if (cache.id != element.id || cache.classes != element.classes) {
                 return false;
             }
-            if (cache.hovered != element.hovered || cache.pressed != element.pressed ||
-                cache.disabled != element.disabled || cache.focused != element.focused ||
-                cache.checked != element.checked) {
+            if (((cache.pseudo ^ pseudo_state_bits(element)) & cache.self_dep) != 0) {
                 return false;
             }
             if (cache.custom_properties != element.custom_properties) {
@@ -1039,21 +1040,75 @@ namespace engine::ui {
             if (cache.ancestors.size() != ancestors.size()) {
                 return false;
             }
-            // Identity and pseudo-state of every ancestor, in place: this runs for every element on every frame, a hit
-            // included.
+            // Identity and the tested pseudo-state of every ancestor, in place: this runs for every element on every
+            // frame, a hit included.
             for (std::size_t i = 0; i < ancestors.size(); ++i) {
                 const ElementId handle = ancestors[i]->handle;
                 if (handle.is_null() || cache.ancestors[i] != handle ||
-                    cache.ancestor_pseudo_state[i] != pseudo_state_bits(*ancestors[i])) {
+                    ((cache.ancestor_pseudo_state[i] ^ pseudo_state_bits(*ancestors[i])) & cache.ancestor_dep[i]) !=
+                            0) {
                     return false;
                 }
             }
             return true;
         }
 
+        // True when `rule` could match `element` under `ancestors` if every pseudo-class were satisfied: the structure
+        // (tag, class, id, combinators) matches for some choice of the ancestors a descendant combinator leaves open.
+        bool place_ancestors(const CssRule &rule, std::size_t remaining, std::size_t pos,
+                             const std::vector<const Element *> &ancestors) {
+            if (remaining == 0) {
+                return true;
+            }
+            const CssSelector &compound = rule.ancestors[remaining - 1];
+            if (rule.combinators[remaining - 1] == CssCombinator::Child) {
+                return pos > 0 && compound_matches(compound, *ancestors[pos - 1]) &&
+                       place_ancestors(rule, remaining - 1, pos - 1, ancestors);
+            }
+            for (std::size_t j = pos; j > 0; --j) {
+                if (compound_matches(compound, *ancestors[j - 1]) &&
+                    place_ancestors(rule, remaining - 1, j - 1, ancestors)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Which pseudo bits the cascade of `element` can depend on, for the rules this cascade reads: all the
+        // pseudo-class rules (the paint style), or those that also lay out (the layout style).
+        void collect_pseudo_dependency(const Element &element, const Stylesheet *sheet, bool layout_style,
+                                       const std::vector<const Element *> &ancestors, StyleCacheEntry &cache) {
+            cache.self_dep = 0;
+            cache.ancestor_dep.assign(ancestors.size(), 0);
+            if (sheet == nullptr) {
+                return;
+            }
+            const StyleAnalysis &analysis = style_analysis(*sheet);
+            const std::vector<std::uint32_t> &list =
+                    layout_style ? analysis.layout_pseudo_rules : analysis.pseudo_rules;
+            for (const std::uint32_t index: list) {
+                const CssRule &rule = sheet->rules[index];
+                if (!rule_could_match(rule, element, ancestors)) {
+                    continue;
+                }
+                cache.self_dep |= pseudo_class_bit(rule.selector.pseudo);
+                for (const CssSelector &compound: rule.ancestors) {
+                    const std::uint8_t bits = pseudo_class_bit(compound.pseudo);
+                    if (bits == 0) {
+                        continue;
+                    }
+                    for (std::size_t j = 0; j < ancestors.size(); ++j) {
+                        if (compound_matches(compound, *ancestors[j])) {
+                            cache.ancestor_dep[j] |= bits;
+                        }
+                    }
+                }
+            }
+        }
+
         void style_cache_store(StyleCacheEntry &cache, const Element &element, const Stylesheet *sheet,
                                const std::vector<const Element *> &ancestors, float window_width, float window_height,
-                               ComputedStyle style) {
+                               bool layout_style, ComputedStyle style) {
             cache.valid = true;
             cache.sheet = sheet;
             cache.sheet_generation = sheet != nullptr ? sheet->generation : 0;
@@ -1061,24 +1116,22 @@ namespace engine::ui {
             cache.window_height = window_height;
             cache.id = element.id;
             cache.classes = element.classes;
-            cache.hovered = element.hovered;
-            cache.pressed = element.pressed;
-            cache.disabled = element.disabled;
-            cache.focused = element.focused;
-            cache.checked = element.checked;
+            cache.pseudo = pseudo_state_bits(element);
             cache.custom_properties = element.custom_properties;
             cache.ancestors.clear();
             for (const Element *ancestor: ancestors) {
                 cache.ancestors.push_back(ancestor->handle);
             }
             cache.ancestor_pseudo_state = ancestor_pseudo_state_bits(ancestors);
+            collect_pseudo_dependency(element, sheet, layout_style, ancestors, cache);
             cache.style = std::move(style);
         }
 
         // Returns the pre-motion cascade stored on the element. apply_layout_style() calls with
         // allow_pseudo false and paint / advance_tree with true, so they land in independent
         // StyleCacheEntry slots and never invalidate each other. See StyleCacheEntry (document.h) for
-        // what a hit requires.
+        // what a hit requires. The layout cascade reads a pseudo-class rule's real state only when the rule also
+        // changes layout (kDirtyLayout); one that only paints is not part of it.
         //
         // advance_tree steps clocks only when the paint slot misses, a transition is still running, an
         // animation has not reached its end (delay included), or a held sample's parent basis changed.
@@ -1091,9 +1144,11 @@ namespace engine::ui {
             if (style_cache_hits(cache, element, sheet, ancestors, window_width, window_height)) {
                 return cache.style;
             }
+            ++element.style_rebuilds;
             ComputedStyle style =
                     compute_style_uncached(element, sheet, allow_pseudo, ancestors, window_width, window_height);
-            style_cache_store(cache, element, sheet, ancestors, window_width, window_height, std::move(style));
+            style_cache_store(cache, element, sheet, ancestors, window_width, window_height, !allow_pseudo,
+                              std::move(style));
             return cache.style;
         }
 
@@ -1106,8 +1161,10 @@ namespace engine::ui {
             };
         }
 
-        void apply_layout_style(Element &element, const Stylesheet *sheet, std::vector<const Element *> &ancestors,
-                                float window_width, float window_height) {
+        // Writes the layout style of one element (not its descendants) from the cascade onto its fields.
+        void apply_layout_style_to(Element &element, const Stylesheet *sheet,
+                                   const std::vector<const Element *> &ancestors, float window_width,
+                                   float window_height) {
             if (element.kind == ElementKind::ItemTemplate) {
                 return;
             }
@@ -1129,6 +1186,7 @@ namespace engine::ui {
             if (element.display_none) {
                 // Layout skips it from now on, so drop any geometry left from when it was displayed.
                 element.layout_rect = render::Rect{};
+                element.layout_hidden = true;
             }
             if (style.has_gap) {
                 element.gap = style.gap;
@@ -1184,6 +1242,14 @@ namespace engine::ui {
             if (style.has_selection_color) {
                 element.selection_color = style.selection_color;
             }
+        }
+
+        void apply_layout_style(Element &element, const Stylesheet *sheet, std::vector<const Element *> &ancestors,
+                                float window_width, float window_height) {
+            if (element.kind == ElementKind::ItemTemplate) {
+                return;
+            }
+            apply_layout_style_to(element, sheet, ancestors, window_width, window_height);
             ancestors.push_back(&element);
             for (Element &child: element.children) {
                 apply_layout_style(child, sheet, ancestors, window_width, window_height);
@@ -1194,11 +1260,132 @@ namespace engine::ui {
             ancestors.pop_back();
         }
 
+        bool same_length(const Length &a, const Length &b) {
+            if (a.value != b.value || a.unit != b.unit || a.calc.size() != b.calc.size()) {
+                return false;
+            }
+            for (std::size_t i = 0; i < a.calc.size(); ++i) {
+                const CalcNode &x = a.calc[i];
+                const CalcNode &y = b.calc[i];
+                if (x.kind != y.kind || x.value != y.value || x.unit != y.unit || x.op != y.op || x.left != y.left ||
+                    x.right != y.right) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        bool same_length(const std::optional<Length> &a, const std::optional<Length> &b) {
+            if (a.has_value() != b.has_value()) {
+                return false;
+            }
+            return !a.has_value() || same_length(*a, *b);
+        }
+
+        bool same_insets(const LengthInsets &a, const LengthInsets &b) {
+            return same_length(a.top, b.top) && same_length(a.right, b.right) && same_length(a.bottom, b.bottom) &&
+                   same_length(a.left, b.left);
+        }
+
+        // The element fields layout and hit-testing read and a restyle can change: what `apply_layout_style_to` writes
+        // that places or sizes a box, shapes its text, or takes it out of the flow.
+        struct LayoutFields {
+            Length gap;
+            StackDirection direction = StackDirection::Vertical;
+            LengthInsets padding;
+            LengthInsets margin;
+            std::optional<Length> width;
+            std::optional<Length> height;
+            std::optional<Length> min_width;
+            std::optional<Length> max_width;
+            std::optional<Length> min_height;
+            UiAlign justify = UiAlign::Start;
+            UiAlign align_items = UiAlign::Start;
+            WhiteSpace white_space = WhiteSpace::Normal;
+            Length font_size;
+            LineHeight line_height;
+            AssetId font_family;
+            PositionMode position = PositionMode::Static;
+            std::optional<Length> inset_top;
+            std::optional<Length> inset_right;
+            std::optional<Length> inset_bottom;
+            std::optional<Length> inset_left;
+            Overflow overflow_x = Overflow::Visible;
+            Overflow overflow_y = Overflow::Visible;
+            bool display_none = false;
+            bool visible = true;
+        };
+
+        LayoutFields layout_fields_of(const Element &e) {
+            return LayoutFields{e.gap,         e.direction,   e.padding,      e.margin,       e.width,
+                                e.height,      e.min_width,   e.max_width,    e.min_height,   e.justify,
+                                e.align_items, e.white_space, e.font_size,    e.line_height,  e.font_family,
+                                e.position,    e.inset_top,   e.inset_right,  e.inset_bottom, e.inset_left,
+                                e.overflow_x,  e.overflow_y,  e.display_none, e.visible};
+        }
+
+        bool layout_fields_differ(const LayoutFields &a, const LayoutFields &b) {
+            return !same_length(a.gap, b.gap) || a.direction != b.direction || !same_insets(a.padding, b.padding) ||
+                   !same_insets(a.margin, b.margin) || !same_length(a.width, b.width) ||
+                   !same_length(a.height, b.height) || !same_length(a.min_width, b.min_width) ||
+                   !same_length(a.max_width, b.max_width) || !same_length(a.min_height, b.min_height) ||
+                   a.justify != b.justify || a.align_items != b.align_items || a.white_space != b.white_space ||
+                   !same_length(a.font_size, b.font_size) || a.line_height.kind != b.line_height.kind ||
+                   a.line_height.factor != b.line_height.factor ||
+                   !same_length(a.line_height.length, b.line_height.length) || a.font_family != b.font_family ||
+                   a.position != b.position || !same_length(a.inset_top, b.inset_top) ||
+                   !same_length(a.inset_right, b.inset_right) || !same_length(a.inset_bottom, b.inset_bottom) ||
+                   !same_length(a.inset_left, b.inset_left) || a.overflow_x != b.overflow_x ||
+                   a.overflow_y != b.overflow_y || a.display_none != b.display_none || a.visible != b.visible;
+        }
+
+        // Restyles only what is marked: an element with `kDirtyStyle` gets its layout style written again, and if that
+        // moved a layout field its layout is marked (its own box can have changed, so the mark passes through a
+        // relayout boundary). The walk goes only where `dirty_below` says a descendant is marked.
+        void restyle_dirty(UiDocument &document, Element &element, const Stylesheet *sheet,
+                           std::vector<const Element *> &ancestors, float window_width, float window_height) {
+            if (element.kind == ElementKind::ItemTemplate) {
+                return;
+            }
+            if ((element.dirty_self & kDirtyStyle) != 0) {
+                const LayoutFields before = layout_fields_of(element);
+                apply_layout_style_to(element, sheet, ancestors, window_width, window_height);
+                // A running transition or animation still owns the layout properties it animates: the cascade is its
+                // target, not what is shown.
+                commit_motion_layout(element);
+                if (layout_fields_differ(before, layout_fields_of(element))) {
+                    mark_dirty(document, element, kDirtyLayout | kDirtyPaint, true);
+                }
+            }
+            if ((element.dirty_below & kDirtyStyle) == 0) {
+                return;
+            }
+            ancestors.push_back(&element);
+            for (Element &child: element.children) {
+                if (((child.dirty_self | child.dirty_below) & kDirtyStyle) != 0) {
+                    restyle_dirty(document, child, sheet, ancestors, window_width, window_height);
+                }
+            }
+            for (Element &child: element.generated_items) {
+                if (((child.dirty_self | child.dirty_below) & kDirtyStyle) != 0) {
+                    restyle_dirty(document, child, sheet, ancestors, window_width, window_height);
+                }
+            }
+            ancestors.pop_back();
+        }
+
     } // namespace
 
     void apply_layout_style(Element &root, const Stylesheet *sheet, float window_width, float window_height) {
         std::vector<const Element *> ancestors;
         apply_layout_style(root, sheet, ancestors, window_width, window_height);
+    }
+
+    bool rule_could_match(const CssRule &rule, const Element &element, const std::vector<const Element *> &ancestors) {
+        if (rule.ancestors.size() != rule.combinators.size() || !compound_matches(rule.selector, element)) {
+            return false;
+        }
+        return place_ancestors(rule, rule.ancestors.size(), ancestors.size(), ancestors);
     }
 
     namespace {
@@ -1270,31 +1457,45 @@ namespace engine::ui {
             return lines;
         }
 
-        void clear_interaction(Element &element) {
-            element.hovered = false;
-            element.pressed = false;
-            if (element.kind == ElementKind::ItemTemplate) {
-                return;
-            }
-            for (Element &child: element.children) {
-                clear_interaction(child);
-            }
-            for (Element &child: element.generated_items) {
-                clear_interaction(child);
-            }
-        }
-
         // Only the single topmost element under the pointer (the same stacking order paint and click
         // resolution use, via the shared hit_test()) gets :hover/:pressed. Previously every
         // geometrically-overlapping Button was hovered independently, which z-index/position/rotation
         // turn from a rare accident into a common, intentional case.
-        void apply_interaction(Element &root, glm::vec2 pointer, bool pointer_down) {
-            clear_interaction(root);
-            Element *hit = hit_test(root, pointer.x, pointer.y);
-            if (hit != nullptr && !hit->disabled) {
-                hit->hovered = true;
-                hit->pressed = pointer_down;
+        //
+        // The target is searched again only when something that decides it moved: the pointer or its button, a
+        // layout pass, a mark on the tree (a scroll, a popup, a visibility change), or motion under the pointer. A
+        // change of target sets the state on the two elements concerned (`set_pseudo`), not on the whole tree.
+        void apply_interaction(UiDocument &document, const Stylesheet *sheet, glm::vec2 pointer, bool pointer_down) {
+            UiDocument::Interaction &state = document.interaction;
+            if (state.valid && !state.motion && state.pointer == pointer && state.pointer_down == pointer_down &&
+                state.epoch == document.epoch && state.layout_passes == document.counters.layout_passes) {
+                return;
             }
+            Element *hit = hit_test(document.root, pointer.x, pointer.y);
+            if (hit != nullptr && hit->disabled) {
+                hit = nullptr;
+            }
+            Element *previous = nullptr;
+            if (!state.hovered.is_null()) {
+                if (const auto found = document.find(state.hovered)) {
+                    previous = *found;
+                }
+            }
+            if (previous != nullptr && previous != hit) {
+                set_pseudo(document, *previous, kPseudoHover, false, sheet);
+                set_pseudo(document, *previous, kPseudoPressed, false, sheet);
+            }
+            if (hit != nullptr) {
+                set_pseudo(document, *hit, kPseudoHover, true, sheet);
+                set_pseudo(document, *hit, kPseudoPressed, pointer_down, sheet);
+            }
+            state.hovered = hit != nullptr ? hit->handle : ElementId{};
+            state.pressed = hit != nullptr && pointer_down;
+            state.pointer = pointer;
+            state.pointer_down = pointer_down;
+            state.epoch = document.epoch;
+            state.layout_passes = document.counters.layout_passes;
+            state.valid = true;
         }
 
         // Every ComputedStyle field paint_element reads. Keep it in step with that function: a field read there and not
@@ -1823,8 +2024,11 @@ namespace engine::ui {
 
         // Returns whether this element or a descendant changed a layout input. One walk also refreshes
         // ItemsControl virtualization and commits visuals for elements that actually stepped.
+        // `motion_active` is set when a clock is running or a sample is held anywhere in the walk: elements move
+        // under a resting pointer, so the hover target is searched again.
         bool advance_tree(Element &element, const Stylesheet *sheet, float dt, glm::vec2 parent_basis,
-                          std::vector<const Element *> &ancestors, float window_width, float window_height) {
+                          std::vector<const Element *> &ancestors, float window_width, float window_height,
+                          bool &motion_active) {
             if (element.kind == ElementKind::ItemTemplate) {
                 return false;
             }
@@ -1848,6 +2052,9 @@ namespace engine::ui {
                 }
                 commit_motion_visuals(element);
             }
+            if (!element.motion_shown.empty() || !motion_clocks_idle(element)) {
+                motion_active = true;
+            }
             const float font_size = resolve_font_size(element.font_size, parent_basis.x);
             const BoxInsets padding = resolve_insets(element.padding, parent_basis, font_size);
             glm::vec2 child_basis{
@@ -1860,11 +2067,13 @@ namespace engine::ui {
             ancestors.push_back(&element);
             bool descendant = false;
             for (Element &child: element.children) {
-                descendant = advance_tree(child, sheet, dt, child_basis, ancestors, window_width, window_height) ||
+                descendant = advance_tree(child, sheet, dt, child_basis, ancestors, window_width, window_height,
+                                          motion_active) ||
                              descendant;
             }
             for (Element &child: element.generated_items) {
-                descendant = advance_tree(child, sheet, dt, child_basis, ancestors, window_width, window_height) ||
+                descendant = advance_tree(child, sheet, dt, child_basis, ancestors, window_width, window_height,
+                                          motion_active) ||
                              descendant;
             }
             ancestors.pop_back();
@@ -2024,6 +2233,97 @@ namespace engine::ui {
 
     } // namespace
 
+    void commit_motion_after_layout(Element &element) { commit_motion_after_layout_style(element); }
+
+    // The marks under the relayout boundaries a change queued: they stop at the boundary, so a pass that did not lay
+    // the boundary out from its own entry (a full layout) clears them here.
+    static void clear_boundary_marks(UiDocument &document) {
+        for (const ElementId id: document.layout_roots) {
+            if (const auto found = document.find(id)) {
+                clear_dirty(**found, kDirtyStyle | kDirtyLayout);
+            }
+        }
+    }
+
+    bool sync_layout(UiDocument &document, const Stylesheet *sheet, IUiPainter *painter,
+                     const render::Rect &canvas_rect, float media_width, float media_height) {
+        const std::uint64_t sheet_generation = sheet != nullptr ? sheet->generation : 0;
+        const bool everything = !document.layout_computed_once || document.last_canvas_layout_rect != canvas_rect ||
+                                document.last_media_width != media_width ||
+                                document.last_media_height != media_height || document.last_layout_sheet != sheet ||
+                                document.last_layout_sheet_generation != sheet_generation ||
+                                document.last_layout_painter != static_cast<const void *>(painter) ||
+                                document.last_layout_math_font != math_font_identity(painter);
+        const auto stamp = [&] {
+            document.layout_computed_once = true;
+            document.last_canvas_layout_rect = canvas_rect;
+            document.last_media_width = media_width;
+            document.last_media_height = media_height;
+            document.last_layout_sheet = sheet;
+            document.last_layout_painter = painter;
+            document.last_layout_math_font = math_font_identity(painter);
+            document.last_layout_sheet_generation = sheet_generation;
+        };
+        constexpr std::uint8_t kAll = kDirtyStyle | kDirtyLayout | kDirtyPaint;
+        Element &root = document.root;
+        if (everything) {
+            // A new document, a resized canvas or window, another stylesheet, another painter or math font: every
+            // element restyles and lays out.
+            apply_layout_style(root, sheet, media_width, media_height);
+            commit_motion_after_layout_style(root);
+            layout(document, canvas_rect, painter, false);
+            stamp();
+            clear_dirty(root, kDirtyStyle | kDirtyLayout);
+            clear_boundary_marks(document);
+            document.layout_roots.clear();
+            ++document.counters.restyle_passes;
+            ++document.counters.layout_passes;
+            document.windows_dirty = true;
+            verify_layout(document, sheet, painter, canvas_rect, media_width, media_height);
+            return true;
+        }
+        const auto pending = [&](std::uint8_t mask) { return ((root.dirty_self | root.dirty_below) & mask) != 0; };
+        if (!pending(kDirtyStyle | kDirtyLayout) && document.layout_roots.empty()) {
+            // The frame the check exists for: nothing marked, so layout owes nothing, and a from-scratch layout must
+            // agree.
+            verify_layout(document, sheet, painter, canvas_rect, media_width, media_height);
+            return false;
+        }
+        if (pending(kDirtyStyle)) {
+            std::vector<const Element *> ancestors;
+            restyle_dirty(document, root, sheet, ancestors, media_width, media_height);
+            clear_dirty(root, kDirtyStyle);
+            ++document.counters.restyle_passes;
+        }
+        bool ran = false;
+        if (pending(kDirtyLayout)) {
+            layout(document, canvas_rect, painter, true);
+            ran = true;
+        }
+        if (!document.layout_roots.empty()) {
+            // Fixed-size elements a change inside could not resize: each is laid out again from where it is.
+            const std::vector<ElementId> roots = std::move(document.layout_roots);
+            document.layout_roots.clear();
+            for (const ElementId id: roots) {
+                if (const auto found = document.find(id)) {
+                    layout_from(**found, painter);
+                    // The marks below a boundary never reached the root, so the root's clear does not find them.
+                    clear_dirty(**found, kDirtyLayout);
+                    ran = true;
+                }
+            }
+        }
+        clear_dirty(root, kDirtyLayout);
+        if (ran) {
+            ++document.counters.layout_passes;
+            document.windows_dirty = true;
+        }
+        stamp();
+        (void) kAll;
+        verify_layout(document, sheet, painter, canvas_rect, media_width, media_height);
+        return ran;
+    }
+
     void paint_document(UiDocument &document, const Stylesheet *stylesheet, IUiPainter &painter,
                         const UiPaintInput &input) {
         if (input.popup_layer) {
@@ -2033,66 +2333,59 @@ namespace engine::ui {
 #if defined(ENGINE_UI_PROFILER)
         profiler_begin_paint(input.canvas);
 #endif
-        // wind-129 layout dirty-gate. Same "call layout_state_changed() unconditionally, never as a
-        // short-circuited `||` operand" rule as prepare_top_canvas (canvas.cpp) — see that call site
-        // for why. run_bind (systems.cpp) already called apply_bindings() unconditionally earlier this
-        // frame's Bind phase, so document.root's text/custom_properties/generated_items are already
-        // this frame's values by the time paint_document runs.
-        const bool per_element_changed = layout_state_changed(document.root);
-        const std::uint64_t sheet_generation = stylesheet != nullptr ? stylesheet->generation : 0;
-        const bool structural =
-                per_element_changed || !document.layout_computed_once ||
-                document.last_canvas_layout_rect != input.canvas_rect ||
-                document.last_media_width != input.window_width || document.last_media_height != input.window_height ||
-                document.last_layout_sheet != stylesheet || document.last_layout_sheet_generation != sheet_generation ||
-                document.last_layout_painter != static_cast<const void *>(&painter) ||
-                document.last_layout_math_font != math_font_identity(&painter);
-        const auto stamp_layout = [&] {
-            document.layout_computed_once = true;
-            document.last_canvas_layout_rect = input.canvas_rect;
-            document.last_media_width = input.window_width;
-            document.last_media_height = input.window_height;
-            document.last_layout_sheet = stylesheet;
-            document.last_layout_painter = &painter;
-            document.last_layout_math_font = math_font_identity(&painter);
-            document.last_layout_sheet_generation = sheet_generation;
-        };
+        if (!document.arena.alive(document.root.handle)) {
+            document.reindex(); // a tree built by hand: marks and the hover target need its ids
+        }
         // Establish rects before hit-testing on a structural frame so :hover is known to the motion
         // pass in the same paint. Later frames hit-test last frame's rects (one frame behind a size
-        // animation) and do not relayout unless a motion layout input actually changed.
+        // animation) and do not relayout unless a motion layout input actually changed. `sync_layout` does the
+        // layout work the bind pass and the other sources of change marked, and nothing when nothing is marked.
         bool layout_ran = false;
-        if (structural) {
-            {
-                ENGINE_UI_PROFILE(input.canvas, Layout);
-                apply_layout_style(document.root, stylesheet, input.window_width, input.window_height);
-                layout(document, input.canvas_rect, &painter, false);
-                stamp_layout();
-            }
-            layout_ran = true;
+        {
+            ENGINE_UI_PROFILE(input.canvas, Layout);
+            layout_ran = sync_layout(document, stylesheet, &painter, input.canvas_rect, input.window_width,
+                                     input.window_height);
         }
         // Every frame, not only after layout: scroll and a Viewport camera move anchors without a relayout.
         place_popups(document.root, popup_room(input));
-        apply_interaction(document.root, input.pointer, input.pointer_down);
+        apply_interaction(document, stylesheet, input.pointer, input.pointer_down);
+        // A hover that changed what lays out (`.x:hover { padding: ... }`) is laid out in the frame it starts, before
+        // the motion pass samples it.
+        {
+            ENGINE_UI_PROFILE(input.canvas, Layout);
+            const bool ran = sync_layout(document, stylesheet, &painter, input.canvas_rect, input.window_width,
+                                         input.window_height);
+            if (ran) {
+                layout_ran = true;
+                place_popups(document.root, popup_room(input));
+            }
+        }
 
         bool motion_layout = false;
+        bool motion_active = false;
         {
             ENGINE_UI_PROFILE(input.canvas, Motion);
             std::vector<const Element *> motion_ancestors;
             motion_layout = advance_tree(document.root, stylesheet, input.delta_time,
                                          glm::vec2{input.canvas_rect.w, input.canvas_rect.h}, motion_ancestors,
-                                         input.window_width, input.window_height);
+                                         input.window_width, input.window_height, motion_active);
         }
+        document.interaction.motion = motion_active;
         if (motion_layout) {
             {
                 ENGINE_UI_PROFILE(input.canvas, Layout);
                 apply_layout_style(document.root, stylesheet, input.window_width, input.window_height);
                 commit_motion_after_layout_style(document.root);
                 layout(document, input.canvas_rect, &painter, true);
-                stamp_layout();
+                ++document.counters.layout_passes;
+                document.windows_dirty = true;
             }
             layout_ran = true;
             place_popups(document.root, popup_room(input));
         }
+        // Paint walks the whole tree for now (a repaint boundary does not exist yet), so what it consumes of the paint
+        // marks is only that they are gone.
+        clear_dirty(document.root, kDirtyPaint);
 
         {
             // Painter calls are counted on the paint pass only; layout above keeps `painter` (its dirty gate

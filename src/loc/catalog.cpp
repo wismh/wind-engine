@@ -103,18 +103,22 @@ void Catalog::add(StringTable table, Role role) {
         source_locale_ = table.locale;
     }
     tables_[table.locale] = std::move(table.messages);
+    ++version_;
 }
 
 void Catalog::set_active(std::string locale) {
     active_ = std::move(locale);
+    ++version_;
 }
 
 void Catalog::set_fallback(std::string locale) {
     fallback_ = std::move(locale);
+    ++version_;
 }
 
 void Catalog::set_pseudo(bool enabled) {
     pseudo_ = enabled;
+    ++version_;
 }
 
 std::string_view Catalog::active() const noexcept {

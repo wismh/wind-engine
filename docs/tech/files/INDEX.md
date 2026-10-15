@@ -245,12 +245,16 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ui/dock_space_layout.cpp` | `run_dock_layout`: panel and chrome canvases from the geometry of each window, float home, orders | [Docking](../features/Docking.md#host) |
 | `src/ui/dock_tab_measure.cpp` | Tab widths from the titles, the window's painter, and the theme's `.dock-tab` | [Docking](../features/Docking.md#tab-width) |
 | `src/ui/dock_text.cpp` | Layout to and from TOML | [Docking](../features/Docking.md) |
-| `src/ui/document.cpp` | Bind, layout, hit-test, virtualization | [UI Markup](../features/UI%20Markup.md) |
+| `src/ui/bind.cpp` | Bind pass: bind table, version polling, `bind_element`, ItemsControl reconcile | [UI](../modules/UI.md#bindings) |
+| `src/ui/dirty.h`, `src/ui/dirty.cpp` | `mark_dirty`, relayout boundaries, `set_pseudo`, `clear_dirty` | [UI](../modules/UI.md#dirty-flags) |
+| `src/ui/layout_check.h`, `src/ui/layout_check.cpp` | Debug layout check against a from-scratch copy | [UI](../modules/UI.md#debug-layout-check) |
+| `src/ui/pseudo_warning.h`, `src/ui/pseudo_warning.cpp` | Debug warning for layout properties under a pseudo-class | [UI](../modules/UI.md#hover-and-layout) |
+| `src/ui/document.cpp` | Layout, hit-test, virtualization | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/draw_list_adapter.h` | `IDrawList` over `IUiPainter` | [UI](../modules/UI.md) |
 | `src/ui/element_path.cpp` | Resolve a child-index path, including generated rows | [UI Inspector](../features/UI%20Inspector.md) |
 | `src/ui/element_path.h` | `kGeneratedPathBit` and path helpers | [UI Inspector](../features/UI%20Inspector.md) |
 | `src/ui/element_arena.cpp` | Slot allocation, free list, generations, mark and sweep | [UI](../modules/UI.md#element-identity) |
-| `src/ui/element_index.h`, `src/ui/element_index.cpp` | `index_subtree`, `release_subtree`, `UiDocument::reindex` and `find` | [UI](../modules/UI.md#element-identity) |
+| `src/ui/element_index.h`, `src/ui/element_index.cpp` | `index_subtree`, `release_subtree`, `UiDocument::reindex`, `find` and `ancestor_chain` | [UI](../modules/UI.md#element-identity) |
 | `src/ui/inline_math.cpp` | Split `\(...\)` out of label text | [UI](../modules/UI.md) |
 | `src/ui/inline_math.h` | Inline-math split API | [UI](../modules/UI.md) |
 | `src/ui/input_batch.h` | Per-`run_input` bind and layout cache | [UI Input](../features/UI%20Input.md) |
@@ -405,7 +409,9 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/ui_items_control_virtualization_test.cpp` | Row window and spacers | [UI](../modules/UI.md) |
 | `tests/ui_tree_test.cpp` | Tree rows, expansion, keys, `var()` indent, collapse in a virtualized list, scroll into view | [UI](../modules/UI.md#trees) |
 | `tests/ui_label_select_test.cpp` | Label selection and copy | [UI Input](../features/UI%20Input.md) |
-| `tests/ui_layout_dirty_gate_test.cpp` | Skip layout when the gate is clean | [UI](../modules/UI.md) |
+| `tests/ui_dirty_flags_test.cpp` | Dirty flags, quiet frames, relayout boundary, hover and layout, ancestor pseudo, layout checker | [UI](../modules/UI.md#dirty-flags) |
+| `tests/ui_bindable_version_test.cpp` | `Bindable` / `BindableList` / catalog versions | [UI](../modules/UI.md#bindings) |
+| `tests/ui_layout_dirty_gate_test.cpp` | Layout skipped when nothing is marked | [UI](../modules/UI.md) |
 | `tests/ui_layout_hit_test.cpp` | Stack layout and hit order | [UI Input](../features/UI%20Input.md) |
 | `tests/ui_loc_test.cpp` | `{tr}` bind and locale switch | [Localization](../modules/Localization.md) |
 | `tests/ui_math_element_test.cpp` | `Math` element in a document | [UI](../modules/UI.md) |
