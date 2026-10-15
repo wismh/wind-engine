@@ -58,12 +58,11 @@ namespace engine::ui {
         void layout_element(Element &element, const render::Rect &box, IUiPainter *painter, glm::vec2 parent_content,
                             const render::Rect &containing_block, bool partial);
 
-        // Layout has to look at this element again: a layout input of its own or of a descendant changed. Motion
-        // sets the first pair (the sampled value is not yet in the element), a binding, a restyle, or a structural
-        // change the `dirty_*` bits.
+        // Layout has to look at this element again: a layout input of its own or of a descendant changed, which a
+        // binding, a restyle (a motion sample that moved a layout field restyles), or a structural change recorded in
+        // the `dirty_*` bits.
         bool layout_needed(const Element &element) {
-            return element.layout_inputs_changed || element.layout_descendant_inputs_changed ||
-                   ((element.dirty_self | element.dirty_below) & kDirtyLayout) != 0;
+            return ((element.dirty_self | element.dirty_below) & kDirtyLayout) != 0;
         }
         void layout_absolute(Element &element, const render::Rect &containing_block, IUiPainter *painter, bool partial);
         void translate_layout(Element &element, float dx, float dy, const render::Rect &containing_block,

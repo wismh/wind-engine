@@ -265,7 +265,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ui/profiler.cpp` | Profiler rings, recording world, snapshots, CLI JSON | [UI Profiler](../features/UI%20Profiler.md) |
 | `src/ui/splash.cpp` | Build the two splash documents | [UI](../modules/UI.md) |
 | `src/ui/splash.h` | Splash document structs used by `show_splash` | [UI](../modules/UI.md) |
-| `src/ui/style_anim.cpp` | Sample `transition` and `@keyframes` | [UI Markup](../features/UI%20Markup.md) |
+| `src/ui/style_anim.cpp` | Sample `transition` and compiled `@keyframes` tracks | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/style_anim.h` | Motion clock types | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/stylesheet.cpp` | `next_stylesheet_generation` counter, one per engine | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/text_select.cpp` | Word ranges and selection edits | [UI Input](../features/UI%20Input.md) |
@@ -409,6 +409,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/ui_items_control_virtualization_test.cpp` | Row window and spacers | [UI](../modules/UI.md) |
 | `tests/ui_tree_test.cpp` | Tree rows, expansion, keys, `var()` indent, collapse in a virtualized list, scroll into view | [UI](../modules/UI.md#trees) |
 | `tests/ui_label_select_test.cpp` | Label selection and copy | [UI Input](../features/UI%20Input.md) |
+| `tests/ui_animation_tracks_test.cpp` | Track sample against the declaration-parsed sample, tracks built once, opacity and width animations, a finished track | [UI](../modules/UI.md#style) |
 | `tests/ui_dirty_flags_test.cpp` | Dirty flags, quiet frames, relayout boundary, hover and layout, ancestor pseudo, layout checker | [UI](../modules/UI.md#dirty-flags) |
 | `tests/ui_bindable_version_test.cpp` | `Bindable` / `BindableList` / catalog versions | [UI](../modules/UI.md#bindings) |
 | `tests/ui_layout_dirty_gate_test.cpp` | Layout skipped when nothing is marked | [UI](../modules/UI.md) |

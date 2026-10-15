@@ -147,7 +147,7 @@ What marks what:
 | an ItemsControl reconcile | layout and paint on the control; a cloned row and its subtree, and a spacer, want all three |
 | a spacer's height | style, layout, paint (`own_box`) |
 | canvas rect, media size, stylesheet pointer or generation, painter, math font | everything: the next `sync_layout` restyles and lays out the whole tree |
-| motion | its own `layout_inputs_changed` pair, as before ([Style](#style)) |
+| motion | an element whose sampled value moved a layout field (`Element::layout_inputs_changed`, set by `advance_motion`) is marked `kDirtyStyle`; the restyle writes the sample onto the fields and marks layout where a field moved ([Style](#style)) |
 
 Paint walks the whole tree until a repaint boundary exists, so it only clears its bit.
 
@@ -200,7 +200,7 @@ Cascade specificity (`compound_specificity` in `src/ui/paint.cpp`) is the sum of
 
 A stylesheet `--name: value` is stored in `compute_style_uncached`; `is_known_property` accepts any `--` name. `var(--name)` and `var(--name, fallback)` substitute at cascade time wherever they sit in the value: inside `calc()`, as one inset of `padding`, inside a fallback. A substituted value is resolved again, eight levels at most. The element's bound value wins over the sheet. A reference with no match and no fallback makes the whole value an empty string. Any other unknown property does not change computed style.
 
-`transition` and `@keyframes` interpolate numbers, colors, resolved px lengths, and `rotate` / `scale`. Keywords snap at eased progress 0.5. `@keyframes` wins on a property that also has a `transition`. The clock advances once per `paint_document` from `delta_time`. A layout property re-packs the chain that moved. Hit geometry during that animation is the previous frame's rects (`src/ui/style_anim.cpp`).
+`transition` and `@keyframes` interpolate numbers, colors, resolved px lengths, and `rotate` / `scale`. Keywords snap at eased progress 0.5. `@keyframes` wins on a property that also has a `transition`. The clock advances once per `paint_document` from `delta_time`. `@keyframes` are compiled once into numeric tracks (`CompiledKeyframes`, one per animated property with its stops sorted, built on the first sample and kept on `Keyframes::compiled`; rebuilt when the stops were edited), so a sample parses no declaration string: it reads the two neighbouring stops and interpolates. `opacity`, `transform`, scroll, and a `Viewport` camera are paint only and mark no layout. A layout property (`width`, `height`, `min-*`, `max-*`, `font-size`, `padding`, `margin`, `gap`, ...) marks the animated element for layout on the frames its value moved, and only that chain lays out again: the element's own box can change, so the mark passes through a relayout boundary, the siblings and the rest of the tree are untouched. A finished `@keyframes` or transition keeps its end value in `motion_shown`, costs no cascade on later frames, and no longer keeps the hover target search running. Hit geometry during that animation is the previous frame's rects (`src/ui/style_anim.cpp`).
 
 ### Value grammar
 
