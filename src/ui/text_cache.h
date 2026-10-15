@@ -34,6 +34,5 @@ namespace engine::ui {
     // The cache of the innermost live scope, or null outside one.
     [[nodiscard]] SharedTextCache *active_text_cache() noexcept;
 
-    [[nodiscard]] std::string text_cache_key(std::string_view text, const AssetId &font, float size, float width);
 
 } // namespace engine::ui
