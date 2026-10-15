@@ -8,6 +8,7 @@
 #include <engine/ui/command.h>
 #include <engine/ui/paint.h>
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -21,13 +22,23 @@ namespace engine::ui {
 
 class ViewModel {
 public:
-    ViewModel() = default;
+    ViewModel() : serial_(++g_serial) {}
     virtual ~ViewModel() = default;
 
     ViewModel(const ViewModel&) = delete;
     ViewModel& operator=(const ViewModel&) = delete;
     ViewModel(ViewModel&&) = delete;
     ViewModel& operator=(ViewModel&&) = delete;
+
+    // A number no other view-model of this process has had, never reused: what an ItemsControl row remembers of the
+    // item it was built for. The address of an item is not enough, a view-model destroyed and another created in its
+    // place share it.
+    [[nodiscard]] std::uint64_t serial() const noexcept { return serial_; }
+
+    // Goes up whenever `property`, `command` or `paint` registers something, a replacement included. The bind pass
+    // reads the view-model's registrations when it builds its table, and builds it again when this moved, so a
+    // binding registered late is found and a paint replaced is read again.
+    [[nodiscard]] std::uint64_t registration_version() const noexcept { return registration_version_; }
 
     [[nodiscard]] bool has_property(BindingId id) const;
     [[nodiscard]] bool has_command(BindingId id) const;
@@ -95,6 +106,10 @@ private:
         std::vector<ViewModel*> (*items)(void*) = nullptr;
     };
 
+    static inline std::atomic<std::uint64_t> g_serial{0};
+
+    std::uint64_t serial_ = 0;
+    std::uint64_t registration_version_ = 0;
     std::unordered_map<BindingId, PropertyRef> properties_;
     std::unordered_map<BindingId, ICommand*> commands_;
     std::unordered_map<BindingId, IPaint*> paints_;
@@ -161,6 +176,7 @@ void ViewModel::property(BindingId id, Bindable<T>& bindable) {
         };
     }
     properties_.insert_or_assign(id, ref);
+    ++registration_version_;
 }
 
 template<typename T>
@@ -181,6 +197,7 @@ void ViewModel::property(BindingId id, BindableList<std::shared_ptr<T>>& list) {
         return out;
     };
     properties_.insert_or_assign(id, ref);
+    ++registration_version_;
 }
 
 }

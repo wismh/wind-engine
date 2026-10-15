@@ -7,6 +7,7 @@
 #include "math/math_element.h"
 #include "painter.h"
 #include "picture.h"
+#include "picture_paint.h"
 #include "popup.h"
 #include "profile.h"
 #include "profiler_paint_counter.h"
@@ -1357,6 +1358,7 @@ namespace engine::ui {
             }
             if ((element.dirty_self & kDirtyStyle) != 0) {
                 const LayoutFields before = layout_fields_of(element);
+                const int z_before = element.z_index;
                 apply_layout_style_to(element, sheet, ancestors, window_width, window_height);
                 // A running transition or animation still owns the layout properties it animates: the cascade is its
                 // target, not what is shown.
@@ -1364,6 +1366,10 @@ namespace engine::ui {
                 commit_motion_visuals(element);
                 if (layout_fields_differ(before, layout_fields_of(element))) {
                     mark_dirty(document, element, kDirtyLayout | kDirtyPaint, true);
+                }
+                if (element.z_index != z_before) {
+                    // The stacking order of its siblings is part of what the picture above it recorded.
+                    mark_dirty(document, element, kDirtyPaint);
                 }
             }
             if ((element.dirty_below & kDirtyStyle) == 0) {
@@ -1623,8 +1629,46 @@ namespace engine::ui {
             return child.kind != ElementKind::Popup && !child.display_none && !may_reach(child, visible);
         }
 
+        // How many elements below an element the scissor check looks at before it gives up and keeps the scissor.
+        constexpr int kEscapeBudget = 256;
+
+        // True when every `position: absolute` descendant of `parent` that is reached through elements that do not clip
+        // lies inside `box` and is not transformed. Such a descendant leaves the scissor of its own parent, so only the
+        // ancestors' scissors still clip it. Out of budget counts as not inside.
+        bool escapees_inside(const Element &parent, const render::Rect &box, int &budget) {
+            if (clips_children(parent)) {
+                return true;
+            }
+            constexpr float kEpsilon = 0.01f;
+            const auto each = [&](const std::vector<Element> &list) {
+                for (const Element &d: list) {
+                    if (d.kind == ElementKind::ItemTemplate || d.kind == ElementKind::Popup || d.display_none ||
+                        !d.visible) {
+                        continue;
+                    }
+                    if (--budget < 0) {
+                        return false;
+                    }
+                    if (d.position == PositionMode::Absolute) {
+                        const render::Rect &r = d.layout_rect;
+                        if (d.rotation_deg != 0.0f || d.scale != 1.0f || r.x < box.x - kEpsilon ||
+                            r.y < box.y - kEpsilon || r.x + r.w > box.x + box.w + kEpsilon ||
+                            r.y + r.h > box.y + box.h + kEpsilon) {
+                            return false;
+                        }
+                    }
+                    if (!escapees_inside(d, box, budget)) {
+                        return false;
+                    }
+                }
+                return true;
+            };
+            return each(parent.children) && each(parent.generated_items);
+        }
+
         bool paint_stays_in_box(Element &element, const ComputedStyle &style, IUiPainter &painter, float font_size,
-                                const BoxInsets &padding, float border_width, const std::vector<Element> &child_list) {
+                                const BoxInsets &padding, float border_width, const std::vector<Element> &child_list,
+                                const Stylesheet *sheet) {
             switch (element.kind) {
                 case ElementKind::Line:
                 case ElementKind::Math:
@@ -1671,17 +1715,31 @@ namespace engine::ui {
                     }
                 }
             }
+            // A `:hover { transform }` on a descendant moves it past the box when the pointer arrives, which the layout
+            // style cannot see: a sheet that has one keeps the scissor of every element that has children.
+            if (!child_list.empty() && sheet != nullptr && style_analysis(*sheet).pseudo_transform) {
+                return false;
+            }
+            int budget = kEscapeBudget;
             for (const Element &child: child_list) {
-                if (child.kind == ElementKind::ItemTemplate || child.kind == ElementKind::Popup ||
-                    child.position == PositionMode::Absolute || child.display_none || !child.visible) {
+                if (child.kind == ElementKind::ItemTemplate || child.kind == ElementKind::Popup || child.display_none ||
+                    !child.visible) {
                     continue;
                 }
-                const render::Rect &r = child.layout_rect;
-                if (child.rotation_deg != 0.0f || child.scale != 1.0f || r.x < box.x - kEpsilon ||
-                    r.y < box.y - kEpsilon || r.x + r.w > box.x + box.w + kEpsilon ||
-                    r.y + r.h > box.y + box.h + kEpsilon) {
-                    return false;
+                if (child.position != PositionMode::Absolute) {
+                    const render::Rect &r = child.layout_rect;
+                    if (child.rotation_deg != 0.0f || child.scale != 1.0f || r.x < box.x - kEpsilon ||
+                        r.y < box.y - kEpsilon || r.x + r.w > box.x + box.w + kEpsilon ||
+                        r.y + r.h > box.y + box.h + kEpsilon) {
+                        return false;
+                    }
+                    // An absolute descendant of an in-flow child leaves that child's scissor and is still under this
+                    // one: it has to be inside this box too.
+                    if (!escapees_inside(child, box, budget)) {
+                        return false;
+                    }
                 }
+                // An absolute child leaves this element's scissor itself, so its subtree never depended on it.
             }
             return true;
         }
@@ -1689,112 +1747,6 @@ namespace engine::ui {
         // The `state_opacity` of a call that does not know the painter's global alpha (a canvas root, a popup): it
         // always sets its own.
         constexpr float kUnknownOpacity = -1.0f;
-
-        // Pictures are used while a document paints through `paint_document` (or its popup layer). Outside it, and
-        // while the inspector draws over the document, an element is painted straight to the painter.
-        struct PictureContext {
-            UiDocument *document = nullptr;
-            // The part being recorded: what it draws that changes without a mark makes it volatile.
-            PicturePart *recording = nullptr;
-            ElementId recording_owner{};
-            // The debug check: every boundary records afresh and is compared with what it holds.
-            bool checking = false;
-            std::uint64_t check_failures = 0;
-        };
-
-        PictureContext &picture_context() {
-            thread_local PictureContext context;
-            return context;
-        }
-
-        // Not painted now: nothing under it changes what a picture above it shows. A closed popup is painted by nobody.
-        bool element_hidden(const Element &e) noexcept {
-            return e.display_none || e.hidden_by_if || !e.visible || (e.kind == ElementKind::Popup && !e.open);
-        }
-
-        // Elements that keep a picture of their own: the root, anything that scrolls, a camera, a popup, and what the
-        // stylesheet marks with `repaint-boundary`. Decided from the element alone, so a pass that looks for marks can
-        // tell where one picture ends and the next begins without a style.
-        bool is_boundary_element(const Element &e) noexcept {
-            return e.parent.is_null() || e.repaint_boundary || e.kind == ElementKind::Viewport ||
-                   e.kind == ElementKind::ScrollView || e.kind == ElementKind::Popup || is_scrollable(e);
-        }
-
-        bool contains_rect(const render::Rect &outer, const render::Rect &inner) noexcept {
-            return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.w <= outer.x + outer.w &&
-                   inner.y + inner.h <= outer.y + outer.h;
-        }
-
-        constexpr std::uint8_t kPaintMarks = kDirtyPaint | kDirtyFrame;
-
-        const std::vector<Element> &paint_children(const Element &e) {
-            return e.kind == ElementKind::ItemsControl ? e.generated_items : e.children;
-        }
-
-        // A plain element of a boundary's region (not a boundary itself, not hidden) holds a paint mark: the
-        // boundary's picture shows something that changed. Looks only along the marks.
-        bool plain_dirty(const Element &e) {
-            if (e.kind == ElementKind::ItemTemplate || element_hidden(e) || is_boundary_element(e)) {
-                return false;
-            }
-            if ((e.dirty_self & kPaintMarks) != 0) {
-                return true;
-            }
-            if ((e.dirty_below & kPaintMarks) == 0) {
-                return false;
-            }
-            for (const Element &child: paint_children(e)) {
-                if (((child.dirty_self | child.dirty_below) & kPaintMarks) != 0 && plain_dirty(child)) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        bool region_dirty(const std::vector<Element> &children) {
-            for (const Element &child: children) {
-                if (((child.dirty_self | child.dirty_below) & kPaintMarks) != 0 && plain_dirty(child)) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        // Clears the marks of a boundary's region once its pictures are up to date, and says what is left below: a
-        // nested boundary keeps its own marks until it is brought up to date, a hidden element keeps them until it is
-        // shown (showing it marks it again).
-        std::uint8_t clear_plain_marks(Element &e) {
-            if (e.kind == ElementKind::ItemTemplate || element_hidden(e)) {
-                return 0;
-            }
-            if (is_boundary_element(e)) {
-                return static_cast<std::uint8_t>((e.dirty_self | e.dirty_below) & kPaintMarks);
-            }
-            std::uint8_t remaining = 0;
-            const auto each = [&](std::vector<Element> &list) {
-                for (Element &child: list) {
-                    if (((child.dirty_self | child.dirty_below) & kPaintMarks) != 0) {
-                        remaining |= clear_plain_marks(child);
-                    }
-                }
-            };
-            e.dirty_self &= static_cast<std::uint8_t>(~kPaintMarks);
-            each(e.children);
-            each(e.generated_items);
-            e.dirty_below = static_cast<std::uint8_t>((e.dirty_below & ~kPaintMarks) | remaining);
-            return remaining;
-        }
-
-        void clear_region_marks(Element &boundary, std::vector<Element> &children) {
-            std::uint8_t remaining = 0;
-            for (Element &child: children) {
-                if (((child.dirty_self | child.dirty_below) & kPaintMarks) != 0) {
-                    remaining |= clear_plain_marks(child);
-                }
-            }
-            boundary.dirty_self &= static_cast<std::uint8_t>(~kPaintMarks);
-            boundary.dirty_below = static_cast<std::uint8_t>((boundary.dirty_below & ~kPaintMarks) | remaining);
-        }
 
         void paint_element(Element &element, const Stylesheet *sheet, IUiPainter &painter,
                            std::vector<const Element *> &ancestors, glm::vec2 parent_content, const UiPaintInput &input,
@@ -1810,97 +1762,6 @@ namespace engine::ui {
                     continue;
                 }
                 paint_element(child, sheet, painter, ancestors, parent_content, input, kUnknownOpacity, nullptr, true);
-            }
-        }
-
-        // Runs `body` against a recording painter into `part`, as the picture of `owner`, and notes what the picture
-        // depends on beyond its key. In the debug check the fresh recording is compared with the picture the part
-        // holds and dropped.
-        template<typename Body>
-        void record_part(PictureContext &context, Element &owner, PicturePart &part, IUiPainter &painter, Body &&body) {
-            PicturePart fresh;
-            PicturePart *target = context.checking ? &fresh : &part;
-            if (!target->picture) {
-                target->picture = std::make_shared<Picture>();
-            }
-            target->picture->clear();
-            target->volatile_part = false;
-            target->watches.clear();
-            PicturePart *outer = context.recording;
-            const ElementId outer_owner = context.recording_owner;
-            context.recording = target;
-            context.recording_owner = owner.handle;
-            {
-                RecordingPainter recording(painter, *target->picture);
-                body(recording);
-                if (recording.saw_empty_measure()) {
-                    target->volatile_part = true;
-                }
-            }
-            context.recording = outer;
-            context.recording_owner = outer_owner;
-            target->valid = true;
-            UiDocument &document = *context.document;
-            if (context.checking) {
-                ++document.counters.picture_checks;
-                if (part.valid && !part.volatile_part && !target->volatile_part && part.picture != nullptr &&
-                    !(*part.picture == *target->picture)) {
-                    ++document.counters.picture_check_failures;
-                    ++context.check_failures;
-                    std::string classes;
-                    for (const std::string &name: owner.classes) {
-                        classes += "." + name;
-                    }
-                    std::fprintf(stderr,
-                                 "UI picture check: a replayed picture differs from a fresh recording: %s %s "
-                                 "(%zu commands held, %zu recorded)\n",
-                                 owner.kind == ElementKind::Viewport ? "Viewport" : "element", classes.c_str(),
-                                 part.picture->commands.size(), target->picture->commands.size());
-                    std::fflush(stderr);
-                    if (document.abort_on_layout_mismatch) {
-                        std::abort();
-                    }
-                }
-                return;
-            }
-            ++document.counters.pictures_recorded;
-            document.counters.picture_commands += part.picture->commands.size();
-            if (part.volatile_part) {
-                if (std::ranges::find(document.picture_volatile, owner.handle) == document.picture_volatile.end()) {
-                    document.picture_volatile.push_back(owner.handle);
-                }
-            }
-            for (const PictureWatch &watch: part.watches) {
-                auto it = std::ranges::find_if(document.picture_watches, [&](const UiDocument::PaintWatch &w) {
-                    return w.element == owner.handle && w.paint == watch.paint;
-                });
-                if (it == document.picture_watches.end()) {
-                    document.picture_watches.push_back({owner.handle, watch.paint, watch.version});
-                } else {
-                    it->seen = watch.version;
-                }
-            }
-        }
-
-        // What a recording notes: the picture being recorded will not be reusable (a blinking caret, an `IPaint` that
-        // cannot say when it changed), or depends on an `IPaint`'s version.
-        void note_volatile() {
-            PictureContext &context = picture_context();
-            if (context.recording != nullptr) {
-                context.recording->volatile_part = true;
-            }
-        }
-
-        void note_paint(const IPaint &paint) {
-            PictureContext &context = picture_context();
-            if (context.recording == nullptr) {
-                return;
-            }
-            const std::uint64_t version = paint.version();
-            if (version == IPaint::kVersionUnknown) {
-                context.recording->volatile_part = true;
-            } else {
-                context.recording->watches.push_back(PictureWatch{&paint, version});
             }
         }
 
@@ -1950,7 +1811,7 @@ namespace engine::ui {
             // would clip nothing) enters no state at all: no save, opacity, scissor, or restore.
             const bool has_transform = style.rotation_deg != 0.0f || style.scale != 1.0f;
             const bool needs_clip =
-                    !paint_stays_in_box(element, style, painter, font_size, padding, border_width, child_list);
+                    !paint_stays_in_box(element, style, painter, font_size, padding, border_width, child_list, sheet);
             const bool entered = has_transform || needs_clip || style.opacity != state_opacity;
             const auto enter = [&](IUiPainter &painter, bool clip) {
                 painter.save();
@@ -2032,7 +1893,7 @@ namespace engine::ui {
                 }
 
                 if (element.paint != nullptr) {
-                    note_paint(*element.paint);
+                    note_paint(element);
                     const render::Rect content_local{
                             0.0f,
                             0.0f,
@@ -2675,62 +2536,6 @@ namespace engine::ui {
 
     namespace {
 
-        // Makes `document` the one whose elements keep pictures while it lives, and marks what has to be recorded again
-        // without anything having changed in the tree: the pictures that can never be replayed and the ones whose
-        // `IPaint` moved to another version.
-        class PictureScope {
-        public:
-            explicit PictureScope(UiDocument &document, bool mark_unstable = true) : context_(picture_context()) {
-                previous_ = context_.document;
-                context_.document = &document;
-                if (mark_unstable) {
-                    mark_unstable_pictures(document);
-                }
-            }
-            ~PictureScope() { context_.document = previous_; }
-            PictureScope(const PictureScope &) = delete;
-            PictureScope &operator=(const PictureScope &) = delete;
-
-        private:
-            static void mark_unstable_pictures(UiDocument &document) {
-                std::erase_if(document.picture_volatile, [&](ElementId id) {
-                    const auto found = document.find(id);
-                    if (!found) {
-                        return true;
-                    }
-                    Element &element = **found;
-                    if (!element.picture.chrome.volatile_part && !element.picture.content.volatile_part) {
-                        return true;
-                    }
-                    mark_dirty(document, element, kDirtyPaint);
-                    return false;
-                });
-                std::erase_if(document.picture_watches, [&](UiDocument::PaintWatch &watch) {
-                    const auto found = document.find(watch.element);
-                    if (!found) {
-                        return true;
-                    }
-                    Element &element = **found;
-                    const auto holds = [&](const PicturePart &part) {
-                        return std::ranges::any_of(part.watches,
-                                                   [&](const PictureWatch &w) { return w.paint == watch.paint; });
-                    };
-                    if (!holds(element.picture.chrome) && !holds(element.picture.content)) {
-                        // The boundary records something else now.
-                        return true;
-                    }
-                    if (watch.paint->version() != watch.seen) {
-                        watch.seen = watch.paint->version();
-                        mark_dirty(document, element, kDirtyPaint);
-                    }
-                    return false;
-                });
-            }
-
-            PictureContext &context_;
-            UiDocument *previous_ = nullptr;
-        };
-
         render::Rect popup_room(const UiPaintInput &input) {
             return input.popup_bounds.w > 0.0f && input.popup_bounds.h > 0.0f ? input.popup_bounds : input.canvas_rect;
         }
@@ -2779,27 +2584,17 @@ namespace engine::ui {
         }
     }
 
-    // An element a layout pass moved or resized shows something else: the picture it is in is recorded again. Looks at
-    // every element, but only on a frame that laid out.
-    static void mark_moved_for_paint(UiDocument &document, Element &element) {
-        if (element.kind == ElementKind::ItemTemplate) {
-            return;
-        }
-        if (!(element.layout_rect == element.rect_seen)) {
-            element.rect_seen = element.layout_rect;
-            mark_dirty(document, element, kDirtyPaint);
-        }
-        for (Element &child: element.children) {
-            mark_moved_for_paint(document, child);
-        }
-        for (Element &item: element.generated_items) {
-            mark_moved_for_paint(document, item);
+    // The elements a layout pass moved or resized show something else: the pictures they are in are recorded again.
+    static void mark_moved_for_paint(UiDocument &document, const std::vector<Element *> &moved) {
+        for (Element *element: moved) {
+            mark_dirty(document, *element, kDirtyPaint);
         }
     }
 
     bool sync_layout(UiDocument &document, const Stylesheet *sheet, IUiPainter *painter,
                      const render::Rect &canvas_rect, float media_width, float media_height) {
         const TextCacheScope text_cache(document, painter);
+        MovedElements moved;
         const std::uint64_t sheet_generation = sheet != nullptr ? sheet->generation : 0;
         const bool everything = !document.layout_computed_once || document.last_canvas_layout_rect != canvas_rect ||
                                 document.last_media_width != media_width ||
@@ -2832,7 +2627,7 @@ namespace engine::ui {
             ++document.counters.restyle_passes;
             ++document.counters.layout_passes;
             document.windows_dirty = true;
-            mark_moved_for_paint(document, root);
+            mark_moved_for_paint(document, moved.take());
             verify_layout(document, sheet, painter, canvas_rect, media_width, media_height);
             return true;
         }
@@ -2871,7 +2666,7 @@ namespace engine::ui {
         if (ran) {
             ++document.counters.layout_passes;
             document.windows_dirty = true;
-            mark_moved_for_paint(document, root);
+            mark_moved_for_paint(document, moved.take());
         }
         stamp();
         (void) kAll;

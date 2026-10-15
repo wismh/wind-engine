@@ -687,6 +687,12 @@ const StyleAnalysis &style_analysis(const Stylesheet &sheet) {
             analysis.layout_pseudo[i] = 1;
         }
         analysis.ancestor_pseudo_mask |= rule.ancestor_pseudo;
+        for (const CssDeclaration &declaration: rule.declarations) {
+            if (declaration.property == "transform" || declaration.property.starts_with("--") ||
+                has_var(declaration.value)) {
+                analysis.pseudo_transform = true;
+            }
+        }
     }
     analysis.valid = true;
     return analysis;
