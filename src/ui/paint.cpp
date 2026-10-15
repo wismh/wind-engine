@@ -1353,6 +1353,7 @@ namespace engine::ui {
                 // A running transition or animation still owns the layout properties it animates: the cascade is its
                 // target, not what is shown.
                 commit_motion_layout(element);
+                commit_motion_visuals(element);
                 if (layout_fields_differ(before, layout_fields_of(element))) {
                     mark_dirty(document, element, kDirtyLayout | kDirtyPaint, true);
                 }
@@ -2022,18 +2023,19 @@ namespace engine::ui {
             }
         }
 
-        // Returns whether this element or a descendant changed a layout input. One walk also refreshes
-        // ItemsControl virtualization and commits visuals for elements that actually stepped.
-        // `motion_active` is set when a clock is running or a sample is held anywhere in the walk: elements move
-        // under a resting pointer, so the hover target is searched again.
-        bool advance_tree(Element &element, const Stylesheet *sheet, float dt, glm::vec2 parent_basis,
+        // One walk steps every motion clock, commits the visuals of elements that stepped and refreshes ItemsControl
+        // virtualization. An element whose sampled value moved a layout field is appended to `layout_marks`: the
+        // caller restyles those elements and lays out only the chains that really changed size, instead of the whole
+        // tree. `motion_active` is set while a clock is running or an element's sample moved this frame (a clock that
+        // finished holds its end value without stepping): elements move under a resting pointer, so the hover target
+        // is searched again.
+        void advance_tree(Element &element, const Stylesheet *sheet, float dt, glm::vec2 parent_basis,
                           std::vector<const Element *> &ancestors, float window_width, float window_height,
-                          bool &motion_active) {
+                          bool &motion_active, std::vector<ElementId> &layout_marks) {
             if (element.kind == ElementKind::ItemTemplate) {
-                return false;
+                return;
             }
             element.layout_inputs_changed = false;
-            element.layout_descendant_inputs_changed = false;
             element.height_motion_active = false;
             const bool cache_hit = style_cache_hits(
                     element.style_cache_paint_, element, sheet, ancestors, window_width, window_height);
@@ -2051,8 +2053,14 @@ namespace engine::ui {
                     element.motion_sample_basis_valid = true;
                 }
                 commit_motion_visuals(element);
+                if (!element.motion_shown.empty()) {
+                    motion_active = true;
+                }
+                if (element.layout_inputs_changed) {
+                    layout_marks.push_back(element.handle);
+                }
             }
-            if (!element.motion_shown.empty() || !motion_clocks_idle(element)) {
+            if (!motion_clocks_idle(element)) {
                 motion_active = true;
             }
             const float font_size = resolve_font_size(element.font_size, parent_basis.x);
@@ -2065,19 +2073,15 @@ namespace engine::ui {
                 child_basis = parent_basis;
             }
             ancestors.push_back(&element);
-            bool descendant = false;
             for (Element &child: element.children) {
-                descendant = advance_tree(child, sheet, dt, child_basis, ancestors, window_width, window_height,
-                                          motion_active) ||
-                             descendant;
+                advance_tree(child, sheet, dt, child_basis, ancestors, window_width, window_height, motion_active,
+                             layout_marks);
             }
             for (Element &child: element.generated_items) {
-                descendant = advance_tree(child, sheet, dt, child_basis, ancestors, window_width, window_height,
-                                          motion_active) ||
-                             descendant;
+                advance_tree(child, sheet, dt, child_basis, ancestors, window_width, window_height, motion_active,
+                             layout_marks);
             }
             ancestors.pop_back();
-            element.layout_descendant_inputs_changed = descendant;
             if (element.kind == ElementKind::ItemsControl) {
                 bool any = element.height_motion_active;
                 for (const Element &row: element.generated_items) {
@@ -2085,7 +2089,6 @@ namespace engine::ui {
                 }
                 element.suppress_item_virtualization = any;
             }
-            return element.layout_inputs_changed || descendant;
         }
 
     } // namespace
@@ -2361,27 +2364,30 @@ namespace engine::ui {
             }
         }
 
-        bool motion_layout = false;
         bool motion_active = false;
+        std::vector<ElementId> motion_layout;
         {
             ENGINE_UI_PROFILE(input.canvas, Motion);
             std::vector<const Element *> motion_ancestors;
-            motion_layout = advance_tree(document.root, stylesheet, input.delta_time,
-                                         glm::vec2{input.canvas_rect.w, input.canvas_rect.h}, motion_ancestors,
-                                         input.window_width, input.window_height, motion_active);
+            advance_tree(document.root, stylesheet, input.delta_time,
+                         glm::vec2{input.canvas_rect.w, input.canvas_rect.h}, motion_ancestors, input.window_width,
+                         input.window_height, motion_active, motion_layout);
         }
         document.interaction.motion = motion_active;
-        if (motion_layout) {
-            {
-                ENGINE_UI_PROFILE(input.canvas, Layout);
-                apply_layout_style(document.root, stylesheet, input.window_width, input.window_height);
-                commit_motion_after_layout_style(document.root);
-                layout(document, input.canvas_rect, &painter, true);
-                ++document.counters.layout_passes;
-                document.windows_dirty = true;
+        if (!motion_layout.empty()) {
+            // An animated width, padding or font moved a layout field: restyle just those elements (which writes the
+            // sampled value onto the fields and marks layout where the field moved) and lay out their chains.
+            for (const ElementId id: motion_layout) {
+                if (const auto found = document.find(id)) {
+                    mark_dirty(document, **found, kDirtyStyle, true);
+                }
             }
-            layout_ran = true;
-            place_popups(document.root, popup_room(input));
+            ENGINE_UI_PROFILE(input.canvas, Layout);
+            if (sync_layout(document, stylesheet, &painter, input.canvas_rect, input.window_width,
+                            input.window_height)) {
+                layout_ran = true;
+                place_popups(document.root, popup_room(input));
+            }
         }
         // Paint walks the whole tree for now (a repaint boundary does not exist yet), so what it consumes of the paint
         // marks is only that they are gone.

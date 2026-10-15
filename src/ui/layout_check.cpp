@@ -23,7 +23,6 @@ namespace engine::ui {
             element.text_wrap_cache_valid = false;
             element.layout_used_cache_valid = false;
             element.layout_inputs_changed = false;
-            element.layout_descendant_inputs_changed = false;
             element.dirty_self = 0;
             element.dirty_below = 0;
             for (Element &child: element.children) {

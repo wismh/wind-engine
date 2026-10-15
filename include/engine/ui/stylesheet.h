@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <expected>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -88,9 +89,16 @@ struct KeyframeStop {
     std::vector<CssDeclaration> declarations;
 };
 
+// The numeric tracks of one `@keyframes` block (`src/ui/style_anim.cpp`): the declarations are parsed once, not on
+// every sample.
+struct CompiledKeyframes;
+
 struct Keyframes {
     std::string name;
     std::vector<KeyframeStop> stops;
+    // Built on the first sample and rebuilt when the stops or their declarations were edited since (a parsed sheet
+    // is not edited). A copy shares it: the content is the same.
+    mutable std::shared_ptr<const CompiledKeyframes> compiled;
 };
 
 // Bumped once per freshly default-constructed Stylesheet, preserved (not re-bumped) by copy/move
