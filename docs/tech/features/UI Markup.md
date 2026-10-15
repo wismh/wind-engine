@@ -122,7 +122,7 @@ What lays out is decided by dirty marks (`sync_layout`): the bind pass, a pseudo
 - Siblings are stable-sorted by `z-index` ascending (document order on ties) via `child_stacking_order`. Hit-testing walks that order in reverse.
 - A non-identity `rotate` / `scale` is `apply_transform` around the element and its children. `layout_rect` is not rewritten.
 - `IPaint` runs after the element's CSS chrome and before its children, through `IDrawList` in local content pixels.
-- `transition` and `@keyframes` sample numbers, colors, resolved px, and rotate/scale. Keywords snap at eased progress 0.5. Keyframes win over a transition on the same property. The clock is `delta_time` once per `paint_document`. Hit-testing during the animation uses the previous frame's rects.
+- `transition` and `@keyframes` sample numbers, colors, resolved px, and rotate/scale. Keywords snap at eased progress 0.5. Keyframes win over a transition on the same property. The clock is `delta_time` once per `paint_document`. Keyframes are compiled to tracks on first use, so a tick parses nothing. Only a layout property lays out, and only the chain of the element that moved ([UI](../modules/UI.md#style)). Hit-testing during the animation uses the previous frame's rects.
 
 `background-image` and `Image` `source` both call `IUiPainter::image`. `Viewport` paints its chrome, then `apply_view` for children.
 
