@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "ui/dirty.h"
 #include "ui/painter.h"
 #include "ui_log_painter.h"
 
@@ -425,20 +426,23 @@ namespace {
         Element *world = engine::ui::find_by_kind(document.root, engine::ui::ElementKind::Viewport);
         ASSERT_NE(world, nullptr);
         Element &column = world->children.front();
-        // 200 / 24 = 9 units are in the camera (plus the cull margin).
-        EXPECT_LT(fill_calls(painter), 16);
+        // 200 / 24 = 9 units are in the camera; the picture holds half a screen of world more on every side, so a small
+        // pan replays it unchanged.
+        EXPECT_LT(fill_calls(painter), 32);
         EXPECT_GT(fill_calls(painter), 5);
         EXPECT_GT(column.culled_children, 1900u) << "the rest was skipped";
 
-        // Pan the camera down the column: another handful of units, still not the 2000.
+        // Pan the camera down the column: another window of units, still not the 2000.
         world->pan_y = -24.0f * 1000.0f;
+        engine::ui::mark_dirty(document, *world, engine::ui::kDirtyFrame);
         paint();
-        EXPECT_LT(fill_calls(painter), 16);
+        EXPECT_LT(fill_calls(painter), 32);
         EXPECT_GT(fill_calls(painter), 5);
 
         // Zoom out five times: five times as many units fit.
         world->pan_y = 0.0f;
         world->zoom = 0.2f;
+        engine::ui::mark_dirty(document, *world, engine::ui::kDirtyFrame);
         paint();
         EXPECT_GT(fill_calls(painter), 40);
         EXPECT_LT(fill_calls(painter), 120);
