@@ -68,6 +68,9 @@ inline constexpr std::uint8_t kPseudoChecked = 16;
 inline constexpr std::uint8_t kDirtyStyle = 1;
 inline constexpr std::uint8_t kDirtyLayout = 2;
 inline constexpr std::uint8_t kDirtyPaint = 4;
+// Only the live parameters of a repaint boundary changed (its scroll offset, camera, opacity, transform, scrollbar):
+// its frame is recorded again, its recorded drawing is kept.
+inline constexpr std::uint8_t kDirtyFrame = 8;
 
 struct CssRule {
     CssSelector selector;

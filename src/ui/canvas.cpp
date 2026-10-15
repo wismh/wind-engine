@@ -986,6 +986,7 @@ namespace engine::ui {
                             inst.document.reindex(); // a tree built by hand: the drag needs the element's id
                         }
                         hit->element->scrollbar_dragging = true;
+                        mark_edited(world, hit->entity, *hit->element, kDirtyFrame);
                         world.ctx<UiActiveScrollbars>().drags[window] = ActiveScrollbarDrag{
                                 hit->entity,
                                 hit->element->handle,
@@ -1007,7 +1008,7 @@ namespace engine::ui {
                             const float target_thumb_y = local_pointer.y - track.y - thumb.h * 0.5f;
                             const float fraction = std::clamp(target_thumb_y / available, 0.0f, 1.0f);
                             hit->element->scroll_y = fraction * hit->element->max_scroll_y;
-                            mark_edited(world, hit->entity, *hit->element, kDirtyPaint, true);
+                            mark_edited(world, hit->entity, *hit->element, kDirtyFrame, true);
                             if (is_bound(hit->element->scroll_y_binding) && hit->canvas->data_context) {
                                 ViewModel *target = hit->element->generated_owner != nullptr
                                                             ? static_cast<ViewModel *>(
@@ -1086,7 +1087,7 @@ namespace engine::ui {
                             const float delta_scroll = (dy / available) * sdrag.max_scroll_y;
                             elem->scroll_y =
                                     std::clamp(sdrag.drag_start_scroll_y + delta_scroll, 0.0f, sdrag.max_scroll_y);
-                            mark_edited(world, sdrag.canvas_entity, *elem, kDirtyPaint, true);
+                            mark_edited(world, sdrag.canvas_entity, *elem, kDirtyFrame, true);
                             if (is_bound(sdrag.scroll_y_binding)) {
                                 UiCanvas *canvas = world.try_get<UiCanvas>(sdrag.canvas_entity);
                                 if (canvas != nullptr && canvas->data_context) {
@@ -1165,6 +1166,7 @@ namespace engine::ui {
                 Element *elem = found ? *found : nullptr;
                 if (elem != nullptr) {
                     elem->scrollbar_dragging = false;
+                    mark_dirty(instance->document, *elem, kDirtyFrame);
                 }
             }
             scroll_drags.erase(sit);
@@ -1272,7 +1274,7 @@ namespace engine::ui {
                 if (is_scrollable_y(*scrollable)) {
                     scrollable->scroll_y =
                             std::clamp(scrollable->scroll_y - wheel_y * kScrollStep, 0.0f, scrollable->max_scroll_y);
-                    mark_edited(world, prepared->entity, *scrollable, kDirtyPaint, true);
+                    mark_edited(world, prepared->entity, *scrollable, kDirtyFrame, true);
                     if (is_bound(scrollable->scroll_y_binding) && prepared->canvas->data_context) {
                         ViewModel *target =
                                 scrollable->generated_owner != nullptr
@@ -1284,7 +1286,7 @@ namespace engine::ui {
                 } else if (is_scrollable_x(*scrollable)) {
                     scrollable->scroll_x =
                             std::clamp(scrollable->scroll_x - wheel_y * kScrollStep, 0.0f, scrollable->max_scroll_x);
-                    mark_edited(world, prepared->entity, *scrollable, kDirtyPaint, true);
+                    mark_edited(world, prepared->entity, *scrollable, kDirtyFrame, true);
                     if (is_bound(scrollable->scroll_x_binding) && prepared->canvas->data_context) {
                         ViewModel *target =
                                 scrollable->generated_owner != nullptr
@@ -1352,7 +1354,11 @@ namespace engine::ui {
             if (hit && is_scrollable_y(*hit->element)) {
                 const glm::vec2 local_pointer = hit->local(x, y);
                 const render::Rect thumb = scrollbar_thumb_rect(*hit->element);
-                hit->element->scrollbar_thumb_hovered = rect_contains(thumb, local_pointer.x, local_pointer.y);
+                const bool over_thumb = rect_contains(thumb, local_pointer.x, local_pointer.y);
+                if (hit->element->scrollbar_thumb_hovered != over_thumb) {
+                    hit->element->scrollbar_thumb_hovered = over_thumb;
+                    mark_edited(world, hit->entity, *hit->element, kDirtyFrame);
+                }
             }
         }
 

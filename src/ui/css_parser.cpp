@@ -99,6 +99,7 @@ bool is_known_property(std::string_view name) {
             "text-align",
             "white-space",
             "user-select",
+            "repaint-boundary",
             "background-image",
             "background-slice",
             "background-repeat",
