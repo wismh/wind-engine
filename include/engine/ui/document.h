@@ -579,6 +579,8 @@ namespace engine::ui {
 
     // An `IPaint` an element's picture drew, and the version it had then.
     struct PictureWatch {
+        // The element whose `paint` it is, and the paint it held: only compared, never called through this copy.
+        ElementId carrier{};
         const IPaint *paint = nullptr;
         std::uint64_t version = 0;
     };
@@ -766,8 +768,6 @@ namespace engine::ui {
         // The element keeps its own picture (`repaint-boundary`, written by the layout style). A scroll container, a
         // `Viewport`, a `Popup` and the root are boundaries whatever this says.
         bool repaint_boundary = false;
-        // The rect this element had when paint last looked at it: a layout pass that moved it marks it for paint.
-        render::Rect rect_seen{};
         PictureSlot picture;
         bool suppress_item_virtualization = false;
         glm::vec2 layout_used_cache{};
@@ -932,6 +932,9 @@ namespace engine::ui {
         // static ItemTemplate every frame — which would otherwise reset motion clocks and any other
         // per-instance runtime state each frame. Unset (nullptr) on every non-generated Element.
         const void *generated_owner = nullptr;
+        // `ViewModel::serial()` of the item the row was built for. A row is reused for an item only when this matches
+        // too: the address in `generated_owner` can come back for a different view-model.
+        std::uint64_t generated_serial = 0;
         // True only for a synthetic spacer Element that ItemsControl virtualization (bind_element,
         // document.cpp) inserts before/after the visible window of generated rows, standing in for the
         // scrolled-past items' combined height so layout_stack's ordinary packing (unmodified) places
@@ -1029,6 +1032,9 @@ namespace engine::ui {
         ViewModel *source = nullptr;
         std::optional<ViewModel::PropertyVersion> version;
         std::uint64_t seen = 0;
+        // `source->registration_version()` when the slot was made: a view-model that registers a binding again (a late
+        // `property`, a replaced `paint`) makes the table be built again.
+        std::uint64_t registration_seen = 0;
         // A `Command` slot: what `can_execute()` said last.
         bool executable = true;
     };
@@ -1047,6 +1053,8 @@ namespace engine::ui {
         const ViewModel *context = nullptr;
         const void *catalog = nullptr;
         std::uint64_t catalog_version = 0;
+        // `registration_version()` of the data context the table was built against.
+        std::uint64_t context_registration = 0;
         bool built = false;
     };
 
@@ -1077,10 +1085,52 @@ namespace engine::ui {
     // What the painter measured and broke, shared by every element of one document: two rows with the same text, font,
     // size (and width) shape once. The per-element caches stay in front of it; this is what a recycled or cloned row
     // finds when its own cache is empty (`src/ui/text_cache.h`). It is dropped when the painter changes and bounded.
+    // What a text measure or break depends on. Looked up through `TextCacheKeyView`, so a hit allocates nothing.
+    struct TextCacheKey {
+        std::string text;
+        AssetId font;
+        float size = 0.0f;
+        float width = 0.0f;
+    };
+
+    struct TextCacheKeyView {
+        std::string_view text;
+        const AssetId &font;
+        float size;
+        float width;
+    };
+
+    struct TextCacheHash {
+        using is_transparent = void;
+        [[nodiscard]] static std::size_t of(std::string_view text, const AssetId &font, float size,
+                                            float width) noexcept {
+            std::size_t h = std::hash<std::string_view>{}(text);
+            const auto mix = [&h](std::size_t v) { h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2); };
+            mix(std::hash<std::string_view>{}(font.hex()));
+            mix(std::hash<float>{}(size));
+            mix(std::hash<float>{}(width));
+            return h;
+        }
+        [[nodiscard]] std::size_t operator()(const TextCacheKey &k) const noexcept {
+            return of(k.text, k.font, k.size, k.width);
+        }
+        [[nodiscard]] std::size_t operator()(const TextCacheKeyView &k) const noexcept {
+            return of(k.text, k.font, k.size, k.width);
+        }
+    };
+
+    struct TextCacheEqual {
+        using is_transparent = void;
+        template<typename A, typename B>
+        [[nodiscard]] bool operator()(const A &a, const B &b) const noexcept {
+            return a.text == b.text && a.font == b.font && a.size == b.size && a.width == b.width;
+        }
+    };
+
     struct SharedTextCache {
         const void *painter = nullptr;
-        std::unordered_map<std::string, glm::vec2> measures;
-        std::unordered_map<std::string, TextBlock> blocks;
+        std::unordered_map<TextCacheKey, glm::vec2, TextCacheHash, TextCacheEqual> measures;
+        std::unordered_map<TextCacheKey, TextBlock, TextCacheHash, TextCacheEqual> blocks;
         // Calls that reached the painter, and lookups the cache answered.
         std::uint64_t painter_measures = 0;
         std::uint64_t painter_breaks = 0;
@@ -1108,7 +1158,9 @@ namespace engine::ui {
         // leave.
         std::vector<ElementId> picture_volatile;
         struct PaintWatch {
+            // The boundary that holds the picture and the element that carries the paint.
             ElementId element{};
+            ElementId carrier{};
             const IPaint *paint = nullptr;
             std::uint64_t seen = 0;
         };

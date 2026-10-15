@@ -190,13 +190,16 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/.gitkeep` | Keeps the directory in Git | [Render](../modules/Render.md) |
 | `src/render/backend/opengl/.gitkeep` | Empty placeholder. The backend lives in `src/render/opengl/` | [Render](../modules/Render.md) |
 | `src/render/animation.cpp` | Parse animation TOML into a clip | [Render](../modules/Render.md) |
+| `src/render/context_objects.cpp`, `src/render/context_objects.h` | Live GL context keys and VAO deletes deferred to their context | [Render](../modules/Render.md) |
 | `src/render/framebuffer_image.cpp`, `src/render/framebuffer_image.h` | Read-back rows to a top-first image with straight alpha | [CLI](../features/CLI.md#screenshot) |
+| `src/render/gl_error_log.cpp`, `src/render/gl_error_log.h` | GL error names; one log line per error and command | [Render](../modules/Render.md) |
 | `src/render/material.cpp` | Parse `.mat` TOML | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `src/render/material_instance.h` | `IMaterial` for a loaded `.mat` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `src/render/particles.cpp` | Spawn, integrate, and collide particles | [Render](../modules/Render.md) |
 | `src/render/shader_adapt.cpp` | Rewrite GLSL for ES | [Render](../modules/Render.md) |
 | `src/render/opengl/clipboard.cpp` | SDL clipboard get and set | [UI Input](../features/UI%20Input.md) |
 | `src/render/opengl/clipboard.h` | Those two functions | [UI Input](../features/UI%20Input.md) |
+| `src/render/opengl/context_vao.cpp`, `src/render/opengl/context_vao.h` | `ContextVao`: one VAO per GL context; the process's `ContextObjects` | [Render](../modules/Render.md) |
 | `src/render/opengl/desktop_overlay_policy.cpp` | Click-through and the Win32 modal-loop hook | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/desktop_overlay_policy.h` | `DesktopOverlayPolicy` | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/gl_includes.h` | glad or GLES include, private | [Render](../modules/Render.md) |
@@ -246,6 +249,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ui/dock_tab_measure.cpp` | Tab widths from the titles, the window's painter, and the theme's `.dock-tab` | [Docking](../features/Docking.md#tab-width) |
 | `src/ui/dock_text.cpp` | Layout to and from TOML | [Docking](../features/Docking.md) |
 | `src/ui/bind.cpp` | Bind pass: bind table, version polling, `bind_element`, ItemsControl reconcile | [UI](../modules/UI.md#bindings) |
+| `src/ui/picture_paint.h`, `src/ui/picture_paint.cpp` | Picture state of a paint: `PictureContext`, boundary and region marks, `record_part`, `PictureScope` | [UI](../modules/UI.md#pictures) |
 | `src/ui/picture.h`, `src/ui/picture.cpp` | `Picture` (a list of painter commands, replayed on any `IUiPainter`) and `RecordingPainter` | [UI](../modules/UI.md#pictures) |
 | `src/ui/text_cache.h`, `src/ui/text_cache.cpp` | `TextCacheScope`, the document's shared text measure and wrap cache | [UI](../modules/UI.md#rows-of-no-fixed-height) |
 | `src/ui/dirty.h`, `src/ui/dirty.cpp` | `mark_dirty`, relayout boundaries, `set_pseudo`, `clear_dirty` | [UI](../modules/UI.md#dirty-flags) |
@@ -353,6 +357,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/cli_server_test.cpp` | Descriptor, HTTP, window routing, host commands, and UI commands without `GameLoop` | [CLI](../features/CLI.md) |
 | `tests/cmake_sanity_test.cpp` | Public headers compile, build id, CMake file checks (game functions, SDK package, export wiring and player libraries) | [CMake](../build/CMake.md) |
 | `tests/command_buffer_test.cpp` | Push and iterate the three command types | [Render](../modules/Render.md) |
+| `tests/context_objects_test.cpp` | GL context keys, reused handles, deferred VAO deletes | [Render](../modules/Render.md) |
 | `tests/dock_layout_test.cpp` | Dock operations and invariants, geometry, drop zones, chrome hits, text round trip, reconcile | [Docking](../features/Docking.md) |
 | `tests/dock_space_test.cpp` | Dock systems: panel rects and orders, chrome lists and default theme, every tab and splitter hit, tab click and drag, splitter, float move, resize, raise, dock, Escape, consumption, close request, tab widths from titles | [Docking](../features/Docking.md#host) |
 | `tests/dock_float_window_test.cpp` | OS window floats with the fake window control: open, bind, title, rect, mode switch, tear-out, drags across windows, native move and resize, close button, space removed, world destroyed, space window closed, owner and utility style, `dock_panel_os_window`, open failure, saved rect, off-display float | [Docking](../features/Docking.md#os-window-floats) |
@@ -373,6 +378,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/game_entry_test.cpp` | `ENGINE_GAME` module exports and build id (window builds) | [Core](../modules/Core.md) |
 | `tests/game_module_test.cpp` | `load_game_module` against the fixture modules (editor build) | [Core](../modules/Core.md) |
 | `tests/game_loop_test.cpp` | `RunHooks` order, frame-end restart, and `RunHooks::cli` without a primary world, with a fake presentation | [Runtime Loop](../architecture/Runtime%20Loop.md) |
+| `tests/gl_error_log_test.cpp` | GL error names, one report per error and command | [Render](../modules/Render.md) |
 | `tests/haptics_test.cpp` | Clamp, no-op, and the fake counters | [Haptics](../modules/Haptics.md) |
 | `tests/http_test.cpp` | `HttpCall` ownership, completion queue, worker pool, URL and header parsing, `HttpClient` without a socket | [Net](../modules/Net.md) |
 | `tests/host_test.cpp` | `Host` tick and system registration | [Core](../modules/Core.md) |
@@ -411,6 +417,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/ui_items_control_virtualization_test.cpp` | Row window and spacers | [UI](../modules/UI.md) |
 | `tests/ui_tree_test.cpp` | Tree rows, expansion, keys, `var()` indent, collapse in a virtualized list, scroll into view | [UI](../modules/UI.md#trees) |
 | `tests/ui_label_select_test.cpp` | Label selection and copy | [UI Input](../features/UI%20Input.md) |
+| `tests/ui_review_fixes_test.cpp` | Row identity by serial, late registration, replaced paint, scissor of absolute grandchildren and hover transforms, z-index, moved elements, `edit_unchecked` | [UI](../modules/UI.md#pictures) |
 | `tests/ui_picture_test.cpp` | Boundaries keep pictures: quiet frames, one changed label, scroll and camera as parameters, `IPaint::version`, volatile pictures | [UI](../modules/UI.md#pictures) |
 | `tests/ui_list_windows_test.cpp` | Windows over rows of no fixed height, estimate then measured, shared text measure, collapsed tree, Viewport camera culling | [UI](../modules/UI.md#rows-of-no-fixed-height) |
 | `tests/ui_animation_tracks_test.cpp` | Track sample against the declaration-parsed sample, tracks built once, opacity and width animations, a finished track | [UI](../modules/UI.md#style) |

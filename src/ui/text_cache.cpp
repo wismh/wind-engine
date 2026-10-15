@@ -28,18 +28,4 @@ namespace engine::ui {
 
     SharedTextCache *active_text_cache() noexcept { return g_active; }
 
-    std::string text_cache_key(std::string_view text, const AssetId &font, float size, float width) {
-        std::string key;
-        key.reserve(text.size() + 48);
-        key.append(text);
-        key.push_back('\x1f');
-        key.append(font.hex());
-        key.push_back('\x1f');
-        char bits[sizeof(float) * 2];
-        std::memcpy(bits, &size, sizeof(float));
-        std::memcpy(bits + sizeof(float), &width, sizeof(float));
-        key.append(bits, sizeof(bits));
-        return key;
-    }
-
 } // namespace engine::ui

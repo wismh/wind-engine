@@ -73,8 +73,9 @@ public:
     }
 
     // Runs `change(std::vector<T>&)` on the items. The version goes up once when the items differ afterwards
-    // (compared with a copy taken before, so an edit costs one copy of the list). Do not keep a reference into the
-    // vector past the call.
+    // (compared with a copy taken before, so an edit costs one copy of the list and a compare: with a list of
+    // thousands of `shared_ptr`s that is thousands of atomic increments, see `edit_unchecked`). Do not keep a reference
+    // into the vector past the call.
     template<typename Change>
     void edit(Change &&change) {
         if constexpr (std::equality_comparable<T>) {
@@ -87,6 +88,15 @@ public:
             std::forward<Change>(change)(items_);
             ++version_;
         }
+    }
+
+    // `edit` for a caller that knows it changed the list: no copy of the list before and no comparison after, the
+    // version goes up once. Use it for a large list that is edited in place (the compare in `edit` costs a copy of the
+    // list and one `==` per item); an edit that changed nothing still makes the UI read the list again.
+    template<typename Change>
+    void edit_unchecked(Change &&change) {
+        std::forward<Change>(change)(items_);
+        ++version_;
     }
 
     [[nodiscard]] const std::vector<T>& get() const { return items_; }
