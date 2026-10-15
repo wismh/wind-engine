@@ -5,6 +5,7 @@
 #include "math/math_element.h"
 #include "painter.h"
 #include "popup.h"
+#include "ui/dirty.h"
 #include "ui/text_cache.h"
 #include "ui/text_select.h"
 
@@ -1428,7 +1429,8 @@ namespace engine::ui {
         return nullptr;
     }
 
-    bool scroll_item_into_view(Element &scroller, const Element &items_control, std::size_t index) {
+    bool scroll_item_into_view(UiDocument &document, Element &scroller, const Element &items_control,
+                               std::size_t index) {
         const std::vector<Element> &generated = items_control.generated_items;
         if (generated.empty()) {
             return false;
@@ -1464,7 +1466,12 @@ namespace engine::ui {
             } else if (bottom > view_bottom) {
                 scroll = bottom - scroller.layout_rect.y - scroller.layout_rect.h;
             }
-            scroller.scroll_y = std::clamp(scroll, 0.0f, scroller.max_scroll_y);
+            const float next = std::clamp(scroll, 0.0f, scroller.max_scroll_y);
+            if (next != scroller.scroll_y) {
+                scroller.scroll_y = next;
+                mark_dirty(document, scroller, kDirtyFrame);
+                document.windows_dirty = true;
+            }
         };
         const bool fixed_height = first_row->height && first_row->height->unit == LengthUnit::Px;
         if (!fixed_height && items_control.row_heights && index + 1 < items_control.row_heights->tops.size()) {

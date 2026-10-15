@@ -63,7 +63,32 @@ public:
 };
 ```
 
-Change `healthPainter.progress` from a system as the health changes; the painter runs every frame.
+Change `healthPainter.progress` from a system as the health changes. By default the painter runs every frame.
+
+### Telling the UI when it changed
+
+The UI keeps what an element paints between frames and replays it while nothing changed. It cannot see inside your painter, so say when it did: override `version()` and return a number that goes up whenever `paint` would draw something different from last time, the same idea as `Bindable::version`:
+
+```cpp
+class HealthBarPainter final : public engine::ui::IPaint {
+public:
+    void set_progress(float value) {
+        if (value != progress_) {
+            progress_ = value;
+            ++version_;
+        }
+    }
+
+    void paint(engine::ui::IDrawList& draw, const engine::render::Rect& content) override { /* ... */ }
+    [[nodiscard]] std::uint64_t version() const noexcept override { return version_; }
+
+private:
+    float progress_ = 0.75f;
+    std::uint64_t version_ = 1;
+};
+```
+
+The default `version()` is `IPaint::kVersionUnknown`, which means "may differ every frame": `paint` runs every frame and the UI around it is recorded again each time. A painter that animates by itself can keep that default. A painter that draws the same thing for a long time (a grid, a minimap) should return a version, and `paint` then runs only when it moves. Give the element a `repaint-boundary: yes` rule when the painter changes often, so only that element is recorded again and not the panel it sits in.
 
 ---
 
