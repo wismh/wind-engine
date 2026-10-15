@@ -161,15 +161,15 @@ A long list does not create a row element per item. When the conditions below ho
 
 - the `ItemsControl` stacks vertically (`direction="vertical"`, the default) and has a pixel `gap` or none;
 - the template has a single root element;
-- the generated row root has a pixel `height` (`height: 28px` or `28`), the same for all rows, from CSS; and
+- the rows are in flow (not `position: absolute`); and
 - the list sits in a vertically scrolling container (a `<ScrollView>` ancestor, or the `ItemsControl` itself with `overflow-y: auto`).
 
 If any of them fails, the list simply builds a row for every item. That is correct, just not as fast for thousands of rows.
 
 > [!NOTE]
-> Virtualization assumes the rows are stacked in flow, so a list whose rows are `position: absolute` (placed by `left` / `top`, see the next section) is never virtualized: every row is built, and a 24-item list shows 24 items. This holds from the second frame; the first frame builds every row anyway. If rows that are in flow must not virtualize either, break one of the conditions above: give the list `flex-direction: row`, put the pixel `height` on a child of the template root instead of on the root, or give the root a `%`/`em` height. There is no XML attribute or builder call that turns virtualization off directly (the engine suspends it itself only while a row's `height`, `padding`, `gap`, or `font-size` is animating).
+> Virtualization assumes the rows are stacked in flow, so a list whose rows are `position: absolute` (placed by `left` / `top`, see the next section) is never virtualized: every row is built, and a 24-item list shows 24 items. This holds from the second frame; the first frame builds every row anyway. If rows that are in flow must not virtualize either, break one of the other conditions: give the list `flex-direction: row`, or do not put it in a scrolling container. There is no XML attribute or builder call that turns virtualization off directly (the engine suspends it itself only while a row's `height`, `padding`, `gap`, or `font-size` is animating).
 
-Keep the row height fixed in CSS; rows that change height (wrapped text, for example) do not fit this scheme.
+Rows may have a fixed pixel `height` (`height: 28px`, the same for all rows) or no fixed height at all (a label that wraps, rows of different content). With a fixed height the whole list is `N * height`. Without one, the engine builds every row on the first frame, measures them, and from the next frame builds only a window; a row it has not measured yet counts as the average of the others, so the scrollbar length is an estimate that settles as you scroll. The scroll position is not corrected when a row above the window turns out taller or shorter than its estimate.
 
 ### Items placed by position, and dragged
 
