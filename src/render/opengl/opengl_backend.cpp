@@ -7,6 +7,8 @@
 
 #include "ui/painter.h"
 
+#include <engine/log.h>
+
 #include <engine/render/commands.h>
 #include <engine/render/material.h>
 #include <engine/render/shader_adapt.h>
@@ -186,6 +188,21 @@ void main() {
             }
         };
 
+        constexpr std::string_view command_name(const CmdDrawMesh &) { return "CmdDrawMesh"; }
+        constexpr std::string_view command_name(const CmdDrawUI &) { return "CmdDrawUI"; }
+        constexpr std::string_view command_name(const CmdDrawParticles &) { return "CmdDrawParticles"; }
+
+        // ExecuteVisitor, then the GL errors that command raised.
+        struct CheckedExecuteVisitor {
+            ExecuteVisitor execute;
+
+            template <class Cmd>
+            void operator()(const Cmd &cmd) const {
+                execute(cmd);
+                execute.backend->check_gl_errors(command_name(cmd));
+            }
+        };
+
     } // namespace
 
     OpenGLRenderBackend::OpenGLRenderBackend() = default;
@@ -199,9 +216,6 @@ void main() {
         }
         if (particle_quad_vbo_ != 0) {
             glDeleteBuffers(1, &particle_quad_vbo_);
-        }
-        if (particle_vao_ != 0) {
-            glDeleteVertexArrays(1, &particle_vao_);
         }
     }
 
@@ -238,12 +252,17 @@ void main() {
                 {-0.5f, -0.5f, 0.0f, 0.0f, 0.0f}, {0.5f, 0.5f, 0.0f, 1.0f, 1.0f},  {-0.5f, 0.5f, 0.0f, 0.0f, 1.0f},
         };
 
-        glGenVertexArrays(1, &particle_vao_);
-        glBindVertexArray(particle_vao_);
-
         glGenBuffers(1, &particle_quad_vbo_);
         glBindBuffer(GL_ARRAY_BUFFER, particle_quad_vbo_);
         glBufferData(GL_ARRAY_BUFFER, sizeof(kQuadVertices), kQuadVertices, GL_STATIC_DRAW);
+        glGenBuffers(1, &particle_instance_vbo_);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+        particle_buffers_initialized_ = true;
+    }
+
+    void OpenGLRenderBackend::set_up_particle_vao() const {
+        glBindBuffer(GL_ARRAY_BUFFER, particle_quad_vbo_);
 
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(QuadVertex), reinterpret_cast<const void *>(0));
@@ -252,7 +271,6 @@ void main() {
         glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(QuadVertex),
                               reinterpret_cast<const void *>(offsetof(QuadVertex, u)));
 
-        glGenBuffers(1, &particle_instance_vbo_);
         glBindBuffer(GL_ARRAY_BUFFER, particle_instance_vbo_);
 
         glEnableVertexAttribArray(2);
@@ -284,11 +302,6 @@ void main() {
         glVertexAttribPointer(7, 2, GL_FLOAT, GL_FALSE, sizeof(ParticleInstance),
                               reinterpret_cast<const void *>(offsetof(ParticleInstance, uv_offset)));
         glVertexAttribDivisor(7, 1);
-
-        glBindVertexArray(0);
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-        particle_buffers_initialized_ = true;
     }
 
     void OpenGLRenderBackend::execute_draw_particles(const CmdDrawParticles &cmd) {
@@ -299,7 +312,12 @@ void main() {
         apply_blend(cmd.blend);
 
         init_particle_buffers();
-        if (particle_vao_ == 0 || !particle_shader_ || !particle_shader_->valid()) {
+        if (!particle_shader_ || !particle_shader_->valid()) {
+            return;
+        }
+        // The shader, texture, and buffers are shared by every window's context; the VAO is not.
+        const GLuint vao = particle_vao_.current([this] { set_up_particle_vao(); });
+        if (vao == 0) {
             return;
         }
 
@@ -335,7 +353,7 @@ void main() {
             glBindTexture(GL_TEXTURE_2D, default_white_texture_);
         }
 
-        glBindVertexArray(particle_vao_);
+        glBindVertexArray(vao);
         glBindBuffer(GL_ARRAY_BUFFER, particle_instance_vbo_);
         glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(cmd.instances.size() * sizeof(ParticleInstance)),
                      cmd.instances.data(), GL_STREAM_DRAW);
@@ -346,8 +364,30 @@ void main() {
 
     void OpenGLRenderBackend::set_ui_painter(ui::IUiPainter *painter) { ui_painter_ = painter; }
 
+    void OpenGLRenderBackend::check_gl_errors([[maybe_unused]] std::string_view where) {
+#if defined(ENGINE_GL_CHECKS)
+        // A lost context may return an error forever; a handful is enough to report.
+        for (int i = 0; i < 8; ++i) {
+            const GLenum code = glGetError();
+            if (code == GL_NO_ERROR) {
+                return;
+            }
+            if (const std::string line = gl_errors_.report(code, where); !line.empty()) {
+                log::error(line);
+            }
+        }
+#endif
+    }
+
     void OpenGLRenderBackend::execute(const CommandBuffer &commands) {
-        commands.execute(ExecuteVisitor{.painter = ui_painter_, .backend = this});
+        const ExecuteVisitor visitor{.painter = ui_painter_, .backend = this};
+#if defined(ENGINE_GL_CHECKS)
+        // Errors left by the window's clear or the painter's begin_frame are not blamed on the first command.
+        check_gl_errors("the frame start");
+        commands.execute(CheckedExecuteVisitor{.execute = visitor});
+#else
+        commands.execute(visitor);
+#endif
     }
 
 } // namespace engine::render
