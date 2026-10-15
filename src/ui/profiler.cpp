@@ -281,15 +281,18 @@ namespace engine::ui {
                                              : StageNumbers{};
                 const int layout_frames = has ? static_cast<int>(std::lround(ran.average * ring->second.size)) : 0;
                 const UiWorkCounters &work = instance.document.counters;
-                out += std::format("{{\"window\":{},\"id\":\"{}\",\"frames\":{},\"elements\":{},\"generated\":{},"
-                                   "\"layout_skipped\":{},\"layout_frames\":{},"
-                                   "\"work\":{{\"slots_checked\":{},\"bound_reads\":{},\"table_builds\":{},"
-                                   "\"layout_passes\":{},\"restyle_passes\":{}}},\"stages\":{{",
-                                   static_cast<std::uint32_t>(source.window), json_escape(instance.document.root.id),
-                                   has ? ring->second.size : 0, last != nullptr ? last->elements : 0,
-                                   last != nullptr ? last->generated : 0, layout_skipped ? "true" : "false",
-                                   layout_frames, work.slots_checked, work.bound_reads, work.table_builds,
-                                   work.layout_passes, work.restyle_passes);
+                out += std::format(
+                        "{{\"window\":{},\"id\":\"{}\",\"frames\":{},\"elements\":{},\"generated\":{},"
+                        "\"layout_skipped\":{},\"layout_frames\":{},"
+                        "\"work\":{{\"slots_checked\":{},\"bound_reads\":{},\"table_builds\":{},"
+                        "\"layout_passes\":{},\"restyle_passes\":{},\"painted_elements\":{},\"pictures_recorded\":{},"
+                        "\"pictures_replayed\":{},\"picture_commands\":{}}},\"stages\":{{",
+                        static_cast<std::uint32_t>(source.window), json_escape(instance.document.root.id),
+                        has ? ring->second.size : 0, last != nullptr ? last->elements : 0,
+                        last != nullptr ? last->generated : 0, layout_skipped ? "true" : "false", layout_frames,
+                        work.slots_checked, work.bound_reads, work.table_builds, work.layout_passes,
+                        work.restyle_passes, work.painted_elements, work.pictures_recorded, work.pictures_replayed,
+                        work.picture_commands);
                 for (std::size_t stage = 0; stage < kProfilerStageCount; ++stage) {
                     if (stage > 0) {
                         out += ',';
