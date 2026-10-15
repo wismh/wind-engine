@@ -509,6 +509,67 @@ namespace engine::ui {
             }
         }
 
+        // Reads the heights the rows of `element` measured in the last layout into its `row_heights`, and builds the
+        // tops of every item from them. False while nothing was measured yet (the first bind: every row is generated,
+        // then measured, and the window narrows on the next pass).
+        bool measure_rows(Element &element, const std::vector<ViewModel *> &items) {
+            if (!element.row_heights) {
+                element.row_heights.emplace();
+            }
+            Element::RowHeights &heights = *element.row_heights;
+            for (const Element &row: element.generated_items) {
+                if (row.generated_owner == nullptr || row.is_virtualization_spacer || row.display_none ||
+                    row.layout_rect.h <= 0.0f) {
+                    continue;
+                }
+                const auto [it, inserted] = heights.measured.try_emplace(row.generated_owner, row.layout_rect.h);
+                if (inserted) {
+                    heights.measured_sum += row.layout_rect.h;
+                    ++heights.epoch;
+                } else if (it->second != row.layout_rect.h) {
+                    heights.measured_sum += static_cast<double>(row.layout_rect.h) - it->second;
+                    it->second = row.layout_rect.h;
+                    ++heights.epoch;
+                }
+            }
+            if (heights.measured.empty()) {
+                return false;
+            }
+            const float gap = element.gap.value;
+            const bool same_items = heights.items.size() == items.size() &&
+                                    std::equal(items.begin(), items.end(), heights.items.begin(),
+                                               [](const ViewModel *a, const void *b) { return a == b; });
+            if (heights.tops_epoch == heights.epoch && heights.tops_gap == gap && same_items) {
+                return true;
+            }
+            if (heights.measured.size() > items.size() * 2 + 64) {
+                // Rows of items that left the list.
+                std::unordered_map<const void *, float> kept;
+                heights.measured_sum = 0.0;
+                for (const ViewModel *item: items) {
+                    if (const auto it = heights.measured.find(item); it != heights.measured.end()) {
+                        kept.emplace(item, it->second);
+                        heights.measured_sum += it->second;
+                    }
+                }
+                heights.measured = std::move(kept);
+                if (heights.measured.empty()) {
+                    return false;
+                }
+            }
+            const float estimate =
+                    static_cast<float>(heights.measured_sum / static_cast<double>(heights.measured.size()));
+            heights.items.assign(items.begin(), items.end());
+            heights.tops.assign(items.size() + 1, 0.0f);
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                const auto it = heights.measured.find(items[i]);
+                heights.tops[i + 1] = heights.tops[i] + (it != heights.measured.end() ? it->second : estimate) + gap;
+            }
+            heights.tops_epoch = heights.epoch;
+            heights.tops_gap = gap;
+            return true;
+        }
+
         void reconcile_items(BindPass &pass, Element &element, ViewModel &vm, const Element *scroll_context) {
             const Element *tmpl = nullptr;
             for (const Element &child: element.children) {
@@ -543,9 +604,11 @@ namespace engine::ui {
                                             effective_context->direction == StackDirection::Vertical &&
                                             effective_context->layout_rect.h > 0.0f;
             std::optional<float> row_height_px;
-            if (!element.suppress_item_virtualization && expected_count == 1 &&
-                element.direction == StackDirection::Vertical && has_scroll_context &&
-                element.gap.unit == LengthUnit::Px && element.gap.calc.empty()) {
+            bool rows_out_of_flow = false;
+            const bool eligible = !element.suppress_item_virtualization && expected_count == 1 &&
+                                  element.direction == StackDirection::Vertical && has_scroll_context &&
+                                  element.gap.unit == LengthUnit::Px && element.gap.calc.empty();
+            if (eligible) {
                 // Row height can't be read off the static ItemTemplate: apply_layout_style
                 // (paint.cpp) never visits an ItemTemplate's own children, so tmpl's root never
                 // gets a resolved `height` there — only a *generated* clone does, once
@@ -567,7 +630,6 @@ namespace engine::ui {
                 // Rows placed by `position: absolute` (an inventory laid out by var-left / var-top) are not
                 // stacked, so a window computed from row height and scroll offset would drop most of them:
                 // never virtualize those, and forget any height cached from an earlier template.
-                bool rows_out_of_flow = false;
                 for (const Element &old: element.generated_items) {
                     if (old.generated_owner != nullptr && !old.display_none && old.position == PositionMode::Absolute) {
                         rows_out_of_flow = true;
@@ -669,6 +731,45 @@ namespace engine::ui {
                     window_last = static_cast<std::size_t>(last);
                     leading_spacer_h = spacer_height(window_first);
                     trailing_spacer_h = spacer_height(items.size() - 1 - window_last);
+                }
+            } else if (eligible && !rows_out_of_flow && !items.empty() && measure_rows(element, items)) {
+                // Rows of no fixed pixel height. Each row's top comes from the heights measured so far (a row that was
+                // never measured counts as their mean), so the window is found by a search over the tops instead of
+                // a division; the spacers stand in for the rows outside it.
+                const std::vector<float> &tops = element.row_heights->tops;
+                const float gap_px = element.gap.value;
+                const auto n = static_cast<std::int64_t>(items.size());
+                const float offset = (effective_context == &element)
+                                             ? 0.0f
+                                             : element.layout_rect.y - effective_context->layout_rect.y;
+                const float scroll_y_effective = effective_context->scroll_y - offset;
+                const float bottom = scroll_y_effective + effective_context->layout_rect.h;
+                const auto row_at = [&](float y) {
+                    const auto it = std::upper_bound(tops.begin(), tops.begin() + n, y);
+                    return static_cast<std::int64_t>(it - tops.begin()) - 1;
+                };
+                std::int64_t first = row_at(scroll_y_effective) - kVirtualizationOverscanRows;
+                std::int64_t last = row_at(bottom) + kVirtualizationOverscanRows;
+                // The rows [from, to): their heights and the gaps between them.
+                const auto spacer_height = [&](std::int64_t from, std::int64_t to) -> float {
+                    if (from >= to) {
+                        return 0.0f;
+                    }
+                    return tops[static_cast<std::size_t>(to)] - tops[static_cast<std::size_t>(from)] - gap_px;
+                };
+                if (last < 0 || first >= n || bottom < 0.0f) {
+                    window_empty = true;
+                    window_first = 0;
+                    window_last = 0;
+                    leading_spacer_h = spacer_height(0, n);
+                    trailing_spacer_h = 0.0f;
+                } else {
+                    first = std::clamp<std::int64_t>(first, 0, n - 1);
+                    last = std::clamp<std::int64_t>(last, first, n - 1);
+                    window_first = static_cast<std::size_t>(first);
+                    window_last = static_cast<std::size_t>(last);
+                    leading_spacer_h = spacer_height(0, first);
+                    trailing_spacer_h = spacer_height(last + 1, n);
                 }
             }
 
