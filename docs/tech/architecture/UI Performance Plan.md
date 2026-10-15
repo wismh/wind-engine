@@ -11,7 +11,7 @@ These exist. They are not the numbered steps below, and the steps are not done.
 - `assign_property_string` skips an equal string. The other step 1 items (no temporary pseudo-state vector, skipping a sibling sort, a motion overlay that does not copy a whole `ComputedStyle`, entering no painter state for an element with nothing to set) landed in wind-226; see step 1.
 - The UI profiler records the stages, the draw calls, and the painter calls by kind this plan uses as a baseline. See [UI Profiler](../features/UI%20Profiler.md).
 
-Steps 0, 1, 7a, 2, 3, and 6 are closed (see their sections). Steps 4, 5, 7b, and 8 are not. NanoVG is still the UI painter.
+Steps 0, 1, 7a, 2, 3, 6, and 4 are closed (see their sections). Steps 5, 7b, and 8 are not. NanoVG is still the UI painter.
 
 The live tree stays one `Element` tree: document, layout, and hit-test. A retained command list (`Picture`) is a second structure, produced by paint and consumed by the renderer. NanoVG is removed when that renderer lands. An offscreen texture is an explicit opt-in on top of the renderer, not the way retention works.
 
@@ -279,6 +279,29 @@ Paint walks only paint-dirty subtrees and rewrites those pictures. A quiet bound
 Scissor stays on `overflow` and `Viewport` only. Per-element scissor goes away here, before the renderer cares. Rotated clips still have to be expressible as commands (step 5 implements them).
 
 Done when the quiet HUD replays pictures and the profiler paint scope does not walk their elements. One changed label rewrites that label's picture, not the screen. A test asserts the recorded command list is unchanged across two frames with no dirty flags.
+
+As built (wind-231). All items. Shape: `Picture` (`src/ui/picture.h`) is a list of `IUiPainter` calls (a `std::variant` per call, `Call` for a nested boundary's picture), `RecordingPainter` writes one without a GPU, and every painter replays one (the NanoVG painter included: it replays calls, NanoVG stays the painter until step 5). Boundaries are the root, anything that scrolls, a `Viewport`, a `Popup` and `repaint-boundary: yes`. A boundary owns `chrome` (its own drawing), `content` (its children) and `frame` (the state it sets itself, the calls of the other two, the scrollbar); opacity, transform, scroll and the camera live in the frame and `kDirtyFrame` rewrites only it. `IPaint::version()` (default `kVersionUnknown`, drawn every frame) lets a paint be replayed; a focused text input and a measure of zero width are volatile. A `Viewport` records half a screen of world more than it shows. Details: [UI](../modules/UI.md#pictures).
+
+What the plan text got wrong or left open, now settled: "scissor stays on `overflow` and `Viewport`, per-element scissor goes away" is not done as written: after step 1 an element sets a scissor only when its own drawing can leave its box (text wider than the box, a border, a formula), and that stays, because dropping it would draw text that overflowed a button outside it. The paint marks were never needed while paint walked everything, so several paths wrote state without one (text selection, focus, scroll into view, scrollbar hover); they mark now, and the picture check (below) is what finds the next one. `scroll_item_into_view` takes the document (breaking, one call site in the editor).
+
+Check: a build with `ENGINE_UI_LAYOUT_CHECK` records every boundary afresh after each paint and compares it with what it holds; the whole suite and all 34 bench rows pass it.
+
+Tests: `tests/ui_picture_test.cpp`: replay equals the direct calls, a quiet frame replays and paints no element (`painted_elements` and `pictures_recorded` do not move, the command lists are equal), one changed label rewrites only its boundary, a text change inside a plain region rewrites its boundary, a resized canvas records again, scrolling rewrites no picture, an `IPaint` with a version is drawn again only when it moves and one without every frame, a focused text input keeps blinking, a copied element has no picture, a camera pan inside the recorded world replays.
+
+Bench (`-Repeat 5`, medians, Linux, software GL): the quiet HUD does replay (counters over a 180-frame run: 9 pictures recorded at setup, 180 replays, 325 elements painted in total, all at setup), but its Paint time moved little (0.43 -> 0.40 ms) because replaying 1,995 painter calls into NanoVG on llvmpipe is most of that time; what pictures removed is the element walk and the cascade. Rows with more elements than calls gain most.
+
+| Row | Paint ms before (step 6) | Paint ms after | Total ms before | Total ms after |
+| --- | ---: | ---: | ---: | ---: |
+| `paint-mix / quiet / solid` | 0.464 | 0.265 | 0.646 | 0.450 |
+| `paint-mix / quiet / border` | 0.565 | 0.375 | 0.765 | 0.572 |
+| `paint-mix / quiet / radial-gradient` | 0.509 | 0.270 | 0.695 | 0.467 |
+| `inspector / scroll` | 0.288 | 0.202 | 0.547 | 0.413 |
+| `table / quiet` | 0.293 | 0.234 | 0.380 | 0.319 |
+| `hud / quiet` | 0.422 | 0.402 | 0.520 | 0.500 |
+
+(`-Repeat 1` run for those before/after pairs; the `-Repeat 5` matrix against `baseline-linux` is in the table of each earlier step and shows no row slower than the baseline except `hud / hover / layout` +10% and `table / hover / layout` +5%, which now pay for the layout the owner asked hover to do.)
+
+Pixels: screenshots of the table, inspector and HUD scenes under xvfb before (`dev` at step 6) and after, taken after the same warmup: table and inspector are pixel-identical (max difference 0) in quiet, scroll and hover rows; the HUD differs only inside the 114 x 22 px box of its pulsing alert (max 18 of 255), and two runs of the old build differ there by up to 29 of 255 because the pulse follows the wall clock. Unverified: other platforms' renderers.
 
 ### 5 — Renderer, NanoVG removed
 
