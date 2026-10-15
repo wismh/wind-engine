@@ -1,7 +1,10 @@
 #include <gtest/gtest.h>
 
-#include <engine/net/gns_transport.h>
 #include <engine/net/steam_transport.h>
+
+#if defined(_WIN32)
+
+#include <engine/net/gns_transport.h>
 
 #include <memory>
 
@@ -47,3 +50,21 @@ TEST(SteamTransport, CoexistenceWithGnsTransport) {
 }
 
 } // namespace engine::net
+
+#else
+
+namespace engine::net {
+
+TEST(SteamTransport, UnsupportedOnNonWindows) {
+    SteamTransport server;
+    EXPECT_FALSE(server.start_server(0));
+    EXPECT_FALSE(server.connect("127.0.0.1", 0));
+    EXPECT_FALSE(server.connect_steam_id(76561198000000000ULL, 0));
+    EXPECT_FALSE(server.is_running());
+    EXPECT_FALSE(server.is_server());
+    EXPECT_FLOAT_EQ(server.rtt_ms(1), -1.0f);
+}
+
+} // namespace engine::net
+
+#endif
