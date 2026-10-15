@@ -102,7 +102,7 @@ struct Board {
 
     std::shared_ptr<SlotViewModel> add(float x, float y, int z = 0) {
         auto slot = std::make_shared<SlotViewModel>(x, y, z);
-        vm->slots.get().push_back(slot);
+        vm->slots.edit([&](auto &slots) { slots.push_back(slot); });
         return slot;
     }
 };
@@ -212,7 +212,7 @@ TEST(UiAbsoluteItems, AddingAndRemovingItemsKeepsTheOthersState) {
     ASSERT_FLOAT_EQ(b->fraction.get(), 0.75f);
     board.frame();
 
-    board.vm->slots.get().erase(board.vm->slots.get().begin());  // a leaves
+    board.vm->slots.edit([](auto &slots) { slots.erase(slots.begin()); }); // a leaves
     const auto d = board.add(50.0f, 150.0f);                     // d arrives
     board.frame();
 

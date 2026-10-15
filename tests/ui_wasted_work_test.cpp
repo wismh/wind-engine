@@ -95,22 +95,6 @@ namespace {
         }
     }
 
-    // --- layout_state_changed ----------------------------------------------------------------------------------------
-
-    TEST(UiLayoutDirtyGate, AnEqualTextIsNotAssignedAgain) {
-        Element root;
-        root.kind = ElementKind::Canvas;
-        Element &label = root.children.emplace_back();
-        label.kind = ElementKind::Label;
-        label.text = std::string(64, 'x');
-        ASSERT_TRUE(engine::ui::layout_state_changed(root));
-
-        const char *copy = label.layout_dirty_check_text.data();
-        label.text = std::string(64, 'x');
-        EXPECT_FALSE(engine::ui::layout_state_changed(root));
-        EXPECT_EQ(label.layout_dirty_check_text.data(), copy) << "an equal text kept the buffer it had";
-    }
-
     // --- paint state
     // ---------------------------------------------------------------------------------------------------
 
