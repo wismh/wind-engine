@@ -841,6 +841,7 @@ namespace engine::ui {
                 gesture = TextSelectGesture{TextSelectUnit::Character, index, index};
             }
             element.caret_blink_timer = 0.0f;
+            mark_edited(world, entity, element, kDirtyPaint);
         }
 
         void extend_text_selection(ecs::World &world, Element &element, float x, float y, WindowId window) {
@@ -1059,7 +1060,8 @@ namespace engine::ui {
         if (!pointer_for(world, window).down) {
             return;
         }
-        Element *element = focused_element(world, window);
+        ecs::Entity canvas_entity{};
+        Element *element = resolve_focus(world, window, &canvas_entity);
         if (element == nullptr || element->disabled) {
             return;
         }
@@ -1067,6 +1069,7 @@ namespace engine::ui {
             return;
         }
         extend_text_selection(world, *element, x, y, window);
+        mark_edited(world, canvas_entity, *element, kDirtyPaint);
     }
 
     namespace {
@@ -1473,6 +1476,7 @@ namespace engine::ui {
             focused->caret_blink_timer = 0.0f;
             focused->selection_anchor.reset();
             clear_composition(*focused);
+            mark_edited(world, canvas_entity, *focused, kDirtyPaint);
         }
         world.ctx<UiFocusState>().focused.erase(window);
     }
@@ -1485,6 +1489,7 @@ namespace engine::ui {
             previous->caret_blink_timer = 0.0f;
             previous->selection_anchor.reset();
             clear_composition(*previous);
+            mark_edited(world, previous_canvas, *previous, kDirtyPaint);
         }
         auto &focus_map = world.ctx<UiFocusState>().focused;
         if (element != nullptr) {
@@ -1499,6 +1504,7 @@ namespace engine::ui {
             if (element->caret_position > element->text.size()) {
                 element->caret_position = element->text.size();
             }
+            mark_edited(world, canvas_entity, *element, kDirtyPaint);
             focus_map[window] = UiFocus{canvas_entity, element->handle};
         } else {
             focus_map.erase(window);
@@ -1604,6 +1610,8 @@ namespace engine::ui {
         if (element->disabled) {
             return;
         }
+        // A key moves the caret or the selection of the focused element: what it shows is painted again.
+        mark_edited(world, canvas_entity, *element, kDirtyPaint);
 
         // While an IME preedit is showing, the IME owns editing. Escape still drops focus (and the
         // preedit). Return drops the preedit, then runs the command on the already-committed text.

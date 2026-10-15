@@ -1248,8 +1248,10 @@ namespace engine::ui {
     // `index` of the ItemsControl's items_source lies inside the scroller's box. Reads the rows of the last
     // layout and assumes they share one height, so it works on a virtualized list whose item has no Element
     // yet. Sets Element::scroll_y only: a `scroll-y` binding on the scroller reads its own value back on the
-    // next bind. False when the ItemsControl has no laid-out row or `index` is past the items.
-    bool scroll_item_into_view(Element &scroller, const Element &items_control, std::size_t index);
+    // next bind. `document` is the one the elements belong to: the scroller is marked for paint (its frame) and the
+    // list windows are refreshed. False when the ItemsControl has no laid-out row or `index` is past the items.
+    bool scroll_item_into_view(UiDocument &document, Element &scroller, const Element &items_control,
+                               std::size_t index);
 
     // Finds the generated Element currently stamped with this exact Element::generated_owner value
     // (see that field's comment) — used by canvas.cpp's drag write-back to re-resolve which item
