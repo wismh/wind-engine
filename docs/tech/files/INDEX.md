@@ -412,6 +412,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/ui_math_stretch_test.cpp` | Stretched delimiters | [UI](../modules/UI.md) |
 | `tests/ui_paint_binding_test.cpp` | `IPaint` draw order | [UI](../modules/UI.md) |
 | `tests/ui_painter_test.cpp` | Recording painter, no GL | [UI](../modules/UI.md) |
+| `tests/ui_log_painter.h` | `LogPainter`: every painter call with the clip and opacity it ran under, for tests | [UI](../modules/UI.md) |
+| `tests/ui_wasted_work_test.cpp` | Stacking order against a stable sort, clip equivalence of an element that enters no state, opacity, held motion sample | [UI](../modules/UI.md#paint) |
 | `tests/ui_profiler_test.cpp` | Profiler scopes, world isolation, rings, snapshots, and the no-op build | [UI Profiler](../features/UI%20Profiler.md) |
 | `tests/ui_refs_test.cpp` | Referenced images and fonts | [UI](../modules/UI.md) |
 | `tests/ui_scroll_test.cpp` | Scroll view and wheel | [UI Input](../features/UI%20Input.md) |

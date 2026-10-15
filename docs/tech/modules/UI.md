@@ -102,7 +102,7 @@ Stack main axis is the child's used size (explicit size, otherwise hug), plus ma
 
 `z-index`, `transform`, and opacity do not change layout sizes.
 
-A layout dirty gate (`layout_state_changed`) compares `text`, `custom_properties`, and the generated-item owner list with the previous values. On the prepare path, `canvas.cpp` skips `layout()` when that compare is clean, `layout_computed_once` is set, and the canvas layout rect, media width, media height, stylesheet pointer, stylesheet generation, layout painter, and math-font identity all match the last layout. The copies are still stored every call.
+A layout dirty gate (`layout_state_changed`) compares `text`, `custom_properties`, and the generated-item owner list with the previous values. On the prepare path, `canvas.cpp` skips `layout()` when that compare is clean, `layout_computed_once` is set, and the canvas layout rect, media width, media height, stylesheet pointer, stylesheet generation, layout painter, and math-font identity all match the last layout. A copy is rewritten only when it differs (the text and the map are compared in place first); the walk itself is still every element every call.
 
 A `Popup` is out of flow and takes no space in its parent. See [Popup](#popup).
 
@@ -194,9 +194,9 @@ Details: [UI Input](../features/UI%20Input.md).
 
 ## Paint
 
-`paint_element` (`src/ui/paint.cpp`) stable-sorts siblings by `z-index` (low behind, document order on ties) through `child_stacking_order`. Hit-testing uses the same function.
+`paint_element` (`src/ui/paint.cpp`) orders siblings by `z-index` (low behind, document order on ties) through `child_stacking_order`. Siblings that already ascend by `z-index`, every one equal included, are not sorted at all. Hit-testing uses the same function.
 
-Per-element scissor is `nvgIntersectScissor`. `overflow` and `Viewport` clip. A non-identity `transform` calls `apply_transform` around the element's own visuals and its children. `layout_rect` stays axis-aligned.
+Per-element scissor is `nvgIntersectScissor`: every element draws and passes its in-flow children under its own box. An element enters no painter state (`save`, `set_opacity`, `apply_transform`, `scissor`, `restore`) when it has nothing to set: its opacity is the one the painter already holds (`state_opacity`, the nearest entered ancestor's; a canvas root and a popup always set theirs), it has no transform, and its scissor would clip nothing. `paint_stays_in_box` decides the last: a text-only or box-only element with no border, whose measured text fits its content box and whose in-flow children lie inside its box and carry no transform. A border (its stroke is centred on the edge), a `Line`, `Math`, `TextInput`, `Viewport` or `ScrollView`, a custom `IPaint`, `overflow` other than `visible`, and anything the measure caches cannot vouch for keep the scissor. A held motion sample is drawn from a style that carries only the fields `paint_element` reads (`copy_paint_fields`), not a copy of the whole cascade. `overflow` and `Viewport` clip. A non-identity `transform` calls `apply_transform` around the element's own visuals and its children. `layout_rect` stays axis-aligned.
 
 `Viewport` paints chrome unpanned, then `apply_view` so children see `displayed = origin + zoom * (layout - origin + pan)`. Pan and zoom are bound floats.
 

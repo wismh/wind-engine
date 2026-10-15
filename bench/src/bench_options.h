@@ -20,7 +20,7 @@ inline constexpr int kMinWindowSide = 320;
 inline constexpr int kMaxWindowSide = 8192;
 
 // The command line: `--scene <name> --mode <name> [--variant <name>] [--warmup N] [--frames N] [--out path.json]
-// [--width N --height N]`, `--list`, or `--help`.
+// [--width N --height N] [--hold MS]`, `--list`, or `--help`.
 struct BenchOptions {
     bool list = false;
     bool help = false;
@@ -34,6 +34,9 @@ struct BenchOptions {
     std::filesystem::path out;
     int width = 1600;
     int height = 900;
+    // Milliseconds the window stays up after the report is written, still drawing the last frame, so a screenshot
+    // can be taken of what was measured. 0 quits at once.
+    int hold_ms = 0;
 };
 
 // `args` without the program name. An unknown flag, a flag without its value, a number that does not parse or is out

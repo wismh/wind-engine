@@ -13,7 +13,9 @@
 
 #include <glm/vec2.hpp>
 
+#include <chrono>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -56,6 +58,8 @@ private:
 
     int tick_ = 0;
     bool finished_ = false;
+    // Set by finish() when --hold asks the window to stay up: when to quit.
+    std::optional<std::chrono::steady_clock::time_point> hold_until_;
     // True only while the bench calls InputSystem: the router drops every other event.
     bool injecting_ = false;
     glm::vec2 rest_point_{};
