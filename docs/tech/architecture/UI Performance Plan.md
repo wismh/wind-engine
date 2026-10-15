@@ -11,7 +11,7 @@ These exist. They are not the numbered steps below, and the steps are not done.
 - `assign_property_string` skips an equal string. The other step 1 items (no temporary pseudo-state vector, skipping a sibling sort, a motion overlay that does not copy a whole `ComputedStyle`, entering no painter state for an element with nothing to set) landed in wind-226; see step 1.
 - The UI profiler records the stages, the draw calls, and the painter calls by kind this plan uses as a baseline. See [UI Profiler](../features/UI%20Profiler.md).
 
-Steps 0, 1, 7a, 2, and 3 are closed (see their sections). Steps 4 through 8 are not. NanoVG is still the UI painter.
+Steps 0, 1, 7a, 2, 3, and 6 are closed (see their sections). Steps 4, 5, 7b, and 8 are not. NanoVG is still the UI painter.
 
 The live tree stays one `Element` tree: document, layout, and hit-test. A retained command list (`Picture`) is a second structure, produced by paint and consumed by the renderer. NanoVG is removed when that renderer lands. An offscreen texture is an explicit opt-in on top of the renderer, not the way retention works.
 
@@ -244,6 +244,27 @@ Immediately after 2. Does not need `Picture` or the new renderer. Uses the curre
 6b, and it does not block step 4: a 2D window (rows × columns) for tables and inspectors.
 
 Done when the 10k-row scene binds and lays out a window plus overscan, and a collapsed branch adds nothing to those counts. Tests in `engine_tests` cover estimate → measured height, recycle, collapse, and viewport culling with a fake painter.
+
+As built (wind-230). Four of the five items; 6b (a 2D window over rows and columns) is not built, as the plan allows.
+
+- Rows of no fixed height are windowed. The window search is over `RowHeights::tops` (prefix sums of the heights measured into `Element::row_heights`, keyed by `generated_owner`), an item never measured counts as the mean of the measured, and `scroll_item_into_view` uses the same tops ([UI](../modules/UI.md#rows-of-no-fixed-height)). The first bind of any list still builds every row (no layout, no scroller size yet), so a 10k-row list pays one full build and layout, then binds and lays out a window plus overscan (the test counts 10,000 rows at the first frame and fewer than 30 two frames later, under 120 elements in the document).
+- A document-wide text cache (`UiDocument::text_cache`) behind the per-element measure and wrap caches: rows with the same text, font and size reach the painter once, and a row scrolled back does not shape again (tests with a counting painter). Facts corrected: wrapping did re-break on a line-height change before; it no longer does, because the break does not depend on the stride (`UiTextWrapLayout.LineHeightChangeKeepsTheBreaksAndTakesTheNewStride`).
+- A collapsed tree branch: already true for fixed rows (wind-184, flat rows from `flatten_tree`); the new test counts a 5,000-child branch collapsed against expanded (10 rows against a window), and the variable-height path serves trees whose rows wrap.
+- A `Viewport` camera culls children (at any depth until a scroll, transform or camera changes the space) that lie wholly outside the visible world rect; an element whose reach is unknown is never culled; a world drawn by `IPaint` is the game's to cull. Counted in `Element::culled_children`; hit-testing is not culled.
+
+Not done, said plainly: no 10k-row scene was added to the bench matrix (the numbers below come from the existing rows), the scroll offset is not anchored when a row above the window measures differently than its estimate, and heights of rows outside the window are not remeasured on a width change.
+
+Against step 3 (`-Repeat 5`, medians, same machine). The inspector rows moved because its scenes now window: its history list has rows of no fixed height, so the scene builds 316 elements where it built 2,926 (the scene is a different shape from the baseline's; draw calls fall with it, 1,707 -> 315). That is the feature working, not a like-for-like speed-up of the same tree.
+
+| Row | Elements | Layout ms | Total ms | Draw calls |
+| --- | ---: | ---: | ---: | ---: |
+| `inspector / quiet` | 2,926 -> 316 | 0.001 -> 0.001 | 1.621 -> 0.317 | 1,707 -> 315 |
+| `inspector / one-change` | 2,926 -> 316 | 0.013 -> 0.015 | 1.817 -> 0.318 | 1,707 -> 315 |
+| `inspector / scroll` | 2,928 -> 421 | 0.238 -> 0.054 | 2.284 -> 0.547 | 1,717 -> 351 |
+| `inspector / churn` | 2,926 -> 316 | 0.892 -> 0.401 | 2.924 -> 1.411 | 1,674 -> 426 |
+| `table / scroll` | 244 -> 257 | 0.042 -> 0.045 | 0.547 -> 0.585 | 297 -> 297 |
+
+`compare.ps1` flags 16 rows, all with unchanged counters and none on a path this step touched (`paint-mix`, `motion`, `hud`, `table`): a drift of 5-15% across the whole matrix, the same on rows that paint only. It is not isolated from the noise of the shared VM; unverified, to be re-measured on another machine. Unverified: Windows numbers.
 
 ### 4 — Retained Picture
 

@@ -696,6 +696,8 @@ namespace engine::ui {
         // True while a row-box property (height, padding, gap, font-size, ...) is still interpolating.
         // ItemsControl turns that into suppress_item_virtualization for the following bind.
         bool height_motion_active = false;
+        // A `Viewport` only: how many children the last paint skipped because they lie wholly outside the camera.
+        mutable std::uint32_t culled_children = 0;
         bool suppress_item_virtualization = false;
         glm::vec2 layout_used_cache{};
         bool layout_used_cache_valid = false;
@@ -836,6 +838,20 @@ namespace engine::ui {
         // to cover. `mutable` for the same reason as the caches above: read from a `const Element&`,
         // and it survives frames on a generated_owner Element like the rest of its runtime state.
         mutable std::optional<float> virtualization_row_height_cache;
+        // An ItemsControl whose rows have no fixed pixel height: the height each row last measured, by row owner (the
+        // item's view-model, `generated_owner`), and the running prefix of tops built from them. A row not measured yet
+        // counts as the mean of the measured ones.
+        struct RowHeights {
+            std::unordered_map<const void *, float> measured;
+            double measured_sum = 0.0;
+            // Goes up whenever a measured height changed or was added, so the prefix is built again.
+            std::uint64_t epoch = 1;
+            std::vector<const void *> items;
+            std::vector<float> tops;
+            std::uint64_t tops_epoch = 0;
+            float tops_gap = 0.0f;
+        };
+        std::optional<RowHeights> row_heights;
 
         std::vector<Element> children;
         std::vector<Element> generated_items;
@@ -978,6 +994,19 @@ namespace engine::ui {
         std::uint64_t layout_check_failures = 0;
     };
 
+    // What the painter measured and broke, shared by every element of one document: two rows with the same text, font,
+    // size (and width) shape once. The per-element caches stay in front of it; this is what a recycled or cloned row
+    // finds when its own cache is empty (`src/ui/text_cache.h`). It is dropped when the painter changes and bounded.
+    struct SharedTextCache {
+        const void *painter = nullptr;
+        std::unordered_map<std::string, glm::vec2> measures;
+        std::unordered_map<std::string, TextBlock> blocks;
+        // Calls that reached the painter, and lookups the cache answered.
+        std::uint64_t painter_measures = 0;
+        std::uint64_t painter_breaks = 0;
+        std::uint64_t hits = 0;
+    };
+
     struct UiDocument {
         Element root;
         // The slot table behind every `Element::handle` of this document. Parse and `make_document` fill it.
@@ -985,6 +1014,7 @@ namespace engine::ui {
         // Every binding of the tree, filled by `apply_bindings` and kept while the structure and the context stay.
         BindTable bind_table;
         mutable UiWorkCounters counters;
+        mutable SharedTextCache text_cache;
         // The debug layout check runs after every layout sync in a build that has it. A test that edits elements behind
         // the engine's back on purpose switches it off. `abort_on_layout_mismatch`: a difference ends the process
         // (after naming the element), so a suite cannot pass over it; a test of the check itself turns that off.

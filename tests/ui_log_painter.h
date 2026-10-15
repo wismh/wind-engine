@@ -124,8 +124,12 @@ namespace ui_test {
             log("nine_slice").rect = rect;
         }
         glm::vec2 measure_text(std::string_view text, engine::AssetId, float size) override {
+            ++measure_calls;
             return {static_cast<float>(text.size()) * size * 0.5f, size};
         }
+
+        // Times the layout asked this painter to measure a string.
+        int measure_calls = 0;
 
     private:
         struct State {
