@@ -61,7 +61,7 @@ XML and CSS under `bench/assets/`; view-models in C++; data from `kBenchSeed` th
 | `text` | 60 wrapped paragraphs at 22, 16, and 12 px, then 200 identical rows, in one `ScrollView`, nothing virtualized |
 | `clip` | An outer `ScrollView` with a column of notes and twelve inner `ScrollView`s, then a block rotated 6deg whose `ScrollView` holds one more |
 
-Every document has an element with id `rest`, where the pointer waits, and the scroll scenes one with id `wheel`, where the wheel turns. Elements with class `hot` are the hover targets. The reference scenes merge `hover_paint.css` (`.hot:hover` changes the background) after their own sheet, or `hover_layout.css` (`.hot:hover` changes the padding) in `hover layout`. Layout resolves style without pseudo-classes today, so the layout rule restyles but does not lay out.
+Every document has an element with id `rest`, where the pointer waits, and the scroll scenes one with id `wheel`, where the wheel turns. Elements with class `hot` are the hover targets. The reference scenes merge `hover_paint.css` (`.hot:hover` changes the background) after their own sheet, or `hover_layout.css` (`.hot:hover` changes the padding) in `hover layout`. Layout reads the real pseudo-state for a rule that also changes layout ([UI](../modules/UI.md#hover-and-layout)), so in `hover layout` layout runs on the frames where the pointer enters or leaves a `hot` element and on no other (the `layout` column of the summary says on how many of the measured frames), and in `hover paint` on none.
 
 ## Modes
 
