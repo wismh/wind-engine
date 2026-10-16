@@ -30,6 +30,29 @@ Instance tint is `material.color * instance.color` (`multiply_instance_color`). 
 
 GPU objects are `IMesh`, `IShader`, `ITexture` created by `IGraphicFactory` from `MeshDesc`, `ShaderDesc`, and `TextureDesc`.
 
+## Meshes
+
+`MeshDesc` (`include/engine/render/graphic_factory.h`) is `vertices` plus `indices`. A `MeshVertex` is `position`, `normal` (default `{0, 0, 1}`), and `uv`. Empty `indices` is a non-indexed triangle list: every three vertices are one triangle. Otherwise every three `std::uint32_t` indices are one, each below `vertices.size()`. Front faces wind counter-clockwise; normals are written as given, so a lit shader expects unit length.
+
+Vertex shader inputs are fixed: position at `location = 0`, uv at `1`, normal at `2`. A shader that reads only 0 and 1 (`builtin::shader_unlit`, every 2D shader) ignores the normal, so a quad draws as it did before normals existed. The particle draw has its own vertex buffer and locations 0 to 7; it does not use `MeshVertex`.
+
+`mesh_desc_error` (`src/render/mesh_check.h`) names why a desc cannot be drawn: no vertices, an index count that is not a multiple of 3, or an index at or past the vertex count. `OpenGLMesh` logs that error and stays invalid, so `create_mesh` returns null and an asset load is `AssetError::Corrupt`. `parse_mesh` rejects the same descs. `OpenGLMesh` keeps one vertex buffer and, when there are indices, one element buffer, uploaded with no VAO bound. Each context's VAO binds the element buffer in its setup (the element binding is VAO state), and `draw` calls `glDrawElements(GL_TRIANGLES, n, GL_UNSIGNED_INT, …)`, or `glDrawArrays` without indices. GLES 3.0 and WebGL2 accept 32-bit indices.
+
+The `.mesh` file format is in [Assets](../features/Assets.md#mesh-files).
+
+### Primitives
+
+`include/engine/render/primitives.h` builds indexed `MeshDesc`s centred on the origin for `EngineServices::graphics.create_mesh`: counter-clockwise front faces, outward unit normals, UVs in [0, 1].
+
+| Function | Shape |
+| --- | --- |
+| `make_quad()` | The unit quad of `builtin::mesh_quad`: XY plane, +Z normal, 4 vertices, 2 triangles |
+| `make_cube(size = 1)` | Axis-aligned cube, 4 vertices per face (24, 36 indices) so each face has its own normal and 0..1 UVs. The geometry of `builtin::mesh_cube` |
+| `make_plane(size = 1, subdivisions = 1)` | Square on the XZ plane, +Y normal, `subdivisions` (at least 1) cells per side. U along +X, V along -Z |
+| `make_uv_sphere(radius = 0.5, segments = 32, rings = 16)` | `segments` (at least 3) around Y, `rings` (at least 2) pole to pole, a duplicated seam column. U wraps from +Z towards +X; V is 1 at the top. The triangle of a pole band that would touch the pole twice is left out |
+
+`tests/primitives_test.cpp` checks that `quad.mesh` and `cube.mesh` parse to exactly `make_quad()` and `make_cube()`.
+
 ## World draw
 
 `run_render` (`src/ecs/systems.cpp`) reads `ctx<BoundWindows>().ids`. `Worlds::bind_window` appends an id. `Worlds::unbind_window` removes one. `GameLoop` does not call `bind_window`. `EngineHost::attach_game` and the `Host` constructor bind `kPrimaryWindow`.

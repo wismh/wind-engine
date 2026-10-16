@@ -1,6 +1,6 @@
 # Builtin assets
 
-Default unlit shader, unit quad, unlit material, UI font, math font, splash image, tree chevron, and the dock chrome theme.
+Default unlit shader, unit quad, unit cube, unlit material, UI font, math font, splash image, tree chevron, and the dock chrome theme.
 
 **GUIDs are frozen** in `include/engine/builtin_ids.h` (`engine::builtin::*`). Do not regenerate them. Sidecar `.meta` files must keep those exact `guid` values.
 
@@ -14,6 +14,7 @@ Default unlit shader, unit quad, unlit material, UI font, math font, splash imag
 | `font_math` | `fonts/math.otf` | `font` |
 | `tree_chevron` | `textures/tree_chevron.png` | `ui_image` |
 | `dock_css` | `css/dock.css` | `css` |
+| `mesh_cube` | `meshes/cube.mesh` | `mesh` |
 
 CMake copies this tree to `<exe dir>/assets/engine/`. Game `asset_codegen` is given this reserved GUID list and fails if a game `.meta` reuses one.
 
