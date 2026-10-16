@@ -76,12 +76,23 @@ private:
     std::map<std::string, Entry, std::less<>> entries_;
 };
 
+struct UnknownComponents {
+    std::map<std::string, FieldTable, std::less<>> components;
+};
+
+enum class UnknownComponentMode {
+    Reject,
+    Preserve,
+};
+
 [[nodiscard]] std::expected<InstantiatedWorld, WorldLoadError> instantiate_world(
-        World& world, const WorldAsset& asset, AssetsDb* assets = nullptr, const WorldSerializer* serializer = nullptr);
+        World& world, const WorldAsset& asset, AssetsDb* assets = nullptr, const WorldSerializer* serializer = nullptr,
+        UnknownComponentMode unknown_mode = UnknownComponentMode::Reject);
 
 [[nodiscard]] std::expected<InstantiatedWorld, WorldLoadError> load_world_from_toml(
         World& world, std::string_view toml_text, AssetsDb* assets = nullptr,
-        const WorldSerializer* serializer = nullptr);
+        const WorldSerializer* serializer = nullptr,
+        UnknownComponentMode unknown_mode = UnknownComponentMode::Reject);
 
 [[nodiscard]] WorldAsset capture_world_asset(const World& world, const WorldSerializer* serializer = nullptr);
 

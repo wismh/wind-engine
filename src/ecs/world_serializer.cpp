@@ -444,16 +444,19 @@ const WorldSerializer::Entry* WorldSerializer::find(std::string_view name) const
 }
 
 std::expected<InstantiatedWorld, WorldLoadError> instantiate_world(
-        World& world, const WorldAsset& asset, AssetsDb* assets, const WorldSerializer* serializer) {
+        World& world, const WorldAsset& asset, AssetsDb* assets, const WorldSerializer* serializer,
+        UnknownComponentMode unknown_mode) {
     const WorldSerializer& active_serializer =
             serializer != nullptr ? *serializer : world.ctx<WorldSerializer>();
 
-    for (const EntityRecord& record : asset.entities) {
-        for (const auto& [comp_name, _] : record.components) {
-            if (active_serializer.find(comp_name) == nullptr) {
-                return std::unexpected(WorldLoadError{
-                        WorldErrorKind::UnknownComponent,
-                        std::format("entity \"{}\": unknown component \"{}\"", record.id, comp_name)});
+    if (unknown_mode == UnknownComponentMode::Reject) {
+        for (const EntityRecord& record : asset.entities) {
+            for (const auto& [comp_name, _] : record.components) {
+                if (active_serializer.find(comp_name) == nullptr) {
+                    return std::unexpected(WorldLoadError{
+                            WorldErrorKind::UnknownComponent,
+                            std::format("entity \"{}\": unknown component \"{}\"", record.id, comp_name)});
+                }
             }
         }
     }
@@ -508,6 +511,14 @@ std::expected<InstantiatedWorld, WorldLoadError> instantiate_world(
         const Entity entity = result.entities[i];
         for (const auto& [comp_name, comp_fields] : record.components) {
             const WorldSerializer::Entry* entry = active_serializer.find(comp_name);
+            if (entry == nullptr) {
+                UnknownComponents* unknown = world.try_get<UnknownComponents>(entity);
+                if (unknown == nullptr) {
+                    unknown = &world.emplace<UnknownComponents>(entity);
+                }
+                unknown->components.insert_or_assign(comp_name, comp_fields);
+                continue;
+            }
             ComponentReader reader(comp_fields, lookup_entity, assets);
             if (!entry->read(world, entity, reader)) {
                 const bool is_asset_err = reader.error().find("asset error") != std::string_view::npos;
@@ -537,12 +548,13 @@ std::expected<InstantiatedWorld, WorldLoadError> instantiate_world(
 }
 
 std::expected<InstantiatedWorld, WorldLoadError> load_world_from_toml(
-        World& world, std::string_view toml_text, AssetsDb* assets, const WorldSerializer* serializer) {
+        World& world, std::string_view toml_text, AssetsDb* assets, const WorldSerializer* serializer,
+        UnknownComponentMode unknown_mode) {
     auto parsed = parse_world_asset(toml_text);
     if (!parsed) {
         return std::unexpected(std::move(parsed.error()));
     }
-    return instantiate_world(world, *parsed, assets, serializer);
+    return instantiate_world(world, *parsed, assets, serializer, unknown_mode);
 }
 
 WorldAsset capture_world_asset(const World& world, const WorldSerializer* serializer) {
@@ -599,6 +611,13 @@ WorldAsset capture_world_asset(const World& world, const WorldSerializer* serial
             ComponentWriter writer(table, entity_to_id);
             if (entry.write(world, entity, writer)) {
                 record.components.emplace(comp_name, std::move(table));
+            }
+        }
+        if (const UnknownComponents* unknown = world.try_get<UnknownComponents>(entity)) {
+            for (const auto& [comp_name, table] : unknown->components) {
+                if (!record.components.contains(comp_name)) {
+                    record.components.emplace(comp_name, table);
+                }
             }
         }
         asset.entities.push_back(std::move(record));
