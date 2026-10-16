@@ -13,6 +13,23 @@
 
 #include <engine/build_id.h>
 #include <engine/core/game_module.h>
+#include <engine/ecs/world_serializer.h>
+
+#if __has_include(<component_io.h>)
+#include <component_io.h>
+#endif
+
+namespace engine::detail {
+
+inline void register_module_components(::engine::ecs::WorldSerializer& serializer) {
+#if __has_include(<component_io.h>)
+    ::assets::register_game_components(serializer);
+#else
+    (void)serializer;
+#endif
+}
+
+} // namespace engine::detail
 
 // A game module shares the C++ runtime, the heap, and STL objects with the engine.dll that loads it, so it must use
 // the CRT that engine was built with (ENGINE_BUILD_DEBUG_CRT and ENGINE_BUILD_ITERATOR_DEBUG_LEVEL in
@@ -33,13 +50,18 @@
     static_assert(::engine::EngineGame<GameClass>,                                                             \
             "ENGINE_GAME needs a class derived from engine::IGame and constructible from EngineServices");      \
     ENGINE_GAME_EXPORT ::engine::IGame* wind_create_game(const ::engine::EngineServices& services) {              \
-        return new GameClass(services);                                                                         \
+        auto* const game = new GameClass(services);                                                             \
+        ::engine::detail::register_module_components(game->world().ctx<::engine::ecs::WorldSerializer>());       \
+        return game;                                                                                            \
     }                                                                                                           \
     ENGINE_GAME_EXPORT void wind_destroy_game(::engine::IGame* game) {                                          \
         delete game;                                                                                            \
     }                                                                                                           \
     ENGINE_GAME_EXPORT const char* wind_game_build_id() {                                                       \
         return ::engine::kBuildIdCStr;                                                                          \
+    }                                                                                                           \
+    ENGINE_GAME_EXPORT void wind_register_game_components(::engine::ecs::WorldSerializer& serializer) {          \
+        ::engine::detail::register_module_components(serializer);                                               \
     }
 
 #else
