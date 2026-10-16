@@ -43,6 +43,7 @@ The full literals are in `builtin_ids.h`. The table's suffix is the last five ch
 | `Css` | `css` | `Stylesheet` |
 | `Animation` | `animation` | `SpriteAnimationClip` |
 | `Strings` | `strings` | `loc::StringTable` |
+| `World` | `world` | `ecs::WorldAsset` |
 
 Texture defaults: sRGB, linear filter, clamp wrap, `layout = single`, `pixels_per_unit = 100`. Audio defaults: SFX bank, volume 1, pitch 1–1, loop false.
 
@@ -82,7 +83,7 @@ Results are cached by `(AssetId, type_index)`.
 
 `identifier_from_path` turns `textures/x.png` into `assets::textures::x`. The same stem in two folders is two namespaces.
 
-UI binders: [Asset Codegen](../build/Asset%20Codegen.md).
+UI binders and component codegen (`component_io.h`): [Asset Codegen](../build/Asset%20Codegen.md).
 
 ## Public headers
 
@@ -90,18 +91,19 @@ UI binders: [Asset Codegen](../build/Asset%20Codegen.md).
 - `include/engine/resources/asset_id.h`
 - `include/engine/resources/asset_guid.h`
 - `include/engine/resources/assets_db.h`
+- `include/engine/resources/component_codegen.h`
 - `include/engine/resources/meta.h`
 - `include/engine/resources/fatal_error.h`
 - `include/engine/resources/font.h`
 - `include/engine/resources/sprite_sheet.h`
 
-`write_missing_metas` is the only function in `asset_guid.h`. Cook scan and write live on `meta.h` (`codegen_scan`, `codegen_write`) so the host tools and the tests can call them without a private header.
+`write_missing_metas` is the only function in `asset_guid.h`. Cook scan and write live on `meta.h` (`codegen_scan`, `codegen_write`) and component codegen on `component_codegen.h` (`scan_components`, `emit_component_io_header`, `codegen_components`) so the host tools and the tests can call them without a private header.
 
 ## Tools and tests
 
-- `tools/asset_codegen/main.cpp` — `asset_codegen <assets_dir> <output_dir> [--engine]`
+- `tools/asset_codegen/main.cpp` — `asset_codegen [<assets_dir> <output_dir> [--engine]] [--components <output_file> [<source_dir>...]]`
 - `tools/asset_guid/main.cpp` — `asset_guid <assets_dir>`
-- `tests/assets_test.cpp`, `tests/builtin_test.cpp`, `tests/sprite_test.cpp`
+- `tests/assets_test.cpp`, `tests/builtin_test.cpp`, `tests/sprite_test.cpp`, `tests/component_codegen_test.cpp`
 
 ## See also
 
