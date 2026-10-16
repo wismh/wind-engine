@@ -115,6 +115,7 @@ TEST_F(EditorPanelsTest, DefaultLayoutHasProjectLeftToolsOverBuildInTheMiddleIns
     EXPECT_EQ(root->axis, engine::ui::DockAxis::Horizontal);
     EXPECT_FLOAT_EQ(root->ratio, 0.2f);
     EXPECT_EQ(root->first, layout.find("project")->stack);
+    EXPECT_EQ(layout.node(root->first)->panels, (std::vector<std::string>{"project", "hierarchy"}));
 
     const engine::ui::DockNode* rest = layout.node(root->second);
     ASSERT_EQ(rest->kind, engine::ui::DockNodeKind::Split);
@@ -130,6 +131,7 @@ TEST_F(EditorPanelsTest, DefaultLayoutHasProjectLeftToolsOverBuildInTheMiddleIns
     EXPECT_EQ(tools->second, layout.find("build")->stack);
 
     EXPECT_TRUE(layout.is_visible("project"));
+    EXPECT_FALSE(layout.is_visible("hierarchy"));
     EXPECT_FALSE(layout.is_visible("world"));
     EXPECT_TRUE(layout.is_visible("ui_tree"));
     EXPECT_TRUE(layout.is_visible("inspector"));
@@ -142,13 +144,14 @@ TEST_F(EditorPanelsTest, TheDockSpaceFillsTheWindowBelowTheToolbarAndPlacesThePa
     EXPECT_EQ(space().window, kEditorWindow);
     EXPECT_EQ(space().area, kArea);
     EXPECT_EQ(space().layout, editor::EditorPanels::default_layout()) << "no saved layout";
-    ASSERT_EQ(space().panels.size(), 6u);
+    ASSERT_EQ(space().panels.size(), 7u);
     EXPECT_EQ(space().panels[0].title, "Project");
-    EXPECT_EQ(space().panels[1].title, "World");
-    EXPECT_EQ(space().panels[2].title, "UI Tree");
-    EXPECT_EQ(space().panels[3].title, "Inspector");
-    EXPECT_EQ(space().panels[4].title, "Profiler");
-    EXPECT_EQ(space().panels[5].title, "Build");
+    EXPECT_EQ(space().panels[1].title, "Hierarchy");
+    EXPECT_EQ(space().panels[2].title, "World");
+    EXPECT_EQ(space().panels[3].title, "UI Tree");
+    EXPECT_EQ(space().panels[4].title, "Inspector");
+    EXPECT_EQ(space().panels[5].title, "Profiler");
+    EXPECT_EQ(space().panels[6].title, "Build");
 
     const engine::ui::DockGeometry geometry =
             engine::ui::compute_dock_geometry(space().layout, kArea, engine::ui::DockMetrics{});
@@ -352,11 +355,42 @@ TEST_F(EditorPanelsTest, TreeKeysGoToTheProjectPanelUnderThePointer) {
     EXPECT_EQ(panels->explorer().selected(), "assets");
 }
 
+TEST_F(EditorPanelsTest, HierarchyShowsOpenWorldAndTreeKeysSelectEntityIntoInspector) {
+    const std::filesystem::path project = dir / "project";
+    std::filesystem::create_directories(project / "assets" / "scenes");
+    std::ofstream(project / "wind_project.toml") << "name = \"x\"\n";
+    std::ofstream(project / "assets" / "scenes" / "level.world")
+            << "version = 1\n\n[[entities]]\nid = \"hero\"\n[entities.transform]\nposition = [3.0, 4.0, 0.0]\n";
+    start();
+    panels->explorer().open(project);
+    panels->explorer().select("assets/scenes/level.world");
+    frame();
+    ASSERT_TRUE(panels->world_view().world_loaded());
+
+    // Activate the Hierarchy tab so its rows refresh and its canvas receives tree keys.
+    panels->show(editor::EditorPanels::kHierarchy);
+    frame();
+    ASSERT_EQ(panels->hierarchy().view_model()->rows.get().size(), 1u);
+    EXPECT_EQ(panels->hierarchy().view_model()->rows.get()[0]->label.get(), "hero");
+
+    const Rect rect = canvas("hierarchy").rect;
+    engine::ui::pointer_for(world, kEditorWindow).position = {rect.x + 10.0f, rect.y + 10.0f};
+    engine::ecs::EventWriter<engine::KeyEvent>{world}.send(
+            engine::KeyEvent{.window = kEditorWindow, .key = engine::KeyCode::Down, .down = true});
+    frame();
+
+    EXPECT_NE(panels->hierarchy().selected(), engine::ecs::Entity{});
+    const editor::InspectorViewModel& inspector = *panels->inspector().view_model();
+    EXPECT_EQ(inspector.title.get(), "hero");
+    EXPECT_EQ(inspector.subtitle.get(), "Entity");
+}
+
 TEST_F(EditorPanelsTest, AttachAndDetachBothProbes) {
     start();
     engine::ecs::World game;
 
     panels->attach(game);
+    EXPECT_TRUE(panels->hierarchy().attached());
     EXPECT_TRUE(panels->ui_tree().attached());
     EXPECT_TRUE(panels->inspector().attached());
     EXPECT_TRUE(panels->profiler().attached());
@@ -364,6 +398,7 @@ TEST_F(EditorPanelsTest, AttachAndDetachBothProbes) {
     EXPECT_EQ(engine::ui::ui_profiler_attached(game), engine::ui::kUiProfilerBuilt);
 
     panels->detach();
+    EXPECT_FALSE(panels->hierarchy().attached());
     EXPECT_FALSE(panels->ui_tree().attached());
     EXPECT_FALSE(panels->inspector().attached());
     EXPECT_FALSE(panels->profiler().attached());
