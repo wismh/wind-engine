@@ -48,9 +48,26 @@ The usual per-frame cursor is `ctx<EventCursor<T>>()`. A second independent read
 
 ## Transform and camera
 
-`Transform` is position, rotation (radians, applied X then Y then Z), and scale. Scale defaults to `{1,1,1}`. `Transform` is always local: in world space for a root, in the parent's space for an entity with a `Parent`. `model_matrix(const Transform&)` (`include/engine/ecs/transform.h`) builds `T * Rx * Ry * Rz * S`.
+`Transform` is position, rotation, and scale. `rotation` is a unit `glm::quat`, identity by default. Scale defaults to `{1,1,1}`. `Transform` is always local: in world space for a root, in the parent's space for an entity with a `Parent`. `model_matrix(const Transform&)` (`include/engine/ecs/transform.h`) builds `T * mat4_cast(rotation) * S`.
 
-`Camera` is orthographic. `ortho_size` is the half-height in world units (default 10). `auto_aspect` rebuilds aspect from `WindowSize`. `near_clip` is -1, `far_clip` is 1.
+Rotation helpers in `transform.h`:
+
+| Function | Result |
+| --- | --- |
+| `rotation_z(radians)` | A turn about +Z. A 2D game sets rotation with it |
+| `euler_xyz(vec3 radians)` | `Rx(x) * Ry(y) * Rz(z)`: Z applied first, then Y, then X |
+| `angle_z(quat)` | The 2D angle back, in (-pi, pi]: the heading of the rotated +X axis in the XY plane. Exact inverse of `rotation_z`; 0 when that axis is on Z |
+
+`Camera` looks down its local -Z with +Y up. `projection` is `Projection::Orthographic` (default) or `Projection::Perspective`. The defaults are the 2D camera, so a 2D game is unchanged.
+
+| Field | Meaning |
+| --- | --- |
+| `ortho_size` | Orthographic: half-height in world units (default 10) |
+| `fov_y` | Perspective: vertical field of view in radians (default 60 degrees) |
+| `auto_aspect`, `aspect` | `auto_aspect` (default) rebuilds aspect from `WindowSize`; otherwise `aspect` |
+| `near_clip`, `far_clip` | Default -1 and 1. Orthographic takes any range. Perspective needs `0 < near < far`, for example 0.1 and 1000 |
+
+`projection_matrix` is `glm::ortho` from `ortho_size` or `glm::perspective(fov_y, aspect, near, far)`. A perspective near below `kMinPerspectiveNear` (0.01) is clamped up to it, a far not past near is clamped to `near + kMinPerspectiveNear`, and a warning is logged once per process. Clamping is not an error: a camera switched to perspective with the 2D clip defaults still draws.
 
 `ActiveCamera` is a `ctx` resource holding one entity. When `ctx<BoundWindows>().ids` is empty, `run_render` returns before a command-buffer clear and before the camera check.
 
@@ -58,7 +75,15 @@ When the list is not empty, it clears each bound window's buffer, then returns w
 
 Fatal is also a live entity that lacks `Camera` or `Transform`. Either way that frame draws no world commands. A world with only UI needs no camera. `run_ui_render` still pushes `CmdDrawUI`. A window `run_render` already cleared is not cleared again. The view matrix is the inverse of the camera entity's world matrix (`ecs::world_matrix`), so a camera with a rotation or a `Parent` works. Each bound window uses the same view matrix. Its projection is `window_size_for` for that id (`Presentation.sizes`).
 
-`view_matrix`, `screen_to_world` and `world_to_screen` take the camera's world matrix (`const glm::mat4&`, from `ecs::world_matrix(world, camera_entity)`), not its `Transform`. `screen_to_world(screen, camera, camera_world, window)` and `world_to_screen(world_pos, camera, camera_world, window)` also take the `Camera` and a `WindowSize`. For an unrotated, unscaled root camera the result is the same as the old translate-only view.
+`view_matrix`, `screen_to_ray`, `screen_to_world` and `world_to_screen` take the camera's world matrix (`const glm::mat4&`, from `ecs::world_matrix(world, camera_entity)`), not its `Transform`. The last three also take the `Camera` and a `WindowSize`. Screen positions are window pixels, origin top-left, +Y down.
+
+| Function | Result |
+| --- | --- |
+| `screen_to_ray(screen, camera, camera_world, window)` | A `Ray` (`include/engine/ecs/ray.h`: `origin`, unit `direction`) from the near plane away from the camera. Orthographic: every ray is parallel to the camera's forward. Perspective: through the pixel |
+| `screen_to_world(screen, camera, camera_world, window)` | Orthographic: the point under the pixel halfway through the clip range (the camera's z for the default -1 and 1). Perspective: where `screen_to_ray` meets the world plane z = 0, which is what 2D-style picking expects; the ray's near-plane origin when the ray is parallel to that plane or the plane is behind the camera |
+| `world_to_screen(world_pos, camera, camera_world, window)` | The pixel the point projects to, either projection |
+
+`PointerTarget` hit-testing intersects the cursor's `screen_to_ray` with the plane z of each target, so it works under a perspective camera. For an unrotated orthographic camera that is the same point as before.
 
 ## Pointer targets
 
@@ -79,7 +104,7 @@ The components live in namespace `engine` (like `Transform`). The functions that
 Functions:
 
 - `set_parent(world, child, parent, KeepWorld = No)` returns false and changes nothing for an invalid entity, `child == parent`, a cycle (`parent` is a descendant of `child`), or a result deeper than `kMaxHierarchyDepth` (32, root = 0, the child's own subtree counts). Setting the current parent again succeeds and does nothing. An entity without `Transform` is allowed as parent or child and counts as identity. Reparenting moves the child between `Children` lists.
-- `KeepWorld::Yes` recomputes the child's local `Transform` from the exact world matrices so the world matrix does not change (`Transform` is created if the child had none). The matrix is decomposed into position, X-then-Y-then-Z Euler radians, and scale (a mirrored matrix puts the sign into `scale.x`). Skew caveat: a non-uniform scale above a rotated child gives a local matrix `Transform` cannot represent; the world position is kept exactly, rotation and scale are the best fit. Gimbal lock puts all of the X/Z rotation into X.
+- `KeepWorld::Yes` recomputes the child's local `Transform` from the exact world matrices so the world matrix does not change (`Transform` is created if the child had none). The matrix is decomposed into position, a rotation quaternion, and scale (a mirrored matrix puts the sign into `scale.x`). Skew caveat: a non-uniform scale above a rotated child gives a local matrix `Transform` cannot represent; the world position is kept exactly, rotation and scale are the best fit: the local X axis is kept, Y is made orthogonal to it, Z is their cross product, and scale is the length of each axis.
 - `clear_parent(world, child, KeepWorld = No)` removes `Parent` and `WorldTransform` and takes the child out of its parent's `Children`.
 - `world_matrix(world, e)`: `WorldTransform` if present, else `model_matrix(Transform)`, else identity. `compute_world_matrix` is the slow exact path that walks the `Parent` chain and ignores `WorldTransform`. `world_position` reads `world_matrix`. `set_world_position(world, e, p)` converts `p` into the parent's space (exact chain) and writes the local `Transform.position`.
 - `update_world_transforms(world)` recomputes the whole forest every call, parents before children, idempotent. There are no dirty flags: `Transform` is a public struct that code mutates directly. It starts from the roots (entities with `Children` and no `Parent`), writes `WorldTransform` on every entity that has a `Parent`, and removes `WorldTransform` from entities that no longer have one. Deleting a `WorldTransform` and updating again gives the same matrix. Callers: the `Frame` / `Transform` system, `run_particles` at its start (it runs in `Game`, before `Transform`), and `run_physics` after integration. Anything else that needs fresh matrices in between calls it too.

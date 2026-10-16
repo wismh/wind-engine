@@ -1,6 +1,6 @@
 # Architecture overview
 
-Wind is a C++23 library: a 2D game engine for production titles. An exported game links it statically. The editor build (`ENGINE_EDITOR`) makes it a shared library. The product name is Wind. The CMake target and namespace are `engine`.
+Wind is a C++23 library: a 2D-first game engine for production titles, with basic 3D. An exported game links it statically. The editor build (`ENGINE_EDITOR`) makes it a shared library. The product name is Wind. The CMake target and namespace are `engine`.
 
 Public API lives in `include/engine/` (`#include <engine/…>`). Implementation and private headers live in `src/`. Third party is git submodules under `external/` (no FetchContent, no EnTT).
 

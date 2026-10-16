@@ -2,7 +2,7 @@
 
 Welcome to the **Wind** Game Developer Manual. This documentation is written for game developers building 2D games with the Wind game engine.
 
-Wind is a high-performance 2D C++23 game engine tailored for production titles. It features a generational ECS, a declarative XML/CSS UI system with MVVM bindings, an asset cooking pipeline with compile-time identifiers, multi-window presentation, 2D physics probes, and cross-platform support across Desktop, Web (WASM/WebGL2), and Android.
+Wind is a high-performance 2D-first C++23 game engine tailored for production titles, with basic 3D (quaternion transforms, a perspective camera). It features a generational ECS, a declarative XML/CSS UI system with MVVM bindings, an asset cooking pipeline with compile-time identifiers, multi-window presentation, 2D physics probes, and cross-platform support across Desktop, Web (WASM/WebGL2), and Android.
 
 ---
 
