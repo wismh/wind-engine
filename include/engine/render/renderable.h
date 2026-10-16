@@ -3,13 +3,15 @@
 // docs/tech/features/Materials and Sort.md
 
 #include <engine/ecs/entity.h>
+#include <engine/render/draw_sort.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
 
+#include <glm/mat4x4.hpp>
+#include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
 #include <algorithm>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -47,25 +49,19 @@ struct Renderable {
 struct RenderableItem {
     Renderable renderable;
     ecs::Entity entity;
+    glm::vec3 world_position{0.0f, 0.0f, 0.0f};
 };
 
-inline bool renderable_less(const RenderableItem& a, const RenderableItem& b) {
-    if (a.renderable.layer != b.renderable.layer) {
-        return a.renderable.layer < b.renderable.layer;
-    }
-    if (a.renderable.order_in_layer != b.renderable.order_in_layer) {
-        return a.renderable.order_in_layer < b.renderable.order_in_layer;
-    }
-    const IMaterial* const mat_a = a.renderable.material.get();
-    const IMaterial* const mat_b = b.renderable.material.get();
-    if (mat_a != mat_b) {
-        return std::less<>{}(mat_a, mat_b);
-    }
-    return a.entity.index < b.entity.index;
+[[nodiscard]] inline DrawSortKey draw_sort_key(const RenderableItem& item, const glm::mat4& view) {
+    return make_draw_sort_key(item.renderable.material.get(), item.renderable.layer, item.renderable.order_in_layer,
+            item.world_position, view, item.entity);
 }
 
-inline void sort_renderables(std::span<RenderableItem> items) {
-    std::stable_sort(items.begin(), items.end(), renderable_less);
+// Stable sort by `draw_sort_less`, the key `run_render` uses. `view` is the camera's view matrix.
+inline void sort_renderables(std::span<RenderableItem> items, const glm::mat4& view) {
+    std::stable_sort(items.begin(), items.end(), [&view](const RenderableItem& a, const RenderableItem& b) {
+        return draw_sort_less(draw_sort_key(a, view), draw_sort_key(b, view));
+    });
 }
 
 }

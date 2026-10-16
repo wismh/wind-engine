@@ -37,8 +37,8 @@ public:
     glm::vec4 color() const override {
         return {1.0f, 1.0f, 1.0f, 1.0f};
     }
-    engine::render::BlendMode blend() const override {
-        return engine::render::BlendMode::Opaque;
+    engine::render::RenderState render_state() const override {
+        return {.blend = engine::render::BlendMode::Opaque};
     }
 };
 

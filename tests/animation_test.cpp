@@ -55,7 +55,7 @@ public:
     std::shared_ptr<engine::render::IShader> shader() const override { return {}; }
     std::shared_ptr<engine::render::ITexture> texture(int) const override { return {}; }
     glm::vec4 color() const override { return {1.0f, 1.0f, 1.0f, 1.0f}; }
-    engine::render::BlendMode blend() const override { return engine::render::BlendMode::Alpha; }
+    engine::render::RenderState render_state() const override { return {.blend = engine::render::BlendMode::Alpha}; }
 };
 
 class FakeGraphicFactory final : public engine::render::IGraphicFactory {

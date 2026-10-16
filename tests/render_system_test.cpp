@@ -14,6 +14,7 @@
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
 #include <engine/render/renderable.h>
+#include <engine/render/sprite.h>
 #include <engine/resources/assets_db.h>
 #include <engine/resources/fatal_error.h>
 #include <engine/resources/meta.h>
@@ -33,6 +34,7 @@
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <functional>
 #include <fstream>
 #include <iterator>
 #include <memory>
@@ -63,8 +65,8 @@ public:
         return {1.0f, 1.0f, 1.0f, 1.0f};
     }
 
-    engine::render::BlendMode blend() const override {
-        return engine::render::BlendMode::Opaque;
+    engine::render::RenderState render_state() const override {
+        return {.blend = engine::render::BlendMode::Opaque};
     }
 };
 

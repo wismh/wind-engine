@@ -43,8 +43,8 @@ public:
         return {1.0f, 1.0f, 1.0f, 1.0f};
     }
 
-    engine::render::BlendMode blend() const override {
-        return blend_;
+    engine::render::RenderState render_state() const override {
+        return {.blend = blend_};
     }
 
 private:
