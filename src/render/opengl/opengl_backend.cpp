@@ -16,6 +16,10 @@
 #include <engine/ui/document.h>
 #include <engine/ui/stylesheet.h>
 
+#include <glm/mat3x3.hpp>
+#include <glm/matrix.hpp>
+
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -94,69 +98,69 @@ void main() {
             }
         }
 
-        void execute_draw_mesh(const CmdDrawMesh &cmd) {
-            if (!cmd.mesh || !cmd.material) {
-                return;
+        // Depth test uses GL_LEQUAL, so a second draw of the same surface (a decal, a second pass) still passes. GL
+        // writes no depth while GL_DEPTH_TEST is disabled, so depth write without depth test is GL_ALWAYS.
+        void apply_depth(bool test, bool write) {
+            if (!test && !write) {
+                glDisable(GL_DEPTH_TEST);
+            } else {
+                glEnable(GL_DEPTH_TEST);
+                glDepthFunc(test ? GL_LEQUAL : GL_ALWAYS);
             }
+            glDepthMask(write ? GL_TRUE : GL_FALSE);
+        }
 
-            apply_blend(cmd.material->blend());
-
-            const auto shader = std::dynamic_pointer_cast<OpenGLShader>(cmd.material->shader());
-            const auto mesh = std::dynamic_pointer_cast<OpenGLMesh>(cmd.mesh);
-            if (!shader || !mesh || !shader->valid() || !mesh->valid()) {
-                return;
+        // Counter-clockwise is the front face (GL's default, set again here so nothing else can change it).
+        void apply_cull(CullMode cull) {
+            switch (cull) {
+                case CullMode::None:
+                    glDisable(GL_CULL_FACE);
+                    break;
+                case CullMode::Back:
+                    glEnable(GL_CULL_FACE);
+                    glFrontFace(GL_CCW);
+                    glCullFace(GL_BACK);
+                    break;
+                case CullMode::Front:
+                    glEnable(GL_CULL_FACE);
+                    glFrontFace(GL_CCW);
+                    glCullFace(GL_FRONT);
+                    break;
             }
+        }
 
-            shader->use();
-            shader->set_mat4("uModel", cmd.model);
-            shader->set_mat4("uView", cmd.view);
-            shader->set_mat4("uProjection", cmd.projection);
-            shader->set_vec4("uColor", cmd.material->color() * cmd.color);
-            shader->set_vec2("uUvScale", cmd.uv_scale);
-            shader->set_vec2("uUvOffset", cmd.uv_offset);
-            shader->set_int("uTexture", 0);
+        void apply_render_state(const RenderState &state) {
+            apply_blend(state.blend);
+            apply_depth(state.depth_test, state.depth_write);
+            apply_cull(state.cull);
+        }
 
-            if (const auto texture = std::dynamic_pointer_cast<OpenGLTexture>(cmd.material->texture(0))) {
-                if (texture->valid()) {
-                    texture->bind(0);
-                }
+        // The inverse transpose of the model's upper 3x3: it carries normals to world space under non-uniform scale. A
+        // singular model (a zero scale) gives identity instead of infinities.
+        glm::mat3 normal_matrix(const glm::mat4 &model) {
+            const glm::mat3 linear{model};
+            if (std::abs(glm::determinant(linear)) < 1e-12f) {
+                return glm::mat3{1.0f};
             }
+            return glm::transpose(glm::inverse(linear));
+        }
 
-            std::vector<std::pair<std::string_view, glm::vec4>> previous;
-            bool override_bound = false;
-            if (cmd.material_override) {
-                if (const auto override_tex = std::dynamic_pointer_cast<OpenGLTexture>(cmd.material_override->albedo)) {
-                    if (override_tex->valid()) {
-                        override_tex->bind(0);
-                        override_bound = true;
-                    }
-                }
-                // A uniform stays in the program after the draw, so an override must not leak into the next
-                // draw that uses this material: remember what each overridden uniform held and put it back.
-                previous.reserve(cmd.material_override->vec4_params.size());
-                for (const auto &[name, value]: cmd.material_override->vec4_params) {
-                    previous.emplace_back(name, shader->vec4_value(name));
-                    shader->set_vec4(name, value);
-                }
-            }
-
-            mesh->draw();
-
-            for (auto it = previous.rbegin(); it != previous.rend(); ++it) {
-                shader->set_vec4(it->first, it->second);
-            }
-            if (override_bound) {
-                // The next draw binds its own texture; one without a texture must not sample this one.
-                glActiveTexture(GL_TEXTURE0);
-                glBindTexture(GL_TEXTURE_2D, 0);
-            }
+        // Camera and lights of the current view. A shader without these uniforms ignores them.
+        void apply_view(const OpenGLShader &shader, const CmdSetView &view) {
+            shader.set_mat4("uView", view.view);
+            shader.set_mat4("uProjection", view.projection);
+            shader.set_vec3("uCameraPosition", view.camera_position);
+            shader.set_int("uLightCount", view.lights.directional_count);
+            shader.set_vec3_array("uLightDirections", view.lights.directions);
+            shader.set_vec3_array("uLightColors", view.lights.colors);
+            shader.set_vec3("uAmbient", view.lights.ambient);
         }
 
         struct ExecuteVisitor {
             ui::IUiPainter *painter = nullptr;
             OpenGLRenderBackend *backend = nullptr;
 
-            void operator()(const CmdDrawMesh &cmd) const { execute_draw_mesh(cmd); }
+            void operator()(const CmdDrawMesh &cmd) const { backend->execute_draw_mesh(cmd); }
 
             void operator()(const CmdDrawUI &cmd) const {
                 if (painter == nullptr || cmd.document == nullptr) {
@@ -182,16 +186,15 @@ void main() {
                                    });
             }
 
-            void operator()(const CmdDrawParticles &cmd) const {
-                if (backend != nullptr) {
-                    backend->execute_draw_particles(cmd);
-                }
-            }
+            void operator()(const CmdDrawParticles &cmd) const { backend->execute_draw_particles(cmd); }
+
+            void operator()(const CmdSetView &cmd) const { backend->set_view(cmd); }
         };
 
         constexpr std::string_view command_name(const CmdDrawMesh &) { return "CmdDrawMesh"; }
         constexpr std::string_view command_name(const CmdDrawUI &) { return "CmdDrawUI"; }
         constexpr std::string_view command_name(const CmdDrawParticles &) { return "CmdDrawParticles"; }
+        constexpr std::string_view command_name(const CmdSetView &) { return "CmdSetView"; }
 
         // ExecuteVisitor, then the GL errors that command raised.
         struct CheckedExecuteVisitor {
@@ -220,20 +223,10 @@ void main() {
         }
     }
 
-    void OpenGLRenderBackend::init_particle_buffers() {
-        if (particle_buffers_initialized_) {
-            return;
+    unsigned int OpenGLRenderBackend::white_texture() {
+        if (default_white_texture_ != 0) {
+            return default_white_texture_;
         }
-
-#if defined(ENGINE_WITH_GLES)
-        const ShaderTarget target = ShaderTarget::Glsl300Es;
-#else
-        const ShaderTarget target = ShaderTarget::Glsl330Core;
-#endif
-        const std::string adapted_vert = adapt_glsl(kParticleVert, target, false);
-        const std::string adapted_frag = adapt_glsl(kParticleFrag, target, true);
-        particle_shader_ = std::make_shared<OpenGLShader>(adapted_vert, adapted_frag);
-
         glGenTextures(1, &default_white_texture_);
         glBindTexture(GL_TEXTURE_2D, default_white_texture_);
         const std::uint32_t white_pixel = 0xFFFFFFFF;
@@ -247,6 +240,92 @@ void main() {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glBindTexture(GL_TEXTURE_2D, 0);
+        return default_white_texture_;
+    }
+
+    void OpenGLRenderBackend::bind_albedo(const IMaterial &material) {
+        if (const auto texture = std::dynamic_pointer_cast<OpenGLTexture>(material.texture(0))) {
+            if (texture->valid()) {
+                texture->bind(0);
+                return;
+            }
+        }
+        // No albedo samples white, so the draw is its color (the particle draw has always done this).
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, white_texture());
+    }
+
+    void OpenGLRenderBackend::set_view(const CmdSetView &view) { view_ = view; }
+
+    void OpenGLRenderBackend::execute_draw_mesh(const CmdDrawMesh &cmd) {
+        if (!cmd.mesh || !cmd.material) {
+            return;
+        }
+
+        apply_render_state(cmd.material->render_state());
+
+        const auto shader = std::dynamic_pointer_cast<OpenGLShader>(cmd.material->shader());
+        const auto mesh = std::dynamic_pointer_cast<OpenGLMesh>(cmd.mesh);
+        if (!shader || !mesh || !shader->valid() || !mesh->valid()) {
+            return;
+        }
+
+        shader->use();
+        shader->set_mat4("uModel", cmd.model);
+        if (shader->uniform_location("uNormalMatrix") >= 0) {
+            shader->set_mat3("uNormalMatrix", normal_matrix(cmd.model));
+        }
+        apply_view(*shader, view_);
+        shader->set_vec4("uColor", cmd.material->color() * cmd.color);
+        shader->set_vec2("uUvScale", cmd.uv_scale);
+        shader->set_vec2("uUvOffset", cmd.uv_offset);
+        shader->set_int("uTexture", 0);
+
+        bind_albedo(*cmd.material);
+
+        std::vector<std::pair<std::string_view, glm::vec4>> previous;
+        bool override_bound = false;
+        if (cmd.material_override) {
+            if (const auto override_tex = std::dynamic_pointer_cast<OpenGLTexture>(cmd.material_override->albedo)) {
+                if (override_tex->valid()) {
+                    override_tex->bind(0);
+                    override_bound = true;
+                }
+            }
+            // A uniform stays in the program after the draw, so an override must not leak into the next
+            // draw that uses this material: remember what each overridden uniform held and put it back.
+            previous.reserve(cmd.material_override->vec4_params.size());
+            for (const auto &[name, value]: cmd.material_override->vec4_params) {
+                previous.emplace_back(name, shader->vec4_value(name));
+                shader->set_vec4(name, value);
+            }
+        }
+
+        mesh->draw();
+
+        for (auto it = previous.rbegin(); it != previous.rend(); ++it) {
+            shader->set_vec4(it->first, it->second);
+        }
+        if (override_bound) {
+            // The next draw binds its own texture; one without a texture must not sample this one.
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, 0);
+        }
+    }
+
+    void OpenGLRenderBackend::init_particle_buffers() {
+        if (particle_buffers_initialized_) {
+            return;
+        }
+
+#if defined(ENGINE_WITH_GLES)
+        const ShaderTarget target = ShaderTarget::Glsl300Es;
+#else
+        const ShaderTarget target = ShaderTarget::Glsl330Core;
+#endif
+        const std::string adapted_vert = adapt_glsl(kParticleVert, target, false);
+        const std::string adapted_frag = adapt_glsl(kParticleFrag, target, true);
+        particle_shader_ = std::make_shared<OpenGLShader>(adapted_vert, adapted_frag);
 
         static constexpr QuadVertex kQuadVertices[6] = {
                 {-0.5f, -0.5f, 0.0f, 0.0f, 0.0f}, {0.5f, -0.5f, 0.0f, 1.0f, 0.0f}, {0.5f, 0.5f, 0.0f, 1.0f, 1.0f},
@@ -310,7 +389,8 @@ void main() {
             return;
         }
 
-        apply_blend(cmd.blend);
+        // Particles keep the 2D state whatever their material says: no depth test or write, no culling.
+        apply_render_state(RenderState{.blend = cmd.blend});
 
         init_particle_buffers();
         if (!particle_shader_ || !particle_shader_->valid()) {
@@ -332,26 +412,17 @@ void main() {
         }
 
         active_shader->use();
-        active_shader->set_mat4("uView", cmd.view);
-        active_shader->set_mat4("uProjection", cmd.projection);
+        apply_view(*active_shader, view_);
 
         const glm::vec4 material_color = cmd.material ? cmd.material->color() : glm::vec4{1.0f, 1.0f, 1.0f, 1.0f};
         active_shader->set_vec4("uColor", material_color);
         active_shader->set_int("uTexture", 0);
 
-        bool bound_texture = false;
         if (cmd.material) {
-            if (const auto texture = std::dynamic_pointer_cast<OpenGLTexture>(cmd.material->texture(0))) {
-                if (texture->valid()) {
-                    texture->bind(0);
-                    bound_texture = true;
-                }
-            }
-        }
-
-        if (!bound_texture && default_white_texture_ != 0) {
+            bind_albedo(*cmd.material);
+        } else {
             glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, default_white_texture_);
+            glBindTexture(GL_TEXTURE_2D, white_texture());
         }
 
         glBindVertexArray(vao);
@@ -381,6 +452,8 @@ void main() {
     }
 
     void OpenGLRenderBackend::execute(const CommandBuffer &commands) {
+        // Every buffer starts from identity matrices and no lights until its first CmdSetView.
+        view_ = CmdSetView{};
         const ExecuteVisitor visitor{.painter = ui_painter_, .backend = this};
 #if defined(ENGINE_GL_CHECKS)
         // Errors left by the window's clear or the painter's begin_frame are not blamed on the first command.
@@ -389,6 +462,11 @@ void main() {
 #else
         commands.execute(visitor);
 #endif
+        // Leave this context as the 2D state: the UI flush that follows expects no depth test and no culling, and a
+        // false depth mask would make the next frame's glClear skip the depth buffer.
+        glDisable(GL_DEPTH_TEST);
+        glDepthMask(GL_TRUE);
+        glDisable(GL_CULL_FACE);
     }
 
 } // namespace engine::render

@@ -5,7 +5,7 @@
 #include <engine/ecs/camera.h>
 #include <engine/ecs/events.h>
 #include <engine/ecs/hierarchy.h>
-#include <engine/ecs/physics.h>
+#include <engine/ecs/physics_2d.h>
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/systems.h>
 #include <engine/ecs/transform.h>
@@ -50,8 +50,8 @@ public:
         return {1.0f, 1.0f, 1.0f, 1.0f};
     }
 
-    engine::render::BlendMode blend() const override {
-        return engine::render::BlendMode::Alpha;
+    engine::render::RenderState render_state() const override {
+        return {.blend = engine::render::BlendMode::Alpha};
     }
 };
 
@@ -94,17 +94,23 @@ void step_physics(World& world) {
     world.run(Schedule::Fixed);
 }
 
-std::vector<engine::CollisionEvent> read_collisions(World& world) {
-    std::vector<engine::CollisionEvent> events;
-    for (const engine::CollisionEvent& event : engine::ecs::EventReader<engine::CollisionEvent>{world}) {
+std::vector<engine::CollisionEvent2D> read_collisions(World& world) {
+    std::vector<engine::CollisionEvent2D> events;
+    for (const engine::CollisionEvent2D& event : engine::ecs::EventReader<engine::CollisionEvent2D>{world}) {
         events.push_back(event);
     }
     return events;
 }
 
+// `index` counts draws: the buffer starts with the window's CmdSetView.
 const engine::render::CmdDrawMesh& mesh_command(const engine::render::CommandBuffer& commands, std::size_t index) {
-    EXPECT_LT(index, commands.size());
-    return std::get<engine::render::CmdDrawMesh>(commands[index]);
+    EXPECT_LT(index + 1, commands.size());
+    return std::get<engine::render::CmdDrawMesh>(commands[index + 1]);
+}
+
+const engine::render::CmdSetView& view_command(const engine::render::CommandBuffer& commands) {
+    EXPECT_FALSE(commands.empty());
+    return std::get<engine::render::CmdSetView>(commands[0]);
 }
 
 }
@@ -151,8 +157,8 @@ TEST(HierarchySystems, ChildSpriteModelIsParentTimesLocal) {
     bind_camera(world, spawn(world, Transform{.position = {0.f, 0.f, 10.f}}));
 
     const Transform parent_transform{
-            .position = {3.f, 1.f, 0.f}, .rotation = {0.f, 0.f, 0.5f}, .scale = {2.f, 2.f, 1.f}};
-    const Transform child_transform{.position = {1.f, 2.f, 0.f}, .rotation = {0.f, 0.f, 0.25f}};
+            .position = {3.f, 1.f, 0.f}, .rotation = engine::rotation_z(0.5f), .scale = {2.f, 2.f, 1.f}};
+    const Transform child_transform{.position = {1.f, 2.f, 0.f}, .rotation = engine::rotation_z(0.25f)};
     const Entity parent = spawn(world, parent_transform);
     const Entity child = spawn_child(world, parent, child_transform);
     engine::render::Sprite sprite;
@@ -162,7 +168,7 @@ TEST(HierarchySystems, ChildSpriteModelIsParentTimesLocal) {
 
     world.run(Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 1u);
+    ASSERT_EQ(commands.size(), 2u);
     expect_near(mesh_command(commands, 0).model,
                 engine::model_matrix(parent_transform) * engine::model_matrix(child_transform));
 }
@@ -183,7 +189,7 @@ TEST(HierarchySystems, ChildRenderableModelFollowsMovedParent) {
     commands.clear();
     world.run(Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 1u);
+    ASSERT_EQ(commands.size(), 2u);
     expect_near(glm::vec3(mesh_command(commands, 0).model[3]), {6.f, 0.f, 0.f});
 }
 
@@ -193,15 +199,15 @@ TEST(HierarchySystems, ChildColliderOverlapsInWorldCoordinates) {
 
     const Entity parent = spawn(world, Transform{.position = {10.f, 0.f, 0.f}});
     const Entity child = spawn_child(world, parent, Transform{.position = {0.5f, 0.f, 0.f}});
-    world.emplace<engine::BoxCollider>(child, engine::BoxCollider{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::BoxCollider2D>(child, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
     const Entity other = spawn(world, Transform{.position = {10.5f, 0.f, 0.f}});
-    world.emplace<engine::BoxCollider>(other, engine::BoxCollider{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::BoxCollider2D>(other, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
     const Entity far_root = spawn(world, Transform{.position = {0.5f, 0.f, 0.f}});
-    world.emplace<engine::BoxCollider>(far_root, engine::BoxCollider{glm::vec3{2.f, 2.f, 1.f}});
+    world.emplace<engine::BoxCollider2D>(far_root, engine::BoxCollider2D{glm::vec3{2.f, 2.f, 1.f}});
 
     step_physics(world);
 
-    const std::vector<engine::CollisionEvent> events = read_collisions(world);
+    const std::vector<engine::CollisionEvent2D> events = read_collisions(world);
     ASSERT_EQ(events.size(), 1u);
     const bool pair_ok = (events[0].a == child && events[0].b == other) || (events[0].a == other && events[0].b == child);
     EXPECT_TRUE(pair_ok);
@@ -212,11 +218,11 @@ TEST(HierarchySystems, ChildColliderUsesParentMovedThisStep) {
     engine::register_engine_systems(world);
 
     const Entity parent = spawn(world, Transform{});
-    world.emplace<engine::RigidBody>(parent, engine::RigidBody{glm::vec3{60.f, 0.f, 0.f}});
+    world.emplace<engine::RigidBody2D>(parent, engine::RigidBody2D{glm::vec3{60.f, 0.f, 0.f}});
     const Entity child = spawn_child(world, parent, Transform{});
-    world.emplace<engine::CircleCollider>(child, engine::CircleCollider{.radius = 0.5f});
+    world.emplace<engine::CircleCollider2D>(child, engine::CircleCollider2D{.radius = 0.5f});
     const Entity other = spawn(world, Transform{.position = {1.f, 0.f, 0.f}});
-    world.emplace<engine::CircleCollider>(other, engine::CircleCollider{.radius = 0.5f});
+    world.emplace<engine::CircleCollider2D>(other, engine::CircleCollider2D{.radius = 0.5f});
 
     // Parent integrates to x = 1 this step; only a fresh world position puts the child on top of `other`.
     step_physics(world);
@@ -246,16 +252,16 @@ TEST(HierarchySystems, LocalSpaceEmitterOnChildFollowsParent) {
     world.emplace<engine::render::ParticleEmitter>(child, std::move(emitter));
 
     world.run(Schedule::Frame);
-    ASSERT_EQ(commands.size(), 1u);
-    const auto& first = std::get<engine::render::CmdDrawParticles>(commands[0]);
+    ASSERT_EQ(commands.size(), 2u);
+    const auto& first = std::get<engine::render::CmdDrawParticles>(commands[1]);
     ASSERT_EQ(first.instances.size(), 1u);
     EXPECT_NEAR(first.instances[0].position.x, 12.f, 1e-3f);
 
     world.get<Transform>(parent).position.x = 20.f;
     commands.clear();
     world.run(Schedule::Frame);
-    ASSERT_EQ(commands.size(), 1u);
-    const auto& second = std::get<engine::render::CmdDrawParticles>(commands[0]);
+    ASSERT_EQ(commands.size(), 2u);
+    const auto& second = std::get<engine::render::CmdDrawParticles>(commands[1]);
     ASSERT_EQ(second.instances.size(), 1u);
     EXPECT_NEAR(second.instances[0].position.x, 22.f, 1e-3f);
 }
@@ -308,15 +314,17 @@ TEST(HierarchySystems, RenderUsesWorldMatrixOfParentedCamera) {
 
     world.run(Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 1u);
-    expect_near(mesh_command(commands, 0).view, glm::translate(glm::mat4(1.f), glm::vec3(-6.f, 0.f, -10.f)));
+    ASSERT_EQ(commands.size(), 2u);
+    const engine::render::CmdSetView& view = view_command(commands);
+    expect_near(view.view, glm::translate(glm::mat4(1.f), glm::vec3(-6.f, 0.f, -10.f)));
+    expect_near(view.camera_position, {6.f, 0.f, 10.f});
 }
 
 TEST(HierarchySystems, ChildRotationAboutZCarriesParentOffsetIn3D) {
     World world;
     engine::register_engine_systems(world);
 
-    const Entity parent = spawn(world, Transform{.rotation = {0.f, 0.f, glm::half_pi<float>()}});
+    const Entity parent = spawn(world, Transform{.rotation = engine::rotation_z(glm::half_pi<float>())});
     const Entity child = spawn_child(world, parent, Transform{.position = {2.f, 0.f, 0.f}});
     const Entity grandchild = spawn_child(world, child, Transform{.position = {0.f, 1.f, 0.f}});
     engine::ecs::update_world_transforms(world);
@@ -325,7 +333,7 @@ TEST(HierarchySystems, ChildRotationAboutZCarriesParentOffsetIn3D) {
     expect_near(engine::ecs::world_position(world, child), {0.f, 2.f, 0.f});
     expect_near(engine::ecs::world_position(world, grandchild), {-1.f, 2.f, 0.f});
 
-    world.get<Transform>(parent).rotation = {glm::half_pi<float>(), 0.f, 0.f};
+    world.get<Transform>(parent).rotation = engine::euler_xyz({glm::half_pi<float>(), 0.f, 0.f});
     world.get<Transform>(child).position = {0.f, 1.f, 0.f};
     engine::ecs::update_world_transforms(world);
     // 90 degrees about X sends local +Y to world +Z.

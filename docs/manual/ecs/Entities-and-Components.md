@@ -33,7 +33,7 @@ The generation counter ensures that stale entity handles held by systems or even
 
 ## 2. Defining Components
 
-Components in Wind are plain old C++ structs. No base class or registration macros are needed. The engine's own components (`engine::Transform`, `engine::Camera`, `engine::RigidBody`, `engine::BoxCollider`, `engine::render::Sprite`, ...) live in `engine` and `engine::render`, not in `engine::ecs`.
+Components in Wind are plain old C++ structs. No base class or registration macros are needed. The engine's own components (`engine::Transform`, `engine::Camera`, `engine::RigidBody2D`, `engine::BoxCollider2D`, `engine::render::Sprite`, ...) live in `engine` and `engine::render`, not in `engine::ecs`.
 
 ```cpp
 #include <glm/vec2.hpp>

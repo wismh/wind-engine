@@ -19,7 +19,7 @@
 
 namespace engine::render {
 
-struct ParticleCollider {
+struct ParticleCollider2D {
     enum class Shape {
         Box,
         Circle,
@@ -160,6 +160,6 @@ void update_emitter(
         ParticleEmitter& emitter,
         float dt,
         const glm::mat4& transform = glm::mat4{1.0f},
-        std::span<const ParticleCollider> colliders = {});
+        std::span<const ParticleCollider2D> colliders = {});
 
 }

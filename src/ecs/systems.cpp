@@ -10,13 +10,15 @@
 #include <engine/ecs/camera.h>
 #include <engine/ecs/events.h>
 #include <engine/ecs/hierarchy.h>
-#include <engine/ecs/physics.h>
+#include <engine/ecs/physics_2d.h>
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/transform.h>
 #include <engine/loc/catalog.h>
 #include <engine/log.h>
 #include <engine/render/animation.h>
 #include <engine/render/command_buffer.h>
+#include <engine/render/draw_sort.h>
+#include <engine/render/lights.h>
 #include <engine/render/particles.h>
 #include <engine/render/renderable.h>
 #include <engine/render/sprite.h>
@@ -326,25 +328,11 @@ namespace engine {
         };
 
         struct DrawItem {
-            int layer = 0;
-            int order_in_layer = 0;
-            const render::IMaterial *material = nullptr;
-            ecs::Entity entity;
+            render::DrawSortKey key;
             render::Command command;
         };
 
-        inline bool draw_item_less(const DrawItem &a, const DrawItem &b) {
-            if (a.layer != b.layer) {
-                return a.layer < b.layer;
-            }
-            if (a.order_in_layer != b.order_in_layer) {
-                return a.order_in_layer < b.order_in_layer;
-            }
-            if (a.material != b.material) {
-                return std::less<>{}(a.material, b.material);
-            }
-            return a.entity.index < b.entity.index;
-        }
+        bool draw_item_less(const DrawItem &a, const DrawItem &b) { return render::draw_sort_less(a.key, b.key); }
 
         struct WindowClears {
             std::unordered_set<WindowId> ids;
@@ -369,16 +357,6 @@ namespace engine {
             }
             if (world.ctx<WindowClears>().ids.insert(id).second) {
                 buffer->clear();
-            }
-        }
-
-        void apply_camera(render::Command &command, const glm::mat4 &view, const glm::mat4 &projection) {
-            if (auto *mesh = std::get_if<render::CmdDrawMesh>(&command)) {
-                mesh->view = view;
-                mesh->projection = projection;
-            } else if (auto *particles = std::get_if<render::CmdDrawParticles>(&command)) {
-                particles->view = view;
-                particles->projection = projection;
             }
         }
 
@@ -411,8 +389,8 @@ namespace engine {
                 deps.fatal->report("ActiveCamera is missing Camera or Transform");
             }
 
-            const glm::mat4 view = view_matrix(ecs::world_matrix(world, active.entity));
-            const glm::mat4 projection{1.0f};
+            const glm::mat4 camera_world = ecs::world_matrix(world, active.entity);
+            const glm::mat4 view = view_matrix(camera_world);
 
             std::vector<DrawItem> items;
 
@@ -425,21 +403,14 @@ namespace engine {
                 cmd.mesh = r.mesh;
                 cmd.material = r.material;
                 cmd.model = ecs::world_matrix(world, entity);
-                cmd.view = view;
-                cmd.projection = projection;
                 cmd.color = r.color;
                 cmd.uv_scale = {1.0f, 1.0f};
                 cmd.uv_offset = {0.0f, 0.0f};
                 cmd.material_override = r.material_override;
 
-                const render::IMaterial *mat_ptr = r.material.get();
-                items.push_back(DrawItem{
-                        .layer = r.layer,
-                        .order_in_layer = r.order_in_layer,
-                        .material = mat_ptr,
-                        .entity = entity,
-                        .command = std::move(cmd),
-                });
+                const render::DrawSortKey key = render::make_draw_sort_key(
+                        r.material.get(), r.layer, r.order_in_layer, glm::vec3(cmd.model[3]), view, entity);
+                items.push_back(DrawItem{.key = key, .command = std::move(cmd)});
             }
 
             std::shared_ptr<render::IMesh> default_quad;
@@ -474,7 +445,8 @@ namespace engine {
                         material = it->second;
                     } else if (default_shader != nullptr) {
                         material = std::make_shared<render::Material>(
-                                default_shader, s.texture, glm::vec4{1.0f, 1.0f, 1.0f, 1.0f}, render::BlendMode::Alpha);
+                                default_shader, s.texture, glm::vec4{1.0f, 1.0f, 1.0f, 1.0f},
+                                render::RenderState{.blend = render::BlendMode::Alpha});
                         cache.materials[s.texture.get()] = material;
                     }
                 } else {
@@ -500,21 +472,14 @@ namespace engine {
                 cmd.mesh = std::move(mesh);
                 cmd.material = material;
                 cmd.model = model;
-                cmd.view = view;
-                cmd.projection = projection;
                 cmd.color = s.color;
                 cmd.uv_scale = s.tiling;
                 cmd.uv_offset = s.offset;
                 cmd.material_override = s.material_override;
 
-                const render::IMaterial *mat_ptr = material.get();
-                items.push_back(DrawItem{
-                        .layer = s.layer,
-                        .order_in_layer = s.order_in_layer,
-                        .material = mat_ptr,
-                        .entity = entity,
-                        .command = std::move(cmd),
-                });
+                const render::DrawSortKey key = render::make_draw_sort_key(
+                        material.get(), s.layer, s.order_in_layer, glm::vec3(cmd.model[3]), view, entity);
+                items.push_back(DrawItem{.key = key, .command = std::move(cmd)});
             }
 
             for (ecs::Entity entity: emitters) {
@@ -527,14 +492,15 @@ namespace engine {
                 render::BlendMode blend = em.blend;
                 if (em.material != nullptr) {
                     material = em.material;
-                    blend = em.material->blend();
+                    blend = em.material->render_state().blend;
                 } else if (em.texture != nullptr) {
                     auto it = cache.materials.find(em.texture.get());
                     if (it != cache.materials.end()) {
                         material = it->second;
                     } else if (default_shader != nullptr) {
                         material = std::make_shared<render::Material>(default_shader, em.texture,
-                                                                      glm::vec4{1.0f, 1.0f, 1.0f, 1.0f}, em.blend);
+                                                                      glm::vec4{1.0f, 1.0f, 1.0f, 1.0f},
+                                                                      render::RenderState{.blend = em.blend});
                         cache.materials[em.texture.get()] = material;
                     }
                 } else {
@@ -553,8 +519,6 @@ namespace engine {
                 render::CmdDrawParticles cmd;
                 cmd.mesh = std::move(mesh);
                 cmd.material = material;
-                cmd.view = view;
-                cmd.projection = projection;
                 cmd.blend = blend;
                 cmd.instances.reserve(em.particles.size());
 
@@ -573,17 +537,15 @@ namespace engine {
                     });
                 }
 
-                const render::IMaterial *mat_ptr = material.get();
-                items.push_back(DrawItem{
-                        .layer = em.layer,
-                        .order_in_layer = em.order_in_layer,
-                        .material = mat_ptr,
-                        .entity = entity,
-                        .command = std::move(cmd),
-                });
+                // Particles draw without depth test (opengl_backend.cpp), so they never depth-sort.
+                const render::DrawSortKey key = render::make_draw_sort_key(material.get(), em.layer, em.order_in_layer,
+                                                                           glm::vec3(model[3]), view, entity, false);
+                items.push_back(DrawItem{.key = key, .command = std::move(cmd)});
             }
 
             std::stable_sort(items.begin(), items.end(), draw_item_less);
+
+            const render::SceneLights lights = render::collect_scene_lights(world);
 
             for (const WindowId id: windows) {
                 render::CommandBuffer *buffer = command_buffer_for(deps, id);
@@ -592,11 +554,14 @@ namespace engine {
                     // Bind phase synced the dock floats, and Worlds::unbind_window runs on the next sync.
                     continue;
                 }
-                const glm::mat4 window_projection = projection_matrix(*camera, ui::window_size_for(world, id));
+                buffer->push(render::CmdSetView{
+                        .view = view,
+                        .projection = projection_matrix(*camera, ui::window_size_for(world, id)),
+                        .camera_position = glm::vec3(camera_world[3]),
+                        .lights = lights,
+                });
                 for (const DrawItem &item: items) {
-                    render::Command command = item.command;
-                    apply_camera(command, view, window_projection);
-                    buffer->push(std::move(command));
+                    buffer->push(item.command);
                 }
             }
         }
@@ -809,12 +774,13 @@ namespace engine {
             }
         }
 
-        std::vector<render::ParticleCollider> colliders;
+        std::vector<render::ParticleCollider2D> colliders;
         if (any_collisions) {
-            world.view<Transform, BoxCollider>().each([&](ecs::Entity entity, const Transform &, const BoxCollider &box) {
+            world.view<Transform, BoxCollider2D>().each(
+                    [&](ecs::Entity entity, const Transform &, const BoxCollider2D &box) {
                 if (!box.is_trigger) {
-                    colliders.push_back(render::ParticleCollider{
-                            .shape = render::ParticleCollider::Shape::Box,
+                    colliders.push_back(render::ParticleCollider2D{
+                            .shape = render::ParticleCollider2D::Shape::Box,
                             .position = ecs::world_position(world, entity),
                             .box_size = box.size,
                             .circle_radius = 0.0f,
@@ -822,11 +788,11 @@ namespace engine {
                     });
                 }
             });
-            world.view<Transform, CircleCollider>().each(
-                    [&](ecs::Entity entity, const Transform &, const CircleCollider &circle) {
+            world.view<Transform, CircleCollider2D>().each(
+                    [&](ecs::Entity entity, const Transform &, const CircleCollider2D &circle) {
                 if (!circle.is_trigger) {
-                    colliders.push_back(render::ParticleCollider{
-                            .shape = render::ParticleCollider::Shape::Circle,
+                    colliders.push_back(render::ParticleCollider2D{
+                            .shape = render::ParticleCollider2D::Shape::Circle,
                             .position = ecs::world_position(world, entity),
                             .box_size = glm::vec3{0.0f},
                             .circle_radius = circle.radius,
@@ -848,7 +814,7 @@ namespace engine {
             return;
         }
         world.ctx<SimulationSystemsRegistered>().value = true;
-        world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics, [](ecs::World &w) { run_physics(w); });
+        world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics, [](ecs::World &w) { run_physics_2d(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_sprite_animations(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_particles(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Transform,

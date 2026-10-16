@@ -55,7 +55,7 @@ public:
     std::shared_ptr<engine::render::IShader> shader() const override { return {}; }
     std::shared_ptr<engine::render::ITexture> texture(int) const override { return {}; }
     glm::vec4 color() const override { return {1.0f, 1.0f, 1.0f, 1.0f}; }
-    engine::render::BlendMode blend() const override { return engine::render::BlendMode::Alpha; }
+    engine::render::RenderState render_state() const override { return {.blend = engine::render::BlendMode::Alpha}; }
 };
 
 class FakeGraphicFactory final : public engine::render::IGraphicFactory {
@@ -363,8 +363,8 @@ TEST(Animation, FullFrameScheduleAppliesAndRendersAnimatedSprite) {
     // Run frame schedule (includes Game phase -> run_sprite_animations, and Render phase -> run_render)
     world.run(engine::ecs::Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 1u);
-    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[0]);
+    ASSERT_EQ(commands.size(), 2u);
+    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[1]);
     ASSERT_NE(cmd, nullptr);
     EXPECT_FLOAT_EQ(cmd->uv_scale.x, 0.5f);
     EXPECT_FLOAT_EQ(cmd->uv_scale.y, 0.5f);

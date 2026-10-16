@@ -5,9 +5,11 @@
 #include <engine/ecs/entity.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
+#include <engine/render/scene_lights.h>
 
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
 #include <cstddef>
@@ -32,12 +34,21 @@ namespace engine::render {
         constexpr bool operator==(const Rect &) const noexcept = default;
     };
 
+    // The camera and lights of the world draws that follow it in the buffer, until the next `CmdSetView`. `run_render`
+    // pushes one per bound window, with that window's projection, before the window's world draws. A draw before any
+    // `CmdSetView` in a buffer uses identity view and projection, camera position zero, and no lights.
+    struct CmdSetView {
+        glm::mat4 view{1.0f};
+        glm::mat4 projection{1.0f};
+        // World position of the camera (translation of its world matrix).
+        glm::vec3 camera_position{0.0f};
+        SceneLights lights{};
+    };
+
     struct CmdDrawMesh {
         std::shared_ptr<IMesh> mesh;
         std::shared_ptr<IMaterial> material;
         glm::mat4 model{1.0f};
-        glm::mat4 view{1.0f};
-        glm::mat4 projection{1.0f};
         glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
         glm::vec2 uv_scale{1.0f, 1.0f};
         glm::vec2 uv_offset{0.0f, 0.0f};
@@ -86,11 +97,9 @@ namespace engine::render {
         std::shared_ptr<IMesh> mesh;
         std::shared_ptr<IMaterial> material;
         std::vector<ParticleInstance> instances;
-        glm::mat4 view{1.0f};
-        glm::mat4 projection{1.0f};
         BlendMode blend = BlendMode::Alpha;
     };
 
-    using Command = std::variant<CmdDrawMesh, CmdDrawUI, CmdDrawParticles>;
+    using Command = std::variant<CmdDrawMesh, CmdDrawUI, CmdDrawParticles, CmdSetView>;
 
 } // namespace engine::render

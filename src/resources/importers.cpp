@@ -1,10 +1,15 @@
 #include "importers.h"
 
+#include "render/mesh_check.h"
+
 #include <cctype>
+#include <cstdint>
+#include <limits>
 #include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <tinyxml2.h>
 
@@ -25,6 +30,7 @@ std::string_view trim(std::string_view value) {
 
 }
 
+// docs/tech/features/Assets.md#mesh-files
 std::optional<render::MeshDesc> parse_mesh(std::string_view text) {
     render::MeshDesc desc;
     std::istringstream in{std::string(text)};
@@ -38,24 +44,44 @@ std::optional<render::MeshDesc> parse_mesh(std::string_view text) {
             continue;
         }
         std::istringstream values{std::string(trimmed)};
-        float x = 0.0f;
-        float y = 0.0f;
-        float z = 0.0f;
-        float u = 0.0f;
-        float v = 0.0f;
-        if (!(values >> x >> y >> z >> u >> v)) {
-            return std::nullopt;
+        if (trimmed.front() == 'f') {
+            std::string tag;
+            values >> tag;
+            if (tag != "f") {
+                return std::nullopt;
+            }
+            for (int corner = 0; corner < 3; ++corner) {
+                constexpr long long kMaxIndex = std::numeric_limits<std::uint32_t>::max();
+                long long index = 0;
+                if (!(values >> index) || index < 0 || index > kMaxIndex) {
+                    return std::nullopt;
+                }
+                desc.indices.push_back(static_cast<std::uint32_t>(index));
+            }
+            std::string extra;
+            if (values >> extra) {
+                return std::nullopt;
+            }
+        } else {
+            // 5 numbers: position, uv (normal +Z). 8 numbers: position, normal, uv.
+            std::vector<float> numbers;
+            float number = 0.0f;
+            while (values >> number) {
+                numbers.push_back(number);
+            }
+            if (!values.eof() || (numbers.size() != 5 && numbers.size() != 8)) {
+                return std::nullopt;
+            }
+            render::MeshVertex vertex;
+            vertex.position = {numbers[0], numbers[1], numbers[2]};
+            if (numbers.size() == 8) {
+                vertex.normal = {numbers[3], numbers[4], numbers[5]};
+            }
+            vertex.uv = {numbers[numbers.size() - 2], numbers[numbers.size() - 1]};
+            desc.vertices.push_back(vertex);
         }
-        std::string extra;
-        if (values >> extra) {
-            return std::nullopt;
-        }
-        render::MeshVertex vertex;
-        vertex.position = {x, y, z};
-        vertex.uv = {u, v};
-        desc.vertices.push_back(vertex);
     }
-    if (desc.vertices.empty()) {
+    if (!render::mesh_desc_error(desc).empty()) {
         return std::nullopt;
     }
     return desc;

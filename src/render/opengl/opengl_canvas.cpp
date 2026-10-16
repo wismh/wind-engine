@@ -164,6 +164,8 @@ void OpenGLCanvas::render() {
     }
     const float clear_alpha = (window_ != nullptr && window_->is_transparent()) ? 0.0f : 1.0f;
     glClearColor(0.0f, 0.0f, 0.0f, clear_alpha);
+    // glClear honours the depth mask: a mask a material left false would keep last frame's depth.
+    glDepthMask(GL_TRUE);
     glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     if (window_ != nullptr) {
         const glm::ivec2 size = window_->drawable_size();

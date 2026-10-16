@@ -2,7 +2,7 @@
 
 Welcome to the **Wind** Game Developer Manual. This documentation is written for game developers building 2D games with the Wind game engine.
 
-Wind is a high-performance 2D C++23 game engine tailored for production titles. It features a generational ECS, a declarative XML/CSS UI system with MVVM bindings, an asset cooking pipeline with compile-time identifiers, multi-window presentation, 2D physics probes, and cross-platform support across Desktop, Web (WASM/WebGL2), and Android.
+Wind is a high-performance 2D-first C++23 game engine tailored for production titles, with basic 3D (quaternion transforms, a perspective camera). It features a generational ECS, a declarative XML/CSS UI system with MVVM bindings, an asset cooking pipeline with compile-time identifiers, multi-window presentation, 2D physics probes, and cross-platform support across Desktop, Web (WASM/WebGL2), and Android.
 
 ---
 
@@ -24,7 +24,7 @@ Wind is a high-performance 2D C++23 game engine tailored for production titles. 
 * [Entities & Components](ecs/Entities-and-Components.md) — Generational IDs, pools, `World`, and `View<Ts...>`.
 * [Systems & Schedules](ecs/Systems-and-Schedules.md) — `Schedule::Frame`, `Schedule::Fixed`, and execution phases.
 * [Events](ecs/Events.md) — Double-buffered event queues (`Events<T>`, `EventReader`, `EventWriter`).
-* [Physics & Collisions](ecs/Physics-and-Collisions.md) — Box and circle colliders, triggers, velocity integration, and `CollisionEvent` (the engine runs `run_physics` itself).
+* [Physics & Collisions](ecs/Physics-and-Collisions.md) — Box and circle colliders, triggers, velocity integration, and `CollisionEvent2D` (the engine runs `run_physics_2d` itself).
 * [Hierarchy](ecs/Hierarchy.md) — `Parent`, `set_parent`, world matrices and positions, cascade destroy.
 
 ### 4. [Rendering & 2D Graphics](rendering/Sprites-and-Animation.md)
@@ -32,6 +32,7 @@ Wind is a high-performance 2D C++23 game engine tailored for production titles. 
 * [Materials & Shaders](rendering/Materials-and-Shaders.md) — Material definitions (`.mat`), GLSL shaders in CDATA, and uniforms.
 * [Command Buffer & Sorting](rendering/Command-Buffer-and-Sort.md) — `Renderable`, how the engine turns drawable components into commands, and draw order (layer, order in layer).
 * [Camera](rendering/Camera.md) — Orthographic camera, `ActiveCamera`, and screen-to-world coordinate conversion.
+* [Basic 3D](rendering/Basic-3D.md) — A perspective camera, a cube with the builtin lit material, and directional and ambient lights.
 
 ### 5. [Wind UI System](ui/UI-Basics.md)
 * [UI Basics](ui/UI-Basics.md) — Declarative XML markup (`Canvas`, `Stack`, `Label`, `Button`, ...), the CSS subset, and `UiCanvas`.

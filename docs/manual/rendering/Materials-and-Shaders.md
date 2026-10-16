@@ -20,10 +20,18 @@ For a mesh draw, the engine sets these uniforms on your shader and feeds this ve
 | --- | --- | --- |
 | `aPosition` (location 0) | `vec3` | vertex position |
 | `aUV` (location 1) | `vec2` | vertex UV |
+| `aNormal` (location 2) | `vec3` | vertex normal |
 | `uModel`, `uView`, `uProjection` | `mat4` | model matrix from `Transform`, camera view, camera projection |
+| `uNormalMatrix` | `mat3` | inverse transpose of the model's 3x3, to carry normals to world space |
 | `uColor` | `vec4` | material color times the instance color |
 | `uUvScale`, `uUvOffset` | `vec2` | `Sprite::tiling` / `offset` (`1,1` / `0,0` for a `Renderable`) |
-| `uTexture` | `sampler2D` | the material's albedo (texture unit 0) |
+| `uTexture` | `sampler2D` | the material's albedo (texture unit 0); a 1x1 white texture when the material has none |
+| `uCameraPosition` | `vec3` | camera position in world space |
+| `uLightCount` | `int` | number of directional lights used (0 to 4) |
+| `uLightDirections[4]`, `uLightColors[4]` | `vec3[4]` | world direction each light travels along (unit length), and its color times intensity |
+| `uAmbient` | `vec3` | ambient light (sum of every `AmbientLight`) |
+
+A uniform your shader does not declare is skipped. The lighting uniforms follow the rules in [Basic 3D](Basic-3D.md#lights).
 
 Example `assets/shaders/custom_glow.shader`:
 
@@ -67,23 +75,28 @@ Example `assets/shaders/custom_glow.shader`:
 </shader>
 ```
 
-The engine's builtin `shaders/unlit.shader` is the shortest working example (in an SDK it is `bin/assets/engine/shaders/unlit.shader`).
+The engine's builtin `shaders/unlit.shader` is the shortest working example (in an SDK it is `bin/assets/engine/shaders/unlit.shader`). `shaders/lit.shader` is the lit one: Lambert diffuse per directional light plus ambient.
 
 ---
 
 ## 2. Authoring Materials (`.mat`)
 
-A material pairs a shader with an optional albedo texture, a color, and a blend mode. The shader and texture are written as the asset's 32-character `guid` from its `.meta`:
+A material pairs a shader with an optional albedo texture, a color, a blend mode, and depth and culling settings. The shader and texture are written as the asset's 32-character `guid` from its `.meta`:
 
 ```toml
 # assets/materials/glow.mat
 shader = "a1b2c3d4e5f60718293a4b5c6d7e8f90"   # guid of assets/shaders/custom_glow.shader
 blend = "alpha"                                  # "opaque" (default), "alpha" or "additive"
 color = [1.0, 1.0, 1.0, 1.0]                     # default white
+depth_test = false                               # default false
+depth_write = false                              # default false
+cull = "none"                                    # "none" (default), "back" or "front"
 
 [textures]
 albedo = "0123456789abcdef0123456789abcdef"      # guid of a texture; omit for none
 ```
+
+The defaults are the 2D state: no depth test, no depth write, no culling, so sprites draw in layer order. For a solid 3D mesh write `blend = "opaque"`, `depth = true` (sets `depth_test` and `depth_write` together; an explicit `depth_test` or `depth_write` wins over it) and `cull = "back"`; counter-clockwise triangles are front faces. Glass or another see-through 3D surface is `blend = "alpha"` with `depth_test = true` and `depth_write = false`. Particles ignore depth and culling. In C++ the same settings are `engine::render::RenderState`, the fourth argument of `engine::render::Material`. An unknown `blend` or `cull` value, or a `depth*` key that is not `true` or `false`, makes the material fail to load.
 
 A `shader` or `albedo` that is not 32 lowercase hex characters makes the material fail to load (`AssetError::Corrupt`). Codegen does not rewrite these strings, so copy the GUIDs from the `.meta` files. There is no `[uniforms]` table: custom shader parameters are set per draw (next section). The `.mat` needs its own `.meta` with `importer = "material"`.
 

@@ -1,0 +1,5 @@
+shader = "a0e1b2c3d4f5678901234567890abc0a"
+blend = "opaque"
+depth = true
+cull = "back"
+color = [1.0, 1.0, 1.0, 1.0]
