@@ -10,6 +10,7 @@ namespace engine::render {
 
 class OpenGLMesh final : public IMesh {
 public:
+    // An invalid desc (render/mesh_check.h) is logged and leaves the mesh invalid.
     explicit OpenGLMesh(const MeshDesc& desc);
     ~OpenGLMesh() override;
 
@@ -24,8 +25,11 @@ public:
 
 private:
     unsigned int vbo_ = 0;
+    // 0 for a non-indexed mesh.
+    unsigned int ebo_ = 0;
     ContextVao vao_;
-    int vertex_count_ = 0;
+    // Vertices drawn by glDrawArrays, or indices by glDrawElements when ebo_ is set.
+    int draw_count_ = 0;
 };
 
 }

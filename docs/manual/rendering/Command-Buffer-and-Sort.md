@@ -28,6 +28,19 @@ world.emplace<engine::render::Renderable>(tile, engine::render::Renderable{
 
 `Renderable` has `mesh`, `material` (both required: an entity missing one is reported and skipped), `color`, `layer`, `order_in_layer`, and an optional `material_override`. The mesh is drawn with the model matrix of the `Transform` (translate, rotate by the `rotation` quaternion, scale). For a textured picture use a `Sprite` ([Sprites & Animation](Sprites-and-Animation.md)), which supplies the quad and the material for you. An entity with both `Renderable` and `Sprite` draws only the `Renderable`.
 
+### Meshes
+
+A mesh is a `.mesh` asset (rows of `x y z u v` or `x y z nx ny nz u v`, plus optional `f a b c` triangle rows of vertex indices), a builtin (`engine::builtin::mesh_quad`, `engine::builtin::mesh_cube`), or built in code. `<engine/render/primitives.h>` makes a quad, cube, XZ plane, or UV sphere as a `MeshDesc`; hand it to the graphics factory once and keep the mesh:
+
+```cpp
+#include <engine/render/primitives.h>
+
+std::shared_ptr<engine::render::IMesh> ball =
+        services.graphics.create_mesh(engine::render::make_uv_sphere(0.5f, 32, 16));
+```
+
+Each vertex has a position, a normal (default +Z), and a UV. Triangles wind counter-clockwise when their front faces the camera. A mesh with an index past its vertices does not load. The unlit shader ignores normals; they are there for lit 3D shaders.
+
 ---
 
 ## 2. Draw Order
