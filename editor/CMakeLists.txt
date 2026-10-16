@@ -11,6 +11,7 @@ set(_wind_editor_parts
     src/build_panel.cpp
     src/build_view_model.cpp
     src/dock_layout_file.cpp
+    src/edit_module.cpp
     src/editor_cli.cpp
     src/editor_options.cpp
     src/editor_panels.cpp
@@ -25,6 +26,8 @@ set(_wind_editor_parts
     src/inspector_panel.cpp
     src/inspector_section_view_model.cpp
     src/inspector_view_model.cpp
+    src/opening_overlay.cpp
+    src/opening_view_model.cpp
     src/play_session.cpp
     src/profiler_chart_paint.cpp
     src/profiler_panel.cpp
@@ -57,12 +60,14 @@ if(ENGINE_BUILD_TESTS)
         tests/batch_run_test.cpp
         tests/build_panel_test.cpp
         tests/dock_layout_file_test.cpp
+        tests/edit_module_test.cpp
         tests/editor_cli_test.cpp
         tests/editor_options_test.cpp
         tests/editor_panels_test.cpp
         tests/explorer_panel_test.cpp
         tests/export_dialog_test.cpp
         tests/inspector_panel_test.cpp
+        tests/opening_overlay_test.cpp
         tests/play_session_test.cpp
         tests/profiler_chart_test.cpp
         tests/profiler_panel_test.cpp
