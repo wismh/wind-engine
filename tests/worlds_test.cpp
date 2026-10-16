@@ -165,14 +165,72 @@ TEST(Worlds, MeshesGoToEachBoundWindowWithThatWindowSize) {
 
     engine::simulate_worlds(worlds, nullptr, engine::kFixed);
 
-    ASSERT_EQ(primary_buffer.size(), 1u);
-    ASSERT_EQ(guest_buffer.size(), 1u);
-    const auto& primary_draw = std::get<engine::render::CmdDrawMesh>(primary_buffer[0]);
-    const auto& guest_draw = std::get<engine::render::CmdDrawMesh>(guest_buffer[0]);
+    ASSERT_EQ(primary_buffer.size(), 2u);
+    ASSERT_EQ(guest_buffer.size(), 2u);
+    ASSERT_TRUE(std::holds_alternative<engine::render::CmdDrawMesh>(primary_buffer[1]));
+    ASSERT_TRUE(std::holds_alternative<engine::render::CmdDrawMesh>(guest_buffer[1]));
+    const auto& primary_draw = std::get<engine::render::CmdSetView>(primary_buffer[0]);
+    const auto& guest_draw = std::get<engine::render::CmdSetView>(guest_buffer[0]);
     const engine::Camera camera{};
     EXPECT_EQ(primary_draw.projection, engine::projection_matrix(camera, engine::ui::WindowSize{800, 600}));
     EXPECT_EQ(guest_draw.projection, engine::projection_matrix(camera, engine::ui::WindowSize{200, 600}));
     EXPECT_NE(primary_draw.projection, guest_draw.projection);
+}
+
+// One world on two windows: each buffer gets exactly one CmdSetView, first, with that window's projection, then
+// the same sorted draws.
+TEST(Worlds, OneWorldOnTwoWindowsPushesOneViewPerWindowBeforeItsDraws) {
+    fakes::QuietFatal fatal;
+    engine::Worlds worlds{fatal};
+    engine::render::CommandBuffer primary_buffer;
+    engine::render::CommandBuffer float_buffer;
+    const engine::WindowId float_window{2};
+    engine::EngineSystemDeps deps;
+    deps.commands_for_window = [&](engine::WindowId id) -> engine::render::CommandBuffer* {
+        if (id == engine::kPrimaryWindow) {
+            return &primary_buffer;
+        }
+        return id == float_window ? &float_buffer : nullptr;
+    };
+    worlds.set_deps(deps);
+
+    engine::ecs::World& world = worlds.add();
+    worlds.bind_window(engine::kPrimaryWindow, world);
+    worlds.bind_window(float_window, world);
+    worlds.presentation().sizes.sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
+    worlds.presentation().sizes.sizes[float_window] = engine::ui::WindowSize{300, 600};
+
+    const auto mesh = std::make_shared<FakeMesh>();
+    const auto material = std::make_shared<FakeMaterial>();
+    spawn_drawable(world, mesh, material);
+    const engine::ecs::Entity second = world.create();
+    world.emplace<engine::Transform>(second, engine::Transform{.position = {1.0f, 0.0f, 0.0f}});
+    world.emplace<engine::render::Renderable>(second, engine::render::Renderable{mesh, material});
+    engine::Camera& camera = world.get<engine::Camera>(world.ctx<engine::ActiveCamera>().entity);
+    camera.projection = engine::Projection::Perspective;
+    camera.near_clip = 0.1f;
+    camera.far_clip = 100.0f;
+
+    engine::simulate_worlds(worlds, nullptr, engine::kFixed);
+
+    const auto check = [&](const engine::render::CommandBuffer& buffer, engine::ui::WindowSize size) {
+        ASSERT_EQ(buffer.size(), 3u);
+        int views = 0;
+        for (const engine::render::Command& command : buffer) {
+            views += std::holds_alternative<engine::render::CmdSetView>(command) ? 1 : 0;
+        }
+        EXPECT_EQ(views, 1);
+        ASSERT_TRUE(std::holds_alternative<engine::render::CmdSetView>(buffer[0]));
+        EXPECT_TRUE(std::holds_alternative<engine::render::CmdDrawMesh>(buffer[1]));
+        EXPECT_TRUE(std::holds_alternative<engine::render::CmdDrawMesh>(buffer[2]));
+        const auto& view = std::get<engine::render::CmdSetView>(buffer[0]);
+        EXPECT_EQ(view.projection, engine::projection_matrix(camera, size));
+        EXPECT_EQ(view.view, glm::mat4(1.0f));
+    };
+    check(primary_buffer, engine::ui::WindowSize{800, 600});
+    check(float_buffer, engine::ui::WindowSize{300, 600});
+    EXPECT_EQ(std::get<engine::render::CmdSetView>(primary_buffer[0]).lights,
+            std::get<engine::render::CmdSetView>(float_buffer[0]).lights);
 }
 
 TEST(Worlds, WindowlessWorldDoesNotTouchACommandBuffer) {
@@ -295,7 +353,7 @@ TEST(Worlds, SystemsRegisterOnceWhetherTheWorldComesBeforeOrAfterSetDeps) {
 
     engine::simulate_worlds(worlds, nullptr, engine::kFixed);
 
-    // run_render registered twice would push the mesh twice.
-    EXPECT_EQ(early_buffer.size(), 1u);
-    EXPECT_EQ(late_buffer.size(), 1u);
+    // run_render registered twice would push the view and the mesh twice.
+    EXPECT_EQ(early_buffer.size(), 2u);
+    EXPECT_EQ(late_buffer.size(), 2u);
 }

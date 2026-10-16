@@ -1,6 +1,6 @@
 # Materials and sort
 
-World draws are data on entities. `run_render` turns them into commands, sorts them once, and pushes that list to every bound window's `CommandBuffer`.
+World draws are data on entities. `run_render` turns them into commands, sorts them once, and pushes that list to every bound window's `CommandBuffer`, after one `CmdSetView` per window that carries the camera and the lights ([Render](../modules/Render.md#commands)).
 
 ## What you put on an entity
 
@@ -31,7 +31,7 @@ An empty `particles` list pushes nothing and does not report. When the list is n
 
 ## Render state
 
-`IMaterial::render_state()` returns a `RenderState` (`include/engine/render/material.h`): `blend` (`BlendMode`), `depth_test`, `depth_write`, and `cull` (`CullMode`: `None`, `Back`, `Front`; counter-clockwise is the front face, as the wind-236 primitives wind). `RenderState{}` is the 2D state: `Alpha`, no depth test, no depth write, `None`. `Material(shader, albedo, color, state)` takes it whole; the cached sprite and particle materials pass `RenderState{.blend = ...}` and so keep the 2D state. A 3D opaque material is `{.blend = Opaque, .depth_test = true, .depth_write = true, .cull = Back}`.
+`IMaterial::render_state()` returns a `RenderState` (`include/engine/render/material.h`): `blend` (`BlendMode`), `depth_test`, `depth_write`, and `cull` (`CullMode`: `None`, `Back`, `Front`; counter-clockwise is the front face, as the wind-236 primitives wind). `RenderState{}` is the 2D state: `Alpha`, no depth test, no depth write, `None`. `Material(shader, albedo, color, state)` takes it whole; the cached sprite and particle materials pass `RenderState{.blend = ...}` and so keep the 2D state. A 3D opaque material is `{.blend = Opaque, .depth_test = true, .depth_write = true, .cull = Back}`; `builtin::material_lit` is one, on the Lambert `builtin::shader_lit` ([Render](../modules/Render.md#lit-shader)).
 
 The backend reads the state from `CmdDrawMesh::material` at execute time; the command carries no copy. Particles ignore everything but the blend: `CmdDrawParticles` draws with `cmd.blend`, no depth test or write, and no culling ([Render](../modules/Render.md#opengl-engine_with_window)).
 
@@ -41,13 +41,15 @@ The backend reads the state from `CmdDrawMesh::material` at execute time; the co
 
 `tinted_color()` on the component is that product, for CPU-side use. The command stores the instance color, not the product.
 
+A material with no albedo samples a 1x1 white texture in the OpenGL backend, so the draw is `uColor` (times the lighting under `shader_lit`), never black or a stale texture.
+
 ## Matrices
 
 Camera: `ctx<ActiveCamera>` holds one entity. When `ctx<BoundWindows>().ids` is empty, `run_render` returns before it clears a command buffer and before it reads the camera.
 
 When the list is not empty and a `Renderable`, `Sprite`, or `ParticleEmitter` is present, each bound window's buffer is already cleared. An invalid or default entity then returns and does not call the fatal hook (`tests/render_system_test.cpp`, `SkipsScenePassWhenActiveCameraUnset`).
 
-Fatal is only a live entity that lacks `Camera` or `Transform`. Either path pushes no scene commands. `run_ui_render` still pushes `CmdDrawUI`. Each bound window's projection is `projection_matrix` with `window_size_for` for that id (`Presentation.sizes`).
+Fatal is only a live entity that lacks `Camera` or `Transform`. Either path pushes no scene commands. `run_ui_render` still pushes `CmdDrawUI`. Each bound window's projection is `projection_matrix` with `window_size_for` for that id (`Presentation.sizes`). View and projection reach the backend only in that window's `CmdSetView`, pushed before its draws; `CmdDrawMesh` carries the model matrix alone and `CmdDrawParticles` no matrix.
 
 Model matrix, column vector, applied right to left as written in code: translate, rotate (`mat4_cast` of the `Transform::rotation` quaternion), scale.
 
@@ -109,7 +111,7 @@ TOML parsed by `parse_material`:
 
 Headless tests can push commands and sort them. Pixels require `ENGINE_WITH_WINDOW`. `OpenGLBackend::execute` walks the buffer. `CmdDrawUI` goes to the UI renderer on that window's canvas.
 
-`run_render` pushes those world commands to every id in `ctx<BoundWindows>()` that has a command buffer. A bound secondary window receives the same sorted draws. Its projection is `window_size_for` for that id (`Presentation.sizes`). `CmdDrawUI` is separate, per canvas.
+`run_render` pushes those world commands to every id in `ctx<BoundWindows>()` that has a command buffer, each list after that window's `CmdSetView`. A bound secondary window receives the same sorted draws. Its projection, in its own `CmdSetView`, is `window_size_for` for that id (`Presentation.sizes`). The backend keeps the last `CmdSetView` while it walks the buffer and starts each `execute` from identity matrices. `CmdDrawUI` is separate, per canvas.
 
 ## See also
 

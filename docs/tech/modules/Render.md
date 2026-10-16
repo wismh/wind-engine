@@ -6,15 +6,18 @@ Draw order and `.mat` files: [Materials and Sort](../features/Materials%20and%20
 
 ## Commands
 
-`Command` is a `std::variant` of three types (`include/engine/render/commands.h`):
+`Command` is a `std::variant` of four types (`include/engine/render/commands.h`):
 
 | Command | Who pushes it |
 | --- | --- |
 | `CmdDrawMesh` | `run_render` for `Renderable` and `Sprite` |
-| `CmdDrawParticles` | `run_render` for a `ParticleEmitter` whose `particles` list is not empty |
 | `CmdDrawUI` | `run_ui_render` for each `UiCanvas` |
+| `CmdDrawParticles` | `run_render` for a `ParticleEmitter` whose `particles` list is not empty |
+| `CmdSetView` | `run_render`, once per bound window, before that window's world draws |
 
 There is no custom-draw callback on the variant.
+
+`CmdSetView` is the view state of the world draws that follow it: `view`, `projection`, `camera_position` (the translation of the camera's world matrix), and `lights` (`SceneLights`, see [Lights](#lights)). It holds until the next `CmdSetView` in the same buffer. The draws carry no camera: `CmdDrawMesh` has only its `model`, and `CmdDrawParticles` has none (its instances are in world space). A draw before any `CmdSetView` in a buffer uses identity view and projection, camera position zero, and no lights (`directional_count` 0, ambient black), which is a default-constructed `CmdSetView`; the OpenGL backend resets to that at the start of every `execute`. A test or tool that pushes its own `CmdDrawMesh` therefore draws in clip space unless it pushes a `CmdSetView` first.
 
 `CommandBuffer` stores that variant and can `push`, `clear`, and be iterated. `IRenderBackend::execute` consumes one buffer. `ICanvas::draw` is the present hook the headless `Host` calls. The windowed path calls `draw_all` on the presentation instead; `OpenGLCanvas` splits it into `render`, `read_pixels` (only for a `wind-cli screenshot`), and `present`.
 
@@ -61,7 +64,7 @@ An empty list returns before any command buffer is cleared and before the camera
 
 When the list is not empty, each bound window's command buffer is cleared once. A window with no buffer is skipped: a bound window can outlive its buffer for a frame when the OS closes it between two dock syncs (`Worlds::unbind_window` runs on the next one). If there is then no `Renderable`, `Sprite`, or `ParticleEmitter`, it returns. An invalid or default `ctx<ActiveCamera>` is fatal, and so is a live entity that lacks `Camera` or `Transform`. Neither path pushes scene commands. `run_render` is only registered when `EngineSystemDeps` has a command buffer (`commands` or `commands_for_window`); a world without one draws nothing and never checks the camera. `run_ui_render` still pushes `CmdDrawUI`. A window `run_render` already cleared is not cleared again.
 
-The draw list is sorted once. That list is pushed to every bound window that has a command buffer. Every window shares the camera view. Each window's projection is `projection_matrix` with `window_size_for(world, id)`, which reads `Presentation.sizes` for that id.
+The draw list is sorted once. For every bound window that has a command buffer, `run_render` pushes one `CmdSetView` and then that list. Every window's view shares the camera's view matrix, camera position, and lights (collected once per frame by `collect_scene_lights`). Each window's projection is `projection_matrix` with `window_size_for(world, id)`, which reads `Presentation.sizes` for that id. A frame with nothing to draw pushes no `CmdSetView` either, so the buffer of a world with only UI is what it was before views existed.
 
 A null `Sprite::mesh` uses `builtin::mesh_quad` when that asset loads. An explicit `Sprite::material` is used as-is. A null material with a non-null `texture` reuses the `ctx<SpriteMaterialCache>` entry for that texture pointer, or builds `Material(builtin::shader_unlit, texture, white, {.blend = BlendMode::Alpha})` and stores it. If that shader did not load and the cache misses, the sprite is fatal and skipped. `builtin::material_unlit` is not used on that path.
 
@@ -72,6 +75,53 @@ Items sort by `draw_sort_less` (`include/engine/render/draw_sort.h`): the opaque
 Model matrix is the entity's world matrix (`ecs::world_matrix`): translate, then rotate X, Y, Z, then scale for a root, and the parent chain times that for a child (`Parent`, see [ECS](ECS.md#hierarchy)). `Phase::Transform` refreshes it before `Render`. The sprite pivot, size and flip below are applied after it. A `Local`-space `ParticleEmitter` uses the same world matrix. The view is the inverse of the active camera's world matrix.
 
 Sprite world size is `pixel_size / pixels_per_unit` (default 100), with the pivot offset, only when both `pixel_size` components and `pixels_per_unit` are greater than 0. `Sprite::pixel_size` defaults to `{0,0}`, so a sprite left there is the mesh at the `Transform` only. Flip and UV tiling/offset still apply. `get_sprite` fills `pixel_size`.
+
+## Lights
+
+ECS data, public, one type per header:
+
+| Component | Header | Fields |
+| --- | --- | --- |
+| `DirectionalLight` | `include/engine/render/directional_light.h` | `color` (white), `intensity` (1) |
+| `AmbientLight` | `include/engine/render/ambient_light.h` | `color` (white), `intensity` (0.2) |
+
+`collect_scene_lights(world)` (`include/engine/render/lights.h`, `src/render/lights.cpp`) turns them into the `SceneLights` (`include/engine/render/scene_lights.h`) that `run_render` puts into every `CmdSetView` of the frame. All in world space:
+
+- A directional light shines along the entity's world forward: the normalized -Z column of `ecs::world_matrix`. So `Transform::rotation` aims it, a `Parent` carries it (after `Phase::Transform`), and position and scale do not matter. An entity without `Transform` shines along -Z, and so does a matrix whose -Z column is zero. `SceneLights::colors[i]` is `color * intensity`.
+- At most `kMaxDirectionalLights` (4) directional lights: the lowest entity indices (`Entity::operator<`), so the cut is the same every frame whatever the pool order. More than that logs one warning per process and the rest are ignored. The flag lives in `src/render/lights.cpp`, not in a header.
+- Ambient is the sum of `color * intensity` over every `AmbientLight`, so two ambient lights add up and their order does not matter.
+- A world with no `DirectionalLight` and no `AmbientLight` at all gets `default_scene_lights()`: one white light along `normalize(kDefaultLightDirection)` = `normalize(0.3, -1, -0.5)` (from above, in front, and to the left, so the visible faces of a cube seen from +Z all differ) and ambient `kDefaultAmbient` = 0.2. Without it a lit object in a scene that declares no lights would be black; with it a first 3D scene (camera, cube, `material_lit`) reads as a solid shape. The default is all or nothing: a world with any light entity gets exactly its lights, so a scene with only an `AmbientLight` has no directional light, and one with only directional lights has no ambient.
+
+Unlit shaders ignore all of it, so lights never change a 2D game.
+
+## Lit shader
+
+`builtin::shader_lit` (`builtin_assets/shaders/lit.shader`, GLSL 330 core in CDATA, rewritten to 300 es by `adapt_glsl` like every shader) is Lambert diffuse plus ambient in world space:
+
+```
+albedo = texture(uTexture, vUV) * uColor
+light  = uAmbient + sum over i < uLightCount of uLightColors[i] * max(dot(N, -uLightDirections[i]), 0)
+FragColor = vec4(albedo.rgb * light, albedo.a)
+```
+
+`N` is `normalize(uNormalMatrix * aNormal)` (vertex location 2). The loop runs to the constant `kMaxDirectionalLights` (a `#define` of 4 in the shader, the same number as the C++ constant) and breaks at `uLightCount`, which GLSL ES 3.00 accepts. There is no specular term, so `uCameraPosition` is set but this shader does not read it.
+
+`builtin::material_lit` (`builtin_assets/materials/lit.mat`) is that shader, white, no texture, `blend = "opaque"`, `depth = true`, `cull = "back"`, so it goes in the opaque queue.
+
+Uniforms the backend sets for each mesh draw (the view and light ones also for each particle draw):
+
+| Uniform | Type | Value |
+| --- | --- | --- |
+| `uModel` | `mat4` | `CmdDrawMesh::model` |
+| `uNormalMatrix` | `mat3` | `transpose(inverse(mat3(model)))`, computed on the CPU only when the program has the uniform; identity when the 3x3 is singular (a zero scale) |
+| `uView`, `uProjection` | `mat4` | current `CmdSetView` |
+| `uCameraPosition` | `vec3` | current `CmdSetView::camera_position` |
+| `uLightCount` | `int` | `lights.directional_count` |
+| `uLightDirections[4]`, `uLightColors[4]` | `vec3` arrays | `lights.directions`, `lights.colors` (always all four elements) |
+| `uAmbient` | `vec3` | `lights.ambient` |
+| `uColor`, `uUvScale`, `uUvOffset`, `uTexture` | | as before ([Materials and Sort](../features/Materials%20and%20Sort.md#color)) |
+
+`OpenGLShader` setters do nothing for a uniform the program does not have (location -1, which GL ignores; the new `set_mat3`, `set_vec3` and `set_vec3_array` check it explicitly), so `builtin::shader_unlit` and every 2D shader draw exactly as before.
 
 ## Sprites, animation, particles, curves
 
@@ -134,6 +184,10 @@ Desktop links glad and OpenGL 3.3. `ENGINE_WITH_GLES` links SDL without glad (An
 
 Sampler state on upload comes from the catalog filter and wrap (`opengl_texture.cpp`).
 
+View state (`opengl_backend.cpp`). `OpenGLRenderBackend` keeps one `CmdSetView`. `execute` resets it to a default `CmdSetView` (identity, no lights) before the first command, a `CmdSetView` replaces it, and each mesh and particle draw sets `uView`, `uProjection`, `uCameraPosition`, and the light uniforms from it ([Lit shader](#lit-shader)). `CmdSetView` itself makes no GL call.
+
+Albedo. A mesh draw binds the material's slot-0 texture on unit 0 or, when the material has none (or it is not valid), a 1x1 white RGBA texture the backend makes on first use (`white_texture`, shared by every context). So an untextured material draws as its color, under any shader. The particle draw has always done this; before wind-238 an untextured mesh sampled whatever unit 0 still held (the previous draw's texture, or nothing after the UI flush). A `MaterialOverride` albedo still replaces it for that draw.
+
 Pipeline state of world draws (`opengl_backend.cpp`). Each `CmdDrawMesh` sets all of it from `material->render_state()`, so nothing leaks from the previous draw:
 
 - Blend: `Opaque` disables `GL_BLEND`; `Alpha` is `SRC_ALPHA, ONE_MINUS_SRC_ALPHA`; `Additive` is `SRC_ALPHA, ONE`.
@@ -154,6 +208,7 @@ GL errors are silent unless someone asks. With `ENGINE_GL_CHECKS` (Debug, RelWit
 ## CPU sources (always)
 
 - `src/render/material.cpp` — parse `.mat`
+- `src/render/lights.cpp` — `collect_scene_lights`, `default_scene_lights`
 - `src/render/material_instance.h` — `IMaterial` for a cooked material
 - `src/render/animation.cpp`, `src/render/particles.cpp`, `src/render/shader_adapt.cpp`
 - `src/render/context_objects.cpp` — GL context keys and deferred VAO deletes, without GL calls
@@ -163,6 +218,10 @@ GL errors are silent unless someone asks. With `ENGINE_GL_CHECKS` (Debug, RelWit
 
 - `include/engine/render/commands.h`
 - `include/engine/render/command_buffer.h`
+- `include/engine/render/directional_light.h`
+- `include/engine/render/ambient_light.h`
+- `include/engine/render/scene_lights.h`
+- `include/engine/render/lights.h`
 - `include/engine/render/renderable.h`
 - `include/engine/render/draw_sort.h`
 - `include/engine/render/sprite.h`
@@ -178,7 +237,7 @@ GL errors are silent unless someone asks. With `ENGINE_GL_CHECKS` (Debug, RelWit
 
 ## Tests
 
-`tests/command_buffer_test.cpp`, `tests/sort_test.cpp`, `tests/material_test.cpp`, `tests/render_system_test.cpp`, `tests/sprite_test.cpp`, `tests/animation_test.cpp`, `tests/particle_test.cpp`, `tests/shader_adapt_test.cpp`, `tests/opengl_texture_test.cpp` (CPU texture desc, no GL draw), `tests/ui_painter_test.cpp` (fake painter), `tests/window_icon_test.cpp`, `tests/context_objects_test.cpp` (context keys and deferred VAO deletes, no GL), `tests/gl_error_log_test.cpp`, `tests/ui_renderer_test.cpp` (UI renderer against a fake device: texture catch-up per device, draws per batch).
+`tests/command_buffer_test.cpp`, `tests/lights_test.cpp` (light collection, lights and camera in `CmdSetView`), `tests/sort_test.cpp`, `tests/material_test.cpp`, `tests/render_system_test.cpp`, `tests/sprite_test.cpp`, `tests/animation_test.cpp`, `tests/particle_test.cpp`, `tests/shader_adapt_test.cpp`, `tests/opengl_texture_test.cpp` (CPU texture desc, no GL draw), `tests/ui_painter_test.cpp` (fake painter), `tests/window_icon_test.cpp`, `tests/context_objects_test.cpp` (context keys and deferred VAO deletes, no GL), `tests/gl_error_log_test.cpp`, `tests/ui_renderer_test.cpp` (UI renderer against a fake device: texture catch-up per device, draws per batch).
 
 GPU pixels stay out of `engine_tests`. See [Boundaries](../architecture/Boundaries.md).
 

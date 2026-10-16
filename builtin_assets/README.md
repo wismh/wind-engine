@@ -1,6 +1,6 @@
 # Builtin assets
 
-Default unlit shader, unit quad, unit cube, unlit material, UI font, math font, splash image, tree chevron, and the dock chrome theme.
+Default unlit shader, unit quad, unit cube, unlit material, Lambert lit shader and its white opaque material, UI font, math font, splash image, tree chevron, and the dock chrome theme.
 
 **GUIDs are frozen** in `include/engine/builtin_ids.h` (`engine::builtin::*`). Do not regenerate them. Sidecar `.meta` files must keep those exact `guid` values.
 
@@ -15,8 +15,12 @@ Default unlit shader, unit quad, unit cube, unlit material, UI font, math font, 
 | `tree_chevron` | `textures/tree_chevron.png` | `ui_image` |
 | `dock_css` | `css/dock.css` | `css` |
 | `mesh_cube` | `meshes/cube.mesh` | `mesh` |
+| `shader_lit` | `shaders/lit.shader` | `shader` |
+| `material_lit` | `materials/lit.mat` | `material` |
 
 CMake copies this tree to `<exe dir>/assets/engine/`. Game `asset_codegen` is given this reserved GUID list and fails if a game `.meta` reuses one.
+
+`shaders/lit.shader` is Lambert diffuse per directional light plus ambient, from the uniforms the backend fills from `CmdSetView` ([Render](../docs/tech/modules/Render.md#lit-shader)). Its light arrays are sized 4, the same as `engine::render::kMaxDirectionalLights`. `materials/lit.mat` uses it: white, no texture (the backend binds white), `blend = "opaque"`, `depth = true`, `cull = "back"`.
 
 `fonts/ui.ttf` is Inter Regular 4.1, the static TrueType instance (not the variable font), SIL OFL (`fonts/OFL.txt`, https://github.com/rsms/inter/releases/tag/v4.1, `extras/ttf/Inter-Regular.ttf`). It is the default UI face, including Cyrillic. The GUID stays `font_ui`.
 

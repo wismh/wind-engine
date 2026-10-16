@@ -363,8 +363,8 @@ TEST(Animation, FullFrameScheduleAppliesAndRendersAnimatedSprite) {
     // Run frame schedule (includes Game phase -> run_sprite_animations, and Render phase -> run_render)
     world.run(engine::ecs::Schedule::Frame);
 
-    ASSERT_EQ(commands.size(), 1u);
-    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[0]);
+    ASSERT_EQ(commands.size(), 2u);
+    const auto* cmd = std::get_if<engine::render::CmdDrawMesh>(&commands.commands()[1]);
     ASSERT_NE(cmd, nullptr);
     EXPECT_FLOAT_EQ(cmd->uv_scale.x, 0.5f);
     EXPECT_FLOAT_EQ(cmd->uv_scale.y, 0.5f);
