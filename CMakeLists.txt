@@ -50,9 +50,9 @@ option(ENGINE_BUILD_TESTS "Build engine_tests (GoogleTest)" ${_engine_is_root})
 option(ENGINE_WITH_GTEST "Vendor GoogleTest (implied by ENGINE_BUILD_TESTS)" ${ENGINE_BUILD_TESTS})
 # Root builds stay headless (`engine_tests`). A game `add_subdirectory` turns the window on.
 if(_engine_is_root)
-    option(ENGINE_WITH_WINDOW "SDL3 + OpenGL + NanoVG backend" OFF)
+    option(ENGINE_WITH_WINDOW "SDL3 + OpenGL backend" OFF)
 else()
-    option(ENGINE_WITH_WINDOW "SDL3 + OpenGL + NanoVG backend" ON)
+    option(ENGINE_WITH_WINDOW "SDL3 + OpenGL backend" ON)
 endif()
 # Same split as ENGINE_WITH_WINDOW: root stays silent (`engine_tests` never opens a mixer
 # device), a game gets sound without having to FORCE it on itself.
@@ -77,7 +77,7 @@ function(engine_require_file rel)
         message(FATAL_ERROR
             "Missing ${rel} (git submodule not cloned?). From the engine repo run:\n"
             "  git submodule update --init --recursive\n"
-            "WINDOW deps: external/SDL3, external/glad, external/nanovg.\n"
+            "WINDOW deps: external/SDL3, external/glad.\n"
             "AUDIO deps: external/SDL3, external/SDL_mixer.\n"
             "See external/README.md")
     endif()
@@ -102,7 +102,7 @@ if(EMSCRIPTEN OR ANDROID)
 else()
     set(_engine_gles_default OFF)
 endif()
-option(ENGINE_WITH_GLES "OpenGL ES 3.0 backend (no glad, NanoVG GLES3, shader adapt)" ${_engine_gles_default})
+option(ENGINE_WITH_GLES "OpenGL ES 3.0 backend (no glad, shader adapt)" ${_engine_gles_default})
 # Editor build: engine becomes a shared library so the editor and a game module loaded into it share
 # one engine. Exported games (this OFF) link engine statically. Desktop only.
 option(ENGINE_EDITOR "Editor build: shared engine library (engine.dll)" OFF)
@@ -123,7 +123,7 @@ if(ENGINE_EDITOR)
             "ENGINE_EDITOR needs ENGINE_WITH_WINDOW=ON (the editor opens a window). "
             "Use the vs-editor preset.")
     endif()
-    # Every static library linked into the shared engine (spdlog, tinyxml2, glad, nanovg, SDL3,
+    # Every static library linked into the shared engine (spdlog, tinyxml2, glad, SDL3,
     # SDL3_mixer) must be position independent off Windows. Set before the submodules are added.
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
     # The installed SDK is relocatable: wind_editor and the host tools find libengine beside themselves. (Windows
@@ -421,7 +421,6 @@ endfunction()
 
 if(ENGINE_WITH_WINDOW)
     engine_add_sdl3()
-    engine_require_file(external/nanovg/src/nanovg.c)
 
     if(NOT ENGINE_WITH_GLES)
         if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/glad/CMakeLists.txt")
@@ -441,12 +440,6 @@ if(ENGINE_WITH_WINDOW)
         endif()
     endif()
 
-    add_library(nanovg STATIC "${CMAKE_CURRENT_SOURCE_DIR}/external/nanovg/src/nanovg.c")
-    target_include_directories(nanovg PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/external/nanovg/src")
-    if(MSVC)
-        target_compile_definitions(nanovg PRIVATE _CRT_SECURE_NO_WARNINGS)
-    endif()
-
     file(GLOB_RECURSE ENGINE_GL_SOURCES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/src/render/opengl/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/render/opengl/*.c")
@@ -458,19 +451,16 @@ if(ENGINE_WITH_WINDOW)
         "${CMAKE_CURRENT_SOURCE_DIR}/src/core/game_module.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/core/sdl_fatal_error.cpp")
     target_compile_definitions(engine PUBLIC ENGINE_WITH_WINDOW=1)
-    target_include_directories(engine
-        PRIVATE
-            "${CMAKE_CURRENT_SOURCE_DIR}/src/render/opengl"
-            "${CMAKE_CURRENT_SOURCE_DIR}/external/nanovg/src")
+    target_include_directories(engine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/render/opengl")
     if(ENGINE_WITH_GLES)
         if(ANDROID)
-            target_link_libraries(engine PRIVATE SDL3::SDL3 nanovg GLESv3 EGL android log)
+            target_link_libraries(engine PRIVATE SDL3::SDL3 GLESv3 EGL android log)
         else()
-            target_link_libraries(engine PRIVATE SDL3::SDL3 nanovg)
+            target_link_libraries(engine PRIVATE SDL3::SDL3)
         endif()
     else()
         find_package(OpenGL REQUIRED)
-        target_link_libraries(engine PRIVATE SDL3::SDL3 glad nanovg OpenGL::GL)
+        target_link_libraries(engine PRIVATE SDL3::SDL3 glad OpenGL::GL)
     endif()
 endif()
 

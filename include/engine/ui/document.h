@@ -299,11 +299,11 @@ namespace engine::ui {
     };
 
     // `background`/`background-image: linear-gradient()|radial-gradient()|conic-gradient()`. `angle_deg`
-    // only applies to Linear (CSS convention: 0deg = to top, clockwise). Conic has no native NanoVG
-    // paint (nvgImagePattern is affine-only) and is rendered by baking a small texture cached by this
-    // struct's content — see IUiPainter::fill_rounded_rect_gradient / NanoVgPainter. That makes it a
-    // fit for a background that changes rarely (a handful of stylesheet classes/pseudo-states), not for
-    // a value animated every frame — that would rebake a GPU texture every frame. A live,
+    // only applies to Linear (CSS convention: 0deg = to top, clockwise). The stops become a row of the
+    // UI renderer's gradient ramp atlas, cached by this struct's content — see
+    // IUiPainter::fill_rounded_rect_gradient / ui::RampAtlas. That makes it a fit for a background that
+    // changes rarely (a handful of stylesheet classes/pseudo-states), not for a value animated every
+    // frame — that would write a new ramp row every frame. A live,
     // continuously-animated ring should instead be drawn imperatively through IPaint/IDrawList
     // (paint.h/draw_list.h), not by swapping this value's stops every frame.
     struct Gradient {
@@ -442,7 +442,7 @@ namespace engine::ui {
     // compute_style()). Lives here rather than as a paint.cpp-private type only so Element can cache
     // it (see StyleCacheEntry below) without a public header including a private one — every field
     // here is already a type Element itself exposes (glm, AssetId, Length/LengthInsets/UiAlign/...),
-    // so this adds no SDL/glad/NanoVG/spdlog/tinyxml2/mixer exposure.
+    // so this adds no SDL/glad/spdlog/tinyxml2/mixer exposure.
     struct ComputedStyle {
         glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
         glm::vec4 background{0.0f, 0.0f, 0.0f, 0.0f};
