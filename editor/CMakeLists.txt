@@ -41,7 +41,9 @@ set(_wind_editor_parts
     src/toolbar.cpp
     src/ui_tree_panel.cpp
     src/ui_tree_row_view_model.cpp
-    src/ui_tree_view_model.cpp)
+    src/ui_tree_view_model.cpp
+    src/world_view_panel.cpp
+    src/world_view_view_model.cpp)
 
 add_executable(wind_editor src/main.cpp src/editor_app.cpp ${_wind_editor_parts})
 set_property(TARGET wind_editor PROPERTY ENGINE_RUNTIME_ASSETS_DIR editor)
@@ -75,6 +77,7 @@ if(ENGINE_BUILD_TESTS)
         tests/project_export_test.cpp
         tests/toolbar_test.cpp
         tests/ui_tree_panel_test.cpp
+        tests/world_view_panel_test.cpp
         ${_wind_editor_parts})
     set_target_properties(wind_editor_tests PROPERTIES
         CXX_STANDARD 23

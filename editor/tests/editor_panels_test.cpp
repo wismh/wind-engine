@@ -126,10 +126,11 @@ TEST_F(EditorPanelsTest, DefaultLayoutHasProjectLeftToolsOverBuildInTheMiddleIns
     ASSERT_EQ(tools->kind, engine::ui::DockNodeKind::Split);
     EXPECT_EQ(tools->axis, engine::ui::DockAxis::Vertical);
     EXPECT_FLOAT_EQ(tools->ratio, 0.7f);
-    EXPECT_EQ(layout.node(tools->first)->panels, (std::vector<std::string>{"ui_tree", "profiler"}));
+    EXPECT_EQ(layout.node(tools->first)->panels, (std::vector<std::string>{"world", "ui_tree", "profiler"}));
     EXPECT_EQ(tools->second, layout.find("build")->stack);
 
     EXPECT_TRUE(layout.is_visible("project"));
+    EXPECT_FALSE(layout.is_visible("world"));
     EXPECT_TRUE(layout.is_visible("ui_tree"));
     EXPECT_TRUE(layout.is_visible("inspector"));
     EXPECT_FALSE(layout.is_visible("profiler"));
@@ -141,11 +142,13 @@ TEST_F(EditorPanelsTest, TheDockSpaceFillsTheWindowBelowTheToolbarAndPlacesThePa
     EXPECT_EQ(space().window, kEditorWindow);
     EXPECT_EQ(space().area, kArea);
     EXPECT_EQ(space().layout, editor::EditorPanels::default_layout()) << "no saved layout";
-    ASSERT_EQ(space().panels.size(), 5u);
+    ASSERT_EQ(space().panels.size(), 6u);
     EXPECT_EQ(space().panels[0].title, "Project");
-    EXPECT_EQ(space().panels[1].title, "UI Tree");
-    EXPECT_EQ(space().panels[2].title, "Inspector");
-    EXPECT_EQ(space().panels[4].title, "Build");
+    EXPECT_EQ(space().panels[1].title, "World");
+    EXPECT_EQ(space().panels[2].title, "UI Tree");
+    EXPECT_EQ(space().panels[3].title, "Inspector");
+    EXPECT_EQ(space().panels[4].title, "Profiler");
+    EXPECT_EQ(space().panels[5].title, "Build");
 
     const engine::ui::DockGeometry geometry =
             engine::ui::compute_dock_geometry(space().layout, kArea, engine::ui::DockMetrics{});
@@ -167,6 +170,23 @@ TEST_F(EditorPanelsTest, TheDockSpaceFillsTheWindowBelowTheToolbarAndPlacesThePa
     EXPECT_EQ(space().area, (Rect{0.0f, 56.0f, 1000.0f, 644.0f}));
     const Rect project = canvas("project").rect;
     EXPECT_EQ(project.y + project.h, 700.0f);
+}
+
+TEST_F(EditorPanelsTest, SelectingAWorldFileOpensItAndActivatesTheWorldTab) {
+    const std::filesystem::path project = dir / "project";
+    std::filesystem::create_directories(project / "assets" / "scenes");
+    std::ofstream(project / "wind_project.toml") << "name = \"x\"\n";
+    std::ofstream(project / "assets" / "scenes" / "level.world")
+            << "version = 1\n\n[[entities]]\nid = \"hero\"\n";
+    start();
+    panels->explorer().open(project);
+    EXPECT_FALSE(space().layout.is_visible("world"));
+
+    panels->explorer().select("assets/scenes/level.world");
+    frame();
+    EXPECT_TRUE(space().layout.is_visible("world"));
+    EXPECT_TRUE(panels->world_view().world_loaded());
+    EXPECT_EQ(panels->world_view().view_model()->statusText.get(), "assets/scenes/level.world  (1 entity)");
 }
 
 TEST_F(EditorPanelsTest, OnlyTheShownUiTreeOrProfilerRefreshes) {

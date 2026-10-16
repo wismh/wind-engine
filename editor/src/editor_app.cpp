@@ -75,6 +75,7 @@ DockLayoutFile layout_file(const std::filesystem::path& user_data) {
 
 EditorApp::~EditorApp() {
     session_.reset();
+    panels_.reset();
     edit_module_.reset();
     window_ui_.reset();
 }
@@ -141,6 +142,8 @@ bool EditorApp::start(const EditorOptions& options) {
     // Game, not Bind: run_bind of this world (registered by enable_ui) must see this frame's copy.
     world_->add_system(engine::ecs::Schedule::Frame, engine::ecs::Phase::Game,
             [this](engine::ecs::World& world) { panels_->frame(world); });
+    world_->add_system(engine::ecs::Schedule::Frame, engine::ecs::Phase::Render,
+            [this](engine::ecs::World& world) { panels_->render(world, host_.services().worlds.deps()); });
 
     const std::filesystem::path live = live_root(data);
     const std::size_t purged = engine::purge_game_module_copies(live);
@@ -149,6 +152,9 @@ bool EditorApp::start(const EditorOptions& options) {
     }
     play_host_.emplace(host_, *panels_);
     edit_module_.emplace(*play_host_, live);
+    panels_->world_view().set_assets(&services.assets);
+    panels_->world_view().set_component_registrar(
+            [this](engine::ecs::WorldSerializer& s) { edit_module_->register_components(s); });
     session_.emplace(services, *play_host_, live, kIdleGameWindow);
     build_.emplace(services.processes);
     toolbar_->show_state(RunState::Idle);
@@ -222,6 +228,7 @@ void EditorApp::on_quit() {
     if (session_->playing()) {
         stop("Stopped.");
     }
+    panels_->world_view().close();
     edit_module_->unload(world_);
     panels_->save_layout();
     engine::log::info("Editor: quit");
@@ -241,6 +248,7 @@ void EditorApp::open_project(const std::filesystem::path& directory) {
     }
     opening_build_ = false;
     opening_overlay_->close();
+    panels_->world_view().close();
     edit_module_->reset(world_);
     project_.reset();
     toolbar_->export_dialog().close();
@@ -290,12 +298,14 @@ void EditorApp::start_opening_build() {
 }
 
 void EditorApp::load_edit_module(const std::filesystem::path& module) {
+    panels_->world_view().before_module_unload();
     if (const auto loaded = edit_module_->load(module); !loaded) {
         engine::log::warn("Editor: edit module load failed: " + loaded.error());
         toolbar_->show_status(loaded.error());
         return;
     }
     edit_module_->register_components(*world_);
+    panels_->world_view().reload();
     toolbar_->show_status("Ready. Press Play.");
 }
 
@@ -407,12 +417,14 @@ void EditorApp::finish_export(const std::filesystem::path& built) {
 
 void EditorApp::start_game(const std::filesystem::path& module) {
     edit_module_->remember_module(module);
+    panels_->world_view().before_module_unload();
     edit_module_->unload(world_);
     const auto started = session_->play(module);
     if (!started) {
         engine::log::warn("Editor: play failed: " + started.error());
         if (edit_module_->load(module)) {
             edit_module_->register_components(*world_);
+            panels_->world_view().reload();
         }
         toolbar_->show_state(RunState::Idle);
         toolbar_->show_status(started.error());
@@ -440,6 +452,7 @@ void EditorApp::stop(std::string status) {
     if (!quitting_ && !edit_module_->module_path().empty()) {
         if (const auto loaded = edit_module_->load(edit_module_->module_path())) {
             edit_module_->register_components(*world_);
+            panels_->world_view().reload();
         } else {
             engine::log::warn("Editor: edit module reload failed: " + loaded.error());
         }

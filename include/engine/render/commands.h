@@ -43,6 +43,11 @@ namespace engine::render {
         // World position of the camera (translation of its world matrix).
         glm::vec3 camera_position{0.0f};
         SceneLights lights{};
+        // Sub-rectangle of the window in top-left window pixels. Empty (nullopt) means the full window.
+        std::optional<Rect> viewport;
+        // When set alongside `viewport`, clears the scissored viewport to this RGBA color and clears its depth buffer
+        // before drawing the commands that follow.
+        std::optional<glm::vec4> clear_color;
     };
 
     struct CmdDrawMesh {

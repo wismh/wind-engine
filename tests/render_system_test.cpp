@@ -1,4 +1,4 @@
-﻿#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 
 #include <engine/audio/audio_system.h>
 #include <engine/audio/events.h>
@@ -1358,3 +1358,69 @@ TEST(RenderSystem, DrawMeshCarriesTheMaterialWithItsRenderState) {
     ASSERT_EQ(cmd.material, material);
     EXPECT_EQ(cmd.material->render_state(), state);
 }
+
+TEST(RenderSystem, RenderWorldViewportPushesSetViewWithViewportAndClearColorAndDrawsMeshes) {
+    engine::ecs::World scene;
+    const auto mesh_high = std::make_shared<FakeMesh>();
+    const auto mesh_low = std::make_shared<FakeMesh>();
+    const auto material = std::make_shared<FakeMaterial>();
+    spawn_mesh_at(scene, mesh_high, material, 0.0f, 5);
+    spawn_mesh_at(scene, mesh_low, material, 0.0f, 1);
+
+    engine::Camera camera{};
+    camera.projection = engine::Projection::Perspective;
+    camera.fov_y = glm::radians(60.0f);
+    camera.near_clip = 0.1f;
+    camera.far_clip = 100.0f;
+    engine::Transform camera_transform{};
+    camera_transform.position = {1.0f, 2.0f, 8.0f};
+    const glm::mat4 camera_world = engine::model_matrix(camera_transform);
+    const engine::render::Rect viewport{24.0f, 48.0f, 400.0f, 200.0f};
+    const glm::vec4 clear_color{0.08f, 0.09f, 0.12f, 1.0f};
+
+    engine::render::CommandBuffer commands;
+    engine::render_world_viewport(scene, engine::WorldViewportRender{
+            .commands = &commands,
+            .viewport = viewport,
+            .clear_color = clear_color,
+            .camera = camera,
+            .camera_world = camera_world,
+    });
+
+    ASSERT_EQ(commands.size(), 3u);
+    const auto* view = std::get_if<engine::render::CmdSetView>(&commands[0]);
+    ASSERT_NE(view, nullptr);
+    EXPECT_EQ(view->viewport, viewport);
+    EXPECT_EQ(view->clear_color, clear_color);
+    EXPECT_EQ(view->camera_position, camera_transform.position);
+    expect_mat4_eq(view->view, engine::view_matrix(camera_world));
+    expect_mat4_eq(view->projection, engine::projection_matrix(camera, engine::ui::WindowSize{400, 200}));
+    EXPECT_EQ(std::get<engine::render::CmdDrawMesh>(commands[1]).mesh, mesh_low);
+    EXPECT_EQ(std::get<engine::render::CmdDrawMesh>(commands[2]).mesh, mesh_high);
+}
+
+TEST(RenderSystem, RenderWorldViewportClearsEvenWhenSceneIsEmptyAndSkipsDegenerateRect) {
+    engine::ecs::World empty_scene;
+    engine::render::CommandBuffer commands;
+    const engine::render::Rect viewport{0.0f, 0.0f, 160.0f, 90.0f};
+    const glm::vec4 clear_color{0.1f, 0.1f, 0.1f, 1.0f};
+
+    engine::render_world_viewport(empty_scene, engine::WorldViewportRender{
+            .commands = &commands,
+            .viewport = {0.0f, 0.0f, 0.0f, 90.0f},
+            .clear_color = clear_color,
+    });
+    EXPECT_TRUE(commands.empty());
+
+    engine::render_world_viewport(empty_scene, engine::WorldViewportRender{
+            .commands = &commands,
+            .viewport = viewport,
+            .clear_color = clear_color,
+    });
+    ASSERT_EQ(commands.size(), 1u);
+    const auto* view = std::get_if<engine::render::CmdSetView>(&commands[0]);
+    ASSERT_NE(view, nullptr);
+    EXPECT_EQ(view->viewport, viewport);
+    EXPECT_EQ(view->clear_color, clear_color);
+}
+
