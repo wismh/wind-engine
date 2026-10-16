@@ -108,6 +108,16 @@ TEST(AssetInspection, TextureAndAudioMetaShowTheirSettings) {
     EXPECT_EQ(headings(sections), (std::vector<std::string>{"File", "Import"})) << "binary: no Content";
     EXPECT_NE(std::ranges::find(sections[1].lines, "Bank: music"), sections[1].lines.end());
     EXPECT_NE(std::ranges::find(sections[1].lines, "Loop: yes"), sections[1].lines.end());
+
+    dir.write("level.world", "version = 1\nactive_camera = \"cam\"\n[[entities]]\nid = \"cam\"\n");
+    dir.write("level.world.meta",
+            "guid = \"0123456789abcdef0123456789abcded\"\nimporter = \"world\"\n");
+    const std::vector<editor::InspectorSection> world_sections = editor::inspect_asset(dir.file("level.world"));
+    const editor::InspectorSection* world_import = section(world_sections, "Import");
+    ASSERT_NE(world_import, nullptr);
+    EXPECT_NE(std::ranges::find(world_import->lines, "Importer: world"), world_import->lines.end());
+    EXPECT_NE(std::ranges::find(world_import->lines, "Entities: 1"), world_import->lines.end());
+    EXPECT_NE(std::ranges::find(world_import->lines, "Active camera: cam"), world_import->lines.end());
 }
 
 TEST(AssetInspection, ABrokenMetaSaysWhy) {

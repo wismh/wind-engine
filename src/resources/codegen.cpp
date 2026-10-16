@@ -1,3 +1,4 @@
+#include <engine/ecs/world_asset.h>
 #include <engine/loc/catalog.h>
 #include <engine/resources/meta.h>
 #include <engine/ui/binding_id.h>
@@ -374,6 +375,19 @@ std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::p
                     (void)pattern;
                     source_keys.insert(id);
                 }
+            }
+        }
+
+        if (parsed->importer == ImporterKind::World) {
+            std::ifstream world_in(file);
+            if (!world_in) {
+                return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to read " + file.generic_string()});
+            }
+            const std::string body((std::istreambuf_iterator<char>(world_in)), std::istreambuf_iterator<char>());
+            auto world_asset = ecs::parse_world_asset(body);
+            if (!world_asset) {
+                return std::unexpected(
+                        CodegenError{CodegenErrorKind::World, relative + ": " + world_asset.error().message});
             }
         }
 

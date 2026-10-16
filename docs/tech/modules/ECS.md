@@ -134,10 +134,24 @@ The physics is 2D: `include/engine/ecs/physics_2d.h`. Its components, event and 
 
 `RigidBody2D.velocity` moves the local `Transform.position`, so the velocity of a child is in its parent's space. There is no contact solver, no response impulse, and no Z test. Overlap state is `ctx<PhysicsOverlapState>` in `src/ecs/physics_2d.cpp`.
 
+## World serialization
+
+`include/engine/ecs/world_io.h`, `include/engine/ecs/world_asset.h`, `include/engine/ecs/world_serializer.h`.
+
+`.world` TOML files (`importer = "world"`) parse into a `WorldAsset` (`version = 1`, optional `active_camera`, and `[[entities]]` with `id`, optional `parent`, and `[entities.<component>]` tables).
+
+- `WorldSerializer` (available via `world.ctx<WorldSerializer>()`) comes pre-populated with built-in engine components: `transform`, `camera`, `sprite`, `sprite_animator`, `renderable`, `directional_light`, `ambient_light`, `rigid_body_2d`, `box_collider_2d`, `circle_collider_2d`, and `pointer_target`.
+- Game-specific components marked `struct WIND_COMPONENT MyComponent { ... };` are registered by calling `assets::register_game_components(world.ctx<WorldSerializer>())` from the generated `<component_io.h>` header (see [Asset Codegen](../build/Asset%20Codegen.md#component-codegen)).
+- `instantiate_world(world, asset, &assets)` spawns entities in two passes (entities and `EntityName` first so `ecs::Entity` cross-references resolve in any order, then hierarchy and components), sets `ActiveCamera` when `active_camera` is non-empty, and calls `update_world_transforms(world)`. On any error, newly created entities are rolled back.
+- `capture_world_asset` and `save_world_to_toml` snapshot all alive entities (`World::alive_entities()`) and their registered components back to a `WorldAsset` or TOML string.
+
 ## Public headers
 
 - `include/engine/ecs/world.h`
 - `include/engine/ecs/world.inl`
+- `include/engine/ecs/world_io.h`
+- `include/engine/ecs/world_asset.h`
+- `include/engine/ecs/world_serializer.h`
 - `include/engine/ecs/entity.h`
 - `include/engine/ecs/schedule.h`
 - `include/engine/ecs/events.h`
@@ -150,7 +164,7 @@ The physics is 2D: `include/engine/ecs/physics_2d.h`. Its components, event and 
 
 ## Tests
 
-`tests/ecs_test.cpp`, `tests/hierarchy_test.cpp`, `tests/hierarchy_systems_test.cpp`, `tests/events_test.cpp`, `tests/camera_test.cpp`, `tests/physics_2d_test.cpp`, `tests/pointer_target_test.cpp`.
+`tests/ecs_test.cpp`, `tests/hierarchy_test.cpp`, `tests/hierarchy_systems_test.cpp`, `tests/events_test.cpp`, `tests/camera_test.cpp`, `tests/physics_2d_test.cpp`, `tests/pointer_target_test.cpp`, `tests/world_serializer_test.cpp`.
 
 ## See also
 

@@ -54,6 +54,9 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/ecs/transform.h` | Position, quaternion rotation, scale. No parent. `rotation_z`, `euler_xyz`, `angle_z` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/world.h` | `World` and `View` declarations | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/world.inl` | Pool and view template bodies | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/world_asset.h` | `WorldAsset`, `EntityRecord`, `WorldLoadError`, `parse_world_asset`, `serialize_world_asset` | [ECS](../modules/ECS.md#world-serialization) |
+| `include/engine/ecs/world_io.h` | `WIND_COMPONENT`, `EntityName`, `FieldValue`, `ComponentWriter`, `ComponentReader` | [ECS](../modules/ECS.md#world-serialization) |
+| `include/engine/ecs/world_serializer.h` | `WorldSerializer`, `instantiate_world`, `load_world_from_toml`, `capture_world_asset`, `save_world_to_toml` | [ECS](../modules/ECS.md#world-serialization) |
 | `include/engine/haptics/haptics_system.h` | `IHaptics` and `HapticsSystem` | [Haptics](../modules/Haptics.md) |
 | `include/engine/net/http_call.h` | `HttpCall`: one owned request, `take`, `cancel` | [Net](../modules/Net.md) |
 | `include/engine/net/http_client.h` | `IHttpClient` and `HttpClient` | [Net](../modules/Net.md) |
@@ -90,6 +93,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/resources/asset_guid.h` | `write_missing_metas` | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `include/engine/resources/asset_id.h` | 32-hex `AssetId` | [Resources](../modules/Resources.md) |
 | `include/engine/resources/assets_db.h` | `get`, `try_get`, `get_sprite` | [Assets](../features/Assets.md) |
+| `include/engine/resources/component_codegen.h` | `ComponentDef`, `scan_components`, `emit_component_io_header`, `codegen_components` | [Asset Codegen](../build/Asset%20Codegen.md#component-codegen) |
 | `include/engine/resources/default_fatal_error.h` | `DefaultFatalError`, `default_fatal_error()` | [Core](../modules/Core.md) |
 | `include/engine/resources/fatal_error.h` | `IFatalError` (`report` is `[[noreturn]]`) | [Core](../modules/Core.md) |
 | `include/engine/resources/font.h` | `Font` file bytes | [Resources](../modules/Resources.md) |
@@ -168,6 +172,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ecs/physics_2d.cpp` | Velocity integration and overlap events | [ECS](../modules/ECS.md) |
 | `src/ecs/systems.cpp` | Engine systems: input, dock input, splash, animation, particles, dock layout, bind, audio, render, UI render | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/ecs/world.cpp` | Create, destroy, flush, `run` | [ECS](../modules/ECS.md) |
+| `src/ecs/world_asset.cpp` | Parse and serialize `.world` TOML into `WorldAsset` | [ECS](../modules/ECS.md#world-serialization) |
+| `src/ecs/world_serializer.cpp` | Built-in component serializers, `instantiate_world`, `capture_world_asset` | [ECS](../modules/ECS.md#world-serialization) |
 
 ## `src/resources/`
 
@@ -176,6 +182,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/resources/.gitkeep` | Keeps the directory in Git | [Resources](../modules/Resources.md) |
 | `src/resources/asset_guid.cpp` | Writes missing `.meta` sidecars | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `src/resources/assets_db.cpp` | Catalog load and typed asset cache | [Assets](../features/Assets.md) |
+| `src/resources/component_codegen.cpp` | Scan `struct WIND_COMPONENT` definitions and emit `component_io.h` | [Asset Codegen](../build/Asset%20Codegen.md#component-codegen) |
 | `src/resources/default_fatal_error.cpp` | stderr and abort | [Core](../modules/Core.md) |
 | `src/resources/codegen.cpp` | Scan tree, emit `asset_ids.h` and `catalog.toml` | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `src/resources/icon_codegen.cpp` | Resize and encode ico, icns, mipmaps, favicon | [Icon Codegen](../build/Icon%20Codegen.md) |
@@ -389,6 +396,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/cli_server_test.cpp` | Descriptor, HTTP, window routing, host commands, and UI commands without `GameLoop` | [CLI](../features/CLI.md) |
 | `tests/cmake_sanity_test.cpp` | Public headers compile, build id, CMake file checks (game functions, SDK package, export wiring and player libraries) | [CMake](../build/CMake.md) |
 | `tests/command_buffer_test.cpp` | Push and iterate the four command types; draws carry no view or projection | [Render](../modules/Render.md) |
+| `tests/component_codegen_test.cpp` | Scan `struct WIND_COMPONENT` and emit `component_io.h` | [Asset Codegen](../build/Asset%20Codegen.md#component-codegen) |
 | `tests/context_objects_test.cpp` | GL context keys, reused handles, deferred VAO deletes | [Render](../modules/Render.md) |
 | `tests/dock_layout_test.cpp` | Dock operations and invariants, geometry, drop zones, chrome hits, text round trip, reconcile | [Docking](../features/Docking.md) |
 | `tests/dock_space_test.cpp` | Dock systems: panel rects and orders, chrome lists and default theme, every tab and splitter hit, tab click and drag, splitter, float move, resize, raise, dock, Escape, consumption, close request, tab widths from titles | [Docking](../features/Docking.md#host) |
@@ -489,6 +497,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/drag_region_test.cpp` | `drag_region_contains` with exclusions (window builds) | [Windowing](../features/Windowing.md#uiwindow) |
 | `tests/window_cursor_test.cpp` | Cursor, buttons, capture on the window-control double, `cursor_client_position` | [Windowing](../features/Windowing.md#cursor-buttons-and-capture) |
 | `tests/window_style_test.cpp` | Style flags (`utility` included), overlay mode, window control without a window, `raise` of no window, a primary window with an owner refused | [Windowing](../features/Windowing.md) |
+| `tests/world_serializer_test.cpp` | `.world` TOML parse, instantiate, save round-trip, hierarchy, assets, custom components, rollback | [ECS](../modules/ECS.md#world-serialization) |
 | `tests/worlds_test.cpp` | World isolation, window routing, per-window draw, registration order | [Core](../modules/Core.md) |
 
 ## `tools/`
