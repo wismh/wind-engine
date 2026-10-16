@@ -34,6 +34,16 @@ bool World::valid(Entity entity) const {
     return entity.index < alive_.size() && alive_[entity.index] != 0 && generations_[entity.index] == entity.generation;
 }
 
+std::vector<Entity> World::alive_entities() const {
+    std::vector<Entity> out;
+    for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(alive_.size()); ++i) {
+        if (alive_[i] != 0) {
+            out.push_back(Entity{i, generations_[i]});
+        }
+    }
+    return out;
+}
+
 void World::begin_view() {
     ++view_depth_;
 }

@@ -136,6 +136,26 @@ T& World::ctx() {
 }
 
 template<typename T>
+T* World::try_ctx() noexcept {
+    const std::type_index key{typeid(T)};
+    auto it = resources_.find(key);
+    if (it == resources_.end()) {
+        return nullptr;
+    }
+    return &static_cast<Resource<T>&>(*it->second).value;
+}
+
+template<typename T>
+const T* World::try_ctx() const noexcept {
+    const std::type_index key{typeid(T)};
+    auto it = resources_.find(key);
+    if (it == resources_.end()) {
+        return nullptr;
+    }
+    return &static_cast<const Resource<T>&>(*it->second).value;
+}
+
+template<typename T>
 EventWriter<T>::EventWriter(World& world) : events_(&world.ctx<Events<T>>()) {}
 
 template<typename T>
