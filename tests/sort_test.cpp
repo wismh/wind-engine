@@ -187,3 +187,151 @@ TEST(Sort, WorldThenUiKeepsUiLast) {
     EXPECT_EQ(items[0].renderable.layer, 1);
     EXPECT_EQ(items[1].renderable.layer, 5);
 }
+
+namespace {
+
+const engine::render::RenderState kOpaque3d{
+        .blend = engine::render::BlendMode::Opaque,
+        .depth_test = true,
+        .depth_write = true,
+        .cull = engine::render::CullMode::Back,
+};
+
+const engine::render::RenderState kTransparent3d{
+        .blend = engine::render::BlendMode::Alpha,
+        .depth_test = true,
+        .depth_write = false,
+};
+
+// A camera at z = 10 looking down -Z: a larger z is nearer.
+glm::mat4 camera_view() {
+    return glm::lookAt(glm::vec3{0.0f, 0.0f, 10.0f}, glm::vec3{0.0f}, glm::vec3{0.0f, 1.0f, 0.0f});
+}
+
+engine::render::RenderableItem item_at(std::shared_ptr<engine::render::IMesh> mesh,
+        std::shared_ptr<engine::render::IMaterial> material, std::uint32_t index, float z, int layer = 0) {
+    return {make_renderable(std::move(mesh), std::move(material), layer, 0), engine::ecs::Entity{index, 1},
+            glm::vec3{0.0f, 0.0f, z}};
+}
+
+}
+
+TEST(Sort, QueueIsOpaqueOnlyForOpaqueBlendWithDepthWrite) {
+    using engine::render::BlendMode;
+    using engine::render::DrawQueue;
+    EXPECT_EQ(engine::render::draw_queue(kOpaque3d), DrawQueue::Opaque);
+    EXPECT_EQ(engine::render::draw_queue({.blend = BlendMode::Opaque, .depth_write = true}), DrawQueue::Opaque);
+    EXPECT_EQ(engine::render::draw_queue({.blend = BlendMode::Opaque}), DrawQueue::Transparent);
+    EXPECT_EQ(engine::render::draw_queue({.blend = BlendMode::Alpha, .depth_test = true, .depth_write = true}),
+            DrawQueue::Transparent);
+    EXPECT_EQ(engine::render::draw_queue({.blend = BlendMode::Additive, .depth_write = true}),
+            DrawQueue::Transparent);
+    EXPECT_EQ(engine::render::draw_queue(engine::render::RenderState{}), DrawQueue::Transparent);
+}
+
+TEST(Sort, OpaqueQueueDrawsBeforeTransparentWhateverTheLayer) {
+    const auto mesh = std::make_shared<FakeMesh>();
+    const auto opaque = std::make_shared<FakeMaterial>(kOpaque3d);
+    const auto sprite = std::make_shared<FakeMaterial>(engine::render::BlendMode::Alpha);
+    std::vector<engine::render::RenderableItem> items = {
+            item_at(mesh, sprite, 0, 0.0f, -100),
+            item_at(mesh, opaque, 1, 0.0f, 100),
+    };
+
+    engine::render::sort_renderables(items, camera_view());
+
+    EXPECT_EQ(items[0].entity.index, 1u);
+    EXPECT_EQ(items[1].entity.index, 0u);
+}
+
+TEST(Sort, OpaqueByMaterialThenFrontToBack) {
+    const auto mesh = std::make_shared<FakeMesh>();
+    auto first = std::make_shared<FakeMaterial>(kOpaque3d);
+    auto second = std::make_shared<FakeMaterial>(kOpaque3d);
+    if (std::less<>{}(second.get(), first.get())) {
+        std::swap(first, second);
+    }
+    std::vector<engine::render::RenderableItem> items = {
+            item_at(mesh, second, 0, 5.0f),
+            item_at(mesh, first, 1, -5.0f),
+            item_at(mesh, first, 2, 5.0f),
+            item_at(mesh, first, 3, 0.0f),
+    };
+
+    engine::render::sort_renderables(items, camera_view());
+
+    ASSERT_EQ(items.size(), 4u);
+    EXPECT_EQ(items[0].entity.index, 2u); // first material, nearest
+    EXPECT_EQ(items[1].entity.index, 3u);
+    EXPECT_EQ(items[2].entity.index, 1u); // first material, farthest
+    EXPECT_EQ(items[3].entity.index, 0u); // second material
+}
+
+TEST(Sort, TransparentDepthTestedBackToFrontWithinLayer) {
+    const auto mesh = std::make_shared<FakeMesh>();
+    auto near_material = std::make_shared<FakeMaterial>(kTransparent3d);
+    auto far_material = std::make_shared<FakeMaterial>(kTransparent3d);
+    // Material order alone would put the near one first; depth must win.
+    if (std::less<>{}(far_material.get(), near_material.get())) {
+        std::swap(near_material, far_material);
+    }
+    std::vector<engine::render::RenderableItem> items = {
+            item_at(mesh, near_material, 0, 4.0f),
+            item_at(mesh, far_material, 1, -4.0f),
+            item_at(mesh, near_material, 2, 0.0f, 1),
+    };
+
+    engine::render::sort_renderables(items, camera_view());
+
+    EXPECT_EQ(items[0].entity.index, 1u);
+    EXPECT_EQ(items[1].entity.index, 0u);
+    EXPECT_EQ(items[2].entity.index, 2u); // a higher layer still draws after, even though it is farther
+}
+
+TEST(Sort, NotDepthTestedDrawsAfterDepthSortedInTheSameLayer) {
+    const auto mesh = std::make_shared<FakeMesh>();
+    const auto sprite = std::make_shared<FakeMaterial>(engine::render::BlendMode::Alpha);
+    const auto glass = std::make_shared<FakeMaterial>(kTransparent3d);
+    std::vector<engine::render::RenderableItem> items = {
+            item_at(mesh, sprite, 0, -5.0f),
+            item_at(mesh, glass, 1, 5.0f),
+    };
+
+    engine::render::sort_renderables(items, camera_view());
+
+    EXPECT_EQ(items[0].entity.index, 1u);
+    EXPECT_EQ(items[1].entity.index, 0u);
+}
+
+TEST(Sort, TwoDimensionalOrderIgnoresZ) {
+    const auto mesh = std::make_shared<FakeMesh>();
+    auto first = std::make_shared<FakeMaterial>(engine::render::BlendMode::Alpha);
+    auto second = std::make_shared<FakeMaterial>(engine::render::BlendMode::Opaque);
+    if (std::less<>{}(second.get(), first.get())) {
+        std::swap(first, second);
+    }
+    // Same layer and order, different z, under a perspective-style view: still material, then entity.
+    std::vector<engine::render::RenderableItem> items = {
+            item_at(mesh, second, 0, 9.0f),
+            item_at(mesh, first, 3, -9.0f),
+            item_at(mesh, first, 1, 9.0f),
+            item_at(mesh, second, 2, -9.0f),
+    };
+
+    engine::render::sort_renderables(items, camera_view());
+
+    EXPECT_EQ(items[0].entity.index, 1u);
+    EXPECT_EQ(items[1].entity.index, 3u);
+    EXPECT_EQ(items[2].entity.index, 0u);
+    EXPECT_EQ(items[3].entity.index, 2u);
+}
+
+TEST(Sort, KeyWithoutDepthTestIsNeverDepthSorted) {
+    const auto glass = std::make_shared<FakeMaterial>(kOpaque3d);
+    const engine::render::DrawSortKey key = engine::render::make_draw_sort_key(
+            glass.get(), 0, 0, glm::vec3{0.0f, 0.0f, -3.0f}, camera_view(), engine::ecs::Entity{7, 1}, false);
+    EXPECT_EQ(key.queue, engine::render::DrawQueue::Transparent);
+    EXPECT_FALSE(key.depth_sorted);
+    EXPECT_FLOAT_EQ(key.view_depth, 13.0f);
+    EXPECT_EQ(key.entity_index, 7u);
+}
