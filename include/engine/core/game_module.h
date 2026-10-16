@@ -23,13 +23,19 @@
 
 namespace engine {
 
+namespace ecs {
+class WorldSerializer;
+}
+
 using CreateGameFn = IGame* (*)(const EngineServices& services);
 using DestroyGameFn = void (*)(IGame* game);
 using GameBuildIdFn = const char* (*)();
+using RegisterGameComponentsFn = void (*)(ecs::WorldSerializer& serializer);
 
 inline constexpr char kCreateGameSymbol[] = "wind_create_game";
 inline constexpr char kDestroyGameSymbol[] = "wind_destroy_game";
 inline constexpr char kGameBuildIdSymbol[] = "wind_game_build_id";
+inline constexpr char kRegisterGameComponentsSymbol[] = "wind_register_game_components";
 
 #if defined(ENGINE_WITH_WINDOW)
 
@@ -66,6 +72,10 @@ public:
     [[nodiscard]] IGame* create(const EngineServices& services) const;
     // `wind_destroy_game`.
     void destroy(IGame* game) const;
+    // `wind_register_game_components` when exported by the module. The serializer's entries hold code from this
+    // module and must not outlive it.
+    void register_components(ecs::WorldSerializer& serializer) const;
+    [[nodiscard]] bool has_component_registration() const noexcept;
 
     // What the module's `wind_game_build_id` returned. Equal to `build_id()` for a loaded module.
     [[nodiscard]] std::string_view build_id() const noexcept;
@@ -84,6 +94,7 @@ private:
     void* handle_ = nullptr;
     CreateGameFn create_ = nullptr;
     DestroyGameFn destroy_ = nullptr;
+    RegisterGameComponentsFn register_components_ = nullptr;
     std::string build_id_;
     std::filesystem::path source_path_;
     std::filesystem::path live_dir_;

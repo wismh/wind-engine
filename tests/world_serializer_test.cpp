@@ -347,3 +347,68 @@ transform = { position = [7.0, 8.0, 0.0] }
     std::error_code ec;
     std::filesystem::remove_all(dir, ec);
 }
+
+TEST(WorldSerializer, PreservesAndRoundTripsUnknownComponentsWhenRequested) {
+    constexpr std::string_view kToml = R"(
+version = 1
+
+[[entities]]
+id = "boss"
+transform = { position = [1.0, 2.0, 3.0] }
+enemy_spawner = { interval = 1.25, max_count = 12, tag = "boss_wave", wave_sizes = [3, 6, 9] }
+custom_gadget = { enabled = true, charge = 42.5 }
+)";
+
+    engine::ecs::World editor_world;
+    auto loaded = engine::ecs::load_world_from_toml(
+            editor_world, kToml, nullptr, nullptr, engine::ecs::UnknownComponentMode::Preserve);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
+    ASSERT_EQ(loaded->entities.size(), 1u);
+
+    const engine::ecs::Entity boss = loaded->by_id.at("boss");
+    auto* tr = editor_world.try_get<engine::Transform>(boss);
+    ASSERT_NE(tr, nullptr);
+    EXPECT_FLOAT_EQ(tr->position.x, 1.0f);
+    EXPECT_FLOAT_EQ(tr->position.y, 2.0f);
+    EXPECT_FLOAT_EQ(tr->position.z, 3.0f);
+
+    const auto* unknown = editor_world.try_get<engine::ecs::UnknownComponents>(boss);
+    ASSERT_NE(unknown, nullptr);
+    ASSERT_EQ(unknown->components.size(), 2u);
+    ASSERT_TRUE(unknown->components.contains("enemy_spawner"));
+    ASSERT_TRUE(unknown->components.contains("custom_gadget"));
+    const auto& spawner_table = unknown->components.at("enemy_spawner");
+    ASSERT_NE(spawner_table.at("tag").as_string(), nullptr);
+    EXPECT_EQ(*spawner_table.at("tag").as_string(), "boss_wave");
+
+    // Modify a built-in component in the editor world and save back to TOML.
+    tr->position = glm::vec3{10.0f, 20.0f, 30.0f};
+    const std::string saved_toml = engine::ecs::save_world_to_toml(editor_world);
+
+    // Reload into a world where `enemy_spawner` IS registered and `custom_gadget` is preserved.
+    engine::ecs::World game_world;
+    register_test_spawner(game_world.ctx<engine::ecs::WorldSerializer>());
+    auto reloaded = engine::ecs::load_world_from_toml(
+            game_world, saved_toml, nullptr, nullptr, engine::ecs::UnknownComponentMode::Preserve);
+    ASSERT_TRUE(reloaded.has_value()) << reloaded.error().message;
+
+    const engine::ecs::Entity boss2 = reloaded->by_id.at("boss");
+    const auto* tr2 = game_world.try_get<engine::Transform>(boss2);
+    ASSERT_NE(tr2, nullptr);
+    EXPECT_FLOAT_EQ(tr2->position.x, 10.0f);
+    EXPECT_FLOAT_EQ(tr2->position.y, 20.0f);
+    EXPECT_FLOAT_EQ(tr2->position.z, 30.0f);
+
+    const auto* spawner = game_world.try_get<EnemySpawner>(boss2);
+    ASSERT_NE(spawner, nullptr);
+    EXPECT_FLOAT_EQ(spawner->interval, 1.25f);
+    EXPECT_EQ(spawner->max_count, 12);
+    EXPECT_EQ(spawner->tag, "boss_wave");
+    EXPECT_EQ(spawner->wave_sizes, (std::vector<int>{3, 6, 9}));
+
+    const auto* unknown2 = game_world.try_get<engine::ecs::UnknownComponents>(boss2);
+    ASSERT_NE(unknown2, nullptr);
+    EXPECT_EQ(unknown2->components.size(), 1u);
+    EXPECT_TRUE(unknown2->components.contains("custom_gadget"));
+}
+

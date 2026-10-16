@@ -1,0 +1,17 @@
+<Canvas id="hierarchy">
+  <Stack class="panel" direction="vertical">
+    <Stack class="option-row" direction="horizontal">
+      <Label class="hint" text="{binding statusText}"/>
+    </Stack>
+    <ScrollView id="tree" class="box tree fill">
+      <ItemsControl id="tree-rows" class="rows" items_source="{binding rows}">
+        <ItemTemplate>
+          <Stack class="rowline" direction="horizontal" var-row="{binding rowFill}" var-depth="{binding depth}">
+            <Checkbox class="expander" checked="{binding expanded}" command="{binding toggle}"/>
+            <Button class="row" command="{binding select}" content="{binding label}"/>
+          </Stack>
+        </ItemTemplate>
+      </ItemsControl>
+    </ScrollView>
+  </Stack>
+</Canvas>

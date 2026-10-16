@@ -58,7 +58,7 @@ Rotation helpers in `transform.h`:
 | `euler_xyz(vec3 radians)` | `Rx(x) * Ry(y) * Rz(z)`: Z applied first, then Y, then X |
 | `angle_z(quat)` | The 2D angle back, in (-pi, pi]: the heading of the rotated +X axis in the XY plane. Exact inverse of `rotation_z`; 0 when that axis is on Z |
 
-`Camera` looks down its local -Z with +Y up. `projection` is `Projection::Orthographic` (default) or `Projection::Perspective`. The defaults are the 2D camera, so a 2D game is unchanged.
+`Camera` (`include/engine/ecs/camera.h`, available in `namespace engine` and aliased in `namespace engine::ecs` along with `Projection`, `CameraProjection`, and `ActiveCamera`) looks down its local -Z with +Y up. `projection` is `Projection::Orthographic` (default) or `Projection::Perspective`. The defaults are the 2D camera, so a 2D game is unchanged.
 
 | Field | Meaning |
 | --- | --- |
@@ -69,11 +69,11 @@ Rotation helpers in `transform.h`:
 
 `projection_matrix` is `glm::ortho` from `ortho_size` or `glm::perspective(fov_y, aspect, near, far)`. A perspective near below `kMinPerspectiveNear` (0.01) is clamped up to it, a far not past near is clamped to `near + kMinPerspectiveNear`, and a warning is logged once per process. Clamping is not an error: a camera switched to perspective with the 2D clip defaults still draws.
 
-`ActiveCamera` is a `ctx` resource holding one entity. When `ctx<BoundWindows>().ids` is empty, `run_render` returns before a command-buffer clear and before the camera check.
+`ActiveCamera` is a `ctx` resource holding one entity. `run_render` clears bound and `UiCanvas` window command buffers at the start of `Phase::Render`; when `ctx<BoundWindows>().ids` is empty, `run_render` returns before the camera check.
 
-When the list is not empty, it clears each bound window's buffer, then returns when nothing is drawable. A drawable scene (any `Renderable`, `Sprite`, or `ParticleEmitter`) with an invalid or default `ActiveCamera` entity is fatal.
+When the list is not empty, it returns when nothing is drawable. A drawable scene (any `Renderable`, `Sprite`, or `ParticleEmitter`) with an invalid or default `ActiveCamera` entity is fatal.
 
-Fatal is also a live entity that lacks `Camera` or `Transform`. Either way that frame draws no world commands. A world with only UI needs no camera. `run_ui_render` still pushes `CmdDrawUI`. A window `run_render` already cleared is not cleared again. The view matrix is the inverse of the camera entity's world matrix (`ecs::world_matrix`), so a camera with a rotation or a `Parent` works. Each bound window gets one `render::CmdSetView` before its draws, with the same view matrix and camera position (the translation of that world matrix). Its projection is `window_size_for` for that id (`Presentation.sizes`).
+Fatal is also a live entity that lacks `Camera` or `Transform`. Either way that frame draws no world commands. A world with only UI needs no camera. `run_ui_render` still pushes `CmdDrawUI`. A window `run_render` already cleared is not cleared again. The view matrix is the inverse of the camera entity's world matrix (`ecs::world_matrix`), so a camera with a rotation or a `Parent` works. Each bound window gets one `render::CmdSetView` before its draws, with the same view matrix and camera position (the translation of that world matrix). Its projection is `window_size_for` for that id (`Presentation.sizes`). For rendering an arbitrary `World` into a sub-rectangle of a window with an explicit camera (`WorldViewportRender`), call `render_world_viewport` (`include/engine/ecs/systems.h`; see [Render](Render.md#world-draw)).
 
 Light components (`render::DirectionalLight`, `render::AmbientLight`) are plain data on entities; a directional light is aimed by its `Transform::rotation` and follows a `Parent`. Rules: [Render](Render.md#lights).
 
@@ -141,9 +141,10 @@ The physics is 2D: `include/engine/ecs/physics_2d.h`. Its components, event and 
 `.world` TOML files (`importer = "world"`) parse into a `WorldAsset` (`version = 1`, optional `active_camera`, and `[[entities]]` with `id`, optional `parent`, and `[entities.<component>]` tables).
 
 - `WorldSerializer` (available via `world.ctx<WorldSerializer>()`) comes pre-populated with built-in engine components: `transform`, `camera`, `sprite`, `sprite_animator`, `renderable`, `directional_light`, `ambient_light`, `rigid_body_2d`, `box_collider_2d`, `circle_collider_2d`, and `pointer_target`.
-- Game-specific components marked `struct WIND_COMPONENT MyComponent { ... };` are registered by calling `assets::register_game_components(world.ctx<WorldSerializer>())` from the generated `<component_io.h>` header (see [Asset Codegen](../build/Asset%20Codegen.md#component-codegen)).
-- `instantiate_world(world, asset, &assets)` spawns entities in two passes (entities and `EntityName` first so `ecs::Entity` cross-references resolve in any order, then hierarchy and components), sets `ActiveCamera` when `active_camera` is non-empty, and calls `update_world_transforms(world)`. On any error, newly created entities are rolled back.
-- `capture_world_asset` and `save_world_to_toml` snapshot all alive entities (`World::alive_entities()`) and their registered components back to a `WorldAsset` or TOML string.
+- Game-specific components marked `struct WIND_COMPONENT MyComponent { ... };` are registered by calling `assets::register_game_components(world.ctx<WorldSerializer>())` from the generated `<component_io.h>` header (see [Asset Codegen](../build/Asset%20Codegen.md#component-codegen)), or by calling `GameModule::register_components(serializer)` (`wind_register_game_components`).
+- `instantiate_world(world, asset, &assets, serializer, unknown_mode)` and `load_world_from_toml` spawn entities in two passes (entities and `EntityName` first so `ecs::Entity` cross-references resolve in any order, then hierarchy and components), set `ActiveCamera` when `active_camera` is non-empty, and call `update_world_transforms(world)`. On any error, newly created entities are rolled back.
+- `UnknownComponentMode::Reject` (default) fails with `WorldErrorKind::UnknownComponent` when a component key is not registered in the active `WorldSerializer`. `UnknownComponentMode::Preserve` stores unregistered component tables in `UnknownComponents` (`std::map<std::string, FieldTable, std::less<>> components`) on the entity so the editor can inspect and round-trip game components without losing data when the game module is not loaded.
+- `capture_world_asset` and `save_world_to_toml` snapshot all alive entities (`World::alive_entities()`), their registered components, and any preserved `UnknownComponents` entries back to a `WorldAsset` or TOML string.
 
 ## Public headers
 

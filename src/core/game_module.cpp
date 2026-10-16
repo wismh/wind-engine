@@ -81,6 +81,7 @@ GameModule::GameModule(GameModule&& other) noexcept
     : handle_(std::exchange(other.handle_, nullptr))
     , create_(std::exchange(other.create_, nullptr))
     , destroy_(std::exchange(other.destroy_, nullptr))
+    , register_components_(std::exchange(other.register_components_, nullptr))
     , build_id_(std::move(other.build_id_))
     , source_path_(std::move(other.source_path_))
     , live_dir_(std::exchange(other.live_dir_, {}))
@@ -92,6 +93,7 @@ GameModule& GameModule::operator=(GameModule&& other) noexcept {
         handle_ = std::exchange(other.handle_, nullptr);
         create_ = std::exchange(other.create_, nullptr);
         destroy_ = std::exchange(other.destroy_, nullptr);
+        register_components_ = std::exchange(other.register_components_, nullptr);
         build_id_ = std::move(other.build_id_);
         source_path_ = std::move(other.source_path_);
         live_dir_ = std::exchange(other.live_dir_, {});
@@ -110,6 +112,16 @@ IGame* GameModule::create(const EngineServices& services) const {
 
 void GameModule::destroy(IGame* game) const {
     destroy_(game);
+}
+
+void GameModule::register_components(ecs::WorldSerializer& serializer) const {
+    if (register_components_ != nullptr) {
+        register_components_(serializer);
+    }
+}
+
+bool GameModule::has_component_registration() const noexcept {
+    return register_components_ != nullptr;
 }
 
 std::string_view GameModule::build_id() const noexcept {
@@ -131,6 +143,7 @@ void GameModule::release() noexcept {
     }
     create_ = nullptr;
     destroy_ = nullptr;
+    register_components_ = nullptr;
     remove_dir(live_dir_);
     live_dir_.clear();
 }
@@ -169,6 +182,8 @@ std::expected<GameModule, GameModuleError> load_game_module(
     auto* const object = static_cast<SDL_SharedObject*>(loaded.handle_);
     loaded.create_ = reinterpret_cast<CreateGameFn>(SDL_LoadFunction(object, kCreateGameSymbol));
     loaded.destroy_ = reinterpret_cast<DestroyGameFn>(SDL_LoadFunction(object, kDestroyGameSymbol));
+    loaded.register_components_ =
+            reinterpret_cast<RegisterGameComponentsFn>(SDL_LoadFunction(object, kRegisterGameComponentsSymbol));
     const auto game_build_id = reinterpret_cast<GameBuildIdFn>(SDL_LoadFunction(object, kGameBuildIdSymbol));
     if (loaded.create_ == nullptr) {
         return std::unexpected(GameModuleError{ModuleError::MissingSymbol, kCreateGameSymbol});

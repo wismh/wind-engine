@@ -11,6 +11,7 @@
 #include <engine/core/worlds.h>
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/world.h>
+#include <engine/ecs/world_serializer.h>
 #include <engine/log.h>
 #include <engine/resources/fatal_error.h>
 #include <engine/ui/canvas.h>
@@ -74,6 +75,8 @@ DockLayoutFile layout_file(const std::filesystem::path& user_data) {
 
 EditorApp::~EditorApp() {
     session_.reset();
+    panels_.reset();
+    edit_module_.reset();
     window_ui_.reset();
 }
 
@@ -84,6 +87,7 @@ int EditorApp::run(const EditorOptions& options) {
     return host_.run(engine::RunHooks{
             .on_start = [this] {
                 if (play_at_start_) {
+                    play_at_start_ = false;
                     play();
                 }
             },
@@ -133,9 +137,13 @@ bool EditorApp::start(const EditorOptions& options) {
     const std::filesystem::path data = user_data();
     panels_.emplace(layout_file(data));
     panels_->spawn(*world_, window_, services.windows);
+    opening_overlay_.emplace();
+    opening_overlay_->spawn(*world_, window_);
     // Game, not Bind: run_bind of this world (registered by enable_ui) must see this frame's copy.
     world_->add_system(engine::ecs::Schedule::Frame, engine::ecs::Phase::Game,
             [this](engine::ecs::World& world) { panels_->frame(world); });
+    world_->add_system(engine::ecs::Schedule::Frame, engine::ecs::Phase::Render,
+            [this](engine::ecs::World& world) { panels_->render(world, host_.services().worlds.deps()); });
 
     const std::filesystem::path live = live_root(data);
     const std::size_t purged = engine::purge_game_module_copies(live);
@@ -143,6 +151,10 @@ bool EditorApp::start(const EditorOptions& options) {
         engine::log::info("Editor: removed " + std::to_string(purged) + " stale game module copies");
     }
     play_host_.emplace(host_, *panels_);
+    edit_module_.emplace(*play_host_, live);
+    panels_->world_view().set_assets(&services.assets);
+    panels_->world_view().set_component_registrar(
+            [this](engine::ecs::WorldSerializer& s) { edit_module_->register_components(s); });
     session_.emplace(services, *play_host_, live, kIdleGameWindow);
     build_.emplace(services.processes);
     toolbar_->show_state(RunState::Idle);
@@ -155,8 +167,8 @@ bool EditorApp::start(const EditorOptions& options) {
         engine::log::warn("Editor: not an installed SDK: " + engine::describe(manifest.error()));
     }
 
-    open_project(*options.project);
     play_at_start_ = options.play;
+    open_project(*options.project);
     engine::log::info("Editor: started");
     return true;
 }
@@ -180,6 +192,15 @@ void EditorApp::on_frame_end() {
     if (const std::optional<std::filesystem::path> directory = cli_->take_open()) {
         open_project(*directory);
     }
+    if (opening_overlay_->take_skip_requested()) {
+        if (opening_build_ && build_->running()) {
+            build_->cancel();
+        }
+        opening_build_ = false;
+        opening_overlay_->close();
+        panels_->build().show_summary("Startup build skipped.");
+        toolbar_->show_status("Ready. Press Play.");
+    }
     ExportDialog& export_dialog = toolbar_->export_dialog();
     export_dialog.frame(host_.services().windows, window_);
     if (const std::optional<ExportChoice> choice = export_dialog.take_choice()) {
@@ -202,12 +223,13 @@ void EditorApp::on_frame_end() {
 }
 
 void EditorApp::on_quit() {
-    if (build_) {
-        build_->cancel();
-    }
-    if (session_ && session_->playing()) {
+    quitting_ = true;
+    build_->cancel();
+    if (session_->playing()) {
         stop("Stopped.");
     }
+    panels_->world_view().close();
+    edit_module_->unload(world_);
     panels_->save_layout();
     engine::log::info("Editor: quit");
 }
@@ -221,6 +243,13 @@ EditorFacts EditorApp::facts() const {
 }
 
 void EditorApp::open_project(const std::filesystem::path& directory) {
+    if (build_->running()) {
+        build_->cancel();
+    }
+    opening_build_ = false;
+    opening_overlay_->close();
+    panels_->world_view().close();
+    edit_module_->reset(world_);
     project_.reset();
     toolbar_->export_dialog().close();
     ProjectCheck check = check_project(directory, sdk_);
@@ -243,9 +272,52 @@ void EditorApp::open_project(const std::filesystem::path& directory) {
     toolbar_->show_project(line, true);
     toolbar_->show_status("Ready. Press Play.");
     engine::log::info("Editor: project " + project_->name + " at " + path_text(project_dir_));
+    if (!play_at_start_ && sdk_) {
+        start_opening_build();
+    }
+}
+
+void EditorApp::start_opening_build() {
+    if (!project_ || !sdk_ || session_->playing() || build_->running()) {
+        return;
+    }
+    building_ = BuildKind::Module;
+    opening_build_ = true;
+    opening_overlay_->open(project_->name, project_->target);
+    BuildPanel& log = panels_->build();
+    log.clear();
+    log.show_summary("Building " + project_->target + " (" + game_config(sdk_->config, BuildKind::Module) + ")...");
+    build_->start(BuildSetup{
+            .kind = BuildKind::Module,
+            .project = project_dir_,
+            .sdk = sdk_root_,
+            .target = project_->target,
+            .sdk_config = sdk_->config,
+    });
+    toolbar_->show_status("Opening " + project_->name + "...");
+}
+
+void EditorApp::load_edit_module(const std::filesystem::path& module) {
+    panels_->world_view().before_module_unload();
+    if (const auto loaded = edit_module_->load(module); !loaded) {
+        engine::log::warn("Editor: edit module load failed: " + loaded.error());
+        toolbar_->show_status(loaded.error());
+        return;
+    }
+    edit_module_->register_components(*world_);
+    panels_->world_view().reload();
+    toolbar_->show_status("Ready. Press Play.");
 }
 
 void EditorApp::play() {
+    if (opening_build_ && build_->running()) {
+        // Promote the running startup build into a Play build without restarting CMake.
+        opening_build_ = false;
+        opening_overlay_->close();
+        toolbar_->show_state(RunState::Building);
+        toolbar_->show_status("Building " + project_->name + "...");
+        return;
+    }
     start_build(BuildKind::Module);
 }
 
@@ -273,6 +345,8 @@ void EditorApp::start_build(BuildKind kind, bool development) {
         return;
     }
     building_ = kind;
+    opening_build_ = false;
+    opening_overlay_->close();
     BuildPanel& log = panels_->build();
     log.clear();
     log.show_summary("Building " + project_->target + " (" + game_config(sdk_->config, kind, development) + ")...");
@@ -291,10 +365,17 @@ void EditorApp::start_build(BuildKind kind, bool development) {
 void EditorApp::poll_build() {
     std::vector<std::string> lines;
     const std::optional<BuildOutcome> outcome = build_->poll(lines);
+    if (opening_build_ && !lines.empty()) {
+        opening_overlay_->feed_lines(lines);
+    }
     BuildPanel& log = panels_->build();
     log.append(std::move(lines));
     if (!outcome) {
         return;
+    }
+    const bool was_opening = std::exchange(opening_build_, false);
+    if (was_opening) {
+        opening_overlay_->close();
     }
     if (!outcome->has_value()) {
         toolbar_->show_state(RunState::Idle);
@@ -305,6 +386,10 @@ void EditorApp::poll_build() {
         return;
     }
     log.show_summary("Built " + path_text(**outcome) + ".");
+    if (was_opening) {
+        load_edit_module(**outcome);
+        return;
+    }
     if (building_ == BuildKind::Export) {
         finish_export(**outcome);
         return;
@@ -331,9 +416,16 @@ void EditorApp::finish_export(const std::filesystem::path& built) {
 }
 
 void EditorApp::start_game(const std::filesystem::path& module) {
+    edit_module_->remember_module(module);
+    panels_->world_view().before_module_unload();
+    edit_module_->unload(world_);
     const auto started = session_->play(module);
     if (!started) {
         engine::log::warn("Editor: play failed: " + started.error());
+        if (edit_module_->load(module)) {
+            edit_module_->register_components(*world_);
+            panels_->world_view().reload();
+        }
         toolbar_->show_state(RunState::Idle);
         toolbar_->show_status(started.error());
         return;
@@ -349,12 +441,22 @@ void EditorApp::start_game(const std::filesystem::path& module) {
 void EditorApp::stop(std::string status) {
     if (build_->running()) {
         build_->cancel();
+        opening_build_ = false;
+        opening_overlay_->close();
         panels_->build().show_summary("Build cancelled.");
         toolbar_->show_state(RunState::Idle);
         toolbar_->show_status("Build cancelled.");
         return;
     }
     session_->stop();
+    if (!quitting_ && !edit_module_->module_path().empty()) {
+        if (const auto loaded = edit_module_->load(edit_module_->module_path())) {
+            edit_module_->register_components(*world_);
+            panels_->world_view().reload();
+        } else {
+            engine::log::warn("Editor: edit module reload failed: " + loaded.error());
+        }
+    }
     toolbar_->show_state(RunState::Idle);
     toolbar_->show_status(std::move(status));
 }

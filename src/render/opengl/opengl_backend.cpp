@@ -19,6 +19,7 @@
 #include <glm/mat3x3.hpp>
 #include <glm/matrix.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -255,7 +256,33 @@ void main() {
         glBindTexture(GL_TEXTURE_2D, white_texture());
     }
 
-    void OpenGLRenderBackend::set_view(const CmdSetView &view) { view_ = view; }
+    void OpenGLRenderBackend::set_view(const CmdSetView &view) {
+        view_ = view;
+        if (view.viewport.has_value()) {
+            const Rect vp = *view.viewport;
+            const GLint x = static_cast<GLint>(std::lround(vp.x));
+            const GLint y_top = static_cast<GLint>(std::lround(vp.y));
+            const GLsizei w = std::max<GLsizei>(0, static_cast<GLsizei>(std::lround(vp.w)));
+            const GLsizei h = std::max<GLsizei>(0, static_cast<GLsizei>(std::lround(vp.h)));
+            const GLint gl_y = full_viewport_[3] - (y_top + h);
+            glViewport(x, gl_y, w, h);
+            glScissor(x, gl_y, w, h);
+            glEnable(GL_SCISSOR_TEST);
+            glDepthMask(GL_TRUE);
+            if (view.clear_color.has_value()) {
+                const glm::vec4 c = *view.clear_color;
+                glClearColor(c.r, c.g, c.b, c.a);
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            } else {
+                glClear(GL_DEPTH_BUFFER_BIT);
+            }
+        } else {
+            glDisable(GL_SCISSOR_TEST);
+            if (full_viewport_[2] > 0 && full_viewport_[3] > 0) {
+                glViewport(full_viewport_[0], full_viewport_[1], full_viewport_[2], full_viewport_[3]);
+            }
+        }
+    }
 
     void OpenGLRenderBackend::execute_draw_mesh(const CmdDrawMesh &cmd) {
         if (!cmd.mesh || !cmd.material) {
@@ -454,6 +481,8 @@ void main() {
     void OpenGLRenderBackend::execute(const CommandBuffer &commands) {
         // Every buffer starts from identity matrices and no lights until its first CmdSetView.
         view_ = CmdSetView{};
+        glGetIntegerv(GL_VIEWPORT, full_viewport_);
+        glDisable(GL_SCISSOR_TEST);
         const ExecuteVisitor visitor{.painter = ui_painter_, .backend = this};
 #if defined(ENGINE_GL_CHECKS)
         // Errors left by the window's clear or the painter's begin_frame are not blamed on the first command.
@@ -462,6 +491,10 @@ void main() {
 #else
         commands.execute(visitor);
 #endif
+        glDisable(GL_SCISSOR_TEST);
+        if (full_viewport_[2] > 0 && full_viewport_[3] > 0) {
+            glViewport(full_viewport_[0], full_viewport_[1], full_viewport_[2], full_viewport_[3]);
+        }
         // Leave this context as the 2D state: the UI flush that follows expects no depth test and no culling, and a
         // false depth mask would make the next frame's glClear skip the depth buffer.
         glDisable(GL_DEPTH_TEST);
