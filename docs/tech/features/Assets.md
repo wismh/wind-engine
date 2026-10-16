@@ -72,7 +72,7 @@ Meshes on the GPU: [Render](../modules/Render.md#meshes).
 
 ## Builtin set
 
-Nine frozen GUIDs. The splash image and the tree chevron are `importer = "ui_image"`. The list is [Resources](../modules/Resources.md) and `builtin_assets/README.md`.
+Eleven frozen GUIDs. The splash image and the tree chevron are `importer = "ui_image"`. The list is [Resources](../modules/Resources.md) and `builtin_assets/README.md`.
 
 ## See also
 

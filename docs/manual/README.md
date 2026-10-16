@@ -32,6 +32,7 @@ Wind is a high-performance 2D-first C++23 game engine tailored for production ti
 * [Materials & Shaders](rendering/Materials-and-Shaders.md) — Material definitions (`.mat`), GLSL shaders in CDATA, and uniforms.
 * [Command Buffer & Sorting](rendering/Command-Buffer-and-Sort.md) — `Renderable`, how the engine turns drawable components into commands, and draw order (layer, order in layer).
 * [Camera](rendering/Camera.md) — Orthographic camera, `ActiveCamera`, and screen-to-world coordinate conversion.
+* [Basic 3D](rendering/Basic-3D.md) — A perspective camera, a cube with the builtin lit material, and directional and ambient lights.
 
 ### 5. [Wind UI System](ui/UI-Basics.md)
 * [UI Basics](ui/UI-Basics.md) — Declarative XML markup (`Canvas`, `Stack`, `Label`, `Button`, ...), the CSS subset, and `UiCanvas`.
