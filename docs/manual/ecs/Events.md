@@ -88,7 +88,7 @@ The engine calls `world.flush_events()` once per frame, at the start of the tick
 > [!NOTE]
 > An event sent in a frame is visible to readers that run later in the same frame and to every reader in the next one, so the order in which systems run does not make an event vanish. A reader that falls more than one generation behind misses the events that were dropped.
 
-The engine itself uses the same queues: `CollisionEvent` ([Physics & Collisions](Physics-and-Collisions.md)), `InputEvent`, `MouseEvent`, `KeyEvent` ([Input](../input/Action-Mapping.md)), `PlaySfxEvent` ([Sound & Music](../audio-and-haptics/Sound-and-Music.md)), and `WindowCloseRequestedEvent`.
+The engine itself uses the same queues: `CollisionEvent2D` ([Physics & Collisions](Physics-and-Collisions.md)), `InputEvent`, `MouseEvent`, `KeyEvent` ([Input](../input/Action-Mapping.md)), `PlaySfxEvent` ([Sound & Music](../audio-and-haptics/Sound-and-Music.md)), and `WindowCloseRequestedEvent`.
 
 ---
 
