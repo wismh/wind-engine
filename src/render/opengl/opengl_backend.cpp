@@ -94,12 +94,49 @@ void main() {
             }
         }
 
+        // Depth test uses GL_LEQUAL, so a second draw of the same surface (a decal, a second pass) still passes. GL
+        // writes no depth while GL_DEPTH_TEST is disabled, so depth write without depth test is GL_ALWAYS.
+        void apply_depth(bool test, bool write) {
+            if (!test && !write) {
+                glDisable(GL_DEPTH_TEST);
+            } else {
+                glEnable(GL_DEPTH_TEST);
+                glDepthFunc(test ? GL_LEQUAL : GL_ALWAYS);
+            }
+            glDepthMask(write ? GL_TRUE : GL_FALSE);
+        }
+
+        // Counter-clockwise is the front face (GL's default, set again here so nothing else can change it).
+        void apply_cull(CullMode cull) {
+            switch (cull) {
+                case CullMode::None:
+                    glDisable(GL_CULL_FACE);
+                    break;
+                case CullMode::Back:
+                    glEnable(GL_CULL_FACE);
+                    glFrontFace(GL_CCW);
+                    glCullFace(GL_BACK);
+                    break;
+                case CullMode::Front:
+                    glEnable(GL_CULL_FACE);
+                    glFrontFace(GL_CCW);
+                    glCullFace(GL_FRONT);
+                    break;
+            }
+        }
+
+        void apply_render_state(const RenderState &state) {
+            apply_blend(state.blend);
+            apply_depth(state.depth_test, state.depth_write);
+            apply_cull(state.cull);
+        }
+
         void execute_draw_mesh(const CmdDrawMesh &cmd) {
             if (!cmd.mesh || !cmd.material) {
                 return;
             }
 
-            apply_blend(cmd.material->blend());
+            apply_render_state(cmd.material->render_state());
 
             const auto shader = std::dynamic_pointer_cast<OpenGLShader>(cmd.material->shader());
             const auto mesh = std::dynamic_pointer_cast<OpenGLMesh>(cmd.mesh);
@@ -310,7 +347,8 @@ void main() {
             return;
         }
 
-        apply_blend(cmd.blend);
+        // Particles keep the 2D state whatever their material says: no depth test or write, no culling.
+        apply_render_state(RenderState{.blend = cmd.blend});
 
         init_particle_buffers();
         if (!particle_shader_ || !particle_shader_->valid()) {
@@ -389,6 +427,11 @@ void main() {
 #else
         commands.execute(visitor);
 #endif
+        // Leave this context as the 2D state: the UI flush that follows expects no depth test and no culling, and a
+        // false depth mask would make the next frame's glClear skip the depth buffer.
+        glDisable(GL_DEPTH_TEST);
+        glDepthMask(GL_TRUE);
+        glDisable(GL_CULL_FACE);
     }
 
 } // namespace engine::render

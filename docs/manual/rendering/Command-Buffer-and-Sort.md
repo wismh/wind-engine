@@ -45,14 +45,19 @@ Each vertex has a position, a normal (default +Z), and a UV. Triangles wind coun
 
 ## 2. Draw Order
 
-Draws of meshes, sprites, and particle batches are sorted together; the first difference decides:
+Draws of meshes, sprites, and particle batches are sorted together. In a 2D game the first difference decides:
 
 1. `layer` ascending (a low layer is drawn first, behind)
 2. `order_in_layer` ascending
 3. the material (entities that share a material are grouped; the order between two materials is by address)
 4. the entity index
 
-There is no depth test and no Y-sort. For a top-down game, set `order_in_layer` from the entity's Y yourself. UI is separate: canvases are drawn after the world, sorted by `UiCanvas::order`.
+A sprite's z does not change that order, and there is no Y-sort. For a top-down game, set `order_in_layer` from the entity's Y yourself. UI is separate: canvases are drawn after the world, sorted by `UiCanvas::order`.
+
+3D materials change it ([Materials & Shaders](Materials-and-Shaders.md#2-authoring-materials-mat)):
+
+- A material with `blend = "opaque"` and depth write on is *opaque*. All opaque draws go first, whatever their layer, grouped by material and then nearest first. The depth buffer hides what is behind.
+- Everything else is *transparent* and keeps the order above, except that inside one layer and order, draws whose material has depth test on go first, farthest first, and the rest (sprites, particles) after them, on top.
 
 ---
 

@@ -52,8 +52,8 @@ public:
         return {1.0f, 1.0f, 1.0f, 1.0f};
     }
 
-    engine::render::BlendMode blend() const override {
-        return blend_;
+    engine::render::RenderState render_state() const override {
+        return {.blend = blend_};
     }
 
 private:
@@ -117,12 +117,13 @@ TEST(Sprite, MaterialClassConstructibleInCpp) {
     const auto texture = std::make_shared<FakeTexture>();
     const glm::vec4 color{0.5f, 0.6f, 0.7f, 1.0f};
 
-    engine::render::Material mat(shader, texture, color, engine::render::BlendMode::Additive);
+    engine::render::Material mat(
+            shader, texture, color, engine::render::RenderState{.blend = engine::render::BlendMode::Additive});
     EXPECT_EQ(mat.shader(), shader);
     EXPECT_EQ(mat.texture(0), texture);
     EXPECT_EQ(mat.texture(1), nullptr);
     EXPECT_EQ(mat.color(), color);
-    EXPECT_EQ(mat.blend(), engine::render::BlendMode::Additive);
+    EXPECT_EQ(mat.render_state().blend, engine::render::BlendMode::Additive);
 }
 
 TEST(Sprite, TintedColorMultipliesSpriteAndMaterial) {

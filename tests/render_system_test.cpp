@@ -14,6 +14,7 @@
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
 #include <engine/render/renderable.h>
+#include <engine/render/sprite.h>
 #include <engine/resources/assets_db.h>
 #include <engine/resources/fatal_error.h>
 #include <engine/resources/meta.h>
@@ -33,6 +34,7 @@
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <functional>
 #include <fstream>
 #include <iterator>
 #include <memory>
@@ -63,8 +65,8 @@ public:
         return {1.0f, 1.0f, 1.0f, 1.0f};
     }
 
-    engine::render::BlendMode blend() const override {
-        return engine::render::BlendMode::Opaque;
+    engine::render::RenderState render_state() const override {
+        return {.blend = engine::render::BlendMode::Opaque};
     }
 };
 
@@ -1182,4 +1184,175 @@ TEST(RenderSystem, MissingStylesheetWarnsOncePerWorldAcrossFrames) {
     }
     // Once for each of the two worlds, not once per frame.
     EXPECT_EQ(warnings, 2u);
+}
+
+namespace {
+
+class StateMaterial final : public engine::render::IMaterial {
+public:
+    explicit StateMaterial(engine::render::RenderState state)
+        : state_(state) {}
+
+    std::shared_ptr<engine::render::IShader> shader() const override {
+        return {};
+    }
+
+    std::shared_ptr<engine::render::ITexture> texture(int) const override {
+        return {};
+    }
+
+    glm::vec4 color() const override {
+        return {1.0f, 1.0f, 1.0f, 1.0f};
+    }
+
+    engine::render::RenderState render_state() const override {
+        return state_;
+    }
+
+private:
+    engine::render::RenderState state_;
+};
+
+engine::ecs::Entity spawn_sprite_at(engine::ecs::World& world, std::shared_ptr<engine::render::IMesh> mesh,
+        std::shared_ptr<engine::render::IMaterial> material, float z) {
+    const engine::ecs::Entity entity = world.create();
+    engine::Transform transform{};
+    transform.position = {0.0f, 0.0f, z};
+    world.emplace<engine::Transform>(entity, transform);
+    engine::render::Sprite sprite{};
+    sprite.mesh = std::move(mesh);
+    sprite.material = std::move(material);
+    world.emplace<engine::render::Sprite>(entity, std::move(sprite));
+    return entity;
+}
+
+engine::ecs::Entity spawn_mesh_at(engine::ecs::World& world, std::shared_ptr<engine::render::IMesh> mesh,
+        std::shared_ptr<engine::render::IMaterial> material, float z, int layer = 0) {
+    const engine::ecs::Entity entity = world.create();
+    engine::Transform transform{};
+    transform.position = {0.0f, 0.0f, z};
+    world.emplace<engine::Transform>(entity, transform);
+    world.emplace<engine::render::Renderable>(entity, make_renderable(std::move(mesh), std::move(material), layer));
+    return entity;
+}
+
+// A perspective camera at z = 10 looking down -Z.
+void spawn_perspective_camera(engine::ecs::World& world) {
+    spawn_camera(world);
+    const engine::ecs::Entity camera = world.ctx<engine::ActiveCamera>().entity;
+    world.get<engine::Transform>(camera).position = {0.0f, 0.0f, 10.0f};
+    engine::Camera& lens = world.get<engine::Camera>(camera);
+    lens.projection = engine::Projection::Perspective;
+    lens.near_clip = 0.1f;
+    lens.far_clip = 100.0f;
+}
+
+std::vector<std::shared_ptr<engine::render::IMesh>> drawn_meshes(const engine::render::CommandBuffer& commands) {
+    std::vector<std::shared_ptr<engine::render::IMesh>> meshes;
+    for (std::size_t i = 0; i < commands.size(); ++i) {
+        if (const auto* mesh = std::get_if<engine::render::CmdDrawMesh>(&commands[i])) {
+            meshes.push_back(mesh->mesh);
+        }
+    }
+    return meshes;
+}
+
+}
+
+// 2D regression: sprites with the same layer and order but different z keep material, then entity order, under an
+// orthographic and under a perspective camera alike.
+TEST(RenderSystem, TwoDimensionalSpritesAtDifferentZKeepMaterialThenEntityOrder) {
+    for (const bool perspective : {false, true}) {
+        engine::render::CommandBuffer commands;
+        engine::ecs::World world;
+        engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+        if (perspective) {
+            spawn_perspective_camera(world);
+        } else {
+            spawn_camera(world);
+        }
+
+        auto first = std::make_shared<StateMaterial>(engine::render::RenderState{});
+        auto second = std::make_shared<StateMaterial>(
+                engine::render::RenderState{.blend = engine::render::BlendMode::Opaque});
+        if (std::less<>{}(second.get(), first.get())) {
+            std::swap(first, second);
+        }
+        const auto mesh_a = std::make_shared<FakeMesh>();
+        const auto mesh_b = std::make_shared<FakeMesh>();
+        const auto mesh_c = std::make_shared<FakeMesh>();
+        const auto mesh_d = std::make_shared<FakeMesh>();
+        spawn_sprite_at(world, mesh_a, second, 0.9f);
+        spawn_sprite_at(world, mesh_b, first, -0.9f);
+        spawn_sprite_at(world, mesh_c, second, -0.5f);
+        spawn_sprite_at(world, mesh_d, first, 0.5f);
+
+        world.run(engine::ecs::Schedule::Frame);
+
+        const auto meshes = drawn_meshes(commands);
+        ASSERT_EQ(meshes.size(), 4u) << "perspective " << perspective;
+        EXPECT_EQ(meshes[0], mesh_b) << "perspective " << perspective;
+        EXPECT_EQ(meshes[1], mesh_d) << "perspective " << perspective;
+        EXPECT_EQ(meshes[2], mesh_a) << "perspective " << perspective;
+        EXPECT_EQ(meshes[3], mesh_c) << "perspective " << perspective;
+    }
+}
+
+TEST(RenderSystem, OpaqueQueueFrontToBackBeforeTransparentBackToFront) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_perspective_camera(world);
+
+    const auto opaque = std::make_shared<StateMaterial>(engine::render::RenderState{
+            .blend = engine::render::BlendMode::Opaque,
+            .depth_test = true,
+            .depth_write = true,
+            .cull = engine::render::CullMode::Back,
+    });
+    const auto glass = std::make_shared<StateMaterial>(engine::render::RenderState{
+            .blend = engine::render::BlendMode::Alpha,
+            .depth_test = true,
+    });
+    const auto glass_near = std::make_shared<FakeMesh>();
+    const auto glass_far = std::make_shared<FakeMesh>();
+    const auto cube_far = std::make_shared<FakeMesh>();
+    const auto cube_near = std::make_shared<FakeMesh>();
+    spawn_mesh_at(world, glass_near, glass, 5.0f, -1);
+    spawn_mesh_at(world, glass_far, glass, -5.0f, -1);
+    spawn_mesh_at(world, cube_far, opaque, -3.0f, 4);
+    spawn_mesh_at(world, cube_near, opaque, 3.0f, 4);
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    const auto meshes = drawn_meshes(commands);
+    ASSERT_EQ(meshes.size(), 4u);
+    EXPECT_EQ(meshes[0], cube_near);
+    EXPECT_EQ(meshes[1], cube_far);
+    EXPECT_EQ(meshes[2], glass_far);
+    EXPECT_EQ(meshes[3], glass_near);
+}
+
+// The backend reads depth, cull and blend from the command's material.
+TEST(RenderSystem, DrawMeshCarriesTheMaterialWithItsRenderState) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_perspective_camera(world);
+
+    const engine::render::RenderState state{
+            .blend = engine::render::BlendMode::Opaque,
+            .depth_test = true,
+            .depth_write = true,
+            .cull = engine::render::CullMode::Front,
+    };
+    const auto material = std::make_shared<StateMaterial>(state);
+    spawn_mesh_at(world, std::make_shared<FakeMesh>(), material, 0.0f);
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    ASSERT_EQ(commands.size(), 1u);
+    const auto& cmd = std::get<engine::render::CmdDrawMesh>(commands[0]);
+    ASSERT_EQ(cmd.material, material);
+    EXPECT_EQ(cmd.material->render_state(), state);
 }
