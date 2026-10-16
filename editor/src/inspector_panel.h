@@ -21,6 +21,8 @@ namespace editor {
 
 // The Inspector tab: the editor's selection (EditorSelection), in sections that collapse.
 // - A file or folder of the project: inspect_asset, read from disk when it is selected (again).
+// - An entity of the active world (Edit Mode preview or Play Mode game world): inspect_entity, copied on
+//   every refresh while the tab is shown.
 // - A UI element of the game: the probe's detail of that window's selection (the title and Computed) and the
 //   matched Rules, copied on every refresh, so the numbers follow the game.
 // Collapsed headings are kept across selections. Holds `this` in its sections, so it never moves.
@@ -33,11 +35,14 @@ public:
 
     [[nodiscard]] const std::shared_ptr<InspectorViewModel>& view_model() const;
 
-    // The game world a UI element selection is read from, between Play and Stop. Does not attach the probe:
-    // the UI Tree panel does.
+    // The game world a UI element or entity selection is read from, between Play and Stop. Does not attach the
+    // probe: the UI Tree panel does.
     void attach(engine::ecs::World& game);
     void detach();
     [[nodiscard]] bool attached() const;
+
+    // The Edit Mode preview world an entity selection is read from when not playing.
+    void set_edit_world(engine::ecs::World* edit_world);
 
     // While the tab is shown.
     void refresh();
@@ -49,12 +54,14 @@ private:
     void show_nothing(std::string title);
     void show_asset(const AssetSelection& asset);
     void show_ui_element(const UiElementSelection& element);
+    void show_entity(const engine::ecs::World& world, engine::ecs::Entity entity);
     // Turns `content` into the section view-models, reusing them by index.
     void show_sections(std::vector<InspectorSection> content);
 
     const EditorSelection* selection_;
     std::shared_ptr<InspectorViewModel> view_model_;
     engine::ecs::World* game_ = nullptr;
+    engine::ecs::World* edit_world_ = nullptr;
     // EditorSelection::revision of the file read last; a file is read again only when it moves.
     std::optional<std::uint64_t> asset_revision_;
     // What the sections show, kept so a toggle shows it again without reading the disk.

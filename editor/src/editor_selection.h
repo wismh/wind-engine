@@ -1,6 +1,7 @@
 #pragma once
 
 #include "asset_selection.h"
+#include "entity_selection.h"
 #include "ui_element_selection.h"
 
 #include <cstdint>
@@ -8,11 +9,11 @@
 
 namespace editor {
 
-using SelectionTarget = std::variant<std::monostate, AssetSelection, UiElementSelection>;
+using SelectionTarget = std::variant<std::monostate, AssetSelection, UiElementSelection, EntitySelection>;
 
 // What the Inspector tab shows: the last thing selected anywhere in the editor. The Project tab selects a
-// file or folder, the UI Tree tab (or a pick click in the game) selects an element; the newest one wins.
-// Selecting in one panel does not clear another panel's own highlight.
+// file or folder, the Hierarchy tab selects an entity, and the UI Tree tab (or a pick click in the game)
+// selects an element; the newest one wins. Selecting in one panel does not clear another panel's own highlight.
 class EditorSelection {
 public:
     // Replaces the selection, even with an equal one, and counts it: the Inspector reads a file again when
