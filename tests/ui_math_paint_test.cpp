@@ -20,10 +20,6 @@
 #error "ENGINE_BUILTIN_ASSETS_DIR must be set to the builtin_assets path"
 #endif
 
-#if defined(NANOVG_H) || defined(NANOVG_GL_H) || defined(NANOVG_GL3)
-#error "math paint tests must not include nvg headers"
-#endif
-
 namespace {
 
 using namespace engine::ui::math;

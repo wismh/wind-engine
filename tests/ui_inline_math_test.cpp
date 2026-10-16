@@ -592,7 +592,7 @@ TEST(UiInlineMath, LineHeightIsAMinimumStrideForAShortFormula) {
     EXPECT_NEAR(only_child(document).layout_rect.w, formula.width, 0.05f);
 }
 
-// First paint measures every run as zero wide (what NanoVG returns under CSS scale(0)). The next
+// First paint measures every run as zero wide (what the NanoVG painter returned under CSS scale(0)). The next
 // paint, with real widths, must place the formula after the text instead of reusing that line.
 class CollapseThenMeasurePainter final : public RecordingPainter {
 public:

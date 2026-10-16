@@ -32,10 +32,6 @@
 #error "ENGINE_BUILTIN_ASSETS_DIR must be set to the builtin_assets path"
 #endif
 
-#if defined(NANOVG_H) || defined(NANOVG_GL_H) || defined(NANOVG_GL3)
-#error "math element tests must not include nvg headers"
-#endif
-
 namespace {
 
 using namespace engine::ui;
@@ -57,7 +53,7 @@ struct PathCall {
     glm::vec4 color;
 };
 
-// A painter that, like the NanoVG one once the engine has registered the builtin math font, exposes a MathFont;
+// A painter that, like the UI renderer once the engine has registered the builtin math font, exposes a MathFont;
 // `has_font` lets a test start without one and add it later.
 class MathPainter final : public IUiPainter {
 public:
