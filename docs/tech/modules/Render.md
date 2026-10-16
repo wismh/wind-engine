@@ -102,14 +102,16 @@ These sources are not in the headless library. CMake adds them only when the win
 | Execute mesh and particle draws | `opengl_backend.cpp` |
 | One VAO per GL context | `context_vao.cpp`, bookkeeping in `src/render/context_objects.cpp` |
 | Canvas, font and image upload | `opengl_canvas.cpp` |
-| UI painter | `nanovg_painter.cpp` (`IUiPainter`) |
+| UI device (`IUiDevice`) and its shader | `opengl_ui_device.cpp`, `opengl_ui_shader.h` |
 | SDL window and GL context | `window_system.cpp` |
 | Several windows | `window_manager.cpp` |
 | Presentation | `sdl_gl_presentation.cpp` |
 
-Desktop links glad and OpenGL 3.3. `ENGINE_WITH_GLES` links SDL and NanoVG without glad (Android also links GLESv3, EGL, `android`, and `log`).
+Desktop links glad and OpenGL 3.3. `ENGINE_WITH_GLES` links SDL without glad (Android also links GLESv3, EGL, `android`, and `log`).
 
 Sampler state on upload comes from the catalog filter and wrap (`opengl_texture.cpp`).
+
+Each canvas's UI painter is a `ui::UiRenderer` (`src/ui/render/ui_renderer.h`): the backend-neutral `BatchingPainter` over the one `ui::PaintResources` the `OpenGLRenderBackend` keeps for every window (`ui_resources()`), with that canvas's own `OpenGLUiDevice`. `end_frame` catches the device's textures up with the shared atlas pages (`UiTextureSync`: a new page whole, a changed one its dirty rect, everything again after `PaintResources::generation` changes), uploads the frame's vertices and indices into two orphaned stream buffers, and issues one `glDrawElements` per batch, so the UI profiler's `draw_calls` is the batch count. The device is one program (GLSL 330 core, rewritten to 300 es by `adapt_glsl` under `ENGINE_WITH_GLES`) that implements `src/ui/render/fragment.h`, its own textures (R8 glyph and mask pages, RGBA8 ramp and image pages; bilinear, clamp, no mipmaps), and a VAO through `ContextVao`. It sets its whole pipeline when it draws and leaves what the rest of the backend expects: blend on with the premultiplied function, depth, stencil, cull, and scissor off, program, VAO, array buffer, and texture units 0 to 3 unbound with unit 0 active, unpack alignment 4. `ENGINE_GL_CHECKS` also checks for GL errors after the UI draw ("the UI draw"). `reset_ui_painter` (editor Stop) drops the shared images (`PaintResources::drop_images`), and the next frame registers and uploads the ones still referenced; fonts stay registered, being shared by windows that may be measuring text. The UI has no other painter: NanoVG left the engine in wind-234.
 
 Every window has its own GL context. Textures, buffers, and programs are shared with the primary's context; vertex array objects are not. A VAO made in one context binds nothing, or another VAO, in the next, and the draw does nothing without an error. So `OpenGLMesh` and the particle draw keep their buffers once and make a VAO in each context the first time they draw there (`ContextVao`). The key of a context comes from `ContextObjects`, which `OpenGLCanvas` fills when it creates and destroys a context. A key is never reused, so a VAO cached for a destroyed context never binds in a new one whose driver handle is the same. A VAO released while another context is current is deleted the next time its own context renders. A destroyed context drops its VAOs with it.
 
@@ -122,8 +124,8 @@ GL errors are silent unless someone asks. With `ENGINE_GL_CHECKS` (Debug, RelWit
 - `src/render/material.cpp` — parse `.mat`
 - `src/render/material_instance.h` — `IMaterial` for a cooked material
 - `src/render/animation.cpp`, `src/render/particles.cpp`, `src/render/shader_adapt.cpp`
-- `src/render/context_objects.cpp` � GL context keys and deferred VAO deletes, without GL calls
-- `src/render/gl_error_log.cpp` � GL error names and the once-per-place error log lines
+- `src/render/context_objects.cpp` — GL context keys and deferred VAO deletes, without GL calls
+- `src/render/gl_error_log.cpp` — GL error names and the once-per-place error log lines
 
 ## Public headers
 
@@ -143,7 +145,7 @@ GL errors are silent unless someone asks. With `ENGINE_GL_CHECKS` (Debug, RelWit
 
 ## Tests
 
-`tests/command_buffer_test.cpp`, `tests/sort_test.cpp`, `tests/material_test.cpp`, `tests/render_system_test.cpp`, `tests/sprite_test.cpp`, `tests/animation_test.cpp`, `tests/particle_test.cpp`, `tests/shader_adapt_test.cpp`, `tests/opengl_texture_test.cpp` (CPU texture desc, no GL draw), `tests/ui_painter_test.cpp` (fake painter), `tests/window_icon_test.cpp`, `tests/context_objects_test.cpp` (context keys and deferred VAO deletes, no GL), `tests/gl_error_log_test.cpp`.
+`tests/command_buffer_test.cpp`, `tests/sort_test.cpp`, `tests/material_test.cpp`, `tests/render_system_test.cpp`, `tests/sprite_test.cpp`, `tests/animation_test.cpp`, `tests/particle_test.cpp`, `tests/shader_adapt_test.cpp`, `tests/opengl_texture_test.cpp` (CPU texture desc, no GL draw), `tests/ui_painter_test.cpp` (fake painter), `tests/window_icon_test.cpp`, `tests/context_objects_test.cpp` (context keys and deferred VAO deletes, no GL), `tests/gl_error_log_test.cpp`, `tests/ui_renderer_test.cpp` (UI renderer against a fake device: texture catch-up per device, draws per batch).
 
 GPU pixels stay out of `engine_tests`. See [Boundaries](../architecture/Boundaries.md).
 

@@ -44,7 +44,7 @@ public:
     void set_window_icon(const render::TextureDesc& desc);
     [[nodiscard]] bool add_font_for_window(WindowId id, AssetId asset, const Font& font);
     [[nodiscard]] bool add_image_for_window(WindowId id, AssetId asset, const render::TextureDesc& desc);
-    // Drops the UI fonts and images registered for `id`. They are registered again when drawn.
+    // Drops the UI images (shared by every window); fonts stay registered. Images are registered again when drawn.
     [[nodiscard]] bool reset_ui_cache(WindowId id);
     void shutdown();
 

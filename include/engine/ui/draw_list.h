@@ -14,7 +14,7 @@ namespace engine::ui {
 
 // Game-facing draw surface for `IPaint`. Coordinates are local to the element's content box
 // (origin top-left, design px). The engine maps them through the canvas scale/offset; games do not
-// call NanoVG or `IUiPainter`.
+// call OpenGL or `IUiPainter`.
 class IDrawList {
 public:
     virtual ~IDrawList() = default;

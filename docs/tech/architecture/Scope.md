@@ -12,7 +12,7 @@ The editor is in progress. See [Editor Plan](Editor%20Plan.md). Today `wind_edit
 - Window, GL context, input actions, mouse to UI. Multiple windows for one running game. See [Windowing](../features/Windowing.md).
 - A process holds any number of `ecs::World`. A world is one simulation: no parent and no scene graph. A window belongs to one world. That world's meshes go to each window bound to it. UI is `UiCanvas` plus a document instance plus a view-model. The document comes from XML or the C++ builder.
 - Homemade ECS. EnTT is an API reference only, not a dependency. Entities can have a `Parent` (a separate component, not a field of `Transform`); the engine derives `WorldTransform` from it. This is not a scene graph.
-- Render abstractions and an OpenGL 3.3 backend: materials, instance tint, layer sort. NanoVG executes `CmdDrawUI`. Particles are `CmdDrawParticles`.
+- Render abstractions and an OpenGL 3.3 backend: materials, instance tint, layer sort. The UI renderer (`src/ui/render/`, one OpenGL device) executes `CmdDrawUI`. Particles are `CmdDrawParticles`.
 - `AssetsDb` and a GUID catalog: sidecar TOML `.meta`, `asset_guid`, and `asset_codegen`.
 - Localization: `.strings` tables by `AssetId`, `{tr}` in UI, integer plural categories. The game selects the active locale and persists that choice.
 - Audio: buses, SFX pool, music A/B, looping SFX handles on SDL3_mixer.

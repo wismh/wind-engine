@@ -6,6 +6,7 @@
 #include "opengl_texture.h"
 
 #include "ui/painter.h"
+#include "ui/render/paint_resources.h"
 
 #include <engine/log.h>
 
@@ -205,7 +206,7 @@ void main() {
 
     } // namespace
 
-    OpenGLRenderBackend::OpenGLRenderBackend() = default;
+    OpenGLRenderBackend::OpenGLRenderBackend() : ui_resources_(std::make_unique<ui::PaintResources>()) {}
 
     OpenGLRenderBackend::~OpenGLRenderBackend() {
         if (default_white_texture_ != 0) {

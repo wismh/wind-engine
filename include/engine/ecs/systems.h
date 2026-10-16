@@ -46,7 +46,7 @@ struct EngineSystemDeps {
     // Command buffer for a window, including `kPrimaryWindow`. Left unset, `commands` is the
     // primary buffer and any other window is skipped.
     std::function<render::CommandBuffer*(WindowId)> commands_for_window;
-    // Registers an image/font with `window`'s own NanoVG atlas the first time run_ui_render finds
+    // Registers an image/font with `window`'s UI painter the first time run_ui_render finds
     // it referenced by a drawn UiCanvas's document/stylesheet (ecs/systems.cpp) — idempotent and
     // cheap to call every frame once loaded, so no separate "already loaded" bookkeeping is kept
     // here. Left unset, UI images/fonts beyond the builtin font simply never appear — same

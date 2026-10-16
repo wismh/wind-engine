@@ -171,7 +171,7 @@ public:
         if (canvas == nullptr || window == nullptr) {
             return false;
         }
-        // draw_all() leaves whichever window it finished on current. NanoVG font upload needs this one.
+        // draw_all() leaves whichever window it finished on current. The UI painter's GL calls need this one.
         SDL_GL_MakeCurrent(window->window(), canvas->native_context());
         if (asset == builtin::font_ui) {
             return canvas->load_ui_font(font);

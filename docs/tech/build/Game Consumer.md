@@ -119,7 +119,7 @@ ENGINE_GAME(game::Game)
 
 `Game` is constructed from `const engine::EngineServices&`. `ENGINE_GAME` and `Engine<GameT>` do not compile without that constructor. `GameBase` is enough for a test that never calls `Engine::run`.
 
-The game includes `<engine/…>` only. It does not add `engine/src` to its include path and does not include SDL, glad, or NanoVG.
+The game includes `<engine/…>` only. It does not add `engine/src` to its include path and does not include SDL or glad.
 
 ## Standalone executable
 
