@@ -66,6 +66,14 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/net/http_call.h` | `HttpCall`: one owned request, `take`, `cancel` | [Net](../modules/Net.md) |
 | `include/engine/net/http_client.h` | `IHttpClient` and `HttpClient` | [Net](../modules/Net.md) |
 | `include/engine/net/http_request.h` | `HttpRequest`, `HttpResponse`, `HttpError`, `HttpResult` | [Net](../modules/Net.md) |
+| `include/engine/net/network_transport.h` | `INetworkTransport`, `PeerId`, `DeliveryMode`, `TransportEvent` | [Net](../modules/Net.md) |
+| `include/engine/net/gns_transport.h` | `GnsTransport`: GameNetworkingSockets IP/UDP implementation | [Net](../modules/Net.md) |
+| `include/engine/net/steam_transport.h` | `SteamTransport`: SteamNetworkingSockets P2P implementation | [Net](../modules/Net.md) |
+| `include/engine/net/net_id.h` | `NetId` component, `NetIdGenerator` | [Net](../modules/Net.md) |
+| `include/engine/net/net_entity_map.h` | `NetEntityMap`, `bind_net_entity`, `set_parent_by_net_id` | [Net](../modules/Net.md) |
+| `include/engine/net/byte_stream.h` | `ByteWriter` and `ByteReader` binary packet serializer | [Net](../modules/Net.md) |
+| `include/engine/net/packet_types.h` | `PacketType`, `PacketHeader`, and core replication packets | [Net](../modules/Net.md) |
+| `include/engine/net/packet_dispatcher.h` | `PacketDispatcher` and `register_replication_handlers` | [Net](../modules/Net.md) |
 | `include/engine/process/process_call.h` | `ProcessCall`: one owned child, `take_output`, `take`, `cancel` | [Process](../modules/Process.md) |
 | `include/engine/process/process_desc.h` | `ProcessDesc`, `ProcessVariable`, `ProcessExit`, `ProcessError`, `ProcessResult` | [Process](../modules/Process.md) |
 | `include/engine/process/process_launcher.h` | `IProcessLauncher` and `ProcessLauncher` | [Process](../modules/Process.md) |
@@ -405,6 +413,12 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/net/web_fetch.h` | Web backend API | [Net](../modules/Net.md) |
 | `src/net/winhttp_session.cpp` | `WinHttpSession`: WinHTTP backend | [Net](../modules/Net.md) |
 | `src/net/winhttp_session.h` | Windows backend API | [Net](../modules/Net.md) |
+| `src/net/gns_common.h`, `src/net/gns_common.cpp` | `GnsBaseTransport`: shared connection state, callbacks, and event queues | [Net](../modules/Net.md) |
+| `src/net/gns_transport.cpp` | `GnsTransport` IP/UDP socket setup and methods | [Net](../modules/Net.md) |
+| `src/net/steam_transport.cpp` | `SteamTransport` Steam P2P connection setup and methods | [Net](../modules/Net.md) |
+| `src/net/net_entity_map.cpp` | `NetEntityMap`, `bind_net_entity`, and hierarchy translation | [Net](../modules/Net.md) |
+| `src/net/byte_stream.cpp` | `ByteWriter` and `ByteReader` binary packet serialization bodies | [Net](../modules/Net.md) |
+| `src/net/packet_dispatcher.cpp` | `PacketDispatcher` routing and `register_replication_handlers` | [Net](../modules/Net.md) |
 | `src/process/line_splitter.cpp` | `LineSplitter`: output bytes to lines | [Process](../modules/Process.md) |
 | `src/process/line_splitter.h` | `LineSplitter` API | [Process](../modules/Process.md) |
 | `src/process/process_call.cpp` | `ProcessCall` ownership and cancel | [Process](../modules/Process.md) |
@@ -475,6 +489,11 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/haptics_test.cpp` | Clamp, no-op, and the fake counters | [Haptics](../modules/Haptics.md) |
 | `tests/curl_transfer_test.cpp` | `curl_transfer` against a fake libcurl | [Net](../modules/Net.md) |
 | `tests/http_test.cpp` | `HttpCall` ownership, completion queue, worker pool, URL and header parsing, `HttpClient` without a socket | [Net](../modules/Net.md) |
+| `tests/gns_transport_test.cpp` | `GnsTransport` server/client start, stop, UDP handshake, and data transfer | [Net](../modules/Net.md) |
+| `tests/steam_transport_test.cpp` | `SteamTransport` server/client lifecycle and GNS coexistence | [Net](../modules/Net.md) |
+| `tests/net_id_test.cpp` | `NetId`, `NetIdGenerator`, `NetEntityMap`, world context binding, and hierarchy translation | [Net](../modules/Net.md) |
+| `tests/byte_stream_test.cpp` | `ByteWriter` and `ByteReader` round-trip, bounds checking, and error latching | [Net](../modules/Net.md) |
+| `tests/packet_protocol_test.cpp` | Packet headers, replication packet round-trip, `PacketDispatcher`, and ECS replication integration | [Net](../modules/Net.md) |
 | `tests/host_test.cpp` | `Host` tick and system registration | [Core](../modules/Core.md) |
 | `tests/parse_float_test.cpp` | Signs, exponents, rejected text, prefix length | [Core](../modules/Core.md#parsing-numbers) |
 | `tests/job_system_test.cpp` | Inline ranges, two workers, nested `parallel_for`, `stop` joins | [Core](../modules/Core.md#jobs) |

@@ -104,6 +104,61 @@ No libcurl header or library is needed to build: `src/net/curl_api.h` declares t
 
 `HttpCallState` (`src/net/http_call_state.h`) is shared by the call, the completion queue, and the backend. Every backend feeds the body through `accept` (progress, sink or `body`); `drain_sink` (main thread, from `poll`) and `finish_sink` (transfer thread, from `HttpWorkerPool` before it pushes the result) make a `Main` sink see all chunks before the result. `result` is touched on the main thread only. A backend brackets its blocking work with `begin_transfer(abort)` and `end_transfer()`; `cancel` runs the registered abort under the same lock, so a handle is closed exactly once. `HttpCompletions` (`CallCompletions` from `src/core/call_completions.h`, shared with `FileDialogCall`) takes results from any thread and hands them over in `deliver`, dropping cancelled ones. `HttpWorkerPool` skips a call cancelled while queued.
 
+## Realtime Transport & Entity Mapping
+
+Realtime networking and entity replication helpers live in `namespace engine::net`.
+
+### Transport API
+
+`include/engine/net/network_transport.h`, `gns_transport.h`, `steam_transport.h`.
+
+| Type | Role |
+| --- | --- |
+| `INetworkTransport` | Virtual interface for socket transport: `start_server`, `connect`, `disconnect`, `stop`, `send`, `poll_events`, `rtt_ms` |
+| `GnsTransport` | Direct IP/UDP transport powered by Valve's GameNetworkingSockets |
+| `SteamTransport` | Steam P2P transport using SteamNetworkingSockets and SteamID64 addresses |
+| `DeliveryMode` | `Unreliable`, `UnreliableSequenced`, `ReliableOrdered` |
+| `TransportEvent` | `Connected`, `Disconnected`, `DataReceived` |
+
+### NetId & Entity Mapping
+
+`include/engine/net/net_id.h`, `net_entity_map.h`.
+
+| Type | Role |
+| --- | --- |
+| `NetId` | 32-bit stable network identifier component. Valid when non-zero. Supports equality, spaceship comparison, and `std::hash` |
+| `NetIdGenerator` | Monotonic ID allocator (`next()`, `reset()`, `peek_next_value()`) |
+| `NetEntityMap` | Bi-directional mapping between `NetId` and local generational `ecs::Entity` |
+| `bind_net_entity` | Emplaces `NetId` component and binds to `world.ctx<NetEntityMap>()` |
+| `unbind_net_entity` | Removes `NetId` component and unbinds from `world.ctx<NetEntityMap>()` |
+| `find_entity` / `find_net_id` | Lookups in `world.ctx<NetEntityMap>()` |
+| `set_parent_by_net_id` | Resolves parent and child `NetId`s and applies `ecs::set_parent` |
+| `get_parent_net_id` | Resolves `Parent.entity` back to the parent's `NetId` |
+
+### Binary Packet Serialization
+
+`include/engine/net/byte_stream.h` (`byte_writer.h`, `byte_reader.h`).
+
+| Type | Role |
+| --- | --- |
+| `ByteWriter` | Little-endian binary packet writer: primitives (`u8`..`u64`, `i8`..`i64`, `float`, `double`, `bool`), enums (`write_enum`), math (`vec2`, `vec3`, `vec4`, `quat`), `NetId`, strings, and spans. Dynamic buffer with `bytes()`, `span()`, `size()` |
+| `ByteReader` | Non-allocating Little-endian packet reader over `std::span<const std::uint8_t>`. Error-latched bounds checking, optional returns (`std::optional<T>`), template `read<T>()`, `skip()`, and `reset()` |
+
+### Packet Protocol & Dispatcher
+
+`include/engine/net/packet_types.h`, `packet_dispatcher.h`.
+
+| Type | Role |
+| --- | --- |
+| `PacketType` | Scoped enum for packet identification (`Handshake`, `SpawnEntity`, `DespawnEntity`, `SyncTransform`, `SyncParent`, `Custom`, etc.) |
+| `PacketHeader` | 1-byte packet header carrying `PacketType` |
+| `SpawnEntityPacket` | Spawns entity on remote: `net_id`, `position`, `rotation`, `scale`, `parent_net_id` |
+| `DespawnEntityPacket` | Destroys remote entity by `net_id` |
+| `SyncTransformPacket` | Updates entity transform on remote: `net_id`, `position`, `rotation`, `scale` |
+| `SyncParentPacket` | Updates entity hierarchy on remote: `child_net_id`, `parent_net_id` |
+| `PacketDispatcher` | Routes incoming packets by `PacketType` to registered raw callbacks or typed packet handlers |
+| `register_replication_handlers` | Helper that connects standard ECS replication packets to an `ecs::World` |
+
 ## Not in scope yet
 
 Retries, resuming, and writing files are the game's: the engine gives it the sink, `Range`, and the error codes to do them. Connections are not reused between requests on any backend yet.
