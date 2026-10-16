@@ -11,6 +11,7 @@
 
 namespace engine::ui {
 class IUiPainter;
+struct PaintResources;
 }
 
 namespace engine::render {
@@ -26,6 +27,10 @@ public:
     OpenGLRenderBackend& operator=(const OpenGLRenderBackend&) = delete;
 
     void set_ui_painter(ui::IUiPainter* painter);
+    // The fonts, glyph atlas, path masks, gradient ramps, and images every window's UiRenderer draws from: one set
+    // for the backend every window shares (docs/tech/architecture/UI Performance Plan.md, step 5). CPU only; each
+    // window's device keeps its own textures of it.
+    [[nodiscard]] ui::PaintResources& ui_resources() noexcept { return *ui_resources_; }
     void execute(const CommandBuffer& commands) override;
 
     void execute_draw_particles(const CmdDrawParticles& cmd);
@@ -37,6 +42,7 @@ private:
     void set_up_particle_vao() const;
 
     ui::IUiPainter* ui_painter_ = nullptr;
+    std::unique_ptr<ui::PaintResources> ui_resources_;
     ContextVao particle_vao_;
     unsigned int particle_quad_vbo_ = 0;
     unsigned int particle_instance_vbo_ = 0;

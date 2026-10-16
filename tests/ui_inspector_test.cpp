@@ -17,10 +17,6 @@
 #include <string_view>
 #include <vector>
 
-#if defined(NANOVG_H) || defined(NANOVG_GL_H) || defined(NANOVG_GL3)
-#error "ui inspector tests must not include nvg headers"
-#endif
-
 namespace {
 
     class ClickViewModel final : public engine::ui::ViewModel {

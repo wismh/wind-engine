@@ -79,7 +79,7 @@ TOML parsed by `parse_material`:
 
 ## Where it executes
 
-Headless tests can push commands and sort them. Pixels require `ENGINE_WITH_WINDOW`. `OpenGLBackend::execute` walks the buffer. `CmdDrawUI` goes to the NanoVG painter on that window's canvas.
+Headless tests can push commands and sort them. Pixels require `ENGINE_WITH_WINDOW`. `OpenGLBackend::execute` walks the buffer. `CmdDrawUI` goes to the UI renderer on that window's canvas.
 
 `run_render` pushes those world commands to every id in `ctx<BoundWindows>()` that has a command buffer. A bound secondary window receives the same sorted draws. Its projection is `window_size_for` for that id (`Presentation.sizes`). `CmdDrawUI` is separate, per canvas.
 

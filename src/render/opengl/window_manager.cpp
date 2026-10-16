@@ -125,7 +125,7 @@ std::optional<WindowId> WindowManager::create_window(const WindowDesc& desc) {
 
     entry->canvas = std::make_shared<render::OpenGLCanvas>(entry->window, *entry->commands, *backend_);
     // with_ui_painter=true: OpenGLCanvas::draw() now re-arms OpenGLRenderBackend's
-    // single shared ui_painter_ pointer to *its own* NanoVgPainter immediately before calling
+    // single shared ui_painter_ pointer to *its own* UiRenderer immediately before calling
     // execute(), every frame — so the "last window to init() wins" clobbering risk that used to
     // block this no longer applies: whichever window's draw() ran last simply owns the pointer for the instant
     // its own execute() call actually reads it.

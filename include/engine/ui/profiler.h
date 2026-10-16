@@ -114,8 +114,8 @@ namespace engine::ui {
         int generated = 0;
         // Painter calls by kind, base pass and popup layer together.
         std::array<int, kProfilerPaintKindCount> paint_commands{};
-        // GPU draw calls the painter queued while this canvas painted. With NanoVG: the `glDrawArrays` its
-        // `nvgEndFrame` flush issues for those calls. A painter that does not report them leaves 0.
+        // GPU draw calls the painter queued while this canvas painted. With the UI renderer: the batches its
+        // draw list holds for those calls. A painter that does not report them leaves 0.
         int draw_calls = 0;
 
         [[nodiscard]] std::int64_t ns(ProfilerStage stage) const {
