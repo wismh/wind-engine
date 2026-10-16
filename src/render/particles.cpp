@@ -247,7 +247,7 @@ void update_emitter(
         ParticleEmitter& emitter,
         float dt,
         const glm::mat4& transform,
-        std::span<const ParticleCollider> colliders) {
+        std::span<const ParticleCollider2D> colliders) {
     if (dt <= 0.0f) {
         return;
     }
@@ -286,7 +286,7 @@ void update_emitter(
 
                 HitResult candidate_hit;
                 bool collided = false;
-                if (col.shape == ParticleCollider::Shape::Box) {
+                if (col.shape == ParticleCollider2D::Shape::Box) {
                     collided = check_box_collision(
                             seg_p0,
                             seg_p1,
@@ -294,7 +294,7 @@ void update_emitter(
                             col.position,
                             col.box_size,
                             candidate_hit);
-                } else if (col.shape == ParticleCollider::Shape::Circle) {
+                } else if (col.shape == ParticleCollider2D::Shape::Circle) {
                     collided = check_circle_collision(
                             seg_p0,
                             seg_p1,

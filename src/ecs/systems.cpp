@@ -10,7 +10,7 @@
 #include <engine/ecs/camera.h>
 #include <engine/ecs/events.h>
 #include <engine/ecs/hierarchy.h>
-#include <engine/ecs/physics.h>
+#include <engine/ecs/physics_2d.h>
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/transform.h>
 #include <engine/loc/catalog.h>
@@ -774,12 +774,13 @@ namespace engine {
             }
         }
 
-        std::vector<render::ParticleCollider> colliders;
+        std::vector<render::ParticleCollider2D> colliders;
         if (any_collisions) {
-            world.view<Transform, BoxCollider>().each([&](ecs::Entity entity, const Transform &, const BoxCollider &box) {
+            world.view<Transform, BoxCollider2D>().each(
+                    [&](ecs::Entity entity, const Transform &, const BoxCollider2D &box) {
                 if (!box.is_trigger) {
-                    colliders.push_back(render::ParticleCollider{
-                            .shape = render::ParticleCollider::Shape::Box,
+                    colliders.push_back(render::ParticleCollider2D{
+                            .shape = render::ParticleCollider2D::Shape::Box,
                             .position = ecs::world_position(world, entity),
                             .box_size = box.size,
                             .circle_radius = 0.0f,
@@ -787,11 +788,11 @@ namespace engine {
                     });
                 }
             });
-            world.view<Transform, CircleCollider>().each(
-                    [&](ecs::Entity entity, const Transform &, const CircleCollider &circle) {
+            world.view<Transform, CircleCollider2D>().each(
+                    [&](ecs::Entity entity, const Transform &, const CircleCollider2D &circle) {
                 if (!circle.is_trigger) {
-                    colliders.push_back(render::ParticleCollider{
-                            .shape = render::ParticleCollider::Shape::Circle,
+                    colliders.push_back(render::ParticleCollider2D{
+                            .shape = render::ParticleCollider2D::Shape::Circle,
                             .position = ecs::world_position(world, entity),
                             .box_size = glm::vec3{0.0f},
                             .circle_radius = circle.radius,
@@ -813,7 +814,7 @@ namespace engine {
             return;
         }
         world.ctx<SimulationSystemsRegistered>().value = true;
-        world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics, [](ecs::World &w) { run_physics(w); });
+        world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics, [](ecs::World &w) { run_physics_2d(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_sprite_animations(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_particles(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Transform,

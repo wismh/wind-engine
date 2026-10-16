@@ -19,7 +19,7 @@ Within each schedule, systems execute sequentially across predefined phases (`en
 
 ### `Schedule::Fixed` Phases
 ```
-1. Phase::Physics  --> Engine: run_physics (velocity integration, collision events)
+1. Phase::Physics  --> Engine: run_physics_2d (velocity integration, collision events)
 2. Phase::Game     --> Fixed gameplay logic, enemy AI, simulation steps
 ```
 

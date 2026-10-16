@@ -2,7 +2,7 @@
 
 #include <engine/core/time.h>
 #include <engine/ecs/camera.h>
-#include <engine/ecs/physics.h>
+#include <engine/ecs/physics_2d.h>
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/systems.h>
 #include <engine/ecs/transform.h>
@@ -451,9 +451,9 @@ TEST(ParticleCollision, ParticlesBounceOffBoxFloor) {
     emitter.friction = 0.0f;
 
     // Floor at y = 0, height = 2 (so top of box is at y = 1.0f)
-    std::vector<engine::render::ParticleCollider> colliders{
-            engine::render::ParticleCollider{
-                    .shape = engine::render::ParticleCollider::Shape::Box,
+    std::vector<engine::render::ParticleCollider2D> colliders{
+            engine::render::ParticleCollider2D{
+                    .shape = engine::render::ParticleCollider2D::Shape::Box,
                     .position = {0.0f, 0.0f, 0.0f},
                     .box_size = {100.0f, 2.0f, 1.0f},
                     .circle_radius = 0.0f,
@@ -496,9 +496,9 @@ TEST(ParticleCollision, ParticlesBounceOffCircleObstacle) {
     emitter.bounce = 0.8f;
 
     // Circle obstacle at x = 5.0, radius = 2.0 (left edge is at x = 3.0)
-    std::vector<engine::render::ParticleCollider> colliders{
-            engine::render::ParticleCollider{
-                    .shape = engine::render::ParticleCollider::Shape::Circle,
+    std::vector<engine::render::ParticleCollider2D> colliders{
+            engine::render::ParticleCollider2D{
+                    .shape = engine::render::ParticleCollider2D::Shape::Circle,
                     .position = {5.0f, 0.0f, 0.0f},
                     .box_size = {0.0f, 0.0f, 0.0f},
                     .circle_radius = 2.0f,
@@ -535,9 +535,9 @@ TEST(ParticleCollision, KillOnCollisionTerminatesParticle) {
     emitter.kill_on_collision = true;
 
     // Floor at y = -2
-    std::vector<engine::render::ParticleCollider> colliders{
-            engine::render::ParticleCollider{
-                    .shape = engine::render::ParticleCollider::Shape::Box,
+    std::vector<engine::render::ParticleCollider2D> colliders{
+            engine::render::ParticleCollider2D{
+                    .shape = engine::render::ParticleCollider2D::Shape::Box,
                     .position = {0.0f, -2.0f, 0.0f},
                     .box_size = {50.0f, 1.0f, 1.0f},
                     .circle_radius = 0.0f,
@@ -567,9 +567,9 @@ TEST(ParticleCollision, FrictionDampsTangentialVelocity) {
     emitter.friction = 0.75f; // 75% friction damping
 
     // Floor at y = 0, top edge at y = 0.5
-    std::vector<engine::render::ParticleCollider> colliders{
-            engine::render::ParticleCollider{
-                    .shape = engine::render::ParticleCollider::Shape::Box,
+    std::vector<engine::render::ParticleCollider2D> colliders{
+            engine::render::ParticleCollider2D{
+                    .shape = engine::render::ParticleCollider2D::Shape::Box,
                     .position = {0.0f, 0.0f, 0.0f},
                     .box_size = {100.0f, 1.0f, 1.0f},
                     .circle_radius = 0.0f,
@@ -609,9 +609,9 @@ TEST(ParticleCollision, CollisionMaskFiltersLayers) {
     emitter.kill_on_collision = true;
 
     // Collider on layer 2 (0b0010)
-    std::vector<engine::render::ParticleCollider> colliders{
-            engine::render::ParticleCollider{
-                    .shape = engine::render::ParticleCollider::Shape::Box,
+    std::vector<engine::render::ParticleCollider2D> colliders{
+            engine::render::ParticleCollider2D{
+                    .shape = engine::render::ParticleCollider2D::Shape::Box,
                     .position = {0.0f, -1.0f, 0.0f},
                     .box_size = {10.0f, 1.0f, 1.0f},
                     .circle_radius = 0.0f,
@@ -634,10 +634,10 @@ TEST(ParticleSystemECS, RunParticlesCollidesWithWorldEntities) {
     engine::ecs::World world;
     world.ctx<engine::Time>().delta_time = 0.5f;
 
-    // Spawn an obstacle entity in the ECS world with BoxCollider
+    // Spawn an obstacle entity in the ECS world with BoxCollider2D
     const engine::ecs::Entity floor = world.create();
     world.emplace<engine::Transform>(floor, engine::Transform{.position = {0.0f, 0.0f, 0.0f}});
-    world.emplace<engine::BoxCollider>(floor, engine::BoxCollider{
+    world.emplace<engine::BoxCollider2D>(floor, engine::BoxCollider2D{
             .size = {50.0f, 2.0f, 1.0f}, // top edge at y = 1.0
             .layer = 1,
             .is_trigger = false,
