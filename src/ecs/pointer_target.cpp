@@ -13,6 +13,7 @@
 #include <glm/vec4.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <unordered_map>
 #include <vector>
 
@@ -91,8 +92,13 @@ std::optional<CameraView> camera_view(ecs::World& world, WindowId window) {
     return CameraView{camera, ecs::world_matrix(world, camera_entity), size};
 }
 
-// The cursor in world units for hit-testing a target at world z `z`.
+// The cursor in world units for hit-testing a target at world z `z`: where the cursor's ray meets the plane z = `z`,
+// for either projection. A ray parallel to that plane keeps the cursor's x and y at that z.
 glm::vec3 world_point(const CameraView& view, glm::vec2 screen, float z) {
+    const Ray ray = screen_to_ray(screen, *view.camera, view.camera_world, view.size);
+    if (std::abs(ray.direction.z) > 1e-6f) {
+        return ray.origin + ((z - ray.origin.z) / ray.direction.z) * ray.direction;
+    }
     glm::vec3 point = screen_to_world(screen, *view.camera, view.camera_world, view.size);
     point.z = z;
     return point;

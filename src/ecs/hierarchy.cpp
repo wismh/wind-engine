@@ -64,22 +64,6 @@ void detach_from_parent(World& world, Entity child, Entity parent) {
     }
 }
 
-// Euler angles (radians) with Rx(x) * Ry(y) * Rz(z) == m. Indexing is m[column][row].
-glm::vec3 euler_xyz(const glm::mat3& m) {
-    const float sy = std::clamp(m[2][0], -1.0f, 1.0f);
-    glm::vec3 euler{0.0f};
-    euler.y = std::asin(sy);
-    if (std::abs(sy) < 0.999999f) {
-        euler.x = std::atan2(-m[2][1], m[2][2]);
-        euler.z = std::atan2(-m[1][0], m[0][0]);
-    } else {
-        // Gimbal lock: x and z turn about the same axis. Put all of it in x.
-        euler.x = sy > 0.0f ? std::atan2(m[0][1], m[1][1]) : std::atan2(-m[0][1], m[1][1]);
-        euler.z = 0.0f;
-    }
-    return euler;
-}
-
 Transform decompose(const glm::mat4& matrix) {
     Transform transform;
     transform.position = glm::vec3(matrix[3]);
@@ -95,7 +79,16 @@ Transform decompose(const glm::mat4& matrix) {
         transform.scale.x = -transform.scale.x;
         axes[0] = -axes[0];
     }
-    transform.rotation = euler_xyz(glm::mat3(axes[0], axes[1], axes[2]));
+    // With skew (non-uniform scale above a rotation) the axes are not orthogonal. Best fit: keep the X axis, make Y
+    // orthogonal to it, and derive Z from both. The frame is already proper, so the cross product keeps its handedness.
+    // A zero-length axis (zero scale) has no direction to keep; the axes are used as they are.
+    const glm::vec3 y_axis = axes[1] - glm::dot(axes[1], axes[0]) * axes[0];
+    const float y_length = glm::length(y_axis);
+    if (std::abs(transform.scale.x) > 1e-8f && y_length > 1e-8f) {
+        axes[1] = y_axis / y_length;
+        axes[2] = glm::cross(axes[0], axes[1]);
+    }
+    transform.rotation = glm::normalize(glm::quat_cast(glm::mat3(axes[0], axes[1], axes[2])));
     return transform;
 }
 
