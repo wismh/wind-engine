@@ -8,7 +8,7 @@ To maintain a clean codebase and ensure seamless upgrades when moving to a new e
 
 - **Includes:** Game code must include **only** `<engine/...>`.
   - **Never** include engine private headers (`src/...` of the engine; the SDK's `include/` has only the public ones).
-  - **Never** directly include third-party dependencies used by the engine (`SDL3`, `glad`, `NanoVG`, `spdlog`, `tinyxml2`, `SDL_mixer`).
+  - **Never** directly include third-party dependencies used by the engine (`SDL3`, `glad`, `spdlog`, `tinyxml2`, `SDL_mixer`).
 - **Main Thread Only:** Engine APIs (`World`, `AssetsDb`, `CommandBuffer`, `UiCanvas`) are not thread-safe and must be invoked exclusively from the main thread.
 - **SDK Discipline:** Your game builds against an installed Wind SDK (`find_package(Wind)`); its version is your engine version. Never edit the SDK. An engine change goes to the engine repo and reaches the game as a new SDK.
 

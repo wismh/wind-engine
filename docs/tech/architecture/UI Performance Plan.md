@@ -11,9 +11,9 @@ These exist. They are not the numbered steps below, and the steps are not done.
 - `assign_property_string` skips an equal string. The other step 1 items (no temporary pseudo-state vector, skipping a sibling sort, a motion overlay that does not copy a whole `ComputedStyle`, entering no painter state for an element with nothing to set) landed in wind-226; see step 1.
 - The UI profiler records the stages, the draw calls, and the painter calls by kind this plan uses as a baseline. See [UI Profiler](../features/UI%20Profiler.md).
 
-Steps 0, 1, 7a, 2, 3, 6, and 4 are closed (see their sections). Steps 5, 7b, and 8 are not. NanoVG is still the UI painter.
+Steps 0, 1, 7a, 2, 3, 6, 4, and 5 are closed (see their sections). Steps 7b and 8 are not. The UI painter is step 5's renderer (`src/ui/render/`); NanoVG is no longer in the engine.
 
-The live tree stays one `Element` tree: document, layout, and hit-test. A retained command list (`Picture`) is a second structure, produced by paint and consumed by the renderer. NanoVG is removed when that renderer lands. An offscreen texture is an explicit opt-in on top of the renderer, not the way retention works.
+The live tree stays one `Element` tree: document, layout, and hit-test. A retained command list (`Picture`) is a second structure, produced by paint and consumed by the renderer. NanoVG was removed when that renderer landed (step 5). An offscreen texture is an explicit opt-in on top of the renderer, not the way retention works.
 
 [Principles](Principles.md) stays in force: UI is document + style + view-model, UI → game is `ICommand` / `IPaint`, engine APIs stay main-thread until a step below says otherwise. [Boundaries](Boundaries.md) stays in force: no `EventBus`. Dirty tracking is a version counter polled by the bind pass, not a subscription.
 
@@ -46,7 +46,7 @@ The scenes are `table`, `inspector`, and `hud` of `wind_ui_bench` ([UI Bench](..
 
 - CPU ms of a quiet frame (nothing in the view-model changed, pointer still): mode `quiet`.
 - CPU ms of a frame that changes one bound value: mode `one-change`.
-- Draw-call count for that frame: `draw_calls` of each canvas ([UI Profiler](../features/UI%20Profiler.md#counters)), the `glDrawArrays` of `glnvg__renderFlush` in `external/nanovg/src/nanovg_gl.h`.
+- Draw-call count for that frame: `draw_calls` of each canvas ([UI Profiler](../features/UI%20Profiler.md#counters)). At the baseline that was the `glDrawArrays` of NanoVG's `glnvg__renderFlush`; since step 5 it is the UI renderer's batch count.
 
 Recorded in [bench/results/baseline/summary.md](../../../bench/results/baseline/summary.md) (all 34 rows of the matrix, `-Repeat 3`, medians; RelWithDebInfo, 1600 x 900, vsync off, Ryzen 5 5600H laptop; taken on an uncommitted tree, so its commit is `e7211f3` with `dirty` true). CPU ms per frame, `total` = every stage plus `commands`:
 
@@ -81,7 +81,7 @@ Every later step is closed by re-running the matrix (`bench/run_matrix.ps1 -Repe
 - (Step 1 fixed) `style_cache_hits` (`src/ui/paint.cpp`) allocated `ancestor_pseudo_state_bits` on a hit for every non-root element; it now compares in place. `compute_style` and `advance_tree` both call it.
 - `child_stacking_order` (`src/ui/document.cpp`) builds a pointer vector for every parent during paint and hit-test. Since step 1 it stable-sorts only siblings whose `z-index` does not already ascend.
 - While `motion_shown` is non-empty, paint overlays the held sample on a style that carries only the fields `paint_element` reads (step 1; it used to copy the whole `ComputedStyle`). A finished `@keyframes` sample leaves `motion_shown` filled. `sample_prop` (`src/ui/style_anim.cpp`) rebuilds a `ComputedStyle` from raw declarations on each tick.
-- `paint_element` calls `scissor` with the element rect after `apply_transform`. NanoVG stores color and scissor in per-call uniforms and issues one `glDrawArrays` per fill or text run.
+- `paint_element` calls `scissor` with the element rect after `apply_transform`. (Step 5 changed) NanoVG stored color and scissor in per-call uniforms and issued one `glDrawArrays` per fill or text run; the renderer puts both in the vertex and breaks a batch only on a texture change.
 - Per-element text measure and wrap caches already exist (`text_measure_cache_*`, `text_wrap_cache_*`). They are not shared across elements, and a recycled row does not keep a height except `virtualization_row_height_cache` (one float, fixed-px rows).
 - (Step 2 changed) Layout used to resolve style without pseudo-classes. It now reads the real pseudo-state for a rule that has a pseudo-class on its subject or an ancestor combinator and sets a layout property; every other rule keeps the paint-only path. `.hot:hover { padding }` therefore relayouts on enter and leave (owner decision; a behaviour change for existing sheets). See [UI](../modules/UI.md#hover-and-layout).
 - Every painted element cost painter state calls every frame (fixed in step 1, which keeps the scissor where it can clip something; see there). `paint_element`'s `enter` (`src/ui/paint.cpp`) called `save`, `set_opacity`, and `scissor` with the element rect, and the element ended with `restore`, whether or not it drew anything or had opacity below 1; every element clipped itself and its in-flow children to its own box, not only `overflow` elements, and `set_opacity` replaces the painter's alpha instead of multiplying it; an absolute child of a non-clipping parent adds one more `restore`/`enter`. Only an item template, or an invisible or `display: none` element and its subtree, returns before `enter`. The baseline histograms show about one of each per painted element: `table` 238 `save` and `scissor` for 244 elements, `inspector` 1,161 of 2,926 (the rest are not painted), `hud` 189 `save` and 184 `scissor` for 184. NanoVG keeps each `scissor` as per-call uniform state. Relevant to step 1 (an element with opacity 1, no transform, and no clip need not enter at all), step 4 (per-element scissor goes away), and step 5 (a clip must not split a batch).
@@ -319,6 +319,8 @@ Pixels: screenshots of the table, inspector and HUD scenes under xvfb before (`d
 
 ### 5 — Renderer, NanoVG removed
 
+Status: done (wind-234)
+
 The only GPU implementation of `Picture`. Playback may stay on the main thread. A second thread is legal only as a consumer of an immutable picture snapshot, and only after this step; the library still does not spawn threads (same split as a Noesis `Update` / `UpdateRenderTree`, client-driven).
 
 Included, or NanoVG cannot be deleted:
@@ -334,6 +336,56 @@ Included, or NanoVG cannot be deleted:
 `external/nanovg` and `src/render/opengl/nanovg_painter.cpp` leave in this step. GPU tests stay outside `engine_tests` ([Boundaries](Boundaries.md)). CPU coverage is the batch list: input commands → batches, asserted in `engine_tests`.
 
 Done when the three scenes match step 4's pictures without linking NanoVG, and the HUD draw-call count is the batch-list count from the test.
+
+#### Design (wind-234)
+
+OpenGL is the first backend, not the only one. Everything that is not a GPU call is backend-neutral and lives outside `src/render/opengl/`; a future Vulkan, Metal, or D3D backend implements one small device interface and one shader, nothing else.
+
+| Layer | Where | Knows GL |
+| --- | --- | --- |
+| Fonts and glyph atlas: `stb_truetype` (already in `src/resources/`), measure, metrics, line breaking, CPU atlas pages with dirty rects and a version | `src/ui/render/` | no |
+| Draw list: an `IUiPainter` that turns calls into vertices, indices, and a batch list; transform, view, opacity, and clip resolved on the CPU into vertices | `src/ui/render/` | no |
+| Device: `IUiDevice` (create and update an R8 or RGBA8 texture region, upload one frame's vertices and indices, draw a batch list, begin and end a frame) and the vertex layout and blend state it must honor | `src/ui/render/` (interface), `src/render/opengl/` (GL 3.3 core and GLES 3.0) | only the implementation |
+| `UiRenderer`: draw list + device, the painter a canvas owns | `src/ui/render/` | no |
+
+Rules that keep a second backend cheap:
+
+- One uber-shader, one pipeline: premultiplied alpha, no depth. A vertex carries position, UV, color (premultiplied, opacity folded in), a shape kind and its parameters (rect half-size, radius, stroke width, arc angles), and the clip in the shape's own frame. Fill, stroke, line, arc, glyph or path mask, image, and gradient are kinds of that shader, not pipelines.
+- A batch breaks only on a texture change. Clip, transform, opacity, and color never break it. A batch binds four samplers at once (glyph, path mask, gradient ramp, image pages), so mixing text, formulas, gradients, and images does not break it either; only another page in a slot the batch already uses does.
+- Clip is four floats per vertex: the position in the clip rect's local frame and the rect's half extent, both in device pixels so the discard is NanoVG's one-pixel scissor ramp. An affine map interpolates linearly, so a rotated clip is the same discard as an axis-aligned one; no stencil. A nested clip under a transform intersects as NanoVG does (the outer clip's bounding box in the current transform), so pictures keep their pixels.
+- `fill_path` rasterizes on the CPU (NanoVG's own coverage: its flattening, `nvg__expandFill`'s half-pixel inset and one-pixel fringe, the stencil and convex passes sampled at pixel centers; holes by winding as today) into the mask atlas, cached by path content, the transform's rotation and scale, and a quarter-pixel phase, and draws as a mask quad. Formulas stop costing 9 draws each.
+- Gradients sample a ramp row in a gradient atlas (linear, radial, conic computed in the shader from the vertex's gradient coordinates). No per-gradient texture, no per-call key.
+- Images and nine-slices pack into RGBA atlas pages with a gutter; `image_repeat` wraps with `fract` inside the sub-rect.
+- CPU state (fonts, atlases, path and gradient caches) is shared by every window; GPU textures are per device and catch up with the atlas version, like the per-context VAOs of wind-233.
+- `queued_draw_calls` is the batch count. The profiler's `draw_calls` and the test's batch list are the same number by construction.
+
+Order, each one built, tested, and reviewed before the next:
+
+1. **5a — Text.** Font library and glyph atlas, `measure_text`, `font_metrics`, `break_lines` on the CPU. `engine_tests`: metrics and breaks on the builtin UI font, atlas packing and growth, dirty rects.
+2. **5b — Draw list.** The batcher for every `IUiPainter` call, path masks, gradient ramps, image atlas. `engine_tests`: input commands to batches, clip and transform do not split a batch, a texture change does, the bench HUD picture's batch count.
+   As built: `BatchingPainter` fills a `RenderList` (`UiVertex`, 72 bytes; `UiBatch`); the pipeline tables are `ui_pipeline.h` and the fragment math is written once in `fragment.h` / `fragment.cpp`, which the 5c shader implements line for line. `PaintResources` holds the shared `FontLibrary`, `MaskAtlas`, `RampAtlas`, and `ImageAtlas`. Tests: `tests/ui_draw_list_test.cpp`.
+3. **5c — Device.** `IUiDevice`, the OpenGL implementation and shader (GL and GLES), `UiRenderer` in `OpenGLCanvas`. Until 5e, `WIND_UI_PAINTER=nanovg` selects the old painter for A/B screenshots; it does not survive the task.
+   As built: `IUiDevice` (`src/ui/render/ui_device.h`) is begin and end frame, create and update a texture of a slot's page, release textures, upload, draw a batch list, and a draw-call count; `UiTextureSync` does the per-device version catch-up; `UiRenderer` owns the `BatchingPainter`. The shared `PaintResources` lives in `OpenGLRenderBackend`; each `OpenGLCanvas` owns a `UiRenderer` and an `OpenGLUiDevice` (`src/render/opengl/opengl_ui_device.cpp`, shader `opengl_ui_shader.h`). `PaintResources::drop_images` and its `generation` replace the NanoVG context reset. Tests: `tests/ui_renderer_test.cpp`.
+4. **5d — Parity.** Screenshots of every bench row under both painters, differences fixed or explained; matrix run.
+   As built: all 34 rows shot under both painters (`--hold`, `wind-cli screenshot`), max / mean abs channel diff. `math` was 168 / 0.164 with formulas thin and light: `PathRasterizer` did exact-area coverage, NanoVG fills an inset polygon through the stencil plus a fringe strip from 1.5 px inside to 0.5 px outside, so a stem under a pixel draws about a pixel wide with a halo. The rasterizer now builds that geometry (`nvg__flattenPaths`, `nvg__calculateJoins`, `nvg__expandFill`, `nvg__bevelJoin`, miter 2.4) and samples it at pixel centers: nonzero winding of the inset is 1, elsewhere the front-facing fringe triangles blend `1 - |2u - 1|`, a single convex contour is the culled fan plus a half fringe. Still CPU, still cached; `math` is now 13 / 0.001. Remaining: `hud` 26–39 only on the pulsing alert badge and `motion` 39–48, both wall-clock `@keyframes` (two NanoVG runs differ by 13 and 51 there); `conic` 89 on 135 px, the hard stop's diagonal seam, analytic in the shader against NanoVG's bilinear 128 x 128 baked texture; `arc` 23, `clip` 21 (NanoVG leaves a one-pixel gap in a card's border where the inner clip edge is, the new painter does not), `rounded` 15, `math` 13, `inspector` 11, `table` 10, `text` 9; `solid`, `border`, `image`, `nine-slice`, `text` (paint-mix) 0, gradients 1. Matrix, `-Repeat 3`, paint / total ms (draws), new vs NanoVG on the same tree vs baseline: table quiet 0.207 / 0.297 (1) vs 0.297 / 0.401 (278) vs 0.351 / 0.441; inspector quiet 0.099 / 0.174 (1) vs 0.203 / 0.282 (315) vs 1.776 / 3.195; hud quiet 0.272 / 0.364 (1) vs 0.405 / 0.491 (1995) vs 0.533 / 0.619; paint-mix math 1.986 / 2.306 vs 7.626 / 8.039, nine-slice 0.963 / 1.160 vs 2.390 / 2.778, arc 0.552 / 0.744 vs 1.589 / 1.866, conic 0.582 / 0.724 vs 1.132 / 1.393, text 0.720 / 0.898 vs 1.131 / 1.326. Every row is one draw call and faster than NanoVG on CPU paint; `compare.ps1` against the baseline: 0 regressions. Tests: `PathCoverageKeepsHolesAndUnionsSolids`, `PathCoverageDrawsThinStemsAsBoldAsNanoVg`.
+5. **5e — NanoVG out.** Submodule, `nanovg_painter`, CMake, the A/B switch, and docs (Render, UI, CMake, Windowing, Profiler, Bench) updated; final matrix against the baseline.
+   As built: `external/nanovg` (submodule and `.gitmodules` entry), `src/render/opengl/nanovg_painter.{h,cpp}`, the `WIND_UI_PAINTER` switch, the `nanovg` CMake target, its include directory and link lines (desktop, GLES, Android), and `tests/ui_text_render_parity_test.cpp` (it compiled NanoVG's fontstash as a reference) are gone; nothing in the build, the SDK, or the player libraries names NanoVG. The parity numbers that test proved (metrics, advances, glyph quads, glyph texels on the builtin UI font) are literals in `UiTextRender.KeepsTheNumbersNanoVgProduced`. Comments in `src/ui/render/` still name NanoVG functions where they explain why a number is what it is. `reset_ui_painter` (editor Stop) keeps the fonts registered and drops the images, which are registered and uploaded again when drawn. Verified: `engine_tests` (1527), `vs-window`, `vs-editor` Debug and Release with their `ctest` (1747), `cmake --install` into `out/sdk` and a game from its `empty` template configured with `find_package(Wind)`, built in DebugGame and Release, and exported against the player libraries; a fresh `vs-bench` configure. Not built here: `web`, `web-audio`, `android-arm64`.
+
+   Final matrix (`-Repeat 3`, medians, RelWithDebInfo, the reference laptop; `bench/results/2026-10-16-wind-234-5e`), total / paint ms (draw calls), against the baseline and step 4 (`2026-10-15-6c533e5`). `compare.ps1`: 0 regressions against either; every row is one draw call.
+
+   | Row | Baseline | Step 4 | Step 5 |
+   | --- | ---: | ---: | ---: |
+   | `table / quiet` | 0.441 / 0.351 (278) | 0.489 / 0.308 (278) | 0.284 / 0.201 (1) |
+   | `table / one-change` | 0.668 / 0.390 (278) | 0.466 / 0.317 (278) | 0.306 / 0.209 (1) |
+   | `inspector / quiet` | 3.195 / 1.776 (1,707) | 0.369 / 0.218 (315) | 0.153 / 0.095 (1) |
+   | `inspector / one-change` | 5.071 / 1.774 (1,707) | 0.357 / 0.215 (315) | 0.197 / 0.105 (1) |
+   | `hud / quiet` | 0.619 / 0.533 (1,995) | 0.603 / 0.454 (1,995) | 0.324 / 0.260 (1) |
+   | `hud / one-change` | 0.759 / 0.528 (1,995) | 0.611 / 0.465 (1,995) | 0.370 / 0.289 (1) |
+   | `paint-mix / quiet / conic-gradient` | 14.314 / 13.756 (2,003) | 1.543 / 1.207 (2,003) | 0.731 / 0.593 (1) |
+   | `paint-mix / quiet / math` | 11.002 / 10.303 (9,003) | 8.220 / 7.760 (9,003) | 2.416 / 2.040 (1) |
+   | `paint-mix / quiet / nine-slice` | 4.161 / 3.511 (18,003) | 2.949 / 2.519 (18,003) | 1.122 / 0.924 (1) |
+   | `text / quiet` | 6.396 / 6.072 (452) | 0.569 / 0.556 (65) | 0.503 / 0.491 (1) |
+   | `clip / scroll` | 1.716 / 1.205 (345) | 1.256 / 1.021 (345) | 1.070 / 0.831 (1) |
 
 ### 7b — Hot and cold element
 

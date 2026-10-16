@@ -73,7 +73,7 @@ Check each point yourself before relying on it; **code wins over docs**.
   starting the next merge. If a merged task turns `main` red, the next action is a fix on a new branch, nothing else.
 - C++23, 4 spaces, column 120 (LLVM-based `.clang-format`; run `clang-format` on files you touch if available),
   `snake_case` functions, `PascalCase` types, `trailing_` members, `enum class`, no `using namespace`, public headers
-  under `include/engine/` with no SDL/glad/NanoVG/spdlog/tinyxml2/mixer includes, no mutable state in public headers.
+  under `include/engine/` with no SDL/glad/spdlog/tinyxml2/mixer includes, no mutable state in public headers.
   No EnTT, no scene-graph `Node*`, no `EventBus`, no `onClick` lambdas, no service locator, no `FetchContent`.
 - **No compatibility shims.** A breaking change is fine and preferred; update every call site in this repo (engine,
   `bench/`, `editor/`, `templates/`, `tools/`, tests, docs). Do not keep an old and a new representation side by side
