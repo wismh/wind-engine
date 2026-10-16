@@ -18,6 +18,7 @@
 #include <engine/render/animation.h>
 #include <engine/render/command_buffer.h>
 #include <engine/render/draw_sort.h>
+#include <engine/render/lights.h>
 #include <engine/render/particles.h>
 #include <engine/render/renderable.h>
 #include <engine/render/sprite.h>
@@ -359,16 +360,6 @@ namespace engine {
             }
         }
 
-        void apply_camera(render::Command &command, const glm::mat4 &view, const glm::mat4 &projection) {
-            if (auto *mesh = std::get_if<render::CmdDrawMesh>(&command)) {
-                mesh->view = view;
-                mesh->projection = projection;
-            } else if (auto *particles = std::get_if<render::CmdDrawParticles>(&command)) {
-                particles->view = view;
-                particles->projection = projection;
-            }
-        }
-
         void run_render(ecs::World &world, const EngineSystemDeps &deps) {
             world.ctx<WindowClears>().ids.clear();
             const std::vector<WindowId> &windows = world.ctx<BoundWindows>().ids;
@@ -398,8 +389,8 @@ namespace engine {
                 deps.fatal->report("ActiveCamera is missing Camera or Transform");
             }
 
-            const glm::mat4 view = view_matrix(ecs::world_matrix(world, active.entity));
-            const glm::mat4 projection{1.0f};
+            const glm::mat4 camera_world = ecs::world_matrix(world, active.entity);
+            const glm::mat4 view = view_matrix(camera_world);
 
             std::vector<DrawItem> items;
 
@@ -412,8 +403,6 @@ namespace engine {
                 cmd.mesh = r.mesh;
                 cmd.material = r.material;
                 cmd.model = ecs::world_matrix(world, entity);
-                cmd.view = view;
-                cmd.projection = projection;
                 cmd.color = r.color;
                 cmd.uv_scale = {1.0f, 1.0f};
                 cmd.uv_offset = {0.0f, 0.0f};
@@ -483,8 +472,6 @@ namespace engine {
                 cmd.mesh = std::move(mesh);
                 cmd.material = material;
                 cmd.model = model;
-                cmd.view = view;
-                cmd.projection = projection;
                 cmd.color = s.color;
                 cmd.uv_scale = s.tiling;
                 cmd.uv_offset = s.offset;
@@ -532,8 +519,6 @@ namespace engine {
                 render::CmdDrawParticles cmd;
                 cmd.mesh = std::move(mesh);
                 cmd.material = material;
-                cmd.view = view;
-                cmd.projection = projection;
                 cmd.blend = blend;
                 cmd.instances.reserve(em.particles.size());
 
@@ -560,6 +545,8 @@ namespace engine {
 
             std::stable_sort(items.begin(), items.end(), draw_item_less);
 
+            const render::SceneLights lights = render::collect_scene_lights(world);
+
             for (const WindowId id: windows) {
                 render::CommandBuffer *buffer = command_buffer_for(deps, id);
                 if (buffer == nullptr) {
@@ -567,11 +554,14 @@ namespace engine {
                     // Bind phase synced the dock floats, and Worlds::unbind_window runs on the next sync.
                     continue;
                 }
-                const glm::mat4 window_projection = projection_matrix(*camera, ui::window_size_for(world, id));
+                buffer->push(render::CmdSetView{
+                        .view = view,
+                        .projection = projection_matrix(*camera, ui::window_size_for(world, id)),
+                        .camera_position = glm::vec3(camera_world[3]),
+                        .lights = lights,
+                });
                 for (const DrawItem &item: items) {
-                    render::Command command = item.command;
-                    apply_camera(command, view, window_projection);
-                    buffer->push(std::move(command));
+                    buffer->push(item.command);
                 }
             }
         }

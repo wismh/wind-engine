@@ -5,6 +5,7 @@
 #include "render/gl_error_log.h"
 
 #include <engine/render/backend.h>
+#include <engine/render/commands.h>
 
 #include <memory>
 #include <string_view>
@@ -33,11 +34,18 @@ public:
     [[nodiscard]] ui::PaintResources& ui_resources() noexcept { return *ui_resources_; }
     void execute(const CommandBuffer& commands) override;
 
+    // The view state the following draws use (CmdSetView). `execute` resets it to a default CmdSetView first.
+    void set_view(const CmdSetView& view);
+    void execute_draw_mesh(const CmdDrawMesh& cmd);
     void execute_draw_particles(const CmdDrawParticles& cmd);
     // ENGINE_GL_CHECKS: logs the GL errors raised since the last check, once per error and `where`. Otherwise nothing.
     void check_gl_errors(std::string_view where);
 
 private:
+    // A 1x1 white RGBA texture, made on first use, shared by every context.
+    unsigned int white_texture();
+    // The material's albedo on unit 0, or the white texture when it has none.
+    void bind_albedo(const IMaterial& material);
     void init_particle_buffers();
     void set_up_particle_vao() const;
 
@@ -50,6 +58,7 @@ private:
     std::shared_ptr<OpenGLShader> particle_shader_;
     bool particle_buffers_initialized_ = false;
     GlErrorLog gl_errors_;
+    CmdSetView view_;
 };
 
 }
