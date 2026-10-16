@@ -42,6 +42,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <set>
@@ -360,44 +361,21 @@ namespace engine {
             }
         }
 
-        void run_render(ecs::World &world, const EngineSystemDeps &deps) {
-            world.ctx<WindowClears>().ids.clear();
-            const std::vector<WindowId> &windows = world.ctx<BoundWindows>().ids;
-            if (windows.empty()) {
-                return;
-            }
-            for (const WindowId id: windows) {
-                clear_window_buffer(world, command_buffer_for(deps, id), id);
-            }
-
+        std::vector<DrawItem> collect_world_draws(ecs::World &world, const glm::mat4 &view, AssetsDb *assets,
+                                                  IFatalError *fatal) {
             auto renderables = world.view<render::Renderable, Transform>();
             auto sprites = world.view<render::Sprite, Transform>();
             auto emitters = world.view<render::ParticleEmitter>();
-            if (renderables.begin() == renderables.end() && sprites.begin() == sprites.end() &&
-                emitters.begin() == emitters.end()) {
-                return;
-            }
-
-            const ActiveCamera &active = world.ctx<ActiveCamera>();
-            if (!world.valid(active.entity)) {
-                deps.fatal->report("The scene has renderables but ActiveCamera is not a valid entity");
-            }
-
-            const Camera *camera = world.try_get<Camera>(active.entity);
-            const Transform *camera_transform = world.try_get<Transform>(active.entity);
-            if (camera == nullptr || camera_transform == nullptr) {
-                deps.fatal->report("ActiveCamera is missing Camera or Transform");
-            }
-
-            const glm::mat4 camera_world = ecs::world_matrix(world, active.entity);
-            const glm::mat4 view = view_matrix(camera_world);
 
             std::vector<DrawItem> items;
 
             for (ecs::Entity entity: renderables) {
                 const auto &r = renderables.get<render::Renderable>(entity);
                 if (!r.mesh || !r.material) {
-                    deps.fatal->report("Renderable is missing mesh or material");
+                    if (fatal != nullptr) {
+                        fatal->report("Renderable is missing mesh or material");
+                    }
+                    continue;
                 }
                 render::CmdDrawMesh cmd;
                 cmd.mesh = r.mesh;
@@ -416,14 +394,14 @@ namespace engine {
             std::shared_ptr<render::IMesh> default_quad;
             std::shared_ptr<render::IShader> default_shader;
             std::shared_ptr<render::IMaterial> default_unlit;
-            if (deps.assets != nullptr) {
-                if (auto mesh_res = deps.assets->try_get<render::IMesh>(builtin::mesh_quad)) {
+            if (assets != nullptr) {
+                if (auto mesh_res = assets->try_get<render::IMesh>(builtin::mesh_quad)) {
                     default_quad = std::move(*mesh_res);
                 }
-                if (auto shader_res = deps.assets->try_get<render::IShader>(builtin::shader_unlit)) {
+                if (auto shader_res = assets->try_get<render::IShader>(builtin::shader_unlit)) {
                     default_shader = std::move(*shader_res);
                 }
-                if (auto mat_res = deps.assets->try_get<render::IMaterial>(builtin::material_unlit)) {
+                if (auto mat_res = assets->try_get<render::IMaterial>(builtin::material_unlit)) {
                     default_unlit = std::move(*mat_res);
                 }
             }
@@ -454,7 +432,10 @@ namespace engine {
                 }
 
                 if (!mesh || !material) {
-                    deps.fatal->report("Sprite is missing mesh or material");
+                    if (fatal != nullptr) {
+                        fatal->report("Sprite is missing mesh or material");
+                    }
+                    continue;
                 }
                 glm::mat4 model = ecs::world_matrix(world, entity);
                 if (s.pixel_size.x > 0.0f && s.pixel_size.y > 0.0f && s.pixels_per_unit > 0.0f) {
@@ -508,7 +489,10 @@ namespace engine {
                 }
 
                 if (!mesh || !material) {
-                    deps.fatal->report("ParticleEmitter is missing mesh or material");
+                    if (fatal != nullptr) {
+                        fatal->report("ParticleEmitter is missing mesh or material");
+                    }
+                    continue;
                 }
 
                 glm::mat4 model{1.0f};
@@ -544,7 +528,45 @@ namespace engine {
             }
 
             std::stable_sort(items.begin(), items.end(), draw_item_less);
+            return items;
+        }
 
+        void run_render(ecs::World &world, const EngineSystemDeps &deps) {
+            world.ctx<WindowClears>().ids.clear();
+            const std::vector<WindowId> &windows = world.ctx<BoundWindows>().ids;
+            for (const WindowId id: windows) {
+                clear_window_buffer(world, command_buffer_for(deps, id), id);
+            }
+            for (const ecs::Entity entity: world.view<ui::UiCanvas>()) {
+                const WindowId id = world.get<ui::UiCanvas>(entity).window;
+                clear_window_buffer(world, command_buffer_for(deps, id), id);
+            }
+            if (windows.empty()) {
+                return;
+            }
+
+            auto renderables = world.view<render::Renderable, Transform>();
+            auto sprites = world.view<render::Sprite, Transform>();
+            auto emitters = world.view<render::ParticleEmitter>();
+            if (renderables.begin() == renderables.end() && sprites.begin() == sprites.end() &&
+                emitters.begin() == emitters.end()) {
+                return;
+            }
+
+            const ActiveCamera &active = world.ctx<ActiveCamera>();
+            if (!world.valid(active.entity)) {
+                deps.fatal->report("The scene has renderables but ActiveCamera is not a valid entity");
+            }
+
+            const Camera *camera = world.try_get<Camera>(active.entity);
+            const Transform *camera_transform = world.try_get<Transform>(active.entity);
+            if (camera == nullptr || camera_transform == nullptr) {
+                deps.fatal->report("ActiveCamera is missing Camera or Transform");
+            }
+
+            const glm::mat4 camera_world = ecs::world_matrix(world, active.entity);
+            const glm::mat4 view = view_matrix(camera_world);
+            const std::vector<DrawItem> items = collect_world_draws(world, view, deps.assets, deps.fatal);
             const render::SceneLights lights = render::collect_scene_lights(world);
 
             for (const WindowId id: windows) {
@@ -713,6 +735,33 @@ namespace engine {
         }
 
     } // namespace
+
+    void render_world_viewport(ecs::World &scene, const WorldViewportRender &target) {
+        if (target.commands == nullptr || target.viewport.w <= 0.0f || target.viewport.h <= 0.0f) {
+            return;
+        }
+        ecs::update_world_transforms(scene);
+        run_sprite_animations(scene);
+
+        const glm::mat4 view = view_matrix(target.camera_world);
+        std::vector<DrawItem> items = collect_world_draws(scene, view, target.assets, target.fatal);
+
+        const ui::WindowSize viewport_size{
+                .width = std::max(1, static_cast<int>(std::lround(target.viewport.w))),
+                .height = std::max(1, static_cast<int>(std::lround(target.viewport.h))),
+        };
+        target.commands->push(render::CmdSetView{
+                .view = view,
+                .projection = projection_matrix(target.camera, viewport_size),
+                .camera_position = glm::vec3(target.camera_world[3]),
+                .lights = render::collect_scene_lights(scene),
+                .viewport = target.viewport,
+                .clear_color = target.clear_color,
+        });
+        for (DrawItem &item: items) {
+            target.commands->push(std::move(item.command));
+        }
+    }
 
     void run_sprite_animations(ecs::World &world) {
         const float dt = world.ctx<Time>().delta_time;

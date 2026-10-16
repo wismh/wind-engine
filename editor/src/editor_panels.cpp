@@ -66,7 +66,11 @@ DockLayout initial_layout(const DockLayoutFile& file) {
 }
 
 EditorPanels::EditorPanels(DockLayoutFile layout_file)
-    : layout_file_(std::move(layout_file)), explorer_(selection_), ui_tree_(selection_), inspector_(selection_) {}
+    : layout_file_(std::move(layout_file)),
+      explorer_(selection_),
+      world_view_(selection_),
+      ui_tree_(selection_),
+      inspector_(selection_) {}
 
 DockLayout EditorPanels::default_layout() {
     DockLayout layout;
@@ -74,13 +78,14 @@ DockLayout EditorPanels::default_layout() {
     const DockNodeId project = layout.find(kProject)->stack;
     layout.add(std::string(kInspector), {project, DockZone::Right});
     const DockNodeId inspector = layout.find(kInspector)->stack;
-    layout.add(std::string(kUiTree), {inspector, DockZone::Left});
-    const DockNodeId tools = layout.find(kUiTree)->stack;
+    layout.add(std::string(kWorld), {inspector, DockZone::Left});
+    const DockNodeId tools = layout.find(kWorld)->stack;
     layout.add(std::string(kBuild), {tools, DockZone::Bottom});
+    layout.add(std::string(kUiTree), {tools, DockZone::Center});
     layout.add(std::string(kProfiler), {tools, DockZone::Center});
     layout.activate(kUiTree);
-    // Project | the rest: a fifth of the width. Tools | Inspector: the Inspector gets 40% of the rest. UI Tree and
-    // Profiler over Build: Build gets 30%.
+    // Project | the rest: a fifth of the width. Tools | Inspector: the Inspector gets 40% of the rest. World, UI Tree,
+    // and Profiler over Build: Build gets 30%.
     layout.set_ratio(layout.root(), 0.2f);
     const DockNodeId column = layout.node(tools)->parent;
     layout.set_ratio(column, 0.7f);
@@ -93,6 +98,7 @@ void EditorPanels::spawn(engine::ecs::World& world, engine::WindowId window, eng
     windows_ = &windows;
     window_ = window;
     explorer_canvas_ = spawn_panel(world, window, assets::ui::explorer, explorer_.view_model());
+    world_canvas_ = spawn_panel(world, window, assets::ui::world_view, world_view_.view_model());
     ui_tree_canvas_ = spawn_panel(world, window, assets::ui::ui_tree, ui_tree_.view_model());
     inspector_canvas_ = spawn_panel(world, window, assets::ui::inspector, inspector_.view_model());
     profiler_canvas_ = spawn_panel(world, window, assets::ui::profiler, profiler_.view_model());
@@ -105,6 +111,7 @@ void EditorPanels::spawn(engine::ecs::World& world, engine::WindowId window, eng
     space.float_mode = engine::ui::DockFloatMode::OsWindow;
     space.panels = {
             {std::string(kProject), "Project", explorer_canvas_},
+            {std::string(kWorld), "World", world_canvas_},
             {std::string(kUiTree), "UI Tree", ui_tree_canvas_},
             {std::string(kInspector), "Inspector", inspector_canvas_},
             {std::string(kProfiler), "Profiler", profiler_canvas_},
@@ -134,6 +141,10 @@ void EditorPanels::frame(engine::ecs::World& world) {
     space.area = engine::render::Rect{0.0f, kToolbarHeight, static_cast<float>(size.width),
             std::max(0.0f, static_cast<float>(size.height) - kToolbarHeight)};
     read_tree_keys(world);
+    if (world_view_.sync_selection()) {
+        show(kWorld);
+    }
+    world_view_.frame(world, world_canvas_, space.layout.is_visible(kWorld));
     if (space.layout.is_visible(kUiTree)) {
         ui_tree_.refresh();
     } else {
@@ -148,6 +159,13 @@ void EditorPanels::frame(engine::ecs::World& world) {
     if (space.revision != saved_revision_) {
         saved_revision_ = space.revision;
         (void) layout_file_.save(space.layout);
+    }
+}
+
+void EditorPanels::render(engine::ecs::World& world, const engine::EngineSystemDeps& deps) {
+    const engine::ui::DockSpace& space = world.get<engine::ui::DockSpace>(dock_);
+    if (space.layout.is_visible(kWorld)) {
+        world_view_.render(world, world_canvas_, deps);
     }
 }
 
@@ -189,6 +207,9 @@ engine::ecs::Entity EditorPanels::dock() const {
 engine::ecs::Entity EditorPanels::canvas(std::string_view key) const {
     if (key == kProject) {
         return explorer_canvas_;
+    }
+    if (key == kWorld) {
+        return world_canvas_;
     }
     if (key == kUiTree) {
         return ui_tree_canvas_;
@@ -263,6 +284,10 @@ const EditorSelection& EditorPanels::selection() const {
 
 ExplorerPanel& EditorPanels::explorer() {
     return explorer_;
+}
+
+WorldViewPanel& EditorPanels::world_view() {
+    return world_view_;
 }
 
 UiTreePanel& EditorPanels::ui_tree() {

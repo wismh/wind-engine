@@ -39,6 +39,7 @@ public:
     [[nodiscard]] ecs::World* world_for(WindowId id) const;
 
     void set_deps(EngineSystemDeps deps);
+    [[nodiscard]] const EngineSystemDeps& deps() const noexcept { return deps_; }
     void enable_ui(ecs::World& world);
     void enable_audio(ecs::World& world);
 
