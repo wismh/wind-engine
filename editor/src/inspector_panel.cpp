@@ -1,6 +1,7 @@
 #include "inspector_panel.h"
 
 #include "asset_inspection.h"
+#include "entity_inspection.h"
 
 #include <engine/ecs/world.h>
 #include <engine/ui/inspector.h>
@@ -15,8 +16,9 @@ namespace editor {
 namespace {
 
 constexpr char kNothingSelected[] = "Nothing selected";
-constexpr char kSelectHint[] = "Select a file in Project, or an element in UI Tree.";
+constexpr char kSelectHint[] = "Select a file in Project, an entity in Hierarchy, or an element in UI Tree.";
 constexpr char kUiElement[] = "UI element";
+constexpr char kEntity[] = "Entity";
 
 std::string path_text(const std::filesystem::path& path) {
     const std::u8string text = path.u8string();
@@ -54,13 +56,24 @@ void InspectorPanel::attach(engine::ecs::World& game) {
 
 void InspectorPanel::detach() {
     game_ = nullptr;
-    if (!std::holds_alternative<AssetSelection>(selection_->target())) {
+    const SelectionTarget& target = selection_->target();
+    if (std::holds_alternative<UiElementSelection>(target)) {
+        show_nothing(kNothingSelected);
+    } else if (const auto* entity_sel = std::get_if<EntitySelection>(&target)) {
+        if (edit_world_ == nullptr || !edit_world_->valid(entity_sel->entity)) {
+            show_nothing(kNothingSelected);
+        }
+    } else if (!std::holds_alternative<AssetSelection>(target)) {
         show_nothing(kNothingSelected);
     }
 }
 
 bool InspectorPanel::attached() const {
     return game_ != nullptr;
+}
+
+void InspectorPanel::set_edit_world(engine::ecs::World* edit_world) {
+    edit_world_ = edit_world;
 }
 
 void InspectorPanel::refresh() {
@@ -73,12 +86,24 @@ void InspectorPanel::refresh() {
         return;
     }
     asset_revision_.reset();
-    const auto* element = std::get_if<UiElementSelection>(&target);
-    if (element != nullptr && game_ != nullptr) {
-        show_ui_element(*element);
-    } else {
-        show_nothing(kNothingSelected);
+    if (const auto* element = std::get_if<UiElementSelection>(&target)) {
+        if (game_ != nullptr) {
+            show_ui_element(*element);
+        } else {
+            show_nothing(kNothingSelected);
+        }
+        return;
     }
+    if (const auto* entity = std::get_if<EntitySelection>(&target)) {
+        const engine::ecs::World* active = game_ != nullptr ? game_ : edit_world_;
+        if (active != nullptr && active->valid(entity->entity)) {
+            show_entity(*active, entity->entity);
+        } else {
+            show_nothing(kNothingSelected);
+        }
+        return;
+    }
+    show_nothing(kNothingSelected);
 }
 
 void InspectorPanel::toggle_section(const std::string& heading) {
@@ -126,6 +151,12 @@ void InspectorPanel::show_ui_element(const UiElementSelection& element) {
     }
     content.push_back(std::move(rules));
     show_sections(std::move(content));
+}
+
+void InspectorPanel::show_entity(const engine::ecs::World& world, engine::ecs::Entity entity) {
+    view_model_->title = entity_display_name(world, entity);
+    view_model_->subtitle = std::string(kEntity);
+    show_sections(inspect_entity(world, entity));
 }
 
 void InspectorPanel::show_sections(std::vector<InspectorSection> content) {

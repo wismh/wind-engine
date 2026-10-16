@@ -18,10 +18,14 @@ set(_wind_editor_parts
     src/editor_selection.cpp
     src/editor_view_model.cpp
     src/engine_host_play.cpp
+    src/entity_inspection.cpp
     src/export_dialog.cpp
     src/explorer_panel.cpp
     src/explorer_row_view_model.cpp
     src/explorer_view_model.cpp
+    src/hierarchy_panel.cpp
+    src/hierarchy_row_view_model.cpp
+    src/hierarchy_view_model.cpp
     src/inspector_line_view_model.cpp
     src/inspector_panel.cpp
     src/inspector_section_view_model.cpp
@@ -68,6 +72,7 @@ if(ENGINE_BUILD_TESTS)
         tests/editor_panels_test.cpp
         tests/explorer_panel_test.cpp
         tests/export_dialog_test.cpp
+        tests/hierarchy_panel_test.cpp
         tests/inspector_panel_test.cpp
         tests/opening_overlay_test.cpp
         tests/play_session_test.cpp
