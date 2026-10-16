@@ -19,8 +19,10 @@ inline constexpr AssetId font_math{"a0e1b2c3d4f5678901234567890abc06"};
 inline constexpr AssetId tree_chevron{"a0e1b2c3d4f5678901234567890abc07"};
 // Default theme of dock space chrome (docs/tech/features/Docking.md#host).
 inline constexpr AssetId dock_css{"a0e1b2c3d4f5678901234567890abc08"};
+// Unit cube with per-face normals (docs/tech/modules/Render.md#primitives).
+inline constexpr AssetId mesh_cube{"a0e1b2c3d4f5678901234567890abc09"};
 
-inline constexpr std::array<AssetId, 8> ids{
+inline constexpr std::array<AssetId, 9> ids{
         shader_unlit,
         mesh_quad,
         material_unlit,
@@ -29,6 +31,7 @@ inline constexpr std::array<AssetId, 8> ids{
         font_math,
         tree_chevron,
         dock_css,
+        mesh_cube,
 };
 
 [[nodiscard]] constexpr std::span<const AssetId> reserved() noexcept {
