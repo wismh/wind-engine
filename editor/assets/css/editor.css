@@ -4,6 +4,12 @@ Canvas {
   background: #1e1f22;
 }
 
+/* Transparent: this canvas fills the window under the dock space, and the UI is painted after the 3D world viewport,
+   so an opaque fill here would hide it. The toolbar and every panel paint their own background. */
+#editor {
+  background: #00000000;
+}
+
 .editor {
   width: 100%;
   height: 100%;

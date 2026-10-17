@@ -113,6 +113,8 @@ void EditorPanels::spawn(engine::ecs::World& world, engine::WindowId window, eng
     space.order = kDockOrder;
     // A floated panel gets an OS window of its own, bound to this world.
     space.float_mode = engine::ui::DockFloatMode::OsWindow;
+    // The default chrome, then its editor overrides: transparent stack bodies so the World viewport shows through.
+    space.stylesheets = {engine::builtin::dock_css, assets::css::dock};
     space.panels = {
             {std::string(kProject), "Project", explorer_canvas_},
             {std::string(kHierarchy), "Hierarchy", hierarchy_canvas_},
