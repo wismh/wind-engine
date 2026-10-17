@@ -2,6 +2,8 @@
 
 #include <engine/net/gns_transport.h>
 
+#if defined(_WIN32)
+
 #include <chrono>
 #include <thread>
 #include <vector>
@@ -96,3 +98,20 @@ TEST(GnsTransport, ClientServerRealUdpExchange) {
 }
 
 } // namespace engine::net
+
+#else
+
+namespace engine::net {
+
+TEST(GnsTransport, UnsupportedOnNonWindows) {
+    GnsTransport server;
+    EXPECT_FALSE(server.start_server(27015));
+    EXPECT_FALSE(server.connect("127.0.0.1", 27015));
+    EXPECT_FALSE(server.is_running());
+    EXPECT_FALSE(server.is_server());
+    EXPECT_FLOAT_EQ(server.rtt_ms(1), -1.0f);
+}
+
+} // namespace engine::net
+
+#endif

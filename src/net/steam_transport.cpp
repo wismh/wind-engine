@@ -1,4 +1,7 @@
 #include <engine/net/steam_transport.h>
+
+#if defined(_WIN32)
+
 #include "gns_common.h"
 
 #include <charconv>
@@ -97,3 +100,53 @@ float SteamTransport::rtt_ms(PeerId peer_id) const {
 }
 
 } // namespace engine::net
+
+#else
+
+namespace engine::net {
+
+struct SteamTransport::Impl {};
+
+SteamTransport::SteamTransport()
+    : impl_(std::make_unique<Impl>()) {}
+
+SteamTransport::~SteamTransport() = default;
+
+bool SteamTransport::start_server(std::uint16_t /*port*/) {
+    return false;
+}
+
+bool SteamTransport::connect(std::string_view /*address*/, std::uint16_t /*port*/) {
+    return false;
+}
+
+bool SteamTransport::connect_steam_id(std::uint64_t /*steam_id64*/, std::uint16_t /*port*/) {
+    return false;
+}
+
+void SteamTransport::disconnect(PeerId /*peer_id*/) {}
+
+void SteamTransport::stop() {}
+
+bool SteamTransport::send(PeerId /*target*/, std::span<const std::uint8_t> /*data*/,
+    DeliveryMode /*mode*/, std::uint8_t /*channel*/) {
+    return false;
+}
+
+void SteamTransport::poll_events(const EventCallback& /*callback*/) {}
+
+bool SteamTransport::is_running() const {
+    return false;
+}
+
+bool SteamTransport::is_server() const {
+    return false;
+}
+
+float SteamTransport::rtt_ms(PeerId /*peer_id*/) const {
+    return -1.0f;
+}
+
+} // namespace engine::net
+
+#endif
