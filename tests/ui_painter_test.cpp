@@ -2782,3 +2782,32 @@ TEST(UiPainter, FinishedPercentKeyframeReresolvesWhenBasisChanges) {
     paint_at(400.0f, 0.0f);
     EXPECT_NEAR(box->layout_rect.w, 200.0f, 1.0f);
 }
+
+TEST(UiPainter, BorderIsDrawnAsAnInnerStrokeInsideBorderBox) {
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack class="card"/></Canvas>)");
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(R"(
+        .card { width: 100px; height: 60px; border-width: 4px; border-radius: 8px; border-color: #ff0000; }
+    )");
+    FakePainter painter;
+    engine::ui::paint_document(*parsed, &sheet, painter,
+            engine::ui::UiPaintInput{.canvas_rect = {0.0f, 0.0f, 400.0f, 300.0f}, .delta_time = 0.016f});
+
+    const PaintCall* stroke = nullptr;
+    for (const PaintCall& call : painter.calls) {
+        if (call.op == "stroke_rect") {
+            stroke = &call;
+            break;
+        }
+    }
+    ASSERT_NE(stroke, nullptr);
+    // Outer rect is 100x60 at (0, 0), border-width is 4, radius is 8.
+    // Inner stroke is centered at offset 2 (half-width), size 96x56, radius 8 - 2 = 6.
+    EXPECT_NEAR(stroke->rect.x, 2.0f, 0.01f);
+    EXPECT_NEAR(stroke->rect.y, 2.0f, 0.01f);
+    EXPECT_NEAR(stroke->rect.w, 96.0f, 0.01f);
+    EXPECT_NEAR(stroke->rect.h, 56.0f, 0.01f);
+    EXPECT_NEAR(stroke->radius, 6.0f, 0.01f);
+    EXPECT_NEAR(stroke->width, 4.0f, 0.01f);
+}
+
