@@ -1544,9 +1544,9 @@ namespace engine::ui {
         }
 
         // True when nothing this element draws, nor any in-flow child, can land outside its own box, so its scissor
-        // would clip nothing. Conservative: anything that can draw past the box keeps the scissor (a border, whose
-        // stroke is centred on the edge; a line; a formula; a text input; a custom `IPaint`; a scrolling or Viewport
-        // element; text wider or taller than its content box; a child that leaves the box or has its own transform).
+        // would clip nothing. Conservative: anything that can draw past the box keeps the scissor (a line; a formula;
+        // a text input; a custom `IPaint`; a scrolling or Viewport element; text wider or taller than its content box;
+        // a child that leaves the box or has its own transform).
         // Text is judged by the measure caches layout filled; with none that matches, the answer is no.
         render::Rect union_rect(const render::Rect &a, const render::Rect &b) {
             const float x0 = std::min(a.x, b.x);
@@ -1588,13 +1588,6 @@ namespace engine::ui {
                 return true;
             }
             render::Rect box = element.layout_rect;
-            if (style.border_width.value != 0.0f) {
-                if (style.border_width.unit != LengthUnit::Px) {
-                    return true;
-                }
-                const float half = style.border_width.value * 0.5f;
-                box = render::Rect{box.x - half, box.y - half, box.w + 2.0f * half, box.h + 2.0f * half};
-            }
             if ((element.kind == ElementKind::Label || element.kind == ElementKind::Button) && !element.text.empty()) {
                 if (!element.text_measure_cache_valid || text_has_inline_markup(element.text)) {
                     return true;
@@ -1666,8 +1659,8 @@ namespace engine::ui {
             return each(parent.children) && each(parent.generated_items);
         }
 
-        bool paint_stays_in_box(Element &element, const ComputedStyle &style, IUiPainter &painter, float font_size,
-                                const BoxInsets &padding, float border_width, const std::vector<Element> &child_list,
+        bool paint_stays_in_box(Element &element, IUiPainter &painter, float font_size,
+                                const BoxInsets &padding, const std::vector<Element> &child_list,
                                 const Stylesheet *sheet) {
             switch (element.kind) {
                 case ElementKind::Line:
@@ -1682,9 +1675,6 @@ namespace engine::ui {
             }
             if (element.paint != nullptr || clips_children(element) || is_scrollable(element) ||
                 element.scroll_x != 0.0f || element.scroll_y != 0.0f) {
-                return false;
-            }
-            if (border_width > 0.0f && style.border_color.a > 0.0f) {
                 return false;
             }
             constexpr float kEpsilon = 0.01f;
@@ -1811,7 +1801,7 @@ namespace engine::ui {
             // would clip nothing) enters no state at all: no save, opacity, scissor, or restore.
             const bool has_transform = style.rotation_deg != 0.0f || style.scale != 1.0f;
             const bool needs_clip =
-                    !paint_stays_in_box(element, style, painter, font_size, padding, border_width, child_list, sheet);
+                    !paint_stays_in_box(element, painter, font_size, padding, child_list, sheet);
             const bool entered = has_transform || needs_clip || style.opacity != state_opacity;
             const auto enter = [&](IUiPainter &painter, bool clip) {
                 painter.save();
@@ -1878,8 +1868,22 @@ namespace engine::ui {
                     }
                 }
                 if (border_width > 0.0f && style.border_color.a > 0.0f) {
-                    painter.stroke_rounded_rect(screen_rect, screen_border_radius, screen_border_width,
-                                                style.border_color);
+                    if (screen_border_width >= screen_rect.w && screen_border_width >= screen_rect.h) {
+                        painter.fill_rounded_rect(screen_rect, screen_border_radius, style.border_color);
+                    } else {
+                        const float half_w = screen_border_width * 0.5f;
+                        const float inner_w = std::max(0.0f, screen_rect.w - screen_border_width);
+                        const float inner_h = std::max(0.0f, screen_rect.h - screen_border_width);
+                        const render::Rect inner_rect{
+                                screen_rect.x + (screen_rect.w - inner_w) * 0.5f,
+                                screen_rect.y + (screen_rect.h - inner_h) * 0.5f,
+                                inner_w,
+                                inner_h,
+                        };
+                        const float inner_radius = std::max(0.0f, screen_border_radius - half_w);
+                        painter.stroke_rounded_rect(inner_rect, inner_radius, screen_border_width,
+                                                    style.border_color);
+                    }
                 }
                 if (element.kind == ElementKind::Line) {
                     const float x1 = resolve_length(style.x1, parent_content.x, font_size);
