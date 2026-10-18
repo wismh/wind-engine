@@ -53,8 +53,8 @@ public:
     static constexpr std::array<std::string_view, 7> kKeys{
             kProject, kHierarchy, kWorld, kUiTree, kInspector, kProfiler, kBuild};
 
-    // Height of the toolbar in the editor window: `.toolbar` of assets/css/editor.css. The dock space is below it.
-    static constexpr float kToolbarHeight = 56.0f;
+    // Height of the titlebar + toolbar in the editor window. The dock space is below it.
+    static constexpr float kToolbarHeight = 80.0f;
     // Lowest canvas order of the dock space: above the editor's own canvas (order 0).
     static constexpr int kDockOrder = 1;
 
@@ -140,6 +140,7 @@ private:
     std::uint64_t saved_revision_ = 0;
     // Its own cursor: the UI's run_input reads KeyEvent through the world's.
     engine::ecs::EventCursor<engine::KeyEvent> key_cursor_;
+    bool held_ctrl_ = false;
 };
 
 }

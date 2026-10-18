@@ -171,6 +171,11 @@ Node& Node::placement(PopupPlacement value) {
     return *this;
 }
 
+Node& Node::shortcut(std::string_view value) {
+    element_.shortcut = std::string(value);
+    return *this;
+}
+
 Node& Node::allow_copy(bool value) {
     element_.allow_copy = value;
     return *this;
@@ -278,6 +283,27 @@ Node& Node::add(Node child) {
     if (error_.empty()) {
         error_ = std::move(child.error_);
     }
+    if (element_.kind == ElementKind::Menu) {
+        if (!is_popup_kind(child.element_.kind)) {
+            if (child.element_.kind == ElementKind::Menu) {
+                for (Element &sub_popup : child.element_.children) {
+                    if (is_popup_kind(sub_popup.kind)) {
+                        sub_popup.placement = PopupPlacement::RightStart;
+                    }
+                }
+            }
+            if (element_.children.empty() || !is_popup_kind(element_.children[0].kind)) {
+                Element popup;
+                popup.kind = ElementKind::Popup;
+                popup.classes.push_back("menu-popup");
+                popup.open = false;
+                popup.placement = PopupPlacement::BottomStart;
+                element_.children.insert(element_.children.begin(), std::move(popup));
+            }
+            element_.children[0].children.push_back(std::move(child.element_));
+            return *this;
+        }
+    }
     element_.children.push_back(std::move(child.element_));
     return *this;
 }
@@ -353,6 +379,37 @@ Node math_formula() {
 
 Node popup() {
     return Node(ElementKind::Popup);
+}
+
+Node menu_bar() {
+    Node node(ElementKind::MenuBar);
+    node.direction(StackDirection::Horizontal);
+    return node;
+}
+
+Node menu() {
+    Node node(ElementKind::Menu);
+    Element popup;
+    popup.kind = ElementKind::Popup;
+    popup.classes.push_back("menu-popup");
+    popup.open = false;
+    popup.placement = PopupPlacement::BottomStart;
+    node.element_.children.push_back(std::move(popup));
+    return node;
+}
+
+Node menu_item() {
+    return Node(ElementKind::MenuItem);
+}
+
+Node menu_separator() {
+    return Node(ElementKind::MenuSeparator);
+}
+
+Node context_menu() {
+    Node node(ElementKind::ContextMenu);
+    node.direction(StackDirection::Vertical);
+    return node;
 }
 
 std::expected<UiDocument, UiError> make_document(Node root, IFatalError* fatal) {

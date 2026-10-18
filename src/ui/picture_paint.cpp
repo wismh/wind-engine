@@ -9,7 +9,7 @@ namespace engine::ui {
 
     // Not painted now: nothing under it changes what a picture above it shows. A closed popup is painted by nobody.
     bool element_hidden(const Element &e) noexcept {
-        return e.display_none || e.hidden_by_if || !e.visible || (e.kind == ElementKind::Popup && !e.open);
+        return e.display_none || e.hidden_by_if || !e.visible || (is_popup_kind(e.kind) && !e.open);
     }
 
     // Elements that keep a picture of their own: the root, anything that scrolls, a camera, a popup, and what the
@@ -17,7 +17,7 @@ namespace engine::ui {
     // tell where one picture ends and the next begins without a style.
     bool is_boundary_element(const Element &e) noexcept {
         return e.parent.is_null() || e.repaint_boundary || e.kind == ElementKind::Viewport ||
-               e.kind == ElementKind::ScrollView || e.kind == ElementKind::Popup || is_scrollable(e);
+               e.kind == ElementKind::ScrollView || is_popup_kind(e.kind) || is_scrollable(e);
     }
 
     bool contains_rect(const render::Rect &outer, const render::Rect &inner) noexcept {

@@ -1,5 +1,33 @@
 <Canvas id="editor">
   <Stack class="editor" direction="vertical">
+    <Stack class="titlebar" direction="horizontal">
+      <Stack class="titlebar-left" direction="horizontal">
+        <Image class="app-icon" source="e37ab68ef5a85b2bf93c84c168987296"/>
+        <Label class="app-title" text="{binding windowTitle}"/>
+        <MenuBar class="main-menu-bar">
+          <Menu text="File">
+            <MenuItem text="Export..." command="{binding exportGame}" shortcut="Ctrl+E"/>
+            <MenuSeparator/>
+            <MenuItem text="Exit" command="{binding closeWindow}" shortcut="Alt+F4"/>
+          </Menu>
+          <Menu text="Edit">
+            <MenuItem text="Undo" shortcut="Ctrl+Z"/>
+            <MenuItem text="Redo" shortcut="Ctrl+Y"/>
+          </Menu>
+          <Menu text="Window">
+            <MenuItem text="Toggle Play" command="{binding togglePlay}" shortcut="F5"/>
+          </Menu>
+          <Menu text="Help">
+            <MenuItem text="About Wind Engine"/>
+          </Menu>
+        </MenuBar>
+      </Stack>
+      <Stack class="titlebar-right" direction="horizontal">
+        <Button class="window-btn min-btn" command="{binding minimizeWindow}" content="_"/>
+        <Button class="window-btn max-btn" command="{binding maximizeWindow}" content="{binding maxRestoreLabel}"/>
+        <Button class="window-btn close-btn" command="{binding closeWindow}" content="x"/>
+      </Stack>
+    </Stack>
     <Stack class="toolbar" direction="horizontal">
       <Button class="play-button" command="{binding togglePlay}" checked="{binding isPlaying}" content="{binding playLabel}"/>
       <!-- The dialog's anchor is the Stack, not the button: a press on the button while the dialog is open dismisses it. -->

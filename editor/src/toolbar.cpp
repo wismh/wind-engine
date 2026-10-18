@@ -9,7 +9,50 @@ Toolbar::Toolbar()
     , export_dialog_(*view_model_) {
     view_model_->togglePlay.bind_to<Toolbar, &Toolbar::toggle_play, &Toolbar::can_toggle_play>(*this);
     view_model_->exportGame.bind_to<Toolbar, &Toolbar::export_game, &Toolbar::can_export_game>(*this);
+    view_model_->minimizeWindow.bind_to<Toolbar, &Toolbar::minimize_window, &Toolbar::can_window_action>(*this);
+    view_model_->maximizeWindow.bind_to<Toolbar, &Toolbar::maximize_window, &Toolbar::can_window_action>(*this);
+    view_model_->closeWindow.bind_to<Toolbar, &Toolbar::close_window, &Toolbar::can_window_action>(*this);
     view_model_->projectText = std::string("No project open");
+}
+
+void Toolbar::set_window_control(engine::IWindowControl& control, engine::WindowId window) {
+    window_control_ = &control;
+    window_ = window;
+    update_window_state();
+}
+
+void Toolbar::update_window_state() {
+    if (window_control_ != nullptr) {
+        const bool max = window_control_->is_maximized(window_);
+        view_model_->isMaximized = max;
+        // In Inter font, \u25a2 (white square with rounded corners or nested) and \u25a1 (white square) render crisply
+        view_model_->maxRestoreLabel = max ? std::string("\xe2\x96\xa2") : std::string("\xe2\x96\xa1");
+    }
+}
+
+void Toolbar::minimize_window() {
+    if (window_control_ != nullptr) {
+        window_control_->minimize(window_);
+    }
+}
+
+void Toolbar::maximize_window() {
+    if (window_control_ != nullptr) {
+        if (window_control_->is_maximized(window_)) {
+            window_control_->restore(window_);
+        } else {
+            window_control_->maximize(window_);
+        }
+        update_window_state();
+    }
+}
+
+void Toolbar::close_window() {
+    request_ = EditorRequest::Quit;
+}
+
+bool Toolbar::can_window_action() const {
+    return true;
 }
 
 const std::shared_ptr<EditorViewModel>& Toolbar::view_model() const {

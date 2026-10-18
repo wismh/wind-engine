@@ -63,3 +63,38 @@ TEST(WindowCursor, CaptureIsRefusedWhereTheSystemCannotCapture) {
     EXPECT_FALSE(windows.is_mouse_captured(engine::kPrimaryWindow));
     EXPECT_FALSE(windows.capture_mouse(engine::kPrimaryWindow, false));
 }
+
+TEST(WindowControl, TracksWindowStateAndVisibilityInFake) {
+    std::vector<std::string> log;
+    fakes::FakeWindowControl control;
+    control.log = &log;
+    const auto win = control.open_window(engine::WindowDesc{.title = "Test"});
+    ASSERT_TRUE(win.has_value());
+
+    EXPECT_TRUE(control.is_visible(*win));
+    EXPECT_FALSE(control.is_maximized(*win));
+    EXPECT_FALSE(control.is_minimized(*win));
+
+    control.maximize(*win);
+    EXPECT_TRUE(control.is_maximized(*win));
+    EXPECT_FALSE(control.is_minimized(*win));
+
+    control.minimize(*win);
+    EXPECT_FALSE(control.is_maximized(*win));
+    EXPECT_TRUE(control.is_minimized(*win));
+
+    control.restore(*win);
+    EXPECT_FALSE(control.is_maximized(*win));
+    EXPECT_FALSE(control.is_minimized(*win));
+
+    control.hide(*win);
+    EXPECT_FALSE(control.is_visible(*win));
+
+    control.show(*win);
+    EXPECT_TRUE(control.is_visible(*win));
+
+    control.close_window(*win);
+    EXPECT_FALSE(control.is_visible(*win));
+    EXPECT_FALSE(control.is_maximized(*win));
+}
+

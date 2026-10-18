@@ -27,12 +27,20 @@ public:
     engine::ui::Bindable<std::string> exportMessage;
     engine::ui::Bindable<std::string> exportMessageTone;
 
+    engine::ui::Bindable<std::string> windowTitle{std::string("Wind Editor")};
+    engine::ui::Bindable<std::string> maxRestoreLabel{std::string("\xe2\x96\xa1")};
+    engine::ui::Bindable<bool> isMaximized{false};
+
     engine::ui::MethodCommand togglePlay;
     // The Export button: opens the dialog.
     engine::ui::MethodCommand exportGame;
     engine::ui::MethodCommand exportBrowse;
     engine::ui::MethodCommand exportConfirm;
     engine::ui::MethodCommand exportCancel;
+
+    engine::ui::MethodCommand minimizeWindow;
+    engine::ui::MethodCommand maximizeWindow;
+    engine::ui::MethodCommand closeWindow;
 };
 
 }

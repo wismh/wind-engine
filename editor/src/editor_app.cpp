@@ -29,6 +29,18 @@ const engine::WindowDesc kEditorWindow{.title = "Wind Editor", .size = {1280, 80
 constexpr char kNoProjectMessage[] =
         "No project to open. Start the editor from the Wind launcher, or run wind_editor --project <dir>.";
 
+std::string editor_window_title(const std::optional<engine::SdkManifest>& sdk) {
+    if (sdk && !sdk->version.empty()) {
+        return "Wind Editor " + sdk->version;
+    }
+#if defined(WIND_ENGINE_VERSION)
+    if (std::string_view(WIND_ENGINE_VERSION).size() > 0) {
+        return "Wind Editor " + std::string(WIND_ENGINE_VERSION);
+    }
+#endif
+    return "Wind Editor";
+}
+
 std::string path_text(const std::filesystem::path& path) {
     const std::u8string text = path.u8string();
     return {reinterpret_cast<const char*>(text.data()), text.size()};
@@ -118,11 +130,23 @@ bool EditorApp::start(const EditorOptions& options) {
         engine::log::warn("Editor: unknown argument " + arg);
     }
 
+    sdk_root_ = sdk_root_of(host_.assets_root());
+    if (auto manifest = engine::read_sdk_manifest(sdk_root_)) {
+        sdk_ = std::move(*manifest);
+        engine::log::info("Editor: SDK " + sdk_->version + " (" + sdk_->config + ") at " + path_text(sdk_root_));
+    } else {
+        engine::log::warn("Editor: not an installed SDK: " + engine::describe(manifest.error()));
+    }
+
     const engine::EngineServices& services = host_.services();
     world_ = &services.worlds.add();
     toolbar_.emplace();
     cli_.emplace(*toolbar_);
-    auto window = engine::UiWindow::open(services.windows, services.worlds, *world_, kEditorWindow,
+    engine::WindowDesc editor_window = kEditorWindow;
+    editor_window.title = editor_window_title(sdk_);
+    editor_window.style.borderless = true;
+    toolbar_->view_model()->windowTitle = editor_window.title;
+    auto window = engine::UiWindow::open(services.windows, services.worlds, *world_, editor_window,
             engine::ui::UiCanvas{
                     .document = assets::ui::editor,
                     .stylesheet = assets::css::editor,
@@ -134,6 +158,11 @@ bool EditorApp::start(const EditorOptions& options) {
     }
     window_ui_.emplace(std::move(*window));
     window_ = window_ui_->id();
+    toolbar_->set_window_control(services.windows, window_);
+    const auto initial_win_size = services.windows.size(window_);
+    if (initial_win_size) {
+        window_ui_->set_drag_region(engine::render::Rect{0.0f, 0.0f, static_cast<float>(initial_win_size->x), 30.0f});
+    }
     const std::filesystem::path data = user_data();
     panels_.emplace(layout_file(data));
     panels_->spawn(*world_, window_, services.windows);
@@ -158,14 +187,6 @@ bool EditorApp::start(const EditorOptions& options) {
     session_.emplace(services, *play_host_, live, kIdleGameWindow);
     build_.emplace(services.processes);
     toolbar_->show_state(RunState::Idle);
-
-    sdk_root_ = sdk_root_of(host_.assets_root());
-    if (auto manifest = engine::read_sdk_manifest(sdk_root_)) {
-        sdk_ = std::move(*manifest);
-        engine::log::info("Editor: SDK " + sdk_->version + " (" + sdk_->config + ") at " + path_text(sdk_root_));
-    } else {
-        engine::log::warn("Editor: not an installed SDK: " + engine::describe(manifest.error()));
-    }
 
     play_at_start_ = options.play;
     open_project(*options.project);
@@ -206,6 +227,11 @@ void EditorApp::on_frame_end() {
     if (const std::optional<ExportChoice> choice = export_dialog.take_choice()) {
         start_export(*choice);
     }
+    toolbar_->update_window_state();
+    const auto current_win_size = host_.services().windows.size(window_);
+    if (current_win_size && window_ui_) {
+        window_ui_->set_drag_region(engine::render::Rect{0.0f, 0.0f, static_cast<float>(current_win_size->x), 30.0f});
+    }
     switch (toolbar_->take_request()) {
         case EditorRequest::None:
             break;
@@ -217,6 +243,9 @@ void EditorApp::on_frame_end() {
             break;
         case EditorRequest::Export:
             export_game();
+            break;
+        case EditorRequest::Quit:
+            host_.services().worlds.application_state().quit();
             break;
     }
     poll_build();
