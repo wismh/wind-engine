@@ -1,5 +1,7 @@
 #pragma once
 
+#if defined(_WIN32)
+
 #include <engine/net/network_transport.h>
 
 #include <steam/isteamnetworkingsockets.h>
@@ -64,3 +66,5 @@ private:
 };
 
 } // namespace engine::net
+
+#endif
