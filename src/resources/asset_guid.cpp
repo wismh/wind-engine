@@ -30,7 +30,8 @@ bool is_skippable_file(const std::filesystem::path& path) {
     std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) {
         return static_cast<char>(std::tolower(c));
     });
-    if (lower == "readme.md" || lower == "license" || lower == "copying" || lower == "ofl.txt") {
+    if (lower == "readme.md" || lower == "license" || lower == "copying" || lower == "ofl.txt" ||
+            lower == "catalog.toml") {
         return true;
     }
     if (lower.starts_with("license.")) {
@@ -46,7 +47,7 @@ std::string to_lower(std::string value) {
     return value;
 }
 
-std::optional<ImporterKind> importer_from_extension(const std::filesystem::path& path) {
+ImporterKind importer_from_extension(const std::filesystem::path& path) {
     const std::string ext = to_lower(path.extension().string());
     if (ext == ".png") {
         return ImporterKind::Texture;
@@ -81,7 +82,7 @@ std::optional<ImporterKind> importer_from_extension(const std::filesystem::path&
     if (ext == ".world") {
         return ImporterKind::World;
     }
-    return std::nullopt;
+    return ImporterKind::Data;
 }
 
 std::string random_guid(std::mt19937& rng, const std::unordered_set<std::string>& used) {
@@ -148,10 +149,7 @@ int write_missing_metas(const std::filesystem::path& root) {
         if (is_meta_file(file) || is_skippable_file(file)) {
             continue;
         }
-        const auto importer = importer_from_extension(file);
-        if (!importer) {
-            continue;
-        }
+        const ImporterKind importer = importer_from_extension(file);
 
         std::filesystem::path meta_path = file;
         meta_path += ".meta";
@@ -167,7 +165,7 @@ int write_missing_metas(const std::filesystem::path& root) {
         if (!out) {
             continue;
         }
-        out << default_meta_text(guid, *importer);
+        out << default_meta_text(guid, importer);
         if (!out) {
             continue;
         }

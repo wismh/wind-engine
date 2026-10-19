@@ -37,6 +37,7 @@ enum class ImporterKind {
     Animation,
     Strings,
     World,
+    Data,
 };
 
 enum class ColorSpace {
