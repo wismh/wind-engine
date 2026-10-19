@@ -69,7 +69,7 @@ Game structs marked with `WIND_COMPONENT` (`include/engine/ecs/world_io.h`) are 
 asset_guid <assets_dir>
 ```
 
-`write_missing_metas` creates a sidecar for each known file that lacks one: a new GUID and the default importer (audio defaults for `.wav`). Existing sidecars are left alone. The tool prints how many files it wrote. It is not a build step. Commit the new `.meta`, then cook.
+`write_missing_metas` creates a sidecar for each file that lacks one, except skipped files (dotfiles, `readme.md`, `license*`, `catalog.toml`): a new GUID and the default importer (audio defaults for `.wav`). A file with an unknown extension gets `importer = "data"`. Existing sidecars are left alone. The tool prints how many files it wrote. It is not a build step. Commit the new `.meta`, then cook.
 
 ## See also
 
