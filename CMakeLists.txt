@@ -349,6 +349,20 @@ if(WIN32)
                 VERBATIM)
         endif()
     endif()
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/slang")
+        target_compile_definitions(engine PRIVATE ENGINE_WITH_SLANG=1)
+        target_include_directories(engine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/include")
+        target_link_libraries(engine PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/lib/x64/slang.lib")
+        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/bin/x64")
+            file(GLOB _slang_dlls "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/bin/x64/*.dll")
+            add_custom_command(TARGET engine POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${_slang_dlls}
+                    "$<TARGET_FILE_DIR:engine>"
+                COMMENT "Copy Slang DLLs beside engine"
+                VERBATIM)
+        endif()
+    endif()
 elseif(UNIX AND NOT ANDROID AND NOT EMSCRIPTEN)
     # src/net/curl_library.cpp opens the system libcurl with dlopen (no libcurl header or library is needed to
     # build). glibc before 2.34 keeps dlopen in libdl; CMAKE_DL_LIBS is empty on macOS.
@@ -379,6 +393,15 @@ else()
                 ${_gns_dlls}
                 "$<TARGET_FILE_DIR:asset_codegen>"
             COMMENT "Copy GameNetworkingSockets DLLs beside asset_codegen"
+            VERBATIM)
+    endif()
+    if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/bin/x64")
+        file(GLOB _slang_dlls "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/bin/x64/*.dll")
+        add_custom_command(TARGET asset_codegen POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${_slang_dlls}
+                "$<TARGET_FILE_DIR:asset_codegen>"
+            COMMENT "Copy Slang DLLs beside asset_codegen"
             VERBATIM)
     endif()
 
@@ -583,6 +606,15 @@ if(ENGINE_BUILD_TESTS)
             COMMENT "Copy GameNetworkingSockets DLLs beside engine_tests"
             VERBATIM)
     endif()
+    if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/bin/x64")
+        file(GLOB _slang_dlls "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/bin/x64/*.dll")
+        add_custom_command(TARGET engine_tests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${_slang_dlls}
+                "$<TARGET_FILE_DIR:engine_tests>"
+            COMMENT "Copy Slang DLLs beside engine_tests"
+            VERBATIM)
+    endif()
     if(ENGINE_EDITOR)
         # Game modules for tests/game_module_test.cpp and editor/tests/play_session_test.cpp, built from
         # tests/fixtures/game_module/ like a game module: as is, with another build id, and without
@@ -718,6 +750,10 @@ if(ENGINE_EDITOR)
     if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/bin/x64")
         file(GLOB _gns_dlls "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/bin/x64/*.dll")
         install(FILES ${_gns_dlls} DESTINATION bin)
+    endif()
+    if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/bin/x64")
+        file(GLOB _slang_dlls "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/bin/x64/*.dll")
+        install(FILES ${_slang_dlls} DESTINATION bin)
     endif()
     if(MSVC)
         foreach(_tool IN LISTS _engine_tools_runtime)

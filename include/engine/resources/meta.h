@@ -159,6 +159,7 @@ enum class CodegenErrorKind {
     Object,
     Tilemap,
     Prototype,
+    Shader,
 };
 
 struct CodegenError {

@@ -6,6 +6,7 @@
 #include <engine/ui/binding_id.h>
 #include <engine/ui/document.h>
 
+#include "resources/importers.h"
 #include "ui/bind_scan.h"
 
 #include <algorithm>
@@ -414,6 +415,19 @@ std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::p
             if (!proto_asset) {
                 return std::unexpected(
                     CodegenError{CodegenErrorKind::Prototype, relative + ": " + proto_asset.error().message});
+            }
+        }
+
+        if (parsed->importer == ImporterKind::Shader) {
+            std::ifstream shader_in(file);
+            if (!shader_in) {
+                return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to read " + file.generic_string()});
+            }
+            const std::string body((std::istreambuf_iterator<char>(shader_in)), std::istreambuf_iterator<char>());
+            auto shader_desc = parse_shader(body);
+            if (!shader_desc) {
+                return std::unexpected(
+                        CodegenError{CodegenErrorKind::Shader, relative + ": " + shader_desc.error()});
             }
         }
 
