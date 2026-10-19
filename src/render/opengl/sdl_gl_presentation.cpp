@@ -251,7 +251,7 @@ public:
     }
 
     void publish_primary_size(Worlds& worlds, bool send_event) override {
-        publish_size(worlds, kPrimaryWindow, drawable_size(), send_event);
+        publish_size(worlds, kPrimaryWindow, windows_.primary_window(), send_event);
     }
 
 private:
@@ -263,8 +263,14 @@ private:
         }
     }
 
-    void publish_size(Worlds& worlds, WindowId id, glm::ivec2 size, bool send_event) {
-        worlds.presentation().sizes.sizes[id] = ui::WindowSize{size.x, size.y};
+    // Stores the window's drawable size and safe insets. A resize event goes out when `send_event`; a safe-area event
+    // goes out whenever the insets differ from the stored ones (a window starts with none).
+    void publish_size(Worlds& worlds, WindowId id, const WindowSystem& window, bool send_event) {
+        const glm::ivec2 size = window.drawable_size();
+        const ui::SafeInsets insets = window.safe_insets();
+        ui::WindowSize& stored = worlds.presentation().sizes.sizes[id];
+        const bool insets_changed = stored.safe != insets;
+        stored = ui::WindowSize{size.x, size.y, insets};
         ecs::World* const world = worlds.world_for(id);
         if (world == nullptr) {
             return;
@@ -273,6 +279,10 @@ private:
             ecs::EventWriter<ui::WindowResizeEvent>{*world}.send(
                     ui::WindowResizeEvent{.window = id, .width = size.x, .height = size.y});
         }
+        if (insets_changed) {
+            ecs::EventWriter<ui::WindowSafeAreaEvent>{*world}.send(
+                    ui::WindowSafeAreaEvent{.window = id, .insets = insets});
+        }
         ui::apply_canvas_fit(*world);
     }
 
@@ -280,7 +290,7 @@ private:
         ui::WindowSizes& sizes = worlds.presentation().sizes;
         windows_.for_each_secondary_window([&](WindowId id, WindowSystem& window) {
             if (!sizes.sizes.contains(id)) {
-                publish_size(worlds, id, window.drawable_size(), false);
+                publish_size(worlds, id, window, false);
             }
         });
     }
@@ -317,7 +327,19 @@ private:
                 if (*resized == kPrimaryWindow) {
                     publish_primary_size(worlds, true);
                 } else if (WindowSystem* secondary = windows_.window(*resized)) {
-                    publish_size(worlds, *resized, secondary->drawable_size(), true);
+                    publish_size(worlds, *resized, *secondary, true);
+                }
+                break;
+            }
+            case SDL_EVENT_WINDOW_SAFE_AREA_CHANGED: {
+                const std::optional<WindowId> changed = window_of(event.window.windowID, NoWindowEvent::Drop);
+                if (!changed) {
+                    break;
+                }
+                if (*changed == kPrimaryWindow) {
+                    publish_primary_size(worlds, false);
+                } else if (WindowSystem* secondary = windows_.window(*changed)) {
+                    publish_size(worlds, *changed, *secondary, false);
                 }
                 break;
             }
