@@ -45,7 +45,8 @@ bool is_skippable_file(const std::filesystem::path& path) {
     std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) {
         return static_cast<char>(std::tolower(c));
     });
-    if (lower == "readme.md" || lower == "license" || lower == "copying" || lower == "ofl.txt") {
+    if (lower == "readme.md" || lower == "license" || lower == "copying" || lower == "ofl.txt" ||
+            lower == "catalog.toml") {
         return true;
     }
     if (lower.starts_with("license.")) {
