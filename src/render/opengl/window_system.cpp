@@ -139,29 +139,9 @@ WindowSystem::~WindowSystem() {
     destroy();
 }
 
-bool WindowSystem::create(const WindowDesc& desc, SDL_Window* owner) {
+bool WindowSystem::create(const WindowDesc& desc, SDL_Window* owner, SDL_WindowFlags api_flags) {
     destroy();
 
-#if defined(ENGINE_WITH_GLES)
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-#else
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-#endif
-    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
-    // SDL_WINDOW_TRANSPARENT alone doesn't get DWM an alpha channel to composite on Windows: the
-    // GL pixel format picked at SDL_CreateWindow time only carries alpha if SDL_GL_ALPHA_SIZE was
-    // requested first (confirmed from external/SDL3/src/video/windows/SDL_windowsopengl.c, which
-    // never looks at SDL_WINDOW_TRANSPARENT itself, only gl_config.alpha_size). Opaque windows are
-    // left alone to avoid any pixel-format regression there.
-    if (desc.style.transparent) {
-        SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
-    }
     // SDL3's Windows backend defaults SDL_WINDOW_BORDERLESS to a "borderless-windowed" style that
     // still keeps WS_CAPTION/WS_SYSMENU (external/SDL3/src/video/windows/SDL_windowswindow.c,
     // GetWindowStyle()/STYLE_BORDERLESS_WINDOWED) — i.e. Windows still draws a titlebar — on
@@ -178,7 +158,7 @@ bool WindowSystem::create(const WindowDesc& desc, SDL_Window* owner) {
 
     // An owned window is created hidden and shown once it has its owner: Windows decides on a taskbar entry when a
     // window is shown, and an owned window gets none.
-    SDL_WindowFlags flags = SDL_WINDOW_OPENGL | window_style_flags(desc.style);
+    SDL_WindowFlags flags = api_flags | window_style_flags(desc.style);
     if (owner != nullptr) {
         flags |= SDL_WINDOW_HIDDEN;
     }
@@ -257,12 +237,6 @@ void WindowSystem::destroy() {
     }
     SDL_DestroyWindow(window_);
     window_ = nullptr;
-}
-
-void WindowSystem::swap() const {
-    if (window_ != nullptr) {
-        SDL_GL_SwapWindow(window_);
-    }
 }
 
 bool WindowSystem::is_presentable() const {

@@ -1,9 +1,12 @@
 #include "window_manager.h"
 
-#include "gl_includes.h"
+#include "opengl_canvas.h"
 
 #include <engine/log.h>
 
+#include <SDL3/SDL.h>
+
+#include <utility>
 #include <vector>
 
 #if defined(_WIN32)
@@ -45,13 +48,19 @@ bool windows_message_hook(void* userdata, MSG* msg) {
 }
 #endif
 
-WindowManager::WindowManager(render::IRenderBackend& backend) : backend_(&backend) {
-    // Pre-build the primary slot's CommandBuffer/OpenGLCanvas objects up front, inert until
-    // create_primary_window() actually creates the OS window and GL context — see the doc
+WindowManager::WindowManager(render::IRenderBackend& backend)
+    : WindowManager([&backend](WindowSystem& window,
+                            render::CommandBuffer& commands) -> std::shared_ptr<render::IWindowCanvas> {
+          return std::make_shared<render::OpenGLCanvas>(window, commands, backend);
+      }) {}
+
+WindowManager::WindowManager(CanvasFactory make_canvas) : make_canvas_(std::move(make_canvas)) {
+    // Pre-build the primary slot's CommandBuffer/IWindowCanvas objects up front, inert until
+    // create_primary_window() actually creates the OS window and graphics context — see the doc
     // comments on canvas_ptr()/commands_ptr()/primary_window() for why this can't be deferred
     // until the first successful create_primary_window() call.
     auto primary = std::make_unique<Entry>();
-    primary->canvas = std::make_shared<render::OpenGLCanvas>(primary->window, *primary->commands, backend);
+    primary->canvas = make_canvas_(primary->window, *primary->commands);
     primary->window.set_mouse_capture(&capture_);
     windows_[kPrimaryWindow] = std::move(primary);
 }
@@ -77,14 +86,15 @@ void WindowManager::set_modal_loop_tick_callback(std::function<void()> callback)
 bool WindowManager::create_primary_window(const WindowDesc& desc) {
     // The primary Entry always exists (constructor guarantee) — "re-creating" it is just tearing
     // down and rebuilding its window/context in place rather than swapping in a whole new Entry,
-    // so the WindowSystem/CommandBuffer/OpenGLCanvas addresses this manager already handed out via
+    // so the WindowSystem/CommandBuffer/IWindowCanvas addresses this manager already handed out via
     // primary_window()/commands_ptr()/canvas_ptr() stay valid across the call.
     if (desc.owner) {
         log::error("Window: the primary window cannot have an owner");
         return false;
     }
     Entry& entry = *windows_.at(kPrimaryWindow);
-    if (!entry.window.create(desc, nullptr)) {
+    const SDL_WindowFlags api_flags = entry.canvas->prepare_window(desc);
+    if (!entry.window.create(desc, nullptr, api_flags)) {
         return false;
     }
     if (!entry.canvas->init(/*with_ui_painter=*/true)) {
@@ -112,29 +122,25 @@ std::optional<WindowId> WindowManager::create_window(const WindowDesc& desc) {
     auto entry = std::make_unique<Entry>();
     entry->window.set_mouse_capture(&capture_);
     entry->owner = desc.owner;
-    if (!entry->window.create(desc, owner)) {
+    entry->canvas = make_canvas_(entry->window, *entry->commands);
+
+    // Make the primary canvas current before prepare_window()/init() so backends that share
+    // resources with the current thread's active context (OpenGL) see the primary context bound.
+    primary->canvas->make_current();
+    const SDL_WindowFlags api_flags = entry->canvas->prepare_window(desc);
+    if (!entry->window.create(desc, owner, api_flags)) {
         return std::nullopt;
     }
 
-    // A secondary window's GL context must share the primary's texture/mesh/shader objects.
-    // SDL_GL_CreateContext (called inside OpenGLCanvas::init() below) consults
-    // SDL_GL_SHARE_WITH_CURRENT_CONTEXT against whichever context is current *at that call*, so
-    // the primary's context has to be made current here, immediately before init() runs.
-    SDL_GL_MakeCurrent(primary->window.window(), primary->canvas->native_context());
-    SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT, 1);
-
-    entry->canvas = std::make_shared<render::OpenGLCanvas>(entry->window, *entry->commands, *backend_);
-    // with_ui_painter=true: OpenGLCanvas::draw() now re-arms OpenGLRenderBackend's
-    // single shared ui_painter_ pointer to *its own* UiRenderer immediately before calling
-    // execute(), every frame — so the "last window to init() wins" clobbering risk that used to
-    // block this no longer applies: whichever window's draw() ran last simply owns the pointer for the instant
-    // its own execute() call actually reads it.
+    // with_ui_painter=true: each window's canvas re-arms the backend's active UI painter to
+    // its own UiRenderer immediately before calling execute() every frame.
     if (!entry->canvas->init(/*with_ui_painter=*/true)) {
+        primary->canvas->make_current();
         return std::nullopt;
     }
 
-    // Keep the primary context current: secondary init() created and bound its own context.
-    SDL_GL_MakeCurrent(primary->window.window(), primary->canvas->native_context());
+    // Keep the primary context current after secondary initialization.
+    primary->canvas->make_current();
 
     const WindowId id{next_id_++};
     init_swap_interval(id, *entry);
@@ -162,20 +168,18 @@ void WindowManager::destroy_window(WindowId id) {
         // The primary slot is permanent infrastructure (see the constructor): whether a game may
         // close its own primary window at all is a lifecycle *policy* question,
         // not decided by this mechanism-only method. Until a product rule lands, this just tears down the
-        // OS window and GL context in place, leaving the slot ready for a later
+        // OS window and graphics context in place, leaving the slot ready for a later
         // create_primary_window() call, and leaving WindowControlImpl/commands_ptr()/canvas_ptr()
         // pointed at a still-valid (if inert) object.
         Entry& entry = *windows_.at(kPrimaryWindow);
         // The old canvas goes first, while its SDL window still exists: its teardown makes its own context current.
-        entry.canvas = std::make_shared<render::OpenGLCanvas>(entry.window, *entry.commands, *backend_);
+        entry.canvas = make_canvas_(entry.window, *entry.commands);
         entry.window.destroy();
         return;
     }
     windows_.erase(id);
-    if (has_window(kPrimaryWindow) && SDL_GL_GetCurrentContext() == nullptr) {
-        if (render::OpenGLCanvas* const primary = canvas(kPrimaryWindow)) {
-            primary->make_current();
-        }
+    if (render::IWindowCanvas* const primary = canvas(kPrimaryWindow)) {
+        primary->make_current();
     }
 }
 
@@ -219,7 +223,7 @@ const WindowSystem* WindowManager::window(WindowId id) const {
     return has_window(id) ? &windows_.at(id)->window : nullptr;
 }
 
-render::OpenGLCanvas* WindowManager::canvas(WindowId id) {
+render::IWindowCanvas* WindowManager::canvas(WindowId id) {
     return has_window(id) ? windows_.at(id)->canvas.get() : nullptr;
 }
 
@@ -227,7 +231,7 @@ render::CommandBuffer* WindowManager::commands(WindowId id) {
     return has_window(id) ? windows_.at(id)->commands.get() : nullptr;
 }
 
-std::shared_ptr<render::OpenGLCanvas> WindowManager::canvas_ptr(WindowId id) {
+std::shared_ptr<render::IWindowCanvas> WindowManager::canvas_ptr(WindowId id) {
     const auto it = windows_.find(id);
     return it == windows_.end() ? nullptr : it->second->canvas;
 }
@@ -314,7 +318,7 @@ std::optional<WindowId> WindowManager::sync_vsync_window() {
         return vsync_window_;
     }
     if (vsync_window_) {
-        if (render::OpenGLCanvas* const previous = canvas(*vsync_window_)) {
+        if (render::IWindowCanvas* const previous = canvas(*vsync_window_)) {
             (void)previous->set_vsync(false);
         }
         vsync_window_.reset();
@@ -359,8 +363,7 @@ void WindowManager::draw_window(WindowId id, Entry& entry, std::span<FrameCaptur
 void WindowManager::draw_all(std::span<FrameCapture> captures) {
     // The primary slot's canvas object always exists (constructor), even before
     // create_primary_window() ever succeeds — gating on window.window() rather than on canvas
-    // non-null avoids issuing raw GL calls through an OpenGLCanvas that was never init()'d (no GL
-    // context, no loaded entry points).
+    // non-null avoids issuing raw graphics calls through a canvas that was never init()'d.
     const std::optional<WindowId> vsync = sync_vsync_window();
     for (auto& [id, entry] : windows_) {
         if (id != vsync && entry->canvas && entry->window.window() != nullptr) {

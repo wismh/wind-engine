@@ -530,6 +530,111 @@ TEST(DesktopOverlayPolicy, SyncModalLoopHookInstallsOnlyWhenActive) {
     EXPECT_FALSE(manager.modal_loop_tick_callback());
 }
 
+class FakeWindowCanvas final : public engine::render::IWindowCanvas {
+public:
+    FakeWindowCanvas(engine::WindowSystem& window, engine::render::CommandBuffer& commands, int& created_count)
+        : window_(&window)
+        , commands_(&commands) {
+        ++created_count;
+    }
+
+    SDL_WindowFlags prepare_window(const engine::WindowDesc&) override {
+        ++prepare_calls;
+        return 0;
+    }
+
+    bool init(bool) override {
+        return true;
+    }
+
+    bool load_ui_font(const engine::Font&) override {
+        return true;
+    }
+
+    bool add_font(engine::AssetId, const engine::Font&) override {
+        return true;
+    }
+
+    bool add_image(engine::AssetId, const engine::render::TextureDesc&) override {
+        return true;
+    }
+
+    bool reset_ui_painter() override {
+        return true;
+    }
+
+    void make_current() override {
+        ++make_current_calls;
+    }
+
+    bool set_vsync(bool) override {
+        return true;
+    }
+
+    engine::ui::IUiPainter* ui_painter() const noexcept override {
+        return nullptr;
+    }
+
+    void draw() override {
+        render();
+        present();
+    }
+
+    void render() override {}
+
+    engine::render::TextureDesc read_pixels() override {
+        return {};
+    }
+
+    void present() override {}
+
+    [[nodiscard]] engine::WindowSystem* bound_window() const noexcept {
+        return window_;
+    }
+
+    [[nodiscard]] engine::render::CommandBuffer* bound_commands() const noexcept {
+        return commands_;
+    }
+
+    int prepare_calls = 0;
+    int make_current_calls = 0;
+
+private:
+    engine::WindowSystem* window_ = nullptr;
+    engine::render::CommandBuffer* commands_ = nullptr;
+};
+
+TEST(WindowManager, CustomCanvasFactoryConstructsAndResetsPrimaryWithoutOpenGL) {
+    int created_count = 0;
+    engine::WindowManager manager{
+            [&created_count](engine::WindowSystem& window,
+                    engine::render::CommandBuffer& commands) -> std::shared_ptr<engine::render::IWindowCanvas> {
+                return std::make_shared<FakeWindowCanvas>(window, commands, created_count);
+            }};
+
+    EXPECT_EQ(created_count, 1);
+    auto initial_canvas = std::dynamic_pointer_cast<FakeWindowCanvas>(manager.canvas_ptr(engine::kPrimaryWindow));
+    ASSERT_NE(initial_canvas, nullptr);
+    EXPECT_EQ(initial_canvas->bound_window(), &manager.primary_window());
+    EXPECT_EQ(initial_canvas->bound_commands(), manager.commands_ptr(engine::kPrimaryWindow).get());
+
+    // Owner on primary is rejected before prepare_window() is ever called.
+    engine::WindowDesc owned_primary;
+    owned_primary.owner = engine::WindowId{1};
+    EXPECT_FALSE(manager.create_primary_window(owned_primary));
+    EXPECT_EQ(initial_canvas->prepare_calls, 0);
+
+    // Destroying the primary window replaces the canvas via the factory while keeping the primary slot's
+    // WindowSystem and CommandBuffer addresses stable.
+    manager.destroy_window(engine::kPrimaryWindow);
+    EXPECT_EQ(created_count, 2);
+    auto replaced_canvas = std::dynamic_pointer_cast<FakeWindowCanvas>(manager.canvas_ptr(engine::kPrimaryWindow));
+    ASSERT_NE(replaced_canvas, nullptr);
+    EXPECT_NE(replaced_canvas, initial_canvas);
+    EXPECT_EQ(replaced_canvas->bound_window(), &manager.primary_window());
+    EXPECT_EQ(replaced_canvas->bound_commands(), manager.commands_ptr(engine::kPrimaryWindow).get());
+}
+
 #endif
 
 TEST(WindowCloseRequestedEvent, DefaultsToPrimaryWindow) {

@@ -36,6 +36,30 @@ OpenGLCanvas::~OpenGLCanvas() {
     destroy_context();
 }
 
+SDL_WindowFlags OpenGLCanvas::prepare_window(const WindowDesc& desc) {
+#if defined(ENGINE_WITH_GLES)
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#else
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+#endif
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+    // SDL_WINDOW_TRANSPARENT alone doesn't get DWM an alpha channel to composite on Windows: the
+    // GL pixel format picked at SDL_CreateWindow time only carries alpha if SDL_GL_ALPHA_SIZE was
+    // requested first (confirmed from external/SDL3/src/video/windows/SDL_windowsopengl.c, which
+    // never looks at SDL_WINDOW_TRANSPARENT itself, only gl_config.alpha_size). Opaque windows are
+    // left alone to avoid any pixel-format regression there.
+    if (desc.style.transparent) {
+        SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
+    }
+    return SDL_WINDOW_OPENGL;
+}
+
 bool OpenGLCanvas::init(bool with_ui_painter) {
     destroy_context();
     if (window_ == nullptr || window_->window() == nullptr) {
@@ -52,12 +76,16 @@ bool OpenGLCanvas::init(bool with_ui_painter) {
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
 #endif
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    // Mirrors WindowSystem::create()'s SDL_GL_ALPHA_SIZE request for a transparent window's pixel
+    // Mirrors prepare_window()'s SDL_GL_ALPHA_SIZE request for a transparent window's pixel
     // format (already fixed at SDL_CreateWindow time) so this call site's GL attributes don't
     // silently drift from the ones that actually picked the format.
     if (window_->is_transparent()) {
         SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
     }
+    // A secondary window's GL context shares the primary's texture/mesh/shader objects when the
+    // primary context is current at init() time (WindowManager::create_window calls
+    // primary->canvas->make_current() before init()).
+    SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT, SDL_GL_GetCurrentContext() != nullptr ? 1 : 0);
 
     context_ = SDL_GL_CreateContext(window_->window());
     if (context_ == nullptr) {
@@ -221,8 +249,8 @@ TextureDesc OpenGLCanvas::read_pixels() {
 }
 
 void OpenGLCanvas::present() {
-    if (window_ != nullptr) {
-        window_->swap();
+    if (window_ != nullptr && window_->window() != nullptr) {
+        SDL_GL_SwapWindow(window_->window());
     }
 }
 
