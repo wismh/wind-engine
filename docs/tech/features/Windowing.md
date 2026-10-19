@@ -41,7 +41,7 @@ Further windows: `EngineServices::windows` is `IWindowControl`.
 - `usable_display_bounds(display_index)` is the work area (display minus OS chrome). Out of range uses the primary display. A zero rect means the query failed.
 - `usable_display_bounds_for_window` is the display that contains that window, or the primary display when the window is not open.
 
-`Presentation::sizes` is the `WindowSizes` map `window_size_for` reads. `publish_size` writes `drawable_size()` into that map on attach for the primary window, on resize, and when `poll` backfills a secondary id that is still missing. `Host::write_window_size` writes the primary entry from the size it is given. `window_size_for` returns `{0,0}` when that id is absent. A world from `Worlds` whose presentation pointer was never set reports fatal through `ctx<IFatalError*>`. `bind_window` and `enable_ui` set it.
+`Presentation::sizes` is the `WindowSizes` map `window_size_for` reads. `publish_size` writes `drawable_size()` and `safe_insets()` (`WindowSize::safe`, see [UI](../modules/UI.md#safe-area)) into that map on attach for the primary window, on resize, and when `poll` backfills a secondary id that is still missing. `Host::write_window_size` writes the primary entry from the size it is given. `window_size_for` returns `{0,0}` when that id is absent. A world from `Worlds` whose presentation pointer was never set reports fatal through `ctx<IFatalError*>`. `bind_window` and `enable_ui` set it.
 
 `ctx<ui::WindowSizes>()` is a different map. Resize, backfill, `Host::write_window_size`, and `window_size_for` do not use it.
 

@@ -10,6 +10,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace engine::ui {
@@ -139,9 +140,17 @@ struct Stylesheet {
     std::uint64_t generation = next_stylesheet_generation();
     std::vector<CssRule> rules;
     std::vector<Keyframes> keyframes;
+    // Values the host supplies, keyed without the leading `--` (`safe-top`). `var(--name)` reads them after the
+    // element's own and cascaded custom properties, before the fallback. They are not inherited, so a rule on any
+    // element reads them. `set_environment` is the only writer.
+    std::unordered_map<std::string, std::string> environment;
     // Computed on first use by `style_analysis`. A sheet whose `rules` were edited after that must be analysed again
     // (a fresh `Stylesheet`, or `style_analysis` with a changed rule count does it).
     mutable StyleAnalysis analysis;
+
+    // Sets `environment[name]`. A changed value takes a new `generation`, so every style and layout cache keyed on the
+    // sheet is rebuilt; an equal value changes nothing.
+    ENGINE_API void set_environment(std::string_view name, std::string_view value);
 };
 
 // The `kPseudo*` bit of a pseudo-class name (`hover`, `pressed`, `disabled`, `focus`, `checked`); 0 for any other.

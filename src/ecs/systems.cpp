@@ -239,6 +239,7 @@ namespace engine {
                 }
             }
             instance.stylesheet = std::move(merged);
+            ui::apply_safe_area_environment(canvas, ui::window_size_for(world, canvas.window), *instance.stylesheet);
             if (all_found) {
                 instance.loaded_sheet_ids = wanted;
             }

@@ -87,9 +87,21 @@ struct MouseConsumed {
     }
 };
 
+// Window pixels at each edge that the OS covers or rounds off (a camera cutout, rounded corners, a gesture bar, a
+// system bar). Zero where the platform has none, which is every desktop window.
+struct SafeInsets {
+    float left = 0.0f;
+    float top = 0.0f;
+    float right = 0.0f;
+    float bottom = 0.0f;
+
+    constexpr bool operator==(const SafeInsets&) const noexcept = default;
+};
+
 struct WindowSize {
     int width = 0;
     int height = 0;
+    SafeInsets safe{};
 };
 
 // Every live window's last-known drawable size, keyed by WindowId — kPrimaryWindow included like
@@ -105,6 +117,12 @@ struct WindowResizeEvent {
     WindowId window = kPrimaryWindow;
     int width = 0;
     int height = 0;
+};
+
+// Sent when a window's `WindowSize::safe` changes (rotation, a system bar shown or hidden, a display change).
+struct WindowSafeAreaEvent {
+    WindowId window = kPrimaryWindow;
+    SafeInsets insets{};
 };
 
 // Purely informational: the engine never quits or destroys a window on its own when
@@ -214,6 +232,16 @@ struct UiCursors {
 
 void begin_frame(ecs::World& world);
 void apply_canvas_fit(ecs::World& world);
+
+// The safe insets of `window` as the canvas lays out: each edge of the canvas `rect` that lies inside the window's
+// safe insets, in layout units (design units for ScaleWithScreenSize). A canvas that stops short of an unsafe edge gets
+// 0 there.
+[[nodiscard]] SafeInsets canvas_safe_insets(const UiCanvas& canvas, const WindowSize& window);
+
+// Writes `safe-top`, `safe-right`, `safe-bottom`, `safe-left` (`12px`) into `sheet.environment`, so a stylesheet reads
+// `var(--safe-top)` on any element. `apply_canvas_fit` does it for every canvas each frame; the stylesheet merge does
+// it for a sheet it has just built.
+void apply_safe_area_environment(const UiCanvas& canvas, const WindowSize& window, Stylesheet& sheet);
 // `window` (default kPrimaryWindow, trailing so every pre-existing call site keeps compiling
 // unchanged) restricts hit-testing to canvases whose UiCanvas::window matches — a canvas assigned
 // to a different window never receives this pointer event's click.
