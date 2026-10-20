@@ -77,6 +77,7 @@ public:
     void fill_path(std::span<const PathSegment> path, glm::vec4 color) override {
         paths.push_back({std::vector<PathSegment>(path.begin(), path.end()), color});
     }
+    void stroke_path(std::span<const PathSegment>, float, glm::vec4) override {}
     void set_font(engine::AssetId, float) override {}
     void fill_text(std::string_view, glm::vec2, glm::vec4, UiAlign, UiAlign) override {}
     void image(engine::AssetId, const engine::render::Rect&) override {}

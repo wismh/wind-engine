@@ -60,6 +60,7 @@ public:
     void fill_path(std::span<const PathSegment> path, glm::vec4 color) override {
         paths.push_back({std::vector<PathSegment>(path.begin(), path.end()), color});
     }
+    void stroke_path(std::span<const PathSegment>, float, glm::vec4) override { ++other_calls; }
     void set_font(engine::AssetId, float) override { ++other_calls; }
     void fill_text(std::string_view, glm::vec2, glm::vec4, engine::ui::UiAlign, engine::ui::UiAlign) override {
         ++other_calls;

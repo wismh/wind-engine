@@ -23,7 +23,7 @@ struct NineSlicePieces {
     std::size_t count = 0;
 };
 
-// The NanoVG painter's image_nine_slice arithmetic for a `texture_size` image: insets clamped to the texture, then to
+// image_nine_slice arithmetic for a `texture_size` image: insets clamped to the texture, then to
 // `rect`, empty pieces skipped, rows top to bottom, columns left to right.
 [[nodiscard]] NineSlicePieces nine_slice_pieces(const render::Rect& rect, const BoxInsets& insets,
         glm::vec2 texture_size) noexcept;

@@ -26,8 +26,8 @@ namespace engine::ui {
 // The UI renderer's fonts and glyph atlas, on the CPU: one instance shared by every window, main thread only, no GPU
 // handle inside (a device keeps its own textures and catches up with `atlas()`'s versions).
 //
-// A font registers by AssetId. A font that is not registered resolves to the builtin UI font (`builtin::font_ui`),
-// as the NanoVG painter's `default_font` did. `builtin::font_math` is not a text face: add_font hands it to
+// A font registers by AssetId. A font that is not registered resolves to the builtin UI font (`builtin::font_ui`).
+// `builtin::font_math` is not a text face: add_font hands it to
 // `math::MathFont` (formulas are drawn as outlines through fill_path), and `math_font()` returns it so the painter
 // can answer IUiPainter::math_font from here.
 class FontLibrary {
@@ -47,8 +47,8 @@ public:
     [[nodiscard]] GlyphAtlas& atlas() noexcept { return atlas_; }
     [[nodiscard]] const GlyphAtlas& atlas() const noexcept { return atlas_; }
 
-    // The painter's text queries (text_layout.h), by AssetId. Without any face they return the NanoVG painter's
-    // no-context answers: half an em per byte wide, `size` high, and IUiPainter's default wrap and metrics.
+    // The painter's text queries (text_layout.h), by AssetId. Without any face they return the no-face answers: half
+    // an em per byte wide, `size` high, and IUiPainter's default wrap and metrics.
     [[nodiscard]] TextFontMetrics font_metrics(AssetId font, float size);
     [[nodiscard]] glm::vec2 measure_text(std::string_view text, AssetId font, float size);
     [[nodiscard]] TextBlock break_lines(std::string_view text, AssetId font, float size, float max_width);
