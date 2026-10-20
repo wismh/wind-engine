@@ -115,7 +115,7 @@ Lifecycle (`include/engine/core/app_lifecycle.h`):
 | `DidEnterForeground` | `paused = false` |
 | `Terminating` | `quit()` |
 
-The Android back key is not a lifecycle event. The engine never quits on it; it is `KeyCode::AcBack`, and the game binds it. See [Input Mapper](../features/Input%20Mapper.md#android-back).
+The Android back key is not a lifecycle event. The engine never quits on it; it is `KeyCode::AcBack`, and the game binds it. The activity opts into `OnBackInvokedCallback` so Android 13+ does not finish the process on that gesture. See [Input Mapper](../features/Input%20Mapper.md#android-back).
 
 ## Platform and user data
 
