@@ -35,15 +35,17 @@ namespace engine::ui {
         float line_height = 0.0f;
     };
 
-    // One segment of a filled path. A `Move` starts a new contour (the previous one closes implicitly, like a
-    // glyph outline); `Quad` curves through control point `c1`, `Cubic` through `c1` and `c2`. All coordinates
-    // are real pixels.
+    // One segment of a path. A `Move` starts a new contour. A fill closes the previous contour at the next `Move`
+    // and at the end of the path (glyph outlines have no explicit close). A stroke closes only on `Close`; an open
+    // end gets a round cap. `Quad` curves through control point `c1`, `Cubic` through `c1` and `c2`. Coordinates
+    // are real pixels. `Close` ignores `p`, `c1`, and `c2`.
     struct PathSegment {
         enum class Kind : std::uint8_t {
             Move,
             Line,
             Quad,
             Cubic,
+            Close,
         };
 
         Kind kind = Kind::Move;
@@ -85,6 +87,10 @@ namespace engine::ui {
         // of an `o`), whatever the font's own outer-contour direction is. Overlapping solid contours of one path
         // union, which is why every glyph of a formula can share a single path.
         virtual void fill_path(std::span<const PathSegment> path, glm::vec4 color) = 0;
+        // Strokes `path` with a round cap and a round join. `width` is in the same units as the path points. A
+        // contour closes only on `Close`; the ends of an open contour do not meet. Where the ribbon crosses itself,
+        // coverage is the maximum, not a sum.
+        virtual void stroke_path(std::span<const PathSegment> path, float width, glm::vec4 color) = 0;
         virtual void set_font(AssetId font, float size) = 0;
         virtual void fill_text(std::string_view text, glm::vec2 position, glm::vec4 color, UiAlign horizontal,
                                UiAlign vertical) = 0;

@@ -19,7 +19,7 @@ namespace {
     return {c.r * c.a, c.g * c.a, c.b * c.a, c.a};
 }
 
-// The NanoVG painter's sample_gradient_stops: `percent` (0..100) against stops whose percents are resolved.
+// `percent` (0..100) against stops whose percents are resolved.
 [[nodiscard]] glm::vec4 sample_stops(const std::vector<GradientStop>& stops, float percent) {
     if (percent <= stops.front().percent.value_or(0.0f)) {
         return stops.front().color;

@@ -23,7 +23,7 @@ struct AtlasGlyph {
 // The CPU side of the UI glyph atlas: R8 pages, glyphs rasterized with stb_truetype exactly as fontstash rasterizes
 // them (stbtt_MakeGlyphBitmap at the em scale of the quantized size, no blur), packed with a skyline packer. A glyph
 // is cached by face, glyph index, and size in tenths of a pixel, and never moves once placed. When the newest page
-// is full a new page opens (NanoVG instead reset its single atlas into a bigger texture); pages are not evicted.
+// is full a new page opens; pages are not evicted.
 // One instance serves every window; it holds no GPU handle. Main thread only.
 class GlyphAtlas {
 public:

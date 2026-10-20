@@ -480,7 +480,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/ui_painter_test.cpp` | Recording painter, no GL | [UI](../modules/UI.md) |
 | `tests/ui_draw_list_test.cpp` | `BatchingPainter`: commands to batches, coverage, clips, gradients, images, path masks | [UI](../modules/UI.md) |
 | `tests/ui_renderer_test.cpp` | `UiRenderer` against a fake `IUiDevice`: uploads, texture catch-up, draw calls | [UI](../modules/UI.md) |
-| `tests/ui_text_render_test.cpp` | Text on the CPU: metrics, measure, breaks, atlas packing, glyph quads, the numbers NanoVG produced | [UI](../modules/UI.md) |
+| `tests/ui_text_render_test.cpp` | Text on the CPU: metrics, measure, breaks, atlas packing, glyph quads, the locked numbers | [UI](../modules/UI.md) |
 | `tests/ui_element_id_test.cpp` | `Element::handle` and `parent`: parse, builder, ItemsControl reuse, no aliasing, reindex, stale lookups | [UI](../modules/UI.md#element-identity) |
 | `tests/ui_log_painter.h` | `LogPainter`: every painter call with the clip and opacity it ran under, for tests | [UI](../modules/UI.md) |
 | `tests/ui_wasted_work_test.cpp` | Stacking order against a stable sort, clip equivalence of an element that enters no state, opacity, held motion sample | [UI](../modules/UI.md#paint) |

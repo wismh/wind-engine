@@ -19,7 +19,7 @@ class OpenGLShader;
 // through ContextVao like every other VAO (wind-233), though it is only ever drawn in its own context.
 //
 // State: begin_frame sets everything ui_pipeline.h asks for (program, VAO, premultiplied blend, no depth, stencil,
-// cull, or scissor, the four sampler units); end_frame leaves what NanoVG's flush left and opengl_backend.cpp expects
+// cull, or scissor, the four sampler units); end_frame leaves what opengl_backend.cpp expects
 // of the next frame: blend on with the premultiplied function, depth, stencil, cull, and scissor off, program 0,
 // VAO 0, array buffer 0, texture units 0..3 bound to 0 with unit 0 active, unpack alignment 4 and row length 0.
 // Nothing is queried back from the driver (no glGet in a frame).
