@@ -114,6 +114,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/ui/draw_list.h` | `IDrawList` for `IPaint` | [UI](../modules/UI.md) |
 | `include/engine/ui/inspector.h` | Inspector probe: attach, pick state, tree, select, toggle, detail, rules | [UI Inspector](../features/UI%20Inspector.md) |
 | `include/engine/ui/paint.h` | `IPaint` and `RelayPaint` | [UI](../modules/UI.md) |
+| `include/engine/ui/path.h` | `PathSegment` for fill and stroke | [UI](../modules/UI.md) |
+| `include/engine/ui/svg.h` | `SvgPicture`, an icon's contours | [UI](../modules/UI.md#paint) |
 | `include/engine/ui/presentation.h` | Process window sizes, pointer, mouse consumption | [Windowing](../features/Windowing.md) |
 | `include/engine/ui/profiler.h` | Profiler probe: attach, canvases, frames, Pause. No-ops without the macro | [UI Profiler](../features/UI%20Profiler.md) |
 | `include/engine/ui/splash.h` | `show_splash` and `SplashTimer` | [UI](../modules/UI.md) |
@@ -291,6 +293,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ui/style_anim.cpp` | Sample `transition` and compiled `@keyframes` tracks | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/style_anim.h` | Motion clock types | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/stylesheet.cpp` | `next_stylesheet_generation` counter, one per engine | [UI Markup](../features/UI%20Markup.md) |
+| `src/ui/svg_attach.cpp`, `svg_attach.h` | Resolve an `Svg` element's source onto `Element::svg` | [UI](../modules/UI.md#paint) |
+| `src/ui/svg_parser.cpp`, `svg_parser.h` | Icon SVG subset to `SvgPicture` | [Assets](../features/Assets.md#svg-icons) |
 | `src/ui/text_select.cpp` | Word ranges and selection edits | [UI Input](../features/UI%20Input.md) |
 | `src/ui/text_select.h` | Selection helpers | [UI Input](../features/UI%20Input.md) |
 | `src/ui/text_wrap.cpp` | Break a string into rows | [UI](../modules/UI.md) |
@@ -480,13 +484,14 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/ui_painter_test.cpp` | Recording painter, no GL | [UI](../modules/UI.md) |
 | `tests/ui_draw_list_test.cpp` | `BatchingPainter`: commands to batches, coverage, clips, gradients, images, path masks | [UI](../modules/UI.md) |
 | `tests/ui_renderer_test.cpp` | `UiRenderer` against a fake `IUiDevice`: uploads, texture catch-up, draw calls | [UI](../modules/UI.md) |
-| `tests/ui_text_render_test.cpp` | Text on the CPU: metrics, measure, breaks, atlas packing, glyph quads, the numbers NanoVG produced | [UI](../modules/UI.md) |
+| `tests/ui_text_render_test.cpp` | Text on the CPU: metrics, measure, breaks, atlas packing, glyph quads, the locked numbers | [UI](../modules/UI.md) |
 | `tests/ui_element_id_test.cpp` | `Element::handle` and `parent`: parse, builder, ItemsControl reuse, no aliasing, reindex, stale lookups | [UI](../modules/UI.md#element-identity) |
 | `tests/ui_log_painter.h` | `LogPainter`: every painter call with the clip and opacity it ran under, for tests | [UI](../modules/UI.md) |
 | `tests/ui_wasted_work_test.cpp` | Stacking order against a stable sort, clip equivalence of an element that enters no state, opacity, held motion sample | [UI](../modules/UI.md#paint) |
 | `tests/ui_profiler_test.cpp` | Profiler scopes, world isolation, rings, snapshots, and the no-op build | [UI Profiler](../features/UI%20Profiler.md) |
 | `tests/ui_refs_test.cpp` | Referenced images and fonts | [UI](../modules/UI.md) |
 | `tests/ui_scroll_test.cpp` | Scroll view and wheel | [UI Input](../features/UI%20Input.md) |
+| `tests/ui_svg_test.cpp` | Icon parse, `<Svg>`, asset load, fitted paint | [UI](../modules/UI.md#paint) |
 | `tests/ui_text_input_test.cpp` | Caret, clipboard, IME | [UI Input](../features/UI%20Input.md) |
 | `tests/ui_text_wrap_test.cpp` | Row breaks and line height | [UI](../modules/UI.md) |
 | `tests/ui_xml_test.cpp` | Tags, bindings, unknown elements | [UI Markup](../features/UI%20Markup.md) |
@@ -556,6 +561,10 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/asset_inspection.cpp` | Folder, File, Import, and Content sections of a project file | [Editor](../features/Editor.md#inspector) |
 | `editor/src/asset_inspection.h` | `inspect_asset`, the Content limits | [Editor](../features/Editor.md#inspector) |
 | `editor/src/asset_selection.h` | `AssetSelection` | [Editor](../features/Editor.md#inspector) |
+| `editor/src/asset_sync.cpp` | Write missing `.meta`, delete an orphan `.meta` | [Editor](../features/Editor.md) |
+| `editor/src/asset_sync.h` | `sync_assets`, `AssetSyncCounts` | [Editor](../features/Editor.md) |
+| `editor/src/asset_watch.cpp` | OS watch of `assets/`, debounced fingerprint, sync | [Editor](../features/Editor.md) |
+| `editor/src/asset_watch.h` | `AssetWatch` | [Editor](../features/Editor.md) |
 | `editor/src/batch_run.cpp` | `--batch --export [--development]`: SDK and project check, export build, copy, exit code |
 | `editor/src/batch_run.h` | `BatchRun`, `BatchSetup`, the exit codes |
 | `editor/src/build_line_view_model.cpp` | Binds a log row | [Editor](../features/Editor.md) |
@@ -610,7 +619,7 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/project_check.h` | `ProjectCheck`, `check_project` | [Editor](../features/Editor.md#start) |
 | `editor/src/project_export.cpp` | `copy_export`, the file filter, the refused targets | [Editor](../features/Editor.md#export) |
 | `editor/src/project_export.h` | `copy_export`, `default_export_directory`, `export_directory_problem` | [Editor](../features/Editor.md#export) |
-| `editor/src/toolbar.cpp` | Play/Stop and Export methods, the Export dialog it owns, and shown state | [Editor](../features/Editor.md) |
+| `editor/src/toolbar.cpp` | Play/Stop, File → Refresh, and Export methods, the Export dialog it owns, and shown state | [Editor](../features/Editor.md) |
 | `editor/src/toolbar.h` | `Toolbar`, `EditorRequest`, `RunState` | [Editor](../features/Editor.md) |
 | `editor/src/ui_element_selection.h` | `UiElementSelection` | [Editor](../features/Editor.md#inspector) |
 | `editor/src/ui_tree_panel.cpp` | Copies the inspector probe's tree into the view-model; a new probe selection becomes the editor's | [UI Inspector](../features/UI%20Inspector.md) |
@@ -620,6 +629,7 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/ui_tree_view_model.cpp` | Binds the view-model to `ui_tree.xml` | [UI Inspector](../features/UI%20Inspector.md) |
 | `editor/src/ui_tree_view_model.h` | `UiTreeViewModel` | [UI Inspector](../features/UI%20Inspector.md) |
 | `editor/tests/asset_inspection_test.cpp` | Folder, text, meta, broken meta, PNG, cut text, empty and gone files | [Editor](../features/Editor.md#inspector) |
+| `editor/tests/asset_watch_test.cpp` | `sync_assets` and the debounced `AssetWatch` | [Editor](../features/Editor.md) |
 | `editor/tests/batch_run_test.cpp` | `BatchRun` exit codes against a scripted launcher, `--development` |
 | `editor/tests/build_panel_test.cpp` | Log tones, first error, scroll, line cap | [Editor](../features/Editor.md) |
 | `editor/tests/dock_layout_file_test.cpp` | Layout file round trip, missing, corrupt, empty path | [Editor](../features/Editor.md#layout-file) |

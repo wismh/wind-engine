@@ -406,7 +406,7 @@ namespace engine::ui {
                         box.padding.top + formula.y + box.padding.bottom,
                 };
             }
-            if (element.kind == ElementKind::Image) {
+            if (element.kind == ElementKind::Image || element.kind == ElementKind::Svg) {
                 return {
                         box.padding.left + kDefaultImageSize + box.padding.right,
                         box.padding.top + kDefaultImageSize + box.padding.bottom,

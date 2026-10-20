@@ -66,6 +66,8 @@ namespace engine::ui {
                                    x.end_angle == y.end_angle && x.width == y.width && x.color == y.color;
                         } else if constexpr (std::is_same_v<T, Picture::Path>) {
                             return same_path(x.segments, y.segments) && x.color == y.color;
+                        } else if constexpr (std::is_same_v<T, Picture::StrokePath>) {
+                            return same_path(x.segments, y.segments) && x.width == y.width && x.color == y.color;
                         } else if constexpr (std::is_same_v<T, Picture::Font>) {
                             return x.font == y.font && x.size == y.size;
                         } else if constexpr (std::is_same_v<T, Picture::Text>) {
@@ -127,6 +129,8 @@ namespace engine::ui {
                             painter.stroke_arc(c.center, c.radius, c.start_angle, c.end_angle, c.width, c.color);
                         } else if constexpr (std::is_same_v<T, Path>) {
                             painter.fill_path(c.segments, c.color);
+                        } else if constexpr (std::is_same_v<T, StrokePath>) {
+                            painter.stroke_path(c.segments, c.width, c.color);
                         } else if constexpr (std::is_same_v<T, Font>) {
                             painter.set_font(c.font, c.size);
                         } else if constexpr (std::is_same_v<T, Text>) {
@@ -199,6 +203,11 @@ namespace engine::ui {
 
     void RecordingPainter::fill_path(std::span<const PathSegment> path, glm::vec4 color) {
         out_.commands.emplace_back(Picture::Path{std::vector<PathSegment>(path.begin(), path.end()), color});
+    }
+
+    void RecordingPainter::stroke_path(std::span<const PathSegment> path, float width, glm::vec4 color) {
+        out_.commands.emplace_back(
+                Picture::StrokePath{std::vector<PathSegment>(path.begin(), path.end()), width, color});
     }
 
     void RecordingPainter::set_font(AssetId font, float size) { out_.commands.emplace_back(Picture::Font{font, size}); }

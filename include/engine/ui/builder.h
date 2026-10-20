@@ -82,6 +82,7 @@ private:
     friend Node label();
     friend Node button();
     friend Node image();
+    friend Node svg();
     friend Node items_control();
     friend Node item_template();
     friend Node line();
@@ -114,6 +115,7 @@ private:
 [[nodiscard]] Node label();
 [[nodiscard]] Node button();
 [[nodiscard]] Node image();
+[[nodiscard]] Node svg();
 [[nodiscard]] Node items_control();
 [[nodiscard]] Node item_template();
 [[nodiscard]] Node line();

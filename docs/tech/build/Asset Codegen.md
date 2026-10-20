@@ -71,6 +71,8 @@ asset_guid <assets_dir>
 
 `write_missing_metas` creates a sidecar for each file that lacks one, except skipped files (dotfiles, `readme.md`, `license*`, `catalog.toml`): a new GUID and the default importer (audio defaults for `.wav`). A file with an unknown extension gets `importer = "data"`. Existing sidecars are left alone. The tool prints how many files it wrote. It is not a build step. Commit the new `.meta`, then cook.
 
+The editor calls the same function on the open project's `assets/` when that tree settles, then deletes a `.meta` whose source path is gone. `asset_codegen` still does not write `.meta`. The cooked catalog is unchanged until the next build.
+
 ## See also
 
 - [Assets](../features/Assets.md)

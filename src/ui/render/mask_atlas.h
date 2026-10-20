@@ -24,11 +24,12 @@ struct AtlasMask {
     glm::vec2 origin{};
 };
 
-// R8 pages of fill_path coverage, cached by path content, the transform's linear part (rotation and scale, quantized
-// to 1/4096), and the sub-pixel phase of its translation (quantized to 1/4 px). A static formula is rasterized once;
-// it is redrawn from the cache at any integer offset. Pages are evicted whole, least recently used first, once
-// `kMaxPages` exist, but never a page the current list (begin_list) drew from. CPU only; a device catches up with
-// page versions like the glyph atlas. Main thread only.
+// R8 pages of fill_path and stroke_path coverage, cached by path content, the transform's linear part (rotation and
+// scale, quantized to 1/4096), and the sub-pixel phase of its translation (quantized to 1/4 px). A stroke also keys
+// on its device-pixel width (quantized to 1/64 px), so a fill and a stroke of the same points do not share a mask.
+// A static formula is rasterized once; it is redrawn from the cache at any integer offset. Pages are evicted whole,
+// least recently used first, once `kMaxPages` exist, but never a page the current list (begin_list) drew from. CPU
+// only; a device catches up with page versions like the glyph atlas. Main thread only.
 class MaskAtlas {
 public:
     static constexpr int kDefaultPageSize = 1024;
@@ -48,6 +49,10 @@ public:
     [[nodiscard]] const AtlasMask* mask(std::span<const PathSegment> path, const Affine2& linear, glm::vec2 phase,
             float tolerance = 0.25f);
 
+    // The mask of `path` stroked at `width` device pixels (full width). nullptr when the stroke covers nothing.
+    [[nodiscard]] const AtlasMask* stroke_mask(std::span<const PathSegment> path, const Affine2& linear,
+            glm::vec2 phase, float width, float tolerance = 0.25f);
+
     [[nodiscard]] std::size_t page_count() const noexcept { return pages_.size(); }
     [[nodiscard]] const AtlasPage& page(std::size_t index) const { return pages_[index]; }
     [[nodiscard]] std::uint64_t version() const noexcept { return version_; }
@@ -60,9 +65,13 @@ private:
         std::vector<PathSegment> path;
         std::int32_t linear[4] = {};
         std::int32_t phase[2] = {};
+        // -1 is a fill. A stroke stores its width quantized to 1/64 of a device pixel.
+        std::int32_t width_q = -1;
         AtlasMask mask;
     };
 
+    [[nodiscard]] const AtlasMask* lookup(std::span<const PathSegment> path, const Affine2& linear, glm::vec2 phase,
+            float tolerance, std::int32_t width_q);
     [[nodiscard]] AtlasMask place(int w, int h);
     void evict_page(std::uint32_t page);
 

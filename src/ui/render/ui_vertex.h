@@ -13,10 +13,10 @@
 namespace engine::ui {
 
 // What the fragment stage does with a vertex (flat across a quad). Units called "px" below are device pixels: logical
-// units times the frame's pixel ratio times the transform's scale, so a coverage ramp one px wide is NanoVG's fringe.
+// units times the frame's pixel ratio times the transform's scale, so a coverage ramp one px wide is the fringe.
 enum class UiShapeKind : std::uint32_t {
     // Rounded (or sharp) rect fill. local: px from the rect center, in the rect's own (unrotated) frame.
-    // shape: half size xy, corner radii zw (x and y radius, NanoVG clamps them separately; 0 = sharp corners).
+    // shape: half size xy, corner radii zw (x and y radius, clamped separately; 0 = sharp corners).
     Fill = 0,
     // The same rect stroked, centered on its edge. aux.x: half the stroke width.
     Stroke = 1,
@@ -50,7 +50,7 @@ enum class UiShapeKind : std::uint32_t {
 // 4 vertices and 6 indices (312 bytes); a HUD of 3,000 quads uploads under 1 MB a frame.
 struct UiVertex {
     // Logical units of the frame (begin_frame's width x height, origin top left, y down). The device maps them to
-    // clip space like NanoVG's viewSize did.
+    // clip space with the origin at the top left and y down.
     glm::vec2 position{};
     // Kind-specific: texture coordinates on the bound page (Glyph, Mask), image coordinates (Image, ImageRepeat),
     // gradient coordinates (gradients).

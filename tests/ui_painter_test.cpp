@@ -105,6 +105,7 @@ public:
                 .arc_start_angle = start_angle, .arc_end_angle = end_angle});
     }
     void fill_path(std::span<const engine::ui::PathSegment>, glm::vec4) override {}
+    void stroke_path(std::span<const engine::ui::PathSegment>, float, glm::vec4) override {}
 
     void set_font(engine::AssetId font, float size) override {
         calls.push_back(PaintCall{.op = "font", .font_size = size, .font = font});

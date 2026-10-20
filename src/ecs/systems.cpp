@@ -37,6 +37,7 @@
 #include "ui/popup.h"
 #include "ui/profile.h"
 #include "ui/pseudo_warning.h"
+#include "ui/svg_attach.h"
 #include "ui/ui_refs.h"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -687,6 +688,9 @@ namespace engine {
                         for (const AssetId id: ui::collect_referenced_images(*canvas.document, canvas.stylesheet)) {
                             deps.ensure_ui_image(canvas.window, id);
                         }
+                    }
+                    if (deps.assets != nullptr) {
+                        ui::attach_svg_pictures(*canvas.document, *deps.assets);
                     }
                 }
 

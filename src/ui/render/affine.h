@@ -6,7 +6,7 @@
 
 namespace engine::ui {
 
-// A 2x3 affine map in NanoVG's layout: `{a, b, c, d, e, f}` maps (x, y) to (a x + c y + e, b x + d y + f). The UI
+// A 2x3 affine map: `{a, b, c, d, e, f}` maps (x, y) to (a x + c y + e, b x + d y + f). The UI
 // painter only composes translations, rotations, and uniform scales, so in practice it is a similarity; the math here
 // does not assume it.
 struct Affine2 {
@@ -35,12 +35,12 @@ struct Affine2 {
         return {a * v.x + c * v.y, b * v.x + d * v.y};
     }
     [[nodiscard]] constexpr float determinant() const noexcept { return a * d - c * b; }
-    // nvg__getAverageScale: the mean length of the two rows of the linear part.
+    // The mean length of the two rows of the linear part.
     [[nodiscard]] float average_scale() const noexcept {
         return (std::sqrt(a * a + c * c) + std::sqrt(b * b + d * d)) * 0.5f;
     }
 
-    // NanoVG's nvgTransformInverse: identity when the map is singular.
+    // Identity when the map is singular.
     [[nodiscard]] Affine2 inverse() const noexcept {
         const double det = static_cast<double>(a) * d - static_cast<double>(c) * b;
         if (det > -1e-6 && det < 1e-6) {
@@ -58,7 +58,7 @@ struct Affine2 {
     }
 };
 
-// `outer` after `inner`: p -> outer(inner(p)). NanoVG's nvgTranslate / nvgRotate / nvgScale set
+// `outer` after `inner`: p -> outer(inner(p)). A translation, rotation, or scale is composed as
 // `xform = compose(xform, op)`, so the newest operation applies to points first.
 [[nodiscard]] constexpr Affine2 compose(const Affine2& outer, const Affine2& inner) noexcept {
     return {

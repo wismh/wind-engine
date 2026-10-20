@@ -69,7 +69,7 @@ Two games that keep the defaults share an application id and a name, so set both
 2. **Assets Staging:** Gradle packs the cooked assets into the APK's `assets/`. At first launch, the engine copies them to internal storage so standard C++ `std::ifstream` streams can load them. `engine::user_data_directory` is `<internal storage>/user/`.
 3. **Graphics API:** Wind configures an OpenGL ES 3.0 context (`GraphicsProfile::Api::Gles3`).
 4. **App Lifecycle:** When the app goes to the background (home button, phone call), the engine pauses the fixed simulation (`ApplicationState::paused`); it resumes when the app is back.
-5. **Back Button:** The engine never quits on Back. The key arrives as `engine::KeyCode::AcBack`, like any other key, and your game decides what it does (see below).
+5. **Back Button:** The engine never quits on Back. The key arrives as `engine::KeyCode::AcBack`, like any other key, and your game decides what it does (see below). The template manifest opts into Android's back callback (`android:enableOnBackInvokedCallback="true"`). Leave that attribute on in a manifest overlay: turning it off makes the system finish the activity, and the key never arrives.
 
 ### The back button
 
