@@ -697,7 +697,6 @@ std::string emit_component_io_header(std::span<const ScannedComponent> component
                 for (const std::string& field : comp.fields) {
                     os << "                (void)in.field(\"" << field << "\", c." << field << ");\n";
                 }
-                os << "            },\n";
             os << "            });\n";
             }
             for (std::size_t idx = 0; idx < comp.fields.size(); ++idx) {
