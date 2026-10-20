@@ -60,6 +60,8 @@ namespace engine::ui {
                     return "MenuSeparator";
                 case ElementKind::ContextMenu:
                     return "ContextMenu";
+                case ElementKind::Svg:
+                    return "Svg";
             }
             return "Element";
         }

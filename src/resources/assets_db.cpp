@@ -12,10 +12,12 @@
 #include <engine/resources/text_asset.h>
 #include <engine/ui/document.h>
 #include <engine/ui/stylesheet.h>
+#include <engine/ui/svg.h>
 
 #include "audio/clip.h"
 #include "render/material_instance.h"
 #include "resources/importers.h"
+#include "ui/svg_parser.h"
 
 #include <cstdlib>
 #include <filesystem>
@@ -75,6 +77,9 @@ std::optional<ImporterKind> importer_for_type(const std::type_info& type) {
     }
     if (type == typeid(ecs::WorldAsset)) {
         return ImporterKind::World;
+    }
+    if (type == typeid(ui::SvgPicture)) {
+        return ImporterKind::Svg;
     }
     if (type == typeid(TextAsset)) {
         return ImporterKind::Data;
@@ -257,6 +262,18 @@ std::expected<std::shared_ptr<void>, AssetError> load_cpu(
             return std::unexpected(AssetError::Corrupt);
         }
         return std::static_pointer_cast<void>(std::make_shared<ecs::WorldAsset>(std::move(*parsed)));
+    }
+
+    if (type == typeid(ui::SvgPicture)) {
+        const auto bytes = read_all(path);
+        if (!bytes) {
+            return std::unexpected(AssetError::Corrupt);
+        }
+        auto parsed = ui::parse_svg(*bytes);
+        if (!parsed) {
+            return std::unexpected(AssetError::Corrupt);
+        }
+        return std::static_pointer_cast<void>(std::make_shared<ui::SvgPicture>(std::move(*parsed)));
     }
 
     if (type == typeid(TextAsset)) {

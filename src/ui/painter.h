@@ -5,6 +5,7 @@
 #include <engine/render/commands.h>
 #include <engine/resources/asset_id.h>
 #include <engine/ui/document.h>
+#include <engine/ui/path.h>
 #include <engine/ui/stylesheet.h>
 
 #include "ui/text_wrap.h"
@@ -33,25 +34,6 @@ namespace engine::ui {
         float ascent = 0.0f;
         float descent = 0.0f;
         float line_height = 0.0f;
-    };
-
-    // One segment of a path. A `Move` starts a new contour. A fill closes the previous contour at the next `Move`
-    // and at the end of the path (glyph outlines have no explicit close). A stroke closes only on `Close`; an open
-    // end gets a round cap. `Quad` curves through control point `c1`, `Cubic` through `c1` and `c2`. Coordinates
-    // are real pixels. `Close` ignores `p`, `c1`, and `c2`.
-    struct PathSegment {
-        enum class Kind : std::uint8_t {
-            Move,
-            Line,
-            Quad,
-            Cubic,
-            Close,
-        };
-
-        Kind kind = Kind::Move;
-        glm::vec2 p{};
-        glm::vec2 c1{};
-        glm::vec2 c2{};
     };
 
     class IUiPainter {

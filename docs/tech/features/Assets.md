@@ -40,9 +40,13 @@ Where `<assets>` is: [Runtime Assets](../build/Runtime%20Assets.md).
 
 `get_sprite(id, name)` resolves a named rect. `try_get_sprite` returns `AssetError` instead of calling the fatal hook. An empty name on a single-layout texture is the whole image (`offset` 0, `tiling` 1,1). An empty name when `layout` is `multiple` is `AssetError::NotFound`.
 
-UI documents and stylesheets are CPU assets (`UiDocument`, `Stylesheet`). A stylesheet's parser warnings go to the engine log on load, as `stylesheet <relative path>: line N: <warning>` ([UI Markup](UI%20Markup.md)). Fonts are the file bytes (`Font`). Worlds are parsed TOML descriptions (`ecs::WorldAsset`, `importer = "world"`; see [ECS](../modules/ECS.md#world-serialization)). UI images are `render::TextureDesc` (`importer = "ui_image"`), packed into the UI renderer's image atlas when a canvas references them. World textures go through the graphic factory.
+UI documents and stylesheets are CPU assets (`UiDocument`, `Stylesheet`). A stylesheet's parser warnings go to the engine log on load, as `stylesheet <relative path>: line N: <warning>` ([UI Markup](UI%20Markup.md)). Fonts are the file bytes (`Font`). Worlds are parsed TOML descriptions (`ecs::WorldAsset`, `importer = "world"`; see [ECS](../modules/ECS.md#world-serialization)). UI images are `render::TextureDesc` (`importer = "ui_image"`), packed into the UI renderer's image atlas when a canvas references them. World textures go through the graphic factory. An icon is `ui::SvgPicture` (`importer = "svg"`, [UI](../modules/UI.md#paint)).
 
 The cache key is the GUID plus `std::type_index`. The same GUID requested as two types is two loads, and the wrong type is `TypeMismatch`.
+
+## SVG icons
+
+`importer = "svg"` reads an icon into `ui::SvgPicture` (`parse_svg`, `src/ui/svg_parser.cpp`). The file needs a `viewBox`. Shapes are `path`, `rect`, `circle`, `ellipse`, `line`, `polyline`, and `polygon`, and a `g` whose transform is baked into the points. `path` data is `M L H V C Q S T Z A`; an arc, a circle, and a rounded rect become cubics. `fill` and `stroke` are `none`, `currentColor`, or `#rgb` / `#rrggbb` / `#rrggbbaa`, inherited from the root and from groups. A dash, an even-odd fill, text, an image, a gradient, a clip, or a mask makes the asset `AssetError::Corrupt`. `asset_guid` assigns this importer to `.svg`.
 
 ## Text assets
 
