@@ -18,6 +18,14 @@
           </Menu>
           <Menu text="Window">
             <MenuItem text="Toggle Play" command="{binding togglePlay}" shortcut="F5"/>
+            <MenuSeparator/>
+            <MenuItem text="Project" command="{binding showProject}"/>
+            <MenuItem text="Hierarchy" command="{binding showHierarchy}"/>
+            <MenuItem text="World" command="{binding showWorld}"/>
+            <MenuItem text="UI Tree" command="{binding showUiTree}"/>
+            <MenuItem text="Inspector" command="{binding showInspector}"/>
+            <MenuItem text="Profiler" command="{binding showProfiler}"/>
+            <MenuItem text="Build" command="{binding showBuild}"/>
           </Menu>
           <Menu text="Help">
             <MenuItem text="About Wind Engine"/>

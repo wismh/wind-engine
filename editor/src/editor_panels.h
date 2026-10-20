@@ -49,7 +49,7 @@ public:
     static constexpr std::string_view kProfiler = "profiler";
     static constexpr std::string_view kBuild = "build";
     static constexpr std::string_view kExport = "export";
-    // Dock order: the default layout's tabs and where reconcile puts a panel a saved layout lacks.
+    // The seven panels Window can close and open again, in the default layout's tab order.
     static constexpr std::array<std::string_view, 7> kKeys{
             kProject, kHierarchy, kWorld, kUiTree, kInspector, kProfiler, kBuild};
 
@@ -81,8 +81,17 @@ public:
     void render(engine::ecs::World& world, const engine::EngineSystemDeps& deps);
 
     // Brings the panel to the front: its tab becomes active and its float, if any, goes on top; a float in an OS
-    // window is raised and focused. A panel the layout lost goes back where reconcile puts it.
+    // window is raised and focused. A panel the layout lost is tabbed with the Profiler, or the first docked stack
+    // when the Profiler is closed too, or a new root when nothing is docked. Other closed panels stay closed.
     void show(std::string_view key);
+    // Window menu. Each one is show() for that panel.
+    void show_project() { show(kProject); }
+    void show_hierarchy() { show(kHierarchy); }
+    void show_world() { show(kWorld); }
+    void show_ui_tree() { show(kUiTree); }
+    void show_inspector() { show(kInspector); }
+    void show_profiler() { show(kProfiler); }
+    void show_build() { show(kBuild); }
     // Opens the Export panel in a separate floating OS window.
     void show_export(const std::filesystem::path& project, const std::string& target, const std::string& sdk_config);
     void close_export();
