@@ -124,17 +124,17 @@ What lays out is decided by dirty marks (`sync_layout`): the bind pass, a pseudo
 - `IPaint` runs after the element's CSS chrome and before its children, through `IDrawList` in local content pixels.
 - `transition` and `@keyframes` sample numbers, colors, resolved px, and rotate/scale. Keywords snap at eased progress 0.5. Keyframes win over a transition on the same property. The clock is `delta_time` once per `paint_document`. Keyframes are compiled to tracks on first use, so a tick parses nothing. Only a layout property lays out, and only the chain of the element that moved ([UI](../modules/UI.md#style)). Hit-testing during the animation uses the previous frame's rects.
 
-`background-image` and `Image` `source` both call `IUiPainter::image`. `Viewport` paints its chrome, then `apply_view` for children.
+`background-image` and `Image` `source` both call `IUiPainter::image`. `Svg` draws the loaded `SvgPicture` with `fill_path` and `stroke_path` ([UI](../modules/UI.md#paint)). `Viewport` paints its chrome, then `apply_view` for children.
 
 `run_ui_render` sorts canvases by `order` (low behind) and pushes `CmdDrawUI`. A canvas with an open `Popup` gets a second command with `popup_layer` after every canvas's first, which draws only its popups, clipped by the window.
 
 ## Builder
 
-`ui::Node` factories match the XML tags (`stack()`, `label()`, `viewport()`, `popup()`, …). `add` moves a child. `make_document` requires a `Canvas` root. `spawn_canvas` puts the tree on a world and clears `UiCanvas::document`.
+`ui::Node` factories match the XML tags (`stack()`, `label()`, `viewport()`, `popup()`, `svg()`, …). `add` moves a child. `make_document` requires a `Canvas` root. `spawn_canvas` puts the tree on a world and clears `UiCanvas::document`.
 
 ## Tests
 
-`tests/ui_bindable_visibility_test.cpp`, `tests/ui_slider_test.cpp`, `tests/ui_absolute_items_test.cpp`, `tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_popup_test.cpp`, `tests/ui_bind_error_test.cpp`, `tests/assets_test.cpp`.
+`tests/ui_bindable_visibility_test.cpp`, `tests/ui_slider_test.cpp`, `tests/ui_absolute_items_test.cpp`, `tests/ui_xml_test.cpp`, `tests/ui_builder_test.cpp`, `tests/ui_css_test.cpp`, `tests/ui_paint_binding_test.cpp`, `tests/ui_painter_test.cpp`, `tests/ui_layout_hit_test.cpp`, `tests/ui_layout_dirty_gate_test.cpp`, `tests/ui_display_none_test.cpp`, `tests/ui_popup_test.cpp`, `tests/ui_svg_test.cpp`, `tests/ui_bind_error_test.cpp`, `tests/assets_test.cpp`.
 
 ## See also
 

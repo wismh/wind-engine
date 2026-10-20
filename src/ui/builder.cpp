@@ -332,6 +332,10 @@ Node image() {
     return Node(ElementKind::Image);
 }
 
+Node svg() {
+    return Node(ElementKind::Svg);
+}
+
 Node items_control() {
     return Node(ElementKind::ItemsControl);
 }

@@ -214,6 +214,8 @@ namespace engine::cli {
                     return "MenuSeparator";
                 case ui::ElementKind::ContextMenu:
                     return "ContextMenu";
+                case ui::ElementKind::Svg:
+                    return "Svg";
             }
             return "Element";
         }

@@ -44,6 +44,7 @@ The full literals are in `builtin_ids.h`. The table's suffix is the last five ch
 | `Animation` | `animation` | `SpriteAnimationClip` |
 | `Strings` | `strings` | `loc::StringTable` |
 | `World` | `world` | `ecs::WorldAsset` |
+| `Svg` | `svg` | `ui::SvgPicture` |
 | `Data` | `data` | `TextAsset` (file bytes as text, never parsed by the engine) |
 
 Texture defaults: sRGB, linear filter, clamp wrap, `layout = single`, `pixels_per_unit = 100`. Audio defaults: SFX bank, volume 1, pitch 1–1, loop false.

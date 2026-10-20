@@ -114,6 +114,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/ui/draw_list.h` | `IDrawList` for `IPaint` | [UI](../modules/UI.md) |
 | `include/engine/ui/inspector.h` | Inspector probe: attach, pick state, tree, select, toggle, detail, rules | [UI Inspector](../features/UI%20Inspector.md) |
 | `include/engine/ui/paint.h` | `IPaint` and `RelayPaint` | [UI](../modules/UI.md) |
+| `include/engine/ui/path.h` | `PathSegment` for fill and stroke | [UI](../modules/UI.md) |
+| `include/engine/ui/svg.h` | `SvgPicture`, an icon's contours | [UI](../modules/UI.md#paint) |
 | `include/engine/ui/presentation.h` | Process window sizes, pointer, mouse consumption | [Windowing](../features/Windowing.md) |
 | `include/engine/ui/profiler.h` | Profiler probe: attach, canvases, frames, Pause. No-ops without the macro | [UI Profiler](../features/UI%20Profiler.md) |
 | `include/engine/ui/splash.h` | `show_splash` and `SplashTimer` | [UI](../modules/UI.md) |
@@ -291,6 +293,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ui/style_anim.cpp` | Sample `transition` and compiled `@keyframes` tracks | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/style_anim.h` | Motion clock types | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/stylesheet.cpp` | `next_stylesheet_generation` counter, one per engine | [UI Markup](../features/UI%20Markup.md) |
+| `src/ui/svg_attach.cpp`, `svg_attach.h` | Resolve an `Svg` element's source onto `Element::svg` | [UI](../modules/UI.md#paint) |
+| `src/ui/svg_parser.cpp`, `svg_parser.h` | Icon SVG subset to `SvgPicture` | [Assets](../features/Assets.md#svg-icons) |
 | `src/ui/text_select.cpp` | Word ranges and selection edits | [UI Input](../features/UI%20Input.md) |
 | `src/ui/text_select.h` | Selection helpers | [UI Input](../features/UI%20Input.md) |
 | `src/ui/text_wrap.cpp` | Break a string into rows | [UI](../modules/UI.md) |
@@ -487,6 +491,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/ui_profiler_test.cpp` | Profiler scopes, world isolation, rings, snapshots, and the no-op build | [UI Profiler](../features/UI%20Profiler.md) |
 | `tests/ui_refs_test.cpp` | Referenced images and fonts | [UI](../modules/UI.md) |
 | `tests/ui_scroll_test.cpp` | Scroll view and wheel | [UI Input](../features/UI%20Input.md) |
+| `tests/ui_svg_test.cpp` | Icon parse, `<Svg>`, asset load, fitted paint | [UI](../modules/UI.md#paint) |
 | `tests/ui_text_input_test.cpp` | Caret, clipboard, IME | [UI Input](../features/UI%20Input.md) |
 | `tests/ui_text_wrap_test.cpp` | Row breaks and line height | [UI](../modules/UI.md) |
 | `tests/ui_xml_test.cpp` | Tags, bindings, unknown elements | [UI Markup](../features/UI%20Markup.md) |
