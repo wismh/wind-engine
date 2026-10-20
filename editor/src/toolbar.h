@@ -16,6 +16,8 @@ enum class EditorRequest {
     None,
     Play,
     Stop,
+    // File -> Refresh: rescan the open project's files.
+    Refresh,
     // Open the Export panel in a separate window.
     Export,
     Quit,
@@ -44,6 +46,10 @@ public:
 
     void toggle_play();
     [[nodiscard]] bool can_toggle_play() const;
+
+    // File -> Refresh: when a project is open, including one that does not fit and while a build or the game runs.
+    void refresh_project();
+    [[nodiscard]] bool can_refresh_project() const;
 
     // File -> Export: only when nothing runs.
     void export_game();

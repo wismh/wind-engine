@@ -561,6 +561,10 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/asset_inspection.cpp` | Folder, File, Import, and Content sections of a project file | [Editor](../features/Editor.md#inspector) |
 | `editor/src/asset_inspection.h` | `inspect_asset`, the Content limits | [Editor](../features/Editor.md#inspector) |
 | `editor/src/asset_selection.h` | `AssetSelection` | [Editor](../features/Editor.md#inspector) |
+| `editor/src/asset_sync.cpp` | Write missing `.meta`, delete an orphan `.meta` | [Editor](../features/Editor.md) |
+| `editor/src/asset_sync.h` | `sync_assets`, `AssetSyncCounts` | [Editor](../features/Editor.md) |
+| `editor/src/asset_watch.cpp` | OS watch of `assets/`, debounced fingerprint, sync | [Editor](../features/Editor.md) |
+| `editor/src/asset_watch.h` | `AssetWatch` | [Editor](../features/Editor.md) |
 | `editor/src/batch_run.cpp` | `--batch --export [--development]`: SDK and project check, export build, copy, exit code |
 | `editor/src/batch_run.h` | `BatchRun`, `BatchSetup`, the exit codes |
 | `editor/src/build_line_view_model.cpp` | Binds a log row | [Editor](../features/Editor.md) |
@@ -615,7 +619,7 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/project_check.h` | `ProjectCheck`, `check_project` | [Editor](../features/Editor.md#start) |
 | `editor/src/project_export.cpp` | `copy_export`, the file filter, the refused targets | [Editor](../features/Editor.md#export) |
 | `editor/src/project_export.h` | `copy_export`, `default_export_directory`, `export_directory_problem` | [Editor](../features/Editor.md#export) |
-| `editor/src/toolbar.cpp` | Play/Stop and Export methods, the Export dialog it owns, and shown state | [Editor](../features/Editor.md) |
+| `editor/src/toolbar.cpp` | Play/Stop, File → Refresh, and Export methods, the Export dialog it owns, and shown state | [Editor](../features/Editor.md) |
 | `editor/src/toolbar.h` | `Toolbar`, `EditorRequest`, `RunState` | [Editor](../features/Editor.md) |
 | `editor/src/ui_element_selection.h` | `UiElementSelection` | [Editor](../features/Editor.md#inspector) |
 | `editor/src/ui_tree_panel.cpp` | Copies the inspector probe's tree into the view-model; a new probe selection becomes the editor's | [UI Inspector](../features/UI%20Inspector.md) |
@@ -625,6 +629,7 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/ui_tree_view_model.cpp` | Binds the view-model to `ui_tree.xml` | [UI Inspector](../features/UI%20Inspector.md) |
 | `editor/src/ui_tree_view_model.h` | `UiTreeViewModel` | [UI Inspector](../features/UI%20Inspector.md) |
 | `editor/tests/asset_inspection_test.cpp` | Folder, text, meta, broken meta, PNG, cut text, empty and gone files | [Editor](../features/Editor.md#inspector) |
+| `editor/tests/asset_watch_test.cpp` | `sync_assets` and the debounced `AssetWatch` | [Editor](../features/Editor.md) |
 | `editor/tests/batch_run_test.cpp` | `BatchRun` exit codes against a scripted launcher, `--development` |
 | `editor/tests/build_panel_test.cpp` | Log tones, first error, scroll, line cap | [Editor](../features/Editor.md) |
 | `editor/tests/dock_layout_file_test.cpp` | Layout file round trip, missing, corrupt, empty path | [Editor](../features/Editor.md#layout-file) |

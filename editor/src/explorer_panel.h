@@ -18,8 +18,8 @@ namespace editor {
 
 // The Project tab: the open project's files and folders as a tree (`engine/ui/tree.h`). Selecting one makes it
 // the editor's selection, which the Inspector tab shows. The tree is a scan of the disk, taken when a project
-// opens and again on Refresh; between scans it does not change. Folders start collapsed. Holds `this` in its rows
-// and its Refresh command, so it never moves.
+// opens, from File -> Refresh, and when the assets watch settles. Folders start collapsed. Holds `this` in its
+// rows, so it never moves.
 class ExplorerPanel {
 public:
     explicit ExplorerPanel(EditorSelection& selection);
@@ -37,7 +37,6 @@ public:
     // selected entry that still exists and is the editor's selection is selected again, so the Inspector reads it
     // again.
     void rescan();
-    [[nodiscard]] bool can_rescan() const;
 
     // By ProjectEntry::key, here and as the editor's selection. An unknown key selects nothing.
     void select(const std::string& key);

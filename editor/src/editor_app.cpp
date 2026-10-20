@@ -16,6 +16,7 @@
 #include <engine/resources/fatal_error.h>
 #include <engine/ui/canvas.h>
 
+#include <chrono>
 #include <system_error>
 #include <utility>
 #include <vector>
@@ -234,6 +235,9 @@ void EditorApp::on_frame_end() {
     if (current_win_size && window_ui_) {
         window_ui_->set_drag_region(engine::render::Rect{0.0f, 0.0f, static_cast<float>(current_win_size->x), 30.0f});
     }
+    if (assets_watch_.poll(std::chrono::steady_clock::now())) {
+        panels_->explorer().rescan();
+    }
     switch (toolbar_->take_request()) {
         case EditorRequest::None:
             break;
@@ -242,6 +246,9 @@ void EditorApp::on_frame_end() {
             break;
         case EditorRequest::Stop:
             stop("Stopped.");
+            break;
+        case EditorRequest::Refresh:
+            panels_->explorer().rescan();
             break;
         case EditorRequest::Export:
             export_game();
@@ -255,6 +262,7 @@ void EditorApp::on_frame_end() {
 
 void EditorApp::on_quit() {
     quitting_ = true;
+    assets_watch_.close();
     build_->cancel();
     if (session_->playing()) {
         stop("Stopped.");
@@ -286,6 +294,7 @@ void EditorApp::open_project(const std::filesystem::path& directory) {
     ProjectCheck check = check_project(directory, sdk_);
     project_dir_ = check.directory;
     if (!check.project) {
+        assets_watch_.close();
         panels_->explorer().close();
         toolbar_->show_project("", false);
         panels_->export_dialog().set_available(false);
@@ -293,6 +302,7 @@ void EditorApp::open_project(const std::filesystem::path& directory) {
         engine::log::warn("Editor: " + check.problem);
         return;
     }
+    assets_watch_.open(project_dir_);
     panels_->explorer().open(project_dir_);
     if (!check.fits) {
         toolbar_->show_project(check.project->name, false);
