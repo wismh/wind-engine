@@ -418,9 +418,9 @@ namespace engine::ui {
                 if (canvas.data_context) {
                     (void) apply_bindings(instance->document, *canvas.data_context, nullptr, catalog_for(world), sheet);
                 }
-                const float media_width = space.reference_space ? space.layout_rect.w : static_cast<float>(size.width);
-                const float media_height =
-                        space.reference_space ? space.layout_rect.h : static_cast<float>(size.height);
+                const glm::vec2 media = media_size(space);
+                const float media_width = media.x;
+                const float media_height = media.y;
                 IUiPainter *layout_painter = layout_painter_for(world, window);
 
                 UiDocument &document = instance->document;

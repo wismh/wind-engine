@@ -47,7 +47,7 @@ Selectors: `E`, `.c`, `#id`, `E.c`, descendant `A B`, child `A > B`. `+`, `~`, a
 
 Pseudo-classes: `:hover`, `:pressed`, `:disabled`, `:focus`, `:checked`.
 
-`@media (min-width: N)` and `(min-height: N)`, and `@keyframes`, are parsed. Other at-rules warn.
+`@media (min-width: N)` and `(min-height: N)`, and `@keyframes`, are parsed. Other at-rules warn. The query is tested against the canvas layout box (`media_size`): a Fixed canvas's own rect (a docked panel included), the window for FillWindow, and the design box for `ScaleWithScreenSize` when both `reference_size` sides are positive.
 
 Unknown properties warn and stay on the rule. The parser keeps going.
 
@@ -98,6 +98,8 @@ A builder document has no generated binder. The game calls `intern` itself.
 
 Stack children are packed by used size, margin, and gap. Used size is the specified size or the hug size, passed through `clamp_axis`: the max cap is applied first, then min-size wins, then the result is at least 0. Percent on a layout length resolves against the parent content box. `em` on those lengths uses this element's resolved font size. A `font-size` of `em`, including inside `calc()`, is a multiple of 16. A percent `font-size` uses the parent content width.
 
+`flex-grow` (a number, default 0) takes a share of free main-axis space when the stack's main size is definite. Shares are proportional. A horizontal child stops at `max-width` and the unused share is split again. What remains is placed by `justify-content`. A hug-sized stack has no free space. `position: absolute` does not grow.
+
 `justify-content` is the main axis (`start`, `center`, `end`, `space-between`). `align-items` is the cross axis. `text-align` moves glyphs and does not change the stack.
 
 `white-space: normal` wraps at the width the element may take. `\n` breaks a row. `nowrap` is one row. Height is the row count times the used line height. A `\(...\)` is one unbreakable box. A horizontal stack does not split its width across labels. Give a label in a row a `width` or `max-width` if it should wrap.
@@ -117,7 +119,7 @@ What lays out is decided by dirty marks (`sync_layout`): the bind pass, a pseudo
 `paint_document` (`src/ui/paint.cpp`):
 
 - Specificity (`compound_specificity` in `src/ui/paint.cpp`) is the sum of every compound in the chain, including ancestors. Element 1, class 2, element-and-class 3, id 4, and +10 for a pseudo on any compound. Two class compounds score 4, the same as one id. One `:hover` beats an id. Equal scores keep the later rule.
-- `@media` is tested against the design box (`reference_size`) when the canvas is `ScaleWithScreenSize` and both sides are positive. Otherwise it uses `window_size_for` (`Presentation.sizes`).
+- `@media` is tested against `media_size` of the canvas (`UiCanvasSpace::layout_rect`): the design box when `ScaleWithScreenSize` has both `reference_size` sides positive, otherwise the canvas rect (the window for FillWindow, the panel for a Fixed dock canvas).
 - `:hover` is one `hit_test` result, the topmost element, not every box that contains the point.
 - Siblings are stable-sorted by `z-index` ascending (document order on ties) via `child_stacking_order`. Hit-testing walks that order in reverse.
 - A non-identity `rotate` / `scale` is `apply_transform` around the element and its children. `layout_rect` is not rewritten.
