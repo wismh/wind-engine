@@ -36,12 +36,11 @@ Cache paths:
 
 ## Presets
 
-`CMakePresets.json`. Generators are Visual Studio 18 2026 (`vs`, `vs-window`, `vs-audio`, `vs-editor`) or Visual Studio 17 2022 (`vs2022`). Web and Android use Ninja.
+`CMakePresets.json`. Desktop presets use Ninja Multi-Config. On Windows `vs`, `vs-window`, `vs-audio`, `vs-editor`, and `vs-bench` inherit `windows-msvc`, which loads the MSVC environment (`architecture` and `toolset` strategy `external`) so `cl` is found without a developer prompt; Ninja has to be on `PATH` or installed with Visual Studio's C++ CMake tools. A build directory made by the Visual Studio generator cannot be reused: delete it once. Web and Android use single-config Ninja. Configuring with a Visual Studio generator is an error.
 
 | Preset | Binary dir | Tests | Window | Audio | Also |
 | --- | --- | --- | --- | --- | --- |
-| `vs` | `build` | ON | OFF | OFF | |
-| `vs2022` | `build` | ON | OFF | OFF | VS 2022 generator |
+| `vs` | `build` | ON | OFF | OFF | Ninja Multi-Config, MSVC |
 | `vs-window` | `build-window` | ON | ON | OFF | |
 | `vs-audio` | `build-audio` | OFF | ON | ON | |
 | `vs-editor` | `build-editor` | ON | ON | ON | `ENGINE_EDITOR=ON`. Audio is on so the editor plays game sound. `engine_tests` still opens no mixer device: the audio tests never call `AudioSystem::init` |
@@ -75,15 +74,15 @@ Build preset `tests` builds `engine_tests` from the `vs` configure.
 
 `ENGINE_BENCH` (preset `vs-bench` on Windows, `linux-bench` on Linux) adds `bench/`: `wind_ui_bench`, an executable through `engine_configure_app` against the static engine, linked as a console program in every configuration, and with tests `wind_ui_bench_tests` (command line, matrix, schedule, frame plan, data, report, hover points, and a parse of every bench asset). It records the configuration (`$<CONFIG>`), `ENGINE_VERSION_FULL`, and the git commit and dirty flag read at configure time. Build it in RelWithDebInfo: `cmake --build build-bench --config RelWithDebInfo --target wind_ui_bench`, or `cmake --build --preset bench`.
 
-On Linux (needs the SDL3 build dependencies that `.github/workflows/sdk.yml` installs: X11 and Wayland dev packages, Mesa): `cmake --preset linux-bench && cmake --build --preset linux-bench`, or the plain lines `cmake -S . -B build-bench -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DENGINE_BUILD_TESTS=ON -DENGINE_WITH_WINDOW=ON -DENGINE_WITH_AUDIO=OFF -DENGINE_BENCH=ON` and `cmake --build build-bench --target wind_ui_bench`. The binary is `build-bench/bin/wind_ui_bench`. Run it under `xvfb-run` with `LIBGL_ALWAYS_SOFTWARE=1`; see [UI Bench](../features/UI%20Bench.md#linux). The Visual Studio generator offers RelWithDebInfo by default; nothing in the tree narrows `CMAKE_CONFIGURATION_TYPES`. See [UI Bench](../features/UI%20Bench.md).
+On Linux (needs the SDL3 build dependencies that `.github/workflows/sdk.yml` installs: X11 and Wayland dev packages, Mesa): `cmake --preset linux-bench && cmake --build --preset linux-bench`, or the plain lines `cmake -S . -B build-bench -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DENGINE_BUILD_TESTS=ON -DENGINE_WITH_WINDOW=ON -DENGINE_WITH_AUDIO=OFF -DENGINE_BENCH=ON` and `cmake --build build-bench --target wind_ui_bench`. The binary is `build-bench/bin/wind_ui_bench`. Run it under `xvfb-run` with `LIBGL_ALWAYS_SOFTWARE=1`; see [UI Bench](../features/UI%20Bench.md#linux). Ninja Multi-Config's default `CMAKE_CONFIGURATION_TYPES` includes RelWithDebInfo; nothing in the tree narrows that list. See [UI Bench](../features/UI%20Bench.md).
 ## Version
 
-The engine version is `<major>.<minor>.<patch><stage>` (`0.1.7a`; `a` alpha, `b` beta, none production), the scheme and the release flow of [Release](Release.md). The root `CMakeLists.txt` sets `ENGINE_VERSION_MAJOR`, `ENGINE_VERSION_MINOR`, and `ENGINE_VERSION_STAGE` (`"a"`, `"b"`, or `""`). `ENGINE_VERSION_PATCH` is a cache entry, empty by default: the release workflow passes `-DENGINE_VERSION_PATCH=N`. Without it the build is local and its version carries `-dev`, `0.1.0a-dev`.
+The engine version is `<major>.<minor>.<patch><stage>` (`0.1.7a`; `a` alpha, `b` beta, none production), the scheme and the release flow of [Release](Release.md). The root `CMakeLists.txt` sets `ENGINE_VERSION_MAJOR`, `ENGINE_VERSION_MINOR`, and `ENGINE_VERSION_STAGE` (`"a"`, `"b"`, or `""`). `ENGINE_VERSION_PATCH` is a cache entry, empty by default: the release workflow passes `-DENGINE_VERSION_PATCH=N`. Without it the build is local and its version carries `-dev` on patch 6, `0.2.6a-dev`.
 
 | Variable | Value for `0.1.7a` | For a local build |
 | --- | --- | --- |
-| `ENGINE_VERSION_FULL` | `0.1.7a` | `0.1.0a-dev` |
-| `ENGINE_VERSION_NUMBER`, `PROJECT_VERSION` (`project(engine VERSION ...)`) | `0.1.7` | `0.1.0` |
+| `ENGINE_VERSION_FULL` | `0.1.7a` | `0.2.6a-dev` |
+| `ENGINE_VERSION_NUMBER`, `PROJECT_VERSION` (`project(engine VERSION ...)`) | `0.1.7` | `0.2.6` |
 
 `project(VERSION)` stays the three numbers, because CMake versions are numeric: `WindConfigVersion.cmake` compares only them. `ENGINE_VERSION_FULL` is what `sdk.toml` records, what the configure prints (`Wind engine 0.1.7a`), and what the bench report names. A bad `ENGINE_VERSION_PATCH` (not a whole number, a leading zero) or `ENGINE_VERSION_STAGE` is a configure error. The player libraries and the engine built from `<sdk>/source` get the same patch (`cmake/player_build.cmake` passes it on; `WindConfig.cmake` sets it from `wind_version.cmake`), so every part of one SDK has one version. A release is tagged `v<full version>`, so an SDK of an old version can be built again from its tag. The version is not a build id input: two builds of one version from different commits still get different ids when a public header differs.
 
@@ -100,7 +99,7 @@ The header holds `engine::kBuildId` and `engine::kBuildIdCStr`, the same id as a
 - the configuration,
 - `INTERFACE_COMPILE_DEFINITIONS` of `engine` for that configuration (`ENGINE_WITH_WINDOW`, `ENGINE_SHARED`, `ENGINE_EDITOR`, `ENGINE_UI_PROFILER`, `ENGINE_CLI_SERVER`, the web, Android, and GLES flags).
 
-Each configuration has its own header, so Debug and Release ids differ under Visual Studio. The step depends on every public header and reruns when one changes. The header is rewritten only when the id changes.
+Each configuration has its own header, so Debug and Release ids differ in a multi-config build. The step depends on every public header and reruns when one changes. The header is rewritten only when the id changes.
 
 The header also defines `ENGINE_BUILD_DEBUG_CRT` (1 when that configuration links the MSVC debug CRT, which is Debug; 0 otherwise and off MSVC) and `ENGINE_BUILD_ITERATOR_DEBUG_LEVEL` (2 with the debug CRT, else 0). `cmake/build_id.cmake` gets the first as `-DDEBUG_CRT=$<AND:$<BOOL:${MSVC}>,$<CONFIG:Debug>>`. They are not hash inputs: the configuration already is.
 
@@ -153,7 +152,7 @@ The game's source calls `ENGINE_GAME(GameClass)` from `<engine/game_entry.h>` in
 
 - The `.dll` lands where the executable would: `RUNTIME_OUTPUT_DIRECTORY` `bin/` (a `.so` uses `LIBRARY_OUTPUT_DIRECTORY` `bin/`). The import library goes to `lib/`. The `.pdb` sits beside the `.dll`.
 - In SDK mode with MSVC: `MSVC_RUNTIME_LIBRARY` is `MultiThreadedDLL` (`MultiThreadedDebugDLL` against a Debug SDK), and against a Release SDK the game's Release configuration adds `/Zi` and `/DEBUG /OPT:REF /OPT:ICF`, so the module has a `.pdb` in both configurations. `DebugGame` flags come from [SDK mode](#configurations).
-- MSVC links with `/PDBALTPATH:<name>.pdb` (`$<TARGET_PDB_FILE_NAME>`), the same as `/PDBALTPATH:%_PDB%`. The module records only the PDB file name, so a debugger finds the PDB beside a copy of the module. The literal `%_PDB%` is not used because the Visual Studio generator escapes `%` in link options.
+- MSVC links with `/PDBALTPATH:<name>.pdb` (`$<TARGET_PDB_FILE_NAME>`). `%_PDB%` is an MSBuild macro, so the module records only the PDB file name and a debugger finds the PDB beside a copy of the module.
 - No `/SUBSYSTEM` or `/ENTRY` flags. The icon `.rc` is still compiled in. It is harmless in a `.dll`.
 - `file(GENERATE)` writes `<build>/wind/<target>.<config>.module` per configuration: one line, the module's absolute path (`$<TARGET_FILE>`). It exists once CMake generated, before any build. The editor reads it after a build to know which file to load ([Editor](../features/Editor.md#build)); it does not guess `bin/<config>/`.
 - Asset codegen and `engine_prepare_runtime` run as for the executable, so `bin/assets/catalog.toml` and the game's assets sit beside the module. In the source build `bin/assets/engine/` and `engine.dll` are copied there too. In SDK mode they are not: the editor that loads the module has its own `engine.dll` and `assets/engine/`, and Play reads only `<module dir>/assets/`.
@@ -218,7 +217,7 @@ GoogleTest is the editor build's own `gtest` and `gtest_main` (shared CRT, the S
 `sdk.toml` is written last, by `cmake/sdk_manifest.cmake` from an `install(CODE)` step:
 
 ```toml
-version = "0.1.7a"                                  # ENGINE_VERSION_FULL: 0.1.0a-dev for a local build
+version = "0.1.7a"                                  # ENGINE_VERSION_FULL: 0.2.6a-dev for a local build
 commit = "50c292f95fec1d06617eeb17409cee2b612691e2" # git rev-parse HEAD of the engine checkout
 dirty = false                                       # git status --porcelain was not empty
 config = "Release"
@@ -253,7 +252,7 @@ Neither has `ENGINE_EDITOR` or `ENGINE_SHARED`; both have `ENGINE_WITH_WINDOW=1`
 
 How they are made. `ENGINE_PLAYER` (an engine-repo root option, [Options](#options)) turns the root `CMakeLists.txt` into a build of one flavour: the CRT, `/Z7` for Development (`-g` elsewhere), the profiler and CLI definitions by flavour, and at the end of the file `install(TARGETS ... EXPORT WindPlayer)` of `engine` and every target the project builds that it reaches (found by walking the link libraries, aliases resolved: today `spdlog`, `tinyxml2`, `tomlplusplus`, `SDL3-static`, `SDL3_mixer-static`, `glad`, SDL's header target) and `install(EXPORT WindPlayer NAMESPACE WindPlayer<Flavour>::)`. glm is not exported (`$<BUILD_INTERFACE:glm::glm>`: the consumer's is the SDK's), and include directories in a source or install tree are dropped from the exported targets, which keeps them relocatable with the SDK. `cmake/wind_player.cmake.in` is installed as `cmake/wind_player.cmake` beside them: the flavour, the engine version, the platform, the build id of the SDK that installed the player, and the `find_package` calls the exported targets need (OpenGL, Threads).
 
-`cmake/player_build.cmake` is the driver: a script that, for each flavour, runs `cmake -S <engine> -B <build-editor>/player/<flavour>` with the editor build's generator, platform, toolset (and compilers off Visual Studio), `CMAKE_CONFIGURATION_TYPES=Release`, `-DENGINE_PLAYER=<flavour>`, `ENGINE_WITH_WINDOW=ON`, `ENGINE_WITH_AUDIO=ON`, tests off, `cmake --build --config Release --target engine --parallel`, and with a prefix `cmake --install` into `<prefix>/<flavour>` after emptying it. Two callers: the SDK install (`cmake --install build-editor --config Release --prefix out/sdk`, an `install(CODE)` before `sdk.toml` is written; a Debug install skips it, and a failure fails the install) and the target `wind_player` (build only, not part of ALL: `cmake --build build-editor --target wind_player`, for filling the trees before the install). The trees persist in `<build-editor>/player/`, so a second install finds them up to date.
+`cmake/player_build.cmake` is the driver: a script that, for each flavour, runs `cmake -S <engine> -B <build-editor>/player/<flavour>` with the editor build's generator, platform, toolset, compiler, and Ninja, `CMAKE_CONFIGURATION_TYPES=Release` (or `CMAKE_BUILD_TYPE` for a single-config generator), `-DENGINE_PLAYER=<flavour>`, `ENGINE_WITH_WINDOW=ON`, `ENGINE_WITH_AUDIO=ON`, tests off, `cmake --build --config Release --target engine --parallel`, and with a prefix `cmake --install` into `<prefix>/<flavour>` after emptying it. A tree whose generator is not the editor's is deleted first. Two callers: the SDK install (`cmake --install build-editor --config Release --prefix out/sdk`, an `install(CODE)` before `sdk.toml` is written; a Debug install skips it, and a failure fails the install) and the target `wind_player` (build only, not part of ALL: `cmake --build build-editor --target wind_player`, for filling the trees before the install). The trees persist in `<build-editor>/player/`, so a second install finds them up to date.
 
 Why a script over a nested configure and not the alternatives. The editor build and a player cannot be configurations of one tree: they differ in `ENGINE_EDITOR`, in the library kind, and in definitions that are not per configuration. An `ExternalProject` or `add_subdirectory` of the same sources in the editor build would run in every `cmake --build build-editor` and make the everyday loop pay for two engines; a custom target and an install step keep that cost to the one command that makes an SDK. Exporting through `install(EXPORT)` leaves CMake to write the transitive link line (including SDL's system libraries) instead of this repo keeping a list that goes stale.
 
@@ -263,13 +262,13 @@ A player belongs to the SDK that installed it: `wind_player.cmake` carries the S
 
 ## Linux and macOS
 
-The editor build, its SDK, and SDK mode work on Linux (GCC, Clang) and macOS (Apple Clang, arm64). CI builds both, runs the tests, installs the SDK, and builds a game from the SDK's template against it ([CI](#ci)). The presets `linux-editor` and `macos-editor` are `vs-editor` with `Ninja Multi-Config` (`build-editor`, `Debug;Release`); `ninja` has to be installed.
+The editor build, its SDK, and SDK mode work on Linux (GCC, Clang) and macOS (Apple Clang, arm64). CI builds both, runs the tests, installs the SDK, and builds a game from the SDK's template against it ([CI](#ci)). The presets `linux-editor` and `macos-editor` are `vs-editor` with `Ninja Multi-Config` (`build-editor`, `Debug;Release`); `ninja` has to be installed. The Windows preset is the same generator: `vs-editor` loads the MSVC compiler. The empty-project preset's `architecture` and `toolset` fields load that compiler too; delete those two fields on Linux and macOS (CMake rejects the external strategy off Windows).
 
 | | Windows | Linux | macOS |
 | --- | --- | --- | --- |
 | Shared engine | `engine.dll` and `engine.lib` | `libengine.so` | `libengine.dylib` |
 | Module | `<target>.dll` | `<target>.so` | `<target>.dylib` (no `lib` prefix) |
-| Generator | Visual Studio (CMake's default) | `Ninja Multi-Config`, which `ProjectBuild` passes to a fresh configure | same |
+| Generator | `Ninja Multi-Config`, which `ProjectBuild` passes to a fresh configure. On Windows it also loads the MSVC environment | same | same |
 | Game configurations | `DebugGame;Release` against a Release SDK | same names: `-O0 -g` and CMake's Release, one ABI | same |
 | Symbols | `.pdb`, `/PDBALTPATH` | in the binary (`-g`) | in the binary |
 | Finding `engine` | `engine.dll` beside the executable | `INSTALL_RPATH $ORIGIN` on `wind_editor` and the host tools | `@loader_path`; the install name is `@rpath/libengine.dylib` |
@@ -303,7 +302,7 @@ A module shares the C runtime, the heap, and STL objects with the SDK's `engine.
 | Release (any configuration but Debug) | `DebugGame` and `Release` | `/MD` in both |
 | Debug | `Debug` | `/MDd` |
 
-The list is `CMAKE_CONFIGURATION_TYPES` (Visual Studio, Ninja Multi-Config) or `CMAKE_BUILD_TYPE` (Ninja, Makefiles). A subset (only `Release`) is fine. It has to be set before the game's `project()`, which runs before `find_package(Wind)`, so the game's `editor` preset sets it (`"CMAKE_CONFIGURATION_TYPES": "DebugGame;Release"`, see [Game Consumer](Game%20Consumer.md#editor-module)); the engine only checks it. CMake's default list (`Debug;Release;MinSizeRel;RelWithDebInfo`) fails: Debug would load the debug CRT into a release `engine.dll`.
+The list is `CMAKE_CONFIGURATION_TYPES` (Ninja Multi-Config) or `CMAKE_BUILD_TYPE` (Ninja, Makefiles). A subset (only `Release`) is fine. It has to be set before the game's `project()`, which runs before `find_package(Wind)`, so the game's `editor` preset sets it (`"CMAKE_CONFIGURATION_TYPES": "DebugGame;Release"`, see [Game Consumer](Game%20Consumer.md#editor-module)); the engine only checks it. CMake's default list (`Debug;Release;MinSizeRel;RelWithDebInfo`) fails: Debug would load the debug CRT into a release `engine.dll`.
 
 | | `DebugGame` | `Release` |
 | --- | --- | --- |

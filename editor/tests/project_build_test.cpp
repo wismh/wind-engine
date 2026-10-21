@@ -69,8 +69,9 @@ public:
         return root_ / "other_sdk";
     }
 
-    void cache_for(const std::filesystem::path& sdk) const {
+    void cache_for(const std::filesystem::path& sdk, const std::string& generator = "Ninja Multi-Config") const {
         std::ofstream(project() / "build-editor" / "CMakeCache.txt")
+                << "CMAKE_GENERATOR:INTERNAL=" << generator << "\n"
                 << "CMAKE_CONFIGURATION_TYPES:STRING=DebugGame;Release\n"
                 << "Wind_DIR:PATH=" << (sdk / "cmake").generic_string() << "\n";
     }
@@ -83,6 +84,7 @@ public:
             const std::string& configurations = "DebugGame;Release") const {
         std::filesystem::create_directories(project() / "build-export");
         std::ofstream(project() / "build-export" / "CMakeCache.txt")
+                << "CMAKE_GENERATOR:INTERNAL=Ninja Multi-Config\n"
                 << "CMAKE_CONFIGURATION_TYPES:STRING=" << configurations << "\n"
                 << "WIND_EXPORT:BOOL=" << (wind_export ? "ON" : "OFF") << "\n"
                 << "Wind_DIR:PATH=" << (sdk / "cmake").generic_string() << "\n";
@@ -147,6 +149,8 @@ TEST(ProjectBuild, ConfiguresAFreshBuildDirectoryThenBuildsAndFindsTheModule) {
     const engine::ProcessDesc& configure = launcher.runs[0];
     EXPECT_EQ(configure.program, "cmake");
     EXPECT_TRUE(has_argument(configure, "-S"));
+    EXPECT_TRUE(has_argument(configure, "-G"));
+    EXPECT_TRUE(has_argument(configure, "Ninja Multi-Config"));
     EXPECT_TRUE(has_argument(configure, "-DCMAKE_PREFIX_PATH=" + dirs.sdk().generic_string()));
     EXPECT_TRUE(has_argument(configure, "-DWind_DIR=" + (dirs.sdk() / "cmake").generic_string()));
     EXPECT_TRUE(has_argument(configure, "-DCMAKE_CONFIGURATION_TYPES=DebugGame;Release"));
@@ -155,9 +159,7 @@ TEST(ProjectBuild, ConfiguresAFreshBuildDirectoryThenBuildsAndFindsTheModule) {
     EXPECT_TRUE(has_argument(compile, "DebugGame"));
     EXPECT_TRUE(has_argument(compile, "my_game"));
     EXPECT_EQ(compile.working_directory, dirs.project());
-    ASSERT_EQ(compile.environment.size(), 2u);
-    EXPECT_EQ(compile.environment[0].name, "VSLANG");
-    EXPECT_EQ(compile.environment[0].value, "1033");
+    EXPECT_TRUE(compile.environment.empty());
 
     // Each step's command line, then its output.
     ASSERT_EQ(lines.size(), 4u);
@@ -180,6 +182,35 @@ TEST(ProjectBuild, ACacheForThisSdkSkipsConfigure) {
     EXPECT_TRUE(outcome->has_value());
     ASSERT_EQ(launcher.runs.size(), 1u);
     EXPECT_TRUE(has_argument(launcher.runs[0], "--build"));
+}
+
+TEST(ProjectBuild, AVisualStudioCacheIsDeletedAndConfiguredWithNinja) {
+    const Dirs dirs;
+    dirs.cache_for(dirs.sdk(), "Visual Studio 18 2026");
+    EXPECT_FALSE(editor::configured_for(dirs.project() / "build-editor", dirs.sdk(), editor::BuildKind::Module,
+            "DebugGame;Release"));
+    ScriptedLauncher launcher;
+    editor::ProjectBuild build{launcher};
+    build.start(dirs.setup());
+    EXPECT_FALSE(std::filesystem::exists(dirs.project() / "build-editor" / "CMakeCache.txt"));
+    ASSERT_EQ(launcher.runs.size(), 1u);
+    EXPECT_TRUE(has_argument(launcher.runs[0], "-G"));
+    EXPECT_TRUE(has_argument(launcher.runs[0], "Ninja Multi-Config"));
+}
+
+TEST(ProjectBuild, TheSetupEnvironmentReachesCmake) {
+    const Dirs dirs;
+    dirs.cache_for(dirs.sdk());
+    dirs.record_module("DebugGame");
+    ScriptedLauncher launcher;
+    editor::ProjectBuild build{launcher};
+    editor::BuildSetup setup = dirs.setup();
+    setup.environment.push_back(engine::ProcessVariable{"INCLUDE", "C:/inc"});
+    build.start(std::move(setup));
+    ASSERT_EQ(launcher.runs.size(), 1u);
+    ASSERT_EQ(launcher.runs[0].environment.size(), 1u);
+    EXPECT_EQ(launcher.runs[0].environment[0].name, "INCLUDE");
+    EXPECT_EQ(launcher.runs[0].environment[0].value, "C:/inc");
 }
 
 TEST(ProjectBuild, ACacheForAnotherSdkConfiguresAgain) {
@@ -323,6 +354,8 @@ TEST(ProjectBuild, ExportConfiguresItsOwnDirectoryWithWindExportThenBuildsAndFin
     EXPECT_TRUE(has_argument(configure, (dirs.project() / "build-export").generic_string()));
     EXPECT_FALSE(has_argument(configure, (dirs.project() / "build-editor").generic_string()));
     EXPECT_TRUE(has_argument(configure, "-DWIND_EXPORT=ON"));
+    EXPECT_TRUE(has_argument(configure, "-G"));
+    EXPECT_TRUE(has_argument(configure, "Ninja Multi-Config"));
     EXPECT_TRUE(has_argument(configure, "-DCMAKE_PREFIX_PATH=" + dirs.sdk().generic_string()));
     EXPECT_TRUE(has_argument(configure, "-DWind_DIR=" + (dirs.sdk() / "cmake").generic_string()));
     // One build directory holds both configurations; the build asks for Release (the Shipping player).

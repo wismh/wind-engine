@@ -1,5 +1,6 @@
 #include "editor_app.h"
 
+#include "native_build.h"
 #include "project_check.h"
 #include "project_export.h"
 
@@ -332,20 +333,44 @@ void EditorApp::start_opening_build() {
     if (!project_ || !sdk_ || session_->playing() || build_->running()) {
         return;
     }
+    BuildSetup setup{
+            .kind = BuildKind::Module,
+            .project = project_dir_,
+            .sdk = sdk_root_,
+            .target = project_->target,
+            .sdk_config = sdk_->config,
+    };
+    if (!prepare_build(setup)) {
+        return;
+    }
     building_ = BuildKind::Module;
     opening_build_ = true;
     opening_overlay_->open(project_->name, project_->target);
     BuildPanel& log = panels_->build();
     log.clear();
     log.show_summary("Building " + project_->target + " (" + game_config(sdk_->config, BuildKind::Module) + ")...");
-    build_->start(BuildSetup{
-            .kind = BuildKind::Module,
-            .project = project_dir_,
-            .sdk = sdk_root_,
-            .target = project_->target,
-            .sdk_config = sdk_->config,
-    });
+    build_->start(std::move(setup));
     toolbar_->show_status("Opening " + project_->name + "...");
+}
+
+bool EditorApp::prepare_build(BuildSetup& setup) {
+    const NativeBuild& native = native_build();
+    if (native.problem.empty()) {
+        setup.environment = native.environment;
+        return true;
+    }
+    opening_build_ = false;
+    opening_overlay_->close();
+    toolbar_->show_state(RunState::Idle);
+    panels_->export_dialog().set_available(toolbar_->can_export_game());
+    BuildPanel& log = panels_->build();
+    log.clear();
+    log.show_summary(native.problem);
+    log.append({native.problem});
+    panels_->show(EditorPanels::kBuild);
+    toolbar_->show_status(native.problem);
+    engine::log::warn("Editor: " + native.problem);
+    return false;
 }
 
 void EditorApp::load_edit_module(const std::filesystem::path& module) {
@@ -393,20 +418,24 @@ void EditorApp::start_build(BuildKind kind, bool development) {
     if (!project_ || !sdk_ || session_->playing() || build_->running()) {
         return;
     }
-    building_ = kind;
     opening_build_ = false;
     opening_overlay_->close();
-    BuildPanel& log = panels_->build();
-    log.clear();
-    log.show_summary("Building " + project_->target + " (" + game_config(sdk_->config, kind, development) + ")...");
-    build_->start(BuildSetup{
+    BuildSetup setup{
             .kind = kind,
             .project = project_dir_,
             .sdk = sdk_root_,
             .target = project_->target,
             .sdk_config = sdk_->config,
             .development = development,
-    });
+    };
+    if (!prepare_build(setup)) {
+        return;
+    }
+    building_ = kind;
+    BuildPanel& log = panels_->build();
+    log.clear();
+    log.show_summary("Building " + project_->target + " (" + game_config(sdk_->config, kind, development) + ")...");
+    build_->start(std::move(setup));
     toolbar_->show_state(RunState::Building);
     panels_->export_dialog().set_available(toolbar_->can_export_game());
     toolbar_->show_status((kind == BuildKind::Export ? "Exporting " : "Building ") + project_->name + "...");

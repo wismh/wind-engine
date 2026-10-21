@@ -18,7 +18,7 @@ bool contains(std::string_view line, std::string_view part) {
 }
 
 LineTone tone_of(std::string_view line) {
-    // MSVC and MSBuild: "file(12,5): error C2065: ...", "x.obj : error LNK2019: ...", "...: warning C4244: ...".
+    // Ninja and MSVC: "file(12,5): error C2065: ...", "x.obj : error LNK2019: ...", "...: warning C4244: ...".
     // CMake: "CMake Error at CMakeLists.txt:3 (find_package):".
     if (contains(line, ": error ") || contains(line, ": fatal error ") || line.starts_with("CMake Error")) {
         return LineTone::Error;

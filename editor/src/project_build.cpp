@@ -5,6 +5,7 @@
 
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <string_view>
 #include <system_error>
 #include <utility>
@@ -20,13 +21,6 @@ std::string path_text(const std::filesystem::path& path) {
 std::filesystem::path path_from(std::string_view text) {
     return std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(text.data()), text.size()));
 }
-
-// MSBuild prints English messages, so the Build tab reads the same on every machine, and starts no node that would
-// outlive the build: the job of the call ends such nodes anyway.
-const std::vector<engine::ProcessVariable> kBuildEnvironment{
-        {"VSLANG", "1033"},
-        {"MSBUILDDISABLENODEREUSE", "1"},
-};
 
 std::string command_text(const std::vector<std::string>& arguments) {
     std::string text = "> cmake";
@@ -87,14 +81,17 @@ bool configured_for(const std::filesystem::path& build_dir, const std::filesyste
     constexpr std::string_view kSdkKey = "Wind_DIR:";
     constexpr std::string_view kExportKey = "WIND_EXPORT:";
     constexpr std::string_view kConfigurationsKey = "CMAKE_CONFIGURATION_TYPES:";
+    constexpr std::string_view kGeneratorKey = "CMAKE_GENERATOR:";
     bool sdk_matches = false;
     bool export_on = false;
     bool configurations_match = false;
+    bool generator_matches = false;
     for (std::string line; std::getline(cache, line);) {
         const bool is_sdk = line.starts_with(kSdkKey);
         const bool is_export = line.starts_with(kExportKey);
         const bool is_configurations = line.starts_with(kConfigurationsKey);
-        if (!is_sdk && !is_export && !is_configurations) {
+        const bool is_generator = line.starts_with(kGeneratorKey);
+        if (!is_sdk && !is_export && !is_configurations && !is_generator) {
             continue;
         }
         const std::size_t equals = line.find('=');
@@ -107,11 +104,30 @@ bool configured_for(const std::filesystem::path& build_dir, const std::filesyste
             sdk_matches = std::filesystem::equivalent(path_from(value), sdk / "cmake", error);
         } else if (is_configurations) {
             configurations_match = value == configurations;
+        } else if (is_generator) {
+            generator_matches = value == "Ninja Multi-Config";
         } else {
             export_on = value == "ON" || value == "TRUE" || value == "1" || value == "YES" || value == "Y";
         }
     }
-    return sdk_matches && configurations_match && (kind == BuildKind::Module || export_on);
+    return sdk_matches && configurations_match && generator_matches && (kind == BuildKind::Module || export_on);
+}
+
+// The CMAKE_GENERATOR value in the cache, or empty when the directory has no cache.
+std::string cache_generator(const std::filesystem::path& build_dir) {
+    std::ifstream cache(build_dir / "CMakeCache.txt");
+    constexpr std::string_view kGeneratorKey = "CMAKE_GENERATOR:";
+    for (std::string line; std::getline(cache, line);) {
+        if (!line.starts_with(kGeneratorKey)) {
+            continue;
+        }
+        const std::size_t equals = line.find('=');
+        if (equals == std::string::npos) {
+            continue;
+        }
+        return line.substr(equals + 1);
+    }
+    return {};
 }
 
 ProjectBuild::ProjectBuild(engine::IProcessLauncher& processes)
@@ -121,18 +137,27 @@ void ProjectBuild::start(BuildSetup setup) {
     cancel();
     setup_ = std::move(setup);
     pending_lines_.clear();
+    start_error_.reset();
     const std::filesystem::path build_dir = build_directory(setup_.project, setup_.kind);
     const std::string configurations = game_configurations(setup_.sdk_config, setup_.kind);
+    const std::string generator = cache_generator(build_dir);
+    if (!generator.empty() && generator != "Ninja Multi-Config") {
+        // cmake refuses to configure a directory that was generated with another generator.
+        std::error_code error;
+        std::filesystem::remove_all(build_dir, error);
+        if (error) {
+            start_error_ = "Could not replace " + path_text(build_dir) + ", built with " + generator + " (" +
+                    error.message() + ").";
+            return;
+        }
+    }
     if (configured_for(build_dir, setup_.sdk, setup_.kind, configurations)) {
         start_build(pending_lines_);
         return;
     }
-    std::vector<std::string> arguments{"-S", path_text(setup_.project), "-B", path_text(build_dir)};
-#if !defined(_WIN32)
-    // CMake's default here is single-configuration Makefiles, which cannot hold DebugGame and Release together.
-    // (On Windows the default is Visual Studio, which can.) A build directory that exists keeps its generator.
-    arguments.insert(arguments.end(), {"-G", "Ninja Multi-Config"});
-#endif
+    // One build directory holds DebugGame and Release. Single-config Makefiles cannot.
+    std::vector<std::string> arguments{"-S", path_text(setup_.project), "-B", path_text(build_dir), "-G",
+            "Ninja Multi-Config"};
     if (setup_.kind == BuildKind::Export) {
         // WindConfig.cmake links the SDK's player libraries, or builds the static engine from <sdk>/source when the
         // SDK has none (docs/tech/build/CMake.md).
@@ -148,6 +173,7 @@ void ProjectBuild::cancel() {
     call_.cancel();
     call_ = engine::ProcessCall{};
     step_ = Step::Idle;
+    start_error_.reset();
 }
 
 bool ProjectBuild::running() const {
@@ -156,6 +182,11 @@ bool ProjectBuild::running() const {
 
 std::optional<BuildOutcome> ProjectBuild::poll(std::vector<std::string>& lines) {
     append(lines, std::exchange(pending_lines_, {}));
+    if (start_error_) {
+        std::string message = std::move(*start_error_);
+        start_error_.reset();
+        return std::unexpected(std::move(message));
+    }
     if (step_ == Step::Idle) {
         return std::nullopt;
     }
@@ -192,7 +223,7 @@ void ProjectBuild::run(Step step, std::vector<std::string> arguments, std::vecto
             .program = "cmake",
             .arguments = std::move(arguments),
             .working_directory = setup_.project,
-            .environment = kBuildEnvironment,
+            .environment = setup_.environment,
     });
 }
 
