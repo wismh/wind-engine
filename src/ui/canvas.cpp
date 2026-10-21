@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <expected>
 #include <format>
 #include <unordered_map>
 #include <vector>
@@ -239,9 +240,24 @@ namespace engine::ui {
                                    ->measure_text(std::string_view(element->text).substr(0, caret),
                                                   element->font_family, font_size)
                                    .x;
+            if (element->text_align != UiAlign::Start) {
+                const float text_width =
+                        painter->measure_text(element->text, element->font_family, font_size).x;
+                if (element->text_align == UiAlign::Center) {
+                    prefix_width += (boxes.content.w - text_width) * 0.5f;
+                } else if (element->text_align == UiAlign::End) {
+                    prefix_width += boxes.content.w - text_width;
+                }
+            }
+        } else if (element->text_align == UiAlign::Center) {
+            prefix_width = boxes.content.w * 0.5f;
+        } else if (element->text_align == UiAlign::End) {
+            prefix_width = boxes.content.w;
         }
         const UiCanvasSpace space = canvas_layout_space(canvas->rect, canvas->fit, canvas->reference_size);
-        return map_text_input_area(boxes, prefix_width, element->text_align, space);
+        // prefix_width is the caret's distance from the content box's left, after text-align. Start keeps
+        // map_text_input_area from adding the alignment anchor a second time.
+        return map_text_input_area(boxes, prefix_width, UiAlign::Start, space);
     }
 
     SafeInsets canvas_safe_insets(const UiCanvas &canvas, const WindowSize &window) {
@@ -418,9 +434,9 @@ namespace engine::ui {
                 if (canvas.data_context) {
                     (void) apply_bindings(instance->document, *canvas.data_context, nullptr, catalog_for(world), sheet);
                 }
-                const float media_width = space.reference_space ? space.layout_rect.w : static_cast<float>(size.width);
-                const float media_height =
-                        space.reference_space ? space.layout_rect.h : static_cast<float>(size.height);
+                const glm::vec2 media = media_size(space);
+                const float media_width = media.x;
+                const float media_height = media.y;
                 IUiPainter *layout_painter = layout_painter_for(world, window);
 
                 UiDocument &document = instance->document;
@@ -924,6 +940,28 @@ namespace engine::ui {
             element.caret_blink_timer = 0.0f;
         }
 
+        // The ContextMenu on `hit` or the nearest ancestor that has one. Closed menus are not hit-tested
+        // (they are popups), so the right-click that opens one has to find it as a child of its anchor.
+        Element *context_menu_on(UiInstance &instance, Element *hit) {
+            Element *node = hit;
+            while (node != nullptr) {
+                for (Element &child: node->children) {
+                    if (child.kind == ElementKind::ContextMenu) {
+                        return &child;
+                    }
+                }
+                if (node->parent.is_null()) {
+                    break;
+                }
+                const std::expected<Element *, ElementLookupError> parent = instance.document.find(node->parent);
+                if (!parent) {
+                    break;
+                }
+                node = *parent;
+            }
+            return nullptr;
+        }
+
         void handle_pointer_impl(ecs::World &world, float x, float y, WindowId window, UiInputBatchCache *batch,
                                  bool primary_button, std::uint8_t clicks) {
             // Inspect mode picks the deepest element and does not run the game's command, drag, or focus.
@@ -968,6 +1006,19 @@ namespace engine::ui {
                 place_text_selection(world, window, hit->entity, *hit->element, x, y, clicks);
             } else if (primary_button && !text_input && !selectable_label) {
                 clear_focus(world, window);
+            }
+
+            // Left click runs the control. Right click opens the ContextMenu anchored at the hit, and does not
+            // toggle, focus, or run that control's command.
+            if (!primary_button) {
+                if (hit->popup == nullptr) {
+                    if (UiInstance *instance = world.try_get<UiInstance>(hit->entity)) {
+                        if (Element *menu = context_menu_on(*instance, hit->element)) {
+                            open_popup(world, hit->entity, *hit->canvas, *menu);
+                        }
+                    }
+                }
+                return;
             }
 
             if (hit->element->kind == ElementKind::Viewport && has_viewport_camera(*hit->element) &&
@@ -1088,8 +1139,9 @@ namespace engine::ui {
                     if (popup->open) {
                         close_popup(world, window, hit->entity, *hit->canvas, *popup);
                     } else {
+                        // Keep a menu this item sits inside (a submenu of a context menu or a menu bar).
                         bool dummy = false;
-                        close_popups_except(world, window, nullptr, dummy);
+                        close_popups_except(world, window, hit->element, dummy);
                         open_popup(world, hit->entity, *hit->canvas, *popup);
                     }
                 }
@@ -1436,7 +1488,7 @@ namespace engine::ui {
                     if (Element *popup = find_menu_popup(*hit->element)) {
                         if (!popup->open) {
                             bool dummy = false;
-                            close_popups_except(world, window, nullptr, dummy);
+                            close_popups_except(world, window, hit->element, dummy);
                             open_popup(world, hit->entity, *hit->canvas, *popup);
                         }
                     }

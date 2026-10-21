@@ -31,6 +31,8 @@ public:
         std::string name;
         std::function<bool(const World&, Entity, ComponentWriter&)> write;
         std::function<bool(World&, Entity, ComponentReader&)> read;
+        // Drops the component when the entity has one. False when it does not. Empty when the entry cannot remove.
+        std::function<bool(World&, Entity)> remove;
     };
 
     WorldSerializer();
@@ -64,6 +66,13 @@ public:
             } else {
                 world.emplace<T>(entity, std::move(comp));
             }
+            return true;
+        };
+        entry.remove = [](World& world, Entity entity) -> bool {
+            if (world.try_get<T>(entity) == nullptr) {
+                return false;
+            }
+            world.remove<T>(entity);
             return true;
         };
         entries_.insert_or_assign(std::move(key), std::move(entry));

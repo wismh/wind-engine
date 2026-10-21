@@ -39,6 +39,9 @@ struct BuildSetup {
     // An Export only: the Development build (the game's DebugGame configuration, linked with the Development player:
     // unoptimized game code with symbols, the UI profiler, and the CLI server) instead of Release (Shipping player).
     bool development = false;
+    // Extra environment for both cmake steps. On Windows the editor passes the MSVC developer environment, so `cl`
+    // and Ninja are found when the editor itself was not started from a developer prompt. Empty keeps the parent's.
+    std::vector<engine::ProcessVariable> environment;
 };
 
 // What was built: the game module (Module), or the directory with the executable and its assets/ (Export); or why
@@ -59,9 +62,9 @@ using BuildOutcome = std::expected<std::filesystem::path, std::string>;
 // so its Export is the engine built from source, Release only), or empty.
 [[nodiscard]] std::string export_flavour_problem(const std::string& sdk_config, bool development);
 
-// True when `build_dir` has a CMake cache whose Wind_DIR is `<sdk>/cmake`, whose CMAKE_CONFIGURATION_TYPES is
-// `configurations` (game_configurations), and (for an Export) whose WIND_EXPORT is ON, so it builds against this SDK
-// without another configure.
+// True when `build_dir` has a CMake cache whose generator is Ninja Multi-Config, whose Wind_DIR is `<sdk>/cmake`,
+// whose CMAKE_CONFIGURATION_TYPES is `configurations` (game_configurations), and (for an Export) whose WIND_EXPORT is
+// ON, so it builds against this SDK without another configure.
 [[nodiscard]] bool configured_for(const std::filesystem::path& build_dir, const std::filesystem::path& sdk,
         BuildKind kind, const std::string& configurations);
 
@@ -104,6 +107,8 @@ private:
     engine::ProcessCall call_;
     // Lines start() wrote before the first poll.
     std::vector<std::string> pending_lines_;
+    // Set when start() could not clear a build directory made by another generator. poll returns it once.
+    std::optional<std::string> start_error_;
 };
 
 }

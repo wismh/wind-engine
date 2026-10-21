@@ -17,4 +17,8 @@ struct FixtureComponent {
     int power = 1;
 };
 
-}
+struct FixtureDrop {
+    int count = 1;
+};
+
+} // namespace fixture

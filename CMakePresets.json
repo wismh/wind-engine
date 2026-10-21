@@ -2,20 +2,22 @@
   "version": 6,
   "configurePresets": [
     {
-      "name": "vs",
-      "displayName": "Visual Studio (installed)",
-      "generator": "Visual Studio 18 2026",
-      "binaryDir": "${sourceDir}/build",
-      "cacheVariables": {
-        "ENGINE_BUILD_TESTS": "ON",
-        "ENGINE_WITH_WINDOW": "OFF",
-        "ENGINE_WITH_AUDIO": "OFF"
+      "name": "windows-msvc",
+      "hidden": true,
+      "generator": "Ninja Multi-Config",
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "toolset": {
+        "value": "host=x64",
+        "strategy": "external"
       }
     },
     {
-      "name": "vs2022",
-      "displayName": "Visual Studio 17 2022",
-      "generator": "Visual Studio 17 2022",
+      "name": "vs",
+      "displayName": "Windows MSVC (Ninja Multi-Config)",
+      "inherits": "windows-msvc",
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
         "ENGINE_BUILD_TESTS": "ON",
@@ -25,8 +27,8 @@
     },
     {
       "name": "vs-window",
-      "displayName": "Visual Studio + OpenGL window backend",
-      "generator": "Visual Studio 18 2026",
+      "displayName": "Windows MSVC + OpenGL window backend",
+      "inherits": "windows-msvc",
       "binaryDir": "${sourceDir}/build-window",
       "cacheVariables": {
         "ENGINE_BUILD_TESTS": "ON",
@@ -36,8 +38,8 @@
     },
     {
       "name": "vs-audio",
-      "displayName": "Visual Studio + SDL3_mixer WAV backend",
-      "generator": "Visual Studio 18 2026",
+      "displayName": "Windows MSVC + SDL3_mixer WAV backend",
+      "inherits": "windows-msvc",
       "binaryDir": "${sourceDir}/build-audio",
       "cacheVariables": {
         "ENGINE_BUILD_TESTS": "OFF",
@@ -47,8 +49,8 @@
     },
     {
       "name": "vs-editor",
-      "displayName": "Visual Studio editor build (shared engine.dll)",
-      "generator": "Visual Studio 18 2026",
+      "displayName": "Windows editor build (Ninja Multi-Config, shared engine.dll)",
+      "inherits": "windows-msvc",
       "binaryDir": "${sourceDir}/build-editor",
       "cacheVariables": {
         "ENGINE_BUILD_TESTS": "ON",
@@ -87,8 +89,8 @@
     },
     {
       "name": "vs-bench",
-      "displayName": "Visual Studio UI bench (static engine, measure in RelWithDebInfo)",
-      "generator": "Visual Studio 18 2026",
+      "displayName": "Windows UI bench (Ninja Multi-Config, measure in RelWithDebInfo)",
+      "inherits": "windows-msvc",
       "binaryDir": "${sourceDir}/build-bench",
       "cacheVariables": {
         "ENGINE_BUILD_TESTS": "ON",

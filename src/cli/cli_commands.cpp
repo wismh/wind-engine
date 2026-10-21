@@ -268,6 +268,8 @@ namespace engine::cli {
                     return "background";
                 case ui::MotionProp::Opacity:
                     return "opacity";
+                case ui::MotionProp::FlexGrow:
+                    return "flex-grow";
                 case ui::MotionProp::Visibility:
                     return "visibility";
                 case ui::MotionProp::Display:
@@ -455,15 +457,17 @@ namespace engine::cli {
             json.end_array();
         }
 
-        void write_rules(Json &json, ecs::World &world, const Match &match) {
+        void write_rules(Json &json, const Match &match) {
             ui::Element &element = *match.element;
             std::vector<const ui::Element *> ancestors;
             const ui::UiInstance &instance = *match.canvas.instance;
             collect_ancestors(instance.document.root, element, ancestors);
             const ui::Stylesheet *sheet = instance.stylesheet ? &*instance.stylesheet : nullptr;
-            const ui::WindowSize size = ui::window_size_for(world, match.canvas.window);
-            const std::vector<ui::MatchedRule> rules = ui::match_style_rules(
-                    element, sheet, ancestors, static_cast<float>(size.width), static_cast<float>(size.height));
+            const ui::UiCanvas &canvas = *match.canvas.ui;
+            const glm::vec2 media = ui::media_size(
+                    ui::canvas_layout_space(canvas.rect, canvas.fit, canvas.reference_size));
+            const std::vector<ui::MatchedRule> rules =
+                    ui::match_style_rules(element, sheet, ancestors, media.x, media.y);
             json.key("rules");
             json.begin_array();
             for (std::size_t i = 0; i < rules.size(); ++i) {
@@ -491,7 +495,7 @@ namespace engine::cli {
             json.end_array();
         }
 
-        void write_element(Json &json, ecs::World &world, const Match &match) {
+        void write_element(Json &json, const Match &match) {
             ui::Element &element = *match.element;
             json.begin_object();
             write_identity(json, match);
@@ -629,17 +633,17 @@ namespace engine::cli {
             bound("scroll-x", element.scroll_x_binding);
             bound("scroll-y", element.scroll_y_binding);
             json.end_array();
-            write_rules(json, world, match);
+            write_rules(json, match);
             json.end_object();
         }
 
-        std::string ok_element(ecs::World &world, const Match &match) {
+        std::string ok_element(const Match &match) {
             Json json;
             json.begin_object();
             json.key("ok");
             json.boolean(true);
             json.key("result");
-            write_element(json, world, match);
+            write_element(json, match);
             json.end_object();
             return json.str();
         }
@@ -884,7 +888,7 @@ namespace engine::cli {
                 return CliResponse{json.str(), false};
             }
             Match match{*top, hit.element, ui::find_element_path(top->instance->document.root, hit.element)};
-            write_element(json, world, match);
+            write_element(json, match);
             json.end_object();
             return CliResponse{json.str(), false};
         }
@@ -1171,7 +1175,7 @@ namespace engine::cli {
             return CliResponse{ambiguous_json(matches), false};
         }
         if (request.command == "element") {
-            return CliResponse{ok_element(world, matches.front()), false};
+            return CliResponse{ok_element(matches.front()), false};
         }
         const std::string reason = activate(matches.front());
         return click_json(world, matches.front(), reason);

@@ -16,7 +16,7 @@ Host::Host(IGame& game, Worlds& worlds, render::ICanvas& canvas, IAudioSystem* a
     , worlds_(&worlds)
     , canvas_(&canvas)
     , audio_(audio) {
-    worlds_->set_deps({});
+    worlds_->set_deps(EngineSystemDeps{.jobs = &jobs_});
     register_engine_systems(game_->world());
     worlds_->bind_window(kPrimaryWindow, game_->world());
     worlds_->enable_ui(game_->world());

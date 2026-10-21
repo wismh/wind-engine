@@ -18,6 +18,7 @@ The editor is in progress. See [Editor Plan](Editor%20Plan.md). Today `wind_edit
 - Localization: `.strings` tables by `AssetId`, `{tr}` in UI, integer plural categories. The game selects the active locale and persists that choice.
 - Audio: buses, SFX pool, music A/B, looping SFX handles on SDL3_mixer.
 - Double-buffered event queues, not a callback bus.
+- A fork-join job pool (`JobSystem` on `EngineServices`). Phases stay on the main thread. Particle integration is the first caller.
 - `Engine::init` passes engine services to the game constructor as `EngineServices`.
 - Per-user writable directory (`user_data_directory`) for saves and settings. The game owns the file format and when to write.
 - HTTP and HTTPS requests (`IHttpClient`) on Windows, Android, and Web. The caller owns each request as an `HttpCall`.

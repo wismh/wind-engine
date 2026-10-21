@@ -6,6 +6,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace engine {
 class IProcessLauncher;
@@ -30,6 +31,8 @@ struct BatchSetup {
     std::optional<std::filesystem::path> export_directory;
     // --development: the Development build (DebugGame, the Development player) instead of Release (Shipping).
     bool development = false;
+    // Extra environment for the cmake process (the MSVC developer environment on Windows). Empty keeps the parent's.
+    std::vector<engine::ProcessVariable> environment;
 };
 
 // The editor's Export without a window: reads the SDK and the project, checks them the way the editor does when it

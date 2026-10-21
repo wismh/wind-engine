@@ -31,6 +31,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/core/file_dialog.h` | `FileFilter`, `FileDialogResult`, `FileDialogCall`: one owned dialog, `take`, `cancel` | [Windowing](../features/Windowing.md) |
 | `include/engine/core/game_module.h` | Game module export types and symbol names; `GameModule`, `load_game_module`, `purge_game_module_copies` | [Core](../modules/Core.md) |
 | `include/engine/core/host.h` | Headless tick host for tests | [Core](../modules/Core.md) |
+| `include/engine/core/job_system.h` | `JobSystem`: fork-join `parallel_for` | [Core](../modules/Core.md#jobs) |
 | `include/engine/core/input_system.h` | `ActionId` bindings and input events | [Input Mapper](../features/Input%20Mapper.md) |
 | `include/engine/core/key_code.h` | `KeyCode` values matching SDL scancodes | [Input Mapper](../features/Input%20Mapper.md) |
 | `include/engine/core/random.h` | `Random`, PCG32 | [Core](../modules/Core.md) |
@@ -54,8 +55,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/ecs/transform.h` | Position, quaternion rotation, scale. No parent. `rotation_z`, `euler_xyz`, `angle_z` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/world.h` | `World` and `View` declarations | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/world.inl` | Pool and view template bodies | [ECS](../modules/ECS.md) |
-| `include/engine/ecs/world_asset.h` | `WorldAsset`, `EntityRecord`, `WorldLoadError`, `parse_world_asset`, `serialize_world_asset` | [ECS](../modules/ECS.md#world-serialization) |
-| `include/engine/ecs/world_io.h` | `WIND_COMPONENT`, `EntityName`, `FieldValue`, `ComponentWriter`, `ComponentReader` | [ECS](../modules/ECS.md#world-serialization) |
+| `include/engine/ecs/world_asset.h` | `WorldAsset`, `EntityRecord`, `WorldLoadError`, `parse_world_asset`, `serialize_world_asset`, `parse_field_table` | [ECS](../modules/ECS.md#world-serialization) |
+| `include/engine/ecs/world_io.h` | `WIND_COMPONENT`, `WIND_SERIALIZABLE`, `EntityName`, `FieldValue`, `ComponentWriter`, `ComponentReader` | [ECS](../modules/ECS.md#world-serialization) |
 | `include/engine/ecs/world_serializer.h` | `WorldSerializer`, `instantiate_world`, `load_world_from_toml`, `capture_world_asset`, `save_world_to_toml` | [ECS](../modules/ECS.md#world-serialization) |
 | `include/engine/haptics/haptics_system.h` | `IHaptics` and `HapticsSystem` | [Haptics](../modules/Haptics.md) |
 | `include/engine/net/http_call.h` | `HttpCall`: one owned request, `take`, `cancel` | [Net](../modules/Net.md) |
@@ -92,8 +93,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/resources/.gitkeep` | Keeps the directory in Git | [Resources](../modules/Resources.md) |
 | `include/engine/resources/asset_guid.h` | `write_missing_metas` | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `include/engine/resources/asset_id.h` | 32-hex `AssetId` | [Resources](../modules/Resources.md) |
-| `include/engine/resources/assets_db.h` | `get`, `try_get`, `get_sprite` | [Assets](../features/Assets.md) |
-| `include/engine/resources/component_codegen.h` | `ComponentDef`, `scan_components`, `emit_component_io_header`, `codegen_components` | [Asset Codegen](../build/Asset%20Codegen.md#component-codegen) |
+| `include/engine/resources/assets_db.h` | `get`, `try_get`, `get_sprite`, `register_object`, `clear_object_loaders` | [Assets](../features/Assets.md) |
+| `include/engine/resources/component_codegen.h` | `ScannedStructs`, `scan_components_in_text`, `scan_components_in_dirs`, `emit_component_io_header`, `component_codegen_write` | [Asset Codegen](../build/Asset%20Codegen.md#component-codegen) |
 | `include/engine/resources/default_fatal_error.h` | `DefaultFatalError`, `default_fatal_error()` | [Core](../modules/Core.md) |
 | `include/engine/resources/fatal_error.h` | `IFatalError` (`report` is `[[noreturn]]`) | [Core](../modules/Core.md) |
 | `include/engine/resources/font.h` | `Font` file bytes | [Resources](../modules/Resources.md) |
@@ -149,7 +150,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/core/game_module.cpp` | Copy, load, check, and unload a game module (window builds) | [Core](../modules/Core.md) |
 | `src/core/game_loop.cpp` | `begin`, `tick`, `reentrant_tick`, `end`, `RunHooks` calls | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/core/game_loop.h` | `GameLoop` | [Runtime Loop](../architecture/Runtime%20Loop.md) |
-| `src/core/host.cpp` | Registers systems and ticks a fake canvas | [Core](../modules/Core.md) |
+| `src/core/host.cpp` | Registers systems and ticks a fake canvas. Owns a `JobSystem` with no workers | [Core](../modules/Core.md) |
+| `src/core/job_system.cpp` | Fork-join pool | [Core](../modules/Core.md#jobs) |
 | `src/core/input_system.cpp` | Bind table and event enqueue | [Input Mapper](../features/Input%20Mapper.md) |
 | `src/core/log.cpp` | spdlog sinks | [Core](../modules/Core.md) |
 | `src/core/random.cpp` | `Random`, PCG32 | [Core](../modules/Core.md) |
@@ -184,7 +186,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/resources/.gitkeep` | Keeps the directory in Git | [Resources](../modules/Resources.md) |
 | `src/resources/asset_guid.cpp` | Writes missing `.meta` sidecars | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `src/resources/assets_db.cpp` | Catalog load and typed asset cache | [Assets](../features/Assets.md) |
-| `src/resources/component_codegen.cpp` | Scan `struct WIND_COMPONENT` definitions and emit `component_io.h` | [Asset Codegen](../build/Asset%20Codegen.md#component-codegen) |
+| `src/resources/component_codegen.cpp` | Scan `struct WIND_COMPONENT` and `struct WIND_SERIALIZABLE` and emit `component_io.h` | [Asset Codegen](../build/Asset%20Codegen.md#component-codegen) |
 | `src/resources/default_fatal_error.cpp` | stderr and abort | [Core](../modules/Core.md) |
 | `src/resources/codegen.cpp` | Scan tree, emit `asset_ids.h` and `catalog.toml` | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `src/resources/icon_codegen.cpp` | Resize and encode ico, icns, mipmaps, favicon | [Icon Codegen](../build/Icon%20Codegen.md) |
@@ -400,7 +402,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/cli_server_test.cpp` | Descriptor, HTTP, window routing, host commands, and UI commands without `GameLoop` | [CLI](../features/CLI.md) |
 | `tests/cmake_sanity_test.cpp` | Public headers compile, build id, CMake file checks (game functions, SDK package, export wiring and player libraries) | [CMake](../build/CMake.md) |
 | `tests/command_buffer_test.cpp` | Push and iterate the four command types; draws carry no view or projection | [Render](../modules/Render.md) |
-| `tests/component_codegen_test.cpp` | Scan `struct WIND_COMPONENT` and emit `component_io.h` | [Asset Codegen](../build/Asset%20Codegen.md#component-codegen) |
+| `tests/component_codegen_test.cpp` | Scan `WIND_COMPONENT` and `WIND_SERIALIZABLE`, emit `component_io.h`, require `type` on `.object` | [Asset Codegen](../build/Asset%20Codegen.md#component-codegen) |
 | `tests/context_objects_test.cpp` | GL context keys, reused handles, deferred VAO deletes | [Render](../modules/Render.md) |
 | `tests/dock_layout_test.cpp` | Dock operations and invariants, geometry, drop zones, chrome hits, text round trip, reconcile | [Docking](../features/Docking.md) |
 | `tests/dock_space_test.cpp` | Dock systems: panel rects and orders, chrome lists and default theme, every tab and splitter hit, tab click and drag, splitter, float move, resize, raise, dock, Escape, consumption, close request, tab widths from titles | [Docking](../features/Docking.md#host) |
@@ -426,6 +428,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/haptics_test.cpp` | Clamp, no-op, and the fake counters | [Haptics](../modules/Haptics.md) |
 | `tests/http_test.cpp` | `HttpCall` ownership, completion queue, worker pool, URL and header parsing, `HttpClient` without a socket | [Net](../modules/Net.md) |
 | `tests/host_test.cpp` | `Host` tick and system registration | [Core](../modules/Core.md) |
+| `tests/job_system_test.cpp` | Inline ranges, two workers, nested `parallel_for`, `stop` joins | [Core](../modules/Core.md#jobs) |
 | `tests/icon_codegen_test.cpp` | ICO, ICNS, and PNG sizes in memory | [Icon Codegen](../build/Icon%20Codegen.md) |
 | `tests/input_test.cpp` | Bind, hold, touch synthesis, `reset` | [Input Mapper](../features/Input%20Mapper.md) |
 | `tests/loc_catalog_test.cpp` | TOML tables, fallback, pseudo, warn-once | [Localization](../modules/Localization.md) |
@@ -435,7 +438,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/mesh_test.cpp` | `.mesh` parse (5- and 8-column vertices, `f` rows, bad rows and indices), `mesh_desc_error` | [Assets](../features/Assets.md#mesh-files) |
 | `tests/mvvm_test.cpp` | View-model properties, commands, checkbox write-back | [UI](../modules/UI.md) |
 | `tests/opengl_texture_test.cpp` | CPU texture description. No GL draw | [Render](../modules/Render.md) |
-| `tests/particle_test.cpp` | Emitter step and curves | [Render](../modules/Render.md) |
+| `tests/particle_test.cpp` | Emitter step, curves, and parallel integration matching the caller | [Render](../modules/Render.md) |
 | `tests/pointer_target_test.cpp` | `PointerTarget`: hit-test, order, windows, camera, hover, click, click-through, UI first | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `tests/lights_test.cpp` | Light collection (direction from rotation and parent, cap, ambient sum, default rig) and the lights and camera in `CmdSetView` | [Render](../modules/Render.md#lights) |
 | `tests/primitives_test.cpp` | Primitive counts, unit outward normals, winding, index range; builtin quad and cube files match | [Render](../modules/Render.md#primitives) |
@@ -447,6 +450,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/process_test.cpp` | Line cutting, quoting, environment, `ProcessCall` ownership, and real `cmd.exe` children on Windows (output, exit, cancel, leftovers) | [Process](../modules/Process.md) |
 | `tests/project_test.cpp` | `wind_project.toml` and `sdk.toml` reading and their errors | [Project](../modules/Project.md) |
 | `tests/render_system_test.cpp` | `run_render` sort (queues, depth order, 2D order at different z); unset camera skips, missing components fatal | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `tests/serializable_object_test.cpp` | Nested `WIND_SERIALIZABLE` world round trip and `AssetsDb` object load, mismatch, corrupt file, and `clear_object_loaders` | [Assets](../features/Assets.md) |
 | `tests/shader_adapt_test.cpp` | GLSL 300 ES rewrite | [Render](../modules/Render.md) |
 | `tests/sort_test.cpp` | `draw_sort_less` queues and keys, `sort_renderables` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `tests/splash_test.cpp` | Splash documents and the timer | [UI](../modules/UI.md) |

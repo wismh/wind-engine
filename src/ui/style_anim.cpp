@@ -90,6 +90,7 @@ constexpr MotionProp kAllProps[] = {
         MotionProp::ScrollbarThumbHoverColor,
         MotionProp::ScrollbarBorderRadius,
         MotionProp::SelectionColor,
+        MotionProp::FlexGrow,
 };
 
 struct NameMap {
@@ -112,6 +113,7 @@ constexpr NameMap kNames[] = {
         {"margin", MotionProp::Margin},
         {"gap", MotionProp::Gap},
         {"flex-direction", MotionProp::FlexDirection},
+        {"flex-grow", MotionProp::FlexGrow},
         {"align-items", MotionProp::AlignItems},
         {"justify-content", MotionProp::JustifyContent},
         {"text-align", MotionProp::TextAlign},
@@ -189,6 +191,7 @@ bool affects_layout(MotionProp prop) {
         case MotionProp::Padding:
         case MotionProp::Margin:
         case MotionProp::Gap:
+        case MotionProp::FlexGrow:
         case MotionProp::FlexDirection:
         case MotionProp::AlignItems:
         case MotionProp::JustifyContent:
@@ -215,6 +218,7 @@ bool affects_row_box(MotionProp prop) {
         case MotionProp::Padding:
         case MotionProp::Margin:
         case MotionProp::Gap:
+        case MotionProp::FlexGrow:
         case MotionProp::FontSize:
         case MotionProp::LineHeight:
             return true;
@@ -576,6 +580,10 @@ MotionValue read_prop(const ComputedStyle& style, MotionProp prop, glm::vec2 bas
             value.present = style.has_gap;
             value.flag = style.has_gap;
             return value;
+        case MotionProp::FlexGrow:
+            value.present = true;
+            value.number = style.flex_grow;
+            return value;
         case MotionProp::FlexDirection:
             value.present = true;
             value.flag = style.has_direction;
@@ -786,6 +794,9 @@ void write_style(ComputedStyle& style, MotionProp prop, const MotionValue& value
             style.gap = px_length(value.px);
             style.has_gap = value.present;
             break;
+        case MotionProp::FlexGrow:
+            style.flex_grow = value.number;
+            break;
         case MotionProp::FlexDirection:
             style.direction = static_cast<StackDirection>(value.enumer);
             style.has_direction = value.flag;
@@ -975,6 +986,8 @@ bool layout_differs(const Element& element, MotionProp prop, const MotionValue& 
             return insets_differs(element.margin, shown);
         case MotionProp::Gap:
             return !shown.present ? false : element.gap.unit != LengthUnit::Px || !near_px(element.gap.value, shown.px);
+        case MotionProp::FlexGrow:
+            return element.flex_grow != shown.number;
         case MotionProp::FlexDirection:
             return element.direction != static_cast<StackDirection>(shown.enumer);
         case MotionProp::AlignItems:
@@ -1042,6 +1055,9 @@ void write_element(Element& element, MotionProp prop, const MotionValue& value) 
             if (value.present) {
                 element.gap = px_length(value.px);
             }
+            break;
+        case MotionProp::FlexGrow:
+            element.flex_grow = value.number;
             break;
         case MotionProp::FlexDirection:
             if (value.flag) {
@@ -1172,6 +1188,7 @@ bool same_spec(MotionProp prop, const MotionValue& a, const MotionValue& b) {
             return a.image == b.image && a.has_gradient == b.has_gradient &&
                     (!a.has_gradient || (a.gradient && b.gradient && gradient_eq(*a.gradient, *b.gradient)));
         case MotionProp::Opacity:
+        case MotionProp::FlexGrow:
         case MotionProp::Transform:
             return a.number == b.number && a.number2 == b.number2;
         case MotionProp::ZIndex:
@@ -1243,6 +1260,7 @@ bool can_lerp(MotionProp prop, const MotionValue& from, const MotionValue& to) {
         case MotionProp::ScrollbarThumbHoverColor:
         case MotionProp::ScrollbarColor:
         case MotionProp::Opacity:
+        case MotionProp::FlexGrow:
         case MotionProp::ZIndex:
         case MotionProp::Transform:
             return true;
@@ -1353,6 +1371,7 @@ MotionValue lerp_value(MotionProp prop, const MotionValue& from, const MotionVal
             out.gradient.reset();
             break;
         case MotionProp::Opacity:
+        case MotionProp::FlexGrow:
             out.number = from.number + (to.number - from.number) * t;
             break;
         case MotionProp::ZIndex:

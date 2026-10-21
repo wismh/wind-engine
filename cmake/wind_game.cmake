@@ -231,8 +231,8 @@ function(engine_configure_app target)
     if(WIN32 AND MSVC AND _module)
         # The editor loads a copy of the module with its .pdb beside it. Embed only the PDB file name
         # so the debugger finds that copy and the original stays unlocked for the next build. This is
-        # what /PDBALTPATH:%_PDB% means; the Visual Studio generator escapes a literal % in link
-        # options, so the name comes from the generator expression instead.
+        # what /PDBALTPATH:%_PDB% means. %_PDB% is an MSBuild macro, so the name comes from the generator
+        # expression instead and the debugger finds the copied PDB.
         target_link_options(${target} PRIVATE "/PDBALTPATH:$<TARGET_PDB_FILE_NAME:${target}>")
     elseif(WIN32 AND MSVC AND _type STREQUAL "EXECUTABLE")
         # Release-ish configs hide the console window (players shouldn't see a terminal); Debug

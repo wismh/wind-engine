@@ -21,7 +21,9 @@ namespace editor {
 //   active_camera (when this entity is the world's ActiveCamera).
 // - One section per serialized component on the entity via WorldSerializer.
 // - One "<name> (unregistered)" section per component in UnknownComponents not already written by WorldSerializer.
+// `editable` turns each registered component into fields (and a remove button). Play Mode passes false and the
+// sections stay read-only lines.
 [[nodiscard]] std::vector<InspectorSection> inspect_entity(
-        const engine::ecs::World& world, engine::ecs::Entity entity);
+        const engine::ecs::World& world, engine::ecs::Entity entity, bool editable);
 
 }

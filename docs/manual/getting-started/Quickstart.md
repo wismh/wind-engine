@@ -6,8 +6,8 @@ This guide walks you through setting up a minimal game using the Wind engine, op
 
 ## 1. Prerequisites
 
-- **CMake 3.20+**
-- **Visual Studio 2026** (MSVC, C++23)
+- **CMake 3.20+** (the presets need 3.25)
+- **Visual Studio 2026** with the C++ workload (MSVC, C++23) and **Ninja** (on `PATH`, or the copy installed with Visual Studio's C++ CMake tools)
 - **Git**
 - A **Wind editor SDK**. Take a ready one from the engine's [Releases](https://github.com/wismh/wind-engine/releases) (`wind-sdk-<version>-<os>-<arch>`: unpack it anywhere, or into `%LOCALAPPDATA%\Programs\Wind\Sdks\<name>`, where the [Wind Launcher](https://github.com/wismh/wind-launcher/releases/latest) finds it; the launcher's SDKs page also downloads and installs a released SDK for you, which is the easiest way), or build it once from the engine repo:
 
@@ -19,7 +19,7 @@ cmake --build build-editor --config Release
 cmake --install build-editor --config Release --prefix out/sdk
 ```
 
-`out/sdk/` now holds the editor (`bin/wind_editor.exe`), the engine, its headers, and the CMake package your game finds. `out/sdk/sdk.toml` names its engine version: `0.1.7a` for the release of that number (`a` alpha, `b` beta, none production), `0.1.0a-dev` for an SDK you built yourself. To get a released SDK in your game's CI, see [Continuous Integration](Continuous-Integration.md).
+`out/sdk/` now holds the editor (`bin/wind_editor.exe`), the engine, its headers, and the CMake package your game finds. `out/sdk/sdk.toml` names its engine version: `0.1.7a` for the release of that number (`a` alpha, `b` beta, none production), `0.2.6a-dev` for an SDK you built yourself. To get a released SDK in your game's CI, see [Continuous Integration](Continuous-Integration.md).
 
 ---
 
@@ -76,8 +76,10 @@ For building by hand in an IDE, also add `CMakePresets.json` (committed) and `CM
   "configurePresets": [
     {
       "name": "editor",
-      "generator": "Visual Studio 18 2026",
+      "generator": "Ninja Multi-Config",
       "binaryDir": "${sourceDir}/build-editor",
+      "architecture": { "value": "x64", "strategy": "external" },
+      "toolset": { "value": "host=x64", "strategy": "external" },
       "cacheVariables": { "CMAKE_CONFIGURATION_TYPES": "DebugGame;Release" }
     }
   ]

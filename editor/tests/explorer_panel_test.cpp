@@ -277,3 +277,99 @@ TEST(ExplorerPanel, OpenAgainStartsCollapsedAndCloseClears) {
     EXPECT_TRUE(vm.rows.get().empty());
     EXPECT_EQ(vm.rootText.get(), "No project open.");
 }
+
+TEST(ExplorerPanel, NewFolderCopyPasteRenameAndUndo) {
+    const ProjectDir dir;
+    editor::EditorSelection selection;
+    editor::ExplorerPanel panel{selection};
+    panel.open(dir.root());
+    panel.toggle("assets");
+    panel.select("assets");
+
+    panel.new_folder();
+    EXPECT_TRUE(std::filesystem::is_directory(dir.root() / "assets" / "New Folder"));
+    EXPECT_EQ(panel.renaming(), "assets/New Folder");
+    EXPECT_EQ(panel.selected(), "assets/New Folder");
+    EXPECT_TRUE(panel.undo().ok);
+    EXPECT_FALSE(std::filesystem::exists(dir.root() / "assets" / "New Folder"));
+
+    panel.toggle("assets");
+    panel.toggle("assets/ui");
+    panel.select("assets/ui/menu.xml");
+    panel.copy();
+    panel.paste();
+    EXPECT_TRUE(std::filesystem::exists(dir.root() / "assets" / "ui" / "menu 2.xml"));
+    EXPECT_EQ(panel.selected(), "assets/ui/menu 2.xml");
+    EXPECT_TRUE(panel.undo().ok);
+    EXPECT_FALSE(std::filesystem::exists(dir.root() / "assets" / "ui" / "menu 2.xml"));
+
+    panel.select("src/game.cpp");
+    panel.begin_rename();
+    ASSERT_TRUE(row_of(*panel.view_model(), "src/game.cpp"));
+    row_of(*panel.view_model(), "src/game.cpp")->editText = "play.cpp";
+    panel.commit_rename();
+    EXPECT_TRUE(std::filesystem::exists(dir.root() / "src" / "play.cpp"));
+    EXPECT_FALSE(std::filesystem::exists(dir.root() / "src" / "game.cpp"));
+    EXPECT_EQ(panel.selected(), "src/play.cpp");
+    const std::vector<editor::ProjectRelocation> moved = panel.take_relocations();
+    ASSERT_EQ(moved.size(), 1u);
+    EXPECT_EQ(moved[0].from, "src/game.cpp");
+    EXPECT_EQ(moved[0].to, "src/play.cpp");
+
+    panel.select("src");
+    panel.cut_key("src/play.cpp");
+    panel.paste_at("src");
+    EXPECT_TRUE(std::filesystem::exists(dir.root() / "src" / "play.cpp"));
+    panel.new_header();
+    EXPECT_TRUE(panel.take_notice().find("CMakeLists.txt") != std::string::npos);
+    EXPECT_TRUE(std::filesystem::exists(dir.root() / "src" / "New Header.hpp"));
+}
+
+TEST(ExplorerPanel, DropFolderRejectsTheSameDirectoryAndADescendant) {
+    const ProjectDir dir;
+    editor::EditorSelection selection;
+    editor::ExplorerPanel panel{selection};
+    panel.open(dir.root());
+    EXPECT_EQ(panel.drop_folder("assets/ui/menu.xml", "src"), "src");
+    EXPECT_FALSE(panel.drop_folder("assets/ui/menu.xml", "assets/ui"));
+    EXPECT_FALSE(panel.drop_folder("assets", "assets/ui"));
+    EXPECT_FALSE(panel.drop_folder("wind_project.toml", "src"));
+
+    panel.move_into("src/game.cpp", "assets");
+    EXPECT_TRUE(std::filesystem::exists(dir.root() / "assets" / "game.cpp"));
+    EXPECT_FALSE(std::filesystem::exists(dir.root() / "src" / "game.cpp"));
+}
+
+TEST(ExplorerPanel, DeleteRemovesTheFileAndUndoPutsItBack) {
+    const ProjectDir dir;
+    editor::EditorSelection selection;
+    editor::ExplorerPanel panel{selection};
+    panel.open(dir.root());
+    panel.select("src/game.cpp");
+    panel.remove();
+    EXPECT_FALSE(std::filesystem::exists(dir.root() / "src" / "game.cpp"));
+    EXPECT_EQ(panel.selected(), "src");
+    const std::vector<std::string> removed = panel.take_removals();
+    ASSERT_EQ(removed.size(), 1u);
+    EXPECT_EQ(removed[0], "src/game.cpp");
+    EXPECT_TRUE(panel.undo().ok);
+    EXPECT_TRUE(std::filesystem::exists(dir.root() / "src" / "game.cpp"));
+
+    panel.select("wind_project.toml");
+    panel.remove();
+    EXPECT_TRUE(std::filesystem::exists(dir.root() / "wind_project.toml"));
+    EXPECT_NE(panel.take_notice().find("wind_project.toml"), std::string::npos);
+}
+
+TEST(ExplorerPanel, ExternalRescanDropsHistoryWhenTheFileIsGone) {
+    const ProjectDir dir;
+    editor::EditorSelection selection;
+    editor::ExplorerPanel panel{selection};
+    panel.open(dir.root());
+    panel.select("src");
+    panel.new_folder();
+    panel.cancel_rename();
+    std::filesystem::remove(dir.root() / "src" / "New Folder");
+    panel.rescan();
+    EXPECT_FALSE(panel.undo().ok);
+}

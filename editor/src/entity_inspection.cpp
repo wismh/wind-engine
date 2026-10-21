@@ -1,5 +1,7 @@
 #include "entity_inspection.h"
 
+#include "inspector_euler.h"
+
 #include <engine/ecs/camera.h>
 #include <engine/ecs/hierarchy.h>
 #include <engine/ecs/world.h>
@@ -72,15 +74,128 @@ std::string format_field_value(const engine::ecs::FieldValue& value) {
     return {};
 }
 
-InspectorSection make_component_section(std::string heading, const engine::ecs::FieldTable& table) {
-    InspectorSection section{.heading = std::move(heading)};
+bool numeric_array(const engine::ecs::FieldArray& array) {
+    if (array.empty() || array.size() > 4) {
+        return false;
+    }
+    for (const engine::ecs::FieldValue& item : array) {
+        if (!item.as_number()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+InspectorField make_field(std::string key, const engine::ecs::FieldValue& value, bool editable) {
+    InspectorField field;
+    field.key = std::move(key);
+    if (editable) {
+        if (const bool* flag = value.as_bool()) {
+            field.kind = InspectorFieldKind::Bool;
+            field.flag = *flag;
+            field.editable = true;
+            return field;
+        }
+        if (const std::string* text = value.as_string()) {
+            field.kind = InspectorFieldKind::String;
+            field.text = *text;
+            field.editable = true;
+            return field;
+        }
+        if (value.as_int() != nullptr) {
+            field.kind = InspectorFieldKind::Number;
+            field.text = format_field_value(value);
+            field.integer = true;
+            field.editable = true;
+            return field;
+        }
+        if (const engine::ecs::FieldArray* array = value.as_array(); array != nullptr && numeric_array(*array)) {
+            field.kind = InspectorFieldKind::Vec;
+            field.axis_count = static_cast<int>(array->size());
+            for (int index = 0; index < field.axis_count; ++index) {
+                const engine::ecs::FieldValue& item = (*array)[static_cast<std::size_t>(index)];
+                field.axes[static_cast<std::size_t>(index)] = format_field_value(item);
+                field.axis_integer[static_cast<std::size_t>(index)] = item.as_int() != nullptr;
+            }
+            // A quaternion stays x,y,z,w in the table. The row edits Euler degrees. A 4-wide color
+            // edits rgb and leaves the alpha component in the table.
+            if (field.key == "rotation" && array->size() == 4) {
+                const auto x = (*array)[0].as_number();
+                const auto y = (*array)[1].as_number();
+                const auto z = (*array)[2].as_number();
+                const auto w = (*array)[3].as_number();
+                if (x && y && z && w) {
+                    const glm::vec3 euler = euler_degrees_xyz(quat_xyzw(*x, *y, *z, *w));
+                    field.axis_count = 3;
+                    for (int index = 0; index < 3; ++index) {
+                        field.axes[static_cast<std::size_t>(index)] = format_double(euler[index]);
+                        field.axis_integer[static_cast<std::size_t>(index)] = false;
+                    }
+                }
+            } else if (field.key == "color" && array->size() == 4) {
+                field.axis_count = 3;
+            }
+            field.editable = true;
+            return field;
+        }
+        if (value.as_number()) {
+            field.kind = InspectorFieldKind::Number;
+            field.text = format_field_value(value);
+            field.editable = true;
+            return field;
+        }
+    }
+    field.kind = InspectorFieldKind::Text;
+    if (const engine::ecs::FieldArray* array = value.as_array();
+            array != nullptr && array->size() == 4 && numeric_array(*array) &&
+            (field.key == "rotation" || field.key == "color")) {
+        std::string shown = "[";
+        const int count = 3;
+        if (field.key == "rotation") {
+            const auto x = (*array)[0].as_number();
+            const auto y = (*array)[1].as_number();
+            const auto z = (*array)[2].as_number();
+            const auto w = (*array)[3].as_number();
+            if (x && y && z && w) {
+                const glm::vec3 euler = euler_degrees_xyz(quat_xyzw(*x, *y, *z, *w));
+                shown += std::format("{}, {}, {}", format_double(euler.x), format_double(euler.y),
+                        format_double(euler.z));
+                shown += "]";
+                field.text = std::format("{} = {}", field.key, shown);
+                return field;
+            }
+        } else {
+            for (int index = 0; index < count; ++index) {
+                if (index > 0) {
+                    shown += ", ";
+                }
+                shown += format_field_value((*array)[static_cast<std::size_t>(index)]);
+            }
+            shown += "]";
+            field.text = std::format("{} = {}", field.key, shown);
+            return field;
+        }
+    }
+    field.text = std::format("{} = {}", field.key, format_field_value(value));
+    return field;
+}
+
+InspectorSection make_component_section(std::string heading, const engine::ecs::FieldTable& table, bool editable) {
+    InspectorSection section{.heading = std::move(heading), .removable = editable};
     if (table.empty()) {
         section.lines.emplace_back("(no fields)");
         return section;
     }
-    section.lines.reserve(table.size());
+    if (!editable) {
+        section.lines.reserve(table.size());
+        for (const auto& [key, val] : table) {
+            section.lines.push_back(std::format("{} = {}", key, format_field_value(val)));
+        }
+        return section;
+    }
+    section.fields.reserve(table.size());
     for (const auto& [key, val] : table) {
-        section.lines.push_back(std::format("{} = {}", key, format_field_value(val)));
+        section.fields.push_back(make_field(key, val, true));
     }
     return section;
 }
@@ -94,7 +209,8 @@ std::string entity_display_name(const engine::ecs::World& world, engine::ecs::En
     return std::format("entity_{}", entity.index);
 }
 
-std::vector<InspectorSection> inspect_entity(const engine::ecs::World& world, engine::ecs::Entity entity) {
+std::vector<InspectorSection> inspect_entity(
+        const engine::ecs::World& world, engine::ecs::Entity entity, bool editable) {
     if (!world.valid(entity)) {
         return {};
     }
@@ -149,7 +265,7 @@ std::vector<InspectorSection> inspect_entity(const engine::ecs::World& world, en
         engine::ecs::FieldTable table;
         engine::ecs::ComponentWriter writer(table, entity_to_id);
         if (entry.write(world, entity, writer)) {
-            sections.push_back(make_component_section(comp_name, table));
+            sections.push_back(make_component_section(comp_name, table, editable));
             written.insert(comp_name);
         }
     }
@@ -157,7 +273,7 @@ std::vector<InspectorSection> inspect_entity(const engine::ecs::World& world, en
     if (const auto* unknown = world.try_get<engine::ecs::UnknownComponents>(entity)) {
         for (const auto& [comp_name, table] : unknown->components) {
             if (!written.contains(comp_name)) {
-                sections.push_back(make_component_section(comp_name + " (unregistered)", table));
+                sections.push_back(make_component_section(comp_name + " (unregistered)", table, false));
             }
         }
     }

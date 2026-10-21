@@ -140,6 +140,8 @@ namespace engine::ui {
                     return "background";
                 case MotionProp::Opacity:
                     return "opacity";
+                case MotionProp::FlexGrow:
+                    return "flex-grow";
                 case MotionProp::Visibility:
                     return "visibility";
                 case MotionProp::Display:
@@ -429,12 +431,13 @@ namespace engine::ui {
             }
         };
 
-        // The picked element, its canvas tree, and that canvas's window size. Null when the pick is
-        // inactive or its element is gone.
+        // The picked element, its canvas tree, and the size `@media` saw for that canvas. Null when the
+        // pick is inactive or its element is gone.
         struct PickedElement {
             UiInstance *instance = nullptr;
             Element *element = nullptr;
-            WindowSize size{};
+            float media_width = 0.0f;
+            float media_height = 0.0f;
         };
 
         PickedElement resolve_pick(ecs::World &world, const InspectorPick &pick) {
@@ -453,7 +456,10 @@ namespace engine::ui {
             }
             picked.instance = instance;
             picked.element = element;
-            picked.size = window_size_for(world, canvas->window);
+            const glm::vec2 media =
+                    media_size(canvas_layout_space(canvas->rect, canvas->fit, canvas->reference_size));
+            picked.media_width = media.x;
+            picked.media_height = media.y;
             return picked;
         }
 
@@ -604,7 +610,7 @@ namespace engine::ui {
             return "Selected element is not in the live tree.";
         }
         return describe_element(picked.instance->document.root, *picked.element, instance_sheet(*picked.instance),
-                                static_cast<float>(picked.size.width), static_cast<float>(picked.size.height));
+                                picked.media_width, picked.media_height);
     }
 
     std::vector<std::string> inspector_rules(ecs::World &world, const InspectorPick &pick) {
@@ -613,7 +619,7 @@ namespace engine::ui {
             return {};
         }
         return rule_lines(picked.instance->document.root, *picked.element, instance_sheet(*picked.instance),
-                          static_cast<float>(picked.size.width), static_cast<float>(picked.size.height));
+                          picked.media_width, picked.media_height);
     }
 
     std::optional<ecs::Entity> inspector_hover_canvas(ecs::World &world, WindowId window) {
