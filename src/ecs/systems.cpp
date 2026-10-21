@@ -664,9 +664,9 @@ namespace engine {
                 const ui::UiPointer &pointer = ui::pointer_for(world, canvas.window);
                 const ui::WindowSize size = ui::window_size_for(world, canvas.window);
                 const ui::UiCanvasSpace space = ui::canvas_layout_space(canvas.rect, canvas.fit, canvas.reference_size);
-                const float window_width = space.reference_space ? space.layout_rect.w : static_cast<float>(size.width);
-                const float window_height =
-                        space.reference_space ? space.layout_rect.h : static_cast<float>(size.height);
+                const glm::vec2 media = ui::media_size(space);
+                const float window_width = media.x;
+                const float window_height = media.y;
                 render::CommandBuffer *target = command_buffer_for(deps, canvas.window);
                 if (target == nullptr) {
                     // As in run_render: a canvas of a window closed since the last dock sync.

@@ -611,6 +611,7 @@ namespace engine::ui {
                                             effective_context->layout_rect.h > 0.0f;
             std::optional<float> row_height_px;
             bool rows_out_of_flow = false;
+            bool rows_grow = false;
             const bool eligible = !element.suppress_item_virtualization && expected_count == 1 &&
                                   element.direction == StackDirection::Vertical && has_scroll_context &&
                                   element.gap.unit == LengthUnit::Px && element.gap.calc.empty();
@@ -642,6 +643,14 @@ namespace engine::ui {
                         element.virtualization_row_height_cache.reset();
                         break;
                     }
+                    // A row that grows into the viewport is not a fixed stride, so a window built from its
+                    // CSS height would not match the laid-out rows. Sampled from the previous frame, like
+                    // the height itself.
+                    if (old.generated_owner != nullptr && !old.display_none && old.flex_grow > 0.0f) {
+                        rows_grow = true;
+                        element.virtualization_row_height_cache.reset();
+                        break;
+                    }
                     if (old.generated_owner != nullptr && !old.display_none && old.height &&
                         old.height->unit == LengthUnit::Px && old.height->calc.empty() && old.height->value > 0.0f) {
                         row_height_px = old.height->value;
@@ -649,7 +658,7 @@ namespace engine::ui {
                         break;
                     }
                 }
-                if (!row_height_px && !rows_out_of_flow && element.virtualization_row_height_cache) {
+                if (!row_height_px && !rows_out_of_flow && !rows_grow && element.virtualization_row_height_cache) {
                     row_height_px = element.virtualization_row_height_cache;
                 }
             }
@@ -738,7 +747,7 @@ namespace engine::ui {
                     leading_spacer_h = spacer_height(window_first);
                     trailing_spacer_h = spacer_height(items.size() - 1 - window_last);
                 }
-            } else if (eligible && !rows_out_of_flow && !items.empty() && measure_rows(element, items)) {
+            } else if (eligible && !rows_out_of_flow && !rows_grow && !items.empty() && measure_rows(element, items)) {
                 // Rows of no fixed pixel height. Each row's top comes from the heights measured so far (a row that was
                 // never measured counts as their mean), so the window is found by a search over the tops instead of
                 // a division; the spacers stand in for the rows outside it.
