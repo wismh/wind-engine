@@ -3,6 +3,7 @@
 // docs/tech/modules/Core.md
 
 #include <engine/core/application_state.h>
+#include <engine/core/job_system.h>
 #include <engine/core/time.h>
 #include <engine/ecs/world.h>
 #include <engine/igame.h>
@@ -31,6 +32,9 @@ public:
 private:
     void write_window_size(int width, int height, bool send_event);
 
+    // No workers: engine_tests run ranges on the caller. The pointer passed to set_deps stays valid for
+    // the host's lifetime.
+    JobSystem jobs_{0};
     IGame* game_ = nullptr;
     Worlds* worlds_ = nullptr;
     render::ICanvas* canvas_ = nullptr;

@@ -393,6 +393,7 @@ struct Services {
                   .haptics = haptics,
                   .http = http,
                   .processes = processes,
+                  .jobs = jobs,
                   .windows = windows,
                   .graphics = graphics,
                   .backend = backend,
@@ -414,6 +415,8 @@ struct Services {
     FakeCanvas canvas;
     engine::render::CommandBuffer commands;
     engine::Worlds worlds;
+    // No workers: a test that wants a pool constructs its own JobSystem.
+    engine::JobSystem jobs{0};
     engine::EngineServices services;
 };
 

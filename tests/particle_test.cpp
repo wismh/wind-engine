@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <engine/core/job_system.h>
 #include <engine/core/time.h>
 #include <engine/ecs/camera.h>
 #include <engine/ecs/physics_2d.h>
@@ -676,5 +677,85 @@ TEST(ParticleSystemECS, RunParticlesCollidesWithWorldEntities) {
     // Must have hit the ECS floor collider and bounced upward!
     EXPECT_GE(em.particles[0].position.y, 1.0f);
     EXPECT_GT(em.particles[0].velocity.y, 0.0f);
+}
+
+void expect_same_particles(
+        const engine::render::ParticleEmitter& serial, const engine::render::ParticleEmitter& pooled) {
+    EXPECT_EQ(serial.particles.size(), pooled.particles.size());
+    if (serial.particles.size() != pooled.particles.size()) {
+        return;
+    }
+    for (std::size_t i = 0; i < serial.particles.size(); ++i) {
+        const engine::render::Particle& a = serial.particles[i];
+        const engine::render::Particle& b = pooled.particles[i];
+        EXPECT_FLOAT_EQ(a.position.x, b.position.x);
+        EXPECT_FLOAT_EQ(a.position.y, b.position.y);
+        EXPECT_FLOAT_EQ(a.position.z, b.position.z);
+        EXPECT_FLOAT_EQ(a.velocity.x, b.velocity.x);
+        EXPECT_FLOAT_EQ(a.velocity.y, b.velocity.y);
+        EXPECT_FLOAT_EQ(a.velocity.z, b.velocity.z);
+        EXPECT_FLOAT_EQ(a.color.r, b.color.r);
+        EXPECT_FLOAT_EQ(a.color.g, b.color.g);
+        EXPECT_FLOAT_EQ(a.color.b, b.color.b);
+        EXPECT_FLOAT_EQ(a.color.a, b.color.a);
+        EXPECT_FLOAT_EQ(a.size.x, b.size.x);
+        EXPECT_FLOAT_EQ(a.size.y, b.size.y);
+        EXPECT_FLOAT_EQ(a.age, b.age);
+        EXPECT_FLOAT_EQ(a.rotation, b.rotation);
+    }
+}
+
+engine::render::ParticleEmitter seeded_emitter() {
+    engine::render::ParticleEmitter emitter;
+    emitter.emission_rate = 0.0f;
+    emitter.playing = false;
+    emitter.gravity = {0.0f, -20.0f, 0.0f};
+    emitter.collision_enabled = true;
+    emitter.bounce = 0.4f;
+    emitter.friction = 0.2f;
+    emitter.lifetime_loss = 0.0f;
+    emitter.max_particles = 300;
+    emitter.particles.reserve(200);
+    for (int i = 0; i < 200; ++i) {
+        engine::render::Particle particle;
+        particle.position = {static_cast<float>(i) * 0.05f, 2.0f, 0.0f};
+        particle.velocity = {0.2f, -40.0f - static_cast<float>(i % 5), 0.0f};
+        particle.lifetime = (i % 7 == 0) ? 0.02f : 2.0f;
+        particle.age = 0.0f;
+        particle.start_size = {1.0f, 1.0f};
+        particle.end_size = {0.2f, 0.2f};
+        particle.base_size = particle.start_size;
+        particle.start_color = {1.0f, 0.2f, 0.0f, 1.0f};
+        particle.end_color = {0.0f, 0.0f, 1.0f, 0.0f};
+        particle.color = particle.start_color;
+        particle.size = particle.start_size;
+        emitter.particles.push_back(particle);
+    }
+    return emitter;
+}
+
+TEST(ParticleEmitter, ParallelIntegrationMatchesTheCaller) {
+    const std::vector<engine::render::ParticleCollider2D> colliders{
+            engine::render::ParticleCollider2D{
+                    .shape = engine::render::ParticleCollider2D::Shape::Box,
+                    .position = {5.0f, 0.0f, 0.0f},
+                    .box_size = {40.0f, 1.0f, 1.0f},
+                    .layer = 1,
+            },
+    };
+    const engine::render::ParticleEmitter seeded = seeded_emitter();
+    engine::render::ParticleEmitter serial = seeded;
+    engine::render::ParticleEmitter inline_jobs = seeded;
+    engine::render::ParticleEmitter pooled = seeded;
+    engine::JobSystem none(0);
+    engine::JobSystem jobs(2);
+
+    engine::render::update_emitter(serial, 0.05f, glm::mat4{1.0f}, colliders);
+    engine::render::update_emitter(inline_jobs, 0.05f, glm::mat4{1.0f}, colliders, &none);
+    engine::render::update_emitter(pooled, 0.05f, glm::mat4{1.0f}, colliders, &jobs);
+
+    expect_same_particles(serial, inline_jobs);
+    expect_same_particles(serial, pooled);
+    EXPECT_LT(serial.active_count(), seeded.active_count());
 }
 
