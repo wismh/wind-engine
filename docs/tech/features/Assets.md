@@ -50,6 +50,8 @@ The cache key is the GUID plus `std::type_index`. The same GUID requested as two
 
 ## Text assets
 
+`importer = "object"` (`.object`, assigned by `asset_guid`) is a TOML table with a string `type` plus the fields of one `WIND_SERIALIZABLE` struct. Cook fails when `type` is missing or the file is not a table. `AssetsDb::get<T>` returns that struct when a loader for `T` was registered and `type` equals its key. A different key or an unregistered `T` is `AssetError::TypeMismatch`. A file that does not parse, has no `type`, or has a field the loader rejects is `AssetError::Corrupt`. The loader is code from the game module: register it with `assets::register_game_objects` (a module does this from `wind_create_game` and from `wind_register_game_objects`; a static game calls it from the game constructor) and call `AssetsDb::clear_object_loaders` before the module is unloaded. See [Asset Codegen](../build/Asset%20Codegen.md#component-codegen) and [ECS](../modules/ECS.md#world-serialization).
+
 `importer = "data"` is for files the engine does not know: item configs, tables, anything text. `get<TextAsset>(id)` returns the file bytes in `TextAsset::text`, unchanged (no newline conversion, no parse). The game parses it with whatever it likes. A file that does not read is `AssetError::Corrupt`. The file name and extension do not matter, `asset_guid` gives every file with an unknown extension this importer, and a `.meta` can name it for any other file.
 
 ## Mesh files
