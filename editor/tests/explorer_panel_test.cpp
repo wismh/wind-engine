@@ -130,7 +130,8 @@ TEST(ProjectScan, AMissingDirectoryIsEmpty) {
 
 TEST(ExplorerPanel, NoProjectShowsNothing) {
     editor::EditorSelection selection;
-    editor::ExplorerPanel panel{selection};
+    editor::CommandHistory history;
+    editor::ExplorerPanel panel{selection, history};
     const editor::ExplorerViewModel& vm = *panel.view_model();
     EXPECT_TRUE(vm.rows.get().empty());
     EXPECT_EQ(vm.rootText.get(), "No project open.");
@@ -139,7 +140,8 @@ TEST(ExplorerPanel, NoProjectShowsNothing) {
 TEST(ExplorerPanel, OpenShowsTheCollapsedRootsAndExpandsOnToggle) {
     const ProjectDir dir;
     editor::EditorSelection selection;
-    editor::ExplorerPanel panel{selection};
+    editor::CommandHistory history;
+    editor::ExplorerPanel panel{selection, history};
     panel.open(dir.root());
     editor::ExplorerViewModel& vm = *panel.view_model();
     EXPECT_EQ(labels(vm), (std::vector<std::string>{"assets", "src", "CMakeLists.txt", "wind_project.toml"}));
@@ -160,7 +162,8 @@ TEST(ExplorerPanel, OpenShowsTheCollapsedRootsAndExpandsOnToggle) {
 TEST(ExplorerPanel, SelectBecomesTheEditorSelection) {
     const ProjectDir dir;
     editor::EditorSelection selection;
-    editor::ExplorerPanel panel{selection};
+    editor::CommandHistory history;
+    editor::ExplorerPanel panel{selection, history};
     panel.open(dir.root());
     editor::ExplorerViewModel& vm = *panel.view_model();
     panel.toggle("src");
@@ -184,7 +187,8 @@ TEST(ExplorerPanel, SelectBecomesTheEditorSelection) {
 TEST(ExplorerPanel, RowsKeepTheirViewModelWhileTheTreeChanges) {
     const ProjectDir dir;
     editor::EditorSelection selection;
-    editor::ExplorerPanel panel{selection};
+    editor::CommandHistory history;
+    editor::ExplorerPanel panel{selection, history};
     panel.open(dir.root());
     editor::ExplorerViewModel& vm = *panel.view_model();
     const std::shared_ptr<editor::ExplorerRowViewModel> src = row_of(vm, "src");
@@ -195,7 +199,8 @@ TEST(ExplorerPanel, RowsKeepTheirViewModelWhileTheTreeChanges) {
 TEST(ExplorerPanel, TreeKeysMoveExpandAndCollapse) {
     const ProjectDir dir;
     editor::EditorSelection selection;
-    editor::ExplorerPanel panel{selection};
+    editor::CommandHistory history;
+    editor::ExplorerPanel panel{selection, history};
     panel.open(dir.root());
     editor::ExplorerViewModel& vm = *panel.view_model();
 
@@ -216,7 +221,8 @@ TEST(ExplorerPanel, TreeKeysMoveExpandAndCollapse) {
 TEST(ExplorerPanel, RefreshKeepsExpansionAndSelectionThatStillExist) {
     const ProjectDir dir;
     editor::EditorSelection selection;
-    editor::ExplorerPanel panel{selection};
+    editor::CommandHistory history;
+    editor::ExplorerPanel panel{selection, history};
     panel.open(dir.root());
     editor::ExplorerViewModel& vm = *panel.view_model();
     panel.toggle("assets");
@@ -240,7 +246,8 @@ TEST(ExplorerPanel, RefreshKeepsExpansionAndSelectionThatStillExist) {
 TEST(ExplorerPanel, RefreshLeavesAnotherPanelsSelection) {
     const ProjectDir dir;
     editor::EditorSelection selection;
-    editor::ExplorerPanel panel{selection};
+    editor::CommandHistory history;
+    editor::ExplorerPanel panel{selection, history};
     panel.open(dir.root());
     panel.select("src");
     selection.select(editor::UiElementSelection{});
@@ -261,7 +268,8 @@ TEST(ExplorerPanel, RefreshLeavesAnotherPanelsSelection) {
 TEST(ExplorerPanel, OpenAgainStartsCollapsedAndCloseClears) {
     const ProjectDir dir;
     editor::EditorSelection selection;
-    editor::ExplorerPanel panel{selection};
+    editor::CommandHistory history;
+    editor::ExplorerPanel panel{selection, history};
     panel.open(dir.root());
     panel.toggle("assets");
     panel.select("assets");
@@ -281,7 +289,8 @@ TEST(ExplorerPanel, OpenAgainStartsCollapsedAndCloseClears) {
 TEST(ExplorerPanel, NewFolderCopyPasteRenameAndUndo) {
     const ProjectDir dir;
     editor::EditorSelection selection;
-    editor::ExplorerPanel panel{selection};
+    editor::CommandHistory history;
+    editor::ExplorerPanel panel{selection, history};
     panel.open(dir.root());
     panel.toggle("assets");
     panel.select("assets");
@@ -328,7 +337,8 @@ TEST(ExplorerPanel, NewFolderCopyPasteRenameAndUndo) {
 TEST(ExplorerPanel, DropFolderRejectsTheSameDirectoryAndADescendant) {
     const ProjectDir dir;
     editor::EditorSelection selection;
-    editor::ExplorerPanel panel{selection};
+    editor::CommandHistory history;
+    editor::ExplorerPanel panel{selection, history};
     panel.open(dir.root());
     EXPECT_EQ(panel.drop_folder("assets/ui/menu.xml", "src"), "src");
     EXPECT_FALSE(panel.drop_folder("assets/ui/menu.xml", "assets/ui"));
@@ -343,7 +353,8 @@ TEST(ExplorerPanel, DropFolderRejectsTheSameDirectoryAndADescendant) {
 TEST(ExplorerPanel, DeleteRemovesTheFileAndUndoPutsItBack) {
     const ProjectDir dir;
     editor::EditorSelection selection;
-    editor::ExplorerPanel panel{selection};
+    editor::CommandHistory history;
+    editor::ExplorerPanel panel{selection, history};
     panel.open(dir.root());
     panel.select("src/game.cpp");
     panel.remove();
@@ -364,7 +375,8 @@ TEST(ExplorerPanel, DeleteRemovesTheFileAndUndoPutsItBack) {
 TEST(ExplorerPanel, ExternalRescanDropsHistoryWhenTheFileIsGone) {
     const ProjectDir dir;
     editor::EditorSelection selection;
-    editor::ExplorerPanel panel{selection};
+    editor::CommandHistory history;
+    editor::ExplorerPanel panel{selection, history};
     panel.open(dir.root());
     panel.select("src");
     panel.new_folder();

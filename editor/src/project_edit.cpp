@@ -275,161 +275,37 @@ std::string project_unique_name(const std::filesystem::path& directory, std::str
     return {};
 }
 
-ProjectEditResult ProjectHistory::finish(Edit edit, bool ok, std::string notice) {
-    ProjectEditResult result;
-    result.ok = ok;
-    result.notice = std::move(notice);
-    if (!ok) {
-        return result;
-    }
-    if (edit.kind == Edit::Kind::Delete) {
-        result.select = project_parent_key(edit.from);
-        result.removed.push_back(edit.from);
-    } else {
-        result.select = edit.to;
-        if (edit.kind == Edit::Kind::Relocate) {
-            result.moved.push_back(ProjectRelocation{edit.from, edit.to});
-        }
-    }
+ProjectEditOutcome ProjectStep::refuse(std::string notice) {
+    ProjectEditOutcome outcome;
+    outcome.result.notice = std::move(notice);
+    return outcome;
+}
+
+ProjectEditOutcome ProjectStep::finish(ProjectStepListener& listener, const std::filesystem::path& root, Edit edit,
+        std::string notice) {
+    ProjectEditOutcome outcome;
+    outcome.result = result_of(edit, true);
+    outcome.result.notice = std::move(notice);
     edit.applied = true;
-    undo_.push_back(std::move(edit));
-    redo_.clear();
-    if (recorded_) {
-        recorded_();
-    }
-    return result;
+    outcome.step.reset(new ProjectStep(listener, root, std::move(edit)));
+    return outcome;
 }
 
-ProjectEditResult ProjectHistory::relocate(const std::filesystem::path& root, std::string from, std::string to) {
-    if (from == to) {
-        ProjectEditResult same;
-        same.ok = true;
-        same.select = std::move(to);
-        return same;
-    }
-    if (from == "wind_project.toml" || to == "wind_project.toml") {
-        return {.notice = kProjectFile};
-    }
-    if (!project_name_ok(project_leaf_name(to))) {
-        return {.notice = kBadName};
-    }
-    if (inside_key(to, from)) {
-        return {.notice = kIntoSelf};
-    }
-    const std::optional<std::filesystem::path> from_path = under_root(root, from);
-    const std::optional<std::filesystem::path> to_path = under_root(root, to);
-    if (!from_path || !to_path) {
-        return {.notice = kOutside};
-    }
-    if (!exists_path(*from_path)) {
-        return {.notice = kMissing};
-    }
-    if (exists_path(*to_path) && !same_file(*from_path, *to_path)) {
-        return {.notice = kOccupied};
-    }
-    if (!exists_path(to_path->parent_path())) {
-        return {.notice = kMissing};
-    }
-    Edit edit;
-    edit.kind = Edit::Kind::Relocate;
-    edit.from = std::move(from);
-    edit.to = std::move(to);
-    std::string notice;
-    if (!apply(edit, root, notice)) {
-        return {.notice = notice.empty() ? std::string(kFailed) : std::move(notice)};
-    }
-    return finish(std::move(edit), true, {});
-}
-
-ProjectEditResult ProjectHistory::copy_entry(const std::filesystem::path& root, std::string from, std::string to) {
-    if (!project_name_ok(project_leaf_name(to))) {
-        return {.notice = kBadName};
-    }
-    if (inside_key(to, from)) {
-        return {.notice = kIntoSelf};
-    }
-    const std::optional<std::filesystem::path> from_path = under_root(root, from);
-    const std::optional<std::filesystem::path> to_path = under_root(root, to);
-    if (!from_path || !to_path) {
-        return {.notice = kOutside};
-    }
-    if (!exists_path(*from_path) || exists_path(*to_path) || !exists_path(to_path->parent_path())) {
-        return {.notice = exists_path(*to_path) ? std::string(kOccupied) : std::string(kMissing)};
-    }
-    Edit edit;
-    edit.kind = Edit::Kind::Copy;
-    edit.from = std::move(from);
-    edit.to = std::move(to);
-    std::string notice;
-    if (!apply(edit, root, notice)) {
-        return {.notice = notice.empty() ? std::string(kFailed) : std::move(notice)};
-    }
-    return finish(std::move(edit), true, {});
-}
-
-ProjectEditResult ProjectHistory::create(const std::filesystem::path& root, std::string key, ProjectCreateKind kind) {
-    if (!project_name_ok(project_leaf_name(key)) || key == "wind_project.toml") {
-        return {.notice = key == "wind_project.toml" ? std::string(kProjectFile) : std::string(kBadName)};
-    }
-    const std::optional<std::filesystem::path> path = under_root(root, key);
-    if (!path) {
-        return {.notice = kOutside};
-    }
-    if (exists_path(*path) || !exists_path(path->parent_path())) {
-        return {.notice = exists_path(*path) ? std::string(kOccupied) : std::string(kMissing)};
-    }
-    Edit edit;
-    edit.kind = kind == ProjectCreateKind::Directory ? Edit::Kind::CreateDir : Edit::Kind::CreateFile;
-    edit.to = std::move(key);
-    edit.bytes = std::string(create_bytes(kind));
-    std::string notice;
-    if (!apply(edit, root, notice)) {
-        return {.notice = notice.empty() ? std::string(kFailed) : std::move(notice)};
-    }
-    std::string built;
-    if (kind == ProjectCreateKind::Header || kind == ProjectCreateKind::Source) {
-        built = "Created " + edit.to + kBuildNote;
-    }
-    return finish(std::move(edit), true, std::move(built));
-}
-
-ProjectEditResult ProjectHistory::remove(const std::filesystem::path& root, std::string key) {
-    if (key == "wind_project.toml") {
-        return {.notice = kProjectFile};
-    }
-    if (!project_name_ok(project_leaf_name(key))) {
-        return {.notice = kBadName};
-    }
-    const std::optional<std::filesystem::path> path = under_root(root, key);
-    if (!path) {
-        return {.notice = kOutside};
-    }
-    if (!exists_path(*path)) {
-        return {.notice = kMissing};
-    }
-    Edit edit;
-    edit.kind = Edit::Kind::Delete;
-    edit.from = std::move(key);
-    std::string notice;
-    if (!apply(edit, root, notice)) {
-        return {.notice = notice.empty() ? std::string(kFailed) : std::move(notice)};
-    }
-    return finish(std::move(edit), true, {});
-}
-
-ProjectEditResult ProjectHistory::undo(const std::filesystem::path& root) {
-    if (undo_.empty()) {
-        return {};
-    }
-    Edit edit = std::move(undo_.back());
-    undo_.pop_back();
-    std::string notice;
-    if (!revert(edit, root, notice)) {
-        undo_.push_back(std::move(edit));
-        return {.notice = notice.empty() ? std::string(kFailed) : std::move(notice)};
-    }
+ProjectEditResult ProjectStep::result_of(const Edit& edit, bool forward) {
     ProjectEditResult result;
     result.ok = true;
+    if (forward) {
+        if (edit.kind == Edit::Kind::Delete) {
+            result.select = project_parent_key(edit.from);
+            result.removed.push_back(edit.from);
+        } else {
+            result.select = edit.to;
+            if (edit.kind == Edit::Kind::Relocate) {
+                result.moved.push_back(ProjectRelocation{edit.from, edit.to});
+            }
+        }
+        return result;
+    }
     if (edit.kind == Edit::Kind::Relocate) {
         result.select = edit.from;
         result.moved.push_back(ProjectRelocation{edit.to, edit.from});
@@ -438,70 +314,164 @@ ProjectEditResult ProjectHistory::undo(const std::filesystem::path& root) {
     } else {
         result.select = project_parent_key(edit.to);
     }
-    edit.applied = false;
-    redo_.push_back(std::move(edit));
     return result;
 }
 
-ProjectEditResult ProjectHistory::redo(const std::filesystem::path& root) {
-    if (redo_.empty()) {
-        return {};
+ProjectStep::ProjectStep(ProjectStepListener& listener, std::filesystem::path root, Edit edit)
+    : listener_(&listener), root_(std::move(root)), edit_(std::move(edit)) {}
+
+ProjectEditOutcome ProjectStep::relocate(ProjectStepListener& listener,
+        const std::filesystem::path& root, std::string from, std::string to) {
+    if (from == to) {
+        ProjectEditOutcome same;
+        same.result.ok = true;
+        same.result.select = std::move(to);
+        return same;
     }
-    Edit edit = std::move(redo_.back());
-    redo_.pop_back();
+    if (from == "wind_project.toml" || to == "wind_project.toml") {
+        return refuse(kProjectFile);
+    }
+    if (!project_name_ok(project_leaf_name(to))) {
+        return refuse(kBadName);
+    }
+    if (inside_key(to, from)) {
+        return refuse(kIntoSelf);
+    }
+    const std::optional<std::filesystem::path> from_path = under_root(root, from);
+    const std::optional<std::filesystem::path> to_path = under_root(root, to);
+    if (!from_path || !to_path) {
+        return refuse(kOutside);
+    }
+    if (!exists_path(*from_path)) {
+        return refuse(kMissing);
+    }
+    if (exists_path(*to_path) && !same_file(*from_path, *to_path)) {
+        return refuse(kOccupied);
+    }
+    if (!exists_path(to_path->parent_path())) {
+        return refuse(kMissing);
+    }
+    Edit edit;
+    edit.kind = Edit::Kind::Relocate;
+    edit.from = std::move(from);
+    edit.to = std::move(to);
     std::string notice;
     if (!apply(edit, root, notice)) {
-        redo_.push_back(std::move(edit));
-        return {.notice = notice.empty() ? std::string(kFailed) : std::move(notice)};
+        return refuse(notice.empty() ? std::string(kFailed) : std::move(notice));
     }
-    ProjectEditResult result;
-    result.ok = true;
-    if (edit.kind == Edit::Kind::Delete) {
-        result.select = project_parent_key(edit.from);
-        result.removed.push_back(edit.from);
-    } else {
-        result.select = edit.to;
-        if (edit.kind == Edit::Kind::Relocate) {
-            result.moved.push_back(ProjectRelocation{edit.from, edit.to});
-        }
-    }
-    edit.applied = true;
-    undo_.push_back(std::move(edit));
-    return result;
+    return finish(listener, root, std::move(edit), {});
 }
 
-void ProjectHistory::clear() {
-    undo_.clear();
-    redo_.clear();
-    if (cleared_) {
-        cleared_();
+ProjectEditOutcome ProjectStep::copy_entry(ProjectStepListener& listener,
+        const std::filesystem::path& root, std::string from, std::string to) {
+    if (!project_name_ok(project_leaf_name(to))) {
+        return refuse(kBadName);
     }
+    if (inside_key(to, from)) {
+        return refuse(kIntoSelf);
+    }
+    const std::optional<std::filesystem::path> from_path = under_root(root, from);
+    const std::optional<std::filesystem::path> to_path = under_root(root, to);
+    if (!from_path || !to_path) {
+        return refuse(kOutside);
+    }
+    if (!exists_path(*from_path) || exists_path(*to_path) || !exists_path(to_path->parent_path())) {
+        return refuse(exists_path(*to_path) ? std::string(kOccupied) : std::string(kMissing));
+    }
+    Edit edit;
+    edit.kind = Edit::Kind::Copy;
+    edit.from = std::move(from);
+    edit.to = std::move(to);
+    std::string notice;
+    if (!apply(edit, root, notice)) {
+        return refuse(notice.empty() ? std::string(kFailed) : std::move(notice));
+    }
+    return finish(listener, root, std::move(edit), {});
 }
 
-void ProjectHistory::clear_redo() {
-    redo_.clear();
+ProjectEditOutcome ProjectStep::create(ProjectStepListener& listener,
+        const std::filesystem::path& root, std::string key, ProjectCreateKind kind) {
+    if (!project_name_ok(project_leaf_name(key)) || key == "wind_project.toml") {
+        return refuse(key == "wind_project.toml" ? std::string(kProjectFile) : std::string(kBadName));
+    }
+    const std::optional<std::filesystem::path> path = under_root(root, key);
+    if (!path) {
+        return refuse(kOutside);
+    }
+    if (exists_path(*path) || !exists_path(path->parent_path())) {
+        return refuse(exists_path(*path) ? std::string(kOccupied) : std::string(kMissing));
+    }
+    Edit edit;
+    edit.kind = kind == ProjectCreateKind::Directory ? Edit::Kind::CreateDir : Edit::Kind::CreateFile;
+    edit.to = std::move(key);
+    edit.bytes = std::string(create_bytes(kind));
+    std::string notice;
+    if (!apply(edit, root, notice)) {
+        return refuse(notice.empty() ? std::string(kFailed) : std::move(notice));
+    }
+    std::string built;
+    if (kind == ProjectCreateKind::Header || kind == ProjectCreateKind::Source) {
+        built = "Created " + edit.to + kBuildNote;
+    }
+    return finish(listener, root, std::move(edit), std::move(built));
 }
 
-void ProjectHistory::set_hooks(std::function<void()> recorded, std::function<void()> cleared) {
-    recorded_ = std::move(recorded);
-    cleared_ = std::move(cleared);
+ProjectEditOutcome ProjectStep::remove(ProjectStepListener& listener,
+        const std::filesystem::path& root, std::string key) {
+    if (key == "wind_project.toml") {
+        return refuse(kProjectFile);
+    }
+    if (!project_name_ok(project_leaf_name(key))) {
+        return refuse(kBadName);
+    }
+    const std::optional<std::filesystem::path> path = under_root(root, key);
+    if (!path) {
+        return refuse(kOutside);
+    }
+    if (!exists_path(*path)) {
+        return refuse(kMissing);
+    }
+    Edit edit;
+    edit.kind = Edit::Kind::Delete;
+    edit.from = std::move(key);
+    std::string notice;
+    if (!apply(edit, root, notice)) {
+        return refuse(notice.empty() ? std::string(kFailed) : std::move(notice));
+    }
+    return finish(listener, root, std::move(edit), {});
 }
 
-bool ProjectHistory::matches(const std::filesystem::path& root) const {
-    for (const Edit& edit : undo_) {
-        if (!matches_one(edit, root)) {
-            return false;
-        }
+bool ProjectStep::undo() {
+    std::string notice;
+    if (!revert(edit_, root_, notice)) {
+        ProjectEditResult failed;
+        failed.notice = notice.empty() ? std::string(kFailed) : std::move(notice);
+        listener_->project_step_ran(failed);
+        return false;
     }
-    for (const Edit& edit : redo_) {
-        if (!matches_one(edit, root)) {
-            return false;
-        }
-    }
+    edit_.applied = false;
+    listener_->project_step_ran(result_of(edit_, false));
     return true;
 }
 
-bool ProjectHistory::apply(Edit& edit, const std::filesystem::path& root, std::string& notice) {
+bool ProjectStep::redo() {
+    std::string notice;
+    if (!apply(edit_, root_, notice)) {
+        ProjectEditResult failed;
+        failed.notice = notice.empty() ? std::string(kFailed) : std::move(notice);
+        listener_->project_step_ran(failed);
+        return false;
+    }
+    edit_.applied = true;
+    listener_->project_step_ran(result_of(edit_, true));
+    return true;
+}
+
+bool ProjectStep::valid() const {
+    return matches_one(edit_, root_);
+}
+
+bool ProjectStep::apply(Edit& edit, const std::filesystem::path& root, std::string& notice) {
     if (edit.kind == Edit::Kind::Delete) {
         const std::optional<std::filesystem::path> from = under_root(root, edit.from);
         if (!from) {
@@ -598,7 +568,7 @@ bool ProjectHistory::apply(Edit& edit, const std::filesystem::path& root, std::s
     return true;
 }
 
-std::filesystem::path ProjectHistory::meta_file(const std::filesystem::path& asset, const MetaExpect& expect) {
+std::filesystem::path ProjectStep::meta_file(const std::filesystem::path& asset, const MetaExpect& expect) {
     if (expect.sibling) {
         std::filesystem::path path = asset;
         path += ".meta";
@@ -607,7 +577,7 @@ std::filesystem::path ProjectHistory::meta_file(const std::filesystem::path& ass
     return asset / key_path(expect.relative);
 }
 
-void ProjectHistory::collect_metas(const std::filesystem::path& asset, bool directory, std::vector<MetaExpect>& out) {
+void ProjectStep::collect_metas(const std::filesystem::path& asset, bool directory, std::vector<MetaExpect>& out) {
     out.clear();
     std::filesystem::path sibling = asset;
     sibling += ".meta";
@@ -649,7 +619,7 @@ void ProjectHistory::collect_metas(const std::filesystem::path& asset, bool dire
     }
 }
 
-bool ProjectHistory::metas_match(const std::filesystem::path& asset, const std::vector<MetaExpect>& metas) {
+bool ProjectStep::metas_match(const std::filesystem::path& asset, const std::vector<MetaExpect>& metas) {
     for (const MetaExpect& expect : metas) {
         const std::filesystem::path path = meta_file(asset, expect);
         if (expect.guid.empty()) {
@@ -667,7 +637,7 @@ bool ProjectHistory::metas_match(const std::filesystem::path& asset, const std::
     return true;
 }
 
-bool ProjectHistory::capture_tree(const std::filesystem::path& path, const std::string& relative,
+bool ProjectStep::capture_tree(const std::filesystem::path& path, const std::string& relative,
         std::vector<StoredFile>& out, std::string& notice) {
     if (path_is_symlink(path)) {
         notice = kLink;
@@ -701,7 +671,7 @@ bool ProjectHistory::capture_tree(const std::filesystem::path& path, const std::
     return true;
 }
 
-bool ProjectHistory::restore_deleted(const std::filesystem::path& asset, const Edit& edit, std::string& notice) {
+bool ProjectStep::restore_deleted(const std::filesystem::path& asset, const Edit& edit, std::string& notice) {
     if (edit.files.empty()) {
         if (!write_text(asset, edit.bytes)) {
             notice = kFailed;
@@ -740,7 +710,7 @@ bool ProjectHistory::restore_deleted(const std::filesystem::path& asset, const E
     return true;
 }
 
-bool ProjectHistory::revert(Edit& edit, const std::filesystem::path& root, std::string& notice) {
+bool ProjectStep::revert(Edit& edit, const std::filesystem::path& root, std::string& notice) {
     if (edit.kind == Edit::Kind::Delete) {
         const std::optional<std::filesystem::path> from = under_root(root, edit.from);
         if (!from) {
@@ -826,7 +796,7 @@ bool ProjectHistory::revert(Edit& edit, const std::filesystem::path& root, std::
     return true;
 }
 
-bool ProjectHistory::matches_one(const Edit& edit, const std::filesystem::path& root) const {
+bool ProjectStep::matches_one(const Edit& edit, const std::filesystem::path& root) {
     if (edit.kind == Edit::Kind::Delete) {
         const std::optional<std::filesystem::path> path = under_root(root, edit.from);
         if (!path) {

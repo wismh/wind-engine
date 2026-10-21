@@ -84,13 +84,11 @@ DockLayout initial_layout(const DockLayoutFile& file) {
 
 EditorPanels::EditorPanels(DockLayoutFile layout_file)
     : layout_file_(std::move(layout_file)),
-      explorer_(selection_),
+      explorer_(selection_, commands_),
       hierarchy_(selection_),
       world_view_(selection_),
       ui_tree_(selection_),
       inspector_(selection_) {
-    explorer_.attach_journal(commands_);
-    commands_.set_after_push([this] { explorer_.discard_project_redo(); });
     inspector_.set_journal(&commands_, [this] {
         world_view_.sync_entity_dirty(commands_.count(EditorCommand::Kind::Entity));
     });
