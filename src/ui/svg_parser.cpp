@@ -1,5 +1,7 @@
 #include "svg_parser.h"
 
+#include <engine/core/parse_float.h>
+
 #include <tinyxml2.h>
 
 #include <glm/vec2.hpp>
@@ -132,15 +134,12 @@ struct Numbers {
             ok = false;
             return 0.0f;
         }
-        // strtod, not from_chars: Apple's libc++ has no floating-point from_chars before Xcode 16.3.
-        const std::string token(text.substr(begin, i - begin));
-        char* end = nullptr;
-        const float value = static_cast<float>(std::strtod(token.c_str(), &end));
-        if (end != token.c_str() + token.size()) {
+        double value = 0.0;
+        if (!parse_float(text.substr(begin, i - begin), value)) {
             ok = false;
             return 0.0f;
         }
-        return value;
+        return static_cast<float>(value);
     }
 
     // An arc flag is one character, so `01` is two flags and not the number 1.

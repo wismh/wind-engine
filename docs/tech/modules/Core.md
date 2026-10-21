@@ -96,6 +96,10 @@ Any failure unloads the copy and deletes its directory. `GameModuleError` is the
 
 `SplashScreen` lives on this header (enabled, `builtin::splash_wind`, fade 0.4s, hold 1.0s, fade 0.4s). `IGame` has no splash method. A game calls `ui::show_splash`. See [UI](UI.md).
 
+## Parsing numbers
+
+`parse_float(text, out)` (`include/engine/core/parse_float.h`, header only) reads one whole number into a `double`; `parse_float_prefix(text, out)` reads the longest number at the start of `text` and returns the characters it used (0 when there is none). Both reject blanks, hex, `inf`, `nan`, and text over 63 characters. They use `std::from_chars` where the standard library has the floating-point overload and `strtod` on a copy where it does not (Apple libc++ before Xcode 16.3). The SVG parser, the CLI JSON reader, the dock layout text, and the editor inspector all go through it. Do not repeat the `from_chars` / `strtod` split in another file.
+
 ## Jobs
 
 `JobSystem` (`include/engine/core/job_system.h`, `src/core/job_system.cpp`) is a fork-join pool. The owner thread calls `parallel_for(count, grain, fn)` and the call returns only after every index in `[0, count)` has been passed to `fn` once, in half-open ranges of at most `grain` (`grain` 0 is one range covering `count`). The caller runs ranges too: with more than one range it runs the first, then takes more while it waits. A `parallel_for` made from inside a running range runs on that same thread.
