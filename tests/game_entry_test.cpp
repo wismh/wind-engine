@@ -16,11 +16,10 @@ namespace {
 
 class ModuleGame final : public engine::GameBase {
 public:
-    explicit ModuleGame(const engine::EngineServices& services)
-        : engine::GameBase(services.worlds) {}
+    explicit ModuleGame(const engine::EngineServices& services) : engine::GameBase(services.worlds) {}
 };
 
-}
+} // namespace
 
 ENGINE_GAME(ModuleGame)
 
@@ -29,14 +28,17 @@ TEST(GameEntry, ModuleExportsMatchTheLoaderTypes) {
     const engine::DestroyGameFn destroy = &wind_destroy_game;
     const engine::GameBuildIdFn build_id = &wind_game_build_id;
     const engine::RegisterGameComponentsFn register_components = &wind_register_game_components;
+    const engine::RegisterGameObjectsFn register_objects = &wind_register_game_objects;
     EXPECT_NE(create, nullptr);
     EXPECT_NE(destroy, nullptr);
     EXPECT_NE(build_id, nullptr);
     EXPECT_NE(register_components, nullptr);
+    EXPECT_NE(register_objects, nullptr);
     EXPECT_EQ(std::string_view{engine::kCreateGameSymbol}, "wind_create_game");
     EXPECT_EQ(std::string_view{engine::kDestroyGameSymbol}, "wind_destroy_game");
     EXPECT_EQ(std::string_view{engine::kGameBuildIdSymbol}, "wind_game_build_id");
     EXPECT_EQ(std::string_view{engine::kRegisterGameComponentsSymbol}, "wind_register_game_components");
+    EXPECT_EQ(std::string_view{engine::kRegisterGameObjectsSymbol}, "wind_register_game_objects");
 }
 
 TEST(GameEntry, ModuleBuildIdIsTheCompiledInConstant) {
@@ -48,8 +50,6 @@ TEST(GameEntry, ModuleBuildIdIsTheCompiledInConstant) {
 
 #else
 
-TEST(GameEntry, ModuleExportsMatchTheLoaderTypes) {
-    GTEST_SKIP() << "ENGINE_GAME needs ENGINE_WITH_WINDOW";
-}
+TEST(GameEntry, ModuleExportsMatchTheLoaderTypes) { GTEST_SKIP() << "ENGINE_GAME needs ENGINE_WITH_WINDOW"; }
 
 #endif

@@ -26,6 +26,10 @@
 // Marks a game component struct for build-time serialization codegen (`component_io.h`).
 #define WIND_COMPONENT
 
+// Marks a game value struct for the same codegen. A field of this type inside a component is stored in that
+// component's table. A `.object` file whose `type` is this struct's key is loaded with `AssetsDb::get<T>`.
+#define WIND_SERIALIZABLE
+
 namespace engine {
 class AssetsDb;
 }
@@ -78,9 +82,11 @@ class ComponentWriter {
 public:
     using EntityIdResolver = std::function<std::string(Entity)>;
 
-    explicit ComponentWriter(FieldTable& table, EntityIdResolver entity_to_id = {})
-        : table_(table)
-        , entity_to_id_(std::move(entity_to_id)) {}
+    explicit ComponentWriter(FieldTable& table, EntityIdResolver entity_to_id = {}) :
+        table_(table), entity_to_id_(std::move(entity_to_id)) {}
+
+    // A nested value shares this writer's entity resolver. `table` is the caller's storage.
+    [[nodiscard]] ComponentWriter nested(FieldTable& table) const { return ComponentWriter{table, entity_to_id_}; }
 
     [[nodiscard]] FieldTable& table() noexcept { return table_; }
 
@@ -152,10 +158,17 @@ public:
     [[nodiscard]] FieldValue encode(const std::vector<T>& items) const {
         FieldArray out;
         out.reserve(items.size());
-        for (const T& item : items) {
+        for (const T& item: items) {
             out.push_back(encode(item));
         }
         return FieldValue{std::move(out)};
+    }
+
+    // User structs opt in with a free `encode_wind` in their namespace (ADL). Generated for `WIND_SERIALIZABLE`.
+    template<typename T>
+        requires requires(const ComponentWriter& writer, const T& value) { encode_wind(writer, value); }
+    [[nodiscard]] FieldValue encode(const T& value) const {
+        return encode_wind(*this, value);
     }
 
 private:
@@ -167,11 +180,13 @@ class ComponentReader {
 public:
     using EntityLookup = std::function<std::optional<Entity>(std::string_view)>;
 
-    explicit ComponentReader(
-            const FieldTable& table, EntityLookup id_to_entity = {}, AssetsDb* assets = nullptr)
-        : table_(table)
-        , id_to_entity_(std::move(id_to_entity))
-        , assets_(assets) {}
+    explicit ComponentReader(const FieldTable& table, EntityLookup id_to_entity = {}, AssetsDb* assets = nullptr) :
+        table_(table), id_to_entity_(std::move(id_to_entity)), assets_(assets) {}
+
+    // A nested value shares this reader's entity lookup and asset database.
+    [[nodiscard]] ComponentReader nested(const FieldTable& table) const {
+        return ComponentReader{table, id_to_entity_, assets_};
+    }
 
     [[nodiscard]] const FieldTable& table() const noexcept { return table_; }
     [[nodiscard]] AssetsDb* assets() const noexcept { return assets_; }
@@ -298,8 +313,8 @@ public:
             if (!x || !y || !z || !w) {
                 return false;
             }
-            out = glm::vec4{
-                    static_cast<float>(*x), static_cast<float>(*y), static_cast<float>(*z), static_cast<float>(*w)};
+            out = glm::vec4{static_cast<float>(*x), static_cast<float>(*y), static_cast<float>(*z),
+                            static_cast<float>(*w)};
             return true;
         }
         return false;
@@ -317,8 +332,8 @@ public:
             if (!x || !y || !z || !w) {
                 return false;
             }
-            out = glm::quat{
-                    static_cast<float>(*w), static_cast<float>(*x), static_cast<float>(*y), static_cast<float>(*z)};
+            out = glm::quat{static_cast<float>(*w), static_cast<float>(*x), static_cast<float>(*y),
+                            static_cast<float>(*z)};
             return true;
         }
         return false;
@@ -380,7 +395,7 @@ public:
         }
         std::vector<T> result;
         result.reserve(arr->size());
-        for (const FieldValue& elem : *arr) {
+        for (const FieldValue& elem: *arr) {
             T decoded{};
             if (!decode(elem, decoded)) {
                 return false;
@@ -389,6 +404,15 @@ public:
         }
         out = std::move(result);
         return true;
+    }
+
+    // User structs opt in with a free `decode_wind` in their namespace (ADL). Generated for `WIND_SERIALIZABLE`.
+    template<typename T>
+        requires requires(const ComponentReader& reader, const FieldValue& node, T& value) {
+            decode_wind(reader, node, value);
+        }
+    [[nodiscard]] bool decode(const FieldValue& node, T& out) const {
+        return decode_wind(*this, node, out);
     }
 
 private:

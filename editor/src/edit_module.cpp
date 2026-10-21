@@ -3,6 +3,7 @@
 #include <engine/ecs/world.h>
 #include <engine/ecs/world_serializer.h>
 #include <engine/log.h>
+#include <engine/resources/assets_db.h>
 
 #include <utility>
 
@@ -24,15 +25,12 @@ std::string path_text(const std::filesystem::path& path) {
     return {reinterpret_cast<const char*>(text.data()), text.size()};
 }
 
-}
+} // namespace
 
-EditModule::EditModule(IPlayHost& host, std::filesystem::path live_root)
-    : host_(&host)
-    , live_root_(std::move(live_root)) {}
+EditModule::EditModule(IPlayHost& host, engine::AssetsDb& assets, std::filesystem::path live_root) :
+    host_(&host), assets_(&assets), live_root_(std::move(live_root)) {}
 
-EditModule::~EditModule() {
-    unload();
-}
+EditModule::~EditModule() { unload(); }
 
 std::expected<void, std::string> EditModule::load(const std::filesystem::path& module) {
     unload();
@@ -47,6 +45,7 @@ std::expected<void, std::string> EditModule::load(const std::filesystem::path& m
     module_.emplace(std::move(*loaded));
     assets_dir_ = std::move(assets_dir);
     last_module_path_ = module;
+    module_->register_objects(*assets_);
     engine::log::info("Editor: edit module " + path_text(module) + " from " + path_text(module_->live_path()));
     return {};
 }
@@ -55,7 +54,7 @@ void EditModule::unload(engine::ecs::World* edit_world) {
     if (edit_world != nullptr) {
         edit_world->ctx<engine::ecs::WorldSerializer>() = engine::ecs::WorldSerializer{};
     }
-    for (const std::weak_ptr<engine::ecs::WorldSerializer*>& weak : tracked_worlds_) {
+    for (const std::weak_ptr<engine::ecs::WorldSerializer*>& weak: tracked_worlds_) {
         if (const std::shared_ptr<engine::ecs::WorldSerializer*> slot = weak.lock(); slot && *slot != nullptr) {
             **slot = engine::ecs::WorldSerializer{};
         }
@@ -65,6 +64,7 @@ void EditModule::unload(engine::ecs::World* edit_world) {
         return;
     }
     host_->unload_catalog(assets_dir_);
+    assets_->clear_object_loaders();
     module_.reset();
     assets_dir_.clear();
 }
@@ -74,9 +74,7 @@ void EditModule::reset(engine::ecs::World* edit_world) {
     last_module_path_.clear();
 }
 
-void EditModule::remember_module(std::filesystem::path module) {
-    last_module_path_ = std::move(module);
-}
+void EditModule::remember_module(std::filesystem::path module) { last_module_path_ = std::move(module); }
 
 void EditModule::register_components(engine::ecs::WorldSerializer& serializer) const {
     serializer = engine::ecs::WorldSerializer{};
@@ -101,12 +99,8 @@ void EditModule::register_components(engine::ecs::World& world) const {
     tracked_worlds_.push_back(anchor.slot);
 }
 
-bool EditModule::loaded() const noexcept {
-    return module_.has_value();
-}
+bool EditModule::loaded() const noexcept { return module_.has_value(); }
 
-const std::filesystem::path& EditModule::module_path() const noexcept {
-    return last_module_path_;
-}
+const std::filesystem::path& EditModule::module_path() const noexcept { return last_module_path_; }
 
-}
+} // namespace editor
