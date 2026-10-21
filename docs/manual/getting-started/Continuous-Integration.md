@@ -15,7 +15,7 @@ An engine version is `<major>.<minor>.<patch><stage>`:
 | `0.1.7a` | Alpha: the eighth release of 0.1. Alpha is the current stage |
 | `0.2.6b` | Beta |
 | `1.0.0` | Production (no letter) |
-| `0.1.0a-dev` | An SDK somebody built on their own machine. Never a release |
+| `0.2.6a-dev` | An SDK somebody built on their own machine. Never a release |
 
 Every merge into the engine's `main` branch publishes a release, so the patch grows quickly (`0.1.99a` is followed by `0.1.100a`). The number goes on when the stage changes (`0.2.5a`, then `0.2.6b`). Versions are ordered by number, then alpha, beta, production.
 
@@ -98,7 +98,7 @@ jobs:
             !export/**/*.pdb
 ```
 
-The Release `wind_editor.exe` is a GUI program, so a shell would not wait for it: `Start-Process -Wait` does, and the log file carries its output. Use a Visual Studio 2026 runner: the SDK is built with its compiler, and a game module or export built with another one is refused (the build id covers the compiler). Keep the project out of `%TEMP%`: MSBuild stops with `MSB8029` there. A checkout in `GITHUB_WORKSPACE` is fine.
+The Release `wind_editor.exe` is a GUI program, so a shell would not wait for it: `Start-Process -Wait` does, and the log file carries its output. Use a Visual Studio 2026 runner: the SDK is built with its compiler, and a game module or export built with another one is refused (the build id covers the compiler). A checkout in `GITHUB_WORKSPACE` is fine.
 
 ---
 

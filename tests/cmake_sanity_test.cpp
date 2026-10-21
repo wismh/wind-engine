@@ -565,6 +565,7 @@ TEST(Scaffold, ExportLinksThePrebuiltPlayerLibrariesWhenTheSdkHasThemAndFallsBac
     // The engine repo builds a player (static engine of one flavour) in a tree of its own, exports it with every static
     // library it links, and installs it for the SDK in <sdk>/player/<flavour>/. Development has the profiler and the
     // CLI server in every configuration, Shipping neither; both link the release DLL CRT.
+    EXPECT_NE(cmake.find("if(CMAKE_GENERATOR MATCHES \"^Visual Studio\")"), std::string::npos);
     EXPECT_NE(cmake.find("set(ENGINE_PLAYER \"\" CACHE STRING"), std::string::npos);
     EXPECT_NE(cmake.find("if(ENGINE_EDITOR OR ENGINE_PLAYER STREQUAL \"Development\")\n    set(_engine_tools_config 1)"),
             std::string::npos);

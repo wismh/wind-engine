@@ -86,7 +86,7 @@ jobs:
 
   windows:
     # tests/cli_server_test.cpp does not compile with Visual Studio 2022's MSVC (C2017 on a raw string with quotes in
-    # a macro argument). The repository's presets use Visual Studio 2026, so this job does too.
+    # a macro argument). The compiler is Visual Studio 2026. The generator is Ninja Multi-Config (preset vs-editor).
     name: Windows (MSVC, Visual Studio 2026)
     runs-on: windows-2025-vs2026
     timeout-minutes: 90
@@ -94,10 +94,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Ninja
+        shell: pwsh
+        run: powershell -File tools/ci/ensure_ninja.ps1
       - name: Configure
-        run: >
-          cmake -S . -B build-editor -G "Visual Studio 18 2026" -DENGINE_BUILD_TESTS=ON -DENGINE_WITH_WINDOW=ON
-          -DENGINE_WITH_AUDIO=ON -DENGINE_EDITOR=ON
+        shell: pwsh
+        run: cmake --preset vs-editor
       - name: Build
         run: cmake --build build-editor --config Release --parallel
       - name: Tests

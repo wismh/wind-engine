@@ -54,6 +54,7 @@ std::optional<int> BatchRun::start(BatchSetup setup) {
             .target = project.target,
             .sdk_config = sdk->config,
             .development = setup.development,
+            .environment = std::move(setup.environment),
     });
     running_ = true;
     return std::nullopt;
