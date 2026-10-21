@@ -304,6 +304,13 @@ Node& Node::add(Node child) {
             return *this;
         }
     }
+    if (element_.kind == ElementKind::ContextMenu && child.element_.kind == ElementKind::Menu) {
+        for (Element& sub_popup : child.element_.children) {
+            if (is_popup_kind(sub_popup.kind)) {
+                sub_popup.placement = PopupPlacement::RightStart;
+            }
+        }
+    }
     element_.children.push_back(std::move(child.element_));
     return *this;
 }

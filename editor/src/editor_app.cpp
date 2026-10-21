@@ -18,6 +18,7 @@
 #include <engine/ui/canvas.h>
 
 #include <chrono>
+#include <string>
 #include <system_error>
 #include <utility>
 #include <vector>
@@ -29,7 +30,7 @@ namespace {
 const engine::WindowDesc kIdleGameWindow{.title = "Game", .size = {800, 600}};
 const engine::WindowDesc kEditorWindow{.title = "Wind Editor", .size = {1280, 800}};
 constexpr char kNoProjectMessage[] =
-        "No project to open. Start the editor from the Wind launcher, or run wind_editor --project <dir>.";
+    "No project to open. Start the editor from the Wind launcher, or run wind_editor --project <dir>.";
 
 std::string editor_window_title(const std::optional<engine::SdkManifest>& sdk) {
     if (sdk && !sdk->version.empty()) {
@@ -64,7 +65,7 @@ std::filesystem::path user_data() {
         return *user_data;
     }
     engine::log::warn("Editor: no user data directory (" + user_data.error().message() +
-            "). Game module copies go to the temp directory and the panel layout is not kept");
+                      "). Game module copies go to the temp directory and the panel layout is not kept");
     return {};
 }
 
@@ -85,7 +86,7 @@ DockLayoutFile layout_file(const std::filesystem::path& user_data) {
     return DockLayoutFile{user_data / "dock_layout.toml"};
 }
 
-}
+} // namespace
 
 EditorApp::~EditorApp() {
     session_.reset();
@@ -99,17 +100,19 @@ int EditorApp::run(const EditorOptions& options) {
         return 1;
     }
     return host_.run(engine::RunHooks{
-            .on_start = [this] {
+        .on_start =
+            [this] {
                 if (play_at_start_) {
                     play_at_start_ = false;
                     play();
                 }
             },
-            .on_frame_end = [this] { on_frame_end(); },
-            .on_quit = [this] { on_quit(); },
-            .cli = engine::CliCommands{
-                    .kind = "editor",
-                    .handle = [this](const engine::CliCommand& command) { return cli_->handle(command, facts()); },
+        .on_frame_end = [this] { on_frame_end(); },
+        .on_quit = [this] { on_quit(); },
+        .cli =
+            engine::CliCommands{
+                .kind = "editor",
+                .handle = [this](const engine::CliCommand& command) { return cli_->handle(command, facts()); },
             },
     });
 }
@@ -128,7 +131,7 @@ bool EditorApp::start(const EditorOptions& options) {
     if (!host_.load_catalog(host_.assets_root() / "editor")) {
         host_.fatal().report("Failed to load the editor catalog (assets/editor/catalog.toml)");
     }
-    for (const std::string& arg : options.unknown) {
+    for (const std::string& arg: options.unknown) {
         engine::log::warn("Editor: unknown argument " + arg);
     }
 
@@ -149,12 +152,12 @@ bool EditorApp::start(const EditorOptions& options) {
     editor_window.style.borderless = true;
     toolbar_->view_model()->windowTitle = editor_window.title;
     auto window = engine::UiWindow::open(services.windows, services.worlds, *world_, editor_window,
-            engine::ui::UiCanvas{
-                    .document = assets::ui::editor,
-                    .stylesheet = assets::css::editor,
-                    .data_context = toolbar_->view_model(),
-                    .fit = engine::ui::UiFit::FillWindow,
-            });
+                                         engine::ui::UiCanvas{
+                                             .document = assets::ui::editor,
+                                             .stylesheet = assets::css::editor,
+                                             .data_context = toolbar_->view_model(),
+                                             .fit = engine::ui::UiFit::FillWindow,
+                                         });
     if (!window) {
         host_.fatal().report("Failed to open the editor window");
     }
@@ -169,6 +172,8 @@ bool EditorApp::start(const EditorOptions& options) {
     panels_.emplace(layout_file(data));
     panels_->spawn(*world_, window_, services.windows);
     EditorViewModel& menu = *toolbar_->view_model();
+    menu.undo.bind_to<EditorPanels, &EditorPanels::undo_edit, &EditorPanels::can_undo_edit>(*panels_);
+    menu.redo.bind_to<EditorPanels, &EditorPanels::redo_edit, &EditorPanels::can_redo_edit>(*panels_);
     menu.showProject.bind_to<EditorPanels, &EditorPanels::show_project>(*panels_);
     menu.showHierarchy.bind_to<EditorPanels, &EditorPanels::show_hierarchy>(*panels_);
     menu.showWorld.bind_to<EditorPanels, &EditorPanels::show_world>(*panels_);
@@ -180,9 +185,9 @@ bool EditorApp::start(const EditorOptions& options) {
     opening_overlay_->spawn(*world_, window_);
     // Game, not Bind: run_bind of this world (registered by enable_ui) must see this frame's copy.
     world_->add_system(engine::ecs::Schedule::Frame, engine::ecs::Phase::Game,
-            [this](engine::ecs::World& world) { panels_->frame(world); });
+                       [this](engine::ecs::World& world) { panels_->frame(world); });
     world_->add_system(engine::ecs::Schedule::Frame, engine::ecs::Phase::Render,
-            [this](engine::ecs::World& world) { panels_->render(world, host_.services().worlds.deps()); });
+                       [this](engine::ecs::World& world) { panels_->render(world, host_.services().worlds.deps()); });
 
     const std::filesystem::path live = live_root(data);
     const std::size_t purged = engine::purge_game_module_copies(live);
@@ -193,7 +198,7 @@ bool EditorApp::start(const EditorOptions& options) {
     edit_module_.emplace(*play_host_, services.assets, live);
     panels_->world_view().set_assets(&services.assets);
     panels_->world_view().set_component_registrar(
-            [this](engine::ecs::WorldSerializer& s) { edit_module_->register_components(s); });
+        [this](engine::ecs::WorldSerializer& s) { edit_module_->register_components(s); });
     session_.emplace(services, *play_host_, live, kIdleGameWindow);
     build_.emplace(services.processes);
     toolbar_->show_state(RunState::Idle);
@@ -247,6 +252,9 @@ void EditorApp::on_frame_end() {
     if (assets_watch_.poll(std::chrono::steady_clock::now())) {
         panels_->explorer().rescan();
     }
+    if (std::string notice = panels_->explorer().take_notice(); !notice.empty()) {
+        toolbar_->show_status(std::move(notice));
+    }
     switch (toolbar_->take_request()) {
         case EditorRequest::None:
             break;
@@ -284,9 +292,9 @@ void EditorApp::on_quit() {
 
 EditorFacts EditorApp::facts() const {
     return EditorFacts{
-            .project = project_ ? project_->name : std::string{},
-            .project_dir = project_dir_,
-            .sdk = sdk_ ? sdk_->version : std::string{},
+        .project = project_ ? project_->name : std::string{},
+        .project_dir = project_dir_,
+        .sdk = sdk_ ? sdk_->version : std::string{},
     };
 }
 
@@ -546,4 +554,4 @@ void EditorApp::stop(std::string status) {
     toolbar_->show_status(std::move(status));
 }
 
-}
+} // namespace editor

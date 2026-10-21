@@ -68,7 +68,7 @@ The relayout uses `ctx<UiLayoutPainters>()`. The windowed presentation sets that
 
 ## Commands, checkbox, inspector
 
-If the hit has a command and `can_execute()` is true, `execute()` runs.
+A left click on a hit with a command runs it when `can_execute()` is true. A right click does not: it opens the `ContextMenu` on the hit element or the nearest ancestor that has one, writing `1` through that menu's `open` binding, and does not toggle a checkbox or run the control's command. A right click inside an already open popup leaves that popup to the dismiss rules below.
 
 A bound command sets `disabled` from `!can_execute()` on every bind, so `:disabled` matches. `TextInput` does not: its command is Enter-to-submit, and a disabled field ignores keys and text. Return still checks `can_execute()`.
 
