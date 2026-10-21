@@ -13,8 +13,10 @@
 
 #include <charconv>
 #include <cstdint>
+#include <cstdlib>
 #include <format>
 #include <optional>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -69,11 +71,22 @@ std::string_view trim(std::string_view text) {
     return text;
 }
 
-bool parse_all(std::string_view text, auto& out) {
+bool parse_all(std::string_view text, std::int64_t& out) {
     const char* begin = text.data();
     const char* end = begin + text.size();
     const std::from_chars_result parsed = std::from_chars(begin, end, out);
     return parsed.ec == std::errc{} && parsed.ptr == end;
+}
+
+// strtod, not from_chars: Apple's libc++ has no floating-point from_chars before Xcode 16.3.
+bool parse_all(std::string_view text, double& out) {
+    if (text.empty() || text.size() > 64) {
+        return false;
+    }
+    const std::string copy(text);
+    char* end = nullptr;
+    out = std::strtod(copy.c_str(), &end);
+    return end == copy.c_str() + copy.size();
 }
 
 std::optional<engine::ecs::FieldValue> parse_number(std::string_view text, bool integer) {
