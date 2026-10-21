@@ -21,6 +21,9 @@ public:
     engine::ui::Bindable<std::string> maxRestoreLabel{std::string("\xe2\x96\xa1")};
     engine::ui::Bindable<bool> isMaximized{false};
 
+    engine::ui::MethodCommand undo;
+    engine::ui::MethodCommand redo;
+
     engine::ui::MethodCommand togglePlay;
     engine::ui::MethodCommand refreshProject;
     engine::ui::MethodCommand exportGame;

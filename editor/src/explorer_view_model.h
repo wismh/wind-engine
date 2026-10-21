@@ -19,6 +19,13 @@ public:
     // The project directory above the tree, or why there is no tree.
     engine::ui::Bindable<std::string> rootText;
     engine::ui::BindableList<std::shared_ptr<ExplorerRowViewModel>> rows;
+    // The menu of an empty part of the tree: new files and paste land in the project root.
+    engine::ui::Bindable<bool> blankMenuOpen;
+    engine::ui::MethodCommand blankNewFolder;
+    engine::ui::MethodCommand blankNewWorld;
+    engine::ui::MethodCommand blankNewHeader;
+    engine::ui::MethodCommand blankNewSource;
+    engine::ui::MethodCommand blankPaste;
 };
 
 }

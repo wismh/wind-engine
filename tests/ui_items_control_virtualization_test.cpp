@@ -4,12 +4,14 @@
 
 #include <engine/render/commands.h>
 #include <engine/ui/binding_id.h>
+#include <engine/ui/command.h>
 #include <engine/ui/document.h>
 #include <engine/ui/stylesheet.h>
 #include <engine/ui/view_model.h>
 
 #include <algorithm>
 #include <cstddef>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -1077,4 +1079,266 @@ TEST(UiItemsControlVirtualization, BoundScrollPastTheEndShowsTheLastRows) {
     ASSERT_FALSE(window.empty());
     EXPECT_EQ(window.back()->generated_owner, rows.back().get());
     EXPECT_FLOAT_EQ(vm.scroll.get(), 1.0e9f) << "the view-model keeps its value";
+}
+
+// The editor Inspector: a title, then a ScrollView whose content is a stack of one variable-height
+// section list, and each section has fixed-height line and field lists. The canvas is not at the
+// window origin, the way a docked panel is.
+class InspectorLineVm final : public engine::ui::ViewModel {
+public:
+    engine::ui::Bindable<std::string> text;
+    InspectorLineVm() { property(engine::ui::intern("text"), text); }
+};
+
+class InspectorFieldVm final : public engine::ui::ViewModel {
+public:
+    engine::ui::Bindable<std::string> label;
+    engine::ui::Bindable<std::string> nameDisplay{std::string("flex")};
+    engine::ui::Bindable<std::string> text;
+    engine::ui::Bindable<std::string> textDisplay{std::string("none")};
+    engine::ui::Bindable<std::string> value;
+    engine::ui::Bindable<std::string> inputDisplay{std::string("flex")};
+    engine::ui::Bindable<std::string> x;
+    engine::ui::Bindable<std::string> xDisplay{std::string("none")};
+    engine::ui::Bindable<std::string> y;
+    engine::ui::Bindable<std::string> yDisplay{std::string("none")};
+    engine::ui::Bindable<std::string> z;
+    engine::ui::Bindable<std::string> zDisplay{std::string("none")};
+    engine::ui::Bindable<std::string> w;
+    engine::ui::Bindable<std::string> wDisplay{std::string("none")};
+
+    InspectorFieldVm() {
+        property(engine::ui::intern("label"), label);
+        property(engine::ui::intern("nameDisplay"), nameDisplay);
+        property(engine::ui::intern("text"), text);
+        property(engine::ui::intern("textDisplay"), textDisplay);
+        property(engine::ui::intern("value"), value);
+        property(engine::ui::intern("inputDisplay"), inputDisplay);
+        property(engine::ui::intern("x"), x);
+        property(engine::ui::intern("xDisplay"), xDisplay);
+        property(engine::ui::intern("y"), y);
+        property(engine::ui::intern("yDisplay"), yDisplay);
+        property(engine::ui::intern("z"), z);
+        property(engine::ui::intern("zDisplay"), zDisplay);
+        property(engine::ui::intern("w"), w);
+        property(engine::ui::intern("wDisplay"), wDisplay);
+    }
+};
+
+class InspectorSectionVm final : public engine::ui::ViewModel {
+public:
+    engine::ui::Bindable<std::string> heading;
+    engine::ui::BindableList<std::shared_ptr<InspectorLineVm>> lines;
+    engine::ui::BindableList<std::shared_ptr<InspectorFieldVm>> fields;
+
+    engine::ui::Bindable<bool> expanded{true};
+    engine::ui::Bindable<std::string> removeDisplay{std::string("none")};
+
+    InspectorSectionVm() {
+        property(engine::ui::intern("heading"), heading);
+        property(engine::ui::intern("lines"), lines);
+        property(engine::ui::intern("fields"), fields);
+        property(engine::ui::intern("expanded"), expanded);
+        property(engine::ui::intern("removeDisplay"), removeDisplay);
+    }
+};
+
+class InspectorVm final : public engine::ui::ViewModel {
+public:
+    engine::ui::Bindable<std::string> title;
+    engine::ui::Bindable<std::string> subtitle;
+    engine::ui::BindableList<std::shared_ptr<InspectorSectionVm>> sections;
+    engine::ui::Bindable<std::string> addDisplay{std::string("flex")};
+    engine::ui::BindableList<std::shared_ptr<InspectorSectionVm>> addables;
+
+    InspectorVm() {
+        property(engine::ui::intern("title"), title);
+        property(engine::ui::intern("subtitle"), subtitle);
+        property(engine::ui::intern("sections"), sections);
+        property(engine::ui::intern("addDisplay"), addDisplay);
+        property(engine::ui::intern("addables"), addables);
+        command(engine::ui::intern("toggleAdd"), toggle_add_);
+    }
+
+private:
+    struct Nop final : engine::ui::ICommand {
+        void execute() override {}
+        [[nodiscard]] bool can_execute() const override { return true; }
+    };
+    Nop toggle_add_;
+};
+
+void collect_texts(const engine::ui::Element& element, std::vector<std::string>& out) {
+    if (element.kind == engine::ui::ElementKind::ItemTemplate) {
+        return;
+    }
+    if (!element.display_none && !element.text.empty() && !element.is_virtualization_spacer) {
+        out.push_back(element.text + " @" + std::to_string(static_cast<int>(element.layout_rect.x)) + "," +
+                      std::to_string(static_cast<int>(element.layout_rect.y)) + " " +
+                      std::to_string(static_cast<int>(element.layout_rect.w)) + "x" +
+                      std::to_string(static_cast<int>(element.layout_rect.h)));
+    }
+    for (const engine::ui::Element& child : element.children) {
+        collect_texts(child, out);
+    }
+    for (const engine::ui::Element& child : element.generated_items) {
+        collect_texts(child, out);
+    }
+}
+
+TEST(UiItemsControlVirtualization, InspectorSectionsStayVisibleInADockedPanel) {
+    auto entity = std::make_shared<InspectorSectionVm>();
+    entity->heading.set("Entity");
+    auto id = std::make_shared<InspectorLineVm>();
+    id->text.set("id: hero");
+    entity->lines.set({id});
+
+    auto transform = std::make_shared<InspectorSectionVm>();
+    transform->heading.set("transform");
+    auto name = std::make_shared<InspectorFieldVm>();
+    name->label.set("name");
+    name->value.set("hero-name");
+
+    auto position = std::make_shared<InspectorFieldVm>();
+    position->label.set("position");
+    position->inputDisplay.set("none");
+    position->xDisplay.set("flex");
+    position->yDisplay.set("flex");
+    position->zDisplay.set("flex");
+    position->wDisplay.set("flex");
+    position->x.set("1");
+    position->y.set("2");
+    position->z.set("3");
+    position->w.set("4");
+
+    auto rotation = std::make_shared<InspectorFieldVm>();
+    rotation->label.set("rotation");
+    rotation->inputDisplay.set("none");
+    rotation->xDisplay.set("flex");
+    rotation->yDisplay.set("flex");
+    rotation->zDisplay.set("flex");
+    rotation->x.set("10");
+    rotation->y.set("20");
+    rotation->z.set("30");
+    transform->fields.set({name, position, rotation});
+
+    InspectorVm vm;
+    vm.title.set("hero");
+    vm.subtitle.set("Entity");
+    vm.addDisplay.set("flex");
+    vm.sections.set({entity, transform});
+
+    const std::string xml_path = std::string(ENGINE_SOURCE_DIR) + "/editor/assets/ui/inspector.xml";
+    const std::string css_path = std::string(ENGINE_SOURCE_DIR) + "/editor/assets/css/panels.css";
+    std::ifstream xml_in(xml_path);
+    std::ifstream css_in(css_path);
+    ASSERT_TRUE(xml_in.is_open()) << xml_path;
+    ASSERT_TRUE(css_in.is_open()) << css_path;
+    const std::string xml{std::istreambuf_iterator<char>(xml_in), {}};
+    const std::string css{std::istreambuf_iterator<char>(css_in), {}};
+
+    auto parsed = engine::ui::parse_xml(xml, nullptr, &vm);
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ui::Stylesheet sheet = must_parse_css(css);
+    const engine::render::Rect canvas{1200.0f, 400.0f, 280.0f, 500.0f};
+    std::string seen;
+    for (int frame = 0; frame < 4; ++frame) {
+        // The editor sets the same section pointers every frame, then one sync_layout (full the first time, partial
+        // after). A partial pass that never places the new rows leaves them at the window origin, outside the panel.
+        vm.sections.set({entity, transform});
+        (void) engine::ui::apply_bindings(*parsed, vm);
+        (void) engine::ui::sync_layout(*parsed, &sheet, nullptr, canvas, 1600.0f, 900.0f);
+        std::vector<std::string> texts;
+        collect_texts(parsed->root, texts);
+        seen.clear();
+        for (const std::string& text : texts) {
+            seen += text;
+            seen += " | ";
+        }
+    }
+    const engine::ui::Element* scroll = nullptr;
+    const auto find_scroll = [&](auto&& self, const engine::ui::Element& element) -> void {
+        if (element.kind == engine::ui::ElementKind::ScrollView) {
+            scroll = &element;
+        }
+        for (const engine::ui::Element& child : element.children) {
+            self(self, child);
+        }
+    };
+    find_scroll(find_scroll, parsed->root);
+    ASSERT_NE(scroll, nullptr) << seen;
+    EXPECT_GT(scroll->layout_rect.h, 100.0f) << seen;
+
+    const auto placed = [&](std::string_view text) -> const engine::ui::Element* {
+        const engine::ui::Element* found = nullptr;
+        const auto walk = [&](auto&& self, const engine::ui::Element& element) -> void {
+            if (element.kind != engine::ui::ElementKind::ItemTemplate && !element.display_none &&
+                    element.text == text && element.layout_rect.y >= scroll->layout_rect.y) {
+                found = &element;
+            }
+            for (const engine::ui::Element& child : element.children) {
+                self(self, child);
+            }
+            for (const engine::ui::Element& child : element.generated_items) {
+                self(self, child);
+            }
+        };
+        walk(walk, parsed->root);
+        return found;
+    };
+
+    const engine::ui::Element* line = placed("id: hero");
+    ASSERT_NE(line, nullptr) << seen;
+    EXPECT_GT(line->layout_rect.w, 40.0f) << seen;
+    EXPECT_GE(line->layout_rect.y, scroll->layout_rect.y) << seen;
+    EXPECT_LT(line->layout_rect.y, scroll->layout_rect.y + scroll->layout_rect.h) << seen;
+
+    // The section heading is a button. A `calc(100% - …)` against an indefinite parent width
+    // lays it out at 0, which clips the title and leaves the body looking empty.
+    const engine::ui::Element* heading = placed("Entity");
+    ASSERT_NE(heading, nullptr) << seen;
+    EXPECT_GT(heading->layout_rect.w, 40.0f) << seen;
+
+    const engine::ui::Element* add = placed("Add Component");
+    ASSERT_NE(add, nullptr) << seen;
+    EXPECT_GT(add->layout_rect.w, 40.0f) << seen;
+    EXPECT_LT(add->layout_rect.h, 40.0f) << seen;
+
+    // Four axis boxes share the row. A fixed width would leave the later ones past the panel
+    // while the first were still on screen.
+    const engine::ui::Element* axes[4] = {placed("1"), placed("2"), placed("3"), placed("4")};
+    for (const engine::ui::Element* axis : axes) {
+        ASSERT_NE(axis, nullptr) << seen;
+        EXPECT_GT(axis->layout_rect.w, 8.0f) << seen;
+        EXPECT_GE(axis->layout_rect.x, scroll->layout_rect.x) << seen;
+        EXPECT_LE(axis->layout_rect.x + axis->layout_rect.w, scroll->layout_rect.x + scroll->layout_rect.w + 1.0f)
+                << seen;
+    }
+    EXPECT_NEAR(axes[0]->layout_rect.w, axes[3]->layout_rect.w, 1.0f) << seen;
+
+    // One edit box and a row of them fill the same column, out to the right edge of the row.
+    const engine::ui::Element* single = placed("hero-name");
+    const engine::ui::Element* euler[3] = {placed("10"), placed("20"), placed("30")};
+    ASSERT_NE(single, nullptr) << seen;
+    EXPECT_GT(single->layout_rect.w, 80.0f) << seen;
+    const engine::ui::Element* groups[2][4] = {
+            {axes[0], axes[1], axes[2], axes[3]},
+            {euler[0], euler[1], euler[2], nullptr},
+    };
+    for (const auto& group : groups) {
+        const engine::ui::Element* first = group[0];
+        const engine::ui::Element* last = group[0];
+        ASSERT_NE(first, nullptr) << seen;
+        for (const engine::ui::Element* axis : group) {
+            if (axis == nullptr) {
+                break;
+            }
+            ASSERT_NE(axis, nullptr) << seen;
+            EXPECT_NEAR(axis->layout_rect.w, first->layout_rect.w, 1.0f) << seen;
+            last = axis;
+        }
+        EXPECT_NEAR(first->layout_rect.x, single->layout_rect.x, 1.0f) << seen;
+        EXPECT_NEAR(last->layout_rect.x + last->layout_rect.w, single->layout_rect.x + single->layout_rect.w, 1.0f)
+                << seen;
+    }
 }

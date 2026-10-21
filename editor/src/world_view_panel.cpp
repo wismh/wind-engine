@@ -1,5 +1,8 @@
 #include "world_view_panel.h"
 
+#include "command_history.h"
+#include "entity_edit.h"
+
 #include <engine/builtin_ids.h>
 #include <engine/core/time.h>
 #include <engine/ecs/camera.h>
@@ -247,7 +250,103 @@ void WorldViewPanel::set_component_registrar(std::function<void(engine::ecs::Wor
     register_components_ = std::move(registrar);
 }
 
+void WorldViewPanel::mark_scene_dirty() noexcept {
+    scene_dirty_ = true;
+    is_dirty_ = true;
+}
+
+void WorldViewPanel::sync_entity_dirty(int entity_steps) {
+    entity_steps_ = entity_steps;
+    is_dirty_ = scene_dirty_ || gizmo_drag_dirty_ || entity_steps_ != saved_entity_steps_;
+}
+
+void WorldViewPanel::set_journal(CommandHistory* journal, std::function<void()> on_history) {
+    journal_ = journal;
+    on_history_ = std::move(on_history);
+}
+
+void WorldViewPanel::begin_gizmo_command(engine::ecs::Entity entity) {
+    gizmo_command_open_ = false;
+    gizmo_drag_dirty_ = false;
+    if (journal_ == nullptr) {
+        return;
+    }
+    gizmo_command_entity_ = entity;
+    gizmo_command_open_ = write_component(edit_world_, entity, "transform", gizmo_command_before_);
+}
+
+void WorldViewPanel::note_gizmo_edit() noexcept {
+    if (journal_ != nullptr && gizmo_command_open_) {
+        gizmo_drag_dirty_ = true;
+        is_dirty_ = true;
+        return;
+    }
+    mark_scene_dirty();
+}
+
+void WorldViewPanel::finish_gizmo_drag() {
+    const bool dragging = gizmo_drag_axis_ != GizmoAxis::None;
+    if (!dragging && !gizmo_command_open_) {
+        return;
+    }
+    if (dragging) {
+        gizmo_drag_axis_ = GizmoAxis::None;
+        drag_button_ = engine::MouseButton::None;
+        reset_drag_cursor_ = true;
+    }
+    gizmo_drag_dirty_ = false;
+    if (!gizmo_command_open_) {
+        return;
+    }
+    gizmo_command_open_ = false;
+    engine::ecs::FieldTable after;
+    if (journal_ != nullptr && edit_world_.valid(gizmo_command_entity_) &&
+            write_component(edit_world_, gizmo_command_entity_, "transform", after) && after != gizmo_command_before_) {
+        journal_->push(std::make_unique<EntityEditCommand>(&edit_world_, assets_, gizmo_command_entity_, "transform",
+                EntityEditCommand::Change::Set, std::move(gizmo_command_before_), std::move(after), std::string{}));
+        if (on_history_) {
+            on_history_();
+        }
+        return;
+    }
+    if (edit_world_.valid(gizmo_command_entity_)) {
+        (void)read_component(edit_world_, gizmo_command_entity_, "transform", gizmo_command_before_, assets_);
+    }
+    if (on_history_) {
+        on_history_();
+    }
+}
+
+void WorldViewPanel::release_drag_cursor(engine::ecs::World& editor_world) {
+    if (!reset_drag_cursor_) {
+        return;
+    }
+    reset_drag_cursor_ = false;
+    if (drag_window_ != engine::WindowId{}) {
+        engine::ui::presentation_of(editor_world).cursors.cursors[drag_window_] = engine::ui::Cursor::Default;
+    }
+}
+
+void WorldViewPanel::set_edit_reset_hook(std::function<void()> hook) {
+    edit_reset_ = std::move(hook);
+}
+
+void WorldViewPanel::drop_edit_history() {
+    gizmo_command_open_ = false;
+    gizmo_drag_dirty_ = false;
+    gizmo_drag_axis_ = GizmoAxis::None;
+    drag_button_ = engine::MouseButton::None;
+    if (edit_reset_) {
+        edit_reset_();
+    }
+    entity_steps_ = 0;
+    saved_entity_steps_ = 0;
+    scene_dirty_ = false;
+    is_dirty_ = false;
+}
+
 bool WorldViewPanel::open_world(const std::filesystem::path& path, std::string_view display_name) {
+    drop_edit_history();
     open_path_ = path;
     open_display_name_ = display_name.empty() ? path_text(path.filename()) : std::string(display_name);
     edit_world_ = engine::ecs::World{};
@@ -279,6 +378,7 @@ bool WorldViewPanel::open_world(const std::filesystem::path& path, std::string_v
 
     world_loaded_ = true;
     is_dirty_ = false;
+    scene_dirty_ = false;
     held_ctrl_ = false;
     view_model_->viewportBg = std::string(kTransparentViewportBg);
     view_model_->emptyText = std::string{};
@@ -318,16 +418,68 @@ bool WorldViewPanel::save_world() {
             return false;
         }
     }
+    saved_entity_steps_ = entity_steps_;
+    scene_dirty_ = false;
     is_dirty_ = false;
     return true;
 }
 
+void WorldViewPanel::retarget_open_file(const std::filesystem::path& project, std::string_view from_key,
+        std::string_view to_key) {
+    if (!world_loaded_ || open_path_.empty() || from_key.empty()) {
+        return;
+    }
+    std::error_code error;
+    const std::filesystem::path relative = std::filesystem::relative(open_path_, project, error);
+    if (error) {
+        return;
+    }
+    const std::u8string generic = relative.generic_u8string();
+    const std::string key(reinterpret_cast<const char*>(generic.data()), generic.size());
+    std::string next;
+    if (key == from_key) {
+        next = std::string(to_key);
+    } else if (key.size() > from_key.size() && key.starts_with(from_key) && key[from_key.size()] == '/') {
+        next = std::string(to_key);
+        next.append(key.substr(from_key.size()));
+    } else {
+        return;
+    }
+    const std::string previous_name = open_display_name_;
+    const auto* const next_chars = reinterpret_cast<const char8_t*>(next.data());
+    open_path_ = project / std::filesystem::path(std::u8string(next_chars, next.size()));
+    open_display_name_ = path_text(open_path_.filename());
+    std::string status = view_model_->statusText.get();
+    if (status.starts_with(previous_name)) {
+        status.replace(0, previous_name.size(), open_display_name_);
+        view_model_->statusText = std::move(status);
+    }
+}
+
+void WorldViewPanel::release_deleted_file(const std::filesystem::path& project, std::string_view deleted_key) {
+    if (!world_loaded_ || open_path_.empty() || deleted_key.empty()) {
+        return;
+    }
+    std::error_code error;
+    const std::filesystem::path relative = std::filesystem::relative(open_path_, project, error);
+    if (error) {
+        return;
+    }
+    const std::u8string generic = relative.generic_u8string();
+    const std::string key(reinterpret_cast<const char*>(generic.data()), generic.size());
+    const bool hit = key == deleted_key ||
+            (key.size() > deleted_key.size() && key.starts_with(deleted_key) && key[deleted_key.size()] == '/');
+    if (hit) {
+        close();
+    }
+}
+
 void WorldViewPanel::before_module_unload() {
+    drop_edit_history();
     edit_world_ = engine::ecs::World{};
     gizmo_hovered_ = GizmoAxis::None;
     gizmo_drag_axis_ = GizmoAxis::None;
     gizmo_visible_ = false;
-    is_dirty_ = false;
     held_ctrl_ = false;
 }
 
@@ -338,11 +490,11 @@ void WorldViewPanel::reload() {
 }
 
 void WorldViewPanel::close() {
+    drop_edit_history();
     open_path_.clear();
     open_display_name_.clear();
     edit_world_ = engine::ecs::World{};
     world_loaded_ = false;
-    is_dirty_ = false;
     held_ctrl_ = false;
     gizmo_mode_ = GizmoMode::Translate;
     gizmo_hovered_ = GizmoAxis::None;
@@ -404,6 +556,7 @@ void WorldViewPanel::reset_camera() {
 }
 
 void WorldViewPanel::set_gizmo_mode(GizmoMode mode) {
+    finish_gizmo_drag();
     gizmo_mode_ = mode;
     gizmo_hovered_ = GizmoAxis::None;
     gizmo_drag_axis_ = GizmoAxis::None;
@@ -441,6 +594,8 @@ void WorldViewPanel::handle_input(
 
     const engine::ui::UiCanvas* canvas = editor_world.try_get<engine::ui::UiCanvas>(world_canvas);
     if (!visible || !world_loaded_ || canvas == nullptr) {
+        finish_gizmo_drag();
+        release_drag_cursor(editor_world);
         if (drag_button_ != engine::MouseButton::None && drag_window_ != engine::WindowId{}) {
             engine::ui::presentation_of(editor_world).cursors.cursors[drag_window_] = engine::ui::Cursor::Default;
         }
@@ -452,8 +607,12 @@ void WorldViewPanel::handle_input(
         return;
     }
 
+    release_drag_cursor(editor_world);
+
     const engine::render::Rect viewport = viewport_rect_of(canvas->rect);
     if (viewport.w <= 0.0f || viewport.h <= 0.0f) {
+        finish_gizmo_drag();
+        release_drag_cursor(editor_world);
         if (drag_button_ != engine::MouseButton::None && drag_window_ != engine::WindowId{}) {
             engine::ui::presentation_of(editor_world).cursors.cursors[drag_window_] = engine::ui::Cursor::Default;
         }
@@ -534,6 +693,7 @@ void WorldViewPanel::handle_input(
                     const auto selected = resolve_selected_entity();
                     if (selected) {
                         gizmo_drag_axis_ = gizmo_hovered_;
+                        begin_gizmo_command(*selected);
                         gizmo_drag_start_world_pos_ = engine::ecs::world_position(edit_world_, *selected);
                         const auto* tr = edit_world_.try_get<engine::Transform>(*selected);
                         if (tr != nullptr) {
@@ -565,12 +725,17 @@ void WorldViewPanel::handle_input(
             }
         } else if (event.kind == engine::MouseEvent::Kind::Up) {
             if (event.button == drag_button_ || event.button == engine::MouseButton::None) {
-                if (drag_button_ != engine::MouseButton::None && drag_window_ != engine::WindowId{}) {
+                const bool gizmo = gizmo_drag_axis_ != GizmoAxis::None;
+                if (!gizmo && drag_button_ != engine::MouseButton::None && drag_window_ != engine::WindowId{}) {
                     engine::ui::presentation_of(editor_world).cursors.cursors[drag_window_] =
                             engine::ui::Cursor::Default;
                 }
-                drag_button_ = engine::MouseButton::None;
-                gizmo_drag_axis_ = GizmoAxis::None;
+                if (gizmo) {
+                    finish_gizmo_drag();
+                    release_drag_cursor(editor_world);
+                } else {
+                    drag_button_ = engine::MouseButton::None;
+                }
                 update_gizmo(viewport, event.position);
             }
         } else if (event.kind == engine::MouseEvent::Kind::Move) {
@@ -920,7 +1085,7 @@ void WorldViewPanel::apply_gizmo_drag(const engine::render::Rect& viewport, glm:
         const glm::quat rot_delta = glm::angleAxis(delta_angle, normal);
         tr->rotation = glm::normalize(rot_delta * gizmo_drag_start_rot_);
         engine::ecs::update_world_transforms(edit_world_);
-        is_dirty_ = true;
+        note_gizmo_edit();
         return;
     }
 
@@ -948,7 +1113,7 @@ void WorldViewPanel::apply_gizmo_drag(const engine::render::Rect& viewport, glm:
             tr->scale = new_scale;
         }
         engine::ecs::update_world_transforms(edit_world_);
-        is_dirty_ = true;
+        note_gizmo_edit();
         return;
     }
 
@@ -960,7 +1125,7 @@ void WorldViewPanel::apply_gizmo_drag(const engine::render::Rect& viewport, glm:
                     glm::vec3{delta_screen.x * world_per_pixel, -delta_screen.y * world_per_pixel, 0.0f};
             engine::ecs::set_world_position(edit_world_, *selected, new_pos);
             engine::ecs::update_world_transforms(edit_world_);
-            is_dirty_ = true;
+            note_gizmo_edit();
         } else {
             const engine::ui::WindowSize vp_size{
                     std::max(1, static_cast<int>(std::round(viewport.w))),
@@ -982,7 +1147,7 @@ void WorldViewPanel::apply_gizmo_drag(const engine::render::Rect& viewport, glm:
                 const glm::vec3 new_pos = gizmo_drag_start_world_pos_ + (hit_curr - hit_start);
                 engine::ecs::set_world_position(edit_world_, *selected, new_pos);
                 engine::ecs::update_world_transforms(edit_world_);
-                is_dirty_ = true;
+                note_gizmo_edit();
             }
         }
     } else {
@@ -999,7 +1164,7 @@ void WorldViewPanel::apply_gizmo_drag(const engine::render::Rect& viewport, glm:
         const glm::vec3 new_pos = gizmo_drag_start_world_pos_ + u * delta_t;
         engine::ecs::set_world_position(edit_world_, *selected, new_pos);
         engine::ecs::update_world_transforms(edit_world_);
-        is_dirty_ = true;
+        note_gizmo_edit();
     }
 }
 

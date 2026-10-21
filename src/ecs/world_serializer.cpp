@@ -240,6 +240,19 @@ void register_builtin_components(
             }
             return true;
         };
+        sprite_entry.remove = [](World& world, Entity entity) -> bool {
+            if (world.try_get<render::Sprite>(entity) == nullptr) {
+                return false;
+            }
+            world.remove<render::Sprite>(entity);
+            if (SerializedAssetRefs* refs = world.try_get<SerializedAssetRefs>(entity)) {
+                refs->sprite_texture = {};
+                refs->sprite_name.clear();
+                refs->sprite_mesh = {};
+                refs->sprite_material = {};
+            }
+            return true;
+        };
         entries.emplace("sprite", std::move(sprite_entry));
     }
 
@@ -288,6 +301,16 @@ void register_builtin_components(
                 *existing = std::move(a);
             } else {
                 world.emplace<render::SpriteAnimator>(entity, std::move(a));
+            }
+            return true;
+        };
+        anim_entry.remove = [](World& world, Entity entity) -> bool {
+            if (world.try_get<render::SpriteAnimator>(entity) == nullptr) {
+                return false;
+            }
+            world.remove<render::SpriteAnimator>(entity);
+            if (SerializedAssetRefs* refs = world.try_get<SerializedAssetRefs>(entity)) {
+                refs->animator_clip = {};
             }
             return true;
         };
@@ -351,6 +374,17 @@ void register_builtin_components(
                 *existing = std::move(r);
             } else {
                 world.emplace<render::Renderable>(entity, std::move(r));
+            }
+            return true;
+        };
+        renderable_entry.remove = [](World& world, Entity entity) -> bool {
+            if (world.try_get<render::Renderable>(entity) == nullptr) {
+                return false;
+            }
+            world.remove<render::Renderable>(entity);
+            if (SerializedAssetRefs* refs = world.try_get<SerializedAssetRefs>(entity)) {
+                refs->renderable_mesh = {};
+                refs->renderable_material = {};
             }
             return true;
         };

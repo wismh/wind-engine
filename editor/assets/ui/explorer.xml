@@ -4,11 +4,39 @@
       <Label class="hint" text="{binding rootText}"/>
     </Stack>
     <ScrollView id="tree" class="box tree fill">
+      <ContextMenu open="{binding blankMenuOpen}">
+        <Menu text="New">
+          <MenuItem text="Folder" shortcut="Ctrl+Shift+N" command="{binding blankNewFolder}"/>
+          <MenuItem text="World" command="{binding blankNewWorld}"/>
+          <MenuItem text="Header" command="{binding blankNewHeader}"/>
+          <MenuItem text="Source" command="{binding blankNewSource}"/>
+        </Menu>
+        <MenuSeparator/>
+        <MenuItem text="Paste" shortcut="Ctrl+V" command="{binding blankPaste}"/>
+      </ContextMenu>
       <ItemsControl id="tree-rows" class="rows" items_source="{binding rows}">
         <ItemTemplate>
           <Stack class="rowline" direction="horizontal" var-row="{binding rowFill}" var-depth="{binding depth}">
             <Checkbox class="expander" checked="{binding expanded}" command="{binding toggle}"/>
-            <Button class="row" command="{binding select}" content="{binding label}"/>
+            <Button class="row" var-row-display="{binding rowDisplay}" command="{binding select}"
+                    content="{binding label}"/>
+            <TextInput class="rename" var-rename-display="{binding renameDisplay}" text="{binding editText}"
+                    command="{binding commitRename}"/>
+            <ContextMenu open="{binding menuOpen}">
+              <Menu text="New">
+                <MenuItem text="Folder" shortcut="Ctrl+Shift+N" command="{binding newFolder}"/>
+                <MenuItem text="World" command="{binding newWorld}"/>
+                <MenuItem text="Header" command="{binding newHeader}"/>
+                <MenuItem text="Source" command="{binding newSource}"/>
+              </Menu>
+              <MenuSeparator/>
+              <MenuItem text="Cut" shortcut="Ctrl+X" command="{binding cut}"/>
+              <MenuItem text="Copy" shortcut="Ctrl+C" command="{binding copy}"/>
+              <MenuItem text="Paste" shortcut="Ctrl+V" command="{binding paste}"/>
+              <MenuSeparator/>
+              <MenuItem text="Rename" shortcut="F2" command="{binding rename}"/>
+              <MenuItem text="Delete" shortcut="Del" command="{binding remove}"/>
+            </ContextMenu>
           </Stack>
         </ItemTemplate>
       </ItemsControl>
