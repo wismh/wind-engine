@@ -125,6 +125,33 @@ namespace {
         EXPECT_FLOAT_EQ(h.find("t")->font_size.value, 11.0f);
     }
 
+    TEST(UiStyleInheritance, MenuItemCanOverrideMenuTextAlign) {
+        Harness h(R"(
+            <Canvas>
+              <MenuBar>
+                <Menu class="menu" text="File">
+                  <MenuItem class="item" text="Export..."/>
+                </Menu>
+              </MenuBar>
+            </Canvas>
+        )", "Menu { text-align: center; } .menu-popup { text-align: left; } MenuItem { text-align: left; }");
+        h.frame();
+        const Element *menu = h.find("menu");
+        ASSERT_NE(menu, nullptr);
+        EXPECT_EQ(menu->text_align, engine::ui::UiAlign::Center);
+        const Element *item = h.find("item");
+        ASSERT_NE(item, nullptr);
+        EXPECT_EQ(item->text_align, engine::ui::UiAlign::Start);
+    }
+
+    TEST(UiStyleInheritance, TextAlignParsesRightAsEnd) {
+        Harness h(kXml, std::string(kPanelCss) + ".panel { text-align: right; }");
+        h.frame();
+        const Element *label = h.find("t");
+        ASSERT_NE(label, nullptr);
+        EXPECT_EQ(label->text_align, engine::ui::UiAlign::End);
+    }
+
     TEST(UiStyleInheritance, FontSizeInheritsTheComputedPixelsAndEmAndPercentFollowTheParent) {
         Harness h(kXml, std::string(kPanelCss) + ".panel { font-size: 20px; } .mid { font-size: 1.5em; } "
                                                  ".own { font-size: 50%; }");
