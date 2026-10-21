@@ -1,5 +1,6 @@
 #include "editor_panels.h"
 
+#include "canvas_pointer.h"
 #include <asset_ids.h>
 
 #include <engine/ecs/world.h>
@@ -85,6 +86,7 @@ DockLayout initial_layout(const DockLayoutFile& file) {
 EditorPanels::EditorPanels(DockLayoutFile layout_file)
     : layout_file_(std::move(layout_file)),
       explorer_(selection_, commands_),
+      explorer_input_(explorer_),
       hierarchy_(selection_),
       world_view_(selection_),
       ui_tree_(selection_),
@@ -176,9 +178,9 @@ void EditorPanels::frame(engine::ecs::World& world) {
     const engine::ui::WindowSize size = engine::ui::window_size_for(world, window_);
     space.area = engine::render::Rect{0.0f, kToolbarHeight, static_cast<float>(size.width),
             std::max(0.0f, static_cast<float>(size.height) - kToolbarHeight)};
-    focus_project_rename(world);
+    explorer_input_.focus_rename(world, explorer_canvas_);
     read_tree_keys(world);
-    read_project_drag(world);
+    explorer_input_.read_drag(world, explorer_canvas_);
     if (!explorer_.directory().empty()) {
         for (const ProjectRelocation& moved : explorer_.take_relocations()) {
             world_view_.retarget_open_file(explorer_.directory(), moved.from, moved.to);
@@ -345,147 +347,10 @@ engine::ecs::Entity EditorPanels::canvas(std::string_view key) const {
 }
 
 engine::ecs::Entity EditorPanels::tree_canvas_under_pointer(engine::ecs::World& world, engine::WindowId window) const {
-    const glm::vec2 pointer = engine::ui::pointer_for(world, window).position;
-    engine::ecs::Entity top{};
-    std::optional<int> top_order;
-    auto view = world.view<engine::ui::UiCanvas>();
-    for (const engine::ecs::Entity entity : view) {
-        const engine::ui::UiCanvas& canvas = view.get<engine::ui::UiCanvas>(entity);
-        if (canvas.window != window || !engine::ui::rect_contains(canvas.rect, pointer.x, pointer.y)) {
-            continue;
-        }
-        if (!top_order || canvas.order > *top_order) {
-            top = entity;
-            top_order = canvas.order;
-        }
-    }
+    const engine::ecs::Entity top = top_canvas_at_pointer(world, window);
     return top == explorer_canvas_ || top == hierarchy_canvas_ || top == ui_tree_canvas_
             ? top
             : engine::ecs::Entity{};
-}
-
-namespace {
-
-engine::ui::Element* find_rename_input(engine::ui::Element& element) {
-    if (element.kind == engine::ui::ElementKind::TextInput && !element.display_none) {
-        return &element;
-    }
-    for (engine::ui::Element& child : element.children) {
-        if (engine::ui::Element* found = find_rename_input(child)) {
-            return found;
-        }
-    }
-    for (engine::ui::Element& child : element.generated_items) {
-        if (engine::ui::Element* found = find_rename_input(child)) {
-            return found;
-        }
-    }
-    return nullptr;
-}
-
-}
-
-void EditorPanels::focus_project_rename(engine::ecs::World& world) {
-    if (!explorer_.rename_focus_pending()) {
-        return;
-    }
-    engine::ui::UiInstance* instance = world.try_get<engine::ui::UiInstance>(explorer_canvas_);
-    if (instance == nullptr) {
-        return;
-    }
-    engine::ui::Element* input = find_rename_input(instance->document.root);
-    if (input == nullptr) {
-        return;
-    }
-    const engine::ui::UiCanvas& canvas = world.get<engine::ui::UiCanvas>(explorer_canvas_);
-    engine::ui::set_focus(world, canvas.window, explorer_canvas_, input);
-    explorer_.rename_focused();
-}
-
-std::string EditorPanels::project_row_at(engine::ecs::World& world, glm::vec2 window_point) const {
-    engine::ui::UiInstance* instance = world.try_get<engine::ui::UiInstance>(explorer_canvas_);
-    const engine::ui::UiCanvas* canvas = world.try_get<engine::ui::UiCanvas>(explorer_canvas_);
-    if (instance == nullptr || canvas == nullptr) {
-        return {};
-    }
-    const engine::ui::UiCanvasSpace space =
-            engine::ui::canvas_layout_space(canvas->rect, canvas->fit, canvas->reference_size);
-    const float x = (window_point.x - space.offset.x) / space.scale;
-    const float y = (window_point.y - space.offset.y) / space.scale;
-    engine::ui::Element* hit = engine::ui::hit_test(instance->document.root, x, y);
-    while (hit != nullptr) {
-        if (hit->generated_owner != nullptr) {
-            const std::string key =
-                    explorer_.key_for(static_cast<const engine::ui::ViewModel*>(hit->generated_owner));
-            if (!key.empty()) {
-                return key;
-            }
-        }
-        if (hit->parent.is_null()) {
-            break;
-        }
-        const std::expected<engine::ui::Element*, engine::ui::ElementLookupError> parent =
-                instance->document.find(hit->parent);
-        if (!parent) {
-            break;
-        }
-        hit = *parent;
-    }
-    return {};
-}
-
-void EditorPanels::read_project_drag(engine::ecs::World& world) {
-    constexpr float kDragSlop = 4.0f;
-    for (const engine::MouseEvent& event : engine::ecs::EventReader<engine::MouseEvent>{world, mouse_cursor_}) {
-        const engine::ui::UiCanvas* canvas = world.try_get<engine::ui::UiCanvas>(explorer_canvas_);
-        if (canvas == nullptr || event.window != canvas->window) {
-            continue;
-        }
-        if (event.kind == engine::MouseEvent::Kind::Down && event.button == engine::MouseButton::Left) {
-            drag_armed_ = false;
-            drag_active_ = false;
-            drag_folder_.reset();
-            explorer_.set_drop_highlight({});
-            if (!explorer_.renaming().empty() ||
-                    tree_canvas_under_pointer(world, event.window) != explorer_canvas_) {
-                continue;
-            }
-            const std::string key = project_row_at(world, event.position);
-            if (key.empty()) {
-                continue;
-            }
-            drag_armed_ = true;
-            drag_key_ = key;
-            drag_origin_ = event.position;
-            continue;
-        }
-        if (!drag_armed_) {
-            continue;
-        }
-        if (event.kind == engine::MouseEvent::Kind::Move) {
-            const float dx = event.position.x - drag_origin_.x;
-            const float dy = event.position.y - drag_origin_.y;
-            if (!drag_active_ && dx * dx + dy * dy < kDragSlop * kDragSlop) {
-                continue;
-            }
-            drag_active_ = true;
-            const std::string hover = tree_canvas_under_pointer(world, event.window) == explorer_canvas_
-                    ? project_row_at(world, event.position)
-                    : std::string{};
-            drag_folder_ = explorer_.drop_folder(drag_key_, hover);
-            explorer_.set_drop_highlight(drag_folder_.value_or(""));
-            continue;
-        }
-        if (event.kind == engine::MouseEvent::Kind::Up && event.button == engine::MouseButton::Left) {
-            if (drag_active_ && drag_folder_) {
-                explorer_.move_into(drag_key_, *drag_folder_);
-            }
-            drag_armed_ = false;
-            drag_active_ = false;
-            drag_folder_.reset();
-            explorer_.set_drop_highlight({});
-        }
-    }
 }
 
 void EditorPanels::read_tree_keys(engine::ecs::World& world) {
@@ -533,31 +398,8 @@ void EditorPanels::read_tree_keys(engine::ecs::World& world) {
             continue;
         }
         const bool over_project = tree_canvas_under_pointer(world, event.window) == explorer_canvas_;
-        if (over_project && !event.repeat) {
-            if (event.key == engine::KeyCode::F2 && !held_ctrl_ && !held_shift_) {
-                explorer_.begin_rename();
-                continue;
-            }
-            if (held_ctrl_ && held_shift_ && event.key == engine::KeyCode::N) {
-                explorer_.new_folder();
-                continue;
-            }
-            if (held_ctrl_ && !held_shift_ && event.key == engine::KeyCode::C) {
-                explorer_.copy();
-                continue;
-            }
-            if (held_ctrl_ && !held_shift_ && event.key == engine::KeyCode::X) {
-                explorer_.cut();
-                continue;
-            }
-            if (held_ctrl_ && !held_shift_ && event.key == engine::KeyCode::V) {
-                explorer_.paste();
-                continue;
-            }
-            if (event.key == engine::KeyCode::Delete && !held_ctrl_) {
-                explorer_.remove();
-                continue;
-            }
+        if (over_project && explorer_input_.handle_key(event, held_ctrl_, held_shift_)) {
+            continue;
         }
         const std::optional<engine::ui::TreeNav> nav = engine::ui::tree_nav_for_key(event.key);
         const engine::ecs::Entity under = nav ? tree_canvas_under_pointer(world, event.window) : engine::ecs::Entity{};

@@ -575,6 +575,8 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/src/asset_sync.h` | `sync_assets`, `AssetSyncCounts` | [Editor](../features/Editor.md) |
 | `editor/src/asset_watch.cpp` | Debounced fingerprint of `assets/`, sync | [Editor](../features/Editor.md) |
 | `editor/src/asset_watch.h` | `AssetWatch` | [Editor](../features/Editor.md) |
+| `editor/src/explorer_input.h`, `explorer_input.cpp` | `ExplorerInput`: Project tab row drag, rename focus, shortcuts | [Editor](../features/Editor.md) |
+| `editor/src/canvas_pointer.h`, `canvas_pointer.cpp` | `top_canvas_at_pointer`: topmost canvas under the pointer of a window | [Editor](../features/Editor.md) |
 | `editor/src/directory_watch.h`, `directory_watch.cpp` | `DirectoryWatch`: thread that raises a flag when `assets/` changes | [Editor](../features/Editor.md) |
 | `editor/src/directory_watch_win32.cpp`, `_linux.cpp`, `_macos.cpp` | The OS part: ReadDirectoryChangesW, inotify, FSEvents. The two other files compile to nothing | [Editor](../features/Editor.md) |
 | `editor/src/batch_run.cpp` | `--batch --export [--development]`: SDK and project check, export build, copy, exit code |
