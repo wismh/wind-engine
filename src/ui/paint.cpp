@@ -69,10 +69,10 @@ namespace engine::ui {
                 return glm::vec2{origin_x + (point.x - picture.min_x) * scale,
                                  origin_y + (point.y - picture.min_y) * scale};
             };
-            for (const SvgShape &shape: picture.shapes) {
+            for (const SvgShape &shape : picture.shapes) {
                 std::vector<PathSegment> mapped;
                 mapped.reserve(shape.segments.size());
-                for (const PathSegment &segment: shape.segments) {
+                for (const PathSegment &segment : shape.segments) {
                     PathSegment out = segment;
                     if (segment.kind != PathSegment::Kind::Close) {
                         out.p = map(segment.p);
@@ -278,7 +278,7 @@ namespace engine::ui {
         // Each stop is `<#hexcolor> [<pct>%] [<pct>%]?` — the second percent is CSS's hard-stop shorthand
         // (the same color repeated at two offsets, e.g. a progress ring's filled wedge in one stop entry).
         bool parse_gradient_stops(std::string_view body, std::vector<GradientStop> &stops) {
-            for (const std::string_view raw_stop: split_top_level(body, ',')) {
+            for (const std::string_view raw_stop : split_top_level(body, ',')) {
                 const std::vector<std::string_view> parts = split_whitespace(raw_stop);
                 if (parts.empty() || parts.size() > 3) {
                     return false;
@@ -634,7 +634,7 @@ namespace engine::ui {
 
         int specificity(const CssRule &rule) {
             int score = compound_specificity(rule.selector);
-            for (const CssSelector &ancestor: rule.ancestors) {
+            for (const CssSelector &ancestor : rule.ancestors) {
                 score += compound_specificity(ancestor);
             }
             return score;
@@ -1086,7 +1086,7 @@ namespace engine::ui {
             ComputedStyle style;
             for (const RankedRule &item:
                  ranked_matches(element, sheet, allow_pseudo, ancestors, window_width, window_height)) {
-                for (const CssDeclaration &decl: item.rule->declarations) {
+                for (const CssDeclaration &decl : item.rule->declarations) {
                     if (decl.property.starts_with("--")) {
                         style.custom_properties[decl.property.substr(2)] = decl.value;
                         continue;
@@ -1103,7 +1103,7 @@ namespace engine::ui {
         std::vector<std::uint8_t> ancestor_pseudo_state_bits(const std::vector<const Element *> &ancestors) {
             std::vector<std::uint8_t> bits;
             bits.reserve(ancestors.size());
-            for (const Element *ancestor: ancestors) {
+            for (const Element *ancestor : ancestors) {
                 bits.push_back(pseudo_state_bits(*ancestor));
             }
             return bits;
@@ -1178,13 +1178,13 @@ namespace engine::ui {
             const StyleAnalysis &analysis = style_analysis(*sheet);
             const std::vector<std::uint32_t> &list =
                     layout_style ? analysis.layout_pseudo_rules : analysis.pseudo_rules;
-            for (const std::uint32_t index: list) {
+            for (const std::uint32_t index : list) {
                 const CssRule &rule = sheet->rules[index];
                 if (!rule_could_match(rule, element, ancestors)) {
                     continue;
                 }
                 cache.self_dep |= pseudo_class_bit(rule.selector.pseudo);
-                for (const CssSelector &compound: rule.ancestors) {
+                for (const CssSelector &compound : rule.ancestors) {
                     const std::uint8_t bits = pseudo_class_bit(compound.pseudo);
                     if (bits == 0) {
                         continue;
@@ -1211,7 +1211,7 @@ namespace engine::ui {
             cache.pseudo = pseudo_state_bits(element);
             cache.custom_properties = element.custom_properties;
             cache.ancestors.clear();
-            for (const Element *ancestor: ancestors) {
+            for (const Element *ancestor : ancestors) {
                 cache.ancestors.push_back(ancestor->handle);
             }
             cache.ancestor_pseudo_state = ancestor_pseudo_state_bits(ancestors);
@@ -1345,10 +1345,10 @@ namespace engine::ui {
             }
             apply_layout_style_to(element, sheet, ancestors, window_width, window_height);
             ancestors.push_back(&element);
-            for (Element &child: element.children) {
+            for (Element &child : element.children) {
                 apply_layout_style(child, sheet, ancestors, window_width, window_height);
             }
-            for (Element &child: element.generated_items) {
+            for (Element &child : element.generated_items) {
                 apply_layout_style(child, sheet, ancestors, window_width, window_height);
             }
             ancestors.pop_back();
@@ -1465,12 +1465,12 @@ namespace engine::ui {
                 return;
             }
             ancestors.push_back(&element);
-            for (Element &child: element.children) {
+            for (Element &child : element.children) {
                 if (((child.dirty_self | child.dirty_below) & kDirtyStyle) != 0) {
                     restyle_dirty(document, child, sheet, ancestors, window_width, window_height);
                 }
             }
-            for (Element &child: element.generated_items) {
+            for (Element &child : element.generated_items) {
                 if (((child.dirty_self | child.dirty_below) & kDirtyStyle) != 0) {
                     restyle_dirty(document, child, sheet, ancestors, window_width, window_height);
                 }
@@ -1696,12 +1696,12 @@ namespace engine::ui {
             if (clips_children(element)) {
                 return false;
             }
-            for (const Element &child: element.children) {
+            for (const Element &child : element.children) {
                 if (may_reach(child, visible)) {
                     return true;
                 }
             }
-            for (const Element &child: element.generated_items) {
+            for (const Element &child : element.generated_items) {
                 if (may_reach(child, visible)) {
                     return true;
                 }
@@ -1726,7 +1726,7 @@ namespace engine::ui {
             }
             constexpr float kEpsilon = 0.01f;
             const auto each = [&](const std::vector<Element> &list) {
-                for (const Element &d: list) {
+                for (const Element &d : list) {
                     if (d.kind == ElementKind::ItemTemplate || d.kind == ElementKind::Popup || d.display_none ||
                         !d.visible) {
                         continue;
@@ -1784,7 +1784,7 @@ namespace engine::ui {
                     if (rows->line_height * static_cast<float>(rows->lines.size()) > content_h + kEpsilon) {
                         return false;
                     }
-                    for (const TextLine &line: rows->lines) {
+                    for (const TextLine &line : rows->lines) {
                         if (line.width > content_w + kEpsilon) {
                             return false;
                         }
@@ -1806,7 +1806,7 @@ namespace engine::ui {
                 return false;
             }
             int budget = kEscapeBudget;
-            for (const Element &child: child_list) {
+            for (const Element &child : child_list) {
                 if (child.kind == ElementKind::ItemTemplate || is_popup_kind(child.kind) || child.display_none ||
                     !child.visible) {
                     continue;
@@ -1841,7 +1841,7 @@ namespace engine::ui {
         void refresh_children(std::vector<Element> &children, const Stylesheet *sheet, IUiPainter &painter,
                               std::vector<const Element *> &ancestors, glm::vec2 parent_content,
                               const UiPaintInput &input) {
-            for (Element &child: children) {
+            for (Element &child : children) {
                 if (child.kind == ElementKind::ItemTemplate || is_popup_kind(child.kind) ||
                     ((child.dirty_self | child.dirty_below) & kPaintMarks) == 0) {
                     continue;
@@ -2264,7 +2264,7 @@ namespace engine::ui {
                 }
                 element.culled_children = 0;
                 const float kids_opacity = boundary ? kUnknownOpacity : child_state_opacity;
-                for (Element *child: child_stacking_order(child_list)) {
+                for (Element *child : child_stacking_order(child_list)) {
                     if (is_popup_kind(child->kind)) {
                         continue;
                     }
@@ -2437,12 +2437,12 @@ namespace engine::ui {
         }
 
         bool motion_clocks_idle(const Element &element) {
-            for (const AnimationRuntime &player: element.animation_players) {
+            for (const AnimationRuntime &player : element.animation_players) {
                 if (animation_clock_pending(player)) {
                     return false;
                 }
             }
-            for (const TransitionRuntime &player: element.transition_players) {
+            for (const TransitionRuntime &player : element.transition_players) {
                 if (player.running) {
                     return false;
                 }
@@ -2467,10 +2467,10 @@ namespace engine::ui {
             }
             commit_motion_layout(element);
             commit_motion_visuals(element);
-            for (Element &child: element.children) {
+            for (Element &child : element.children) {
                 commit_motion_after_layout_style(child);
             }
-            for (Element &child: element.generated_items) {
+            for (Element &child : element.generated_items) {
                 commit_motion_after_layout_style(child);
             }
         }
@@ -2503,7 +2503,7 @@ namespace engine::ui {
                     // The sample moved (or stopped holding one): what the element paints is different. A boundary whose
                     // opacity and transform are all that moved only needs its frame written again.
                     bool frame_only = is_boundary_element(element);
-                    for (const ShownMotion &shown: element.motion_shown) {
+                    for (const ShownMotion &shown : element.motion_shown) {
                         frame_only = frame_only &&
                                      (shown.prop == MotionProp::Opacity || shown.prop == MotionProp::Transform);
                     }
@@ -2537,18 +2537,18 @@ namespace engine::ui {
                 child_basis = parent_basis;
             }
             ancestors.push_back(&element);
-            for (Element &child: element.children) {
+            for (Element &child : element.children) {
                 advance_tree(document, child, sheet, dt, child_basis, ancestors, window_width, window_height,
                              motion_active, layout_marks);
             }
-            for (Element &child: element.generated_items) {
+            for (Element &child : element.generated_items) {
                 advance_tree(document, child, sheet, dt, child_basis, ancestors, window_width, window_height,
                              motion_active, layout_marks);
             }
             ancestors.pop_back();
             if (element.kind == ElementKind::ItemsControl) {
                 bool any = element.height_motion_active;
-                for (const Element &row: element.generated_items) {
+                for (const Element &row : element.generated_items) {
                     any = any || row.height_motion_active;
                 }
                 element.suppress_item_virtualization = any;
@@ -2561,7 +2561,7 @@ namespace engine::ui {
                                                const std::vector<const Element *> &ancestors, float window_width,
                                                float window_height) {
         std::vector<MatchedRule> out;
-        for (const RankedRule &item: ranked_matches(element, sheet, true, ancestors, window_width, window_height)) {
+        for (const RankedRule &item : ranked_matches(element, sheet, true, ancestors, window_width, window_height)) {
             if (item.rule == nullptr) {
                 continue;
             }
@@ -2688,7 +2688,7 @@ namespace engine::ui {
             const PictureScope pictures(document, false);
             target.save();
             target.scissor(scale_rect(popup_room(input), input.ui_offset, input.ui_scale));
-            for (OpenPopup &open: popups) {
+            for (OpenPopup &open : popups) {
                 target.save();
                 target.apply_view(glm::vec2{0.0f, 0.0f}, open.popup->popup_offset * input.ui_scale, 1.0f);
                 paint_element(*open.popup, stylesheet, target, open.ancestors, open.parent_content, input,
@@ -2706,7 +2706,7 @@ namespace engine::ui {
     // The marks under the relayout boundaries a change queued: they stop at the boundary, so a pass that did not lay
     // the boundary out from its own entry (a full layout) clears them here.
     static void clear_boundary_marks(UiDocument &document) {
-        for (const ElementId id: document.layout_roots) {
+        for (const ElementId id : document.layout_roots) {
             if (const auto found = document.find(id)) {
                 clear_dirty(**found, kDirtyStyle | kDirtyLayout);
             }
@@ -2715,7 +2715,7 @@ namespace engine::ui {
 
     // The elements a layout pass moved or resized show something else: the pictures they are in are recorded again.
     static void mark_moved_for_paint(UiDocument &document, const std::vector<Element *> &moved) {
-        for (Element *element: moved) {
+        for (Element *element : moved) {
             mark_dirty(document, *element, kDirtyPaint);
         }
     }
@@ -2782,7 +2782,7 @@ namespace engine::ui {
             // Fixed-size elements a change inside could not resize: each is laid out again from where it is.
             const std::vector<ElementId> roots = std::move(document.layout_roots);
             document.layout_roots.clear();
-            for (const ElementId id: roots) {
+            for (const ElementId id : roots) {
                 if (const auto found = document.find(id)) {
                     layout_from(**found, painter);
                     // The marks below a boundary never reached the root, so the root's clear does not find them.
@@ -2888,7 +2888,7 @@ namespace engine::ui {
         if (!motion_layout.empty()) {
             // An animated width, padding or font moved a layout field: restyle just those elements (which writes the
             // sampled value onto the fields and marks layout where the field moved) and lay out their chains.
-            for (const ElementId id: motion_layout) {
+            for (const ElementId id : motion_layout) {
                 if (const auto found = document.find(id)) {
                     mark_dirty(document, **found, kDirtyStyle, true);
                 }

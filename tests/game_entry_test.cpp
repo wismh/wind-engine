@@ -16,10 +16,11 @@ namespace {
 
 class ModuleGame final : public engine::GameBase {
 public:
-    explicit ModuleGame(const engine::EngineServices& services) : engine::GameBase(services.worlds) {}
+    explicit ModuleGame(const engine::EngineServices& services)
+        : engine::GameBase(services.worlds) {}
 };
 
-} // namespace
+}
 
 ENGINE_GAME(ModuleGame)
 
@@ -50,6 +51,8 @@ TEST(GameEntry, ModuleBuildIdIsTheCompiledInConstant) {
 
 #else
 
-TEST(GameEntry, ModuleExportsMatchTheLoaderTypes) { GTEST_SKIP() << "ENGINE_GAME needs ENGINE_WITH_WINDOW"; }
+TEST(GameEntry, ModuleExportsMatchTheLoaderTypes) {
+    GTEST_SKIP() << "ENGINE_GAME needs ENGINE_WITH_WINDOW";
+}
 
 #endif

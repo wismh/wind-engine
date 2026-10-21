@@ -5,6 +5,7 @@
 #include "dock_layout_file.h"
 #include "editor_selection.h"
 #include "export_dialog.h"
+#include "explorer_input.h"
 #include "explorer_panel.h"
 #include "hierarchy_panel.h"
 #include "inspector_panel.h"
@@ -124,9 +125,6 @@ public:
 
 private:
     void read_tree_keys(engine::ecs::World& world);
-    void read_project_drag(engine::ecs::World& world);
-    void focus_project_rename(engine::ecs::World& world);
-    [[nodiscard]] std::string project_row_at(engine::ecs::World& world, glm::vec2 window_point) const;
     [[nodiscard]] engine::ecs::Entity tree_canvas_under_pointer(engine::ecs::World& world,
             engine::WindowId window) const;
     [[nodiscard]] engine::ui::DockLayout& layout_mut();
@@ -135,6 +133,7 @@ private:
     DockLayoutFile layout_file_;
     EditorSelection selection_;
     ExplorerPanel explorer_;
+    ExplorerInput explorer_input_;
     HierarchyPanel hierarchy_;
     WorldViewPanel world_view_;
     UiTreePanel ui_tree_;
@@ -157,17 +156,10 @@ private:
     std::uint64_t saved_revision_ = 0;
     std::optional<engine::WindowId> export_window_{};
     engine::ecs::EventCursor<engine::KeyEvent> key_cursor_;
-    engine::ecs::EventCursor<engine::MouseEvent> mouse_cursor_;
     engine::ecs::EventCursor<engine::ui::DockPanelCloseRequested> close_cursor_;
     engine::ecs::EventCursor<engine::ui::WindowCloseRequestedEvent> window_close_cursor_;
     bool held_ctrl_ = false;
     bool held_shift_ = false;
-    // A press on a project row that becomes a move once the pointer travels.
-    bool drag_armed_ = false;
-    bool drag_active_ = false;
-    std::string drag_key_;
-    glm::vec2 drag_origin_{};
-    std::optional<std::string> drag_folder_;
 };
 
 }

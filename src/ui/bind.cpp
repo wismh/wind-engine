@@ -150,7 +150,7 @@ namespace engine::ui {
                 std::vector<engine::loc::Arg> args;
                 held.reserve(element.tr_args.size());
                 args.reserve(element.tr_args.size());
-                for (const TrArg &arg: element.tr_args) {
+                for (const TrArg &arg : element.tr_args) {
                     if (const auto number = vm.read_property_float(arg.binding)) {
                         args.push_back(engine::loc::Arg{arg.name, tr_number(*number)});
                     } else if (auto value = vm.read_property_string(arg.binding)) {
@@ -195,7 +195,7 @@ namespace engine::ui {
                     }
                 };
                 set_fraction(element);
-                for (Element &part: element.children) {
+                for (Element &part : element.children) {
                     set_fraction(part);
                 }
             } else if (!in_template) {
@@ -381,7 +381,7 @@ namespace engine::ui {
         void clear_row_owner(Element &element) {
             element.generated_owner = nullptr;
             element.generated_serial = 0;
-            for (Element &child: element.children) {
+            for (Element &child : element.children) {
                 clear_row_owner(child);
             }
         }
@@ -406,11 +406,11 @@ namespace engine::ui {
             (void) require_property(pass, vm, in_template, element.zoom_binding, "zoom");
             (void) require_property(pass, vm, in_template, element.checked_binding, "checked");
             (void) require_property(pass, vm, in_template, element.open_binding, "open");
-            for (const CustomPropertyBinding &custom: element.custom_property_bindings) {
+            for (const CustomPropertyBinding &custom : element.custom_property_bindings) {
                 (void) require_property(pass, vm, in_template, custom.binding, "var-" + custom.name);
             }
             if (!in_template) {
-                for (const TrArg &arg: element.tr_args) {
+                for (const TrArg &arg : element.tr_args) {
                     (void) require_property(pass, vm, in_template, arg.binding, "{tr} argument");
                 }
             }
@@ -514,7 +514,7 @@ namespace engine::ui {
 
             const bool nested_template = in_template || element.kind == ElementKind::ItemTemplate;
             const Element *child_scroll_context = is_scrollable_y(element) ? &element : scroll_context;
-            for (Element &child: element.children) {
+            for (Element &child : element.children) {
                 inherit_owner(element, child);
                 bind_element(pass, child, vm, nested_template, child_scroll_context);
             }
@@ -536,7 +536,7 @@ namespace engine::ui {
                 element.row_heights.emplace();
             }
             Element::RowHeights &heights = *element.row_heights;
-            for (const Element &row: element.generated_items) {
+            for (const Element &row : element.generated_items) {
                 if (row.generated_owner == nullptr || row.is_virtualization_spacer || row.display_none ||
                     row.layout_rect.h <= 0.0f) {
                     continue;
@@ -565,7 +565,7 @@ namespace engine::ui {
                 // Rows of items that left the list.
                 std::unordered_map<const void *, float> kept;
                 heights.measured_sum = 0.0;
-                for (const ViewModel *item: items) {
+                for (const ViewModel *item : items) {
                     if (const auto it = heights.measured.find(item); it != heights.measured.end()) {
                         kept.emplace(item, it->second);
                         heights.measured_sum += it->second;
@@ -591,7 +591,7 @@ namespace engine::ui {
 
         void reconcile_items(BindPass &pass, Element &element, ViewModel &vm, const Element *scroll_context) {
             const Element *tmpl = nullptr;
-            for (const Element &child: element.children) {
+            for (const Element &child : element.children) {
                 if (child.kind == ElementKind::ItemTemplate) {
                     tmpl = &child;
                     break;
@@ -650,7 +650,7 @@ namespace engine::ui {
                 // Rows placed by `position: absolute` (an inventory laid out by var-left / var-top) are not
                 // stacked, so a window computed from row height and scroll offset would drop most of them:
                 // never virtualize those, and forget any height cached from an earlier template.
-                for (const Element &old: element.generated_items) {
+                for (const Element &old : element.generated_items) {
                     if (old.generated_owner != nullptr && !old.display_none && old.position == PositionMode::Absolute) {
                         rows_out_of_flow = true;
                         element.virtualization_row_height_cache.reset();
@@ -874,7 +874,7 @@ namespace engine::ui {
             // included). A new item is cloned from the template. Spacers are rebuilt; they
             // carry no runtime state.
             std::unordered_map<std::uint64_t, std::vector<Element>> previous_by_owner;
-            for (Element &old: element.generated_items) {
+            for (Element &old : element.generated_items) {
                 previous_by_owner[old.generated_serial].push_back(std::move(old));
             }
             element.generated_items.clear();
@@ -908,7 +908,7 @@ namespace engine::ui {
                 }
                 if (const auto reused = previous_by_owner.find(item->serial());
                     reused != previous_by_owner.end() && reused->second.size() == expected_count) {
-                    for (Element &clone: reused->second) {
+                    for (Element &clone : reused->second) {
                         // The reused row keeps its id and the slots it has, unless a table build is under way.
                         if (pass.collecting) {
                             bind_element(pass, clone, *item, false, child_scroll_context);
@@ -928,7 +928,7 @@ namespace engine::ui {
                     element.generated_items.push_back(std::move(clone));
                     continue;
                 }
-                for (const Element &node: tmpl->children) {
+                for (const Element &node : tmpl->children) {
                     Element clone = node;
                     clone.generated_items.clear();
                     // Drop an owner copied off the template. inherit_owner then stamps this item onto the row.
@@ -945,8 +945,8 @@ namespace engine::ui {
             // What the window no longer holds is gone: its ids are freed, never handed out again, and its slots (which
             // point at view-models that may be gone with the row) are dropped with them. What it holds keeps the id it
             // had. Every row's place in the list is written down again.
-            for (const auto &dropped: previous_by_owner) {
-                for (const Element &row: dropped.second) {
+            for (const auto &dropped : previous_by_owner) {
+                for (const Element &row : dropped.second) {
                     release_subtree(arena, row);
                 }
             }
@@ -1097,7 +1097,7 @@ namespace engine::ui {
         }
 
         // The failures of the build are reported again on every pass, like the whole walk did.
-        for (const BindFailure &failure: table.failures) {
+        for (const BindFailure &failure : table.failures) {
             if (errors != nullptr) {
                 errors->bind_error(failure.message);
             }

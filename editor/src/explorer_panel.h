@@ -26,11 +26,11 @@ namespace editor {
 // the editor's selection, which the Inspector tab shows. The tree is a scan of the disk, taken when a project
 // opens, from File -> Refresh, and when the assets watch settles. Folders start collapsed.
 //
-// Creates, copies, and moves go through `ProjectHistory`, so each one can be undone. Cut and copy only remember a
+// Creates, copies, moves, and deletes are `ProjectStep`s on the editor's `CommandHistory`, so each one can be undone. Cut and copy only remember a
 // key; paste is the edit. Holds `this` in its rows, so it never moves.
-class ExplorerPanel {
+class ExplorerPanel final : public ProjectStepListener {
 public:
-    explicit ExplorerPanel(EditorSelection& selection);
+    ExplorerPanel(EditorSelection& selection, CommandHistory& journal);
 
     ExplorerPanel(const ExplorerPanel&) = delete;
     ExplorerPanel& operator=(const ExplorerPanel&) = delete;
@@ -98,12 +98,8 @@ public:
     [[nodiscard]] ProjectEditResult undo();
     [[nodiscard]] ProjectEditResult redo();
 
-    // File steps are also pushed on `journal`, so Undo reverses a file step or an entity step, whichever was last.
-    // The panel's own undo stack still holds the file bytes; the journal only remembers the order.
-    void attach_journal(CommandHistory& journal);
-    void discard_project_redo();
-    [[nodiscard]] bool undo_project_step();
-    [[nodiscard]] bool redo_project_step();
+    // A step of this panel ran on the journal (from `undo` here or from the editor's Undo): show what it did.
+    void project_step_ran(const ProjectEditResult& result) override;
 
     // The row view-model `owner` shows, or empty.
     [[nodiscard]] std::string key_for(const engine::ui::ViewModel* owner) const;
@@ -122,6 +118,8 @@ private:
     // when the editor's selection is already a file or folder. A gone entry clears a file or folder selection.
     void publish_selection(bool take);
     void apply_result(const ProjectEditResult& result);
+    // Puts the step of a started edit on the journal and hands back what the edit did.
+    [[nodiscard]] ProjectEditResult record(ProjectEditOutcome outcome);
     void expand_ancestors(const std::string& key);
     [[nodiscard]] std::string container_of(const std::string& anchor) const;
     void create_at(const std::string& anchor, ProjectCreateKind kind);
@@ -138,6 +136,7 @@ private:
     };
 
     EditorSelection* selection_;
+    CommandHistory* journal_;
     std::shared_ptr<ExplorerViewModel> view_model_;
     std::filesystem::path directory_;
     ProjectScan scan_;
@@ -147,8 +146,6 @@ private:
     std::string drop_;
     bool rename_focus_ = false;
     std::optional<Clipboard> clipboard_;
-    ProjectHistory history_;
-    CommandHistory* journal_ = nullptr;
     ProjectEditResult project_result_;
     std::string notice_;
     std::vector<ProjectRelocation> relocations_;

@@ -50,7 +50,7 @@ void remove_dir(const std::filesystem::path& dir) {
     }
 }
 
-} // namespace
+}
 
 std::string_view to_string(ModuleError error) noexcept {
     switch (error) {
@@ -101,11 +101,17 @@ GameModule& GameModule::operator=(GameModule&& other) noexcept {
     return *this;
 }
 
-GameModule::~GameModule() { release(); }
+GameModule::~GameModule() {
+    release();
+}
 
-IGame* GameModule::create(const EngineServices& services) const { return create_(services); }
+IGame* GameModule::create(const EngineServices& services) const {
+    return create_(services);
+}
 
-void GameModule::destroy(IGame* game) const { destroy_(game); }
+void GameModule::destroy(IGame* game) const {
+    destroy_(game);
+}
 
 void GameModule::register_components(ecs::WorldSerializer& serializer) const {
     if (register_components_ != nullptr) {
@@ -113,7 +119,9 @@ void GameModule::register_components(ecs::WorldSerializer& serializer) const {
     }
 }
 
-bool GameModule::has_component_registration() const noexcept { return register_components_ != nullptr; }
+bool GameModule::has_component_registration() const noexcept {
+    return register_components_ != nullptr;
+}
 
 void GameModule::register_objects(AssetsDb& assets) const {
     if (register_objects_ != nullptr) {
@@ -142,8 +150,8 @@ void GameModule::release() noexcept {
     live_dir_.clear();
 }
 
-std::expected<GameModule, GameModuleError> load_game_module(const std::filesystem::path& module,
-                                                            const std::filesystem::path& live_root) {
+std::expected<GameModule, GameModuleError> load_game_module(
+        const std::filesystem::path& module, const std::filesystem::path& live_root) {
     std::error_code ec;
     if (!std::filesystem::is_regular_file(module, ec)) {
         return std::unexpected(GameModuleError{ModuleError::Missing, path_text(module)});
@@ -195,7 +203,7 @@ std::expected<GameModule, GameModuleError> load_game_module(const std::filesyste
     loaded.build_id_ = id != nullptr ? id : "";
     if (loaded.build_id_ != build_id()) {
         return std::unexpected(GameModuleError{ModuleError::BuildIdMismatch,
-                                               "module " + loaded.build_id_ + ", editor " + std::string(build_id())});
+                "module " + loaded.build_id_ + ", editor " + std::string(build_id())});
     }
     return loaded;
 }
@@ -207,13 +215,13 @@ std::size_t purge_game_module_copies(const std::filesystem::path& live_root) {
         return 0;
     }
     std::vector<std::filesystem::path> dirs;
-    for (const std::filesystem::directory_entry& entry: it) {
+    for (const std::filesystem::directory_entry& entry : it) {
         if (entry.is_directory(ec)) {
             dirs.push_back(entry.path());
         }
     }
     std::size_t removed = 0;
-    for (const std::filesystem::path& dir: dirs) {
+    for (const std::filesystem::path& dir : dirs) {
         std::filesystem::remove_all(dir, ec);
         if (ec) {
             log::warn("Could not delete stale game module copy " + path_text(dir) + ": " + ec.message());
@@ -224,4 +232,4 @@ std::size_t purge_game_module_copies(const std::filesystem::path& live_root) {
     return removed;
 }
 
-} // namespace engine
+}

@@ -16,7 +16,9 @@
 namespace engine {
 namespace {
 
-bool is_meta_file(const std::filesystem::path& path) { return path.extension() == ".meta"; }
+bool is_meta_file(const std::filesystem::path& path) {
+    return path.extension() == ".meta";
+}
 
 bool is_skippable_file(const std::filesystem::path& path) {
     const std::string name = path.filename().string();
@@ -38,8 +40,9 @@ bool is_skippable_file(const std::filesystem::path& path) {
 }
 
 std::string to_lower(std::string value) {
-    std::transform(value.begin(), value.end(), value.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
     return value;
 }
 
@@ -92,7 +95,7 @@ std::string random_guid(std::mt19937& rng, const std::unordered_set<std::string>
     static constexpr char kDigits[] = "0123456789abcdef";
     std::string hex(AssetId::kHexLength, '0');
     for (;;) {
-        for (char& c: hex) {
+        for (char& c : hex) {
             c = kDigits[dist(rng)];
         }
         if (!used.contains(hex)) {
@@ -129,7 +132,7 @@ void remember_existing_guid(const std::filesystem::path& meta_path, std::unorder
     }
 }
 
-} // namespace
+}
 
 int write_missing_metas(const std::filesystem::path& root) {
     std::error_code exists_ec;
@@ -143,7 +146,7 @@ int write_missing_metas(const std::filesystem::path& root) {
 
     std::error_code iter_ec;
     const auto options = std::filesystem::directory_options::skip_permission_denied;
-    for (const auto& entry: std::filesystem::recursive_directory_iterator(root, options, iter_ec)) {
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(root, options, iter_ec)) {
         if (iter_ec || !entry.is_regular_file()) {
             continue;
         }
@@ -176,4 +179,4 @@ int write_missing_metas(const std::filesystem::path& root) {
     return written;
 }
 
-} // namespace engine
+}
