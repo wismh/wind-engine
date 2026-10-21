@@ -136,10 +136,13 @@ JobSystem::JobSystem(int workers) : impl_(std::make_unique<Impl>()) {
     const int count = resolve_workers(workers);
     impl_->workers = count;
     impl_->threads.reserve(static_cast<std::size_t>(count));
+    // The worker holds `Impl` itself, not `impl_`: libc++ nulls the unique_ptr before it runs `~Impl`, so a worker
+    // that starts late would read null while the destructor joins.
+    Impl* const impl = impl_.get();
     for (int i = 0; i < count; ++i) {
-        impl_->threads.emplace_back([this] {
+        impl->threads.emplace_back([impl] {
             g_job_depth = 0;
-            impl_->run();
+            impl->run();
         });
     }
 }
