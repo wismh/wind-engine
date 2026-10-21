@@ -97,6 +97,9 @@ jobs:
       - name: Ninja
         shell: pwsh
         run: powershell -File tools/ci/ensure_ninja.ps1
+      - name: MSVC
+        shell: pwsh
+        run: powershell -File tools/ci/msvc_env.ps1
       - name: Configure
         shell: pwsh
         run: cmake --preset vs-editor

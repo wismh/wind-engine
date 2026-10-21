@@ -74,6 +74,10 @@ jobs:
         if: matrix.os == 'windows'
         shell: pwsh
         run: powershell -File tools/ci/ensure_ninja.ps1
+      - name: MSVC
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: powershell -File tools/ci/msvc_env.ps1
       - name: Configure
         if: matrix.os != 'windows'
         run: cmake --preset ${{ matrix.os }}-editor -DENGINE_VERSION_PATCH=${WIND_PATCH}

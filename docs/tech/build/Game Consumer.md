@@ -58,7 +58,7 @@ The game builds in two configurations against the Release SDK: `DebugGame` (game
 }
 ```
 
-`architecture` and `toolset` load the MSVC compiler on Windows. Delete those two fields on Linux and macOS. The SDK path is per machine, so for a build by hand it goes in the game's `CMakeUserPresets.json` (not committed), on top of that preset. The editor reuses a `build-editor` configured this way when its `Wind_DIR` is the editor's own SDK and the generator is Ninja Multi-Config:
+`architecture` and `toolset` tell Visual Studio to load the MSVC environment. `cmake --preset` itself does not; use a developer prompt so `cl` is on `PATH`. Delete those two fields on Linux and macOS. The SDK path is per machine, so for a build by hand it goes in the game's `CMakeUserPresets.json` (not committed), on top of that preset. The editor reuses a `build-editor` configured this way when its `Wind_DIR` is the editor's own SDK and the generator is Ninja Multi-Config:
 
 ```json
 {
