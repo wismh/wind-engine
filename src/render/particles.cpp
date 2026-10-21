@@ -1,5 +1,7 @@
 #include <engine/render/particles.h>
 
+#include <engine/core/job_system.h>
+
 #include <glm/common.hpp>
 #include <glm/geometric.hpp>
 #include <glm/gtc/constants.hpp>
@@ -10,6 +12,7 @@
 #include <limits>
 #include <random>
 #include <span>
+#include <vector>
 
 namespace engine::render {
 namespace {
@@ -241,144 +244,182 @@ bool check_circle_collision(
     return false;
 }
 
+// One particle, one step. False means it died and the caller drops it after every index has been stepped.
+// Reads the emitter and the collider span; writes only `particle`.
+struct ParticleStep {
+    const ParticleEmitter* emitter = nullptr;
+    float dt = 0.0f;
+    const glm::mat4* transform = nullptr;
+    // Set when the emitter simulates in local space and collision is on. Otherwise null.
+    const glm::mat4* inverse = nullptr;
+    std::span<const ParticleCollider2D> colliders;
+};
+
+constexpr std::size_t kParticleGrain = 64;
+
+[[nodiscard]] bool step_particle(Particle& p, const ParticleStep& step) {
+    const ParticleEmitter& emitter = *step.emitter;
+    const float dt = step.dt;
+    p.age += dt;
+    if (p.age >= p.lifetime) {
+        return false;
+    }
+
+    const float t = glm::clamp(p.age / p.lifetime, 0.0f, 1.0f);
+    const glm::vec3 prev_pos = p.position;
+    p.velocity += emitter.gravity * dt;
+    p.rotation += p.angular_velocity * dt;
+    const glm::vec3 next_pos = prev_pos + p.velocity * dt;
+
+    if (emitter.collision_enabled && !step.colliders.empty()) {
+        glm::vec3 seg_p0 = prev_pos;
+        glm::vec3 seg_p1 = next_pos;
+        if (emitter.simulation_space == SimulationSpace::Local) {
+            const glm::mat4& transform = *step.transform;
+            seg_p0 = glm::vec3(transform * glm::vec4(prev_pos, 1.0f));
+            seg_p1 = glm::vec3(transform * glm::vec4(next_pos, 1.0f));
+        }
+
+        HitResult closest_hit;
+        for (const ParticleCollider2D& col : step.colliders) {
+            if ((col.layer & emitter.collision_mask) == 0) {
+                continue;
+            }
+
+            HitResult candidate_hit;
+            bool collided = false;
+            if (col.shape == ParticleCollider2D::Shape::Box) {
+                collided = check_box_collision(
+                        seg_p0, seg_p1, emitter.collision_radius, col.position, col.box_size, candidate_hit);
+            } else if (col.shape == ParticleCollider2D::Shape::Circle) {
+                collided = check_circle_collision(
+                        seg_p0, seg_p1, emitter.collision_radius, col.position, col.circle_radius, candidate_hit);
+            }
+
+            if (collided && (!closest_hit.hit || candidate_hit.t < closest_hit.t)) {
+                closest_hit = candidate_hit;
+            }
+        }
+
+        if (closest_hit.hit) {
+            if (emitter.kill_on_collision) {
+                p.age = p.lifetime;
+                return false;
+            }
+
+            glm::vec3 hit_normal = closest_hit.normal;
+            glm::vec3 hit_point = closest_hit.point;
+            if (emitter.simulation_space == SimulationSpace::Local) {
+                const glm::mat4& transform = *step.transform;
+                const glm::mat4& inverse = *step.inverse;
+                hit_point = glm::vec3(inverse * glm::vec4(closest_hit.point, 1.0f));
+                hit_normal = glm::normalize(
+                        glm::vec3(glm::transpose(transform) * glm::vec4(closest_hit.normal, 0.0f)));
+            }
+
+            constexpr float epsilon = 0.001f;
+            p.position = hit_point + hit_normal * epsilon;
+
+            const float vn = glm::dot(p.velocity, hit_normal);
+            if (vn < 0.0f) {
+                const glm::vec3 v_normal = vn * hit_normal;
+                const glm::vec3 v_tangent = p.velocity - v_normal;
+                const float clamped_bounce = glm::clamp(emitter.bounce, 0.0f, 1.0f);
+                const float clamped_friction = glm::clamp(emitter.friction, 0.0f, 1.0f);
+                p.velocity = (-clamped_bounce * v_normal) + ((1.0f - clamped_friction) * v_tangent);
+            }
+
+            const float remaining_dt = dt * (1.0f - closest_hit.t);
+            if (remaining_dt > 0.0f) {
+                p.position += p.velocity * remaining_dt;
+            }
+
+            if (emitter.lifetime_loss > 0.0f) {
+                p.age += p.lifetime * glm::clamp(emitter.lifetime_loss, 0.0f, 1.0f);
+                if (p.age >= p.lifetime) {
+                    return false;
+                }
+            }
+        } else {
+            p.position = next_pos;
+        }
+    } else {
+        p.position = next_pos;
+    }
+
+    if (!emitter.color_curve.empty()) {
+        p.color = emitter.color_curve.evaluate(t);
+    } else {
+        p.color = glm::mix(p.start_color, p.end_color, t);
+    }
+    if (!emitter.alpha_curve.empty()) {
+        p.color.a = emitter.alpha_curve.evaluate(t);
+    }
+
+    if (!emitter.size_curve_xy.empty()) {
+        p.size = p.base_size * emitter.size_curve_xy.evaluate(t);
+    } else if (!emitter.size_curve.empty()) {
+        p.size = p.base_size * emitter.size_curve.evaluate(t);
+    } else {
+        p.size = glm::mix(p.start_size, p.end_size, t);
+    }
+    return true;
+}
+
 }
 
 void update_emitter(
         ParticleEmitter& emitter,
         float dt,
         const glm::mat4& transform,
-        std::span<const ParticleCollider2D> colliders) {
+        std::span<const ParticleCollider2D> colliders,
+        JobSystem* jobs) {
     if (dt <= 0.0f) {
         return;
     }
 
-    // 1. Update existing particles
-    for (std::size_t i = 0; i < emitter.particles.size();) {
-        Particle& p = emitter.particles[i];
-        p.age += dt;
-        if (p.age >= p.lifetime) {
-            if (i + 1 < emitter.particles.size()) {
-                emitter.particles[i] = std::move(emitter.particles.back());
-            }
-            emitter.particles.pop_back();
-            continue;
+    // 1. Integrate every particle, then drop the dead ones. Survivors keep their order.
+    const std::size_t count = emitter.particles.size();
+    if (count > 0) {
+        const bool collide = emitter.collision_enabled && !colliders.empty();
+        glm::mat4 inverse{1.0f};
+        const glm::mat4* inverse_ptr = nullptr;
+        if (collide && emitter.simulation_space == SimulationSpace::Local) {
+            inverse = glm::inverse(transform);
+            inverse_ptr = &inverse;
         }
-
-        const float t = glm::clamp(p.age / p.lifetime, 0.0f, 1.0f);
-        const glm::vec3 prev_pos = p.position;
-        p.velocity += emitter.gravity * dt;
-        p.rotation += p.angular_velocity * dt;
-        const glm::vec3 next_pos = prev_pos + p.velocity * dt;
-
-        if (emitter.collision_enabled && !colliders.empty()) {
-            glm::vec3 seg_p0 = prev_pos;
-            glm::vec3 seg_p1 = next_pos;
-            if (emitter.simulation_space == SimulationSpace::Local) {
-                seg_p0 = glm::vec3(transform * glm::vec4(prev_pos, 1.0f));
-                seg_p1 = glm::vec3(transform * glm::vec4(next_pos, 1.0f));
+        const ParticleStep step{
+                .emitter = &emitter,
+                .dt = dt,
+                .transform = &transform,
+                .inverse = inverse_ptr,
+                .colliders = colliders,
+        };
+        std::vector<char> alive(count, 1);
+        auto integrate = [&](std::size_t begin, std::size_t end) {
+            for (std::size_t i = begin; i < end; ++i) {
+                alive[i] = step_particle(emitter.particles[i], step) ? 1 : 0;
             }
-
-            HitResult closest_hit;
-            for (const auto& col : colliders) {
-                if ((col.layer & emitter.collision_mask) == 0) {
-                    continue;
-                }
-
-                HitResult candidate_hit;
-                bool collided = false;
-                if (col.shape == ParticleCollider2D::Shape::Box) {
-                    collided = check_box_collision(
-                            seg_p0,
-                            seg_p1,
-                            emitter.collision_radius,
-                            col.position,
-                            col.box_size,
-                            candidate_hit);
-                } else if (col.shape == ParticleCollider2D::Shape::Circle) {
-                    collided = check_circle_collision(
-                            seg_p0,
-                            seg_p1,
-                            emitter.collision_radius,
-                            col.position,
-                            col.circle_radius,
-                            candidate_hit);
-                }
-
-                if (collided && (!closest_hit.hit || candidate_hit.t < closest_hit.t)) {
-                    closest_hit = candidate_hit;
-                }
-            }
-
-            if (closest_hit.hit) {
-                if (emitter.kill_on_collision) {
-                    p.age = p.lifetime;
-                    if (i + 1 < emitter.particles.size()) {
-                        emitter.particles[i] = std::move(emitter.particles.back());
-                    }
-                    emitter.particles.pop_back();
-                    continue;
-                }
-
-                glm::vec3 hit_normal = closest_hit.normal;
-                glm::vec3 hit_point = closest_hit.point;
-                if (emitter.simulation_space == SimulationSpace::Local) {
-                    const glm::mat4 inv_transform = glm::inverse(transform);
-                    hit_point = glm::vec3(inv_transform * glm::vec4(closest_hit.point, 1.0f));
-                    hit_normal = glm::normalize(glm::vec3(glm::transpose(transform) * glm::vec4(closest_hit.normal, 0.0f)));
-                }
-
-                constexpr float epsilon = 0.001f;
-                p.position = hit_point + hit_normal * epsilon;
-
-                const float vn = glm::dot(p.velocity, hit_normal);
-                if (vn < 0.0f) {
-                    const glm::vec3 v_normal = vn * hit_normal;
-                    const glm::vec3 v_tangent = p.velocity - v_normal;
-                    const float clamped_bounce = glm::clamp(emitter.bounce, 0.0f, 1.0f);
-                    const float clamped_friction = glm::clamp(emitter.friction, 0.0f, 1.0f);
-                    p.velocity = (-clamped_bounce * v_normal) + ((1.0f - clamped_friction) * v_tangent);
-                }
-
-                const float remaining_dt = dt * (1.0f - closest_hit.t);
-                if (remaining_dt > 0.0f) {
-                    p.position += p.velocity * remaining_dt;
-                }
-
-                if (emitter.lifetime_loss > 0.0f) {
-                    p.age += p.lifetime * glm::clamp(emitter.lifetime_loss, 0.0f, 1.0f);
-                    if (p.age >= p.lifetime) {
-                        if (i + 1 < emitter.particles.size()) {
-                            emitter.particles[i] = std::move(emitter.particles.back());
-                        }
-                        emitter.particles.pop_back();
-                        continue;
-                    }
-                }
-            } else {
-                p.position = next_pos;
-            }
+        };
+        if (jobs != nullptr) {
+            jobs->parallel_for(count, kParticleGrain, integrate);
         } else {
-            p.position = next_pos;
+            integrate(0, count);
         }
 
-            if (!emitter.color_curve.empty()) {
-                p.color = emitter.color_curve.evaluate(t);
-            } else {
-                p.color = glm::mix(p.start_color, p.end_color, t);
+        std::size_t write = 0;
+        for (std::size_t i = 0; i < count; ++i) {
+            if (alive[i] == 0) {
+                continue;
             }
-            if (!emitter.alpha_curve.empty()) {
-                p.color.a = emitter.alpha_curve.evaluate(t);
+            if (write != i) {
+                emitter.particles[write] = std::move(emitter.particles[i]);
             }
-
-            if (!emitter.size_curve_xy.empty()) {
-                p.size = p.base_size * emitter.size_curve_xy.evaluate(t);
-            } else if (!emitter.size_curve.empty()) {
-                p.size = p.base_size * emitter.size_curve.evaluate(t);
-            } else {
-                p.size = glm::mix(p.start_size, p.end_size, t);
-            }
-            ++i;
+            ++write;
+        }
+        emitter.particles.resize(write);
     }
+
 
     // 2. Check emission status
     if (!emitter.playing) {

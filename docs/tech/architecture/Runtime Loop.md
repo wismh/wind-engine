@@ -97,7 +97,7 @@ Frame systems, in phase order:
 | `Input` | `run_dock_input`: dock chrome presses and gestures, its own `MouseEvent` and `KeyEvent` cursors ([Docking](../features/Docking.md#host)) |
 | `Input` | `run_splash_timers` (`Time::delta_time`, including while paused) |
 | `Game` | `run_sprite_animations` |
-| `Game` | `run_particles` (calls `update_world_transforms` first, because `Transform` runs after it) |
+| `Game` | `run_particles` (calls `update_world_transforms` first, because `Transform` runs after it). Integration of the live particles may fork through `JobSystem` and joins before the system returns |
 | `Transform` | `update_world_transforms`: `WorldTransform` for every entity with a `Parent` ([ECS](../modules/ECS.md#hierarchy)) |
 | `Bind` | `run_dock_layout`: panel and chrome canvases of every `DockSpace` from its geometry |
 | `Bind` | `run_bind` |

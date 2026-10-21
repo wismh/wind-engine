@@ -6,6 +6,7 @@
 #include <engine/builtin_ids.h>
 #include <engine/core/bound_windows.h>
 #include <engine/core/input_system.h>
+#include <engine/core/job_system.h>
 #include <engine/core/time.h>
 #include <engine/ecs/camera.h>
 #include <engine/ecs/events.h>
@@ -814,7 +815,7 @@ namespace engine {
         }
     }
 
-    void run_particles(ecs::World &world) {
+    void run_particles(ecs::World &world, JobSystem *jobs) {
         const float dt = world.ctx<Time>().delta_time;
         // Runs before Phase::Transform, so refresh the matrices that emitters and colliders read (idempotent).
         ecs::update_world_transforms(world);
@@ -858,7 +859,7 @@ namespace engine {
 
         for (ecs::Entity entity: view) {
             auto &emitter = view.get<render::ParticleEmitter>(entity);
-            render::update_emitter(emitter, dt, ecs::world_matrix(world, entity), colliders);
+            render::update_emitter(emitter, dt, ecs::world_matrix(world, entity), colliders, jobs);
         }
     }
 
@@ -870,7 +871,8 @@ namespace engine {
         world.ctx<SimulationSystemsRegistered>().value = true;
         world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics, [](ecs::World &w) { run_physics_2d(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_sprite_animations(w); });
-        world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_particles(w); });
+        world.add_system(ecs::Schedule::Frame, ecs::Phase::Game,
+                         [jobs = deps.jobs](ecs::World &w) { run_particles(w, jobs); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Transform,
                          [](ecs::World &w) { ecs::update_world_transforms(w); });
         // Without a command buffer there is nothing to render into.

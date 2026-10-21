@@ -31,6 +31,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/core/file_dialog.h` | `FileFilter`, `FileDialogResult`, `FileDialogCall`: one owned dialog, `take`, `cancel` | [Windowing](../features/Windowing.md) |
 | `include/engine/core/game_module.h` | Game module export types and symbol names; `GameModule`, `load_game_module`, `purge_game_module_copies` | [Core](../modules/Core.md) |
 | `include/engine/core/host.h` | Headless tick host for tests | [Core](../modules/Core.md) |
+| `include/engine/core/job_system.h` | `JobSystem`: fork-join `parallel_for` | [Core](../modules/Core.md#jobs) |
 | `include/engine/core/input_system.h` | `ActionId` bindings and input events | [Input Mapper](../features/Input%20Mapper.md) |
 | `include/engine/core/key_code.h` | `KeyCode` values matching SDL scancodes | [Input Mapper](../features/Input%20Mapper.md) |
 | `include/engine/core/random.h` | `Random`, PCG32 | [Core](../modules/Core.md) |
@@ -149,7 +150,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/core/game_module.cpp` | Copy, load, check, and unload a game module (window builds) | [Core](../modules/Core.md) |
 | `src/core/game_loop.cpp` | `begin`, `tick`, `reentrant_tick`, `end`, `RunHooks` calls | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/core/game_loop.h` | `GameLoop` | [Runtime Loop](../architecture/Runtime%20Loop.md) |
-| `src/core/host.cpp` | Registers systems and ticks a fake canvas | [Core](../modules/Core.md) |
+| `src/core/host.cpp` | Registers systems and ticks a fake canvas. Owns a `JobSystem` with no workers | [Core](../modules/Core.md) |
+| `src/core/job_system.cpp` | Fork-join pool | [Core](../modules/Core.md#jobs) |
 | `src/core/input_system.cpp` | Bind table and event enqueue | [Input Mapper](../features/Input%20Mapper.md) |
 | `src/core/log.cpp` | spdlog sinks | [Core](../modules/Core.md) |
 | `src/core/random.cpp` | `Random`, PCG32 | [Core](../modules/Core.md) |
@@ -426,6 +428,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/haptics_test.cpp` | Clamp, no-op, and the fake counters | [Haptics](../modules/Haptics.md) |
 | `tests/http_test.cpp` | `HttpCall` ownership, completion queue, worker pool, URL and header parsing, `HttpClient` without a socket | [Net](../modules/Net.md) |
 | `tests/host_test.cpp` | `Host` tick and system registration | [Core](../modules/Core.md) |
+| `tests/job_system_test.cpp` | Inline ranges, two workers, nested `parallel_for`, `stop` joins | [Core](../modules/Core.md#jobs) |
 | `tests/icon_codegen_test.cpp` | ICO, ICNS, and PNG sizes in memory | [Icon Codegen](../build/Icon%20Codegen.md) |
 | `tests/input_test.cpp` | Bind, hold, touch synthesis, `reset` | [Input Mapper](../features/Input%20Mapper.md) |
 | `tests/loc_catalog_test.cpp` | TOML tables, fallback, pseudo, warn-once | [Localization](../modules/Localization.md) |
@@ -435,7 +438,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/mesh_test.cpp` | `.mesh` parse (5- and 8-column vertices, `f` rows, bad rows and indices), `mesh_desc_error` | [Assets](../features/Assets.md#mesh-files) |
 | `tests/mvvm_test.cpp` | View-model properties, commands, checkbox write-back | [UI](../modules/UI.md) |
 | `tests/opengl_texture_test.cpp` | CPU texture description. No GL draw | [Render](../modules/Render.md) |
-| `tests/particle_test.cpp` | Emitter step and curves | [Render](../modules/Render.md) |
+| `tests/particle_test.cpp` | Emitter step, curves, and parallel integration matching the caller | [Render](../modules/Render.md) |
 | `tests/pointer_target_test.cpp` | `PointerTarget`: hit-test, order, windows, camera, hover, click, click-through, UI first | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `tests/lights_test.cpp` | Light collection (direction from rotation and parent, cap, ambient sum, default rig) and the lights and camera in `CmdSetView` | [Render](../modules/Render.md#lights) |
 | `tests/primitives_test.cpp` | Primitive counts, unit outward normals, winding, index range; builtin quad and cube files match | [Render](../modules/Render.md#primitives) |
