@@ -232,6 +232,7 @@ file(GLOB_RECURSE ENGINE_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c")
 list(FILTER ENGINE_SOURCES EXCLUDE REGEX "[/\\\\]render[/\\\\]opengl[/\\\\]")
+list(FILTER ENGINE_SOURCES EXCLUDE REGEX "[/\\\\]render[/\\\\]vulkan[/\\\\]")
 list(FILTER ENGINE_SOURCES EXCLUDE REGEX "engine_runtime\\.cpp$")
 list(FILTER ENGINE_SOURCES EXCLUDE REGEX "engine_host\\.cpp$")
 list(FILTER ENGINE_SOURCES EXCLUDE REGEX "engine_instantiate\\.cpp$")
@@ -512,6 +513,18 @@ if(ENGINE_WITH_WINDOW)
         "${CMAKE_CURRENT_SOURCE_DIR}/src/core/sdl_fatal_error.cpp")
     target_compile_definitions(engine PUBLIC ENGINE_WITH_WINDOW=1)
     target_include_directories(engine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/render/opengl")
+    option(ENGINE_WITH_VULKAN "Use Vulkan as default window render backend" OFF)
+    if(NOT EMSCRIPTEN)
+        file(GLOB_RECURSE ENGINE_VK_SOURCES CONFIGURE_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/render/vulkan/*.cpp")
+        target_sources(engine PRIVATE ${ENGINE_VK_SOURCES})
+        target_include_directories(engine PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/render/vulkan"
+            "${CMAKE_CURRENT_SOURCE_DIR}/external/SDL3/src/video/khronos")
+        if(ENGINE_WITH_VULKAN)
+            target_compile_definitions(engine PRIVATE ENGINE_WITH_VULKAN=1)
+        endif()
+    endif()
     if(ENGINE_WITH_GLES)
         if(ANDROID)
             target_link_libraries(engine PRIVATE SDL3::SDL3 GLESv3 EGL android log)
@@ -587,6 +600,10 @@ if(ENGINE_BUILD_TESTS)
         # WindowSystem is private to engine (linked PRIVATE, so its glad/SDL3 include
         # dirs don't propagate); tests that reach it via src/render/opengl need them directly.
         target_link_libraries(engine_tests PRIVATE SDL3::SDL3)
+        if(NOT EMSCRIPTEN)
+            target_include_directories(engine_tests PRIVATE
+                "${CMAKE_CURRENT_SOURCE_DIR}/external/SDL3/src/video/khronos")
+        endif()
         if(NOT ENGINE_WITH_GLES)
             target_link_libraries(engine_tests PRIVATE glad)
         endif()

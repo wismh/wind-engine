@@ -491,6 +491,14 @@ private:
 
 }
 
+std::unique_ptr<IPresentation> make_sdl_presentation(
+        std::shared_ptr<render::IGraphicFactory> factory,
+        std::shared_ptr<render::IRenderBackend> backend,
+        WindowManager::CanvasFactory make_canvas) {
+    return std::make_unique<SdlPresentation>(
+            std::move(factory), std::move(backend), std::move(make_canvas));
+}
+
 std::unique_ptr<IPresentation> make_sdl_gl_presentation() {
     auto factory = std::make_shared<render::OpenGLFactory>();
     auto backend = std::make_shared<render::OpenGLRenderBackend>();

@@ -237,6 +237,21 @@ GL errors are silent unless someone asks. With `ENGINE_GL_CHECKS` (Debug, RelWit
 
 `WindowSystem::set_icon` builds an `SDL_Surface` with `make_icon_surface` and calls `SDL_SetWindowIcon`. A null window or a short RGBA buffer yields a null surface. `tests/window_icon_test.cpp` covers the byte layout without `SDL_Init`.
 
+## Vulkan (`ENGINE_WITH_WINDOW`)
+
+`src/render/vulkan/` provides the Vulkan backend alongside OpenGL when `ENGINE_WITH_WINDOW` is enabled (excluding Emscripten):
+
+| Piece | File |
+| --- | --- |
+| Dynamic function loader (`VK_NO_PROTOTYPES` via `SDL_Vulkan_GetVkGetInstanceProcAddr`) | `src/render/vulkan/vulkan_functions.cpp` |
+| Shared `VkInstance`, `VkPhysicalDevice`, `VkDevice`, `VkQueue`, and command pool | `src/render/vulkan/vulkan_context.cpp` |
+| Factory (`IMesh`, SPIR-V `IShader` modules, `ITexture`, `IDynamicTexture`) | `src/render/vulkan/vulkan_factory.cpp` |
+| Render backend (`IRenderBackend`, shared `ui::PaintResources`, `CmdSetView`) | `src/render/vulkan/vulkan_backend.cpp` |
+| Per-window `VkSurfaceKHR`, `VkSwapchainKHR`, depth attachment, render pass, framebuffers, sync primitives, and staging-buffer `read_pixels()` | `src/render/vulkan/vulkan_canvas.cpp` |
+| SDL presentation wiring (`make_sdl_vk_presentation`) | `src/render/vulkan/sdl_vk_presentation.cpp` |
+
+`EngineRuntime` selects `make_sdl_vk_presentation()` when built with `-DENGINE_WITH_VULKAN=ON` or when `WIND_RENDER_BACKEND=vulkan` is set in the environment (`WIND_RENDER_BACKEND=opengl` forces OpenGL).
+
 ## CPU sources (always)
 
 - `src/render/material.cpp` — parse `.mat`
