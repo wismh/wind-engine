@@ -11,21 +11,6 @@
 namespace editor {
 namespace {
 
-class ProjectStepCommand final : public EditorCommand {
-public:
-    explicit ProjectStepCommand(ExplorerPanel& panel) : panel_(&panel) {}
-
-    bool undo() override { return panel_->undo_project_step(); }
-    bool redo() override { return panel_->redo_project_step(); }
-    [[nodiscard]] Kind kind() const override { return Kind::Project; }
-
-private:
-    ExplorerPanel* panel_;
-};
-
-}
-namespace {
-
 constexpr char kNoProject[] = "No project open.";
 
 std::string path_text(const std::filesystem::path& path) {
@@ -84,8 +69,8 @@ void split_leaf(std::string_view name, std::string& stem, std::string& extension
 
 }
 
-ExplorerPanel::ExplorerPanel(EditorSelection& selection)
-    : selection_(&selection), view_model_(std::make_shared<ExplorerViewModel>()) {
+ExplorerPanel::ExplorerPanel(EditorSelection& selection, CommandHistory& journal)
+    : selection_(&selection), journal_(&journal), view_model_(std::make_shared<ExplorerViewModel>()) {
     view_model_->rootText = std::string(kNoProject);
     view_model_->blankNewFolder.bind_to<ExplorerPanel, &ExplorerPanel::blank_new_folder>(*this);
     view_model_->blankNewWorld.bind_to<ExplorerPanel, &ExplorerPanel::blank_new_world>(*this);
@@ -106,7 +91,7 @@ void ExplorerPanel::open(const std::filesystem::path& directory) {
     drop_.clear();
     rename_focus_ = false;
     clipboard_.reset();
-    history_.clear();
+    journal_->discard(EditorCommand::Kind::Project);
     notice_.clear();
     relocations_.clear();
     removals_.clear();
@@ -123,7 +108,7 @@ void ExplorerPanel::close() {
     drop_.clear();
     rename_focus_ = false;
     clipboard_.reset();
-    history_.clear();
+    journal_->discard(EditorCommand::Kind::Project);
     notice_.clear();
     relocations_.clear();
     removals_.clear();
@@ -142,8 +127,8 @@ void ExplorerPanel::reload(bool external) {
         return;
     }
     scan_ = scan_project(directory_);
-    if (external && !history_.matches(directory_)) {
-        history_.clear();
+    if (external) {
+        journal_->validate(EditorCommand::Kind::Project);
     }
     expansion_.retain([this](const std::string& key) { return find_entry(scan_.roots, key) != nullptr; });
     if (find_entry(scan_.roots, selected_) == nullptr) {
@@ -279,7 +264,7 @@ void ExplorerPanel::paste_at(const std::string& anchor) {
         if (dest == from) {
             return;
         }
-        apply_result(history_.relocate(directory_, from, dest));
+        apply_result(record(ProjectStep::relocate(*this, directory_, from, dest)));
         if (find_entry(scan_.roots, from) == nullptr) {
             clipboard_.reset();
         }
@@ -297,7 +282,7 @@ void ExplorerPanel::paste_at(const std::string& anchor) {
         }
         dest = project_join_key(folder, unique);
     }
-    apply_result(history_.copy_entry(directory_, from, dest));
+    apply_result(record(ProjectStep::copy_entry(*this, directory_, from, dest)));
 }
 
 void ExplorerPanel::new_folder_at(const std::string& anchor) {
@@ -340,7 +325,7 @@ void ExplorerPanel::create_at(const std::string& anchor, ProjectCreateKind kind)
         return;
     }
     const std::string key = project_join_key(folder, name);
-    ProjectEditResult result = history_.create(directory_, key, kind);
+    ProjectEditResult result = record(ProjectStep::create(*this, directory_, key, kind));
     apply_result(std::move(result));
     if (find_entry(scan_.roots, key) != nullptr) {
         begin_rename(key);
@@ -390,7 +375,7 @@ void ExplorerPanel::commit_rename() {
         return;
     }
     const std::string to = project_join_key(project_parent_key(from), name);
-    ProjectEditResult result = history_.relocate(directory_, from, to);
+    ProjectEditResult result = record(ProjectStep::relocate(*this, directory_, from, to));
     if (!result.ok) {
         notice_ = std::move(result.notice);
         return;
@@ -459,7 +444,7 @@ void ExplorerPanel::remove_key(const std::string& key) {
                 clipboard_->key.starts_with(key) && clipboard_->key[key.size()] == '/'))) {
         clipboard_.reset();
     }
-    apply_result(history_.remove(directory_, key));
+    apply_result(record(ProjectStep::remove(*this, directory_, key)));
 }
 
 void ExplorerPanel::move_into(const std::string& from, const std::string& folder) {
@@ -470,75 +455,32 @@ void ExplorerPanel::move_into(const std::string& from, const std::string& folder
     if (dest == from) {
         return;
     }
-    apply_result(history_.relocate(directory_, from, dest));
+    apply_result(record(ProjectStep::relocate(*this, directory_, from, dest)));
 }
 
-void ExplorerPanel::attach_journal(CommandHistory& journal) {
-    journal_ = &journal;
-    history_.set_hooks(
-            [this] {
-                if (journal_ != nullptr) {
-                    journal_->push(std::make_unique<ProjectStepCommand>(*this));
-                }
-            },
-            [this] {
-                if (journal_ != nullptr) {
-                    journal_->discard(EditorCommand::Kind::Project);
-                }
-            });
-}
-
-void ExplorerPanel::discard_project_redo() {
-    history_.clear_redo();
-}
-
-bool ExplorerPanel::undo_project_step() {
-    if (directory_.empty()) {
-        return false;
+ProjectEditResult ExplorerPanel::record(ProjectEditOutcome outcome) {
+    if (outcome.step) {
+        journal_->push(std::move(outcome.step));
     }
+    return std::move(outcome.result);
+}
+
+void ExplorerPanel::project_step_ran(const ProjectEditResult& result) {
     renaming_.clear();
     rename_focus_ = false;
-    project_result_ = history_.undo(directory_);
-    apply_result(project_result_);
-    return project_result_.ok;
-}
-
-bool ExplorerPanel::redo_project_step() {
-    if (directory_.empty()) {
-        return false;
-    }
-    renaming_.clear();
-    rename_focus_ = false;
-    project_result_ = history_.redo(directory_);
-    apply_result(project_result_);
-    return project_result_.ok;
+    project_result_ = result;
+    apply_result(result);
 }
 
 ProjectEditResult ExplorerPanel::undo() {
-    if (journal_ != nullptr) {
-        project_result_ = {};
-        if (!journal_->undo()) {
-            return {};
-        }
-        return project_result_;
-    }
-    if (!undo_project_step()) {
-        return project_result_;
-    }
+    project_result_ = {};
+    (void) journal_->undo();
     return project_result_;
 }
 
 ProjectEditResult ExplorerPanel::redo() {
-    if (journal_ != nullptr) {
-        project_result_ = {};
-        if (!journal_->redo()) {
-            return {};
-        }
-        return project_result_;
-    }
-    if (!redo_project_step()) {
-        return project_result_;
-    }
+    project_result_ = {};
+    (void) journal_->redo();
     return project_result_;
 }
 

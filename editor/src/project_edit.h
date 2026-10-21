@@ -1,7 +1,9 @@
 #pragma once
 
+#include "command_history.h"
+
 #include <filesystem>
-#include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -35,40 +37,47 @@ enum class ProjectCreateKind {
     Source,
 };
 
-// Undoable creates, copies, and relocates under one project directory. Each successful `create` / `copy_entry` /
-// `relocate` is one step; `undo` and `redo` walk that stack. Nothing here reads the keyboard: Ctrl+Z will call
-// `undo` later, and every step already knows how to reverse itself.
+// Told after a step ran (undo or redo), or failed to. A failure has `ok` false and a notice. The editor's explorer
+// implements it to refresh its tree and selection.
+class ProjectStepListener {
+public:
+    virtual ~ProjectStepListener() = default;
+    virtual void project_step_ran(const ProjectEditResult& result) = 0;
+};
+
+class ProjectStep;
+
+// What starting one project edit did. `step` is set exactly when `result.ok` is true: push it on the editor's
+// `CommandHistory`, which owns it from then on.
+struct ProjectEditOutcome {
+    ProjectEditResult result;
+    std::unique_ptr<ProjectStep> step;
+};
+
+// One undoable create, copy, relocate, or delete under a project directory. The factories do the edit on disk and
+// hand back the step that can reverse it; `undo` and `redo` on the step then walk it back and forth.
 //
 // A relocate keeps the asset GUID by moving the sibling `.meta` with the file. A copy and a create under `assets/`
-// write a new sidecar through `write_missing_metas` (never a copy of the old GUID).
-class ProjectHistory {
+// write a new sidecar through `write_missing_metas` (never a copy of the old GUID). A delete keeps the file bytes
+// and the sidecar so undo writes both back.
+class ProjectStep final : public EditorCommand {
 public:
-    [[nodiscard]] ProjectEditResult relocate(const std::filesystem::path& root, std::string from, std::string to);
-    [[nodiscard]] ProjectEditResult copy_entry(const std::filesystem::path& root, std::string from, std::string to);
-    [[nodiscard]] ProjectEditResult create(const std::filesystem::path& root, std::string key, ProjectCreateKind kind);
-    // Deletes `key` and its sibling `.meta`. Undo writes both back, so the GUID stays.
+    [[nodiscard]] static ProjectEditOutcome relocate(ProjectStepListener& listener, const std::filesystem::path& root,
+            std::string from, std::string to);
+    [[nodiscard]] static ProjectEditOutcome copy_entry(ProjectStepListener& listener,
+            const std::filesystem::path& root, std::string from, std::string to);
+    [[nodiscard]] static ProjectEditOutcome create(ProjectStepListener& listener, const std::filesystem::path& root,
+            std::string key, ProjectCreateKind kind);
+    [[nodiscard]] static ProjectEditOutcome remove(ProjectStepListener& listener, const std::filesystem::path& root,
+            std::string key);
 
-    [[nodiscard]] ProjectEditResult remove(const std::filesystem::path& root, std::string key);
-
-    [[nodiscard]] ProjectEditResult undo(const std::filesystem::path& root);
-    [[nodiscard]] ProjectEditResult redo(const std::filesystem::path& root);
-
-    void clear();
-    // Drops steps that were undone, without touching the undo stack. The shared command history calls this when a
-    // new step (a file or an entity) forgets the redo side.
-    void clear_redo();
-
-    // `recorded` runs after a new step is pushed. `cleared` runs after `clear`. Undo and redo do not call them.
-    void set_hooks(std::function<void()> recorded, std::function<void()> cleared);
-
-    // False when a step's files or sidecar GUIDs are not what that step left on disk. The caller drops the stack.
-    [[nodiscard]] bool matches(const std::filesystem::path& root) const;
-
-    [[nodiscard]] bool can_undo() const { return !undo_.empty(); }
-    [[nodiscard]] bool can_redo() const { return !redo_.empty(); }
+    bool undo() override;
+    bool redo() override;
+    [[nodiscard]] Kind kind() const override { return Kind::Project; }
+    // False when this step's files or sidecar GUIDs are not what the step left on disk.
+    [[nodiscard]] bool valid() const override;
 
 private:
-    // `suffix` is appended to the asset path (".meta") or is a relative path under a copied/moved directory.
     struct MetaExpect {
         bool sibling = false;
         std::string relative;
@@ -95,11 +104,17 @@ private:
         bool applied = false;
     };
 
-    [[nodiscard]] ProjectEditResult finish(Edit edit, bool ok, std::string notice);
-    [[nodiscard]] bool apply(Edit& edit, const std::filesystem::path& root, std::string& notice);
-    [[nodiscard]] bool revert(Edit& edit, const std::filesystem::path& root, std::string& notice);
-    [[nodiscard]] bool matches_one(const Edit& edit, const std::filesystem::path& root) const;
+    ProjectStep(ProjectStepListener& listener, std::filesystem::path root, Edit edit);
 
+    [[nodiscard]] static ProjectEditOutcome refuse(std::string notice);
+    [[nodiscard]] static ProjectEditOutcome finish(ProjectStepListener& listener, const std::filesystem::path& root,
+            Edit edit, std::string notice);
+    [[nodiscard]] static ProjectEditResult result_of(const Edit& edit, bool forward);
+    [[nodiscard]] static bool apply(Edit& edit, const std::filesystem::path& root, std::string& notice);
+    [[nodiscard]] static bool revert(Edit& edit, const std::filesystem::path& root, std::string& notice);
+    [[nodiscard]] static bool matches_one(const Edit& edit, const std::filesystem::path& root);
+
+    // `suffix` is appended to the asset path (".meta") or is a relative path under a copied/moved directory.
     [[nodiscard]] static std::filesystem::path meta_file(const std::filesystem::path& asset, const MetaExpect& expect);
     static void collect_metas(const std::filesystem::path& asset, bool directory, std::vector<MetaExpect>& out);
     [[nodiscard]] static bool metas_match(const std::filesystem::path& asset, const std::vector<MetaExpect>& metas);
@@ -107,10 +122,9 @@ private:
             std::vector<StoredFile>& out, std::string& notice);
     [[nodiscard]] static bool restore_deleted(const std::filesystem::path& asset, const Edit& edit, std::string& notice);
 
-    std::vector<Edit> undo_;
-    std::vector<Edit> redo_;
-    std::function<void()> recorded_;
-    std::function<void()> cleared_;
+    ProjectStepListener* listener_;
+    std::filesystem::path root_;
+    Edit edit_;
 };
 
 // A single path segment: no separators, no empty name, no trailing dot or space.

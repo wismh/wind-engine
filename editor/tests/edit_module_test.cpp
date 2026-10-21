@@ -62,15 +62,17 @@ public:
     LiveRoot(const LiveRoot&) = delete;
     LiveRoot& operator=(const LiveRoot&) = delete;
 
-    [[nodiscard]] const std::filesystem::path& path() const { return path_; }
+    [[nodiscard]] const std::filesystem::path& path() const {
+        return path_;
+    }
 
     [[nodiscard]] std::size_t copies() const {
         std::error_code ec;
         if (!std::filesystem::exists(path_, ec)) {
             return 0;
         }
-        return static_cast<std::size_t>(
-            std::distance(std::filesystem::directory_iterator(path_), std::filesystem::directory_iterator{}));
+        return static_cast<std::size_t>(std::distance(
+                std::filesystem::directory_iterator(path_), std::filesystem::directory_iterator{}));
     }
 
 private:
@@ -85,7 +87,7 @@ id = "beacon"
 fixture_component = { label = "edit", power = 42 }
 )";
 
-} // namespace
+}
 
 TEST(EditModule, LoadRegistersComponentsAndLoadsCatalog) {
     LiveRoot live;
@@ -137,9 +139,9 @@ TEST(EditModule, UnloadResetsSerializersUnloadsCatalogAndDeletesLiveCopy) {
 
     // Without the edit module loaded, a .world file still loads via UnknownComponentMode::Preserve.
     engine::ecs::World fallback_world;
-    const auto inst = engine::ecs::load_world_from_toml(fallback_world, kWorldToml, nullptr,
-                                                        &editor_world.ctx<engine::ecs::WorldSerializer>(),
-                                                        engine::ecs::UnknownComponentMode::Preserve);
+    const auto inst = engine::ecs::load_world_from_toml(
+            fallback_world, kWorldToml, nullptr, &editor_world.ctx<engine::ecs::WorldSerializer>(),
+            engine::ecs::UnknownComponentMode::Preserve);
     ASSERT_TRUE(inst.has_value()) << inst.error().message;
     const auto* unknown = fallback_world.try_get<engine::ecs::UnknownComponents>(inst->by_id.at("beacon"));
     ASSERT_NE(unknown, nullptr);

@@ -1,12 +1,9 @@
 #include "command_history.h"
 
+#include <algorithm>
 #include <utility>
 
 namespace editor {
-
-void CommandHistory::set_after_push(std::function<void()> after_push) {
-    after_push_ = std::move(after_push);
-}
 
 void CommandHistory::push(std::unique_ptr<EditorCommand> command) {
     if (command == nullptr) {
@@ -18,9 +15,6 @@ void CommandHistory::push(std::unique_ptr<EditorCommand> command) {
     }
     undo_.push_back(std::move(command));
     redo_.clear();
-    if (after_push_) {
-        after_push_();
-    }
 }
 
 bool CommandHistory::undo() {
@@ -60,6 +54,15 @@ void CommandHistory::discard(EditorCommand::Kind kind) {
     const auto drop = [kind](const std::unique_ptr<EditorCommand>& command) { return command->kind() == kind; };
     std::erase_if(undo_, drop);
     std::erase_if(redo_, drop);
+}
+
+void CommandHistory::validate(EditorCommand::Kind kind) {
+    const auto stale = [kind](const std::unique_ptr<EditorCommand>& command) {
+        return command->kind() == kind && !command->valid();
+    };
+    if (std::ranges::any_of(undo_, stale) || std::ranges::any_of(redo_, stale)) {
+        discard(kind);
+    }
 }
 
 int CommandHistory::count(EditorCommand::Kind kind) const {

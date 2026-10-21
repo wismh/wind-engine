@@ -158,7 +158,7 @@ public:
     [[nodiscard]] FieldValue encode(const std::vector<T>& items) const {
         FieldArray out;
         out.reserve(items.size());
-        for (const T& item: items) {
+        for (const T& item : items) {
             out.push_back(encode(item));
         }
         return FieldValue{std::move(out)};
@@ -313,8 +313,8 @@ public:
             if (!x || !y || !z || !w) {
                 return false;
             }
-            out = glm::vec4{static_cast<float>(*x), static_cast<float>(*y), static_cast<float>(*z),
-                            static_cast<float>(*w)};
+            out = glm::vec4{
+                    static_cast<float>(*x), static_cast<float>(*y), static_cast<float>(*z), static_cast<float>(*w)};
             return true;
         }
         return false;
@@ -332,8 +332,8 @@ public:
             if (!x || !y || !z || !w) {
                 return false;
             }
-            out = glm::quat{static_cast<float>(*w), static_cast<float>(*x), static_cast<float>(*y),
-                            static_cast<float>(*z)};
+            out = glm::quat{
+                    static_cast<float>(*w), static_cast<float>(*x), static_cast<float>(*y), static_cast<float>(*z)};
             return true;
         }
         return false;
@@ -395,7 +395,7 @@ public:
         }
         std::vector<T> result;
         result.reserve(arr->size());
-        for (const FieldValue& elem: *arr) {
+        for (const FieldValue& elem : *arr) {
             T decoded{};
             if (!decode(elem, decoded)) {
                 return false;
