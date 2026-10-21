@@ -20,15 +20,22 @@ std::string path_text(const std::filesystem::path& path) {
     return {reinterpret_cast<const char*>(text.data()), text.size()};
 }
 
-} // namespace
+}
 
 PlaySession::PlaySession(const engine::EngineServices& services, IPlayHost& host, std::filesystem::path live_root,
-                         engine::WindowDesc idle_window) :
-    services_(&services), host_(&host), live_root_(std::move(live_root)), idle_window_(std::move(idle_window)) {}
+        engine::WindowDesc idle_window)
+    : services_(&services)
+    , host_(&host)
+    , live_root_(std::move(live_root))
+    , idle_window_(std::move(idle_window)) {}
 
-PlaySession::~PlaySession() { stop(); }
+PlaySession::~PlaySession() {
+    stop();
+}
 
-bool PlaySession::playing() const noexcept { return game_ != nullptr; }
+bool PlaySession::playing() const noexcept {
+    return game_ != nullptr;
+}
 
 std::expected<std::string, std::string> PlaySession::play(const std::filesystem::path& module) {
     if (playing()) {
@@ -90,13 +97,13 @@ void PlaySession::stop() {
             doomed.push_back(&world);
         }
     });
-    for (engine::ecs::World* world: doomed) {
+    for (engine::ecs::World* world : doomed) {
         services_->worlds.destroy(*world);
     }
 
     // Windows the game opened go. A window opened meanwhile by a kept world (an editor panel's float window) stays.
     engine::IWindowControl& windows = services_->windows;
-    for (const engine::WindowId id: windows.open_windows()) {
+    for (const engine::WindowId id : windows.open_windows()) {
         engine::ecs::World* const owner = services_->worlds.world_for(id);
         const bool kept_owner = owner != nullptr && std::ranges::find(kept_worlds_, owner) != kept_worlds_.end();
         if (std::ranges::find(kept_windows_, id) == kept_windows_.end() && !kept_owner) {
@@ -134,4 +141,4 @@ void PlaySession::apply_window(const engine::WindowDesc& desc) {
     windows.set_always_on_top(desc.style.always_on_top);
 }
 
-} // namespace editor
+}

@@ -76,13 +76,13 @@ inline void register_module_objects(::engine::AssetsDb& assets) {
 
 #else
 
-#define ENGINE_GAME(GameClass)                                                                                         \
-    int main() {                                                                                                       \
-        ::engine::Engine<GameClass> app;                                                                               \
-        if (const auto started = app.init(); !started) {                                                               \
-            ::engine::report_startup_error(started.error());                                                           \
-        }                                                                                                              \
-        return app.run();                                                                                              \
+#define ENGINE_GAME(GameClass)                                                                                  \
+    int main() {                                                                                                \
+        ::engine::Engine<GameClass> app;                                                                        \
+        if (const auto started = app.init(); !started) {                                                        \
+            ::engine::report_startup_error(started.error());                                                    \
+        }                                                                                                       \
+        return app.run();                                                                                       \
     }
 
 #endif

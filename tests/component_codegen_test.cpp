@@ -128,7 +128,8 @@ struct WIND_SERIALIZABLE ForwardOnly;
 }
 
 TEST(ComponentCodegen, WritesComponentIoHeaderAndDetectsKeyCollision) {
-    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "wind_component_codegen_test";
+    const std::filesystem::path dir =
+            std::filesystem::temp_directory_path() / "wind_component_codegen_test";
     std::filesystem::remove_all(dir);
     std::filesystem::create_directories(dir / "src");
 
@@ -172,7 +173,8 @@ TEST(ComponentCodegen, WritesComponentIoHeaderAndDetectsKeyCollision) {
 }
 
 TEST(ComponentCodegen, AssetGuidAndCodegenScanHandleWorldAssets) {
-    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "wind_world_codegen_test";
+    const std::filesystem::path dir =
+            std::filesystem::temp_directory_path() / "wind_world_codegen_test";
     std::filesystem::remove_all(dir);
     std::filesystem::create_directories(dir / "levels");
 
@@ -187,7 +189,9 @@ TEST(ComponentCodegen, AssetGuidAndCodegenScanHandleWorldAssets) {
 
     const auto scanned = engine::codegen_scan(dir);
     ASSERT_TRUE(scanned.has_value()) << scanned.error().message;
-    EXPECT_NE(scanned->asset_ids_header.find("inline constexpr engine::AssetId level_01"), std::string::npos);
+    EXPECT_NE(
+            scanned->asset_ids_header.find("inline constexpr engine::AssetId level_01"),
+            std::string::npos);
 
     // Corrupt .world file fails codegen_scan with CodegenErrorKind::World.
     {

@@ -5,10 +5,10 @@
 #include <glm/vec2.hpp>
 
 #include <algorithm>
-#include <cmath>
-#include <cstdlib>
-#include <cstdint>
 #include <cctype>
+#include <cmath>
+#include <cstdint>
+#include <cstdlib>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -29,9 +29,7 @@ struct Aff2 {
     float e = 0.0f;
     float f = 0.0f;
 
-    [[nodiscard]] glm::vec2 apply(glm::vec2 p) const {
-        return {a * p.x + c * p.y + e, b * p.x + d * p.y + f};
-    }
+    [[nodiscard]] glm::vec2 apply(glm::vec2 p) const { return {a * p.x + c * p.y + e, b * p.x + d * p.y + f}; }
 };
 
 Aff2 mul(Aff2 m, Aff2 n) {
@@ -65,7 +63,7 @@ std::string_view trim(std::string_view value) {
 
 std::string lower_copy(std::string_view value) {
     std::string out(value);
-    for (char &c: out) {
+    for (char& c : out) {
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     }
     return out;
@@ -136,7 +134,7 @@ struct Numbers {
         }
         // strtod, not from_chars: Apple's libc++ has no floating-point from_chars before Xcode 16.3.
         const std::string token(text.substr(begin, i - begin));
-        char *end = nullptr;
+        char* end = nullptr;
         const float value = static_cast<float>(std::strtod(token.c_str(), &end));
         if (end != token.c_str() + token.size()) {
             ok = false;
@@ -164,8 +162,9 @@ std::optional<float> length_value(std::string_view raw) {
         const std::string tail = lower_copy(raw.substr(raw.size() - 2));
         if (tail == "px") {
             raw = trim(raw.substr(0, raw.size() - 2));
-        } else if (tail == "em" || tail == "ex" || tail == "pt" || tail == "pc" || tail == "in" || tail == "cm" ||
-                   tail == "mm") {
+        } else if (
+                tail == "em" || tail == "ex" || tail == "pt" || tail == "pc" || tail == "in" || tail == "cm" ||
+                tail == "mm") {
             return std::nullopt;
         }
     }
@@ -268,7 +267,7 @@ bool dashed(std::string_view raw) {
     return !key.empty() && key != "none";
 }
 
-bool apply_decl(Style &style, std::string_view name, std::string_view value) {
+bool apply_decl(Style& style, std::string_view name, std::string_view value) {
     name = trim(name);
     if (name == "fill") {
         const auto color = parse_color(value);
@@ -339,7 +338,7 @@ bool apply_decl(Style &style, std::string_view name, std::string_view value) {
     return true;
 }
 
-bool apply_style_attr(Style &style, std::string_view text) {
+bool apply_style_attr(Style& style, std::string_view text) {
     while (!text.empty()) {
         const std::size_t semi = text.find(';');
         const std::string_view piece = trim(text.substr(0, semi));
@@ -358,13 +357,13 @@ bool apply_style_attr(Style &style, std::string_view text) {
     return true;
 }
 
-bool apply_presentation(Style &style, const tinyxml2::XMLElement *element) {
+bool apply_presentation(Style& style, const tinyxml2::XMLElement* element) {
     // `opacity` is not inherited: the parent contributes a multiplier, and this element's own value replaces
     // only its local factor. The style attribute is applied after the attributes, so it wins.
     const float inherited_opacity = style.opacity;
     style.opacity = 1.0f;
-    auto take = [&](const char *name) {
-        if (const char *value = element->Attribute(name)) {
+    auto take = [&](const char* name) {
+        if (const char* value = element->Attribute(name)) {
             return apply_decl(style, name, value);
         }
         return true;
@@ -374,7 +373,7 @@ bool apply_presentation(Style &style, const tinyxml2::XMLElement *element) {
         !take("visibility")) {
         return false;
     }
-    if (const char *inline_style = element->Attribute("style")) {
+    if (const char* inline_style = element->Attribute("style")) {
         if (!apply_style_attr(style, inline_style)) {
             return false;
         }
@@ -383,7 +382,7 @@ bool apply_presentation(Style &style, const tinyxml2::XMLElement *element) {
     return true;
 }
 
-bool parse_transform(std::string_view text, Aff2 &out) {
+bool parse_transform(std::string_view text, Aff2& out) {
     Numbers numbers{text};
     Aff2 combined;
     numbers.skip();
@@ -460,9 +459,9 @@ bool parse_transform(std::string_view text, Aff2 &out) {
     return true;
 }
 
-bool element_transform(const tinyxml2::XMLElement *element, Aff2 parent, Aff2 &out) {
+bool element_transform(const tinyxml2::XMLElement* element, Aff2 parent, Aff2& out) {
     Aff2 local;
-    if (const char *value = element->Attribute("transform")) {
+    if (const char* value = element->Attribute("transform")) {
         if (!parse_transform(value, local)) {
             return false;
         }
@@ -471,8 +470,8 @@ bool element_transform(const tinyxml2::XMLElement *element, Aff2 parent, Aff2 &o
     return true;
 }
 
-float attr_length(const tinyxml2::XMLElement *element, const char *name, float fallback, bool &ok) {
-    const char *value = element->Attribute(name);
+float attr_length(const tinyxml2::XMLElement* element, const char* name, float fallback, bool& ok) {
+    const char* value = element->Attribute(name);
     if (value == nullptr) {
         return fallback;
     }
@@ -484,25 +483,29 @@ float attr_length(const tinyxml2::XMLElement *element, const char *name, float f
     return *parsed;
 }
 
-void add_segment(std::vector<PathSegment> &segments, PathSegment::Kind kind, glm::vec2 p, glm::vec2 c1 = {},
-                 glm::vec2 c2 = {}) {
+void add_segment(
+        std::vector<PathSegment>& segments, PathSegment::Kind kind, glm::vec2 p, glm::vec2 c1 = {}, glm::vec2 c2 = {}) {
     segments.push_back(PathSegment{kind, p, c1, c2});
 }
 
-void add_ellipse(std::vector<PathSegment> &segments, float cx, float cy, float rx, float ry) {
+void add_ellipse(std::vector<PathSegment>& segments, float cx, float cy, float rx, float ry) {
     add_segment(segments, PathSegment::Kind::Move, {cx + rx, cy});
-    add_segment(segments, PathSegment::Kind::Cubic, {cx, cy + ry}, {cx + rx, cy + kCircle * ry},
-                {cx + kCircle * rx, cy + ry});
-    add_segment(segments, PathSegment::Kind::Cubic, {cx - rx, cy}, {cx - kCircle * rx, cy + ry},
-                {cx - rx, cy + kCircle * ry});
-    add_segment(segments, PathSegment::Kind::Cubic, {cx, cy - ry}, {cx - rx, cy - kCircle * ry},
-                {cx - kCircle * rx, cy - ry});
-    add_segment(segments, PathSegment::Kind::Cubic, {cx + rx, cy}, {cx + kCircle * rx, cy - ry},
-                {cx + rx, cy - kCircle * ry});
+    add_segment(
+            segments, PathSegment::Kind::Cubic, {cx, cy + ry}, {cx + rx, cy + kCircle * ry},
+            {cx + kCircle * rx, cy + ry});
+    add_segment(
+            segments, PathSegment::Kind::Cubic, {cx - rx, cy}, {cx - kCircle * rx, cy + ry},
+            {cx - rx, cy + kCircle * ry});
+    add_segment(
+            segments, PathSegment::Kind::Cubic, {cx, cy - ry}, {cx - rx, cy - kCircle * ry},
+            {cx - kCircle * rx, cy - ry});
+    add_segment(
+            segments, PathSegment::Kind::Cubic, {cx + rx, cy}, {cx + kCircle * rx, cy - ry},
+            {cx + rx, cy - kCircle * ry});
     add_segment(segments, PathSegment::Kind::Close, {});
 }
 
-void add_rounded_rect(std::vector<PathSegment> &segments, float x, float y, float w, float h, float rx, float ry) {
+void add_rounded_rect(std::vector<PathSegment>& segments, float x, float y, float w, float h, float rx, float ry) {
     rx = std::min(std::abs(rx), w * 0.5f);
     ry = std::min(std::abs(ry), h * 0.5f);
     if (rx <= 0.0f && ry <= 0.0f) {
@@ -517,17 +520,20 @@ void add_rounded_rect(std::vector<PathSegment> &segments, float x, float y, floa
     const float bottom = y + h;
     add_segment(segments, PathSegment::Kind::Move, {x + rx, y});
     add_segment(segments, PathSegment::Kind::Line, {right - rx, y});
-    add_segment(segments, PathSegment::Kind::Cubic, {right, y + ry}, {right - rx + kCircle * rx, y},
-                {right, y + ry - kCircle * ry});
+    add_segment(
+            segments, PathSegment::Kind::Cubic, {right, y + ry}, {right - rx + kCircle * rx, y},
+            {right, y + ry - kCircle * ry});
     add_segment(segments, PathSegment::Kind::Line, {right, bottom - ry});
-    add_segment(segments, PathSegment::Kind::Cubic, {right - rx, bottom}, {right, bottom - ry + kCircle * ry},
-                {right - rx + kCircle * rx, bottom});
+    add_segment(
+            segments, PathSegment::Kind::Cubic, {right - rx, bottom}, {right, bottom - ry + kCircle * ry},
+            {right - rx + kCircle * rx, bottom});
     add_segment(segments, PathSegment::Kind::Line, {x + rx, bottom});
-    add_segment(segments, PathSegment::Kind::Cubic, {x, bottom - ry}, {x + rx - kCircle * rx, bottom},
-                {x, bottom - ry + kCircle * ry});
+    add_segment(
+            segments, PathSegment::Kind::Cubic, {x, bottom - ry}, {x + rx - kCircle * rx, bottom},
+            {x, bottom - ry + kCircle * ry});
     add_segment(segments, PathSegment::Kind::Line, {x, y + ry});
-    add_segment(segments, PathSegment::Kind::Cubic, {x + rx, y}, {x, y + ry - kCircle * ry},
-                {x + rx - kCircle * rx, y});
+    add_segment(
+            segments, PathSegment::Kind::Cubic, {x + rx, y}, {x, y + ry - kCircle * ry}, {x + rx - kCircle * rx, y});
     add_segment(segments, PathSegment::Kind::Close, {});
 }
 
@@ -542,8 +548,9 @@ float vec_angle(glm::vec2 u, glm::vec2 v) {
     return angle;
 }
 
-void add_arc(std::vector<PathSegment> &segments, glm::vec2 from, float rx, float ry, float rotation_deg, int large,
-             int sweep, glm::vec2 to) {
+void add_arc(
+        std::vector<PathSegment>& segments, glm::vec2 from, float rx, float ry, float rotation_deg, int large,
+        int sweep, glm::vec2 to) {
     if (from == to) {
         return;
     }
@@ -625,7 +632,7 @@ struct PathState {
     bool moved = false;
 };
 
-void move_to(PathState &state, std::vector<PathSegment> &segments, glm::vec2 p) {
+void move_to(PathState& state, std::vector<PathSegment>& segments, glm::vec2 p) {
     state.current = p;
     state.start = p;
     state.moved = true;
@@ -634,14 +641,14 @@ void move_to(PathState &state, std::vector<PathSegment> &segments, glm::vec2 p) 
     add_segment(segments, PathSegment::Kind::Move, p);
 }
 
-void line_to(PathState &state, std::vector<PathSegment> &segments, glm::vec2 p) {
+void line_to(PathState& state, std::vector<PathSegment>& segments, glm::vec2 p) {
     state.current = p;
     state.smooth_cubic = false;
     state.smooth_quad = false;
     add_segment(segments, PathSegment::Kind::Line, p);
 }
 
-bool parse_path_data(std::string_view data, std::vector<PathSegment> &segments) {
+bool parse_path_data(std::string_view data, std::vector<PathSegment>& segments) {
     Numbers numbers{data};
     PathState state;
     numbers.skip();
@@ -795,7 +802,7 @@ bool parse_path_data(std::string_view data, std::vector<PathSegment> &segments) 
     return numbers.ok;
 }
 
-bool parse_points(std::string_view text, std::vector<glm::vec2> &points) {
+bool parse_points(std::string_view text, std::vector<glm::vec2>& points) {
     Numbers numbers{text};
     while (numbers.has()) {
         const float x = numbers.number();
@@ -806,8 +813,8 @@ bool parse_points(std::string_view text, std::vector<glm::vec2> &points) {
     return numbers.ok && numbers.i == numbers.text.size() && !points.empty();
 }
 
-void bake(std::vector<PathSegment> &segments, Aff2 xform) {
-    for (PathSegment &segment: segments) {
+void bake(std::vector<PathSegment>& segments, Aff2 xform) {
+    for (PathSegment& segment : segments) {
         if (segment.kind == PathSegment::Kind::Close) {
             continue;
         }
@@ -825,7 +832,7 @@ glm::vec4 painted(PaintColor color, float alpha) {
     return {color.color.r, color.color.g, color.color.b, color.color.a * alpha};
 }
 
-void emit(SvgPicture &picture, std::vector<PathSegment> segments, const Style &style, Aff2 xform) {
+void emit(SvgPicture& picture, std::vector<PathSegment> segments, const Style& style, Aff2 xform) {
     if (segments.empty()) {
         return;
     }
@@ -850,12 +857,12 @@ void emit(SvgPicture &picture, std::vector<PathSegment> segments, const Style &s
     }
 }
 
-bool emit_shape(SvgPicture &picture, const tinyxml2::XMLElement *element, const Style &style, Aff2 xform) {
+bool emit_shape(SvgPicture& picture, const tinyxml2::XMLElement* element, const Style& style, Aff2 xform) {
     const std::string_view tag = element->Name();
     std::vector<PathSegment> segments;
     bool ok = true;
     if (tag == "path") {
-        const char *data = element->Attribute("d");
+        const char* data = element->Attribute("d");
         if (data == nullptr || !parse_path_data(data, segments)) {
             return false;
         }
@@ -898,7 +905,7 @@ bool emit_shape(SvgPicture &picture, const tinyxml2::XMLElement *element, const 
         add_segment(segments, PathSegment::Kind::Move, {x1, y1});
         add_segment(segments, PathSegment::Kind::Line, {x2, y2});
     } else if (tag == "polyline" || tag == "polygon") {
-        const char *value = element->Attribute("points");
+        const char* value = element->Attribute("points");
         std::vector<glm::vec2> points;
         if (value == nullptr || !parse_points(value, points)) {
             return false;
@@ -924,7 +931,7 @@ bool forbidden(std::string_view tag) {
            tag == "foreignObject" || tag == "animate" || tag == "animateTransform" || tag == "set" || tag == "switch";
 }
 
-bool walk(SvgPicture &picture, const tinyxml2::XMLElement *element, Style style, Aff2 xform, bool draw, int depth) {
+bool walk(SvgPicture& picture, const tinyxml2::XMLElement* element, Style style, Aff2 xform, bool draw, int depth) {
     if (depth > kMaxDepth || element->Name() == nullptr) {
         return false;
     }
@@ -936,7 +943,7 @@ bool walk(SvgPicture &picture, const tinyxml2::XMLElement *element, Style style,
         return false;
     }
     if (tag == "defs") {
-        for (const tinyxml2::XMLElement *child = element->FirstChildElement(); child != nullptr;
+        for (const tinyxml2::XMLElement* child = element->FirstChildElement(); child != nullptr;
              child = child->NextSiblingElement()) {
             if (!walk(picture, child, style, xform, false, depth + 1)) {
                 return false;
@@ -951,7 +958,7 @@ bool walk(SvgPicture &picture, const tinyxml2::XMLElement *element, Style style,
         if (style.skip) {
             return true;
         }
-        for (const tinyxml2::XMLElement *child = element->FirstChildElement(); child != nullptr;
+        for (const tinyxml2::XMLElement* child = element->FirstChildElement(); child != nullptr;
              child = child->NextSiblingElement()) {
             if (!walk(picture, child, style, xform, draw, depth + 1)) {
                 return false;
@@ -972,11 +979,11 @@ bool walk(SvgPicture &picture, const tinyxml2::XMLElement *element, Style style,
     return false;
 }
 
-std::optional<SvgPicture> parse_root(const tinyxml2::XMLElement *root) {
+std::optional<SvgPicture> parse_root(const tinyxml2::XMLElement* root) {
     if (root == nullptr || std::string_view{root->Name()} != "svg") {
         return std::nullopt;
     }
-    const char *box = root->Attribute("viewBox");
+    const char* box = root->Attribute("viewBox");
     if (box == nullptr) {
         return std::nullopt;
     }
@@ -1002,7 +1009,7 @@ std::optional<SvgPicture> parse_root(const tinyxml2::XMLElement *root) {
     if (style.skip) {
         return picture;
     }
-    for (const tinyxml2::XMLElement *child = root->FirstChildElement(); child != nullptr;
+    for (const tinyxml2::XMLElement* child = root->FirstChildElement(); child != nullptr;
          child = child->NextSiblingElement()) {
         if (!walk(picture, child, style, xform, true, 1)) {
             return std::nullopt;
