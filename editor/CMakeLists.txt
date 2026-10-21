@@ -8,6 +8,10 @@ set(_wind_editor_parts
     src/asset_inspection.cpp
     src/asset_sync.cpp
     src/asset_watch.cpp
+    src/directory_watch.cpp
+    src/directory_watch_linux.cpp
+    src/directory_watch_macos.cpp
+    src/directory_watch_win32.cpp
     src/batch_run.cpp
     src/build_line_view_model.cpp
     src/command_history.cpp
