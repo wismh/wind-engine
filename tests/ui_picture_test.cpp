@@ -110,7 +110,7 @@ namespace {
     .hud { gap: 4px; background: #101820; }
     .bar { height: 24px; background: #203040; }
     .body { gap: 2px; }
-    .title, .plain { font-size: 12px; width: 80px; height: 16px; }
+    .title, .plain { font-size: 12px; width: 80px; height: 16px; white-space: nowrap; }
     .live { font-size: 12px; width: 80px; height: 16px; repaint-boundary: yes; }
     .chip { width: 20px; height: 20px; background: #884422; border-radius: 4px; }
 )";
