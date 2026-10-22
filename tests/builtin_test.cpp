@@ -178,7 +178,7 @@ TEST(Builtin, BuiltinMaterialReferencesShader) {
     const std::filesystem::path mat = builtin_assets_dir() / "materials" / "unlit.mat";
     const auto desc = engine::render::parse_material_file(mat.string());
     ASSERT_TRUE(desc.has_value());
-    EXPECT_EQ(desc->shader, kShaderUnlit);
+    EXPECT_EQ(desc->shader, std::string("asset://") + std::string(kShaderUnlit));
     EXPECT_EQ(desc->state.blend, engine::render::BlendMode::Alpha);
 }
 
@@ -186,7 +186,7 @@ TEST(Builtin, BuiltinLitMaterialIsOpaqueDepthTestedAndBackCulled) {
     const std::filesystem::path mat = builtin_assets_dir() / "materials" / "lit.mat";
     const auto desc = engine::render::parse_material_file(mat.string());
     ASSERT_TRUE(desc.has_value());
-    EXPECT_EQ(desc->shader, kShaderLit);
+    EXPECT_EQ(desc->shader, std::string("asset://") + std::string(kShaderLit));
     EXPECT_TRUE(desc->albedo.empty());
     EXPECT_EQ(desc->state.blend, engine::render::BlendMode::Opaque);
     EXPECT_TRUE(desc->state.depth_test);

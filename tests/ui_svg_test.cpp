@@ -195,7 +195,7 @@ TEST(UiSvg, RejectsWhatThePainterCannotDraw) {
 
 TEST(UiSvg, ElementReadsAnAssetIdAndRejectsAFilename) {
     const auto parsed =
-            engine::ui::parse_xml("<Canvas><Svg source=\"0123456789abcdef0123456789abcdef\"/></Canvas>", nullptr);
+            engine::ui::parse_xml("<Canvas><Svg source=\"asset://0123456789abcdef0123456789abcdef\"/></Canvas>", nullptr);
     ASSERT_TRUE(parsed.has_value());
     ASSERT_EQ(parsed->root.children.size(), 1u);
     EXPECT_EQ(parsed->root.children[0].kind, engine::ui::ElementKind::Svg);
@@ -211,7 +211,7 @@ TEST(UiSvg, ElementReadsAnAssetIdAndRejectsAFilename) {
 }
 
 TEST(UiSvg, PaintFitsTheViewBoxAndKeepsALiteralColor) {
-    constexpr char kXml[] = "<Canvas><Svg source=\"0123456789abcdef0123456789abcdef\"/></Canvas>";
+    constexpr char kXml[] = "<Canvas><Svg source=\"asset://0123456789abcdef0123456789abcdef\"/></Canvas>";
     constexpr char kCss[] = "Svg { width: 40px; height: 20px; color: #ff0000; }";
     std::vector<std::string> warnings;
     const auto sheet = engine::ui::parse_css(kCss, warnings);

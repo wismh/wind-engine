@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace engine {
 
@@ -22,6 +23,10 @@ public:
             std::string_view key) const;
     [[nodiscard]] std::expected<std::string, ManifestFailure> string(std::string_view key) const;
     [[nodiscard]] std::expected<bool, ManifestFailure> boolean(std::string_view key) const;
+
+    // Reads an optional array of strings from a table or subtable. Returns empty vector when absent.
+    [[nodiscard]] std::expected<std::vector<std::string>, ManifestFailure> optional_string_array(
+            std::string_view subtable, std::string_view key) const;
 
 private:
     explicit ManifestTable(toml::table table);
