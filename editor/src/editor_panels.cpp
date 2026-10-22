@@ -11,6 +11,7 @@
 #include <engine/ui/tree.h>
 
 #include <algorithm>
+#include <cmath>
 #include <expected>
 #include <optional>
 #include <ranges>
@@ -181,6 +182,7 @@ void EditorPanels::frame(engine::ecs::World& world) {
     explorer_input_.focus_rename(world, explorer_canvas_);
     read_tree_keys(world);
     explorer_input_.read_drag(world, explorer_canvas_);
+    sync_project_grid(world);
     if (!explorer_.directory().empty()) {
         for (const ProjectRelocation& moved : explorer_.take_relocations()) {
             world_view_.retarget_open_file(explorer_.directory(), moved.from, moved.to);
@@ -354,6 +356,85 @@ engine::ecs::Entity EditorPanels::tree_canvas_under_pointer(engine::ecs::World& 
             : engine::ecs::Entity{};
 }
 
+void EditorPanels::sync_project_grid(engine::ecs::World& world) {
+    if (explorer_.view() != ExplorerView::Grid) {
+        return;
+    }
+    engine::ui::UiInstance* instance = world.try_get<engine::ui::UiInstance>(explorer_canvas_);
+    if (instance == nullptr) {
+        return;
+    }
+    engine::ui::Element* scroller = engine::ui::find_by_id(instance->document.root, "grid");
+    engine::ui::Element* items = engine::ui::find_by_id(instance->document.root, "grid-tiles");
+    if (scroller == nullptr || items == nullptr) {
+        return;
+    }
+
+    if (!items->generated_items.empty() && items->generated_items.front().layout_rect.h > 0.0f) {
+        const float line = items->generated_items.front().layout_rect.y;
+        int columns = 0;
+        for (const engine::ui::Element& tile : items->generated_items) {
+            if (tile.is_virtualization_spacer) {
+                continue;
+            }
+            if (std::abs(tile.layout_rect.y - line) > 0.5f) {
+                break;
+            }
+            ++columns;
+        }
+        if (columns > 0) {
+            explorer_.set_grid_columns(columns);
+        }
+    }
+
+    const bool reset = explorer_.take_grid_scroll_reset();
+    if (reset) {
+        explorer_.view_model()->gridScroll = 0.0f;
+        return;
+    }
+    if (!explorer_.grid_tile_scroll_pending()) {
+        return;
+    }
+    const std::string& selected = explorer_.selected();
+    bool in_model = false;
+    for (const auto& tile : explorer_.view_model()->tiles.get()) {
+        if (tile->key() == selected) {
+            in_model = true;
+            break;
+        }
+    }
+    if (!in_model) {
+        explorer_.finish_grid_tile_scroll();
+        return;
+    }
+    const engine::ui::Element* tile = nullptr;
+    for (const engine::ui::Element& child : items->generated_items) {
+        if (child.is_virtualization_spacer || child.generated_owner == nullptr) {
+            continue;
+        }
+        const auto* owner = static_cast<const engine::ui::ViewModel*>(child.generated_owner);
+        if (explorer_.key_for(owner) == selected) {
+            tile = &child;
+            break;
+        }
+    }
+    if (tile == nullptr || tile->layout_rect.h <= 0.0f || scroller->layout_rect.h <= 0.0f) {
+        return;
+    }
+    const float top = tile->layout_rect.y;
+    const float bottom = top + tile->layout_rect.h;
+    const float view_top = scroller->layout_rect.y + scroller->scroll_y;
+    const float view_bottom = view_top + scroller->layout_rect.h;
+    float scroll = scroller->scroll_y;
+    if (top < view_top) {
+        scroll = top - scroller->layout_rect.y;
+    } else if (bottom > view_bottom) {
+        scroll = bottom - scroller->layout_rect.y - scroller->layout_rect.h;
+    }
+    explorer_.view_model()->gridScroll = std::clamp(scroll, 0.0f, std::max(0.0f, scroller->max_scroll_y));
+    explorer_.finish_grid_tile_scroll();
+}
+
 void EditorPanels::read_tree_keys(engine::ecs::World& world) {
     // The tree under the pointer of the window the key went to: the editor window, or a panel's own float window.
     engine::ecs::Entity tree{};
@@ -411,6 +492,10 @@ void EditorPanels::read_tree_keys(engine::ecs::World& world) {
         std::optional<std::size_t> row;
         if (tree == explorer_canvas_) {
             row = explorer_.navigate(*nav);
+            // The grid scroller follows the tile rect, not this row index.
+            if (explorer_.view() == ExplorerView::Grid) {
+                row.reset();
+            }
         } else if (tree == hierarchy_canvas_) {
             row = hierarchy_.navigate(*nav);
         } else {

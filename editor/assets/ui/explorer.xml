@@ -1,9 +1,13 @@
 <Canvas id="explorer">
   <Stack class="panel" direction="vertical">
     <Stack class="option-row" direction="horizontal">
-      <Label class="hint" text="{binding rootText}"/>
+      <Label class="hint project-path" text="{binding rootText}"/>
+      <Stack class="option-spacer"/>
+      <Button class="panel-button" if="{binding gridShown}" command="{binding gridUp}" content="Up"/>
+      <Button class="panel-button view-toggle" var-on="{binding treeOn}" command="{binding showTree}" content="Tree"/>
+      <Button class="panel-button view-toggle" var-on="{binding gridOn}" command="{binding showGrid}" content="Grid"/>
     </Stack>
-    <ScrollView id="tree" class="box tree fill">
+    <ScrollView id="tree" class="box tree fill" if="{binding treeShown}">
       <ContextMenu open="{binding blankMenuOpen}">
         <Menu text="New">
           <MenuItem text="Folder" shortcut="Ctrl+Shift+N" command="{binding blankNewFolder}"/>
@@ -22,6 +26,44 @@
             <Button class="row entry" var-row-display="{binding rowDisplay}" command="{binding select}"
                     content="{binding label}"/>
             <TextInput class="rename entry" var-rename-display="{binding renameDisplay}" text="{binding editText}"
+                    command="{binding commitRename}"/>
+            <ContextMenu open="{binding menuOpen}">
+              <Menu text="New">
+                <MenuItem text="Folder" shortcut="Ctrl+Shift+N" command="{binding newFolder}"/>
+                <MenuItem text="World" command="{binding newWorld}"/>
+                <MenuItem text="Header" command="{binding newHeader}"/>
+                <MenuItem text="Source" command="{binding newSource}"/>
+              </Menu>
+              <MenuSeparator/>
+              <MenuItem text="Cut" shortcut="Ctrl+X" command="{binding cut}"/>
+              <MenuItem text="Copy" shortcut="Ctrl+C" command="{binding copy}"/>
+              <MenuItem text="Paste" shortcut="Ctrl+V" command="{binding paste}"/>
+              <MenuSeparator/>
+              <MenuItem text="Rename" shortcut="F2" command="{binding rename}"/>
+              <MenuItem text="Delete" shortcut="Del" command="{binding remove}"/>
+            </ContextMenu>
+          </Stack>
+        </ItemTemplate>
+      </ItemsControl>
+    </ScrollView>
+    <ScrollView id="grid" class="box fill" if="{binding gridShown}" scroll-y="{binding gridScroll}">
+      <ContextMenu open="{binding blankMenuOpen}">
+        <Menu text="New">
+          <MenuItem text="Folder" shortcut="Ctrl+Shift+N" command="{binding blankNewFolder}"/>
+          <MenuItem text="World" command="{binding blankNewWorld}"/>
+          <MenuItem text="Header" command="{binding blankNewHeader}"/>
+          <MenuItem text="Source" command="{binding blankNewSource}"/>
+        </Menu>
+        <MenuSeparator/>
+        <MenuItem text="Paste" shortcut="Ctrl+V" command="{binding blankPaste}"/>
+      </ContextMenu>
+      <ItemsControl id="grid-tiles" class="tiles" items_source="{binding tiles}">
+        <ItemTemplate>
+          <Stack class="tile" direction="vertical" var-row="{binding rowFill}">
+            <Image class="tile-icon" source="{binding icon}" command="{binding select}"/>
+            <Button class="tile-name" var-row-display="{binding rowDisplay}" command="{binding select}"
+                    content="{binding label}"/>
+            <TextInput class="tile-rename" var-rename-display="{binding renameDisplay}" text="{binding editText}"
                     command="{binding commitRename}"/>
             <ContextMenu open="{binding menuOpen}">
               <Menu text="New">

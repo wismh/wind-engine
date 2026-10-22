@@ -62,6 +62,14 @@ std::vector<std::string> names(const std::vector<editor::ProjectEntry>& entries)
 }
 
 // Each row's label, indented two spaces per depth.
+std::vector<std::string> tile_names(const editor::ExplorerViewModel& vm) {
+    std::vector<std::string> out;
+    for (const auto& tile : vm.tiles.get()) {
+        out.push_back(tile->label.get());
+    }
+    return out;
+}
+
 std::vector<std::string> labels(const editor::ExplorerViewModel& vm) {
     std::vector<std::string> out;
     for (const auto& row : vm.rows.get()) {
@@ -390,6 +398,138 @@ TEST(ExplorerPanel, DeleteRemovesTheFileAndUndoPutsItBack) {
     panel.remove();
     EXPECT_TRUE(std::filesystem::exists(dir.root() / "wind_project.toml"));
     EXPECT_NE(panel.take_notice().find("wind_project.toml"), std::string::npos);
+}
+
+TEST(ExplorerPanel, GridShowsOneFolderAndStepsBack) {
+    const ProjectDir dir;
+    editor::EditorSelection selection;
+    editor::CommandHistory history;
+    editor::ExplorerPanel panel{selection, history};
+    panel.open(dir.root());
+    editor::ExplorerViewModel& vm = *panel.view_model();
+
+    panel.show_grid();
+    EXPECT_EQ(panel.view(), editor::ExplorerView::Grid);
+    EXPECT_TRUE(panel.grid_folder().empty());
+    EXPECT_TRUE(vm.rows.get().empty());
+    EXPECT_EQ(tile_names(vm), (std::vector<std::string>{"assets", "src", "CMakeLists.txt", "wind_project.toml"}));
+    EXPECT_FALSE(panel.can_grid_up());
+    EXPECT_TRUE(panel.take_grid_scroll_reset());
+
+    EXPECT_TRUE(panel.open_entry("assets"));
+    EXPECT_EQ(panel.grid_folder(), "assets");
+    EXPECT_EQ(tile_names(vm), (std::vector<std::string>{"Images", "ui"}));
+    EXPECT_NE(vm.rootText.get().find("assets"), std::string::npos);
+    EXPECT_TRUE(panel.can_grid_up());
+    EXPECT_FALSE(panel.open_entry("assets/ui/menu.xml")) << "a file is not a folder";
+    EXPECT_EQ(panel.grid_folder(), "assets");
+
+    panel.grid_up();
+    EXPECT_TRUE(panel.grid_folder().empty());
+    EXPECT_EQ(tile_names(vm), (std::vector<std::string>{"assets", "src", "CMakeLists.txt", "wind_project.toml"}));
+    EXPECT_FALSE(panel.can_grid_up());
+
+    EXPECT_TRUE(panel.open_entry("assets"));
+    panel.show_grid();
+    EXPECT_EQ(panel.grid_folder(), "assets") << "Grid, while the grid is showing, stays in the open folder";
+}
+
+TEST(ExplorerPanel, GridFollowsTheSelectionAndReturnsToTheTree) {
+    const ProjectDir dir;
+    editor::EditorSelection selection;
+    editor::CommandHistory history;
+    editor::ExplorerPanel panel{selection, history};
+    panel.open(dir.root());
+    panel.select("assets/ui/menu.xml");
+
+    panel.show_grid();
+    editor::ExplorerViewModel& vm = *panel.view_model();
+    EXPECT_EQ(panel.grid_folder(), "assets/ui");
+    EXPECT_EQ(tile_names(vm), (std::vector<std::string>{"menu.xml"}));
+    EXPECT_NE(vm.rootText.get().find("assets/ui"), std::string::npos);
+    EXPECT_EQ(panel.selected(), "assets/ui/menu.xml");
+
+    panel.show_tree();
+    EXPECT_EQ(panel.view(), editor::ExplorerView::Tree);
+    EXPECT_TRUE(vm.tiles.get().empty());
+    EXPECT_EQ(panel.selected(), "assets/ui/menu.xml");
+    EXPECT_TRUE(row_of(vm, "assets")->expanded.get());
+    EXPECT_TRUE(row_of(vm, "assets/ui")->expanded.get());
+    EXPECT_EQ(row_of(vm, "assets/ui/menu.xml")->label.get(), "menu.xml");
+}
+
+TEST(ExplorerPanel, GridRescanWalksUpWhenTheFolderIsGone) {
+    const ProjectDir dir;
+    editor::EditorSelection selection;
+    editor::CommandHistory history;
+    editor::ExplorerPanel panel{selection, history};
+    panel.open(dir.root());
+    panel.show_grid();
+    EXPECT_TRUE(panel.open_entry("assets/ui"));
+    EXPECT_TRUE(panel.take_grid_scroll_reset());
+    std::filesystem::remove_all(dir.root() / "assets" / "ui");
+    panel.rescan();
+    EXPECT_EQ(panel.grid_folder(), "assets");
+    EXPECT_EQ(tile_names(*panel.view_model()), (std::vector<std::string>{"Images"}));
+    EXPECT_TRUE(panel.take_grid_scroll_reset());
+}
+
+TEST(ExplorerPanel, GridKeysStepByColumns) {
+    const ProjectDir dir;
+    editor::EditorSelection selection;
+    editor::CommandHistory history;
+    editor::ExplorerPanel panel{selection, history};
+    panel.open(dir.root());
+    panel.show_grid();
+    panel.set_grid_columns(3);
+
+    EXPECT_FALSE(panel.navigate(engine::ui::TreeNav::Right));
+    EXPECT_EQ(panel.navigate(engine::ui::TreeNav::Down), 0u);
+    EXPECT_EQ(panel.selected(), "assets");
+    EXPECT_EQ(panel.navigate(engine::ui::TreeNav::Down), 3u);
+    EXPECT_EQ(panel.selected(), "wind_project.toml");
+    EXPECT_EQ(panel.navigate(engine::ui::TreeNav::Up), 0u);
+    EXPECT_EQ(panel.selected(), "assets");
+    EXPECT_EQ(panel.navigate(engine::ui::TreeNav::Right), 1u);
+    EXPECT_EQ(panel.selected(), "src");
+    EXPECT_EQ(panel.navigate(engine::ui::TreeNav::Left), 0u);
+    EXPECT_EQ(panel.navigate(engine::ui::TreeNav::Last), 3u);
+    EXPECT_EQ(panel.selected(), "wind_project.toml");
+    EXPECT_TRUE(panel.grid_tile_scroll_pending());
+}
+
+TEST(ExplorerPanel, GridEmptySpaceCreatesAndAcceptsADropInTheOpenFolder) {
+    const ProjectDir dir;
+    editor::EditorSelection selection;
+    editor::CommandHistory history;
+    editor::ExplorerPanel panel{selection, history};
+    panel.open(dir.root());
+    panel.show_grid();
+    EXPECT_TRUE(panel.open_entry("assets"));
+
+    panel.view_model()->blankNewFolder.execute();
+    EXPECT_TRUE(std::filesystem::is_directory(dir.root() / "assets" / "New Folder"));
+    EXPECT_EQ(panel.selected(), "assets/New Folder");
+    EXPECT_EQ(panel.renaming(), "assets/New Folder");
+    EXPECT_EQ(panel.grid_folder(), "assets");
+
+    EXPECT_EQ(panel.drop_folder("src/game.cpp", ""), "assets");
+    EXPECT_FALSE(panel.drop_folder("assets/Images", "")) << "the file is already in this folder";
+}
+
+TEST(ExplorerPanel, OpeningAnotherProjectKeepsGridModeAndStartsAtTheRoot) {
+    const ProjectDir dir;
+    editor::EditorSelection selection;
+    editor::CommandHistory history;
+    editor::ExplorerPanel panel{selection, history};
+    panel.open(dir.root());
+    panel.show_grid();
+    EXPECT_TRUE(panel.open_entry("src"));
+    panel.open(dir.root());
+    EXPECT_EQ(panel.view(), editor::ExplorerView::Grid);
+    EXPECT_TRUE(panel.grid_folder().empty());
+    EXPECT_TRUE(panel.view_model()->rows.get().empty());
+    EXPECT_EQ(tile_names(*panel.view_model()).size(), 4u);
 }
 
 TEST(ExplorerPanel, ExternalRescanDropsHistoryWhenTheFileIsGone) {
