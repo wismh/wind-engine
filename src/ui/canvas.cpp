@@ -13,10 +13,12 @@
 #include "profile.h"
 #include "ui/input_batch.h"
 #include "ui/text_select.h"
+#include "ui/text_wrap.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <expected>
 #include <format>
 #include <unordered_map>
@@ -257,7 +259,31 @@ namespace engine::ui {
         const UiCanvasSpace space = canvas_layout_space(canvas->rect, canvas->fit, canvas->reference_size);
         // prefix_width is the caret's distance from the content box's left, after text-align. Start keeps
         // map_text_input_area from adding the alignment anchor a second time.
-        return map_text_input_area(boxes, prefix_width, UiAlign::Start, space);
+        TextInputScreenArea area = map_text_input_area(boxes, prefix_width, UiAlign::Start, space);
+        area.multiline = element->multiline != TextMultiline::None;
+        if (!area.multiline || element->painted_text_lines.empty() || element->painted_font_size_px <= 0.0f) {
+            return area;
+        }
+        std::vector<TextLine> rows;
+        rows.reserve(element->painted_text_lines.size());
+        for (const PaintedTextLine &line : element->painted_text_lines) {
+            rows.push_back(TextLine{line.begin, line.end, line.width});
+        }
+        const std::size_t row = std::min(editor_line_index(rows, caret), element->painted_text_lines.size() - 1);
+        const PaintedTextLine &line = element->painted_text_lines[row];
+        const render::Rect content = scale_rect(boxes.content, space.offset, space.scale);
+        area.rect = render::Rect{content.x, line.y, content.w, line.height};
+        const std::size_t prefix = std::min(std::max(caret, line.begin), line.end);
+        float caret_x = line.x;
+        if (IUiPainter *painter = layout_painter_for(world, window); painter != nullptr && prefix > line.begin) {
+            caret_x += painter
+                               ->measure_text(std::string_view(element->text).substr(line.begin, prefix - line.begin),
+                                              element->font_family, element->painted_font_size_px)
+                               .x;
+        }
+        const float max_cursor = std::max(0.0f, area.rect.w);
+        area.cursor = std::clamp(caret_x - area.rect.x, 0.0f, max_cursor);
+        return area;
     }
 
     SafeInsets canvas_safe_insets(const UiCanvas &canvas, const WindowSize &window) {
@@ -790,8 +816,67 @@ namespace engine::ui {
             return hit;
         }
 
+        [[nodiscard]] bool is_multiline(const Element &element) noexcept {
+            return element.kind == ElementKind::TextInput && element.multiline != TextMultiline::None;
+        }
+
+        // Visual rows of a multiline field. A zero layout width (no layout yet) breaks only at `\n`.
+        std::vector<TextLine> field_lines(const Element &element, IUiPainter *painter) {
+            const float font = resolve_font_size(element.font_size, std::max(element.layout_rect.w, 0.0f));
+            const float pad_l = resolve_length(element.padding.left, element.layout_rect.w, font);
+            const float pad_r = resolve_length(element.padding.right, element.layout_rect.w, font);
+            const float content_w = element.layout_rect.w - pad_l - pad_r;
+            const float wrap = element.white_space == WhiteSpace::NoWrap || content_w < 1.0f
+                                       ? std::numeric_limits<float>::infinity()
+                                       : content_w;
+            const auto width_of = [&](std::string_view slice) {
+                if (painter != nullptr) {
+                    return painter->measure_text(slice, element.font_family, font).x;
+                }
+                return static_cast<float>(slice.size()) * font * 0.5f;
+            };
+            return editor_lines(element.text, wrap, width_of);
+        }
+
+        void remember_caret_goal(ecs::World &world, WindowId window, Element &element) {
+            if (!is_multiline(element)) {
+                return;
+            }
+            const std::vector<TextLine> lines = field_lines(element, layout_painter_for(world, window));
+            const std::size_t caret = std::min(element.caret_position, element.text.size());
+            const TextLine &line = lines[editor_line_index(lines, caret)];
+            const auto width_of = [&](std::string_view slice) {
+                IUiPainter *painter = layout_painter_for(world, window);
+                const float font = resolve_font_size(element.font_size, std::max(element.layout_rect.w, 0.0f));
+                if (painter != nullptr) {
+                    return painter->measure_text(slice, element.font_family, font).x;
+                }
+                return static_cast<float>(slice.size()) * font * 0.5f;
+            };
+            element.caret_goal_x = editor_caret_x(element.text, line, caret, width_of);
+            element.caret_goal_valid = true;
+            element.reveal_caret = true;
+        }
+
+        // Replaces a real selection, then inserts. Multiline fields scroll the caret into view on the next paint.
+        void insert_text(Element &element, std::string_view inserted, bool has_selection, std::size_t selection_start,
+                         std::size_t selection_end) {
+            std::size_t insert_at = element.caret_position;
+            if (has_selection) {
+                element.text.erase(selection_start, selection_end - selection_start);
+                insert_at = selection_start;
+            }
+            element.selection_anchor.reset();
+            element.text.insert(insert_at, inserted);
+            element.caret_position = insert_at + inserted.size();
+            element.caret_blink_timer = 0.0f;
+            if (is_multiline(element)) {
+                element.reveal_caret = true;
+            }
+        }
+
         std::size_t text_index_for_click(ecs::World &world, const Element &element, float x, float y, WindowId window) {
-            if (element.kind == ElementKind::Label) {
+            if (element.kind == ElementKind::Label || is_multiline(element)) {
                 return label_pointer_hit(world, element, x, y, window).index;
             }
             return caret_index_for_click(world, element, x, window);
@@ -877,10 +962,14 @@ namespace engine::ui {
             } else if (clicks >= 2) {
                 std::size_t index = 0;
                 TextRange word;
-                if (element.kind == ElementKind::Label) {
+                if (element.kind == ElementKind::Label || is_multiline(element)) {
                     const LabelPointerHit hit = label_pointer_hit(world, element, painted.x, painted.y, window);
                     index = hit.index;
-                    word = hit.formula ? *hit.formula : label_word_range(element.text, index);
+                    if (element.kind == ElementKind::Label) {
+                        word = hit.formula ? *hit.formula : label_word_range(element.text, index);
+                    } else {
+                        word = word_range(element.text, index);
+                    }
                 } else {
                     index = caret_index_for_click(world, element, painted.x, window);
                     word = word_range(element.text, index);
@@ -907,6 +996,7 @@ namespace engine::ui {
                 gesture = TextSelectGesture{TextSelectUnit::Character, index, index};
             }
             element.caret_blink_timer = 0.0f;
+            remember_caret_goal(world, window, element);
             mark_edited(world, entity, element, kDirtyPaint);
         }
 
@@ -918,10 +1008,13 @@ namespace engine::ui {
                 return;
             }
             const glm::vec2 painted = pointer_in_painted_space(world, window, element, x, y);
-            if (element.kind == ElementKind::Label) {
+            if (element.kind == ElementKind::Label || is_multiline(element)) {
                 const LabelPointerHit hit = label_pointer_hit(world, element, painted.x, painted.y, window);
                 if (unit == TextSelectUnit::Word && it != gestures.end()) {
-                    const TextRange word = hit.formula ? *hit.formula : label_word_range(element.text, hit.index);
+                    const TextRange word = element.kind == ElementKind::Label
+                                                   ? (hit.formula ? *hit.formula
+                                                                  : label_word_range(element.text, hit.index))
+                                                   : word_range(element.text, hit.index);
                     element.selection_anchor = std::min(it->second.origin_begin, word.begin);
                     element.caret_position = std::max(it->second.origin_end, word.end);
                 } else {
@@ -938,6 +1031,7 @@ namespace engine::ui {
                 }
             }
             element.caret_blink_timer = 0.0f;
+            remember_caret_goal(world, window, element);
         }
 
         // The ContextMenu on `hit` or the nearest ancestor that has one. Closed menus are not hit-tested
@@ -1388,6 +1482,17 @@ namespace engine::ui {
                 presentation_of(world).mouse.consumed_windows.insert(window);
             }
 
+            Element *field = hit_test(prepared->instance->document.root, prepared->layout_pointer.x,
+                                      prepared->layout_pointer.y);
+            if (field != nullptr && is_multiline(*field) && field->text_scroll_max > 0.0f) {
+                constexpr float kTextScrollStep = 40.0f;
+                field->text_scroll_y = std::clamp(field->text_scroll_y - wheel_y * kTextScrollStep, 0.0f,
+                                                  field->text_scroll_max);
+                mark_edited(world, prepared->entity, *field, kDirtyPaint);
+                presentation_of(world).mouse.consumed_windows.insert(window);
+                return;
+            }
+
             Element *scrollable = find_scrollable_at(prepared->instance->document.root, prepared->layout_pointer.x,
                                                      prepared->layout_pointer.y);
             if (scrollable != nullptr) {
@@ -1661,30 +1766,34 @@ namespace engine::ui {
         // or be inserted a second time.
         clear_composition(*element);
 
-        // Single-line. A soft-keyboard action arrives as '\n' in the text event; anything after it
-        // is discarded. Insert nothing when the prefix is empty.
-        const std::size_t newline = text.find('\n');
-        const bool submit = newline != std::string_view::npos;
-        const std::string_view inserted = submit ? text.substr(0, newline) : text;
+        // Single-line: a soft-keyboard action arrives as '\n'; anything after it is discarded, and the
+        // '\n' submits. Multiline inserts the whole payload, with `\r\n` folded to `\n`, and does not submit.
+        std::string multiline_payload;
+        std::string_view inserted = text;
+        bool submit = false;
+        if (is_multiline(*element)) {
+            multiline_payload = normalize_line_breaks(text);
+            inserted = multiline_payload;
+        } else {
+            const std::size_t newline = text.find('\n');
+            submit = newline != std::string_view::npos;
+            inserted = submit ? text.substr(0, newline) : text;
+        }
 
         if (!inserted.empty()) {
             if (element->caret_position > element->text.size()) {
                 element->caret_position = element->text.size();
             }
-            if (element->selection_anchor && *element->selection_anchor != element->caret_position) {
-                const std::size_t start = std::min(*element->selection_anchor, element->caret_position);
-                const std::size_t end = std::max(*element->selection_anchor, element->caret_position);
-                element->text.erase(start, end - start);
-                element->caret_position = start;
+            const bool has_selection =
+                    element->selection_anchor && *element->selection_anchor != element->caret_position;
+            const std::size_t start =
+                    has_selection ? std::min(*element->selection_anchor, element->caret_position) : 0;
+            const std::size_t end =
+                    has_selection ? std::max(*element->selection_anchor, element->caret_position) : 0;
+            insert_text(*element, inserted, has_selection, start, end);
+            if (is_multiline(*element)) {
+                remember_caret_goal(world, window, *element);
             }
-            // Typing always ends selection tracking — including a stale anchor left equal to
-            // caret_position by a click/Ctrl+A that was never followed by an actual drag/Shift-extend;
-            // left set, it would wrongly reappear as a "selection" the moment caret_position next moves
-            // away from it by some other means.
-            element->selection_anchor.reset();
-            element->text.insert(element->caret_position, inserted);
-            element->caret_position += inserted.size();
-            element->caret_blink_timer = 0.0f;
 
             write_text_binding(world, canvas_entity, element);
         }
@@ -1749,6 +1858,10 @@ namespace engine::ui {
         if (element->kind == ElementKind::TextInput && !element->composition.empty()) {
             if (key == KeyCode::Return) {
                 clear_composition(*element);
+                // Newline mode must not turn an IME confirm into a line break or a submit.
+                if (element->multiline == TextMultiline::Newline) {
+                    return;
+                }
             } else if (key != KeyCode::Escape) {
                 return;
             }
@@ -1764,6 +1877,25 @@ namespace engine::ui {
         }
 
         if (key == KeyCode::Return) {
+            const bool ctrl = world.ctx<UiModifierState>().modifiers[window].ctrl;
+            const bool shift = world.ctx<UiModifierState>().modifiers[window].shift;
+            const bool insert_break = is_multiline(*element) &&
+                                      ((element->multiline == TextMultiline::Newline && !ctrl) ||
+                                       (element->multiline == TextMultiline::Submit && shift));
+            if (insert_break) {
+                const bool has_selection =
+                        element->selection_anchor && *element->selection_anchor != element->caret_position;
+                const std::size_t start =
+                        has_selection ? std::min(*element->selection_anchor, element->caret_position) : 0;
+                const std::size_t end =
+                        has_selection ? std::max(*element->selection_anchor, element->caret_position) : 0;
+                insert_text(*element, "\n", has_selection, start, end);
+                element->caret_goal_x = 0.0f;
+                element->caret_goal_valid = true;
+                element->reveal_caret = true;
+                write_text_binding(world, canvas_entity, element);
+                return;
+            }
             ViewModel *target = binding_target(world, canvas_entity, element);
             if (element->kind == ElementKind::Checkbox) {
                 set_state(world, canvas_entity, *element, kPseudoChecked, !element->checked);
@@ -1827,17 +1959,10 @@ namespace engine::ui {
                 UiClipboard &clipboard = world.ctx<UiClipboard>();
                 if (clipboard.get_text) {
                     if (const std::optional<std::string> pasted = clipboard.get_text(); pasted.has_value()) {
-                        std::size_t insert_at = element->caret_position;
-                        if (has_selection) {
-                            element->text.erase(selection_start, selection_end - selection_start);
-                            insert_at = selection_start;
-                        }
-                        // Unconditionally, same reasoning as Backspace/Delete above: a stale anchor
-                        // left equal to insert_at must not resurface as a "selection" later.
-                        element->selection_anchor.reset();
-                        element->text.insert(insert_at, *pasted);
-                        element->caret_position = insert_at + pasted->size();
-                        element->caret_blink_timer = 0.0f;
+                        const std::string normalized =
+                                is_multiline(*element) ? normalize_line_breaks(*pasted) : *pasted;
+                        insert_text(*element, normalized, has_selection, selection_start, selection_end);
+                        remember_caret_goal(world, window, *element);
                         write_text_binding(world, canvas_entity, element);
                     }
                 }
@@ -1895,6 +2020,9 @@ namespace engine::ui {
                                        ? formula_step(element->text, element->caret_position, true)
                                        : std::nullopt) {
                 element->caret_position = *jumped;
+            } else if (is_multiline(*element)) {
+                const std::vector<TextLine> lines = field_lines(*element, layout_painter_for(world, window));
+                element->caret_position = step_editor_caret(element->text, lines, element->caret_position, true);
             } else {
                 element->caret_position = prev_utf8_char(element->text, element->caret_position);
             }
@@ -1902,6 +2030,7 @@ namespace engine::ui {
                 element->selection_anchor.reset();
             }
             element->caret_blink_timer = 0.0f;
+            remember_caret_goal(world, window, *element);
         } else if (key == KeyCode::Right) {
             if (shift && !element->selection_anchor) {
                 element->selection_anchor = element->caret_position;
@@ -1913,6 +2042,9 @@ namespace engine::ui {
                                        ? formula_step(element->text, element->caret_position, false)
                                        : std::nullopt) {
                 element->caret_position = *jumped;
+            } else if (is_multiline(*element)) {
+                const std::vector<TextLine> lines = field_lines(*element, layout_painter_for(world, window));
+                element->caret_position = step_editor_caret(element->text, lines, element->caret_position, false);
             } else {
                 element->caret_position = next_utf8_char(element->text, element->caret_position);
             }
@@ -1920,25 +2052,56 @@ namespace engine::ui {
                 element->selection_anchor.reset();
             }
             element->caret_blink_timer = 0.0f;
-        } else if (key == KeyCode::Home) {
+            remember_caret_goal(world, window, *element);
+        } else if (key == KeyCode::Home || key == KeyCode::End) {
             if (shift && !element->selection_anchor) {
                 element->selection_anchor = element->caret_position;
             } else if (!shift) {
                 element->selection_anchor.reset();
             }
-            element->caret_position = 0;
+            if (is_multiline(*element) && !ctrl) {
+                const std::vector<TextLine> lines = field_lines(*element, layout_painter_for(world, window));
+                const TextLine &line =
+                        lines[editor_line_index(lines, std::min(element->caret_position, element->text.size()))];
+                element->caret_position = key == KeyCode::Home ? line.begin : line.end;
+            } else if (key == KeyCode::Home) {
+                element->caret_position = 0;
+            } else {
+                element->caret_position = element->text.size();
+            }
             element->caret_blink_timer = 0.0f;
-        } else if (key == KeyCode::End) {
+            remember_caret_goal(world, window, *element);
+        } else if (is_multiline(*element) && (key == KeyCode::Up || key == KeyCode::Down)) {
             if (shift && !element->selection_anchor) {
                 element->selection_anchor = element->caret_position;
             } else if (!shift) {
                 element->selection_anchor.reset();
             }
-            element->caret_position = element->text.size();
+            IUiPainter *painter = layout_painter_for(world, window);
+            const std::vector<TextLine> lines = field_lines(*element, painter);
+            const std::size_t caret = std::min(element->caret_position, element->text.size());
+            const std::size_t row = editor_line_index(lines, caret);
+            const float font = resolve_font_size(element->font_size, std::max(element->layout_rect.w, 0.0f));
+            const auto width_of = [&](std::string_view slice) {
+                if (painter != nullptr) {
+                    return painter->measure_text(slice, element->font_family, font).x;
+                }
+                return static_cast<float>(slice.size()) * font * 0.5f;
+            };
+            if (!element->caret_goal_valid) {
+                element->caret_goal_x = editor_caret_x(element->text, lines[row], caret, width_of);
+                element->caret_goal_valid = true;
+            }
+            const std::size_t next_row =
+                    key == KeyCode::Up ? (row == 0 ? 0 : row - 1) : std::min(row + 1, lines.size() - 1);
+            element->caret_position =
+                    editor_caret_at_x(element->text, lines[next_row], element->caret_goal_x, width_of);
             element->caret_blink_timer = 0.0f;
+            element->reveal_caret = true;
         }
 
         if (text_changed) {
+            remember_caret_goal(world, window, *element);
             write_text_binding(world, canvas_entity, element);
         }
     }

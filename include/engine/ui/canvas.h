@@ -69,10 +69,12 @@ struct UiCanvasSpace {
     return {space.layout_rect.w, space.layout_rect.h};
 }
 
-// Window pixels of a TextInput border box, and the caret's x offset from `rect.x`.
+// Window pixels of a TextInput border box (or, when `multiline`, the caret row), and the caret's x
+// offset from `rect.x`. `multiline` is what SDL's text-input session was started with.
 struct TextInputScreenArea {
     render::Rect rect{};
     float cursor = 0.0f;
+    bool multiline = false;
 };
 
 // `rect` is `boxes.border` mapped through `space`. `cursor` is the text-align origin plus

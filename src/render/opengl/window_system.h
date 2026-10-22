@@ -56,7 +56,9 @@ public:
     // Restores a minimized window, brings it to the front, and focuses it (IWindowControl::raise).
     void raise();
 
-    void start_text_input();
+    // `multiline` is SDL_PROP_TEXTINPUT_MULTILINE_BOOLEAN for this session.
+    void start_text_input(bool multiline = false);
+    [[nodiscard]] bool text_input_multiline() const noexcept { return text_input_multiline_; }
     void stop_text_input();
     [[nodiscard]] bool is_text_input_active() const;
     // Window-pixel field rect and caret offset from rect.x (SDL_SetTextInputArea). Rounds to ints.
@@ -179,6 +181,7 @@ private:
     std::vector<render::Rect> drag_exclusions_;
     MouseCapture* capture_ = nullptr;
     bool dragging_ = false;
+    bool text_input_multiline_ = false;
     glm::ivec2 drag_start_cursor_screen_{};        // valid only while dragging_
     glm::ivec2 drag_start_window_pos_{};           // valid only while dragging_
 
