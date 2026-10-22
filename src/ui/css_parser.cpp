@@ -145,6 +145,7 @@ bool is_known_property(std::string_view name) {
             "scrollbar-border-radius",
             "selection-color",
             "cursor",
+            "pointer-events",
     };
     for (const std::string_view known : kKnown) {
         if (known == name) {

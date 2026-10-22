@@ -14,10 +14,12 @@
 #include <engine/ui/view_model.h>
 #include <engine/ui/canvas.h>
 #include <engine/ui/presentation.h>
+#include <engine/ui/stylesheet.h>
 
 #include <glm/gtc/constants.hpp>
 
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace {
@@ -471,6 +473,88 @@ TEST(PointerTarget, TheRegisteredSystemsLetTheUiTakeThePointerBeforeATargetBelow
     EXPECT_TRUE(engine::ui::presentation_of(scene.world).mouse.consumed_for(engine::kPrimaryWindow));
     scene.release(engine::kPrimaryWindow, {300.0f, 200.0f});
     EXPECT_EQ(count(run_frame(), PointerTargetEvent::Kind::Click), 1u);
+}
+
+// A HUD Stack over the target. `pointer-events` is the only difference between the cases.
+struct PanelOverTarget {
+    Scene scene;
+    std::shared_ptr<ClickViewModel> vm = std::make_shared<ClickViewModel>();
+    engine::ecs::Entity box{};
+
+    explicit PanelOverTarget(std::string_view pointer_events) {
+        box = scene.box({0.0f, 0.0f, 0.0f}, {8.0f, 8.0f}); // screen x 280..520, y 180..420
+        const auto parsed = engine::ui::parse_xml(
+                R"(<Canvas><Stack class="panel">)"
+                R"(<Button class="go" command="{binding click}" content="B"/></Stack></Canvas>)",
+                nullptr, vm.get());
+        EXPECT_TRUE(parsed.has_value());
+        if (!parsed) {
+            return;
+        }
+        std::vector<std::string> warnings;
+        const std::string css =
+                ".panel { position: absolute; left: 0; top: 0; width: 200px; height: 100px; pointer-events: " +
+                std::string(pointer_events) +
+                "; } .go { position: absolute; left: 0; top: 0; width: 40px; height: 24px; }";
+        auto sheet = engine::ui::parse_css(css, warnings);
+        EXPECT_TRUE(sheet.has_value());
+        EXPECT_TRUE(warnings.empty());
+
+        const engine::ecs::Entity canvas_entity = scene.world.create();
+        engine::ui::UiCanvas canvas;
+        canvas.rect = {300.0f, 200.0f, 200.0f, 100.0f};
+        canvas.fit = engine::ui::UiFit::Fixed;
+        canvas.data_context = vm;
+        scene.world.emplace<engine::ui::UiCanvas>(canvas_entity, canvas);
+        engine::ui::UiInstance instance{*parsed};
+        if (sheet) {
+            instance.stylesheet = std::move(*sheet);
+        }
+        scene.world.emplace<engine::ui::UiInstance>(canvas_entity, std::move(instance));
+        engine::register_engine_systems(scene.world, engine::EngineSystemDeps{});
+    }
+
+    std::vector<PointerTargetEvent> run_frame() {
+        engine::ui::reset_pointer_frame(engine::ui::presentation_of(scene.world));
+        scene.world.run(engine::ecs::Schedule::Frame);
+        std::vector<PointerTargetEvent> sent;
+        for (const PointerTargetEvent& event :
+             engine::ecs::EventReader<PointerTargetEvent>{scene.world, scene.cursor}) {
+            sent.push_back(event);
+        }
+        scene.world.flush_events();
+        return sent;
+    }
+};
+
+TEST(PointerTarget, PanelWithPointerEventsAllBlocksTheTargetBehindIt) {
+    PanelOverTarget panel("all");
+    // On the panel background, beside the button: the frog under it is not hovered or pressed.
+    panel.scene.press(engine::kPrimaryWindow, {400.0f, 260.0f});
+    EXPECT_EQ(count(panel.run_frame(), PointerTargetEvent::Kind::Press), 0u);
+    EXPECT_EQ(panel.vm->clicks, 0);
+    EXPECT_FALSE(panel.scene.world.get<PointerTarget>(panel.box).pressed);
+    EXPECT_FALSE(panel.scene.world.get<PointerTarget>(panel.box).hovered);
+
+    // The button inside the panel still runs, and the target still sees nothing.
+    panel.scene.press(engine::kPrimaryWindow, {310.0f, 210.0f});
+    EXPECT_EQ(count(panel.run_frame(), PointerTargetEvent::Kind::Press), 0u);
+    EXPECT_EQ(panel.vm->clicks, 1);
+    EXPECT_FALSE(panel.scene.world.get<PointerTarget>(panel.box).pressed);
+}
+
+TEST(PointerTarget, PanelWithoutPointerEventsAllLetsTheTargetThrough) {
+    PanelOverTarget panel("auto");
+    panel.scene.press(engine::kPrimaryWindow, {400.0f, 260.0f});
+    EXPECT_EQ(count(panel.run_frame(), PointerTargetEvent::Kind::Press), 1u);
+    EXPECT_EQ(panel.vm->clicks, 0);
+    EXPECT_TRUE(panel.scene.world.get<PointerTarget>(panel.box).pressed);
+
+    panel.scene.release(engine::kPrimaryWindow, {400.0f, 260.0f});
+    panel.run_frame();
+    panel.scene.press(engine::kPrimaryWindow, {310.0f, 210.0f});
+    EXPECT_EQ(count(panel.run_frame(), PointerTargetEvent::Kind::Press), 0u);
+    EXPECT_EQ(panel.vm->clicks, 1);
 }
 
 TEST(PointerTarget, PerspectiveCameraHitsTargetsOnTheirOwnPlane) {
