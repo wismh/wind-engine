@@ -8,6 +8,7 @@
 #include "export_dialog.h" 
 #include "explorer_input.h"
 #include "explorer_panel.h"
+#include "hierarchy_input.h"
 #include "hierarchy_panel.h"
 #include "inspector_panel.h"
 #include "profiler_panel.h"
@@ -140,6 +141,7 @@ private:
     ExplorerPanel explorer_;
     ExplorerInput explorer_input_;
     HierarchyPanel hierarchy_;
+    HierarchyInput hierarchy_input_;
     WorldViewPanel world_view_;
     UiTreePanel ui_tree_;
     InspectorPanel inspector_;

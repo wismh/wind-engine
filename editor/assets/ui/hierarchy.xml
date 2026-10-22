@@ -4,11 +4,24 @@
       <Label class="hint" text="{binding statusText}"/>
     </Stack>
     <ScrollView id="tree" class="box tree fill">
+      <ContextMenu open="{binding blankMenuOpen}">
+        <MenuItem text="Create Entity" shortcut="Ctrl+N" command="{binding createEntity}"/>
+      </ContextMenu>
       <ItemsControl id="tree-rows" class="rows" items_source="{binding rows}">
         <ItemTemplate>
-          <Stack class="rowline" direction="horizontal" var-row="{binding rowFill}" var-depth="{binding depth}">
+          <Stack class="rowline" direction="horizontal" var-row="{binding rowFill}" var-depth="{binding depth}"
+                 command="{binding select}">
             <Checkbox class="expander" checked="{binding expanded}" command="{binding toggle}"/>
-            <Button class="row" command="{binding select}" content="{binding label}"/>
+            <Button class="row entry" var-row-display="{binding rowDisplay}" command="{binding select}"
+                    content="{binding label}"/>
+            <TextInput class="rename entry" var-rename-display="{binding renameDisplay}" text="{binding editText}"
+                    command="{binding commitRename}"/>
+            <ContextMenu open="{binding menuOpen}">
+              <MenuItem text="Create Child Entity" command="{binding createChild}"/>
+              <MenuSeparator/>
+              <MenuItem text="Rename" shortcut="F2" command="{binding rename}"/>
+              <MenuItem text="Delete" shortcut="Del" command="{binding remove}"/>
+            </ContextMenu>
           </Stack>
         </ItemTemplate>
       </ItemsControl>

@@ -20,7 +20,11 @@ public:
     HierarchyRowViewModel(const HierarchyRowViewModel&) = delete;
     HierarchyRowViewModel& operator=(const HierarchyRowViewModel&) = delete;
 
-    void show(engine::ecs::Entity entity, std::string text, const engine::ui::TreeRowInfo& tree, bool selected);
+    void show(engine::ecs::Entity entity, std::string text, const engine::ui::TreeRowInfo& tree,
+            bool selected, bool drop, bool renaming);
+    void set_fill(bool selected, bool drop);
+    void seed_edit(const std::string& name);
+
     [[nodiscard]] engine::ecs::Entity entity() const noexcept { return entity_; }
     [[nodiscard]] const engine::ui::TreeRowInfo& tree() const noexcept { return tree_; }
 
@@ -30,6 +34,11 @@ public:
     void toggle_row();
     [[nodiscard]] bool can_toggle_row() const;
 
+    void commit_rename();
+    void create_child();
+    void rename_row();
+    void remove_row();
+
     engine::ui::Bindable<std::string> label;
     // Tree depth through `var-depth`: the row's indent.
     engine::ui::Bindable<int> depth{0};
@@ -37,8 +46,17 @@ public:
     engine::ui::Bindable<bool> expanded{true};
     // Row background through `var-row`: the selected row is highlighted.
     engine::ui::Bindable<std::string> rowFill;
+    engine::ui::Bindable<std::string> rowDisplay;
+    engine::ui::Bindable<std::string> renameDisplay;
+    engine::ui::Bindable<std::string> editText;
+    engine::ui::Bindable<bool> menuOpen{false};
+
     engine::ui::MethodCommand select;
     engine::ui::MethodCommand toggle;
+    engine::ui::MethodCommand commitRename;
+    engine::ui::MethodCommand createChild;
+    engine::ui::MethodCommand rename;
+    engine::ui::MethodCommand remove;
 
 private:
     HierarchyPanel* panel_;
