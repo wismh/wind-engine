@@ -11,10 +11,14 @@
 #include <engine/core/time.h>
 #include <engine/ecs/camera.h>
 #include <engine/ecs/events.h>
+#include <engine/ecs/hierarchy.h>
+#include <engine/ecs/transform.h>
 #include <engine/ecs/systems.h>
 #include <engine/ecs/world.h>
 #include <engine/ecs/world_serializer.h>
 #include <engine/render/command_buffer.h>
+#include <engine/render/renderable.h>
+#include <engine/render/sprite.h>
 #include <engine/render/commands.h>
 #include <engine/render/graphic_factory.h>
 #include <engine/resources/assets_db.h>
@@ -22,6 +26,9 @@
 #include <engine/ui/cursor.h>
 #include <engine/ui/document.h>
 #include <engine/ui/presentation.h>
+
+#include <glm/gtc/constants.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <cstdlib>
 #include <filesystem>
@@ -1114,6 +1121,172 @@ transform = { position = [0.0, 0.0, 0.0], scale = [1.0, 1.0, 1.0] }
     panel.frame(editor_world, canvas, true);
     editor_world.flush_events();
     EXPECT_FLOAT_EQ(panel.edit_world().get<engine::Transform>(ent).position.x, 0.0f);
+}
+
+engine::ecs::Entity add_sprite(engine::ecs::World& world, glm::vec3 position, glm::vec2 pixel_size, int layer,
+        int order, glm::quat rotation = glm::quat{1.0f, 0.0f, 0.0f, 0.0f}) {
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::Transform>(entity, engine::Transform{.position = position, .rotation = rotation});
+    engine::render::Sprite sprite;
+    sprite.pixel_size = pixel_size;
+    sprite.pixels_per_unit = 100.0f;
+    sprite.pivot = {0.5f, 0.5f};
+    sprite.layer = layer;
+    sprite.order_in_layer = order;
+    world.emplace<engine::render::Sprite>(entity, std::move(sprite));
+    return entity;
+}
+
+glm::vec2 window_at(const editor::WorldViewPanel& panel, glm::vec3 world) {
+    const engine::ui::WindowSize size{
+            static_cast<int>(kViewportRect.w),
+            static_cast<int>(kViewportRect.h),
+    };
+    const glm::vec2 local = engine::world_to_screen(world, panel.camera(), panel.camera_world_matrix(), size);
+    return local + glm::vec2{kViewportRect.x, kViewportRect.y};
+}
+
+void click_at(
+        editor::WorldViewPanel& panel, engine::ecs::World& editor_world, engine::ecs::Entity canvas, glm::vec2 at) {
+    engine::ui::pointer_for(editor_world, kEditorWindow).position = at;
+    engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
+            .window = kEditorWindow,
+            .kind = engine::MouseEvent::Kind::Down,
+            .position = at,
+            .button = engine::MouseButton::Left,
+    });
+    engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
+            .window = kEditorWindow,
+            .kind = engine::MouseEvent::Kind::Up,
+            .position = at,
+            .button = engine::MouseButton::Left,
+    });
+    panel.frame(editor_world, canvas, true);
+    editor_world.flush_events();
+}
+
+TEST_F(WorldViewPanelTest, ClickSelectsOutlineBoundsAndClearsEmptySpace) {
+    ASSERT_TRUE(panel.open_world(write_world("pick.world", "version = 1\n")));
+    engine::ecs::World& world = panel.edit_world();
+    const engine::ecs::Entity sprite = add_sprite(world, {0.0f, 0.0f, 0.0f}, {100.0f, 100.0f}, 0, 0);
+    const glm::quat turned = glm::angleAxis(glm::half_pi<float>(), glm::vec3{0.0f, 0.0f, 1.0f});
+    const engine::ecs::Entity wide = add_sprite(world, {-14.0f, 0.0f, 0.0f}, {400.0f, 100.0f}, 0, 0, turned);
+    const engine::ecs::Entity parent = world.create();
+    world.emplace<engine::Transform>(parent, engine::Transform{.position = {0.0f, -8.0f, 0.0f}});
+    const engine::ecs::Entity child = add_sprite(world, {0.0f, 0.0f, 0.0f}, {100.0f, 100.0f}, 0, 0);
+    ASSERT_TRUE(engine::ecs::set_parent(world, child, parent));
+    engine::ecs::update_world_transforms(world);
+    const engine::ecs::Entity cube = world.create();
+    world.emplace<engine::Transform>(cube, engine::Transform{.position = {12.0f, 4.0f, 0.0f}});
+    world.emplace<engine::render::Renderable>(cube, engine::render::Renderable{});
+
+    click_at(panel, editor_world, canvas, window_at(panel, {-13.0f, 0.0f, 0.0f}));
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(selection.target()));
+
+    click_at(panel, editor_world, canvas, window_at(panel, {-14.0f, 1.5f, 0.0f}));
+    EXPECT_EQ(selection.target(), (editor::SelectionTarget{editor::EntitySelection{.entity = wide}}));
+
+    click_at(panel, editor_world, canvas, window_at(panel, {16.0f, 8.0f, 0.0f}));
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(selection.target()));
+
+    click_at(panel, editor_world, canvas, window_at(panel, {0.0f, 0.0f, 0.0f}));
+    EXPECT_EQ(selection.target(), (editor::SelectionTarget{editor::EntitySelection{.entity = sprite}}));
+
+    click_at(panel, editor_world, canvas, window_at(panel, {0.0f, -8.0f, 0.0f}));
+    EXPECT_EQ(selection.target(), (editor::SelectionTarget{editor::EntitySelection{.entity = child}}));
+
+    click_at(panel, editor_world, canvas, window_at(panel, {12.0f, 4.0f, 0.0f}));
+    EXPECT_EQ(selection.target(), (editor::SelectionTarget{editor::EntitySelection{.entity = cube}}));
+
+    click_at(panel, editor_world, canvas, window_at(panel, {16.0f, 8.0f, 0.0f}));
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(selection.target()));
+
+    click_at(panel, editor_world, canvas, window_at(panel, {0.0f, 0.0f, 0.0f}));
+    EXPECT_EQ(selection.target(), (editor::SelectionTarget{editor::EntitySelection{.entity = sprite}}));
+    click_at(panel, editor_world, canvas, window_at(panel, {0.0f, 0.0f, 0.0f}));
+    EXPECT_EQ(selection.target(), (editor::SelectionTarget{editor::EntitySelection{.entity = sprite}}));
+}
+
+TEST_F(WorldViewPanelTest, ClickPrefersNearerHitThenLayerOrderAndLaterEntity) {
+    ASSERT_TRUE(panel.open_world(write_world("order.world", "version = 1\n")));
+    engine::ecs::World& world = panel.edit_world();
+    const engine::ecs::Entity low = add_sprite(world, {0.0f, 0.0f, 0.0f}, {100.0f, 100.0f}, 0, 1);
+    const engine::ecs::Entity high = add_sprite(world, {0.0f, 0.0f, 0.0f}, {100.0f, 100.0f}, 0, 4);
+    const engine::ecs::Entity first = add_sprite(world, {8.0f, 0.0f, 0.0f}, {100.0f, 100.0f}, 0, 2);
+    const engine::ecs::Entity second = add_sprite(world, {8.0f, 0.0f, 0.0f}, {100.0f, 100.0f}, 0, 2);
+    const engine::ecs::Entity far = add_sprite(world, {0.0f, 6.0f, 0.0f}, {200.0f, 200.0f}, 0, 20);
+    const engine::ecs::Entity near = add_sprite(world, {0.0f, 6.0f, 3.0f}, {200.0f, 200.0f}, 0, 0);
+    (void)low;
+    (void)first;
+
+    click_at(panel, editor_world, canvas, window_at(panel, {0.0f, 0.0f, 0.0f}));
+    EXPECT_EQ(selection.target(), (editor::SelectionTarget{editor::EntitySelection{.entity = high}}));
+
+    click_at(panel, editor_world, canvas, window_at(panel, {8.0f, 0.0f, 0.0f}));
+    EXPECT_EQ(selection.target(), (editor::SelectionTarget{editor::EntitySelection{.entity = second}}));
+
+    click_at(panel, editor_world, canvas, window_at(panel, {0.0f, 6.0f, 0.0f}));
+    EXPECT_EQ(selection.target(), (editor::SelectionTarget{editor::EntitySelection{.entity = near}}));
+    (void)far;
+}
+
+TEST_F(WorldViewPanelTest, DragGizmoAndDisabledPickingDoNotChangeSelection) {
+    ASSERT_TRUE(panel.open_world(write_world("drag.world", "version = 1\n")));
+    engine::ecs::World& world = panel.edit_world();
+    const engine::ecs::Entity sprite = add_sprite(world, {0.0f, 0.0f, 0.0f}, {100.0f, 100.0f}, 0, 0);
+
+    panel.set_entity_picking(false);
+    click_at(panel, editor_world, canvas, window_at(panel, {0.0f, 0.0f, 0.0f}));
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(selection.target()));
+
+    panel.set_entity_picking(true);
+    click_at(panel, editor_world, canvas, window_at(panel, {0.0f, 0.0f, 0.0f}));
+    EXPECT_EQ(selection.target(), (editor::SelectionTarget{editor::EntitySelection{.entity = sprite}}));
+
+    const glm::vec3 camera_before = panel.camera_position();
+    const glm::vec2 drag_from = window_at(panel, {15.0f, 0.0f, 0.0f});
+    const glm::vec2 drag_to = drag_from + glm::vec2{40.0f, 0.0f};
+    engine::ui::pointer_for(editor_world, kEditorWindow).position = drag_from;
+    engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
+            .window = kEditorWindow,
+            .kind = engine::MouseEvent::Kind::Down,
+            .position = drag_from,
+            .button = engine::MouseButton::Left,
+    });
+    engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
+            .window = kEditorWindow,
+            .kind = engine::MouseEvent::Kind::Move,
+            .position = drag_to,
+            .relative = {40.0f, 0.0f},
+    });
+    engine::ecs::EventWriter<engine::MouseEvent>{editor_world}.send(engine::MouseEvent{
+            .window = kEditorWindow,
+            .kind = engine::MouseEvent::Kind::Up,
+            .position = drag_to,
+            .button = engine::MouseButton::Left,
+    });
+    panel.frame(editor_world, canvas, true);
+    editor_world.flush_events();
+    EXPECT_EQ(selection.target(), (editor::SelectionTarget{editor::EntitySelection{.entity = sprite}}));
+    EXPECT_NE(panel.camera_position(), camera_before);
+
+    click_at(panel, editor_world, canvas, window_at(panel, {0.0f, 0.0f, 0.0f}));
+    EXPECT_EQ(selection.target(), (editor::SelectionTarget{editor::EntitySelection{.entity = sprite}}));
+}
+
+TEST_F(WorldViewPanelTest, PerspectiveClickSelectsRenderableBox) {
+    ASSERT_TRUE(panel.open_world(write_world("persp.world", "version = 1\n")));
+    engine::ecs::World& world = panel.edit_world();
+    const engine::ecs::Entity cube = world.create();
+    world.emplace<engine::Transform>(cube, engine::Transform{});
+    world.emplace<engine::render::Renderable>(cube, engine::render::Renderable{});
+    panel.toggle_projection();
+
+    click_at(panel, editor_world, canvas, window_at(panel, {0.0f, 0.0f, 0.0f}));
+    EXPECT_EQ(selection.target(), (editor::SelectionTarget{editor::EntitySelection{.entity = cube}}));
+
+    click_at(panel, editor_world, canvas, window_at(panel, {4.0f, 3.0f, 0.0f}));
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(selection.target()));
 }
 
 } // namespace

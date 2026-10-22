@@ -57,8 +57,11 @@ void sync_text_input_activation(WindowManager& windows, Worlds& worlds) {
                 world != nullptr ? ui::focused_text_input_area(*world, id) : std::nullopt;
         if (area) {
             window.set_text_input_area(area->rect, static_cast<int>(std::lround(area->cursor)));
-            if (!window.is_text_input_active()) {
-                window.start_text_input();
+            if (!window.is_text_input_active() || window.text_input_multiline() != area->multiline) {
+                if (window.is_text_input_active()) {
+                    window.stop_text_input();
+                }
+                window.start_text_input(area->multiline);
             }
         } else if (window.is_text_input_active()) {
             window.stop_text_input();

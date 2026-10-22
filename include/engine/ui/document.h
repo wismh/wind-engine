@@ -113,10 +113,20 @@ namespace engine::ui {
         SpaceBetween,
     };
 
-    // `white-space` for Label/Button text. Normal wraps at the content width; NoWrap keeps one line.
+    // `white-space` for Label/Button text, and for a multiline TextInput. Normal wraps at the content
+    // width; NoWrap keeps one line (a multiline field still breaks at `\n`).
     enum class WhiteSpace {
         Normal,
         NoWrap,
+    };
+
+    // TextInput only. None is the single-line field: Return runs the command, a `\n` in a text event
+    // submits. Newline inserts a line break on Return (Ctrl+Return runs the command). Submit keeps
+    // Return as the command and inserts a break on Shift+Return.
+    enum class TextMultiline {
+        None,
+        Newline,
+        Submit,
     };
 
     // `user-select` for a Label. None (the default) leaves the label out of hit-testing. Text is a normal
@@ -126,6 +136,16 @@ namespace engine::ui {
         None,
         Text,
         All,
+    };
+
+    // `pointer-events`. Auto (the default) hits only an interactive element, so a plain Stack, Label, or Image
+    // lets the pointer through. All hits this element's box when no child took the point, which is how a HUD
+    // panel keeps a click off the world under its background. None is not a hit, and its descendants are still
+    // tested. Not inherited.
+    enum class PointerEvents {
+        Auto,
+        All,
+        None,
     };
 
     enum class PositionMode {
@@ -489,6 +509,7 @@ namespace engine::ui {
         // `repaint-boundary`: the element keeps its own picture (see Element::picture).
         bool repaint_boundary = false;
         Cursor cursor = Cursor::Auto;
+        PointerEvents pointer_events = PointerEvents::Auto;
         Length border_radius{};
         Length border_width{};
         glm::vec4 border_color{0.0f, 0.0f, 0.0f, 0.0f};
@@ -765,6 +786,8 @@ namespace engine::ui {
         UserSelect user_select = UserSelect::None;
         // Pseudo-less `cursor`, like the other layout copies. cursor_at() resolves Auto.
         Cursor cursor = Cursor::Auto;
+        // Pseudo-less `pointer-events`, copied with the layout style. A :hover rule does not change it.
+        PointerEvents pointer_events = PointerEvents::Auto;
         Length font_size{kDefaultFontSize, LengthUnit::Px};
         LineHeight line_height{};
         AssetId font_family{};
@@ -855,6 +878,18 @@ namespace engine::ui {
         // allow_paste. A Label never cuts or pastes; allow_copy still blocks Ctrl+C.
         bool allow_copy = true;
         bool allow_paste = true;
+        // TextInput. XML `multiline` (literal only). None ignores `white-space` and rejects line breaks.
+        TextMultiline multiline = TextMultiline::None;
+        // Multiline only. Vertical pan of the glyphs inside the content box, in design pixels. The
+        // element's own `scroll_y` pans children after the text is drawn, so it cannot move these glyphs.
+        float text_scroll_y = 0.0f;
+        // How far `text_scroll_y` may go: the text block minus the content height, from the last paint.
+        float text_scroll_max = 0.0f;
+        // Preferred caret x in design pixels, kept across Up/Down. Left/Right, Home/End, and a click replace it.
+        float caret_goal_x = 0.0f;
+        bool caret_goal_valid = false;
+        // The next paint scrolls `text_scroll_y` so the caret row is inside the content box.
+        bool reveal_caret = false;
         // TextInput, and a selectable Label: real-screen-pixel text metrics as last painted. TextInput
         // stores the resolved font size and the text's x-origin (paint.cpp). A Label stores the font
         // size plus one PaintedTextLine per row (glyph left/top, not the text-align anchor).
@@ -1347,26 +1382,28 @@ namespace engine::ui {
     // element's hit area is slightly generous at its corners.
     [[nodiscard]] render::Rect hit_bounds(const Element &element);
 
-    // Topmost interactive element under (x, y): prunes by hit_bounds() containment, visits siblings
-    // in reverse stacking order (highest z-index / last-drawn first), returns the first element that
-    // is a Button or Checkbox, or has a bound `command` or `drag` (any element kind), or a Viewport
-    // with a camera binding, or a Label whose `user-select` makes its text selectable, or nullptr.
-    // A Label inside a Button or Checkbox is not a selection hit — the control keeps the click.
-    // Viewport camera inverses the pointer for descendants and clips to the unpanned layout_rect.
-    // Shared by click resolution (canvas.cpp) and hover resolution (paint.cpp).
+    // Topmost element under (x, y) that takes the pointer: prunes by hit_bounds() containment, visits siblings
+    // in reverse stacking order (highest z-index / last-drawn first). A hit is a Button or Checkbox, an element
+    // with a bound `command` or `drag` (any kind), a Viewport with a camera binding, a Label whose `user-select`
+    // makes its text selectable, or any element with `pointer-events: all`. `pointer-events: none` is not a hit;
+    // its descendants are still tested. Anything else returns nullptr. A Label inside a Button or Checkbox is not
+    // a selection hit — the control keeps the click. Viewport camera inverses the pointer for descendants and
+    // clips to the unpanned layout_rect. Shared by click resolution (canvas.cpp) and hover resolution (paint.cpp).
     [[nodiscard]] Element *hit_test(Element &root, float x, float y);
 
-    // Appends the rectangle (layout space) of every interactive element under `root` that hit_test() can return,
-    // selectable labels aside: a Button, Checkbox, TextInput, ScrollView, scrollable or Viewport-with-camera element,
-    // an element with a bound `command` or `drag` (a Slider included), and an open Popup at its shown position. An
-    // interactive element is one rectangle: its children are not visited. Hidden elements and item templates are
-    // skipped. `UiWindow` turns these into drag exclusions.
+    // Appends the rectangle (layout space) of every element under `root` that hit_test() can return, selectable
+    // labels aside: a Button, Checkbox, TextInput, ScrollView, scrollable or Viewport-with-camera element, an
+    // element with a bound `command` or `drag` (a Slider included), an element with `pointer-events: all`, and an
+    // open Popup at its shown position. Such an element is one rectangle: its children are not visited.
+    // `pointer-events: none` drops that element and still walks its children. An open popup stays one shown
+    // rectangle. Hidden elements and item templates are skipped. `UiWindow` turns these into drag exclusions.
     void collect_interactive_rects(const Element &root, std::vector<render::Rect> &out);
 
     // The cursor at (x, y): the topmost shown element under the point, any kind, interactive or not, walking the
-    // same stacking order, popups, scroll and Viewport cameras as hit_test(). Its `cursor`, or the nearest
-    // ancestor's that is not Auto. When the whole chain is Auto, Text over a TextInput or a selectable Label, else
-    // Default. Default when nothing is under the point.
+    // same stacking order, popups, scroll and Viewport cameras as hit_test(). `pointer-events: none` does not
+    // claim the point; its descendants still can. Its `cursor`, or the nearest ancestor's that is not Auto. When
+    // the whole chain is Auto, Text over a TextInput or a selectable Label, else Default. Default when nothing is
+    // under the point.
     [[nodiscard]] Cursor cursor_at(Element &root, float x, float y);
 
     // Margin / border / content in canvas layout space (after ancestor scroll and Viewport cameras,

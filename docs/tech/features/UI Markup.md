@@ -18,6 +18,7 @@ Unknown tags call `IFatalError` when one was passed (it does not return) and oth
 | `items_source` | `{binding}`, or a literal copied into `Element::text`. The binding stays unbound. Parsed after `text`, so the literal replaces it |
 | `display` on `Math` | bool literal |
 | `allow-copy`, `allow-paste` | bool literals. Default true. Not bindings |
+| `multiline` on `TextInput` | `false` / `0` (single line), `true` / `newline` (Return inserts a line, Ctrl+Return runs `command`), `submit` (Return runs `command`, Shift+Return inserts a line). Anything else is `UiError::InvalidMarkup`. Not a binding. Absent is single line |
 | `stylesheet` | on the root element, a CSS asset id |
 | `src` on `ItemTemplate` | another XML document. A cycle is `UiError::CyclicInclude` |
 | `var-<name>` | `{binding}` only, interned to a `BindingId`. A literal is `UiError::ForbiddenContent`. A float or int Bindable is a bare number, which every CSS length reads as pixels |

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 
 namespace engine {
 
@@ -69,14 +70,10 @@ glm::vec3 screen_to_world(
         return glm::unProject(window_point(screen, window, 0.5f), view, proj, viewport_of(window));
     }
     const Ray ray = screen_to_ray(screen, camera, camera_world, window);
-    if (std::abs(ray.direction.z) < 1e-6f) {
-        return ray.origin;
+    if (const std::optional<RayHit> hit = ray_plane(ray, glm::vec3{0.0f}, glm::vec3{0.0f, 0.0f, 1.0f})) {
+        return hit->point;
     }
-    const float t = -ray.origin.z / ray.direction.z;
-    if (t < 0.0f) {
-        return ray.origin;
-    }
-    return ray.origin + t * ray.direction;
+    return ray.origin;
 }
 
 glm::vec2 world_to_screen(

@@ -85,7 +85,21 @@ Light components (`render::DirectionalLight`, `render::AmbientLight`) are plain 
 | `screen_to_world(screen, camera, camera_world, window)` | Orthographic: the point under the pixel halfway through the clip range (the camera's z for the default -1 and 1). Perspective: where `screen_to_ray` meets the world plane z = 0, which is what 2D-style picking expects; the ray's near-plane origin when the ray is parallel to that plane or the plane is behind the camera |
 | `world_to_screen(world_pos, camera, camera_world, window)` | The pixel the point projects to, either projection |
 
-`PointerTarget` hit-testing intersects the cursor's `screen_to_ray` with the plane z of each target, so it works under a perspective camera. For an unrotated orthographic camera that is the same point as before.
+### Ray queries
+
+`include/engine/ecs/ray.h`, `src/ecs/ray.cpp`. Pure geometry: no world and no components. `t` is the parameter of `direction` (`point = origin + t * direction`). `screen_to_ray` produces a unit direction, so there `t` is a distance. A zero direction, a parallel ray, or `t < 0` is a miss for every half-line query. The hit normal is unit length and faces back along the ray.
+
+| Function | Hit |
+| --- | --- |
+| `line_plane(ray, point, normal)` | The infinite line and the plane. `t` may be negative. nullopt when the line is parallel or `normal` is zero |
+| `ray_plane(ray, point, normal)` | `line_plane` with `t >= 0` |
+| `ray_sphere(ray, center, radius)` | The near surface. An origin inside the sphere reports `t = 0`. `radius < 0` misses |
+| `ray_aabb(ray, min, max)` | The slab entry, in the ray's space. An origin inside the box reports `t = 0` and a normal of `-normalize(direction)`. A reversed bound is swapped. An oriented box is this after the ray is multiplied by the inverse world matrix; `t` is unchanged |
+| `ray_triangle(ray, a, b, c)` | Either side of the triangle |
+| `ray_quad(ray, a, b, c, d)` | Triangles ABC and ACD. Corners go around the boundary. The nearer `t` |
+| `ray_segment(ray, start, direction, length, radius)` | The half-ray comes within `radius` of the segment. `direction` is normalized; `length` and `radius` are world units. `t` is the closest point on the normalized ray, not a surface entry |
+
+`screen_to_world` for a perspective camera is `ray_plane` against the world plane z = 0, or the ray origin when that misses. `PointerTarget` hit-testing uses `line_plane` against the plane z of each target (a plane behind the camera still yields a point) and then the local rectangle, so it works under a perspective camera. For an unrotated orthographic camera that is the same point as before. The editor gizmo tests its center with `ray_sphere`, an axis with `ray_segment`, and a rotation ring with `ray_plane` plus a distance band.
 
 ## Pointer targets
 

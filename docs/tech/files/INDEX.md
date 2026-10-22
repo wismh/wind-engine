@@ -50,7 +50,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/ecs/events.h` | Double-buffered `Events`, reader, writer, cursor | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/pointer_target.h` | `PointerTarget`, `PointerTargetEvent`, `pointer_target_at` | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `include/engine/ecs/physics_2d.h` | Colliders, `CollisionEvent2D`, `run_physics_2d` | [ECS](../modules/ECS.md) |
-| `include/engine/ecs/ray.h` | `Ray`: world-space origin and direction from `screen_to_ray` | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/ray.h` | `Ray`, `RayHit`, plane, sphere, AABB, triangle, quad, and segment queries | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/schedule.h` | `Schedule` and `Phase` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/systems.h` | `register_engine_systems` and its dependencies | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/transform.h` | Position, quaternion rotation, scale. No parent. `rotation_z`, `euler_xyz`, `angle_z` | [ECS](../modules/ECS.md) |
@@ -174,6 +174,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ecs/.gitkeep` | Keeps the directory in Git | [ECS](../modules/ECS.md) |
 | `src/ecs/camera.cpp` | View and projection matrices, perspective clip clamp, screen/world, screen/ray | [ECS](../modules/ECS.md) |
 | `src/ecs/pointer_target.cpp` | `pointer_target_at` and `run_pointer_targets` | [UI Input](../features/UI%20Input.md#pointer-targets) |
+| `src/ecs/ray.cpp` | Ray against a plane, sphere, box, triangle, quad, and segment | [ECS](../modules/ECS.md) |
 | `src/ecs/physics_2d.cpp` | Velocity integration and overlap events | [ECS](../modules/ECS.md) |
 | `src/ecs/systems.cpp` | Engine systems: input, dock input, splash, animation, particles, dock layout, bind, audio, render, UI render | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/ecs/world.cpp` | Create, destroy, flush, `run` | [ECS](../modules/ECS.md) |
@@ -450,6 +451,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/primitives_test.cpp` | Primitive counts, unit outward normals, winding, index range; builtin quad and cube files match | [Render](../modules/Render.md#primitives) |
 | `tests/physics_2d_test.cpp` | Overlap enter, stay, exit | [ECS](../modules/ECS.md) |
 | `tests/engine_version_test.cpp` | `EngineVersion` parse, refusals, round trip, order | [Project](../modules/Project.md#engine-version) |
+| `tests/ray_test.cpp` | Plane, sphere, AABB, triangle, quad, and segment hits | [ECS](../modules/ECS.md) |
 | `tests/random_test.cpp` | `Random`: golden sequences, ranges, streams, `IGame::random_seed` | [Core](../modules/Core.md) |
 | `tests/config_test.cpp` | `Config`: round trip, defaults, malformed input, failed save | [Core](../modules/Core.md) |
 | `tests/platform_test.cpp` | Assets root and `user_data_directory` names | [Core](../modules/Core.md) |
@@ -483,6 +485,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/ui_bindable_version_test.cpp` | `Bindable` / `BindableList` / catalog versions | [UI](../modules/UI.md#bindings) |
 | `tests/ui_layout_dirty_gate_test.cpp` | Layout skipped when nothing is marked | [UI](../modules/UI.md) |
 | `tests/ui_layout_hit_test.cpp` | Stack layout and hit order | [UI Input](../features/UI%20Input.md) |
+| `tests/ui_pointer_events_test.cpp` | `pointer-events`: a panel box blocks the pointer, `none` falls through, cursor | [UI Input](../features/UI%20Input.md#what-a-hit-is) |
 | `tests/ui_loc_test.cpp` | `{tr}` bind and locale switch | [Localization](../modules/Localization.md) |
 | `tests/ui_math_element_test.cpp` | `Math` element in a document | [UI](../modules/UI.md) |
 | `tests/ui_math_font_test.cpp` | MATH table metrics | [UI](../modules/UI.md) |
@@ -558,6 +561,10 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/assets/css/editor.css.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
 | `editor/assets/css/panels.css` | Project, UI Tree, Inspector, Profiler, and Build panel style | [Editor](../features/Editor.md) |
 | `editor/assets/css/panels.css.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/textures/file.png` | File icon on a Project row | [Editor](../features/Editor.md) |
+| `editor/assets/textures/file.png.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/textures/folder.png` | Folder icon on a Project row, a neutral gray | [Editor](../features/Editor.md) |
+| `editor/assets/textures/folder.png.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
 | `editor/assets/ui/build.xml` | Build tab: summary and log | [Editor](../features/Editor.md) |
 | `editor/assets/ui/build.xml.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
 | `editor/assets/ui/editor.xml` | Editor window: the toolbar; the panels' dock space is below it | [Editor](../features/Editor.md) |

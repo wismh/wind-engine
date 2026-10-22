@@ -254,3 +254,29 @@ TEST(HierarchyPanel, DirtyStateDisplaysAsteriskInStatusText) {
     EXPECT_EQ(panel.view_model()->statusText.get(), "level.world  (1 entities)");
 }
 
+TEST(HierarchyPanel, RefreshAdoptsEntitySelectionAndClearsWhenEmpty) {
+    engine::ecs::World edit_world;
+    const engine::ecs::Entity alpha = spawn_named(edit_world, "alpha");
+    const engine::ecs::Entity beta = spawn_named(edit_world, "beta");
+
+    editor::EditorSelection selection;
+    editor::HierarchyPanel panel{selection};
+    panel.set_edit_world(&edit_world, "scene.world");
+    panel.refresh();
+
+    selection.select(editor::EntitySelection{.entity = beta});
+    panel.refresh();
+    EXPECT_EQ(panel.selected(), beta);
+    EXPECT_EQ(panel.view_model()->rows.get()[1]->rowFill.get(), "#2f5d3a");
+
+    selection.select(editor::AssetSelection{.key = "notes.txt"});
+    panel.refresh();
+    EXPECT_EQ(panel.selected(), beta);
+
+    selection.clear();
+    panel.refresh();
+    EXPECT_EQ(panel.selected(), engine::ecs::Entity{});
+    EXPECT_EQ(panel.view_model()->rows.get()[1]->rowFill.get(), "#00000000");
+    (void)alpha;
+}
+

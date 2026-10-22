@@ -372,15 +372,16 @@ bool WindowSystem::is_visible() const {
     return window_ != nullptr && (SDL_GetWindowFlags(window_) & SDL_WINDOW_HIDDEN) == 0;
 }
 
-void WindowSystem::start_text_input() {
+void WindowSystem::start_text_input(bool multiline) {
     if (window_ == nullptr) {
         return;
     }
-    // Single-line text. Do not set SDL_HINT_RETURN_KEY_HIDES_IME: that hint swallows Enter inside
-    // SDL's Android JNI, so the field never sees a submit.
+    // Do not set SDL_HINT_RETURN_KEY_HIDES_IME: that hint swallows Enter inside SDL's Android JNI,
+    // so the field never sees a submit. `multiline` tells the OS keyboard that Return inserts a line.
+    text_input_multiline_ = multiline;
     const SDL_PropertiesID props = SDL_CreateProperties();
     if (props != 0) {
-        SDL_SetBooleanProperty(props, SDL_PROP_TEXTINPUT_MULTILINE_BOOLEAN, false);
+        SDL_SetBooleanProperty(props, SDL_PROP_TEXTINPUT_MULTILINE_BOOLEAN, multiline);
         SDL_SetNumberProperty(props, SDL_PROP_TEXTINPUT_TYPE_NUMBER, static_cast<Sint64>(SDL_TEXTINPUT_TYPE_TEXT));
     }
     SDL_StartTextInputWithProperties(window_, props);

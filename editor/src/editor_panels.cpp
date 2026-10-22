@@ -223,6 +223,7 @@ void EditorPanels::frame(engine::ecs::World& world) {
     }
     inspector_.set_assets(world_view_.assets());
     inspector_.set_edit_world(edit_world);
+    world_view_.set_entity_picking(!hierarchy_.attached());
     world_view_.frame(world, world_canvas_, space.layout.is_visible(kWorld));
     if (space.layout.is_visible(kHierarchy)) {
         hierarchy_.refresh();
