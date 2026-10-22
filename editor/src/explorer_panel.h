@@ -22,12 +22,19 @@
 
 namespace editor {
 
-// The Project tab: the open project's files and folders as a tree (`engine/ui/tree.h`). Selecting one makes it
-// the editor's selection, which the Inspector tab shows. The tree is a scan of the disk, taken when a project
-// opens, from File -> Refresh, and when the assets watch settles. Folders start collapsed.
+// Tree is the flattened project. Grid is the children of one folder, wrapped by the document.
+enum class ExplorerView {
+    Tree,
+    Grid,
+};
+
+// The Project tab: the open project's files and folders (`engine/ui/tree.h` in the tree). Selecting one makes it
+// the editor's selection, which the Inspector tab shows. The list is a scan of the disk, taken when a project
+// opens, from File -> Refresh, and when the assets watch settles. Folders start collapsed. The view mode lasts for
+// the editor session. Opening a project keeps the mode and starts the grid at the project root.
 //
-// Creates, copies, moves, and deletes are `ProjectStep`s on the editor's `CommandHistory`, so each one can be undone. Cut and copy only remember a
-// key; paste is the edit. Holds `this` in its rows, so it never moves.
+// Creates, copies, moves, and deletes are `ProjectStep`s on the editor's `CommandHistory`, so each one can be undone.
+// Cut and copy only remember a key; paste is the edit. Holds `this` in its rows, so it never moves.
 class ExplorerPanel final : public ProjectStepListener {
 public:
     ExplorerPanel(EditorSelection& selection, CommandHistory& journal);
@@ -46,11 +53,31 @@ public:
     void rescan();
 
     [[nodiscard]] const std::filesystem::path& directory() const { return directory_; }
+    [[nodiscard]] ExplorerView view() const { return view_; }
+    // Empty is the project root. Meaningful while the grid is showing.
+    [[nodiscard]] const std::string& grid_folder() const { return grid_folder_; }
+
+    // Tree keeps the current folder. Grid opens the selected folder, the parent of the selected file, or the root.
+    void show_tree();
+    void show_grid();
+    // Enters `key` when it is a folder and the grid is showing. A file, and the tree, do nothing.
+    bool open_entry(const std::string& key);
+    void grid_up();
+    [[nodiscard]] bool can_grid_up() const;
+    // How many tiles share a line. Keyboard only; the document wraps on its own. At least 1.
+    void set_grid_columns(int columns);
+
+    // The grid scroller goes to the top once, after the open folder changes.
+    [[nodiscard]] bool take_grid_scroll_reset();
+    // A grid key changed the selection and the tile should be brought into view once it has a layout rect.
+    [[nodiscard]] bool grid_tile_scroll_pending() const { return bring_into_view_; }
+    void finish_grid_tile_scroll() { bring_into_view_ = false; }
 
     // By ProjectEntry::key, here and as the editor's selection. An unknown key selects nothing.
     void select(const std::string& key);
     void toggle(const std::string& key);
-    // A tree key on the shown rows from the selected row. Returns the row to keep in view.
+    // A tree key on the shown rows, or a grid step of `grid_columns_` tiles. Returns the row to keep in view.
+    // The grid does not use that index: its scroller follows the tile's layout rect.
     std::optional<std::size_t> navigate(engine::ui::TreeNav nav);
 
     // The selected key, or empty.
@@ -124,11 +151,18 @@ private:
     [[nodiscard]] std::string container_of(const std::string& anchor) const;
     void create_at(const std::string& anchor, ProjectCreateKind kind);
     void remember(const std::string& key, bool cut);
-    void blank_new_folder() { new_folder_at({}); }
-    void blank_new_world() { new_world_at({}); }
-    void blank_new_header() { new_header_at({}); }
-    void blank_new_source() { new_source_at({}); }
-    void blank_paste() { paste_at({}); }
+    void sync_chrome();
+    void publish_root_text();
+    // Walks to a folder that still exists. Empty is the project root.
+    void retain_grid_folder();
+    std::optional<std::size_t> navigate_grid(engine::ui::TreeNav nav);
+    // The tree's empty space is the project root. The grid's is the open folder.
+    [[nodiscard]] std::string blank_target() const;
+    void blank_new_folder() { new_folder_at(blank_target()); }
+    void blank_new_world() { new_world_at(blank_target()); }
+    void blank_new_header() { new_header_at(blank_target()); }
+    void blank_new_source() { new_source_at(blank_target()); }
+    void blank_paste() { paste_at(blank_target()); }
 
     struct Clipboard {
         std::string key;
@@ -140,6 +174,12 @@ private:
     std::shared_ptr<ExplorerViewModel> view_model_;
     std::filesystem::path directory_;
     ProjectScan scan_;
+    ExplorerView view_ = ExplorerView::Tree;
+    // The grid's open folder. Empty is the project root. Kept while the tree is showing, until the next show_grid.
+    std::string grid_folder_;
+    int grid_columns_ = 1;
+    bool scroll_reset_ = false;
+    bool bring_into_view_ = false;
     engine::ui::TreeExpansion<std::string> expansion_{false};
     std::string selected_;
     std::string renaming_;

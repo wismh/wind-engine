@@ -125,6 +125,9 @@ public:
 
 private:
     void read_tree_keys(engine::ecs::World& world);
+    // Column count from the laid-out first line, and the grid scroller: top after a folder change, then the
+    // selected tile once it has a rect. `scroll_item_into_view` assumes one column, so the grid does not use it.
+    void sync_project_grid(engine::ecs::World& world);
     [[nodiscard]] engine::ecs::Entity tree_canvas_under_pointer(engine::ecs::World& world,
             engine::WindowId window) const;
     [[nodiscard]] engine::ui::DockLayout& layout_mut();

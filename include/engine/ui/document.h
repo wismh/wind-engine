@@ -102,6 +102,15 @@ namespace engine::ui {
         Horizontal,
     };
 
+    // `flex-wrap`. NoWrap (the default) is one line. Wrap starts a new line when the next child does not fit the
+    // container's definite main size. WrapReverse packs those lines from the cross end, so the first line of a
+    // horizontal stack sits at the bottom. There is no `align-content`: leftover cross space stays past the last line.
+    enum class FlexWrap {
+        NoWrap,
+        Wrap,
+        WrapReverse,
+    };
+
     enum class UiAlign {
         Start,
         Center,
@@ -408,6 +417,7 @@ namespace engine::ui {
         ScrollbarBorderRadius,
         SelectionColor,
         FlexGrow,
+        FlexWrap,
         Count,
     };
 
@@ -503,6 +513,7 @@ namespace engine::ui {
         UiAlign align_items = UiAlign::Start;
         // Share of a stack's free main-axis space. 0 takes none. See layout_stack.
         float flex_grow = 0.0f;
+        FlexWrap flex_wrap = FlexWrap::NoWrap;
         UiAlign text_align = UiAlign::Start;
         WhiteSpace white_space = WhiteSpace::Normal;
         UserSelect user_select = UserSelect::None;
@@ -680,6 +691,13 @@ namespace engine::ui {
         // container restyles only the descendants a rule like `A:hover B` can match.
         std::uint8_t self_dep = 0;
         std::vector<std::uint8_t> ancestor_dep;
+        // Inheritance: `inherited_stamp` names the inherited properties of `style` (color, font, text-align,
+        // white-space, visibility, user-select, selection-color). It takes a new value from a global counter
+        // whenever a rebuild produces different inherited values (or the cache was empty), and keeps it when they are
+        // equal. `parent_stamp` is the parent's `inherited_stamp` this style was cascaded against (0 for a root); a
+        // hit requires the parent's stamp to still be it, so a child restyles exactly when what it inherits moved.
+        std::uint64_t inherited_stamp = 0;
+        std::uint64_t parent_stamp = 0;
     };
 
     struct SvgPicture;
@@ -781,6 +799,8 @@ namespace engine::ui {
         UiAlign align_items = UiAlign::Start;
         // Share of the parent's free main-axis space. 0 (the default) takes none.
         float flex_grow = 0.0f;
+        // `flex-wrap` for a stack. NoWrap keeps the single line layout_stack has always packed.
+        FlexWrap flex_wrap = FlexWrap::NoWrap;
         UiAlign text_align = UiAlign::Start;
         WhiteSpace white_space = WhiteSpace::Normal;
         UserSelect user_select = UserSelect::None;

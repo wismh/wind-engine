@@ -2,6 +2,7 @@
 
 #include "command_history.h"
 
+#include <algorithm>
 #include <format>
 #include <string_view>
 #include <utility>
@@ -12,6 +13,8 @@ namespace editor {
 namespace {
 
 constexpr char kNoProject[] = "No project open.";
+constexpr char kToggleOn[] = "#3574f0";
+constexpr char kToggleOff[] = "#3c3f41";
 
 std::string path_text(const std::filesystem::path& path) {
     const std::u8string text = path.u8string();
@@ -71,12 +74,15 @@ void split_leaf(std::string_view name, std::string& stem, std::string& extension
 
 ExplorerPanel::ExplorerPanel(EditorSelection& selection, CommandHistory& journal)
     : selection_(&selection), journal_(&journal), view_model_(std::make_shared<ExplorerViewModel>()) {
-    view_model_->rootText = std::string(kNoProject);
     view_model_->blankNewFolder.bind_to<ExplorerPanel, &ExplorerPanel::blank_new_folder>(*this);
     view_model_->blankNewWorld.bind_to<ExplorerPanel, &ExplorerPanel::blank_new_world>(*this);
     view_model_->blankNewHeader.bind_to<ExplorerPanel, &ExplorerPanel::blank_new_header>(*this);
     view_model_->blankNewSource.bind_to<ExplorerPanel, &ExplorerPanel::blank_new_source>(*this);
     view_model_->blankPaste.bind_to<ExplorerPanel, &ExplorerPanel::blank_paste, &ExplorerPanel::can_paste>(*this);
+    view_model_->showTree.bind_to<ExplorerPanel, &ExplorerPanel::show_tree>(*this);
+    view_model_->showGrid.bind_to<ExplorerPanel, &ExplorerPanel::show_grid>(*this);
+    view_model_->gridUp.bind_to<ExplorerPanel, &ExplorerPanel::grid_up, &ExplorerPanel::can_grid_up>(*this);
+    sync_chrome();
 }
 
 const std::shared_ptr<ExplorerViewModel>& ExplorerPanel::view_model() const {
@@ -96,6 +102,10 @@ void ExplorerPanel::open(const std::filesystem::path& directory) {
     relocations_.clear();
     removals_.clear();
     rows_.clear();
+    grid_folder_.clear();
+    if (view_ == ExplorerView::Grid) {
+        scroll_reset_ = true;
+    }
     reload(false);
 }
 
@@ -113,9 +123,12 @@ void ExplorerPanel::close() {
     relocations_.clear();
     removals_.clear();
     rows_.clear();
+    grid_folder_.clear();
+    bring_into_view_ = false;
     view_model_->rows.set({});
-    view_model_->rootText = std::string(kNoProject);
+    view_model_->tiles.set({});
     publish_selection(false);
+    sync_chrome();
 }
 
 void ExplorerPanel::rescan() {
@@ -144,13 +157,82 @@ void ExplorerPanel::reload(bool external) {
     if (!drop_.empty() && find_entry(scan_.roots, drop_) == nullptr) {
         drop_.clear();
     }
-    std::string root = path_text(directory_);
-    if (scan_.truncated) {
-        root += std::format("  (the first {} entries)", kMaxProjectEntries);
-    }
-    view_model_->rootText = std::move(root);
+    retain_grid_folder();
     show_rows();
     publish_selection(false);
+}
+
+void ExplorerPanel::show_tree() {
+    if (view_ == ExplorerView::Tree) {
+        return;
+    }
+    view_ = ExplorerView::Tree;
+    bring_into_view_ = false;
+    if (!grid_folder_.empty()) {
+        expand_ancestors(grid_folder_);
+    }
+    if (!selected_.empty()) {
+        expand_ancestors(selected_);
+    }
+    show_rows();
+}
+
+void ExplorerPanel::show_grid() {
+    if (view_ == ExplorerView::Grid) {
+        return;
+    }
+    view_ = ExplorerView::Grid;
+    const ProjectEntry* entry = selected_.empty() ? nullptr : find_entry(scan_.roots, selected_);
+    if (entry == nullptr) {
+        grid_folder_.clear();
+    } else if (entry->directory) {
+        grid_folder_ = entry->key;
+    } else {
+        grid_folder_ = project_parent_key(entry->key);
+    }
+    scroll_reset_ = true;
+    bring_into_view_ = !selected_.empty();
+    show_rows();
+}
+
+bool ExplorerPanel::open_entry(const std::string& key) {
+    if (view_ != ExplorerView::Grid || directory_.empty()) {
+        return false;
+    }
+    const ProjectEntry* entry = find_entry(scan_.roots, key);
+    if (entry == nullptr || !entry->directory) {
+        return false;
+    }
+    if (grid_folder_ == entry->key) {
+        return true;
+    }
+    grid_folder_ = entry->key;
+    scroll_reset_ = true;
+    bring_into_view_ = false;
+    show_rows();
+    return true;
+}
+
+void ExplorerPanel::grid_up() {
+    if (!can_grid_up()) {
+        return;
+    }
+    grid_folder_ = project_parent_key(grid_folder_);
+    scroll_reset_ = true;
+    bring_into_view_ = false;
+    show_rows();
+}
+
+bool ExplorerPanel::can_grid_up() const {
+    return view_ == ExplorerView::Grid && !grid_folder_.empty();
+}
+
+void ExplorerPanel::set_grid_columns(int columns) {
+    grid_columns_ = std::max(1, columns);
+}
+
+bool ExplorerPanel::take_grid_scroll_reset() {
+    return std::exchange(scroll_reset_, false);
 }
 
 void ExplorerPanel::select(const std::string& key) {
@@ -176,6 +258,9 @@ void ExplorerPanel::toggle(const std::string& key) {
 }
 
 std::optional<std::size_t> ExplorerPanel::navigate(engine::ui::TreeNav nav) {
+    if (view_ == ExplorerView::Grid) {
+        return navigate_grid(nav);
+    }
     const std::vector<std::shared_ptr<ExplorerRowViewModel>>& rows = view_model_->rows.get();
     std::vector<engine::ui::TreeRowInfo> infos;
     infos.reserve(rows.size());
@@ -349,9 +434,13 @@ void ExplorerPanel::begin_rename(const std::string& key) {
     // A selected file can sit under a collapsed folder. The field has to be on a shown row.
     expand_ancestors(key);
     show_rows();
-    if (const auto it = rows_.find(key); it != rows_.end()) {
-        it->second->seed_edit(entry->name);
+    const auto it = rows_.find(key);
+    if (it == rows_.end()) {
+        renaming_.clear();
+        rename_focus_ = false;
+        return;
     }
+    it->second->seed_edit(entry->name);
 }
 
 void ExplorerPanel::commit_rename() {
@@ -395,14 +484,23 @@ void ExplorerPanel::cancel_rename() {
 }
 
 std::optional<std::string> ExplorerPanel::drop_folder(std::string_view from, std::string_view hover) const {
-    if (from.empty() || hover.empty() || from == "wind_project.toml") {
+    if (from.empty() || from == "wind_project.toml") {
         return std::nullopt;
     }
-    const ProjectEntry* entry = find_entry(scan_.roots, hover);
-    if (entry == nullptr) {
-        return std::nullopt;
+    std::string folder;
+    if (hover.empty()) {
+        // Empty grid space is the open folder. The tree has no such drop.
+        if (view_ != ExplorerView::Grid) {
+            return std::nullopt;
+        }
+        folder = grid_folder_;
+    } else {
+        const ProjectEntry* entry = find_entry(scan_.roots, hover);
+        if (entry == nullptr) {
+            return std::nullopt;
+        }
+        folder = entry->directory ? entry->key : project_parent_key(entry->key);
     }
-    const std::string folder = entry->directory ? entry->key : project_parent_key(entry->key);
     if (folder == project_parent_key(from)) {
         return std::nullopt;
     }
@@ -513,28 +611,161 @@ std::vector<std::string> ExplorerPanel::take_removals() {
 }
 
 void ExplorerPanel::show_rows() {
-    std::vector<const ProjectEntry*> roots;
-    roots.reserve(scan_.roots.size());
-    for (const ProjectEntry& entry : scan_.roots) {
-        roots.push_back(&entry);
+    if (view_ == ExplorerView::Grid) {
+        retain_grid_folder();
     }
     std::vector<std::shared_ptr<ExplorerRowViewModel>> visible;
     std::unordered_map<std::string, std::shared_ptr<ExplorerRowViewModel>> kept;
-    (void) engine::ui::flatten_tree(roots, expansion_, EntrySource{},
-            [&](const ProjectEntry* entry, const engine::ui::TreeRowInfo& info) {
-                std::shared_ptr<ExplorerRowViewModel> slot;
-                if (const auto it = rows_.find(entry->key); it != rows_.end()) {
-                    slot = it->second;
-                } else {
-                    slot = std::make_shared<ExplorerRowViewModel>(*this);
-                }
-                slot->show(*entry, info, entry->key == selected_, !drop_.empty() && entry->key == drop_,
-                        entry->key == renaming_);
-                visible.push_back(slot);
-                kept.emplace(entry->key, std::move(slot));
-            });
-    rows_ = std::move(kept);
-    view_model_->rows.set(std::move(visible));
+    const auto take = [&](const ProjectEntry& entry, const engine::ui::TreeRowInfo& info) {
+        std::shared_ptr<ExplorerRowViewModel> slot;
+        if (const auto it = rows_.find(entry.key); it != rows_.end()) {
+            slot = it->second;
+        } else {
+            slot = std::make_shared<ExplorerRowViewModel>(*this);
+        }
+        slot->show(entry, info, entry.key == selected_, !drop_.empty() && entry.key == drop_,
+                entry.key == renaming_);
+        visible.push_back(slot);
+        kept.emplace(entry.key, std::move(slot));
+    };
+    if (view_ == ExplorerView::Grid) {
+        const std::vector<ProjectEntry>* level = &scan_.roots;
+        if (!grid_folder_.empty()) {
+            const ProjectEntry* folder = find_entry(scan_.roots, grid_folder_);
+            if (folder == nullptr) {
+                grid_folder_.clear();
+            } else {
+                level = &folder->children;
+            }
+        }
+        visible.reserve(level->size());
+        for (const ProjectEntry& entry : *level) {
+            engine::ui::TreeRowInfo info;
+            info.has_children = !entry.children.empty();
+            take(entry, info);
+        }
+        rows_ = std::move(kept);
+        view_model_->rows.set({});
+        view_model_->tiles.set(std::move(visible));
+    } else {
+        std::vector<const ProjectEntry*> roots;
+        roots.reserve(scan_.roots.size());
+        for (const ProjectEntry& entry : scan_.roots) {
+            roots.push_back(&entry);
+        }
+        (void) engine::ui::flatten_tree(roots, expansion_, EntrySource{},
+                [&](const ProjectEntry* entry, const engine::ui::TreeRowInfo& info) { take(*entry, info); });
+        rows_ = std::move(kept);
+        view_model_->tiles.set({});
+        view_model_->rows.set(std::move(visible));
+    }
+    sync_chrome();
+}
+
+void ExplorerPanel::sync_chrome() {
+    const bool grid = view_ == ExplorerView::Grid;
+    view_model_->treeShown = !grid;
+    view_model_->gridShown = grid;
+    view_model_->treeOn = std::string(grid ? kToggleOff : kToggleOn);
+    view_model_->gridOn = std::string(grid ? kToggleOn : kToggleOff);
+    publish_root_text();
+}
+
+void ExplorerPanel::publish_root_text() {
+    if (directory_.empty()) {
+        view_model_->rootText = std::string(kNoProject);
+        return;
+    }
+    std::string root = path_text(directory_);
+    if (view_ == ExplorerView::Grid && !grid_folder_.empty()) {
+        root += " / ";
+        root += grid_folder_;
+    }
+    if (scan_.truncated) {
+        root += std::format("  (the first {} entries)", kMaxProjectEntries);
+    }
+    view_model_->rootText = std::move(root);
+}
+
+void ExplorerPanel::retain_grid_folder() {
+    while (!grid_folder_.empty()) {
+        const ProjectEntry* entry = find_entry(scan_.roots, grid_folder_);
+        if (entry != nullptr && entry->directory) {
+            return;
+        }
+        const std::string parent = project_parent_key(grid_folder_);
+        if (parent == grid_folder_) {
+            grid_folder_.clear();
+            scroll_reset_ = true;
+            return;
+        }
+        grid_folder_ = parent;
+        scroll_reset_ = true;
+    }
+}
+
+std::optional<std::size_t> ExplorerPanel::navigate_grid(engine::ui::TreeNav nav) {
+    const std::vector<std::shared_ptr<ExplorerRowViewModel>> tiles = view_model_->tiles.get();
+    if (tiles.empty()) {
+        return std::nullopt;
+    }
+    const std::size_t last = tiles.size() - 1;
+    std::size_t current = tiles.size();
+    for (std::size_t i = 0; i < tiles.size(); ++i) {
+        if (tiles[i]->key() == selected_) {
+            current = i;
+            break;
+        }
+    }
+    const auto columns = static_cast<std::size_t>(std::max(1, grid_columns_));
+    std::size_t next = 0;
+    if (current >= tiles.size()) {
+        switch (nav) {
+            case engine::ui::TreeNav::Down:
+            case engine::ui::TreeNav::First:
+                next = 0;
+                break;
+            case engine::ui::TreeNav::Up:
+            case engine::ui::TreeNav::Last:
+                next = last;
+                break;
+            case engine::ui::TreeNav::Left:
+            case engine::ui::TreeNav::Right:
+                return std::nullopt;
+        }
+    } else {
+        switch (nav) {
+            case engine::ui::TreeNav::Left:
+                next = current == 0 ? 0 : current - 1;
+                break;
+            case engine::ui::TreeNav::Right:
+                next = current == last ? last : current + 1;
+                break;
+            case engine::ui::TreeNav::Up:
+                next = current < columns ? current : current - columns;
+                break;
+            case engine::ui::TreeNav::Down:
+                next = current + columns > last ? current : current + columns;
+                break;
+            case engine::ui::TreeNav::First:
+                next = 0;
+                break;
+            case engine::ui::TreeNav::Last:
+                next = last;
+                break;
+        }
+        if (next == current) {
+            return current;
+        }
+    }
+    const std::string key = tiles[next]->key();
+    select(key);
+    bring_into_view_ = true;
+    return next;
+}
+
+std::string ExplorerPanel::blank_target() const {
+    return view_ == ExplorerView::Grid ? grid_folder_ : std::string{};
 }
 
 void ExplorerPanel::publish_selection(bool take) {
@@ -569,6 +800,13 @@ void ExplorerPanel::apply_result(const ProjectEditResult& result) {
     reload(false);
     if (!result.select.empty() && find_entry(scan_.roots, result.select) != nullptr) {
         expand_ancestors(result.select);
+        if (view_ == ExplorerView::Grid) {
+            const std::string parent = project_parent_key(result.select);
+            if (parent != grid_folder_) {
+                grid_folder_ = parent;
+                scroll_reset_ = true;
+            }
+        }
         select(result.select);
     }
 }

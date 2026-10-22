@@ -44,9 +44,10 @@ The engine repository has a composite action that downloads the SDK of your proj
 | `version` | `engine` in `wind_project.toml` | The version to install, like `0.1.7a` |
 | `project-dir` | `.` | Where `wind_project.toml` is, when `version` is not given |
 | `repo` | `wismh/wind-engine` | The repository with the releases |
+| `symbols` | `false` | `true` also installs the debug symbols package (the `.pdb` files of the SDK, Windows only; ignored on Linux and macOS). Not needed to build or run; for a debugger or crash reports |
 | `token` | `github.token` | Only to stay under the download rate limit; the releases are public |
 
-After the step, `WIND_SDK_DIR` is the SDK root, `<sdk>/bin` (`wind_editor`, `wind-cli`) is on `PATH`, and the step outputs `sdk-dir` and `version`. The SDK is cached under the key `wind-sdk-<version>-<os>-<arch>`, so a run with a cache hit downloads nothing.
+After the step, `WIND_SDK_DIR` is the SDK root, `<sdk>/bin` (`wind_editor`, `wind-cli`) is on `PATH`, and the step outputs `sdk-dir` and `version`. The SDK is cached under the key `wind-sdk-<version>-<os>-<arch>` (`-symbols` is added to the key on Windows when `symbols` is `true`), so a run with a cache hit downloads nothing.
 
 `@main` is the newest action. To pin it, use the release tag of the engine version you build with, `@v0.1.7a`: a release is a tag of the engine repository, with the action in it.
 
