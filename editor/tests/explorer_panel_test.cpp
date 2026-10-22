@@ -4,6 +4,8 @@
 #include "explorer_panel.h"
 #include "project_scan.h"
 
+#include <asset_ids.h>
+
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -157,6 +159,24 @@ TEST(ExplorerPanel, OpenShowsTheCollapsedRootsAndExpandsOnToggle) {
 
     row_of(vm, "assets")->toggle.execute();
     EXPECT_EQ(vm.rows.get().size(), 4u);
+}
+
+TEST(ExplorerPanel, RowsUseFolderAndFileIcons) {
+    const ProjectDir dir;
+    editor::EditorSelection selection;
+    editor::CommandHistory history;
+    editor::ExplorerPanel panel{selection, history};
+    panel.open(dir.root());
+    editor::ExplorerViewModel& vm = *panel.view_model();
+    EXPECT_EQ(row_of(vm, "assets")->icon.get(), assets::textures::folder);
+    EXPECT_EQ(row_of(vm, "src")->icon.get(), assets::textures::folder);
+    EXPECT_EQ(row_of(vm, "CMakeLists.txt")->icon.get(), assets::textures::file);
+    EXPECT_EQ(row_of(vm, "wind_project.toml")->icon.get(), assets::textures::file);
+
+    panel.toggle("assets");
+    EXPECT_EQ(row_of(vm, "assets/Images")->icon.get(), assets::textures::folder);
+    panel.toggle("assets/ui");
+    EXPECT_EQ(row_of(vm, "assets/ui/menu.xml")->icon.get(), assets::textures::file);
 }
 
 TEST(ExplorerPanel, SelectBecomesTheEditorSelection) {

@@ -46,6 +46,8 @@ public:
     void remove_row();
 
     engine::ui::Bindable<std::string> label;
+    // `textures/folder.png` or `textures/file.png`. The color is in the PNG.
+    engine::ui::Bindable<engine::AssetId> icon;
     engine::ui::Bindable<int> depth;
     engine::ui::Bindable<bool> expanded;
     engine::ui::Bindable<std::string> rowFill;

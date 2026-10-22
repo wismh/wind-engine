@@ -165,6 +165,13 @@ Checkbox.expander:disabled {
   background-image: none;
 }
 
+/* Project rows: a 16 px icon between the expander and the name. The name loses another 20 px. */
+Image.entry-icon {
+  width: 16;
+  height: 16;
+  margin: 3 4 3 0;
+}
+
 Button.row {
   width: calc(100% - 20px);
   height: 22;
@@ -176,6 +183,10 @@ Button.row {
   white-space: nowrap;
   align-items: center;
   display: var(--row-display, flex);
+}
+
+Button.row.entry {
+  width: calc(100% - 40px);
 }
 
 TextInput.rename {
@@ -190,6 +201,10 @@ TextInput.rename {
   border-color: #3574f0;
   border-radius: 2;
   display: var(--rename-display, none);
+}
+
+TextInput.rename.entry {
+  width: calc(100% - 40px);
 }
 
 ContextMenu {
