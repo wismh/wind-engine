@@ -1023,16 +1023,19 @@ namespace engine::ui {
             return visit_absolute_children(
                     element, [&](Element &child) { return hit_test_at(child, x, y, child_under_control); });
         }
-        if (is_scrollable_y(element)) {
-            const render::Rect track = scrollbar_track_rect(element);
-            if (track.w > 0.0f && track.h > 0.0f && rect_contains(track, x, y)) {
-                return &element;
+        // `pointer-events: none` is not a target, scrollbar included. Descendants are still tested below.
+        if (element.pointer_events != PointerEvents::None) {
+            if (is_scrollable_y(element)) {
+                const render::Rect track = scrollbar_track_rect(element);
+                if (track.w > 0.0f && track.h > 0.0f && rect_contains(track, x, y)) {
+                    return &element;
+                }
             }
-        }
-        if (is_scrollable_x(element)) {
-            const render::Rect track = scrollbar_track_rect(element);
-            if (track.w > 0.0f && track.h > 0.0f && rect_contains(track, x, y)) {
-                return &element;
+            if (is_scrollable_x(element)) {
+                const render::Rect track = scrollbar_track_rect(element);
+                if (track.w > 0.0f && track.h > 0.0f && rect_contains(track, x, y)) {
+                    return &element;
+                }
             }
         }
         float child_x = x;
@@ -1071,8 +1074,12 @@ namespace engine::ui {
                 return nested;
             }
         }
-        // An open popup owns every point inside it, so a click on its padding does not reach what is under it.
-        if (is_interactive_element(element)) {
+        // An open popup owns every point inside it, so a click on its padding does not reach what is under it,
+        // unless it opts out with `pointer-events: none`. `all` owns the box the same way, without a command.
+        if (element.pointer_events == PointerEvents::None) {
+            return nullptr;
+        }
+        if (element.pointer_events == PointerEvents::All || is_interactive_element(element)) {
             return &element;
         }
         if (!under_control && label_text_selectable(element)) {
@@ -1103,7 +1110,8 @@ namespace engine::ui {
                 }
                 return;
             }
-            if (is_interactive_element(element)) {
+            if (element.pointer_events != PointerEvents::None &&
+                (element.pointer_events == PointerEvents::All || is_interactive_element(element))) {
                 out.push_back(element.layout_rect);
                 return;
             }
@@ -1138,10 +1146,12 @@ namespace engine::ui {
             return inherit(visit_absolute_children(
                     element, [&](Element &child) { return cursor_at_element(child, x, y); }));
         }
-        for (const bool scrollable : {is_scrollable_y(element), is_scrollable_x(element)}) {
-            const render::Rect track = scrollable ? scrollbar_track_rect(element) : render::Rect{};
-            if (track.w > 0.0f && track.h > 0.0f && rect_contains(track, x, y)) {
-                return element.cursor;
+        if (element.pointer_events != PointerEvents::None) {
+            for (const bool scrollable : {is_scrollable_y(element), is_scrollable_x(element)}) {
+                const render::Rect track = scrollable ? scrollbar_track_rect(element) : render::Rect{};
+                if (track.w > 0.0f && track.h > 0.0f && rect_contains(track, x, y)) {
+                    return element.cursor;
+                }
             }
         }
         float child_x = x;
@@ -1164,6 +1174,9 @@ namespace engine::ui {
                     return inherit(hit);
                 }
             }
+        }
+        if (element.pointer_events == PointerEvents::None) {
+            return std::nullopt;
         }
         return own;
     }
