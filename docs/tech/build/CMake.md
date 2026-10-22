@@ -185,7 +185,7 @@ With `ENGINE_EDITOR` the root defines install rules. `cmake --install build-edit
 ```
 out/sdk/
   bin/
-    wind_editor.exe  engine.dll  asset_codegen.exe  icon_codegen.exe  wind-cli.exe  (+ their .pdb when the config makes them)
+    wind_editor.exe  engine.dll  asset_codegen.exe  icon_codegen.exe  wind-cli.exe  (+ their .pdb when the config makes them; install component `symbols`, which the release leaves out of the SDK package: [Release](Release.md#assets))
     assets/engine/   builtin_assets/ and the cooked catalog.toml
     assets/editor/   editor/assets/ and the editor's cooked catalog.toml
   lib/engine.lib

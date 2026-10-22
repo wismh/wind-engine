@@ -246,6 +246,91 @@ class Install(unittest.TestCase):
                 setup_sdk.extract(archive, Path(directory) / "into2")
 
 
+def symbols_release(directory, version, os_name, arch, build_id="b", tree_version=None, top=None):
+    """A fake symbols package and its .sha256 in `directory`."""
+    name = setup_sdk.symbols_artifact_name(version, os_name, arch)
+    with tempfile.TemporaryDirectory() as scratch:
+        base = Path(scratch) / top if top else Path(scratch)
+        (base / "bin").mkdir(parents=True)
+        (base / "bin" / "engine.pdb").write_bytes(b"pdb")
+        (base / "symbols.toml").write_text('version = "%s"\nbuild_id = "%s"\nplatform = "%s"\n'
+                                           % (tree_version or version, build_id, os_name), encoding="utf-8")
+        pack(scratch, Path(directory) / name)
+    digest = hashlib.sha256((Path(directory) / name).read_bytes()).hexdigest()
+    (Path(directory) / (name + ".sha256")).write_text("%s  %s\n" % (digest, name), encoding="utf-8")
+    return name
+
+
+class Symbols(unittest.TestCase):
+    def test_names(self):
+        self.assertEqual(setup_sdk.symbols_artifact_name("0.1.7a", "windows", "x86_64"),
+                         "wind-sdk-symbols-0.1.7a-windows-x86_64.zip")
+        self.assertEqual(setup_sdk.cache_key("0.1.7a", "windows", "x86_64", True), "wind-sdk-0.1.7a-windows-x86_64-symbols")
+        self.assertEqual(setup_sdk.cache_key("0.1.7a", "linux", "x86_64", True), "wind-sdk-0.1.7a-linux-x86_64")
+
+    def test_unpacks_over_the_sdk_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            assets = Path(directory) / "assets"
+            assets.mkdir()
+            release(assets, "0.1.7a", "windows", "x86_64")
+            symbols_release(assets, "0.1.7a", "windows", "x86_64", top="wind-sdk-symbols-0.1.7a-windows-x86_64")
+            dest = Path(directory) / "work" / "sdk"
+            quiet(setup_sdk.install, "0.1.7a", dest, "windows", "x86_64", from_dir=assets, symbols=True)
+            self.assertTrue((dest / "bin" / "engine.pdb").is_file())
+            self.assertTrue((dest / "bin" / "wind_editor.exe").is_file())
+            self.assertEqual([child.name for child in dest.parent.iterdir()], ["sdk"], "no temporary directory is left")
+            (dest / "bin" / "engine.pdb").unlink()
+            quiet(setup_sdk.install, "0.1.7a", dest, "windows", "x86_64", from_dir=Path(directory) / "gone", symbols=True)
+            self.assertFalse((dest / "bin" / "engine.pdb").exists(), "nothing is unpacked again")
+
+    def test_adds_symbols_to_an_sdk_installed_without_them(self):
+        with tempfile.TemporaryDirectory() as directory:
+            assets = Path(directory) / "assets"
+            assets.mkdir()
+            release(assets, "0.1.7a", "windows", "x86_64")
+            symbols_release(assets, "0.1.7a", "windows", "x86_64")
+            dest = Path(directory) / "sdk"
+            quiet(setup_sdk.install, "0.1.7a", dest, "windows", "x86_64", from_dir=assets)
+            self.assertFalse((dest / "bin" / "engine.pdb").exists())
+            quiet(setup_sdk.install, "0.1.7a", dest, "windows", "x86_64", from_dir=assets, symbols=True)
+            self.assertTrue((dest / "bin" / "engine.pdb").is_file())
+
+    def test_refuses_symbols_of_another_build(self):
+        with tempfile.TemporaryDirectory() as directory:
+            assets = Path(directory) / "assets"
+            assets.mkdir()
+            release(assets, "0.1.7a", "windows", "x86_64")
+            symbols_release(assets, "0.1.7a", "windows", "x86_64", build_id="other")
+            with self.assertRaisesRegex(setup_sdk.SetupError, "another build"):
+                quiet(setup_sdk.install, "0.1.7a", Path(directory) / "sdk", "windows", "x86_64", from_dir=assets, symbols=True)
+
+    def test_refuses_symbols_of_another_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            assets = Path(directory) / "assets"
+            assets.mkdir()
+            release(assets, "0.1.7a", "windows", "x86_64")
+            symbols_release(assets, "0.1.7a", "windows", "x86_64", tree_version="0.1.6a")
+            with self.assertRaisesRegex(setup_sdk.SetupError, "symbols are version 0.1.6a"):
+                quiet(setup_sdk.install, "0.1.7a", Path(directory) / "sdk", "windows", "x86_64", from_dir=assets, symbols=True)
+
+    def test_a_platform_without_a_package_needs_none(self):
+        with tempfile.TemporaryDirectory() as directory:
+            assets = Path(directory) / "assets"
+            assets.mkdir()
+            release(assets, "0.1.7a", "linux", "x86_64")
+            dest = Path(directory) / "sdk"
+            quiet(setup_sdk.install, "0.1.7a", dest, "linux", "x86_64", from_dir=assets, symbols=True)
+            setup_sdk.check_sdk(dest, "0.1.7a", "linux")
+
+    def test_a_missing_package_is_said(self):
+        with tempfile.TemporaryDirectory() as directory:
+            assets = Path(directory) / "assets"
+            assets.mkdir()
+            release(assets, "0.1.7a", "windows", "x86_64")
+            with self.assertRaisesRegex(setup_sdk.SetupError, "wind-sdk-symbols-0.1.7a-windows-x86_64.zip is not in"):
+                quiet(setup_sdk.install, "0.1.7a", Path(directory) / "sdk", "windows", "x86_64", from_dir=assets, symbols=True)
+
+
 class CommandLine(unittest.TestCase):
     def run_main(self, *args):
         out = io.StringIO()
