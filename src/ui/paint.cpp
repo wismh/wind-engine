@@ -1453,8 +1453,14 @@ namespace engine::ui {
                 // target, not what is shown.
                 commit_motion_layout(element);
                 commit_motion_visuals(element);
-                if (layout_fields_differ(before, layout_fields_of(element))) {
+                const LayoutFields after = layout_fields_of(element);
+                if (layout_fields_differ(before, after)) {
                     mark_dirty(document, element, kDirtyLayout | kDirtyPaint, true);
+                }
+                if (before.display_none != after.display_none || before.visible != after.visible) {
+                    // In or out of the picture above. Its own mark is skipped once the element is hidden
+                    // (`plain_dirty`), and a fixed ancestor does not move, so that picture would keep drawing it.
+                    mark_containing_picture(document, element);
                 }
                 if (element.z_index != z_before) {
                     // The stacking order of its siblings is part of what the picture above it recorded.
@@ -2516,7 +2522,11 @@ namespace engine::ui {
                     element.motion_sample_basis = parent_basis;
                     element.motion_sample_basis_valid = true;
                 }
+                const bool was_visible = element.visible;
                 commit_motion_visuals(element);
+                if (element.visible != was_visible) {
+                    mark_containing_picture(document, element);
+                }
                 if (!element.motion_shown.empty()) {
                     motion_active = true;
                 }
