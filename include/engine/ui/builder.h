@@ -50,6 +50,8 @@ public:
     Node& shortcut(std::string_view value);
     Node& allow_copy(bool value);
     Node& allow_paste(bool value);
+    // TextInput only. See `TextMultiline`. Absent on the element is `None`.
+    Node& multiline(TextMultiline mode);
     Node& pan_x_bind(BindingId id);
     Node& pan_y_bind(BindingId id);
     Node& zoom_bind(BindingId id);

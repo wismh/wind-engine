@@ -14,6 +14,7 @@
 #include "style_anim.h"
 #include "text_select.h"
 #include "ui/text_cache.h"
+#include "ui/text_wrap.h"
 
 #include <engine/builtin_ids.h>
 #include <engine/ui/canvas.h>
@@ -24,6 +25,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <limits>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -1535,6 +1537,152 @@ namespace engine::ui {
             return anchor_x;
         }
 
+        // Multiline TextInput. Rows break at design width (the same width layout hugged against) and are
+        // drawn in screen pixels. `text_scroll_y` shifts only these glyphs: the element's own scroll pans
+        // children after this function returns. A focused caret is volatile; the caller marks that.
+        void paint_multiline_field(Element &element, IUiPainter &painter, const ComputedStyle &style,
+                                   const render::Rect &content, float font_size, const UiPaintInput &input) {
+            const float scale = input.ui_scale == 0.0f ? 1.0f : input.ui_scale;
+            const float design_w = std::max(0.0f, content.w / scale);
+            const float design_h = std::max(0.0f, content.h / scale);
+            const float wrap = element.white_space == WhiteSpace::NoWrap ? std::numeric_limits<float>::infinity()
+                                                                          : design_w;
+            const auto width_of = [&](std::string_view slice) {
+                return painter.measure_text(slice, style.font_family, font_size).x;
+            };
+            float line_h = font_size;
+            const float measured = painter.measure_text("M", style.font_family, font_size).y;
+            if (measured > 0.0f) {
+                line_h = measured;
+            }
+            if (element.line_height.kind != LineHeightKind::Normal) {
+                const float used = resolve_line_height(element.line_height, font_size, line_h);
+                if (used > 0.0f) {
+                    line_h = used;
+                }
+            }
+            const std::vector<TextLine> lines = editor_lines(element.text, wrap, width_of);
+            const float block_h = line_h * static_cast<float>(lines.size());
+            element.text_scroll_max = std::max(0.0f, block_h - design_h);
+            const std::size_t caret = std::min(element.caret_position, element.text.size());
+            const std::size_t row = editor_line_index(lines, caret);
+            if (element.reveal_caret) {
+                const float row_top = static_cast<float>(row) * line_h;
+                const float row_bottom = row_top + line_h;
+                if (row_top < element.text_scroll_y) {
+                    element.text_scroll_y = row_top;
+                } else if (row_bottom > element.text_scroll_y + design_h) {
+                    element.text_scroll_y = row_bottom - design_h;
+                }
+                element.reveal_caret = false;
+            }
+            element.text_scroll_y = std::clamp(element.text_scroll_y, 0.0f, element.text_scroll_max);
+
+            const float screen_font = font_size * scale;
+            const float row_h = line_h * scale;
+            const float block_px = block_h * scale;
+            const float top = block_px <= content.h + 0.01f
+                                      ? text_block_top(content.y, content.h, block_px, style.align_items)
+                                      : content.y;
+            const float scroll_px = element.text_scroll_y * scale;
+            const float anchor_x = text_align_origin_x(content.x, content.w, style.text_align);
+
+            element.painted_font_size_px = screen_font;
+            element.painted_text_lines.clear();
+            element.painted_text_lines.reserve(lines.size());
+            for (std::size_t i = 0; i < lines.size(); ++i) {
+                const TextLine &line = lines[i];
+                float width = 0.0f;
+                if (line.begin < line.end && line.end <= element.text.size()) {
+                    width = painter
+                                    .measure_text(std::string_view(element.text)
+                                                          .substr(line.begin, line.end - line.begin),
+                                                  style.font_family, screen_font)
+                                    .x;
+                }
+                element.painted_text_lines.push_back(PaintedTextLine{
+                        line.begin,
+                        line.end,
+                        glyph_left(anchor_x, width, style.text_align),
+                        top + static_cast<float>(i) * row_h - scroll_px,
+                        width,
+                        row_h,
+                });
+            }
+            const PaintedTextLine &caret_line = element.painted_text_lines[row];
+            element.painted_content_origin_x = caret_line.x;
+
+            painter.save();
+            painter.scissor(content);
+            if (element.focused) {
+                paint_text_selection(painter, element);
+            }
+            for (const PaintedTextLine &line : element.painted_text_lines) {
+                if (line.begin == line.end || line.end > element.text.size()) {
+                    continue;
+                }
+                painter.fill_text(std::string_view(element.text).substr(line.begin, line.end - line.begin),
+                                  glm::vec2{anchor_x, line.y}, style.color, style.text_align, UiAlign::Start);
+            }
+            if (element.focused) {
+                const float glyph_y = caret_line.y;
+                const float glyph_h = caret_line.height;
+                const std::string_view source = element.text;
+                const std::size_t prefix = std::min(std::max(caret, caret_line.begin), caret_line.end);
+                const float committed_w =
+                        prefix > caret_line.begin
+                                ? painter.measure_text(source.substr(caret_line.begin, prefix - caret_line.begin),
+                                                       style.font_family, screen_font)
+                                          .x
+                                : 0.0f;
+                const float composition_x = caret_line.x + committed_w;
+                if (!element.composition.empty()) {
+                    const std::string_view composition = element.composition;
+                    painter.fill_text(composition, glm::vec2{composition_x, glyph_y}, style.color, UiAlign::Start,
+                                      UiAlign::Start);
+                    const float composition_w = painter.measure_text(composition, style.font_family, screen_font).x;
+                    const float underline_y = glyph_y + glyph_h;
+                    painter.draw_line(glm::vec2{composition_x, underline_y},
+                                      glm::vec2{composition_x + composition_w, underline_y}, style.color, 1.0f * scale);
+                    if (element.composition_length > 0) {
+                        const std::size_t range_begin = utf8_byte_offset(composition, element.composition_start);
+                        std::size_t range_end = range_begin;
+                        for (int step = 0; step < element.composition_length; ++step) {
+                            if (range_end >= composition.size()) {
+                                break;
+                            }
+                            range_end = next_utf8_char(composition, range_end);
+                        }
+                        const float range_start_w =
+                                painter.measure_text(composition.substr(0, range_begin), style.font_family, screen_font)
+                                        .x;
+                        const float range_end_w =
+                                painter.measure_text(composition.substr(0, range_end), style.font_family, screen_font)
+                                        .x;
+                        painter.fill_rounded_rect(render::Rect{composition_x + range_start_w, glyph_y,
+                                                               range_end_w - range_start_w, glyph_h},
+                                                  0.0f, element.selection_color);
+                    }
+                }
+                element.caret_blink_timer += input.delta_time;
+                if (std::fmod(element.caret_blink_timer, 1.0f) < 0.5f) {
+                    float caret_x = composition_x;
+                    if (!element.composition.empty()) {
+                        const std::size_t composition_caret =
+                                utf8_byte_offset(element.composition, element.composition_start);
+                        caret_x += painter
+                                           .measure_text(std::string_view(element.composition)
+                                                                 .substr(0, composition_caret),
+                                                         style.font_family, screen_font)
+                                           .x;
+                    }
+                    painter.draw_line(glm::vec2{caret_x, glyph_y}, glm::vec2{caret_x, glyph_y + glyph_h}, style.color,
+                                      1.0f * scale);
+                }
+            }
+            painter.restore();
+        }
+
         // Glyph boxes for a Label, in the same places the fill_text calls below draw. `rows` null means the
         // single fill_text of the whole string (vertical align is the anchor `single_anchor_y`).
         std::vector<PaintedTextLine> label_glyph_lines(IUiPainter &painter, const Element &element,
@@ -2041,9 +2189,21 @@ namespace engine::ui {
                     }
                 }
 
-                if (element.kind == ElementKind::Label || element.kind == ElementKind::Button ||
-                    element.kind == ElementKind::TextInput || element.kind == ElementKind::Menu ||
-                    element.kind == ElementKind::MenuItem) {
+                if (element.kind == ElementKind::TextInput && element.multiline != TextMultiline::None) {
+                    painter.set_font(style.font_family, font_size * input.ui_scale);
+                    const render::Rect content{
+                            screen_rect.x + padding.left * input.ui_scale,
+                            screen_rect.y + padding.top * input.ui_scale,
+                            std::max(0.0f, screen_rect.w - (padding.left + padding.right) * input.ui_scale),
+                            std::max(0.0f, screen_rect.h - (padding.top + padding.bottom) * input.ui_scale),
+                    };
+                    paint_multiline_field(element, painter, style, content, font_size, input);
+                    if (element.focused) {
+                        note_volatile();
+                    }
+                } else if (element.kind == ElementKind::Label || element.kind == ElementKind::Button ||
+                           element.kind == ElementKind::TextInput || element.kind == ElementKind::Menu ||
+                           element.kind == ElementKind::MenuItem) {
                     painter.set_font(style.font_family, font_size * input.ui_scale);
                     const render::Rect content{
                             screen_rect.x + padding.left * input.ui_scale,
