@@ -60,7 +60,7 @@ Units are `px`, `%`, `em`, and `calc()` with `+ - * /`. A `font-size` of `em`, i
 
 Color, gradient, `background-repeat`, easing, and `transform` values are on [UI](../modules/UI.md).
 
-- Styles do not inherit. `compute_style_uncached` starts from a fresh `ComputedStyle` and does not copy the parent. Color, `font-size`, and `font-family` do not inherit. Defaults are white, 16px, and `builtin::font_ui`.
+- Text properties inherit: `color`, `font-family`, `font-size`, `line-height`, `text-align`, `white-space`, `visibility`, `user-select`, and `selection-color` pass from the parent's computed style to a child no rule sets them on. A rule on the child wins. Box, background, border, opacity, `cursor`, and `pointer-events` do not inherit. There is no `inherit` keyword. `font-size` in `em` or `%` is of the parent's computed size. The root starts from white, 16px, and `builtin::font_ui`. See [UI](../modules/UI.md#style).
 
 `display: none` removes the subtree from layout, paint, and hit-testing. Any other token sets `display_none` false, so a winning `display: block` shows the element again. It does not select another layout mode. `visibility: hidden` keeps the box. Do not attempt to toggle visibility dynamically through CSS custom properties such as `display: var(--display)`: conditional element visibility is done exclusively via the XML attribute `if="{boolBinding}"`.
 

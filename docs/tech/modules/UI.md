@@ -193,10 +193,14 @@ Known properties:
 - Picture: `repaint-boundary` (`yes`, `true`, or `on` makes the element keep a picture of its own, [Pictures](#pictures); anything else does not; not pseudo-reactive)
 - Scroll: `overflow`, `overflow-x`, `overflow-y`, `scrollbar-width`, `scrollbar-color`, `scrollbar-thumb-color`, `scrollbar-track-color`, `scrollbar-thumb-hover-color`, `scrollbar-border-radius`
 
-Styles do not inherit:
+Inheritance:
 
-- `compute_style_uncached` starts from a fresh `ComputedStyle` and does not copy the parent.
-- Color, `font-size`, and `font-family` do not inherit. Defaults are white, 16px, and `builtin::font_ui`.
+- `color`, `font-family`, `font-size`, `line-height`, `text-align`, `white-space`, `visibility`, `user-select`, and `selection-color` inherit. `compute_style_uncached` copies them from the parent's `ComputedStyle` (`seed_inherited`, `src/ui/paint.cpp`) before the matched rules run, so a rule on the child wins. The root starts from white, 16px, and `builtin::font_ui`. Everything else (box, background, border, opacity, `cursor`, `pointer-events`, custom properties) belongs to the element. There is no `inherit` or `initial` keyword.
+- What a child inherits is computed. `font-size` in `em` or `%` resolves against the parent's size (`50%` is half of it, `1.5em` is one and a half times it, `calc()` uses the parent's size as both bases), so `ComputedStyle::font_size` is always px. A `line-height` length in `em` or `%` resolves against the element's own size; a factor and `normal` pass through.
+- The parent is styled before its child, in the same slot (layout or paint). `compute_style` reads the parent's cache entry, and styles the parent first when it is empty or from another sheet.
+- The cache knows what moved. `StyleCacheEntry::inherited_stamp` takes a new value from a counter whenever a rebuild yields different inherited values; `parent_stamp` is the parent's stamp a style was cascaded against, and a hit requires it to still match. A parent restyle that changes only a background leaves every child's cache valid.
+- Dirty marks follow the stamp. `restyle_dirty` marks the children `kDirtyStyle | kDirtyPaint` when the element's layout-slot stamp moved, and each child passes it on only if its own moved. A pseudo-class rule that sets an inherited property (`.row:hover { color }`) marks the descendants `kDirtyPaint` when the state flips (`set_pseudo`, `src/ui/dirty.cpp`); a layout one (`font-size`) reaches them through the element's own restyle.
+- A running transition or `@keyframes` on an inherited property moves only the element it runs on: children inherit the cascade (the pre-motion value), not the sample.
 
 `user-select` is `none` (default), `text`, or `all`. Buttons ignore it. An unknown value stays `none`.
 
