@@ -37,6 +37,17 @@ namespace engine::ui {
             ancestors.pop_back();
         }
 
+        // True when `rule` sets a property that children inherit (the list `seed_inherited` in paint.cpp copies).
+        bool declares_inherited(const CssRule &rule) {
+            static constexpr std::string_view kInherited[] = {
+                    "color",       "font-family", "font-size",  "line-height",     "text-align",
+                    "white-space", "visibility",  "user-select", "selection-color",
+            };
+            return std::ranges::any_of(rule.declarations, [](const CssDeclaration &declaration) {
+                return std::ranges::find(kInherited, declaration.property) != std::end(kInherited);
+            });
+        }
+
     } // namespace
 
     bool is_relayout_boundary(const Element &element) {
@@ -187,11 +198,24 @@ namespace engine::ui {
             // layout has anything to do.
             mark_dirty(document, element, kDirtyStyle | kDirtyPaint, true);
         }
+        std::vector<const Element *> chain = own_ancestors;
+        // `.row:hover { color: ... }`: what the descendants inherit changes with the state, so they repaint. A rule that
+        // also lays out reaches their layout style through the restyle of this element (its inherited stamp moves).
+        for (const std::uint32_t index: analysis.pseudo_rules) {
+            const CssRule &rule = sheet->rules[index];
+            if ((rule.subject_pseudo & bit) != 0 && declares_inherited(rule) &&
+                rule_could_match(rule, element, own_ancestors)) {
+                walk_descendants(element, chain,
+                                 [&](Element &descendant, const std::vector<const Element *> &) {
+                                     mark_dirty(document, descendant, kDirtyPaint, true);
+                                 });
+                break;
+            }
+        }
         if ((analysis.ancestor_pseudo_mask & bit) == 0) {
             return true;
         }
         // `A:hover B`: the descendants a rule can match through this element.
-        std::vector<const Element *> chain = own_ancestors;
         walk_descendants(
                 element, chain, [&](Element &descendant, const std::vector<const Element *> &descendant_ancestors) {
                     for (const std::uint32_t index: analysis.pseudo_rules) {

@@ -533,3 +533,54 @@ TEST(UiCss, TransitionListRepeatsLastAndDropsExtras) {
     EXPECT_NEAR(paired_background->value.color.r, 0.25f, 0.02f);
 }
 
+
+TEST(UiCss, SelectorListMakesOneRulePerPartWithTheSameDeclarations) {
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css(".a, .b,\n Label { color: #ff0000; padding: 4; }", warnings);
+    ASSERT_TRUE(sheet.has_value());
+    EXPECT_TRUE(warnings.empty());
+    ASSERT_EQ(sheet->rules.size(), 3u);
+    EXPECT_EQ(sheet->rules[0].selector.class_name, "a");
+    EXPECT_EQ(sheet->rules[1].selector.class_name, "b");
+    EXPECT_EQ(sheet->rules[2].selector.element, "Label");
+    for (const engine::ui::CssRule& rule : sheet->rules) {
+        ASSERT_EQ(rule.declarations.size(), 2u);
+        EXPECT_EQ(rule.declarations[0].property, "color");
+        EXPECT_EQ(rule.declarations[1].value, "4");
+    }
+    EXPECT_EQ(sheet->rules[0].line, 1u);
+    EXPECT_EQ(sheet->rules[2].line, 2u);
+}
+
+TEST(UiCss, SelectorListKeepsDescendantPartsAndPseudoBitsPerRule) {
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css("Stack Label, Button:hover { opacity: 0.5; }", warnings);
+    ASSERT_TRUE(sheet.has_value());
+    ASSERT_EQ(sheet->rules.size(), 2u);
+    EXPECT_EQ(sheet->rules[0].ancestors.size(), 1u);
+    EXPECT_EQ(sheet->rules[0].subject_pseudo, 0);
+    EXPECT_TRUE(sheet->rules[1].ancestors.empty());
+    EXPECT_EQ(sheet->rules[1].subject_pseudo, engine::ui::kPseudoHover);
+}
+
+TEST(UiCss, SelectorListSkipsAnEmptyOrUnsupportedPartAndKeepsTheRest) {
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css(".a, , .b ~ .c, .d, { color: #fff; }", warnings);
+    ASSERT_TRUE(sheet.has_value());
+    ASSERT_EQ(sheet->rules.size(), 2u);
+    EXPECT_EQ(sheet->rules[0].selector.class_name, "a");
+    EXPECT_EQ(sheet->rules[1].selector.class_name, "d");
+    EXPECT_TRUE(warning_mentions(warnings, "empty selector"));
+    EXPECT_TRUE(warning_mentions(warnings, "unsupported combinator"));
+}
+
+TEST(UiCss, SelectorListInsideMediaKeepsTheQueryOnEveryRule) {
+    std::vector<std::string> warnings;
+    const auto sheet = engine::ui::parse_css("@media (min-width: 600px) { .a, .b { gap: 2; } }", warnings);
+    ASSERT_TRUE(sheet.has_value());
+    ASSERT_EQ(sheet->rules.size(), 2u);
+    for (const engine::ui::CssRule& rule : sheet->rules) {
+        ASSERT_TRUE(rule.media.has_value());
+        EXPECT_FLOAT_EQ(rule.media->px, 600.0f);
+    }
+}
