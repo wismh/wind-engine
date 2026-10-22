@@ -23,8 +23,9 @@ namespace editor {
 
 // The Hierarchy tab (`assets/ui/hierarchy.xml`): shows the entity hierarchy tree of the active ECS world
 // (the live game world during Play, or the `.world` preview world in Edit Mode). Selecting a row publishes an
-// `EntitySelection` to `EditorSelection` so the Inspector shows that entity and its components. Holds `this` in
-// its rows, so it never moves.
+// `EntitySelection` to `EditorSelection` so the Inspector shows that entity and its components. `refresh` adopts
+// an entity selection made elsewhere (a World-tab click) and drops the highlight when the selection is cleared.
+// Holds `this` in its rows, so it never moves.
 class HierarchyPanel {
 public:
     explicit HierarchyPanel(EditorSelection& selection);

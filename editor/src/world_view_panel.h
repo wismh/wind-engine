@@ -61,7 +61,7 @@ public:
     static constexpr float kHeaderHeight = 36.0f;
     static constexpr glm::vec4 kViewportClearColor{0.10f, 0.11f, 0.13f, 1.0f};
 
-    explicit WorldViewPanel(const EditorSelection& selection);
+    explicit WorldViewPanel(EditorSelection& selection);
 
     WorldViewPanel(const WorldViewPanel&) = delete;
     WorldViewPanel& operator=(const WorldViewPanel&) = delete;
@@ -92,6 +92,10 @@ public:
     void set_tool_translate();
     void set_tool_rotate();
     void set_tool_scale();
+
+    // A left click in the viewport selects a sprite or renderable, and empty space clears the selection. Off while
+    // Play is attached: the viewport still shows the edit world, and the inspector reads the game world.
+    void set_entity_picking(bool enabled);
 
     // Processes Editor Camera mouse/keyboard navigation when `visible` and a world is loaded. Always advances the
     // panel's event cursors so input from other tabs is never replayed later.
@@ -157,6 +161,7 @@ private:
     [[nodiscard]] std::optional<engine::ecs::Entity> resolve_selected_entity() const;
     [[nodiscard]] float compute_gizmo_scale(glm::vec3 world_pos, const engine::render::Rect& viewport) const;
     void update_gizmo(const engine::render::Rect& viewport, glm::vec2 pointer);
+    void select_entity_at(const engine::render::Rect& viewport, glm::vec2 pointer);
     void apply_gizmo_drag(const engine::render::Rect& viewport, glm::vec2 pointer);
     [[nodiscard]] float compute_axis_param(
             glm::vec2 local_screen_pt, GizmoAxis axis, const engine::render::Rect& viewport) const;
@@ -164,7 +169,7 @@ private:
     void render_gizmo_and_outline(
             engine::render::CommandBuffer& buffer, const engine::render::Rect& viewport, engine::AssetsDb* assets);
 
-    const EditorSelection* selection_;
+    EditorSelection* selection_;
     std::shared_ptr<WorldViewViewModel> view_model_;
     engine::ecs::World edit_world_;
     std::filesystem::path open_path_;
@@ -186,7 +191,9 @@ private:
     engine::ecs::EventCursor<engine::KeyEvent> key_cursor_;
     engine::MouseButton drag_button_ = engine::MouseButton::None;
     engine::WindowId drag_window_{};
+    glm::vec2 drag_start_pos_{};
     glm::vec2 last_drag_pos_{};
+    bool entity_picking_ = true;
     bool held_w_ = false;
     bool held_s_ = false;
     bool held_a_ = false;
