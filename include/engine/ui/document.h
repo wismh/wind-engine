@@ -102,6 +102,15 @@ namespace engine::ui {
         Horizontal,
     };
 
+    // `flex-wrap`. NoWrap (the default) is one line. Wrap starts a new line when the next child does not fit the
+    // container's definite main size. WrapReverse packs those lines from the cross end, so the first line of a
+    // horizontal stack sits at the bottom. There is no `align-content`: leftover cross space stays past the last line.
+    enum class FlexWrap {
+        NoWrap,
+        Wrap,
+        WrapReverse,
+    };
+
     enum class UiAlign {
         Start,
         Center,
@@ -408,6 +417,7 @@ namespace engine::ui {
         ScrollbarBorderRadius,
         SelectionColor,
         FlexGrow,
+        FlexWrap,
         Count,
     };
 
@@ -503,6 +513,7 @@ namespace engine::ui {
         UiAlign align_items = UiAlign::Start;
         // Share of a stack's free main-axis space. 0 takes none. See layout_stack.
         float flex_grow = 0.0f;
+        FlexWrap flex_wrap = FlexWrap::NoWrap;
         UiAlign text_align = UiAlign::Start;
         WhiteSpace white_space = WhiteSpace::Normal;
         UserSelect user_select = UserSelect::None;
@@ -781,6 +792,8 @@ namespace engine::ui {
         UiAlign align_items = UiAlign::Start;
         // Share of the parent's free main-axis space. 0 (the default) takes none.
         float flex_grow = 0.0f;
+        // `flex-wrap` for a stack. NoWrap keeps the single line layout_stack has always packed.
+        FlexWrap flex_wrap = FlexWrap::NoWrap;
         UiAlign text_align = UiAlign::Start;
         WhiteSpace white_space = WhiteSpace::Normal;
         UserSelect user_select = UserSelect::None;

@@ -626,8 +626,11 @@ namespace engine::ui {
             std::optional<float> row_height_px;
             bool rows_out_of_flow = false;
             bool rows_grow = false;
+            // `flex-wrap` other than nowrap is not a single column of rows, so the window would not match the
+            // lines layout packs. Sampled from the element, which style wrote on the previous frame.
             const bool eligible = !element.suppress_item_virtualization && expected_count == 1 &&
-                                  element.direction == StackDirection::Vertical && has_scroll_context &&
+                                  element.direction == StackDirection::Vertical &&
+                                  element.flex_wrap == FlexWrap::NoWrap && has_scroll_context &&
                                   element.gap.unit == LengthUnit::Px && element.gap.calc.empty();
             if (eligible) {
                 // Row height can't be read off the static ItemTemplate: apply_layout_style
