@@ -45,7 +45,7 @@ The project's `engine` must equal the SDK's `version` exactly, as text: `0.1.7a`
 
 ### Engine version
 
-`<major>.<minor>.<patch><stage>` with an optional `-dev`, `^\d+\.\d+\.\d+[ab]?(-dev)?$`: `0.1.7a` (alpha), `0.2.6b` (beta), `1.0.0` (production), `0.2.6a-dev` (a local build of the engine, [Release](../build/Release.md)). The patch has no limit (`0.1.100a`).
+`<major>.<minor>.<patch><stage>` with an optional `-dev`, `^\d+\.\d+\.\d+[ab]?(-dev)?$`: `0.1.7a` (alpha), `0.2.6b` (beta), `1.0.0` (production), `0.2.7a-dev` (a local build of the engine, [Release](../build/Release.md)). The patch has no limit (`0.1.100a`).
 
 ```cpp
 struct EngineVersion { int major, minor, patch; char stage; bool dev; };   // stage: 'a', 'b', or 0 for production
