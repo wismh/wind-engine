@@ -91,6 +91,7 @@ constexpr MotionProp kAllProps[] = {
         MotionProp::ScrollbarBorderRadius,
         MotionProp::SelectionColor,
         MotionProp::FlexGrow,
+        MotionProp::FlexWrap,
 };
 
 struct NameMap {
@@ -113,6 +114,7 @@ constexpr NameMap kNames[] = {
         {"margin", MotionProp::Margin},
         {"gap", MotionProp::Gap},
         {"flex-direction", MotionProp::FlexDirection},
+        {"flex-wrap", MotionProp::FlexWrap},
         {"flex-grow", MotionProp::FlexGrow},
         {"align-items", MotionProp::AlignItems},
         {"justify-content", MotionProp::JustifyContent},
@@ -193,6 +195,7 @@ bool affects_layout(MotionProp prop) {
         case MotionProp::Gap:
         case MotionProp::FlexGrow:
         case MotionProp::FlexDirection:
+        case MotionProp::FlexWrap:
         case MotionProp::AlignItems:
         case MotionProp::JustifyContent:
         case MotionProp::WhiteSpace:
@@ -219,6 +222,7 @@ bool affects_row_box(MotionProp prop) {
         case MotionProp::Margin:
         case MotionProp::Gap:
         case MotionProp::FlexGrow:
+        case MotionProp::FlexWrap:
         case MotionProp::FontSize:
         case MotionProp::LineHeight:
             return true;
@@ -589,6 +593,10 @@ MotionValue read_prop(const ComputedStyle& style, MotionProp prop, glm::vec2 bas
             value.flag = style.has_direction;
             value.enumer = static_cast<std::uint8_t>(style.direction);
             return value;
+        case MotionProp::FlexWrap:
+            value.present = true;
+            value.enumer = static_cast<std::uint8_t>(style.flex_wrap);
+            return value;
         case MotionProp::AlignItems:
             value.present = true;
             value.enumer = static_cast<std::uint8_t>(style.align_items);
@@ -801,6 +809,9 @@ void write_style(ComputedStyle& style, MotionProp prop, const MotionValue& value
             style.direction = static_cast<StackDirection>(value.enumer);
             style.has_direction = value.flag;
             break;
+        case MotionProp::FlexWrap:
+            style.flex_wrap = static_cast<FlexWrap>(value.enumer);
+            break;
         case MotionProp::AlignItems:
             style.align_items = static_cast<UiAlign>(value.enumer);
             break;
@@ -990,6 +1001,8 @@ bool layout_differs(const Element& element, MotionProp prop, const MotionValue& 
             return element.flex_grow != shown.number;
         case MotionProp::FlexDirection:
             return element.direction != static_cast<StackDirection>(shown.enumer);
+        case MotionProp::FlexWrap:
+            return element.flex_wrap != static_cast<FlexWrap>(shown.enumer);
         case MotionProp::AlignItems:
             return element.align_items != static_cast<UiAlign>(shown.enumer);
         case MotionProp::JustifyContent:
@@ -1063,6 +1076,9 @@ void write_element(Element& element, MotionProp prop, const MotionValue& value) 
             if (value.flag) {
                 element.direction = static_cast<StackDirection>(value.enumer);
             }
+            break;
+        case MotionProp::FlexWrap:
+            element.flex_wrap = static_cast<FlexWrap>(value.enumer);
             break;
         case MotionProp::AlignItems:
             element.align_items = static_cast<UiAlign>(value.enumer);
@@ -1231,6 +1247,7 @@ bool same_spec(MotionProp prop, const MotionValue& a, const MotionValue& b) {
         case MotionProp::FontFamily:
             return a.asset == b.asset;
         case MotionProp::FlexDirection:
+        case MotionProp::FlexWrap:
         case MotionProp::AlignItems:
         case MotionProp::JustifyContent:
         case MotionProp::TextAlign:
@@ -1373,6 +1390,8 @@ MotionValue lerp_value(MotionProp prop, const MotionValue& from, const MotionVal
         case MotionProp::Opacity:
         case MotionProp::FlexGrow:
             out.number = from.number + (to.number - from.number) * t;
+            break;
+        case MotionProp::FlexWrap:
             break;
         case MotionProp::ZIndex:
             out.integer = static_cast<int>(std::lround(static_cast<float>(from.integer) +

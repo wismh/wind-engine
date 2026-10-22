@@ -719,6 +719,15 @@ namespace engine::ui {
                 } else {
                     style.direction = StackDirection::Vertical;
                 }
+            } else if (decl.property == "flex-wrap") {
+                const std::string_view value = trim(decl.value);
+                if (value == "wrap") {
+                    style.flex_wrap = FlexWrap::Wrap;
+                } else if (value == "wrap-reverse") {
+                    style.flex_wrap = FlexWrap::WrapReverse;
+                } else if (value == "nowrap") {
+                    style.flex_wrap = FlexWrap::NoWrap;
+                }
             } else if (decl.property == "flex-grow") {
                 if (const std::optional<float> grow = parse_flex_grow(decl.value)) {
                     style.flex_grow = *grow;
@@ -1312,6 +1321,7 @@ namespace engine::ui {
             element.justify = style.justify;
             element.align_items = style.align_items;
             element.flex_grow = style.flex_grow;
+            element.flex_wrap = style.flex_wrap;
             element.text_align = style.text_align;
             element.white_space = style.white_space;
             element.user_select = style.user_select;
@@ -1427,6 +1437,7 @@ namespace engine::ui {
             bool visible = true;
             bool repaint_boundary = false;
             float flex_grow = 0.0f;
+            FlexWrap flex_wrap = FlexWrap::NoWrap;
         };
 
         LayoutFields layout_fields_of(const Element &e) {
@@ -1435,7 +1446,7 @@ namespace engine::ui {
                                 e.align_items, e.white_space, e.font_size,    e.line_height,  e.font_family,
                                 e.position,    e.inset_top,   e.inset_right,  e.inset_bottom, e.inset_left,
                                 e.overflow_x,  e.overflow_y,  e.display_none, e.visible,      e.repaint_boundary,
-                                e.flex_grow};
+                                e.flex_grow,   e.flex_wrap};
         }
 
         bool layout_fields_differ(const LayoutFields &a, const LayoutFields &b) {
@@ -1451,7 +1462,8 @@ namespace engine::ui {
                    !same_length(a.inset_right, b.inset_right) || !same_length(a.inset_bottom, b.inset_bottom) ||
                    !same_length(a.inset_left, b.inset_left) || a.overflow_x != b.overflow_x ||
                    a.overflow_y != b.overflow_y || a.display_none != b.display_none || a.visible != b.visible ||
-                   a.repaint_boundary != b.repaint_boundary || a.flex_grow != b.flex_grow;
+                   a.repaint_boundary != b.repaint_boundary || a.flex_grow != b.flex_grow ||
+                   a.flex_wrap != b.flex_wrap;
         }
 
         // Restyles only what is marked: an element with `kDirtyStyle` gets its layout style written again, and if that
