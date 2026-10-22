@@ -16,10 +16,22 @@ class ExplorerViewModel final : public engine::ui::ViewModel {
 public:
     ExplorerViewModel();
 
-    // The project directory above the tree, or why there is no tree.
+    // The project directory above the list, plus the open folder in the grid, or why there is no list.
     engine::ui::Bindable<std::string> rootText;
     engine::ui::BindableList<std::shared_ptr<ExplorerRowViewModel>> rows;
-    // The menu of an empty part of the tree: new files and paste land in the project root.
+    engine::ui::BindableList<std::shared_ptr<ExplorerRowViewModel>> tiles;
+    // One of the two lists is shown. `if` hides the other, so it is not laid out.
+    engine::ui::Bindable<bool> treeShown;
+    engine::ui::Bindable<bool> gridShown;
+    engine::ui::Bindable<float> gridScroll;
+    // Active mode button background. The idle one matches `.panel-button`.
+    engine::ui::Bindable<std::string> treeOn;
+    engine::ui::Bindable<std::string> gridOn;
+    engine::ui::MethodCommand showTree;
+    engine::ui::MethodCommand showGrid;
+    engine::ui::MethodCommand gridUp;
+    // The menu of an empty part of the list. The tree writes into the project root; the grid writes into the
+    // open folder.
     engine::ui::Bindable<bool> blankMenuOpen;
     engine::ui::MethodCommand blankNewFolder;
     engine::ui::MethodCommand blankNewWorld;
