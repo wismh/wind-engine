@@ -79,18 +79,22 @@ void sync_cursor(WindowManager& windows, Worlds& worlds) {
     windows.set_cursor(world != nullptr ? ui::update_cursor(*world, *id) : ui::Cursor::Default);
 }
 
-class SdlGlPresentation final : public IPresentation {
+// Backend-neutral SDL presentation: drives SDL video initialization, event polling, window management,
+// and UI painter routing over any IGraphicFactory / IRenderBackend / IWindowCanvas implementation.
+class SdlPresentation final : public IPresentation {
 public:
-    SdlGlPresentation() : windows_(*backend_) {
-        factory_->set_context_activator([this] {
-            if (windows_.has_window(kPrimaryWindow)) {
-                if (render::OpenGLCanvas* const primary = windows_.canvas(kPrimaryWindow)) {
-                    primary->make_current();
-                }
-            }
-        });
+    SdlPresentation(std::shared_ptr<render::IGraphicFactory> factory,
+            std::shared_ptr<render::IRenderBackend> backend,
+            WindowManager::CanvasFactory make_canvas)
+        : factory_(std::move(factory))
+        , backend_(std::move(backend))
+        , windows_(std::move(make_canvas)) {
         window_control_ = std::make_unique<WindowControlImpl>(windows_, overlay_, dialogs_);
         window_control_->set_on_windows_changed([this] { sync_modal_hook(); });
+    }
+
+    [[nodiscard]] WindowManager& windows() noexcept {
+        return windows_;
     }
 
     bool init_video() override {
@@ -171,13 +175,13 @@ public:
     }
 
     bool add_font(WindowId id, AssetId asset, const Font& font) override {
-        render::OpenGLCanvas* const canvas = windows_.canvas(id);
+        render::IWindowCanvas* const canvas = windows_.canvas(id);
         WindowSystem* const window = windows_.window(id);
         if (canvas == nullptr || window == nullptr) {
             return false;
         }
-        // draw_all() leaves whichever window it finished on current. The UI painter's GL calls need this one.
-        SDL_GL_MakeCurrent(window->window(), canvas->native_context());
+        // draw_all() leaves whichever window it finished on current. The UI painter's GPU calls need this one.
+        canvas->make_current();
         if (asset == builtin::font_ui) {
             return canvas->load_ui_font(font);
         }
@@ -185,7 +189,7 @@ public:
     }
 
     bool reset_ui_cache(WindowId id) override {
-        render::OpenGLCanvas* const canvas = windows_.canvas(id);
+        render::IWindowCanvas* const canvas = windows_.canvas(id);
         if (canvas == nullptr) {
             return false;
         }
@@ -193,12 +197,12 @@ public:
     }
 
     bool add_image(WindowId id, AssetId asset, const render::TextureDesc& desc) override {
-        render::OpenGLCanvas* const canvas = windows_.canvas(id);
+        render::IWindowCanvas* const canvas = windows_.canvas(id);
         WindowSystem* const window = windows_.window(id);
         if (canvas == nullptr || window == nullptr) {
             return false;
         }
-        SDL_GL_MakeCurrent(window->window(), canvas->native_context());
+        canvas->make_current();
         return canvas->add_image(asset, desc);
     }
 
@@ -235,7 +239,7 @@ public:
         publish_primary_size(worlds, false);
         worlds.set_ui_installer([this](ecs::World& world) {
             world.ctx<ui::UiLayoutPainters>().resolve = [this](WindowId id) -> ui::IUiPainter* {
-                render::OpenGLCanvas* const canvas = windows_.canvas(id);
+                render::IWindowCanvas* const canvas = windows_.canvas(id);
                 if (canvas == nullptr) {
                     return nullptr;
                 }
@@ -474,8 +478,8 @@ private:
         }
     }
 
-    std::shared_ptr<render::OpenGLFactory> factory_ = std::make_shared<render::OpenGLFactory>();
-    std::shared_ptr<render::OpenGLRenderBackend> backend_ = std::make_shared<render::OpenGLRenderBackend>();
+    std::shared_ptr<render::IGraphicFactory> factory_;
+    std::shared_ptr<render::IRenderBackend> backend_;
     WindowManager windows_;
     DesktopOverlayPolicy overlay_;
     std::shared_ptr<FileDialogCompletions> dialogs_ = std::make_shared<FileDialogCompletions>();
@@ -488,7 +492,22 @@ private:
 }
 
 std::unique_ptr<IPresentation> make_sdl_gl_presentation() {
-    return std::make_unique<SdlGlPresentation>();
+    auto factory = std::make_shared<render::OpenGLFactory>();
+    auto backend = std::make_shared<render::OpenGLRenderBackend>();
+    auto presentation = std::make_unique<SdlPresentation>(
+            factory,
+            backend,
+            [backend](WindowSystem& window,
+                    render::CommandBuffer& commands) -> std::shared_ptr<render::IWindowCanvas> {
+                return std::make_shared<render::OpenGLCanvas>(window, commands, *backend);
+            });
+    WindowManager* const windows = &presentation->windows();
+    factory->set_context_activator([windows] {
+        if (render::IWindowCanvas* const primary = windows->canvas(kPrimaryWindow)) {
+            primary->make_current();
+        }
+    });
+    return presentation;
 }
 
 }
