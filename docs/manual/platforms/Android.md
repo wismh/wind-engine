@@ -3,7 +3,7 @@
 Wind games compile to Android using the Android NDK, CMake, and Gradle, producing an APK.
 
 > [!NOTE]
-> The editor's Export button builds desktop games only. An Android build is a Gradle build of the template in the SDK's engine source (`<sdk>/source/cmake/android`), which builds the engine and your game with CMake. The commands below follow the engine's build scripts and `README.md`; they have not been run end to end for this manual.
+> The editor's Export button builds desktop games only. An Android build is a Gradle build of the template in the engine source (`<sdk>/source/cmake/android`; a release SDK does not carry it, install the source package of the same release over the SDK with `setup_sdk.py --source` or `source: true` of the `setup-wind` action), which builds the engine and your game with CMake. The commands below follow the engine's build scripts and `README.md`; they have not been run end to end for this manual.
 
 ---
 
