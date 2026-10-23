@@ -62,6 +62,76 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Packages
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build xvfb \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
+            libxkbcommon-dev libwayland-dev libdecor-0-dev libdrm-dev libgbm-dev libgl1-mesa-dev libgles2-mesa-dev \
+            libegl1-mesa-dev libgl1-mesa-dri libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libibus-1.0-dev
+      - name: Ninja
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: powershell -File tools/ci/ensure_ninja.ps1
+      - name: MSVC
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: powershell -File tools/ci/msvc_env.ps1
+      - name: Configure
+        if: matrix.os != 'windows'
+        run: cmake --preset ${{ matrix.os }}-editor -DENGINE_VERSION_PATCH=${WIND_PATCH}
+      - name: Configure
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: cmake --preset vs-editor "-DENGINE_VERSION_PATCH=$env:WIND_PATCH"
+      - name: Build
+        run: cmake --build build-editor --config Release --parallel
+      - name: Tests
+        if: matrix.os == 'linux'
+        run: xvfb-run -a ctest --test-dir build-editor -C Release --output-on-failure --parallel 4
+      - name: Tests
+        if: matrix.os != 'linux'
+        run: ctest --test-dir build-editor -C Release --output-on-failure --parallel 4
+      # Three packages per platform. The SDK is the install without the components "symbols" (the .pdb files, Windows) and
+      # "source" (<sdk>/source, one package for every platform, made on Linux); tools/ci/split_symbols.py then takes the
+      # debug information out of what is left (the player libraries, the Linux and macOS binaries) into out/symbols.
+      - name: Install the SDK
+        run: cmake --install build-editor --config Release --prefix out/sdk --component Unspecified
+      - name: Install the symbols
+        if: matrix.os == 'windows'
+        shell: bash
+        run: cmake --install build-editor --config Release --prefix out/symbols --component symbols
+      - name: Split the symbols off the SDK
+        shell: bash
+        run: |
+          PY=python3
+          command -v python3 >/dev/null 2>&1 || PY=python
+          "$PY" tools/ci/split_symbols.py --os ${{ matrix.os }} --sdk out/sdk --symbols out/symbols
+          test -f out/symbols/symbols.toml || { echo "no symbols were split"; exit 1; }
+          cat out/symbols/symbols.toml
+          test -z "$(find out/sdk -name '*.pdb' -path '*/bin/*')" || { echo ".pdb files in the SDK"; exit 1; }
+          test ! -e out/sdk/source || { echo "source/ in the SDK"; exit 1; }
+      - name: Install the source
+        if: matrix.os == 'linux'
+        run: |
+          cmake --install build-editor --config Release --prefix out/source --component source
+          test -f out/source/source.toml
+      - name: The SDK is this version, from a clean checkout
+        shell: bash
+        run: |
+          grep -qx "version = \"${WIND_VERSION}\"" out/sdk/sdk.toml || { cat out/sdk/sdk.toml; echo "sdk.toml: wrong version"; exit 1; }
+          grep -qx "dirty = false" out/sdk/sdk.toml || { cat out/sdk/sdk.toml; echo "sdk.toml: the checkout was dirty"; exit 1; }
+          grep -qx "platform = \"${{ matrix.os }}\"" out/sdk/sdk.toml || { cat out/sdk/sdk.toml; echo "sdk.toml: wrong platform"; exit 1; }
+      - name: Game against the SDK
+        if: matrix.os != 'windows'
+        run: tools/ci/sdk_smoke.sh out/sdk out/smoke
+      - name: Editor plays the game
+        if: matrix.os != 'windows'
+        # A CI machine has no sound card: SDL's dummy driver stands in, or the editor refuses to start.
+        env:
+          SDL_AUDIODRIVER: dummy
+        run: ${{ matrix.os == 'linux' && 'xvfb-run -a ' || '' }}tools/ci/sdk_smoke.sh out/sdk out/smoke-e2e --e2e
       - name: Pack
         shell: bash
         run: |
