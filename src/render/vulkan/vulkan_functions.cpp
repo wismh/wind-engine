@@ -121,6 +121,8 @@ bool VulkanFunctions::load_device(VkDevice device) {
     resolve_device(vkGetDeviceProcAddr, device, "vkUnmapMemory", vkUnmapMemory);
     resolve_device(vkGetDeviceProcAddr, device, "vkCreateImageView", vkCreateImageView);
     resolve_device(vkGetDeviceProcAddr, device, "vkDestroyImageView", vkDestroyImageView);
+    resolve_device(vkGetDeviceProcAddr, device, "vkCreateSampler", vkCreateSampler);
+    resolve_device(vkGetDeviceProcAddr, device, "vkDestroySampler", vkDestroySampler);
 
     resolve_device(vkGetDeviceProcAddr, device, "vkCreateBuffer", vkCreateBuffer);
     resolve_device(vkGetDeviceProcAddr, device, "vkDestroyBuffer", vkDestroyBuffer);
@@ -147,7 +149,16 @@ bool VulkanFunctions::load_device(VkDevice device) {
     resolve_device(vkGetDeviceProcAddr, device, "vkCmdSetScissor", vkCmdSetScissor);
     resolve_device(vkGetDeviceProcAddr, device, "vkCmdClearAttachments", vkCmdClearAttachments);
     resolve_device(vkGetDeviceProcAddr, device, "vkCmdPipelineBarrier", vkCmdPipelineBarrier);
+    resolve_device(vkGetDeviceProcAddr, device, "vkCmdCopyBuffer", vkCmdCopyBuffer);
+    resolve_device(vkGetDeviceProcAddr, device, "vkCmdCopyBufferToImage", vkCmdCopyBufferToImage);
     resolve_device(vkGetDeviceProcAddr, device, "vkCmdCopyImageToBuffer", vkCmdCopyImageToBuffer);
+
+    resolve_device(vkGetDeviceProcAddr, device, "vkCmdBindPipeline", vkCmdBindPipeline);
+    resolve_device(vkGetDeviceProcAddr, device, "vkCmdBindDescriptorSets", vkCmdBindDescriptorSets);
+    resolve_device(vkGetDeviceProcAddr, device, "vkCmdBindVertexBuffers", vkCmdBindVertexBuffers);
+    resolve_device(vkGetDeviceProcAddr, device, "vkCmdBindIndexBuffer", vkCmdBindIndexBuffer);
+    resolve_device(vkGetDeviceProcAddr, device, "vkCmdDraw", vkCmdDraw);
+    resolve_device(vkGetDeviceProcAddr, device, "vkCmdDrawIndexed", vkCmdDrawIndexed);
 
     resolve_device(vkGetDeviceProcAddr, device, "vkCreateSemaphore", vkCreateSemaphore);
     resolve_device(vkGetDeviceProcAddr, device, "vkDestroySemaphore", vkDestroySemaphore);
@@ -158,9 +169,21 @@ bool VulkanFunctions::load_device(VkDevice device) {
 
     resolve_device(vkGetDeviceProcAddr, device, "vkCreateShaderModule", vkCreateShaderModule);
     resolve_device(vkGetDeviceProcAddr, device, "vkDestroyShaderModule", vkDestroyShaderModule);
+    resolve_device(vkGetDeviceProcAddr, device, "vkCreateDescriptorSetLayout", vkCreateDescriptorSetLayout);
+    resolve_device(vkGetDeviceProcAddr, device, "vkDestroyDescriptorSetLayout", vkDestroyDescriptorSetLayout);
+    resolve_device(vkGetDeviceProcAddr, device, "vkCreateDescriptorPool", vkCreateDescriptorPool);
+    resolve_device(vkGetDeviceProcAddr, device, "vkDestroyDescriptorPool", vkDestroyDescriptorPool);
+    resolve_device(vkGetDeviceProcAddr, device, "vkResetDescriptorPool", vkResetDescriptorPool);
+    resolve_device(vkGetDeviceProcAddr, device, "vkAllocateDescriptorSets", vkAllocateDescriptorSets);
+    resolve_device(vkGetDeviceProcAddr, device, "vkUpdateDescriptorSets", vkUpdateDescriptorSets);
+    resolve_device(vkGetDeviceProcAddr, device, "vkCreatePipelineLayout", vkCreatePipelineLayout);
+    resolve_device(vkGetDeviceProcAddr, device, "vkDestroyPipelineLayout", vkDestroyPipelineLayout);
+    resolve_device(vkGetDeviceProcAddr, device, "vkCreateGraphicsPipelines", vkCreateGraphicsPipelines);
+    resolve_device(vkGetDeviceProcAddr, device, "vkDestroyPipeline", vkDestroyPipeline);
 
     return vkDestroyDevice != nullptr && vkGetDeviceQueue != nullptr && vkCreateSwapchainKHR != nullptr &&
-           vkAcquireNextImageKHR != nullptr && vkQueuePresentKHR != nullptr;
+           vkAcquireNextImageKHR != nullptr && vkQueuePresentKHR != nullptr &&
+           vkCreateGraphicsPipelines != nullptr && vkCreateDescriptorSetLayout != nullptr;
 }
 
 } // namespace engine::render
