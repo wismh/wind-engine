@@ -249,7 +249,7 @@ An OS quit request (`SDL_EVENT_QUIT`) while playing looks the same as the game q
 
 Export builds the project as a standalone executable (the static engine, no editor, no module) and copies it out. Windows, Linux, and macOS only; Web and Android are not exported from the editor.
 
-The engine is not compiled for an export. The SDK ships it built, the player libraries `<sdk>/player/Development` and `<sdk>/player/Shipping` ([CMake](../build/CMake.md#player-libraries)), so an Export compiles the game's code and links: seconds. An SDK without them (a Debug SDK, or one built with `ENGINE_SDK_PLAYER=OFF`, or macOS) falls back to building the engine from `<sdk>/source`, minutes, and only as Release; `WindConfig.cmake` says which it took in a status line of the configure, in the Build tab.
+The engine is not compiled for an export. The SDK ships it built, the player libraries `<sdk>/player/Development` and `<sdk>/player/Shipping` ([CMake](../build/CMake.md#player-libraries)), so an Export compiles the game's code and links: seconds. An SDK without them (a Debug SDK, or one built with `ENGINE_SDK_PLAYER=OFF`) falls back to building the engine from `<sdk>/source` (the release's separate source package, `setup_sdk.py --source`), minutes, and only as Release; `WindConfig.cmake` says which it took in a status line of the configure, in the Build tab.
 
 | | Development Build | Release |
 | --- | --- | --- |
@@ -298,7 +298,7 @@ The editor's assets and catalog land in `bin/assets/editor/` (`ENGINE_RUNTIME_AS
 - The game's window icon stays on `kPrimaryWindow` after Stop.
 - The editor has no project list and no Open dialog: the [Launcher](Launcher.md) owns that and starts the editor with `--project`.
 - Play always builds `DebugGame` (or `Debug` against a Debug SDK). No Release play yet.
-- Export is desktop only (Windows, Linux, macOS; no Web, no Android, no `.app` bundle, signing, or installer). Against a Release SDK with player libraries it links the engine statically without compiling it; against one without (Debug SDK, macOS) it needs the SDK's `source/`, builds the engine and SDL from scratch on the first export, and is Release only. The export directory is emptied first.
+- Export is desktop only (Windows, Linux, macOS; no Web, no Android, no `.app` bundle, signing, or installer). Against a Release SDK with player libraries it links the engine statically without compiling it; against one without (a Debug SDK) it needs the SDK's `source/`, builds the engine and SDL from scratch on the first export, and is Release only. The export directory is emptied first.
 - One operation at a time: Play, Export, and a batch run each own the build; no queue.
 - The game module and an export are built with Ninja Multi-Config. A build directory configured with another generator is deleted on the next build. Web and Android stay single-config Ninja; the editor does not build them.
 - Long log lines are cut at the panel's right edge; the summary line shows the first error in full width.
