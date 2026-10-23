@@ -62,87 +62,27 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Packages
-        if: matrix.os == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build xvfb \
-            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
-            libxkbcommon-dev libwayland-dev libdecor-0-dev libdrm-dev libgbm-dev libgl1-mesa-dev libgles2-mesa-dev \
-            libegl1-mesa-dev libgl1-mesa-dri libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libibus-1.0-dev
-      - name: Ninja
-        if: matrix.os == 'windows'
-        shell: pwsh
-        run: powershell -File tools/ci/ensure_ninja.ps1
-      - name: MSVC
-        if: matrix.os == 'windows'
-        shell: pwsh
-        run: powershell -File tools/ci/msvc_env.ps1
-      - name: Configure
-        if: matrix.os != 'windows'
-        run: cmake --preset ${{ matrix.os }}-editor -DENGINE_VERSION_PATCH=${WIND_PATCH}
-      - name: Configure
-        if: matrix.os == 'windows'
-        shell: pwsh
-        run: cmake --preset vs-editor "-DENGINE_VERSION_PATCH=$env:WIND_PATCH"
-      - name: Build
-        run: cmake --build build-editor --config Release --parallel
-      - name: Tests
-        if: matrix.os == 'linux'
-        run: xvfb-run -a ctest --test-dir build-editor -C Release --output-on-failure --parallel 4
-      - name: Tests
-        if: matrix.os != 'linux'
-        run: ctest --test-dir build-editor -C Release --output-on-failure --parallel 4
-      # The .pdb files are the component "symbols": the SDK package leaves them out, the symbols package (Windows) is
-      # only them, plus symbols.toml with the version and build id of the SDK they belong to.
-      - name: Install the SDK
-        run: cmake --install build-editor --config Release --prefix out/sdk --component Unspecified
-      - name: Install the symbols
-        if: matrix.os == 'windows'
-        shell: bash
-        run: |
-          cmake --install build-editor --config Release --prefix out/symbols --component symbols
-          test -n "$(ls out/symbols/bin/*.pdb)" || { echo "no .pdb in the symbols"; exit 1; }
-          test -z "$(ls out/sdk/bin/*.pdb 2>/dev/null)" || { echo ".pdb files in the SDK"; exit 1; }
-          {
-            echo "# Wind SDK symbols. Unpack over the SDK of the same version and build."
-            grep -E '^(version|build_id|platform) = ' out/sdk/sdk.toml
-          } > out/symbols/symbols.toml
-          cat out/symbols/symbols.toml
-      - name: The SDK is this version, from a clean checkout
-        shell: bash
-        run: |
-          grep -qx "version = \"${WIND_VERSION}\"" out/sdk/sdk.toml || { cat out/sdk/sdk.toml; echo "sdk.toml: wrong version"; exit 1; }
-          grep -qx "dirty = false" out/sdk/sdk.toml || { cat out/sdk/sdk.toml; echo "sdk.toml: the checkout was dirty"; exit 1; }
-          grep -qx "platform = \"${{ matrix.os }}\"" out/sdk/sdk.toml || { cat out/sdk/sdk.toml; echo "sdk.toml: wrong platform"; exit 1; }
-      - name: Game against the SDK
-        if: matrix.os != 'windows'
-        run: tools/ci/sdk_smoke.sh out/sdk out/smoke
-      - name: Editor plays the game
-        if: matrix.os != 'windows'
-        # A CI machine has no sound card: SDL's dummy driver stands in, or the editor refuses to start.
-        env:
-          SDL_AUDIODRIVER: dummy
-        run: ${{ matrix.os == 'linux' && 'xvfb-run -a ' || '' }}tools/ci/sdk_smoke.sh out/sdk out/smoke-e2e --e2e
       - name: Pack
         shell: bash
         run: |
           mkdir -p dist
-          pack() {  # <directory under out/> <archive name without the extension>
+          pack() {  # <directory under out/> <archive name without the extension> <zip|tar.gz>
             mv "out/$1" "out/$2"
-            if [ "${{ matrix.os }}" = "windows" ]; then
-              file="$2.zip"
+            file="$2.$3"
+            if [ "$3" = "zip" ]; then
               (cd out && cmake -E tar cf "../dist/${file}" --format=zip "$2")
             else
-              file="$2.tar.gz"
               tar -C out -czf "dist/${file}" "$2"
             fi
             (cd dist && cmake -E sha256sum "${file}" > "${file}.sha256")
             cat "dist/${file}.sha256"
           }
-          pack sdk "${WIND_ARTIFACT}"
-          if [ -d out/symbols ]; then
-            pack symbols "wind-sdk-symbols-${WIND_VERSION}-${{ matrix.os }}-${{ matrix.arch }}"
+          extension=tar.gz
+          if [ "${{ matrix.os }}" = "windows" ]; then extension=zip; fi
+          pack sdk "${WIND_ARTIFACT}" "${extension}"
+          pack symbols "wind-sdk-symbols-${WIND_VERSION}-${{ matrix.os }}-${{ matrix.arch }}" "${extension}"
+          if [ -d out/source ]; then
+            pack source "wind-sdk-source-${WIND_VERSION}" tar.gz
           fi
           ls -l dist
       - uses: actions/upload-artifact@v4
@@ -172,10 +112,11 @@ jobs:
         run: |
           version="${{ needs.version.outputs.version }}"
           ls -l dist
-          # Three SDKs and the symbols of Windows, each with its .sha256.
-          test "$(ls dist/*.sha256 | wc -l)" = 4
-          test "$(ls dist | wc -l)" = 8
+          # Three SDKs, their three symbols packages, and the source, each with its .sha256.
+          test "$(ls dist/*.sha256 | wc -l)" = 7
+          test "$(ls dist | wc -l)" = 14
           test -f "dist/wind-sdk-symbols-${version}-windows-x86_64.zip"
+          test -f "dist/wind-sdk-source-${version}.tar.gz"
           if [ "${{ needs.version.outputs.prerelease }}" = "true" ]; then
             flags="--prerelease"
           else

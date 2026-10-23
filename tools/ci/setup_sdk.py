@@ -5,13 +5,15 @@
   python3 setup_sdk.py --version 0.1.7a --dest sdk
   python3 setup_sdk.py --version 0.1.7a --dest sdk --from-dir release-artifacts      no network
   python3 setup_sdk.py --version 0.1.7a --dest sdk --symbols                         also the debug symbols
+  python3 setup_sdk.py --version 0.1.7a --dest sdk --source                          also <sdk>/source (Web, Android)
 
 The version is --version, or the `engine` key of <--project>/wind_project.toml. The SDK is the release asset
 wind-sdk-<version>-<os>-<arch>.<zip|tar.gz> (and its .sha256) of the tag v<version> in --repo. The last line printed
 on stdout is the SDK directory; the progress goes to stderr. Run again with the same arguments and an SDK of that
 version already in --dest, and nothing is downloaded. --symbols adds the separate package
-wind-sdk-symbols-<version>-<os>-<arch>.<zip|tar.gz> (the .pdb files, Windows only) over the SDK; it must be of the same
-build (`build_id` in its symbols.toml and in sdk.toml). docs/tech/build/Release.md, docs/manual/getting-started/Continuous-Integration.md
+wind-sdk-symbols-<version>-<os>-<arch>.<zip|tar.gz> (debug information split off the SDK) over the SDK; it must be of
+the same build (`build_id` in its symbols.toml and in sdk.toml). --source adds wind-sdk-source-<version>.tar.gz (one
+for every platform), which unpacks to <sdk>/source. docs/tech/build/Release.md, docs/manual/getting-started/Continuous-Integration.md
 
 Standard library only; Python 3.8 or newer.
 """
@@ -66,18 +68,17 @@ def symbols_artifact_name(version, os_name, arch):
     return artifact_name(version, os_name, arch).replace("wind-sdk-", "wind-sdk-symbols-", 1)
 
 
-def ships_symbols(os_name):
-    """Whether the release has a symbols package for `os_name`: the .pdb files of Windows. Linux and macOS keep the debug
-    information in the binary."""
-    return os_name == "windows"
+def source_artifact_name(version):
+    """The engine source is one package for every platform."""
+    return "wind-sdk-source-%s.tar.gz" % version
 
 
 def release_url(repo, version, name):
     return "https://github.com/%s/releases/download/v%s/%s" % (repo, version, name)
 
 
-def cache_key(version, os_name, arch, symbols=False):
-    return "wind-sdk-%s-%s-%s%s" % (version, os_name, arch, "-symbols" if symbols and ships_symbols(os_name) else "")
+def cache_key(version, os_name, arch, symbols=False, source=False):
+    return "wind-sdk-%s-%s-%s%s%s" % (version, os_name, arch, "-symbols" if symbols else "", "-source" if source else "")
 
 
 def read_toml_string(text, key):
@@ -241,15 +242,15 @@ def fetch(name, work, repo, version, from_dir, token):
     return archive
 
 
-def find_symbols_root(directory):
-    """The symbols root in an unpacked archive: the directory itself, or its only subdirectory (the one with symbols.toml)."""
+def find_package_root(directory, marker):
+    """The root of an unpacked package: the directory itself, or its only subdirectory (the one with `marker`)."""
     directory = Path(directory)
-    if (directory / "symbols.toml").is_file():
+    if (directory / marker).is_file():
         return directory
     children = [child for child in directory.iterdir() if child.is_dir()]
-    if len(children) == 1 and (children[0] / "symbols.toml").is_file():
+    if len(children) == 1 and (children[0] / marker).is_file():
         return children[0]
-    raise SetupError("The symbols archive holds no symbols.toml at its top.")
+    raise SetupError("The archive holds no %s at its top." % marker)
 
 
 def _read_key(path, key):
@@ -267,39 +268,65 @@ def symbols_installed(sdk_dir, version):
             and _read_key(marker, "build_id") == build_id)
 
 
-def install_symbols(version, sdk_dir, os_name, arch, repo=DEFAULT_REPO, from_dir=None, token=None):
-    """Unpacks the symbols package of `version` over the SDK in `sdk_dir`; nothing for a platform without one."""
+def _installed(sdk_dir, version, marker, same_build):
+    """Whether the package with the marker file `marker` of this version (and build) is already over the SDK."""
+    found = Path(sdk_dir) / marker
+    if not found.is_file() or _read_key(found, "version") != version:
+        return False
+    if not same_build:
+        return True
+    build_id = _read_key(Path(sdk_dir) / "sdk.toml", "build_id")
+    return build_id is not None and _read_key(found, "build_id") == build_id
+
+
+def symbols_installed(sdk_dir, version):
+    return _installed(sdk_dir, version, "symbols.toml", True)
+
+
+def _install_package(what, name, marker, same_build, version, sdk_dir, repo, from_dir, token):
+    """Unpacks the release package `name` over the SDK in `sdk_dir` after checking its marker file."""
     sdk_dir = Path(sdk_dir)
-    if not ships_symbols(os_name):
-        log("There is no symbols package for %s: its debug information is in the binaries." % os_name)
+    if _installed(sdk_dir, version, marker, same_build):
+        log("The %s of the Wind SDK %s are already in %s." % (what, version, sdk_dir))
         return
-    if symbols_installed(sdk_dir, version):
-        log("The symbols of the Wind SDK %s are already in %s." % (version, sdk_dir))
-        return
-    work = Path(tempfile.mkdtemp(prefix=".wind-symbols-", dir=str(sdk_dir.parent)))
+    work = Path(tempfile.mkdtemp(prefix=".wind-%s-" % what, dir=str(sdk_dir.parent)))
     try:
-        archive = fetch(symbols_artifact_name(version, os_name, arch), work, repo, version, from_dir, token)
+        archive = fetch(name, work, repo, version, from_dir, token)
         unpacked = work / "unpacked"
         extract(archive, unpacked)
-        root = find_symbols_root(unpacked)
-        found = _read_key(root / "symbols.toml", "version")
+        root = find_package_root(unpacked, marker)
+        found = _read_key(root / marker, "version")
         if found != version:
-            raise SetupError("The symbols are version %s, not %s." % (found, version))
-        if _read_key(root / "symbols.toml", "build_id") != _read_key(sdk_dir / "sdk.toml", "build_id"):
-            raise SetupError("The symbols are of another build than the SDK in %s." % sdk_dir)
+            raise SetupError("The %s are version %s, not %s." % (what, found, version))
+        if same_build and _read_key(root / marker, "build_id") != _read_key(sdk_dir / "sdk.toml", "build_id"):
+            raise SetupError("The %s are of another build than the SDK in %s." % (what, sdk_dir))
         shutil.copytree(str(root), str(sdk_dir), dirs_exist_ok=True)
     finally:
         shutil.rmtree(str(work), ignore_errors=True)
-    log("Installed the symbols of the Wind SDK %s in %s." % (version, sdk_dir))
+    log("Installed the %s of the Wind SDK %s in %s." % (what, version, sdk_dir))
 
 
-def install(version, dest, os_name, arch, repo=DEFAULT_REPO, from_dir=None, token=None, symbols=False):
-    """Makes `dest` the SDK of `version`, with its symbols package when `symbols`. Returns the path; downloads nothing
-    when it already is."""
+def install_symbols(version, sdk_dir, os_name, arch, repo=DEFAULT_REPO, from_dir=None, token=None):
+    """Unpacks the symbols package over the SDK: the debug information split off by tools/ci/split_symbols.py."""
+    _install_package("symbols", symbols_artifact_name(version, os_name, arch), "symbols.toml", True,
+                     version, sdk_dir, repo, from_dir, token)
+
+
+def install_source(version, sdk_dir, repo=DEFAULT_REPO, from_dir=None, token=None):
+    """Unpacks the engine source package over the SDK, as <sdk>/source: what a Web or Android build compiles."""
+    _install_package("source", source_artifact_name(version), "source.toml", False,
+                     version, sdk_dir, repo, from_dir, token)
+
+
+def install(version, dest, os_name, arch, repo=DEFAULT_REPO, from_dir=None, token=None, symbols=False, source=False):
+    """Makes `dest` the SDK of `version`, with its symbols package when `symbols` and the engine source when `source`.
+    Returns the path; downloads nothing when it already is."""
     dest = Path(dest)
     install_sdk(version, dest, os_name, arch, repo, from_dir, token)
     if symbols:
         install_symbols(version, dest, os_name, arch, repo, from_dir, token)
+    if source:
+        install_source(version, dest, repo, from_dir, token)
     return dest
 
 
@@ -335,7 +362,8 @@ def main(argv=None):
     parser.add_argument("--repo", default=DEFAULT_REPO, help="owner/name of the repository with the releases")
     parser.add_argument("--dest", help="where the SDK goes (default: .wind-sdk/<version>)")
     parser.add_argument("--from-dir", help="a directory with the release assets, instead of the download")
-    parser.add_argument("--symbols", action="store_true", help="also the debug symbols package (Windows; nothing elsewhere)")
+    parser.add_argument("--symbols", action="store_true", help="also the debug symbols package")
+    parser.add_argument("--source", action="store_true", help="also the engine source (<sdk>/source, for Web and Android)")
     parser.add_argument("--print-key", action="store_true", help="print the cache key, version, and platform, and stop")
     parser.add_argument("--os", dest="os_name", choices=("windows", "linux", "macos"), help="default: this machine")
     parser.add_argument("--arch", choices=("x86_64", "arm64"), help="default: this machine")
@@ -348,14 +376,14 @@ def main(argv=None):
         os_name = args.os_name or detected_os
         arch = args.arch or detected_arch
         if args.print_key:
-            print("key=%s" % cache_key(version, os_name, arch, args.symbols))
+            print("key=%s" % cache_key(version, os_name, arch, args.symbols, args.source))
             print("version=%s" % version)
             print("os=%s" % os_name)
             print("arch=%s" % arch)
             return 0
         dest = Path(args.dest) if args.dest else Path(".wind-sdk") / version
         token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
-        path = install(version, dest, os_name, arch, args.repo, args.from_dir, token, args.symbols)
+        path = install(version, dest, os_name, arch, args.repo, args.from_dir, token, args.symbols, args.source)
     except SetupError as problem:
         print("setup_sdk: %s" % problem, file=sys.stderr)
         return 1

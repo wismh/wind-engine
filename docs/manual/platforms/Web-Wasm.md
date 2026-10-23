@@ -3,7 +3,7 @@
 Wind games compile to WebAssembly and WebGL2 using the Emscripten SDK (`emsdk`).
 
 > [!NOTE]
-> The editor's Export button builds desktop games only. A Web build is a separate configure with the Emscripten toolchain, and it builds the engine from the SDK's engine source (`<sdk>/source`, the directory the SDK ships for exactly this). The commands below follow the engine's build scripts and `README.md`; they have not been run end to end for this manual.
+> The editor's Export button builds desktop games only. A Web build is a separate configure with the Emscripten toolchain, and it builds the engine from the SDK's engine source (`<sdk>/source`). A release SDK does not carry it: install the source package of the same release over the SDK (`python3 tools/ci/setup_sdk.py --version <v> --dest <sdk> --source`, or `source: true` of the `setup-wind` action). The commands below follow the engine's build scripts and `README.md`; they have not been run end to end for this manual.
 
 ---
 

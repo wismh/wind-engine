@@ -18,8 +18,14 @@ inputs:
     default: wismh/wind-engine
   symbols:
     description: >
-      Also install the debug symbols package (the .pdb files, Windows only; nothing on Linux and macOS) over the SDK,
-      for a debugger or crash reports. Default false.
+      Also install the debug symbols package over the SDK (the .pdb files on Windows, the .debug files or .dSYM bundles on
+      Linux and macOS, the player libraries with debug information), for a debugger or crash reports. Default false.
+    required: false
+    default: "false"
+  source:
+    description: >
+      Also install the engine source package as <sdk>/source, which a Web or Android build compiles
+      (add_subdirectory("$WIND_SDK_DIR/source")). Default false.
     required: false
     default: "false"
   token:
@@ -45,11 +51,13 @@ runs:
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_PROJECT: ${{ inputs.project-dir }}
         INPUT_SYMBOLS: ${{ inputs.symbols }}
+        INPUT_SOURCE: ${{ inputs.source }}
       run: |
         PY=python3
         command -v python3 >/dev/null 2>&1 || PY=python
         flags=()
         [ "$INPUT_SYMBOLS" = "true" ] && flags+=(--symbols)
+        [ "$INPUT_SOURCE" = "true" ] && flags+=(--source)
         "$PY" "$GITHUB_ACTION_PATH/../../../tools/ci/setup_sdk.py" --print-key --version "$INPUT_VERSION" \
           --project "$INPUT_PROJECT" "${flags[@]}" | tr -d '\r' >> "$GITHUB_OUTPUT"
     - name: Cache the SDK
@@ -65,11 +73,13 @@ runs:
         INPUT_REPO: ${{ inputs.repo }}
         SDK_VERSION: ${{ steps.key.outputs.version }}
         INPUT_SYMBOLS: ${{ inputs.symbols }}
+        INPUT_SOURCE: ${{ inputs.source }}
       run: |
         PY=python3
         command -v python3 >/dev/null 2>&1 || PY=python
         flags=()
         [ "$INPUT_SYMBOLS" = "true" ] && flags+=(--symbols)
+        [ "$INPUT_SOURCE" = "true" ] && flags+=(--source)
         sdk="$("$PY" "$GITHUB_ACTION_PATH/../../../tools/ci/setup_sdk.py" --version "$SDK_VERSION" \
           --repo "$INPUT_REPO" --dest "$RUNNER_TEMP/wind-sdk/$SDK_VERSION" "${flags[@]}")"
         sdk="${sdk%$'\r'}"

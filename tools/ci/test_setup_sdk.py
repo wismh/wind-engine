@@ -266,7 +266,11 @@ class Symbols(unittest.TestCase):
         self.assertEqual(setup_sdk.symbols_artifact_name("0.1.7a", "windows", "x86_64"),
                          "wind-sdk-symbols-0.1.7a-windows-x86_64.zip")
         self.assertEqual(setup_sdk.cache_key("0.1.7a", "windows", "x86_64", True), "wind-sdk-0.1.7a-windows-x86_64-symbols")
-        self.assertEqual(setup_sdk.cache_key("0.1.7a", "linux", "x86_64", True), "wind-sdk-0.1.7a-linux-x86_64")
+        self.assertEqual(setup_sdk.symbols_artifact_name("0.1.7a", "linux", "x86_64"),
+                         "wind-sdk-symbols-0.1.7a-linux-x86_64.tar.gz")
+        self.assertEqual(setup_sdk.cache_key("0.1.7a", "linux", "x86_64", True), "wind-sdk-0.1.7a-linux-x86_64-symbols")
+        self.assertEqual(setup_sdk.cache_key("0.1.7a", "linux", "x86_64", True, True), "wind-sdk-0.1.7a-linux-x86_64-symbols-source")
+        self.assertEqual(setup_sdk.source_artifact_name("0.1.7a"), "wind-sdk-source-0.1.7a.tar.gz")
 
     def test_unpacks_over_the_sdk_and_is_idempotent(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -313,14 +317,15 @@ class Symbols(unittest.TestCase):
             with self.assertRaisesRegex(setup_sdk.SetupError, "symbols are version 0.1.6a"):
                 quiet(setup_sdk.install, "0.1.7a", Path(directory) / "sdk", "windows", "x86_64", from_dir=assets, symbols=True)
 
-    def test_a_platform_without_a_package_needs_none(self):
+    def test_a_tar_gz_of_linux(self):
         with tempfile.TemporaryDirectory() as directory:
             assets = Path(directory) / "assets"
             assets.mkdir()
             release(assets, "0.1.7a", "linux", "x86_64")
+            symbols_release(assets, "0.1.7a", "linux", "x86_64")
             dest = Path(directory) / "sdk"
             quiet(setup_sdk.install, "0.1.7a", dest, "linux", "x86_64", from_dir=assets, symbols=True)
-            setup_sdk.check_sdk(dest, "0.1.7a", "linux")
+            self.assertTrue((dest / "bin" / "engine.pdb").is_file())
 
     def test_a_missing_package_is_said(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -329,6 +334,61 @@ class Symbols(unittest.TestCase):
             release(assets, "0.1.7a", "windows", "x86_64")
             with self.assertRaisesRegex(setup_sdk.SetupError, "wind-sdk-symbols-0.1.7a-windows-x86_64.zip is not in"):
                 quiet(setup_sdk.install, "0.1.7a", Path(directory) / "sdk", "windows", "x86_64", from_dir=assets, symbols=True)
+
+
+def source_release(directory, version, tree_version=None, top=None):
+    name = setup_sdk.source_artifact_name(version)
+    with tempfile.TemporaryDirectory() as scratch:
+        base = Path(scratch) / top if top else Path(scratch)
+        (base / "source" / "src").mkdir(parents=True)
+        (base / "source" / "CMakeLists.txt").write_text("project(engine)", encoding="utf-8")
+        (base / "source.toml").write_text('version = "%s"' % (tree_version or version), encoding="utf-8")
+        pack(scratch, Path(directory) / name)
+    digest = hashlib.sha256((Path(directory) / name).read_bytes()).hexdigest()
+    (Path(directory) / (name + ".sha256")).write_text("%s  %s" % (digest, name), encoding="utf-8")
+
+
+class Source(unittest.TestCase):
+    def test_unpacks_as_the_source_directory_of_the_sdk(self):
+        with tempfile.TemporaryDirectory() as directory:
+            assets = Path(directory) / "assets"
+            assets.mkdir()
+            release(assets, "0.1.7a", "windows", "x86_64")
+            source_release(assets, "0.1.7a", top="wind-sdk-source-0.1.7a")
+            dest = Path(directory) / "work" / "sdk"
+            quiet(setup_sdk.install, "0.1.7a", dest, "windows", "x86_64", from_dir=assets, source=True)
+            self.assertTrue((dest / "source" / "CMakeLists.txt").is_file())
+            self.assertTrue((dest / "bin" / "wind_editor.exe").is_file())
+            self.assertEqual([child.name for child in dest.parent.iterdir()], ["sdk"], "no temporary directory is left")
+
+    def test_is_idempotent_and_independent_of_the_platform_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            assets = Path(directory) / "assets"
+            assets.mkdir()
+            release(assets, "0.1.7a", "linux", "x86_64")
+            source_release(assets, "0.1.7a")
+            dest = Path(directory) / "sdk"
+            quiet(setup_sdk.install, "0.1.7a", dest, "linux", "x86_64", from_dir=assets, source=True)
+            (dest / "source" / "CMakeLists.txt").unlink()
+            quiet(setup_sdk.install, "0.1.7a", dest, "linux", "x86_64", from_dir=Path(directory) / "gone", source=True)
+            self.assertFalse((dest / "source" / "CMakeLists.txt").exists(), "nothing is unpacked again")
+
+    def test_refuses_the_source_of_another_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            assets = Path(directory) / "assets"
+            assets.mkdir()
+            release(assets, "0.1.7a", "linux", "x86_64")
+            source_release(assets, "0.1.7a", tree_version="0.1.6a")
+            with self.assertRaisesRegex(setup_sdk.SetupError, "source are version 0.1.6a"):
+                quiet(setup_sdk.install, "0.1.7a", Path(directory) / "sdk", "linux", "x86_64", from_dir=assets, source=True)
+
+    def test_a_missing_package_is_said(self):
+        with tempfile.TemporaryDirectory() as directory:
+            assets = Path(directory) / "assets"
+            assets.mkdir()
+            release(assets, "0.1.7a", "linux", "x86_64")
+            with self.assertRaisesRegex(setup_sdk.SetupError, "wind-sdk-source-0.1.7a.tar.gz is not in"):
+                quiet(setup_sdk.install, "0.1.7a", Path(directory) / "sdk", "linux", "x86_64", from_dir=assets, source=True)
 
 
 class CommandLine(unittest.TestCase):
