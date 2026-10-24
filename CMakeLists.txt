@@ -336,6 +336,10 @@ if(WIN32)
     target_link_libraries(engine PUBLIC ws2_32 advapi32 winhttp)
 endif()
 
+elseif(UNIX AND NOT ANDROID AND NOT EMSCRIPTEN)
+    # src/net/curl_library.cpp opens the system libcurl with dlopen (no libcurl header or library is needed to
+    # build). glibc before 2.34 keeps dlopen in libdl; CMAKE_DL_LIBS is empty on macOS.
+    target_link_libraries(engine PUBLIC ${CMAKE_DL_LIBS})
 if(CMAKE_CROSSCOMPILING)
     if(NOT ENGINE_HOST_ASSET_CODEGEN)
         message(FATAL_ERROR
