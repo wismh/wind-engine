@@ -55,7 +55,7 @@ The built-in parser supports common mathematical notation:
 - **Letters and digits:** a Latin letter is set in math italic, digits upright.
 - **Fractions and roots:** `\frac{numerator}{denominator}`, `\sqrt{x}`, `\sqrt[n]{x}`
 - **Subscripts, superscripts, primes:** `x_i^2`, `f'`
-- **Accents:** `\vec{v}` (the only accent)
+- **Accents:** `\vec{v}`, `\hat{x}`, `\bar{x}`
 - **Large operators:** `\sum`, `\prod`, `\coprod`, `\int`, `\iint`, `\iiint`, `\oint`, `\bigcup`, `\bigcap`, `\bigvee`, `\bigwedge`, `\bigoplus`, `\bigotimes`, with `\limits` / `\nolimits`
 - **Greek letters:** `\alpha`, `\beta`, `\gamma`, `\theta`, `\pi`, `\omega`, and the rest (lowercase italic, uppercase upright), plus relation, binary, and arrow symbols
 - **Functions (set upright):** `\sin`, `\cos`, `\tan`, `\exp`, `\log`, `\ln`, `\lim`, `\max`, `\min`, `\det`, `\gcd`, and similar

@@ -220,6 +220,8 @@ constexpr FunctionName kFunctionNames[] = {
 // row here (the font needs the mark: tests check every entry has a glyph).
 constexpr AccentCommand kAccentCommands[] = {
         {"vec", 0x20D7},  // COMBINING RIGHT ARROW ABOVE
+        {"hat", 0x0302},  // COMBINING CIRCUMFLEX ACCENT
+        {"bar", 0x0304},  // COMBINING MACRON
 };
 
 constexpr std::size_t kMaxDepth = 64;
