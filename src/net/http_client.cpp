@@ -24,6 +24,9 @@ namespace {
 
 #if defined(_WIN32) || defined(__ANDROID__)
 constexpr int kWorkerThreads = 4;
+constexpr bool kHasWorkers = true;
+#else
+constexpr bool kHasWorkers = false;
 #endif
 
 #if defined(_WIN32) || defined(__ANDROID__) || defined(__EMSCRIPTEN__)
@@ -133,6 +136,13 @@ HttpCall HttpClient::send(HttpRequest request) {
     } else if (!impl_->ready) {
         impl_->completions.push(std::move(state), std::unexpected(HttpError::Unsupported));
     } else {
+        if (request.sink) {
+            // A worker-thread sink only exists where the backend has workers. Web runs in the main thread.
+            const SinkRoute route = !kHasWorkers                                  ? SinkRoute::Inline
+                                    : request.sink_thread == HttpSinkThread::Main ? SinkRoute::Queued
+                                                                                  : SinkRoute::Worker;
+            state->set_sink(std::move(request.sink), route);
+        }
         impl_->live.push_back(state);
         impl_->start_transfer(std::move(state), std::move(request), *url);
     }
@@ -144,6 +154,12 @@ bool HttpClient::is_supported() const {
 }
 
 void HttpClient::poll() {
+    // Chunks first: a result is delivered only after the sink has seen the whole body.
+    for (const std::weak_ptr<HttpCallState>& weak : impl_->live) {
+        if (const std::shared_ptr<HttpCallState> state = weak.lock()) {
+            state->drain_sink();
+        }
+    }
     impl_->completions.deliver();
     std::erase_if(impl_->live, [](const std::weak_ptr<HttpCallState>& weak) {
         const std::shared_ptr<HttpCallState> state = weak.lock();

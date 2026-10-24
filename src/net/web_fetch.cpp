@@ -11,6 +11,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -50,12 +52,26 @@ HttpResult read_result(emscripten_fetch_t* fetch, const WebFetch& job) {
         response.headers = parse_raw_headers(raw);
     }
     if (job.method != HttpMethod::Head && fetch->data != nullptr && fetch->numBytes > 0) {
-        if (fetch->numBytes > kHttpMaxResponseBytes) {
-            return std::unexpected(HttpError::TooLarge);
+        // The whole body is in memory by now, so a sink gets it in one piece.
+        const auto bytes = std::as_bytes(std::span(fetch->data, static_cast<std::size_t>(fetch->numBytes)));
+        if (const std::optional<HttpError> error = job.state->accept(response.status, bytes, response.body)) {
+            return std::unexpected(*error);
         }
-        response.body.assign(fetch->data, static_cast<std::size_t>(fetch->numBytes));
+        job.state->set_received(fetch->numBytes);
     }
     return response;
+}
+
+// Browser progress events: the position and, when the server announced it, the size.
+void on_progress(emscripten_fetch_t* fetch) {
+    auto* job = static_cast<WebFetch*>(fetch->userData);
+    if (job->closing) {
+        return;
+    }
+    job->state->set_received(fetch->dataOffset + fetch->numBytes);
+    if (fetch->totalBytes > 0) {
+        job->state->set_total(fetch->totalBytes);
+    }
 }
 
 // onsuccess (2xx) and onerror (everything else, including 4xx and 5xx with their body).
@@ -105,6 +121,7 @@ void start_web_fetch(std::shared_ptr<HttpCallState> state, const HttpRequest& re
     }
     attr.onsuccess = &on_done;
     attr.onerror = &on_done;
+    attr.onprogress = &on_progress;
     attr.userData = job;
 
     emscripten_fetch_t* const fetch = emscripten_fetch(&attr, url.url.c_str());

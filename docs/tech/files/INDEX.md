@@ -362,11 +362,13 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/net/android_http.cpp` | `AndroidHttp`: `HttpURLConnection` through JNI | [Net](../modules/Net.md) |
 | `src/net/android_http.h` | Android backend API | [Net](../modules/Net.md) |
 | `src/net/http_call.cpp` | `HttpCall` ownership and cancel | [Net](../modules/Net.md) |
+| `src/net/http_call_state.cpp` | `HttpCallState::accept`: progress, body sink, bounded main-thread queue, cancel | [Net](../modules/Net.md) |
 | `src/net/http_call_state.h` | State shared by a call, the queue, and the backend | [Net](../modules/Net.md) |
 | `src/net/http_client.cpp` | `HttpClient`: backend choice, `send`, `poll`, `dispose` | [Net](../modules/Net.md) |
 | `src/net/http_completions.h` | `HttpCompletions`, the `CallCompletions` of HTTP calls | [Net](../modules/Net.md) |
 | `src/net/http_parse.cpp` | URL check, method names, raw headers, `HttpResponse::header` | [Net](../modules/Net.md) |
 | `src/net/http_parse.h` | `HttpUrl` and the parse functions | [Net](../modules/Net.md) |
+| `src/net/http_stall.h` | `StallWatch`: minimum speed over a window | [Net](../modules/Net.md) |
 | `src/net/http_worker_pool.cpp` | Threads for blocking backends | [Net](../modules/Net.md) |
 | `src/net/http_worker_pool.h` | Worker pool API | [Net](../modules/Net.md) |
 | `src/net/web_fetch.cpp` | `emscripten_fetch` backend | [Net](../modules/Net.md) |

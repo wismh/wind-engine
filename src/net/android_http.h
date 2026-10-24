@@ -36,6 +36,11 @@ private:
     jclass output_class_ = nullptr;
     jclass timeout_class_ = nullptr;
     jclass malformed_class_ = nullptr;
+    jclass unknown_host_class_ = nullptr;
+    jclass ssl_class_ = nullptr;
+    jclass connect_class_ = nullptr;
+    jclass socket_class_ = nullptr;
+    jmethodID set_follow_redirects_ = nullptr;
     jmethodID url_init_ = nullptr;
     jmethodID open_connection_ = nullptr;
     jmethodID set_request_method_ = nullptr;

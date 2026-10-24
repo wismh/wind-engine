@@ -4,15 +4,21 @@
 
 #include "net/http_call_state.h"
 #include "net/http_parse.h"
+#include "net/http_stall.h"
 
 #include <SDL3/SDL_system.h>
 
 #include <algorithm>
+#include <chrono>
 #include <climits>
 #include <cmath>
+#include <cstdint>
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace engine {
 namespace {
@@ -39,6 +45,10 @@ jint timeout_ms(float seconds) {
     }
     const double ms = std::ceil(static_cast<double>(seconds) * 1000.0);
     return static_cast<jint>(std::clamp(ms, 1.0, static_cast<double>(INT_MAX)));
+}
+
+double now_seconds() {
+    return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
 jclass global_class(JNIEnv* env, const char* name) {
@@ -70,8 +80,13 @@ bool AndroidHttp::resolve() {
     output_class_ = global_class(env, "java/io/OutputStream");
     timeout_class_ = global_class(env, "java/net/SocketTimeoutException");
     malformed_class_ = global_class(env, "java/net/MalformedURLException");
+    unknown_host_class_ = global_class(env, "java/net/UnknownHostException");
+    ssl_class_ = global_class(env, "javax/net/ssl/SSLException");
+    connect_class_ = global_class(env, "java/net/ConnectException");
+    socket_class_ = global_class(env, "java/net/SocketException");
     if (url_class_ == nullptr || connection_class_ == nullptr || input_class_ == nullptr || output_class_ == nullptr ||
-            timeout_class_ == nullptr || malformed_class_ == nullptr) {
+            timeout_class_ == nullptr || malformed_class_ == nullptr || unknown_host_class_ == nullptr ||
+            ssl_class_ == nullptr || connect_class_ == nullptr || socket_class_ == nullptr) {
         release();
         return false;
     }
@@ -83,6 +98,7 @@ bool AndroidHttp::resolve() {
     set_read_timeout_ = env->GetMethodID(connection_class_, "setReadTimeout", "(I)V");
     set_request_property_ =
             env->GetMethodID(connection_class_, "setRequestProperty", "(Ljava/lang/String;Ljava/lang/String;)V");
+    set_follow_redirects_ = env->GetMethodID(connection_class_, "setInstanceFollowRedirects", "(Z)V");
     set_do_output_ = env->GetMethodID(connection_class_, "setDoOutput", "(Z)V");
     get_output_stream_ = env->GetMethodID(connection_class_, "getOutputStream", "()Ljava/io/OutputStream;");
     get_response_code_ = env->GetMethodID(connection_class_, "getResponseCode", "()I");
@@ -106,7 +122,7 @@ bool AndroidHttp::resolve() {
 void AndroidHttp::release() {
     JNIEnv* env = static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
     for (jclass* cls : {&url_class_, &connection_class_, &input_class_, &output_class_, &timeout_class_,
-                 &malformed_class_}) {
+                 &malformed_class_, &unknown_host_class_, &ssl_class_, &connect_class_, &socket_class_}) {
         if (*cls != nullptr && env != nullptr) {
             env->DeleteGlobalRef(*cls);
         }
@@ -123,6 +139,15 @@ HttpError AndroidHttp::error_from_exception(JNIEnv* env) const {
             error = HttpError::Timeout;
         } else if (env->IsInstanceOf(thrown, malformed_class_)) {
             error = HttpError::InvalidUrl;
+        } else if (env->IsInstanceOf(thrown, unknown_host_class_)) {
+            error = HttpError::Dns;
+        } else if (env->IsInstanceOf(thrown, ssl_class_)) {
+            error = HttpError::Tls;
+        } else if (env->IsInstanceOf(thrown, connect_class_)) {
+            // Refused or unreachable: not a dropped connection, though ConnectException is a SocketException.
+            error = HttpError::Network;
+        } else if (env->IsInstanceOf(thrown, socket_class_)) {
+            error = HttpError::ConnectionReset;
         }
         env->DeleteLocalRef(thrown);
     }
@@ -189,6 +214,8 @@ HttpResult AndroidHttp::exchange(
     const jint ms = timeout_ms(request.timeout_seconds);
     env->CallVoidMethod(connection, set_connect_timeout_, ms);
     env->CallVoidMethod(connection, set_read_timeout_, ms);
+    // The platform decides the limit and refuses to switch protocols on its own; only on/off is ours.
+    env->CallVoidMethod(connection, set_follow_redirects_, request.max_redirects > 0 ? JNI_TRUE : JNI_FALSE);
     for (const HttpHeader& header : request.headers) {
         jstring name = new_string(env, header.name);
         jstring value = new_string(env, header.value);
@@ -260,8 +287,14 @@ HttpResult AndroidHttp::exchange(
     if (input == nullptr) {
         return response;
     }
+    if (const std::optional<std::uint64_t> total = content_length(response)) {
+        state.set_total(*total);
+    }
     constexpr jsize kChunk = 64 * 1024;
     jbyteArray buffer = env->NewByteArray(kChunk);
+    std::vector<char> staging(kChunk);
+    StallWatch stall(request.min_bytes_per_second, request.stall_seconds, now_seconds());
+    const int status = response.status;
     HttpResult result = std::move(response);
     for (;;) {
         if (state.cancelled()) {
@@ -276,14 +309,16 @@ HttpResult AndroidHttp::exchange(
         if (read < 0) {
             break;
         }
-        std::string& body = result->body;
-        if (body.size() + static_cast<std::size_t>(read) > kHttpMaxResponseBytes) {
-            result = std::unexpected(HttpError::TooLarge);
+        env->GetByteArrayRegion(buffer, 0, read, reinterpret_cast<jbyte*>(staging.data()));
+        if (const std::optional<HttpError> error = state.accept(
+                    status, std::as_bytes(std::span(staging.data(), static_cast<std::size_t>(read))), result->body)) {
+            result = std::unexpected(*error);
             break;
         }
-        const std::size_t offset = body.size();
-        body.resize(offset + static_cast<std::size_t>(read));
-        env->GetByteArrayRegion(buffer, 0, read, reinterpret_cast<jbyte*>(body.data() + offset));
+        if (stall.stalled(now_seconds(), state.received())) {
+            result = std::unexpected(HttpError::Timeout);
+            break;
+        }
     }
     env->CallVoidMethod(input, input_close_);
     if (env->ExceptionCheck()) {
