@@ -37,7 +37,11 @@ public:
     // The result once, then the call is empty. nullopt while pending, after cancel, and on an empty call.
     [[nodiscard]] std::optional<HttpResult> take();
 
-    // Aborts the transfer. No result arrives afterwards. An empty or finished call ignores it.
+    // Body bytes received so far. Readable while pending; zeros on an empty call and after `take`.
+    [[nodiscard]] HttpProgress progress() const;
+
+    // Aborts the transfer. No result arrives afterwards, and the request's sink is never called again once
+    // this returns. An empty or finished call ignores it.
     void cancel();
 
 private:
