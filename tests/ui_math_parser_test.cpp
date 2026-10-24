@@ -352,6 +352,8 @@ TEST(MathParser, ParsesTextGroups) {
     EXPECT_EQ(parsed("\\text{a    b}"), "[\"a b\"]");
     EXPECT_EQ(parsed("\\text{50\\% off}"), "[\"50% off\"]");
     EXPECT_EQ(parsed("\\text{a {b} c}"), "[\"a b c\"]");
+    EXPECT_EQ(parsed("\\mathrm{correct\\;answers}"), "[\"correct answers\"]");
+    EXPECT_EQ(parsed("\\text{a\\,b\\!c}"), "[\"a bc\"]");
     // `\mathrm` drops whitespace: it is for upright symbols like the differential d.
     EXPECT_EQ(parsed("\\mathrm{d} x"), "[\"d\" x]");
     EXPECT_EQ(parsed("\\mathrm{a b}"), "[\"ab\"]");
