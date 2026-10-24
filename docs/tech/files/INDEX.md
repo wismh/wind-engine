@@ -569,10 +569,32 @@ Built only with `ENGINE_EDITOR`. See [Editor](../features/Editor.md).
 | `editor/assets/css/editor.css.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
 | `editor/assets/css/panels.css` | Project, UI Tree, Inspector, Profiler, and Build panel style | [Editor](../features/Editor.md) |
 | `editor/assets/css/panels.css.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
-| `editor/assets/textures/file.png` | File icon on a Project row | [Editor](../features/Editor.md) |
-| `editor/assets/textures/file.png.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
-| `editor/assets/textures/folder.png` | Folder icon on a Project row, a neutral gray | [Editor](../features/Editor.md) |
-| `editor/assets/textures/folder.png.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/file.svg` | Document icon on a Project row | [Editor](../features/Editor.md) |
+| `editor/assets/icons/file.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/file_cmake.svg` | `.cmake` and `CMakeLists.txt` icon | [Editor](../features/Editor.md) |
+| `editor/assets/icons/file_cmake.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/file_cpp.svg` | `.cpp` icon | [Editor](../features/Editor.md) |
+| `editor/assets/icons/file_cpp.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/file_css.svg` | `.css` icon | [Editor](../features/Editor.md) |
+| `editor/assets/icons/file_css.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/file_hpp.svg` | `.hpp` icon | [Editor](../features/Editor.md) |
+| `editor/assets/icons/file_hpp.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/file_object.svg` | `.object` icon | [Editor](../features/Editor.md) |
+| `editor/assets/icons/file_object.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/file_png.svg` | `.png` icon | [Editor](../features/Editor.md) |
+| `editor/assets/icons/file_png.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/file_world.svg` | `.world` icon | [Editor](../features/Editor.md) |
+| `editor/assets/icons/file_world.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/file_xml.svg` | `.xml` icon | [Editor](../features/Editor.md) |
+| `editor/assets/icons/file_xml.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/folder.svg` | Folder icon on a Project row | [Editor](../features/Editor.md) |
+| `editor/assets/icons/folder.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/folder_up.svg` | Up button in the Project grid | [Editor](../features/Editor.md) |
+| `editor/assets/icons/folder_up.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/view_grid.svg` | Header button while the tree is showing | [Editor](../features/Editor.md) |
+| `editor/assets/icons/view_grid.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
+| `editor/assets/icons/view_list.svg` | Header button while the grid is showing | [Editor](../features/Editor.md) |
+| `editor/assets/icons/view_list.svg.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
 | `editor/assets/ui/build.xml` | Build tab: summary and log | [Editor](../features/Editor.md) |
 | `editor/assets/ui/build.xml.meta` | Its GUID sidecar | [Assets](../features/Assets.md) |
 | `editor/assets/ui/editor.xml` | Editor window: the toolbar; the panels' dock space is below it | [Editor](../features/Editor.md) |
