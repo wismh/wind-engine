@@ -1,0 +1,9 @@
+<svg viewBox="0 0 16 16">
+  <path d="M3.25 1.75 H9.15 L12.75 5.35 V14.25 H3.25 Z" fill="#e8eaef"/>
+  <path d="M9.15 1.75 V5.35 H12.75 Z" fill="#1e88e5"/>
+  <rect x="3.25" y="6.6" width="1.35" height="7.65" fill="#1e88e5"/>
+  <rect x="5.15" y="8.55" width="2.5" height="0.9" rx="0.3" fill="#1e88e5"/>
+  <rect x="5.95" y="7.75" width="0.9" height="2.5" rx="0.3" fill="#1e88e5"/>
+  <rect x="8.15" y="10.55" width="2.5" height="0.9" rx="0.3" fill="#1e88e5"/>
+  <rect x="8.95" y="9.75" width="0.9" height="2.5" rx="0.3" fill="#1e88e5"/>
+</svg>

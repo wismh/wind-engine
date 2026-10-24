@@ -2,6 +2,8 @@
 
 #include "command_history.h"
 
+#include <asset_ids.h>
+
 #include <algorithm>
 #include <format>
 #include <string_view>
@@ -13,8 +15,6 @@ namespace editor {
 namespace {
 
 constexpr char kNoProject[] = "No project open.";
-constexpr char kToggleOn[] = "#3574f0";
-constexpr char kToggleOff[] = "#3c3f41";
 
 std::string path_text(const std::filesystem::path& path) {
     const std::u8string text = path.u8string();
@@ -79,8 +79,7 @@ ExplorerPanel::ExplorerPanel(EditorSelection& selection, CommandHistory& journal
     view_model_->blankNewHeader.bind_to<ExplorerPanel, &ExplorerPanel::blank_new_header>(*this);
     view_model_->blankNewSource.bind_to<ExplorerPanel, &ExplorerPanel::blank_new_source>(*this);
     view_model_->blankPaste.bind_to<ExplorerPanel, &ExplorerPanel::blank_paste, &ExplorerPanel::can_paste>(*this);
-    view_model_->showTree.bind_to<ExplorerPanel, &ExplorerPanel::show_tree>(*this);
-    view_model_->showGrid.bind_to<ExplorerPanel, &ExplorerPanel::show_grid>(*this);
+    view_model_->toggleView.bind_to<ExplorerPanel, &ExplorerPanel::toggle_view>(*this);
     view_model_->gridUp.bind_to<ExplorerPanel, &ExplorerPanel::grid_up, &ExplorerPanel::can_grid_up>(*this);
     sync_chrome();
 }
@@ -160,6 +159,14 @@ void ExplorerPanel::reload(bool external) {
     retain_grid_folder();
     show_rows();
     publish_selection(false);
+}
+
+void ExplorerPanel::toggle_view() {
+    if (view_ == ExplorerView::Grid) {
+        show_tree();
+    } else {
+        show_grid();
+    }
 }
 
 void ExplorerPanel::show_tree() {
@@ -666,8 +673,7 @@ void ExplorerPanel::sync_chrome() {
     const bool grid = view_ == ExplorerView::Grid;
     view_model_->treeShown = !grid;
     view_model_->gridShown = grid;
-    view_model_->treeOn = std::string(grid ? kToggleOff : kToggleOn);
-    view_model_->gridOn = std::string(grid ? kToggleOn : kToggleOff);
+    view_model_->viewIcon = grid ? assets::icons::view_list : assets::icons::view_grid;
     publish_root_text();
 }
 

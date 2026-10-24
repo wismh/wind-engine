@@ -61,6 +61,10 @@ void HttpWorkerPool::run() {
             continue;
         }
         HttpResult result = transfer_(*job.state, job.request);
+        // A `Main` sink still holds chunks: the result may only follow once the main thread took them all.
+        if (!job.state->finish_sink() && result.has_value() && job.state->sink_failed()) {
+            result = std::unexpected(HttpError::SinkAborted);
+        }
         if (!job.state->cancelled()) {
             completions_->push(std::move(job.state), std::move(result));
         }

@@ -10,7 +10,8 @@ namespace engine::ui {
 namespace {
 
 void collect_element_images(const Element& element, std::set<AssetId>& out) {
-    if (element.source) {
+    // An Svg source is an SvgPicture, loaded by attach_svg_pictures. ensure_ui_image asks for a texture.
+    if (element.kind == ElementKind::Image && element.source) {
         out.insert(*element.source);
     }
     for (const Element& child : element.children) {

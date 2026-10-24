@@ -46,7 +46,7 @@ public:
     void remove_row();
 
     engine::ui::Bindable<std::string> label;
-    // `textures/folder.png` or `textures/file.png`. The color is in the PNG.
+    // `icons/folder.svg`, a typed document (`file_css.svg` and the rest), or `file.svg`.
     engine::ui::Bindable<engine::AssetId> icon;
     engine::ui::Bindable<int> depth;
     engine::ui::Bindable<bool> expanded;

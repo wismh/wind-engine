@@ -40,7 +40,7 @@ Open engine work, not game concerns:
 - Per-window `Camera`. Meshes already draw into every window bound to that world. Those windows share the world's `ActiveCamera`. Each window's projection uses `window_size_for` (`Presentation.sizes`).
 - Drag-region hole-punching so a `Button` inside a title-bar rect stays clickable.
 - Visual verification of GL-window transparency on a real display. Linux and macOS overlay styles are untested.
-- HTTP: Linux and macOS backends (today `Unsupported`), streaming bodies, download to a file, and progress.
+- HTTP: connection reuse between requests, and a native macOS backend (`NSURLSession`) if the system libcurl proves a problem. Streaming bodies and progress are in; writing to a file stays with the game (a sink).
 - Advanced 3D: PBR materials, shadows, skinned meshes, glTF import, 3D physics, frustum culling, instancing, post-processing, and editor 3D gizmos.
 
 Game concerns (do not implement in this repo): persist bus volumes in a settings file; that game's AI tests.
