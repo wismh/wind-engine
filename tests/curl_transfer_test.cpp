@@ -162,7 +162,7 @@ FakeCurl::Step header(std::string text) {
 FakeCurl::Step body(std::string text) {
     return {FakeCurl::Step::Kind::Body, std::move(text), 0};
 }
-FakeCurl::Step sleep(std::int64_t milliseconds) {
+FakeCurl::Step pause_for(std::int64_t milliseconds) {
     return {FakeCurl::Step::Kind::Sleep, {}, milliseconds};
 }
 FakeCurl::Step progress(std::int64_t downloaded) {
@@ -281,17 +281,17 @@ TEST_F(CurlTransfer, CancelStopsTheTransferAtTheNextProgressCall) {
 }
 
 TEST_F(CurlTransfer, QuietConnectionTimesOutThroughTheProgressCallback) {
-    fake.script = {progress(0), sleep(80), progress(0)};
+    fake.script = {progress(0), pause_for(80), progress(0)};
     const engine::HttpResult result = run({.url = "http://example.com/", .timeout_seconds = 0.05f});
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), engine::HttpError::Timeout);
 }
 
 TEST_F(CurlTransfer, ProgressKeepsTheTimeoutAway) {
-    fake.script = {progress(10), sleep(80), progress(20), sleep(80), progress(30)};
+    fake.script = {progress(10), pause_for(80), progress(20), pause_for(80), progress(30)};
     EXPECT_TRUE(run({.url = "http://example.com/", .timeout_seconds = 0.05f}).has_value());
 
-    fake.script = {progress(0), sleep(80), progress(0)};
+    fake.script = {progress(0), pause_for(80), progress(0)};
     EXPECT_TRUE(run({.url = "http://example.com/", .timeout_seconds = 0.f}).has_value()) << "0 waits forever";
 }
 
