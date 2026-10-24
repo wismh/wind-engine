@@ -1,0 +1,8 @@
+<svg viewBox="0 0 16 16">
+  <path d="M3.25 1.75 H9.15 L12.75 5.35 V14.25 H3.25 Z" fill="#e8eaef"/>
+  <path d="M9.15 1.75 V5.35 H12.75 Z" fill="#7e57c2"/>
+  <rect x="3.25" y="6.6" width="1.35" height="7.65" fill="#7e57c2"/>
+  <rect x="5.2" y="7.5" width="6" height="1.7" rx="0.4" fill="#7e57c2"/>
+  <rect x="5.2" y="10" width="6" height="0.9" rx="0.4" fill="#b39ddb"/>
+  <rect x="5.2" y="11.7" width="4" height="0.9" rx="0.4" fill="#b39ddb"/>
+</svg>

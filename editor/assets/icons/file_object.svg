@@ -1,0 +1,8 @@
+<svg viewBox="0 0 16 16">
+  <path d="M3.25 1.75 H9.15 L12.75 5.35 V14.25 H3.25 Z" fill="#e8eaef"/>
+  <path d="M9.15 1.75 V5.35 H12.75 Z" fill="#7e57c2"/>
+  <rect x="3.25" y="6.6" width="1.35" height="7.65" fill="#7e57c2"/>
+  <polygon points="8.1,7.3 11.3,8.9 8.1,10.5 4.9,8.9" fill="#d1c4e9"/>
+  <polygon points="4.9,8.9 8.1,10.5 8.1,13.5 4.9,11.9" fill="#7e57c2"/>
+  <polygon points="8.1,10.5 11.3,8.9 11.3,11.9 8.1,13.5" fill="#9575cd"/>
+</svg>
