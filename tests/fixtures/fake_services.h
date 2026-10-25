@@ -8,6 +8,7 @@
 #include <engine/core/input_system.h>
 #include <engine/core/window_control.h>
 #include <engine/core/worlds.h>
+#include <engine/capture/capture_system.h>
 #include <engine/haptics/haptics_system.h>
 #include <engine/net/http_client.h>
 #include <engine/process/process_launcher.h>
@@ -60,6 +61,25 @@ public:
     }
 
     std::vector<std::string>* log = nullptr;
+};
+
+class FakeCapture final : public engine::ICapture {
+public:
+    bool init() override {
+        return true;
+    }
+    void dispose() override {}
+    bool is_supported() const override {
+        return false;
+    }
+    std::vector<engine::CaptureDeviceInfo> devices() override {
+        return {};
+    }
+    std::expected<std::unique_ptr<engine::ICaptureSession>, engine::CaptureError> open(
+            engine::CaptureDeviceId, std::optional<engine::CaptureFormat>) override {
+        return std::unexpected(engine::CaptureError::Unsupported);
+    }
+    void close_all() override {}
 };
 
 class FakeHaptics final : public engine::IHaptics {
@@ -390,6 +410,7 @@ struct Services {
                   .assets = assets,
                   .input = input,
                   .audio = audio,
+                  .capture = capture,
                   .haptics = haptics,
                   .http = http,
                   .processes = processes,
@@ -406,6 +427,7 @@ struct Services {
     engine::AssetsDb assets;
     engine::InputSystem input;
     FakeAudio audio;
+    FakeCapture capture;
     FakeHaptics haptics;
     FakeHttp http;
     FakeProcesses processes;

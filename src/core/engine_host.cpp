@@ -4,6 +4,7 @@
 
 #include <engine/audio/audio_system.h>
 #include <engine/builtin_ids.h>
+#include <engine/capture/capture_system.h>
 #include <engine/core/engine_runtime.h>
 #include <engine/core/input_system.h>
 #include <engine/core/job_system.h>
@@ -36,6 +37,7 @@ struct EngineHost::Impl {
     std::unique_ptr<AssetsDb> assets;
     std::unique_ptr<InputSystem> input;
     std::unique_ptr<IAudioSystem> audio;
+    std::unique_ptr<ICapture> capture;
     std::unique_ptr<IHaptics> haptics;
     std::unique_ptr<HttpClient> http;
     std::unique_ptr<ProcessLauncher> processes;
@@ -69,6 +71,7 @@ std::expected<void, EngineError> EngineHost::init() {
     impl_->input = std::make_unique<InputSystem>();
     impl_->assets = std::make_unique<AssetsDb>(*impl_->fatal);
     impl_->audio = std::make_unique<AudioSystem>();
+    impl_->capture = std::make_unique<CaptureSystem>();
     impl_->haptics = std::make_unique<HapticsSystem>();
     impl_->http = std::make_unique<HttpClient>();
     impl_->processes = std::make_unique<ProcessLauncher>();
@@ -78,6 +81,7 @@ std::expected<void, EngineError> EngineHost::init() {
             .assets = *impl_->assets,
             .input = *impl_->input,
             .audio = *impl_->audio,
+            .capture = *impl_->capture,
             .haptics = *impl_->haptics,
             .http = *impl_->http,
             .processes = *impl_->processes,
@@ -127,6 +131,10 @@ std::expected<void, EngineError> EngineHost::open_primary(const WindowDesc& desc
     }
     if (!impl_->haptics->init()) {
         return fail(EngineError::HapticsInit);
+    }
+    // A game without a camera still runs: every open then answers CaptureError::Unsupported.
+    if (!impl_->capture->init()) {
+        log::warn("Capture failed to start");
     }
     // A game without the network still runs: every request then answers HttpError::Unsupported.
     if (!impl_->http->init()) {
@@ -209,6 +217,8 @@ void EngineHost::attach_game(IGame& game) {
 void EngineHost::detach_game() {
     EngineRuntime& runtime = impl_->runtime;
     Worlds& worlds = *impl_->worlds;
+    // A session was opened by game code. A device must not stay open (and lit) after the module is unloaded.
+    impl_->capture->close_all();
     worlds.unbind_window(kPrimaryWindow);
     // Nothing redraws an unbound window's buffer, and its CmdDrawUI entries point into the game world's
     // documents. The next draw_all would read them after that world is gone.
@@ -243,6 +253,7 @@ void EngineHost::dispose() {
         impl_->jobs->stop();
     }
     impl_->audio->dispose();
+    impl_->capture->dispose();
     impl_->haptics->dispose();
     impl_->http->dispose();
     impl_->processes->dispose();
