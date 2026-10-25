@@ -185,6 +185,11 @@ public:
         last_texture_obj = std::make_shared<DummyTexture>(desc.width, desc.height);
         return last_texture_obj;
     }
+
+    std::shared_ptr<engine::render::IDynamicTexture> create_dynamic_texture(
+            const engine::render::DynamicTextureDesc&) override {
+        return {};
+    }
 };
 
 std::string read_file(const std::filesystem::path& path) {

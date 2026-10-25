@@ -59,6 +59,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/ecs/world_asset.h` | `WorldAsset`, `EntityRecord`, `WorldLoadError`, `parse_world_asset`, `serialize_world_asset`, `parse_field_table` | [ECS](../modules/ECS.md#world-serialization) |
 | `include/engine/ecs/world_io.h` | `WIND_COMPONENT`, `WIND_SERIALIZABLE`, `EntityName`, `FieldValue`, `ComponentWriter`, `ComponentReader` | [ECS](../modules/ECS.md#world-serialization) |
 | `include/engine/ecs/world_serializer.h` | `WorldSerializer`, `instantiate_world`, `load_world_from_toml`, `capture_world_asset`, `save_world_to_toml` | [ECS](../modules/ECS.md#world-serialization) |
+| `include/engine/capture/capture_system.h` | `ICapture`, `ICaptureSession`, `CaptureSystem`, `CaptureFrame`, `CaptureFormat` | [Capture](../modules/Capture.md) |
 | `include/engine/haptics/haptics_system.h` | `IHaptics` and `HapticsSystem` | [Haptics](../modules/Haptics.md) |
 | `include/engine/net/http_call.h` | `HttpCall`: one owned request, `take`, `cancel` | [Net](../modules/Net.md) |
 | `include/engine/net/http_client.h` | `IHttpClient` and `HttpClient` | [Net](../modules/Net.md) |
@@ -80,8 +81,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/render/commands.h` | `CmdDrawMesh`, `CmdDrawUI`, `CmdDrawParticles`, `CmdSetView` | [Render](../modules/Render.md) |
 | `include/engine/render/curve.h` | `Curve<T>` with `Linear`, `Smooth`, and `Step` keys | [Render](../modules/Render.md) |
 | `include/engine/render/directional_light.h` | `DirectionalLight` component | [Render](../modules/Render.md#lights) |
-| `include/engine/render/graphic_factory.h` | `MeshVertex` (position, normal, uv), indexed `MeshDesc`, shader and texture descriptions, factory | [Render](../modules/Render.md) |
-| `include/engine/render/graphics.h` | `IMesh`, `IShader`, `ITexture` | [Render](../modules/Render.md) |
+| `include/engine/render/graphic_factory.h` | `MeshVertex` (position, normal, uv), indexed `MeshDesc`, shader, texture and dynamic-texture descriptions, factory | [Render](../modules/Render.md) |
+| `include/engine/render/graphics.h` | `IMesh`, `IShader`, `ITexture`, `IDynamicTexture` | [Render](../modules/Render.md) |
 | `include/engine/render/lights.h` | `collect_scene_lights`, `default_scene_lights` | [Render](../modules/Render.md#lights) |
 | `include/engine/render/material.h` | `IMaterial`, `RenderState` (blend, depth test/write, `CullMode`), `.mat` parse | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `include/engine/render/draw_sort.h` | `DrawQueue`, `DrawSortKey`, `make_draw_sort_key`, `draw_sort_less` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
@@ -232,13 +233,14 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/opengl/opengl_canvas.h` | `OpenGLCanvas` | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_ui_device.cpp`, `src/render/opengl/opengl_ui_device.h` | `OpenGLUiDevice`: the UI renderer's `IUiDevice` on GL 3.3 core and GLES 3.0 | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_ui_shader.h` | The UI shader, `src/ui/render/fragment.h` in GLSL | [Render](../modules/Render.md) |
-| `src/render/opengl/opengl_factory.cpp` | Create GL mesh, shader, texture | [Render](../modules/Render.md) |
+| `src/render/opengl/context_scope.h` | `ContextScope`: make the engine context current for a scope | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_factory.cpp` | Create GL mesh, shader, texture, dynamic texture | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_factory.h` | `OpenGLFactory` | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_mesh.cpp` | GL mesh: vertex and element buffers, per-context VAO, `glDrawElements` or `glDrawArrays` | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_mesh.h` | GL mesh type | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_shader.cpp` | GL program and named uniforms | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_shader.h` | GL shader type | [Render](../modules/Render.md) |
-| `src/render/opengl/opengl_texture.cpp` | GL texture and sampler from catalog filter and wrap | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_texture.cpp` | GL texture and sampler from catalog filter and wrap; `update` of a dynamic texture | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_texture.h` | GL texture type | [Render](../modules/Render.md) |
 | `src/render/opengl/sdl_gl_presentation.cpp` | SDL poll, present, and `IPresentation` | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/sdl_gl_presentation.h` | `SdlGlPresentation` | [Windowing](../features/Windowing.md) |
@@ -349,7 +351,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ui/render/ui_vertex.cpp`, `ui_vertex.h` | `UiVertex` and `UiBatch` | [UI](../modules/UI.md) |
 | `src/ui/render/utf8_decoder.cpp`, `utf8_decoder.h` | Byte-at-a-time UTF-8 decoder of the text layout | [UI](../modules/UI.md) |
 
-## `src/audio/`, `src/haptics/`, `src/net/`, `src/loc/`
+## `src/audio/`, `src/capture/`, `src/haptics/`, `src/net/`, `src/loc/`
 
 | Path | What it does | Page |
 | --- | --- | --- |
@@ -357,6 +359,9 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/audio/clip.cpp` | Decode a WAV into the opaque clip | [Audio](../modules/Audio.md) |
 | `src/audio/clip.h` | Clip storage. Mixer types stay here | [Audio](../modules/Audio.md) |
 | `src/audio/fake_mixer.h` | In-memory tracks for tests and the no-audio build | [Audio](../modules/Audio.md) |
+| `src/capture/capture_system.cpp` | SDL3 camera backend and the session registry; no devices without a window | [Capture](../modules/Capture.md) |
+| `src/capture/format_select.cpp`, `src/capture/format_select.h` | `pick_format`: the offered format closest to the request | [Capture](../modules/Capture.md) |
+| `src/capture/frame_convert.cpp`, `src/capture/frame_convert.h` | SDL surface (RGB or YUV) to RGBA8 | [Capture](../modules/Capture.md) |
 | `src/haptics/fake_haptics.h` | Records vibrate and cancel on every backend | [Haptics](../modules/Haptics.md) |
 | `src/haptics/haptics_system.cpp` | No-op, `navigator.vibrate`, or Android JNI | [Haptics](../modules/Haptics.md) |
 | `src/net/android_http.cpp` | `AndroidHttp`: `HttpURLConnection` through JNI | [Net](../modules/Net.md) |
@@ -438,6 +443,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/game_module_test.cpp` | `load_game_module` against the fixture modules (editor build) | [Core](../modules/Core.md) |
 | `tests/game_loop_test.cpp` | `RunHooks` order, frame-end restart, and `RunHooks::cli` without a primary world, with a fake presentation | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `tests/gl_error_log_test.cpp` | GL error names, one report per error and command | [Render](../modules/Render.md) |
+| `tests/capture_test.cpp` | Format choice, uninitialized system, surface conversion | [Capture](../modules/Capture.md) |
 | `tests/haptics_test.cpp` | Clamp, no-op, and the fake counters | [Haptics](../modules/Haptics.md) |
 | `tests/curl_transfer_test.cpp` | `curl_transfer` against a fake libcurl | [Net](../modules/Net.md) |
 | `tests/http_test.cpp` | `HttpCall` ownership, completion queue, worker pool, URL and header parsing, `HttpClient` without a socket | [Net](../modules/Net.md) |
@@ -452,7 +458,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/material_test.cpp` | `.mat` parse (blend, depth, cull, defaults) and instance tint | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `tests/mesh_test.cpp` | `.mesh` parse (5- and 8-column vertices, `f` rows, bad rows and indices), `mesh_desc_error` | [Assets](../features/Assets.md#mesh-files) |
 | `tests/mvvm_test.cpp` | View-model properties, commands, checkbox write-back | [UI](../modules/UI.md) |
-| `tests/opengl_texture_test.cpp` | CPU texture description. No GL draw | [Render](../modules/Render.md) |
+| `tests/opengl_texture_test.cpp` | CPU texture description, row flip, dynamic-texture creation contract. No GL draw | [Render](../modules/Render.md) |
 | `tests/particle_test.cpp` | Emitter step, curves, and parallel integration matching the caller | [Render](../modules/Render.md) |
 | `tests/pointer_target_test.cpp` | `PointerTarget`: hit-test, order, windows, camera, hover, click, click-through, UI first | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `tests/lights_test.cpp` | Light collection (direction from rotation and parent, cap, ambient sum, default rig) and the lights and camera in `CmdSetView` | [Render](../modules/Render.md#lights) |

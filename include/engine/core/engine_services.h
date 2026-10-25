@@ -10,6 +10,7 @@ namespace engine {
 
 class AssetsDb;
 class IAudioSystem;
+class ICapture;
 class IHaptics;
 class IHttpClient;
 class InputSystem;
@@ -28,6 +29,7 @@ struct EngineServices {
     AssetsDb& assets;
     InputSystem& input;
     IAudioSystem& audio;
+    ICapture& capture;
     IHaptics& haptics;
     IHttpClient& http;
     IProcessLauncher& processes;

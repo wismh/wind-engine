@@ -33,6 +33,10 @@ Instance tint is `material.color * instance.color` (`multiply_instance_color`). 
 
 GPU objects are `IMesh`, `IShader`, `ITexture` created by `IGraphicFactory` from `MeshDesc`, `ShaderDesc`, and `TextureDesc`.
 
+### Dynamic textures
+
+`IGraphicFactory::create_dynamic_texture(DynamicTextureDesc)` returns an `IDynamicTexture` (an `ITexture`) that starts transparent black. `update(rgba, width, height)` replaces every pixel with RGBA8, top row first, the layout of `TextureDesc::rgba`, and the texture behaves exactly as if it had been made from that data (v = 1 is the top row). A new size reallocates and `width()` / `height()` follow. It returns false, and changes nothing, for a size that is not positive or an `rgba` shorter than `width * height * 4`. `OpenGLTexture` implements both: `update` flips the rows into one reused staging buffer (the same flip creation does), makes the engine's context current (`ContextScope`, as the factory does for creation), and calls `glTexSubImage2D`, or `glTexImage2D` when the size changed. Textures are shared between the windows' contexts, so one update shows in every window. Main thread only. A camera frame from [Capture](Capture.md) goes in with `texture->update(frame.rgba, frame.width, frame.height)`.
+
 ## Meshes
 
 `MeshDesc` (`include/engine/render/graphic_factory.h`) is `vertices` plus `indices`. A `MeshVertex` is `position`, `normal` (default `{0, 0, 1}`), and `uv`. Empty `indices` is a non-indexed triangle list: every three vertices are one triangle. Otherwise every three `std::uint32_t` indices are one, each below `vertices.size()`. Front faces wind counter-clockwise; normals are written as given, so a lit shader expects unit length.
