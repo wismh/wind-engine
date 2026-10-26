@@ -249,6 +249,7 @@ GL errors are silent unless someone asks. With `ENGINE_GL_CHECKS` (Debug, RelWit
 | GPU resources (`VulkanMesh`, `VulkanShader`, `VulkanTexture`) | `vulkan_mesh.cpp`, `vulkan_shader.cpp`, `vulkan_texture.cpp` |
 | SPIR-V reflection (`OpEntryPoint`, UBO uniform layout, sampler binding) | `src/render/vulkan/vulkan_spirv.cpp` |
 | Render backend (`IRenderBackend`, graphics pipelines, UBO/descriptor sets, `CmdSetView`, `CmdDrawMesh`, `CmdDrawParticles`) | `src/render/vulkan/vulkan_backend.cpp` |
+| UI device (`IUiDevice`) and its Slang uber-shader | `vulkan_ui_device.cpp`, `vulkan_ui_shader.h` |
 | Per-window `VkSurfaceKHR`, `VkSwapchainKHR`, depth attachment, render pass, framebuffers, sync primitives, and staging-buffer `read_pixels()` | `src/render/vulkan/vulkan_canvas.cpp` |
 | SDL presentation wiring (`make_sdl_vk_presentation`) | `src/render/vulkan/sdl_vk_presentation.cpp` |
 

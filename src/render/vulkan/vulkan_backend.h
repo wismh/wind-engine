@@ -36,6 +36,7 @@ public:
     [[nodiscard]] ui::PaintResources& ui_resources() noexcept { return *ui_resources_; }
     [[nodiscard]] VulkanContext& context() noexcept { return *context_; }
     [[nodiscard]] const VulkanContext& context() const noexcept { return *context_; }
+    [[nodiscard]] const std::shared_ptr<VulkanContext>& context_ptr() const noexcept { return context_; }
     [[nodiscard]] const CmdSetView& last_view() const noexcept { return view_; }
 
     void begin_scene_pass(
