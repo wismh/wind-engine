@@ -111,6 +111,24 @@ Menu:hover {
   border-color: #43454a;
   border-radius: 6;
   gap: 2;
+  text-align: left;
+}
+
+.menu-popup Menu {
+  height: 24;
+  min-width: 160;
+  padding: 0 10 0 10;
+  border-radius: 4;
+  font-size: 13;
+  color: #dfe1e5;
+  background: #00000000;
+  text-align: left;
+  align-items: center;
+}
+
+.menu-popup Menu:hover {
+  background: #3574f0;
+  color: #ffffff;
 }
 
 MenuItem {
@@ -121,12 +139,17 @@ MenuItem {
   font-size: 13;
   color: #dfe1e5;
   background: #00000000;
+  text-align: left;
   align-items: center;
 }
 
 MenuItem:hover {
   background: #3574f0;
   color: #ffffff;
+}
+
+MenuItem:disabled {
+  color: #6f737a;
 }
 
 MenuSeparator {

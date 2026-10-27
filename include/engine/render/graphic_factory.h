@@ -33,6 +33,8 @@ struct MeshDesc {
 struct ShaderDesc {
     std::string vertex_src;
     std::string fragment_src;
+    std::vector<std::uint32_t> vertex_spirv;
+    std::vector<std::uint32_t> fragment_spirv;
 };
 
 struct TextureDesc {

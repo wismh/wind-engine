@@ -1,4 +1,5 @@
 #include <engine/render/material.h>
+#include <engine/resources/asset_id.h>
 
 #include <toml++/toml.hpp>
 
@@ -24,16 +25,8 @@ void MaterialOverride::set_vec4(std::string_view name, const glm::vec4& value) {
 
 namespace {
 
-bool is_hex_guid(std::string_view value) {
-    if (value.size() != 32) {
-        return false;
-    }
-    for (char c : value) {
-        if (std::isxdigit(static_cast<unsigned char>(c)) == 0) {
-            return false;
-        }
-    }
-    return true;
+bool is_asset_uri(std::string_view value) {
+    return AssetId::is_valid_uri(value);
 }
 
 std::optional<float> node_as_float(const toml::node& node) {
@@ -89,7 +82,7 @@ std::optional<MaterialDesc> parse_material_table(const toml::table& table) {
     MaterialDesc desc;
 
     const auto shader = table["shader"].value<std::string>();
-    if (!shader || !is_hex_guid(*shader)) {
+    if (!shader || !is_asset_uri(*shader)) {
         return std::nullopt;
     }
     desc.shader = *shader;
@@ -147,7 +140,7 @@ std::optional<MaterialDesc> parse_material_table(const toml::table& table) {
 
     if (const toml::table* textures = table["textures"].as_table()) {
         if (const auto albedo = (*textures)["albedo"].value<std::string>()) {
-            if (!is_hex_guid(*albedo)) {
+            if (!is_asset_uri(*albedo)) {
                 return std::nullopt;
             }
             desc.albedo = *albedo;

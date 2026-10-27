@@ -37,7 +37,7 @@ engine::ui::UiDocument must_parse_xml(std::string_view xml) {
 }
 
 bool contains(const std::vector<AssetId>& ids, std::string_view hex) {
-    const auto id = AssetId::parse(hex);
+    const auto id = AssetId::parse_hex(hex);
     return id.has_value() && std::find(ids.begin(), ids.end(), *id) != ids.end();
 }
 
@@ -46,9 +46,9 @@ bool contains(const std::vector<AssetId>& ids, std::string_view hex) {
 TEST(UiRefs, CollectsElementSourceRecursively) {
     const auto document = must_parse_xml(R"(
 <Canvas>
-  <Image source=")" + std::string(kImageId) + R"("/>
+  <Image source="asset://)" + std::string(kImageId) + R"("/>
   <Stack>
-    <Image source=")" + std::string(kNestedImageId) + R"("/>
+    <Image source="asset://)" + std::string(kNestedImageId) + R"("/>
   </Stack>
 </Canvas>
 )");
@@ -62,7 +62,7 @@ TEST(UiRefs, CollectsElementSourceRecursively) {
 TEST(UiRefs, UnsetImageSourceIsNotCollected) {
     auto document = must_parse_xml(R"(
 <Canvas>
-  <Image source=")" + std::string(kImageId) + R"("/>
+  <Image source="asset://)" + std::string(kImageId) + R"("/>
   <Image/>
 </Canvas>
 )");
@@ -77,8 +77,8 @@ TEST(UiRefs, UnsetImageSourceIsNotCollected) {
 TEST(UiRefs, SvgSourceIsNotAnImage) {
     const auto document = must_parse_xml(R"(
 <Canvas>
-  <Svg source=")" + std::string(kImageId) + R"("/>
-  <Image source=")" + std::string(kNestedImageId) + R"("/>
+  <Svg source="asset://)" + std::string(kImageId) + R"("/>
+  <Image source="asset://)" + std::string(kNestedImageId) + R"("/>
 </Canvas>
 )");
 
@@ -90,7 +90,7 @@ TEST(UiRefs, SvgSourceIsNotAnImage) {
 
 TEST(UiRefs, CollectsBackgroundImageFromStylesheetIgnoringNone) {
     const auto document = must_parse_xml("<Canvas><Button class=\"a\"/><Button class=\"b\"/></Canvas>");
-    const auto sheet = must_parse_css(".a { background-image: " + std::string(kCssImageId) +
+    const auto sheet = must_parse_css(".a { background-image: asset://" + std::string(kCssImageId) +
             "; } .b { background-image: none; }");
 
     const auto images = collect_referenced_images(document, &sheet);
@@ -106,7 +106,7 @@ TEST(UiRefs, NoDocumentOrStylesheetReferencesYieldsEmpty) {
 
 TEST(UiRefs, CollectsFontFamilyFromCssExcludingBuiltin) {
     const auto document = must_parse_xml("<Canvas><Label class=\"title\" text=\"hi\"/></Canvas>");
-    const auto sheet = must_parse_css(".title { font-family: " + std::string(kCssFontId) + "; }");
+    const auto sheet = must_parse_css(".title { font-family: asset://" + std::string(kCssFontId) + "; }");
 
     const auto fonts = collect_referenced_fonts(document, &sheet);
     EXPECT_TRUE(contains(fonts, kCssFontId));
@@ -118,7 +118,7 @@ TEST(UiRefs, ElementFontFamilySetByPriorPaintPassIsCollected) {
     auto document = must_parse_xml("<Canvas><Label text=\"hi\"/></Canvas>");
     // Simulates paint.cpp writing a resolved (non-default) font-family back onto the element
     // after computing style (paint.cpp:605) — the collector must see it same as any other field.
-    document.root.children.front().font_family = *AssetId::parse(kFontId);
+    document.root.children.front().font_family = *AssetId::parse_hex(kFontId);
 
     const auto fonts = collect_referenced_fonts(document, nullptr);
     EXPECT_TRUE(contains(fonts, kFontId));

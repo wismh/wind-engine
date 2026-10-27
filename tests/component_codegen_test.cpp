@@ -76,7 +76,10 @@ struct WIND_COMPONENT ForwardDeclaredOnly;
     EXPECT_NE(emitted.find("#include \"gameplay/spawner.h\""), std::string::npos);
     EXPECT_NE(emitted.find("serializer.register_component<game::EnemySpawner>"), std::string::npos);
     EXPECT_NE(emitted.find("out.field(\"interval\", c.interval);"), std::string::npos);
-    EXPECT_NE(emitted.find("in.field(\"waypoints\", c.waypoints);"), std::string::npos);
+    EXPECT_NE(
+            emitted.find("                (void)in.field(\"waypoints\", c.waypoints);\n            });\n"),
+            std::string::npos);
+    EXPECT_EQ(emitted.find("            },\n            });\n"), std::string::npos);
     EXPECT_NE(emitted.find("\"custom_patrol\""), std::string::npos);
     EXPECT_NE(emitted.find("inline void register_game_objects(engine::AssetsDb&) {}"), std::string::npos);
 }

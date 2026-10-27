@@ -89,10 +89,18 @@ EditorPanels::EditorPanels(DockLayoutFile layout_file)
       explorer_(selection_, commands_),
       explorer_input_(explorer_),
       hierarchy_(selection_),
+      hierarchy_input_(hierarchy_),
       world_view_(selection_),
       ui_tree_(selection_),
       inspector_(selection_) {
     inspector_.set_previews(&explorer_.thumbnails());
+    hierarchy_.set_command_history(&commands_);
+    hierarchy_.set_on_history([this] {
+        world_view_.sync_entity_dirty(commands_.count(EditorCommand::Kind::Entity));
+        world_view_.mark_dirty();
+        hierarchy_.refresh();
+        inspector_.refresh();
+    });
     inspector_.set_journal(&commands_, [this] {
         world_view_.sync_entity_dirty(commands_.count(EditorCommand::Kind::Entity));
     });
@@ -191,8 +199,10 @@ void EditorPanels::frame(engine::ecs::World& world) {
     space.area = engine::render::Rect{0.0f, kToolbarHeight, static_cast<float>(size.width),
             std::max(0.0f, static_cast<float>(size.height) - kToolbarHeight)};
     explorer_input_.focus_rename(world, explorer_canvas_);
+    hierarchy_input_.focus_rename(world, hierarchy_canvas_);
     read_tree_keys(world);
     explorer_input_.read_drag(world, explorer_canvas_);
+    hierarchy_input_.read_drag(world, hierarchy_canvas_);
     sync_project_grid(world);
     if (!explorer_.directory().empty()) {
         for (const ProjectRelocation& moved : explorer_.take_relocations()) {
@@ -478,6 +488,14 @@ void EditorPanels::read_tree_keys(engine::ecs::World& world) {
             (void) world_view_.save_world();
             continue;
         }
+        if (hierarchy_.renaming() != engine::ecs::Entity{}) {
+            if (!event.repeat && event.key == engine::KeyCode::Escape) {
+                hierarchy_.cancel_rename();
+            } else if (!event.repeat && event.key == engine::KeyCode::Return) {
+                hierarchy_.commit_rename();
+            }
+            continue;
+        }
         if (!explorer_.renaming().empty()) {
             if (!event.repeat && event.key == engine::KeyCode::Escape) {
                 explorer_.cancel_rename();
@@ -488,6 +506,10 @@ void EditorPanels::read_tree_keys(engine::ecs::World& world) {
         }
         const engine::ui::Element* focused = engine::ui::focused_element(world, event.window);
         if (focused != nullptr && focused->kind == engine::ui::ElementKind::TextInput) {
+            continue;
+        }
+        const bool over_hierarchy = tree_canvas_under_pointer(world, event.window) == hierarchy_canvas_;
+        if (over_hierarchy && hierarchy_input_.handle_key(event, held_ctrl_, held_shift_)) {
             continue;
         }
         const bool over_project = tree_canvas_under_pointer(world, event.window) == explorer_canvas_;

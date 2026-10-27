@@ -669,7 +669,7 @@ std::expected<InstantiatedWorld, WorldLoadError> instantiate_world(
             }
 
             FieldTable proto_inst_table;
-            proto_inst_table["prototype"] = FieldValue{record.prototype->hex()};
+            proto_inst_table["prototype"] = FieldValue{record.prototype->uri()};
             proto_inst_table["entity_sub_id"] = FieldValue{p_ent.id};
             spawned.components.insert_or_assign("prototype_instance", std::move(proto_inst_table));
 

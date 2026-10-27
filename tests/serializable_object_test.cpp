@@ -114,10 +114,10 @@ version = 1
 id = "loot"
 
 [entities.grant]
-loot = "fedcba9876543210fedcba9876543210"
+loot = "asset://fedcba9876543210fedcba9876543210"
 
 [entities.grant.drop]
-item = "0123456789abcdef0123456789abcdef"
+item = "asset://0123456789abcdef0123456789abcdef"
 count = 3
 
 [[entities.grant.extras]]
@@ -139,7 +139,7 @@ count = 2
     EXPECT_EQ(grant->extras[0].count, 2);
 
     const std::string saved = engine::ecs::save_world_to_toml(world);
-    EXPECT_NE(saved.find("fedcba9876543210fedcba9876543210"), std::string::npos);
+    EXPECT_NE(saved.find("asset://fedcba9876543210fedcba9876543210"), std::string::npos);
 
     engine::ecs::World again;
     game::register_grant(again.ctx<engine::ecs::WorldSerializer>());
@@ -161,7 +161,7 @@ version = 1
 
 [[entities]]
 id = "loot"
-grant = { drop = { item = "0123456789abcdef0123456789abcdef" } }
+grant = { drop = { item = "asset://0123456789abcdef0123456789abcdef" } }
 )";
 
     engine::ecs::World world;

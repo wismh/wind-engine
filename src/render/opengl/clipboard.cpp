@@ -1,6 +1,6 @@
 #include "clipboard.h"
 
-#include "gl_includes.h"
+#include <SDL3/SDL.h>
 
 namespace engine {
 

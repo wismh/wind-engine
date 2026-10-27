@@ -1,6 +1,6 @@
 #pragma once
 
-#include "gl_includes.h"
+#include <SDL3/SDL.h>
 
 #include <engine/core/window_desc.h>
 #include <engine/render/commands.h>
@@ -31,9 +31,8 @@ public:
     WindowSystem& operator=(const WindowSystem&) = delete;
 
     // `owner` (WindowDesc::owner resolved by WindowManager) or nullptr: the window stays above it and closes with it.
-    [[nodiscard]] bool create(const WindowDesc& desc, SDL_Window* owner);
+    [[nodiscard]] bool create(const WindowDesc& desc, SDL_Window* owner, SDL_WindowFlags api_flags = 0);
     void destroy();
-    void swap() const;
     void set_icon(const render::TextureDesc& desc);
 
     // borderless/always-on-top/position/size can change after create(); WindowStyle::transparent

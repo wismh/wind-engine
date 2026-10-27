@@ -140,11 +140,14 @@ function(engine_prepare_runtime target)
 
     set(_engine_game_assets "${CMAKE_CURRENT_SOURCE_DIR}/assets")
     if(EXISTS "${_engine_game_assets}")
+        set(_gen_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/${target}")
         add_custom_command(TARGET ${target} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
+            COMMAND asset_codegen
                 "${_engine_game_assets}"
-                "${_engine_app_assets_out}"
-            COMMENT "Copy game assets beside ${target}"
+                "${_gen_dir}"
+                --project "${CMAKE_CURRENT_SOURCE_DIR}"
+                --stage "${_engine_app_assets_out}"
+            COMMENT "Stage cooked game assets beside ${target}"
             VERBATIM)
     endif()
 
@@ -281,7 +284,7 @@ function(engine_configure_app target)
         add_custom_command(
             OUTPUT "${_gen}/asset_ids.h" "${_gen}/catalog.toml"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${_gen}"
-            COMMAND asset_codegen "${_assets}" "${_gen}"
+            COMMAND asset_codegen "${_assets}" "${_gen}" --project "${CMAKE_CURRENT_SOURCE_DIR}"
             DEPENDS asset_codegen ${_asset_files}
             COMMENT "Cook asset catalog for ${target}"
             VERBATIM)

@@ -70,4 +70,40 @@ std::expected<bool, ManifestFailure> ManifestTable::boolean(std::string_view key
     return *node->value<bool>();
 }
 
+std::expected<std::vector<std::string>, ManifestFailure> ManifestTable::optional_string_array(
+        std::string_view subtable, std::string_view key) const {
+    const toml::table* tab = &table_;
+    if (!subtable.empty()) {
+        const toml::node* const sub_node = table_.get(subtable);
+        if (sub_node == nullptr) {
+            return std::vector<std::string>{};
+        }
+        tab = sub_node->as_table();
+        if (tab == nullptr) {
+            return std::unexpected(
+                    ManifestFailure{ManifestError::WrongType, std::string(subtable) + " must be a table"});
+        }
+    }
+    const toml::node* const node = tab->get(key);
+    if (node == nullptr) {
+        return std::vector<std::string>{};
+    }
+    const toml::array* const arr = node->as_array();
+    if (arr == nullptr) {
+        return std::unexpected(
+                ManifestFailure{ManifestError::WrongType, std::string(key) + " must be an array of strings"});
+    }
+    std::vector<std::string> result;
+    result.reserve(arr->size());
+    for (const toml::node& elem : *arr) {
+        const auto val = elem.value<std::string>();
+        if (!elem.is_string() || !val) {
+            return std::unexpected(
+                    ManifestFailure{ManifestError::WrongType, std::string(key) + " elements must be strings"});
+        }
+        result.push_back(*val);
+    }
+    return result;
+}
+
 }

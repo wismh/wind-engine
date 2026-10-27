@@ -1,6 +1,6 @@
 #include <engine/core/sdl_fatal_error.h>
 
-#include "render/opengl/gl_includes.h"
+#include <SDL3/SDL.h>
 
 #include <cstdlib>
 #include <string>

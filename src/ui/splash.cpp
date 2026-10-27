@@ -64,7 +64,7 @@ std::optional<SplashDocument> build_splash_document(const SplashScreen& config, 
 
     const std::string image_xml =
             std::format(R"(<Canvas class="{}"><Image class="{}" source="{}"/></Canvas>)", kRootClass, kImageClass,
-                    config.image.hex());
+                    config.image.uri());
 
     auto backdrop_document = parse_xml(backdrop_xml);
     auto image_document = parse_xml(image_xml);

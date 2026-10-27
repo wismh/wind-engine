@@ -2,11 +2,38 @@
 
 #include "core/game_loop.h"
 #include "render/opengl/sdl_gl_presentation.h"
+#if !defined(__EMSCRIPTEN__)
+#include "render/vulkan/sdl_vk_presentation.h"
+#endif
 
 #include <engine/core/platform.h>
 #include <engine/resources/font.h>
 
+#include <cstdlib>
+#include <cstring>
+
 namespace engine {
+
+namespace {
+
+std::unique_ptr<IPresentation> make_default_presentation() {
+#if !defined(__EMSCRIPTEN__)
+    if (const char* env = std::getenv("WIND_RENDER_BACKEND")) {
+        if (std::strcmp(env, "vulkan") == 0) {
+            return make_sdl_vk_presentation();
+        }
+        if (std::strcmp(env, "opengl") == 0) {
+            return make_sdl_gl_presentation();
+        }
+    }
+#if defined(ENGINE_WITH_VULKAN)
+    return make_sdl_vk_presentation();
+#endif
+#endif
+    return make_sdl_gl_presentation();
+}
+
+} // namespace
 
 struct EngineRuntime::Impl {
     explicit Impl(std::unique_ptr<IPresentation> p) : presentation(std::move(p)) {}
@@ -15,7 +42,7 @@ struct EngineRuntime::Impl {
     GameLoop loop;
 };
 
-EngineRuntime::EngineRuntime() : EngineRuntime(make_sdl_gl_presentation()) {}
+EngineRuntime::EngineRuntime() : EngineRuntime(make_default_presentation()) {}
 
 EngineRuntime::EngineRuntime(std::unique_ptr<IPresentation> presentation)
     : impl_(std::make_unique<Impl>(std::move(presentation))) {}

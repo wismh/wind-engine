@@ -24,12 +24,22 @@ std::expected<WindProject, ManifestFailure> read_wind_project(const std::filesys
     if (!target) {
         return std::unexpected(in_manifest(std::move(target.error()), path));
     }
+    auto roots = table->optional_string_array("assets", "roots");
+    if (!roots) {
+        return std::unexpected(in_manifest(std::move(roots.error()), path));
+    }
+    auto always_include = table->optional_string_array("assets", "always_include");
+    if (!always_include) {
+        return std::unexpected(in_manifest(std::move(always_include.error()), path));
+    }
     // A directory given with a trailing separator has an empty filename.
     const std::filesystem::path folder = directory.has_filename() ? directory : directory.parent_path();
     return WindProject{
             .name = name->value_or(manifest_path_text(folder.filename())),
             .engine = std::move(*engine),
             .target = std::move(*target),
+            .asset_roots = std::move(*roots),
+            .asset_always_include = std::move(*always_include),
     };
 }
 

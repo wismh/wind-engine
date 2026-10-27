@@ -468,7 +468,7 @@ namespace engine::ui {
             if (value == "center") {
                 return UiAlign::Center;
             }
-            if (value == "end") {
+            if (value == "end" || value == "right") {
                 return UiAlign::End;
             }
             return UiAlign::Start;

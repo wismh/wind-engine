@@ -254,14 +254,14 @@ TEST(UiCss, WhiteSpaceAndMaxWidthAreKnownProperties) {
 TEST(UiCss, BackgroundImageIsKnownProperty) {
     std::vector<std::string> warnings;
     const auto sheet = engine::ui::parse_css(
-            ".x { background-image: c1a1c2d3e4f5678901234567890abc0a; frobnicate: 1; }", warnings);
+            ".x { background-image: asset://c1a1c2d3e4f5678901234567890abc0a; frobnicate: 1; }", warnings);
     ASSERT_TRUE(sheet.has_value());
     EXPECT_FALSE(warning_mentions(warnings, "background-image"));
     EXPECT_TRUE(warning_mentions(warnings, "frobnicate"));
     ASSERT_EQ(sheet->rules.size(), 1u);
     const engine::ui::CssDeclaration* background_image = find_declaration(sheet->rules[0], "background-image");
     ASSERT_NE(background_image, nullptr);
-    EXPECT_EQ(background_image->value, "c1a1c2d3e4f5678901234567890abc0a");
+    EXPECT_EQ(background_image->value, "asset://c1a1c2d3e4f5678901234567890abc0a");
 }
 
 TEST(UiCss, BackgroundRepeatIsKnownProperty) {

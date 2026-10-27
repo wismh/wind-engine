@@ -1,5 +1,5 @@
 /* paint-mix image: one image per cell (textures/tile.png). */
 
 Stack.cell {
-  background-image: 991039a461a11e1f60a08fa950662761;
+  background-image: asset://991039a461a11e1f60a08fa950662761;
 }

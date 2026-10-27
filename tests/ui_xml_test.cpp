@@ -242,7 +242,7 @@ TEST(UiXml, CheckboxUnregisteredBindingIsFatal) {
 
 TEST(UiXml, ImageWithSliceParses) {
     const auto parsed = engine::ui::parse_xml(
-            R"(<Canvas><Image source="a0e1b2c3d4f5678901234567890abc05" slice="10 12 14 16"/></Canvas>)");
+            R"(<Canvas><Image source="asset://a0e1b2c3d4f5678901234567890abc05" slice="10 12 14 16"/></Canvas>)");
     ASSERT_TRUE(parsed.has_value());
     const engine::ui::Element* img = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Image);
     ASSERT_NE(img, nullptr);
@@ -256,9 +256,9 @@ TEST(UiXml, ImageWithSliceParses) {
 TEST(UiXml, InvalidSliceIsFatal) {
     fakes::RecordingFatal fatal;
     EXPECT_THROW((void) engine::ui::parse_xml(
-            R"(<Canvas><Image source="a0e1b2c3d4f5678901234567890abc05" slice="bad-slice"/></Canvas>)", &fatal), fakes::FatalReport);
+            R"(<Canvas><Image source="asset://a0e1b2c3d4f5678901234567890abc05" slice="bad-slice"/></Canvas>)", &fatal), fakes::FatalReport);
     const auto parsed = engine::ui::parse_xml(
-            R"(<Canvas><Image source="a0e1b2c3d4f5678901234567890abc05" slice="bad-slice"/></Canvas>)", nullptr);
+            R"(<Canvas><Image source="asset://a0e1b2c3d4f5678901234567890abc05" slice="bad-slice"/></Canvas>)", nullptr);
     EXPECT_FALSE(parsed.has_value());
     EXPECT_EQ(parsed.error(), engine::ui::UiError::InvalidMarkup);
     EXPECT_GE(fatal.call_count, 1);
