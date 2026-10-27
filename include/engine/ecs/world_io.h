@@ -147,7 +147,7 @@ public:
         if (id == AssetId{}) {
             return FieldValue{std::string{}};
         }
-        return FieldValue{std::string(id.hex())};
+        return FieldValue{id.uri()};
     }
 
     template<typename T>

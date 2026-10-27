@@ -808,7 +808,7 @@ TEST(RenderSystem, BindXmlStylesheetWhenExtrasEmpty) {
 
     TempDir tree;
     write_ui_asset(tree.path / "hud.xml",
-            R"(<Canvas stylesheet="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb01"><Button content="Go"/></Canvas>)", kHudGuid);
+            R"(<Canvas stylesheet="asset://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb01"><Button content="Go"/></Canvas>)", kHudGuid);
     write_css_asset(tree.path / "red.css", "Button { width: 80; height: 40; background: #ff0000; }\n", kCssGuid);
 
     engine::CookedCatalog catalog;

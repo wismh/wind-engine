@@ -73,7 +73,7 @@ std::shared_ptr<TilemapAsset> make_asset(int width = 70, int height = 40) {
 }
 
 std::string toml_with_tiles(const std::string& tiles) {
-    return std::string("texture = \"") + kGuid + "\"\nsize = [2, 2]\ntile_size = [16, 16]\n[[layers]]\nname = \"a\"\n" +
+    return std::string("texture = \"asset://") + kGuid + "\"\nsize = [2, 2]\ntile_size = [16, 16]\n[[layers]]\nname = \"a\"\n" +
             "tiles = " + tiles + "\n";
 }
 
@@ -238,12 +238,12 @@ TEST(Tilemap, AssetsDbLoadsATilemapWithItsTileset) {
         std::ofstream png(dir / "tiles.png", std::ios::binary);
         png.write(reinterpret_cast<const char*>(kPng1x1Red), sizeof(kPng1x1Red));
         std::ofstream map(dir / "level.tilemap");
-        map << "texture = \"" << kGuid << "\"\nsize = [2, 1]\ntile_size = [1, 1]\n"
+        map << "texture = \"asset://" << kGuid << "\"\nsize = [2, 1]\ntile_size = [1, 1]\n"
             << "[[layers]]\nname = \"a\"\ntiles = [1, 0]\n";
     }
-    const auto map_id = engine::AssetId::parse("fedcba9876543210fedcba9876543210").value();
+    const auto map_id = engine::AssetId{"fedcba9876543210fedcba9876543210"};
     engine::CookedCatalog catalog;
-    catalog.add(engine::CatalogEntry{engine::AssetId::parse(kGuid).value(), "tiles.png", engine::ImporterKind::Texture});
+    catalog.add(engine::CatalogEntry{engine::AssetId{kGuid}, "tiles.png", engine::ImporterKind::Texture});
     catalog.add(engine::CatalogEntry{map_id, "level.tilemap", engine::ImporterKind::Tilemap});
 
     CountingFactory factory;
@@ -260,6 +260,6 @@ TEST(Tilemap, AssetsDbLoadsATilemapWithItsTileset) {
     EXPECT_EQ((*asset)->desc.layers[0].tiles, (std::vector<std::uint16_t>{1, 0}));
 
     // A texture asset is not a tilemap.
-    EXPECT_FALSE(db.try_get<TilemapAsset>(engine::AssetId::parse(kGuid).value()).has_value());
+    EXPECT_FALSE(db.try_get<TilemapAsset>(engine::AssetId{kGuid}).has_value());
     std::filesystem::remove_all(dir);
 }

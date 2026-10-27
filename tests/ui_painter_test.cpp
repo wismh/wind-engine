@@ -332,7 +332,7 @@ TEST(UiPainter, FontFamilyGuidFromCss) {
 
     constexpr engine::AssetId hud_font{"c1a1c2d3e4f5678901234567890abc07"};
     const engine::ui::Stylesheet sheet =
-            must_parse_css(".title { color: #ff0000; font-size: 24; font-family: c1a1c2d3e4f5678901234567890abc07; }");
+            must_parse_css(".title { color: #ff0000; font-size: 24; font-family: asset://c1a1c2d3e4f5678901234567890abc07; }");
     FakePainter painter;
     engine::ui::paint_document(*parsed, &sheet, painter,
             engine::ui::UiPaintInput{.canvas_rect = {0.f, 0.f, 200.f, 100.f}});
@@ -1031,7 +1031,7 @@ TEST(UiPainter, ButtonHoverUsesPseudoBackgroundImage) {
     ASSERT_TRUE(parsed.has_value());
     const engine::ui::Stylesheet sheet = must_parse_css(R"(
         Button { width: 100; height: 100; }
-        Button:hover { background-image: c1a1c2d3e4f5678901234567890abc0a; }
+        Button:hover { background-image: asset://c1a1c2d3e4f5678901234567890abc0a; }
     )");
 
     FakePainter idle;
@@ -1057,7 +1057,7 @@ TEST(UiPainter, BackgroundImageNoneSkipsPaint) {
     auto parsed = engine::ui::parse_xml(R"(<Canvas><Button content="X"/></Canvas>)");
     ASSERT_TRUE(parsed.has_value());
     const engine::ui::Stylesheet sheet = must_parse_css(R"(
-        Button { width: 80; height: 40; background-image: c1a1c2d3e4f5678901234567890abc0a; }
+        Button { width: 80; height: 40; background-image: asset://c1a1c2d3e4f5678901234567890abc0a; }
         Button:hover { background-image: none; }
     )");
 
@@ -1080,7 +1080,7 @@ TEST(UiPainter, BackgroundRepeatDispatchesToImageRepeat) {
         .wall {
             width: 120;
             height: 80;
-            background-image: c1a1c2d3e4f5678901234567890abc0a;
+            background-image: asset://c1a1c2d3e4f5678901234567890abc0a;
             background-repeat: repeat;
         }
     )");
@@ -1102,7 +1102,7 @@ TEST(UiPainter, BackgroundRepeatDefaultsToNoRepeat) {
     auto parsed = engine::ui::parse_xml(R"(<Canvas><Stack class="wall"/></Canvas>)");
     ASSERT_TRUE(parsed.has_value());
     const engine::ui::Stylesheet sheet = must_parse_css(R"(
-        .wall { width: 120; height: 80; background-image: c1a1c2d3e4f5678901234567890abc0a; }
+        .wall { width: 120; height: 80; background-image: asset://c1a1c2d3e4f5678901234567890abc0a; }
     )");
 
     FakePainter painter;
@@ -1363,7 +1363,7 @@ TEST(UiPainter, ImageSourceFromBoundAssetId) {
 }
 
 TEST(UiPainter, ImageSourceLiteralGuidPaints) {
-    auto parsed = engine::ui::parse_xml(R"(<Canvas><Image source="c1a1c2d3e4f5678901234567890abc09"/></Canvas>)");
+    auto parsed = engine::ui::parse_xml(R"(<Canvas><Image source="asset://c1a1c2d3e4f5678901234567890abc09"/></Canvas>)");
     ASSERT_TRUE(parsed.has_value());
 
     const engine::ui::Element* image = engine::ui::find_by_kind(parsed->root, engine::ui::ElementKind::Image);
@@ -2212,7 +2212,7 @@ TEST(UiPainter, BackgroundImageWithSlicePaintsNineSlice) {
         .panel {
             width: 120;
             height: 80;
-            background-image: c1a1c2d3e4f5678901234567890abc0a;
+            background-image: asset://c1a1c2d3e4f5678901234567890abc0a;
             background-slice: 10 12 14 16;
         }
     )");
@@ -2339,7 +2339,7 @@ TEST(UiPainter, InvalidGradientSyntaxFallsBackToNoBackgroundWithoutCrashing) {
 
 TEST(UiPainter, ImageElementWithSlicePaintsNineSlice) {
     auto parsed = engine::ui::parse_xml(
-            R"(<Canvas><Image source="c1a1c2d3e4f5678901234567890abc0a" slice="8 12"/></Canvas>)");
+            R"(<Canvas><Image source="asset://c1a1c2d3e4f5678901234567890abc0a" slice="8 12"/></Canvas>)");
     ASSERT_TRUE(parsed.has_value());
     const engine::ui::Stylesheet sheet = must_parse_css("Image { width: 64; height: 64; }");
 
@@ -2360,7 +2360,7 @@ TEST(UiPainter, ImageElementWithSlicePaintsNineSlice) {
 
 TEST(UiPainter, ImageElementInheritsBackgroundSliceFromCss) {
     auto parsed = engine::ui::parse_xml(
-            R"(<Canvas><Image class="box" source="c1a1c2d3e4f5678901234567890abc0a"/></Canvas>)");
+            R"(<Canvas><Image class="box" source="asset://c1a1c2d3e4f5678901234567890abc0a"/></Canvas>)");
     ASSERT_TRUE(parsed.has_value());
     const engine::ui::Stylesheet sheet = must_parse_css(".box { width: 100; height: 100; background-slice: 15; }");
 
@@ -2383,7 +2383,7 @@ TEST(UiPainter, NineSliceScalesWithUiScale) {
         .panel {
             width: 100;
             height: 100;
-            background-image: c1a1c2d3e4f5678901234567890abc0a;
+            background-image: asset://c1a1c2d3e4f5678901234567890abc0a;
             background-slice: 10;
         }
     )");

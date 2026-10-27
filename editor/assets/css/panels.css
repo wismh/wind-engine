@@ -189,7 +189,7 @@ Checkbox.expander {
   margin: 5 4;
   padding: 0;
   background: #00000000;
-  background-image: a0e1b2c3d4f5678901234567890abc07;
+  background-image: asset://a0e1b2c3d4f5678901234567890abc07;
   transition: transform 0.12s ease-out;
 }
 

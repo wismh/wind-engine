@@ -224,7 +224,7 @@ std::string serialize_world_asset(const WorldAsset& asset) {
                 ent_tab.insert("parent", record.parent);
             }
             if (record.prototype.has_value()) {
-                ent_tab.insert("prototype", record.prototype->hex());
+                ent_tab.insert("prototype", record.prototype->uri());
             }
             for (const auto& [comp_name, comp_fields] : record.components) {
                 toml::table comp_tab;

@@ -51,19 +51,19 @@ TEST(Material, ParseValidToml) {
     constexpr std::string_view kToml = R"(
 guid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 importer = "material"
-shader = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+shader = "asset://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 blend = "alpha"
 color = [1.0, 0.5, 0.25, 1.0]
 [textures]
-albedo = "cccccccccccccccccccccccccccccccc"
+albedo = "asset://cccccccccccccccccccccccccccccccc"
 )";
 
     const auto desc = engine::render::parse_material(kToml);
     ASSERT_TRUE(desc.has_value());
-    EXPECT_EQ(desc->shader, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    EXPECT_EQ(desc->shader, "asset://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     EXPECT_EQ(desc->state.blend, engine::render::BlendMode::Alpha);
     expect_vec4(desc->color, {1.0f, 0.5f, 0.25f, 1.0f});
-    EXPECT_EQ(desc->albedo, "cccccccccccccccccccccccccccccccc");
+    EXPECT_EQ(desc->albedo, "asset://cccccccccccccccccccccccccccccccc");
 }
 
 TEST(Material, MissingShaderFails) {
@@ -73,7 +73,7 @@ importer = "material"
 blend = "opaque"
 color = [1.0, 1.0, 1.0, 1.0]
 [textures]
-albedo = "cccccccccccccccccccccccccccccccc"
+albedo = "asset://cccccccccccccccccccccccccccccccc"
 )";
 
     const auto desc = engine::render::parse_material(kToml);
@@ -109,7 +109,7 @@ TEST(Material, InstanceColorMultiplies) {
 
 namespace {
 
-constexpr std::string_view kShaderLine = "shader = \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"\n";
+constexpr std::string_view kShaderLine = "shader = \"asset://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"\n";
 
 std::optional<engine::render::MaterialDesc> parse_with(std::string_view extra) {
     return engine::render::parse_material(std::string(kShaderLine) + std::string(extra));

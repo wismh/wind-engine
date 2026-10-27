@@ -366,7 +366,7 @@ std::expected<AssetMeta, MetaError> parse_meta_table(const toml::table& table) {
     if (!guid_text) {
         return std::unexpected(MetaError::InvalidGuid);
     }
-    auto guid = AssetId::parse(*guid_text);
+    auto guid = AssetId::parse_hex(*guid_text);
     if (!guid) {
         return std::unexpected(MetaError::InvalidGuid);
     }
@@ -560,7 +560,7 @@ std::expected<CookedCatalog, MetaError> parse_cooked_catalog(std::string_view to
             if (!guid_text || !path || !importer_text) {
                 return std::unexpected(MetaError::InvalidField);
             }
-            auto guid = AssetId::parse(*guid_text);
+            auto guid = AssetId::parse_hex(*guid_text);
             if (!guid) {
                 return std::unexpected(MetaError::InvalidGuid);
             }

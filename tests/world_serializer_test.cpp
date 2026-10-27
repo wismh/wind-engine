@@ -179,7 +179,7 @@ transform = { position = [10.0, 20.0, 0.0] }
 
 [[entities]]
 id = "spawner_1"
-enemy_spawner = { interval = 0.75, enemy_sprite = "0123456789abcdef0123456789abcdef", patrol_target = "waypoint_a", initial_state = 2, override_speed = 9.5, wave_sizes = [4, 8] }
+enemy_spawner = { interval = 0.75, enemy_sprite = "asset://0123456789abcdef0123456789abcdef", patrol_target = "waypoint_a", initial_state = 2, override_speed = 9.5, wave_sizes = [4, 8] }
 )";
 
     engine::ecs::World world;

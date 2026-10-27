@@ -6,6 +6,7 @@
 #include <engine/ui/binding_id.h>
 #include <engine/ui/document.h>
 
+#include "resources/asset_crawler.h"
 #include "resources/importers.h"
 #include "ui/bind_scan.h"
 
@@ -264,7 +265,9 @@ std::expected<void, CodegenError> emit_ids_header(const std::vector<EmittedId>& 
 }
 
 std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::path& assets_root,
-        std::span<const AssetId> reserved) {
+        std::span<const AssetId> reserved,
+        std::span<const std::string> roots,
+        std::span<const std::string> always_include) {
     std::error_code exists_ec;
     if (!std::filesystem::exists(assets_root, exists_ec) || !std::filesystem::is_directory(assets_root)) {
         return std::unexpected(CodegenError{CodegenErrorKind::Io, "assets root is not a directory"});
@@ -277,7 +280,13 @@ std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::p
     for (const AssetId& id : reserved) {
         reserved_hex.emplace(id.hex());
     }
-    std::vector<EmittedId> ids;
+    std::unordered_map<AssetId, ScannedAssetInfo> scanned_assets;
+    std::unordered_map<std::string, AssetId> path_to_guid;
+    struct ScannedItem {
+        CatalogEntry entry;
+        std::optional<ui::BindBinder> ui_binder;
+    };
+    std::vector<ScannedItem> scanned_items;
     std::unordered_map<std::uint32_t, std::string> interned_paths;
     bool any_strings = false;
     int source_count = 0;
@@ -328,6 +337,13 @@ std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::p
                     "guid " + guid_hex + " used by " + it->second + " and " + relative});
         }
         guid_to_path.emplace(guid_hex, relative);
+
+        scanned_assets.emplace(parsed->guid, ScannedAssetInfo{
+                .guid = parsed->guid,
+                .relative_path = relative,
+                .full_path = file,
+        });
+        path_to_guid.emplace(relative, parsed->guid);
 
         std::optional<ui::BindBinder> ui_binder;
         if (parsed->importer == ImporterKind::Ui) {
@@ -455,12 +471,27 @@ std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::p
         catalog_entry.importer = parsed->importer;
         catalog_entry.audio = parsed->audio;
         catalog_entry.texture = parsed->texture;
-        output.catalog.add(std::move(catalog_entry));
-        ids.push_back(EmittedId{identifier_from_path(relative), parsed->guid, std::move(ui_binder)});
+        scanned_items.push_back(ScannedItem{std::move(catalog_entry), std::move(ui_binder)});
     }
 
     if (auto checked = check_string_tables(any_strings, source_count, source_keys, tr_refs); !checked) {
         return std::unexpected(std::move(checked.error()));
+    }
+
+    std::string crawl_error;
+    const auto reachable_guids = crawl_reachable_assets(
+            scanned_assets, path_to_guid, roots, always_include, &crawl_error);
+    if (!crawl_error.empty()) {
+        return std::unexpected(CodegenError{CodegenErrorKind::Io, crawl_error});
+    }
+
+    std::vector<EmittedId> ids;
+    ids.reserve(scanned_items.size());
+    for (auto& item : scanned_items) {
+        if (reachable_guids.contains(item.entry.guid)) {
+            ids.push_back(EmittedId{identifier_from_path(item.entry.relative_path), item.entry.guid, std::move(item.ui_binder)});
+            output.catalog.add(std::move(item.entry));
+        }
     }
 
     std::sort(ids.begin(), ids.end(),
@@ -473,8 +504,11 @@ std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::p
 }
 
 std::expected<void, CodegenError> codegen_write(const std::filesystem::path& assets_root,
-        const std::filesystem::path& output_dir, std::span<const AssetId> reserved) {
-    auto scanned = codegen_scan(assets_root, reserved);
+        const std::filesystem::path& output_dir, std::span<const AssetId> reserved,
+        std::span<const std::string> roots,
+        std::span<const std::string> always_include,
+        const std::filesystem::path& stage_dir) {
+    auto scanned = codegen_scan(assets_root, reserved, roots, always_include);
     if (!scanned) {
         return std::unexpected(std::move(scanned.error()));
     }
@@ -497,7 +531,33 @@ std::expected<void, CodegenError> codegen_write(const std::filesystem::path& ass
     if (!catalog_out) {
         return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to write " + catalog_path.generic_string()});
     }
-    catalog_out << scanned->catalog.serialize();
+    const std::string catalog_serialized = scanned->catalog.serialize();
+    catalog_out << catalog_serialized;
+
+    if (!stage_dir.empty()) {
+        std::filesystem::create_directories(stage_dir, create_ec);
+        if (create_ec) {
+            return std::unexpected(CodegenError{CodegenErrorKind::Io, create_ec.message()});
+        }
+        const std::filesystem::path staged_catalog = stage_dir / "catalog.toml";
+        std::ofstream stage_cat_out(staged_catalog, std::ios::trunc);
+        if (!stage_cat_out) {
+            return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to write " + staged_catalog.generic_string()});
+        }
+        stage_cat_out << catalog_serialized;
+
+        for (const auto& entry : scanned->catalog.entries()) {
+            const auto src_path = assets_root / entry.relative_path;
+            const auto dst_path = stage_dir / entry.relative_path;
+            std::filesystem::create_directories(dst_path.parent_path(), create_ec);
+            std::filesystem::copy_file(src_path, dst_path,
+                    std::filesystem::copy_options::overwrite_existing, create_ec);
+            if (create_ec) {
+                return std::unexpected(CodegenError{CodegenErrorKind::Io,
+                        "failed to stage asset " + entry.relative_path + ": " + create_ec.message()});
+            }
+        }
+    }
     return {};
 }
 

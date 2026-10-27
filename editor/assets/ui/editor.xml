@@ -2,7 +2,7 @@
   <Stack class="editor" direction="vertical">
     <Stack class="titlebar" direction="horizontal">
       <Stack class="titlebar-left" direction="horizontal">
-        <Image class="app-icon" source="e37ab68ef5a85b2bf93c84c168987296"/>
+        <Image class="app-icon" source="asset://e37ab68ef5a85b2bf93c84c168987296"/>
         <Label class="app-title" text="{binding windowTitle}"/>
         <MenuBar class="main-menu-bar">
           <Menu text="File">

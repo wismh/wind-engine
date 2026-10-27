@@ -127,12 +127,12 @@ fps = 12.0
 loop = false
 
 [[frames]]
-texture = "a1b2c3d4e5f6789012345678901234ab"
+texture = "asset://a1b2c3d4e5f6789012345678901234ab"
 sprite = "idle_0"
 duration = 0.05
 
 [[frames]]
-texture = "b2c3d4e5f678901234567890123456cd"
+texture = "asset://b2c3d4e5f678901234567890123456cd"
 )";
 
     const auto desc = engine::render::parse_animation(kToml);
@@ -166,7 +166,7 @@ texture = "not-a-hex"
     constexpr std::string_view kBadFps = R"(
 fps = -5.0
 [[frames]]
-texture = "a1b2c3d4e5f6789012345678901234ab"
+texture = "asset://a1b2c3d4e5f6789012345678901234ab"
 )";
     EXPECT_FALSE(engine::render::parse_animation(kBadFps).has_value());
 }
@@ -185,11 +185,11 @@ fps = 10.0
 loop = true
 
 [[frames]]
-texture = "11111111111111111111111111111111"
+texture = "asset://11111111111111111111111111111111"
 sprite = "sub_0"
 
 [[frames]]
-texture = "22222222222222222222222222222222"
+texture = "asset://22222222222222222222222222222222"
 duration = 0.2
 )";
     write_file(tree.path / "walk.anim", kAnimToml);
