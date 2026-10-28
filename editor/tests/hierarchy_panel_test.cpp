@@ -1,10 +1,13 @@
 #include <gtest/gtest.h>
 
+#include "command_history.h"
 #include "editor_selection.h"
 #include "hierarchy_panel.h"
 
 #include <engine/ecs/camera.h>
 #include <engine/ecs/hierarchy.h>
+#include <engine/ecs/transform.h>
+#include <engine/ecs/world_serializer.h>
 #include <engine/ecs/world.h>
 #include <engine/ecs/world_io.h>
 
@@ -280,3 +283,186 @@ TEST(HierarchyPanel, RefreshAdoptsEntitySelectionAndClearsWhenEmpty) {
     (void)alpha;
 }
 
+
+
+TEST(HierarchyPanel, CreateEntityAndChildEntity) {
+    engine::ecs::World edit_world;
+    editor::EditorSelection selection;
+    editor::CommandHistory history;
+    editor::HierarchyPanel panel{selection};
+    panel.set_command_history(&history);
+    panel.set_edit_world(&edit_world, "test.world");
+    panel.refresh();
+
+    panel.create_entity(std::nullopt);
+    EXPECT_EQ(edit_world.alive_entities().size(), 1u);
+    const engine::ecs::Entity root = panel.selected();
+    EXPECT_TRUE(edit_world.valid(root));
+    EXPECT_EQ(edit_world.get<engine::ecs::EntityName>(root).id, "Entity");
+    EXPECT_TRUE(edit_world.try_get<engine::Transform>(root) != nullptr);
+    EXPECT_EQ(panel.renaming(), root);
+    EXPECT_TRUE(panel.rename_focus_pending());
+
+    panel.commit_rename();
+    EXPECT_EQ(panel.renaming(), engine::ecs::Entity{});
+
+    panel.create_entity(root);
+    EXPECT_EQ(edit_world.alive_entities().size(), 2u);
+    const engine::ecs::Entity child = panel.selected();
+    EXPECT_TRUE(edit_world.valid(child));
+    EXPECT_EQ(edit_world.get<engine::ecs::EntityName>(child).id, "Child");
+    const auto* parent_comp = edit_world.try_get<engine::Parent>(child);
+    ASSERT_TRUE(parent_comp != nullptr);
+    EXPECT_EQ(parent_comp->entity, root);
+
+    panel.commit_rename();
+    EXPECT_EQ(labels(*panel.view_model()), (std::vector<std::string>{"Entity", "  Child"}));
+}
+
+TEST(HierarchyPanel, RenameEntityCommitsAndUpdatesEntityName) {
+    engine::ecs::World edit_world;
+    const engine::ecs::Entity player = spawn_named(edit_world, "OldPlayer");
+    editor::EditorSelection selection;
+    editor::CommandHistory history;
+    editor::HierarchyPanel panel{selection};
+    panel.set_command_history(&history);
+    panel.set_edit_world(&edit_world, "scene.world");
+    panel.refresh();
+
+    panel.begin_rename(player);
+    EXPECT_EQ(panel.renaming(), player);
+    const auto& rows = panel.view_model()->rows.get();
+    ASSERT_EQ(rows.size(), 1u);
+    EXPECT_EQ(rows[0]->rowDisplay.get(), "none");
+    EXPECT_EQ(rows[0]->renameDisplay.get(), "flex");
+    EXPECT_EQ(rows[0]->editText.get(), "OldPlayer");
+
+    rows[0]->editText = "  NewPlayer  ";
+    panel.commit_rename();
+    EXPECT_EQ(panel.renaming(), engine::ecs::Entity{});
+    EXPECT_EQ(edit_world.get<engine::ecs::EntityName>(player).id, "NewPlayer");
+    EXPECT_EQ(panel.view_model()->rows.get()[0]->label.get(), "NewPlayer");
+}
+
+TEST(HierarchyPanel, DeleteEntityDestroysSubtreeAndClearsSelection) {
+    engine::ecs::World edit_world;
+    const engine::ecs::Entity parent = spawn_named(edit_world, "parent");
+    const engine::ecs::Entity child = spawn_named(edit_world, "child");
+    ASSERT_TRUE(engine::ecs::set_parent(edit_world, child, parent));
+
+    editor::EditorSelection selection;
+    editor::CommandHistory history;
+    editor::HierarchyPanel panel{selection};
+    panel.set_command_history(&history);
+    panel.set_edit_world(&edit_world, "scene.world");
+    panel.select(child);
+    panel.refresh();
+
+    EXPECT_EQ(panel.selected(), child);
+    panel.remove_entity(parent);
+
+    EXPECT_FALSE(edit_world.valid(parent));
+    EXPECT_FALSE(edit_world.valid(child));
+    EXPECT_EQ(panel.selected(), engine::ecs::Entity{});
+    EXPECT_TRUE(panel.view_model()->rows.get().empty());
+}
+
+TEST(HierarchyPanel, ReparentEntityPreservesWorldPositionAndRejectsCycles) {
+    engine::ecs::World edit_world;
+    const engine::ecs::Entity root_a = spawn_named(edit_world, "root_a");
+    const engine::ecs::Entity root_b = spawn_named(edit_world, "root_b");
+    const engine::ecs::Entity child_a = spawn_named(edit_world, "child_a");
+    edit_world.emplace<engine::Transform>(root_a, engine::Transform{.position = {10.0f, 0.0f, 0.0f}});
+    edit_world.emplace<engine::Transform>(root_b, engine::Transform{.position = {20.0f, 0.0f, 0.0f}});
+    edit_world.emplace<engine::Transform>(child_a, engine::Transform{.position = {2.0f, 0.0f, 0.0f}});
+    ASSERT_TRUE(engine::ecs::set_parent(edit_world, child_a, root_a));
+
+    editor::EditorSelection selection;
+    editor::CommandHistory history;
+    editor::HierarchyPanel panel{selection};
+    panel.set_command_history(&history);
+    panel.set_edit_world(&edit_world, "scene.world");
+    panel.refresh();
+
+    EXPECT_FALSE(panel.can_drop(root_a, root_a));
+    EXPECT_FALSE(panel.can_drop(root_a, child_a));
+    EXPECT_TRUE(panel.can_drop(child_a, root_b));
+    EXPECT_TRUE(panel.can_drop(child_a, std::nullopt));
+
+    panel.reparent(child_a, root_b);
+    EXPECT_EQ(edit_world.get<engine::Parent>(child_a).entity, root_b);
+
+    panel.reparent(child_a, std::nullopt);
+    EXPECT_TRUE(edit_world.try_get<engine::Parent>(child_a) == nullptr);
+}
+
+TEST(HierarchyPanel, UndoRedoCreateDeleteRenameReparent) {
+    engine::ecs::World edit_world;
+    editor::EditorSelection selection;
+    editor::CommandHistory history;
+    editor::HierarchyPanel panel{selection};
+    panel.set_command_history(&history);
+    panel.set_edit_world(&edit_world, "scene.world");
+    panel.refresh();
+
+    // 1. Create
+    panel.create_entity(std::nullopt);
+    panel.commit_rename();
+    EXPECT_EQ(edit_world.alive_entities().size(), 1u);
+
+    // Undo create -> entity deleted
+    EXPECT_TRUE(history.undo());
+    panel.refresh();
+    EXPECT_EQ(edit_world.alive_entities().size(), 0u);
+
+    // Redo create -> entity restored
+    EXPECT_TRUE(history.redo());
+    panel.refresh();
+    EXPECT_EQ(edit_world.alive_entities().size(), 1u);
+
+    // 2. Rename
+    const engine::ecs::Entity restored = edit_world.alive_entities()[0];
+    panel.begin_rename(restored);
+    panel.view_model()->rows.get()[0]->editText = "Hero";
+    panel.commit_rename();
+    EXPECT_EQ(edit_world.get<engine::ecs::EntityName>(restored).id, "Hero");
+
+    // Undo rename -> "Entity"
+    EXPECT_TRUE(history.undo());
+    panel.refresh();
+    EXPECT_EQ(edit_world.get<engine::ecs::EntityName>(restored).id, "Entity");
+
+    // Redo rename -> "Hero"
+    EXPECT_TRUE(history.redo());
+    panel.refresh();
+    EXPECT_EQ(edit_world.get<engine::ecs::EntityName>(restored).id, "Hero");
+
+    // 3. Delete
+    panel.remove_entity(restored);
+    EXPECT_EQ(edit_world.alive_entities().size(), 0u);
+
+    // Undo delete -> entity restored
+    EXPECT_TRUE(history.undo());
+    panel.refresh();
+    EXPECT_EQ(edit_world.alive_entities().size(), 1u);
+    const engine::ecs::Entity back = edit_world.alive_entities()[0];
+    EXPECT_EQ(edit_world.get<engine::ecs::EntityName>(back).id, "Hero");
+}
+
+TEST(HierarchyPanel, DropHighlightSetsRowFill) {
+    engine::ecs::World edit_world;
+    const engine::ecs::Entity a = spawn_named(edit_world, "a");
+    const engine::ecs::Entity b = spawn_named(edit_world, "b");
+    editor::EditorSelection selection;
+    editor::HierarchyPanel panel{selection};
+    panel.set_edit_world(&edit_world, "scene.world");
+    panel.refresh();
+
+    panel.set_drop_highlight(b);
+    EXPECT_EQ(panel.view_model()->rows.get()[0]->rowFill.get(), "#00000000");
+    EXPECT_EQ(panel.view_model()->rows.get()[1]->rowFill.get(), "#2a4a6a");
+
+    panel.set_drop_highlight(std::nullopt);
+    EXPECT_EQ(panel.view_model()->rows.get()[1]->rowFill.get(), "#00000000");
+    (void)a;
+}
