@@ -137,6 +137,7 @@ std::expected<render::ShaderDesc, std::string> parse_shader(std::string_view xml
     render::ShaderDesc desc;
     bool has_slang = false;
 
+#ifdef ENGINE_WITH_SLANG
     if (slang_child != nullptr) {
         has_slang = true;
         std::string stage_vs;
@@ -180,6 +181,14 @@ std::expected<render::ShaderDesc, std::string> parse_shader(std::string_view xml
             desc = std::move(*compiled);
         }
     }
+#else
+    if (slang_child != nullptr || is_slang_root) {
+        has_slang = true;
+        if (glsl_child == nullptr) {
+            return std::unexpected("Slang compiler is not available in this build and no <glsl> fallback was provided");
+        }
+    }
+#endif
 
     // Optional `<glsl><vertex>...</vertex><fragment>...</fragment></glsl>` native backend override.
     if (glsl_child != nullptr) {

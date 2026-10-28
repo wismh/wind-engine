@@ -362,7 +362,7 @@ public:
             out = AssetId{};
             return true;
         }
-        const auto parsed = AssetId::parse(*s);
+        const auto parsed = s->starts_with(AssetId::kUriPrefix) ? AssetId::parse(*s) : AssetId::parse_hex(*s);
         if (!parsed) {
             return false;
         }

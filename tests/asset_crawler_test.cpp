@@ -5,6 +5,8 @@
 
 #include "resources/asset_crawler.h"
 
+#include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -15,7 +17,10 @@ namespace {
 class TempAssetTree {
 public:
     TempAssetTree() {
-        path_ = std::filesystem::temp_directory_path() / ("wind_crawler_test_" + std::to_string(counter_++));
+        static std::atomic<int> counter{0};
+        const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+        path_ = std::filesystem::temp_directory_path() /
+                ("wind_crawler_" + std::to_string(stamp) + "_" + std::to_string(counter.fetch_add(1)));
         std::filesystem::remove_all(path_);
         std::filesystem::create_directories(path_);
     }
@@ -40,7 +45,6 @@ public:
     }
 
 private:
-    static inline int counter_ = 0;
     std::filesystem::path path_;
 };
 

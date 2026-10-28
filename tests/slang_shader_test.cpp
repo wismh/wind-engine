@@ -76,6 +76,9 @@ void write_text(const std::filesystem::path& path, std::string_view content) {
 } // namespace
 
 TEST(SlangShader, CompilesSlangToSpirvAndGlsl330Core) {
+#ifndef ENGINE_WITH_SLANG
+    GTEST_SKIP() << "Slang compiler is not available in this build";
+#else
     const auto compiled = engine::render::compile_slang_shader(kSampleSlang);
     ASSERT_TRUE(compiled.has_value()) << (compiled ? "" : compiled.error());
 
@@ -107,12 +110,17 @@ TEST(SlangShader, CompilesSlangToSpirvAndGlsl330Core) {
     EXPECT_EQ(es.fragment_src.rfind("#version 300 es\nprecision mediump float;\n", 0), 0u);
     EXPECT_EQ(es.vertex_spirv, compiled->vertex_spirv);
     EXPECT_EQ(es.fragment_spirv, compiled->fragment_spirv);
+#endif
 }
 
 TEST(SlangShader, InvalidSyntaxReturnsDiagnostic) {
+#ifndef ENGINE_WITH_SLANG
+    GTEST_SKIP() << "Slang compiler is not available in this build";
+#else
     const auto bad = engine::render::compile_slang_shader("this is not valid slang code {{{");
     EXPECT_FALSE(bad.has_value());
     EXPECT_FALSE(bad.error().empty());
+#endif
 }
 
 TEST(SlangShader, ParseShaderXmlSupportsSlangOverrideAndLegacyGlsl) {
@@ -130,9 +138,11 @@ TEST(SlangShader, ParseShaderXmlSupportsSlangOverrideAndLegacyGlsl) {
 
     const auto overridden = engine::parse_shader_xml(xml_with_override);
     ASSERT_TRUE(overridden.has_value());
+#ifdef ENGINE_WITH_SLANG
     ASSERT_FALSE(overridden->vertex_spirv.empty());
     ASSERT_FALSE(overridden->fragment_spirv.empty());
     EXPECT_EQ(overridden->vertex_spirv[0], kSpirvMagic);
+#endif
     EXPECT_NE(overridden->vertex_src.find("gl_Position = vec4(0.0);"), std::string::npos);
     EXPECT_NE(overridden->fragment_src.find("c = vec4(1.0);"), std::string::npos);
 
