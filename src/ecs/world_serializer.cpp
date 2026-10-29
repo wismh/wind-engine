@@ -12,6 +12,7 @@
 #include <engine/render/material.h>
 #include <engine/render/renderable.h>
 #include <engine/render/sprite.h>
+#include <engine/render/tilemap.h>
 #include <engine/resources/assets_db.h>
 
 #include <format>
@@ -36,6 +37,7 @@ struct SerializedAssetRefs {
     AssetId renderable_mesh;
     AssetId renderable_material;
     AssetId animator_clip;
+    AssetId tilemap;
 };
 
 [[nodiscard]] bool has_asset(const AssetId& id) noexcept {
@@ -389,6 +391,72 @@ void register_builtin_components(
             return true;
         };
         entries.emplace("renderable", std::move(renderable_entry));
+    }
+
+    {
+        WorldSerializer::Entry tilemap_entry;
+        tilemap_entry.name = "tilemap";
+        tilemap_entry.write = [](const World& world, Entity entity, ComponentWriter& out) -> bool {
+            const render::Tilemap* t = world.try_get<render::Tilemap>(entity);
+            if (t == nullptr) {
+                return false;
+            }
+            if (const SerializedAssetRefs* refs = world.try_get<SerializedAssetRefs>(entity)) {
+                if (has_asset(refs->tilemap)) {
+                    out.field("tilemap", refs->tilemap);
+                }
+            }
+            out.field("color", t->color);
+            out.field("layer", t->layer);
+            out.field("order_in_layer", t->order_in_layer);
+            return true;
+        };
+        tilemap_entry.read = [](World& world, Entity entity, ComponentReader& in) -> bool {
+            render::Tilemap t{};
+            AssetId tilemap_id;
+            (void)in.field("tilemap", tilemap_id);
+            (void)in.field("color", t.color);
+            (void)in.field("layer", t.layer);
+            (void)in.field("order_in_layer", t.order_in_layer);
+            if (!in.ok()) {
+                return false;
+            }
+            if (has_asset(tilemap_id) && in.assets() != nullptr) {
+                std::shared_ptr<render::TilemapAsset> asset;
+                if (!load_asset_or_validate_headless(
+                            *in.assets(), tilemap_id, ImporterKind::Tilemap, asset, in, "tilemap")) {
+                    return false;
+                }
+                if (asset != nullptr) {
+                    t.layers = asset->desc.layers;
+                    t.asset = std::move(asset);
+                }
+            }
+            if (has_asset(tilemap_id)) {
+                SerializedAssetRefs* refs = world.try_get<SerializedAssetRefs>(entity);
+                if (refs == nullptr) {
+                    refs = &world.emplace<SerializedAssetRefs>(entity);
+                }
+                refs->tilemap = tilemap_id;
+            }
+            if (render::Tilemap* existing = world.try_get<render::Tilemap>(entity)) {
+                *existing = std::move(t);
+            } else {
+                world.emplace<render::Tilemap>(entity, std::move(t));
+            }
+            return true;
+        };
+        tilemap_entry.remove = [](World& world, Entity entity) -> bool {
+            if (world.try_get<render::Tilemap>(entity) == nullptr) {
+                return false;
+            }
+            world.remove<render::Tilemap>(entity);
+            if (SerializedAssetRefs* refs = world.try_get<SerializedAssetRefs>(entity)) {
+                refs->tilemap = {};
+            }
+            return true;
+        };
+        entries.emplace("tilemap", std::move(tilemap_entry));
     }
 
     serializer.register_component<render::DirectionalLight>(

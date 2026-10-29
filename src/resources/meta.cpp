@@ -70,6 +70,9 @@ std::optional<ImporterKind> parse_importer(std::string_view value) {
     if (value == "data") {
         return ImporterKind::Data;
     }
+    if (value == "tilemap") {
+        return ImporterKind::Tilemap;
+    }
     return std::nullopt;
 }
 
@@ -449,6 +452,8 @@ std::string_view to_string(ImporterKind kind) noexcept {
             return "object";
         case ImporterKind::Data:
             return "data";
+        case ImporterKind::Tilemap:
+            return "tilemap";
     }
     return "texture";
 }

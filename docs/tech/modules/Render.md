@@ -82,6 +82,30 @@ Model matrix is the entity's world matrix (`ecs::world_matrix`): translate, then
 
 Sprite world size is `pixel_size / pixels_per_unit` (default 100), with the pivot offset, only when both `pixel_size` components and `pixels_per_unit` are greater than 0. `Sprite::pixel_size` defaults to `{0,0}`, so a sprite left there is the mesh at the `Transform` only. Flip and UV tiling/offset still apply. `get_sprite` fills `pixel_size`.
 
+## Tilemaps
+
+`Tilemap` (`include/engine/render/tilemap.h`) draws a grid of tiles from one tileset texture. Data lives in a `.tilemap` asset (`importer = "tilemap"`, TOML):
+
+```toml
+texture = "<guid of the tileset png>"   # a texture asset; use filter = "nearest" in its .meta for pixel art
+size = [70, 40]                          # cells
+tile_size = [16, 16]                     # px per tile in the texture
+columns = 4                              # optional; default texture width / tile_size.x
+pixels_per_unit = 16                     # optional, default 100: cell size in world units = tile_size / pixels_per_unit
+
+[[layers]]
+name = "ground"
+tiles = [0, 1, 2, ...]                   # size.x * size.y, row-major, row 0 on top; 0 empty, n is tile n - 1
+```
+
+`parse_tilemap` rejects a non-GUID texture, a non-positive size, a layer whose `tiles` is not `size.x * size.y` long, and a tile outside 0..65535; `asset_codegen` runs it and fails the build (`CodegenErrorKind::Tilemap`). `AssetsDb::try_get<TilemapAsset>` loads the texture too and resolves `columns`.
+
+The entity's `Transform` places the map: cell (0, 0) is the top-left corner at the origin, x grows right, y grows up, so the map extends down from the origin. `Tilemap::layer` and `order_in_layer` sort it like a `Sprite`; map layer i draws at `order_in_layer + i`. The `tilemap` serializer entry stores the asset GUID, `color`, `layer` and `order_in_layer` (in `.world`); cells come from the asset.
+
+`run_render` and `render_world_viewport` cut each layer into 32 x 32 cell chunks. A chunk is one baked `IMesh` (a quad per non-empty cell, UVs baked) drawn as one `CmdDrawMesh` with the shared per-texture material from `SpriteMaterialCache`, so there is no new `Command`. A chunk is built when it first becomes visible, and only chunks whose box touches the clip volume of a bound window are drawn (`tilemap_chunk_visible`; the render viewport uses its own). `Tilemap::set_tile` edits the component's copy of the cells and rebuilds only the chunk that holds the cell. Edits are not saved. Tile index to UV follows `SpriteSheet::get` (image rows run down, V runs up); there is no half-texel inset, so use nearest filtering and a texture without spacing.
+
+Not covered yet: tile collision, flips, animated tiles, Y-sort, and an editor painting tool.
+
 ## Lights
 
 ECS data, public, one type per header:
@@ -218,7 +242,7 @@ GL errors are silent unless someone asks. With `ENGINE_GL_CHECKS` (Debug, RelWit
 - `src/render/material.cpp` — parse `.mat`
 - `src/render/lights.cpp` — `collect_scene_lights`, `default_scene_lights`
 - `src/render/material_instance.h` — `IMaterial` for a cooked material
-- `src/render/animation.cpp`, `src/render/particles.cpp`, `src/render/shader_adapt.cpp`
+- `src/render/tilemap.cpp`, `src/render/animation.cpp`, `src/render/particles.cpp`, `src/render/shader_adapt.cpp`
 - `src/render/context_objects.cpp` — GL context keys and deferred VAO deletes, without GL calls
 - `src/render/gl_error_log.cpp` — GL error names and the once-per-place error log lines
 
@@ -239,13 +263,14 @@ GL errors are silent unless someone asks. With `ENGINE_GL_CHECKS` (Debug, RelWit
 - `include/engine/render/canvas.h`
 - `include/engine/render/backend.h`
 - `include/engine/render/animation.h`
+- `include/engine/render/tilemap.h`
 - `include/engine/render/particles.h`
 - `include/engine/render/curve.h`
 - `include/engine/render/shader_adapt.h`
 
 ## Tests
 
-`tests/command_buffer_test.cpp`, `tests/lights_test.cpp` (light collection, lights and camera in `CmdSetView`), `tests/sort_test.cpp`, `tests/material_test.cpp`, `tests/render_system_test.cpp`, `tests/sprite_test.cpp`, `tests/animation_test.cpp`, `tests/particle_test.cpp`, `tests/shader_adapt_test.cpp`, `tests/opengl_texture_test.cpp` (CPU texture desc, no GL draw), `tests/ui_painter_test.cpp` (fake painter), `tests/window_icon_test.cpp`, `tests/context_objects_test.cpp` (context keys and deferred VAO deletes, no GL), `tests/gl_error_log_test.cpp`, `tests/ui_renderer_test.cpp` (UI renderer against a fake device: texture catch-up per device, draws per batch).
+`tests/command_buffer_test.cpp`, `tests/lights_test.cpp` (light collection, lights and camera in `CmdSetView`), `tests/sort_test.cpp`, `tests/material_test.cpp`, `tests/render_system_test.cpp`, `tests/sprite_test.cpp`, `tests/animation_test.cpp`, `tests/tilemap_test.cpp`, `tests/particle_test.cpp`, `tests/shader_adapt_test.cpp`, `tests/opengl_texture_test.cpp` (CPU texture desc, no GL draw), `tests/ui_painter_test.cpp` (fake painter), `tests/window_icon_test.cpp`, `tests/context_objects_test.cpp` (context keys and deferred VAO deletes, no GL), `tests/gl_error_log_test.cpp`, `tests/ui_renderer_test.cpp` (UI renderer against a fake device: texture catch-up per device, draws per batch).
 
 GPU pixels stay out of `engine_tests`. See [Boundaries](../architecture/Boundaries.md).
 

@@ -1,6 +1,7 @@
 #include "asset_inspection.h"
 
 #include <engine/ecs/world_asset.h>
+#include <engine/render/tilemap.h>
 #include <engine/resources/meta.h>
 
 #include <algorithm>
@@ -152,6 +153,21 @@ std::optional<InspectorSection> import_section(const std::filesystem::path& file
                 if (!world->active_camera.empty()) {
                     section.lines.push_back(std::format("Active camera: {}", world->active_camera));
                 }
+            }
+        }
+        break;
+    }
+    case engine::ImporterKind::Tilemap: {
+        std::ifstream tilemap_in(file, std::ios::binary);
+        if (tilemap_in) {
+            const std::string tilemap_text(
+                    (std::istreambuf_iterator<char>(tilemap_in)), std::istreambuf_iterator<char>());
+            if (const auto tilemap = engine::render::parse_tilemap(tilemap_text)) {
+                section.lines.push_back(std::format("Map: {} x {} cells", tilemap->width, tilemap->height));
+                section.lines.push_back(std::format("Tile: {} x {} px", tilemap->tile_size.x, tilemap->tile_size.y));
+                section.lines.push_back(std::format("Layers: {}", tilemap->layers.size()));
+            } else {
+                section.lines.push_back("The .tilemap does not parse.");
             }
         }
         break;
