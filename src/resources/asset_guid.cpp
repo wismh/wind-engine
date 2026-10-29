@@ -87,6 +87,9 @@ ImporterKind importer_from_extension(const std::filesystem::path& path) {
     if (ext == ".object") {
         return ImporterKind::Object;
     }
+    if (ext == ".tilemap") {
+        return ImporterKind::Tilemap;
+    }
     return ImporterKind::Data;
 }
 

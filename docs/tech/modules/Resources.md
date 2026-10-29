@@ -46,6 +46,7 @@ The full literals are in `builtin_ids.h`. The table's suffix is the last five ch
 | `World` | `world` | `ecs::WorldAsset` |
 | `Svg` | `svg` | `ui::SvgPicture` |
 | `Object` | `object` | a `WIND_SERIALIZABLE` struct registered on `AssetsDb` (`.object`) |
+| `Tilemap` | `tilemap` | `render::TilemapAsset` (`.tilemap` TOML plus its tileset texture) |
 | `Data` | `data` | `TextAsset` (file bytes as text, never parsed by the engine) |
 
 Texture defaults: sRGB, linear filter, clamp wrap, `layout = single`, `pixels_per_unit = 100`. Audio defaults: SFX bank, volume 1, pitch 1–1, loop false.
@@ -54,7 +55,7 @@ Texture defaults: sRGB, linear filter, clamp wrap, `layout = single`, `pixels_pe
 
 `strings_source` is the `.meta` flag `source = true`. If the tree contains any `.strings` file, codegen requires exactly one such table. A `{tr}` key must exist in that table.
 
-`asset_guid` writes a missing sidecar and never overwrites one. `.object` gets `importer = "object"`. A file whose extension is not one of the known ones gets `importer = "data"`. `asset_codegen` fails the build when a sidecar is missing. It never writes `.meta`. Neither tool treats `readme.md`, `license*`, dotfiles, or `catalog.toml` as assets. The editor writes missing sidecars the same way for the open project's `assets/`, and it also deletes an orphan `.meta`.
+`asset_guid` writes a missing sidecar and never overwrites one. `.object` gets `importer = "object"`. `.tilemap` gets `importer = "tilemap"`. A file whose extension is not one of the known ones gets `importer = "data"`. `asset_codegen` fails the build when a sidecar is missing. It never writes `.meta`. Neither tool treats `readme.md`, `license*`, dotfiles, or `catalog.toml` as assets. The editor writes missing sidecars the same way for the open project's `assets/`, and it also deletes an orphan `.meta`.
 
 ## `AssetsDb`
 
