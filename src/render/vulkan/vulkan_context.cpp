@@ -293,4 +293,126 @@ VkFormat VulkanContext::find_depth_format() const noexcept {
     return VK_FORMAT_D32_SFLOAT;
 }
 
+bool VulkanContext::create_buffer(
+    VkDeviceSize size,
+    VkBufferUsageFlags usage,
+    VkMemoryPropertyFlags properties,
+    VkBuffer& out_buffer,
+    VkDeviceMemory& out_memory) const {
+    out_buffer = VK_NULL_HANDLE;
+    out_memory = VK_NULL_HANDLE;
+    if (device_ == VK_NULL_HANDLE || size == 0 || !fn_.vkCreateBuffer) {
+        return false;
+    }
+
+    VkBufferCreateInfo buf_info{};
+    buf_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buf_info.size = size;
+    buf_info.usage = usage;
+    buf_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (fn_.vkCreateBuffer(device_, &buf_info, nullptr, &out_buffer) != VK_SUCCESS) {
+        out_buffer = VK_NULL_HANDLE;
+        return false;
+    }
+
+    VkMemoryRequirements reqs{};
+    fn_.vkGetBufferMemoryRequirements(device_, out_buffer, &reqs);
+    const auto mem_type = find_memory_type(reqs.memoryTypeBits, properties);
+    if (!mem_type.has_value()) {
+        fn_.vkDestroyBuffer(device_, out_buffer, nullptr);
+        out_buffer = VK_NULL_HANDLE;
+        return false;
+    }
+
+    VkMemoryAllocateInfo alloc_info{};
+    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    alloc_info.allocationSize = reqs.size;
+    alloc_info.memoryTypeIndex = *mem_type;
+    if (fn_.vkAllocateMemory(device_, &alloc_info, nullptr, &out_memory) != VK_SUCCESS) {
+        fn_.vkDestroyBuffer(device_, out_buffer, nullptr);
+        out_buffer = VK_NULL_HANDLE;
+        out_memory = VK_NULL_HANDLE;
+        return false;
+    }
+
+    if (fn_.vkBindBufferMemory(device_, out_buffer, out_memory, 0) != VK_SUCCESS) {
+        fn_.vkFreeMemory(device_, out_memory, nullptr);
+        fn_.vkDestroyBuffer(device_, out_buffer, nullptr);
+        out_buffer = VK_NULL_HANDLE;
+        out_memory = VK_NULL_HANDLE;
+        return false;
+    }
+    return true;
+}
+
+bool VulkanContext::upload_host_buffer(
+    VkDeviceSize size,
+    const void* data,
+    VkBufferUsageFlags usage,
+    VkBuffer& out_buffer,
+    VkDeviceMemory& out_memory) const {
+    if (!create_buffer(
+            size,
+            usage,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            out_buffer,
+            out_memory)) {
+        return false;
+    }
+    if (data != nullptr) {
+        void* mapped = nullptr;
+        if (fn_.vkMapMemory(device_, out_memory, 0, size, 0, &mapped) != VK_SUCCESS || mapped == nullptr) {
+            fn_.vkFreeMemory(device_, out_memory, nullptr);
+            fn_.vkDestroyBuffer(device_, out_buffer, nullptr);
+            out_buffer = VK_NULL_HANDLE;
+            out_memory = VK_NULL_HANDLE;
+            return false;
+        }
+        std::memcpy(mapped, data, static_cast<std::size_t>(size));
+        fn_.vkUnmapMemory(device_, out_memory);
+    }
+    return true;
+}
+
+VkCommandBuffer VulkanContext::begin_single_time_commands() const {
+    if (device_ == VK_NULL_HANDLE || transient_pool_ == VK_NULL_HANDLE || !fn_.vkAllocateCommandBuffers) {
+        return VK_NULL_HANDLE;
+    }
+    VkCommandBufferAllocateInfo alloc_info{};
+    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc_info.commandPool = transient_pool_;
+    alloc_info.commandBufferCount = 1;
+
+    VkCommandBuffer cmd = VK_NULL_HANDLE;
+    if (fn_.vkAllocateCommandBuffers(device_, &alloc_info, &cmd) != VK_SUCCESS) {
+        return VK_NULL_HANDLE;
+    }
+
+    VkCommandBufferBeginInfo begin_info{};
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (fn_.vkBeginCommandBuffer(cmd, &begin_info) != VK_SUCCESS) {
+        fn_.vkFreeCommandBuffers(device_, transient_pool_, 1, &cmd);
+        return VK_NULL_HANDLE;
+    }
+    return cmd;
+}
+
+void VulkanContext::end_single_time_commands(VkCommandBuffer cmd) const {
+    if (cmd == VK_NULL_HANDLE || device_ == VK_NULL_HANDLE || transient_pool_ == VK_NULL_HANDLE) {
+        return;
+    }
+    fn_.vkEndCommandBuffer(cmd);
+
+    VkSubmitInfo submit_info{};
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &cmd;
+
+    fn_.vkQueueSubmit(graphics_queue_, 1, &submit_info, VK_NULL_HANDLE);
+    fn_.vkQueueWaitIdle(graphics_queue_);
+    fn_.vkFreeCommandBuffers(device_, transient_pool_, 1, &cmd);
+}
+
 } // namespace engine::render

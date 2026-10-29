@@ -272,41 +272,18 @@ void VulkanCanvas::render() {
 
     fn.vkCmdBeginRenderPass(cmd, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
 
-    VkViewport viewport{};
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = static_cast<float>(swapchain_extent_.width);
-    viewport.height = static_cast<float>(swapchain_extent_.height);
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-    fn.vkCmdSetViewport(cmd, 0, 1, &viewport);
-
-    VkRect2D scissor{{0, 0}, swapchain_extent_};
-    fn.vkCmdSetScissor(cmd, 0, 1, &scissor);
-
     if (ui_renderer_ != nullptr) {
         ui_renderer_->begin_frame(
             static_cast<float>(swapchain_extent_.width), static_cast<float>(swapchain_extent_.height));
     }
     backend_->set_ui_painter(ui_painter());
+    backend_->begin_scene_pass(cmd, render_pass_, swapchain_extent_, current_frame_);
     if (commands_ != nullptr) {
         backend_->execute(*commands_);
     }
+    backend_->end_scene_pass();
     if (ui_renderer_ != nullptr) {
         ui_renderer_->end_frame();
-    }
-
-    if (const auto& view = backend_->last_view(); view.clear_color.has_value() && fn.vkCmdClearAttachments) {
-        VkClearAttachment attachment{};
-        attachment.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        attachment.colorAttachment = 0;
-        attachment.clearValue.color = {
-            {view.clear_color->r, view.clear_color->g, view.clear_color->b, view.clear_color->a}};
-        VkClearRect clear_rect{};
-        clear_rect.rect = scissor;
-        clear_rect.baseArrayLayer = 0;
-        clear_rect.layerCount = 1;
-        fn.vkCmdClearAttachments(cmd, 1, &attachment, 1, &clear_rect);
     }
 
     fn.vkCmdEndRenderPass(cmd);
@@ -354,38 +331,16 @@ TextureDesc VulkanCanvas::read_pixels() {
     const VkDeviceSize buffer_size =
         static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4u;
 
-    VkBufferCreateInfo buf_info{};
-    buf_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    buf_info.size = buffer_size;
-    buf_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    buf_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
     VkBuffer staging_buf = VK_NULL_HANDLE;
-    if (fn.vkCreateBuffer(device, &buf_info, nullptr, &staging_buf) != VK_SUCCESS) {
-        return {};
-    }
-
-    VkMemoryRequirements mem_reqs{};
-    fn.vkGetBufferMemoryRequirements(device, staging_buf, &mem_reqs);
-    const auto mem_type = ctx.find_memory_type(
-        mem_reqs.memoryTypeBits,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    if (!mem_type.has_value()) {
-        fn.vkDestroyBuffer(device, staging_buf, nullptr);
-        return {};
-    }
-
-    VkMemoryAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc_info.allocationSize = mem_reqs.size;
-    alloc_info.memoryTypeIndex = *mem_type;
-
     VkDeviceMemory staging_mem = VK_NULL_HANDLE;
-    if (fn.vkAllocateMemory(device, &alloc_info, nullptr, &staging_mem) != VK_SUCCESS) {
-        fn.vkDestroyBuffer(device, staging_buf, nullptr);
+    if (!ctx.create_buffer(
+            buffer_size,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            staging_buf,
+            staging_mem)) {
         return {};
     }
-    fn.vkBindBufferMemory(device, staging_buf, staging_mem, 0);
 
     VkCommandBufferAllocateInfo cmd_alloc{};
     cmd_alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;

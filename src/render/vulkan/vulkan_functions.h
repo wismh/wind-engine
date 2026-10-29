@@ -57,6 +57,8 @@ struct VulkanFunctions {
     PFN_vkUnmapMemory vkUnmapMemory = nullptr;
     PFN_vkCreateImageView vkCreateImageView = nullptr;
     PFN_vkDestroyImageView vkDestroyImageView = nullptr;
+    PFN_vkCreateSampler vkCreateSampler = nullptr;
+    PFN_vkDestroySampler vkDestroySampler = nullptr;
 
     PFN_vkCreateBuffer vkCreateBuffer = nullptr;
     PFN_vkDestroyBuffer vkDestroyBuffer = nullptr;
@@ -83,7 +85,16 @@ struct VulkanFunctions {
     PFN_vkCmdSetScissor vkCmdSetScissor = nullptr;
     PFN_vkCmdClearAttachments vkCmdClearAttachments = nullptr;
     PFN_vkCmdPipelineBarrier vkCmdPipelineBarrier = nullptr;
+    PFN_vkCmdCopyBuffer vkCmdCopyBuffer = nullptr;
+    PFN_vkCmdCopyBufferToImage vkCmdCopyBufferToImage = nullptr;
     PFN_vkCmdCopyImageToBuffer vkCmdCopyImageToBuffer = nullptr;
+
+    PFN_vkCmdBindPipeline vkCmdBindPipeline = nullptr;
+    PFN_vkCmdBindDescriptorSets vkCmdBindDescriptorSets = nullptr;
+    PFN_vkCmdBindVertexBuffers vkCmdBindVertexBuffers = nullptr;
+    PFN_vkCmdBindIndexBuffer vkCmdBindIndexBuffer = nullptr;
+    PFN_vkCmdDraw vkCmdDraw = nullptr;
+    PFN_vkCmdDrawIndexed vkCmdDrawIndexed = nullptr;
 
     PFN_vkCreateSemaphore vkCreateSemaphore = nullptr;
     PFN_vkDestroySemaphore vkDestroySemaphore = nullptr;
@@ -94,6 +105,17 @@ struct VulkanFunctions {
 
     PFN_vkCreateShaderModule vkCreateShaderModule = nullptr;
     PFN_vkDestroyShaderModule vkDestroyShaderModule = nullptr;
+    PFN_vkCreateDescriptorSetLayout vkCreateDescriptorSetLayout = nullptr;
+    PFN_vkDestroyDescriptorSetLayout vkDestroyDescriptorSetLayout = nullptr;
+    PFN_vkCreateDescriptorPool vkCreateDescriptorPool = nullptr;
+    PFN_vkDestroyDescriptorPool vkDestroyDescriptorPool = nullptr;
+    PFN_vkResetDescriptorPool vkResetDescriptorPool = nullptr;
+    PFN_vkAllocateDescriptorSets vkAllocateDescriptorSets = nullptr;
+    PFN_vkUpdateDescriptorSets vkUpdateDescriptorSets = nullptr;
+    PFN_vkCreatePipelineLayout vkCreatePipelineLayout = nullptr;
+    PFN_vkDestroyPipelineLayout vkDestroyPipelineLayout = nullptr;
+    PFN_vkCreateGraphicsPipelines vkCreateGraphicsPipelines = nullptr;
+    PFN_vkDestroyPipeline vkDestroyPipeline = nullptr;
 
     [[nodiscard]] bool load_global();
     [[nodiscard]] bool load_instance(VkInstance instance);
