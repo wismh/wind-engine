@@ -4,6 +4,8 @@
 
 #include <asset_ids.h>
 
+#include <engine/resources/assets_db.h>
+
 #include <algorithm>
 #include <format>
 #include <string_view>
@@ -102,6 +104,7 @@ void ExplorerPanel::open(const std::filesystem::path& directory) {
     removals_.clear();
     rows_.clear();
     grid_folder_.clear();
+    thumbnails_.open(directory_);
     if (view_ == ExplorerView::Grid) {
         scroll_reset_ = true;
     }
@@ -109,6 +112,7 @@ void ExplorerPanel::open(const std::filesystem::path& directory) {
 }
 
 void ExplorerPanel::close() {
+    thumbnails_.close();
     directory_.clear();
     scan_ = {};
     expansion_.reset();
@@ -128,6 +132,21 @@ void ExplorerPanel::close() {
     view_model_->tiles.set({});
     publish_selection(false);
     sync_chrome();
+}
+
+std::optional<engine::AssetId> ExplorerPanel::thumbnail_for(const ProjectEntry& entry) {
+    if (entry.directory || directory_.empty() || !entry.name.ends_with(".png")) {
+        return std::nullopt;
+    }
+    const std::u8string key(entry.key.begin(), entry.key.end());
+    return thumbnails_.find_or_request(entry.key, directory_ / std::filesystem::path(key),
+            ThumbnailStamp{entry.size, entry.modified});
+}
+
+void ExplorerPanel::poll_thumbnails(engine::AssetsDb& assets) {
+    if (thumbnails_.poll(assets)) {
+        show_rows();
+    }
 }
 
 void ExplorerPanel::rescan() {

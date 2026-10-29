@@ -36,6 +36,10 @@
             </Stack>
           </ItemTemplate>
         </ItemsControl>
+        <Stack class="preview" direction="vertical" var-preview-display="{binding previewDisplay}">
+          <Image class="preview-image" source="{binding preview}" var-preview-width="{binding previewWidth}"
+                  var-preview-height="{binding previewHeight}"/>
+        </Stack>
         <Stack class="add-block" direction="vertical" var-add-display="{binding addDisplay}">
           <Button class="add-button" command="{binding toggleAdd}" content="Add Component"/>
           <ItemsControl class="rows" items_source="{binding addables}">

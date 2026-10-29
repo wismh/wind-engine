@@ -4,6 +4,7 @@
 
 #include <asset_ids.h>
 
+#include <optional>
 #include <string_view>
 
 namespace editor {
@@ -105,6 +106,12 @@ void ExplorerRowViewModel::show(const ProjectEntry& entry, const engine::ui::Tre
     tree_ = tree;
     label = entry.name;
     icon = icon_for(entry);
+    const std::optional<engine::AssetId> made = panel_->thumbnail_for(entry);
+    if (made) {
+        thumbnail = *made;
+    }
+    hasThumbnail = made.has_value();
+    noThumbnail = !made.has_value();
     depth = tree.depth;
     expanded = tree.expanded;
     set_fill(selected, drop);

@@ -92,6 +92,7 @@ EditorPanels::EditorPanels(DockLayoutFile layout_file)
       world_view_(selection_),
       ui_tree_(selection_),
       inspector_(selection_) {
+    inspector_.set_previews(&explorer_.thumbnails());
     inspector_.set_journal(&commands_, [this] {
         world_view_.sync_entity_dirty(commands_.count(EditorCommand::Kind::Entity));
     });
