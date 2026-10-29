@@ -74,7 +74,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/loc/catalog.h` | `StringTable` parse and `Catalog` | [Localization](../modules/Localization.md) |
 | `include/engine/render/.gitkeep` | Keeps the directory in Git | [Render](../modules/Render.md) |
 | `include/engine/render/ambient_light.h` | `AmbientLight` component | [Render](../modules/Render.md#lights) |
-| `include/engine/render/animation.h` | Sprite clip, animator, animation TOML | [Render](../modules/Render.md) |
+| `include/engine/render/animation.h` | Sprite clip, animator, animation TOML | [Render](../modules/Render.md#tilemaps) |
+| `include/engine/render/tilemap.h` | `Tilemap` component, `.tilemap` TOML, chunk baking and culling | [Render](../modules/Render.md#tilemaps) |
 | `include/engine/render/backend.h` | `IRenderBackend::execute` | [Render](../modules/Render.md) |
 | `include/engine/render/canvas.h` | `ICanvas::draw` | [Render](../modules/Render.md) |
 | `include/engine/render/command_buffer.h` | Buffer of `Command` | [Render](../modules/Render.md) |
@@ -212,6 +213,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/.gitkeep` | Keeps the directory in Git | [Render](../modules/Render.md) |
 | `src/render/backend/opengl/.gitkeep` | Empty placeholder. The backend lives in `src/render/opengl/` | [Render](../modules/Render.md) |
 | `src/render/animation.cpp` | Parse animation TOML into a clip | [Render](../modules/Render.md) |
+| `src/render/tilemap.cpp` | Parse `.tilemap`, bake chunk meshes, chunk culling, `Tilemap::set_tile` | [Render](../modules/Render.md#tilemaps) |
 | `src/render/context_objects.cpp`, `src/render/context_objects.h` | Live GL context keys and VAO deletes deferred to their context | [Render](../modules/Render.md) |
 | `src/render/framebuffer_image.cpp`, `src/render/framebuffer_image.h` | Read-back rows to a top-first image with straight alpha | [CLI](../features/CLI.md#screenshot) |
 | `src/render/gl_error_log.cpp`, `src/render/gl_error_log.h` | GL error names; one log line per error and command | [Render](../modules/Render.md) |
@@ -414,6 +416,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/android_assets_test.cpp` | Android asset staging without a device | [Runtime Assets](../build/Runtime%20Assets.md) |
 | `tests/android_lifecycle_test.cpp` | Pause, resume, back key routing | [Core](../modules/Core.md) |
 | `tests/animation_test.cpp` | Sprite clip parse and playback | [Render](../modules/Render.md) |
+| `tests/tilemap_test.cpp` | `.tilemap` parse, chunk bake and UVs, culling, dirty chunks, `AssetsDb` load | [Render](../modules/Render.md#tilemaps) |
 | `tests/assets_test.cpp` | Catalog, `get` / `try_get`, `unload_catalog`, codegen failures, stylesheet warnings in `game.log` | [Assets](../features/Assets.md) |
 | `tests/audio_test.cpp` | Pool, music fade, looping handles, `stop_all` without opening a device | [Audio](../modules/Audio.md) |
 | `tests/builtin_test.cpp` | Frozen builtin ids and files | [Resources](../modules/Resources.md) |

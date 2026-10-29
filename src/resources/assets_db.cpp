@@ -6,6 +6,7 @@
 #include <engine/render/graphic_factory.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
+#include <engine/render/tilemap.h>
 #include <engine/resources/assets_db.h>
 #include <engine/resources/font.h>
 #include <engine/resources/sprite_sheet.h>
@@ -41,7 +42,7 @@ bool is_gpu_type(const std::type_info& type) {
 
 bool needs_factory(const std::type_info& type) {
     return is_gpu_type(type) || type == typeid(render::IMaterial) || type == typeid(SpriteSheet) ||
-            type == typeid(render::SpriteAnimationClip);
+            type == typeid(render::SpriteAnimationClip) || type == typeid(render::TilemapAsset);
 }
 
 std::optional<ImporterKind> importer_for_type(const std::type_info& type) {
@@ -50,6 +51,9 @@ std::optional<ImporterKind> importer_for_type(const std::type_info& type) {
     }
     if (type == typeid(render::SpriteAnimationClip)) {
         return ImporterKind::Animation;
+    }
+    if (type == typeid(render::TilemapAsset)) {
+        return ImporterKind::Tilemap;
     }
     if (type == typeid(render::IMesh)) {
         return ImporterKind::Mesh;
@@ -375,6 +379,35 @@ std::expected<std::shared_ptr<void>, AssetError> load_animation(
     return std::static_pointer_cast<void>(std::move(clip));
 }
 
+std::expected<std::shared_ptr<void>, AssetError> load_tilemap(
+        AssetsDb& db, const CatalogEntry& entry, const std::filesystem::path& fallback_root) {
+    const auto bytes = read_all(lookup_path(entry, fallback_root));
+    if (!bytes) {
+        return std::unexpected(AssetError::Corrupt);
+    }
+    auto desc = render::parse_tilemap(*bytes);
+    if (!desc) {
+        return std::unexpected(AssetError::Corrupt);
+    }
+    auto texture = db.try_get<render::ITexture>(desc->texture);
+    if (!texture) {
+        return std::unexpected(texture.error());
+    }
+    auto asset = std::make_shared<render::TilemapAsset>();
+    asset->texture = std::move(*texture);
+    if (asset->texture != nullptr) {
+        asset->texture_size = {asset->texture->width(), asset->texture->height()};
+    }
+    if (desc->columns == 0 && asset->texture_size.x > 0) {
+        desc->columns = asset->texture_size.x / desc->tile_size.x;
+    }
+    if (desc->columns <= 0) {
+        return std::unexpected(AssetError::Corrupt);
+    }
+    asset->desc = std::move(*desc);
+    return std::static_pointer_cast<void>(std::move(asset));
+}
+
 }
 
 
@@ -527,6 +560,8 @@ std::expected<std::shared_ptr<void>, AssetError> AssetsDb::try_get_erased(AssetI
         loaded = load_sprite_sheet(*this, *entry);
     } else if (type == typeid(render::SpriteAnimationClip)) {
         loaded = load_animation(*this, *entry, assets_root_);
+    } else if (type == typeid(render::TilemapAsset)) {
+        loaded = load_tilemap(*this, *entry, assets_root_);
     } else {
         loaded = load_cpu(*entry, type, assets_root_);
     }
