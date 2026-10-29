@@ -104,7 +104,7 @@ void InspectorPanel::choose_asset(
         return;
     }
     asset_chooser_("Choose " + key, filter, [this, component, key](const engine::AssetId& id, const std::string&) {
-        edit_text(component, key, -1, std::string(id.hex()));
+        edit_text(component, key, -1, id != engine::AssetId{} ? id.uri() : std::string{});
         end_field_edit();
         refresh();
     });
