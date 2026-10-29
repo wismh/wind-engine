@@ -3,6 +3,7 @@
 // docs/tech/features/Assets.md
 
 #include <engine/ecs/world_io.h>
+#include <engine/render/graphic_factory.h>
 #include <engine/render/sprite.h>
 #include <engine/resources/asset_id.h>
 #include <engine/resources/fatal_error.h>
@@ -73,6 +74,13 @@ public:
     template<typename T>
     [[nodiscard]] std::shared_ptr<T> get(AssetId id);
 
+    // A UI image made at runtime, such as the editor's thumbnails. `id` is not in the catalog; the UI looks here
+    // first. Replaces an image already set for `id`. A window that registered the old pixels keeps them until its
+    // UI cache is reset. Main thread only.
+    void set_runtime_texture(AssetId id, render::TextureDesc desc);
+    [[nodiscard]] const render::TextureDesc* runtime_texture(AssetId id) const;
+    void clear_runtime_textures();
+
     [[nodiscard]] std::expected<render::Sprite, AssetError> try_get_sprite(AssetId id, std::string_view name = "");
     [[nodiscard]] render::Sprite get_sprite(AssetId id, std::string_view name = "");
 
@@ -130,6 +138,10 @@ private:
 
     std::unordered_map<CacheKey, std::shared_ptr<void>, CacheKeyHash> cache_;
     std::unordered_map<std::type_index, ObjectLoader> object_loaders_;
+    struct IdHash {
+        std::size_t operator()(const AssetId& id) const noexcept { return std::hash<std::string_view>{}(id.hex()); }
+    };
+    std::unordered_map<AssetId, render::TextureDesc, IdHash> runtime_textures_;
 };
 
 template<typename T>
