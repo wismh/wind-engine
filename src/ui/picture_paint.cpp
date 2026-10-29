@@ -11,7 +11,7 @@ namespace engine::ui {
 
     // Not painted now: nothing under it changes what a picture above it shows. A closed popup is painted by nobody.
     bool element_hidden(const Element &e) noexcept {
-        return e.display_none || e.hidden_by_if || !e.visible || (is_popup_kind(e.kind) && !e.open);
+        return e.display_none || e.hidden_by_if || e.hidden_by_scope ||!e.visible || (is_popup_kind(e.kind) && !e.open);
     }
 
     // Elements that keep a picture of their own: the root, anything that scrolls, a camera, a popup, and what the
