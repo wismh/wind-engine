@@ -473,6 +473,19 @@ std::expected<std::shared_ptr<void>, AssetError> AssetsDb::load_object(const Cat
     return loader->second.load(*table);
 }
 
+void AssetsDb::set_runtime_texture(AssetId id, render::TextureDesc desc) {
+    runtime_textures_.insert_or_assign(id, std::move(desc));
+}
+
+const render::TextureDesc* AssetsDb::runtime_texture(AssetId id) const {
+    const auto it = runtime_textures_.find(id);
+    return it == runtime_textures_.end() ? nullptr : &it->second;
+}
+
+void AssetsDb::clear_runtime_textures() {
+    runtime_textures_.clear();
+}
+
 std::expected<std::shared_ptr<void>, AssetError> AssetsDb::try_get_erased(AssetId id, const std::type_info& type) {
     const CatalogEntry* const entry = catalog_.find(id);
     if (entry == nullptr) {

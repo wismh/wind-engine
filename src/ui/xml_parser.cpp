@@ -456,6 +456,17 @@ std::expected<Element, UiError> parse_element(const tinyxml2::XMLElement* xml, I
     Element element;
     element.kind = *kind;
 
+    // The binding of `data-context` is read from the enclosing data context, like any other attribute. Everything else
+    // on this element and below it binds against the child, which the parse cannot know: it is parsed like a template.
+    if (const char* scope = xml->Attribute("data-context")) {
+        if (auto result = assign_required_property_binding(
+                    element.data_context_binding, scope, "data-context", fatal, vm, in_template);
+                !result) {
+            return std::unexpected(result.error());
+        }
+        in_template = true;
+    }
+
     if (const char* id = xml->Attribute("id")) {
         element.id = id;
     }
@@ -815,8 +826,19 @@ void collect_bind_include(const char* src, BindBinder& binder, const UiIncludeRe
     include_stack.pop_back();
 }
 
-void collect_bind_element(const tinyxml2::XMLElement* xml, BindBinder& binder, const UiIncludeResolver& resolve_include,
+void collect_bind_element(const tinyxml2::XMLElement* xml, BindBinder& outer, const UiIncludeResolver& resolve_include,
         std::vector<std::string>& include_stack) {
+    // `data-context` names a member of the enclosing binder; the rest of this element and its subtree belong to the
+    // child's binder.
+    BindBinder* scope = &outer;
+    if (const char* attr = xml->Attribute("data-context")) {
+        if (const auto path = try_parse_binding(attr); path && !path->empty()) {
+            add_bind_member(outer, *path, BindKind::Property);
+            scope = &nested_binder(outer, *path);
+        }
+    }
+    BindBinder& binder = *scope;
+
     // Every bindable attribute parse_element reads. A new one goes here too, or generated bind() misses it.
     add_bind_text_attr(binder, xml->Attribute("text"));
     add_bind_text_attr(binder, xml->Attribute("content"));

@@ -60,6 +60,9 @@ std::vector<ProjectEntry> read_directory(const std::filesystem::path& directory,
             std::error_code size_error;
             const std::uintmax_t size = item.file_size(size_error);
             entry.size = size_error ? 0 : size;
+            std::error_code time_error;
+            const auto written = item.last_write_time(time_error);
+            entry.modified = time_error ? 0 : static_cast<std::int64_t>(written.time_since_epoch().count());
         }
         entries.push_back(std::move(entry));
     }

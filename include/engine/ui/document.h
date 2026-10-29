@@ -735,6 +735,14 @@ namespace engine::ui {
         // `hidden_by_if`; apply_layout_style and paint_element read it). Unset keeps the element as it is.
         BindingId if_binding{};
         bool hidden_by_if = false;
+        // {binding path} target for `data-context="{binding ...}"` (any element kind): a `Bindable<std::shared_ptr<T>>`
+        // of view-models. The element's own bindings and its whole subtree bind against that child instead of the
+        // canvas's data context, and `generated_owner` of the subtree is the child, so commands, drags and TextInput
+        // writes reach it. While the child is null the element is out of layout, paint, and hit-testing
+        // (`hidden_by_scope`, read where `hidden_by_if` is) and its subtree is not bound. Not allowed on the root of
+        // an ItemTemplate row, which is identified by its item.
+        BindingId data_context_binding{};
+        bool hidden_by_scope = false;
         BindingId items_source_binding{};
         // {binding path} target for a `drag="{binding ...}"` attribute (any element kind, not just
         // Button) — writes a [0,1] fraction along the element's own rect while the pointer drags it
@@ -1094,6 +1102,8 @@ namespace engine::ui {
         ItemsSource,
         Command,
         Paint,
+        // `data-context`: a change of the child view-model binds the whole table again.
+        DataContext,
     };
 
     // One binding of one element: the version of the view-model property it read last. A quiet frame compares
@@ -1107,6 +1117,9 @@ namespace engine::ui {
         BindingId binding{};
         // The view-model the slot reads: the canvas's data context, or the row's item inside an ItemsControl.
         ViewModel *source = nullptr;
+        // A `DataContext` slot: the child its subtree was bound against. The slots below it point at it, so it stays
+        // alive until the table is built again, whatever the property holds by then.
+        std::shared_ptr<ViewModel> held;
         std::optional<ViewModel::PropertyVersion> version;
         std::uint64_t seen = 0;
         // `source->registration_version()` when the slot was made: a view-model that registers a binding again (a late
