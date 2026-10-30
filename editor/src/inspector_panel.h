@@ -19,6 +19,7 @@
 
 namespace engine {
 class AssetsDb;
+struct AssetFilter;
 }
 
 namespace engine::ecs {
@@ -57,6 +58,14 @@ public:
     // Entity edits are pushed here. `on_history` runs after a step is recorded (the world view syncs its dirty flag).
     void set_journal(CommandHistory* journal, std::function<void()> on_history);
 
+    using AssetChooserFn = std::function<void(
+            const std::string& title, const engine::AssetFilter& filter,
+            std::function<void(const engine::AssetId&, const std::string& name)> on_picked)>;
+
+    void set_asset_chooser(AssetChooserFn chooser);
+    void choose_asset(const std::string& component, const std::string& key, const engine::AssetFilter& filter);
+    void clear_asset(const std::string& component, const std::string& key);
+
     // While the tab is shown.
     void refresh();
 
@@ -78,6 +87,7 @@ public:
 private:
     void show_nothing(std::string title);
     void show_asset(const AssetSelection& asset);
+    void show_object(const AssetSelection& asset);
     void show_ui_element(const UiElementSelection& element);
     void show_entity(const engine::ecs::World& world, engine::ecs::Entity entity);
     void show_add(const engine::ecs::World* world, engine::ecs::Entity entity, bool editable);
@@ -85,6 +95,11 @@ private:
     void show_sections(std::vector<InspectorSection> content);
     [[nodiscard]] bool can_edit() const;
     [[nodiscard]] const EntitySelection* edited_entity() const;
+    [[nodiscard]] const AssetSelection* edited_object() const;
+    void edit_object_text(const AssetSelection& object, const std::string& heading, const std::string& key,
+            int slot, const std::string& text);
+    void edit_object_bool(const AssetSelection& object, const std::string& heading, const std::string& key,
+            bool value);
     void note_history();
     // The preview of the selected file when it is a PNG, otherwise none. Each refresh: the image may still be coming.
     void show_preview();
@@ -102,11 +117,14 @@ private:
     std::uint64_t preview_revision_ = 0;
     CommandHistory* journal_ = nullptr;
     std::function<void()> on_history_;
+    AssetChooserFn asset_chooser_;
     bool refreshing_ = false;
     bool add_open_ = false;
     // component, key, and slot of the widget the user is typing into. Empty when they are not.
     std::string editing_key_;
     engine::ecs::Entity editing_entity_{};
+    std::optional<AssetSelection> editing_object_;
+    std::filesystem::file_time_type object_stamp_{};
     // EditorSelection::revision of the file read last; a file is read again only when it moves.
     std::optional<std::uint64_t> asset_revision_;
     // What the sections show, kept so a toggle shows it again without reading the disk.

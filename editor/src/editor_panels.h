@@ -4,7 +4,8 @@
 #include "command_history.h"
 #include "dock_layout_file.h"
 #include "editor_selection.h"
-#include "export_dialog.h"
+#include "asset_picker_overlay.h"
+#include "export_dialog.h" 
 #include "explorer_input.h"
 #include "explorer_panel.h"
 #include "hierarchy_panel.h"
@@ -117,6 +118,7 @@ public:
     [[nodiscard]] ProfilerPanel& profiler();
     [[nodiscard]] BuildPanel& build();
     [[nodiscard]] ExportDialog& export_dialog();
+    [[nodiscard]] AssetPickerOverlay& asset_picker() noexcept { return asset_picker_; }
 
     void undo_edit();
     void redo_edit();
@@ -144,6 +146,7 @@ private:
     ProfilerPanel profiler_;
     BuildPanel build_;
     ExportDialog export_dialog_;
+    AssetPickerOverlay asset_picker_;
     engine::ecs::Entity explorer_canvas_{};
     engine::ecs::Entity hierarchy_canvas_{};
     engine::ecs::Entity world_canvas_{};

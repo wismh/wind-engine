@@ -472,13 +472,44 @@ void AssetsDb::set_graphic_factory(render::IGraphicFactory* factory) {
     cache_.clear();
 }
 
-void AssetsDb::register_object_erased(const std::type_info& type, std::string key, ObjectLoadFn load) {
-    object_loaders_.insert_or_assign(std::type_index(type), ObjectLoader{std::move(key), std::move(load)});
+void AssetsDb::register_object_erased(const std::type_info& type, std::string key, ObjectLoadFn load,
+                                      ObjectDefaultTableFn default_table) {
+    object_loaders_.insert_or_assign(
+            std::type_index(type),
+            ObjectLoader{std::move(key), std::move(load), std::move(default_table)});
+}
+
+std::optional<ecs::FieldTable> AssetsDb::default_object_fields(std::string_view key) const {
+    for (const auto& [_, loader] : object_loaders_) {
+        if (loader.key == key && loader.default_table) {
+            return loader.default_table();
+        }
+    }
+    return std::nullopt;
+}
+
+void AssetsDb::clear_object_cache() {
+    std::erase_if(cache_, [this](const auto& item) { return object_loaders_.contains(item.first.type); });
+}
+
+void AssetsDb::evict_object(AssetId id) {
+    std::erase_if(cache_, [&](const auto& item) { return item.first.id == id; });
 }
 
 void AssetsDb::clear_object_loaders() {
-    std::erase_if(cache_, [this](const auto& item) { return object_loaders_.contains(item.first.type); });
+    clear_object_cache();
     object_loaders_.clear();
+    object_field_filters_.clear();
+}
+
+void AssetsDb::set_object_field_filter(std::string_view object_key, std::string_view field, AssetFilter filter) {
+    object_field_filters_.insert_or_assign(
+            std::make_pair(std::string(object_key), std::string(field)), std::move(filter));
+}
+
+std::optional<AssetFilter> AssetsDb::object_field_filter(std::string_view object_key, std::string_view field) const {
+    const auto it = object_field_filters_.find(std::make_pair(std::string(object_key), std::string(field)));
+    return it == object_field_filters_.end() ? std::nullopt : std::optional<AssetFilter>(it->second);
 }
 
 std::expected<std::shared_ptr<void>, AssetError> AssetsDb::load_object(const CatalogEntry& entry,

@@ -113,6 +113,8 @@ struct WIND_SERIALIZABLE ForwardOnly;
               std::string::npos);
     EXPECT_NE(emitted.find("db.register_object<game::ItemDrop>"), std::string::npos);
     EXPECT_NE(emitted.find("game::read_fields(in, v);"), std::string::npos);
+    EXPECT_NE(emitted.find("struct engine::CustomAssetFilter<game::ItemDrop>"), std::string::npos);
+    EXPECT_NE(emitted.find("serializer.set_field_filter(\"chest\", \"loot\", engine::AssetFilter{});"), std::string::npos);
     EXPECT_EQ(emitted.find("out.field(\"type\""), std::string::npos);
 
     constexpr std::string_view kBoth = "struct WIND_COMPONENT WIND_SERIALIZABLE Both { int n; };";

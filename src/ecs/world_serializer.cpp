@@ -538,6 +538,21 @@ void register_builtin_components(
 
 WorldSerializer::WorldSerializer() {
     register_builtin_components(*this, entries_);
+    set_field_filter("sprite", "texture", AssetFilter{.importer = ImporterKind::Texture});
+    set_field_filter("sprite", "material", AssetFilter{.importer = ImporterKind::Material});
+    set_field_filter("sprite", "mesh", AssetFilter{.importer = ImporterKind::Mesh});
+    set_field_filter("renderable", "material", AssetFilter{.importer = ImporterKind::Material});
+    set_field_filter("renderable", "mesh", AssetFilter{.importer = ImporterKind::Mesh});
+    set_field_filter("tilemap", "texture", AssetFilter{.importer = ImporterKind::Texture});
+}
+
+void WorldSerializer::set_field_filter(std::string_view component, std::string_view field, AssetFilter filter) {
+    field_filters_.insert_or_assign(std::make_pair(std::string(component), std::string(field)), std::move(filter));
+}
+
+std::optional<AssetFilter> WorldSerializer::field_filter(std::string_view component, std::string_view field) const {
+    const auto it = field_filters_.find(std::make_pair(std::string(component), std::string(field)));
+    return it == field_filters_.end() ? std::nullopt : std::optional<AssetFilter>(it->second);
 }
 
 const WorldSerializer::Entry* WorldSerializer::find(std::string_view name) const {

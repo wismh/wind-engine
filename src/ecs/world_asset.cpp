@@ -132,6 +132,18 @@ std::expected<FieldTable, std::string> parse_field_table(std::string_view toml_t
     }
 }
 
+std::string serialize_field_table(const FieldTable& table) {
+    toml::table root;
+    const auto type_field = table.find("type");
+    if (type_field != table.end() && type_field->second.as_string() != nullptr) {
+        root.insert("type", *type_field->second.as_string());
+    }
+    field_to_toml_table(table, root);
+    std::ostringstream os;
+    os << root << '\n';
+    return os.str();
+}
+
 std::expected<WorldAsset, WorldLoadError> parse_world_asset(std::string_view toml_text) {
     toml::table root;
     try {

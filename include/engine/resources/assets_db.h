@@ -6,6 +6,7 @@
 #include <engine/render/graphic_factory.h>
 #include <engine/render/sprite.h>
 #include <engine/resources/asset_id.h>
+#include <engine/resources/asset_ref.h>
 #include <engine/resources/fatal_error.h>
 #include <engine/resources/meta.h>
 
@@ -50,6 +51,7 @@ enum class AssetError {
 
 // Builds a `T` from an object file's field table. Instantiated in the game module so `T`'s deleter lives there.
 using ObjectLoadFn = std::function<std::expected<std::shared_ptr<void>, AssetError>(const ecs::FieldTable&)>;
+using ObjectDefaultTableFn = std::function<ecs::FieldTable()>;
 
 class AssetsDb {
 public:
@@ -104,7 +106,39 @@ public:
 
     // Drops every object loader and evicts cached values those loaders produced. Call while the module that
     // registered them is still mapped, so their deleters run.
+    template<typename T, typename ReadFn, typename WriteFn>
+    void register_object(std::string_view key, ReadFn&& read, WriteFn&& write) {
+        register_object_erased(typeid(T), std::string(key),
+                               [read = std::forward<ReadFn>(read)](
+                                   const ecs::FieldTable& table) -> std::expected<std::shared_ptr<void>, AssetError> {
+                                   T value{};
+                                   ecs::ComponentReader reader(table);
+                                   read(reader, value);
+                                   if (!reader.ok()) {
+                                       return std::unexpected(AssetError::Corrupt);
+                                   }
+                                   return std::static_pointer_cast<void>(std::make_shared<T>(std::move(value)));
+                               },
+                               [write = std::forward<WriteFn>(write)]() -> ecs::FieldTable {
+                                   T value{};
+                                   ecs::FieldTable table;
+                                   ecs::ComponentWriter writer(table);
+                                   write(writer, value);
+                                   return table;
+                               });
+    }
+
+    // Default fields of a registered serializable object type, or nullopt if unregistered or has no writer.
+    [[nodiscard]] std::optional<ecs::FieldTable> default_object_fields(std::string_view key) const;
+
+    // Evicts cached loaded objects.
+    void clear_object_cache();
+    void evict_object(AssetId id);
+
     void clear_object_loaders();
+
+    void set_object_field_filter(std::string_view object_key, std::string_view field, AssetFilter filter);
+    [[nodiscard]] std::optional<AssetFilter> object_field_filter(std::string_view object_key, std::string_view field) const;
 
 private:
     struct CacheKey {
@@ -123,7 +157,8 @@ private:
 
     [[nodiscard]] std::expected<std::shared_ptr<void>, AssetError> try_get_erased(AssetId id, const std::type_info& type);
     [[noreturn]] void fail_get(AssetId id, AssetError error);
-    void register_object_erased(const std::type_info& type, std::string key, ObjectLoadFn load);
+    void register_object_erased(const std::type_info& type, std::string key, ObjectLoadFn load,
+                                ObjectDefaultTableFn default_table = nullptr);
     [[nodiscard]] std::expected<std::shared_ptr<void>, AssetError> load_object(const CatalogEntry& entry,
                                                                                const std::type_info& type);
 
@@ -134,6 +169,7 @@ private:
     struct ObjectLoader {
         std::string key;
         ObjectLoadFn load;
+        ObjectDefaultTableFn default_table;
     };
 
     std::unordered_map<CacheKey, std::shared_ptr<void>, CacheKeyHash> cache_;
@@ -142,6 +178,7 @@ private:
         std::size_t operator()(const AssetId& id) const noexcept { return std::hash<std::string_view>{}(id.hex()); }
     };
     std::unordered_map<AssetId, render::TextureDesc, IdHash> runtime_textures_;
+    std::map<std::pair<std::string, std::string>, AssetFilter, std::less<>> object_field_filters_;
 };
 
 template<typename T>
@@ -162,4 +199,14 @@ std::shared_ptr<T> AssetsDb::get(AssetId id) {
     fail_get(id, result.error());
 }
 
+template<typename T>
+std::shared_ptr<T> AssetRef<T>::get(AssetsDb& db) const {
+    return db.get<T>(id_);
 }
+
+template<typename T>
+std::expected<std::shared_ptr<T>, AssetError> AssetRef<T>::try_get(AssetsDb& db) const {
+    return db.try_get<T>(id_);
+}
+
+} // namespace engine
