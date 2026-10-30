@@ -59,6 +59,21 @@ TEST(UiRefs, CollectsElementSourceRecursively) {
     EXPECT_EQ(images.size(), 2u);
 }
 
+TEST(UiRefs, UnsetImageSourceIsNotCollected) {
+    auto document = must_parse_xml(R"(
+<Canvas>
+  <Image source=")" + std::string(kImageId) + R"("/>
+  <Image/>
+</Canvas>
+)");
+    ASSERT_EQ(document.root.children.size(), 2u);
+    document.root.children[1].source = AssetId{};
+
+    const auto images = collect_referenced_images(document, nullptr);
+    EXPECT_TRUE(contains(images, kImageId));
+    EXPECT_EQ(images.size(), 1u);
+}
+
 TEST(UiRefs, SvgSourceIsNotAnImage) {
     const auto document = must_parse_xml(R"(
 <Canvas>
