@@ -1,5 +1,7 @@
 #include "inspector_panel.h"
 
+#include <engine/resources/asset_filter.h>
+
 #include "asset_inspection.h"
 #include "entity_edit.h"
 #include "entity_inspection.h"
@@ -90,6 +92,28 @@ void InspectorPanel::set_assets(engine::AssetsDb* assets) {
 void InspectorPanel::set_journal(CommandHistory* journal, std::function<void()> on_history) {
     journal_ = journal;
     on_history_ = std::move(on_history);
+}
+
+void InspectorPanel::set_asset_chooser(AssetChooserFn chooser) {
+    asset_chooser_ = std::move(chooser);
+}
+
+void InspectorPanel::choose_asset(
+        const std::string& component, const std::string& key, const engine::AssetFilter& filter) {
+    if (!asset_chooser_) {
+        return;
+    }
+    asset_chooser_("Choose " + key, filter, [this, component, key](const engine::AssetId& id, const std::string&) {
+        edit_text(component, key, -1, std::string(id.hex()));
+        end_field_edit();
+        refresh();
+    });
+}
+
+void InspectorPanel::clear_asset(const std::string& component, const std::string& key) {
+    edit_text(component, key, -1, "");
+    end_field_edit();
+    refresh();
 }
 
 void InspectorPanel::end_field_edit() {
@@ -253,7 +277,7 @@ void InspectorPanel::show_entity(const engine::ecs::World& world, engine::ecs::E
     view_model_->title = entity_display_name(world, entity);
     view_model_->subtitle = std::string(kEntity);
     const bool editable = game_ == nullptr;
-    show_sections(inspect_entity(world, entity, editable));
+    show_sections(inspect_entity(world, entity, editable, assets_));
     show_add(&world, entity, editable);
 }
 

@@ -42,8 +42,14 @@ public:
     engine::ui::Bindable<std::string> z;
     engine::ui::Bindable<std::string> wDisplay{std::string("none")};
     engine::ui::Bindable<std::string> w;
+    engine::ui::Bindable<std::string> assetDisplay{std::string("none")};
+    engine::ui::Bindable<std::string> assetName{std::string("(None)")};
+    engine::ui::MethodCommand chooseAsset;
+    engine::ui::MethodCommand clearAsset;
 
 private:
+    void on_choose_asset();
+    void on_clear_asset();
     void on_value(const std::string& next);
     void on_axis(int slot, const std::string& next);
     void on_checked(bool next);
@@ -53,6 +59,7 @@ private:
     std::string component_;
     std::string key_;
     std::array<bool, 4> axis_integer_{};
+    engine::AssetFilter asset_filter_{};
 };
 
 // One name in the Add Component list.

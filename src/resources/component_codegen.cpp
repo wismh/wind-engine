@@ -191,7 +191,8 @@ std::string qualify(const std::vector<std::string>& namespaces, std::string_view
 std::expected<void, CodegenError> extract_struct_fields(const std::vector<Token>& tokens, std::size_t body_start,
                                                         std::size_t body_end, std::string_view include_path,
                                                         std::string_view marker, std::string_view struct_name,
-                                                        std::vector<std::string>& out_fields) {
+                                                        std::vector<std::string>& out_fields,
+                                                        std::vector<std::string>& out_types) {
     std::size_t i = body_start;
     while (i < body_end) {
         if (tokens[i].kind == TokenKind::Ident &&
@@ -282,6 +283,19 @@ std::expected<void, CodegenError> extract_struct_fields(const std::vector<Token>
                                                 std::format("{}:{}: could not determine field name in {} struct {}",
                                                             include_path, name_tok.line, marker, struct_name)});
         }
+        std::string type_str;
+        for (std::size_t k = stmt_start; k < *init_or_end_pos - 1; ++k) {
+            if (!type_str.empty()) {
+                const std::string_view last = tokens[k - 1].text;
+                const std::string_view curr = tokens[k].text;
+                if (curr != "::" && last != "::" && curr != "<" && last != "<" && curr != ">" && last != ">" &&
+                    curr != "," && last != ",") {
+                    type_str += ' ';
+                }
+            }
+            type_str += tokens[k].text;
+        }
+        out_types.push_back(std::move(type_str));
         out_fields.push_back(name_tok.text);
     }
     return {};
@@ -414,7 +428,9 @@ std::expected<ScannedStructs, CodegenError> scan_components_in_text(std::string_
             }
 
             std::vector<std::string> fields;
-            if (auto ok = extract_struct_fields(tokens, body_start, scan, include_path, marker, struct_name, fields);
+            std::vector<std::string> field_types;
+            if (auto ok = extract_struct_fields(tokens, body_start, scan, include_path, marker, struct_name, fields,
+                                                field_types);
                 !ok) {
                 return std::unexpected(std::move(ok.error()));
             }
@@ -437,6 +453,7 @@ std::expected<ScannedStructs, CodegenError> scan_components_in_text(std::string_
                 value.struct_name = struct_name;
                 value.toml_key = toml_key;
                 value.fields = std::move(fields);
+                value.field_types = std::move(field_types);
                 results.serializables.push_back(std::move(value));
             } else {
                 ScannedComponent comp;
@@ -445,6 +462,7 @@ std::expected<ScannedStructs, CodegenError> scan_components_in_text(std::string_
                 comp.struct_name = struct_name;
                 comp.toml_key = toml_key;
                 comp.fields = std::move(fields);
+                comp.field_types = std::move(field_types);
                 results.components.push_back(std::move(comp));
             }
             i = scan + 1;
@@ -587,6 +605,14 @@ void emit_serializable(std::ostringstream& os, const ScannedSerializable& value)
     os << "}\n";
     emit_namespace_close(os, value.namespaces);
     os << "\n";
+    os << "template<>\n";
+    os << "struct engine::CustomAssetFilter<" << qname << "> {\n";
+    os << "    static constexpr bool kHas = true;\n";
+    os << "    static engine::AssetFilter filter() {\n";
+    os << "        return engine::AssetFilter{.importer = engine::ImporterKind::Object, .object_type = \""
+       << value.toml_key << "\"};\n";
+    os << "    }\n";
+    os << "};\n\n";
 }
 
 } // namespace
@@ -636,6 +662,17 @@ std::string emit_component_io_header(std::span<const ScannedComponent> component
             os << "            [](engine::ecs::ComponentWriter& out, const " << qname << "& v) {\n";
             os << "                " << namespace_prefix(value.namespaces) << "write_fields(out, v);\n";
             os << "            });\n";
+            for (std::size_t idx = 0; idx < value.fields.size(); ++idx) {
+                const std::string& field = value.fields[idx];
+                const std::string& ftype = idx < value.field_types.size() ? value.field_types[idx] : "";
+                if (ftype.find("AssetRef<") != std::string::npos) {
+                    os << "    db.set_object_field_filter(\"" << value.toml_key << "\", \"" << field
+                       << "\", decltype(std::declval<" << qname << ">()." << field << ")::filter());\n";
+                } else if (ftype.find("AssetId") != std::string::npos) {
+                    os << "    db.set_object_field_filter(\"" << value.toml_key << "\", \"" << field
+                       << "\", engine::AssetFilter{});\n";
+                }
+            }
         }
         os << "}\n\n";
     }
@@ -662,6 +699,17 @@ std::string emit_component_io_header(std::span<const ScannedComponent> component
                 }
                 os << "            },\n";
             os << "            });\n";
+            }
+            for (std::size_t idx = 0; idx < comp.fields.size(); ++idx) {
+                const std::string& field = comp.fields[idx];
+                const std::string& ftype = idx < comp.field_types.size() ? comp.field_types[idx] : "";
+                if (ftype.find("AssetRef<") != std::string::npos) {
+                    os << "    serializer.set_field_filter(\"" << comp.toml_key << "\", \"" << field
+                       << "\", decltype(std::declval<" << qname << ">()." << field << ")::filter());\n";
+                } else if (ftype.find("AssetId") != std::string::npos) {
+                    os << "    serializer.set_field_filter(\"" << comp.toml_key << "\", \"" << field
+                       << "\", engine::AssetFilter{});\n";
+                }
             }
         }
         os << "}\n\n";

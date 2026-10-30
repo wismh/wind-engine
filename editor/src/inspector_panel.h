@@ -19,6 +19,7 @@
 
 namespace engine {
 class AssetsDb;
+struct AssetFilter;
 }
 
 namespace engine::ecs {
@@ -56,6 +57,14 @@ public:
     void set_previews(ThumbnailService* previews);
     // Entity edits are pushed here. `on_history` runs after a step is recorded (the world view syncs its dirty flag).
     void set_journal(CommandHistory* journal, std::function<void()> on_history);
+
+    using AssetChooserFn = std::function<void(
+            const std::string& title, const engine::AssetFilter& filter,
+            std::function<void(const engine::AssetId&, const std::string& name)> on_picked)>;
+
+    void set_asset_chooser(AssetChooserFn chooser);
+    void choose_asset(const std::string& component, const std::string& key, const engine::AssetFilter& filter);
+    void clear_asset(const std::string& component, const std::string& key);
 
     // While the tab is shown.
     void refresh();
@@ -108,6 +117,7 @@ private:
     std::uint64_t preview_revision_ = 0;
     CommandHistory* journal_ = nullptr;
     std::function<void()> on_history_;
+    AssetChooserFn asset_chooser_;
     bool refreshing_ = false;
     bool add_open_ = false;
     // component, key, and slot of the widget the user is typing into. Empty when they are not.

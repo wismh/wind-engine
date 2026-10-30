@@ -100,6 +100,14 @@ EditorPanels::EditorPanels(DockLayoutFile layout_file)
         world_view_.sync_entity_dirty(commands_.count(EditorCommand::Kind::Entity));
     });
     world_view_.set_edit_reset_hook([this] { commands_.discard(EditorCommand::Kind::Entity); });
+    inspector_.set_asset_chooser([this](const std::string& title, const engine::AssetFilter& filter,
+                                        std::function<void(const engine::AssetId&, const std::string&)> on_picked) {
+        asset_picker_.set_assets(world_view_.assets(), explorer_.directory());
+        asset_picker_.set_thumbnails(&explorer_.thumbnails());
+        asset_picker_.open(title, filter, [on_picked = std::move(on_picked)](engine::AssetId chosen) {
+            on_picked(chosen, "");
+        });
+    });
 }
 
 DockLayout EditorPanels::default_layout() {
@@ -137,6 +145,8 @@ void EditorPanels::spawn(engine::ecs::World& world, engine::WindowId window, eng
     profiler_canvas_ = spawn_panel(world, window, assets::ui::profiler, profiler_.view_model());
     build_canvas_ = spawn_panel(world, window, assets::ui::build, build_.view_model());
     export_canvas_ = spawn_panel(world, window, assets::ui::export_dialog, export_dialog_.view_model());
+    asset_picker_.spawn(world, window);
+    asset_picker_.set_thumbnails(&explorer_.thumbnails());
 
     engine::ui::DockSpace space;
     space.window = window;

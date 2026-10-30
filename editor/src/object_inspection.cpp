@@ -61,7 +61,11 @@ std::vector<InspectorSection> inspect_object(
     } else {
         object_section.fields.reserve(merged.size());
         for (const auto& [k, v] : merged) {
-            object_section.fields.push_back(make_inspector_field(k, v, editable));
+            std::optional<engine::AssetFilter> filter;
+            if (assets != nullptr) {
+                filter = assets->object_field_filter(*type_name, k);
+            }
+            object_section.fields.push_back(make_inspector_field(k, v, editable, assets, filter));
         }
     }
 

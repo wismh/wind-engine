@@ -6,6 +6,9 @@
 # Everything but main.cpp and the EditorApp shell, so wind_editor_tests compiles the same panels.
 set(_wind_editor_parts
     src/asset_inspection.cpp
+    src/asset_picker_overlay.cpp
+    src/asset_picker_tile_view_model.cpp
+    src/asset_picker_view_model.cpp
     src/asset_sync.cpp
     src/asset_watch.cpp
     src/canvas_pointer.cpp

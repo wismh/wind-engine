@@ -12,11 +12,18 @@ namespace engine::ecs {
 class World;
 }
 
+namespace engine {
+class AssetsDb;
+struct AssetFilter;
+}
+
 namespace editor {
 
 // Display name of `entity` in `world`: `EntityName::id` when non-empty, otherwise `entity_<index>`.
 [[nodiscard]] InspectorField make_inspector_field(
-        std::string key, const engine::ecs::FieldValue& value, bool editable);
+        std::string key, const engine::ecs::FieldValue& value, bool editable,
+        const engine::AssetsDb* assets = nullptr,
+        const std::optional<engine::AssetFilter>& filter = std::nullopt);
 
 [[nodiscard]] std::string entity_display_name(const engine::ecs::World& world, engine::ecs::Entity entity);
 
@@ -28,6 +35,7 @@ namespace editor {
 // `editable` turns each registered component into fields (and a remove button). Play Mode passes false and the
 // sections stay read-only lines.
 [[nodiscard]] std::vector<InspectorSection> inspect_entity(
-        const engine::ecs::World& world, engine::ecs::Entity entity, bool editable);
+        const engine::ecs::World& world, engine::ecs::Entity entity, bool editable,
+        const engine::AssetsDb* assets = nullptr);
 
 }
