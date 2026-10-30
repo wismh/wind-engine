@@ -10,6 +10,8 @@
 #include "render/vulkan/vulkan_factory.h"
 #include "render/vulkan/vulkan_shader.h"
 #include "render/vulkan/vulkan_spirv.h"
+#include "render/vulkan/vulkan_ui_device.h"
+#include "render/vulkan/vulkan_ui_shader.h"
 #include "resources/importers.h"
 
 #include <engine/render/command_buffer.h>
@@ -174,6 +176,45 @@ TEST(VulkanBackendTest, SpirvReflectionExtractsUniformsFromBuiltinSlangShaders) 
     EXPECT_NE(lit_refl.find_uniform("uAmbient"), nullptr);
 }
 #endif
+
+TEST(VulkanBackendTest, UiShaderCompilesAndUiDeviceTracksDrawCallsAndTextures) {
+    auto ctx = std::make_shared<VulkanContext>();
+    VulkanRenderBackend backend(ctx);
+    VulkanUiDevice ui_device(ctx);
+    ASSERT_TRUE(ui_device.create());
+    ASSERT_NE(ui_device.shader(), nullptr);
+    EXPECT_TRUE(ui_device.shader()->valid());
+    EXPECT_FALSE(ui_device.shader()->reflection().vertex_entry.empty());
+    EXPECT_FALSE(ui_device.shader()->reflection().fragment_entry.empty());
+    EXPECT_NE(ui_device.shader()->reflection().find_uniform("u_view_size"), nullptr);
+
+    ui::UiRenderer renderer(backend.ui_resources(), ui_device);
+    constexpr AssetId kTestImage{"d1a1c2d3e4f5678901234567890abc11"};
+    TextureDesc img_desc{};
+    img_desc.width = 4;
+    img_desc.height = 4;
+    img_desc.rgba.assign(4u * 4u * 4u, 255u);
+    EXPECT_TRUE(renderer.add_image(kTestImage, img_desc));
+
+    ui::Gradient grad{};
+    grad.stops = {
+        ui::GradientStop{.color = glm::vec4{1.0f, 0.0f, 0.0f, 1.0f}, .percent = 0.0f},
+        ui::GradientStop{.color = glm::vec4{0.0f, 0.0f, 1.0f, 1.0f}, .percent = 100.0f},
+    };
+
+    renderer.begin_frame(800.0f, 600.0f);
+    renderer.fill_rounded_rect(Rect{10.0f, 20.0f, 100.0f, 50.0f}, 4.0f, glm::vec4{1.0f});
+    renderer.fill_rounded_rect_gradient(Rect{20.0f, 30.0f, 80.0f, 40.0f}, 2.0f, grad);
+    renderer.image(kTestImage, Rect{120.0f, 20.0f, 16.0f, 16.0f});
+    renderer.end_frame();
+    EXPECT_EQ(ui_device.draw_calls(), 1);
+    EXPECT_GT(ui_device.texture_page_count(ui::UiTextureSlot::Ramp), 0u);
+    EXPECT_GT(ui_device.texture_page_count(ui::UiTextureSlot::Image), 0u);
+
+    ui_device.release_textures();
+    EXPECT_EQ(ui_device.texture_page_count(ui::UiTextureSlot::Ramp), 0u);
+    EXPECT_EQ(ui_device.texture_page_count(ui::UiTextureSlot::Image), 0u);
+}
 
 } // namespace
 } // namespace engine::render

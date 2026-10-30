@@ -4,10 +4,10 @@
 
 #include "vulkan_backend.h"
 #include "vulkan_context.h"
+#include "vulkan_ui_device.h"
 
 #include "render/opengl/window_canvas.h"
 #include "render/opengl/window_system.h"
-#include "ui/render/ui_device.h"
 #include "ui/render/ui_renderer.h"
 
 #include <engine/render/command_buffer.h>
@@ -91,7 +91,7 @@ private:
     bool swapchain_dirty_ = false;
     bool vsync_ = true;
 
-    std::unique_ptr<ui::IUiDevice> ui_device_;
+    std::unique_ptr<VulkanUiDevice> ui_device_;
     std::unique_ptr<ui::UiRenderer> ui_renderer_;
 };
 

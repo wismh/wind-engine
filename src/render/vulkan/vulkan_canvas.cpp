@@ -2,6 +2,8 @@
 
 #include "render/framebuffer_image.h"
 
+#include <engine/log.h>
+
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
@@ -11,33 +13,6 @@
 namespace engine::render {
 
 namespace {
-
-class VulkanUiDevice final : public ui::IUiDevice {
-public:
-    void begin_frame(float, float, float) override { draw_calls_ = 0; }
-    void create_texture(
-        ui::UiTextureSlot,
-        std::uint32_t,
-        int,
-        int,
-        ui::UiTextureFormat,
-        const ui::UiTextureRegion&) override {}
-    void update_texture(ui::UiTextureSlot, std::uint32_t, const ui::UiTextureRegion&) override {}
-    void release_textures() override {}
-    void upload(std::span<const ui::UiVertex>, std::span<const ui::UiIndex>) override {}
-    void draw(std::span<const ui::UiBatch> batches) override {
-        for (const ui::UiBatch& batch : batches) {
-            if (batch.index_count > 0) {
-                ++draw_calls_;
-            }
-        }
-    }
-    void end_frame() override {}
-    [[nodiscard]] int draw_calls() const override { return draw_calls_; }
-
-private:
-    int draw_calls_ = 0;
-};
 
 VkSurfaceFormatKHR choose_surface_format(const std::vector<VkSurfaceFormatKHR>& formats) {
     for (const auto& fmt : formats) {
@@ -124,7 +99,13 @@ bool VulkanCanvas::init(bool with_ui_painter) {
     }
 
     if (with_ui_painter) {
-        ui_device_ = std::make_unique<VulkanUiDevice>();
+        ui_device_ = std::make_unique<VulkanUiDevice>(backend_->context_ptr());
+        if (!ui_device_->create()) {
+            log::error("the Vulkan UI renderer's shader did not build; this window draws no UI");
+            ui_device_.reset();
+            shutdown();
+            return false;
+        }
         ui_renderer_ = std::make_unique<ui::UiRenderer>(backend_->ui_resources(), *ui_device_);
         backend_->set_ui_painter(ui_painter());
     }
@@ -283,6 +264,9 @@ void VulkanCanvas::render() {
     }
     backend_->end_scene_pass();
     if (ui_renderer_ != nullptr) {
+        if (ui_device_ != nullptr) {
+            ui_device_->set_frame_context(cmd, render_pass_, current_frame_);
+        }
         ui_renderer_->end_frame();
     }
 
