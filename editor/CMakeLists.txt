@@ -43,6 +43,8 @@ set(_wind_editor_parts
     src/inspector_section_view_model.cpp
     src/inspector_view_model.cpp
     src/native_build.cpp
+    src/object_edit.cpp
+    src/object_inspection.cpp
     src/opening_overlay.cpp
     src/opening_view_model.cpp
     src/play_session.cpp

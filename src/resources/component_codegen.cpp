@@ -632,6 +632,9 @@ std::string emit_component_io_header(std::span<const ScannedComponent> component
             os << "            \"" << value.toml_key << "\",\n";
             os << "            [](engine::ecs::ComponentReader& in, " << qname << "& v) {\n";
             os << "                " << namespace_prefix(value.namespaces) << "read_fields(in, v);\n";
+            os << "            },\n";
+            os << "            [](engine::ecs::ComponentWriter& out, const " << qname << "& v) {\n";
+            os << "                " << namespace_prefix(value.namespaces) << "write_fields(out, v);\n";
             os << "            });\n";
         }
         os << "}\n\n";
@@ -657,7 +660,8 @@ std::string emit_component_io_header(std::span<const ScannedComponent> component
                 for (const std::string& field : comp.fields) {
                     os << "                (void)in.field(\"" << field << "\", c." << field << ");\n";
                 }
-                os << "            });\n";
+                os << "            },\n";
+            os << "            });\n";
             }
         }
         os << "}\n\n";

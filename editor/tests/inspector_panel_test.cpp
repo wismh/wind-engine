@@ -1,3 +1,5 @@
+#include "fixtures/fake_services.h"
+#include <engine/resources/assets_db.h>
 #include <gtest/gtest.h>
 
 #include "command_history.h"
@@ -509,3 +511,206 @@ TEST(InspectorPanel, RotationEditsAsEulerAndColorKeepsAlpha) {
     EXPECT_FLOAT_EQ(tint.color.w, 0.5f);
 }
 
+
+TEST(InspectorPanel, InspectsAndEditsObjectFileWithUndoRedo) {
+    const std::filesystem::path dir =
+            std::filesystem::temp_directory_path() / "wind_inspector_obj_test";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+
+    const std::filesystem::path obj_path = dir / "sword.object";
+    {
+        std::ofstream out(obj_path, std::ios::binary);
+        out << "type = \"sword\"\nname = \"blade\"\ncount = 3\nequipped = true\n";
+    }
+
+    editor::CommandHistory history;
+    editor::EditorSelection selection;
+    editor::InspectorPanel panel{selection};
+    int history_notes = 0;
+    panel.set_journal(&history, [&history_notes] { ++history_notes; });
+
+    const editor::AssetSelection asset_sel{
+            .key = "assets/items/sword.object",
+            .path = obj_path,
+            .directory = false,
+            .size = std::filesystem::file_size(obj_path),
+    };
+
+    selection.select(asset_sel);
+    panel.refresh();
+
+    EXPECT_EQ(panel.view_model()->title.get(), "sword.object");
+    EXPECT_EQ(panel.view_model()->subtitle.get(), "Object");
+
+    const auto section_named = [&](std::string_view heading) -> const editor::InspectorSectionViewModel* {
+        for (const auto& section : panel.view_model()->sections.get()) {
+            if (section->heading.get() == heading) {
+                return section.get();
+            }
+        }
+        return nullptr;
+    };
+
+    const editor::InspectorSectionViewModel* sword_sec = section_named("sword");
+    ASSERT_NE(sword_sec, nullptr);
+
+
+
+    const auto count_field = field_named(*sword_sec, "count");
+    ASSERT_NE(count_field, nullptr);
+    EXPECT_EQ(count_field->value.get(), "3");
+
+    const auto name_field = field_named(*sword_sec, "name");
+    ASSERT_NE(name_field, nullptr);
+    EXPECT_EQ(name_field->value.get(), "blade");
+
+    const auto eq_field = field_named(*sword_sec, "equipped");
+    ASSERT_NE(eq_field, nullptr);
+    EXPECT_TRUE(eq_field->checked.get());
+
+    // Edit number field
+    panel.edit_text("sword", "count", -1, "10");
+    EXPECT_EQ(history_notes, 1);
+
+    // Verify on disk
+    std::string text_now;
+    {
+        std::ifstream in(obj_path, std::ios::binary);
+        text_now.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    auto parsed = engine::ecs::parse_field_table(text_now);
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(*parsed->at("count").as_int(), 10);
+
+    // Edit bool field
+    panel.edit_bool("sword", "equipped", false);
+    EXPECT_EQ(history_notes, 2);
+
+    {
+        std::ifstream in(obj_path, std::ios::binary);
+        text_now.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    parsed = engine::ecs::parse_field_table(text_now);
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_FALSE(*parsed->at("equipped").as_bool());
+
+    // Undo bool edit
+    EXPECT_TRUE(history.undo());
+    {
+        std::ifstream in(obj_path, std::ios::binary);
+        text_now.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    parsed = engine::ecs::parse_field_table(text_now);
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_TRUE(*parsed->at("equipped").as_bool());
+
+    // Undo text edit
+    EXPECT_TRUE(history.undo());
+    {
+        std::ifstream in(obj_path, std::ios::binary);
+        text_now.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    parsed = engine::ecs::parse_field_table(text_now);
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(*parsed->at("count").as_int(), 3);
+
+    // Redo text edit
+    EXPECT_TRUE(history.redo());
+    {
+        std::ifstream in(obj_path, std::ios::binary);
+        text_now.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    parsed = engine::ecs::parse_field_table(text_now);
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(*parsed->at("count").as_int(), 10);
+
+    std::filesystem::remove_all(dir);
+}
+
+TEST(InspectorPanel, HybridObjectSchemaPopulatesDefaultsAndEvictsAssetsDbCache) {
+    const std::filesystem::path dir =
+            std::filesystem::temp_directory_path() / "wind_inspector_hybrid_test";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+
+    struct Weapon {
+        std::string name = "steel";
+        int count = 1;
+        bool magical = false;
+    };
+
+    fakes::QuietFatal fatal;
+    engine::AssetsDb db(fatal);
+    db.register_object<Weapon>(
+            "weapon",
+            [](engine::ecs::ComponentReader& in, Weapon& w) {
+                (void)in.field("name", w.name);
+                (void)in.field("count", w.count);
+                (void)in.field("magical", w.magical);
+            },
+            [](engine::ecs::ComponentWriter& out, const Weapon& w) {
+                out.field("name", w.name);
+                out.field("count", w.count);
+                out.field("magical", w.magical);
+            });
+
+    // File only specifies name; count and magical should come from defaults!
+    const std::filesystem::path obj_path = dir / "dagger.object";
+    {
+        std::ofstream out(obj_path, std::ios::binary);
+        out << "type = \"weapon\"\nname = \"dagger\"\n";
+    }
+
+    editor::CommandHistory history;
+    editor::EditorSelection selection;
+    editor::InspectorPanel panel{selection};
+    panel.set_assets(&db);
+    panel.set_journal(&history, [] {});
+
+    const editor::AssetSelection asset_sel{
+            .key = "assets/items/dagger.object",
+            .path = obj_path,
+            .directory = false,
+            .size = std::filesystem::file_size(obj_path),
+    };
+
+    selection.select(asset_sel);
+    panel.refresh();
+
+    const auto section_named = [&](std::string_view heading) -> const editor::InspectorSectionViewModel* {
+        for (const auto& section : panel.view_model()->sections.get()) {
+            if (section->heading.get() == heading) {
+                return section.get();
+            }
+        }
+        return nullptr;
+    };
+
+    const editor::InspectorSectionViewModel* weapon_sec = section_named("weapon");
+    ASSERT_NE(weapon_sec, nullptr);
+
+
+
+    // "name" came from file
+    EXPECT_EQ(field_named(*weapon_sec, "name")->value.get(), "dagger");
+    // "count" and "magical" populated from C++ default schema!
+    EXPECT_EQ(field_named(*weapon_sec, "count")->value.get(), "1");
+    EXPECT_FALSE(field_named(*weapon_sec, "magical")->checked.get());
+
+    // Edit the defaulted field
+    panel.edit_bool("weapon", "magical", true);
+
+    std::string text_now;
+    {
+        std::ifstream in(obj_path, std::ios::binary);
+        text_now.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    auto parsed = engine::ecs::parse_field_table(text_now);
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_TRUE(*parsed->at("magical").as_bool());
+    EXPECT_EQ(*parsed->at("name").as_string(), "dagger");
+    EXPECT_EQ(*parsed->at("count").as_int(), 1);
+
+    std::filesystem::remove_all(dir);
+}

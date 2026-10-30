@@ -3,6 +3,8 @@
 #include "asset_inspection.h"
 #include "entity_edit.h"
 #include "entity_inspection.h"
+#include "object_edit.h"
+#include "object_inspection.h"
 
 #include <engine/ecs/world.h>
 #include <engine/ecs/world_serializer.h>
@@ -103,6 +105,25 @@ void InspectorPanel::refresh() {
         editing_entity_ = current;
     }
     if (const auto* asset = std::get_if<AssetSelection>(&target)) {
+        if (is_object_asset(*asset)) {
+            if (!editing_object_ || !(*editing_object_ == *asset)) {
+                editing_key_.clear();
+                editing_object_ = *asset;
+                object_stamp_ = {};
+            }
+            hide_preview();
+            std::error_code ec;
+            const auto stamp = std::filesystem::last_write_time(asset->path, ec);
+            if (asset_revision_ != selection_->revision() || (!ec && stamp != object_stamp_)) {
+                asset_revision_ = selection_->revision();
+                if (!ec) {
+                    object_stamp_ = stamp;
+                }
+                show_object(*asset);
+            }
+            return;
+        }
+        editing_object_.reset();
         if (asset_revision_ != selection_->revision()) {
             asset_revision_ = selection_->revision();
             show_asset(*asset);
@@ -188,6 +209,14 @@ void InspectorPanel::show_asset(const AssetSelection& asset) {
     view_model_->title = path_text(asset.path.filename());
     view_model_->subtitle = std::string(asset.directory ? "Folder" : "File");
     show_sections(inspect_asset(asset));
+    show_add(nullptr, {}, false);
+}
+
+void InspectorPanel::show_object(const AssetSelection& asset) {
+    view_model_->title = path_text(asset.path.filename());
+    view_model_->subtitle = std::string("Object");
+    const bool editable = game_ == nullptr;
+    show_sections(inspect_object(asset, assets_, editable));
     show_add(nullptr, {}, false);
 }
 
@@ -311,6 +340,39 @@ const EntitySelection* InspectorPanel::edited_entity() const {
     return entity;
 }
 
+const AssetSelection* InspectorPanel::edited_object() const {
+    if (game_ != nullptr) {
+        return nullptr;
+    }
+    const AssetSelection* asset = std::get_if<AssetSelection>(&selection_->target());
+    if (asset == nullptr || !is_object_asset(*asset)) {
+        return nullptr;
+    }
+    return asset;
+}
+
+void InspectorPanel::edit_object_text(
+        const AssetSelection& object, const std::string& heading, const std::string& key, int slot, const std::string& text) {
+    editing_key_ = heading + "\n" + key + "\n" + std::to_string(slot);
+    if (edit_object_field_text(object.path, object.key, heading, assets_, journal_, key, slot, text)) {
+        std::error_code ec;
+        object_stamp_ = std::filesystem::last_write_time(object.path, ec);
+        note_history();
+    }
+}
+
+void InspectorPanel::edit_object_bool(
+        const AssetSelection& object, const std::string& heading, const std::string& key, bool value) {
+    (void)heading;
+    end_field_edit();
+    if (edit_object_field_bool(object.path, heading, assets_, journal_, key, value)) {
+        std::error_code ec;
+        object_stamp_ = std::filesystem::last_write_time(object.path, ec);
+        note_history();
+        show_object(object);
+    }
+}
+
 void InspectorPanel::note_history() {
     if (on_history_) {
         on_history_();
@@ -374,52 +436,59 @@ void InspectorPanel::remove_component(const std::string& name) {
 
 void InspectorPanel::edit_text(
         const std::string& component, const std::string& key, int slot, const std::string& text) {
-    const EntitySelection* entity = edited_entity();
-    if (entity == nullptr) {
+    if (const EntitySelection* entity = edited_entity()) {
+        editing_key_ = component + "\n" + key + "\n" + std::to_string(slot);
+        engine::ecs::FieldTable before;
+        if (!write_component(*edit_world_, entity->entity, component, before)) {
+            return;
+        }
+        engine::ecs::FieldTable after = before;
+        if (!assign_text(after, key, slot, text) || after == before) {
+            return;
+        }
+        if (!read_component(*edit_world_, entity->entity, component, after, assets_)) {
+            return;
+        }
+        if (journal_ != nullptr) {
+            const std::string coalesce = std::format("{}:{}:{}:{}:{}", entity->entity.index, entity->entity.generation,
+                    component, key, slot);
+            journal_->push(std::make_unique<EntityEditCommand>(edit_world_, assets_, entity->entity, component,
+                    EntityEditCommand::Change::Set, std::move(before), std::move(after), coalesce));
+            note_history();
+        }
         return;
     }
-    editing_key_ = component + "\n" + key + "\n" + std::to_string(slot);
-    engine::ecs::FieldTable before;
-    if (!write_component(*edit_world_, entity->entity, component, before)) {
+    if (const AssetSelection* object = edited_object()) {
+        edit_object_text(*object, component, key, slot, text);
         return;
-    }
-    engine::ecs::FieldTable after = before;
-    if (!assign_text(after, key, slot, text) || after == before) {
-        return;
-    }
-    if (!read_component(*edit_world_, entity->entity, component, after, assets_)) {
-        return;
-    }
-    if (journal_ != nullptr) {
-        const std::string coalesce = std::format("{}:{}:{}:{}:{}", entity->entity.index, entity->entity.generation,
-                component, key, slot);
-        journal_->push(std::make_unique<EntityEditCommand>(edit_world_, assets_, entity->entity, component,
-                EntityEditCommand::Change::Set, std::move(before), std::move(after), coalesce));
-        note_history();
     }
 }
 
 void InspectorPanel::edit_bool(const std::string& component, const std::string& key, bool value) {
-    const EntitySelection* entity = edited_entity();
-    if (entity == nullptr) {
+    if (const EntitySelection* entity = edited_entity()) {
+        end_field_edit();
+        engine::ecs::FieldTable before;
+        if (!write_component(*edit_world_, entity->entity, component, before)) {
+            return;
+        }
+        engine::ecs::FieldTable after = before;
+        if (!assign_bool(after, key, value) || after == before) {
+            return;
+        }
+        if (!read_component(*edit_world_, entity->entity, component, after, assets_)) {
+            return;
+        }
+        if (journal_ != nullptr) {
+            journal_->push(std::make_unique<EntityEditCommand>(edit_world_, assets_, entity->entity, component,
+                    EntityEditCommand::Change::Set, std::move(before), std::move(after), std::string{}));
+            note_history();
+        }
+        refresh();
         return;
     }
-    end_field_edit();
-    engine::ecs::FieldTable before;
-    if (!write_component(*edit_world_, entity->entity, component, before)) {
+    if (const AssetSelection* object = edited_object()) {
+        edit_object_bool(*object, component, key, value);
         return;
-    }
-    engine::ecs::FieldTable after = before;
-    if (!assign_bool(after, key, value) || after == before) {
-        return;
-    }
-    if (!read_component(*edit_world_, entity->entity, component, after, assets_)) {
-        return;
-    }
-    if (journal_ != nullptr) {
-        journal_->push(std::make_unique<EntityEditCommand>(edit_world_, assets_, entity->entity, component,
-                EntityEditCommand::Change::Set, std::move(before), std::move(after), std::string{}));
-        note_history();
     }
 }
 
