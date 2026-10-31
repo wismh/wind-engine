@@ -73,11 +73,19 @@ struct FieldValue {
     }
     [[nodiscard]] const bool* as_bool() const noexcept { return std::get_if<bool>(&data); }
     [[nodiscard]] const std::string* as_string() const noexcept { return std::get_if<std::string>(&data); }
+    [[nodiscard]] std::string* as_string() noexcept { return std::get_if<std::string>(&data); }
     [[nodiscard]] const FieldArray* as_array() const noexcept { return std::get_if<FieldArray>(&data); }
+    [[nodiscard]] FieldArray* as_array() noexcept { return std::get_if<FieldArray>(&data); }
     [[nodiscard]] const FieldTable* as_table() const noexcept { return std::get_if<FieldTable>(&data); }
+    [[nodiscard]] FieldTable* as_table() noexcept { return std::get_if<FieldTable>(&data); }
 
     bool operator==(const FieldValue&) const = default;
 };
+
+// Merges overrides into target recursively. Scalar and array values in overrides replace values in target.
+// Sub-tables are recursively merged.
+void merge_field_tables(FieldTable& target, const FieldTable& overrides);
+[[nodiscard]] FieldTable merged_field_tables(const FieldTable& base, const FieldTable& overrides);
 
 class ComponentWriter {
 public:

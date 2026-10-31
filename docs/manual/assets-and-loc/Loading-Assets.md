@@ -63,6 +63,34 @@ A static game calls `assets::register_game_objects(services.assets)` from its co
 
 ---
 
+## 5. Strongly Typed Asset Handles (`AssetRef<T>`)
+
+Instead of passing raw `AssetId` handles where any asset GUID can be passed by mistake, use `engine::AssetRef<T>` (`<engine/resources/asset_ref.h>`):
+
+```cpp
+#include <engine/resources/asset_ref.h>
+#include <engine/render/graphics.h>
+#include <asset_ids.h>
+
+struct CharacterVisual {
+    engine::AssetRef<engine::render::ITexture> texture;
+};
+
+CharacterVisual visual{
+    .texture = engine::AssetRef<engine::render::ITexture>{assets::textures::hero}
+};
+
+// Fetch directly through the typed reference:
+std::shared_ptr<engine::render::ITexture> tex = visual.texture.get(services.assets);
+
+// Or safely with try_get:
+auto maybe_tex = visual.texture.try_get(services.assets);
+```
+
+`AssetRef<T>` carries compile-time asset type metadata (`AssetRef<T>::filter()`), supports comparison and equality operators, and safely defaults to an empty/invalid handle (`valid() == false`).
+
+---
+
 ## Next Steps
 
 - Localize text tables in [Localization](Localization.md).

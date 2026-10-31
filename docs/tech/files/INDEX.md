@@ -48,6 +48,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/ecs/camera.h` | `Camera` (orthographic or perspective), `Projection`, screen/world and screen/ray conversion | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/entity.h` | Generational `Entity` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/events.h` | Double-buffered `Events`, reader, writer, cursor | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/hierarchy.h` | `Parent`, `Children`, `WorldTransform`, `set_parent`, `clear_parent`, `world_matrix`, `set_world_position` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/pointer_target.h` | `PointerTarget`, `PointerTargetEvent`, `pointer_target_at` | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `include/engine/ecs/physics_2d.h` | Colliders, `CollisionEvent2D`, `run_physics_2d` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/ray.h` | `Ray`, `RayHit`, plane, sphere, AABB, triangle, quad, and segment queries | [ECS](../modules/ECS.md) |
@@ -59,6 +60,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/ecs/world_asset.h` | `WorldAsset`, `EntityRecord`, `WorldLoadError`, `parse_world_asset`, `serialize_world_asset`, `parse_field_table` | [ECS](../modules/ECS.md#world-serialization) |
 | `include/engine/ecs/world_io.h` | `WIND_COMPONENT`, `WIND_SERIALIZABLE`, `EntityName`, `FieldValue`, `ComponentWriter`, `ComponentReader` | [ECS](../modules/ECS.md#world-serialization) |
 | `include/engine/ecs/world_serializer.h` | `WorldSerializer`, `instantiate_world`, `load_world_from_toml`, `capture_world_asset`, `save_world_to_toml` | [ECS](../modules/ECS.md#world-serialization) |
+| `include/engine/ecs/prototype_asset.h` | `PrototypeAsset`, `PrototypeInstance`, `parse_prototype_asset`, `serialize_prototype_asset`, `resolve_prototype_asset`, `spawn_prototype` | [ECS](../modules/ECS.md#prototypes) |
 | `include/engine/capture/capture_system.h` | `ICapture`, `ICaptureSession`, `CaptureSystem`, `CaptureFrame`, `CaptureFormat` | [Capture](../modules/Capture.md) |
 | `include/engine/haptics/haptics_system.h` | `IHaptics` and `HapticsSystem` | [Haptics](../modules/Haptics.md) |
 | `include/engine/net/http_call.h` | `HttpCall`: one owned request, `take`, `cancel` | [Net](../modules/Net.md) |
@@ -95,6 +97,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/render/sprite.h` | `Sprite` quad fields | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `include/engine/resources/.gitkeep` | Keeps the directory in Git | [Resources](../modules/Resources.md) |
 | `include/engine/resources/asset_guid.h` | `write_missing_metas` | [Asset Codegen](../build/Asset%20Codegen.md) |
+| `include/engine/resources/asset_filter.h` | `AssetFilter`, `CustomAssetFilter`, `asset_filter_for` | [Resources](../modules/Resources.md) |
+| `include/engine/resources/asset_ref.h` | `AssetRef<T>` typed asset handle with `get`, `try_get` | [Assets](../features/Assets.md) |
 | `include/engine/resources/asset_id.h` | 32-hex `AssetId` | [Resources](../modules/Resources.md) |
 | `include/engine/resources/assets_db.h` | `get`, `try_get`, `get_sprite`, `register_object`, `clear_object_loaders` | [Assets](../features/Assets.md) |
 | `include/engine/resources/component_codegen.h` | `ScannedStructs`, `scan_components_in_text`, `scan_components_in_dirs`, `emit_component_io_header`, `component_codegen_write` | [Asset Codegen](../build/Asset%20Codegen.md#component-codegen) |
@@ -103,12 +107,14 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/resources/font.h` | `Font` file bytes | [Resources](../modules/Resources.md) |
 | `include/engine/resources/meta.h` | Importers, `.meta` parse, `codegen_write` | [Resources](../modules/Resources.md) |
 | `include/engine/resources/sprite_sheet.h` | Named rect to sprite UVs | [Assets](../features/Assets.md) |
+| `include/engine/resources/text_asset.h` | `TextAsset` raw text asset for data importer | [Assets](../features/Assets.md) |
 | `include/engine/ui/.gitkeep` | Keeps the directory in Git | [UI](../modules/UI.md) |
 | `include/engine/ui/bindable.h` | `Bindable` and `BindableList` | [UI](../modules/UI.md) |
 | `include/engine/ui/binding_id.h` | FNV-1a `BindingId` | [UI](../modules/UI.md) |
 | `include/engine/ui/builder.h` | `ui::Node` document builder | [UI Markup](../features/UI%20Markup.md) |
 | `include/engine/ui/canvas.h` | `UiCanvas`, pointer, focus, `MouseConsumed` | [UI](../modules/UI.md) |
 | `include/engine/ui/command.h` | `ICommand`, `RelayCommand` and `MethodCommand` | [UI](../modules/UI.md) |
+| `include/engine/ui/cursor.h` | `Cursor` enum mapping to platform system cursors | [UI Input](../features/UI%20Input.md#cursor) |
 | `include/engine/ui/dock_geometry.h` | Dock rects, chrome and drop hit tests, splitter and float resize helpers | [Docking](../features/Docking.md) |
 | `include/engine/ui/dock_layout.h` | `DockLayout`: tab stacks, splits, floats, operations, text, reconcile | [Docking](../features/Docking.md) |
 | `include/engine/ui/dock_space.h` | `DockSpace` component, `DockFloatMode`, `DockPanel`, `DockPanelCloseRequested`, order count, close button rect | [Docking](../features/Docking.md#host) |
@@ -164,6 +170,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/core/web_loop.cpp` | RAF vs blocking policy, ordered shutdown | [Core](../modules/Core.md) |
 | `src/core/worlds.cpp` | Add, destroy, bind, per-world clocks | [Core](../modules/Core.md) |
 | `src/cli/cli_commands.cpp` | JSON for `tree`, `element`, `hit`, `click`, `profile`, and host replies; `element_window_rect` | [CLI](../features/CLI.md) |
+| `src/cli/dock_commands.h`, `src/cli/dock_commands.cpp` | CLI commands for querying and manipulating dock space | [CLI](../features/CLI.md) |
 | `src/cli/json.h` | `Json`, the streaming writer of CLI bodies | [CLI](../features/CLI.md) |
 | `src/cli/screenshot.cpp`, `src/cli/screenshot.h` | `screenshot`: snap, crop, PNG, reply | [CLI](../features/CLI.md#screenshot) |
 | `src/cli/cli_server.cpp` | Loopback accept thread and descriptor file | [CLI](../features/CLI.md) |
@@ -175,13 +182,18 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | --- | --- | --- |
 | `src/ecs/.gitkeep` | Keeps the directory in Git | [ECS](../modules/ECS.md) |
 | `src/ecs/camera.cpp` | View and projection matrices, perspective clip clamp, screen/world, screen/ray | [ECS](../modules/ECS.md) |
+| `src/ecs/hierarchy.cpp` | `set_parent`, `clear_parent`, `world_matrix`, `update_world_transforms` | [ECS](../modules/ECS.md) |
 | `src/ecs/pointer_target.cpp` | `pointer_target_at` and `run_pointer_targets` | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `src/ecs/ray.cpp` | Ray against a plane, sphere, box, triangle, quad, and segment | [ECS](../modules/ECS.md) |
 | `src/ecs/physics_2d.cpp` | Velocity integration and overlap events | [ECS](../modules/ECS.md) |
 | `src/ecs/systems.cpp` | Engine systems: input, dock input, splash, animation, particles, dock layout, bind, audio, render, UI render | [Runtime Loop](../architecture/Runtime%20Loop.md) |
+| `src/ecs/transform.cpp` | Transform model matrix calculations and Euler conversions | [ECS](../modules/ECS.md) |
 | `src/ecs/world.cpp` | Create, destroy, flush, `run` | [ECS](../modules/ECS.md) |
 | `src/ecs/world_asset.cpp` | Parse and serialize `.world` TOML into `WorldAsset` | [ECS](../modules/ECS.md#world-serialization) |
 | `src/ecs/world_serializer.cpp` | Built-in component serializers, `instantiate_world`, `capture_world_asset` | [ECS](../modules/ECS.md#world-serialization) |
+| `src/ecs/prototype_asset.cpp` | Parse and serialize `.prototype` TOML, resolve prototype variants, `spawn_prototype` | [ECS](../modules/ECS.md#prototypes) |
+| `src/ecs/world_io.cpp` | `merge_field_tables` and `merged_field_tables` deep merge utilities | [ECS](../modules/ECS.md#prototypes) |
+| `src/ecs/toml_field_helpers.cpp` | Internal conversions between toml++ and FieldTable/FieldValue | [ECS](../modules/ECS.md#world-serialization) |
 
 ## `src/resources/`
 
@@ -248,7 +260,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/opengl/sdl_gl_presentation.cpp` | SDL poll, present, and `IPresentation` | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/sdl_gl_presentation.h` | `SdlGlPresentation` | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/window_control.h` | `IWindowControl` adapter over `WindowManager` | [Windowing](../features/Windowing.md) |
-| `src/render/opengl/mouse_capture.cpp` | `MouseCapture`, the one switch for SDL mouse capture, and the global cursor and button state | [Windowing](../features/Windowing.md#cursor-buttons-and-capture) |
+| `src/render/opengl/mouse_capture.h`, `src/render/opengl/mouse_capture.cpp` | `MouseCapture`, the one switch for SDL mouse capture, and the global cursor and button state | [Windowing](../features/Windowing.md#cursor-buttons-and-capture) |
+| `src/render/opengl/system_cursors.h`, `src/render/opengl/system_cursors.cpp` | Platform system cursor handles and cache | [UI Input](../features/UI%20Input.md#cursor) |
 | `src/render/opengl/window_manager.cpp` | One window, canvas, and command buffer per id; frame pacing in `draw_all` | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/window_manager.h` | `WindowManager` | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/window_system.cpp` | One SDL window and GL context, including `set_icon` | [Windowing](../features/Windowing.md) |
@@ -266,10 +279,12 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ui/css_parser.cpp` | Stylesheet parser | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/dock_chrome.cpp`, `dock_chrome.h` | Chrome document (an ItemsControl per box kind), its view-models, the tab probe | [Docking](../features/Docking.md#host) |
 | `src/ui/ui_window.cpp` | `UiWindow`, `run_ui_windows` (close requests, drag exclusions) | [Windowing](../features/Windowing.md#uiwindow) |
+| `src/ui/render/atlas_page.h`, `src/ui/render/batching_painter.h`, `src/ui/render/font_face.h`, `src/ui/render/font_library.h`, `src/ui/render/glyph_atlas.h`, `src/ui/render/image_atlas.h`, `src/ui/render/mask_atlas.h`, `src/ui/render/nine_slice.h`, `src/ui/render/path_raster.h`, `src/ui/render/ramp_atlas.h`, `src/ui/render/render_list.h`, `src/ui/render/skyline_packer.h`, `src/ui/render/text_layout.h`, `src/ui/render/ui_renderer.h`, `src/ui/render/ui_texture_sync.h`, `src/ui/render/ui_vertex.h`, `src/ui/render/utf8_decoder.h` | UI vector renderer, text shaping, font and texture atlases | [UI](../modules/UI.md) |
 | `src/ui/dock_float_windows.cpp` | OS float windows: open as tool windows of the space's window, follow native moves, apply rects and titles, close (also when the world goes); re-dock on the close button | [Docking](../features/Docking.md#os-window-floats) |
 | `src/ui/dock_geometry.cpp` | Stack, splitter, and float rects; split, resize, and clamp helpers | [Docking](../features/Docking.md) |
 | `src/ui/dock_hit.cpp` | Chrome hit test and drop targets | [Docking](../features/Docking.md) |
 | `src/ui/dock_layout.cpp` | Dock tree, operations, invariants | [Docking](../features/Docking.md) |
+| `src/ui/dock_chrome.h` | Dock window titlebar, tabs, and splitters rendering | [Docking](../features/Docking.md) |
 | `src/ui/dock_reconcile.cpp` | Drop unknown panels, add missing ones | [Docking](../features/Docking.md) |
 | `src/ui/dock_runtime.h` | Private dock state: chrome canvases, float windows, gesture, cursors, measured tab widths; the two dock systems; tab measuring, metrics, float home, per-window geometry, and order helpers | [Docking](../features/Docking.md#host) |
 | `src/ui/dock_space_input.cpp` | `run_dock_input`: chrome presses, gestures across windows, Escape, float window close, `MouseConsumed` | [Docking](../features/Docking.md#host) |
@@ -294,16 +309,18 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ui/input_batch.h` | Per-`run_input` bind and layout cache | [UI Input](../features/UI%20Input.md) |
 | `src/ui/inspector.cpp` | Inspector probe: tree walk, detail text, matched rules, retarget | [UI Inspector](../features/UI%20Inspector.md) |
 | `src/ui/paint.cpp` | Cascade, paint, style cache | [UI Markup](../features/UI%20Markup.md) |
+| `src/ui/popup.h`, `src/ui/popup.cpp` | Popup window routing and lifecycle | [UI](../modules/UI.md) |
 | `src/ui/painter.h` | Private `IUiPainter` | [UI](../modules/UI.md) |
 | `src/ui/profile.h` | `ENGINE_UI_PROFILE` scopes | [UI Profiler](../features/UI%20Profiler.md) |
 | `src/ui/profiler.cpp` | Profiler rings, recording world, snapshots, CLI JSON | [UI Profiler](../features/UI%20Profiler.md) |
+| `src/ui/profiler_paint_counter.h`, `src/ui/profiler_paint_counter.cpp` | UI profiler paint metrics tracking | [UI Profiler](../features/UI%20Profiler.md) |
 | `src/ui/splash.cpp` | Build the two splash documents | [UI](../modules/UI.md) |
 | `src/ui/splash.h` | Splash document structs used by `show_splash` | [UI](../modules/UI.md) |
 | `src/ui/style_anim.cpp` | Sample `transition` and compiled `@keyframes` tracks | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/style_anim.h` | Motion clock types | [UI Markup](../features/UI%20Markup.md) |
 | `src/ui/stylesheet.cpp` | `next_stylesheet_generation` counter, one per engine | [UI Markup](../features/UI%20Markup.md) |
-| `src/ui/svg_attach.cpp`, `svg_attach.h` | Resolve an `Svg` element's source onto `Element::svg` | [UI](../modules/UI.md#paint) |
-| `src/ui/svg_parser.cpp`, `svg_parser.h` | Icon SVG subset to `SvgPicture`: element walk and shape emit | [Assets](../features/Assets.md#svg-icons) |
+| `src/ui/svg_attach.cpp`, `src/ui/svg_attach.h` | Resolve an `Svg` element's source onto `Element::svg` | [UI](../modules/UI.md#paint) |
+| `src/ui/svg_parser.cpp`, `src/ui/svg_parser.h` | Icon SVG subset to `SvgPicture`: element walk and shape emit | [Assets](../features/Assets.md#svg-icons) |
 | `src/ui/svg_internal.h` | Pieces the SVG sources share (`svg_detail`): `Aff2`, `Numbers`, `Style`, path helpers | [Assets](../features/Assets.md#svg-icons) |
 | `src/ui/svg_lex.cpp` | Number lexer users: lengths, `transform` lists | [Assets](../features/Assets.md#svg-icons) |
 | `src/ui/svg_style.cpp` | Fill, stroke, and opacity declarations and colors | [Assets](../features/Assets.md#svg-icons) |
@@ -395,6 +412,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/process/process_command_line.cpp` | Windows argument quoting, command line, environment merge | [Process](../modules/Process.md) |
 | `src/process/process_command_line.h` | Their API | [Process](../modules/Process.md) |
 | `src/process/process_launcher.cpp` | `ProcessLauncher`: backend choice, `run`, `launch`, `poll`, `dispose` | [Process](../modules/Process.md) |
+| `src/process/posix_process.h`, `src/process/posix_process.cpp` | POSIX child process spawning | [Process](../modules/Process.md) |
 | `src/process/windows_process.cpp` | Windows backend: pipe, job object, reader thread, `launch` | [Process](../modules/Process.md) |
 | `src/process/windows_process.h` | Windows backend API | [Process](../modules/Process.md) |
 | `src/project/engine_version.cpp` | `parse_engine_version`, `operator<=>`, `to_string` | [Project](../modules/Project.md#engine-version) |
@@ -418,6 +436,12 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/animation_test.cpp` | Sprite clip parse and playback | [Render](../modules/Render.md) |
 | `tests/tilemap_test.cpp` | `.tilemap` parse, chunk bake and UVs, culling, dirty chunks, `AssetsDb` load | [Render](../modules/Render.md#tilemaps) |
 | `tests/assets_test.cpp` | Catalog, `get` / `try_get`, `unload_catalog`, codegen failures, stylesheet warnings in `game.log` | [Assets](../features/Assets.md) |
+| `tests/asset_ref_test.cpp` | `AssetRef<T>` typed asset handle tests | [Assets](../features/Assets.md) |
+| `tests/cli_dock_test.cpp` | CLI docking commands tests | [Docking](../features/Docking.md) |
+| `tests/framebuffer_image_test.cpp` | Framebuffer image readback tests | [Render](../modules/Render.md) |
+| `tests/hierarchy_systems_test.cpp`, `tests/hierarchy_test.cpp` | `Parent`, `Children`, and world matrix tests | [ECS](../modules/ECS.md) |
+| `tests/image_io_test.cpp` | Image loading and saving tests | [Assets](../features/Assets.md) |
+| `tests/ui_bind_error_test.cpp`, `tests/ui_cursor_test.cpp`, `tests/ui_data_context_test.cpp`, `tests/ui_flex_grow_test.cpp`, `tests/ui_flex_wrap_test.cpp`, `tests/ui_media_canvas_test.cpp`, `tests/ui_method_command_test.cpp`, `tests/ui_popup_test.cpp`, `tests/ui_safe_area_test.cpp`, `tests/ui_style_inheritance_test.cpp` | UI bindings, layout, cursor, data context, safe area, and styling tests | [UI](../modules/UI.md) |
 | `tests/audio_test.cpp` | Pool, music fade, looping handles, `stop_all` without opening a device | [Audio](../modules/Audio.md) |
 | `tests/builtin_test.cpp` | Frozen builtin ids and files | [Resources](../modules/Resources.md) |
 | `tests/camera_test.cpp` | Ortho and perspective matrices, clip clamp, screen/world, screen/ray | [ECS](../modules/ECS.md) |

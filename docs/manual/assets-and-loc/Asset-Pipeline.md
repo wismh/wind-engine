@@ -61,8 +61,12 @@ It writes a `.meta` (a fresh GUID and the default importer for the extension) fo
 | `mesh` | `.mesh` | `render::IMesh` |
 | `material` | `.mat` | `render::IMaterial` |
 | `animation` | `.anim` | `render::SpriteAnimationClip` |
+| `tilemap` | `.tilemap` | `render::TilemapAsset` ([Tilemaps](../rendering/Tilemaps.md)) |
+| `svg` | `.svg` | `ui::SvgPicture` |
 | `font` | `.ttf` | `Font` (the file bytes) |
+| `data` | any (e.g. `.json`, `.txt`) | `TextAsset` (raw file text without engine parsing) |
 | `object` | `.object` | a `WIND_SERIALIZABLE` struct. The file is a TOML table with a string `type` plus the struct's fields. See [Loading Assets](Loading-Assets.md#4-serializable-objects) |
+| `prototype` | `.prototype` | `ecs::PrototypeAsset` (reusable entity template with variant inheritance and overrides) |
 
 The audio build decodes WAV only. Asking `get<T>` for the wrong `T` is `AssetError::TypeMismatch`.
 

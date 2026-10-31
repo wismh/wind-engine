@@ -1,5 +1,6 @@
 #include <engine/audio/sound.h>
 #include <engine/ecs/world_asset.h>
+#include <engine/ecs/prototype_asset.h>
 #include <engine/loc/catalog.h>
 #include <engine/log.h>
 #include <engine/render/animation.h>
@@ -81,6 +82,9 @@ std::optional<ImporterKind> importer_for_type(const std::type_info& type) {
     }
     if (type == typeid(ecs::WorldAsset)) {
         return ImporterKind::World;
+    }
+    if (type == typeid(ecs::PrototypeAsset)) {
+        return ImporterKind::Prototype;
     }
     if (type == typeid(ui::SvgPicture)) {
         return ImporterKind::Svg;
@@ -266,6 +270,18 @@ std::expected<std::shared_ptr<void>, AssetError> load_cpu(
             return std::unexpected(AssetError::Corrupt);
         }
         return std::static_pointer_cast<void>(std::make_shared<ecs::WorldAsset>(std::move(*parsed)));
+    }
+
+    if (type == typeid(ecs::PrototypeAsset)) {
+        const auto bytes = read_all(path);
+        if (!bytes) {
+            return std::unexpected(AssetError::Corrupt);
+        }
+        auto parsed = ecs::parse_prototype_asset(*bytes);
+        if (!parsed) {
+            return std::unexpected(AssetError::Corrupt);
+        }
+        return std::static_pointer_cast<void>(std::make_shared<ecs::PrototypeAsset>(std::move(*parsed)));
     }
 
     if (type == typeid(ui::SvgPicture)) {
