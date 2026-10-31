@@ -34,6 +34,7 @@ public:
     // A `vec3 name[N]` array from element 0; at most N values reach the program.
     void set_vec3_array(std::string_view name, std::span<const glm::vec3> values) const;
     void set_vec2(std::string_view name, const glm::vec2& value) const;
+    void set_float(std::string_view name, float value) const;
     void set_int(std::string_view name, int value) const;
     // The vec4 uniform's current value in the program, or zero when the shader has no such uniform.
     [[nodiscard]] glm::vec4 vec4_value(std::string_view name) const;

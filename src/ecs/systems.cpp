@@ -629,6 +629,7 @@ namespace engine {
                         .projection = projection_matrix(*camera, ui::window_size_for(world, id)),
                         .camera_position = glm::vec3(camera_world[3]),
                         .lights = lights,
+                        .time = world.try_ctx<Time>() != nullptr ? world.try_ctx<Time>()->total_time : 0.0f,
                 });
                 for (const DrawItem &item: items) {
                     buffer->push(item.command);
@@ -809,6 +810,7 @@ namespace engine {
                 .lights = render::collect_scene_lights(scene),
                 .viewport = target.viewport,
                 .clear_color = target.clear_color,
+                .time = scene.try_ctx<Time>() != nullptr ? scene.try_ctx<Time>()->total_time : 0.0f,
         });
         for (DrawItem &item: items) {
             target.commands->push(std::move(item.command));

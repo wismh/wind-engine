@@ -144,6 +144,13 @@ void OpenGLShader::set_vec2(std::string_view name, const glm::vec2& value) const
     glUniform2fv(uniform_location(name), 1, glm::value_ptr(value));
 }
 
+void OpenGLShader::set_float(std::string_view name, float value) const {
+    const int location = uniform_location(name);
+    if (location >= 0) {
+        glUniform1f(location, value);
+    }
+}
+
 void OpenGLShader::set_int(std::string_view name, int value) const {
     glUniform1i(uniform_location(name), value);
 }
