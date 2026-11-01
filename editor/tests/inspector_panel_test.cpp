@@ -745,12 +745,12 @@ TEST(InspectorPanel, AssetFieldDisplaysFilenameAndChooseUpdatesFieldWithUndo) {
     engine::AssetsDb db(fatal);
     engine::CookedCatalog catalog;
     catalog.add(engine::CatalogEntry{
-            .guid = engine::AssetId::parse(kSwordGuid).value(),
+            .guid = engine::AssetId(kSwordGuid),
             .relative_path = "textures/sword.png",
             .importer = engine::ImporterKind::Texture,
     });
     catalog.add(engine::CatalogEntry{
-            .guid = engine::AssetId::parse(kShieldGuid).value(),
+            .guid = engine::AssetId(kShieldGuid),
             .relative_path = "textures/shield.png",
             .importer = engine::ImporterKind::Texture,
     });
@@ -774,7 +774,7 @@ TEST(InspectorPanel, AssetFieldDisplaysFilenameAndChooseUpdatesFieldWithUndo) {
     const engine::ecs::Entity hero = edit_world.create();
     edit_world.emplace<engine::ecs::EntityName>(hero, engine::ecs::EntityName{.id = "hero"});
     edit_world.emplace<WeaponComponent>(hero, WeaponComponent{
-            .icon = engine::AssetRef<engine::render::ITexture>{engine::AssetId::parse(kSwordGuid).value()},
+            .icon = engine::AssetRef<engine::render::ITexture>{engine::AssetId(kSwordGuid)},
             .damage = 25,
     });
 
@@ -814,7 +814,7 @@ TEST(InspectorPanel, AssetFieldDisplaysFilenameAndChooseUpdatesFieldWithUndo) {
                                 std::function<void(const engine::AssetId&, const std::string&)> on_picked) {
         picked_title = title;
         captured_filter = filter;
-        on_picked(engine::AssetId::parse(kShieldGuid).value(), "shield.png");
+        on_picked(engine::AssetId(kShieldGuid), "shield.png");
     });
 
     // Choose asset
@@ -877,22 +877,22 @@ TEST(InspectorPanel, AssetPickerOverlayCandidateFilteringAndSearch) {
     engine::AssetsDb db(fatal);
     engine::CookedCatalog catalog;
     catalog.add(engine::CatalogEntry{
-            .guid = engine::AssetId::parse(kSwordGuid).value(),
+            .guid = engine::AssetId(kSwordGuid),
             .relative_path = "textures/sword.png",
             .importer = engine::ImporterKind::Texture,
     });
     catalog.add(engine::CatalogEntry{
-            .guid = engine::AssetId::parse(kShieldGuid).value(),
+            .guid = engine::AssetId(kShieldGuid),
             .relative_path = "textures/shield.png",
             .importer = engine::ImporterKind::Texture,
     });
     catalog.add(engine::CatalogEntry{
-            .guid = engine::AssetId::parse(kDaggerGuid).value(),
+            .guid = engine::AssetId(kDaggerGuid),
             .relative_path = "items/dagger.object",
             .importer = engine::ImporterKind::Object,
     });
     catalog.add(engine::CatalogEntry{
-            .guid = engine::AssetId::parse(kHealGuid).value(),
+            .guid = engine::AssetId(kHealGuid),
             .relative_path = "items/heal.object",
             .importer = engine::ImporterKind::Object,
     });
