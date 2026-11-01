@@ -943,10 +943,17 @@ TEST(Assets, GetBuiltinLitShader) {
     EXPECT_EQ(es.vertex_src.rfind("#version 300 es\n", 0), 0u);
     EXPECT_EQ(es.fragment_src.rfind("#version 300 es\nprecision mediump float;\n", 0), 0u);
     EXPECT_NE(es.fragment_src.find("uLightDirections[4]"), std::string::npos);
+#ifdef ENGINE_WITH_SLANG
     EXPECT_FALSE(desc.vertex_spirv.empty());
     EXPECT_FALSE(desc.fragment_spirv.empty());
     EXPECT_FALSE(es.vertex_spirv.empty());
     EXPECT_FALSE(es.fragment_spirv.empty());
+#else
+    EXPECT_TRUE(desc.vertex_spirv.empty());
+    EXPECT_TRUE(desc.fragment_spirv.empty());
+    EXPECT_TRUE(es.vertex_spirv.empty());
+    EXPECT_TRUE(es.fragment_spirv.empty());
+#endif
 }
 
 TEST(Assets, GetBuiltinLitMaterial) {
