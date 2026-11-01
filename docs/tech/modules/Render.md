@@ -194,7 +194,7 @@ When `collision_enabled` is set, `run_particles` copies non-trigger colliders in
 
 ## Shaders
 
-Desktop target is `ShaderTarget::Glsl330Core`. GLES (web and Android) uses `Glsl300Es`. `adapt_glsl` / `adapt_shader` rewrite a GLSL 330 source for ES (`include/engine/render/shader_adapt.h`). `.shader` files are XML with the source in CDATA (`parse_shader_xml` in `src/resources/importers.h`).
+Shading language is **Slang** (`external/slang`, `src/render/slang_compiler.cpp`). `.shader` files (`parse_shader` / `parse_shader_xml` in `src/resources/importers.h`) are XML with Slang source (`<shader lang="slang"><![CDATA[...]]></shader>` or `<slang>`), compiled into both SPIR-V bytecode (`ShaderDesc::vertex_spirv`, `ShaderDesc::fragment_spirv`) for Vulkan and GLSL 330 core (`ShaderDesc::vertex_src`, `ShaderDesc::fragment_src`) for OpenGL 3.3 Core. Optional `<glsl><vertex>...</vertex><fragment>...</fragment></glsl>` overrides the GLSL source while keeping Slang's SPIR-V; legacy `<xml><vertex>...</vertex><fragment>...</fragment></xml>` raw GLSL shaders remain supported. `asset_codegen` validates every `.shader` asset at build time (`CodegenErrorKind::Shader`). Desktop OpenGL target is `ShaderTarget::Glsl330Core`; GLES (web and Android) uses `Glsl300Es` (`adapt_glsl` / `adapt_shader` in `include/engine/render/shader_adapt.h`).
 
 ## OpenGL (`ENGINE_WITH_WINDOW`)
 
@@ -237,12 +237,30 @@ GL errors are silent unless someone asks. With `ENGINE_GL_CHECKS` (Debug, RelWit
 
 `WindowSystem::set_icon` builds an `SDL_Surface` with `make_icon_surface` and calls `SDL_SetWindowIcon`. A null window or a short RGBA buffer yields a null surface. `tests/window_icon_test.cpp` covers the byte layout without `SDL_Init`.
 
+## Vulkan (`ENGINE_WITH_WINDOW`)
+
+`src/render/vulkan/` provides the Vulkan backend alongside OpenGL when `ENGINE_WITH_WINDOW` is enabled (excluding Emscripten):
+
+| Piece | File |
+| --- | --- |
+| Dynamic function loader (`VK_NO_PROTOTYPES` via `SDL_Vulkan_GetVkGetInstanceProcAddr`) | `src/render/vulkan/vulkan_functions.cpp` |
+| Shared `VkInstance`, `VkPhysicalDevice`, `VkDevice`, `VkQueue`, and command pool | `src/render/vulkan/vulkan_context.cpp` |
+| Factory (`IMesh`, SPIR-V `IShader` modules, `ITexture`, `IDynamicTexture`) | `src/render/vulkan/vulkan_factory.cpp` |
+| GPU resources (`VulkanMesh`, `VulkanShader`, `VulkanTexture`) | `vulkan_mesh.cpp`, `vulkan_shader.cpp`, `vulkan_texture.cpp` |
+| SPIR-V reflection (`OpEntryPoint`, UBO uniform layout, sampler binding) | `src/render/vulkan/vulkan_spirv.cpp` |
+| Render backend (`IRenderBackend`, graphics pipelines, UBO/descriptor sets, `CmdSetView`, `CmdDrawMesh`, `CmdDrawParticles`) | `src/render/vulkan/vulkan_backend.cpp` |
+| UI device (`IUiDevice`) and its Slang uber-shader | `vulkan_ui_device.cpp`, `vulkan_ui_shader.h` |
+| Per-window `VkSurfaceKHR`, `VkSwapchainKHR`, depth attachment, render pass, framebuffers, sync primitives, and staging-buffer `read_pixels()` | `src/render/vulkan/vulkan_canvas.cpp` |
+| SDL presentation wiring (`make_sdl_vk_presentation`) | `src/render/vulkan/sdl_vk_presentation.cpp` |
+
+`EngineRuntime` selects `make_sdl_vk_presentation()` when built with `-DENGINE_WITH_VULKAN=ON` or when `WIND_RENDER_BACKEND=vulkan` is set in the environment (`WIND_RENDER_BACKEND=opengl` forces OpenGL).
+
 ## CPU sources (always)
 
 - `src/render/material.cpp` — parse `.mat`
 - `src/render/lights.cpp` — `collect_scene_lights`, `default_scene_lights`
 - `src/render/material_instance.h` — `IMaterial` for a cooked material
-- `src/render/tilemap.cpp`, `src/render/animation.cpp`, `src/render/particles.cpp`, `src/render/shader_adapt.cpp`
+- `src/render/tilemap.cpp`, `src/render/animation.cpp`, `src/render/particles.cpp`, `src/render/shader_adapt.cpp`, `src/render/slang_compiler.cpp`
 - `src/render/context_objects.cpp` — GL context keys and deferred VAO deletes, without GL calls
 - `src/render/gl_error_log.cpp` — GL error names and the once-per-place error log lines
 

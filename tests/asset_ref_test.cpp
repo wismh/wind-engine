@@ -120,7 +120,7 @@ TEST(AssetRefTest, SerializationRoundTrip) {
     ASSERT_NE(found, table.end());
     const std::string* str = found->second.as_string();
     ASSERT_NE(str, nullptr);
-    EXPECT_EQ(*str, kItemGuid);
+    EXPECT_EQ(*str, original.id().uri());
 
     engine::ecs::ComponentReader reader{table};
     engine::AssetRef<test_types::WeaponItem> decoded;

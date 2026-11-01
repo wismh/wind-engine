@@ -37,6 +37,8 @@ set(_wind_editor_parts
     src/explorer_panel.cpp
     src/explorer_row_view_model.cpp
     src/explorer_view_model.cpp
+    src/hierarchy_commands.cpp
+    src/hierarchy_input.cpp
     src/hierarchy_panel.cpp
     src/hierarchy_row_view_model.cpp
     src/hierarchy_view_model.cpp

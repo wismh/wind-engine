@@ -1,8 +1,8 @@
 #pragma once
 
 #include "mouse_capture.h"
-#include "opengl_canvas.h"
 #include "system_cursors.h"
+#include "window_canvas.h"
 #include "window_system.h"
 
 #include "core/frame_capture.h"
@@ -24,15 +24,18 @@
 
 namespace engine {
 
-// Owns one {WindowSystem, CommandBuffer, OpenGLCanvas} triple per live WindowId, all sharing the
-// one IRenderBackend/IGraphicFactory-produced GL objects EngineRuntime already owns — texture,
-// mesh, and shader GL object ids stay valid across the whole GL share group once contexts share,
-// so AssetsDb/IGraphicFactory stay single-instance. Every window gets its own
-// OpenGLCanvas + UiRenderer — routing which UiCanvas/CommandBuffer target which window
-// is EngineSystemDeps::commands_for_window's job (engine/ecs/systems.h), not this class's.
+// Owns one {WindowSystem, CommandBuffer, IWindowCanvas} triple per live WindowId, all sharing the
+// one IRenderBackend/IGraphicFactory EngineRuntime already owns — so AssetsDb/IGraphicFactory stay
+// single-instance across windows. Every window gets its own IWindowCanvas + UI painter — routing
+// which UiCanvas/CommandBuffer target which window is EngineSystemDeps::commands_for_window's job
+// (engine/ecs/systems.h), not this class's.
 class WindowManager {
 public:
+    using CanvasFactory = std::function<std::shared_ptr<render::IWindowCanvas>(
+            WindowSystem&, render::CommandBuffer&)>;
+
     explicit WindowManager(render::IRenderBackend& backend);
+    explicit WindowManager(CanvasFactory make_canvas);
     // Declared (not defaulted) so it can clear the Win32 modal-loop tick hook installed by the
     // constructor on Windows; a no-op body elsewhere. Declaring it unconditionally
     // (rather than only under _WIN32) keeps move-special-member behavior identical across
@@ -52,14 +55,14 @@ public:
     [[nodiscard]] bool has_window(WindowId id) const;
     [[nodiscard]] WindowSystem* window(WindowId id);
     [[nodiscard]] const WindowSystem* window(WindowId id) const;
-    [[nodiscard]] render::OpenGLCanvas* canvas(WindowId id);
+    [[nodiscard]] render::IWindowCanvas* canvas(WindowId id);
     [[nodiscard]] render::CommandBuffer* commands(WindowId id);
 
-    // Ungated: valid whenever a slot for `id` exists at all, regardless of SDL/GL liveness. The
+    // Ungated: valid whenever a slot for `id` exists at all, regardless of SDL/GPU liveness. The
     // primary slot always exists (see constructor), so these are non-null for kPrimaryWindow from
     // the moment the manager is constructed — Engine::init reads commands()/canvas() before
     // create_window() runs.
-    [[nodiscard]] std::shared_ptr<render::OpenGLCanvas> canvas_ptr(WindowId id);
+    [[nodiscard]] std::shared_ptr<render::IWindowCanvas> canvas_ptr(WindowId id);
     [[nodiscard]] std::shared_ptr<render::CommandBuffer> commands_ptr(WindowId id);
 
     // Same reasoning, for IWindowControl: WindowControlImpl is bound over this reference once, at
@@ -68,7 +71,7 @@ public:
     [[nodiscard]] WindowSystem& primary_window() noexcept;
     [[nodiscard]] const WindowSystem& primary_window() const noexcept;
 
-    // Draws + swaps every live window (OpenGLCanvas::render, then present), then waits for the next
+    // Draws + swaps every live window (IWindowCanvas::render, then present), then waits for the next
     // frame once: the vsync window's swap waits for vblank and goes last, every other window swaps without
     // waiting, and with no vsync window FrameLimiter sleeps (limiter_period). Web is paced by
     // requestAnimationFrame and never waits here. A window that draws fills every capture naming it between its
@@ -133,7 +136,7 @@ private:
     struct Entry {
         WindowSystem window;
         std::shared_ptr<render::CommandBuffer> commands = std::make_shared<render::CommandBuffer>();
-        std::shared_ptr<render::OpenGLCanvas> canvas;   // constructed after window/commands are stable addresses
+        std::shared_ptr<render::IWindowCanvas> canvas;   // constructed after window/commands are stable addresses
         // False once the driver refused this context's swap interval; such a window never paces.
         bool vsync_supported = false;
         // WindowDesc::owner: destroy_window of the owner destroys this one first.
@@ -147,10 +150,10 @@ private:
     void wait_for_next_frame(bool vsync_waited);
     static void draw_window(WindowId id, Entry& entry, std::span<FrameCapture> captures);
 
-    render::IRenderBackend* backend_;
+    CanvasFactory make_canvas_;
     // Before windows_: a window's teardown ends its drag, which releases this capture.
     MouseCapture capture_;
-    // unique_ptr<Entry>: OpenGLCanvas captures WindowSystem&/CommandBuffer& by reference at
+    // unique_ptr<Entry>: IWindowCanvas captures WindowSystem&/CommandBuffer& by reference at
     // construction, so an Entry's address (and its members') must never move — a bare Entry value
     // in the map would dangle on rehash. The kPrimaryWindow entry, once inserted by the
     // constructor, is never erased — only reset in place by create_primary_window()/

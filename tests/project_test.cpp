@@ -91,6 +91,47 @@ TEST(WindProject, ReportsWhatIsWrong) {
     EXPECT_NE(malformed.error().detail.find(":1:"), std::string::npos) << malformed.error().detail;
 }
 
+
+TEST(WindProject, ReadsAssetsRootsAndAlwaysInclude) {
+    const TempDir dir{"custom_assets"};
+    dir.write(engine::kWindProjectFile, R"(
+engine = "0.1.0"
+target = "game"
+[assets]
+roots = ["worlds/main.world", "ui/hud.xml"]
+always_include = ["audio/sfx/*", "strings/*"]
+)");
+    const auto project = engine::read_wind_project(dir.path());
+    ASSERT_TRUE(project.has_value()) << engine::describe(project.error());
+    EXPECT_EQ(project->asset_roots, (std::vector<std::string>{"worlds/main.world", "ui/hud.xml"}));
+    EXPECT_EQ(project->asset_always_include, (std::vector<std::string>{"audio/sfx/*", "strings/*"}));
+}
+
+TEST(WindProject, AssetsDefaultsToEmptyWhenOmitted) {
+    const TempDir dir{"no_assets"};
+    dir.write(engine::kWindProjectFile, R"(
+engine = "0.1.0"
+target = "game"
+)");
+    const auto project = engine::read_wind_project(dir.path());
+    ASSERT_TRUE(project.has_value());
+    EXPECT_TRUE(project->asset_roots.empty());
+    EXPECT_TRUE(project->asset_always_include.empty());
+}
+
+TEST(WindProject, AssetsRejectsWrongType) {
+    const TempDir dir{"bad_assets"};
+    dir.write(engine::kWindProjectFile, R"(
+engine = "0.1.0"
+target = "game"
+[assets]
+roots = "not_an_array"
+)");
+    const auto project = engine::read_wind_project(dir.path());
+    ASSERT_FALSE(project.has_value());
+    EXPECT_EQ(project.error().kind, engine::ManifestError::WrongType);
+}
+
 TEST(SdkManifest, ReadsWhatTheInstallWrites) {
     const TempDir dir{"sdk"};
     dir.write(engine::kSdkManifestFile, kSdk);

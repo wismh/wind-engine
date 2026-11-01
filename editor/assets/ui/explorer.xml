@@ -4,7 +4,7 @@
       <Label class="hint project-path" text="{binding rootText}"/>
       <Stack class="option-spacer"/>
       <Stack class="icon-button" if="{binding gridShown}" command="{binding gridUp}">
-        <Svg class="icon-glyph" source="2d7a9c4e6b1f4830a8e5d3c19f7b6042"/>
+        <Svg class="icon-glyph" source="asset://2d7a9c4e6b1f4830a8e5d3c19f7b6042"/>
       </Stack>
       <Stack class="icon-button" command="{binding toggleView}">
         <Svg class="icon-glyph" source="{binding viewIcon}"/>

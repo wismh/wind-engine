@@ -3,6 +3,7 @@
 #include "hierarchy_row_view_model.h"
 
 #include <engine/ui/bindable.h>
+#include <engine/ui/command.h>
 #include <engine/ui/view_model.h>
 
 #include <memory>
@@ -17,6 +18,8 @@ public:
 
     engine::ui::Bindable<std::string> statusText;
     engine::ui::BindableList<std::shared_ptr<HierarchyRowViewModel>> rows;
+    engine::ui::Bindable<bool> blankMenuOpen{false};
+    engine::ui::MethodCommand createEntity;
 };
 
 }

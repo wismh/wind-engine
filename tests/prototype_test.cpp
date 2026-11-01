@@ -115,7 +115,7 @@ texture = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 TEST(PrototypeTest, ParsesPrototypeVariantWithHierarchyAndBase) {
     const std::string toml = std::format(
             R"(version = 1
-base = "{}"
+base = "asset://{}"
 
 [[entities]]
 id = "root"
@@ -231,7 +231,7 @@ transform = { position = [1.0, 0.0, 0.0] }
     // shield (adds child entity with position=[-1,0,0])
     {
         std::ofstream var_out(dir / "orc_armored.prototype");
-        var_out << "version = 1\nbase = \"" << kBaseGuid << "\"\n\n"
+        var_out << "version = 1\nbase = \"asset://" << kBaseGuid << "\"\n\n"
                 << "[[entities]]\nid = \"root\"\n"
                 << "transform = { position = [10.0, 0.0, 0.0] }\n\n"
                 << "[[entities]]\nid = \"shield\"\nparent = \"root\"\n"
@@ -278,7 +278,7 @@ transform = { position = [1.0, 0.0, 0.0] }
     EXPECT_DOUBLE_EQ(*scale_arr->at(0).as_number(), 1.0); // preserved from base
 
     // 3. Test instantiating a .world file containing an instance of this prototype
-    const std::string world_toml = std::string("version = 1\n\n[[entities]]\nid = \"boss\"\nprototype = \"") +
+    const std::string world_toml = std::string("version = 1\n\n[[entities]]\nid = \"boss\"\nprototype = \"asset://") +
             std::string(kVariantGuid) +
             "\"\ntransform = { position = [100.0, 200.0, 0.0] }\n\n"
             "[[entities]]\nid = \"boss/shield\"\ntransform = { scale = [3.0, 3.0, 3.0] }\n";
@@ -365,12 +365,12 @@ TEST(PrototypeTest, DetectsCycleInVariantInheritance) {
     // A points to B
     {
         std::ofstream out(dir / "a.prototype");
-        out << std::format("version = 1\nbase = \"{}\"\n[[entities]]\nid = \"root\"\n", kGuidB);
+        out << std::format("version = 1\nbase = \"asset://{}\"\n[[entities]]\nid = \"root\"\n", kGuidB);
     }
     // B points to A
     {
         std::ofstream out(dir / "b.prototype");
-        out << std::format("version = 1\nbase = \"{}\"\n[[entities]]\nid = \"root\"\n", kGuidA);
+        out << std::format("version = 1\nbase = \"asset://{}\"\n[[entities]]\nid = \"root\"\n", kGuidA);
     }
 
     SilentFatalError fatal;

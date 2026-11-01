@@ -84,6 +84,8 @@ ShaderDesc adapt_shader(const ShaderDesc& src, ShaderTarget target) {
     ShaderDesc out;
     out.vertex_src = adapt_glsl(src.vertex_src, target, false);
     out.fragment_src = adapt_glsl(src.fragment_src, target, true);
+    out.vertex_spirv = src.vertex_spirv;
+    out.fragment_spirv = src.fragment_spirv;
     return out;
 }
 

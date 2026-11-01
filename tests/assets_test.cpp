@@ -933,16 +933,20 @@ TEST(Assets, GetBuiltinLitShader) {
         EXPECT_NE(desc.vertex_src.find(name), std::string::npos) << name;
     }
     for (const std::string_view name :
-            {"uTexture", "uColor", "uLightCount", "uLightDirections", "uLightColors", "uAmbient", "i < "}) {
+            {"uTexture", "uColor", "uLightCount", "uLightDirections", "uLightColors", "uAmbient", "< 4"}) {
         EXPECT_NE(desc.fragment_src.find(name), std::string::npos) << name;
     }
-    EXPECT_NE(desc.fragment_src.find("#define kMaxDirectionalLights 4"), std::string::npos)
+    EXPECT_NE(desc.fragment_src.find("uLightDirections[4]"), std::string::npos)
             << "the shader's array size must match engine::render::kMaxDirectionalLights";
 
     const engine::render::ShaderDesc es = engine::render::adapt_shader(desc, engine::render::ShaderTarget::Glsl300Es);
     EXPECT_EQ(es.vertex_src.rfind("#version 300 es\n", 0), 0u);
     EXPECT_EQ(es.fragment_src.rfind("#version 300 es\nprecision mediump float;\n", 0), 0u);
-    EXPECT_NE(es.fragment_src.find("uLightDirections[kMaxDirectionalLights]"), std::string::npos);
+    EXPECT_NE(es.fragment_src.find("uLightDirections[4]"), std::string::npos);
+    EXPECT_FALSE(desc.vertex_spirv.empty());
+    EXPECT_FALSE(desc.fragment_spirv.empty());
+    EXPECT_FALSE(es.vertex_spirv.empty());
+    EXPECT_FALSE(es.fragment_spirv.empty());
 }
 
 TEST(Assets, GetBuiltinLitMaterial) {

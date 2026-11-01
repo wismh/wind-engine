@@ -194,7 +194,7 @@ std::string serialize_prototype_asset(const PrototypeAsset& asset) {
     toml::table root;
     root.insert("version", static_cast<std::int64_t>(asset.version));
     if (asset.base.has_value()) {
-        root.insert("base", asset.base->hex());
+        root.insert("base", asset.base->uri());
     }
 
     if (!asset.entities.empty()) {
@@ -206,7 +206,7 @@ std::string serialize_prototype_asset(const PrototypeAsset& asset) {
                 ent_tab.insert("parent", record.parent);
             }
             if (record.prototype.has_value()) {
-                ent_tab.insert("prototype", record.prototype->hex());
+                ent_tab.insert("prototype", record.prototype->uri());
             }
             for (const auto& [comp_name, comp_fields] : record.components) {
                 toml::table comp_tab;
