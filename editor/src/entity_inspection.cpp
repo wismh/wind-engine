@@ -104,7 +104,7 @@ InspectorField make_field(
         if (str.empty() || str == "00000000000000000000000000000000") {
             field.asset_name = "(None)";
         } else {
-            auto id = engine::AssetId::parse(str);
+            auto id = str.starts_with(engine::AssetId::kUriPrefix) ? engine::AssetId::parse(str) : engine::AssetId::parse_hex(str);
             if (id && assets != nullptr) {
                 if (const auto* entry = assets->catalog().find(*id)) {
                     field.asset_name = std::filesystem::path(entry->relative_path).filename().string();
@@ -118,8 +118,9 @@ InspectorField make_field(
         return field;
     }
 
-    if (const std::string* s = value.as_string(); s != nullptr && s->size() == 32) {
-        if (auto id = engine::AssetId::parse(*s); id && assets != nullptr) {
+    if (const std::string* s = value.as_string(); s != nullptr) {
+        auto id = s->starts_with(engine::AssetId::kUriPrefix) ? engine::AssetId::parse(*s) : engine::AssetId::parse_hex(*s);
+        if (id && assets != nullptr) {
             if (const auto* entry = assets->catalog().find(*id)) {
                 field.kind = InspectorFieldKind::Asset;
                 field.asset_filter = engine::AssetFilter{.importer = entry->importer};
@@ -242,7 +243,7 @@ InspectorSection make_component_section(
                 const std::string str = s != nullptr ? *s : "";
                 std::string display = "(None)";
                 if (!str.empty() && str != "00000000000000000000000000000000") {
-                    auto id = engine::AssetId::parse(str);
+                    auto id = str.starts_with(engine::AssetId::kUriPrefix) ? engine::AssetId::parse(str) : engine::AssetId::parse_hex(str);
                     if (id && assets != nullptr) {
                         if (const auto* entry = assets->catalog().find(*id)) {
                             display = std::filesystem::path(entry->relative_path).filename().string();

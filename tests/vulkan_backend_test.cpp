@@ -139,7 +139,7 @@ TEST(VulkanBackendTest, MakeSdlVkPresentationCreatesValidPresentation) {
     EXPECT_NE(presentation->factory().create_shader(spirv_shader), nullptr);
 }
 
-#ifdef ENGINE_BUILTIN_ASSETS_DIR
+#if defined(ENGINE_BUILTIN_ASSETS_DIR) && defined(ENGINE_WITH_SLANG)
 TEST(VulkanBackendTest, SpirvReflectionExtractsUniformsFromBuiltinSlangShaders) {
     const std::filesystem::path root{ENGINE_BUILTIN_ASSETS_DIR};
     const auto unlit_desc = parse_shader(read_text_file(root / "shaders" / "unlit.shader"));
@@ -177,6 +177,7 @@ TEST(VulkanBackendTest, SpirvReflectionExtractsUniformsFromBuiltinSlangShaders) 
 }
 #endif
 
+#if defined(ENGINE_WITH_SLANG)
 TEST(VulkanBackendTest, UiShaderCompilesAndUiDeviceTracksDrawCallsAndTextures) {
     auto ctx = std::make_shared<VulkanContext>();
     VulkanRenderBackend backend(ctx);
@@ -215,6 +216,7 @@ TEST(VulkanBackendTest, UiShaderCompilesAndUiDeviceTracksDrawCallsAndTextures) {
     EXPECT_EQ(ui_device.texture_page_count(ui::UiTextureSlot::Ramp), 0u);
     EXPECT_EQ(ui_device.texture_page_count(ui::UiTextureSlot::Image), 0u);
 }
+#endif
 
 } // namespace
 } // namespace engine::render
