@@ -114,6 +114,10 @@ private:
 };
 
 class NullMesh final : public engine::render::IMesh {
+public:
+    NullMesh() : engine::render::IMesh(engine::render::make_quad()) {}
+    explicit NullMesh(const engine::render::MeshDesc& desc) : engine::render::IMesh(desc) {}
+
 protected:
     bool replace(const engine::render::MeshDesc&) override { return true; }
 };
@@ -121,8 +125,8 @@ class NullShader final : public engine::render::IShader {};
 
 class RecordingFactory final : public engine::render::IGraphicFactory {
 public:
-    std::shared_ptr<engine::render::IMesh> create_mesh(const engine::render::MeshDesc&) override {
-        return std::make_shared<NullMesh>();
+    std::shared_ptr<engine::render::IMesh> create_mesh(const engine::render::MeshDesc& desc) override {
+        return std::make_shared<NullMesh>(desc);
     }
     std::shared_ptr<engine::render::IShader> create_shader(const engine::render::ShaderDesc&) override {
         return std::make_shared<NullShader>();

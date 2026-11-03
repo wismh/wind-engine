@@ -12,6 +12,7 @@
 #include <engine/ecs/transform.h>
 #include <engine/render/command_buffer.h>
 #include <engine/render/material.h>
+#include <engine/render/primitives.h>
 #include <engine/render/renderable.h>
 #include <engine/resources/fatal_error.h>
 #include <engine/ui/canvas.h>
@@ -25,6 +26,10 @@
 namespace {
 
 class FakeMesh final : public engine::render::IMesh {
+public:
+    FakeMesh() : engine::render::IMesh(engine::render::make_quad()) {}
+    explicit FakeMesh(const engine::render::MeshDesc& desc) : engine::render::IMesh(desc) {}
+
 protected:
     bool replace(const engine::render::MeshDesc&) override {
         return true;
@@ -215,6 +220,10 @@ TEST(Worlds, OneWorldOnTwoWindowsPushesOneViewPerWindowBeforeItsDraws) {
     camera.projection = engine::Projection::Perspective;
     camera.near_clip = 0.1f;
     camera.far_clip = 100.0f;
+    // In front of the camera at the origin (looking down -Z); on its z = 0 plane they would be before the near plane.
+    for (const engine::ecs::Entity entity : world.view<engine::render::Renderable, engine::Transform>()) {
+        world.get<engine::Transform>(entity).position.z = -5.0f;
+    }
 
     engine::simulate_worlds(worlds, nullptr, engine::kFixed);
 

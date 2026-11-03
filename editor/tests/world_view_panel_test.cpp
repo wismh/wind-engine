@@ -17,6 +17,7 @@
 #include <engine/ecs/world.h>
 #include <engine/ecs/world_serializer.h>
 #include <engine/render/command_buffer.h>
+#include <engine/render/primitives.h>
 #include <engine/render/renderable.h>
 #include <engine/render/sprite.h>
 #include <engine/render/commands.h>
@@ -616,6 +617,10 @@ transform = { position = [0.0, 0.0, 0.0] }
 }
 
 class StubMesh final : public engine::render::IMesh {
+public:
+    StubMesh() : engine::render::IMesh(engine::render::make_quad()) {}
+    explicit StubMesh(const engine::render::MeshDesc& desc) : engine::render::IMesh(desc) {}
+
 protected:
     bool replace(const engine::render::MeshDesc&) override {
         return true;
@@ -623,8 +628,8 @@ protected:
 };
 class StubGraphicFactory final : public engine::render::IGraphicFactory {
 public:
-    std::shared_ptr<engine::render::IMesh> create_mesh(const engine::render::MeshDesc&) override {
-        return std::make_shared<StubMesh>();
+    std::shared_ptr<engine::render::IMesh> create_mesh(const engine::render::MeshDesc& desc) override {
+        return std::make_shared<StubMesh>(desc);
     }
     std::shared_ptr<engine::render::IShader> create_shader(const engine::render::ShaderDesc&) override {
         return {};

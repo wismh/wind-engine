@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <engine/render/graphic_factory.h>
+#include <engine/render/primitives.h>
 
 #include "render/mesh_check.h"
 #include "resources/importers.h"
@@ -150,6 +151,9 @@ namespace {
 // Keeps what `replace` was given, as a backend keeps its buffers. `fail` makes the backend refuse.
 class RecordingMesh final : public engine::render::IMesh {
 public:
+    RecordingMesh() : engine::render::IMesh(engine::render::make_quad()) {}
+    explicit RecordingMesh(const engine::render::MeshDesc& desc) : engine::render::IMesh(desc) {}
+
     engine::render::MeshDesc contents;
     int replaces = 0;
     bool fail = false;

@@ -14,7 +14,7 @@ namespace {
 // decide whether it belongs to a frame (copy it in apply_frame) or to the entity (leave it), then update the count.
 [[maybe_unused]] void sprite_field_count_is_checked() {
     [[maybe_unused]] const auto& [texture, color, layer, order_in_layer, flip_x, flip_y, tiling, offset, pixel_size,
-            pixels_per_unit, pivot, mesh, material, material_override] = Sprite{};
+            pixels_per_unit, pivot, mesh, material, material_override, frustum_cull] = Sprite{};
 }
 
 std::optional<float> node_as_float(const toml::node& node) {

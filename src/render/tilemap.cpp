@@ -200,26 +200,6 @@ MeshDesc bake_tilemap_chunk(
     return mesh;
 }
 
-bool tilemap_chunk_visible(
-        const glm::mat4& model, glm::vec2 min, glm::vec2 max, const glm::mat4& view_projection) {
-    const glm::mat4 clip_from_local = view_projection * model;
-    const std::array<glm::vec2, 4> corners{
-            glm::vec2{min.x, min.y}, glm::vec2{max.x, min.y}, glm::vec2{max.x, max.y}, glm::vec2{min.x, max.y}};
-    // Outside when every corner is beyond the same side plane.
-    bool left = true;
-    bool right = true;
-    bool below = true;
-    bool above = true;
-    for (const glm::vec2 corner : corners) {
-        const glm::vec4 clip = clip_from_local * glm::vec4{corner, 0.0f, 1.0f};
-        left = left && clip.x < -clip.w;
-        right = right && clip.x > clip.w;
-        below = below && clip.y < -clip.w;
-        above = above && clip.y > clip.w;
-    }
-    return !(left || right || below || above);
-}
-
 Tilemap Tilemap::from_asset(std::shared_ptr<TilemapAsset> asset) {
     Tilemap map;
     if (asset != nullptr) {
@@ -271,7 +251,7 @@ bool Tilemap::set_tile(int layer_index, int x, int y, std::uint16_t value) {
 }
 
 std::vector<TilemapChunkDraw> visible_tilemap_chunks(Tilemap& map, IGraphicFactory& factory, const glm::mat4& model,
-        std::span<const glm::mat4> view_projections) {
+        std::span<const Frustum> frustums) {
     std::vector<TilemapChunkDraw> draws;
     if (map.asset == nullptr) {
         return draws;
@@ -285,16 +265,16 @@ std::vector<TilemapChunkDraw> visible_tilemap_chunks(Tilemap& map, IGraphicFacto
     for (std::size_t layer = 0; layer < map.layers.size(); ++layer) {
         for (int cy = 0; cy < cy_count; ++cy) {
             for (int cx = 0; cx < cx_count; ++cx) {
-                if (!view_projections.empty()) {
+                if (!frustums.empty()) {
                     const int x0 = cx * kTilemapChunkSize;
                     const int y0 = cy * kTilemapChunkSize;
                     const int x1 = std::min(x0 + kTilemapChunkSize, map.asset->desc.width);
                     const int y1 = std::min(y0 + kTilemapChunkSize, map.asset->desc.height);
-                    const glm::vec2 min{static_cast<float>(x0) * cell.x, -static_cast<float>(y1) * cell.y};
-                    const glm::vec2 max{static_cast<float>(x1) * cell.x, -static_cast<float>(y0) * cell.y};
-                    const bool seen = std::any_of(view_projections.begin(), view_projections.end(),
-                            [&](const glm::mat4& vp) { return tilemap_chunk_visible(model, min, max, vp); });
-                    if (!seen) {
+                    const Aabb local{
+                            .min = {static_cast<float>(x0) * cell.x, -static_cast<float>(y1) * cell.y, 0.0f},
+                            .max = {static_cast<float>(x1) * cell.x, -static_cast<float>(y0) * cell.y, 0.0f},
+                    };
+                    if (!visible_in_any(frustums, transform_aabb(local, model))) {
                         continue;
                     }
                 }

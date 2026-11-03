@@ -11,6 +11,7 @@
 #include <engine/render/commands.h>
 #include <engine/render/fog.h>
 #include <engine/render/material.h>
+#include <engine/render/primitives.h>
 #include <engine/render/renderable.h>
 #include <engine/ui/presentation.h>
 
@@ -30,6 +31,10 @@ using engine::render::Fog;
 constexpr engine::WindowId kSecondWindow{7};
 
 class FakeMesh final : public engine::render::IMesh {
+public:
+    FakeMesh() : engine::render::IMesh(engine::render::make_quad()) {}
+    explicit FakeMesh(const engine::render::MeshDesc& desc) : engine::render::IMesh(desc) {}
+
 protected:
     bool replace(const engine::render::MeshDesc&) override {
         return true;

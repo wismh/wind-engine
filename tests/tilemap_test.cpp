@@ -2,6 +2,7 @@
 
 #include <engine/render/graphic_factory.h>
 #include <engine/render/graphics.h>
+#include <engine/render/primitives.h>
 #include <engine/render/tilemap.h>
 #include <engine/resources/assets_db.h>
 #include <engine/resources/meta.h>
@@ -42,6 +43,9 @@ constexpr std::uint8_t kPng1x1Red[] = {
 // Records each update the renderer makes; `fail_updates` makes the backend refuse them.
 class FakeMesh : public engine::render::IMesh {
 public:
+    FakeMesh() : engine::render::IMesh(engine::render::make_quad()) {}
+    explicit FakeMesh(const engine::render::MeshDesc& desc) : engine::render::IMesh(desc) {}
+
     int updates = 0;
     bool fail_updates = false;
     engine::render::MeshDesc last;
@@ -61,7 +65,7 @@ class CountingFactory : public engine::render::IGraphicFactory {
 public:
     std::shared_ptr<engine::render::IMesh> create_mesh(const engine::render::MeshDesc& desc) override {
         ++meshes;
-        auto mesh = std::make_shared<FakeMesh>();
+        auto mesh = std::make_shared<FakeMesh>(desc);
         mesh->last = desc;
         return mesh;
     }
@@ -201,15 +205,19 @@ TEST(Tilemap, TileEditDoesNotTouchTheAsset) {
 }
 
 TEST(Tilemap, ChunkVisibilityOrthographic) {
-    const glm::mat4 vp = glm::ortho(-5.0f, 5.0f, -5.0f, 5.0f, -1.0f, 1.0f);
+    const engine::render::Frustum frustum =
+            engine::render::make_frustum(glm::ortho(-5.0f, 5.0f, -5.0f, 5.0f, -1.0f, 1.0f));
     const glm::mat4 identity{1.0f};
-    EXPECT_TRUE(engine::render::tilemap_chunk_visible(identity, {-1, -1}, {1, 1}, vp));
-    EXPECT_TRUE(engine::render::tilemap_chunk_visible(identity, {4, 4}, {9, 9}, vp));
-    EXPECT_FALSE(engine::render::tilemap_chunk_visible(identity, {6, -1}, {9, 1}, vp));
-    EXPECT_FALSE(engine::render::tilemap_chunk_visible(identity, {-1, -9}, {1, -6}, vp));
+    const auto seen = [&](const glm::mat4& model, glm::vec2 min, glm::vec2 max) {
+        const engine::render::Aabb box{.min = {min, 0.0f}, .max = {max, 0.0f}};
+        return engine::render::frustum_intersects(frustum, engine::render::transform_aabb(box, model));
+    };
+    EXPECT_TRUE(seen(identity, {-1, -1}, {1, 1}));
+    EXPECT_TRUE(seen(identity, {4, 4}, {9, 9}));
+    EXPECT_FALSE(seen(identity, {6, -1}, {9, 1}));
+    EXPECT_FALSE(seen(identity, {-1, -9}, {1, -6}));
     // The model matrix moves the box into view.
-    EXPECT_TRUE(engine::render::tilemap_chunk_visible(
-            glm::translate(identity, glm::vec3{-8.0f, 0.0f, 0.0f}), {6, -1}, {9, 1}, vp));
+    EXPECT_TRUE(seen(glm::translate(identity, glm::vec3{-8.0f, 0.0f, 0.0f}), {6, -1}, {9, 1}));
 }
 
 TEST(Tilemap, OnlyVisibleChunksAreBuiltAndReturned) {
@@ -221,13 +229,14 @@ TEST(Tilemap, OnlyVisibleChunksAreBuiltAndReturned) {
 
     CountingFactory factory;
     // The view covers x [0, 10], y [-10, 0]: only chunk (0, 0).
-    const glm::mat4 vp = glm::ortho(0.0f, 10.0f, -10.0f, 0.0f, -1.0f, 1.0f);
-    auto draws = engine::render::visible_tilemap_chunks(map, factory, glm::mat4{1.0f}, {&vp, 1});
+    const engine::render::Frustum view =
+            engine::render::make_frustum(glm::ortho(0.0f, 10.0f, -10.0f, 0.0f, -1.0f, 1.0f));
+    auto draws = engine::render::visible_tilemap_chunks(map, factory, glm::mat4{1.0f}, {&view, 1});
     ASSERT_EQ(draws.size(), 1u);
     EXPECT_EQ(factory.meshes, 1);
 
     // Same view again: the baked mesh is reused.
-    draws = engine::render::visible_tilemap_chunks(map, factory, glm::mat4{1.0f}, {&vp, 1});
+    draws = engine::render::visible_tilemap_chunks(map, factory, glm::mat4{1.0f}, {&view, 1});
     EXPECT_EQ(draws.size(), 1u);
     EXPECT_EQ(factory.meshes, 1);
 

@@ -13,6 +13,7 @@
 #include <engine/render/command_buffer.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
+#include <engine/render/primitives.h>
 #include <engine/render/renderable.h>
 #include <engine/render/sprite.h>
 #include <engine/resources/assets_db.h>
@@ -49,6 +50,10 @@
 namespace {
 
 class FakeMesh final : public engine::render::IMesh {
+public:
+    FakeMesh() : engine::render::IMesh(engine::render::make_quad()) {}
+    explicit FakeMesh(const engine::render::MeshDesc& desc) : engine::render::IMesh(desc) {}
+
 protected:
     bool replace(const engine::render::MeshDesc&) override {
         return true;
@@ -1038,6 +1043,10 @@ TEST(RenderSystem, ModelMatrixIsTranslateRotateScale) {
     engine::ecs::World world;
     engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
     spawn_camera(world);
+    // The entity sits at z = 3, past the default -1..1 clip range.
+    engine::Camera& lens = world.get<engine::Camera>(world.ctx<engine::ActiveCamera>().entity);
+    lens.near_clip = -10.0f;
+    lens.far_clip = 10.0f;
 
     const auto mesh = std::make_shared<FakeMesh>();
     const auto material = std::make_shared<FakeMaterial>();

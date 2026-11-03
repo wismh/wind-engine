@@ -169,6 +169,7 @@ void register_builtin_components(
             out.field("pixel_size", s->pixel_size);
             out.field("pixels_per_unit", s->pixels_per_unit);
             out.field("pivot", s->pivot);
+            out.field("frustum_cull", s->frustum_cull);
             return true;
         };
         sprite_entry.read = [](World& world, Entity entity, ComponentReader& in) -> bool {
@@ -224,6 +225,7 @@ void register_builtin_components(
             (void)in.field("pixel_size", s.pixel_size);
             (void)in.field("pixels_per_unit", s.pixels_per_unit);
             (void)in.field("pivot", s.pivot);
+            (void)in.field("frustum_cull", s.frustum_cull);
             if (!in.ok()) {
                 return false;
             }
@@ -340,6 +342,7 @@ void register_builtin_components(
             out.field("color", r->color);
             out.field("layer", r->layer);
             out.field("order_in_layer", r->order_in_layer);
+            out.field("frustum_cull", r->frustum_cull);
             return true;
         };
         renderable_entry.read = [](World& world, Entity entity, ComponentReader& in) -> bool {
@@ -351,6 +354,7 @@ void register_builtin_components(
             (void)in.field("color", r.color);
             (void)in.field("layer", r.layer);
             (void)in.field("order_in_layer", r.order_in_layer);
+            (void)in.field("frustum_cull", r.frustum_cull);
             if (!in.ok()) {
                 return false;
             }

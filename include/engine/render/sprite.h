@@ -34,6 +34,9 @@ struct Sprite {
     std::shared_ptr<IMesh> mesh;
     std::shared_ptr<IMaterial> material;
     std::optional<MaterialOverride> material_override;
+    // False draws the sprite even when its quad is outside every window's frustum: for a material whose shader moves
+    // vertices (wind sway, wobble).
+    bool frustum_cull = true;
 
     // A sprite showing `frame`: the frame's texture, UV region (`tiling`, `offset`), `pixel_size`, `pixels_per_unit`, and
     // `pivot`; everything else (tint, layer, flips, mesh, material) is the default. For spawning an animated or

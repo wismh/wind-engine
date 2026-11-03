@@ -5,6 +5,7 @@
 #include <engine/render/draw_sort.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
+#include <engine/render/primitives.h>
 #include <engine/render/renderable.h>
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -21,6 +22,10 @@
 namespace {
 
 class FakeMesh final : public engine::render::IMesh {
+public:
+    FakeMesh() : engine::render::IMesh(engine::render::make_quad()) {}
+    explicit FakeMesh(const engine::render::MeshDesc& desc) : engine::render::IMesh(desc) {}
+
 protected:
     bool replace(const engine::render::MeshDesc&) override {
         return true;

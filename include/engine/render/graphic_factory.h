@@ -36,6 +36,10 @@ struct MeshDesc {
     std::vector<std::uint32_t> indices;
 };
 
+// The box around every vertex position of `desc`, indexed or not (a vertex no index uses still counts). A zero box at
+// the origin when there are no vertices.
+[[nodiscard]] Aabb mesh_bounds(const MeshDesc& desc);
+
 struct ShaderDesc {
     std::string vertex_src;
     std::string fragment_src;
