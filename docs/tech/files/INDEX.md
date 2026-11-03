@@ -233,13 +233,14 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/.gitkeep` | Keeps the directory in Git | [Render](../modules/Render.md) |
 | `src/render/backend/opengl/.gitkeep` | Empty placeholder. The backend lives in `src/render/opengl/` | [Render](../modules/Render.md) |
 | `src/render/animation.cpp` | Parse animation TOML into a clip | [Render](../modules/Render.md) |
-| `src/render/tilemap.cpp` | Parse `.tilemap`, bake chunk meshes, chunk culling, `Tilemap::set_tile` | [Render](../modules/Render.md#tilemaps) |
+| `src/render/tilemap.cpp` | Parse `.tilemap`, bake chunk meshes, chunk culling, `Tilemap::set_tile`, update edited chunk meshes | [Render](../modules/Render.md#tilemaps) |
 | `src/render/context_objects.cpp`, `src/render/context_objects.h` | Live GL context keys and VAO deletes deferred to their context | [Render](../modules/Render.md) |
 | `src/render/framebuffer_image.cpp`, `src/render/framebuffer_image.h` | Read-back rows to a top-first image with straight alpha | [CLI](../features/CLI.md#screenshot) |
 | `src/render/gl_error_log.cpp`, `src/render/gl_error_log.h` | GL error names; one log line per error and command | [Render](../modules/Render.md) |
 | `src/render/lights.cpp` | Collect directional and ambient lights for `CmdSetView` | [Render](../modules/Render.md#lights) |
 | `src/render/material.cpp` | Parse `.mat` TOML | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `src/render/material_instance.h` | `IMaterial` for a loaded `.mat` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `src/render/mesh.cpp` | `IMesh::update`: validate, then the backend's `replace` | [Render](../modules/Render.md#mesh-updates) |
 | `src/render/mesh_check.cpp`, `src/render/mesh_check.h` | `mesh_desc_error`: why a `MeshDesc` cannot be drawn | [Render](../modules/Render.md#meshes) |
 | `src/render/particles.cpp` | Spawn, integrate, and collide particles | [Render](../modules/Render.md) |
 | `src/render/primitives.cpp` | Procedural quad, cube, plane, and UV sphere | [Render](../modules/Render.md#primitives) |
@@ -259,7 +260,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/opengl/context_scope.h` | `ContextScope`: make the engine context current for a scope | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_factory.cpp` | Create GL mesh, shader, texture, dynamic texture | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_factory.h` | `OpenGLFactory` | [Render](../modules/Render.md) |
-| `src/render/opengl/opengl_mesh.cpp` | GL mesh: vertex and element buffers, per-context VAO, `glDrawElements` or `glDrawArrays` | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_mesh.cpp` | GL mesh: vertex and element buffers, in-place or grown update, per-context VAO, `glDrawElements` or `glDrawArrays` | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_mesh.h` | GL mesh type | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_shader.cpp` | GL program and named uniforms | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_shader.h` | GL shader type | [Render](../modules/Render.md) |
@@ -448,7 +449,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/android_assets_test.cpp` | Android asset staging without a device | [Runtime Assets](../build/Runtime%20Assets.md) |
 | `tests/android_lifecycle_test.cpp` | Pause, resume, back key routing | [Core](../modules/Core.md) |
 | `tests/animation_test.cpp` | Sprite clip parse and playback | [Render](../modules/Render.md) |
-| `tests/tilemap_test.cpp` | `.tilemap` parse, chunk bake and UVs, culling, dirty chunks, `AssetsDb` load | [Render](../modules/Render.md#tilemaps) |
+| `tests/tilemap_test.cpp` | `.tilemap` parse, chunk bake and UVs, culling, dirty chunks updating their mesh, `AssetsDb` load | [Render](../modules/Render.md#tilemaps) |
 | `tests/assets_test.cpp` | Catalog, `get` / `try_get`, `unload_catalog`, codegen failures, stylesheet warnings in `game.log` | [Assets](../features/Assets.md) |
 | `tests/asset_ref_test.cpp` | `AssetRef<T>` typed asset handle tests | [Assets](../features/Assets.md) |
 | `tests/cli_dock_test.cpp` | CLI docking commands tests | [Docking](../features/Docking.md) |
@@ -503,7 +504,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/loc_format_test.cpp` | Placeholders and plural branches | [Localization](../modules/Localization.md) |
 | `tests/log_test.cpp` | The null sink | [Core](../modules/Core.md) |
 | `tests/material_test.cpp` | `.mat` parse (blend, depth, cull, defaults) and instance tint | [Materials and Sort](../features/Materials%20and%20Sort.md) |
-| `tests/mesh_test.cpp` | `.mesh` parse (5- and 8-column vertices, `f` rows, bad rows and indices), `mesh_desc_error` | [Assets](../features/Assets.md#mesh-files) |
+| `tests/mesh_test.cpp` | `.mesh` parse (5- and 8-column vertices, `f` rows, bad rows and indices), `mesh_desc_error`, `IMesh::update` validation and keep-old rule | [Assets](../features/Assets.md#mesh-files) |
 | `tests/mvvm_test.cpp` | View-model properties, commands, checkbox write-back | [UI](../modules/UI.md) |
 | `tests/opengl_texture_test.cpp` | CPU texture description, row flip, dynamic-texture creation contract. No GL draw | [Render](../modules/Render.md) |
 | `tests/particle_test.cpp` | Emitter step, curves, and parallel integration matching the caller | [Render](../modules/Render.md) |

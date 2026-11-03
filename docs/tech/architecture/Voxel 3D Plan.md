@@ -12,7 +12,7 @@ The engine owns everything below that which any 3D or networked game would reuse
 
 Checked against `include/engine/` at `53bf8c5`:
 
-- `IMesh` has no update. A changed chunk means a new `create_mesh` and a dropped GPU buffer.
+- ~~`IMesh` has no update.~~ Done in wind-299: `IMesh::update` ([Render](../modules/Render.md#mesh-updates)).
 - `MeshVertex` is position, normal, uv. No vertex color, so baked block light and AO have nowhere to go.
 - `run_render` culls only tilemap chunks (`tilemap_chunk_visible`). Every `Renderable` is drawn.
 - `TextureDesc` has `filter` (`Nearest`, `Linear`) and `wrap`. No mipmaps, no texture arrays. A block atlas shimmers at distance and bleeds between tiles.
@@ -41,6 +41,8 @@ Phase 1 unblocks a single-player prototype. Phase 2 makes it playable at scale. 
 ## Phase 1: prototype
 
 ### wind-299 feat: mutable meshes
+
+Status: done. `IMesh::update` is non-virtual (validation, keep-old rule) over a protected backend `replace`; Vulkan retires replaced buffers until their frames complete; tilemap chunk edits update the chunk mesh. See [Render](../modules/Render.md#mesh-updates).
 
 Problem: a block edit rebuilds one chunk mesh. Today that is a fresh `IMesh` each time.
 
