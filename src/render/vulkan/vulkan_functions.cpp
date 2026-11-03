@@ -151,6 +151,7 @@ bool VulkanFunctions::load_device(VkDevice device) {
     resolve_device(vkGetDeviceProcAddr, device, "vkCmdPipelineBarrier", vkCmdPipelineBarrier);
     resolve_device(vkGetDeviceProcAddr, device, "vkCmdCopyBuffer", vkCmdCopyBuffer);
     resolve_device(vkGetDeviceProcAddr, device, "vkCmdCopyBufferToImage", vkCmdCopyBufferToImage);
+    resolve_device(vkGetDeviceProcAddr, device, "vkCmdBlitImage", vkCmdBlitImage);
     resolve_device(vkGetDeviceProcAddr, device, "vkCmdCopyImageToBuffer", vkCmdCopyImageToBuffer);
 
     resolve_device(vkGetDeviceProcAddr, device, "vkCmdBindPipeline", vkCmdBindPipeline);

@@ -421,6 +421,21 @@ std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::p
             }
         }
 
+        if (parsed->importer == ImporterKind::TextureArray) {
+            std::ifstream image_in(file, std::ios::binary);
+            if (!image_in) {
+                return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to read " + file.generic_string()});
+            }
+            const std::string bytes((std::istreambuf_iterator<char>(image_in)), std::istreambuf_iterator<char>());
+            const auto image = decode_png_rgba(bytes);
+            if (!image) {
+                return std::unexpected(CodegenError{CodegenErrorKind::TextureArray, relative + ": not a PNG"});
+            }
+            if (auto layers = texture_array_from_frames(*image, parsed->texture.sprites); !layers) {
+                return std::unexpected(CodegenError{CodegenErrorKind::TextureArray, relative + ": " + layers.error()});
+            }
+        }
+
         if (parsed->importer == ImporterKind::Prototype) {
             std::ifstream proto_in(file);
             if (!proto_in) {

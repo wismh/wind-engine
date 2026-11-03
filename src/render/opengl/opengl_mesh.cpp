@@ -137,6 +137,10 @@ void OpenGLMesh::draw() {
         glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
                 reinterpret_cast<const void*>(offsetof(MeshVertex, color)));
 
+        glEnableVertexAttribArray(4);
+        glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+                reinterpret_cast<const void*>(offsetof(MeshVertex, layer)));
+
         if (ebo_ != 0) {
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_);
         }

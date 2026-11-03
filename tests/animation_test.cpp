@@ -74,6 +74,9 @@ public:
     std::shared_ptr<engine::render::ITexture> create_texture(const engine::render::TextureDesc& desc) override {
         return std::make_shared<FakeTexture>(desc.width, desc.height);
     }
+    std::shared_ptr<engine::render::ITexture> create_texture_array(const engine::render::TextureArrayDesc&) override {
+        return {};
+    }
     std::shared_ptr<engine::render::IDynamicTexture> create_dynamic_texture(
             const engine::render::DynamicTextureDesc&) override {
         return {};

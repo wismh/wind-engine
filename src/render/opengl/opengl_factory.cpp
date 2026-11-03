@@ -52,6 +52,15 @@ std::shared_ptr<IDynamicTexture> OpenGLFactory::create_dynamic_texture(const Dyn
     return texture;
 }
 
+std::shared_ptr<ITexture> OpenGLFactory::create_texture_array(const TextureArrayDesc& desc) {
+    const ContextScope scope(make_current_);
+    auto texture = std::make_shared<OpenGLTexture>(desc);
+    if (!texture->valid()) {
+        return {};
+    }
+    return texture;
+}
+
 std::shared_ptr<ITexture> OpenGLFactory::create_texture(const TextureDesc& desc) {
     const ContextScope scope(make_current_);
     auto texture = std::make_shared<OpenGLTexture>(desc);

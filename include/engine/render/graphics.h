@@ -34,6 +34,10 @@ public:
     virtual ~ITexture() = default;
     [[nodiscard]] virtual int width() const noexcept { return 0; }
     [[nodiscard]] virtual int height() const noexcept { return 0; }
+    // 0 for a 2D texture; the layer count of a texture array (`IGraphicFactory::create_texture_array`), whose
+    // `width()` and `height()` are one layer's. A shader samples a 2D texture through `sampler2D` and an array through
+    // `sampler2DArray`; a draw whose albedo is the other kind samples white.
+    [[nodiscard]] virtual int layers() const noexcept { return 0; }
 };
 
 // A texture whose pixels the game replaces while it runs: a camera frame, a software-rendered image. Created by
