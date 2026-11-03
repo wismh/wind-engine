@@ -9,7 +9,7 @@ Windowed games enter through `ENGINE_GAME` (`include/engine/game_entry.h`), whic
 1. `EngineHost::init`:
    1. `runtime.init_video()`. SDL video, inside `SdlGlPresentation`.
    2. `log::init(runtime.base_path())`. File sink `<base>/game.log`.
-   3. Construct `SdlFatalError`, `InputSystem`, `AssetsDb`, `AudioSystem`, `HapticsSystem`, `HttpClient`, `ProcessLauncher`, `Worlds`, and the `EngineServices` over them (assets, input, audio, haptics, http, processes, windows, graphics, backend, canvas, commands, worlds).
+   3. Construct `SdlFatalError`, `InputSystem`, `AssetsDb`, `AudioSystem`, `HapticsSystem`, `HttpClient`, `ProcessLauncher`, `JobSystem`, `Worlds`, and the `EngineServices` over them (assets, input, audio, haptics, http, processes, jobs, windows, graphics, backend, canvas, commands, worlds).
    4. `input.set_router` to `Worlds::world_for`. Attach the fatal hook to `Worlds::application_state` and the native window.
 2. Construct `GameT` with `services()`. `GameBase` calls `Worlds::add` for its world. Systems are not registered yet: the window and catalogs do not exist.
 3. `EngineHost::open_primary(game.primary_window())`:
@@ -24,7 +24,7 @@ Windowed games enter through `ENGINE_GAME` (`include/engine/game_entry.h`), whic
 4. `EngineHost::load_catalog(assets_root())`: `assets/catalog.toml`. `MetaError::Io` (file absent) is success. Any other error disposes the host and `init` returns `GameCatalog`.
 5. `EngineHost::attach_game(game)`: if `window_icon()` is set, `get<render::TextureDesc>` and `set_window_icon`. Then `bind_window(kPrimaryWindow)`, `enable_ui`, `enable_audio`, `write_window_size` (sends a resize event), `ui::apply_canvas_fit`.
 
-`run` calls `EngineHost::run` with `RunHooks` whose `on_start` and `on_quit` call the game. `EngineHost::run` calls `runtime.run`, then `dispose`. `dispose` disposes audio, haptics, and HTTP (cancelling every pending call) and shuts the runtime down. A second `dispose` is a no-op.
+`run` calls `EngineHost::run` with `RunHooks` whose `on_start` and `on_quit` call the game. `EngineHost::run` calls `runtime.run`, then `dispose`. `dispose` stops the job pool (cancelling every async job and waiting for the running ones), disposes audio, haptics, and HTTP (cancelling every pending call) and shuts the runtime down. A second `dispose` is a no-op.
 
 ## `RunHooks`
 
@@ -60,7 +60,8 @@ flowchart TD
   B2 --> C["poll: event window to its world"]
   C --> C2["HttpClient::poll: finished requests to their calls"]
   C2 --> C3["ProcessLauncher::poll: output lines and exits to their calls"]
-  C3 --> D["simulate_worlds"]
+  C3 --> C4["JobSystem::poll: finished jobs to their calls (no workers: run queued jobs first)"]
+  C4 --> D["simulate_worlds"]
   D --> E["sync_frame"]
   E --> E2["cli::capture_requests"]
   E2 --> F["draw_all, then wait for the next frame"]
@@ -68,7 +69,7 @@ flowchart TD
   G --> H["RunHooks::on_frame_end"]
 ```
 
-`cli::begin_frame` and `cli::drain` run every frame, with or without a world on `kPrimaryWindow`. Each request looks up the world bound to its own window at that moment (`Worlds::world_for`), so a world that Play or Stop swaps in `on_frame_end` is found the next frame. Host commands go to `RunHooks::cli`. `InputSystem::begin_frame` runs right before `poll`, so `axis()` holds one frame's mouse motion ([Input Mapper](../features/Input%20Mapper.md#axes-mouse-look-and-composites)). `reentrant_tick` is the same slice without flush, without `begin_frame`, without either poll, and without `on_frame_end`, so HTTP results wait for the frame after the drag. Windows calls it from inside `SDL_PollEvent` while a modal move or size loop is running. It shares the frame clock, so the frame that resumes after a drag does not replay the drag.
+`cli::begin_frame` and `cli::drain` run every frame, with or without a world on `kPrimaryWindow`. Each request looks up the world bound to its own window at that moment (`Worlds::world_for`), so a world that Play or Stop swaps in `on_frame_end` is found the next frame. Host commands go to `RunHooks::cli`. `InputSystem::begin_frame` runs right before `poll`, so `axis()` holds one frame's mouse motion ([Input Mapper](../features/Input%20Mapper.md#axes-mouse-look-and-composites)). `reentrant_tick` is the same slice without flush, without `begin_frame`, without any of the polls, and without `on_frame_end`, so HTTP and job results wait for the frame after the drag. Windows calls it from inside `SDL_PollEvent` while a modal move or size loop is running. It shares the frame clock, so the frame that resumes after a drag does not replay the drag.
 
 ### `simulate_worlds`
 

@@ -242,7 +242,7 @@ int EngineHost::run(RunHooks hooks) {
     }
     const int result = impl_->runtime.run(
             std::move(hooks), *impl_->worlds, *impl_->input, impl_->audio.get(), impl_->http.get(),
-            impl_->processes.get(), [this] { dispose(); });
+            impl_->processes.get(), impl_->jobs.get(), [this] { dispose(); });
     dispose();
     return result;
 }

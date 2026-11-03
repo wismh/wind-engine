@@ -433,9 +433,11 @@ private:
 
 // Owns one of everything EngineServices refers to.
 struct Services {
-    Services()
+    // `job_workers` 0: jobs and ranges run on the caller, jobs in `poll`.
+    explicit Services(int job_workers = 0)
         : assets(fatal)
         , worlds(fatal)
+        , jobs(job_workers)
         , services{
                   .assets = assets,
                   .input = input,
@@ -467,8 +469,7 @@ struct Services {
     FakeCanvas canvas;
     engine::render::CommandBuffer commands;
     engine::Worlds worlds;
-    // No workers: a test that wants a pool constructs its own JobSystem.
-    engine::JobSystem jobs{0};
+    engine::JobSystem jobs;
     engine::EngineServices services;
 };
 

@@ -32,7 +32,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/core/game_module.h` | Game module export types and symbol names; `GameModule`, `load_game_module`, `purge_game_module_copies` | [Core](../modules/Core.md) |
 | `include/engine/core/host.h` | Headless tick host for tests | [Core](../modules/Core.md) |
 | `include/engine/core/parse_float.h` | `parse_float`, `parse_float_prefix`: locale-free number reading, `from_chars` or `strtod` | [Core](../modules/Core.md#parsing-numbers) |
-| `include/engine/core/job_system.h` | `JobSystem`: fork-join `parallel_for` | [Core](../modules/Core.md#jobs) |
+| `include/engine/core/job_call.h` | `JobCall<T>`, `JobHandle`, `JobToken`: one owned background job, `take`, `cancel`, `set_priority` | [Core](../modules/Core.md#async-jobs) |
+| `include/engine/core/job_system.h` | `JobSystem`: fork-join `parallel_for`, async `submit`, `poll`, `wait_idle`, `cancel_all` | [Core](../modules/Core.md#jobs) |
 | `include/engine/core/input_system.h` | `ActionId` bindings with a scale, `MouseAxis`, `axis()`, and input events | [Input Mapper](../features/Input%20Mapper.md) |
 | `include/engine/core/key_code.h` | `KeyCode` values matching SDL scancodes | [Input Mapper](../features/Input%20Mapper.md) |
 | `include/engine/core/random.h` | `Random`, PCG32 | [Core](../modules/Core.md) |
@@ -173,7 +174,9 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/core/game_loop.cpp` | `begin`, `tick`, `reentrant_tick`, `end`, `RunHooks` calls | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/core/game_loop.h` | `GameLoop` | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/core/host.cpp` | Registers systems and ticks a fake canvas. Owns a `JobSystem` with no workers | [Core](../modules/Core.md) |
-| `src/core/job_system.cpp` | Fork-join pool | [Core](../modules/Core.md#jobs) |
+| `src/core/job_call.cpp` | `JobHandle`: pending, delivered slot, cancel, priority | [Core](../modules/Core.md#async-jobs) |
+| `src/core/job_state.h` | `JobState`: one submitted job, shared by its call and the pool | [Core](../modules/Core.md#async-jobs) |
+| `src/core/job_system.cpp` | Worker pool: fork-join ranges and the async job queue | [Core](../modules/Core.md#jobs) |
 | `src/core/input_system.cpp` | Bind table, event enqueue, `axis()` and the frame's mouse motion, locked windows | [Input Mapper](../features/Input%20Mapper.md) |
 | `src/core/relative_mouse.h`, `src/core/relative_mouse.cpp` | `RelativeMouse`: relative mouse requests per window and the focus rule | [Windowing](../features/Windowing.md#relative-mouse) |
 | `src/core/game_window_reset.h`, `src/core/game_window_reset.cpp` | `reset_game_windows`: window state put back when the editor stops a game | [Core](../modules/Core.md) |
@@ -510,6 +513,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/packet_protocol_test.cpp` | Packet headers, replication packet round-trip, `PacketDispatcher`, and ECS replication integration | [Net](../modules/Net.md) |
 | `tests/host_test.cpp` | `Host` tick and system registration | [Core](../modules/Core.md) |
 | `tests/parse_float_test.cpp` | Signs, exponents, rejected text, prefix length | [Core](../modules/Core.md#parsing-numbers) |
+| `tests/job_call_test.cpp` | Async jobs: delivery only on poll, inline jobs without workers, priority and `set_priority`, cancel before and during the run, drop, `parallel_for` beside held workers, many workers, `cancel_all`, `stop` | [Core](../modules/Core.md#async-jobs) |
 | `tests/job_system_test.cpp` | Inline ranges, two workers, nested `parallel_for`, `stop` joins | [Core](../modules/Core.md#jobs) |
 | `tests/icon_codegen_test.cpp` | ICO, ICNS, and PNG sizes in memory | [Icon Codegen](../build/Icon%20Codegen.md) |
 | `tests/input_test.cpp` | Bind, hold, touch synthesis, `reset`, mouse axes, composites, locked events | [Input Mapper](../features/Input%20Mapper.md) |

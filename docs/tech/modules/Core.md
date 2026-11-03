@@ -83,8 +83,8 @@ Any failure unloads the copy and deletes its directory. `GameModuleError` is the
 | `unload_catalog(dir)` | `AssetsDb::unload_catalog(dir)`. Pass the same path `load_catalog` got |
 | `attach_game(game)` | window icon, `bind_window(kPrimaryWindow)`, `enable_ui`, `enable_audio`, publish the window size with a resize event, `ui::apply_canvas_fit` |
 | `detach_game()` | the window half of undoing `attach_game`: `ICapture::close_all`, `unbind_window(kPrimaryWindow)`, clear its command buffer, reset its UI painter and register `builtin::font_ui` again, then `reset_game_windows` (`src/core/game_window_reset.h`: clear its drag region and click-through, overlay mode back to `Auto`, and on every open window release relative mouse mode and the game's mouse capture), `ApplicationState::paused` false. The editor calls it on Stop |
-| `run(hooks)` | `EngineRuntime::run` with `RunHooks` and the `HttpClient` and `ProcessLauncher` the loop polls, then `dispose`. Returns 1 before a successful `open_primary` |
-| `dispose()` | stops the job pool, disposes audio, capture (closing its sessions), haptics, HTTP, and the process launcher (ending the programs its calls still own) and shuts the runtime down. Also run by the destructor. A second call is a no-op |
+| `run(hooks)` | `EngineRuntime::run` with `RunHooks` and the `HttpClient`, `ProcessLauncher`, and `JobSystem` the loop polls, then `dispose`. Returns 1 before a successful `open_primary` |
+| `dispose()` | stops the job pool (cancelling every async job and waiting for the running ones), disposes audio, capture (closing its sessions), haptics, HTTP, and the process launcher (ending the programs its calls still own) and shuts the runtime down. Also run by the destructor. A second call is a no-op |
 
 `set_deps` registers simulation systems on worlds that already exist and on every later `Worlds::add`. `enable_ui` and `enable_audio` add the rest. Each registration is guarded by its `ctx` flag, so a world never gets a system twice, whether it was added before or after `set_deps`.
 
@@ -102,11 +102,36 @@ Any failure unloads the copy and deletes its directory. `GameModuleError` is the
 
 ## Jobs
 
-`JobSystem` (`include/engine/core/job_system.h`, `src/core/job_system.cpp`) is a fork-join pool. The owner thread calls `parallel_for(count, grain, fn)` and the call returns only after every index in `[0, count)` has been passed to `fn` once, in half-open ranges of at most `grain` (`grain` 0 is one range covering `count`). The caller runs ranges too: with more than one range it runs the first, then takes more while it waits. A `parallel_for` made from inside a running range runs on that same thread.
+`JobSystem` (`include/engine/core/job_system.h`, `src/core/job_system.cpp`) is a worker pool with two calls: fork-join `parallel_for`, and `submit` for [async jobs](#async-jobs). The owner thread calls `parallel_for(count, grain, fn)` and the call returns only after every index in `[0, count)` has been passed to `fn` once, in half-open ranges of at most `grain` (`grain` 0 is one range covering `count`). The caller runs ranges too: with more than one range it runs the first, then takes more while it waits. A `parallel_for` made from inside a running range runs on that same thread.
 
 `fn` must not throw and must not call engine APIs. It may read what the caller shares and write disjoint indices of a buffer the caller owns.
 
-`JobSystem(0)` runs every range on the caller. The default constructor uses `hardware_concurrency - 1` workers, or none when the machine has one core. Web without pthreads always has none: the same calls run on the caller, and `std::thread` is not started. `stop` joins the workers; a later `parallel_for` runs on the caller. `EngineHost::dispose` stops the pool before it tears the other services down. `Host` owns a `JobSystem(0)` and passes it through `set_deps`, so `engine_tests` exercise the same call and stay on the caller.
+`JobSystem(0)` runs every range on the caller. The default constructor uses `hardware_concurrency - 1` workers, or none when the machine has one core. Web without pthreads always has none: the same calls run on the caller, and `std::thread` is not started. `stop` cancels every async job (below), then joins the workers; a later `parallel_for` runs on the caller and a later job in `poll`. `EngineHost::dispose` stops the pool before it tears the other services down. `Host` owns a `JobSystem(0)` and passes it through `set_deps`, so `engine_tests` exercise the same call and stay on the caller.
+
+### Async jobs
+
+`submit(fn, priority = 0)` queues a background job and returns a `JobCall<T>` (`include/engine/core/job_call.h`), where `T` is what `fn` returns. `fn` is `T()` or `T(const JobToken&)`. `T` is not `void` (a static_assert; return a `bool` or a small struct) and is move-constructible. A job that builds a chunk returns its `MeshDesc` or block array; the main thread calls `create_mesh` / `update` after `take` ([Principles](../architecture/Principles.md) #12).
+
+`JobCall` is shaped like `HttpCall` and `FileDialogCall` ([Net](Net.md#why-a-call-and-not-an-event)): move-only, owned by whoever submitted it, and destroying a pending call cancels it. `pending()` is true from submit until the result is delivered or the call is cancelled. `take()` returns the result once, then the call is empty; nullopt while pending, after cancel, and on an empty call. `JobCall::resolved(value)` builds a call that already holds a result, for fakes. There is no `ready()`; `take()` answers that.
+
+| Call | Effect |
+| --- | --- |
+| `cancel()` on a queued job | It never runs. Its function is destroyed now, on the main thread |
+| `cancel()` on a running job | Its `JobToken::cancelled()` turns true; the worker destroys the function and the result when `fn` returns. `cancel` never waits |
+| `cancel()` on a finished job not yet polled | The result is destroyed now; `poll` skips it |
+| `set_priority(p)` | Moves a queued job. Higher runs first, equal priorities in submit order. A running or finished job ignores it. A chunk loader raises the priority of the chunks nearest the player as the player moves |
+
+`poll(budget = kJobInlineBudget)` runs on the main thread once per frame: `GameLoop::tick` calls it right after `ProcessLauncher::poll` ([Runtime Loop](../architecture/Runtime%20Loop.md#one-tick)), so a result becomes visible at the start of a frame and every system of that frame sees the same state. With workers it only delivers. With none (`JobSystem(0)`, Web without pthreads, one core, after `stop`) it first runs queued jobs on the caller, highest priority first: at least one, then more until `budget` (4 ms) has passed. `poll(0us)` runs exactly one. Jobs never run inside `submit`, so cancel-before-run and priority order hold everywhere. `wait_idle()` blocks until nothing is queued or running (with no workers it runs the whole queue); results still wait for `poll`. It is for loading screens and tests.
+
+Async jobs share the workers with `parallel_for`. No extra threads: chunk work and the main thread would otherwise fight over the same cores. A worker takes a published `parallel_for` batch before a queued job, and at most `workers - 1` jobs run at once (one worker runs them all), so fork-join always has a free worker. `parallel_for` cannot deadlock behind long jobs anyway, because its caller drains its own ranges. A `parallel_for` inside a job runs on that worker. The cap is fixed.
+
+A job function must not throw: the thunk is `noexcept`, so a throw is `std::terminate`. Failures are data (`std::expected`). It must not call engine APIs, `submit` included. It owns or shares everything it reads, because the owner of its call may be destroyed while it runs. Its result may be destroyed on a worker when the call was cancelled mid-run. A long job should take a `JobToken` and return early once `cancelled()`.
+
+`submit`, `poll`, `wait_idle`, `cancel_all`, `stop`, and every `JobCall` call run on the thread that built the system. Debug builds `assert` it; Release compiles the check out.
+
+`cancel_all()` cancels every job of the process, queued, running, and finished but not polled, destroys their functions and results, and returns only after no job is running. A running job that ignores its token is waited for, so a Stop can block for as long as such a job takes. The editor calls it on Stop ([Editor](../features/Editor.md#stop)): a job started by game code runs module code on a worker, and the module must not be unloaded under it. Because it cancels everything, an engine or editor feature that starts async jobs of its own must survive Stop cancelling them (start them again, or tag game jobs first); today nothing outside game code submits any.
+
+Implementation: `submit` is a thin template over `submit_impl` (`ENGINE_API`). The function and the result live in one heap `detail::JobBox<T, Fn>`, built by the template in the submitting module; the engine sees it as a `void*` plus `run` and `destroy` thunks. `JobState` (`src/core/job_state.h`) is created by `make_shared` inside the engine, so its last reference may go after a module is unloaded. Queue (a `std::set` ordered by priority and submit sequence), running list, and finished list are all under the pool's one mutex. They are not a `CallCompletions` (`src/core/call_completions.h`, used by `HttpCall` and `FileDialogCall`): a cancel must see in one critical section whether a job is queued, running, or finished, and `cancel_all` must reach finished jobs that `poll` has not delivered, which `CallCompletions` cannot hand back. A worker keeps the job counted as busy until a cancelled job's slot has been destroyed, so `cancel_all` cannot return while that module code runs. The header holds no mutable state ([Boundaries](../architecture/Boundaries.md)).
 
 `run_particles` is the caller. It hands `EngineSystemDeps::jobs` to `update_emitter`. Integration of the live particles forks when a pool is passed; spawn stays on the caller, and dead particles are dropped after the join. See [Render](Render.md#sprites-animation-particles-curves).
 
@@ -199,7 +224,9 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 | `src/core/build_info.cpp` | `build_id()` returns `kBuildId` as compiled into `engine` |
 | `src/core/fixed_step.cpp` | accumulator |
 | `src/core/host.cpp` | fake-canvas host. Owns a `JobSystem` with no workers |
-| `src/core/job_system.cpp` | Fork-join pool |
+| `src/core/job_system.cpp` | Worker pool: fork-join `parallel_for` and the async job queue |
+| `src/core/job_call.cpp` | `JobHandle`: the non-template part of `JobCall` (pending, take, cancel, priority) |
+| `src/core/job_state.h` | `JobState`: one submitted job, shared by its call and the pool |
 | `src/core/input_system.cpp` | bind table (action and scale per control), event enqueue, `axis()` and the frame's mouse motion, locked windows |
 | `src/core/relative_mouse.cpp` | `RelativeMouse`: relative mouse requests per window and the focus rule over them ([Windowing](../features/Windowing.md#relative-mouse)) |
 | `src/core/game_window_reset.cpp` | `reset_game_windows`: the window state `EngineHost::detach_game` puts back on Stop |

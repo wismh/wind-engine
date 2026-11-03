@@ -19,7 +19,7 @@ Checked against `include/engine/` at `53bf8c5`:
 - ~~No alpha-test (cutout) render state, no fog,~~ no sky. Cutout and fog done in wind-300 ([Cutout](../modules/Render.md#cutout), [Fog](../modules/Render.md#fog)).
 - ~~`IWindowControl::capture_mouse` is `SDL_CaptureMouse` (drag outside the window). There is no relative mode: the cursor is not hidden or locked for a first-person camera.~~ Done in wind-302: `set_relative_mouse` and `MouseAxis` bindings ([Windowing](../features/Windowing.md#relative-mouse), [Input Mapper](../features/Input%20Mapper.md#axes-mouse-look-and-composites)).
 - ~~`physics_2d` only. No 3D collision or grid raycast.~~ Grid collision and raycast done in wind-304: `sweep_aabb` and `raycast_grid` ([Grid queries](../modules/ECS.md#grid-queries)). Still no 3D rigid-body physics.
-- `JobSystem` is fork-join `parallel_for` only. A chunk mesh built over several frames has no home.
+- ~~`JobSystem` is fork-join `parallel_for` only. A chunk mesh built over several frames has no home.~~ Done in wind-305: `JobSystem::submit` and `JobCall` ([Async jobs](../modules/Core.md#async-jobs)).
 - No compression library.
 - Net: `run_network_server_replication` sends every `NetIdentity` + `Transform` to every client each call, unreliable, with no tick number, no baseline, no relevance. `setup_client_snapshot_receiver` finds each entity by a linear `view<NetIdentity>()` scan per id instead of `NetEntityMap`. Interpolation is a `lerp_speed` chase, not a time-buffered snapshot. There is no client input channel and no prediction. [Net](../modules/Net.md) still calls `NetId` a component; in code it is `using NetId = std::uint32_t` and the component is `NetIdentity`.
 - `Engine<GameT>::init` always opens a window. There is no dedicated server run mode. `GameNetworkingSockets` is linked from a prebuilt Windows x64 `.lib` only.
@@ -121,6 +121,8 @@ Do (pure math, header `<engine/ecs/grid_query.h>` or similar, no ECS dependency)
 Done when: `engine_tests` cover rays along axes and diagonals, start inside a solid cell, max distance, sliding along walls, step-free stair blocking, and the corner case of moving exactly along an edge.
 
 ### wind-305 feat: async jobs with a main-thread result
+
+Status: done. `JobSystem::submit(fn, priority) -> JobCall<T>` (`<engine/core/job_call.h>`): `fn` is `T()` or `T(const JobToken&)`, delivered by `JobSystem::poll`, which `GameLoop::tick` calls right after `ProcessLauncher::poll`. Higher priority first, `set_priority` moves a queued job. Cancel or drop: queued never runs, running sees its token and its result is discarded. Same workers as `parallel_for`, at most `workers - 1` jobs at once; with no workers (Web without pthreads) `poll` runs jobs inline within a 4 ms budget. A throw is `std::terminate`. Editor Stop calls `JobSystem::cancel_all` after `wind_destroy_game`, which waits for running jobs before the unload. See [Core](../modules/Core.md#async-jobs).
 
 Problem: generating and meshing a chunk takes longer than a frame. `parallel_for` blocks until done.
 
