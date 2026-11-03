@@ -64,10 +64,11 @@ struct JobBox final : JobResult<T> {
 //   thread. Jobs run on at most `workers - 1` workers at once (all of them with one worker), so fork-join always
 //   has a free worker. With no workers, `poll` runs them on the caller.
 //
-// A function must not throw (a throw is `std::terminate`) and must not call engine APIs. A `parallel_for` range
-// may read what the caller shares and write disjoint indices of a buffer the caller owns. A job owns or shares
-// everything it reads, because the owner of its call may be destroyed while it runs, and returns data: the main
-// thread turns it into meshes or textures after `take`.
+// A function must not throw (a throw is `std::terminate`) and must not call engine APIs other than the any-thread
+// `compress` and `decompress` (<engine/core/compression.h>). A `parallel_for` range may read what the caller shares
+// and write disjoint indices of a buffer the caller owns. A job owns or shares everything it reads, because the owner
+// of its call may be destroyed while it runs, and returns data: the main thread turns it into meshes or textures
+// after `take`.
 //
 // `submit`, `poll`, `wait_idle`, `cancel_all`, `stop`, and every `JobCall` call run on the thread that built the
 // system (checked in debug builds).

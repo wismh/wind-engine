@@ -20,7 +20,7 @@ Checked against `include/engine/` at `53bf8c5`:
 - ~~`IWindowControl::capture_mouse` is `SDL_CaptureMouse` (drag outside the window). There is no relative mode: the cursor is not hidden or locked for a first-person camera.~~ Done in wind-302: `set_relative_mouse` and `MouseAxis` bindings ([Windowing](../features/Windowing.md#relative-mouse), [Input Mapper](../features/Input%20Mapper.md#axes-mouse-look-and-composites)).
 - ~~`physics_2d` only. No 3D collision or grid raycast.~~ Grid collision and raycast done in wind-304: `sweep_aabb` and `raycast_grid` ([Grid queries](../modules/ECS.md#grid-queries)). Still no 3D rigid-body physics.
 - ~~`JobSystem` is fork-join `parallel_for` only. A chunk mesh built over several frames has no home.~~ Done in wind-305: `JobSystem::submit` and `JobCall` ([Async jobs](../modules/Core.md#async-jobs)).
-- No compression library.
+- ~~No compression library.~~ Done in wind-306: LZ4 behind `<engine/core/compression.h>` ([Compression](../modules/Core.md#compression)).
 - Net: `run_network_server_replication` sends every `NetIdentity` + `Transform` to every client each call, unreliable, with no tick number, no baseline, no relevance. `setup_client_snapshot_receiver` finds each entity by a linear `view<NetIdentity>()` scan per id instead of `NetEntityMap`. Interpolation is a `lerp_speed` chase, not a time-buffered snapshot. There is no client input channel and no prediction. [Net](../modules/Net.md) still calls `NetId` a component; in code it is `using NetId = std::uint32_t` and the component is `NetIdentity`.
 - `Engine<GameT>::init` always opens a window. There is no dedicated server run mode. `GameNetworkingSockets` is linked from a prebuilt Windows x64 `.lib` only.
 - `IAudioSystem` has no position: `play_sfx(sound, volume)` only.
@@ -134,6 +134,8 @@ Do:
 Done when: tests cover delivery only on poll, cancel before and during the run, drop-on-destroy, and priority order.
 
 ### wind-306 feat: compression
+
+Status: done. LZ4 `v1.10.0` (`external/lz4`, BSD-2-Clause), built from `lib/lz4.c` and `lib/lz4hc.c` as the PRIVATE static `wind_lz4`. `compress(span, CompressionLevel::Fast | High) -> vector` and `decompress(span, max_size) -> expected<vector, CompressionError>`: a frozen 5-byte header (format byte, u32 uncompressed size), stored as-is when LZ4 does not shrink the input, `max_size` checked before any allocation, no checksum. Pure and callable from job workers, the exception to [Principles](Principles.md) #12. See [Core](../modules/Core.md#compression).
 
 Do:
 - One fast codec as a submodule (LZ4 or zstd, PRIVATE), behind `<engine/core/compression.h>`: `compress(span) -> vector`, `decompress(span, max_size) -> expected<vector, CompressionError>`. No codec types in the public header.

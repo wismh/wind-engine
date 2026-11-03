@@ -17,7 +17,7 @@ Wind is a high-performance 2D-first C++23 game engine tailored for production ti
 ### 2. [Core Architecture](architecture/Game-Lifecycle.md)
 * [Game Lifecycle](architecture/Game-Lifecycle.md) — `ENGINE_GAME`, `Engine<Game>`, `EngineServices`, `on_start`, and `on_quit`.
 * [World & Time](architecture/World-and-Time.md) — Delta time, fixed simulation stepping (`FixedStepClock`), and pause handling.
-* [Saves & Filesystem](architecture/Saves-and-Filesystem.md) — Cross-platform persistent storage via `user_data_directory`.
+* [Saves & Filesystem](architecture/Saves-and-Filesystem.md) — Cross-platform persistent storage via `user_data_directory`, and packing saves and packets with `compress` / `decompress`.
 * [Settings & Random Numbers](architecture/Config-and-Random.md) — `engine::Config` (a TOML settings file) and `engine::Random` (a seedable, replayable PCG32).
 * [Background Jobs](architecture/Background-Jobs.md) — `JobSystem::submit`, `JobCall` results on the main thread, cancel, priority, and `JobToken`.
 
