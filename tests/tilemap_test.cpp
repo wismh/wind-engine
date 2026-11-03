@@ -39,13 +39,31 @@ constexpr std::uint8_t kPng1x1Red[] = {
         0x3E, 0x33, 0x4C, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
 };
 
-class FakeMesh : public engine::render::IMesh {};
+// Records each update the renderer makes; `fail_updates` makes the backend refuse them.
+class FakeMesh : public engine::render::IMesh {
+public:
+    int updates = 0;
+    bool fail_updates = false;
+    engine::render::MeshDesc last;
+
+protected:
+    bool replace(const engine::render::MeshDesc& desc) override {
+        ++updates;
+        if (fail_updates) {
+            return false;
+        }
+        last = desc;
+        return true;
+    }
+};
 
 class CountingFactory : public engine::render::IGraphicFactory {
 public:
-    std::shared_ptr<engine::render::IMesh> create_mesh(const engine::render::MeshDesc&) override {
+    std::shared_ptr<engine::render::IMesh> create_mesh(const engine::render::MeshDesc& desc) override {
         ++meshes;
-        return std::make_shared<FakeMesh>();
+        auto mesh = std::make_shared<FakeMesh>();
+        mesh->last = desc;
+        return mesh;
     }
     std::shared_ptr<engine::render::IShader> create_shader(const engine::render::ShaderDesc&) override { return {}; }
     std::shared_ptr<engine::render::ITexture> create_texture(const engine::render::TextureDesc& desc) override {
@@ -216,18 +234,70 @@ TEST(Tilemap, OnlyVisibleChunksAreBuiltAndReturned) {
     EXPECT_EQ(factory.meshes, 2);
 }
 
-TEST(Tilemap, SetTileRebuildsOnlyItsChunk) {
+TEST(Tilemap, SetTileUpdatesOnlyItsChunkMesh) {
     Tilemap map = Tilemap::from_asset(make_asset());
     map.layers[0].tiles[0] = 1;
     map.layers[0].tiles[static_cast<std::size_t>(35 * 70 + 66)] = 1;
 
     CountingFactory factory;
-    (void)engine::render::visible_tilemap_chunks(map, factory, glm::mat4{1.0f}, {});
+    const auto before = engine::render::visible_tilemap_chunks(map, factory, glm::mat4{1.0f}, {});
+    ASSERT_EQ(before.size(), 2u);
     ASSERT_EQ(factory.meshes, 2);
 
     ASSERT_TRUE(map.set_tile(0, 1, 0, 2));
-    (void)engine::render::visible_tilemap_chunks(map, factory, glm::mat4{1.0f}, {});
-    EXPECT_EQ(factory.meshes, 3);
+    const auto after = engine::render::visible_tilemap_chunks(map, factory, glm::mat4{1.0f}, {});
+    ASSERT_EQ(after.size(), 2u);
+    EXPECT_EQ(factory.meshes, 2);
+    EXPECT_EQ(after[0].mesh, before[0].mesh);
+    EXPECT_EQ(after[1].mesh, before[1].mesh);
+
+    const auto& edited = static_cast<const FakeMesh&>(*after[0].mesh);
+    EXPECT_EQ(edited.updates, 1);
+    const engine::render::MeshDesc baked =
+            engine::render::bake_tilemap_chunk(*map.asset, map.layers[0].tiles, 0, 0);
+    ASSERT_EQ(edited.last.vertices.size(), baked.vertices.size());
+    EXPECT_EQ(edited.last.vertices.size(), 8u);
+    EXPECT_EQ(edited.last.indices, baked.indices);
+    for (std::size_t i = 0; i < baked.vertices.size(); ++i) {
+        EXPECT_EQ(edited.last.vertices[i].position, baked.vertices[i].position);
+        EXPECT_EQ(edited.last.vertices[i].uv, baked.vertices[i].uv);
+    }
+    EXPECT_EQ(static_cast<const FakeMesh&>(*after[1].mesh).updates, 0);
+}
+
+TEST(Tilemap, ClearingAChunkDropsItsMesh) {
+    Tilemap map = Tilemap::from_asset(make_asset());
+    map.layers[0].tiles[0] = 1;
+
+    CountingFactory factory;
+    const auto before = engine::render::visible_tilemap_chunks(map, factory, glm::mat4{1.0f}, {});
+    ASSERT_EQ(before.size(), 1u);
+    const auto& mesh = static_cast<const FakeMesh&>(*before[0].mesh);
+
+    ASSERT_TRUE(map.set_tile(0, 0, 0, 0));
+    EXPECT_TRUE(engine::render::visible_tilemap_chunks(map, factory, glm::mat4{1.0f}, {}).empty());
+    EXPECT_EQ(mesh.updates, 0);
+    EXPECT_EQ(map.chunks[0].mesh, nullptr);
+    EXPECT_EQ(factory.meshes, 1);
+}
+
+TEST(Tilemap, FailedChunkUpdateMakesANewMesh) {
+    Tilemap map = Tilemap::from_asset(make_asset());
+    map.layers[0].tiles[0] = 1;
+
+    CountingFactory factory;
+    const auto before = engine::render::visible_tilemap_chunks(map, factory, glm::mat4{1.0f}, {});
+    ASSERT_EQ(before.size(), 1u);
+    auto old_mesh = std::static_pointer_cast<FakeMesh>(before[0].mesh);
+    old_mesh->fail_updates = true;
+
+    ASSERT_TRUE(map.set_tile(0, 1, 0, 2));
+    const auto after = engine::render::visible_tilemap_chunks(map, factory, glm::mat4{1.0f}, {});
+    ASSERT_EQ(after.size(), 1u);
+    EXPECT_EQ(old_mesh->updates, 1);
+    EXPECT_EQ(factory.meshes, 2);
+    EXPECT_NE(after[0].mesh, old_mesh);
+    EXPECT_EQ(static_cast<const FakeMesh&>(*after[0].mesh).last.vertices.size(), 8u);
 }
 
 TEST(Tilemap, AssetsDbLoadsATilemapWithItsTileset) {

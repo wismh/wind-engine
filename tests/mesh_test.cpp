@@ -107,3 +107,74 @@ TEST(Mesh, ParseRejectsFacesWithoutVertices) {
     EXPECT_FALSE(engine::parse_mesh("# nothing\n\n").has_value());
     EXPECT_FALSE(engine::parse_mesh("f 0 0 0\n").has_value());
 }
+
+namespace {
+
+// Keeps what `replace` was given, as a backend keeps its buffers. `fail` makes the backend refuse.
+class RecordingMesh final : public engine::render::IMesh {
+public:
+    engine::render::MeshDesc contents;
+    int replaces = 0;
+    bool fail = false;
+
+protected:
+    bool replace(const engine::render::MeshDesc& desc) override {
+        ++replaces;
+        if (fail) {
+            return false;
+        }
+        contents = desc;
+        return true;
+    }
+};
+
+}
+
+TEST(Mesh, UpdateRejectsInvalidDescsAndKeepsOldContents) {
+    RecordingMesh mesh;
+    mesh.contents = triangle();
+
+    EXPECT_FALSE(mesh.update(engine::render::MeshDesc{}));
+    engine::render::MeshDesc partial = triangle();
+    partial.indices = {0, 1};
+    EXPECT_FALSE(mesh.update(partial));
+    engine::render::MeshDesc past_end = triangle();
+    past_end.indices = {0, 1, 3};
+    EXPECT_FALSE(mesh.update(past_end));
+
+    EXPECT_EQ(mesh.replaces, 0);
+    EXPECT_EQ(mesh.contents.vertices.size(), 3u);
+    EXPECT_TRUE(mesh.contents.indices.empty());
+}
+
+TEST(Mesh, UpdatePassesAValidDescToTheBackend) {
+    RecordingMesh mesh;
+
+    engine::render::MeshDesc flat = triangle();
+    flat.vertices[1].position = {1.0f, 0.0f, 0.0f};
+    EXPECT_TRUE(mesh.update(flat));
+    EXPECT_EQ(mesh.replaces, 1);
+    EXPECT_EQ(mesh.contents.vertices.size(), 3u);
+    EXPECT_EQ(mesh.contents.vertices[1].position, glm::vec3(1.0f, 0.0f, 0.0f));
+    EXPECT_TRUE(mesh.contents.indices.empty());
+
+    engine::render::MeshDesc indexed;
+    indexed.vertices.resize(4);
+    indexed.indices = {0, 1, 2, 2, 3, 0};
+    EXPECT_TRUE(mesh.update(indexed));
+    EXPECT_EQ(mesh.replaces, 2);
+    EXPECT_EQ(mesh.contents.vertices.size(), 4u);
+    EXPECT_EQ(mesh.contents.indices, indexed.indices);
+}
+
+TEST(Mesh, UpdateReportsABackendFailure) {
+    RecordingMesh mesh;
+    mesh.contents = triangle();
+    mesh.fail = true;
+
+    engine::render::MeshDesc bigger;
+    bigger.vertices.resize(6);
+    EXPECT_FALSE(mesh.update(bigger));
+    EXPECT_EQ(mesh.replaces, 1);
+    EXPECT_EQ(mesh.contents.vertices.size(), 3u);
+}

@@ -142,7 +142,12 @@ bool load_builtin_catalog(engine::AssetsDb& db) {
     return true;
 }
 
-class DummyMesh final : public engine::render::IMesh {};
+class DummyMesh final : public engine::render::IMesh {
+protected:
+    bool replace(const engine::render::MeshDesc&) override {
+        return true;
+    }
+};
 class DummyShader final : public engine::render::IShader {};
 class DummyTexture final : public engine::render::ITexture {
 public:
