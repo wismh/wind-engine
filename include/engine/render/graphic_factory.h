@@ -16,13 +16,17 @@
 
 namespace engine::render {
 
-// Vertex shader inputs: position at location 0, uv at 1, normal at 2, color at 3. A shader ignores what it does not
-// read: the 2D shaders read 0 and 1, the builtin unlit and lit shaders also read the color (baked light, AO, tint).
+// Vertex shader inputs: position at location 0, uv at 1, normal at 2, color at 3, layer at 4. A shader ignores what
+// it does not read: the 2D shaders read 0 and 1, the builtin unlit and lit shaders also read the color (baked light,
+// AO, tint), and the builtin array shaders also read the layer.
 struct MeshVertex {
     glm::vec3 position{0.0f};
     glm::vec3 normal{0.0f, 0.0f, 1.0f};
     glm::vec2 uv{0.0f};
     glm::vec4 color{1.0f};
+    // Texture array layer the builtin array shaders sample (`TextureArray::layer`). Give all three vertices of a
+    // triangle the same value: it is not interpolated. Ignored by every other shader.
+    float layer = 0.0f;
 };
 
 // A triangle list. Empty `indices`: every three vertices are one triangle. Otherwise every three indices are one, each
@@ -45,9 +49,25 @@ struct TextureDesc {
     std::vector<std::uint8_t> rgba;
     FilterMode filter = FilterMode::Linear;
     WrapMode wrap = WrapMode::Clamp;
+    MipmapMode mipmaps = MipmapMode::None;
 };
 
-// Starts transparent black. `update` fills it.
+// The most layers a texture array may have: the minimum OpenGL 3.3, OpenGL ES 3.0, and Vulkan all guarantee.
+inline constexpr int kMaxTextureArrayLayers = 256;
+
+// `layers` images of `width` x `height` in one texture: `rgba` is layer 0 first, each layer top row first (the layout
+// of `TextureDesc::rgba`), so it is at least `width * height * 4 * layers` bytes. Mip levels are made per layer.
+struct TextureArrayDesc {
+    int width = 0;
+    int height = 0;
+    int layers = 0;
+    std::vector<std::uint8_t> rgba;
+    FilterMode filter = FilterMode::Linear;
+    WrapMode wrap = WrapMode::Clamp;
+    MipmapMode mipmaps = MipmapMode::None;
+};
+
+// Starts transparent black. `update` fills it. It has no mip levels.
 struct DynamicTextureDesc {
     int width = 0;
     int height = 0;
@@ -61,6 +81,9 @@ public:
     virtual std::shared_ptr<IMesh> create_mesh(const MeshDesc& desc) = 0;
     virtual std::shared_ptr<IShader> create_shader(const ShaderDesc& desc) = 0;
     virtual std::shared_ptr<ITexture> create_texture(const TextureDesc& desc) = 0;
+    // An `ITexture` whose `layers()` is `desc.layers`. Null for a size or layer count that is not positive, more than
+    // `kMaxTextureArrayLayers` layers, or an `rgba` too short for them (the reason is logged).
+    virtual std::shared_ptr<ITexture> create_texture_array(const TextureArrayDesc& desc) = 0;
     // Null for a size that is not positive.
     virtual std::shared_ptr<IDynamicTexture> create_dynamic_texture(const DynamicTextureDesc& desc) = 0;
 };

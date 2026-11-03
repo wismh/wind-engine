@@ -355,7 +355,7 @@ void VulkanRenderBackend::execute_draw_mesh(const CmdDrawMesh& cmd) {
 
     const MaterialOverride* override_ptr =
         cmd.material_override.has_value() ? &*cmd.material_override : nullptr;
-    VulkanTexture* albedo = resolve_albedo(*cmd.material, override_ptr);
+    VulkanTexture* albedo = resolve_albedo(*cmd.material, override_ptr, shader->reflection().sampler_arrayed);
     if (albedo == nullptr || !albedo->ensure_gpu_image()) {
         return;
     }
@@ -404,7 +404,8 @@ void VulkanRenderBackend::execute_draw_particles(const CmdDrawParticles& cmd) {
         return;
     }
 
-    VulkanTexture* albedo = resolve_albedo(*cmd.material, nullptr);
+    // The builtin particle shader samples a 2D texture.
+    VulkanTexture* albedo = resolve_albedo(*cmd.material, nullptr, false);
     if (albedo == nullptr || !albedo->ensure_gpu_image()) {
         return;
     }
@@ -597,17 +598,38 @@ bool VulkanRenderBackend::ensure_particle_resources() {
 
 VulkanTexture* VulkanRenderBackend::resolve_albedo(
     const IMaterial& material,
-    const MaterialOverride* override_params) {
+    const MaterialOverride* override_params,
+    bool arrayed) {
+    VulkanTexture* chosen = nullptr;
     if (override_params != nullptr && override_params->albedo != nullptr) {
         if (auto* tex = dynamic_cast<VulkanTexture*>(override_params->albedo.get());
             tex != nullptr && tex->valid()) {
-            return tex;
+            chosen = tex;
         }
     }
-    if (const auto mat_tex = material.texture(0)) {
-        if (auto* tex = dynamic_cast<VulkanTexture*>(mat_tex.get()); tex != nullptr && tex->valid()) {
-            return tex;
+    if (chosen == nullptr) {
+        if (const auto mat_tex = material.texture(0)) {
+            if (auto* tex = dynamic_cast<VulkanTexture*>(mat_tex.get()); tex != nullptr && tex->valid()) {
+                chosen = tex;
+            }
         }
+    }
+    if (chosen != nullptr && (chosen->layers() > 0) == arrayed) {
+        return chosen;
+    }
+    if (arrayed) {
+        if (!white_texture_array_) {
+            const TextureArrayDesc white_desc{
+                .width = 1,
+                .height = 1,
+                .layers = 1,
+                .rgba = {255, 255, 255, 255},
+                .filter = FilterMode::Nearest,
+                .wrap = WrapMode::Clamp,
+            };
+            white_texture_array_ = std::make_shared<VulkanTexture>(context_, white_desc);
+        }
+        return white_texture_array_.get();
     }
     if (!white_texture_) {
         TextureDesc white_desc{
@@ -731,6 +753,8 @@ VkPipeline VulkanRenderBackend::get_or_create_pipeline(
             {2, 0, VK_FORMAT_R32G32B32_SFLOAT, static_cast<std::uint32_t>(offsetof(MeshVertex, normal))});
         vertex_attrs.push_back(
             {3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, static_cast<std::uint32_t>(offsetof(MeshVertex, color))});
+        vertex_attrs.push_back(
+            {4, 0, VK_FORMAT_R32_SFLOAT, static_cast<std::uint32_t>(offsetof(MeshVertex, layer))});
     } else {
         vertex_bindings.push_back({0, sizeof(QuadVertex), VK_VERTEX_INPUT_RATE_VERTEX});
         vertex_bindings.push_back({1, sizeof(ParticleInstance), VK_VERTEX_INPUT_RATE_INSTANCE});
@@ -845,6 +869,7 @@ VkPipeline VulkanRenderBackend::get_or_create_pipeline(
 
 void VulkanRenderBackend::shutdown_gpu_resources() {
     white_texture_.reset();
+    white_texture_array_.reset();
     particle_shader_.reset();
 
     if (!context_ || !context_->is_device_ready()) {

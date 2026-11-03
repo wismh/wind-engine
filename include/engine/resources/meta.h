@@ -42,6 +42,8 @@ enum class ImporterKind {
     Data,
     Tilemap,
     Prototype,
+    // A PNG whose `[[sprites]]` frames become the layers of one GPU texture array (`render::TextureArray`).
+    TextureArray,
 };
 
 enum class ColorSpace {
@@ -50,6 +52,14 @@ enum class ColorSpace {
 };
 
 enum class FilterMode {
+    Nearest,
+    Linear,
+};
+
+// How a texture filters between mip levels. `None` has no mip levels: the texture is sampled at full size only.
+// `FilterMode` stays the filter inside a level (magnification, and the base of minification).
+enum class MipmapMode {
+    None,
     Nearest,
     Linear,
 };
@@ -93,6 +103,7 @@ struct TextureImportSettings {
     ColorSpace color_space = ColorSpace::Srgb;
     FilterMode filter = FilterMode::Linear;
     WrapMode wrap = WrapMode::Clamp;
+    MipmapMode mipmaps = MipmapMode::None;
     TextureLayout layout = TextureLayout::Single;
     float pixels_per_unit = 100.0f;
     std::vector<SpriteMeta> sprites{};
@@ -160,6 +171,7 @@ enum class CodegenErrorKind {
     Tilemap,
     Prototype,
     Shader,
+    TextureArray,
 };
 
 struct CodegenError {

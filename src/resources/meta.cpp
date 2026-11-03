@@ -76,6 +76,9 @@ std::optional<ImporterKind> parse_importer(std::string_view value) {
     if (value == "prototype") {
         return ImporterKind::Prototype;
     }
+    if (value == "texture_array") {
+        return ImporterKind::TextureArray;
+    }
     return std::nullopt;
 }
 
@@ -95,6 +98,19 @@ std::optional<FilterMode> parse_filter(std::string_view value) {
     }
     if (value == "linear") {
         return FilterMode::Linear;
+    }
+    return std::nullopt;
+}
+
+std::optional<MipmapMode> parse_mipmaps(std::string_view value) {
+    if (value == "none") {
+        return MipmapMode::None;
+    }
+    if (value == "nearest") {
+        return MipmapMode::Nearest;
+    }
+    if (value == "linear") {
+        return MipmapMode::Linear;
     }
     return std::nullopt;
 }
@@ -153,6 +169,14 @@ std::expected<void, MetaError> apply_optional_texture(const toml::table& table, 
             return std::unexpected(MetaError::InvalidField);
         }
         texture.wrap = *parsed;
+    }
+    if (const toml::node* mipmaps_node = table.get("mipmaps")) {
+        const auto mipmaps = mipmaps_node->value<std::string>();
+        const auto parsed = mipmaps ? parse_mipmaps(*mipmaps) : std::nullopt;
+        if (!parsed) {
+            return std::unexpected(MetaError::InvalidField);
+        }
+        texture.mipmaps = *parsed;
     }
     if (const auto layout = table["layout"].value<std::string>()) {
         const auto parsed = parse_layout(*layout);
@@ -332,6 +356,39 @@ std::string_view filter_to_string(FilterMode value) noexcept {
     return "linear";
 }
 
+std::string_view mipmaps_to_string(MipmapMode value) noexcept {
+    switch (value) {
+        case MipmapMode::None:
+            return "none";
+        case MipmapMode::Nearest:
+            return "nearest";
+        case MipmapMode::Linear:
+            return "linear";
+    }
+    return "none";
+}
+
+// A texture array's layers are its frames: at least one, at most kMaxTextureArrayLayers, one size, unique names.
+bool texture_array_frames_valid(const TextureImportSettings& texture) {
+    constexpr std::size_t kMaxLayers = 256; // render::kMaxTextureArrayLayers; meta.h does not include render headers.
+    if (texture.sprites.empty() || texture.sprites.size() > kMaxLayers) {
+        return false;
+    }
+    const SpriteRect& first = texture.sprites.front().rect;
+    for (std::size_t i = 0; i < texture.sprites.size(); ++i) {
+        const SpriteMeta& sprite = texture.sprites[i];
+        if (sprite.rect.w != first.w || sprite.rect.h != first.h) {
+            return false;
+        }
+        for (std::size_t j = 0; j < i; ++j) {
+            if (texture.sprites[j].name == sprite.name) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 std::string_view wrap_to_string(WrapMode value) noexcept {
     switch (value) {
         case WrapMode::Clamp:
@@ -389,6 +446,9 @@ std::expected<AssetMeta, MetaError> parse_meta_table(const toml::table& table) {
     }
     if (auto audio = apply_optional_audio(table, meta.audio); !audio) {
         return std::unexpected(audio.error());
+    }
+    if (meta.importer == ImporterKind::TextureArray && !texture_array_frames_valid(meta.texture)) {
+        return std::unexpected(MetaError::InvalidField);
     }
 
     if (table.contains("source")) {
@@ -459,6 +519,8 @@ std::string_view to_string(ImporterKind kind) noexcept {
             return "tilemap";
         case ImporterKind::Prototype:
             return "prototype";
+        case ImporterKind::TextureArray:
+            return "texture_array";
     }
     return "texture";
 }
@@ -508,10 +570,12 @@ std::string CookedCatalog::serialize() const {
         os << "guid = \"" << entry.guid.hex() << "\"\n";
         os << "path = \"" << entry.relative_path << "\"\n";
         os << "importer = \"" << to_string(entry.importer) << "\"\n";
-        if (entry.importer == ImporterKind::Texture || entry.importer == ImporterKind::UiImage) {
+        if (entry.importer == ImporterKind::Texture || entry.importer == ImporterKind::UiImage ||
+                entry.importer == ImporterKind::TextureArray) {
             os << "color_space = \"" << color_space_to_string(entry.texture.color_space) << "\"\n";
             os << "filter = \"" << filter_to_string(entry.texture.filter) << "\"\n";
             os << "wrap = \"" << wrap_to_string(entry.texture.wrap) << "\"\n";
+            os << "mipmaps = \"" << mipmaps_to_string(entry.texture.mipmaps) << "\"\n";
             os << "layout = \"" << layout_to_string(entry.texture.layout) << "\"\n";
             os << "pixels_per_unit = " << entry.texture.pixels_per_unit << "\n";
             for (const SpriteMeta& sprite : entry.texture.sprites) {

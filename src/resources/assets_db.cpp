@@ -7,6 +7,7 @@
 #include <engine/render/graphic_factory.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
+#include <engine/render/texture_array.h>
 #include <engine/render/tilemap.h>
 #include <engine/resources/assets_db.h>
 #include <engine/resources/font.h>
@@ -43,7 +44,8 @@ bool is_gpu_type(const std::type_info& type) {
 
 bool needs_factory(const std::type_info& type) {
     return is_gpu_type(type) || type == typeid(render::IMaterial) || type == typeid(SpriteSheet) ||
-            type == typeid(render::SpriteAnimationClip) || type == typeid(render::TilemapAsset);
+            type == typeid(render::SpriteAnimationClip) || type == typeid(render::TilemapAsset) ||
+            type == typeid(render::TextureArray);
 }
 
 std::optional<ImporterKind> importer_for_type(const std::type_info& type) {
@@ -55,6 +57,9 @@ std::optional<ImporterKind> importer_for_type(const std::type_info& type) {
     }
     if (type == typeid(render::TilemapAsset)) {
         return ImporterKind::Tilemap;
+    }
+    if (type == typeid(render::TextureArray)) {
+        return ImporterKind::TextureArray;
     }
     if (type == typeid(render::IMesh)) {
         return ImporterKind::Mesh;
@@ -96,7 +101,12 @@ std::optional<ImporterKind> importer_for_type(const std::type_info& type) {
 }
 
 bool importer_matches(const std::type_info& type, ImporterKind actual) {
-    if (type == typeid(render::ITexture) || type == typeid(render::TextureDesc) || type == typeid(SpriteSheet)) {
+    if (type == typeid(render::ITexture)) {
+        // A texture array is an ITexture too, so a `.mat` albedo may name one.
+        return actual == ImporterKind::Texture || actual == ImporterKind::UiImage ||
+                actual == ImporterKind::TextureArray;
+    }
+    if (type == typeid(render::TextureDesc) || type == typeid(SpriteSheet)) {
         return actual == ImporterKind::Texture || actual == ImporterKind::UiImage;
     }
     const auto wanted = importer_for_type(type);
@@ -152,6 +162,26 @@ std::expected<std::shared_ptr<void>, AssetError> load_gpu(const CatalogEntry& en
         return std::static_pointer_cast<void>(std::move(shader));
     }
 
+    if (type == typeid(render::ITexture) && entry.importer == ImporterKind::TextureArray) {
+        const auto image = decode_png_rgba(*bytes);
+        if (!image) {
+            return std::unexpected(AssetError::Corrupt);
+        }
+        auto desc = texture_array_from_frames(*image, entry.texture.sprites);
+        if (!desc) {
+            log::error(std::format("texture array {}: {}", entry.relative_path, desc.error()));
+            return std::unexpected(AssetError::Corrupt);
+        }
+        desc->filter = entry.texture.filter;
+        desc->wrap = entry.texture.wrap;
+        desc->mipmaps = entry.texture.mipmaps;
+        std::shared_ptr<render::ITexture> texture = factory.create_texture_array(*desc);
+        if (!texture) {
+            return std::unexpected(AssetError::Corrupt);
+        }
+        return std::static_pointer_cast<void>(std::move(texture));
+    }
+
     if (type == typeid(render::ITexture)) {
         auto desc = decode_png_rgba(*bytes);
         if (!desc) {
@@ -159,6 +189,7 @@ std::expected<std::shared_ptr<void>, AssetError> load_gpu(const CatalogEntry& en
         }
         desc->filter = entry.texture.filter;
         desc->wrap = entry.texture.wrap;
+        desc->mipmaps = entry.texture.mipmaps;
         std::shared_ptr<render::ITexture> texture = factory.create_texture(*desc);
         if (!texture) {
             return std::unexpected(AssetError::Corrupt);
@@ -257,6 +288,7 @@ std::expected<std::shared_ptr<void>, AssetError> load_cpu(
         }
         desc->filter = entry.texture.filter;
         desc->wrap = entry.texture.wrap;
+        desc->mipmaps = entry.texture.mipmaps;
         return std::static_pointer_cast<void>(std::make_shared<render::TextureDesc>(std::move(*desc)));
     }
 
@@ -357,6 +389,20 @@ std::expected<std::shared_ptr<void>, AssetError> load_sprite_sheet(AssetsDb& db,
         sheet->sprites[meta.name] = meta;
     }
     return std::static_pointer_cast<void>(std::move(sheet));
+}
+
+std::expected<std::shared_ptr<void>, AssetError> load_texture_array(AssetsDb& db, const CatalogEntry& entry) {
+    auto texture = db.try_get<render::ITexture>(entry.guid);
+    if (!texture) {
+        return std::unexpected(texture.error());
+    }
+    auto array = std::make_shared<render::TextureArray>();
+    array->texture = std::move(*texture);
+    array->layer_names.reserve(entry.texture.sprites.size());
+    for (const SpriteMeta& frame : entry.texture.sprites) {
+        array->layer_names.push_back(frame.name);
+    }
+    return std::static_pointer_cast<void>(std::move(array));
 }
 
 std::expected<std::shared_ptr<void>, AssetError> load_animation(
@@ -609,6 +655,8 @@ std::expected<std::shared_ptr<void>, AssetError> AssetsDb::try_get_erased(AssetI
         loaded = load_animation(*this, *entry, assets_root_);
     } else if (type == typeid(render::TilemapAsset)) {
         loaded = load_tilemap(*this, *entry, assets_root_);
+    } else if (type == typeid(render::TextureArray)) {
+        loaded = load_texture_array(*this, *entry);
     } else {
         loaded = load_cpu(*entry, type, assets_root_);
     }

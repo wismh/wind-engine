@@ -159,6 +159,18 @@ public:
     int width() const noexcept override { return w; }
     int height() const noexcept override { return h; }
 };
+class DummyArrayTexture final : public engine::render::ITexture {
+public:
+    DummyArrayTexture(int width, int height, int layers) : w(width), h(height), n(layers) {}
+    int width() const noexcept override { return w; }
+    int height() const noexcept override { return h; }
+    int layers() const noexcept override { return n; }
+
+private:
+    int w = 0;
+    int h = 0;
+    int n = 0;
+};
 
 class FakeGraphicFactory final : public engine::render::IGraphicFactory {
 public:
@@ -193,10 +205,20 @@ public:
         return last_texture_obj;
     }
 
+    std::shared_ptr<engine::render::ITexture> create_texture_array(
+            const engine::render::TextureArrayDesc& desc) override {
+        ++texture_array_calls;
+        last_texture_array = desc;
+        return std::make_shared<DummyArrayTexture>(desc.width, desc.height, desc.layers);
+    }
+
     std::shared_ptr<engine::render::IDynamicTexture> create_dynamic_texture(
             const engine::render::DynamicTextureDesc&) override {
         return {};
     }
+
+    int texture_array_calls = 0;
+    engine::render::TextureArrayDesc last_texture_array;
 };
 
 std::string read_file(const std::filesystem::path& path) {
@@ -954,6 +976,63 @@ TEST(Assets, BuiltinShadersDeclareNoUniformInBothStages) {
             EXPECT_EQ(std::find(fragment.begin(), fragment.end(), name), fragment.end())
                     << id.hex() << " declares " << name << " in both stages";
         }
+    }
+}
+
+// The array variants of lit and unlit sample a sampler2DArray at the vertex layer (location 4), keep vertex color,
+// cutout and fog, declare no uniform in both stages, and get the sampler2DArray precision GLSL ES needs.
+TEST(Assets, GetBuiltinArrayShaders) {
+    fakes::QuietFatal fatal;
+    engine::AssetsDb db(fatal);
+    ASSERT_TRUE(load_builtin_catalog(db));
+    FakeGraphicFactory factory;
+    db.set_graphic_factory(&factory);
+
+    for (const engine::AssetId id : {engine::builtin::shader_lit_array, engine::builtin::shader_unlit_array}) {
+        const auto shader = db.get<engine::render::IShader>(id);
+        ASSERT_NE(shader, nullptr) << id.hex();
+        const engine::render::ShaderDesc desc = factory.last_shader;
+        for (const std::string_view name : {"layout(location = 3) in vec4 aColor", "layout(location = 4) in float aLayer",
+                     "flat out float vLayer", "vLayer = aLayer", "vViewPos"}) {
+            EXPECT_NE(desc.vertex_src.find(name), std::string::npos) << id.hex() << " " << name;
+        }
+        for (const std::string_view name : {"uniform sampler2DArray uTexture", "flat in float vLayer",
+                     "texture(uTexture, vec3(vUV, vLayer))", "* vColor", "uAlphaCutoff", "discard", "uFogEnabled",
+                     "length(vViewPos)"}) {
+            EXPECT_NE(desc.fragment_src.find(name), std::string::npos) << id.hex() << " " << name;
+        }
+        EXPECT_EQ(desc.fragment_src.find("sampler2D "), std::string::npos) << id.hex();
+
+        const auto uniform_names = [](std::string_view src) {
+            std::vector<std::string> names;
+            for (std::size_t pos = src.find("uniform "); pos != std::string_view::npos;
+                    pos = src.find("uniform ", pos + 1)) {
+                const std::size_t type_end = src.find(' ', pos + 8);
+                const std::size_t name_end = src.find_first_of(";[", type_end + 1);
+                if (type_end == std::string_view::npos || name_end == std::string_view::npos) {
+                    break;
+                }
+                names.emplace_back(src.substr(type_end + 1, name_end - type_end - 1));
+            }
+            return names;
+        };
+        const std::vector<std::string> fragment = uniform_names(desc.fragment_src);
+        for (const std::string& name : uniform_names(desc.vertex_src)) {
+            EXPECT_EQ(std::find(fragment.begin(), fragment.end(), name), fragment.end())
+                    << id.hex() << " declares " << name << " in both stages";
+        }
+
+        const engine::render::ShaderDesc es =
+                engine::render::adapt_shader(desc, engine::render::ShaderTarget::Glsl300Es);
+        EXPECT_EQ(es.fragment_src.rfind("#version 300 es\nprecision mediump float;\nprecision mediump sampler2DArray;\n",
+                          0),
+                0u)
+                << es.fragment_src.substr(0, 120);
+        EXPECT_EQ(es.vertex_src.find("sampler2DArray"), std::string::npos);
+#ifdef ENGINE_WITH_SLANG
+        EXPECT_FALSE(desc.vertex_spirv.empty()) << id.hex();
+        EXPECT_FALSE(desc.fragment_spirv.empty()) << id.hex();
+#endif
     }
 }
 

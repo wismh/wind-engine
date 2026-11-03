@@ -33,6 +33,8 @@ struct SpirvReflection {
     bool has_sampler = false;
     std::uint32_t sampler_set = 0;
     std::uint32_t sampler_binding = 1;
+    // The sampler is a texture array (Sampler2DArray / sampler2DArray): its descriptor needs a 2D_ARRAY view.
+    bool sampler_arrayed = false;
     std::unordered_map<std::string, SpirvUniformMember> uniforms;
 
     [[nodiscard]] const SpirvUniformMember* find_uniform(std::string_view name) const noexcept;

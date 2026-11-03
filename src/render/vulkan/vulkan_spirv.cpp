@@ -72,6 +72,8 @@ struct TypeRecord {
     std::uint32_t array_stride = 0;
     std::uint32_t storage_class = 0;
     bool is_block = false;
+    // OpTypeImage's Arrayed operand (a sampler2DArray).
+    bool arrayed = false;
     std::vector<std::uint32_t> member_types;
 };
 
@@ -282,8 +284,19 @@ void reflect_stage(std::span<const std::uint32_t> spirv, SpirvReflection& out) {
             }
             break;
         case kOpTypeImage:
-        case kOpTypeSampler:
+            // OpTypeImage result, sampled type, Dim, Depth, Arrayed, ...
+            if (word_count >= 2) {
+                types[inst[1]].kind = TypeRecord::Kind::SamplerOrImage;
+                types[inst[1]].arrayed = word_count >= 6 && inst[5] != 0u;
+            }
+            break;
         case kOpTypeSampledImage:
+            if (word_count >= 2) {
+                types[inst[1]].kind = TypeRecord::Kind::SamplerOrImage;
+                types[inst[1]].elem_type = word_count >= 3 ? inst[2] : 0u;
+            }
+            break;
+        case kOpTypeSampler:
             if (word_count >= 2) {
                 types[inst[1]].kind = TypeRecord::Kind::SamplerOrImage;
             }
@@ -352,6 +365,11 @@ void reflect_stage(std::span<const std::uint32_t> spirv, SpirvReflection& out) {
             var.storage_class == kStorageClassUniformConstant &&
             pointee_it->second.kind == TypeRecord::Kind::SamplerOrImage) {
             out.has_sampler = true;
+            bool arrayed = pointee_it->second.arrayed;
+            if (const auto image_it = types.find(pointee_it->second.elem_type); image_it != types.end()) {
+                arrayed = arrayed || image_it->second.arrayed;
+            }
+            out.sampler_arrayed = out.sampler_arrayed || arrayed;
             if (var.has_binding) {
                 out.sampler_set = var.set;
                 out.sampler_binding = var.binding;

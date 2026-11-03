@@ -15,7 +15,7 @@ Checked against `include/engine/` at `53bf8c5`:
 - ~~`IMesh` has no update.~~ Done in wind-299: `IMesh::update` ([Render](../modules/Render.md#mesh-updates)).
 - ~~`MeshVertex` is position, normal, uv. No vertex color, so baked block light and AO have nowhere to go.~~ Done in wind-300: `MeshVertex::color` ([Render](../modules/Render.md#meshes)).
 - `run_render` culls only tilemap chunks (`tilemap_chunk_visible`). Every `Renderable` is drawn.
-- `TextureDesc` has `filter` (`Nearest`, `Linear`) and `wrap`. No mipmaps, no texture arrays. A block atlas shimmers at distance and bleeds between tiles.
+- ~~`TextureDesc` has `filter` (`Nearest`, `Linear`) and `wrap`. No mipmaps, no texture arrays. A block atlas shimmers at distance and bleeds between tiles.~~ Done in wind-301: `mipmaps` and `texture_array` ([Mipmaps](../modules/Render.md#mipmaps), [Texture arrays](../modules/Render.md#texture-arrays)).
 - ~~No alpha-test (cutout) render state, no fog,~~ no sky. Cutout and fog done in wind-300 ([Cutout](../modules/Render.md#cutout), [Fog](../modules/Render.md#fog)).
 - `IWindowControl::capture_mouse` is `SDL_CaptureMouse` (drag outside the window). There is no relative mode: the cursor is not hidden or locked for a first-person camera. `MouseEvent::relative` already carries the delta.
 - `physics_2d` only. No 3D collision or grid raycast.
@@ -69,6 +69,8 @@ Do:
 Done when: tests cover the `.mesh` round trip with color, sort queue for cutout materials, and that a default `CmdSetView` has no fog; Render.md and the `wind-rendering` skill updated.
 
 ### wind-301 feat: mipmaps and texture arrays
+
+Status: done. `MipmapMode` (`.meta` `mipmaps = "none" | "nearest" | "linear"`) on `TextureDesc` and `TextureArrayDesc`, `glGenerateMipmap` and a Vulkan blit chain; `create_texture_array` and `ITexture::layers()`; the layer is `MeshVertex::layer` at location 4 (not `uv.z`); `builtin::shader_lit_array` and `shader_unlit_array`; `importer = "texture_array"` makes one layer per `[[sprites]]` frame, addressed by name through `get<render::TextureArray>`. A mismatched albedo kind samples white. Limits: 256 layers, no `.mesh` layer column, an array PNG is not also a sprite sheet. See [Render](../modules/Render.md#texture-arrays).
 
 Problem: a nearest-filtered block atlas aliases at distance; mipmapping an atlas bleeds neighbours. The usual answer is one array layer per block face.
 

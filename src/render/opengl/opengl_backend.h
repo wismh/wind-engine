@@ -44,8 +44,12 @@ public:
 private:
     // A 1x1 white RGBA texture, made on first use, shared by every context.
     unsigned int white_texture();
-    // The material's albedo on unit 0, or the white texture when it has none.
-    void bind_albedo(const IMaterial& material);
+    // A 1x1 white texture array of one layer, made on first use, shared by every context.
+    unsigned int white_texture_array();
+    // Binds both targets of unit 0: `albedo` on its own target (`GL_TEXTURE_2D` or `GL_TEXTURE_2D_ARRAY`) and white on
+    // the other, or white on both when `albedo` is null or invalid. A program reads only the target its sampler type
+    // names, so a sampler2D draw with an array albedo (or the reverse) samples white.
+    void bind_albedo(const std::shared_ptr<ITexture>& albedo);
     void init_particle_buffers();
     void set_up_particle_vao() const;
 
@@ -55,6 +59,7 @@ private:
     unsigned int particle_quad_vbo_ = 0;
     unsigned int particle_instance_vbo_ = 0;
     unsigned int default_white_texture_ = 0;
+    unsigned int default_white_texture_array_ = 0;
     std::shared_ptr<OpenGLShader> particle_shader_;
     bool particle_buffers_initialized_ = false;
     GlErrorLog gl_errors_;

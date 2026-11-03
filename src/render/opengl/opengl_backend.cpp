@@ -222,6 +222,9 @@ void main() {
         if (default_white_texture_ != 0) {
             glDeleteTextures(1, &default_white_texture_);
         }
+        if (default_white_texture_array_ != 0) {
+            glDeleteTextures(1, &default_white_texture_array_);
+        }
         if (particle_instance_vbo_ != 0) {
             glDeleteBuffers(1, &particle_instance_vbo_);
         }
@@ -250,16 +253,38 @@ void main() {
         return default_white_texture_;
     }
 
-    void OpenGLRenderBackend::bind_albedo(const IMaterial &material) {
-        if (const auto texture = std::dynamic_pointer_cast<OpenGLTexture>(material.texture(0))) {
-            if (texture->valid()) {
-                texture->bind(0);
-                return;
-            }
+    unsigned int OpenGLRenderBackend::white_texture_array() {
+        if (default_white_texture_array_ != 0) {
+            return default_white_texture_array_;
         }
-        // No albedo samples white, so the draw is its color (the particle draw has always done this).
+        glGenTextures(1, &default_white_texture_array_);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, default_white_texture_array_);
+        const std::uint32_t white_pixel = 0xFFFFFFFF;
+        glTexImage3D(GL_TEXTURE_2D_ARRAY, 0,
+#if defined(ENGINE_WITH_GLES)
+                     GL_RGBA8,
+#else
+                     GL_RGBA,
+#endif
+                     1, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &white_pixel);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+        return default_white_texture_array_;
+    }
+
+    void OpenGLRenderBackend::bind_albedo(const std::shared_ptr<ITexture> &albedo) {
+        const auto texture = std::dynamic_pointer_cast<OpenGLTexture>(albedo);
+        const bool valid = texture && texture->valid();
+        const bool is_array = valid && texture->layers() > 0;
+        // No albedo samples white, so the draw is its color (the particle draw has always done this). The target the
+        // albedo does not use gets white too, so a shader of the other sampler type never reads a stale texture.
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, white_texture());
+        glBindTexture(GL_TEXTURE_2D, valid && !is_array ? 0u : white_texture());
+        glBindTexture(GL_TEXTURE_2D_ARRAY, is_array ? 0u : white_texture_array());
+        if (valid) {
+            texture->bind(0);
+        }
     }
 
     void OpenGLRenderBackend::set_view(const CmdSetView &view) {
@@ -317,17 +342,16 @@ void main() {
         // No cutoff is 0: alpha is never below it, so nothing is discarded.
         shader->set_float("uAlphaCutoff", state.alpha_cutoff.value_or(0.0f));
 
-        bind_albedo(*cmd.material);
-
-        std::vector<std::pair<std::string_view, glm::vec4>> previous;
         bool override_bound = false;
         if (cmd.material_override) {
             if (const auto override_tex = std::dynamic_pointer_cast<OpenGLTexture>(cmd.material_override->albedo)) {
-                if (override_tex->valid()) {
-                    override_tex->bind(0);
-                    override_bound = true;
-                }
+                override_bound = override_tex->valid();
             }
+        }
+        bind_albedo(override_bound ? cmd.material_override->albedo : cmd.material->texture(0));
+
+        std::vector<std::pair<std::string_view, glm::vec4>> previous;
+        if (cmd.material_override) {
             // A uniform stays in the program after the draw, so an override must not leak into the next
             // draw that uses this material: remember what each overridden uniform held and put it back.
             previous.reserve(cmd.material_override->vec4_params.size());
@@ -346,6 +370,7 @@ void main() {
             // The next draw binds its own texture; one without a texture must not sample this one.
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, 0);
+            glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
         }
     }
 
@@ -454,12 +479,7 @@ void main() {
         active_shader->set_vec4("uColor", material_color);
         active_shader->set_int("uTexture", 0);
 
-        if (cmd.material) {
-            bind_albedo(*cmd.material);
-        } else {
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, white_texture());
-        }
+        bind_albedo(cmd.material ? cmd.material->texture(0) : nullptr);
 
         glBindVertexArray(vao);
         glBindBuffer(GL_ARRAY_BUFFER, particle_instance_vbo_);

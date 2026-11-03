@@ -3,9 +3,13 @@
 #include "render/mesh_check.h"
 #include "render/slang_compiler.h"
 
+#include <algorithm>
 #include <cctype>
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <expected>
+#include <format>
 #include <limits>
 #include <optional>
 #include <sstream>
@@ -225,6 +229,50 @@ std::optional<render::ShaderDesc> parse_shader_xml(std::string_view xml) {
         return std::nullopt;
     }
     return std::move(*parsed);
+}
+
+std::expected<render::TextureArrayDesc, std::string> texture_array_from_frames(
+        const render::TextureDesc& image, std::span<const SpriteMeta> frames) {
+    if (frames.empty()) {
+        return std::unexpected("the texture array has no frames");
+    }
+    if (frames.size() > static_cast<std::size_t>(render::kMaxTextureArrayLayers)) {
+        return std::unexpected(std::format(
+                "the texture array has {} frames, more than {}", frames.size(), render::kMaxTextureArrayLayers));
+    }
+    const int width = frames.front().rect.w;
+    const int height = frames.front().rect.h;
+    const std::size_t image_bytes =
+            static_cast<std::size_t>(std::max(image.width, 0)) * static_cast<std::size_t>(std::max(image.height, 0)) * 4u;
+    if (image.rgba.size() < image_bytes) {
+        return std::unexpected("the texture array's image has fewer pixels than its size");
+    }
+    render::TextureArrayDesc desc;
+    desc.width = width;
+    desc.height = height;
+    desc.layers = static_cast<int>(frames.size());
+    const std::size_t row_bytes = static_cast<std::size_t>(width) * 4u;
+    desc.rgba.resize(row_bytes * static_cast<std::size_t>(height) * frames.size());
+    std::size_t out = 0;
+    for (const SpriteMeta& frame : frames) {
+        const SpriteRect& rect = frame.rect;
+        if (rect.w != width || rect.h != height) {
+            return std::unexpected(std::format("frame \"{}\" is {} x {}, not {} x {} like the first frame",
+                    frame.name, rect.w, rect.h, width, height));
+        }
+        if (rect.w <= 0 || rect.h <= 0 || rect.x < 0 || rect.y < 0 || rect.x + rect.w > image.width ||
+                rect.y + rect.h > image.height) {
+            return std::unexpected(std::format("frame \"{}\" ({}, {}, {} x {}) is not inside the {} x {} image",
+                    frame.name, rect.x, rect.y, rect.w, rect.h, image.width, image.height));
+        }
+        for (int y = 0; y < height; ++y) {
+            const std::size_t src = (static_cast<std::size_t>(rect.y + y) * static_cast<std::size_t>(image.width) +
+                                            static_cast<std::size_t>(rect.x)) * 4u;
+            std::memcpy(desc.rgba.data() + out, image.rgba.data() + src, row_bytes);
+            out += row_bytes;
+        }
+    }
+    return desc;
 }
 
 } // namespace engine
