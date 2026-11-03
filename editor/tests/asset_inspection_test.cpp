@@ -120,6 +120,21 @@ TEST(AssetInspection, TextureAndAudioMetaShowTheirSettings) {
     EXPECT_NE(std::ranges::find(world_import->lines, "Active camera: cam"), world_import->lines.end());
 }
 
+TEST(AssetInspection, TextureArrayMetaShowsMipmapsAndLayers) {
+    const FileDir dir;
+    dir.write("blocks.png", "not really a png");
+    dir.write("blocks.png.meta",
+            "guid = \"0123456789abcdef0123456789abcdef\"\nimporter = \"texture_array\"\nmipmaps = \"linear\"\n"
+            "[[sprites]]\nname = \"stone\"\nrect = [0, 0, 16, 16]\n"
+            "[[sprites]]\nname = \"dirt\"\nrect = [16, 0, 16, 16]\n");
+    const std::vector<editor::InspectorSection> sections = editor::inspect_asset(dir.file("blocks.png"));
+    const editor::InspectorSection* import = section(sections, "Import");
+    ASSERT_NE(import, nullptr);
+    EXPECT_NE(std::ranges::find(import->lines, "Importer: texture_array"), import->lines.end());
+    EXPECT_NE(std::ranges::find(import->lines, "Mipmaps: linear"), import->lines.end());
+    EXPECT_NE(std::ranges::find(import->lines, "Layers: 2"), import->lines.end());
+}
+
 TEST(AssetInspection, ABrokenMetaSaysWhy) {
     const FileDir dir;
     dir.write("a.css", "Label {}");

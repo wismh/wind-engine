@@ -105,3 +105,25 @@ TEST(ShaderAdapt, AdaptShaderRewritesBothStages) {
     EXPECT_NE(out.fragment_src.find("#version 300 es"), std::string::npos);
     EXPECT_NE(out.fragment_src.find("precision mediump float;"), std::string::npos);
 }
+
+// GLSL ES 3.00 has no default precision for sampler2DArray, so a stage that uses one gets a declaration.
+TEST(ShaderAdapt, AddsSampler2DArrayPrecisionForEs) {
+    const std::string fragment = "#version 330 core\nuniform sampler2DArray uTexture;\nout vec4 FragColor;\n"
+                                 "void main() { FragColor = texture(uTexture, vec3(0.0)); }\n";
+    const std::string es = engine::render::adapt_glsl(fragment, engine::render::ShaderTarget::Glsl300Es, true);
+    EXPECT_EQ(es.rfind("#version 300 es\nprecision mediump float;\nprecision mediump sampler2DArray;\n", 0), 0u) << es;
+
+    const std::string vertex = "#version 330 core\nuniform sampler2DArray uHeights;\nvoid main() {}\n";
+    const std::string es_vertex = engine::render::adapt_glsl(vertex, engine::render::ShaderTarget::Glsl300Es, false);
+    EXPECT_EQ(es_vertex.rfind("#version 300 es\nprecision mediump sampler2DArray;\n", 0), 0u) << es_vertex;
+
+    // Not added without a sampler2DArray, not doubled when the shader declares one, desktop untouched.
+    EXPECT_EQ(engine::render::adapt_glsl(kUnlitFragment, engine::render::ShaderTarget::Glsl300Es, true)
+                      .find("sampler2DArray"),
+            std::string::npos);
+    const std::string declared = "#version 330 core\nprecision highp sampler2DArray;\nuniform sampler2DArray u;\n";
+    const std::string es_declared =
+            engine::render::adapt_glsl(declared, engine::render::ShaderTarget::Glsl300Es, false);
+    EXPECT_EQ(es_declared.find("mediump sampler2DArray"), std::string::npos) << es_declared;
+    EXPECT_EQ(engine::render::adapt_glsl(fragment, engine::render::ShaderTarget::Glsl330Core, true), fragment);
+}

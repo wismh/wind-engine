@@ -12,6 +12,7 @@
 #include "render/vulkan/vulkan_retire_queue.h"
 #include "render/vulkan/vulkan_shader.h"
 #include "render/vulkan/vulkan_spirv.h"
+#include "render/vulkan/vulkan_texture.h"
 #include "render/vulkan/vulkan_ui_device.h"
 #include "render/vulkan/vulkan_ui_shader.h"
 #include "resources/importers.h"
@@ -111,6 +112,57 @@ TEST(VulkanBackendTest, MeshUpdateWithoutADeviceKeepsTheNewDataForUpload) {
     EXPECT_FALSE(mesh->update(MeshDesc{}));
     EXPECT_EQ(mesh->vertex_count(), 4u);
     EXPECT_EQ(mesh->index_count(), 6u);
+}
+
+TEST(VulkanBackendTest, TextureArrayWithoutADeviceKeepsItsLayersAndRejectsABadDesc) {
+    auto ctx = std::make_shared<VulkanContext>();
+    VulkanFactory factory(ctx);
+
+    TextureArrayDesc desc{.width = 2, .height = 1, .layers = 3, .mipmaps = MipmapMode::Linear};
+    desc.rgba.assign(2 * 1 * 4 * 3, 200);
+    const auto array = factory.create_texture_array(desc);
+    ASSERT_NE(array, nullptr);
+    EXPECT_EQ(array->layers(), 3);
+    EXPECT_EQ(array->width(), 2);
+    EXPECT_EQ(array->height(), 1);
+    EXPECT_EQ(std::static_pointer_cast<VulkanTexture>(array)->mip_levels(), 2u);
+    // A texture array is not dynamic.
+    const std::vector<std::uint8_t> pixels(2 * 1 * 4, 0);
+    EXPECT_FALSE(std::static_pointer_cast<VulkanTexture>(array)->update(pixels, 2, 1));
+
+    TextureArrayDesc short_pixels = desc;
+    short_pixels.rgba.pop_back();
+    EXPECT_EQ(factory.create_texture_array(short_pixels), nullptr);
+    EXPECT_EQ(factory.create_texture_array(TextureArrayDesc{}), nullptr);
+
+    TextureDesc plain{.width = 4, .height = 4, .rgba = std::vector<std::uint8_t>(4 * 4 * 4, 1)};
+    const auto texture = std::static_pointer_cast<VulkanTexture>(factory.create_texture(plain));
+    ASSERT_NE(texture, nullptr);
+    EXPECT_EQ(texture->layers(), 0);
+    EXPECT_EQ(texture->mip_levels(), 1u);
+    plain.mipmaps = MipmapMode::Nearest;
+    EXPECT_EQ(std::static_pointer_cast<VulkanTexture>(factory.create_texture(plain))->mip_levels(), 3u);
+}
+
+TEST(VulkanBackendTest, SpirvReflectionTellsAnArraySamplerFromA2DOne) {
+    const std::filesystem::path root{ENGINE_BUILTIN_ASSETS_DIR};
+    for (const std::string_view file : {"lit_array.shader", "unlit_array.shader"}) {
+        const auto desc = parse_shader(read_text_file(root / "shaders" / std::string(file)));
+        ASSERT_TRUE(desc.has_value()) << file << ": " << desc.error();
+        const SpirvReflection refl = reflect_spirv_program(desc->vertex_spirv, desc->fragment_spirv);
+        EXPECT_TRUE(refl.has_sampler) << file;
+        EXPECT_TRUE(refl.sampler_arrayed) << file;
+        for (const std::string_view name : {"uAlphaCutoff", "uFogEnabled", "uColor", "uModel"}) {
+            EXPECT_NE(refl.find_uniform(name), nullptr) << file << " " << name;
+        }
+    }
+    for (const std::string_view file : {"lit.shader", "unlit.shader"}) {
+        const auto desc = parse_shader(read_text_file(root / "shaders" / std::string(file)));
+        ASSERT_TRUE(desc.has_value()) << file;
+        const SpirvReflection refl = reflect_spirv_program(desc->vertex_spirv, desc->fragment_spirv);
+        EXPECT_TRUE(refl.has_sampler) << file;
+        EXPECT_FALSE(refl.sampler_arrayed) << file;
+    }
 }
 
 TEST(VulkanRetireQueue, HoldsAnItemUntilTheNextSubmitCompletes) {
