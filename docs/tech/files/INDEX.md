@@ -72,11 +72,27 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/net/network_transport.h` | `INetworkTransport`, `PeerId`, `DeliveryMode`, `TransportEvent` | [Net](../modules/Net.md) |
 | `include/engine/net/gns_transport.h` | `GnsTransport`: GameNetworkingSockets IP/UDP implementation | [Net](../modules/Net.md) |
 | `include/engine/net/steam_transport.h` | `SteamTransport`: SteamNetworkingSockets P2P implementation | [Net](../modules/Net.md) |
-| `include/engine/net/net_id.h` | `NetId` component, `NetIdGenerator` | [Net](../modules/Net.md) |
-| `include/engine/net/net_entity_map.h` | `NetEntityMap`, `bind_net_entity`, `set_parent_by_net_id` | [Net](../modules/Net.md) |
+| `include/engine/net/loopback_transport.h` | `LoopbackTransport`: in-process transport for tests | [Net](../modules/Net.md) |
+| `include/engine/net/loopback_bus.h` | `LoopbackBus`: the port registry loopback transports connect through | [Net](../modules/Net.md) |
+| `include/engine/net/message_dispatcher.h` | `MessageDispatcher`, `MessageId`: routing by message id | [Net](../modules/Net.md) |
+| `include/engine/net/net_messages.h` | Engine message ids, protocol version, snapshot window and MTU budget | [Net](../modules/Net.md) |
+| `include/engine/net/net_tick.h` | `Tick`, `kNoTick` | [Net](../modules/Net.md) |
+| `include/engine/net/network_identity.h` | `NetId` alias and the `NetIdentity` component | [Net](../modules/Net.md) |
+| `include/engine/net/net_id.h` | `NetIdGenerator` | [Net](../modules/Net.md) |
+| `include/engine/net/net_entity_map.h` | `NetEntityMap`, `bind_net_entity`, `find_entity`, `find_net_id` | [Net](../modules/Net.md) |
+| `include/engine/net/replication_registry.h` | `ReplicationRegistry`, `register_replicated` | [Net](../modules/Net.md) |
+| `include/engine/net/replicated_options.h` | `ReplicatedOptions<T>`: interpolate, apply, remove hooks | [Net](../modules/Net.md) |
+| `include/engine/net/replica_writer.h` | `ReplicaWriter`: component bytes and entity references as `NetId` | [Net](../modules/Net.md) |
+| `include/engine/net/replica_reader.h` | `ReplicaReader`: component bytes and `NetId` references back to entities | [Net](../modules/Net.md) |
+| `include/engine/net/net_server.h` | `NetServer`, `install_net_server`, server systems, `replicate` | [Net](../modules/Net.md) |
+| `include/engine/net/net_server_config.h` | `NetServerConfig`: snapshot interval | [Net](../modules/Net.md) |
+| `include/engine/net/net_client.h` | `NetClient`, `install_net_client`, client systems | [Net](../modules/Net.md) |
+| `include/engine/net/net_client_config.h` | `NetClientConfig`: interpolation delay | [Net](../modules/Net.md) |
+| `include/engine/net/net_peer_connected_event.h` | `NetPeerConnectedEvent` | [Net](../modules/Net.md) |
+| `include/engine/net/net_peer_disconnected_event.h` | `NetPeerDisconnectedEvent` | [Net](../modules/Net.md) |
+| `include/engine/net/net_entity_spawned_event.h` | `NetEntitySpawnedEvent`: a replicated entity appeared on the client | [Net](../modules/Net.md) |
+| `include/engine/net/net_entity_despawned_event.h` | `NetEntityDespawnedEvent`: a replicated entity left the client | [Net](../modules/Net.md) |
 | `include/engine/net/byte_stream.h` | `ByteWriter` and `ByteReader` binary packet serializer | [Net](../modules/Net.md) |
-| `include/engine/net/packet_types.h` | `PacketType`, `PacketHeader`, and core replication packets | [Net](../modules/Net.md) |
-| `include/engine/net/packet_dispatcher.h` | `PacketDispatcher` and `register_replication_handlers` | [Net](../modules/Net.md) |
 | `include/engine/process/process_call.h` | `ProcessCall`: one owned child, `take_output`, `take`, `cancel` | [Process](../modules/Process.md) |
 | `include/engine/process/process_desc.h` | `ProcessDesc`, `ProcessVariable`, `ProcessExit`, `ProcessError`, `ProcessResult` | [Process](../modules/Process.md) |
 | `include/engine/process/process_launcher.h` | `IProcessLauncher` and `ProcessLauncher` | [Process](../modules/Process.md) |
@@ -433,9 +449,24 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/net/gns_common.h`, `src/net/gns_common.cpp` | `GnsBaseTransport`: shared connection state, callbacks, and event queues | [Net](../modules/Net.md) |
 | `src/net/gns_transport.cpp` | `GnsTransport` IP/UDP socket setup and methods | [Net](../modules/Net.md) |
 | `src/net/steam_transport.cpp` | `SteamTransport` Steam P2P connection setup and methods | [Net](../modules/Net.md) |
-| `src/net/net_entity_map.cpp` | `NetEntityMap`, `bind_net_entity`, and hierarchy translation | [Net](../modules/Net.md) |
+| `src/net/loopback_transport.cpp` | `LoopbackTransport` connections and event queue | [Net](../modules/Net.md) |
+| `src/net/loopback_bus.cpp` | `LoopbackBus` port registry | [Net](../modules/Net.md) |
+| `src/net/message_dispatcher.cpp` | `MessageDispatcher` routing and `send` | [Net](../modules/Net.md) |
+| `src/net/net_entity_map.cpp` | `NetEntityMap`, `bind_net_entity`, lookups | [Net](../modules/Net.md) |
+| `src/net/replication_registry.cpp` | `Transform` and `Parent` registration, schema hash | [Net](../modules/Net.md) |
+| `src/net/replica_writer.cpp` | `ReplicaWriter` | [Net](../modules/Net.md) |
+| `src/net/replica_reader.cpp` | `ReplicaReader` | [Net](../modules/Net.md) |
+| `src/net/net_server.cpp` | Server tick, peers, Welcome, acks, snapshot send | [Net](../modules/Net.md) |
+| `src/net/net_client.cpp` | Welcome, snapshot receive and ack, spawn / apply / despawn on the render timeline | [Net](../modules/Net.md) |
+| `src/net/entity_snapshot.h` | `EntitySnapshot`: one entity's encoded components | [Net](../modules/Net.md) |
+| `src/net/snapshot_state.h` | `SnapshotState`: all replicated entities at one tick | [Net](../modules/Net.md) |
+| `src/net/snapshot_codec.h` | `capture_snapshot`, `encode_snapshot`, `decode_snapshot` API | [Net](../modules/Net.md) |
+| `src/net/snapshot_codec.cpp` | Snapshot capture and the full / delta wire format | [Net](../modules/Net.md) |
+| `src/net/snapshot_buffer.h` | `SnapshotBuffer` API | [Net](../modules/Net.md) |
+| `src/net/snapshot_buffer.cpp` | Client snapshot ring: tick order, window, sampling | [Net](../modules/Net.md) |
+| `src/net/snapshot_clock.h` | `SnapshotClock` API | [Net](../modules/Net.md) |
+| `src/net/snapshot_clock.cpp` | Client estimate of server time | [Net](../modules/Net.md) |
 | `src/net/byte_stream.cpp` | `ByteWriter` and `ByteReader` binary packet serialization bodies | [Net](../modules/Net.md) |
-| `src/net/packet_dispatcher.cpp` | `PacketDispatcher` routing and `register_replication_handlers` | [Net](../modules/Net.md) |
 | `src/process/line_splitter.cpp` | `LineSplitter`: output bytes to lines | [Process](../modules/Process.md) |
 | `src/process/line_splitter.h` | `LineSplitter` API | [Process](../modules/Process.md) |
 | `src/process/process_call.cpp` | `ProcessCall` ownership and cancel | [Process](../modules/Process.md) |
@@ -510,9 +541,17 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/http_test.cpp` | `HttpCall` ownership, completion queue, worker pool, URL and header parsing, `HttpClient` without a socket | [Net](../modules/Net.md) |
 | `tests/gns_transport_test.cpp` | `GnsTransport` server/client start, stop, UDP handshake, and data transfer | [Net](../modules/Net.md) |
 | `tests/steam_transport_test.cpp` | `SteamTransport` server/client lifecycle and GNS coexistence | [Net](../modules/Net.md) |
-| `tests/net_id_test.cpp` | `NetId`, `NetIdGenerator`, `NetEntityMap`, world context binding, and hierarchy translation | [Net](../modules/Net.md) |
 | `tests/byte_stream_test.cpp` | `ByteWriter` and `ByteReader` round-trip, bounds checking, and error latching | [Net](../modules/Net.md) |
-| `tests/packet_protocol_test.cpp` | Packet headers, replication packet round-trip, `PacketDispatcher`, and ECS replication integration | [Net](../modules/Net.md) |
+| `tests/net_id_test.cpp` | `NetIdGenerator`, `NetEntityMap`, world binding, owner, dead entries | [Net](../modules/Net.md) |
+| `tests/network_transport_test.cpp` | `LoopbackTransport` connect, data, disconnect | [Net](../modules/Net.md) |
+| `tests/message_dispatcher_test.cpp` | `MessageDispatcher` routing and send over loopback | [Net](../modules/Net.md) |
+| `tests/net_replication_test.cpp` | Ticks, Welcome, interpolation, reorder and loss, spawn and despawn, `Parent`, custom components, schema mismatch, soak | [Net](../modules/Net.md) |
+| `tests/net_delta_test.cpp` | Full until acked, delta against the acked baseline, recovery, stale ack, removals | [Net](../modules/Net.md) |
+| `tests/snapshot_codec_test.cpp` | Snapshot wire format round trips and rejection of malformed input | [Net](../modules/Net.md) |
+| `tests/snapshot_buffer_test.cpp` | `SnapshotBuffer` order, window, sampling | [Net](../modules/Net.md) |
+| `tests/snapshot_clock_test.cpp` | `SnapshotClock` start, bounded rate, snap, monotonic | [Net](../modules/Net.md) |
+| `tests/fixtures/simulated_link.h` | Test transport with virtual time, latency, jitter, loss, and hold | [Net](../modules/Net.md) |
+| `tests/fixtures/net_harness.h` | Server and client worlds over two simulated links | [Net](../modules/Net.md) |
 | `tests/host_test.cpp` | `Host` tick and system registration | [Core](../modules/Core.md) |
 | `tests/parse_float_test.cpp` | Signs, exponents, rejected text, prefix length | [Core](../modules/Core.md#parsing-numbers) |
 | `tests/job_call_test.cpp` | Async jobs: delivery only on poll, inline jobs without workers, priority and `set_priority`, cancel before and during the run, drop, `parallel_for` beside held workers, many workers, `cancel_all`, `stop` | [Core](../modules/Core.md#async-jobs) |

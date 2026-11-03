@@ -41,7 +41,7 @@ Product name: Wind. CMake target and C++ namespace: `engine`. Build instructions
 | [Audio](modules/Audio.md) | SFX pool, music, looping handles |
 | [Capture](modules/Capture.md) | Physical camera: devices, permission, RGBA frames |
 | [Haptics](modules/Haptics.md) | Duration and intensity vibration |
-| [Net](modules/Net.md) | HTTP requests owned by the caller |
+| [Net](modules/Net.md) | HTTP requests owned by the caller; realtime transports, server ticks, and snapshot replication |
 | [Process](modules/Process.md) | Child processes owned by the caller, independent programs |
 | [Project](modules/Project.md) | `wind_project.toml` and `sdk.toml` |
 

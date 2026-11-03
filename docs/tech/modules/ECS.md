@@ -26,10 +26,10 @@ Pools are a sparse index, a packed entity list, and a dense component array (`in
 
 | Schedule | Phases |
 | --- | --- |
-| `Fixed` | `Physics`, `Game` |
-| `Frame` | `Input`, `Game`, `Transform`, `Bind`, `Audio`, `Render`, `UiRender` |
+| `Fixed` | `NetReceive`, `Physics`, `Game`, `NetSend` |
+| `Frame` | `NetReceive`, `Input`, `Game`, `Transform`, `Bind`, `Audio`, `Render`, `UiRender` |
 
-`Phase::Transform` is frame-only: the engine registers `update_world_transforms` there, after every `Game` system and before `Bind` and `Render`. `Phase::Physics` exists on the enum and is not a frame phase. Game code that needs a one-shot click uses `Schedule::Frame` and `Phase::Game`. Physics uses `fixed_delta_time`. Which systems the engine registers: [Runtime Loop](../architecture/Runtime%20Loop.md).
+`Phase::Transform` is frame-only: the engine registers `update_world_transforms` there, after every `Game` system and before `Bind` and `Render`. `Phase::Physics` exists on the enum and is not a frame phase. `NetReceive` and `NetSend` hold the network systems, so a server tick brackets the whole fixed step and a client sees replicated state before its own frame systems; they stay empty unless the game calls `install_net_server` or `install_net_client` ([Net](Net.md#schedule)). `NetSend` is fixed-only. Game code that needs a one-shot click uses `Schedule::Frame` and `Phase::Game`. Physics uses `fixed_delta_time`. Which systems the engine registers: [Runtime Loop](../architecture/Runtime%20Loop.md).
 
 ## Events
 
@@ -134,7 +134,7 @@ Staleness contract: the engine refreshes `WorldTransform` in `Phase::Transform` 
 
 ### Multiplayer readiness
 
-Replicate `Transform` and `Parent` only. `WorldTransform` and `Children` are derived and rebuilt on the receiving side. `Entity` handles (index + generation) are not stable across machines, so the net layer provides `engine::net::NetId` and `engine::net::NetEntityMap` (`set_parent_by_net_id`, `get_parent_net_id`) to translate `Parent.entity` across machines (see [Net](Net.md#netid--entity-mapping)).
+`Transform` and `Parent` are the first two replicated components (slots 0 and 1 of `ReplicationRegistry`); a game adds its own with `register_replicated`. `WorldTransform` and `Children` are derived and rebuilt on the receiving side: the client applies `Parent` through `set_parent` / `clear_parent`. `Entity` handles (index + generation) are not stable across machines, so a replicated entity carries `engine::net::NetIdentity` (its `NetId`), `NetEntityMap` maps the id back to a local entity, and `Parent.entity` travels as the parent's `NetId` (`ReplicaWriter::write_entity`, `ReplicaReader::read_entity`). See [Net](Net.md#replicated-components).
 
 ## Physics
 
