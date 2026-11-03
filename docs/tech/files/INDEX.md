@@ -89,13 +89,14 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/render/backend.h` | `IRenderBackend::execute` | [Render](../modules/Render.md) |
 | `include/engine/render/canvas.h` | `ICanvas::draw` | [Render](../modules/Render.md) |
 | `include/engine/render/command_buffer.h` | Buffer of `Command` | [Render](../modules/Render.md) |
-| `include/engine/render/commands.h` | `CmdDrawMesh`, `CmdDrawUI`, `CmdDrawParticles`, `CmdSetView` | [Render](../modules/Render.md) |
+| `include/engine/render/commands.h` | `CmdDrawMesh`, `CmdDrawUI`, `CmdDrawParticles`, `CmdSetView` (camera, lights, fog) | [Render](../modules/Render.md) |
 | `include/engine/render/curve.h` | `Curve<T>` with `Linear`, `Smooth`, and `Step` keys | [Render](../modules/Render.md) |
 | `include/engine/render/directional_light.h` | `DirectionalLight` component | [Render](../modules/Render.md#lights) |
-| `include/engine/render/graphic_factory.h` | `MeshVertex` (position, normal, uv), indexed `MeshDesc`, shader, texture and dynamic-texture descriptions, factory | [Render](../modules/Render.md) |
+| `include/engine/render/fog.h` | `Fog` component: linear distance fog on the active camera | [Render](../modules/Render.md#fog) |
+| `include/engine/render/graphic_factory.h` | `MeshVertex` (position, normal, uv, color), indexed `MeshDesc`, shader, texture and dynamic-texture descriptions, factory | [Render](../modules/Render.md) |
 | `include/engine/render/graphics.h` | `IMesh`, `IShader`, `ITexture`, `IDynamicTexture` | [Render](../modules/Render.md) |
 | `include/engine/render/lights.h` | `collect_scene_lights`, `default_scene_lights` | [Render](../modules/Render.md#lights) |
-| `include/engine/render/material.h` | `IMaterial`, `RenderState` (blend, depth test/write, `CullMode`), `.mat` parse | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `include/engine/render/material.h` | `IMaterial`, `RenderState` (blend, depth test/write, `CullMode`, `alpha_cutoff`), `.mat` parse | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `include/engine/render/draw_sort.h` | `DrawQueue`, `DrawSortKey`, `make_draw_sort_key`, `draw_sort_less` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `include/engine/render/particles.h` | `ParticleEmitter` | [Render](../modules/Render.md) |
 | `include/engine/render/primitives.h` | `make_quad`, `make_cube`, `make_plane`, `make_uv_sphere` | [Render](../modules/Render.md#primitives) |
@@ -503,14 +504,15 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/loc_catalog_test.cpp` | TOML tables, fallback, pseudo, warn-once | [Localization](../modules/Localization.md) |
 | `tests/loc_format_test.cpp` | Placeholders and plural branches | [Localization](../modules/Localization.md) |
 | `tests/log_test.cpp` | The null sink | [Core](../modules/Core.md) |
-| `tests/material_test.cpp` | `.mat` parse (blend, depth, cull, defaults) and instance tint | [Materials and Sort](../features/Materials%20and%20Sort.md) |
-| `tests/mesh_test.cpp` | `.mesh` parse (5- and 8-column vertices, `f` rows, bad rows and indices), `mesh_desc_error`, `IMesh::update` validation and keep-old rule | [Assets](../features/Assets.md#mesh-files) |
+| `tests/material_test.cpp` | `.mat` parse (blend, depth, cull, `alpha_cutoff`, defaults) and instance tint | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `tests/mesh_test.cpp` | `.mesh` parse (5-, 8- and 12-column vertices, vertex color, `f` rows, bad rows and indices), `mesh_desc_error`, `IMesh::update` validation and keep-old rule | [Assets](../features/Assets.md#mesh-files) |
 | `tests/mvvm_test.cpp` | View-model properties, commands, checkbox write-back | [UI](../modules/UI.md) |
 | `tests/opengl_texture_test.cpp` | CPU texture description, row flip, dynamic-texture creation contract. No GL draw | [Render](../modules/Render.md) |
 | `tests/particle_test.cpp` | Emitter step, curves, and parallel integration matching the caller | [Render](../modules/Render.md) |
 | `tests/pointer_target_test.cpp` | `PointerTarget`: hit-test, order, windows, camera, hover, click, click-through, UI first | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `tests/lights_test.cpp` | Light collection (direction from rotation and parent, cap, ambient sum, default rig) and the lights and camera in `CmdSetView` | [Render](../modules/Render.md#lights) |
-| `tests/primitives_test.cpp` | Primitive counts, unit outward normals, winding, index range; builtin quad and cube files match | [Render](../modules/Render.md#primitives) |
+| `tests/fog_test.cpp` | No fog by default, the active camera's `Fog` in every window's `CmdSetView`, none in `render_world_viewport`, `fog` serialization | [Render](../modules/Render.md#fog) |
+| `tests/primitives_test.cpp` | Primitive counts, unit outward normals, winding, index range, white vertex color; builtin quad and cube files match | [Render](../modules/Render.md#primitives) |
 | `tests/physics_2d_test.cpp` | Overlap enter, stay, exit | [ECS](../modules/ECS.md) |
 | `tests/engine_version_test.cpp` | `EngineVersion` parse, refusals, round trip, order | [Project](../modules/Project.md#engine-version) |
 | `tests/ray_test.cpp` | Plane, sphere, AABB, triangle, quad, and segment hits | [ECS](../modules/ECS.md) |
