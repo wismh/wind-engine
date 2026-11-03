@@ -35,7 +35,7 @@ Open engine work, not game concerns:
 - A separate cue `Sound` that references a clip GUID. Today one file is one cue.
 - CSS `@import`. WPF `IValueConverter` and `Mode=TwoWay` as a general converter. Checkbox `checked` already writes a `Bindable` back.
 - Widget-as-ECS-entity. That would replace the XML instance tree inside `UiCanvas`.
-- Input: SDL gamepad poll and bind (`ControlKind::GamepadButton` and `GamepadAxis` exist; events are not wired), WASD composites, action maps.
+- Input: SDL gamepad poll and bind (`ControlKind::GamepadButton` and `GamepadAxis` exist; events are not wired; a gamepad axis would add into `InputSystem::axis`), action maps. WASD composites are signed binding scales read through `axis()` (wind-302).
 - Adaptive Android launcher icon (two-layer source). Linux `.desktop` and icon-cache install.
 - Splash tied to real asset-load completion. Today it is a fade, hold, and fade timer.
 - Per-window `Camera`. Meshes already draw into every window bound to that world. Those windows share the world's `ActiveCamera`. Each window's projection uses `window_size_for` (`Presentation.sizes`).

@@ -4,6 +4,7 @@
 #include "core/frame_step.h"
 
 #include <engine/core/application_state.h>
+#include <engine/core/input_system.h>
 #include <engine/core/platform.h>
 #include <engine/ecs/world.h>
 #include <engine/net/http_client.h>
@@ -73,6 +74,7 @@ void GameLoop::tick() {
     cli::CliFrame cli_frame = this->cli_frame();
     cli::begin_frame(cli_frame);
     flush_worlds(*worlds_);
+    input_->begin_frame();
     presentation_->poll(*worlds_, *input_);
     if (http_ != nullptr) {
         http_->poll();

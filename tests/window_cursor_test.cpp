@@ -98,3 +98,28 @@ TEST(WindowControl, TracksWindowStateAndVisibilityInFake) {
     EXPECT_FALSE(control.is_maximized(*win));
 }
 
+
+TEST(WindowCursor, RelativeMouseNeedsAnOpenWindowAndEndsWhenItCloses) {
+    fakes::FakeWindowControl windows;
+    const auto second = windows.open_window(engine::WindowDesc{});
+    ASSERT_TRUE(second.has_value());
+
+    EXPECT_TRUE(windows.set_relative_mouse(*second, true));
+    EXPECT_TRUE(windows.is_relative_mouse(*second));
+    EXPECT_FALSE(windows.is_relative_mouse(engine::kPrimaryWindow));
+    EXPECT_FALSE(windows.set_relative_mouse(engine::WindowId{42}, true));
+
+    windows.close_window(*second);
+    EXPECT_FALSE(windows.is_relative_mouse(*second));
+
+    EXPECT_TRUE(windows.set_relative_mouse(engine::kPrimaryWindow, true));
+    EXPECT_FALSE(windows.set_relative_mouse(engine::kPrimaryWindow, false));
+    EXPECT_FALSE(windows.is_relative_mouse(engine::kPrimaryWindow));
+}
+
+TEST(WindowCursor, RelativeMouseIsRefusedWhereUnsupported) {
+    fakes::FakeWindowControl windows;
+    windows.relative_supported = false;
+    EXPECT_FALSE(windows.set_relative_mouse(engine::kPrimaryWindow, true));
+    EXPECT_FALSE(windows.is_relative_mouse(engine::kPrimaryWindow));
+}

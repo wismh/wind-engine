@@ -136,6 +136,21 @@ public:
     // Whether `window` holds the capture a game asked for (not the engine's own drag capture).
     [[nodiscard]] virtual bool is_mouse_captured(WindowId window) const = 0;
 
+    // Relative mouse mode for a first-person camera: the cursor is hidden and locked to `window`, and motion keeps
+    // arriving as MouseEvent::relative and through the MouseAxis bindings of InputSystem. The request stays until it
+    // is released, the window closes, or the editor stops the game. It is in effect only while the window has focus:
+    // losing focus frees the cursor, regaining it locks it again. While it is in effect the window's MouseEvents carry
+    // `locked`, and the UI and pointer targets ignore the hidden cursor. Returns whether the request is held: false
+    // for a window that is not open, on Android (a no-op there), and when the platform refuses (the browser when the
+    // mouse is not over the canvas). Releasing returns false. In the browser this is pointer lock, which the browser
+    // grants only on a user gesture: call it from input handling (a click or a key), not from on_start. Escape drops
+    // the browser's lock while the request stays; the next click takes it again, and that click reaches the game.
+    // capture_mouse is independent of it: a capture is kept, and has no effect while the cursor is locked.
+    virtual bool set_relative_mouse(WindowId window, bool enabled) = 0;
+
+    // The game's request for `window`, true while the window is unfocused too.
+    [[nodiscard]] virtual bool is_relative_mouse(WindowId window) const = 0;
+
     // Opens/closes a secondary window. nullopt on failure (e.g. no primary
     // window yet, or a WindowDesc::owner that is not open). Closing is purely mechanical — see
     // WindowCloseRequestedEvent (include/engine/ui/canvas.h) for how a game learns a window's close button was

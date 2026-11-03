@@ -56,7 +56,8 @@ Web (`Platform::Web`) then uses `emscripten_set_main_loop_arg` with `simulate_in
 ```mermaid
 flowchart TD
   A["cli::begin_frame"] --> B["flush every world"]
-  B --> C["poll: event window to its world"]
+  B --> B2["InputSystem::begin_frame: forget last frame's mouse motion"]
+  B2 --> C["poll: event window to its world"]
   C --> C2["HttpClient::poll: finished requests to their calls"]
   C2 --> C3["ProcessLauncher::poll: output lines and exits to their calls"]
   C3 --> D["simulate_worlds"]
@@ -67,7 +68,7 @@ flowchart TD
   G --> H["RunHooks::on_frame_end"]
 ```
 
-`cli::begin_frame` and `cli::drain` run every frame, with or without a world on `kPrimaryWindow`. Each request looks up the world bound to its own window at that moment (`Worlds::world_for`), so a world that Play or Stop swaps in `on_frame_end` is found the next frame. Host commands go to `RunHooks::cli`. `reentrant_tick` is the same slice without flush, without either poll, and without `on_frame_end`, so HTTP results wait for the frame after the drag. Windows calls it from inside `SDL_PollEvent` while a modal move or size loop is running. It shares the frame clock, so the frame that resumes after a drag does not replay the drag.
+`cli::begin_frame` and `cli::drain` run every frame, with or without a world on `kPrimaryWindow`. Each request looks up the world bound to its own window at that moment (`Worlds::world_for`), so a world that Play or Stop swaps in `on_frame_end` is found the next frame. Host commands go to `RunHooks::cli`. `InputSystem::begin_frame` runs right before `poll`, so `axis()` holds one frame's mouse motion ([Input Mapper](../features/Input%20Mapper.md#axes-mouse-look-and-composites)). `reentrant_tick` is the same slice without flush, without `begin_frame`, without either poll, and without `on_frame_end`, so HTTP results wait for the frame after the drag. Windows calls it from inside `SDL_PollEvent` while a modal move or size loop is running. It shares the frame clock, so the frame that resumes after a drag does not replay the drag.
 
 ### `simulate_worlds`
 

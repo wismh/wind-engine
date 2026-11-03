@@ -82,7 +82,7 @@ Any failure unloads the copy and deletes its directory. `GameModuleError` is the
 | `load_catalog(dir)` | `<dir>/catalog.toml` with `dir` as its files root. A missing file (`MetaError::Io`) is success. Other errors return the `MetaError`. The game catalog and the editor's own catalog both load this way |
 | `unload_catalog(dir)` | `AssetsDb::unload_catalog(dir)`. Pass the same path `load_catalog` got |
 | `attach_game(game)` | window icon, `bind_window(kPrimaryWindow)`, `enable_ui`, `enable_audio`, publish the window size with a resize event, `ui::apply_canvas_fit` |
-| `detach_game()` | the window half of undoing `attach_game`: `ICapture::close_all`, `unbind_window(kPrimaryWindow)`, clear its command buffer, reset its UI painter and register `builtin::font_ui` again, clear its drag region and click-through, overlay mode back to `Auto`, `ApplicationState::paused` false. The editor calls it on Stop |
+| `detach_game()` | the window half of undoing `attach_game`: `ICapture::close_all`, `unbind_window(kPrimaryWindow)`, clear its command buffer, reset its UI painter and register `builtin::font_ui` again, then `reset_game_windows` (`src/core/game_window_reset.h`: clear its drag region and click-through, overlay mode back to `Auto`, and on every open window release relative mouse mode and the game's mouse capture), `ApplicationState::paused` false. The editor calls it on Stop |
 | `run(hooks)` | `EngineRuntime::run` with `RunHooks` and the `HttpClient` and `ProcessLauncher` the loop polls, then `dispose`. Returns 1 before a successful `open_primary` |
 | `dispose()` | stops the job pool, disposes audio, capture (closing its sessions), haptics, HTTP, and the process launcher (ending the programs its calls still own) and shuts the runtime down. Also run by the destructor. A second call is a no-op |
 
@@ -200,7 +200,9 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 | `src/core/fixed_step.cpp` | accumulator |
 | `src/core/host.cpp` | fake-canvas host. Owns a `JobSystem` with no workers |
 | `src/core/job_system.cpp` | Fork-join pool |
-| `src/core/input_system.cpp` | bind table and event enqueue |
+| `src/core/input_system.cpp` | bind table (action and scale per control), event enqueue, `axis()` and the frame's mouse motion, locked windows |
+| `src/core/relative_mouse.cpp` | `RelativeMouse`: relative mouse requests per window and the focus rule over them ([Windowing](../features/Windowing.md#relative-mouse)) |
+| `src/core/game_window_reset.cpp` | `reset_game_windows`: the window state `EngineHost::detach_game` puts back on Stop |
 | `src/core/log.cpp` | spdlog |
 | `src/core/platform.cpp` | paths, staging, `executable_directory`, `user_data_directory` |
 | `src/core/random.cpp` | `Random`, PCG32 |
@@ -266,7 +268,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 
 ## Tests
 
-`tests/cmake_sanity_test.cpp`, `tests/host_test.cpp`, `tests/time_test.cpp`, `tests/input_test.cpp`, `tests/log_test.cpp`, `tests/platform_test.cpp`, `tests/web_loop_test.cpp`, `tests/android_lifecycle_test.cpp`, `tests/android_assets_test.cpp`, `tests/window_icon_test.cpp`, `tests/window_style_test.cpp`, `tests/event_window_test.cpp`, `tests/cli_server_test.cpp`, `tests/worlds_test.cpp`, `tests/game_loop_test.cpp` (`RunHooks` order, and `RunHooks::cli` answered without a primary world, with a fake `IPresentation`), `tests/engine_error_test.cpp` (names and messages), `tests/engine_host_test.cpp` (a failing `init_video` returns `VideoInit` over a fake `IPresentation`, no fatal report; window builds only), `tests/game_entry_test.cpp` (module exports, window builds only), `tests/game_module_test.cpp` (loader against the fixture modules, editor build only; skipped elsewhere), `tests/file_dialog_test.cpp` (`FileDialogCall`), `tests/random_test.cpp` (golden sequences, ranges, streams), `tests/config_test.cpp` (round trip, defaults, malformed input, failed save).
+`tests/cmake_sanity_test.cpp`, `tests/host_test.cpp`, `tests/time_test.cpp`, `tests/input_test.cpp`, `tests/relative_mouse_test.cpp`, `tests/game_window_reset_test.cpp`, `tests/log_test.cpp`, `tests/platform_test.cpp`, `tests/web_loop_test.cpp`, `tests/android_lifecycle_test.cpp`, `tests/android_assets_test.cpp`, `tests/window_icon_test.cpp`, `tests/window_style_test.cpp`, `tests/event_window_test.cpp`, `tests/cli_server_test.cpp`, `tests/worlds_test.cpp`, `tests/game_loop_test.cpp` (`RunHooks` order, `RunHooks::cli` answered without a primary world, and `InputSystem::begin_frame` before each `poll`, with a fake `IPresentation`), `tests/engine_error_test.cpp` (names and messages), `tests/engine_host_test.cpp` (a failing `init_video` returns `VideoInit` over a fake `IPresentation`, no fatal report; window builds only), `tests/game_entry_test.cpp` (module exports, window builds only), `tests/game_module_test.cpp` (loader against the fixture modules, editor build only; skipped elsewhere), `tests/file_dialog_test.cpp` (`FileDialogCall`), `tests/random_test.cpp` (golden sequences, ranges, streams), `tests/config_test.cpp` (round trip, defaults, malformed input, failed save).
 
 ## See also
 

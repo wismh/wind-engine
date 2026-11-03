@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <map>
+#include <set>
 #include <memory>
 #include <optional>
 #include <string>
@@ -279,7 +280,9 @@ public:
             note("windows.raise " + std::to_string(static_cast<std::uint32_t>(window)));
         }
     }
-    void set_click_through_enabled(bool, engine::WindowId) override {}
+    void set_click_through_enabled(bool enabled, engine::WindowId window) override {
+        click_through[window] = enabled;
+    }
     void set_drag_region(std::optional<engine::render::Rect> region, engine::WindowId window) override {
         drag_regions[window] = region;
     }
@@ -309,6 +312,20 @@ public:
     bool is_mouse_captured(engine::WindowId window) const override {
         return capture_owner == window;
     }
+    bool set_relative_mouse(engine::WindowId window, bool enabled) override {
+        if (!enabled) {
+            relative.erase(window);
+            return false;
+        }
+        if (!relative_supported || !is_open(window)) {
+            return false;
+        }
+        relative.insert(window);
+        return true;
+    }
+    bool is_relative_mouse(engine::WindowId window) const override {
+        return relative.contains(window);
+    }
     std::optional<engine::WindowId> open_window(const engine::WindowDesc& desc) override {
         if (refuse_open || (desc.owner && !is_open(*desc.owner))) {
             return std::nullopt;
@@ -334,6 +351,7 @@ public:
         if (capture_owner == id) {
             capture_owner.reset();
         }
+        relative.erase(id);
         positions.erase(id);
         sizes.erase(id);
         note("windows.close " + std::to_string(static_cast<std::uint32_t>(id)));
@@ -379,6 +397,11 @@ public:
     // False: capture_mouse(window, true) answers false, as on a platform without capture.
     bool capture_supported = true;
     std::optional<engine::WindowId> capture_owner;
+    // False: set_relative_mouse(window, true) answers false, as on Android. `relative` holds the requests.
+    bool relative_supported = true;
+    std::set<engine::WindowId> relative;
+    // The last set_click_through_enabled per window.
+    std::map<engine::WindowId, bool> click_through;
     // Usable display bounds, display 0 first. Empty: the queries answer a zero rect.
     std::vector<engine::render::Rect> displays;
     // open_window answers nullopt.

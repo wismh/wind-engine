@@ -1,5 +1,6 @@
 #include <engine/core/engine_host.h>
 
+#include "core/game_window_reset.h"
 #include "core/presentation.h"
 
 #include <engine/audio/audio_system.h>
@@ -227,10 +228,7 @@ void EngineHost::detach_game() {
     // Nothing redraws an unbound window's buffer, and its CmdDrawUI entries point into the game world's
     // documents. The next draw_all would read them after that world is gone.
     runtime.commands().clear();
-    IWindowControl& windows = runtime.window_control();
-    windows.set_drag_region(std::nullopt);
-    windows.set_click_through_enabled(false);
-    windows.set_overlay_mode(OverlayMode::Auto);
+    reset_game_windows(runtime.window_control());
     if (runtime.reset_ui_cache(kPrimaryWindow)) {
         (void)runtime.add_font_for_window(
                 kPrimaryWindow, builtin::font_ui, *impl_->assets->get<Font>(builtin::font_ui));

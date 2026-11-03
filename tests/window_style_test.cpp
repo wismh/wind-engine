@@ -635,6 +635,20 @@ TEST(WindowManager, CustomCanvasFactoryConstructsAndResetsPrimaryWithoutOpenGL) 
     EXPECT_EQ(replaced_canvas->bound_commands(), manager.commands_ptr(engine::kPrimaryWindow).get());
 }
 
+TEST(WindowControlImpl, RelativeMouseWithoutAWindowIsRefused) {
+    engine::render::OpenGLRenderBackend backend;
+    engine::WindowManager windows{backend};
+    engine::DesktopOverlayPolicy overlay;
+    engine::WindowControlImpl control{windows, overlay, std::make_shared<engine::FileDialogCompletions>()};
+    engine::IWindowControl& control_ref = control;
+
+    EXPECT_FALSE(control_ref.set_relative_mouse(engine::kPrimaryWindow, true));
+    EXPECT_FALSE(control_ref.is_relative_mouse(engine::kPrimaryWindow));
+    EXPECT_FALSE(control_ref.set_relative_mouse(engine::WindowId{3}, true));
+    EXPECT_FALSE(control_ref.set_relative_mouse(engine::kPrimaryWindow, false));
+    EXPECT_FALSE(windows.relative_mouse().active(engine::kPrimaryWindow));
+}
+
 #endif
 
 TEST(WindowCloseRequestedEvent, DefaultsToPrimaryWindow) {

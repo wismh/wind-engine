@@ -189,6 +189,18 @@ public:
         return windows_->mouse_capture().captured_by(window);
     }
 
+    bool set_relative_mouse(WindowId window, bool enabled) override {
+        if (enabled && windows_->window(window) == nullptr) {
+            return false;
+        }
+        return windows_->relative_mouse().request(window, enabled);
+    }
+
+    [[nodiscard]] bool is_relative_mouse(WindowId window) const override {
+        const WindowManager& windows = *windows_;
+        return windows.relative_mouse().requested(window);
+    }
+
     void set_drag_region(std::optional<render::Rect> region, WindowId window) override {
         if (WindowSystem* target = windows_->window(window)) {
             target->set_drag_region(region);
