@@ -155,6 +155,8 @@ Do:
 
 Done when: loopback-transport tests cover tick ordering, out-of-order and dropped snapshots, interpolation between buffered ticks, a custom replicated component, and delta against an acked baseline.
 
+Done in wind-307: `NetServer` / `NetClient` on the new `NetReceive` / `NetSend` phases, `ReplicationRegistry`, delta snapshots against the acked baseline, spawn and despawn on the interpolation timeline, `PacketDispatcher` and `ReplicatedTransform` removed, `DeliveryMode::UnreliableSequenced` renamed `UnreliableImmediate` ([Net](../modules/Net.md#realtime)).
+
 ### wind-308 feat: client input and prediction
 
 Do (generic over the game's input and state types):

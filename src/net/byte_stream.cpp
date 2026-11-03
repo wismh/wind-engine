@@ -92,6 +92,10 @@ void ByteWriter::write_bytes(std::span<const std::uint8_t> bytes) {
     buffer_.insert(buffer_.end(), bytes.begin(), bytes.end());
 }
 
+void ByteWriter::append(std::span<const std::uint8_t> bytes) {
+    buffer_.insert(buffer_.end(), bytes.begin(), bytes.end());
+}
+
 std::span<const std::uint8_t> ByteWriter::bytes() const noexcept {
     return buffer_;
 }

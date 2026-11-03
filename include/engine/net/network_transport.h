@@ -11,9 +11,11 @@ using PeerId = std::uint64_t;
 inline constexpr PeerId kInvalidPeerId = 0;
 inline constexpr PeerId kServerPeerId = 1;
 
+// No mode orders unreliable messages: a receiver of `Unreliable` or `UnreliableImmediate` data orders it
+// itself (snapshots carry their tick). `UnreliableImmediate` skips the transport's batching delay (GNS Nagle).
 enum class DeliveryMode : std::uint8_t {
     Unreliable,
-    UnreliableSequenced,
+    UnreliableImmediate,
     ReliableOrdered,
 };
 

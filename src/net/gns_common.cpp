@@ -315,7 +315,7 @@ bool GnsBaseTransport::send(PeerId target, std::span<const std::uint8_t> data,
     case DeliveryMode::Unreliable:
         send_flags = k_nSteamNetworkingSend_Unreliable;
         break;
-    case DeliveryMode::UnreliableSequenced:
+    case DeliveryMode::UnreliableImmediate:
         send_flags = k_nSteamNetworkingSend_UnreliableNoNagle;
         break;
     case DeliveryMode::ReliableOrdered:
