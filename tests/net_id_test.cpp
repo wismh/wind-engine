@@ -1,7 +1,5 @@
 #include <gtest/gtest.h>
 
-#include <engine/ecs/hierarchy.h>
-#include <engine/ecs/transform.h>
 #include <engine/ecs/world.h>
 #include <engine/net/net_entity_map.h>
 #include <engine/net/net_id.h>
@@ -143,32 +141,25 @@ TEST(NetEntityMap, WorldContextIntegration) {
     EXPECT_EQ(find_entity(world, id2), e2);
 }
 
-TEST(NetEntityMap, HierarchyParentTranslation) {
+TEST(NetEntityMap, OwnerAndDeadEntities) {
     ecs::World world;
-    const ecs::Entity parent_e = world.create();
-    const ecs::Entity child_e = world.create();
+    const ecs::Entity e1 = world.create();
+    const ecs::Entity e2 = world.create();
 
-    const NetId parent_net = 1001;
-    const NetId child_net = 1002;
+    ASSERT_TRUE(bind_net_entity(world, e1, 1, 7));
+    ASSERT_TRUE(bind_net_entity(world, e2, 2));
+    EXPECT_EQ(world.get<NetIdentity>(e1).owner, 7u);
+    EXPECT_EQ(world.get<NetIdentity>(e2).owner, kServerPeerId);
 
-    ASSERT_TRUE(bind_net_entity(world, parent_e, parent_net));
-    ASSERT_TRUE(bind_net_entity(world, child_e, child_net));
-
-    // Linking parent by NetId
-    EXPECT_TRUE(set_parent_by_net_id(world, child_net, parent_net));
-
-    const auto* parent_comp = world.try_get<Parent>(child_e);
-    ASSERT_NE(parent_comp, nullptr);
-    EXPECT_EQ(parent_comp->entity, parent_e);
-
-    // Translate back: find parent's NetId from child entity
-    const auto resolved_parent_net = get_parent_net_id(world, child_e);
-    ASSERT_TRUE(resolved_parent_net.has_value());
-    EXPECT_EQ(*resolved_parent_net, parent_net);
-
-    // Non-existent NetId fails
-    EXPECT_FALSE(set_parent_by_net_id(world, child_net, 9999));
-    EXPECT_FALSE(set_parent_by_net_id(world, 9999, parent_net));
+    // A destroyed entity is not found, and unbind_dead drops its entry.
+    world.destroy(e1);
+    EXPECT_EQ(find_entity(world, 1), std::nullopt);
+    EXPECT_EQ(find_net_id(world, e1), std::nullopt);
+    const auto dead = world.ctx<NetEntityMap>().unbind_dead(world);
+    ASSERT_EQ(dead.size(), 1u);
+    EXPECT_EQ(dead[0], 1u);
+    EXPECT_FALSE(world.ctx<NetEntityMap>().contains(NetId{1}));
+    EXPECT_EQ(find_entity(world, 2), e2);
 }
 
 } // namespace engine::net

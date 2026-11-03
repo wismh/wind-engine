@@ -1,16 +1,19 @@
 #pragma once
 
+// docs/tech/modules/Net.md
+
 #include <engine/ecs/entity.h>
-#include <engine/ecs/hierarchy.h>
 #include <engine/ecs/world.h>
-#include <engine/net/net_id.h>
+#include <engine/net/network_identity.h>
 
 #include <cstddef>
 #include <optional>
 #include <unordered_map>
+#include <vector>
 
 namespace engine::net {
 
+// Two-way map between `NetId` and this machine's `ecs::Entity`. Lives in `world.ctx<NetEntityMap>()`.
 class NetEntityMap {
 public:
     NetEntityMap() = default;
@@ -18,6 +21,9 @@ public:
     bool bind(NetId net_id, ecs::Entity entity);
     bool unbind(NetId net_id);
     bool unbind(ecs::Entity entity);
+
+    // Unbinds every entry whose entity is no longer valid in `world` and returns their ids.
+    std::vector<NetId> unbind_dead(const ecs::World& world);
 
     [[nodiscard]] std::optional<ecs::Entity> find_entity(NetId net_id) const;
     [[nodiscard]] std::optional<NetId> find_net_id(ecs::Entity entity) const;
@@ -35,15 +41,14 @@ private:
     std::unordered_map<ecs::Entity, NetId> entity_to_net_{};
 };
 
-// Convenience helpers operating on ecs::World context
-bool bind_net_entity(ecs::World& world, ecs::Entity entity, NetId net_id);
+// Binds `entity` to `net_id` in `world.ctx<NetEntityMap>()` and gives it `NetIdentity{net_id, owner}`.
+bool bind_net_entity(ecs::World& world, ecs::Entity entity, NetId net_id, PeerId owner = kServerPeerId);
+// Removes `NetIdentity` and the map entry.
 bool unbind_net_entity(ecs::World& world, ecs::Entity entity);
 
+// Through `NetEntityMap`; nullopt for an unknown id or a dead entity.
 [[nodiscard]] std::optional<ecs::Entity> find_entity(const ecs::World& world, NetId net_id);
+// The entity's `NetIdentity::id`; nullopt when it has none.
 [[nodiscard]] std::optional<NetId> find_net_id(const ecs::World& world, ecs::Entity entity);
-
-// Hierarchy translation helpers
-bool set_parent_by_net_id(ecs::World& world, NetId child, NetId parent, ecs::KeepWorld keep_world = ecs::KeepWorld::No);
-[[nodiscard]] std::optional<NetId> get_parent_net_id(const ecs::World& world, ecs::Entity entity);
 
 } // namespace engine::net

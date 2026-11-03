@@ -45,7 +45,10 @@ public:
     void write_net_id(NetId id);
 
     void write_string(std::string_view val);
+    // u32 length, then the bytes.
     void write_bytes(std::span<const std::uint8_t> bytes);
+    // The bytes as they are, with no length.
+    void append(std::span<const std::uint8_t> bytes);
 
     template <typename EnumT>
         requires std::is_enum_v<EnumT>

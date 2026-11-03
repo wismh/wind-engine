@@ -37,13 +37,7 @@ bool MessageDispatcher::send(INetworkTransport& transport, PeerId target, Messag
 
     ByteWriter writer(sizeof(MessageId) + payload.size());
     writer.write_u16(id);
-    if (!payload.empty()) {
-        // Direct append without length prefix so reader gets raw remaining payload
-        const auto* raw = payload.data();
-        for (std::size_t i = 0; i < payload.size(); ++i) {
-            writer.write_u8(raw[i]);
-        }
-    }
+    writer.append(payload);
 
     return transport.send(target, writer.bytes(), mode, channel);
 }
