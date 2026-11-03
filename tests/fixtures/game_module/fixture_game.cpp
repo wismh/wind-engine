@@ -6,6 +6,7 @@
 #include <engine/build_id.h>
 #include <engine/core/game_module.h>
 #include <engine/core/input_system.h>
+#include <engine/core/job_system.h>
 #include <engine/core/key_code.h>
 #include <engine/core/window_control.h>
 #include <engine/ecs/schedule.h>
@@ -13,7 +14,10 @@
 #include <engine/igame.h>
 #include <engine/resources/assets_db.h>
 
+#include <chrono>
+#include <memory>
 #include <string>
+#include <thread>
 
 namespace fixture {
 
@@ -22,6 +26,7 @@ public:
     explicit Game(const engine::EngineServices& services)
         : engine::GameBase(services.worlds)
         , input_(&services.input)
+        , jobs_(&services.jobs)
         , windows_(&services.windows) {
         note("construct");
     }
@@ -50,6 +55,7 @@ public:
         }
         input_->bind(engine::KeyCode::Space, input_->intern("fixture_jump"));
         world().add_system(engine::ecs::Schedule::Frame, engine::ecs::Phase::Game, [](engine::ecs::World&) {});
+        start_job();
     }
 
     void on_quit() override {
@@ -57,18 +63,47 @@ public:
     }
 
 private:
-    void note(const char* line) {
+    [[nodiscard]] FixtureLog& log() {
         engine::ecs::World* first = nullptr;
         worlds().each_world([&first](engine::ecs::World& world) {
             if (first == nullptr) {
                 first = &world;
             }
         });
-        first->ctx<FixtureLog>().lines.push_back(std::string("game.") + line);
+        return first->ctx<FixtureLog>();
+    }
+
+    void note(const char* line) {
+        log().lines.push_back(std::string("game.") + line);
+    }
+
+    // Code of this module on a worker until the call is cancelled: Stop must wait for it before the unload.
+    void start_job() {
+        const std::shared_ptr<FixtureJobs> jobs = log().jobs;
+        if (jobs == nullptr) {
+            return;
+        }
+        job_ = jobs_->submit([jobs](const engine::JobToken& token) {
+            jobs->started.store(true);
+            jobs->started.notify_all();
+            while (!token.cancelled()) {
+                std::this_thread::yield();
+            }
+            // Still module code for a while after the cancel. Only widens the window in which a Stop that did not
+            // wait would unload the module under this job; a Stop that waits passes however long this takes.
+            const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(50);
+            while (std::chrono::steady_clock::now() < until) {
+                std::this_thread::yield();
+            }
+            jobs->finished.store(true);
+            return 1;
+        });
     }
 
     engine::InputSystem* input_;
+    engine::JobSystem* jobs_;
     engine::IWindowControl* windows_;
+    engine::JobCall<int> job_;
 };
 
 }
