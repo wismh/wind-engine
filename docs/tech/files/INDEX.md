@@ -33,7 +33,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/core/host.h` | Headless tick host for tests | [Core](../modules/Core.md) |
 | `include/engine/core/parse_float.h` | `parse_float`, `parse_float_prefix`: locale-free number reading, `from_chars` or `strtod` | [Core](../modules/Core.md#parsing-numbers) |
 | `include/engine/core/job_system.h` | `JobSystem`: fork-join `parallel_for` | [Core](../modules/Core.md#jobs) |
-| `include/engine/core/input_system.h` | `ActionId` bindings and input events | [Input Mapper](../features/Input%20Mapper.md) |
+| `include/engine/core/input_system.h` | `ActionId` bindings with a scale, `MouseAxis`, `axis()`, and input events | [Input Mapper](../features/Input%20Mapper.md) |
 | `include/engine/core/key_code.h` | `KeyCode` values matching SDL scancodes | [Input Mapper](../features/Input%20Mapper.md) |
 | `include/engine/core/random.h` | `Random`, PCG32 | [Core](../modules/Core.md) |
 | `include/engine/core/platform.h` | Platform, assets root, `executable_directory`, `user_data_directory` | [Core](../modules/Core.md) |
@@ -41,7 +41,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/core/sdl_fatal_error.h` | SDL message-box `IFatalError` | [Core](../modules/Core.md) |
 | `include/engine/core/time.h` | `Time` and the 60 Hz constants | [Core](../modules/Core.md) |
 | `include/engine/core/web_loop.h` | `MainLoopPolicy` and `LoopShutdown` | [Core](../modules/Core.md) |
-| `include/engine/core/window_control.h` | `IWindowControl` (including `open_windows`, `set_title`, `request_open_file`) and `OverlayMode` | [Windowing](../features/Windowing.md) |
+| `include/engine/core/window_control.h` | `IWindowControl` (including `open_windows`, `set_title`, `request_open_file`, `set_relative_mouse`) and `OverlayMode` | [Windowing](../features/Windowing.md) |
 | `include/engine/core/window_desc.h` | `WindowId`, `WindowDesc`, `WindowStyle` | [Windowing](../features/Windowing.md) |
 | `include/engine/core/worlds.h` | Process `Worlds`: add, destroy, bind, stepping | [Core](../modules/Core.md) |
 | `include/engine/ecs/.gitkeep` | Keeps the directory in Git | [ECS](../modules/ECS.md) |
@@ -171,7 +171,9 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/core/game_loop.h` | `GameLoop` | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/core/host.cpp` | Registers systems and ticks a fake canvas. Owns a `JobSystem` with no workers | [Core](../modules/Core.md) |
 | `src/core/job_system.cpp` | Fork-join pool | [Core](../modules/Core.md#jobs) |
-| `src/core/input_system.cpp` | Bind table and event enqueue | [Input Mapper](../features/Input%20Mapper.md) |
+| `src/core/input_system.cpp` | Bind table, event enqueue, `axis()` and the frame's mouse motion, locked windows | [Input Mapper](../features/Input%20Mapper.md) |
+| `src/core/relative_mouse.h`, `src/core/relative_mouse.cpp` | `RelativeMouse`: relative mouse requests per window and the focus rule | [Windowing](../features/Windowing.md#relative-mouse) |
+| `src/core/game_window_reset.h`, `src/core/game_window_reset.cpp` | `reset_game_windows`: window state put back when the editor stops a game | [Core](../modules/Core.md) |
 | `src/core/log.cpp` | spdlog sinks | [Core](../modules/Core.md) |
 | `src/core/random.cpp` | `Random`, PCG32 | [Core](../modules/Core.md) |
 | `src/core/platform.cpp` | Assets root, Android staging, executable directory, user-data path | [Core](../modules/Core.md) |
@@ -488,7 +490,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/engine_host_test.cpp` | `EngineHost` startup errors over a fake presentation (window builds) | [Core](../modules/Core.md) |
 | `tests/game_entry_test.cpp` | `ENGINE_GAME` module exports and build id (window builds) | [Core](../modules/Core.md) |
 | `tests/game_module_test.cpp` | `load_game_module` against the fixture modules (editor build) | [Core](../modules/Core.md) |
-| `tests/game_loop_test.cpp` | `RunHooks` order, frame-end restart, and `RunHooks::cli` without a primary world, with a fake presentation | [Runtime Loop](../architecture/Runtime%20Loop.md) |
+| `tests/game_loop_test.cpp` | `RunHooks` order, frame-end restart, `RunHooks::cli` without a primary world, and `InputSystem::begin_frame` before `poll`, with a fake presentation | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `tests/gl_error_log_test.cpp` | GL error names, one report per error and command | [Render](../modules/Render.md) |
 | `tests/capture_test.cpp` | Format choice, uninitialized system, surface conversion | [Capture](../modules/Capture.md) |
 | `tests/haptics_test.cpp` | Clamp, no-op, and the fake counters | [Haptics](../modules/Haptics.md) |
@@ -503,7 +505,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/parse_float_test.cpp` | Signs, exponents, rejected text, prefix length | [Core](../modules/Core.md#parsing-numbers) |
 | `tests/job_system_test.cpp` | Inline ranges, two workers, nested `parallel_for`, `stop` joins | [Core](../modules/Core.md#jobs) |
 | `tests/icon_codegen_test.cpp` | ICO, ICNS, and PNG sizes in memory | [Icon Codegen](../build/Icon%20Codegen.md) |
-| `tests/input_test.cpp` | Bind, hold, touch synthesis, `reset` | [Input Mapper](../features/Input%20Mapper.md) |
+| `tests/input_test.cpp` | Bind, hold, touch synthesis, `reset`, mouse axes, composites, locked events | [Input Mapper](../features/Input%20Mapper.md) |
 | `tests/loc_catalog_test.cpp` | TOML tables, fallback, pseudo, warn-once | [Localization](../modules/Localization.md) |
 | `tests/loc_format_test.cpp` | Placeholders and plural branches | [Localization](../modules/Localization.md) |
 | `tests/log_test.cpp` | The null sink | [Core](../modules/Core.md) |
@@ -512,7 +514,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/mvvm_test.cpp` | View-model properties, commands, checkbox write-back | [UI](../modules/UI.md) |
 | `tests/opengl_texture_test.cpp` | CPU texture description, row flip, dynamic-texture and texture-array creation contract. No GL draw | [Render](../modules/Render.md) |
 | `tests/particle_test.cpp` | Emitter step, curves, and parallel integration matching the caller | [Render](../modules/Render.md) |
-| `tests/pointer_target_test.cpp` | `PointerTarget`: hit-test, order, windows, camera, hover, click, click-through, UI first | [UI Input](../features/UI%20Input.md#pointer-targets) |
+| `tests/pointer_target_test.cpp` | `PointerTarget`: hit-test, order, windows, camera, hover, click, click-through, UI first, locked cursor | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `tests/lights_test.cpp` | Light collection (direction from rotation and parent, cap, ambient sum, default rig) and the lights and camera in `CmdSetView` | [Render](../modules/Render.md#lights) |
 | `tests/fog_test.cpp` | No fog by default, the active camera's `Fog` in every window's `CmdSetView`, none in `render_world_viewport`, `fog` serialization | [Render](../modules/Render.md#fog) |
 | `tests/primitives_test.cpp` | Primitive counts, unit outward normals, winding, index range, white vertex color; builtin quad and cube files match | [Render](../modules/Render.md#primitives) |
@@ -578,10 +580,12 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/web_loop_test.cpp` | RAF policy and shutdown order | [Core](../modules/Core.md) |
 | `tests/window_icon_test.cpp` | `make_icon_surface` byte layout | [Windowing](../features/Windowing.md) |
 | `tests/mouse_capture_test.cpp` | `MouseCapture` and `global_mouse_supported` (window builds) | [Windowing](../features/Windowing.md#cursor-buttons-and-capture) |
+| `tests/relative_mouse_test.cpp` | `RelativeMouse`: requests, refusals, focus loss and gain, close | [Windowing](../features/Windowing.md#relative-mouse) |
+| `tests/game_window_reset_test.cpp` | `reset_game_windows` on the window-control double | [Windowing](../features/Windowing.md#relative-mouse) |
 | `tests/ui_window_test.cpp` | `UiWindow`: open, teardown order, move, owner close, close routing, drag exclusions, centring | [Windowing](../features/Windowing.md#uiwindow) |
 | `tests/drag_region_test.cpp` | `drag_region_contains` with exclusions (window builds) | [Windowing](../features/Windowing.md#uiwindow) |
-| `tests/window_cursor_test.cpp` | Cursor, buttons, capture on the window-control double, `cursor_client_position` | [Windowing](../features/Windowing.md#cursor-buttons-and-capture) |
-| `tests/window_style_test.cpp` | Style flags (`utility` included), overlay mode, window control without a window, `raise` of no window, a primary window with an owner refused | [Windowing](../features/Windowing.md) |
+| `tests/window_cursor_test.cpp` | Cursor, buttons, capture, relative mouse on the window-control double, `cursor_client_position` | [Windowing](../features/Windowing.md#cursor-buttons-and-capture) |
+| `tests/window_style_test.cpp` | Style flags (`utility` included), overlay mode, window control without a window (relative mouse refused), `raise` of no window, a primary window with an owner refused | [Windowing](../features/Windowing.md) |
 | `tests/world_serializer_test.cpp` | `.world` TOML parse, instantiate, save round-trip, hierarchy, assets, custom components, rollback | [ECS](../modules/ECS.md#world-serialization) |
 | `tests/worlds_test.cpp` | World isolation, window routing, per-window draw, registration order | [Core](../modules/Core.md) |
 

@@ -13,6 +13,8 @@ Pointer and keys become ECS events in [Input Mapper](Input%20Mapper.md). `run_in
 | Up | `end_drag` and `end_pan` |
 | Wheel | `handle_wheel` |
 
+An event with `MouseEvent::locked` (the window is in relative mouse mode with focus, the cursor hidden) is skipped for Down, Move, and Wheel: no hover, press, scroll, or consumption at a point the player cannot see. A locked Up still sets `down` false and ends a drag and a pan. `run_dock_input` and `run_pointer_targets` skip the same events; a target is never hovered in a locked window and a locked Up ends its press without a `Click` ([Input Mapper](Input%20Mapper.md#locked-mouse)).
+
 A right click does not place a caret and does not clear focus. `clicks` is the OS count from the button event.
 
 `simulate_worlds` calls `reset_pointer_frame` before this phase. That clears `Presentation.mouse`. `begin_frame` does not. A hit inserts the window into `presentation_of(world).mouse`. Gameplay that should ignore that click reads `presentation_of(world).mouse.consumed_for(window)`. `world.ctx<ui::MouseConsumed>()` does not see the hits. `InputSystem` does not check either.

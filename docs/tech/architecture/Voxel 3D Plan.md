@@ -17,7 +17,7 @@ Checked against `include/engine/` at `53bf8c5`:
 - `run_render` culls only tilemap chunks (`tilemap_chunk_visible`). Every `Renderable` is drawn.
 - ~~`TextureDesc` has `filter` (`Nearest`, `Linear`) and `wrap`. No mipmaps, no texture arrays. A block atlas shimmers at distance and bleeds between tiles.~~ Done in wind-301: `mipmaps` and `texture_array` ([Mipmaps](../modules/Render.md#mipmaps), [Texture arrays](../modules/Render.md#texture-arrays)).
 - ~~No alpha-test (cutout) render state, no fog,~~ no sky. Cutout and fog done in wind-300 ([Cutout](../modules/Render.md#cutout), [Fog](../modules/Render.md#fog)).
-- `IWindowControl::capture_mouse` is `SDL_CaptureMouse` (drag outside the window). There is no relative mode: the cursor is not hidden or locked for a first-person camera. `MouseEvent::relative` already carries the delta.
+- ~~`IWindowControl::capture_mouse` is `SDL_CaptureMouse` (drag outside the window). There is no relative mode: the cursor is not hidden or locked for a first-person camera.~~ Done in wind-302: `set_relative_mouse` and `MouseAxis` bindings ([Windowing](../features/Windowing.md#relative-mouse), [Input Mapper](../features/Input%20Mapper.md#axes-mouse-look-and-composites)).
 - `physics_2d` only. No 3D collision or grid raycast.
 - `JobSystem` is fork-join `parallel_for` only. A chunk mesh built over several frames has no home.
 - No compression library.
@@ -82,6 +82,8 @@ Do:
 Done when: the importer and `.meta` parsing are tested; WebGL2 / GLES 3.0 paths compile (`sampler2DArray` is core there); Assets.md and Render.md updated.
 
 ### wind-302 feat: relative mouse mode
+
+Status: done. `IWindowControl::set_relative_mouse` / `is_relative_mouse` over `RelativeMouse` (focus loss releases, focus gain restores, Stop releases through `reset_game_windows`); Web pointer lock needs a user gesture; Android is a no-op. `ControlKind::MouseMotion` with `MouseAxis::X`, `Y`, `Wheel`, a `scale` on every binding, and `InputSystem::axis` (per-frame motion, reset by `begin_frame` before `poll`); WASD composites are signed scales. `MouseEvent::locked` keeps the UI and pointer targets off the hidden cursor. Gamepad poll and bind stays in the Scope backlog. See [Windowing](../features/Windowing.md#relative-mouse) and [Input Mapper](../features/Input%20Mapper.md#axes-mouse-look-and-composites).
 
 Problem: a first-person camera needs a hidden, locked cursor and raw deltas.
 
