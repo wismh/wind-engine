@@ -302,7 +302,13 @@ std::vector<TilemapChunkDraw> visible_tilemap_chunks(Tilemap& map, IGraphicFacto
                         map.chunks[layer * per_layer + static_cast<std::size_t>(cy * cx_count + cx)];
                 if (!chunk.built) {
                     const MeshDesc mesh = bake_tilemap_chunk(*map.asset, map.layers[layer].tiles, cx, cy);
-                    chunk.mesh = mesh.vertices.empty() ? nullptr : factory.create_mesh(mesh);
+                    if (mesh.vertices.empty()) {
+                        chunk.mesh = nullptr;
+                    } else if (chunk.mesh == nullptr || !chunk.mesh->update(mesh)) {
+                        // An edited chunk keeps its mesh and buffers; a new mesh only when there is none or the
+                        // update failed.
+                        chunk.mesh = factory.create_mesh(mesh);
+                    }
                     chunk.built = true;
                 }
                 if (chunk.mesh != nullptr) {
