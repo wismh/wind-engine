@@ -152,7 +152,8 @@ TEST(HierarchySystems, TransformPhaseRunsBetweenGameAndBind) {
     EXPECT_EQ(order, (std::vector<std::string>{"Game", "Bind"}));
     EXPECT_FLOAT_EQ(game_saw, 3.f);   // Game still sees the previous frame's world matrix
     EXPECT_FLOAT_EQ(bind_saw, 12.f);  // Transform ran after Game, before Bind
-    EXPECT_EQ(engine::ecs::kFramePhases[2], Phase::Transform);
+    EXPECT_EQ(engine::ecs::kFramePhases[3], Phase::Transform);
+    EXPECT_EQ(engine::ecs::kFramePhases[2], Phase::Game);
 }
 
 TEST(HierarchySystems, TransformPhaseIsNotInFixedSchedule) {
