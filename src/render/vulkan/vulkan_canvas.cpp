@@ -123,6 +123,7 @@ void VulkanCanvas::shutdown() {
         const VulkanFunctions& fn = backend_->context().fn();
         if (fn.vkDeviceWaitIdle) {
             fn.vkDeviceWaitIdle(backend_->context().device());
+            backend_->context().release_retired();
         }
     }
 
@@ -206,6 +207,7 @@ void VulkanCanvas::render() {
     const VkDevice device = ctx.device();
 
     fn.vkWaitForFences(device, 1, &in_flight_fences_[current_frame_], VK_TRUE, UINT64_MAX);
+    ctx.note_completed(frame_serials_[current_frame_]);
 
     const VkResult acquire_res = fn.vkAcquireNextImageKHR(
         device,
@@ -287,6 +289,7 @@ void VulkanCanvas::render() {
     submit.pSignalSemaphores = &render_finished_semaphores_[current_frame_];
 
     if (fn.vkQueueSubmit(ctx.graphics_queue(), 1, &submit, in_flight_fences_[current_frame_]) == VK_SUCCESS) {
+        frame_serials_[current_frame_] = ctx.note_submitted();
         frame_rendered_ = true;
     }
 }
@@ -521,6 +524,7 @@ bool VulkanCanvas::recreate_swapchain() {
     const VkDevice device = ctx.device();
 
     fn.vkDeviceWaitIdle(device);
+    ctx.release_retired();
     destroy_swapchain();
 
     const glm::ivec2 drawable = window_->drawable_size();

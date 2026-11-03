@@ -243,6 +243,7 @@ void VulkanContext::shutdown() {
         if (fn_.vkDeviceWaitIdle) {
             fn_.vkDeviceWaitIdle(device_);
         }
+        release_retired();
         if (transient_pool_ != VK_NULL_HANDLE && fn_.vkDestroyCommandPool) {
             fn_.vkDestroyCommandPool(device_, transient_pool_, nullptr);
             transient_pool_ = VK_NULL_HANDLE;
@@ -413,6 +414,41 @@ void VulkanContext::end_single_time_commands(VkCommandBuffer cmd) const {
     fn_.vkQueueSubmit(graphics_queue_, 1, &submit_info, VK_NULL_HANDLE);
     fn_.vkQueueWaitIdle(graphics_queue_);
     fn_.vkFreeCommandBuffers(device_, transient_pool_, 1, &cmd);
+}
+
+void VulkanContext::retire_buffer(VkBuffer buffer, VkDeviceMemory memory) {
+    if (device_ == VK_NULL_HANDLE || (buffer == VK_NULL_HANDLE && memory == VK_NULL_HANDLE)) {
+        return;
+    }
+    retired_.retire(RetiredBuffer{.buffer = buffer, .memory = memory});
+}
+
+std::uint64_t VulkanContext::note_submitted() {
+    return retired_.submitted();
+}
+
+void VulkanContext::note_completed(std::uint64_t serial) {
+    for (const RetiredBuffer& retired : retired_.completed(serial)) {
+        destroy_retired(retired);
+    }
+}
+
+void VulkanContext::release_retired() {
+    for (const RetiredBuffer& retired : retired_.take_all()) {
+        destroy_retired(retired);
+    }
+}
+
+void VulkanContext::destroy_retired(const RetiredBuffer& retired) const {
+    if (device_ == VK_NULL_HANDLE) {
+        return;
+    }
+    if (retired.buffer != VK_NULL_HANDLE && fn_.vkDestroyBuffer) {
+        fn_.vkDestroyBuffer(device_, retired.buffer, nullptr);
+    }
+    if (retired.memory != VK_NULL_HANDLE && fn_.vkFreeMemory) {
+        fn_.vkFreeMemory(device_, retired.memory, nullptr);
+    }
 }
 
 } // namespace engine::render
