@@ -156,6 +156,11 @@ void main() {
             shader.set_vec3_array("uLightColors", view.lights.colors);
             shader.set_vec3("uAmbient", view.lights.ambient);
             shader.set_float("uTime", view.time);
+            // Zero is off for every fog uniform, so a draw before any CmdSetView (or a view without fog) is unfogged.
+            shader.set_int("uFogEnabled", view.fog.has_value() ? 1 : 0);
+            const Fog fog = view.fog.value_or(Fog{});
+            shader.set_vec3("uFogColor", fog.color);
+            shader.set_vec2("uFogRange", glm::vec2{fog.start, fog.end});
         }
 
         struct ExecuteVisitor {
@@ -290,7 +295,8 @@ void main() {
             return;
         }
 
-        apply_render_state(cmd.material->render_state());
+        const RenderState state = cmd.material->render_state();
+        apply_render_state(state);
 
         const auto shader = std::dynamic_pointer_cast<OpenGLShader>(cmd.material->shader());
         const auto mesh = std::dynamic_pointer_cast<OpenGLMesh>(cmd.mesh);
@@ -308,6 +314,8 @@ void main() {
         shader->set_vec2("uUvScale", cmd.uv_scale);
         shader->set_vec2("uUvOffset", cmd.uv_offset);
         shader->set_int("uTexture", 0);
+        // No cutoff is 0: alpha is never below it, so nothing is discarded.
+        shader->set_float("uAlphaCutoff", state.alpha_cutoff.value_or(0.0f));
 
         bind_albedo(*cmd.material);
 

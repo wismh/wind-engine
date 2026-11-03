@@ -20,7 +20,7 @@ Default unlit shader, unit quad, unit cube, unlit material, Lambert lit shader a
 
 CMake copies this tree to `<exe dir>/assets/engine/`. Game `asset_codegen` is given this reserved GUID list and fails if a game `.meta` reuses one.
 
-`shaders/lit.shader` is Lambert diffuse per directional light plus ambient, from the uniforms the backend fills from `CmdSetView` ([Render](../docs/tech/modules/Render.md#lit-shader)). Its light arrays are sized 4, the same as `engine::render::kMaxDirectionalLights`. `materials/lit.mat` uses it: white, no texture (the backend binds white), `blend = "opaque"`, `depth = true`, `cull = "back"`.
+`shaders/lit.shader` is Lambert diffuse per directional light plus ambient, from the uniforms the backend fills from `CmdSetView` ([Render](../docs/tech/modules/Render.md#lit-shader)). `shaders/unlit.shader` and `shaders/lit.shader` both multiply the albedo by the vertex color (location 3), discard below `uAlphaCutoff` (cutout), and apply the view's linear fog ([Cutout](../docs/tech/modules/Render.md#cutout), [Fog](../docs/tech/modules/Render.md#fog)). No uniform is declared in both stages of either shader (GLSL ES precision rule). Its light arrays are sized 4, the same as `engine::render::kMaxDirectionalLights`. `materials/lit.mat` uses it: white, no texture (the backend binds white), `blend = "opaque"`, `depth = true`, `cull = "back"`.
 
 `fonts/ui.ttf` is Inter Regular 4.1, the static TrueType instance (not the variable font), SIL OFL (`fonts/OFL.txt`, https://github.com/rsms/inter/releases/tag/v4.1, `extras/ttf/Inter-Regular.ttf`). It is the default UI face, including Cyrillic. The GUID stays `font_ui`.
 

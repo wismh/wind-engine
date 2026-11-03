@@ -24,6 +24,11 @@ TEST(Mesh, VertexNormalDefaultsToPlusZ) {
     EXPECT_EQ(vertex.normal, glm::vec3(0.0f, 0.0f, 1.0f));
 }
 
+TEST(Mesh, VertexColorDefaultsToWhite) {
+    const engine::render::MeshVertex vertex;
+    EXPECT_EQ(vertex.color, glm::vec4(1.0f));
+}
+
 TEST(Mesh, CheckAcceptsNonIndexedAndIndexed) {
     engine::render::MeshDesc desc = triangle();
     EXPECT_TRUE(engine::render::mesh_desc_error(desc).empty());
@@ -83,6 +88,36 @@ TEST(Mesh, ParseMixesFiveAndEightColumns) {
     EXPECT_EQ(desc->vertices[1].normal, glm::vec3(1.0f, 0.0f, 0.0f));
 }
 
+TEST(Mesh, ParseTwelveColumnsReadsColor) {
+    const auto desc = engine::parse_mesh("# pos   normal   uv   rgba\n"
+                                         "0 0 0   0 1 0   0 0   0.25 0.5 0.75 1\n"
+                                         "1 0 0   0 1 0   1 0   1 0 0 0.5\n"
+                                         "1 0 -1  0 1 0   1 1   0 0 0 0\n");
+    ASSERT_TRUE(desc.has_value());
+    ASSERT_EQ(desc->vertices.size(), 3u);
+    EXPECT_EQ(desc->vertices[0].position, glm::vec3(0.0f));
+    EXPECT_EQ(desc->vertices[0].normal, glm::vec3(0.0f, 1.0f, 0.0f));
+    EXPECT_EQ(desc->vertices[0].uv, glm::vec2(0.0f));
+    EXPECT_EQ(desc->vertices[0].color, glm::vec4(0.25f, 0.5f, 0.75f, 1.0f));
+    EXPECT_EQ(desc->vertices[1].uv, glm::vec2(1.0f, 0.0f));
+    EXPECT_EQ(desc->vertices[1].color, glm::vec4(1.0f, 0.0f, 0.0f, 0.5f));
+    EXPECT_EQ(desc->vertices[2].position, glm::vec3(1.0f, 0.0f, -1.0f));
+    EXPECT_EQ(desc->vertices[2].color, glm::vec4(0.0f));
+}
+
+TEST(Mesh, ParseRowsWithoutColorAreWhite) {
+    const auto desc = engine::parse_mesh("0 0 0 0 0\n"
+                                         "1 0 0  1 0 0  1 0\n"
+                                         "0 1 0  0 0 1  0 1  0.5 0.5 0.5 1\n");
+    ASSERT_TRUE(desc.has_value());
+    EXPECT_EQ(desc->vertices[0].color, glm::vec4(1.0f));
+    EXPECT_EQ(desc->vertices[0].uv, glm::vec2(0.0f));
+    EXPECT_EQ(desc->vertices[1].color, glm::vec4(1.0f));
+    EXPECT_EQ(desc->vertices[1].uv, glm::vec2(1.0f, 0.0f));
+    EXPECT_EQ(desc->vertices[2].color, glm::vec4(0.5f, 0.5f, 0.5f, 1.0f));
+    EXPECT_EQ(desc->vertices[2].uv, glm::vec2(0.0f, 1.0f));
+}
+
 TEST(Mesh, ParseRejectsIndexPastVertices) {
     EXPECT_FALSE(engine::parse_mesh("0 0 0 0 0\n1 0 0 1 0\n0 1 0 0 1\nf 0 1 3\n").has_value());
 }
@@ -94,6 +129,8 @@ TEST(Mesh, ParseRejectsMalformedRows) {
     EXPECT_FALSE(with("1 2 3 4\n").has_value()); // too few columns
     EXPECT_FALSE(with("1 2 3 4 5 6\n").has_value()); // neither 5 nor 8
     EXPECT_FALSE(with("1 2 3 4 5 6 7 8 9\n").has_value());
+    EXPECT_FALSE(with("1 2 3 4 5 6 7 8 9 10 11\n").has_value()); // color needs four numbers
+    EXPECT_FALSE(with("1 2 3 4 5 6 7 8 9 10 11 12 13\n").has_value());
     EXPECT_FALSE(with("1 2 3 4 x\n").has_value()); // not a number
     EXPECT_FALSE(with("f 0 1\n").has_value()); // two corners
     EXPECT_FALSE(with("f 0 1 2 3\n").has_value()); // a quad is two rows

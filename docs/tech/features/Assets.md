@@ -66,11 +66,12 @@ The cache key is the GUID plus `std::type_index`. The same GUID requested as two
 | --- | --- |
 | `px py pz u v` | A vertex with normal `0 0 1`. The original format; a file of only these rows still loads |
 | `px py pz nx ny nz u v` | A vertex with a normal, written as is (not normalized) |
+| `px py pz nx ny nz u v r g b a` | A vertex with a normal and a vertex color (`MeshVertex::color`). Rows without these four numbers are white |
 | `f a b c` | One triangle of 0-based vertex indices, counter-clockwise when its front faces you |
 
-Vertices are numbered in file order, and the two vertex forms may mix. A file with no `f` row is a non-indexed triangle list (every three vertices are a triangle). One `f` row makes the mesh indexed: only the `f` rows are triangles. A quad is two `f` rows.
+Vertices are numbered in file order, and the three vertex forms may mix. A file with no `f` row is a non-indexed triangle list (every three vertices are a triangle). One `f` row makes the mesh indexed: only the `f` rows are triangles. A quad is two `f` rows.
 
-The file does not load (`AssetError::Corrupt`) when a vertex row has other than 5 or 8 numbers or a non-number, an `f` row has other than three non-negative integers, a row starts with another word, there are no vertices, or an index is at or past the vertex count.
+The file does not load (`AssetError::Corrupt`) when a vertex row has other than 5, 8, or 12 numbers or a non-number, an `f` row has other than three non-negative integers, a row starts with another word, there are no vertices, or an index is at or past the vertex count.
 
 ```
 # pos.x pos.y pos.z   normal.x normal.y normal.z   uv.x uv.y

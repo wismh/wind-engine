@@ -80,6 +80,28 @@ Opaque depth-tested draws go first, nearest first, so the depth buffer hides wha
 
 ---
 
+## 4. Cutout and Fog
+
+**Vertex color.** `engine::render::MeshVertex::color` (white by default) multiplies the albedo in the builtin lit and unlit shaders. Bake light and ambient occlusion into it when you build a mesh; primitives and `.mesh` rows without color stay white. A `.mesh` row with twelve numbers (`px py pz nx ny nz u v r g b a`) sets it.
+
+**Cutout.** `alpha_cutoff = 0.5` in a `.mat` (or `RenderState::alpha_cutoff` in C++) discards fragments whose alpha is below 0.5. An opaque, depth-tested cutout material still draws in the opaque pass.
+
+**Fog.** Put an `engine::render::Fog` on the active camera:
+
+```cpp
+#include <engine/render/fog.h>
+
+world.emplace<engine::render::Fog>(cam, engine::render::Fog{
+        .color = {0.7f, 0.8f, 0.9f},
+        .start = 40.0f,   // no fog nearer than this
+        .end = 120.0f,    // fully fog colored from here on
+});
+```
+
+The builtin lit and unlit shaders (so sprites and tilemaps too) fade linearly to `color` between `start` and `end`, by distance from the camera. Particles, UI, and the editor's scene viewport are not fogged. Without a `Fog` component nothing is fogged. In a `.world` file it is `fog = { color = [0.7, 0.8, 0.9], start = 40.0, end = 120.0 }`.
+
+---
+
 ## Next Steps
 
 - Camera details and screen rays: [Camera](Camera.md).

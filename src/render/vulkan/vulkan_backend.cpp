@@ -205,6 +205,11 @@ void write_view_uniforms(
     write_vec3_array(buf, refl, "uLightDirections", view.lights.directions);
     write_vec3_array(buf, refl, "uLightColors", view.lights.colors);
     write_vec3(buf, refl, "uAmbient", view.lights.ambient);
+    // Zero is off for every fog uniform, as in a zero-initialized UBO.
+    write_int(buf, refl, "uFogEnabled", view.fog.has_value() ? 1 : 0);
+    const Fog fog = view.fog.value_or(Fog{});
+    write_vec3(buf, refl, "uFogColor", fog.color);
+    write_vec2(buf, refl, "uFogRange", glm::vec2{fog.start, fog.end});
 }
 
 struct ExecuteVisitor {
@@ -369,6 +374,8 @@ void VulkanRenderBackend::execute_draw_mesh(const CmdDrawMesh& cmd) {
     write_vec4(ubo, refl, "uColor", cmd.material->color() * cmd.color);
     write_vec2(ubo, refl, "uUvScale", cmd.uv_scale);
     write_vec2(ubo, refl, "uUvOffset", cmd.uv_offset);
+    // No cutoff is 0: alpha is never below it, so nothing is discarded.
+    write_float(ubo, refl, "uAlphaCutoff", cmd.material->render_state().alpha_cutoff.value_or(0.0f));
 
     if (override_ptr != nullptr) {
         for (const auto& [param_name, param_val] : override_ptr->vec4_params) {
@@ -684,10 +691,13 @@ VkPipeline VulkanRenderBackend::get_or_create_pipeline(
         return VK_NULL_HANDLE;
     }
 
+    // The cutoff is a uniform, not pipeline state: one pipeline serves every cutoff value.
+    RenderState pipeline_state = state;
+    pipeline_state.alpha_cutoff.reset();
     const PipelineKey key{
         .vert = shader.vertex_module(),
         .frag = shader.fragment_module(),
-        .state = state,
+        .state = pipeline_state,
         .render_pass = active_render_pass_,
         .is_particle = is_particle,
     };
@@ -719,6 +729,8 @@ VkPipeline VulkanRenderBackend::get_or_create_pipeline(
             {1, 0, VK_FORMAT_R32G32_SFLOAT, static_cast<std::uint32_t>(offsetof(MeshVertex, uv))});
         vertex_attrs.push_back(
             {2, 0, VK_FORMAT_R32G32B32_SFLOAT, static_cast<std::uint32_t>(offsetof(MeshVertex, normal))});
+        vertex_attrs.push_back(
+            {3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, static_cast<std::uint32_t>(offsetof(MeshVertex, color))});
     } else {
         vertex_bindings.push_back({0, sizeof(QuadVertex), VK_VERTEX_INPUT_RATE_VERTEX});
         vertex_bindings.push_back({1, sizeof(ParticleInstance), VK_VERTEX_INPUT_RATE_INSTANCE});

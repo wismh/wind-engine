@@ -19,6 +19,7 @@
 #include <engine/render/animation.h>
 #include <engine/render/command_buffer.h>
 #include <engine/render/draw_sort.h>
+#include <engine/render/fog.h>
 #include <engine/render/lights.h>
 #include <engine/render/particles.h>
 #include <engine/render/renderable.h>
@@ -616,6 +617,10 @@ namespace engine {
             const std::vector<DrawItem> items =
                     collect_world_draws(world, view, deps.assets, deps.fatal, view_projections);
             const render::SceneLights lights = render::collect_scene_lights(world);
+            std::optional<render::Fog> fog;
+            if (const render::Fog *camera_fog = world.try_get<render::Fog>(active.entity)) {
+                fog = *camera_fog;
+            }
 
             for (const WindowId id: windows) {
                 render::CommandBuffer *buffer = command_buffer_for(deps, id);
@@ -629,6 +634,7 @@ namespace engine {
                         .projection = projection_matrix(*camera, ui::window_size_for(world, id)),
                         .camera_position = glm::vec3(camera_world[3]),
                         .lights = lights,
+                        .fog = fog,
                         .time = world.try_ctx<Time>() != nullptr ? world.try_ctx<Time>()->total_time : 0.0f,
                 });
                 for (const DrawItem &item: items) {

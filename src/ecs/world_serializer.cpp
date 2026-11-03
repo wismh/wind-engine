@@ -9,6 +9,7 @@
 #include <engine/render/ambient_light.h>
 #include <engine/render/animation.h>
 #include <engine/render/directional_light.h>
+#include <engine/render/fog.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
 #include <engine/render/renderable.h>
@@ -480,6 +481,19 @@ void register_builtin_components(
             [](ComponentReader& in, render::AmbientLight& c) {
                 (void)in.field("color", c.color);
                 (void)in.field("intensity", c.intensity);
+            });
+
+    serializer.register_component<render::Fog>(
+            "fog",
+            [](ComponentWriter& out, const render::Fog& c) {
+                out.field("color", c.color);
+                out.field("start", c.start);
+                out.field("end", c.end);
+            },
+            [](ComponentReader& in, render::Fog& c) {
+                (void)in.field("color", c.color);
+                (void)in.field("start", c.start);
+                (void)in.field("end", c.end);
             });
 
     serializer.register_component<RigidBody2D>(

@@ -21,6 +21,7 @@ For a mesh draw, the engine sets these uniforms on your shader and feeds this ve
 | `aPosition` (location 0) | `vec3` | vertex position |
 | `aUV` (location 1) | `vec2` | vertex UV |
 | `aNormal` (location 2) | `vec3` | vertex normal |
+| `aColor` (location 3) | `vec4` | vertex color (`MeshVertex::color`, white unless the mesh sets it) |
 | `uModel`, `uView`, `uProjection` | `mat4` | model matrix from `Transform`, camera view, camera projection |
 | `uNormalMatrix` | `mat3` | inverse transpose of the model's 3x3, to carry normals to world space |
 | `uColor` | `vec4` | material color times the instance color |
@@ -30,8 +31,10 @@ For a mesh draw, the engine sets these uniforms on your shader and feeds this ve
 | `uLightCount` | `int` | number of directional lights used (0 to 4) |
 | `uLightDirections[4]`, `uLightColors[4]` | `vec3[4]` | world direction each light travels along (unit length), and its color times intensity |
 | `uAmbient` | `vec3` | ambient light (sum of every `AmbientLight`) |
+| `uAlphaCutoff` | `float` | the material's `alpha_cutoff`, 0 when it has none: discard a fragment whose alpha is below it |
+| `uFogEnabled`, `uFogColor`, `uFogRange` | `int`, `vec3`, `vec2` | 1 when the camera has `Fog`, its color, and `(start, end)` ([Basic 3D](Basic-3D.md#4-cutout-and-fog)) |
 
-A uniform your shader does not declare is skipped. The lighting uniforms follow the rules in [Basic 3D](Basic-3D.md#lights).
+A uniform your shader does not declare is skipped. Declare each uniform in one stage only: on Web and Android the two stages have different default float precision, and a uniform declared in both fails to link. The lighting uniforms follow the rules in [Basic 3D](Basic-3D.md#lights).
 
 Example `assets/shaders/custom_glow.shader`:
 
@@ -96,7 +99,7 @@ cull = "none"                                    # "none" (default), "back" or "
 albedo = "0123456789abcdef0123456789abcdef"      # guid of a texture; omit for none
 ```
 
-The defaults are the 2D state: no depth test, no depth write, no culling, so sprites draw in layer order. For a solid 3D mesh write `blend = "opaque"`, `depth = true` (sets `depth_test` and `depth_write` together; an explicit `depth_test` or `depth_write` wins over it) and `cull = "back"`; counter-clockwise triangles are front faces. Glass or another see-through 3D surface is `blend = "alpha"` with `depth_test = true` and `depth_write = false`. Particles ignore depth and culling. In C++ the same settings are `engine::render::RenderState`, the fourth argument of `engine::render::Material`. An unknown `blend` or `cull` value, or a `depth*` key that is not `true` or `false`, makes the material fail to load.
+The defaults are the 2D state: no depth test, no depth write, no culling, so sprites draw in layer order. For a solid 3D mesh write `blend = "opaque"`, `depth = true` (sets `depth_test` and `depth_write` together; an explicit `depth_test` or `depth_write` wins over it) and `cull = "back"`; counter-clockwise triangles are front faces. Glass or another see-through 3D surface is `blend = "alpha"` with `depth_test = true` and `depth_write = false`. Particles ignore depth, culling, and `alpha_cutoff`. For cutout (leaves, fences) add `alpha_cutoff = 0.5` to an opaque depth-tested material: the builtin lit and unlit shaders discard fragments whose alpha is below it, and the material still draws in the opaque pass. `alpha_cutoff` must be a number from 0 to 1. In C++ the same settings are `engine::render::RenderState`, the fourth argument of `engine::render::Material`. An unknown `blend` or `cull` value, or a `depth*` key that is not `true` or `false`, makes the material fail to load.
 
 A `shader` or `albedo` that is not 32 lowercase hex characters makes the material fail to load (`AssetError::Corrupt`). Codegen does not rewrite these strings, so copy the GUIDs from the `.meta` files. There is no `[uniforms]` table: custom shader parameters are set per draw (next section). The `.mat` needs its own `.meta` with `importer = "material"`.
 

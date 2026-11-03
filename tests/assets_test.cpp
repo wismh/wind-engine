@@ -20,6 +20,7 @@
 #include <engine/ui/document.h>
 #include <engine/ui/stylesheet.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -31,6 +32,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 #include "fixtures/fatal_fakes.h"
 
 #ifndef ENGINE_BUILTIN_ASSETS_DIR
@@ -899,6 +901,90 @@ TEST(Assets, GetBuiltinUnlitShader) {
     EXPECT_NE(factory.last_shader.fragment_src.find("uColor"), std::string::npos);
 }
 
+// The unlit shader multiplies by vertex color, discards below the cutoff, and fogs, like the lit one.
+TEST(Assets, GetBuiltinUnlitShaderHasVertexColorCutoutAndFog) {
+    fakes::QuietFatal fatal;
+    engine::AssetsDb db(fatal);
+    ASSERT_TRUE(load_builtin_catalog(db));
+
+    FakeGraphicFactory factory;
+    db.set_graphic_factory(&factory);
+
+    (void)db.get<engine::render::IShader>(engine::builtin::shader_unlit);
+    const engine::render::ShaderDesc desc = factory.last_shader;
+    for (const std::string_view name : {"layout(location = 2) in vec3 aAnim", "layout(location = 3) in vec4 aColor",
+                 "vColor", "vViewPos"}) {
+        EXPECT_NE(desc.vertex_src.find(name), std::string::npos) << name;
+    }
+    for (const std::string_view name :
+            {"* vColor", "uAlphaCutoff", "discard", "uFogEnabled", "uFogColor", "uFogRange", "length(vViewPos)"}) {
+        EXPECT_NE(desc.fragment_src.find(name), std::string::npos) << name;
+    }
+}
+
+// GLSL ES needs a uniform declared in both stages to have one precision, but the vertex stage defaults to highp and
+// the fragment stage to mediump. So no builtin shader declares a uniform in both of its stages.
+TEST(Assets, BuiltinShadersDeclareNoUniformInBothStages) {
+    const auto uniform_names = [](std::string_view src) {
+        std::vector<std::string> names;
+        for (std::size_t pos = src.find("uniform "); pos != std::string_view::npos;
+                pos = src.find("uniform ", pos + 1)) {
+            const std::size_t type_end = src.find(' ', pos + 8);
+            const std::size_t name_end = src.find_first_of(";[", type_end + 1);
+            if (type_end == std::string_view::npos || name_end == std::string_view::npos) {
+                break;
+            }
+            names.emplace_back(src.substr(type_end + 1, name_end - type_end - 1));
+        }
+        return names;
+    };
+    fakes::QuietFatal fatal;
+    engine::AssetsDb db(fatal);
+    ASSERT_TRUE(load_builtin_catalog(db));
+    FakeGraphicFactory factory;
+    db.set_graphic_factory(&factory);
+
+    for (const engine::AssetId id : {engine::builtin::shader_unlit, engine::builtin::shader_lit}) {
+        (void)db.get<engine::render::IShader>(id);
+        const std::vector<std::string> vertex = uniform_names(factory.last_shader.vertex_src);
+        const std::vector<std::string> fragment = uniform_names(factory.last_shader.fragment_src);
+        EXPECT_FALSE(vertex.empty()) << id.hex();
+        EXPECT_FALSE(fragment.empty()) << id.hex();
+        for (const std::string& name : vertex) {
+            EXPECT_EQ(std::find(fragment.begin(), fragment.end(), name), fragment.end())
+                    << id.hex() << " declares " << name << " in both stages";
+        }
+    }
+}
+
+// A `.mesh` row with twelve numbers carries a vertex color through the asset load to the factory.
+TEST(Assets, MeshFileVertexColorsReachTheFactory) {
+    constexpr std::string_view kMeshGuid = "e1a2b3c4d5e6f708192a3b4c5d6e7f80";
+    TempTree tree;
+    write_file(tree.path / "meshes" / "shaded.mesh",
+            "# pos  normal  uv  rgba\n"
+            "0 0 0  0 0 1  0 0  0.2 0.4 0.6 1\n"
+            "1 0 0  0 0 1  1 0  1 1 1 0.5\n"
+            "0 1 0  0 0 1  0 1\n");
+
+    fakes::QuietFatal fatal;
+    engine::AssetsDb db(fatal);
+    db.set_root(tree.path);
+    engine::CookedCatalog catalog;
+    catalog.add({engine::AssetId{kMeshGuid}, "meshes/shaded.mesh", engine::ImporterKind::Mesh});
+    db.set_catalog(std::move(catalog));
+    FakeGraphicFactory factory;
+    db.set_graphic_factory(&factory);
+
+    const auto mesh = db.get<engine::render::IMesh>(engine::AssetId{kMeshGuid});
+    ASSERT_NE(mesh, nullptr);
+    ASSERT_EQ(factory.last_mesh.vertices.size(), 3u);
+    EXPECT_EQ(factory.last_mesh.vertices[0].color, glm::vec4(0.2f, 0.4f, 0.6f, 1.0f));
+    EXPECT_EQ(factory.last_mesh.vertices[1].color, glm::vec4(1.0f, 1.0f, 1.0f, 0.5f));
+    EXPECT_EQ(factory.last_mesh.vertices[2].color, glm::vec4(1.0f));
+    EXPECT_EQ(factory.last_mesh.vertices[1].uv, glm::vec2(1.0f, 0.0f));
+}
+
 TEST(Assets, GetBuiltinUnlitMaterial) {
     fakes::QuietFatal fatal;
     engine::AssetsDb db(fatal);
@@ -934,11 +1020,13 @@ TEST(Assets, GetBuiltinLitShader) {
     const engine::render::ShaderDesc desc = factory.last_shader;
     EXPECT_EQ(desc.vertex_src.rfind("#version 330 core", 0), 0u);
     EXPECT_EQ(desc.fragment_src.rfind("#version 330 core", 0), 0u);
-    for (const std::string_view name : {"aNormal", "uModel", "uView", "uProjection", "uNormalMatrix"}) {
+    for (const std::string_view name : {"aNormal", "uModel", "uView", "uProjection", "uNormalMatrix",
+                 "layout(location = 3) in vec4 aColor", "vColor", "vViewPos"}) {
         EXPECT_NE(desc.vertex_src.find(name), std::string::npos) << name;
     }
     for (const std::string_view name :
-            {"uTexture", "uColor", "uLightCount", "uLightDirections", "uLightColors", "uAmbient", "< 4"}) {
+            {"uTexture", "uColor", "uLightCount", "uLightDirections", "uLightColors", "uAmbient", "< 4", "* vColor",
+                    "uAlphaCutoff", "discard", "uFogEnabled", "uFogColor", "uFogRange", "length(vViewPos)"}) {
         EXPECT_NE(desc.fragment_src.find(name), std::string::npos) << name;
     }
     EXPECT_NE(desc.fragment_src.find("uLightDirections[4]"), std::string::npos)

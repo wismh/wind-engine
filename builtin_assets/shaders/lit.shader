@@ -7,12 +7,15 @@ struct VertexInput {
     [[vk::location(0)]] float3 aPosition : POSITION;
     [[vk::location(1)]] float2 aUV : TEXCOORD0;
     [[vk::location(2)]] float3 aNormal : NORMAL;
+    [[vk::location(3)]] float4 aColor : COLOR0;
 };
 
 struct VertexOutput {
     float4 position : SV_Position;
     [[vk::location(0)]] float2 vUV : TEXCOORD0;
     [[vk::location(1)]] float3 vNormal : NORMAL;
+    [[vk::location(2)]] float4 vColor : COLOR0;
+    [[vk::location(3)]] float3 vViewPos : TEXCOORD1;
 };
 
 uniform float4x4 uModel;
@@ -30,19 +33,31 @@ uniform int uLightCount;
 uniform float3 uLightDirections[kMaxDirectionalLights];
 uniform float3 uLightColors[kMaxDirectionalLights];
 uniform float3 uAmbient;
+// RenderState::alpha_cutoff, 0 when unset (alpha is never below 0).
+uniform float uAlphaCutoff;
+// CmdSetView::fog: enabled flag, color, and (start, end).
+uniform int uFogEnabled;
+uniform float3 uFogColor;
+uniform float2 uFogRange;
 
 [shader("vertex")]
 VertexOutput vertexMain(VertexInput input) {
     VertexOutput out;
     out.vUV = input.aUV * uUvScale + uUvOffset;
     out.vNormal = mul(uNormalMatrix, input.aNormal);
-    out.position = mul(uProjection, mul(uView, mul(uModel, float4(input.aPosition, 1.0))));
+    out.vColor = input.aColor;
+    float4 viewPos = mul(uView, mul(uModel, float4(input.aPosition, 1.0)));
+    out.vViewPos = viewPos.xyz;
+    out.position = mul(uProjection, viewPos);
     return out;
 }
 
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target {
-    float4 albedo = uTexture.Sample(input.vUV) * uColor;
+    float4 albedo = uTexture.Sample(input.vUV) * uColor * input.vColor;
+    if (albedo.a < uAlphaCutoff) {
+        discard;
+    }
     float3 normal = normalize(input.vNormal);
     float3 light = uAmbient;
     for (int i = 0; i < 4; ++i) {
@@ -51,7 +66,12 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         }
         light += uLightColors[i] * max(dot(normal, -uLightDirections[i]), 0.0);
     }
-    return float4(albedo.rgb * light, albedo.a);
+    float3 color = albedo.rgb * light;
+    if (uFogEnabled != 0) {
+        float fog = clamp((uFogRange.y - length(input.vViewPos)) / max(uFogRange.y - uFogRange.x, 0.0001), 0.0, 1.0);
+        color = lerp(uFogColor, color, fog);
+    }
+    return float4(color, albedo.a);
 }
 ]]></slang>
 <glsl>
@@ -61,9 +81,12 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         layout(location = 0) in vec3 aPosition;
         layout(location = 1) in vec2 aUV;
         layout(location = 2) in vec3 aNormal;
+        layout(location = 3) in vec4 aColor;
 
         out vec2 vUV;
         out vec3 vNormal;
+        out vec4 vColor;
+        out vec3 vViewPos;
 
         uniform mat4 uModel;
         uniform mat4 uView;
@@ -76,7 +99,10 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         void main() {
             vUV = aUV * uUvScale + uUvOffset;
             vNormal = uNormalMatrix * aNormal;
-            gl_Position = uProjection * uView * uModel * vec4(aPosition, 1.0);
+            vColor = aColor;
+            vec4 viewPos = uView * uModel * vec4(aPosition, 1.0);
+            vViewPos = viewPos.xyz;
+            gl_Position = uProjection * viewPos;
         }
     ]]></vertex>
 
@@ -90,6 +116,8 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
 
         in vec2 vUV;
         in vec3 vNormal;
+        in vec4 vColor;
+        in vec3 vViewPos;
 
         uniform sampler2D uTexture;
         uniform vec4 uColor;
@@ -98,9 +126,18 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         uniform vec3 uLightDirections[4];
         uniform vec3 uLightColors[4];
         uniform vec3 uAmbient;
+        // RenderState::alpha_cutoff, 0 when unset (alpha is never below 0).
+        uniform float uAlphaCutoff;
+        // CmdSetView::fog: enabled flag, color, and (start, end).
+        uniform int uFogEnabled;
+        uniform vec3 uFogColor;
+        uniform vec2 uFogRange;
 
         void main() {
-            vec4 albedo = texture(uTexture, vUV) * uColor;
+            vec4 albedo = texture(uTexture, vUV) * uColor * vColor;
+            if (albedo.a < uAlphaCutoff) {
+                discard;
+            }
             vec3 normal = normalize(vNormal);
             vec3 light = uAmbient;
             for (int i = 0; i < 4; ++i) {
@@ -109,7 +146,12 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
                 }
                 light += uLightColors[i] * max(dot(normal, -uLightDirections[i]), 0.0);
             }
-            FragColor = vec4(albedo.rgb * light, albedo.a);
+            vec3 color = albedo.rgb * light;
+            if (uFogEnabled != 0) {
+                float fog = clamp((uFogRange.y - length(vViewPos)) / max(uFogRange.y - uFogRange.x, 0.0001), 0.0, 1.0);
+                color = mix(uFogColor, color, fog);
+            }
+            FragColor = vec4(color, albedo.a);
         }
     ]]></fragment>
 </glsl>

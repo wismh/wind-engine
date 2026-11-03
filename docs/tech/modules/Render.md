@@ -17,13 +17,13 @@ Draw order and `.mat` files: [Materials and Sort](../features/Materials%20and%20
 
 There is no custom-draw callback on the variant.
 
-`CmdSetView` is the view state of the world draws that follow it: `view`, `projection`, `camera_position` (the translation of the camera's world matrix), `lights` (`SceneLights`, see [Lights](#lights)), and optional `viewport` (`std::optional<Rect>`, in top-left window coordinates) and `clear_color` (`std::optional<glm::vec4>`). It holds until the next `CmdSetView` in the same buffer. The draws carry no camera: `CmdDrawMesh` has only its `model`, and `CmdDrawParticles` has none (its instances are in world space). A draw before any `CmdSetView` in a buffer uses identity view and projection, camera position zero, no lights (`directional_count` 0, ambient black), full-window viewport, and no clear, which is a default-constructed `CmdSetView`; the OpenGL backend resets to that at the start of every `execute`. A test or tool that pushes its own `CmdDrawMesh` therefore draws in clip space unless it pushes a `CmdSetView` first.
+`CmdSetView` is the view state of the world draws that follow it: `view`, `projection`, `camera_position` (the translation of the camera's world matrix), `lights` (`SceneLights`, see [Lights](#lights)), optional `fog` (`std::optional<Fog>`, see [Fog](#fog)), and optional `viewport` (`std::optional<Rect>`, in top-left window coordinates) and `clear_color` (`std::optional<glm::vec4>`). It holds until the next `CmdSetView` in the same buffer. The draws carry no camera: `CmdDrawMesh` has only its `model`, and `CmdDrawParticles` has none (its instances are in world space). A draw before any `CmdSetView` in a buffer uses identity view and projection, camera position zero, no lights (`directional_count` 0, ambient black), no fog, full-window viewport, and no clear, which is a default-constructed `CmdSetView`; the OpenGL backend resets to that at the start of every `execute`. A test or tool that pushes its own `CmdDrawMesh` therefore draws in clip space unless it pushes a `CmdSetView` first.
 
 `CommandBuffer` stores that variant and can `push`, `clear`, and be iterated. `IRenderBackend::execute` consumes one buffer. `ICanvas::draw` is the present hook the headless `Host` calls. The windowed path calls `draw_all` on the presentation instead; `OpenGLCanvas` splits it into `render`, `read_pixels` (only for a `wind-cli screenshot`), and `present`.
 
 ## Materials and meshes
 
-`IMaterial` is shader, `texture(slot)`, color, and `render_state()`: a `RenderState` of `BlendMode` (`Opaque`, `Alpha`, `Additive`), `depth_test`, `depth_write`, and `CullMode` (`None`, `Back`, `Front`). `RenderState{}` is the 2D state (alpha, no depth, no culling). `Material` stores one albedo in slot 0. Any other slot returns null.
+`IMaterial` is shader, `texture(slot)`, color, and `render_state()`: a `RenderState` of `BlendMode` (`Opaque`, `Alpha`, `Additive`), `depth_test`, `depth_write`, `CullMode` (`None`, `Back`, `Front`), and `alpha_cutoff` (`std::optional<float>`, see [Cutout](#cutout)). `RenderState{}` is the 2D state (alpha, no depth, no culling, no cutoff). `Material` stores one albedo in slot 0. Any other slot returns null.
 
 `MaterialOverride` replaces slot 0 and/or named `vec4` uniforms for one draw. `set_vec4` replaces the value when that name is already in `vec4_params`, and appends the name when it is not.
 
@@ -39,9 +39,9 @@ GPU objects are `IMesh`, `IShader`, `ITexture` created by `IGraphicFactory` from
 
 ## Meshes
 
-`MeshDesc` (`include/engine/render/graphic_factory.h`) is `vertices` plus `indices`. A `MeshVertex` is `position`, `normal` (default `{0, 0, 1}`), and `uv`. Empty `indices` is a non-indexed triangle list: every three vertices are one triangle. Otherwise every three `std::uint32_t` indices are one, each below `vertices.size()`. Front faces wind counter-clockwise; normals are written as given, so a lit shader expects unit length.
+`MeshDesc` (`include/engine/render/graphic_factory.h`) is `vertices` plus `indices`. A `MeshVertex` is `position`, `normal` (default `{0, 0, 1}`), `uv`, and `color` (`glm::vec4`, default white): 48 bytes. Empty `indices` is a non-indexed triangle list: every three vertices are one triangle. Otherwise every three `std::uint32_t` indices are one, each below `vertices.size()`. Front faces wind counter-clockwise; normals are written as given, so a lit shader expects unit length.
 
-Vertex shader inputs are fixed: position at `location = 0`, uv at `1`, normal at `2`. A shader that reads only 0 and 1 (`builtin::shader_unlit`, every 2D shader) ignores the normal, so a quad draws as it did before normals existed. The particle draw has its own vertex buffer and locations 0 to 7; it does not use `MeshVertex`.
+Vertex shader inputs are fixed: position at `location = 0`, uv at `1`, normal at `2`, color at `3`. Both backends always feed all four, and a shader reads what it declares. `builtin::shader_lit` and `builtin::shader_unlit` multiply the albedo by the vertex color (baked light and ambient occlusion in a block world, or a tint). `builtin::shader_unlit` reads location 2 as `aAnim`, the animated-tile parameters the tilemap baker packs into `normal` (`aAnim.x <= 1` is a static tile, so a plain quad's +Z normal is not animated). `make_*` primitives, the tilemap baker, and `.mesh` rows without color all write white, so nothing drawn before vertex color existed changes. The particle draw has its own vertex buffer and locations 0 to 7; it does not use `MeshVertex`.
 
 `mesh_desc_error` (`src/render/mesh_check.h`) names why a desc cannot be drawn: no vertices, an index count that is not a multiple of 3, or an index at or past the vertex count. `OpenGLMesh` logs that error and stays invalid, so `create_mesh` returns null and an asset load is `AssetError::Corrupt`. `parse_mesh` rejects the same descs. `OpenGLMesh` keeps one vertex buffer and, when there are indices, one element buffer, uploaded with no VAO bound. Each context's VAO binds the element buffer in its setup (the element binding is VAO state), and `draw` calls `glDrawElements(GL_TRIANGLES, n, GL_UNSIGNED_INT, …)`, or `glDrawArrays` without indices. GLES 3.0 and WebGL2 accept 32-bit indices.
 
@@ -66,7 +66,7 @@ The `.mesh` file format is in [Assets](../features/Assets.md#mesh-files).
 | `make_plane(size = 1, subdivisions = 1)` | Square on the XZ plane, +Y normal, `subdivisions` (at least 1) cells per side. U along +X, V along -Z |
 | `make_uv_sphere(radius = 0.5, segments = 32, rings = 16)` | `segments` (at least 3) around Y, `rings` (at least 2) pole to pole, a duplicated seam column. U wraps from +Z towards +X; V is 1 at the top. The triangle of a pole band that would touch the pole twice is left out |
 
-`tests/primitives_test.cpp` checks that `quad.mesh` and `cube.mesh` parse to exactly `make_quad()` and `make_cube()`.
+Every primitive leaves `color` white. `tests/primitives_test.cpp` checks that, and that `quad.mesh` and `cube.mesh` parse to exactly `make_quad()` and `make_cube()`.
 
 ## World draw
 
@@ -137,12 +137,19 @@ Unlit shaders ignore all of it, so lights never change a 2D game.
 `builtin::shader_lit` (`builtin_assets/shaders/lit.shader`, GLSL 330 core in CDATA, rewritten to 300 es by `adapt_glsl` like every shader) is Lambert diffuse plus ambient in world space:
 
 ```
-albedo = texture(uTexture, vUV) * uColor
+albedo = texture(uTexture, vUV) * uColor * vColor        // vColor: vertex color, location 3
+if (albedo.a < uAlphaCutoff) discard                      // cutout
 light  = uAmbient + sum over i < uLightCount of uLightColors[i] * max(dot(N, -uLightDirections[i]), 0)
-FragColor = vec4(albedo.rgb * light, albedo.a)
+color  = albedo.rgb * light
+if (uFogEnabled != 0) color = mix(uFogColor, color, fog factor of length(vViewPos))
+FragColor = vec4(color, albedo.a)
 ```
 
-`N` is `normalize(uNormalMatrix * aNormal)` (vertex location 2). The loop runs to the constant `kMaxDirectionalLights` (a `#define` of 4 in the shader, the same number as the C++ constant) and breaks at `uLightCount`, which GLSL ES 3.00 accepts. There is no specular term, so `uCameraPosition` is set but this shader does not read it.
+`N` is `normalize(uNormalMatrix * aNormal)` (vertex location 2). The loop runs to the constant `kMaxDirectionalLights` (a `#define` of 4 in the shader, the same number as the C++ constant) and breaks at `uLightCount`, which GLSL ES 3.00 accepts. There is no specular term, so `uCameraPosition` is set but this shader does not read it. `vViewPos` is the view-space position (`uView * uModel * position`), so the fog distance needs no uniform in the fragment stage that the vertex stage also declares.
+
+`builtin::shader_unlit` is the same without lighting: `color = texture(uTexture, vUV) * uColor * vColor`, the same cutout test and the same fog, plus the animated-tile UV offset from `aAnim` and `uTime`.
+
+GLSL ES requires a uniform declared in both stages to have the same precision; the vertex stage defaults to highp and `adapt_glsl` gives the fragment stage mediump. So each uniform of the builtin shaders is declared in one stage only (`Assets.BuiltinShadersDeclareNoUniformInBothStages`).
 
 `builtin::material_lit` (`builtin_assets/materials/lit.mat`) is that shader, white, no texture, `blend = "opaque"`, `depth = true`, `cull = "back"`, so it goes in the opaque queue.
 
@@ -157,9 +164,26 @@ Uniforms the backend sets for each mesh draw (the view and light ones also for e
 | `uLightCount` | `int` | `lights.directional_count` |
 | `uLightDirections[4]`, `uLightColors[4]` | `vec3` arrays | `lights.directions`, `lights.colors` (always all four elements) |
 | `uAmbient` | `vec3` | `lights.ambient` |
+| `uAlphaCutoff` | `float` | `material->render_state().alpha_cutoff`, 0 when unset (mesh draws only) |
+| `uFogEnabled` | `int` | 1 when `CmdSetView::fog` is set, else 0 |
+| `uFogColor`, `uFogRange` | `vec3`, `vec2` | `fog->color` and `(fog->start, fog->end)`; white and (0, 100) without fog |
 | `uColor`, `uUvScale`, `uUvOffset`, `uTexture` | | as before ([Materials and Sort](../features/Materials%20and%20Sort.md#color)) |
 
 `OpenGLShader` setters do nothing for a uniform the program does not have (location -1, which GL ignores; the new `set_mat3`, `set_vec3` and `set_vec3_array` check it explicitly), so `builtin::shader_unlit` and every 2D shader draw exactly as before.
+
+## Cutout
+
+`RenderState::alpha_cutoff` is alpha test. The backend sets `uAlphaCutoff` for every mesh draw to the cutoff, or 0 when there is none, and the builtin lit and unlit shaders discard a fragment whose albedo alpha (texture times material color times vertex color) is below it. Alpha is never below 0, so 0 is "off" and needs no flag; a zero-initialized Vulkan uniform block is off too. A `.mat` sets it with `alpha_cutoff = 0.5` ([Materials and Sort](../features/Materials%20and%20Sort.md#mat)).
+
+Cutout does not change the queue: an opaque material with depth write and a cutoff (leaves, fences, grass) stays in the opaque queue, sorts front to back, and writes depth for the fragments it keeps. The cutoff is a uniform, not a shader variant, so the `discard` is in the builtin shaders whether a cutoff is set or not. On some GPUs a shader that can discard loses early depth testing for every draw that uses it, cutout or not; that is the cost of one lit and one unlit shader. Particles ignore the cutoff.
+
+## Fog
+
+`render::Fog` (`include/engine/render/fog.h`) is linear distance fog: `color` (white), `start` (0), `end` (100). There is no exponential mode. Put it on the `ActiveCamera` entity: `run_render` copies it into every window's `CmdSetView::fog`. Without the component `fog` is empty and nothing is fogged; a `Fog` on any other entity is ignored. It is serialized as the `fog` world component (`color`, `start`, `end`).
+
+The builtin lit and unlit shaders mix the fragment's color towards `color` by `clamp((end - d) / max(end - start, 0.0001), 0, 1)`, where `d` is the fragment's distance from the camera (the length of its view-space position, so fog does not change as the camera turns). An `end` at or before `start` is a hard edge at `end`. Alpha is not fogged, and an additive material fades to the fog color, not to black.
+
+Fogged: everything drawn with `builtin::shader_lit` or `builtin::shader_unlit`, sprites and tilemaps included, but only under a camera that has `Fog`, so a 2D game is unchanged. Not fogged: particles (their builtin GL and Slang shaders have no fog; a custom particle shader receives the fog uniforms and may use them), UI, and `render_world_viewport`, which pushes no fog (the editor's scene viewport is unfogged). Both backends set the fog uniforms for mesh and particle draws from the current view ([Lit shader](#lit-shader)).
 
 ## Sprites, animation, particles, curves
 
@@ -233,6 +257,7 @@ Pipeline state of world draws (`opengl_backend.cpp`). Each `CmdDrawMesh` sets al
 - Blend: `Opaque` disables `GL_BLEND`; `Alpha` is `SRC_ALPHA, ONE_MINUS_SRC_ALPHA`; `Additive` is `SRC_ALPHA, ONE`.
 - Depth: test and write both off disables `GL_DEPTH_TEST`. Otherwise `GL_DEPTH_TEST` is on with `glDepthFunc(GL_LEQUAL)` (an equal depth passes, so a second pass over the same surface draws), or `GL_ALWAYS` when only write is on (GL writes no depth while the test is disabled). `glDepthMask` follows `depth_write`.
 - Cull: `None` disables `GL_CULL_FACE`; `Back` / `Front` enable it with `glFrontFace(GL_CCW)` and that `glCullFace`.
+- Cutout: `uAlphaCutoff` ([Cutout](#cutout)).
 - `CmdDrawParticles` uses `cmd.blend` with depth test, depth write, and culling off, whatever its material says.
 
 After the last command `OpenGLRenderBackend::execute` disables `GL_DEPTH_TEST` and `GL_CULL_FACE` and sets `glDepthMask(GL_TRUE)`. The UI flush that follows sets its own state anyway (no depth, stencil, cull). The mask matters for the next frame: `glClear` honours it, so a false mask would keep last frame's depth. `OpenGLCanvas::render` also sets `glDepthMask(GL_TRUE)` right before its `glClear(COLOR | STENCIL | DEPTH)`. State is per context: each window's canvas runs both in its own context, so every window starts its frame with a cleared depth buffer. The default framebuffer has a 24-bit depth buffer (`SDL_GL_DEPTH_SIZE`, `window_system.cpp`).
@@ -264,6 +289,8 @@ GL errors are silent unless someone asks. With `ENGINE_GL_CHECKS` (Debug, RelWit
 
 Retired buffers (`src/render/vulkan/vulkan_retire_queue.h`, held by `VulkanContext`). A buffer a mesh replaced or dropped may still be read by up to `kMaxFramesInFlight` submitted frames, or by the frame being recorded. `VulkanContext::retire_buffer` tags it with the serial of the next submission. Each `VulkanCanvas` records `VulkanContext::note_submitted()` for a frame slot after its `vkQueueSubmit`, and passes that serial to `note_completed` after waiting on the slot's fence, which destroys everything tagged at or below it. Every canvas submits to the one graphics queue, and a fence signalled by a submit covers all earlier submits on that queue, so one completed serial is enough even with several windows. `release_retired` destroys everything after a `vkDeviceWaitIdle` (canvas shutdown, swapchain recreation, `VulkanContext::shutdown`). `VulkanTexture` does not use it yet: a dynamic texture whose size changes destroys its image at once, which a frame in flight may still sample.
 
+Vulkan mesh pipelines declare all four `MeshVertex` attributes (color is `R32G32B32A32_SFLOAT` at location 3). The pipeline cache key is the shader modules, the render state with `alpha_cutoff` cleared (the cutoff is a uniform, so one pipeline serves every value), the render pass, and the particle flag. `uAlphaCutoff` and the fog uniforms go into the draw's uniform block like the others.
+
 `EngineRuntime` selects `make_sdl_vk_presentation()` when built with `-DENGINE_WITH_VULKAN=ON` or when `WIND_RENDER_BACKEND=vulkan` is set in the environment (`WIND_RENDER_BACKEND=opengl` forces OpenGL).
 
 ## CPU sources (always)
@@ -281,6 +308,7 @@ Retired buffers (`src/render/vulkan/vulkan_retire_queue.h`, held by `VulkanConte
 - `include/engine/render/commands.h`
 - `include/engine/render/command_buffer.h`
 - `include/engine/render/directional_light.h`
+- `include/engine/render/fog.h`
 - `include/engine/render/ambient_light.h`
 - `include/engine/render/scene_lights.h`
 - `include/engine/render/lights.h`
@@ -300,7 +328,7 @@ Retired buffers (`src/render/vulkan/vulkan_retire_queue.h`, held by `VulkanConte
 
 ## Tests
 
-`tests/command_buffer_test.cpp`, `tests/lights_test.cpp` (light collection, lights and camera in `CmdSetView`), `tests/sort_test.cpp`, `tests/material_test.cpp`, `tests/render_system_test.cpp`, `tests/sprite_test.cpp`, `tests/animation_test.cpp`, `tests/tilemap_test.cpp` (chunk edits update the chunk's mesh), `tests/mesh_test.cpp` (`IMesh::update` validation and keep-old rule), `tests/vulkan_backend_test.cpp` (window builds: mesh update without a device, `RetireQueue` serials), `tests/particle_test.cpp`, `tests/shader_adapt_test.cpp`, `tests/opengl_texture_test.cpp` (CPU texture desc, no GL draw), `tests/ui_painter_test.cpp` (fake painter), `tests/window_icon_test.cpp`, `tests/context_objects_test.cpp` (context keys and deferred VAO deletes, no GL), `tests/gl_error_log_test.cpp`, `tests/ui_renderer_test.cpp` (UI renderer against a fake device: texture catch-up per device, draws per batch).
+`tests/command_buffer_test.cpp`, `tests/lights_test.cpp` (light collection, lights and camera in `CmdSetView`), `tests/fog_test.cpp` (no fog by default, the camera's `Fog` in every view, none in `render_world_viewport`, serialization), `tests/sort_test.cpp`, `tests/material_test.cpp`, `tests/render_system_test.cpp`, `tests/sprite_test.cpp`, `tests/animation_test.cpp`, `tests/tilemap_test.cpp` (chunk edits update the chunk's mesh), `tests/mesh_test.cpp` (`IMesh::update` validation and keep-old rule, `.mesh` vertex colors), `tests/vulkan_backend_test.cpp` (window builds: mesh update without a device, `RetireQueue` serials), `tests/particle_test.cpp`, `tests/shader_adapt_test.cpp`, `tests/opengl_texture_test.cpp` (CPU texture desc, no GL draw), `tests/ui_painter_test.cpp` (fake painter), `tests/window_icon_test.cpp`, `tests/context_objects_test.cpp` (context keys and deferred VAO deletes, no GL), `tests/gl_error_log_test.cpp`, `tests/ui_renderer_test.cpp` (UI renderer against a fake device: texture catch-up per device, draws per batch).
 
 GPU pixels stay out of `engine_tests`. See [Boundaries](../architecture/Boundaries.md).
 

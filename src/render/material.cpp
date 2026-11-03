@@ -120,6 +120,18 @@ std::optional<MaterialDesc> parse_material_table(const toml::table& table) {
         desc.state.cull = *cull;
     }
 
+    // A number in [0, 1]; anything else (a string, a boolean, NaN, out of range) fails the parse.
+    if (const toml::node* cutoff_node = table.get("alpha_cutoff")) {
+        if (!cutoff_node->is_floating_point() && !cutoff_node->is_integer()) {
+            return std::nullopt;
+        }
+        const auto cutoff = node_as_float(*cutoff_node);
+        if (!cutoff || !(*cutoff >= 0.0f && *cutoff <= 1.0f)) {
+            return std::nullopt;
+        }
+        desc.state.alpha_cutoff = *cutoff;
+    }
+
     if (const toml::node* color_node = table.get("color")) {
         const toml::array* const arr = color_node->as_array();
         if (arr == nullptr || arr->size() != 4) {

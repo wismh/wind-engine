@@ -13,10 +13,10 @@ The engine owns everything below that which any 3D or networked game would reuse
 Checked against `include/engine/` at `53bf8c5`:
 
 - ~~`IMesh` has no update.~~ Done in wind-299: `IMesh::update` ([Render](../modules/Render.md#mesh-updates)).
-- `MeshVertex` is position, normal, uv. No vertex color, so baked block light and AO have nowhere to go.
+- ~~`MeshVertex` is position, normal, uv. No vertex color, so baked block light and AO have nowhere to go.~~ Done in wind-300: `MeshVertex::color` ([Render](../modules/Render.md#meshes)).
 - `run_render` culls only tilemap chunks (`tilemap_chunk_visible`). Every `Renderable` is drawn.
 - `TextureDesc` has `filter` (`Nearest`, `Linear`) and `wrap`. No mipmaps, no texture arrays. A block atlas shimmers at distance and bleeds between tiles.
-- No alpha-test (cutout) render state, no fog, no sky.
+- ~~No alpha-test (cutout) render state, no fog,~~ no sky. Cutout and fog done in wind-300 ([Cutout](../modules/Render.md#cutout), [Fog](../modules/Render.md#fog)).
 - `IWindowControl::capture_mouse` is `SDL_CaptureMouse` (drag outside the window). There is no relative mode: the cursor is not hidden or locked for a first-person camera. `MouseEvent::relative` already carries the delta.
 - `physics_2d` only. No 3D collision or grid raycast.
 - `JobSystem` is fork-join `parallel_for` only. A chunk mesh built over several frames has no home.
@@ -54,6 +54,8 @@ Do:
 Done when: `engine_tests` cover validation and the keep-old-on-failure rule through a recording factory; Render.md updated; tilemap edits go through `update`.
 
 ### wind-300 feat: vertex color, cutout and fog in the lit path
+
+Status: done. `MeshVertex::color` at location 3 (`.mesh` 12-column rows), read by both builtin lit and unlit shaders; `RenderState::alpha_cutoff` (`.mat` `alpha_cutoff`) as a uniform with an always-present `discard`, opaque queue kept; linear `Fog` component on the active camera into `CmdSetView::fog`. Particles, UI, and `render_world_viewport` are not fogged. See [Render](../modules/Render.md#cutout).
 
 Problem: baked light and AO need a per-vertex color; leaves and glass need alpha-test; distance needs fog to hide the load edge.
 
