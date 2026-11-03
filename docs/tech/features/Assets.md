@@ -85,13 +85,36 @@ f 1 3 2
 
 Meshes on the GPU: [Render](../modules/Render.md#meshes).
 
+## Texture arrays
+
+`importer = "texture_array"` on a PNG's `.meta` makes the image a GPU texture array with one layer per `[[sprites]]` frame, in `.meta` order (the same rect syntax as a `layout = "multiple"` sheet; `layout`, `pixels_per_unit` and pivots are not used). `filter`, `wrap`, and `mipmaps` apply as to a texture. A block game writes `mipmaps = "linear"` and `filter = "nearest"`:
+
+```toml
+guid = "..."
+importer = "texture_array"
+filter = "nearest"
+mipmaps = "linear"
+
+[[sprites]]
+name = "stone"
+rect = [0, 0, 16, 16]
+
+[[sprites]]
+name = "dirt"
+rect = [16, 0, 16, 16]
+```
+
+`get<render::TextureArray>(id)` (`include/engine/render/texture_array.h`) is the texture plus the frame names; `layer("dirt")` is the layer index for `MeshVertex::layer`, nullopt for an unknown name. `get<render::ITexture>(id)` is the same texture (`layers()` is the frame count), so a `.mat` `[textures].albedo` naming the asset binds the array. The PNG is only an array: `get_sprite`, `SpriteSheet`, and `TextureDesc` are `AssetError::TypeMismatch` for it, so 2D icons of the same art need their own texture.
+
+Checks. Parsing the `.meta` fails (`MetaError::InvalidField`, so the cook fails with `InvalidMeta`) without frames, with more than 256 (`render::kMaxTextureArrayLayers`), with frames of different sizes, or with two frames of one name. `asset_codegen` also decodes the PNG and fails with `CodegenErrorKind::TextureArray` when a frame is not inside the image or the file is not a PNG. At load the same frame check makes the asset `AssetError::Corrupt` (the reason is logged). The importer is `texture_array_from_frames` (`src/resources/importers.h`). GPU side: [Render](../modules/Render.md#texture-arrays).
+
 ## Shaders
 
 `importer = "shader"` (`.shader`, assigned by `asset_guid`) is an XML file containing Slang shader source (`<shader lang="slang"><![CDATA[...]]></shader>` or `<slang>`), an optional `<glsl><vertex>...</vertex><fragment>...</fragment></glsl>` backend override, or legacy `<xml><vertex>...</vertex><fragment>...</fragment></xml>` raw GLSL (`parse_shader` / `parse_shader_xml`, `src/resources/importers.cpp`). `asset_codegen` compiles and validates every `.shader` file and fails the build with `CodegenErrorKind::Shader` on syntax, type, or XML errors. See [Render](../modules/Render.md#shaders).
 
 ## Builtin set
 
-Eleven frozen GUIDs. The splash image and the tree chevron are `importer = "ui_image"`. The list is [Resources](../modules/Resources.md) and `builtin_assets/README.md`.
+Thirteen frozen GUIDs. The splash image and the tree chevron are `importer = "ui_image"`. The list is [Resources](../modules/Resources.md) and `builtin_assets/README.md`.
 
 ## Runtime textures
 

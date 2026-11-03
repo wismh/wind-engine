@@ -102,6 +102,51 @@ The builtin lit and unlit shaders (so sprites and tilemaps too) fade linearly to
 
 ---
 
+## 5. Block Textures: Texture Arrays and Mipmaps
+
+A block atlas drawn with nearest filtering shimmers at a distance, and mipmapping an atlas bleeds neighbouring tiles into each other. Give each block face its own layer of a texture array instead. Mark the PNG as an array in its `.meta`; every `[[sprites]]` frame becomes one layer:
+
+```toml
+guid = "3c4d5e6f708192a3b4c5d6e7f8091a2b"
+importer = "texture_array"
+filter = "nearest"
+mipmaps = "linear"
+
+[[sprites]]
+name = "stone"
+rect = [0, 0, 16, 16]
+
+[[sprites]]
+name = "dirt"
+rect = [16, 0, 16, 16]
+```
+
+All frames must be the same size and inside the image, at most 256 of them; otherwise the cook fails. Point a material at a builtin array shader (`builtin::shader_lit_array`, GUID `a0e1b2c3d4f5678901234567890abc0c`, or `builtin::shader_unlit_array`, `...abc0d`, when light is baked into vertex colors):
+
+```toml
+shader = "asset://a0e1b2c3d4f5678901234567890abc0d"
+blend = "opaque"
+depth = true
+cull = "back"
+
+[textures]
+albedo = "asset://3c4d5e6f708192a3b4c5d6e7f8091a2b"
+```
+
+Your mesher writes the layer of each face into `MeshVertex::layer`, the same value on every vertex of a triangle:
+
+```cpp
+#include <engine/render/texture_array.h>
+
+auto blocks = services.assets.get<engine::render::TextureArray>(assets::textures::blocks);
+const float stone = static_cast<float>(*blocks->layer("stone"));
+vertex.layer = stone;   // with vertex.uv in 0..1 over the face
+```
+
+The array PNG cannot also be used as a sprite sheet; keep a separate texture for 2D icons. `.mesh` files have no layer column (their vertices use layer 0). Any texture can be mipmapped with `mipmaps = "nearest"` or `"linear"` in its `.meta`.
+
+---
+
 ## Next Steps
 
 - Camera details and screen rays: [Camera](Camera.md).

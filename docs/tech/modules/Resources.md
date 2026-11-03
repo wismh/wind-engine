@@ -8,7 +8,7 @@ The runtime walkthrough is [Assets](../features/Assets.md). The cook tools are [
 
 `AssetId` is exactly 32 lowercase hex characters (`include/engine/resources/asset_id.h`). The constructor throws `std::invalid_argument` when the string is not valid. `parse` returns `nullopt` instead.
 
-Builtin ids in `include/engine/builtin_ids.h` are frozen. `builtin::reserved()` is the eleven ids `asset_codegen` rejects in a game tree. Do not regenerate them. See `builtin_assets/README.md`.
+Builtin ids in `include/engine/builtin_ids.h` are frozen. `builtin::reserved()` is the thirteen ids `asset_codegen` rejects in a game tree. Do not regenerate them. See `builtin_assets/README.md`.
 
 | Constant | GUID suffix | File |
 | --- | --- | --- |
@@ -23,6 +23,8 @@ Builtin ids in `include/engine/builtin_ids.h` are frozen. `builtin::reserved()` 
 | `mesh_cube` | `…abc09` | `meshes/cube.mesh` |
 | `shader_lit` | `…abc0a` | `shaders/lit.shader` |
 | `material_lit` | `…abc0b` | `materials/lit.mat` |
+| `shader_lit_array` | `…abc0c` | `shaders/lit_array.shader` |
+| `shader_unlit_array` | `…abc0d` | `shaders/unlit_array.shader` |
 
 The full literals are in `builtin_ids.h`. The table's suffix is the last five characters.
 
@@ -48,8 +50,11 @@ The full literals are in `builtin_ids.h`. The table's suffix is the last five ch
 | `Object` | `object` | a `WIND_SERIALIZABLE` struct registered on `AssetsDb` (`.object`) |
 | `Tilemap` | `tilemap` | `render::TilemapAsset` (`.tilemap` TOML plus its tileset texture) |
 | `Data` | `data` | `TextAsset` (file bytes as text, never parsed by the engine) |
+| `TextureArray` | `texture_array` | `render::TextureArray` (one GPU array layer per `[[sprites]]` frame of a PNG; also `ITexture`) |
 
-Texture defaults: sRGB, linear filter, clamp wrap, `layout = single`, `pixels_per_unit = 100`. Audio defaults: SFX bank, volume 1, pitch 1–1, loop false.
+Texture defaults: sRGB, linear filter, clamp wrap, `mipmaps = "none"`, `layout = single`, `pixels_per_unit = 100`.
+
+`mipmaps` (`MipmapMode`) is `"none"`, `"nearest"`, or `"linear"`: the filter between mip levels; `filter` stays the filter inside a level ([Render](Render.md#mipmaps)). Any other value, or one that is not a string, is `MetaError::InvalidField`. The cooked catalog keeps it for `texture`, `ui_image`, and `texture_array` entries; the UI image atlas ignores it. A `texture_array` sidecar takes the texture keys plus at least one `[[sprites]]` frame, all of one size with unique names, at most 256 ([Assets](../features/Assets.md#texture-arrays)). Audio defaults: SFX bank, volume 1, pitch 1–1, loop false.
 
 `layout = "multiple"` stores `[[sprites]]` rects. `SpriteSheet::get(name)` turns a rect into UV `tiling` and `offset` (Y flipped against the texture height). `AssetsDb::get_sprite(id, name)` uses that. An empty name on a single-layout texture is the whole image.
 
@@ -107,7 +112,7 @@ UI binders and component codegen (`component_io.h`): [Asset Codegen](../build/As
 
 - `tools/asset_codegen/main.cpp` — `asset_codegen [<assets_dir> <output_dir> [--engine]] [--components <output_file> [<source_dir>...]]`
 - `tools/asset_guid/main.cpp` — `asset_guid <assets_dir>`
-- `tests/assets_test.cpp`, `tests/builtin_test.cpp`, `tests/sprite_test.cpp`, `tests/component_codegen_test.cpp`
+- `tests/assets_test.cpp`, `tests/builtin_test.cpp`, `tests/sprite_test.cpp`, `tests/component_codegen_test.cpp`, `tests/texture_array_test.cpp`
 
 ## See also
 

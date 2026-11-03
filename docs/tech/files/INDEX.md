@@ -102,7 +102,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/render/primitives.h` | `make_quad`, `make_cube`, `make_plane`, `make_uv_sphere` | [Render](../modules/Render.md#primitives) |
 | `include/engine/render/renderable.h` | `Renderable`, `RenderableItem`, `sort_renderables` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `include/engine/render/scene_lights.h` | `SceneLights`, `kMaxDirectionalLights`, default light constants | [Render](../modules/Render.md#lights) |
-| `include/engine/render/shader_adapt.h` | GLSL 330 to GLSL 300 ES | [Render](../modules/Render.md) |
+| `include/engine/render/shader_adapt.h` | GLSL 330 to GLSL 300 ES (adds the `sampler2DArray` precision) | [Render](../modules/Render.md) |
+| `include/engine/render/texture_array.h` | `TextureArray` asset: array texture plus frame names, `layer(name)` | [Render](../modules/Render.md#texture-arrays) |
 | `include/engine/render/sprite.h` | `Sprite` quad fields | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `include/engine/resources/.gitkeep` | Keeps the directory in Git | [Resources](../modules/Resources.md) |
 | `include/engine/resources/asset_guid.h` | `write_missing_metas` | [Asset Codegen](../build/Asset%20Codegen.md) |
@@ -114,7 +115,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/resources/default_fatal_error.h` | `DefaultFatalError`, `default_fatal_error()` | [Core](../modules/Core.md) |
 | `include/engine/resources/fatal_error.h` | `IFatalError` (`report` is `[[noreturn]]`) | [Core](../modules/Core.md) |
 | `include/engine/resources/font.h` | `Font` file bytes | [Resources](../modules/Resources.md) |
-| `include/engine/resources/meta.h` | Importers, `.meta` parse, `codegen_write` | [Resources](../modules/Resources.md) |
+| `include/engine/resources/meta.h` | Importers, `MipmapMode`, `.meta` parse, `codegen_write` | [Resources](../modules/Resources.md) |
 | `include/engine/resources/sprite_sheet.h` | Named rect to sprite UVs | [Assets](../features/Assets.md) |
 | `include/engine/resources/text_asset.h` | `TextAsset` raw text asset for data importer | [Assets](../features/Assets.md) |
 | `include/engine/ui/.gitkeep` | Keeps the directory in Git | [UI](../modules/UI.md) |
@@ -216,7 +217,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/resources/codegen.cpp` | Scan tree, emit `asset_ids.h` and `catalog.toml` | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `src/resources/icon_codegen.cpp` | Resize and encode ico, icns, mipmaps, favicon | [Icon Codegen](../build/Icon%20Codegen.md) |
 | `src/resources/icon_codegen.h` | Icon encode API used by the host tool | [Icon Codegen](../build/Icon%20Codegen.md) |
-| `src/resources/importers.cpp` | Mesh text (vertices, normals, `f` index rows), shader XML, PNG decode entry points | [Assets](../features/Assets.md) |
+| `src/resources/importers.cpp` | Mesh text (vertices, normals, `f` index rows), shader XML, PNG decode entry points, `texture_array_from_frames` | [Assets](../features/Assets.md) |
 | `src/resources/importers.h` | Those parsers, and `encode_png_rgba` | [Assets](../features/Assets.md) |
 | `src/resources/meta.cpp` | TOML `.meta` and cooked catalog parse | [Resources](../modules/Resources.md) |
 | `src/resources/png_decode.cpp` | PNG bytes to RGBA `TextureDesc` | [Icon Codegen](../build/Icon%20Codegen.md) |
@@ -243,6 +244,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/material_instance.h` | `IMaterial` for a loaded `.mat` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `src/render/mesh.cpp` | `IMesh::update`: validate, then the backend's `replace` | [Render](../modules/Render.md#mesh-updates) |
 | `src/render/mesh_check.cpp`, `src/render/mesh_check.h` | `mesh_desc_error`: why a `MeshDesc` cannot be drawn | [Render](../modules/Render.md#meshes) |
+| `src/render/texture_check.cpp`, `src/render/texture_check.h` | `texture_array_desc_error`, `mip_level_count`, per-layer row flip | [Render](../modules/Render.md#texture-arrays) |
 | `src/render/particles.cpp` | Spawn, integrate, and collide particles | [Render](../modules/Render.md) |
 | `src/render/primitives.cpp` | Procedural quad, cube, plane, and UV sphere | [Render](../modules/Render.md#primitives) |
 | `src/render/shader_adapt.cpp` | Rewrite GLSL for ES | [Render](../modules/Render.md) |
@@ -265,7 +267,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/opengl/opengl_mesh.h` | GL mesh type | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_shader.cpp` | GL program and named uniforms | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_shader.h` | GL shader type | [Render](../modules/Render.md) |
-| `src/render/opengl/opengl_texture.cpp` | GL texture and sampler from catalog filter and wrap; `update` of a dynamic texture | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_texture.cpp` | GL 2D texture or texture array and sampler from catalog filter, wrap, and mipmaps (`glGenerateMipmap`); `update` of a dynamic texture | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_texture.h` | GL texture type | [Render](../modules/Render.md) |
 | `src/render/opengl/sdl_gl_presentation.cpp` | SDL poll, present, and `IPresentation` | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/sdl_gl_presentation.h` | `SdlGlPresentation` | [Windowing](../features/Windowing.md) |
@@ -450,6 +452,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/android_assets_test.cpp` | Android asset staging without a device | [Runtime Assets](../build/Runtime%20Assets.md) |
 | `tests/android_lifecycle_test.cpp` | Pause, resume, back key routing | [Core](../modules/Core.md) |
 | `tests/animation_test.cpp` | Sprite clip parse and playback | [Render](../modules/Render.md) |
+| `tests/texture_array_test.cpp` | Texture array desc checks, mip level count, frame import, `mipmaps` and `texture_array` `.meta`, catalog, layers by name through `AssetsDb`, array albedo in a `.mat`, codegen failures | [Assets](../features/Assets.md#texture-arrays) |
 | `tests/tilemap_test.cpp` | `.tilemap` parse, chunk bake and UVs, culling, dirty chunks updating their mesh, `AssetsDb` load | [Render](../modules/Render.md#tilemaps) |
 | `tests/assets_test.cpp` | Catalog, `get` / `try_get`, `unload_catalog`, codegen failures, stylesheet warnings in `game.log` | [Assets](../features/Assets.md) |
 | `tests/asset_ref_test.cpp` | `AssetRef<T>` typed asset handle tests | [Assets](../features/Assets.md) |
@@ -507,7 +510,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/material_test.cpp` | `.mat` parse (blend, depth, cull, `alpha_cutoff`, defaults) and instance tint | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `tests/mesh_test.cpp` | `.mesh` parse (5-, 8- and 12-column vertices, vertex color, `f` rows, bad rows and indices), `mesh_desc_error`, `IMesh::update` validation and keep-old rule | [Assets](../features/Assets.md#mesh-files) |
 | `tests/mvvm_test.cpp` | View-model properties, commands, checkbox write-back | [UI](../modules/UI.md) |
-| `tests/opengl_texture_test.cpp` | CPU texture description, row flip, dynamic-texture creation contract. No GL draw | [Render](../modules/Render.md) |
+| `tests/opengl_texture_test.cpp` | CPU texture description, row flip, dynamic-texture and texture-array creation contract. No GL draw | [Render](../modules/Render.md) |
 | `tests/particle_test.cpp` | Emitter step, curves, and parallel integration matching the caller | [Render](../modules/Render.md) |
 | `tests/pointer_target_test.cpp` | `PointerTarget`: hit-test, order, windows, camera, hover, click, click-through, UI first | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `tests/lights_test.cpp` | Light collection (direction from rotation and parent, cap, ambient sum, default rig) and the lights and camera in `CmdSetView` | [Render](../modules/Render.md#lights) |
@@ -523,7 +526,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/project_test.cpp` | `wind_project.toml` and `sdk.toml` reading and their errors | [Project](../modules/Project.md) |
 | `tests/render_system_test.cpp` | `run_render` sort (queues, depth order, 2D order at different z); unset camera skips, missing components fatal | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `tests/serializable_object_test.cpp` | Nested `WIND_SERIALIZABLE` world round trip and `AssetsDb` object load, mismatch, corrupt file, and `clear_object_loaders` | [Assets](../features/Assets.md) |
-| `tests/shader_adapt_test.cpp` | GLSL 300 ES rewrite | [Render](../modules/Render.md) |
+| `tests/shader_adapt_test.cpp` | GLSL 300 ES rewrite, `sampler2DArray` precision | [Render](../modules/Render.md) |
 | `tests/sort_test.cpp` | `draw_sort_less` queues and keys, `sort_renderables` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `tests/splash_test.cpp` | Splash documents and the timer | [UI](../modules/UI.md) |
 | `tests/sprite_test.cpp` | Sprite sheet UVs and `get_sprite` | [Assets](../features/Assets.md) |

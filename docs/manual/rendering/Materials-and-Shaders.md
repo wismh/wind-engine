@@ -22,11 +22,12 @@ For a mesh draw, the engine sets these uniforms on your shader and feeds this ve
 | `aUV` (location 1) | `vec2` | vertex UV |
 | `aNormal` (location 2) | `vec3` | vertex normal |
 | `aColor` (location 3) | `vec4` | vertex color (`MeshVertex::color`, white unless the mesh sets it) |
+| `aLayer` (location 4) | `float` | texture array layer (`MeshVertex::layer`, 0 unless the mesh sets it); pass it to the fragment stage as `flat` |
 | `uModel`, `uView`, `uProjection` | `mat4` | model matrix from `Transform`, camera view, camera projection |
 | `uNormalMatrix` | `mat3` | inverse transpose of the model's 3x3, to carry normals to world space |
 | `uColor` | `vec4` | material color times the instance color |
 | `uUvScale`, `uUvOffset` | `vec2` | `Sprite::tiling` / `offset` (`1,1` / `0,0` for a `Renderable`) |
-| `uTexture` | `sampler2D` | the material's albedo (texture unit 0); a 1x1 white texture when the material has none |
+| `uTexture` | `sampler2D` | the material's albedo (texture unit 0); a 1x1 white texture when the material has none. Declare it `sampler2DArray` and sample `texture(uTexture, vec3(uv, layer))` when the albedo is a texture array; a mismatched kind samples white |
 | `uCameraPosition` | `vec3` | camera position in world space |
 | `uLightCount` | `int` | number of directional lights used (0 to 4) |
 | `uLightDirections[4]`, `uLightColors[4]` | `vec3[4]` | world direction each light travels along (unit length), and its color times intensity |
@@ -78,7 +79,7 @@ Example `assets/shaders/custom_glow.shader`:
 </shader>
 ```
 
-The engine's builtin `shaders/unlit.shader` is the shortest working example (in an SDK it is `bin/assets/engine/shaders/unlit.shader`). `shaders/lit.shader` is the lit one: Lambert diffuse per directional light plus ambient.
+The engine's builtin `shaders/unlit.shader` is the shortest working example (in an SDK it is `bin/assets/engine/shaders/unlit.shader`). `shaders/lit.shader` is the lit one: Lambert diffuse per directional light plus ambient. `shaders/lit_array.shader` and `shaders/unlit_array.shader` sample a texture array ([Basic 3D](Basic-3D.md#5-block-textures-texture-arrays-and-mipmaps)); on Web and Android the engine adds the `precision mediump sampler2DArray;` GLSL ES needs.
 
 ---
 

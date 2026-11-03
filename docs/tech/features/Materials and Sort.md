@@ -47,6 +47,8 @@ The builtin lit and unlit shaders multiply that by the vertex color as well (`Me
 
 A material with no albedo samples a 1x1 white texture in the OpenGL backend, so the draw is `uColor` (times the lighting under `shader_lit`), never black or a stale texture.
 
+The albedo may be a texture array (`ITexture::layers() > 0`, a `texture_array` asset), read by a shader that declares `sampler2DArray uTexture`, such as `builtin::shader_lit_array` and `builtin::shader_unlit_array`, at each vertex's `MeshVertex::layer`. When the albedo's kind does not match the shader's sampler (an array under a `sampler2D` shader or the reverse), both backends bind white instead, the same as no albedo ([Render](../modules/Render.md#texture-arrays)). The material, its slot, and the sort do not change.
+
 ## Matrices
 
 Camera: `ctx<ActiveCamera>` holds one entity. When `ctx<BoundWindows>().ids` is empty, `run_render` returns before it clears a command buffer and before it reads the camera.
@@ -110,7 +112,7 @@ TOML parsed by `parse_material`:
 
 `blend`, `depth*`, `cull`, and `alpha_cutoff` fill `MaterialDesc::state`. An unknown `blend` or `cull` string fails the parse, as does a `depth`, `depth_test`, or `depth_write` that is not a TOML boolean (an integer `1` is not accepted), and an `alpha_cutoff` that is not a number (an integer is accepted), is NaN, or is outside 0 to 1. A cutout 3D material is `blend = "opaque"`, `depth = true`, `cull = "back"` (or `"none"` for two-sided leaves), `alpha_cutoff = 0.5`. A 3D opaque material is `blend = "opaque"`, `depth = true`, `cull = "back"`.
 
-`shader` and `[textures].albedo` are `AssetId` hex strings, parsed at load. A value that is not 32 lowercase hex characters makes the material `AssetError::Corrupt`. Omit `[textures]`, or leave that table empty, for no texture. A top-level `albedo` is ignored, so the material loads with no texture. A non-hex `textures.albedo` fails the parse. Codegen does not rewrite those strings.
+`shader` and `[textures].albedo` are asset URIs (`"asset://"` plus the 32 lowercase hex characters of the `AssetId`), parsed at load. A value that is not one fails the parse. `albedo` may name a `texture` or a `texture_array` asset. Omit `[textures]`, or leave that table empty, for no texture. A top-level `albedo` is ignored, so the material loads with no texture. A `textures.albedo` that is not an asset URI fails the parse. Codegen does not rewrite those strings.
 
 ## Where it executes
 
