@@ -72,6 +72,11 @@ namespace engine {
             ui::UiInputBatchCache input_batch;
             for (const MouseEvent &event:
                  ecs::EventReader<MouseEvent>{world, world.ctx<ecs::EventCursor<MouseEvent>>()}) {
+                // Relative mouse mode hides the cursor: no hover, press, or wheel at a point the player cannot
+                // see, and so no consumption. Up still ends a press, drag, or pan that began before the lock.
+                if (event.locked && event.kind != MouseEvent::Kind::Up) {
+                    continue;
+                }
                 ui::UiPointer &pointer = ui::pointer_for(world, event.window);
                 if (event.kind == MouseEvent::Kind::Move || event.kind == MouseEvent::Kind::Down ||
                     event.kind == MouseEvent::Kind::Up) {

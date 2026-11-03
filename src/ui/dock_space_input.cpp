@@ -497,6 +497,10 @@ namespace engine::ui {
         DockRuntime &runtime = world.ctx<DockRuntime>();
         std::vector<MouseEvent> mouse;
         for (const MouseEvent &event: ecs::EventReader<MouseEvent>{world, runtime.mouse}) {
+            // A locked cursor (relative mouse mode) points at nothing; its release still ends a gesture.
+            if (event.locked && event.kind != MouseEvent::Kind::Up) {
+                continue;
+            }
             mouse.push_back(event);
         }
         std::vector<KeyEvent> keys;

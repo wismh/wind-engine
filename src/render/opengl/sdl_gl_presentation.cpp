@@ -215,6 +215,7 @@ public:
                 };
             }
         });
+        sync_mouse_locks(input);
         SDL_Event event{};
         while (SDL_PollEvent(&event)) {
             dispatch(worlds, input, event);
@@ -264,6 +265,13 @@ public:
     }
 
 private:
+    // MouseEvent::locked follows relative mouse mode: on for a window while the mode is in effect there.
+    void sync_mouse_locks(InputSystem& input) {
+        windows_.for_each_window([&](WindowId id, WindowSystem&) {
+            input.set_mouse_locked(id, windows_.relative_mouse().active(id));
+        });
+    }
+
     void sync_modal_hook() {
         if (loop_tick_) {
             overlay_.sync_modal_loop_hook(windows_, loop_tick_);
@@ -410,7 +418,9 @@ private:
                 const WindowId window_id = *target;
                 WindowSystem* window = windows_.window(window_id);
                 if (window != nullptr) {
+                    // A locked cursor points at nothing, so it never starts a window move.
                     if (event.button.down && event.button.button == SDL_BUTTON_LEFT &&
+                            !windows_.relative_mouse().active(window_id) &&
                             window->begin_drag_if_in_region(glm::vec2{event.button.x, event.button.y})) {
                         break;
                     }
@@ -455,6 +465,17 @@ private:
                 WindowSystem* const window = window_id ? windows_.window(*window_id) : nullptr;
                 if (window != nullptr && window->is_dragging()) {
                     window->end_drag();
+                }
+                if (window_id) {
+                    windows_.relative_mouse().focus_lost(*window_id);
+                    sync_mouse_locks(input);
+                }
+                break;
+            }
+            case SDL_EVENT_WINDOW_FOCUS_GAINED: {
+                if (const std::optional<WindowId> window_id = window_of(event.window.windowID, NoWindowEvent::Drop)) {
+                    windows_.relative_mouse().focus_gained(*window_id);
+                    sync_mouse_locks(input);
                 }
                 break;
             }
