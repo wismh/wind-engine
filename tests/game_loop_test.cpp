@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <format>
+#include <functional>
 #include <fstream>
 #include <iterator>
 #include <optional>
@@ -77,9 +78,15 @@ public:
     bool reset_ui_cache(engine::WindowId) override {
         return true;
     }
-    void poll(engine::Worlds&, engine::InputSystem&) override {
+    void poll(engine::Worlds&, engine::InputSystem& input) override {
         log_->push_back("poll");
+        if (on_poll) {
+            on_poll(input);
+        }
     }
+
+    // Runs inside poll, where the real presentation hands SDL events to the input system.
+    std::function<void(engine::InputSystem&)> on_poll;
     void sync_frame(engine::Worlds&) override {}
     // Each window this frame captures reads back as a 3x2 image whose red channel is the window id.
     void draw_all(std::span<engine::FrameCapture> captures) override {
@@ -291,3 +298,38 @@ TEST(GameLoop, ScreenshotIsReadBetweenDrawingAndTheAnswer) {
 }
 
 #endif
+
+TEST(GameLoop, EachTickStartsAnInputFrameBeforePoll) {
+    fakes::QuietFatal fatal;
+    engine::Worlds worlds{fatal};
+    engine::ecs::World target;
+    engine::InputSystem input;
+    input.set_router([&target](engine::WindowId) { return &target; });
+    const engine::ActionId look_x = input.intern("look_x");
+    input.bind(engine::MouseAxis::X, look_x);
+    std::vector<std::string> log;
+    FakePresentation presentation{log};
+    std::vector<float> seen_at_poll;
+    std::vector<float> seen_after_poll;
+    presentation.on_poll = [&](engine::InputSystem& polled) {
+        seen_at_poll.push_back(polled.axis(look_x));
+        polled.handle_mouse_move(engine::kPrimaryWindow, glm::vec2{}, glm::vec2{5.f, 0.f});
+    };
+    int frames = 0;
+
+    engine::GameLoop loop;
+    loop.run(presentation,
+            engine::RunHooks{
+                    .on_frame_end = [&] {
+                        seen_after_poll.push_back(input.axis(look_x));
+                        if (++frames == 2) {
+                            worlds.application_state().quit();
+                        }
+                    },
+            },
+            worlds, input, nullptr, nullptr, nullptr, [] {});
+
+    // The motion of one frame is visible for that frame only.
+    EXPECT_EQ(seen_at_poll, (std::vector<float>{0.f, 0.f}));
+    EXPECT_EQ(seen_after_poll, (std::vector<float>{5.f, 5.f}));
+}

@@ -580,3 +580,114 @@ TEST(PointerTarget, PerspectiveCameraHitsTargetsOnTheirOwnPlane) {
     EXPECT_EQ(engine::pointer_target_at(scene.world, engine::kPrimaryWindow, raised_at), raised);
     EXPECT_FALSE(engine::pointer_target_at(scene.world, engine::kPrimaryWindow, {400.0f, 300.0f}));
 }
+
+TEST(PointerTarget, ALockedCursorHoversAndPressesNothing) {
+    Scene scene;
+    const auto box = scene.box({0.0f, 0.0f, 0.0f}, {2.0f, 2.0f});
+    const glm::vec2 at = Scene::screen(0.0f, 0.0f);
+    scene.move_to(engine::kPrimaryWindow, at);
+    ASSERT_EQ(scene.frame().size(), 1u);
+    ASSERT_TRUE(scene.world.get<PointerTarget>(box).hovered);
+
+    // Relative mouse mode: the cursor is hidden where it was. Hover ends, a press does nothing.
+    engine::ecs::EventWriter<MouseEvent>{scene.world}.send(MouseEvent{
+            .window = engine::kPrimaryWindow, .kind = MouseEvent::Kind::Move, .position = at, .locked = true});
+    auto events = scene.frame();
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].kind, PointerTargetEvent::Kind::Exit);
+    EXPECT_FALSE(scene.world.get<PointerTarget>(box).hovered);
+
+    engine::ecs::EventWriter<MouseEvent>{scene.world}.send(MouseEvent{.window = engine::kPrimaryWindow,
+            .kind = MouseEvent::Kind::Down,
+            .position = at,
+            .button = MouseButton::Left,
+            .locked = true});
+    EXPECT_TRUE(scene.frame().empty());
+    EXPECT_FALSE(scene.world.get<PointerTarget>(box).pressed);
+    EXPECT_FALSE(engine::ui::presentation_of(scene.world).mouse.consumed_for(engine::kPrimaryWindow));
+    // Still locked with no new event: hover stays off.
+    EXPECT_TRUE(scene.frame().empty());
+
+    // Unlocked again: the target under the cursor is entered.
+    scene.move_to(engine::kPrimaryWindow, at);
+    events = scene.frame();
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].kind, PointerTargetEvent::Kind::Enter);
+}
+
+TEST(PointerTarget, ALockedReleaseEndsAPressWithoutAClick) {
+    Scene scene;
+    const auto box = scene.box({0.0f, 0.0f, 0.0f}, {2.0f, 2.0f});
+    const glm::vec2 at = Scene::screen(0.0f, 0.0f);
+    scene.press(engine::kPrimaryWindow, at);
+    ASSERT_EQ(count(scene.frame(), PointerTargetEvent::Kind::Press), 1u);
+
+    engine::ecs::EventWriter<MouseEvent>{scene.world}.send(MouseEvent{.window = engine::kPrimaryWindow,
+            .kind = MouseEvent::Kind::Up,
+            .position = at,
+            .button = MouseButton::Left,
+            .locked = true});
+    const auto events = scene.frame();
+
+    EXPECT_EQ(count(events, PointerTargetEvent::Kind::Click), 0u);
+    EXPECT_FALSE(scene.world.get<PointerTarget>(box).pressed);
+}
+
+TEST(PointerTarget, ALockedPressReachesNeitherTheUiNorATarget) {
+    Scene scene;
+    const auto box = scene.box({0.0f, 0.0f, 0.0f}, {8.0f, 8.0f});
+
+    auto vm = std::make_shared<ClickViewModel>();
+    const auto parsed = engine::ui::parse_xml(
+            R"(<Canvas><Button command="{binding click}" content="Go"/></Canvas>)", nullptr, vm.get());
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ecs::Entity canvas_entity = scene.world.create();
+    engine::ui::UiCanvas canvas;
+    canvas.rect = {380.0f, 280.0f, 100.0f, 100.0f};
+    canvas.fit = engine::ui::UiFit::Fixed;
+    canvas.data_context = vm;
+    scene.world.emplace<engine::ui::UiCanvas>(canvas_entity, canvas);
+    scene.world.emplace<engine::ui::UiInstance>(canvas_entity, engine::ui::UiInstance{*parsed});
+    engine::register_engine_systems(scene.world, engine::EngineSystemDeps{});
+
+    const auto run_frame = [&] {
+        engine::ui::reset_pointer_frame(engine::ui::presentation_of(scene.world));
+        scene.world.run(engine::ecs::Schedule::Frame);
+        std::vector<PointerTargetEvent> sent;
+        for (const PointerTargetEvent& event : engine::ecs::EventReader<PointerTargetEvent>{scene.world, scene.cursor}) {
+            sent.push_back(event);
+        }
+        scene.world.flush_events();
+        return sent;
+    };
+
+    // On the button, locked: no command, no consumption, so gameplay gets the click.
+    for (const MouseEvent::Kind kind : {MouseEvent::Kind::Move, MouseEvent::Kind::Down, MouseEvent::Kind::Wheel}) {
+        engine::ecs::EventWriter<MouseEvent>{scene.world}.send(MouseEvent{.window = engine::kPrimaryWindow,
+                .kind = kind,
+                .position = {384.0f, 284.0f},
+                .button = kind == MouseEvent::Kind::Down ? MouseButton::Left : MouseButton::None,
+                .wheel_y = kind == MouseEvent::Kind::Wheel ? 1.0f : 0.0f,
+                .locked = true});
+    }
+    EXPECT_TRUE(run_frame().empty());
+    EXPECT_EQ(vm->clicks, 0);
+    EXPECT_FALSE(engine::ui::presentation_of(scene.world).mouse.consumed_for(engine::kPrimaryWindow));
+    EXPECT_FALSE(scene.world.get<PointerTarget>(box).pressed);
+    EXPECT_FALSE(engine::ui::pointer_for(scene.world, engine::kPrimaryWindow).down);
+
+    // The same press unlocked runs the command.
+    scene.press(engine::kPrimaryWindow, {384.0f, 284.0f});
+    EXPECT_TRUE(run_frame().empty());
+    EXPECT_EQ(vm->clicks, 1);
+    EXPECT_TRUE(engine::ui::pointer_for(scene.world, engine::kPrimaryWindow).down);
+
+    // A locked release still ends that press.
+    engine::ecs::EventWriter<MouseEvent>{scene.world}.send(MouseEvent{.window = engine::kPrimaryWindow,
+            .kind = MouseEvent::Kind::Up,
+            .position = {384.0f, 284.0f},
+            .button = MouseButton::Left,
+            .locked = true});
+    (void)run_frame();
+    EXPECT_FALSE(engine::ui::pointer_for(scene.world, engine::kPrimaryWindow).down);
+}
