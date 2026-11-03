@@ -174,3 +174,34 @@ TEST(Material, InvalidDepthOrCullFails) {
     EXPECT_FALSE(parse_with("depth_test = 1\n").has_value());
     EXPECT_FALSE(parse_with("depth_write = \"true\"\n").has_value());
 }
+
+TEST(Material, AlphaCutoffDefaultsToNone) {
+    EXPECT_FALSE(engine::render::RenderState{}.alpha_cutoff.has_value());
+    const auto desc = parse_with("blend = \"opaque\"\ndepth = true\n");
+    ASSERT_TRUE(desc.has_value());
+    EXPECT_FALSE(desc->state.alpha_cutoff.has_value());
+}
+
+TEST(Material, ParsesAlphaCutoff) {
+    const auto half = parse_with("depth = true\nalpha_cutoff = 0.5\n");
+    ASSERT_TRUE(half.has_value());
+    ASSERT_TRUE(half->state.alpha_cutoff.has_value());
+    EXPECT_FLOAT_EQ(*half->state.alpha_cutoff, 0.5f);
+    EXPECT_EQ(half->state.blend, engine::render::BlendMode::Opaque);
+
+    const auto integer = parse_with("alpha_cutoff = 1\n");
+    ASSERT_TRUE(integer.has_value());
+    EXPECT_EQ(integer->state.alpha_cutoff, std::optional<float>(1.0f));
+
+    const auto zero = parse_with("alpha_cutoff = 0.0\n");
+    ASSERT_TRUE(zero.has_value());
+    EXPECT_EQ(zero->state.alpha_cutoff, std::optional<float>(0.0f));
+}
+
+TEST(Material, InvalidAlphaCutoffFails) {
+    EXPECT_FALSE(parse_with("alpha_cutoff = \"0.5\"\n").has_value());
+    EXPECT_FALSE(parse_with("alpha_cutoff = true\n").has_value());
+    EXPECT_FALSE(parse_with("alpha_cutoff = -0.1\n").has_value());
+    EXPECT_FALSE(parse_with("alpha_cutoff = 1.5\n").has_value());
+    EXPECT_FALSE(parse_with("alpha_cutoff = nan\n").has_value());
+}

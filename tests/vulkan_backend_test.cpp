@@ -25,6 +25,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace engine::render {
@@ -239,6 +240,13 @@ TEST(VulkanBackendTest, SpirvReflectionExtractsUniformsFromBuiltinSlangShaders) 
     ASSERT_NE(lit_refl.find_uniform("uLightColors"), nullptr);
     EXPECT_EQ(lit_refl.find_uniform("uLightColors")->array_elements, 4u);
     EXPECT_NE(lit_refl.find_uniform("uAmbient"), nullptr);
+
+    // Cutout and fog uniforms, which the backend writes for every mesh draw.
+    for (const SpirvReflection* refl : {&unlit_refl, &lit_refl}) {
+        for (const std::string_view name : {"uAlphaCutoff", "uFogEnabled", "uFogColor", "uFogRange"}) {
+            EXPECT_NE(refl->find_uniform(name), nullptr) << name;
+        }
+    }
 }
 #endif
 
