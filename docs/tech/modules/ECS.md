@@ -149,6 +149,40 @@ The physics is 2D: `include/engine/ecs/physics_2d.h`. Its components, event and 
 
 `RigidBody2D.velocity` moves the local `Transform.position`, so the velocity of a child is in its parent's space. There is no contact solver, no response impulse, and no Z test. Overlap state is `ctx<PhysicsOverlapState>` in `src/ecs/physics_2d.cpp`.
 
+### Grid queries
+
+`include/engine/ecs/grid_query.h`, `src/ecs/grid_query.cpp`. Collision against a grid of solid cells and a ray through cells, for block worlds and tile games. Pure math like [Ray queries](#ray-queries): no world, no components, nothing registered. It needs no rigid-body 3D physics.
+
+Grid space: cell `(i, j, k)` covers `[i, i+1) x [j, j+1) x [k, k+1)`. The cell size is 1 and the origin is 0; there is no cell-size parameter, so the caller scales world coordinates into grid space (a ray's `t` survives the scaling when its direction is scaled too). +Y is up. Precision: keep coordinates within about +-8192 cells, where a float step is still finer than `kGridSkin`; a position snapped to a face is an exact integer at any range.
+
+`is_solid` is a `CellPredicate<glm::ivec3>` (2D: `glm::ivec2`): a non-owning reference to a `bool(Cell)` callable, two pointers and one indirect call per cell, like C++26 `std::function_ref`. It is valid only for the call it is passed to; never store one. Pass a lambda at the call site; a free function goes through a lambda or a function-pointer variable. The algorithms stay in the `.cpp` (one template over the dimension), so a game does not compile them.
+
+| Function | Result |
+| --- | --- |
+| `raycast_grid(ray, max_distance, is_solid)` | `std::optional<GridHit>`: the first solid `cell`, the face entered (`normal`, one axis +-1, facing back along the ray; `cell + normal` is the cell the ray came from), `t` and `point` |
+| `raycast_grid(origin, direction, max_distance, is_solid)` | 2D over `glm::vec2`: `GridHit2D` |
+| `sweep_aabb(box, delta, is_solid)` | `GridSweep`: the resolved `render::Aabb`, `moved` (the applied displacement), `hit` per axis (0 free, +1 blocked moving +axis, -1 blocked moving -axis), `grounded()` = `hit.y < 0` |
+| `sweep_aabb(min, max, delta, is_solid)` | 2D: `GridSweep2D` |
+
+Ray (Amanatides-Woo DDA):
+
+- `t` and `max_distance` are multiples of `direction`, as in `ray.h`: distances for a unit direction. `t <= max_distance` hits.
+- A boundary is half-open in the direction of travel: a ray that starts on a face and points away does not touch the cell behind it.
+- A ray that starts inside a solid cell reports `t = 0`, a zero normal and the origin, even with a zero direction or `max_distance = 0`.
+- A ray exactly through an edge or a corner (boundary `t` equal within 1e-6, relative) is blocked by any solid cell that touches it there. The side cells are tested x, y, z, then xy, xz, yz, then the diagonal cell; the normal is the first stepped axis of that cell. A line of sight cannot slip through the seam between two diagonal blocks.
+- nullopt: a miss within `max_distance`, a zero direction outside a solid cell, `max_distance < 0`, or a non-finite input (or a coordinate beyond 1e9).
+
+Sweep:
+
+- Axis-separated: Y, then X, then Z (2D: Y, X). Each axis stops flush against the first solid face ahead of the box. Every face crossed along the axis is tested, so no speed tunnels through a wall.
+- A move is cut into `ceil(max |delta|)` sub-steps, at most 64, so a fast diagonal move cuts no corner larger than a cell (past 64 cells a sub-step is longer than a cell; it still does not tunnel). An axis blocked in one sub-step stays blocked; the others keep sliding.
+- `kGridSkin` (1e-3 grid units): the cells across the motion come from the box shrunk by the skin, so a box resting on a floor or flush against a wall slides along it and does not catch on cell seams. A box sunk up to the skin into a face it moves toward snaps back onto it. A box resting on a floor under a downward delta snaps to exactly the same face every call: grounded, no drift, no jitter.
+- A move that ends exactly on a face counts as blocked. A zero delta on an axis reports no hit there.
+- Cells the box already overlaps deeper than the skin are ignored: a box inside a solid is never stuck, and is not pushed out.
+- No step-up: a one-cell step blocks horizontal motion. A reversed bound is swapped. A non-finite box or delta returns the box unmoved.
+
+The engine has no tile collision flag; a tile layer is a lambda. Tilemap rows run down while y runs up, so grid cell `(x, y)` is row `-y - 1`: `map.tile(layer, c.x, -c.y - 1) != 0`, with the box taken relative to the map's position and divided by `TilemapAsset::cell_size()`.
+
 ## World serialization
 
 `include/engine/ecs/world_io.h`, `include/engine/ecs/world_asset.h`, `include/engine/ecs/world_serializer.h`.
@@ -189,11 +223,13 @@ The physics is 2D: `include/engine/ecs/physics_2d.h`. Its components, event and 
 - `include/engine/ecs/camera.h`
 - `include/engine/ecs/pointer_target.h`
 - `include/engine/ecs/physics_2d.h`
+- `include/engine/ecs/grid_query.h`
+- `include/engine/ecs/ray.h`
 - `include/engine/ecs/systems.h`
 
 ## Tests
 
-`tests/ecs_test.cpp`, `tests/hierarchy_test.cpp`, `tests/hierarchy_systems_test.cpp`, `tests/events_test.cpp`, `tests/camera_test.cpp`, `tests/physics_2d_test.cpp`, `tests/pointer_target_test.cpp`, `tests/world_serializer_test.cpp`, `tests/prototype_test.cpp`.
+`tests/ecs_test.cpp`, `tests/hierarchy_test.cpp`, `tests/hierarchy_systems_test.cpp`, `tests/events_test.cpp`, `tests/camera_test.cpp`, `tests/physics_2d_test.cpp`, `tests/grid_query_test.cpp`, `tests/ray_test.cpp`, `tests/pointer_target_test.cpp`, `tests/world_serializer_test.cpp`, `tests/prototype_test.cpp`.
 
 ## See also
 

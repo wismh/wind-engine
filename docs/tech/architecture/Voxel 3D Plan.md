@@ -18,7 +18,7 @@ Checked against `include/engine/` at `53bf8c5`:
 - ~~`TextureDesc` has `filter` (`Nearest`, `Linear`) and `wrap`. No mipmaps, no texture arrays. A block atlas shimmers at distance and bleeds between tiles.~~ Done in wind-301: `mipmaps` and `texture_array` ([Mipmaps](../modules/Render.md#mipmaps), [Texture arrays](../modules/Render.md#texture-arrays)).
 - ~~No alpha-test (cutout) render state, no fog,~~ no sky. Cutout and fog done in wind-300 ([Cutout](../modules/Render.md#cutout), [Fog](../modules/Render.md#fog)).
 - ~~`IWindowControl::capture_mouse` is `SDL_CaptureMouse` (drag outside the window). There is no relative mode: the cursor is not hidden or locked for a first-person camera.~~ Done in wind-302: `set_relative_mouse` and `MouseAxis` bindings ([Windowing](../features/Windowing.md#relative-mouse), [Input Mapper](../features/Input%20Mapper.md#axes-mouse-look-and-composites)).
-- `physics_2d` only. No 3D collision or grid raycast.
+- ~~`physics_2d` only. No 3D collision or grid raycast.~~ Grid collision and raycast done in wind-304: `sweep_aabb` and `raycast_grid` ([Grid queries](../modules/ECS.md#grid-queries)). Still no 3D rigid-body physics.
 - `JobSystem` is fork-join `parallel_for` only. A chunk mesh built over several frames has no home.
 - No compression library.
 - Net: `run_network_server_replication` sends every `NetIdentity` + `Transform` to every client each call, unreliable, with no tick number, no baseline, no relevance. `setup_client_snapshot_receiver` finds each entity by a linear `view<NetIdentity>()` scan per id instead of `NetEntityMap`. Interpolation is a `lerp_speed` chase, not a time-buffered snapshot. There is no client input channel and no prediction. [Net](../modules/Net.md) still calls `NetId` a component; in code it is `using NetId = std::uint32_t` and the component is `NetIdentity`.
@@ -108,6 +108,8 @@ Do:
 Done when: frustum math is tested (inside, outside, straddling, ortho and perspective) and a culled entity pushes no `CmdDrawMesh`.
 
 ### wind-304 feat: grid queries
+
+Status: done. `<engine/ecs/grid_query.h>`, pure math in namespace `engine`: `raycast_grid` (Amanatides-Woo; half-open boundaries in the direction of travel; start inside reports `t = 0` and a zero normal; an exact edge or corner is blocked by any touching solid cell) and `sweep_aabb` (Y, X, Z per sub-step, at most 64 sub-steps of up to one cell, `kGridSkin` = 1e-3 so a resting box stays grounded without drift), each with a 2D overload over `glm::ivec2`. `is_solid` is a `CellPredicate`, a non-owning callable reference valid only for the call. Unit cells in grid space, no cell-size parameter. No `Tilemap` helper: a layer is a lambda over `Tilemap::tile` (row `-y - 1`). See [ECS](../modules/ECS.md#grid-queries).
 
 Problem: block worlds, and 2D tile games, need collision against a solid-cell grid and a ray through cells. This is generic; a rigid-body 3D physics engine is not needed for it.
 

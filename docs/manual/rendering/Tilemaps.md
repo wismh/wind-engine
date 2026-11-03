@@ -188,6 +188,8 @@ Tilemaps are fully integrated with Wind's `.world` scene serializer:
 - The `tilemap` serializer entry persists the asset GUID, `color`, `layer`, and `order_in_layer`.
 - Map cells are reloaded from the asset on scene load.
 
+Tilemaps have no built-in collision. To make a layer solid, pass a lambda over `Tilemap::tile` to the grid queries: see [Grid Collision and Block Picking](../ecs/Physics-and-Collisions.md#4-grid-collision-and-block-picking).
+
 ---
 
 ## Next Steps
