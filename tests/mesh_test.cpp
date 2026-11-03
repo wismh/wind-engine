@@ -219,3 +219,50 @@ TEST(Mesh, UpdateReportsABackendFailure) {
     EXPECT_EQ(mesh.replaces, 1);
     EXPECT_EQ(mesh.contents.vertices.size(), 3u);
 }
+
+TEST(Mesh, BoundsComeFromTheCreateDescIncludingUnusedVertices) {
+    engine::render::MeshDesc desc = triangle();
+    engine::render::MeshVertex unused;
+    unused.position = {-4.0f, 7.0f, 2.0f};
+    desc.vertices.push_back(unused);
+    desc.indices = {0, 1, 2};
+    const RecordingMesh mesh(desc);
+    EXPECT_EQ(mesh.bounds(), engine::render::mesh_bounds(desc));
+    EXPECT_EQ(mesh.bounds().min.x, -4.0f);
+    EXPECT_EQ(mesh.bounds().max.y, 7.0f);
+    EXPECT_EQ(mesh.bounds().max.z, 2.0f);
+}
+
+TEST(Mesh, UpdateRefreshesBounds) {
+    RecordingMesh mesh;
+    engine::render::MeshDesc moved = triangle();
+    for (engine::render::MeshVertex& vertex : moved.vertices) {
+        vertex.position += glm::vec3{10.0f, 0.0f, -3.0f};
+    }
+    ASSERT_TRUE(mesh.update(moved));
+    EXPECT_EQ(mesh.bounds(), engine::render::mesh_bounds(moved));
+}
+
+TEST(Mesh, InvalidOrRefusedUpdateKeepsBounds) {
+    RecordingMesh mesh;
+    const engine::render::Aabb before = mesh.bounds();
+    engine::render::MeshDesc far_away = triangle();
+    far_away.vertices[0].position = {100.0f, 100.0f, 100.0f};
+
+    far_away.indices = {0, 1};
+    EXPECT_FALSE(mesh.update(far_away));
+    EXPECT_EQ(mesh.bounds(), before);
+
+    far_away.indices.clear();
+    mesh.fail = true;
+    EXPECT_FALSE(mesh.update(far_away));
+    EXPECT_EQ(mesh.bounds(), before);
+}
+
+TEST(Mesh, PrimitiveAndEmptyBounds) {
+    EXPECT_EQ(engine::render::mesh_bounds(engine::render::make_quad()),
+            (engine::render::Aabb{.min = {-0.5f, -0.5f, 0.0f}, .max = {0.5f, 0.5f, 0.0f}}));
+    EXPECT_EQ(engine::render::mesh_bounds(engine::render::make_cube(2.0f)),
+            (engine::render::Aabb{.min = glm::vec3{-1.0f}, .max = glm::vec3{1.0f}}));
+    EXPECT_EQ(engine::render::mesh_bounds(engine::render::MeshDesc{}), engine::render::Aabb{});
+}
