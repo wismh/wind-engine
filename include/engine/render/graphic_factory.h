@@ -7,6 +7,7 @@
 
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
+#include <glm/vec4.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -15,12 +16,13 @@
 
 namespace engine::render {
 
-// Vertex shader inputs: position at location 0, uv at 1, normal at 2. A shader that reads only 0 and 1 (unlit, every
-// 2D shader) ignores the normal.
+// Vertex shader inputs: position at location 0, uv at 1, normal at 2, color at 3. A shader ignores what it does not
+// read: the 2D shaders read 0 and 1, the builtin unlit and lit shaders also read the color (baked light, AO, tint).
 struct MeshVertex {
     glm::vec3 position{0.0f};
     glm::vec3 normal{0.0f, 0.0f, 1.0f};
     glm::vec2 uv{0.0f};
+    glm::vec4 color{1.0f};
 };
 
 // A triangle list. Empty `indices`: every three vertices are one triangle. Otherwise every three indices are one, each

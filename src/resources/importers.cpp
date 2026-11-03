@@ -85,21 +85,27 @@ std::optional<render::MeshDesc> parse_mesh(std::string_view text) {
                 return std::nullopt;
             }
         } else {
-            // 5 numbers: position, uv (normal +Z). 8 numbers: position, normal, uv.
+            // 5 numbers: position, uv (normal +Z, white). 8 numbers: position, normal, uv (white). 12 numbers:
+            // position, normal, uv, rgba color.
             std::vector<float> numbers;
             float number = 0.0f;
             while (values >> number) {
                 numbers.push_back(number);
             }
-            if (!values.eof() || (numbers.size() != 5 && numbers.size() != 8)) {
+            if (!values.eof() || (numbers.size() != 5 && numbers.size() != 8 && numbers.size() != 12)) {
                 return std::nullopt;
             }
             render::MeshVertex vertex;
             vertex.position = {numbers[0], numbers[1], numbers[2]};
-            if (numbers.size() == 8) {
+            if (numbers.size() == 5) {
+                vertex.uv = {numbers[3], numbers[4]};
+            } else {
                 vertex.normal = {numbers[3], numbers[4], numbers[5]};
+                vertex.uv = {numbers[6], numbers[7]};
             }
-            vertex.uv = {numbers[numbers.size() - 2], numbers[numbers.size() - 1]};
+            if (numbers.size() == 12) {
+                vertex.color = {numbers[8], numbers[9], numbers[10], numbers[11]};
+            }
             desc.vertices.push_back(vertex);
         }
     }
