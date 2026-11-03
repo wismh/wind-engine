@@ -68,7 +68,7 @@ A sprite's z does not change that order, and there is no Y-sort. For a top-down 
 | Command | Pushed by |
 | --- | --- |
 | `CmdSetView` | the render system, once per window before its draws: camera view, that window's projection, camera position, and lights |
-| `CmdDrawMesh` | the render system, for each `Renderable` and `Sprite` |
+| `CmdDrawMesh` | the render system, for each `Renderable` and `Sprite` inside the camera's view of some window (frustum culling; `frustum_cull = false` opts out) |
 | `CmdDrawParticles` | the render system, for each `ParticleEmitter` with live particles |
 | `CmdDrawUI` | the UI system, for each `UiCanvas` |
 

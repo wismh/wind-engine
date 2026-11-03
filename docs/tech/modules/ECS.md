@@ -73,7 +73,7 @@ Rotation helpers in `transform.h`:
 
 When the list is not empty, it returns when nothing is drawable. A drawable scene (any `Renderable`, `Sprite`, or `ParticleEmitter`) with an invalid or default `ActiveCamera` entity is fatal.
 
-Fatal is also a live entity that lacks `Camera` or `Transform`. Either way that frame draws no world commands. A world with only UI needs no camera. `run_ui_render` still pushes `CmdDrawUI`. A window `run_render` already cleared is not cleared again. The view matrix is the inverse of the camera entity's world matrix (`ecs::world_matrix`), so a camera with a rotation or a `Parent` works. Each bound window gets one `render::CmdSetView` before its draws, with the same view matrix and camera position (the translation of that world matrix). Its projection is `window_size_for` for that id (`Presentation.sizes`). For rendering an arbitrary `World` into a sub-rectangle of a window with an explicit camera (`WorldViewportRender`), call `render_world_viewport` (`include/engine/ecs/systems.h`; see [Render](Render.md#world-draw)).
+Fatal is also a live entity that lacks `Camera` or `Transform`. Either way that frame draws no world commands. A world with only UI needs no camera. `run_ui_render` still pushes `CmdDrawUI`. A window `run_render` already cleared is not cleared again. The view matrix is the inverse of the camera entity's world matrix (`ecs::world_matrix`), so a camera with a rotation or a `Parent` works. Each bound window gets one `render::CmdSetView` before its draws, with the same view matrix and camera position (the translation of that world matrix). Its projection is `window_size_for` for that id (`Presentation.sizes`). A `Renderable` or `Sprite` outside the `camera_frustum` of every bound window is not drawn ([Render](Render.md#frustum-culling)). For rendering an arbitrary `World` into a sub-rectangle of a window with an explicit camera (`WorldViewportRender`), call `render_world_viewport` (`include/engine/ecs/systems.h`; see [Render](Render.md#world-draw)).
 
 Light components (`render::DirectionalLight`, `render::AmbientLight`) are plain data on entities; a directional light is aimed by its `Transform::rotation` and follows a `Parent`. Rules: [Render](Render.md#lights).
 
@@ -84,6 +84,7 @@ Light components (`render::DirectionalLight`, `render::AmbientLight`) are plain 
 | `screen_to_ray(screen, camera, camera_world, window)` | A `Ray` (`include/engine/ecs/ray.h`: `origin`, unit `direction`) from the near plane away from the camera. Orthographic: every ray is parallel to the camera's forward. Perspective: through the pixel |
 | `screen_to_world(screen, camera, camera_world, window)` | Orthographic: the point under the pixel halfway through the clip range (the camera's z for the default -1 and 1). Perspective: where `screen_to_ray` meets the world plane z = 0, which is what 2D-style picking expects; the ray's near-plane origin when the ray is parallel to that plane or the plane is behind the camera |
 | `world_to_screen(world_pos, camera, camera_world, window)` | The pixel the point projects to, either projection |
+| `camera_frustum(camera, camera_world, window)` | The world-space `render::Frustum` of that view (`include/engine/render/frustum.h`), the one `run_render` culls with ([Render](Render.md#frustum-culling)) |
 
 ### Ray queries
 
