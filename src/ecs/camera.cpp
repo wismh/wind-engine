@@ -53,6 +53,10 @@ glm::mat4 projection_matrix(const Camera& camera, const ui::WindowSize& window) 
     return glm::ortho(-half_width, half_width, -half_height, half_height, camera.near_clip, camera.far_clip);
 }
 
+render::Frustum camera_frustum(const Camera& camera, const glm::mat4& camera_world, const ui::WindowSize& window) {
+    return render::make_frustum(projection_matrix(camera, window) * view_matrix(camera_world));
+}
+
 Ray screen_to_ray(glm::vec2 screen, const Camera& camera, const glm::mat4& camera_world, const ui::WindowSize& window) {
     const glm::mat4 view = view_matrix(camera_world);
     const glm::mat4 proj = projection_matrix(camera, window);

@@ -4,6 +4,7 @@
 #include <engine/render/commands.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
+#include <engine/render/primitives.h>
 
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
@@ -19,6 +20,10 @@
 namespace {
 
 class FakeMesh final : public engine::render::IMesh {
+public:
+    FakeMesh() : engine::render::IMesh(engine::render::make_quad()) {}
+    explicit FakeMesh(const engine::render::MeshDesc& desc) : engine::render::IMesh(desc) {}
+
 protected:
     bool replace(const engine::render::MeshDesc&) override {
         return true;

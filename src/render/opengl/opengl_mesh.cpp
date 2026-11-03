@@ -37,7 +37,8 @@ void write_buffer(GLenum target, const void* data, std::size_t bytes, std::size_
 }
 
 OpenGLMesh::OpenGLMesh(const MeshDesc& desc, std::function<void()> make_current)
-    : make_current_(std::move(make_current)) {
+    : IMesh(desc)
+    , make_current_(std::move(make_current)) {
     if (const std::string error = mesh_desc_error(desc); !error.empty()) {
         log::error(error);
         return;

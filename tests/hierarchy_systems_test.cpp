@@ -13,6 +13,7 @@
 #include <engine/render/command_buffer.h>
 #include <engine/render/material.h>
 #include <engine/render/particles.h>
+#include <engine/render/primitives.h>
 #include <engine/render/renderable.h>
 #include <engine/render/sprite.h>
 #include <engine/ui/canvas.h>
@@ -35,6 +36,10 @@ using engine::ecs::Schedule;
 using engine::ecs::World;
 
 class FakeMesh final : public engine::render::IMesh {
+public:
+    FakeMesh() : engine::render::IMesh(engine::render::make_quad()) {}
+    explicit FakeMesh(const engine::render::MeshDesc& desc) : engine::render::IMesh(desc) {}
+
 protected:
     bool replace(const engine::render::MeshDesc&) override {
         return true;
@@ -87,7 +92,8 @@ void expect_near(const glm::mat4& a, const glm::mat4& b, float eps = 1e-4f) {
 }
 
 Entity bind_camera(World& world, Entity camera) {
-    world.emplace<engine::Camera>(camera, engine::Camera{.ortho_size = 5.0f});
+    // The tests put the camera at z = 10; the clip range reaches the z = 0 plane, which the default -1..1 does not.
+    world.emplace<engine::Camera>(camera, engine::Camera{.ortho_size = 5.0f, .near_clip = -100.0f, .far_clip = 100.0f});
     world.ctx<engine::ActiveCamera>().entity = camera;
     engine::ui::presentation_of(world).sizes.sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
     world.ctx<engine::BoundWindows>().ids = {engine::kPrimaryWindow};

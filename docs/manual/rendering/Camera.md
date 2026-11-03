@@ -22,6 +22,7 @@ world.ctx<engine::ActiveCamera>().entity = cam;
 - `near_clip` / `far_clip` default to `-1` / `1`, so sprites at `z = 0` are visible.
 - Without a valid `ActiveCamera` the engine draws no world sprites or meshes (UI still draws). An `ActiveCamera` pointing at a live entity that lacks `Camera` or `Transform` is a fatal error.
 - The view is the inverse of the camera entity's world matrix, so its position, rotation and parent all apply. The camera looks down its local -Z with +Y up. The world is drawn into every window bound to the world, each with its own aspect ratio.
+- Sprites, meshes and tilemap chunks outside the view of every window are skipped (frustum culling); what you see does not change. `engine::camera_frustum(camera, camera_world, window_size)` returns that view as an `engine::render::Frustum` for your own checks.
 
 ### Perspective
 

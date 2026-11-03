@@ -2,6 +2,7 @@
 
 // docs/tech/modules/Render.md
 
+#include <engine/render/frustum.h>
 #include <engine/render/graphic_factory.h>
 #include <engine/render/graphics.h>
 #include <engine/resources/asset_id.h>
@@ -73,10 +74,6 @@ struct TilemapAsset {
 [[nodiscard]] MeshDesc bake_tilemap_chunk(
         const TilemapAsset& asset, std::span<const std::uint16_t> tiles, int chunk_x, int chunk_y);
 
-// True when the chunk's box (`min`, `max`, local XY) under `model` touches the clip volume of `view_projection`.
-[[nodiscard]] bool tilemap_chunk_visible(
-        const glm::mat4& model, glm::vec2 min, glm::vec2 max, const glm::mat4& view_projection);
-
 struct Tilemap {
     std::shared_ptr<TilemapAsset> asset;
     glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
@@ -111,10 +108,11 @@ struct TilemapChunkDraw {
     std::shared_ptr<IMesh> mesh;
 };
 
-// The meshes of the chunks that touch at least one of `view_projections`; an empty span skips culling and returns every
-// chunk. Bakes missing or dirty chunk meshes, only for chunks it returns: a dirty chunk updates its mesh, and `factory`
-// makes one only for a chunk that has none or whose update failed.
+// The meshes of the chunks whose cell box under `model` intersects at least one of `frustums` (world space, one per
+// window); an empty span skips culling and returns every chunk. Bakes missing or dirty chunk meshes, only for chunks it
+// returns: a dirty chunk updates its mesh, and `factory` makes one only for a chunk that has none or whose update
+// failed.
 [[nodiscard]] std::vector<TilemapChunkDraw> visible_tilemap_chunks(Tilemap& map, IGraphicFactory& factory,
-        const glm::mat4& model, std::span<const glm::mat4> view_projections);
+        const glm::mat4& model, std::span<const Frustum> frustums);
 
 }

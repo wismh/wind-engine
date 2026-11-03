@@ -20,6 +20,7 @@
 #include <engine/render/command_buffer.h>
 #include <engine/render/draw_sort.h>
 #include <engine/render/fog.h>
+#include <engine/render/frustum.h>
 #include <engine/render/lights.h>
 #include <engine/render/particles.h>
 #include <engine/render/renderable.h>
@@ -372,11 +373,17 @@ namespace engine {
             }
         }
 
-        // `view_projections`: one per window the draws go to; a tilemap chunk outside all of them is skipped. Empty: no
-        // culling.
+        // A mesh draw is kept when its bounds under `model` intersect any of `frustums`, or when it opted out.
+        bool mesh_in_view(const render::IMesh &mesh, const glm::mat4 &model, bool frustum_cull,
+                          std::span<const render::Frustum> frustums) {
+            return !frustum_cull || render::visible_in_any(frustums, render::transform_aabb(mesh.bounds(), model));
+        }
+
+        // `frustums`: world space, one per window the draws go to. A renderable, sprite, or tilemap chunk outside all
+        // of them is skipped (union: what any window sees is drawn to every window). Empty: no culling. Particles are
+        // never culled.
         std::vector<DrawItem> collect_world_draws(ecs::World &world, const glm::mat4 &view, AssetsDb *assets,
-                                                  IFatalError *fatal,
-                                                  std::span<const glm::mat4> view_projections = {}) {
+                                                  IFatalError *fatal, std::span<const render::Frustum> frustums) {
             auto renderables = world.view<render::Renderable, Transform>();
             auto sprites = world.view<render::Sprite, Transform>();
             auto emitters = world.view<render::ParticleEmitter>();
@@ -391,10 +398,14 @@ namespace engine {
                     }
                     continue;
                 }
+                const glm::mat4 model = ecs::world_matrix(world, entity);
+                if (!mesh_in_view(*r.mesh, model, r.frustum_cull, frustums)) {
+                    continue;
+                }
                 render::CmdDrawMesh cmd;
                 cmd.mesh = r.mesh;
                 cmd.material = r.material;
-                cmd.model = ecs::world_matrix(world, entity);
+                cmd.model = model;
                 cmd.color = r.color;
                 cmd.uv_scale = {1.0f, 1.0f};
                 cmd.uv_offset = {0.0f, 0.0f};
@@ -462,6 +473,10 @@ namespace engine {
                 if (s.flip_x || s.flip_y) {
                     model = glm::scale(model, glm::vec3{s.flip_x ? -1.0f : 1.0f, s.flip_y ? -1.0f : 1.0f, 1.0f});
                 }
+                // The final model carries the pivot, size, and flip, so the quad's box is exactly what is drawn.
+                if (!mesh_in_view(*mesh, model, s.frustum_cull, frustums)) {
+                    continue;
+                }
 
                 render::CmdDrawMesh cmd;
                 cmd.mesh = std::move(mesh);
@@ -493,8 +508,8 @@ namespace engine {
                                 render::RenderState{.blend = render::BlendMode::Alpha});
                     }
                     const glm::mat4 model = ecs::world_matrix(world, entity);
-                    for (render::TilemapChunkDraw &chunk: render::visible_tilemap_chunks(map, factory, model,
-                                                                                        view_projections)) {
+                    for (render::TilemapChunkDraw &chunk:
+                         render::visible_tilemap_chunks(map, factory, model, frustums)) {
                         render::CmdDrawMesh cmd;
                         cmd.mesh = std::move(chunk.mesh);
                         cmd.material = material;
@@ -614,13 +629,13 @@ namespace engine {
 
             const glm::mat4 camera_world = ecs::world_matrix(world, active.entity);
             const glm::mat4 view = view_matrix(camera_world);
-            std::vector<glm::mat4> view_projections;
-            view_projections.reserve(windows.size());
+            // One frustum per bound window: a draw any of them sees goes to all of them.
+            std::vector<render::Frustum> frustums;
+            frustums.reserve(windows.size());
             for (const WindowId id: windows) {
-                view_projections.push_back(projection_matrix(*camera, ui::window_size_for(world, id)) * view);
+                frustums.push_back(camera_frustum(*camera, camera_world, ui::window_size_for(world, id)));
             }
-            const std::vector<DrawItem> items =
-                    collect_world_draws(world, view, deps.assets, deps.fatal, view_projections);
+            const std::vector<DrawItem> items = collect_world_draws(world, view, deps.assets, deps.fatal, frustums);
             const render::SceneLights lights = render::collect_scene_lights(world);
             std::optional<render::Fog> fog;
             if (const render::Fog *camera_fog = world.try_get<render::Fog>(active.entity)) {
@@ -811,8 +826,8 @@ namespace engine {
                 .width = std::max(1, static_cast<int>(std::lround(target.viewport.w))),
                 .height = std::max(1, static_cast<int>(std::lround(target.viewport.h))),
         };
-        const glm::mat4 view_projection = projection_matrix(target.camera, viewport_size) * view;
-        std::vector<DrawItem> items = collect_world_draws(scene, view, target.assets, target.fatal, {&view_projection, 1});
+        const render::Frustum frustum = camera_frustum(target.camera, target.camera_world, viewport_size);
+        std::vector<DrawItem> items = collect_world_draws(scene, view, target.assets, target.fatal, {&frustum, 1});
 
         target.commands->push(render::CmdSetView{
                 .view = view,

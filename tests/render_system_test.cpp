@@ -3,9 +3,11 @@
 #include <engine/audio/audio_system.h>
 #include <engine/audio/events.h>
 #include <engine/core/input_system.h>
+#include <engine/core/time.h>
 #include <engine/log.h>
 #include <engine/ecs/camera.h>
 #include <engine/ecs/events.h>
+#include <engine/ecs/hierarchy.h>
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/systems.h>
 #include <engine/ecs/transform.h>
@@ -13,6 +15,8 @@
 #include <engine/render/command_buffer.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
+#include <engine/render/particles.h>
+#include <engine/render/primitives.h>
 #include <engine/render/renderable.h>
 #include <engine/render/sprite.h>
 #include <engine/resources/assets_db.h>
@@ -49,6 +53,10 @@
 namespace {
 
 class FakeMesh final : public engine::render::IMesh {
+public:
+    FakeMesh() : engine::render::IMesh(engine::render::make_quad()) {}
+    explicit FakeMesh(const engine::render::MeshDesc& desc) : engine::render::IMesh(desc) {}
+
 protected:
     bool replace(const engine::render::MeshDesc&) override {
         return true;
@@ -1038,6 +1046,10 @@ TEST(RenderSystem, ModelMatrixIsTranslateRotateScale) {
     engine::ecs::World world;
     engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
     spawn_camera(world);
+    // The entity sits at z = 3, past the default -1..1 clip range.
+    engine::Camera& lens = world.get<engine::Camera>(world.ctx<engine::ActiveCamera>().entity);
+    lens.near_clip = -10.0f;
+    lens.far_clip = 10.0f;
 
     const auto mesh = std::make_shared<FakeMesh>();
     const auto material = std::make_shared<FakeMaterial>();
@@ -1430,3 +1442,283 @@ TEST(RenderSystem, RenderWorldViewportClearsEvenWhenSceneIsEmptyAndSkipsDegenera
     EXPECT_EQ(view->clear_color, clear_color);
 }
 
+
+namespace {
+
+// The camera of `spawn_camera` sees x in [-40/3, 40/3] and y in [-10, 10] (ortho_size 10 on 800 x 600) and z in
+// [-1, 1].
+engine::ecs::Entity spawn_renderable_at(engine::ecs::World& world, std::shared_ptr<engine::render::IMesh> mesh,
+        std::shared_ptr<engine::render::IMaterial> material, glm::vec3 position) {
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::Transform>(entity, engine::Transform{.position = position});
+    world.emplace<engine::render::Renderable>(entity, make_renderable(std::move(mesh), std::move(material), 0));
+    return entity;
+}
+
+engine::ecs::Entity spawn_sized_sprite_at(engine::ecs::World& world, std::shared_ptr<engine::render::IMesh> mesh,
+        glm::vec3 position, glm::vec2 pixel_size, glm::vec2 pivot) {
+    const engine::ecs::Entity entity = world.create();
+    world.emplace<engine::Transform>(entity, engine::Transform{.position = position});
+    engine::render::Sprite sprite{};
+    sprite.mesh = std::move(mesh);
+    sprite.material = std::make_shared<FakeMaterial>();
+    sprite.pixel_size = pixel_size;
+    sprite.pixels_per_unit = 100.0f;
+    sprite.pivot = pivot;
+    world.emplace<engine::render::Sprite>(entity, std::move(sprite));
+    return entity;
+}
+
+}
+
+TEST(RenderSystem, CulledRenderablePushesNoDrawMesh) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_camera(world);
+    const auto material = std::make_shared<FakeMaterial>();
+    const auto hidden = std::make_shared<FakeMesh>();
+    spawn_renderable_at(world, hidden, material, {100.0f, 0.0f, 0.0f});
+
+    world.run(engine::ecs::Schedule::Frame);
+    ASSERT_EQ(commands.size(), 1u);
+    EXPECT_TRUE(std::holds_alternative<engine::render::CmdSetView>(commands[0]));
+
+    const auto seen = std::make_shared<FakeMesh>();
+    spawn_renderable_at(world, seen, material, {0.0f, 0.0f, 0.0f});
+    world.run(engine::ecs::Schedule::Frame);
+    EXPECT_EQ(drawn_meshes(commands), (std::vector<std::shared_ptr<engine::render::IMesh>>{seen}));
+}
+
+TEST(RenderSystem, RenderableStraddlingTheEdgeIsDrawn) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_camera(world);
+    const auto material = std::make_shared<FakeMaterial>();
+    const auto straddling = std::make_shared<FakeMesh>();
+    const auto beyond = std::make_shared<FakeMesh>();
+    // The right edge is at 13.33: the unit quad at 13.6 reaches back to 13.1, the one at 14 starts at 13.5.
+    spawn_renderable_at(world, straddling, material, {13.6f, 0.0f, 0.0f});
+    spawn_renderable_at(world, beyond, material, {14.0f, 0.0f, 0.0f});
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    EXPECT_EQ(drawn_meshes(commands), (std::vector<std::shared_ptr<engine::render::IMesh>>{straddling}));
+}
+
+TEST(RenderSystem, CullingUsesTheWorldTransformOfAChild) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_camera(world);
+    const auto material = std::make_shared<FakeMaterial>();
+    const engine::ecs::Entity parent = world.create();
+    world.emplace<engine::Transform>(parent, engine::Transform{.position = {100.0f, 0.0f, 0.0f}});
+    const auto back_home = std::make_shared<FakeMesh>();
+    const auto with_parent = std::make_shared<FakeMesh>();
+    ASSERT_TRUE(engine::ecs::set_parent(
+            world, spawn_renderable_at(world, back_home, material, {-100.0f, 0.0f, 0.0f}), parent));
+    ASSERT_TRUE(engine::ecs::set_parent(
+            world, spawn_renderable_at(world, with_parent, material, {0.0f, 0.0f, 0.0f}), parent));
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    EXPECT_EQ(drawn_meshes(commands), (std::vector<std::shared_ptr<engine::render::IMesh>>{back_home}));
+}
+
+TEST(RenderSystem, SpriteCullingCountsPixelSizeAndPivot) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_camera(world);
+    const auto long_from_left = std::make_shared<FakeMesh>();
+    const auto small = std::make_shared<FakeMesh>();
+    const auto long_from_right = std::make_shared<FakeMesh>();
+    // 20 x 1 world units with the pivot on the left edge: x in [-25, -5], inside the view's left edge at -13.33.
+    spawn_sized_sprite_at(world, long_from_left, {-25.0f, 0.0f, 0.0f}, {2000.0f, 100.0f}, {0.0f, 0.5f});
+    // 1 x 1: x in [-25, -24].
+    spawn_sized_sprite_at(world, small, {-25.0f, 0.0f, 0.0f}, {100.0f, 100.0f}, {0.0f, 0.5f});
+    // 20 x 1 with the pivot on the right edge: x in [-45, -25].
+    spawn_sized_sprite_at(world, long_from_right, {-25.0f, 0.0f, 0.0f}, {2000.0f, 100.0f}, {1.0f, 0.5f});
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    EXPECT_EQ(drawn_meshes(commands), (std::vector<std::shared_ptr<engine::render::IMesh>>{long_from_left}));
+}
+
+TEST(RenderSystem, FlippedSpriteIsNotCulled) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_camera(world);
+    const auto mesh = std::make_shared<FakeMesh>();
+    const engine::ecs::Entity entity =
+            spawn_sized_sprite_at(world, mesh, {-25.0f, 0.0f, 0.0f}, {2000.0f, 100.0f}, {0.0f, 0.5f});
+    engine::render::Sprite& sprite = world.get<engine::render::Sprite>(entity);
+    sprite.flip_x = true;
+    sprite.flip_y = true;
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    EXPECT_EQ(drawn_meshes(commands).size(), 1u);
+}
+
+TEST(RenderSystem, EntityVisibleInAnyBoundWindowIsDrawnInEvery) {
+    engine::render::CommandBuffer primary;
+    engine::render::CommandBuffer wide;
+    const engine::WindowId wide_window{2};
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{
+            .commands_for_window = [&](engine::WindowId id) -> engine::render::CommandBuffer* {
+                if (id == engine::kPrimaryWindow) {
+                    return &primary;
+                }
+                return id == wide_window ? &wide : nullptr;
+            },
+    });
+    spawn_camera(world);
+    // 1600 x 600 sees x in [-26.67, 26.67]; the primary 800 x 600 only [-13.33, 13.33].
+    engine::ui::presentation_of(world).sizes.sizes[wide_window] = engine::ui::WindowSize{1600, 600};
+    world.ctx<engine::BoundWindows>().ids = {engine::kPrimaryWindow, wide_window};
+    const auto material = std::make_shared<FakeMaterial>();
+    const auto only_wide = std::make_shared<FakeMesh>();
+    const auto neither = std::make_shared<FakeMesh>();
+    spawn_renderable_at(world, only_wide, material, {20.0f, 0.0f, 0.0f});
+    spawn_renderable_at(world, neither, material, {40.0f, 0.0f, 0.0f});
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    const std::vector<std::shared_ptr<engine::render::IMesh>> expected{only_wide};
+    EXPECT_EQ(drawn_meshes(primary), expected);
+    EXPECT_EQ(drawn_meshes(wide), expected);
+}
+
+TEST(RenderSystem, FrustumCullFalseDrawsOffscreen) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_camera(world);
+    const auto renderable_mesh = std::make_shared<FakeMesh>();
+    const auto sprite_mesh = std::make_shared<FakeMesh>();
+    const engine::ecs::Entity renderable =
+            spawn_renderable_at(world, renderable_mesh, std::make_shared<FakeMaterial>(), {100.0f, 0.0f, 0.0f});
+    world.get<engine::render::Renderable>(renderable).frustum_cull = false;
+    const engine::ecs::Entity sprite =
+            spawn_sized_sprite_at(world, sprite_mesh, {-100.0f, 0.0f, 0.0f}, {100.0f, 100.0f}, {0.5f, 0.5f});
+    world.get<engine::render::Sprite>(sprite).frustum_cull = false;
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    EXPECT_EQ(drawn_meshes(commands).size(), 2u);
+}
+
+TEST(RenderSystem, PerspectiveCameraCullsWhatIsBehindIt) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_perspective_camera(world);
+    const auto material = std::make_shared<FakeMaterial>();
+    const auto in_front = std::make_shared<FakeMesh>(engine::render::make_cube());
+    const auto behind = std::make_shared<FakeMesh>(engine::render::make_cube());
+    spawn_mesh_at(world, in_front, material, 0.0f);
+    spawn_mesh_at(world, behind, material, 20.0f);
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    EXPECT_EQ(drawn_meshes(commands), (std::vector<std::shared_ptr<engine::render::IMesh>>{in_front}));
+}
+
+TEST(RenderSystem, UpdatedMeshBoundsChangeCulling) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_camera(world);
+    const auto mesh = std::make_shared<FakeMesh>();
+    spawn_renderable_at(world, mesh, std::make_shared<FakeMaterial>(), {100.0f, 0.0f, 0.0f});
+
+    world.run(engine::ecs::Schedule::Frame);
+    EXPECT_TRUE(drawn_meshes(commands).empty());
+
+    // The same mesh now has its vertices 100 units to the left, back under the camera.
+    engine::render::MeshDesc moved = engine::render::make_quad();
+    for (engine::render::MeshVertex& vertex : moved.vertices) {
+        vertex.position.x -= 100.0f;
+    }
+    ASSERT_TRUE(mesh->update(moved));
+    world.run(engine::ecs::Schedule::Frame);
+    EXPECT_EQ(drawn_meshes(commands).size(), 1u);
+}
+
+TEST(RenderSystem, OffscreenRenderableWithoutMaterialIsStillFatal) {
+    engine::render::CommandBuffer commands;
+    fakes::RecordingFatal fatal;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands, .fatal = &fatal});
+    spawn_camera(world);
+    spawn_renderable_at(world, std::make_shared<FakeMesh>(), nullptr, {100.0f, 0.0f, 0.0f});
+
+    EXPECT_THROW(world.run(engine::ecs::Schedule::Frame), fakes::FatalReport);
+    EXPECT_EQ(fatal.call_count, 1);
+}
+
+TEST(RenderSystem, OffscreenParticlesAreNotCulled) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_camera(world);
+    engine::render::ParticleEmitter& emitter = world.emplace<engine::render::ParticleEmitter>(world.create());
+    emitter.mesh = std::make_shared<FakeMesh>();
+    emitter.material = std::make_shared<FakeMaterial>();
+    emitter.emission_rate = 0.0f;
+    emitter.burst(2);
+    engine::render::update_emitter(emitter, 0.016f);
+    ASSERT_FALSE(emitter.particles.empty());
+    for (auto& particle : emitter.particles) {
+        particle.position = {100.0f, 0.0f, 0.0f};
+    }
+
+    // Draw without running the particle simulation, which could move or age them.
+    world.ctx<engine::Time>().delta_time = 0.0f;
+    world.run(engine::ecs::Schedule::Frame);
+
+    bool particles_drawn = false;
+    for (std::size_t i = 0; i < commands.size(); ++i) {
+        particles_drawn = particles_drawn || std::holds_alternative<engine::render::CmdDrawParticles>(commands[i]);
+    }
+    EXPECT_TRUE(particles_drawn);
+}
+
+TEST(RenderSystem, RenderWorldViewportCullsWithItsCamera) {
+    engine::ecs::World scene;
+    const auto material = std::make_shared<FakeMaterial>();
+    const auto seen = std::make_shared<FakeMesh>();
+    const auto hidden = std::make_shared<FakeMesh>();
+    spawn_renderable_at(scene, seen, material, {0.0f, 0.0f, 0.0f});
+    spawn_renderable_at(scene, hidden, material, {100.0f, 0.0f, 0.0f});
+
+    engine::Camera camera{};
+    camera.near_clip = -10.0f;
+    camera.far_clip = 10.0f;
+    engine::render::CommandBuffer commands;
+    engine::render_world_viewport(scene, engine::WorldViewportRender{
+            .commands = &commands,
+            .viewport = {0.0f, 0.0f, 400.0f, 200.0f},
+            .camera = camera,
+            .camera_world = glm::translate(glm::mat4{1.0f}, glm::vec3{0.0f, 0.0f, 5.0f}),
+    });
+
+    ASSERT_FALSE(commands.empty());
+    EXPECT_TRUE(std::holds_alternative<engine::render::CmdSetView>(commands[0]));
+    EXPECT_EQ(drawn_meshes(commands), (std::vector<std::shared_ptr<engine::render::IMesh>>{seen}));
+
+    // The camera moved over the other one: now only it is drawn.
+    commands.clear();
+    engine::render_world_viewport(scene, engine::WorldViewportRender{
+            .commands = &commands,
+            .viewport = {0.0f, 0.0f, 400.0f, 200.0f},
+            .camera = camera,
+            .camera_world = glm::translate(glm::mat4{1.0f}, glm::vec3{100.0f, 0.0f, 5.0f}),
+    });
+    EXPECT_EQ(drawn_meshes(commands), (std::vector<std::shared_ptr<engine::render::IMesh>>{hidden}));
+}

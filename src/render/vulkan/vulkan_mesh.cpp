@@ -10,7 +10,8 @@
 namespace engine::render {
 
 VulkanMesh::VulkanMesh(std::shared_ptr<VulkanContext> context, const MeshDesc& desc)
-    : context_(std::move(context)) {
+    : IMesh(desc)
+    , context_(std::move(context)) {
     if (const std::string error = mesh_desc_error(desc); !error.empty()) {
         log::error(error);
         return;

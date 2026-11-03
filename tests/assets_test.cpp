@@ -5,6 +5,7 @@
 #include <engine/render/graphic_factory.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
+#include <engine/render/primitives.h>
 #include <engine/render/shader_adapt.h>
 #include <engine/loc/catalog.h>
 #include <engine/log.h>
@@ -145,6 +146,10 @@ bool load_builtin_catalog(engine::AssetsDb& db) {
 }
 
 class DummyMesh final : public engine::render::IMesh {
+public:
+    DummyMesh() : engine::render::IMesh(engine::render::make_quad()) {}
+    explicit DummyMesh(const engine::render::MeshDesc& desc) : engine::render::IMesh(desc) {}
+
 protected:
     bool replace(const engine::render::MeshDesc&) override {
         return true;
@@ -187,7 +192,7 @@ public:
     std::shared_ptr<engine::render::IMesh> create_mesh(const engine::render::MeshDesc& desc) override {
         ++mesh_calls;
         last_mesh = desc;
-        last_mesh_obj = std::make_shared<DummyMesh>();
+        last_mesh_obj = std::make_shared<DummyMesh>(desc);
         return last_mesh_obj;
     }
 

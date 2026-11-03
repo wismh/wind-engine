@@ -12,6 +12,7 @@
 #include <engine/render/directional_light.h>
 #include <engine/render/lights.h>
 #include <engine/render/material.h>
+#include <engine/render/primitives.h>
 #include <engine/render/renderable.h>
 #include <engine/render/scene_lights.h>
 #include <engine/ui/presentation.h>
@@ -34,6 +35,10 @@ using engine::render::DirectionalLight;
 using engine::render::SceneLights;
 
 class FakeMesh final : public engine::render::IMesh {
+public:
+    FakeMesh() : engine::render::IMesh(engine::render::make_quad()) {}
+    explicit FakeMesh(const engine::render::MeshDesc& desc) : engine::render::IMesh(desc) {}
+
 protected:
     bool replace(const engine::render::MeshDesc&) override {
         return true;
@@ -174,7 +179,8 @@ TEST(Lights, RunRenderPutsTheLightsAndCameraIntoTheView) {
     engine::Transform camera_transform;
     camera_transform.position = {1.0f, 2.0f, 10.0f};
     world.emplace<engine::Transform>(camera, camera_transform);
-    world.emplace<engine::Camera>(camera);
+    // A clip range that reaches the cube at z = 0 from the camera at z = 10.
+    world.emplace<engine::Camera>(camera, engine::Camera{.near_clip = -100.0f, .far_clip = 100.0f});
     world.ctx<engine::ActiveCamera>().entity = camera;
     engine::ui::presentation_of(world).sizes.sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
     world.ctx<engine::BoundWindows>().ids = {engine::kPrimaryWindow};

@@ -11,6 +11,7 @@
 #include <engine/render/graphic_factory.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
+#include <engine/render/primitives.h>
 #include <engine/render/sprite.h>
 #include <engine/resources/asset_id.h>
 #include <engine/resources/assets_db.h>
@@ -48,6 +49,10 @@ public:
 };
 
 class FakeMesh final : public engine::render::IMesh {
+public:
+    FakeMesh() : engine::render::IMesh(engine::render::make_quad()) {}
+    explicit FakeMesh(const engine::render::MeshDesc& desc) : engine::render::IMesh(desc) {}
+
 protected:
     bool replace(const engine::render::MeshDesc&) override {
         return true;
@@ -65,8 +70,8 @@ public:
 
 class FakeGraphicFactory final : public engine::render::IGraphicFactory {
 public:
-    std::shared_ptr<engine::render::IMesh> create_mesh(const engine::render::MeshDesc&) override {
-        return std::make_shared<FakeMesh>();
+    std::shared_ptr<engine::render::IMesh> create_mesh(const engine::render::MeshDesc& desc) override {
+        return std::make_shared<FakeMesh>(desc);
     }
     std::shared_ptr<engine::render::IShader> create_shader(const engine::render::ShaderDesc&) override {
         return std::make_shared<FakeShader>();

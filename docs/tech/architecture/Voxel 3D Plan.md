@@ -14,7 +14,7 @@ Checked against `include/engine/` at `53bf8c5`:
 
 - ~~`IMesh` has no update.~~ Done in wind-299: `IMesh::update` ([Render](../modules/Render.md#mesh-updates)).
 - ~~`MeshVertex` is position, normal, uv. No vertex color, so baked block light and AO have nowhere to go.~~ Done in wind-300: `MeshVertex::color` ([Render](../modules/Render.md#meshes)).
-- `run_render` culls only tilemap chunks (`tilemap_chunk_visible`). Every `Renderable` is drawn.
+- ~~`run_render` culls only tilemap chunks (`tilemap_chunk_visible`). Every `Renderable` is drawn.~~ Done in wind-303: `IMesh::bounds` and `Frustum` ([Frustum culling](../modules/Render.md#frustum-culling)).
 - ~~`TextureDesc` has `filter` (`Nearest`, `Linear`) and `wrap`. No mipmaps, no texture arrays. A block atlas shimmers at distance and bleeds between tiles.~~ Done in wind-301: `mipmaps` and `texture_array` ([Mipmaps](../modules/Render.md#mipmaps), [Texture arrays](../modules/Render.md#texture-arrays)).
 - ~~No alpha-test (cutout) render state, no fog,~~ no sky. Cutout and fog done in wind-300 ([Cutout](../modules/Render.md#cutout), [Fog](../modules/Render.md#fog)).
 - ~~`IWindowControl::capture_mouse` is `SDL_CaptureMouse` (drag outside the window). There is no relative mode: the cursor is not hidden or locked for a first-person camera.~~ Done in wind-302: `set_relative_mouse` and `MouseAxis` bindings ([Windowing](../features/Windowing.md#relative-mouse), [Input Mapper](../features/Input%20Mapper.md#axes-mouse-look-and-composites)).
@@ -97,6 +97,8 @@ Done when: input tests cover the delta axis and focus-loss release with a fake w
 ## Phase 2: scale
 
 ### wind-303 feat: frustum culling for meshes
+
+Status: done. `IMesh::bounds()` is computed in the base (`explicit IMesh(const MeshDesc&)`, refreshed by a successful `update`; `mesh_bounds`); `Aabb`, `transform_aabb` (conservative OBB to AABB) and `Frustum` (`make_frustum`, `frustum_intersects`, `visible_in_any`) are public in `<engine/render/aabb.h>` and `<engine/render/frustum.h>`, plus `camera_frustum` in `<engine/ecs/camera.h>`. `run_render` keeps a `Renderable` or `Sprite` (under its final sprite model) that any bound window's frustum sees, one shared list; `render_world_viewport` culls with its own camera; tilemap chunks use the same test and `tilemap_chunk_visible` is gone. Particles are not culled. Opt-out: `frustum_cull = false` on `Renderable` and `Sprite`, serialized. See [Render](../modules/Render.md#frustum-culling).
 
 Do:
 - `IMesh::bounds()` (local AABB, computed from the desc on create and update).

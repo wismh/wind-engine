@@ -430,3 +430,42 @@ TEST(WorldSerializer, RemoveDropsTheComponent) {
     EXPECT_EQ(world.try_get<engine::render::Sprite>(entity), nullptr);
 }
 
+
+TEST(WorldSerializer, FrustumCullRoundTripsAndDefaultsToTrue) {
+    constexpr std::string_view kToml = R"(
+version = 1
+
+[[entities]]
+id = "sky"
+transform = { position = [0.0, 0.0, 0.0] }
+renderable = { frustum_cull = false }
+
+[[entities]]
+id = "grass"
+transform = { position = [1.0, 0.0, 0.0] }
+sprite = { frustum_cull = false }
+
+[[entities]]
+id = "rock"
+transform = { position = [2.0, 0.0, 0.0] }
+renderable = { layer = 1 }
+sprite = { layer = 1 }
+)";
+
+    engine::ecs::World world;
+    auto loaded = engine::ecs::load_world_from_toml(world, kToml);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
+    EXPECT_FALSE(world.get<engine::render::Renderable>(loaded->by_id.at("sky")).frustum_cull);
+    EXPECT_FALSE(world.get<engine::render::Sprite>(loaded->by_id.at("grass")).frustum_cull);
+    EXPECT_TRUE(world.get<engine::render::Renderable>(loaded->by_id.at("rock")).frustum_cull);
+    EXPECT_TRUE(world.get<engine::render::Sprite>(loaded->by_id.at("rock")).frustum_cull);
+
+    const std::string saved = engine::ecs::save_world_to_toml(world);
+    engine::ecs::World again;
+    auto reloaded = engine::ecs::load_world_from_toml(again, saved);
+    ASSERT_TRUE(reloaded.has_value()) << reloaded.error().message;
+    EXPECT_FALSE(again.get<engine::render::Renderable>(reloaded->by_id.at("sky")).frustum_cull);
+    EXPECT_FALSE(again.get<engine::render::Sprite>(reloaded->by_id.at("grass")).frustum_cull);
+    EXPECT_TRUE(again.get<engine::render::Renderable>(reloaded->by_id.at("rock")).frustum_cull);
+    EXPECT_TRUE(again.get<engine::render::Sprite>(reloaded->by_id.at("rock")).frustum_cull);
+}

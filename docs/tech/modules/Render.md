@@ -10,7 +10,7 @@ Draw order and `.mat` files: [Materials and Sort](../features/Materials%20and%20
 
 | Command | Who pushes it |
 | --- | --- |
-| `CmdDrawMesh` | `run_render` and `render_world_viewport` for `Renderable` and `Sprite` |
+| `CmdDrawMesh` | `run_render` and `render_world_viewport` for each `Renderable` and `Sprite` inside a window's frustum ([Frustum culling](#frustum-culling)) |
 | `CmdDrawUI` | `run_ui_render` for each `UiCanvas` |
 | `CmdDrawParticles` | `run_render` and `render_world_viewport` for a `ParticleEmitter` whose `particles` list is not empty |
 | `CmdSetView` | `run_render` (once per bound window) and `render_world_viewport` (for a sub-rectangle viewport) before world draws |
@@ -70,13 +70,17 @@ Vertex shader inputs are fixed: position at `location = 0`, uv at `1`, normal at
 
 ### Mesh updates
 
-`IMesh::update(const MeshDesc&)` (`include/engine/render/graphics.h`, `src/render/mesh.cpp`) replaces every vertex and index of a live mesh, as if it had been made from that desc. It is not virtual: it checks `mesh_desc_error` first and, on an error, logs it and returns false without calling the backend, so the mesh keeps what it had. A valid desc goes to the protected `IMesh::replace`, which each backend implements; false from it also leaves the old contents. There is no separate dynamic mesh type: any mesh, asset meshes included, can be updated. Main thread only. A test fake implements `replace`.
+`IMesh::update(const MeshDesc&)` (`include/engine/render/graphics.h`, `src/render/mesh.cpp`) replaces every vertex and index of a live mesh, as if it had been made from that desc. It is not virtual: it checks `mesh_desc_error` first and, on an error, logs it and returns false without calling the backend, so the mesh keeps what it had. A valid desc goes to the protected `IMesh::replace`, which each backend implements; false from it also leaves the old contents. Only after `replace` returns true does `update` set the [bounds](#mesh-bounds) from the new desc, so a failed update keeps the old bounds with the old contents. There is no separate dynamic mesh type: any mesh, asset meshes included, can be updated. Main thread only. A test fake implements `replace`.
 
 `OpenGLMesh::replace` makes the engine's context current (`ContextScope`, with the activator `OpenGLFactory` passes in) and writes in place with `glBufferSubData` when the data fits the buffer's storage. When it does not, it calls `glBufferData` on the same buffer name with `GL_DYNAMIC_DRAW` and room for `max(needed, 1.5 × old)` bytes, then `glBufferSubData`. Storage never shrinks. Keeping the names keeps every context's VAO valid (VAO state refers to buffer names, not storage), so a reallocation needs no rebind. The element buffer is written with no VAO bound, like creation. A non-indexed mesh that gains indices makes its first element buffer and releases its VAOs (`ContextVao::release`), so each context builds one with the element binding on its next draw. A mesh that drops its indices keeps the element buffer and draws with `glDrawArrays`. The same code runs on desktop GL, GLES 3.0, and WebGL2.
 
 `VulkanMesh::replace` never writes buffers a frame in flight may read. Without a device, or before its first upload, it only swaps the CPU copies that `ensure_gpu_buffers` uploads later. Otherwise it uploads new host-visible vertex and index buffers (no queue wait); if either upload fails it frees them and returns false with the old buffers in place. On success it hands the old buffers to `VulkanContext::retire_buffer` and uses the new ones. The destructor retires its buffers the same way. See [Vulkan](#vulkan-engine_with_window) for the retire queue.
 
 The `.mesh` file format is in [Assets](../features/Assets.md#mesh-files).
+
+### Mesh bounds
+
+`IMesh::bounds()` is a `render::Aabb` (`include/engine/render/aabb.h`: `min`, `max`) in the mesh's local space: the box around every vertex position of the desc the mesh was made or last updated from, `mesh_bounds(desc)` (`include/engine/render/graphic_factory.h`). Vertices no index uses still count, so no index walk is needed and the box is never too small. A desc without vertices gives a zero box at the origin (`create_mesh` returns null for it anyway). The base class owns it: `IMesh` has one protected constructor, `explicit IMesh(const MeshDesc&)`, which `OpenGLMesh`, `VulkanMesh` and every test fake call, and the non-virtual `update` refreshes it, so no backend computes bounds and they cannot disagree. A test fake built by a fake factory passes the factory's desc; a standalone fake passes `make_quad()`.
 
 ### Primitives
 
@@ -99,7 +103,7 @@ The function clears `ctx<WindowClears>()` first and clears each bound window's a
 
 When `BoundWindows` is not empty, a window with no buffer is skipped: a bound window can outlive its buffer for a frame when the OS closes it between two dock syncs (`Worlds::unbind_window` runs on the next one). If there is then no `Renderable`, `Sprite`, or `ParticleEmitter`, it returns. An invalid or default `ctx<ActiveCamera>` is fatal, and so is a live entity that lacks `Camera` or `Transform`. Neither path pushes scene commands. `run_render` is only registered when `EngineSystemDeps` has a command buffer (`commands` or `commands_for_window`); a world without one draws nothing and never checks the camera. `run_ui_render` still pushes `CmdDrawUI`. A window `run_render` already cleared is not cleared again.
 
-The draw list is sorted once. For every bound window that has a command buffer, `run_render` pushes one `CmdSetView` and then that list. Every window's view shares the camera's view matrix, camera position, and lights (collected once per frame by `collect_scene_lights`). Each window's projection is `projection_matrix` with `window_size_for(world, id)`, which reads `Presentation.sizes` for that id. A frame with nothing to draw pushes no `CmdSetView` either, so the buffer of a world with only UI is what it was before views existed.
+The draw list is collected, [culled](#frustum-culling) and sorted once. For every bound window that has a command buffer, `run_render` pushes one `CmdSetView` and then that list. Every window's view shares the camera's view matrix, camera position, and lights (collected once per frame by `collect_scene_lights`). Each window's projection is `projection_matrix` with `window_size_for(world, id)`, which reads `Presentation.sizes` for that id. A frame with nothing to draw pushes no `CmdSetView` either, so the buffer of a world with only UI is what it was before views existed.
 
 `render_world_viewport(scene, target)` (`include/engine/ecs/systems.h`, `src/ecs/systems.cpp`) renders an arbitrary `ecs::World` (`scene`) into a sub-rectangle (`WorldViewportRender::viewport`, in top-left window coordinates) of `WorldViewportRender::commands` using an explicit `Camera` and `Transform` (`camera_transform`) instead of `scene.ctx<ActiveCamera>()`. It calls `ecs::update_world_transforms(scene)`, computes view and projection matrices for `viewport.w / viewport.h`, pushes a `CmdSetView` with `viewport` and `clear_color` (even when `scene` has no drawables, so an empty world still clears its viewport rectangle), and then pushes the sorted `CmdDrawMesh` and `CmdDrawParticles` commands collected from `scene`. When `target.fatal` is null (the default for editor preview viewports), entities whose mesh or material did not load are skipped without reporting a fatal error.
 
@@ -112,6 +116,33 @@ Items sort by `draw_sort_less` (`include/engine/render/draw_sort.h`): the opaque
 Model matrix is the entity's world matrix (`ecs::world_matrix`): translate, then rotate X, Y, Z, then scale for a root, and the parent chain times that for a child (`Parent`, see [ECS](ECS.md#hierarchy)). `Phase::Transform` refreshes it before `Render`. The sprite pivot, size and flip below are applied after it. A `Local`-space `ParticleEmitter` uses the same world matrix. The view is the inverse of the active camera's world matrix.
 
 Sprite world size is `pixel_size / pixels_per_unit` (default 100), with the pivot offset, only when both `pixel_size` components and `pixels_per_unit` are greater than 0. `Sprite::pixel_size` defaults to `{0,0}`, so a sprite left there is the mesh at the `Transform` only. Flip and UV tiling/offset still apply. `get_sprite` fills `pixel_size`.
+
+## Frustum culling
+
+`run_render` and `render_world_viewport` skip a `Renderable` or `Sprite` whose mesh lies outside the view. The math is public and pure:
+
+| Function | Header | Result |
+| --- | --- | --- |
+| `transform_aabb(box, transform)` | `include/engine/render/aabb.h` | The box around `box` after an affine matrix: the center through the matrix, the half extents through its absolute 3x3. Rotation only grows it; a flip or zero scale keeps `min <= max` |
+| `make_frustum(view_projection)` | `include/engine/render/frustum.h` | `Frustum::planes`: left, right, bottom, top, near, far of the clip volume -w <= x, y, z <= w, normalized, normals inward, in the space the matrix maps from (world for `projection * view`) |
+| `frustum_intersects(frustum, box)` | same | False only when the whole box is behind one plane (its farthest corner along the normal is), beyond a relative tolerance of 1e-5. A box touching a plane is inside. Conservative near the corners of the volume |
+| `visible_in_any(frustums, box)` | same | Any of them intersects; an empty span is always true (no culling) |
+| `camera_frustum(camera, camera_world, window)` | `include/engine/ecs/camera.h` | `make_frustum(projection_matrix(camera, window) * view_matrix(camera_world))` |
+
+A plane that is not finite (a NaN or infinite matrix, an orthographic camera on a 0-wide window) becomes all zero and keeps everything, and a NaN distance compares as inside, so a degenerate view never culls. Near and far are tested too. The GPU clips there anyway: no backend enables depth clamp, and Vulkan's [0, w] depth range lies inside [-w, w]. So a 2D game sees exactly what it saw before. With the default 2D camera (near -1, far 1) an entity more than one unit in z from the camera was already invisible.
+
+What is tested, in `collect_world_draws` (`src/ecs/systems.cpp`):
+
+- A `Renderable`: `transform_aabb(mesh->bounds(), world matrix)` (`ecs::world_matrix`, so a `Parent` counts).
+- A `Sprite`: the same box under the final draw model, the world matrix with the pivot offset, the `pixel_size / pixels_per_unit` scale and the flip applied, so size, pivot and flip are exact. The mesh is `Sprite::mesh` or `builtin::mesh_quad`.
+- Tilemap chunks: the chunk's cell rectangle under the map's model, before the chunk is baked ([Tilemaps](#tilemaps)).
+- Not culled: particles (their world-space instances take their size from the particle shader; an emitter is one draw), UI, and draws a tool pushes itself, such as the editor's gizmo and outline.
+
+The fatal checks come first: a `Renderable` or `Sprite` with no mesh or material is fatal whether or not it would be on screen.
+
+Windows. `run_render` builds one `camera_frustum` per bound window (`window_size_for` that id) and keeps a draw that any of them sees; the one sorted list still goes to every window. The windows of a world share its camera and view and differ only in aspect, so a per-window list would save draws only in the strip between two aspects. `render_world_viewport` culls with the frustum of its own camera and viewport size, so the editor's scene view culls against the editor camera; its `CmdSetView` and clear are pushed even when everything is culled.
+
+Opt-out. `Renderable::frustum_cull` and `Sprite::frustum_cull` (default true). False always draws the entity: for a shader that moves vertices beyond the mesh's own box (vertex displacement, a sway, a sky). Both are serialized as `frustum_cull` in `.world` (read optionally, default true). A mesh whose vertices change (a voxel chunk) needs nothing: `IMesh::update` keeps its bounds current.
 
 ## Tilemaps
 
@@ -133,7 +164,7 @@ tiles = [0, 1, 2, ...]                   # size.x * size.y, row-major, row 0 on 
 
 The entity's `Transform` places the map: cell (0, 0) is the top-left corner at the origin, x grows right, y grows up, so the map extends down from the origin. `Tilemap::layer` and `order_in_layer` sort it like a `Sprite`; map layer i draws at `order_in_layer + i`. The `tilemap` serializer entry stores the asset GUID, `color`, `layer` and `order_in_layer` (in `.world`); cells come from the asset.
 
-`run_render` and `render_world_viewport` cut each layer into 32 x 32 cell chunks. A chunk is one baked `IMesh` (a quad per non-empty cell, UVs baked) drawn as one `CmdDrawMesh` with the shared per-texture material from `SpriteMaterialCache`, so there is no new `Command`. A chunk is built when it first becomes visible, and only chunks whose box touches the clip volume of a bound window are drawn (`tilemap_chunk_visible`; the render viewport uses its own). `Tilemap::set_tile` edits the component's copy of the cells and marks only the chunk that holds the cell dirty. The next `visible_tilemap_chunks` that returns that chunk bakes it again and calls `IMesh::update` on its mesh, so an edit reuses the chunk's mesh and GPU buffers; `create_mesh` runs only for a chunk that has no mesh yet or whose update failed. A chunk left with no tile drops its mesh. Edits are not saved. Tile index to UV follows `SpriteSheet::get` (image rows run down, V runs up); there is no half-texel inset, so use nearest filtering and a texture without spacing.
+`run_render` and `render_world_viewport` cut each layer into 32 x 32 cell chunks. A chunk is one baked `IMesh` (a quad per non-empty cell, UVs baked) drawn as one `CmdDrawMesh` with the shared per-texture material from `SpriteMaterialCache`, so there is no new `Command`. A chunk is built when it first becomes visible, and only chunks whose cell rectangle, under the map's model (`transform_aabb`), intersects the frustum of a bound window are drawn (`visible_tilemap_chunks` takes one world-space `Frustum` per window, see [Frustum culling](#frustum-culling); the render viewport passes its own). `Tilemap::set_tile` edits the component's copy of the cells and marks only the chunk that holds the cell dirty. The next `visible_tilemap_chunks` that returns that chunk bakes it again and calls `IMesh::update` on its mesh, so an edit reuses the chunk's mesh and GPU buffers; `create_mesh` runs only for a chunk that has no mesh yet or whose update failed. A chunk left with no tile drops its mesh. Edits are not saved. Tile index to UV follows `SpriteSheet::get` (image rows run down, V runs up); there is no half-texel inset, so use nearest filtering and a texture without spacing.
 
 Not covered yet: tile collision, flips, animated tiles, Y-sort, and an editor painting tool.
 
@@ -321,7 +352,9 @@ Vulkan mesh pipelines declare all five `MeshVertex` attributes (color is `R32G32
 ## CPU sources (always)
 
 - `src/render/material.cpp` — parse `.mat`
-- `src/render/mesh.cpp` — `IMesh::update` (validation before the backend's `replace`)
+- `src/render/mesh.cpp` — `IMesh::update` (validation before the backend's `replace`), `mesh_bounds`, the `IMesh` bounds
+- `src/render/aabb.cpp` — `transform_aabb`
+- `src/render/frustum.cpp` — `make_frustum`, `frustum_intersects`, `visible_in_any`
 - `src/render/texture_check.cpp` — `texture_array_desc_error`, `mip_level_count`, per-layer row flip
 - `src/render/lights.cpp` — `collect_scene_lights`, `default_scene_lights`
 - `src/render/material_instance.h` — `IMaterial` for a cooked material
@@ -331,8 +364,10 @@ Vulkan mesh pipelines declare all five `MeshVertex` attributes (color is `R32G32
 
 ## Public headers
 
+- `include/engine/render/aabb.h`
 - `include/engine/render/commands.h`
 - `include/engine/render/command_buffer.h`
+- `include/engine/render/frustum.h`
 - `include/engine/render/directional_light.h`
 - `include/engine/render/fog.h`
 - `include/engine/render/ambient_light.h`
@@ -355,7 +390,7 @@ Vulkan mesh pipelines declare all five `MeshVertex` attributes (color is `R32G32
 
 ## Tests
 
-`tests/command_buffer_test.cpp`, `tests/lights_test.cpp` (light collection, lights and camera in `CmdSetView`), `tests/fog_test.cpp` (no fog by default, the camera's `Fog` in every view, none in `render_world_viewport`, serialization), `tests/sort_test.cpp`, `tests/material_test.cpp`, `tests/render_system_test.cpp`, `tests/sprite_test.cpp`, `tests/animation_test.cpp`, `tests/tilemap_test.cpp` (chunk edits update the chunk's mesh), `tests/mesh_test.cpp` (`IMesh::update` validation and keep-old rule, `.mesh` vertex colors), `tests/texture_array_test.cpp` (array desc checks, mip level count, frame import, `.meta` and catalog, `AssetsDb` layers by name, array albedo in a `.mat`, codegen), `tests/vulkan_backend_test.cpp` (window builds: mesh update without a device, `RetireQueue` serials, a texture array without a device, `sampler_arrayed` reflection), `tests/particle_test.cpp`, `tests/shader_adapt_test.cpp`, `tests/opengl_texture_test.cpp` (CPU texture desc, no GL draw), `tests/ui_painter_test.cpp` (fake painter), `tests/window_icon_test.cpp`, `tests/context_objects_test.cpp` (context keys and deferred VAO deletes, no GL), `tests/gl_error_log_test.cpp`, `tests/ui_renderer_test.cpp` (UI renderer against a fake device: texture catch-up per device, draws per batch).
+`tests/command_buffer_test.cpp`, `tests/lights_test.cpp` (light collection, lights and camera in `CmdSetView`), `tests/fog_test.cpp` (no fog by default, the camera's `Fog` in every view, none in `render_world_viewport`, serialization), `tests/sort_test.cpp`, `tests/material_test.cpp`, `tests/render_system_test.cpp` (also culled renderables and sprites push no draw, pixel size and pivot, the union over windows, `frustum_cull`, particles not culled, `render_world_viewport` culling), `tests/frustum_test.cpp` (inside, outside each plane, straddling, touching, orthographic and perspective, degenerate matrices, `transform_aabb`), `tests/sprite_test.cpp`, `tests/animation_test.cpp`, `tests/tilemap_test.cpp` (chunk culling, chunk edits update the chunk's mesh), `tests/mesh_test.cpp` (`IMesh::update` validation and keep-old rule, bounds from create and update, `.mesh` vertex colors), `tests/texture_array_test.cpp` (array desc checks, mip level count, frame import, `.meta` and catalog, `AssetsDb` layers by name, array albedo in a `.mat`, codegen), `tests/vulkan_backend_test.cpp` (window builds: mesh update without a device, `RetireQueue` serials, a texture array without a device, `sampler_arrayed` reflection), `tests/particle_test.cpp`, `tests/shader_adapt_test.cpp`, `tests/opengl_texture_test.cpp` (CPU texture desc, no GL draw), `tests/ui_painter_test.cpp` (fake painter), `tests/window_icon_test.cpp`, `tests/context_objects_test.cpp` (context keys and deferred VAO deletes, no GL), `tests/gl_error_log_test.cpp`, `tests/ui_renderer_test.cpp` (UI renderer against a fake device: texture catch-up per device, draws per batch).
 
 GPU pixels stay out of `engine_tests`. See [Boundaries](../architecture/Boundaries.md).
 

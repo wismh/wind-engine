@@ -45,7 +45,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/core/window_desc.h` | `WindowId`, `WindowDesc`, `WindowStyle` | [Windowing](../features/Windowing.md) |
 | `include/engine/core/worlds.h` | Process `Worlds`: add, destroy, bind, stepping | [Core](../modules/Core.md) |
 | `include/engine/ecs/.gitkeep` | Keeps the directory in Git | [ECS](../modules/ECS.md) |
-| `include/engine/ecs/camera.h` | `Camera` (orthographic or perspective), `Projection`, screen/world and screen/ray conversion | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/camera.h` | `Camera` (orthographic or perspective), `Projection`, screen/world and screen/ray conversion, `camera_frustum` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/entity.h` | Generational `Entity` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/events.h` | Double-buffered `Events`, reader, writer, cursor | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/hierarchy.h` | `Parent`, `Children`, `WorldTransform`, `set_parent`, `clear_parent`, `world_matrix`, `set_world_position` | [ECS](../modules/ECS.md) |
@@ -83,6 +83,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/project/wind_project.h` | `WindProject`, `read_wind_project` | [Project](../modules/Project.md) |
 | `include/engine/loc/catalog.h` | `StringTable` parse and `Catalog` | [Localization](../modules/Localization.md) |
 | `include/engine/render/.gitkeep` | Keeps the directory in Git | [Render](../modules/Render.md) |
+| `include/engine/render/aabb.h` | `Aabb`, `transform_aabb` (box under an affine matrix) | [Render](../modules/Render.md#frustum-culling) |
 | `include/engine/render/ambient_light.h` | `AmbientLight` component | [Render](../modules/Render.md#lights) |
 | `include/engine/render/animation.h` | Sprite clip, animator, animation TOML | [Render](../modules/Render.md#tilemaps) |
 | `include/engine/render/tilemap.h` | `Tilemap` component, `.tilemap` TOML, chunk baking and culling | [Render](../modules/Render.md#tilemaps) |
@@ -93,18 +94,19 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/render/curve.h` | `Curve<T>` with `Linear`, `Smooth`, and `Step` keys | [Render](../modules/Render.md) |
 | `include/engine/render/directional_light.h` | `DirectionalLight` component | [Render](../modules/Render.md#lights) |
 | `include/engine/render/fog.h` | `Fog` component: linear distance fog on the active camera | [Render](../modules/Render.md#fog) |
-| `include/engine/render/graphic_factory.h` | `MeshVertex` (position, normal, uv, color), indexed `MeshDesc`, shader, texture and dynamic-texture descriptions, factory | [Render](../modules/Render.md) |
-| `include/engine/render/graphics.h` | `IMesh`, `IShader`, `ITexture`, `IDynamicTexture` | [Render](../modules/Render.md) |
+| `include/engine/render/frustum.h` | `Frustum`, `make_frustum`, `frustum_intersects`, `visible_in_any` | [Render](../modules/Render.md#frustum-culling) |
+| `include/engine/render/graphic_factory.h` | `MeshVertex` (position, normal, uv, color), indexed `MeshDesc`, `mesh_bounds`, shader, texture and dynamic-texture descriptions, factory | [Render](../modules/Render.md) |
+| `include/engine/render/graphics.h` | `IMesh` (with its local `bounds()`), `IShader`, `ITexture`, `IDynamicTexture` | [Render](../modules/Render.md) |
 | `include/engine/render/lights.h` | `collect_scene_lights`, `default_scene_lights` | [Render](../modules/Render.md#lights) |
 | `include/engine/render/material.h` | `IMaterial`, `RenderState` (blend, depth test/write, `CullMode`, `alpha_cutoff`), `.mat` parse | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `include/engine/render/draw_sort.h` | `DrawQueue`, `DrawSortKey`, `make_draw_sort_key`, `draw_sort_less` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `include/engine/render/particles.h` | `ParticleEmitter` | [Render](../modules/Render.md) |
 | `include/engine/render/primitives.h` | `make_quad`, `make_cube`, `make_plane`, `make_uv_sphere` | [Render](../modules/Render.md#primitives) |
-| `include/engine/render/renderable.h` | `Renderable`, `RenderableItem`, `sort_renderables` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `include/engine/render/renderable.h` | `Renderable` (with `frustum_cull`), `RenderableItem`, `sort_renderables` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `include/engine/render/scene_lights.h` | `SceneLights`, `kMaxDirectionalLights`, default light constants | [Render](../modules/Render.md#lights) |
 | `include/engine/render/shader_adapt.h` | GLSL 330 to GLSL 300 ES (adds the `sampler2DArray` precision) | [Render](../modules/Render.md) |
 | `include/engine/render/texture_array.h` | `TextureArray` asset: array texture plus frame names, `layer(name)` | [Render](../modules/Render.md#texture-arrays) |
-| `include/engine/render/sprite.h` | `Sprite` quad fields | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `include/engine/render/sprite.h` | `Sprite` quad fields, `frustum_cull` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `include/engine/resources/.gitkeep` | Keeps the directory in Git | [Resources](../modules/Resources.md) |
 | `include/engine/resources/asset_guid.h` | `write_missing_metas` | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `include/engine/resources/asset_filter.h` | `AssetFilter`, `CustomAssetFilter`, `asset_filter_for` | [Resources](../modules/Resources.md) |
@@ -237,14 +239,16 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/.gitkeep` | Keeps the directory in Git | [Render](../modules/Render.md) |
 | `src/render/backend/opengl/.gitkeep` | Empty placeholder. The backend lives in `src/render/opengl/` | [Render](../modules/Render.md) |
 | `src/render/animation.cpp` | Parse animation TOML into a clip | [Render](../modules/Render.md) |
-| `src/render/tilemap.cpp` | Parse `.tilemap`, bake chunk meshes, chunk culling, `Tilemap::set_tile`, update edited chunk meshes | [Render](../modules/Render.md#tilemaps) |
+| `src/render/tilemap.cpp` | Parse `.tilemap`, bake chunk meshes, chunk culling against `Frustum`s, `Tilemap::set_tile`, update edited chunk meshes | [Render](../modules/Render.md#tilemaps) |
 | `src/render/context_objects.cpp`, `src/render/context_objects.h` | Live GL context keys and VAO deletes deferred to their context | [Render](../modules/Render.md) |
 | `src/render/framebuffer_image.cpp`, `src/render/framebuffer_image.h` | Read-back rows to a top-first image with straight alpha | [CLI](../features/CLI.md#screenshot) |
 | `src/render/gl_error_log.cpp`, `src/render/gl_error_log.h` | GL error names; one log line per error and command | [Render](../modules/Render.md) |
 | `src/render/lights.cpp` | Collect directional and ambient lights for `CmdSetView` | [Render](../modules/Render.md#lights) |
 | `src/render/material.cpp` | Parse `.mat` TOML | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `src/render/material_instance.h` | `IMaterial` for a loaded `.mat` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
-| `src/render/mesh.cpp` | `IMesh::update`: validate, then the backend's `replace` | [Render](../modules/Render.md#mesh-updates) |
+| `src/render/mesh.cpp` | `IMesh::update`: validate, then the backend's `replace`, then the bounds; `mesh_bounds` | [Render](../modules/Render.md#mesh-updates) |
+| `src/render/aabb.cpp` | `transform_aabb` | [Render](../modules/Render.md#frustum-culling) |
+| `src/render/frustum.cpp` | Frustum planes from a view-projection, the box test, the union over windows | [Render](../modules/Render.md#frustum-culling) |
 | `src/render/mesh_check.cpp`, `src/render/mesh_check.h` | `mesh_desc_error`: why a `MeshDesc` cannot be drawn | [Render](../modules/Render.md#meshes) |
 | `src/render/texture_check.cpp`, `src/render/texture_check.h` | `texture_array_desc_error`, `mip_level_count`, per-layer row flip | [Render](../modules/Render.md#texture-arrays) |
 | `src/render/particles.cpp` | Spawn, integrate, and collide particles | [Render](../modules/Render.md) |
@@ -510,13 +514,14 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/loc_format_test.cpp` | Placeholders and plural branches | [Localization](../modules/Localization.md) |
 | `tests/log_test.cpp` | The null sink | [Core](../modules/Core.md) |
 | `tests/material_test.cpp` | `.mat` parse (blend, depth, cull, `alpha_cutoff`, defaults) and instance tint | [Materials and Sort](../features/Materials%20and%20Sort.md) |
-| `tests/mesh_test.cpp` | `.mesh` parse (5-, 8- and 12-column vertices, vertex color, `f` rows, bad rows and indices), `mesh_desc_error`, `IMesh::update` validation and keep-old rule | [Assets](../features/Assets.md#mesh-files) |
+| `tests/mesh_test.cpp` | `.mesh` parse (5-, 8- and 12-column vertices, vertex color, `f` rows, bad rows and indices), `mesh_desc_error`, `IMesh::update` validation and keep-old rule, `IMesh::bounds` from create and update | [Assets](../features/Assets.md#mesh-files) |
 | `tests/mvvm_test.cpp` | View-model properties, commands, checkbox write-back | [UI](../modules/UI.md) |
 | `tests/opengl_texture_test.cpp` | CPU texture description, row flip, dynamic-texture and texture-array creation contract. No GL draw | [Render](../modules/Render.md) |
 | `tests/particle_test.cpp` | Emitter step, curves, and parallel integration matching the caller | [Render](../modules/Render.md) |
 | `tests/pointer_target_test.cpp` | `PointerTarget`: hit-test, order, windows, camera, hover, click, click-through, UI first, locked cursor | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `tests/lights_test.cpp` | Light collection (direction from rotation and parent, cap, ambient sum, default rig) and the lights and camera in `CmdSetView` | [Render](../modules/Render.md#lights) |
 | `tests/fog_test.cpp` | No fog by default, the active camera's `Fog` in every window's `CmdSetView`, none in `render_world_viewport`, `fog` serialization | [Render](../modules/Render.md#fog) |
+| `tests/frustum_test.cpp` | Frustum planes (inside, outside each plane, straddling, touching, orthographic and perspective, degenerate), `transform_aabb` | [Render](../modules/Render.md#frustum-culling) |
 | `tests/primitives_test.cpp` | Primitive counts, unit outward normals, winding, index range, white vertex color; builtin quad and cube files match | [Render](../modules/Render.md#primitives) |
 | `tests/physics_2d_test.cpp` | Overlap enter, stay, exit | [ECS](../modules/ECS.md) |
 | `tests/engine_version_test.cpp` | `EngineVersion` parse, refusals, round trip, order | [Project](../modules/Project.md#engine-version) |
@@ -526,7 +531,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/platform_test.cpp` | Assets root and `user_data_directory` names | [Core](../modules/Core.md) |
 | `tests/process_test.cpp` | Line cutting, quoting, environment, `ProcessCall` ownership, and real `cmd.exe` children on Windows (output, exit, cancel, leftovers) | [Process](../modules/Process.md) |
 | `tests/project_test.cpp` | `wind_project.toml` and `sdk.toml` reading and their errors | [Project](../modules/Project.md) |
-| `tests/render_system_test.cpp` | `run_render` sort (queues, depth order, 2D order at different z); unset camera skips, missing components fatal | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `tests/render_system_test.cpp` | `run_render` sort (queues, depth order, 2D order at different z); unset camera skips, missing components fatal; frustum culling of renderables and sprites, union over windows, `frustum_cull` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `tests/serializable_object_test.cpp` | Nested `WIND_SERIALIZABLE` world round trip and `AssetsDb` object load, mismatch, corrupt file, and `clear_object_loaders` | [Assets](../features/Assets.md) |
 | `tests/shader_adapt_test.cpp` | GLSL 300 ES rewrite, `sampler2DArray` precision | [Render](../modules/Render.md) |
 | `tests/sort_test.cpp` | `draw_sort_less` queues and keys, `sort_renderables` | [Materials and Sort](../features/Materials%20and%20Sort.md) |

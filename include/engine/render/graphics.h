@@ -2,6 +2,8 @@
 
 // docs/tech/modules/Render.md
 
+#include <engine/render/aabb.h>
+
 #include <cstdint>
 #include <span>
 
@@ -14,14 +16,27 @@ class IMesh {
 public:
     virtual ~IMesh() = default;
 
-    // Replaces every vertex and index with those of `desc`, as if the mesh were made from it by `create_mesh`.
-    // False, and the mesh keeps what it had, when `desc` cannot be drawn (no vertices, an index count that is not a
-    // multiple of 3, or an index at or past the vertex count; the reason is logged) or the backend could not take it.
+    // Replaces every vertex and index with those of `desc`, as if the mesh were made from it by `create_mesh`, and
+    // `bounds()` with `mesh_bounds(desc)`. False, and the mesh keeps what it had (bounds included), when `desc` cannot
+    // be drawn (no vertices, an index count that is not a multiple of 3, or an index at or past the vertex count; the
+    // reason is logged) or the backend could not take it.
     bool update(const MeshDesc& desc);
 
+    // The local box around every vertex of the desc the mesh was made or last updated from. Frustum culling tests it
+    // under the draw's model matrix.
+    [[nodiscard]] const Aabb& bounds() const noexcept {
+        return bounds_;
+    }
+
 protected:
+    // Every mesh starts from a desc; its bounds are `mesh_bounds(desc)`.
+    explicit IMesh(const MeshDesc& desc);
+
     // The backend half of `update`, called only with a desc that can be drawn. False leaves the old contents.
     virtual bool replace(const MeshDesc& desc) = 0;
+
+private:
+    Aabb bounds_;
 };
 
 class IShader {
