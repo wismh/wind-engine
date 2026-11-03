@@ -48,7 +48,12 @@
 
 namespace {
 
-class FakeMesh final : public engine::render::IMesh {};
+class FakeMesh final : public engine::render::IMesh {
+protected:
+    bool replace(const engine::render::MeshDesc&) override {
+        return true;
+    }
+};
 class FakeTexture final : public engine::render::ITexture {};
 
 class FakeMaterial final : public engine::render::IMaterial {

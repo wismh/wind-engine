@@ -615,7 +615,12 @@ transform = { position = [0.0, 0.0, 0.0] }
     EXPECT_NEAR(tr->position.z, 0.0f, 1e-4f);
 }
 
-class StubMesh final : public engine::render::IMesh {};
+class StubMesh final : public engine::render::IMesh {
+protected:
+    bool replace(const engine::render::MeshDesc&) override {
+        return true;
+    }
+};
 class StubGraphicFactory final : public engine::render::IGraphicFactory {
 public:
     std::shared_ptr<engine::render::IMesh> create_mesh(const engine::render::MeshDesc&) override {

@@ -3,6 +3,7 @@
 // docs/tech/modules/Render.md
 
 #include "vulkan_functions.h"
+#include "vulkan_retire_queue.h"
 
 #include <cstdint>
 #include <optional>
@@ -58,7 +59,24 @@ public:
     [[nodiscard]] VkCommandBuffer begin_single_time_commands() const;
     void end_single_time_commands(VkCommandBuffer cmd) const;
 
+    // Destroys `buffer` and frees `memory` once no submitted or recording frame can read them (`RetireQueue`). Either
+    // may be null. Nothing to do without a device.
+    void retire_buffer(VkBuffer buffer, VkDeviceMemory memory);
+    // A canvas submitted a frame: the serial to pass to `note_completed` once its fence has signalled.
+    [[nodiscard]] std::uint64_t note_submitted();
+    // The submission `serial` has completed: destroys what was retired before it.
+    void note_completed(std::uint64_t serial);
+    // Destroys everything retired. Only with the device idle.
+    void release_retired();
+
 private:
+    struct RetiredBuffer {
+        VkBuffer buffer = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+    };
+
+    void destroy_retired(const RetiredBuffer& retired) const;
+
     VulkanFunctions fn_{};
     VkInstance instance_ = VK_NULL_HANDLE;
     VkPhysicalDevice physical_device_ = VK_NULL_HANDLE;
@@ -68,6 +86,7 @@ private:
     VkCommandPool transient_pool_ = VK_NULL_HANDLE;
     VkPhysicalDeviceMemoryProperties mem_props_{};
     VkPhysicalDeviceProperties device_props_{};
+    RetireQueue<RetiredBuffer> retired_;
 };
 
 } // namespace engine::render

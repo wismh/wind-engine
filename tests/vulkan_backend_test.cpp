@@ -8,6 +8,8 @@
 #include "render/vulkan/vulkan_canvas.h"
 #include "render/vulkan/vulkan_context.h"
 #include "render/vulkan/vulkan_factory.h"
+#include "render/vulkan/vulkan_mesh.h"
+#include "render/vulkan/vulkan_retire_queue.h"
 #include "render/vulkan/vulkan_shader.h"
 #include "render/vulkan/vulkan_spirv.h"
 #include "render/vulkan/vulkan_ui_device.h"
@@ -18,10 +20,12 @@
 #include <engine/render/commands.h>
 #include <engine/render/material.h>
 
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <vector>
 
 namespace engine::render {
 namespace {
@@ -82,6 +86,67 @@ TEST(VulkanBackendTest, FactoryValidatesMeshShaderAndTextures) {
     EXPECT_EQ(dyn->height(), 3);
     EXPECT_FALSE(dyn->update(new_pixels, 0, 3));
     EXPECT_EQ(dyn->width(), 4);
+}
+
+TEST(VulkanBackendTest, MeshUpdateWithoutADeviceKeepsTheNewDataForUpload) {
+    auto ctx = std::make_shared<VulkanContext>();
+    VulkanFactory factory(ctx);
+
+    MeshDesc triangle{};
+    triangle.vertices.resize(3);
+    auto mesh = std::static_pointer_cast<VulkanMesh>(factory.create_mesh(triangle));
+    ASSERT_NE(mesh, nullptr);
+
+    MeshDesc quad{};
+    quad.vertices.resize(4);
+    quad.indices = {0, 1, 2, 2, 3, 0};
+    EXPECT_TRUE(mesh->update(quad));
+    EXPECT_EQ(mesh->vertex_count(), 4u);
+    EXPECT_EQ(mesh->index_count(), 6u);
+
+    MeshDesc bad = quad;
+    bad.indices = {0, 1, 4};
+    EXPECT_FALSE(mesh->update(bad));
+    EXPECT_FALSE(mesh->update(MeshDesc{}));
+    EXPECT_EQ(mesh->vertex_count(), 4u);
+    EXPECT_EQ(mesh->index_count(), 6u);
+}
+
+TEST(VulkanRetireQueue, HoldsAnItemUntilTheNextSubmitCompletes) {
+    RetireQueue<int> queue;
+    queue.retire(1);
+    EXPECT_TRUE(queue.completed(0).empty());
+    const std::uint64_t first = queue.submitted();
+    EXPECT_EQ(queue.completed(first), std::vector<int>{1});
+    EXPECT_EQ(queue.size(), 0u);
+}
+
+TEST(VulkanRetireQueue, AnOlderCompletionFreesNothingRetiredAfterIt) {
+    RetireQueue<int> queue;
+    const std::uint64_t first = queue.submitted();
+    const std::uint64_t second = queue.submitted();
+    // Retired while the third frame records: the first two frames may still read it.
+    queue.retire(7);
+    EXPECT_TRUE(queue.completed(first).empty());
+    EXPECT_TRUE(queue.completed(second).empty());
+    const std::uint64_t third = queue.submitted();
+    EXPECT_EQ(queue.completed(third), std::vector<int>{7});
+}
+
+TEST(VulkanRetireQueue, ALaterSerialCoversEarlierOnesAndAnOutOfOrderOneFreesNothingNew) {
+    RetireQueue<int> queue;
+    queue.retire(1);
+    const std::uint64_t first = queue.submitted();
+    queue.retire(2);
+    const std::uint64_t second = queue.submitted();
+    queue.retire(3);
+
+    // Two canvases: the second's fence is seen first. A fence covers every earlier submit on the queue.
+    EXPECT_EQ(queue.completed(second), (std::vector<int>{1, 2}));
+    EXPECT_TRUE(queue.completed(first).empty());
+    EXPECT_EQ(queue.size(), 1u);
+    EXPECT_EQ(queue.take_all(), std::vector<int>{3});
+    EXPECT_EQ(queue.size(), 0u);
 }
 
 TEST(VulkanBackendTest, BackendExecutesSetViewMeshAndParticlesSafelyWithoutPass) {

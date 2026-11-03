@@ -22,7 +22,7 @@ void OpenGLFactory::set_context_activator(std::function<void()> make_current) {
 
 std::shared_ptr<IMesh> OpenGLFactory::create_mesh(const MeshDesc& desc) {
     const ContextScope scope(make_current_);
-    auto mesh = std::make_shared<OpenGLMesh>(desc);
+    auto mesh = std::make_shared<OpenGLMesh>(desc, make_current_);
     if (!mesh->valid()) {
         return {};
     }

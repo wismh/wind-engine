@@ -45,6 +45,14 @@ Vertex shader inputs are fixed: position at `location = 0`, uv at `1`, normal at
 
 `mesh_desc_error` (`src/render/mesh_check.h`) names why a desc cannot be drawn: no vertices, an index count that is not a multiple of 3, or an index at or past the vertex count. `OpenGLMesh` logs that error and stays invalid, so `create_mesh` returns null and an asset load is `AssetError::Corrupt`. `parse_mesh` rejects the same descs. `OpenGLMesh` keeps one vertex buffer and, when there are indices, one element buffer, uploaded with no VAO bound. Each context's VAO binds the element buffer in its setup (the element binding is VAO state), and `draw` calls `glDrawElements(GL_TRIANGLES, n, GL_UNSIGNED_INT, …)`, or `glDrawArrays` without indices. GLES 3.0 and WebGL2 accept 32-bit indices.
 
+### Mesh updates
+
+`IMesh::update(const MeshDesc&)` (`include/engine/render/graphics.h`, `src/render/mesh.cpp`) replaces every vertex and index of a live mesh, as if it had been made from that desc. It is not virtual: it checks `mesh_desc_error` first and, on an error, logs it and returns false without calling the backend, so the mesh keeps what it had. A valid desc goes to the protected `IMesh::replace`, which each backend implements; false from it also leaves the old contents. There is no separate dynamic mesh type: any mesh, asset meshes included, can be updated. Main thread only. A test fake implements `replace`.
+
+`OpenGLMesh::replace` makes the engine's context current (`ContextScope`, with the activator `OpenGLFactory` passes in) and writes in place with `glBufferSubData` when the data fits the buffer's storage. When it does not, it calls `glBufferData` on the same buffer name with `GL_DYNAMIC_DRAW` and room for `max(needed, 1.5 × old)` bytes, then `glBufferSubData`. Storage never shrinks. Keeping the names keeps every context's VAO valid (VAO state refers to buffer names, not storage), so a reallocation needs no rebind. The element buffer is written with no VAO bound, like creation. A non-indexed mesh that gains indices makes its first element buffer and releases its VAOs (`ContextVao::release`), so each context builds one with the element binding on its next draw. A mesh that drops its indices keeps the element buffer and draws with `glDrawArrays`. The same code runs on desktop GL, GLES 3.0, and WebGL2.
+
+`VulkanMesh::replace` never writes buffers a frame in flight may read. Without a device, or before its first upload, it only swaps the CPU copies that `ensure_gpu_buffers` uploads later. Otherwise it uploads new host-visible vertex and index buffers (no queue wait); if either upload fails it frees them and returns false with the old buffers in place. On success it hands the old buffers to `VulkanContext::retire_buffer` and uses the new ones. The destructor retires its buffers the same way. See [Vulkan](#vulkan-engine_with_window) for the retire queue.
+
 The `.mesh` file format is in [Assets](../features/Assets.md#mesh-files).
 
 ### Primitives
@@ -102,7 +110,7 @@ tiles = [0, 1, 2, ...]                   # size.x * size.y, row-major, row 0 on 
 
 The entity's `Transform` places the map: cell (0, 0) is the top-left corner at the origin, x grows right, y grows up, so the map extends down from the origin. `Tilemap::layer` and `order_in_layer` sort it like a `Sprite`; map layer i draws at `order_in_layer + i`. The `tilemap` serializer entry stores the asset GUID, `color`, `layer` and `order_in_layer` (in `.world`); cells come from the asset.
 
-`run_render` and `render_world_viewport` cut each layer into 32 x 32 cell chunks. A chunk is one baked `IMesh` (a quad per non-empty cell, UVs baked) drawn as one `CmdDrawMesh` with the shared per-texture material from `SpriteMaterialCache`, so there is no new `Command`. A chunk is built when it first becomes visible, and only chunks whose box touches the clip volume of a bound window are drawn (`tilemap_chunk_visible`; the render viewport uses its own). `Tilemap::set_tile` edits the component's copy of the cells and rebuilds only the chunk that holds the cell. Edits are not saved. Tile index to UV follows `SpriteSheet::get` (image rows run down, V runs up); there is no half-texel inset, so use nearest filtering and a texture without spacing.
+`run_render` and `render_world_viewport` cut each layer into 32 x 32 cell chunks. A chunk is one baked `IMesh` (a quad per non-empty cell, UVs baked) drawn as one `CmdDrawMesh` with the shared per-texture material from `SpriteMaterialCache`, so there is no new `Command`. A chunk is built when it first becomes visible, and only chunks whose box touches the clip volume of a bound window are drawn (`tilemap_chunk_visible`; the render viewport uses its own). `Tilemap::set_tile` edits the component's copy of the cells and marks only the chunk that holds the cell dirty. The next `visible_tilemap_chunks` that returns that chunk bakes it again and calls `IMesh::update` on its mesh, so an edit reuses the chunk's mesh and GPU buffers; `create_mesh` runs only for a chunk that has no mesh yet or whose update failed. A chunk left with no tile drops its mesh. Edits are not saved. Tile index to UV follows `SpriteSheet::get` (image rows run down, V runs up); there is no half-texel inset, so use nearest filtering and a texture without spacing.
 
 Not covered yet: tile collision, flips, animated tiles, Y-sort, and an editor painting tool.
 
@@ -247,17 +255,21 @@ GL errors are silent unless someone asks. With `ENGINE_GL_CHECKS` (Debug, RelWit
 | Shared `VkInstance`, `VkPhysicalDevice`, `VkDevice`, `VkQueue`, and command pool | `src/render/vulkan/vulkan_context.cpp` |
 | Factory (`IMesh`, SPIR-V `IShader` modules, `ITexture`, `IDynamicTexture`) | `src/render/vulkan/vulkan_factory.cpp` |
 | GPU resources (`VulkanMesh`, `VulkanShader`, `VulkanTexture`) | `vulkan_mesh.cpp`, `vulkan_shader.cpp`, `vulkan_texture.cpp` |
+| Buffers held until no frame in flight reads them (`RetireQueue`) | `src/render/vulkan/vulkan_retire_queue.h` |
 | SPIR-V reflection (`OpEntryPoint`, UBO uniform layout, sampler binding) | `src/render/vulkan/vulkan_spirv.cpp` |
 | Render backend (`IRenderBackend`, graphics pipelines, UBO/descriptor sets, `CmdSetView`, `CmdDrawMesh`, `CmdDrawParticles`) | `src/render/vulkan/vulkan_backend.cpp` |
 | UI device (`IUiDevice`) and its Slang uber-shader | `vulkan_ui_device.cpp`, `vulkan_ui_shader.h` |
 | Per-window `VkSurfaceKHR`, `VkSwapchainKHR`, depth attachment, render pass, framebuffers, sync primitives, and staging-buffer `read_pixels()` | `src/render/vulkan/vulkan_canvas.cpp` |
 | SDL presentation wiring (`make_sdl_vk_presentation`) | `src/render/vulkan/sdl_vk_presentation.cpp` |
 
+Retired buffers (`src/render/vulkan/vulkan_retire_queue.h`, held by `VulkanContext`). A buffer a mesh replaced or dropped may still be read by up to `kMaxFramesInFlight` submitted frames, or by the frame being recorded. `VulkanContext::retire_buffer` tags it with the serial of the next submission. Each `VulkanCanvas` records `VulkanContext::note_submitted()` for a frame slot after its `vkQueueSubmit`, and passes that serial to `note_completed` after waiting on the slot's fence, which destroys everything tagged at or below it. Every canvas submits to the one graphics queue, and a fence signalled by a submit covers all earlier submits on that queue, so one completed serial is enough even with several windows. `release_retired` destroys everything after a `vkDeviceWaitIdle` (canvas shutdown, swapchain recreation, `VulkanContext::shutdown`). `VulkanTexture` does not use it yet: a dynamic texture whose size changes destroys its image at once, which a frame in flight may still sample.
+
 `EngineRuntime` selects `make_sdl_vk_presentation()` when built with `-DENGINE_WITH_VULKAN=ON` or when `WIND_RENDER_BACKEND=vulkan` is set in the environment (`WIND_RENDER_BACKEND=opengl` forces OpenGL).
 
 ## CPU sources (always)
 
 - `src/render/material.cpp` — parse `.mat`
+- `src/render/mesh.cpp` — `IMesh::update` (validation before the backend's `replace`)
 - `src/render/lights.cpp` — `collect_scene_lights`, `default_scene_lights`
 - `src/render/material_instance.h` — `IMaterial` for a cooked material
 - `src/render/tilemap.cpp`, `src/render/animation.cpp`, `src/render/particles.cpp`, `src/render/shader_adapt.cpp`, `src/render/slang_compiler.cpp`
@@ -288,7 +300,7 @@ GL errors are silent unless someone asks. With `ENGINE_GL_CHECKS` (Debug, RelWit
 
 ## Tests
 
-`tests/command_buffer_test.cpp`, `tests/lights_test.cpp` (light collection, lights and camera in `CmdSetView`), `tests/sort_test.cpp`, `tests/material_test.cpp`, `tests/render_system_test.cpp`, `tests/sprite_test.cpp`, `tests/animation_test.cpp`, `tests/tilemap_test.cpp`, `tests/particle_test.cpp`, `tests/shader_adapt_test.cpp`, `tests/opengl_texture_test.cpp` (CPU texture desc, no GL draw), `tests/ui_painter_test.cpp` (fake painter), `tests/window_icon_test.cpp`, `tests/context_objects_test.cpp` (context keys and deferred VAO deletes, no GL), `tests/gl_error_log_test.cpp`, `tests/ui_renderer_test.cpp` (UI renderer against a fake device: texture catch-up per device, draws per batch).
+`tests/command_buffer_test.cpp`, `tests/lights_test.cpp` (light collection, lights and camera in `CmdSetView`), `tests/sort_test.cpp`, `tests/material_test.cpp`, `tests/render_system_test.cpp`, `tests/sprite_test.cpp`, `tests/animation_test.cpp`, `tests/tilemap_test.cpp` (chunk edits update the chunk's mesh), `tests/mesh_test.cpp` (`IMesh::update` validation and keep-old rule), `tests/vulkan_backend_test.cpp` (window builds: mesh update without a device, `RetireQueue` serials), `tests/particle_test.cpp`, `tests/shader_adapt_test.cpp`, `tests/opengl_texture_test.cpp` (CPU texture desc, no GL draw), `tests/ui_painter_test.cpp` (fake painter), `tests/window_icon_test.cpp`, `tests/context_objects_test.cpp` (context keys and deferred VAO deletes, no GL), `tests/gl_error_log_test.cpp`, `tests/ui_renderer_test.cpp` (UI renderer against a fake device: texture catch-up per device, draws per batch).
 
 GPU pixels stay out of `engine_tests`. See [Boundaries](../architecture/Boundaries.md).
 

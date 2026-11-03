@@ -33,7 +33,12 @@ using engine::render::AmbientLight;
 using engine::render::DirectionalLight;
 using engine::render::SceneLights;
 
-class FakeMesh final : public engine::render::IMesh {};
+class FakeMesh final : public engine::render::IMesh {
+protected:
+    bool replace(const engine::render::MeshDesc&) override {
+        return true;
+    }
+};
 
 class FakeMaterial final : public engine::render::IMaterial {
 public:

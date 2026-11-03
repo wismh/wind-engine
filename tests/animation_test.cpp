@@ -47,7 +47,12 @@ public:
     int height() const noexcept override { return h; }
 };
 
-class FakeMesh final : public engine::render::IMesh {};
+class FakeMesh final : public engine::render::IMesh {
+protected:
+    bool replace(const engine::render::MeshDesc&) override {
+        return true;
+    }
+};
 class FakeShader final : public engine::render::IShader {};
 
 class FakeMaterial final : public engine::render::IMaterial {
