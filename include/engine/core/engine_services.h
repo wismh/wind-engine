@@ -33,7 +33,8 @@ struct EngineServices {
     IHaptics& haptics;
     IHttpClient& http;
     IProcessLauncher& processes;
-    // Fork-join pool. `parallel_for` is the call that runs a function off this thread.
+    // Worker pool. `parallel_for` (fork-join) and `submit` (a background job whose result arrives in a `JobCall`)
+    // are the calls that run a function off this thread.
     JobSystem& jobs;
     IWindowControl& windows;
     render::IGraphicFactory& graphics;

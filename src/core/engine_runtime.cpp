@@ -83,8 +83,8 @@ void EngineRuntime::shutdown() {
 }
 
 int EngineRuntime::run(RunHooks hooks, Worlds& worlds, InputSystem& input, IAudioSystem* audio, HttpClient* http,
-        ProcessLauncher* processes, std::function<void()> host_dispose) {
-    return impl_->loop.run(*impl_->presentation, std::move(hooks), worlds, input, audio, http, processes,
+        ProcessLauncher* processes, JobSystem* jobs, std::function<void()> host_dispose) {
+    return impl_->loop.run(*impl_->presentation, std::move(hooks), worlds, input, audio, http, processes, jobs,
             std::move(host_dispose));
 }
 

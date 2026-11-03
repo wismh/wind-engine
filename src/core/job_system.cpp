@@ -1,11 +1,15 @@
 #include <engine/core/job_system.h>
 
+#include "core/job_state.h"
+
 #include <algorithm>
 #include <atomic>
+#include <cassert>
 #include <condition_variable>
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -45,6 +49,28 @@ struct DepthGuard {
 #endif
 }
 
+// A slot taken out of a job under the lock, destroyed after it.
+struct DoomedSlot {
+    void* slot = nullptr;
+    detail::JobDestroyFn destroy = nullptr;
+};
+
+// Takes the slot out of a job that leaves the system cancelled.
+[[nodiscard]] DoomedSlot drop(JobState& state) {
+    state.cancelled.store(true, std::memory_order_release);
+    const DoomedSlot doomed{.slot = state.slot, .destroy = state.destroy};
+    state.slot = nullptr;
+    state.status = JobStatus::Dropped;
+    state.owner.store(nullptr, std::memory_order_release);
+    return doomed;
+}
+
+void destroy(const DoomedSlot& doomed) {
+    if (doomed.slot != nullptr) {
+        doomed.destroy(doomed.slot);
+    }
+}
+
 }
 
 struct JobSystem::Impl {
@@ -66,6 +92,21 @@ struct JobSystem::Impl {
         std::condition_variable done;
     };
 
+    // Highest priority first, then submit order. `state` does not take part in the order, so a key with a null
+    // state finds an entry.
+    struct Queued {
+        int priority = 0;
+        std::uint64_t seq = 0;
+        std::shared_ptr<JobState> state;
+
+        bool operator<(const Queued& other) const {
+            if (priority != other.priority) {
+                return priority > other.priority;
+            }
+            return seq < other.seq;
+        }
+    };
+
     std::mutex mutex;
     std::condition_variable wake;
     std::shared_ptr<Batch> batch;
@@ -73,12 +114,36 @@ struct JobSystem::Impl {
     bool stopping = false;
     int workers = 0;
     std::vector<std::thread> threads;
+    std::thread::id owner_thread = std::this_thread::get_id();
+
+    // Jobs, all under `mutex`. They live in their own list rather than a CallCompletions: a cancel must see in
+    // one critical section whether a job is queued, running, or finished, and `cancel_all` must reach the
+    // finished ones that `poll` has not delivered yet.
+    //
+    // `busy` counts jobs from pop until they are in `finished` or their slot has been destroyed; `idle` is
+    // signalled when it drops.
+    std::set<Queued> queue;
+    std::vector<std::shared_ptr<JobState>> running;
+    std::vector<std::shared_ptr<JobState>> finished;
+    std::uint64_t next_seq = 0;
+    int busy = 0;
+    std::condition_variable idle;
 
     ~Impl() {
         stop();
     }
 
+    // At most `workers - 1` jobs at once, so a `parallel_for` always finds a free worker. One worker runs them all.
+    [[nodiscard]] int job_cap() const {
+        return workers >= 2 ? workers - 1 : workers;
+    }
+
+    [[nodiscard]] bool can_take_job() const {
+        return !queue.empty() && busy < job_cap();
+    }
+
     void stop() {
+        cancel_all();
         {
             const std::lock_guard lock(mutex);
             stopping = true;
@@ -93,6 +158,63 @@ struct JobSystem::Impl {
         workers = 0;
         batch.reset();
         stopping = false;
+    }
+
+    // Takes the top job and runs it on this thread. Called with `lock` held and a non-empty queue; returns with
+    // it held.
+    void run_one(std::unique_lock<std::mutex>& lock) {
+        const auto top = queue.begin();
+        std::shared_ptr<JobState> state = top->state;
+        queue.erase(top);
+        state->status = JobStatus::Running;
+        running.push_back(state);
+        ++busy;
+        lock.unlock();
+
+        {
+            const DepthGuard guard;
+            const JobToken token{state->cancelled};
+            state->run(state->slot, token);
+        }
+
+        lock.lock();
+        std::erase(running, state);
+        if (state->cancelled.load(std::memory_order_acquire)) {
+            const DoomedSlot doomed = drop(*state);
+            // The slot's destructor is code of whatever module submitted the job. `busy` stays up until it has
+            // returned, so `cancel_all` does not let that module go while it runs.
+            lock.unlock();
+            destroy(doomed);
+            lock.lock();
+        } else {
+            state->status = JobStatus::Finished;
+            finished.push_back(std::move(state));
+        }
+        --busy;
+        idle.notify_all();
+        wake.notify_one();
+    }
+
+    void cancel_all() {
+        std::vector<DoomedSlot> doomed;
+        std::unique_lock lock(mutex);
+        for (const Queued& entry : queue) {
+            doomed.push_back(drop(*entry.state));
+        }
+        queue.clear();
+        for (const std::shared_ptr<JobState>& state : running) {
+            state->cancelled.store(true, std::memory_order_release);
+        }
+        for (const std::shared_ptr<JobState>& state : finished) {
+            doomed.push_back(drop(*state));
+        }
+        finished.clear();
+        lock.unlock();
+        for (const DoomedSlot& entry : doomed) {
+            destroy(entry);
+        }
+        lock.lock();
+        idle.wait(lock, [this] { return busy == 0; });
     }
 
     static void participate(const std::shared_ptr<Batch>& job) {
@@ -113,21 +235,26 @@ struct JobSystem::Impl {
         }
     }
 
+    // A published batch comes before a queued job.
     void run() {
         std::uint64_t seen = 0;
         std::unique_lock lock(mutex);
         for (;;) {
-            wake.wait(lock, [&] { return stopping || published != seen; });
-            if (published == seen) {
+            wake.wait(lock, [&] { return stopping || published != seen || can_take_job(); });
+            if (published != seen) {
+                seen = published;
+                const std::shared_ptr<Batch> job = batch;
+                lock.unlock();
+                if (job) {
+                    participate(job);
+                }
+                lock.lock();
+                continue;
+            }
+            if (stopping) {
                 return;
             }
-            seen = published;
-            const std::shared_ptr<Batch> job = batch;
-            lock.unlock();
-            if (job) {
-                participate(job);
-            }
-            lock.lock();
+            run_one(lock);
         }
     }
 };
@@ -150,11 +277,113 @@ JobSystem::JobSystem(int workers) : impl_(std::make_unique<Impl>()) {
 JobSystem::~JobSystem() = default;
 
 void JobSystem::stop() {
+    check_owner_thread();
     impl_->stop();
 }
 
 int JobSystem::worker_count() const noexcept {
     return impl_->workers;
+}
+
+void JobSystem::check_owner_thread() const {
+    assert(std::this_thread::get_id() == impl_->owner_thread && "JobSystem: call it from the thread that built it");
+}
+
+JobHandle JobSystem::submit_impl(void* slot, detail::JobRunFn run, detail::JobDestroyFn destroy, int priority) {
+    check_owner_thread();
+    auto state = std::make_shared<JobState>();
+    state->slot = slot;
+    state->run = run;
+    state->destroy = destroy;
+    state->priority = priority;
+    state->owner.store(this, std::memory_order_release);
+    {
+        const std::lock_guard lock(impl_->mutex);
+        state->seq = impl_->next_seq++;
+        impl_->queue.insert(Impl::Queued{.priority = priority, .seq = state->seq, .state = state});
+    }
+    impl_->wake.notify_one();
+    return JobHandle{std::move(state)};
+}
+
+void JobSystem::poll(std::chrono::microseconds inline_budget) {
+    check_owner_thread();
+    std::unique_lock lock(impl_->mutex);
+    if (impl_->workers == 0 && !impl_->queue.empty()) {
+        const auto start = std::chrono::steady_clock::now();
+        do {
+            impl_->run_one(lock);
+        } while (!impl_->queue.empty() && std::chrono::steady_clock::now() - start < inline_budget);
+    }
+    std::vector<std::shared_ptr<JobState>> done;
+    done.swap(impl_->finished);
+    for (const std::shared_ptr<JobState>& state : done) {
+        state->status = JobStatus::Delivered;
+        state->owner.store(nullptr, std::memory_order_release);
+    }
+    lock.unlock();
+    for (const std::shared_ptr<JobState>& state : done) {
+        state->delivered = true;
+    }
+}
+
+void JobSystem::wait_idle() {
+    check_owner_thread();
+    std::unique_lock lock(impl_->mutex);
+    if (impl_->workers == 0) {
+        while (!impl_->queue.empty()) {
+            impl_->run_one(lock);
+        }
+        return;
+    }
+    impl_->idle.wait(lock, [this] { return impl_->queue.empty() && impl_->busy == 0; });
+}
+
+void JobSystem::cancel_all() {
+    check_owner_thread();
+    impl_->cancel_all();
+}
+
+void JobSystem::cancel_job(JobState& state) {
+    check_owner_thread();
+    DoomedSlot doomed;
+    {
+        const std::lock_guard lock(impl_->mutex);
+        switch (state.status) {
+        case JobStatus::Queued:
+            impl_->queue.erase(Impl::Queued{.priority = state.priority, .seq = state.seq, .state = nullptr});
+            break;
+        case JobStatus::Finished:
+            std::erase_if(impl_->finished,
+                    [&state](const std::shared_ptr<JobState>& entry) { return entry.get() == &state; });
+            break;
+        case JobStatus::Running:
+            // The worker sees the flag when the function returns and destroys the slot there.
+            state.cancelled.store(true, std::memory_order_release);
+            return;
+        case JobStatus::Delivered:
+        case JobStatus::Dropped:
+            return;
+        }
+        doomed = drop(state);
+    }
+    destroy(doomed);
+}
+
+void JobSystem::reprioritize_job(JobState& state, int priority) {
+    check_owner_thread();
+    const std::lock_guard lock(impl_->mutex);
+    if (state.status != JobStatus::Queued) {
+        return;
+    }
+    const auto found = impl_->queue.find(Impl::Queued{.priority = state.priority, .seq = state.seq, .state = nullptr});
+    if (found == impl_->queue.end()) {
+        return;
+    }
+    std::shared_ptr<JobState> shared = found->state;
+    impl_->queue.erase(found);
+    state.priority = priority;
+    impl_->queue.insert(Impl::Queued{.priority = priority, .seq = state.seq, .state = std::move(shared)});
 }
 
 void JobSystem::parallel_for_impl(std::size_t count, std::size_t grain, void* context, RangeFn fn) {
