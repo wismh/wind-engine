@@ -11,6 +11,7 @@ Git submodules. Engine CMake owns these targets. **Do not add EnTT.** Do not use
 | `tomlplusplus` | https://github.com/marzer/tomlplusplus.git |
 | `tinyxml2` | https://github.com/leethomason/tinyxml2.git |
 | `spdlog` | https://github.com/gabime/spdlog.git |
+| `lz4` | https://github.com/lz4/lz4.git (`v1.10.0`; only `lib/lz4.c` and `lib/lz4hc.c` are built, as `wind_lz4`) |
 
 ## Required when `ENGINE_WITH_WINDOW=ON`
 

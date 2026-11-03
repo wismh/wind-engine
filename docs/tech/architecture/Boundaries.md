@@ -7,7 +7,7 @@ Rules that keep games from depending on SDL or glad.
 | Public `include/engine/` | Private `src/` |
 | --- | --- |
 | `IGame`, `World`, components, `AssetsDb`, `IMaterial`, UI MVVM, `IAudioSystem`, `IHaptics`, `IHttpClient`, `IProcessLauncher` | OpenGL classes, the UI renderer (`src/ui/render/`), XML and CSS parsers, `stb_image`, `stb_truetype`, clipboard, mixer |
-| glm types on game-facing structs | spdlog, tinyxml2, tomlplusplus, SDL |
+| glm types on game-facing structs | spdlog, tinyxml2, tomlplusplus, lz4, SDL |
 
 Games include `<engine/…>` only. `IUiPainter` is not public (`src/ui/painter.h`). Games draw custom UI through `IDrawList` (`include/engine/ui/draw_list.h`) from an `IPaint` on the view-model.
 

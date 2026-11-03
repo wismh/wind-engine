@@ -20,6 +20,7 @@ The editor is in progress. See [Editor Plan](Editor%20Plan.md). Today `wind_edit
 - Audio: buses, SFX pool, music A/B, looping SFX handles on SDL3_mixer.
 - Double-buffered event queues, not a callback bus.
 - A worker pool (`JobSystem` on `EngineServices`): fork-join `parallel_for`, and async `submit` whose result reaches a `JobCall` on the main thread. Phases stay on the main thread. Particle integration is the first fork-join caller.
+- Byte compression (`compress` / `decompress`, LZ4) for saves and packets, callable from job workers.
 - `Engine::init` passes engine services to the game constructor as `EngineServices`.
 - Per-user writable directory (`user_data_directory`) for saves and settings. The game owns the file format and when to write.
 - HTTP and HTTPS requests (`IHttpClient`) on Windows, Android, and Web. The caller owns each request as an `HttpCall`.

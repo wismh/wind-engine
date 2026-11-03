@@ -27,6 +27,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/core/engine_services.h` | References passed into the game constructor | [Core](../modules/Core.md) |
 | `include/engine/core/export.h` | `ENGINE_API` export and import macro | [CMake](../build/CMake.md) |
 | `include/engine/core/config.h` | `Config`, `ConfigError`, `user_config_path` | [Core](../modules/Core.md) |
+| `include/engine/core/compression.h` | `compress`, `decompress`, `CompressionLevel`, `CompressionError`: LZ4 with a 5-byte header and a `max_size` guard, any thread | [Core](../modules/Core.md#compression) |
 | `include/engine/core/fixed_step.h` | `FixedStepClock` | [Core](../modules/Core.md) |
 | `include/engine/core/file_dialog.h` | `FileFilter`, `FileDialogResult`, `FileDialogCall`: one owned dialog, `take`, `cancel` | [Windowing](../features/Windowing.md) |
 | `include/engine/core/game_module.h` | Game module export types and symbol names; `GameModule`, `load_game_module`, `purge_game_module_copies` | [Core](../modules/Core.md) |
@@ -157,6 +158,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/core/back_key_filter.h`, `src/core/back_key_filter.cpp` | `BackKeyFilter`: Android back delivered to `InputSystem` or used to dismiss text input | [Input Mapper](../features/Input%20Mapper.md) |
 | `src/core/build_info.cpp` | `build_id()` returns the engine's `kBuildId` | [CMake](../build/CMake.md) |
 | `src/core/call_completions.h` | `CallCompletions`: async call results from any thread, handed over on the main thread | [Windowing](../features/Windowing.md) |
+| `src/core/compression.cpp` | `compress` and `decompress` over `wind_lz4`: stored fallback, header checks before allocation | [Core](../modules/Core.md#compression) |
 | `src/core/engine_host.cpp` | `EngineHost` body | [Core](../modules/Core.md) |
 | `src/core/engine_instantiate.cpp` | Explicit `Engine<WindowSmokeGame>` instantiation | [Core](../modules/Core.md) |
 | `src/core/engine_runtime.cpp` | `EngineRuntime` pimpl over the presentation | [Core](../modules/Core.md) |
@@ -514,6 +516,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/host_test.cpp` | `Host` tick and system registration | [Core](../modules/Core.md) |
 | `tests/parse_float_test.cpp` | Signs, exponents, rejected text, prefix length | [Core](../modules/Core.md#parsing-numbers) |
 | `tests/job_call_test.cpp` | Async jobs: delivery only on poll, inline jobs without workers, priority and `set_priority`, cancel before and during the run, drop, `parallel_for` beside held workers, many workers, `cancel_all`, `stop` | [Core](../modules/Core.md#async-jobs) |
+| `tests/compression_test.cpp` | Round trips (empty, large, incompressible, both levels), `max_size` and bomb headers, truncated, corrupt, and mismatched input, calls from workers | [Core](../modules/Core.md#compression) |
 | `tests/job_system_test.cpp` | Inline ranges, two workers, nested `parallel_for`, `stop` joins | [Core](../modules/Core.md#jobs) |
 | `tests/icon_codegen_test.cpp` | ICO, ICNS, and PNG sizes in memory | [Icon Codegen](../build/Icon%20Codegen.md) |
 | `tests/input_test.cpp` | Bind, hold, touch synthesis, `reset`, mouse axes, composites, locked events | [Input Mapper](../features/Input%20Mapper.md) |

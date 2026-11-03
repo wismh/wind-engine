@@ -104,7 +104,7 @@ Any failure unloads the copy and deletes its directory. `GameModuleError` is the
 
 `JobSystem` (`include/engine/core/job_system.h`, `src/core/job_system.cpp`) is a worker pool with two calls: fork-join `parallel_for`, and `submit` for [async jobs](#async-jobs). The owner thread calls `parallel_for(count, grain, fn)` and the call returns only after every index in `[0, count)` has been passed to `fn` once, in half-open ranges of at most `grain` (`grain` 0 is one range covering `count`). The caller runs ranges too: with more than one range it runs the first, then takes more while it waits. A `parallel_for` made from inside a running range runs on that same thread.
 
-`fn` must not throw and must not call engine APIs. It may read what the caller shares and write disjoint indices of a buffer the caller owns.
+`fn` must not throw and must not call engine APIs, except the any-thread [compression](#compression) calls. It may read what the caller shares and write disjoint indices of a buffer the caller owns.
 
 `JobSystem(0)` runs every range on the caller. The default constructor uses `hardware_concurrency - 1` workers, or none when the machine has one core. Web without pthreads always has none: the same calls run on the caller, and `std::thread` is not started. `stop` cancels every async job (below), then joins the workers; a later `parallel_for` runs on the caller and a later job in `poll`. `EngineHost::dispose` stops the pool before it tears the other services down. `Host` owns a `JobSystem(0)` and passes it through `set_deps`, so `engine_tests` exercise the same call and stay on the caller.
 
@@ -125,7 +125,7 @@ Any failure unloads the copy and deletes its directory. `GameModuleError` is the
 
 Async jobs share the workers with `parallel_for`. No extra threads: chunk work and the main thread would otherwise fight over the same cores. A worker takes a published `parallel_for` batch before a queued job, and at most `workers - 1` jobs run at once (one worker runs them all), so fork-join always has a free worker. `parallel_for` cannot deadlock behind long jobs anyway, because its caller drains its own ranges. A `parallel_for` inside a job runs on that worker. The cap is fixed.
 
-A job function must not throw: the thunk is `noexcept`, so a throw is `std::terminate`. Failures are data (`std::expected`). It must not call engine APIs, `submit` included. It owns or shares everything it reads, because the owner of its call may be destroyed while it runs. Its result may be destroyed on a worker when the call was cancelled mid-run. A long job should take a `JobToken` and return early once `cancelled()`.
+A job function must not throw: the thunk is `noexcept`, so a throw is `std::terminate`. Failures are data (`std::expected`). It must not call engine APIs, `submit` included; [`compress` and `decompress`](#compression) are the exception. It owns or shares everything it reads, because the owner of its call may be destroyed while it runs. Its result may be destroyed on a worker when the call was cancelled mid-run. A long job should take a `JobToken` and return early once `cancelled()`.
 
 `submit`, `poll`, `wait_idle`, `cancel_all`, `stop`, and every `JobCall` call run on the thread that built the system. Debug builds `assert` it; Release compiles the check out.
 
@@ -134,6 +134,35 @@ A job function must not throw: the thunk is `noexcept`, so a throw is `std::term
 Implementation: `submit` is a thin template over `submit_impl` (`ENGINE_API`). The function and the result live in one heap `detail::JobBox<T, Fn>`, built by the template in the submitting module; the engine sees it as a `void*` plus `run` and `destroy` thunks. `JobState` (`src/core/job_state.h`) is created by `make_shared` inside the engine, so its last reference may go after a module is unloaded. Queue (a `std::set` ordered by priority and submit sequence), running list, and finished list are all under the pool's one mutex. They are not a `CallCompletions` (`src/core/call_completions.h`, used by `HttpCall` and `FileDialogCall`): a cancel must see in one critical section whether a job is queued, running, or finished, and `cancel_all` must reach finished jobs that `poll` has not delivered, which `CallCompletions` cannot hand back. A worker keeps the job counted as busy until a cancelled job's slot has been destroyed, so `cancel_all` cannot return while that module code runs. The header holds no mutable state ([Boundaries](../architecture/Boundaries.md)).
 
 `run_particles` is the caller. It hands `EngineSystemDeps::jobs` to `update_emitter`. Integration of the live particles forks when a pool is passed; spawn stays on the caller, and dead particles are dropped after the join. See [Render](Render.md#sprites-animation-particles-curves).
+
+## Compression
+
+`compress(input, level = CompressionLevel::Fast)` and `decompress(input, max_size)` (`include/engine/core/compression.h`, `src/core/compression.cpp`) pack a byte buffer with LZ4. Both take `std::span<const std::uint8_t>` and give `std::vector<std::uint8_t>`, the byte type of `ByteWriter` and `ByteReader`, so `compress(writer.bytes())` and `ByteReader{*unpacked}` need no cast. No LZ4 type is in the header; the codec is the PRIVATE static library `wind_lz4` ([CMake](../build/CMake.md#what-links)). The game's region saves and chunk packets use it; the net layer may later use it for large reliable messages.
+
+LZ4 rather than zstd: a chunk packet is packed every frame, and LZ4 compresses several hundred MB/s and decompresses about 4 GB/s per core, several times zstd's speed; voxel data is long runs, where LZ4's ratio is already good. It is two C files with no assembly, so it builds the same on MSVC, Emscripten, and the NDK.
+
+| `CompressionLevel` | Codec | For |
+| --- | --- | --- |
+| `Fast` | `LZ4_compress_default` | Packets, anything per frame |
+| `High` | LZ4 HC level 9 (`LZ4HC_CLEVEL_DEFAULT`) | Region saves: several times slower to pack, smaller, the same format and decode speed |
+
+Format. Every output starts with a 5-byte header (`kCompressionHeaderSize`): a format byte, 0 stored or 1 an LZ4 block, then the uncompressed size as a little-endian u32. The payload follows. Saves keep it on disk, so the format is frozen: a new codec takes a new format byte, and `decompress` keeps reading 0 and 1. `compress` stores the input as it is when LZ4 does not make it smaller, so the output is never more than the input plus 5 bytes. An empty input is the header alone (`0 0 0 0 0`), and every output of `compress` decodes. An input above `kCompressionMaxInput` (`LZ4_MAX_INPUT_SIZE`, about 1.97 GiB) is a precondition violation: `compress` throws `std::length_error`, as `std::vector::reserve` does past its limit.
+
+`decompress` checks, in this order:
+
+| Check | `CompressionError` |
+| --- | --- |
+| Fewer than 5 bytes | `Truncated` |
+| Format byte other than 0 or 1 | `UnknownFormat` |
+| Header size above `max_size` | `TooLarge`, before anything is allocated |
+| Stored: payload length differs from the header size (short or trailing bytes) | `Corrupt` |
+| LZ4: `LZ4_decompress_safe` into exactly the header size fails or writes a different count | `Corrupt` |
+
+`max_size` has no default: the caller states the largest buffer it accepts, so a hostile header cannot make it allocate more (a decompression bomb). `LZ4_decompress_safe` never reads past the input or writes past the output. There is no checksum: damage that still decodes gives different bytes, not an error. Integrity is the transport's (GameNetworkingSockets) or the save format's. `to_string(CompressionError)` gives the enumerator name.
+
+Any thread. Both functions are pure (no globals, no engine services, no logging), so a job worker may call them: the one exception to [Principles](../architecture/Principles.md) #12. A chunk job packs its blocks before it returns; a region load decompresses on a worker.
+
+A game that also links its own static lz4 gets duplicate `LZ4_*` symbols; lz4 has no prefix option. Use `engine::compress`.
 
 ## Time
 
@@ -268,6 +297,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 - `include/engine/core/application_state.h`
 - `include/engine/core/app_lifecycle.h`
 - `include/engine/core/build_info.h`
+- `include/engine/core/compression.h`
 - `include/engine/core/config.h`
 - `include/engine/core/engine.h`
 - `include/engine/core/engine_error.h`
@@ -295,7 +325,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 
 ## Tests
 
-`tests/cmake_sanity_test.cpp`, `tests/host_test.cpp`, `tests/time_test.cpp`, `tests/input_test.cpp`, `tests/relative_mouse_test.cpp`, `tests/game_window_reset_test.cpp`, `tests/log_test.cpp`, `tests/platform_test.cpp`, `tests/web_loop_test.cpp`, `tests/android_lifecycle_test.cpp`, `tests/android_assets_test.cpp`, `tests/window_icon_test.cpp`, `tests/window_style_test.cpp`, `tests/event_window_test.cpp`, `tests/cli_server_test.cpp`, `tests/worlds_test.cpp`, `tests/game_loop_test.cpp` (`RunHooks` order, `RunHooks::cli` answered without a primary world, and `InputSystem::begin_frame` before each `poll`, with a fake `IPresentation`), `tests/engine_error_test.cpp` (names and messages), `tests/engine_host_test.cpp` (a failing `init_video` returns `VideoInit` over a fake `IPresentation`, no fatal report; window builds only), `tests/game_entry_test.cpp` (module exports, window builds only), `tests/game_module_test.cpp` (loader against the fixture modules, editor build only; skipped elsewhere), `tests/file_dialog_test.cpp` (`FileDialogCall`), `tests/random_test.cpp` (golden sequences, ranges, streams), `tests/config_test.cpp` (round trip, defaults, malformed input, failed save).
+`tests/cmake_sanity_test.cpp`, `tests/host_test.cpp`, `tests/time_test.cpp`, `tests/input_test.cpp`, `tests/relative_mouse_test.cpp`, `tests/game_window_reset_test.cpp`, `tests/log_test.cpp`, `tests/platform_test.cpp`, `tests/web_loop_test.cpp`, `tests/android_lifecycle_test.cpp`, `tests/android_assets_test.cpp`, `tests/window_icon_test.cpp`, `tests/window_style_test.cpp`, `tests/event_window_test.cpp`, `tests/cli_server_test.cpp`, `tests/worlds_test.cpp`, `tests/game_loop_test.cpp` (`RunHooks` order, `RunHooks::cli` answered without a primary world, and `InputSystem::begin_frame` before each `poll`, with a fake `IPresentation`), `tests/engine_error_test.cpp` (names and messages), `tests/engine_host_test.cpp` (a failing `init_video` returns `VideoInit` over a fake `IPresentation`, no fatal report; window builds only), `tests/game_entry_test.cpp` (module exports, window builds only), `tests/game_module_test.cpp` (loader against the fixture modules, editor build only; skipped elsewhere), `tests/file_dialog_test.cpp` (`FileDialogCall`), `tests/random_test.cpp` (golden sequences, ranges, streams), `tests/config_test.cpp` (round trip, defaults, malformed input, failed save), `tests/compression_test.cpp` (round trips of text, empty, 4 MiB, and incompressible input at both levels, the `max_size` guard and a bomb header, truncated header and payload, trailing bytes, unknown format, a size header off by one, a match before the output start, random payloads that never exceed their header size, calls from `JobSystem` workers).
 
 ## See also
 

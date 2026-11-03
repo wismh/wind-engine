@@ -64,6 +64,37 @@ If `user_data_directory` returns an error (e.g. read-only filesystem or sandboxe
 
 ---
 
+## 4. Compressing Saves and Packets
+
+`<engine/core/compression.h>` packs bytes with LZ4. It pairs with `engine::net::ByteWriter` and `ByteReader`, which use the same `std::uint8_t` bytes:
+
+```cpp
+#include <engine/core/compression.h>
+#include <engine/net/byte_stream.h>
+
+// Saving a region: High packs smaller and reads back as fast as Fast.
+engine::net::ByteWriter writer;
+write_region(writer, region);
+const std::vector<std::uint8_t> packed = engine::compress(writer.bytes(), engine::CompressionLevel::High);
+
+// Loading it: the second argument is the largest size you accept.
+constexpr std::size_t kMaxRegionBytes = 16u << 20;
+const auto unpacked = engine::decompress(packed, kMaxRegionBytes);
+if (!unpacked) {
+    engine::log::warn(std::format("region is damaged: {}", engine::to_string(unpacked.error())));
+    return;
+}
+engine::net::ByteReader reader{*unpacked};
+```
+
+- Use `CompressionLevel::Fast` (the default) for anything per frame, such as chunk packets, and `High` for files.
+- Always pass a real `max_size`. A save from disk or a packet from the network can claim any size, and `decompress` refuses one above your limit before it allocates (`CompressionError::TooLarge`).
+- There is no checksum. A damaged file can decode into wrong bytes, so validate what you read, or add a hash to your save format.
+- Both functions are safe to call from a background job (`JobSystem::submit`): pack a region on a worker, then write the file on the main thread. They are the only engine calls a job may make.
+- The 5-byte header is stable, so saves written by one engine version load in the next.
+
+---
+
 ## Next Steps
 
 - Keep settings in a TOML file with [`engine::Config`](Config-and-Random.md).
