@@ -609,9 +609,12 @@ TEST(Scaffold, ExportLinksThePrebuiltPlayerLibrariesWhenTheSdkHasThemAndFallsBac
     // Export copies the directory it lands in. Both the source build and the SDK name them.
     const std::size_t add_game = game.find("function(engine_add_game target)");
     ASSERT_NE(add_game, std::string::npos);
-    EXPECT_NE(game.find("engine_copy_runtime_dlls(${target} ${ENGINE_SLANG_RUNTIME_DLLS} ${ENGINE_GNS_RUNTIME_DLLS})",
-                      add_game),
-            std::string::npos);
+    EXPECT_NE(game.find("engine_copy_runtime_dlls(${target} ${ENGINE_SLANG_RUNTIME_DLLS})", add_game), std::string::npos);
+    EXPECT_NE(game.find("engine_copy_runtime_dlls(${target} ${ENGINE_GNS_RUNTIME_DLLS})", add_game), std::string::npos);
+    // One step per directory and set, not a POST_BUILD per target: a game and its server can share a directory.
+    const std::size_t copy = game.find("function(engine_copy_runtime_dlls target)");
+    ASSERT_NE(copy, std::string::npos);
+    EXPECT_EQ(game.substr(copy, game.find("endfunction()", copy) - copy).find("POST_BUILD"), std::string::npos);
     EXPECT_NE(cmake.find("set(ENGINE_SLANG_RUNTIME_DLLS "), std::string::npos);
     EXPECT_NE(sdk.find("set(ENGINE_SLANG_RUNTIME_DLLS "), std::string::npos);
 
