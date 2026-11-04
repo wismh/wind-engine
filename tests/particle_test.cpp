@@ -10,6 +10,7 @@
 #include <engine/ecs/world.h>
 #include <engine/render/command_buffer.h>
 #include <engine/render/particles.h>
+#include <engine/render/primitives.h>
 #include <engine/render/sprite.h>
 #include <engine/ui/canvas.h>
 #include <engine/core/bound_windows.h>
@@ -25,7 +26,16 @@
 
 namespace {
 
-class FakeMesh final : public engine::render::IMesh {};
+class FakeMesh final : public engine::render::IMesh {
+public:
+    FakeMesh() : engine::render::IMesh(engine::render::make_quad()) {}
+    explicit FakeMesh(const engine::render::MeshDesc& desc) : engine::render::IMesh(desc) {}
+
+protected:
+    bool replace(const engine::render::MeshDesc&) override {
+        return true;
+    }
+};
 
 class FakeMaterial final : public engine::render::IMaterial {
 public:
@@ -55,7 +65,8 @@ private:
 void spawn_camera(engine::ecs::World& world) {
     const engine::ecs::Entity camera = world.create();
     world.emplace<engine::Transform>(camera, engine::Transform{.position = {0.0f, 0.0f, 10.0f}});
-    world.emplace<engine::Camera>(camera, engine::Camera{.ortho_size = 5.0f});
+    // From z = 10 the clip range has to reach the sprites on the z = 0 plane; the default -1..1 does not.
+    world.emplace<engine::Camera>(camera, engine::Camera{.ortho_size = 5.0f, .near_clip = -100.0f, .far_clip = 100.0f});
     world.ctx<engine::ActiveCamera>().entity = camera;
     engine::ui::presentation_of(world).sizes.sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
     world.ctx<engine::BoundWindows>().ids = {engine::kPrimaryWindow};

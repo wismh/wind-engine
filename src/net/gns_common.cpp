@@ -1,6 +1,6 @@
 #include "gns_common.h"
 
-#if defined(_WIN32)
+#if defined(ENGINE_WITH_GNS)
 
 #include <atomic>
 #include <mutex>
@@ -234,20 +234,8 @@ void GnsBaseTransport::stop() {
     }
 
     if (is_server_) {
-        if (listen_socket_ != k_HSteamListenSocket_Invalid) {
-            {
-                std::lock_guard lock(s_registry_mutex);
-                s_listeners.erase(listen_socket_);
-            }
-            sockets_->CloseListenSocket(listen_socket_);
-            listen_socket_ = k_HSteamListenSocket_Invalid;
-        }
-
-        if (poll_group_ != k_HSteamNetPollGroup_Invalid) {
-            sockets_->DestroyPollGroup(poll_group_);
-            poll_group_ = k_HSteamNetPollGroup_Invalid;
-        }
-
+        // Connections first: CloseListenSocket drops the ones it accepted without telling the peer, which then waits
+        // for its own timeout. CloseConnection sends the close before it returns.
         std::vector<HSteamNetConnection> conns_to_close{};
         {
             std::lock_guard lock(state_mutex_);
@@ -267,6 +255,20 @@ void GnsBaseTransport::stop() {
         }
         for (auto conn : conns_to_close) {
             sockets_->CloseConnection(conn, 0, nullptr, false);
+        }
+
+        if (listen_socket_ != k_HSteamListenSocket_Invalid) {
+            {
+                std::lock_guard lock(s_registry_mutex);
+                s_listeners.erase(listen_socket_);
+            }
+            sockets_->CloseListenSocket(listen_socket_);
+            listen_socket_ = k_HSteamListenSocket_Invalid;
+        }
+
+        if (poll_group_ != k_HSteamNetPollGroup_Invalid) {
+            sockets_->DestroyPollGroup(poll_group_);
+            poll_group_ = k_HSteamNetPollGroup_Invalid;
         }
     } else {
         if (client_conn_ != k_HSteamNetConnection_Invalid) {
@@ -315,7 +317,7 @@ bool GnsBaseTransport::send(PeerId target, std::span<const std::uint8_t> data,
     case DeliveryMode::Unreliable:
         send_flags = k_nSteamNetworkingSend_Unreliable;
         break;
-    case DeliveryMode::UnreliableSequenced:
+    case DeliveryMode::UnreliableImmediate:
         send_flags = k_nSteamNetworkingSend_UnreliableNoNagle;
         break;
     case DeliveryMode::ReliableOrdered:
@@ -441,6 +443,30 @@ float GnsBaseTransport::rtt_ms(PeerId peer_id) const {
         return static_cast<float>(status.m_nPing);
     }
     return -1.0f;
+}
+
+std::size_t GnsBaseTransport::pending_send_bytes(PeerId peer_id) const {
+    if (!is_running_ || sockets_ == nullptr) {
+        return 0;
+    }
+
+    HSteamNetConnection conn = k_HSteamNetConnection_Invalid;
+    if (is_server_) {
+        std::lock_guard lock(state_mutex_);
+        const auto it = peer_to_conn_.find(peer_id);
+        conn = it != peer_to_conn_.end() ? it->second : static_cast<HSteamNetConnection>(peer_id);
+    } else {
+        conn = client_conn_;
+    }
+    if (conn == k_HSteamNetConnection_Invalid) {
+        return 0;
+    }
+
+    SteamNetConnectionRealTimeStatus_t status{};
+    if (sockets_->GetConnectionRealTimeStatus(conn, &status, 0, nullptr) != k_EResultOK) {
+        return 0;
+    }
+    return static_cast<std::size_t>(status.m_cbPendingReliable) + static_cast<std::size_t>(status.m_cbPendingUnreliable);
 }
 
 } // namespace engine::net

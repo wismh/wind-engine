@@ -12,11 +12,21 @@ set(WIND_PLAYER_PLATFORM "@WIND_PLAYER_PLATFORM@")
 # include/engine/build_id.h, so libraries of another build never meet this SDK's headers.
 set(WIND_PLAYER_SDK_BUILD_ID "@WIND_PLAYER_SDK_BUILD_ID@")
 
-# What the exported targets refer to besides themselves: the system OpenGL library (the engine) and the thread library
-# (spdlog).
-if(NOT TARGET OpenGL::GL)
+# What the exported targets refer to besides themselves: the system OpenGL library (the engine, with a window), the
+# thread library (spdlog), and, in a Linux Server player, the libraries GameNetworkingSockets was built against.
+if(@WIND_PLAYER_NEEDS_OPENGL@ AND NOT TARGET OpenGL::GL)
     find_package(OpenGL REQUIRED)
 endif()
 if(NOT TARGET Threads::Threads)
     find_package(Threads REQUIRED)
+endif()
+if(@WIND_PLAYER_NEEDS_GNS_DEPENDENCIES@)
+    set(Protobuf_USE_STATIC_LIBS ON)
+    set(OPENSSL_USE_STATIC_LIBS ON)
+    if(NOT TARGET OpenSSL::Crypto)
+        find_package(OpenSSL REQUIRED)
+    endif()
+    if(NOT TARGET protobuf::libprotobuf)
+        find_package(Protobuf REQUIRED)
+    endif()
 endif()

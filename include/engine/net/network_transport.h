@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <span>
@@ -11,9 +12,11 @@ using PeerId = std::uint64_t;
 inline constexpr PeerId kInvalidPeerId = 0;
 inline constexpr PeerId kServerPeerId = 1;
 
+// No mode orders unreliable messages: a receiver of `Unreliable` or `UnreliableImmediate` data orders it
+// itself (snapshots carry their tick). `UnreliableImmediate` skips the transport's batching delay (GNS Nagle).
 enum class DeliveryMode : std::uint8_t {
     Unreliable,
-    UnreliableSequenced,
+    UnreliableImmediate,
     ReliableOrdered,
 };
 
@@ -56,6 +59,9 @@ public:
     [[nodiscard]] virtual bool is_running() const = 0;
     [[nodiscard]] virtual bool is_server() const = 0;
     [[nodiscard]] virtual float rtt_ms(PeerId peer_id) const = 0;
+    // Bytes handed to `send` for this peer that are not on the wire yet, reliable retransmits included. A new message
+    // waits behind them.
+    [[nodiscard]] virtual std::size_t pending_send_bytes(PeerId peer_id) const = 0;
 };
 
 } // namespace engine::net

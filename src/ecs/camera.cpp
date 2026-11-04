@@ -27,7 +27,8 @@ glm::vec3 window_point(glm::vec2 screen, const ui::WindowSize& window, float dep
 }
 
 float camera_aspect(const Camera& camera, const ui::WindowSize& window) {
-    if (camera.auto_aspect && window.height != 0) {
+    // An empty window has no shape to take: width 0 would make the projection infinite.
+    if (camera.auto_aspect && window.width > 0 && window.height > 0) {
         return static_cast<float>(window.width) / static_cast<float>(window.height);
     }
     return camera.aspect;
@@ -51,6 +52,10 @@ glm::mat4 projection_matrix(const Camera& camera, const ui::WindowSize& window) 
     const float half_height = camera.ortho_size;
     const float half_width = half_height * aspect;
     return glm::ortho(-half_width, half_width, -half_height, half_height, camera.near_clip, camera.far_clip);
+}
+
+render::Frustum camera_frustum(const Camera& camera, const glm::mat4& camera_world, const ui::WindowSize& window) {
+    return render::make_frustum(projection_matrix(camera, window) * view_matrix(camera_world));
 }
 
 Ray screen_to_ray(glm::vec2 screen, const Camera& camera, const glm::mat4& camera_world, const ui::WindowSize& window) {

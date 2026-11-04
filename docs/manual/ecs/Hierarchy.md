@@ -65,7 +65,7 @@ Destroying a parent destroys all its descendants. Destroying a child removes it 
 
 ## 5. Multiplayer Note
 
-Replicate `Transform` and `Parent` only. `WorldTransform` and `Children` are derived and rebuilt on the receiving machine. `Entity` handles are not stable across machines, so a network layer needs its own stable id and must translate `Parent.entity` through it.
+`Transform` and `Parent` are what the network layer replicates by default. `WorldTransform` and `Children` are derived and rebuilt on the receiving machine. `Entity` handles are not stable across machines, so a replicated entity has a `NetId` (`engine::net::NetIdentity`), and `Parent.entity` travels as the parent's `NetId` and is applied with `set_parent` on the client. The net layer does this itself; the tech note is `docs/tech/modules/Net.md`. With per-peer interest, a child sits in its root's grid cell, and a relevant child brings its replicated ancestors with it.
 
 ---
 

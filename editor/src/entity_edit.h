@@ -29,10 +29,11 @@ namespace editor {
 
 [[nodiscard]] bool erase_component(engine::ecs::World& world, engine::ecs::Entity entity, std::string_view name);
 
-// Replaces one field of a table copied from `write_component`. `slot` below 0 is the whole value (a string or a
-// number). Zero and up is one element of a short numeric array. `rotation` is stored as a quaternion and edited
-// as Euler degrees on slots 0..2. A 4-component `color` edits rgb and keeps alpha. False when the text is not
-// that value: the table is left unchanged.
+// Replaces one field of a table copied from `write_component`. `key` is a field path: a name, `name[index]`, or
+// those pieces joined by `.` (`heroes[0].base.max_hp`, `arrow.spawn_offset`). `slot` below 0 is the whole leaf (a
+// string or a number). Zero and up is one element of a short numeric array. A leaf named `rotation` is stored as
+// a quaternion and edited as Euler degrees on slots 0..2. A 4-component leaf named `color` edits rgb and keeps
+// alpha. False when the path misses or the text is not that value: the table is left unchanged.
 [[nodiscard]] bool assign_text(engine::ecs::FieldTable& table, std::string_view key, int slot, std::string_view text);
 
 [[nodiscard]] bool assign_bool(engine::ecs::FieldTable& table, std::string_view key, bool value);

@@ -118,3 +118,7 @@ jobs:
           if (Test-Path $log) { Get-Content $log | Select-Object -Last 40 }
           if ($p.ExitCode -ne 0) { throw "export exit code $($p.ExitCode)" }
           if (-not (Test-Path (Join-Path $out 'check_game.exe'))) { Get-ChildItem $out; throw 'no exported executable' }
+          # Windows will not start the executable without the DLLs it imports.
+          foreach ($dll in 'slang.dll', 'GameNetworkingSockets.dll') {
+            if (-not (Test-Path (Join-Path $out $dll))) { Get-ChildItem $out; throw "no $dll beside the exported executable" }
+          }

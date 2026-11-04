@@ -66,11 +66,12 @@ The cache key is the GUID plus `std::type_index`. The same GUID requested as two
 | --- | --- |
 | `px py pz u v` | A vertex with normal `0 0 1`. The original format; a file of only these rows still loads |
 | `px py pz nx ny nz u v` | A vertex with a normal, written as is (not normalized) |
+| `px py pz nx ny nz u v r g b a` | A vertex with a normal and a vertex color (`MeshVertex::color`). Rows without these four numbers are white |
 | `f a b c` | One triangle of 0-based vertex indices, counter-clockwise when its front faces you |
 
-Vertices are numbered in file order, and the two vertex forms may mix. A file with no `f` row is a non-indexed triangle list (every three vertices are a triangle). One `f` row makes the mesh indexed: only the `f` rows are triangles. A quad is two `f` rows.
+Vertices are numbered in file order, and the three vertex forms may mix. A file with no `f` row is a non-indexed triangle list (every three vertices are a triangle). One `f` row makes the mesh indexed: only the `f` rows are triangles. A quad is two `f` rows.
 
-The file does not load (`AssetError::Corrupt`) when a vertex row has other than 5 or 8 numbers or a non-number, an `f` row has other than three non-negative integers, a row starts with another word, there are no vertices, or an index is at or past the vertex count.
+The file does not load (`AssetError::Corrupt`) when a vertex row has other than 5, 8, or 12 numbers or a non-number, an `f` row has other than three non-negative integers, a row starts with another word, there are no vertices, or an index is at or past the vertex count.
 
 ```
 # pos.x pos.y pos.z   normal.x normal.y normal.z   uv.x uv.y
@@ -84,13 +85,36 @@ f 1 3 2
 
 Meshes on the GPU: [Render](../modules/Render.md#meshes).
 
+## Texture arrays
+
+`importer = "texture_array"` on a PNG's `.meta` makes the image a GPU texture array with one layer per `[[sprites]]` frame, in `.meta` order (the same rect syntax as a `layout = "multiple"` sheet; `layout`, `pixels_per_unit` and pivots are not used). `filter`, `wrap`, and `mipmaps` apply as to a texture. A block game writes `mipmaps = "linear"` and `filter = "nearest"`:
+
+```toml
+guid = "..."
+importer = "texture_array"
+filter = "nearest"
+mipmaps = "linear"
+
+[[sprites]]
+name = "stone"
+rect = [0, 0, 16, 16]
+
+[[sprites]]
+name = "dirt"
+rect = [16, 0, 16, 16]
+```
+
+`get<render::TextureArray>(id)` (`include/engine/render/texture_array.h`) is the texture plus the frame names; `layer("dirt")` is the layer index for `MeshVertex::layer`, nullopt for an unknown name. `get<render::ITexture>(id)` is the same texture (`layers()` is the frame count), so a `.mat` `[textures].albedo` naming the asset binds the array. The PNG is only an array: `get_sprite`, `SpriteSheet`, and `TextureDesc` are `AssetError::TypeMismatch` for it, so 2D icons of the same art need their own texture.
+
+Checks. Parsing the `.meta` fails (`MetaError::InvalidField`, so the cook fails with `InvalidMeta`) without frames, with more than 256 (`render::kMaxTextureArrayLayers`), with frames of different sizes, or with two frames of one name. `asset_codegen` also decodes the PNG and fails with `CodegenErrorKind::TextureArray` when a frame is not inside the image or the file is not a PNG. At load the same frame check makes the asset `AssetError::Corrupt` (the reason is logged). The importer is `texture_array_from_frames` (`src/resources/importers.h`). GPU side: [Render](../modules/Render.md#texture-arrays).
+
 ## Shaders
 
 `importer = "shader"` (`.shader`, assigned by `asset_guid`) is an XML file containing Slang shader source (`<shader lang="slang"><![CDATA[...]]></shader>` or `<slang>`), an optional `<glsl><vertex>...</vertex><fragment>...</fragment></glsl>` backend override, or legacy `<xml><vertex>...</vertex><fragment>...</fragment></xml>` raw GLSL (`parse_shader` / `parse_shader_xml`, `src/resources/importers.cpp`). `asset_codegen` compiles and validates every `.shader` file and fails the build with `CodegenErrorKind::Shader` on syntax, type, or XML errors. See [Render](../modules/Render.md#shaders).
 
 ## Builtin set
 
-Eleven frozen GUIDs. The splash image and the tree chevron are `importer = "ui_image"`. The list is [Resources](../modules/Resources.md) and `builtin_assets/README.md`.
+Thirteen frozen GUIDs. The splash image and the tree chevron are `importer = "ui_image"`. The list is [Resources](../modules/Resources.md) and `builtin_assets/README.md`.
 
 ## Runtime textures
 

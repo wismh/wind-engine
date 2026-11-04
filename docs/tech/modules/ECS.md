@@ -26,10 +26,10 @@ Pools are a sparse index, a packed entity list, and a dense component array (`in
 
 | Schedule | Phases |
 | --- | --- |
-| `Fixed` | `Physics`, `Game` |
-| `Frame` | `Input`, `Game`, `Transform`, `Bind`, `Audio`, `Render`, `UiRender` |
+| `Fixed` | `NetReceive`, `Physics`, `Game`, `NetSend` |
+| `Frame` | `NetReceive`, `Input`, `Game`, `Transform`, `Bind`, `Audio`, `Render`, `UiRender` |
 
-`Phase::Transform` is frame-only: the engine registers `update_world_transforms` there, after every `Game` system and before `Bind` and `Render`. `Phase::Physics` exists on the enum and is not a frame phase. Game code that needs a one-shot click uses `Schedule::Frame` and `Phase::Game`. Physics uses `fixed_delta_time`. Which systems the engine registers: [Runtime Loop](../architecture/Runtime%20Loop.md).
+`Phase::Transform` is frame-only: the engine registers `update_world_transforms` there, after every `Game` system and before `Bind` and `Render`. `Phase::Physics` exists on the enum and is not a frame phase. `NetReceive` and `NetSend` hold the network systems, so a server tick brackets the whole fixed step and a client sees replicated state before its own frame systems; they stay empty unless the game calls `install_net_server` or `install_net_client` ([Net](Net.md#schedule)). `NetSend` is fixed-only. Game code that needs a one-shot click uses `Schedule::Frame` and `Phase::Game`. Physics uses `fixed_delta_time`. Which systems the engine registers: [Runtime Loop](../architecture/Runtime%20Loop.md).
 
 ## Events
 
@@ -73,7 +73,7 @@ Rotation helpers in `transform.h`:
 
 When the list is not empty, it returns when nothing is drawable. A drawable scene (any `Renderable`, `Sprite`, or `ParticleEmitter`) with an invalid or default `ActiveCamera` entity is fatal.
 
-Fatal is also a live entity that lacks `Camera` or `Transform`. Either way that frame draws no world commands. A world with only UI needs no camera. `run_ui_render` still pushes `CmdDrawUI`. A window `run_render` already cleared is not cleared again. The view matrix is the inverse of the camera entity's world matrix (`ecs::world_matrix`), so a camera with a rotation or a `Parent` works. Each bound window gets one `render::CmdSetView` before its draws, with the same view matrix and camera position (the translation of that world matrix). Its projection is `window_size_for` for that id (`Presentation.sizes`). For rendering an arbitrary `World` into a sub-rectangle of a window with an explicit camera (`WorldViewportRender`), call `render_world_viewport` (`include/engine/ecs/systems.h`; see [Render](Render.md#world-draw)).
+Fatal is also a live entity that lacks `Camera` or `Transform`. Either way that frame draws no world commands. A world with only UI needs no camera. `run_ui_render` still pushes `CmdDrawUI`. A window `run_render` already cleared is not cleared again. The view matrix is the inverse of the camera entity's world matrix (`ecs::world_matrix`), so a camera with a rotation or a `Parent` works. Each bound window gets one `render::CmdSetView` before its draws, with the same view matrix and camera position (the translation of that world matrix). Its projection is `window_size_for` for that id (`Presentation.sizes`). A `Renderable` or `Sprite` outside the `camera_frustum` of every bound window is not drawn ([Render](Render.md#frustum-culling)). For rendering an arbitrary `World` into a sub-rectangle of a window with an explicit camera (`WorldViewportRender`), call `render_world_viewport` (`include/engine/ecs/systems.h`; see [Render](Render.md#world-draw)).
 
 Light components (`render::DirectionalLight`, `render::AmbientLight`) are plain data on entities; a directional light is aimed by its `Transform::rotation` and follows a `Parent`. Rules: [Render](Render.md#lights).
 
@@ -84,6 +84,7 @@ Light components (`render::DirectionalLight`, `render::AmbientLight`) are plain 
 | `screen_to_ray(screen, camera, camera_world, window)` | A `Ray` (`include/engine/ecs/ray.h`: `origin`, unit `direction`) from the near plane away from the camera. Orthographic: every ray is parallel to the camera's forward. Perspective: through the pixel |
 | `screen_to_world(screen, camera, camera_world, window)` | Orthographic: the point under the pixel halfway through the clip range (the camera's z for the default -1 and 1). Perspective: where `screen_to_ray` meets the world plane z = 0, which is what 2D-style picking expects; the ray's near-plane origin when the ray is parallel to that plane or the plane is behind the camera |
 | `world_to_screen(world_pos, camera, camera_world, window)` | The pixel the point projects to, either projection |
+| `camera_frustum(camera, camera_world, window)` | The world-space `render::Frustum` of that view (`include/engine/render/frustum.h`), the one `run_render` culls with ([Render](Render.md#frustum-culling)) |
 
 ### Ray queries
 
@@ -133,7 +134,7 @@ Staleness contract: the engine refreshes `WorldTransform` in `Phase::Transform` 
 
 ### Multiplayer readiness
 
-Replicate `Transform` and `Parent` only. `WorldTransform` and `Children` are derived and rebuilt on the receiving side. `Entity` handles (index + generation) are not stable across machines, so the net layer provides `engine::net::NetId` and `engine::net::NetEntityMap` (`set_parent_by_net_id`, `get_parent_net_id`) to translate `Parent.entity` across machines (see [Net](Net.md#netid--entity-mapping)).
+`Transform` and `Parent` are the first two replicated components (slots 0 and 1 of `ReplicationRegistry`); a game adds its own with `register_replicated`. `WorldTransform` and `Children` are derived and rebuilt on the receiving side: the client applies `Parent` through `set_parent` / `clear_parent`. `Entity` handles (index + generation) are not stable across machines, so a replicated entity carries `engine::net::NetIdentity` (its `NetId`), `NetEntityMap` maps the id back to a local entity, and `Parent.entity` travels as the parent's `NetId` (`ReplicaWriter::write_entity`, `ReplicaReader::read_entity`). See [Net](Net.md#replicated-components).
 
 ## Physics
 
@@ -148,13 +149,47 @@ The physics is 2D: `include/engine/ecs/physics_2d.h`. Its components, event and 
 
 `RigidBody2D.velocity` moves the local `Transform.position`, so the velocity of a child is in its parent's space. There is no contact solver, no response impulse, and no Z test. Overlap state is `ctx<PhysicsOverlapState>` in `src/ecs/physics_2d.cpp`.
 
+### Grid queries
+
+`include/engine/ecs/grid_query.h`, `src/ecs/grid_query.cpp`. Collision against a grid of solid cells and a ray through cells, for block worlds and tile games. Pure math like [Ray queries](#ray-queries): no world, no components, nothing registered. It needs no rigid-body 3D physics.
+
+Grid space: cell `(i, j, k)` covers `[i, i+1) x [j, j+1) x [k, k+1)`. The cell size is 1 and the origin is 0; there is no cell-size parameter, so the caller scales world coordinates into grid space (a ray's `t` survives the scaling when its direction is scaled too). +Y is up. Precision: keep coordinates within about +-8192 cells, where a float step is still finer than `kGridSkin`; a position snapped to a face is an exact integer at any range.
+
+`is_solid` is a `CellPredicate<glm::ivec3>` (2D: `glm::ivec2`): a non-owning reference to a `bool(Cell)` callable, two pointers and one indirect call per cell, like C++26 `std::function_ref`. It is valid only for the call it is passed to; never store one. Pass a lambda at the call site; a free function goes through a lambda or a function-pointer variable. The algorithms stay in the `.cpp` (one template over the dimension), so a game does not compile them.
+
+| Function | Result |
+| --- | --- |
+| `raycast_grid(ray, max_distance, is_solid)` | `std::optional<GridHit>`: the first solid `cell`, the face entered (`normal`, one axis +-1, facing back along the ray; `cell + normal` is the cell the ray came from), `t` and `point` |
+| `raycast_grid(origin, direction, max_distance, is_solid)` | 2D over `glm::vec2`: `GridHit2D` |
+| `sweep_aabb(box, delta, is_solid)` | `GridSweep`: the resolved `render::Aabb`, `moved` (the applied displacement), `hit` per axis (0 free, +1 blocked moving +axis, -1 blocked moving -axis), `grounded()` = `hit.y < 0` |
+| `sweep_aabb(min, max, delta, is_solid)` | 2D: `GridSweep2D` |
+
+Ray (Amanatides-Woo DDA):
+
+- `t` and `max_distance` are multiples of `direction`, as in `ray.h`: distances for a unit direction. `t <= max_distance` hits.
+- A boundary is half-open in the direction of travel: a ray that starts on a face and points away does not touch the cell behind it.
+- A ray that starts inside a solid cell reports `t = 0`, a zero normal and the origin, even with a zero direction or `max_distance = 0`.
+- A ray exactly through an edge or a corner (boundary `t` equal within 1e-6, relative) is blocked by any solid cell that touches it there. The side cells are tested x, y, z, then xy, xz, yz, then the diagonal cell; the normal is the first stepped axis of that cell. A line of sight cannot slip through the seam between two diagonal blocks.
+- nullopt: a miss within `max_distance`, a zero direction outside a solid cell, `max_distance < 0`, or a non-finite input (or a coordinate of 2^24 or more, where a float no longer tells one cell from the next).
+
+Sweep:
+
+- Axis-separated: Y, then X, then Z (2D: Y, X). Each axis stops flush against the first solid face ahead of the box. Every face crossed along the axis is tested, so no speed tunnels through a wall.
+- A move is cut into `ceil(max |delta|)` sub-steps, so a fast diagonal move cuts no corner larger than a cell. A box or delta of 2^24 or more returns the box unmoved. An axis blocked in one sub-step stays blocked; the others keep sliding.
+- `kGridSkin` (1e-3 grid units): the cells across the motion come from the box shrunk by the skin, so a box resting on a floor or flush against a wall slides along it and does not catch on cell seams. A box sunk up to the skin into a face it moves toward snaps back onto it. A box resting on a floor under a downward delta snaps to exactly the same face every call: grounded, no drift, no jitter.
+- A move that ends exactly on a face counts as blocked. A zero delta on an axis reports no hit there.
+- Cells the box already overlaps deeper than the skin are ignored: a box inside a solid is never stuck, and is not pushed out.
+- No step-up: a one-cell step blocks horizontal motion. A reversed bound is swapped. A non-finite box or delta returns the box unmoved.
+
+The engine has no tile collision flag; a tile layer is a lambda. Tilemap rows run down while y runs up, so grid cell `(x, y)` is row `-y - 1`: `map.tile(layer, c.x, -c.y - 1) != 0`, with the box taken relative to the map's position and divided by `TilemapAsset::cell_size()`.
+
 ## World serialization
 
 `include/engine/ecs/world_io.h`, `include/engine/ecs/world_asset.h`, `include/engine/ecs/world_serializer.h`.
 
 `.world` TOML files (`importer = "world"`) parse into a `WorldAsset` (`version = 1`, optional `active_camera`, and `[[entities]]` with `id`, optional `parent`, and `[entities.<component>]` tables).
 
-- `WorldSerializer` (available via `world.ctx<WorldSerializer>()`) comes pre-populated with built-in engine components: `transform`, `camera`, `sprite`, `sprite_animator`, `renderable`, `tilemap`, `directional_light`, `ambient_light`, `rigid_body_2d`, `box_collider_2d`, `circle_collider_2d`, and `pointer_target`. Each entry's `remove` drops that component; `register_component` installs it. Removing `sprite`, `sprite_animator`, `renderable`, or `tilemap` also clears the asset ids saved for that component.
+- `WorldSerializer` (available via `world.ctx<WorldSerializer>()`) comes pre-populated with built-in engine components: `transform`, `camera`, `sprite`, `sprite_animator`, `renderable`, `tilemap`, `directional_light`, `ambient_light`, `fog`, `rigid_body_2d`, `box_collider_2d`, `circle_collider_2d`, and `pointer_target`. Each entry's `remove` drops that component; `register_component` installs it. Removing `sprite`, `sprite_animator`, `renderable`, or `tilemap` also clears the asset ids saved for that component.
 - Game-specific components marked `struct WIND_COMPONENT MyComponent { ... };` are registered by calling `assets::register_game_components(world.ctx<WorldSerializer>())` from the generated `<component_io.h>` header (see [Asset Codegen](../build/Asset%20Codegen.md#component-codegen)), or by calling `GameModule::register_components(serializer)` (`wind_register_game_components`).
 - `struct WIND_SERIALIZABLE Value { ... };` is not a component. The same header emits `encode_wind` / `decode_wind`, so a component field of that type (or a `std::vector` of it) is nested in the component's table in the `.world` file and is not its own asset. `AssetId` on a component stays a guid; the game loads the referenced `.object` with `AssetsDb::get<T>`. `assets::register_game_objects` registers those loaders (`GameModule::register_objects`, `wind_register_game_objects`).
 - `instantiate_world(world, asset, &assets, serializer, unknown_mode)` and `load_world_from_toml` spawn entities in two passes (entities and `EntityName` first so `ecs::Entity` cross-references resolve in any order, then hierarchy and components), set `ActiveCamera` when `active_camera` is non-empty, and call `update_world_transforms(world)`. On any error, newly created entities are rolled back.
@@ -188,11 +223,13 @@ The physics is 2D: `include/engine/ecs/physics_2d.h`. Its components, event and 
 - `include/engine/ecs/camera.h`
 - `include/engine/ecs/pointer_target.h`
 - `include/engine/ecs/physics_2d.h`
+- `include/engine/ecs/grid_query.h`
+- `include/engine/ecs/ray.h`
 - `include/engine/ecs/systems.h`
 
 ## Tests
 
-`tests/ecs_test.cpp`, `tests/hierarchy_test.cpp`, `tests/hierarchy_systems_test.cpp`, `tests/events_test.cpp`, `tests/camera_test.cpp`, `tests/physics_2d_test.cpp`, `tests/pointer_target_test.cpp`, `tests/world_serializer_test.cpp`, `tests/prototype_test.cpp`.
+`tests/ecs_test.cpp`, `tests/hierarchy_test.cpp`, `tests/hierarchy_systems_test.cpp`, `tests/events_test.cpp`, `tests/camera_test.cpp`, `tests/physics_2d_test.cpp`, `tests/grid_query_test.cpp`, `tests/ray_test.cpp`, `tests/pointer_target_test.cpp`, `tests/world_serializer_test.cpp`, `tests/prototype_test.cpp`.
 
 ## See also
 

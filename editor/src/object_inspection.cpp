@@ -2,6 +2,7 @@
 
 #include "asset_inspection.h"
 #include "entity_inspection.h"
+#include "object_edit.h"
 
 #include <engine/ecs/world_asset.h>
 #include <engine/resources/assets_db.h>
@@ -44,32 +45,13 @@ std::vector<InspectorSection> inspect_object(
     }
 
     engine::ecs::FieldTable merged;
-    if (assets != nullptr) {
-        if (auto defs = assets->default_object_fields(*type_name)) {
-            merged = std::move(*defs);
-        }
-    }
     for (auto& [k, v] : *parsed) {
         if (k != "type") {
             merged.insert_or_assign(k, std::move(v));
         }
     }
-
-    InspectorSection object_section{.heading = *type_name, .removable = false};
-    if (merged.empty()) {
-        object_section.lines.emplace_back("(no fields)");
-    } else {
-        object_section.fields.reserve(merged.size());
-        for (const auto& [k, v] : merged) {
-            std::optional<engine::AssetFilter> filter;
-            if (assets != nullptr) {
-                filter = assets->object_field_filter(*type_name, k);
-            }
-            object_section.fields.push_back(make_inspector_field(k, v, editable, assets, filter));
-        }
-    }
-
-    sections.push_back(std::move(object_section));
+    merge_object_defaults(assets, *type_name, merged);
+    append_inspector_sections(sections, *type_name, merged, editable, false, assets, nullptr, true);
     return sections;
 }
 

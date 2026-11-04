@@ -13,6 +13,7 @@
 #include <engine/render/command_buffer.h>
 #include <engine/render/material.h>
 #include <engine/render/particles.h>
+#include <engine/render/primitives.h>
 #include <engine/render/renderable.h>
 #include <engine/render/sprite.h>
 #include <engine/ui/canvas.h>
@@ -34,7 +35,16 @@ using engine::ecs::Phase;
 using engine::ecs::Schedule;
 using engine::ecs::World;
 
-class FakeMesh final : public engine::render::IMesh {};
+class FakeMesh final : public engine::render::IMesh {
+public:
+    FakeMesh() : engine::render::IMesh(engine::render::make_quad()) {}
+    explicit FakeMesh(const engine::render::MeshDesc& desc) : engine::render::IMesh(desc) {}
+
+protected:
+    bool replace(const engine::render::MeshDesc&) override {
+        return true;
+    }
+};
 
 class FakeMaterial final : public engine::render::IMaterial {
 public:
@@ -82,7 +92,8 @@ void expect_near(const glm::mat4& a, const glm::mat4& b, float eps = 1e-4f) {
 }
 
 Entity bind_camera(World& world, Entity camera) {
-    world.emplace<engine::Camera>(camera, engine::Camera{.ortho_size = 5.0f});
+    // The tests put the camera at z = 10; the clip range reaches the z = 0 plane, which the default -1..1 does not.
+    world.emplace<engine::Camera>(camera, engine::Camera{.ortho_size = 5.0f, .near_clip = -100.0f, .far_clip = 100.0f});
     world.ctx<engine::ActiveCamera>().entity = camera;
     engine::ui::presentation_of(world).sizes.sizes[engine::kPrimaryWindow] = engine::ui::WindowSize{800, 600};
     world.ctx<engine::BoundWindows>().ids = {engine::kPrimaryWindow};
@@ -141,7 +152,8 @@ TEST(HierarchySystems, TransformPhaseRunsBetweenGameAndBind) {
     EXPECT_EQ(order, (std::vector<std::string>{"Game", "Bind"}));
     EXPECT_FLOAT_EQ(game_saw, 3.f);   // Game still sees the previous frame's world matrix
     EXPECT_FLOAT_EQ(bind_saw, 12.f);  // Transform ran after Game, before Bind
-    EXPECT_EQ(engine::ecs::kFramePhases[2], Phase::Transform);
+    EXPECT_EQ(engine::ecs::kFramePhases[3], Phase::Transform);
+    EXPECT_EQ(engine::ecs::kFramePhases[2], Phase::Game);
 }
 
 TEST(HierarchySystems, TransformPhaseIsNotInFixedSchedule) {

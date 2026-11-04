@@ -27,11 +27,12 @@ wrap = "clamp"       # "clamp" (default), "repeat" or "mirror"
 
 | Importer | Keys besides `guid` and `importer` (defaults in brackets) |
 | --- | --- |
-| `texture` | `color_space` (`srgb`, `linear`), `filter`, `wrap`, `layout` (`single`, `multiple`), `pixels_per_unit` (100), `[[sprites]]` for `multiple` ([Sprites & Animation](../rendering/Sprites-and-Animation.md#2-sprite-sheets-and-atlases)) |
+| `texture` | `color_space` (`srgb`, `linear`), `filter`, `wrap`, `mipmaps` (`none`, `nearest`, `linear`), `layout` (`single`, `multiple`), `pixels_per_unit` (100), `[[sprites]]` for `multiple` ([Sprites & Animation](../rendering/Sprites-and-Animation.md#2-sprite-sheets-and-atlases)) |
+| `texture_array` | `filter`, `wrap`, `mipmaps`, and `[[sprites]]`: each frame becomes one layer of a texture array, in file order; at least one, at most 256, all the same size, unique names ([Basic 3D](../rendering/Basic-3D.md#5-block-textures-texture-arrays-and-mipmaps)) |
 | `audio` | `bank` (`sfx`, `music`), `volume` (1), `pitch_range` (`[1.0, 1.0]`), `loop` (false) |
 | `strings` | `source = true` on exactly one table of the tree ([Localization](Localization.md)) |
 
-An unknown key is ignored. A wrong value (`filter = "bilinear"`) is `MetaError::InvalidField` and fails the cook. Once a `guid` is referenced, never change it: move the asset together with its `.meta`.
+`mipmaps` (default `none`) makes a texture keep smaller copies of itself so it does not shimmer at a distance; `filter` still decides whether pixels look sharp (`nearest`) or smooth. An unknown key is ignored. A wrong value (`filter = "bilinear"`, `mipmaps = true`) is `MetaError::InvalidField` and fails the cook. Once a `guid` is referenced, never change it: move the asset together with its `.meta`.
 
 ### Generating GUIDs
 `asset_codegen` never writes a `.meta`: a source file without a sidecar fails the build. To create sidecars for new files, use the `asset_guid` tool of the engine repo:

@@ -5,6 +5,7 @@
 #include <engine/render/draw_sort.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
+#include <engine/render/primitives.h>
 #include <engine/render/renderable.h>
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -20,7 +21,16 @@
 
 namespace {
 
-class FakeMesh final : public engine::render::IMesh {};
+class FakeMesh final : public engine::render::IMesh {
+public:
+    FakeMesh() : engine::render::IMesh(engine::render::make_quad()) {}
+    explicit FakeMesh(const engine::render::MeshDesc& desc) : engine::render::IMesh(desc) {}
+
+protected:
+    bool replace(const engine::render::MeshDesc&) override {
+        return true;
+    }
+};
 
 const glm::mat4 kIdentityView{1.0f};
 
@@ -334,4 +344,29 @@ TEST(Sort, KeyWithoutDepthTestIsNeverDepthSorted) {
     EXPECT_FALSE(key.depth_sorted);
     EXPECT_FLOAT_EQ(key.view_depth, 13.0f);
     EXPECT_EQ(key.entity_index, 7u);
+}
+
+// Cutout is a shader discard, not blending: an opaque cutout material (leaves) stays in the opaque queue and draws
+// before every transparent draw, whatever the layer.
+TEST(Sort, CutoutMaterialStaysInOpaqueQueue) {
+    using engine::render::BlendMode;
+    using engine::render::DrawQueue;
+    engine::render::RenderState cutout = kOpaque3d;
+    cutout.alpha_cutoff = 0.5f;
+    EXPECT_EQ(engine::render::draw_queue(cutout), DrawQueue::Opaque);
+    EXPECT_EQ(engine::render::draw_queue({.blend = BlendMode::Alpha, .depth_test = true, .alpha_cutoff = 0.5f}),
+            DrawQueue::Transparent);
+
+    const auto mesh = std::make_shared<FakeMesh>();
+    const auto leaves = std::make_shared<FakeMaterial>(cutout);
+    const auto sprite = std::make_shared<FakeMaterial>(BlendMode::Alpha);
+    std::vector<engine::render::RenderableItem> items = {
+            item_at(mesh, sprite, 0, 0.0f, -100),
+            item_at(mesh, leaves, 1, 0.0f, 100),
+    };
+
+    engine::render::sort_renderables(items, camera_view());
+
+    EXPECT_EQ(items[0].entity.index, 1u);
+    EXPECT_EQ(items[1].entity.index, 0u);
 }

@@ -78,6 +78,75 @@ Every frame the render system pushes one `CmdSetView` per window (camera view, t
 
 Opaque depth-tested draws go first, nearest first, so the depth buffer hides what is behind. See [Command Buffer & Sorting](Command-Buffer-and-Sort.md#2-draw-order).
 
+**Frustum culling.** A `Renderable` (or `Sprite`) whose mesh box is outside the camera's view in every window is not drawn at all. The box is `IMesh::bounds()`, taken from the mesh's vertices when it is created and kept current by `mesh->update(desc)`, so a voxel chunk you rebuild needs nothing extra. Particles are never culled. If your shader moves vertices outside the mesh's own box (a waving flag, a sky dome around the camera), set `renderable.frustum_cull = false` (`.world`: `frustum_cull = false`) so it is always drawn. For your own visibility checks (chunk streaming, AI), `engine::camera_frustum(camera, camera_world, window_size)` gives the same frustum and `engine::render::frustum_intersects(frustum, engine::render::transform_aabb(box, model))` the same test.
+
+---
+
+## 4. Cutout and Fog
+
+**Vertex color.** `engine::render::MeshVertex::color` (white by default) multiplies the albedo in the builtin lit and unlit shaders. Bake light and ambient occlusion into it when you build a mesh; primitives and `.mesh` rows without color stay white. A `.mesh` row with twelve numbers (`px py pz nx ny nz u v r g b a`) sets it.
+
+**Cutout.** `alpha_cutoff = 0.5` in a `.mat` (or `RenderState::alpha_cutoff` in C++) discards fragments whose alpha is below 0.5. An opaque, depth-tested cutout material still draws in the opaque pass.
+
+**Fog.** Put an `engine::render::Fog` on the active camera:
+
+```cpp
+#include <engine/render/fog.h>
+
+world.emplace<engine::render::Fog>(cam, engine::render::Fog{
+        .color = {0.7f, 0.8f, 0.9f},
+        .start = 40.0f,   // no fog nearer than this
+        .end = 120.0f,    // fully fog colored from here on
+});
+```
+
+The builtin lit and unlit shaders (so sprites and tilemaps too) fade linearly to `color` between `start` and `end`, by distance from the camera. Particles, UI, and the editor's scene viewport are not fogged. Without a `Fog` component nothing is fogged. In a `.world` file it is `fog = { color = [0.7, 0.8, 0.9], start = 40.0, end = 120.0 }`.
+
+---
+
+## 5. Block Textures: Texture Arrays and Mipmaps
+
+A block atlas drawn with nearest filtering shimmers at a distance, and mipmapping an atlas bleeds neighbouring tiles into each other. Give each block face its own layer of a texture array instead. Mark the PNG as an array in its `.meta`; every `[[sprites]]` frame becomes one layer:
+
+```toml
+guid = "3c4d5e6f708192a3b4c5d6e7f8091a2b"
+importer = "texture_array"
+filter = "nearest"
+mipmaps = "linear"
+
+[[sprites]]
+name = "stone"
+rect = [0, 0, 16, 16]
+
+[[sprites]]
+name = "dirt"
+rect = [16, 0, 16, 16]
+```
+
+All frames must be the same size and inside the image, at most 256 of them; otherwise the cook fails. Point a material at a builtin array shader (`builtin::shader_lit_array`, GUID `a0e1b2c3d4f5678901234567890abc0c`, or `builtin::shader_unlit_array`, `...abc0d`, when light is baked into vertex colors):
+
+```toml
+shader = "asset://a0e1b2c3d4f5678901234567890abc0d"
+blend = "opaque"
+depth = true
+cull = "back"
+
+[textures]
+albedo = "asset://3c4d5e6f708192a3b4c5d6e7f8091a2b"
+```
+
+Your mesher writes the layer of each face into `MeshVertex::layer`, the same value on every vertex of a triangle:
+
+```cpp
+#include <engine/render/texture_array.h>
+
+auto blocks = services.assets.get<engine::render::TextureArray>(assets::textures::blocks);
+const float stone = static_cast<float>(*blocks->layer("stone"));
+vertex.layer = stone;   // with vertex.uv in 0..1 over the face
+```
+
+The array PNG cannot also be used as a sprite sheet; keep a separate texture for 2D icons. `.mesh` files have no layer column (their vertices use layer 0). Any texture can be mipmapped with `mipmaps = "nearest"` or `"linear"` in its `.meta`.
+
 ---
 
 ## Next Steps

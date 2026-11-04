@@ -1,6 +1,6 @@
 #include <engine/net/gns_transport.h>
 
-#if defined(_WIN32)
+#if defined(ENGINE_WITH_GNS)
 
 #include "gns_common.h"
 
@@ -88,6 +88,10 @@ float GnsTransport::rtt_ms(PeerId peer_id) const {
     return impl_->rtt_ms(peer_id);
 }
 
+std::size_t GnsTransport::pending_send_bytes(PeerId peer_id) const {
+    return impl_->pending_send_bytes(peer_id);
+}
+
 } // namespace engine::net
 
 #else
@@ -130,6 +134,10 @@ bool GnsTransport::is_server() const {
 
 float GnsTransport::rtt_ms(PeerId /*peer_id*/) const {
     return -1.0f;
+}
+
+std::size_t GnsTransport::pending_send_bytes(PeerId /*peer_id*/) const {
+    return 0;
 }
 
 } // namespace engine::net

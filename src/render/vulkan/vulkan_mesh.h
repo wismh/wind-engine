@@ -6,6 +6,7 @@
 
 #include <engine/render/graphic_factory.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -24,8 +25,17 @@ public:
     [[nodiscard]] bool ensure_gpu_buffers();
     void draw(VkCommandBuffer cmd);
 
+    [[nodiscard]] std::size_t vertex_count() const noexcept { return vertices_.size(); }
+    [[nodiscard]] std::size_t index_count() const noexcept { return indices_.size(); }
+
+protected:
+    // New buffers for `desc`; the old ones are retired (`VulkanContext::retire_buffer`), never written while a frame in
+    // flight may read them. A failed upload keeps the old buffers and contents.
+    bool replace(const MeshDesc& desc) override;
+
 private:
-    void destroy_gpu_buffers();
+    // Hands the buffers to the context's retire queue, so a frame in flight that reads them keeps them.
+    void retire_gpu_buffers();
 
     std::shared_ptr<VulkanContext> context_;
     std::vector<MeshVertex> vertices_;

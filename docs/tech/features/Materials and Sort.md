@@ -27,11 +27,13 @@ An empty `particles` list pushes nothing and does not report. When the list is n
 - A null `material` and a null texture use `builtin::material_unlit` when it loads.
 - In both null-material cases `CmdDrawParticles.blend` stays `emitter.blend` (default `Alpha`). The OpenGL backend applies `cmd.blend` for particles (`src/render/opengl/opengl_backend.cpp`).
 
-`Sprite::from_frame(const SpriteAnimationFrame&)` builds a sprite from a frame, and `Sprite::apply_frame` copies onto an existing one, the same six frame-owned fields: `texture`, `tiling`, `offset`, `pixel_size`, `pixels_per_unit`, and `pivot`. Tint, layer, order, flips, `mesh`, `material`, and the override belong to the entity and are never touched. `run_sprite_animations` uses `apply_frame`, so the two cannot drift; `src/render/animation.cpp` binds all 14 `Sprite` members by name, which stops compiling when a field is added, so the choice "frame or entity" is made then. A `SpriteAnimator` that has not yet put a frame on its sprite (`frame_applied` is false: new, after `play` with another clip, after `stop`) does so on its next tick even when it is paused or `speed` is 0, so a spawned entity needs no manual copy. A paused animator that already applied its frame leaves the sprite alone.
+`Sprite::from_frame(const SpriteAnimationFrame&)` builds a sprite from a frame, and `Sprite::apply_frame` copies onto an existing one, the same six frame-owned fields: `texture`, `tiling`, `offset`, `pixel_size`, `pixels_per_unit`, and `pivot`. Tint, layer, order, flips, `mesh`, `material`, the override, and `frustum_cull` belong to the entity and are never touched. `run_sprite_animations` uses `apply_frame`, so the two cannot drift; `src/render/animation.cpp` binds all 15 `Sprite` members by name, which stops compiling when a field is added, so the choice "frame or entity" is made then. A `SpriteAnimator` that has not yet put a frame on its sprite (`frame_applied` is false: new, after `play` with another clip, after `stop`) does so on its next tick even when it is paused or `speed` is 0, so a spawned entity needs no manual copy. A paused animator that already applied its frame leaves the sprite alone.
 
 ## Render state
 
-`IMaterial::render_state()` returns a `RenderState` (`include/engine/render/material.h`): `blend` (`BlendMode`), `depth_test`, `depth_write`, and `cull` (`CullMode`: `None`, `Back`, `Front`; counter-clockwise is the front face, as the wind-236 primitives wind). `RenderState{}` is the 2D state: `Alpha`, no depth test, no depth write, `None`. `Material(shader, albedo, color, state)` takes it whole; the cached sprite and particle materials pass `RenderState{.blend = ...}` and so keep the 2D state. A 3D opaque material is `{.blend = Opaque, .depth_test = true, .depth_write = true, .cull = Back}`; `builtin::material_lit` is one, on the Lambert `builtin::shader_lit` ([Render](../modules/Render.md#lit-shader)).
+`IMaterial::render_state()` returns a `RenderState` (`include/engine/render/material.h`): `blend` (`BlendMode`), `depth_test`, `depth_write`, `cull` (`CullMode`: `None`, `Back`, `Front`; counter-clockwise is the front face, as the wind-236 primitives wind), and `alpha_cutoff` (`std::optional<float>`). `RenderState{}` is the 2D state: `Alpha`, no depth test, no depth write, `None`, no cutoff.
+
+`alpha_cutoff` is cutout (alpha test): the builtin lit and unlit shaders discard a fragment whose albedo alpha is below it ([Render](../modules/Render.md#cutout)). It is not part of the queue rule, so a cutout material that is opaque with depth write (leaves, fences) stays in the opaque queue (`Sort.CutoutMaterialStaysInOpaqueQueue`). `Material(shader, albedo, color, state)` takes it whole; the cached sprite and particle materials pass `RenderState{.blend = ...}` and so keep the 2D state. A 3D opaque material is `{.blend = Opaque, .depth_test = true, .depth_write = true, .cull = Back}`; `builtin::material_lit` is one, on the Lambert `builtin::shader_lit` ([Render](../modules/Render.md#lit-shader)).
 
 The backend reads the state from `CmdDrawMesh::material` at execute time; the command carries no copy. Particles ignore everything but the blend: `CmdDrawParticles` draws with `cmd.blend`, no depth test or write, and no culling ([Render](../modules/Render.md#opengl-engine_with_window)).
 
@@ -39,9 +41,13 @@ The backend reads the state from `CmdDrawMesh::material` at execute time; the co
 
 `CmdDrawMesh.color` is the instance color (`Renderable::color` or `Sprite::color`). The backend multiplies it by `IMaterial::color`. White times the material color leaves the material color.
 
+The builtin lit and unlit shaders multiply that by the vertex color as well (`MeshVertex::color`, white unless the mesh sets it; [Render](../modules/Render.md#meshes)).
+
 `tinted_color()` on the component is that product, for CPU-side use. The command stores the instance color, not the product.
 
 A material with no albedo samples a 1x1 white texture in the OpenGL backend, so the draw is `uColor` (times the lighting under `shader_lit`), never black or a stale texture.
+
+The albedo may be a texture array (`ITexture::layers() > 0`, a `texture_array` asset), read by a shader that declares `sampler2DArray uTexture`, such as `builtin::shader_lit_array` and `builtin::shader_unlit_array`, at each vertex's `MeshVertex::layer`. When the albedo's kind does not match the shader's sampler (an array under a `sampler2D` shader or the reverse), both backends bind white instead, the same as no albedo ([Render](../modules/Render.md#texture-arrays)). The material, its slot, and the sort do not change.
 
 ## Matrices
 
@@ -101,11 +107,12 @@ TOML parsed by `parse_material`:
 | `depth_write` | `false` |
 | `depth` | `false`; shorthand that sets `depth_test` and `depth_write` together. An explicit `depth_test` or `depth_write` overrides it |
 | `cull` | `none` (`none`, `back`, `front`) |
+| `alpha_cutoff` | absent (no cutout); a number from 0 to 1 |
 | `[textures].albedo` | empty string |
 
-`blend`, `depth*`, and `cull` fill `MaterialDesc::state`. An unknown `blend` or `cull` string fails the parse, as does a `depth`, `depth_test`, or `depth_write` that is not a TOML boolean (an integer `1` is not accepted). A 3D opaque material is `blend = "opaque"`, `depth = true`, `cull = "back"`.
+`blend`, `depth*`, `cull`, and `alpha_cutoff` fill `MaterialDesc::state`. An unknown `blend` or `cull` string fails the parse, as does a `depth`, `depth_test`, or `depth_write` that is not a TOML boolean (an integer `1` is not accepted), and an `alpha_cutoff` that is not a number (an integer is accepted), is NaN, or is outside 0 to 1. A cutout 3D material is `blend = "opaque"`, `depth = true`, `cull = "back"` (or `"none"` for two-sided leaves), `alpha_cutoff = 0.5`. A 3D opaque material is `blend = "opaque"`, `depth = true`, `cull = "back"`.
 
-`shader` and `[textures].albedo` are `AssetId` hex strings, parsed at load. A value that is not 32 lowercase hex characters makes the material `AssetError::Corrupt`. Omit `[textures]`, or leave that table empty, for no texture. A top-level `albedo` is ignored, so the material loads with no texture. A non-hex `textures.albedo` fails the parse. Codegen does not rewrite those strings.
+`shader` and `[textures].albedo` are asset URIs (`"asset://"` plus the 32 lowercase hex characters of the `AssetId`), parsed at load. A value that is not one fails the parse. `albedo` may name a `texture` or a `texture_array` asset. Omit `[textures]`, or leave that table empty, for no texture. A top-level `albedo` is ignored, so the material loads with no texture. A `textures.albedo` that is not an asset URI fails the parse. Codegen does not rewrite those strings.
 
 ## Where it executes
 

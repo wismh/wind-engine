@@ -93,10 +93,23 @@ std::string_view wrap_text(engine::WrapMode value) {
     return "clamp";
 }
 
+std::string_view mipmaps_text(engine::MipmapMode value) {
+    switch (value) {
+    case engine::MipmapMode::None:
+        return "none";
+    case engine::MipmapMode::Nearest:
+        return "nearest";
+    case engine::MipmapMode::Linear:
+        return "linear";
+    }
+    return "none";
+}
+
 void add_texture_lines(const engine::TextureImportSettings& texture, std::vector<std::string>& lines) {
     lines.push_back(std::format("Color space: {}", color_space_text(texture.color_space)));
     lines.push_back(std::format("Filter: {}", filter_text(texture.filter)));
     lines.push_back(std::format("Wrap: {}", wrap_text(texture.wrap)));
+    lines.push_back(std::format("Mipmaps: {}", mipmaps_text(texture.mipmaps)));
     lines.push_back(std::format("Layout: {}", texture.layout == engine::TextureLayout::Single ? "single" : "multiple"));
     lines.push_back(std::format("Pixels per unit: {}", texture.pixels_per_unit));
     if (!texture.sprites.empty()) {
@@ -136,6 +149,10 @@ std::optional<InspectorSection> import_section(const std::filesystem::path& file
     case engine::ImporterKind::Texture:
     case engine::ImporterKind::UiImage:
         add_texture_lines(meta->texture, section.lines);
+        break;
+    case engine::ImporterKind::TextureArray:
+        add_texture_lines(meta->texture, section.lines);
+        section.lines.push_back(std::format("Layers: {}", meta->texture.sprites.size()));
         break;
     case engine::ImporterKind::Audio:
         add_audio_lines(meta->audio, section.lines);

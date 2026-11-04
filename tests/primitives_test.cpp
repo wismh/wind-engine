@@ -69,6 +69,7 @@ void expect_same_mesh(const engine::render::MeshDesc& actual, const engine::rend
         EXPECT_EQ(actual.vertices[i].position, expected.vertices[i].position) << "vertex " << i;
         EXPECT_EQ(actual.vertices[i].normal, expected.vertices[i].normal) << "vertex " << i;
         EXPECT_EQ(actual.vertices[i].uv, expected.vertices[i].uv) << "vertex " << i;
+        EXPECT_EQ(actual.vertices[i].color, expected.vertices[i].color) << "vertex " << i;
     }
 }
 
@@ -187,3 +188,16 @@ TEST(Primitives, Torus) {
 }
 
 
+
+// Primitives leave vertex color at its default, so a shader that multiplies by it draws them as before.
+TEST(Primitives, EveryPrimitiveWritesWhite) {
+    for (const engine::render::MeshDesc& mesh :
+            {engine::render::make_quad(), engine::render::make_cube(), engine::render::make_plane(1.0f, 2),
+                    engine::render::make_uv_sphere(), engine::render::make_cylinder(), engine::render::make_cone(),
+                    engine::render::make_torus(1.0f, 0.25f, 8, 4)}) {
+        ASSERT_FALSE(mesh.vertices.empty());
+        for (const engine::render::MeshVertex& vertex : mesh.vertices) {
+            EXPECT_EQ(vertex.color, glm::vec4(1.0f));
+        }
+    }
+}

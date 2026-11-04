@@ -1,7 +1,11 @@
 #include "vulkan_context.h"
 
+#include <engine/log.h>
+
 #include <cstdlib>
 #include <cstring>
+#include <format>
+#include <string>
 #include <vector>
 
 namespace engine::render {
@@ -76,6 +80,14 @@ std::optional<std::uint32_t> find_queue_family(
     return std::nullopt;
 }
 
+void log_vk_failure(const char* call, VkResult result) {
+    log::error(std::format(
+            "Vulkan: {} failed ({}, {})",
+            call,
+            vk_result_name(result),
+            static_cast<int>(result)));
+}
+
 } // namespace
 
 VulkanContext::~VulkanContext() {
@@ -87,6 +99,7 @@ bool VulkanContext::ensure_instance() {
         return true;
     }
     if (!fn_.load_global()) {
+        log::error(std::string("Vulkan: the loader did not load (") + SDL_GetError() + ")");
         return false;
     }
 
@@ -119,12 +132,17 @@ bool VulkanContext::ensure_instance() {
     create_info.enabledLayerCount = static_cast<std::uint32_t>(layers.size());
     create_info.ppEnabledLayerNames = layers.empty() ? nullptr : layers.data();
 
-    if (fn_.vkCreateInstance(&create_info, nullptr, &instance_) != VK_SUCCESS || instance_ == VK_NULL_HANDLE) {
+    const VkResult created = fn_.vkCreateInstance(&create_info, nullptr, &instance_);
+    if (created != VK_SUCCESS || instance_ == VK_NULL_HANDLE) {
+        log_vk_failure("vkCreateInstance", created);
+        log::error(
+                "Vulkan: implicit layers stay in the instance unless VK_LOADER_LAYERS_DISABLE is set");
         instance_ = VK_NULL_HANDLE;
         return false;
     }
 
     if (!fn_.load_instance(instance_)) {
+        log::error("Vulkan: instance entry points did not resolve");
         if (fn_.vkDestroyInstance) {
             fn_.vkDestroyInstance(instance_, nullptr);
         }
@@ -141,9 +159,14 @@ bool VulkanContext::ensure_device(VkSurfaceKHR surface) {
     if (device_ != VK_NULL_HANDLE) {
         if (surface != VK_NULL_HANDLE) {
             VkBool32 present_support = VK_FALSE;
-            if (fn_.vkGetPhysicalDeviceSurfaceSupportKHR(
-                    physical_device_, graphics_family_, surface, &present_support) != VK_SUCCESS ||
-                present_support == VK_FALSE) {
+            const VkResult support = fn_.vkGetPhysicalDeviceSurfaceSupportKHR(
+                    physical_device_, graphics_family_, surface, &present_support);
+            if (support != VK_SUCCESS) {
+                log_vk_failure("vkGetPhysicalDeviceSurfaceSupportKHR", support);
+                return false;
+            }
+            if (present_support == VK_FALSE) {
+                log::error("Vulkan: the graphics queue cannot present to the surface");
                 return false;
             }
         }
@@ -151,11 +174,15 @@ bool VulkanContext::ensure_device(VkSurfaceKHR surface) {
     }
 
     std::uint32_t device_count = 0;
-    if (fn_.vkEnumeratePhysicalDevices(instance_, &device_count, nullptr) != VK_SUCCESS || device_count == 0) {
+    const VkResult enumerated = fn_.vkEnumeratePhysicalDevices(instance_, &device_count, nullptr);
+    if (enumerated != VK_SUCCESS || device_count == 0) {
+        log_vk_failure("vkEnumeratePhysicalDevices", enumerated);
         return false;
     }
     std::vector<VkPhysicalDevice> devices(device_count);
-    if (fn_.vkEnumeratePhysicalDevices(instance_, &device_count, devices.data()) != VK_SUCCESS) {
+    const VkResult listed = fn_.vkEnumeratePhysicalDevices(instance_, &device_count, devices.data());
+    if (listed != VK_SUCCESS) {
+        log_vk_failure("vkEnumeratePhysicalDevices", listed);
         return false;
     }
 
@@ -179,6 +206,7 @@ bool VulkanContext::ensure_device(VkSurfaceKHR surface) {
     }
 
     if (best_device == VK_NULL_HANDLE) {
+        log::error("Vulkan: no graphics queue can present to the surface");
         return false;
     }
 
@@ -209,14 +237,16 @@ bool VulkanContext::ensure_device(VkSurfaceKHR surface) {
     device_info.ppEnabledExtensionNames = device_extensions.empty() ? nullptr : device_extensions.data();
     device_info.pEnabledFeatures = &enabled_features;
 
-    if (fn_.vkCreateDevice(physical_device_, &device_info, nullptr, &device_) != VK_SUCCESS ||
-        device_ == VK_NULL_HANDLE) {
+    const VkResult device_created = fn_.vkCreateDevice(physical_device_, &device_info, nullptr, &device_);
+    if (device_created != VK_SUCCESS || device_ == VK_NULL_HANDLE) {
+        log_vk_failure("vkCreateDevice", device_created);
         device_ = VK_NULL_HANDLE;
         physical_device_ = VK_NULL_HANDLE;
         return false;
     }
 
     if (!fn_.load_device(device_)) {
+        log::error("Vulkan: device entry points did not resolve");
         if (fn_.vkDestroyDevice) {
             fn_.vkDestroyDevice(device_, nullptr);
         }
@@ -243,6 +273,7 @@ void VulkanContext::shutdown() {
         if (fn_.vkDeviceWaitIdle) {
             fn_.vkDeviceWaitIdle(device_);
         }
+        release_retired();
         if (transient_pool_ != VK_NULL_HANDLE && fn_.vkDestroyCommandPool) {
             fn_.vkDestroyCommandPool(device_, transient_pool_, nullptr);
             transient_pool_ = VK_NULL_HANDLE;
@@ -413,6 +444,41 @@ void VulkanContext::end_single_time_commands(VkCommandBuffer cmd) const {
     fn_.vkQueueSubmit(graphics_queue_, 1, &submit_info, VK_NULL_HANDLE);
     fn_.vkQueueWaitIdle(graphics_queue_);
     fn_.vkFreeCommandBuffers(device_, transient_pool_, 1, &cmd);
+}
+
+void VulkanContext::retire_buffer(VkBuffer buffer, VkDeviceMemory memory) {
+    if (device_ == VK_NULL_HANDLE || (buffer == VK_NULL_HANDLE && memory == VK_NULL_HANDLE)) {
+        return;
+    }
+    retired_.retire(RetiredBuffer{.buffer = buffer, .memory = memory});
+}
+
+std::uint64_t VulkanContext::note_submitted() {
+    return retired_.submitted();
+}
+
+void VulkanContext::note_completed(std::uint64_t serial) {
+    for (const RetiredBuffer& retired : retired_.completed(serial)) {
+        destroy_retired(retired);
+    }
+}
+
+void VulkanContext::release_retired() {
+    for (const RetiredBuffer& retired : retired_.take_all()) {
+        destroy_retired(retired);
+    }
+}
+
+void VulkanContext::destroy_retired(const RetiredBuffer& retired) const {
+    if (device_ == VK_NULL_HANDLE) {
+        return;
+    }
+    if (retired.buffer != VK_NULL_HANDLE && fn_.vkDestroyBuffer) {
+        fn_.vkDestroyBuffer(device_, retired.buffer, nullptr);
+    }
+    if (retired.memory != VK_NULL_HANDLE && fn_.vkFreeMemory) {
+        fn_.vkFreeMemory(device_, retired.memory, nullptr);
+    }
 }
 
 } // namespace engine::render

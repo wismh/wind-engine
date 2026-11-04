@@ -8,6 +8,7 @@
 #include "core/frame_capture.h"
 #include "core/frame_limiter.h"
 #include "core/frame_pacing.h"
+#include "core/relative_mouse.h"
 
 #include <engine/core/window_desc.h>
 #include <engine/render/backend.h>
@@ -106,6 +107,15 @@ public:
         return capture_;
     }
 
+    // IWindowControl::set_relative_mouse: the game's requests and the focus rule over them. Apply is
+    // SDL_SetWindowRelativeMouseMode on that window; Android refuses without calling SDL.
+    [[nodiscard]] RelativeMouse& relative_mouse() noexcept {
+        return relative_;
+    }
+    [[nodiscard]] const RelativeMouse& relative_mouse() const noexcept {
+        return relative_;
+    }
+
     // The live window the mouse is over (SDL mouse focus), or nullopt.
     [[nodiscard]] std::optional<WindowId> mouse_focus() const;
 
@@ -149,10 +159,12 @@ private:
     std::optional<WindowId> sync_vsync_window();
     void wait_for_next_frame(bool vsync_waited);
     static void draw_window(WindowId id, Entry& entry, std::span<FrameCapture> captures);
+    bool apply_relative_mouse(WindowId id, bool on);
 
     CanvasFactory make_canvas_;
     // Before windows_: a window's teardown ends its drag, which releases this capture.
     MouseCapture capture_;
+    RelativeMouse relative_{[this](WindowId id, bool on) { return apply_relative_mouse(id, on); }};
     // unique_ptr<Entry>: IWindowCanvas captures WindowSystem&/CommandBuffer& by reference at
     // construction, so an Entry's address (and its members') must never move — a bare Entry value
     // in the map would dangle on rehash. The kPrimaryWindow entry, once inserted by the

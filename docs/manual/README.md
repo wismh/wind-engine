@@ -17,14 +17,15 @@ Wind is a high-performance 2D-first C++23 game engine tailored for production ti
 ### 2. [Core Architecture](architecture/Game-Lifecycle.md)
 * [Game Lifecycle](architecture/Game-Lifecycle.md) — `ENGINE_GAME`, `Engine<Game>`, `EngineServices`, `on_start`, and `on_quit`.
 * [World & Time](architecture/World-and-Time.md) — Delta time, fixed simulation stepping (`FixedStepClock`), and pause handling.
-* [Saves & Filesystem](architecture/Saves-and-Filesystem.md) — Cross-platform persistent storage via `user_data_directory`.
+* [Saves & Filesystem](architecture/Saves-and-Filesystem.md) — Cross-platform persistent storage via `user_data_directory`, and packing saves and packets with `compress` / `decompress`.
 * [Settings & Random Numbers](architecture/Config-and-Random.md) — `engine::Config` (a TOML settings file) and `engine::Random` (a seedable, replayable PCG32).
+* [Background Jobs](architecture/Background-Jobs.md) — `JobSystem::submit`, `JobCall` results on the main thread, cancel, priority, and `JobToken`.
 
 ### 3. [Entity Component System (ECS)](ecs/Entities-and-Components.md)
 * [Entities & Components](ecs/Entities-and-Components.md) — Generational IDs, pools, `World`, and `View<Ts...>`.
 * [Systems & Schedules](ecs/Systems-and-Schedules.md) — `Schedule::Frame`, `Schedule::Fixed`, and execution phases.
 * [Events](ecs/Events.md) — Double-buffered event queues (`Events<T>`, `EventReader`, `EventWriter`).
-* [Physics & Collisions](ecs/Physics-and-Collisions.md) — Box and circle colliders, triggers, velocity integration, and `CollisionEvent2D` (the engine runs `run_physics_2d` itself).
+* [Physics & Collisions](ecs/Physics-and-Collisions.md) — Box and circle colliders, triggers, velocity integration, and `CollisionEvent2D` (the engine runs `run_physics_2d` itself); grid collision and block picking (`sweep_aabb`, `raycast_grid`).
 * [Hierarchy](ecs/Hierarchy.md) — `Parent`, `set_parent`, world matrices and positions, cascade destroy.
 
 ### 4. [Rendering & 2D Graphics](rendering/Sprites-and-Animation.md)
@@ -60,6 +61,7 @@ Wind is a high-performance 2D-first C++23 game engine tailored for production ti
 ### 9. [Target Platforms](platforms/Desktop.md)
 * [Desktop](platforms/Desktop.md) — Exporting a Release build from the editor or in batch mode (CI), exporting by hand, and distribution on Windows, Linux, and macOS.
 * [Web (WebAssembly)](platforms/Web-Wasm.md) — Building from the SDK's engine source with Emscripten, the SDK's native codegen tools, and asset preloading.
+* [Dedicated Server](platforms/Dedicated-Server.md) — `engine_add_server` and `ENGINE_GAME_SERVER`: a program with no window, its command line, config, signals, and Linux.
 * [Android](platforms/Android.md) — Gradle packaging from the SDK's engine source, application identifiers, assets staging, and back button.
 
 ### 10. [Best Practices & Conventions](best-practices/Rules-and-Conventions.md)

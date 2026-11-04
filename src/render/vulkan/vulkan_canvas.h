@@ -84,6 +84,8 @@ private:
     std::array<VkSemaphore, kMaxFramesInFlight> image_available_semaphores_{};
     std::array<VkSemaphore, kMaxFramesInFlight> render_finished_semaphores_{};
     std::array<VkFence, kMaxFramesInFlight> in_flight_fences_{};
+    // VulkanContext::note_submitted of the last submit in each frame slot; 0 for none.
+    std::array<std::uint64_t, kMaxFramesInFlight> frame_serials_{};
 
     std::uint32_t current_frame_ = 0;
     std::uint32_t acquired_image_index_ = 0;

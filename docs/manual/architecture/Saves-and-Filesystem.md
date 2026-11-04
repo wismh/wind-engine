@@ -48,7 +48,7 @@ Both `organization` and `application` strings are one path segment each and must
 - Contain none of `/ \ : * ? " < > |` or ASCII control characters.
 - Not be a Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1` to `COM9`, `LPT1` to `LPT9`), also with a suffix such as `CON.txt`.
 
-A bad name returns `std::errc::invalid_argument`. An engine built without a window returns `function_not_supported`, and a directory the system cannot create returns `io_error`.
+A bad name returns `std::errc::invalid_argument`. A dedicated server, built without SDL, gets the same directory as a game of the same names. An engine built without a window on Web or Android returns `function_not_supported`, and a directory the system cannot create returns `io_error`.
 
 ### Rule 2: Never Rename an Existing Identifier
 The strings passed to `user_data_directory` define the persistent storage location. Renaming either argument will leave previous save files orphaned in the old folder.
@@ -61,6 +61,37 @@ If `user_data_directory` returns an error (e.g. read-only filesystem or sandboxe
 - Log a warning.
 - Do not crash or terminate the process.
 - Fall back to default in-memory settings (reads return defaults, writes gracefully no-op).
+
+---
+
+## 4. Compressing Saves and Packets
+
+`<engine/core/compression.h>` packs bytes with LZ4. It pairs with `engine::net::ByteWriter` and `ByteReader`, which use the same `std::uint8_t` bytes:
+
+```cpp
+#include <engine/core/compression.h>
+#include <engine/net/byte_stream.h>
+
+// Saving a region: High packs smaller and reads back as fast as Fast.
+engine::net::ByteWriter writer;
+write_region(writer, region);
+const std::vector<std::uint8_t> packed = engine::compress(writer.bytes(), engine::CompressionLevel::High);
+
+// Loading it: the second argument is the largest size you accept.
+constexpr std::size_t kMaxRegionBytes = 16u << 20;
+const auto unpacked = engine::decompress(packed, kMaxRegionBytes);
+if (!unpacked) {
+    engine::log::warn(std::format("region is damaged: {}", engine::to_string(unpacked.error())));
+    return;
+}
+engine::net::ByteReader reader{*unpacked};
+```
+
+- Use `CompressionLevel::Fast` (the default) for anything per frame, such as chunk packets, and `High` for files.
+- Always pass a real `max_size`. A save from disk or a packet from the network can claim any size, and `decompress` refuses one above your limit before it allocates (`CompressionError::TooLarge`).
+- There is no checksum. A damaged file can decode into wrong bytes, so validate what you read, or add a hash to your save format.
+- Both functions are safe to call from a background job (`JobSystem::submit`): pack a region on a worker, then write the file on the main thread. They are the only engine calls a job may make.
+- The 5-byte header is stable, so saves written by one engine version load in the next.
 
 ---
 

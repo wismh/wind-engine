@@ -106,6 +106,14 @@ std::vector<std::string> lines(const editor::InspectorSectionViewModel& section)
     return out;
 }
 
+std::vector<std::string> field_labels(const editor::InspectorSectionViewModel& section) {
+    std::vector<std::string> out;
+    for (const auto& field : section.fields.get()) {
+        out.push_back(field->label.get());
+    }
+    return out;
+}
+
 std::shared_ptr<editor::InspectorFieldViewModel> field_named(
         const editor::InspectorSectionViewModel& section, std::string_view key) {
     for (const auto& field : section.fields.get()) {
@@ -330,11 +338,12 @@ parent = "hero"
     EXPECT_EQ(vm.sections.get()[4]->removeDisplay.get(), "none");
     EXPECT_EQ(vm.addDisplay.get(), "flex");
 
-    const std::vector<std::string> unknown_lines = lines(*vm.sections.get()[4]);
-    EXPECT_NE(std::ranges::find(unknown_lines, "hp = 100"), unknown_lines.end());
-    EXPECT_NE(std::ranges::find(unknown_lines, "shield = 25.5"), unknown_lines.end());
-    EXPECT_NE(std::ranges::find(unknown_lines, "immortal = false"), unknown_lines.end());
-    EXPECT_NE(std::ranges::find(unknown_lines, "tags = [player, leader]"), unknown_lines.end());
+    const std::vector<std::string> unknown_fields = field_labels(*vm.sections.get()[4]);
+    EXPECT_NE(std::ranges::find(unknown_fields, "hp = 100"), unknown_fields.end());
+    EXPECT_NE(std::ranges::find(unknown_fields, "shield = 25.5"), unknown_fields.end());
+    EXPECT_NE(std::ranges::find(unknown_fields, "immortal = false"), unknown_fields.end());
+    EXPECT_NE(std::ranges::find(unknown_fields, "tags[0] = player"), unknown_fields.end());
+    EXPECT_NE(std::ranges::find(unknown_fields, "tags[1] = leader"), unknown_fields.end());
 
     // Play Mode: attaching a live game world inspects entities from that game world.
     engine::ecs::World game_world;
@@ -957,4 +966,218 @@ TEST(InspectorPanel, AssetPickerOverlayCandidateFilteringAndSearch) {
     EXPECT_FALSE(chosen.has_value());
 
     std::filesystem::remove_all(dir);
+}
+
+TEST(InspectorPanel, NestedObjectFieldsEditAndUndoAndFillDefaults) {
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "wind_inspector_nested_object";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+
+    struct Bonus {
+        double damage = 1.0;
+        double range = 8.0;
+    };
+    struct Hero {
+        std::string name;
+        int hire_cost = 0;
+        Bonus base;
+    };
+    struct Roster {
+        std::string title = "none";
+        Bonus bonus;
+        std::vector<Hero> heroes;
+    };
+
+    fakes::QuietFatal fatal;
+    engine::AssetsDb db(fatal);
+    db.register_object<Roster>(
+            "roster",
+            [](engine::ecs::ComponentReader& in, Roster& roster) {
+                (void)in.field("title", roster.title);
+                if (const auto found = in.table().find("bonus"); found != in.table().end()) {
+                    if (const engine::ecs::FieldTable* table = found->second.as_table()) {
+                        engine::ecs::ComponentReader nested = in.nested(*table);
+                        (void)nested.field("damage", roster.bonus.damage);
+                        (void)nested.field("range", roster.bonus.range);
+                    }
+                }
+            },
+            [](engine::ecs::ComponentWriter& out, const Roster& roster) {
+                out.field("title", roster.title);
+                engine::ecs::FieldTable bonus;
+                bonus.insert_or_assign("damage", engine::ecs::FieldValue{roster.bonus.damage});
+                bonus.insert_or_assign("range", engine::ecs::FieldValue{roster.bonus.range});
+                out.table().insert_or_assign("bonus", engine::ecs::FieldValue{std::move(bonus)});
+                engine::ecs::FieldArray heroes;
+                for (const Hero& hero : roster.heroes) {
+                    engine::ecs::FieldTable entry;
+                    entry.insert_or_assign("name", engine::ecs::FieldValue{hero.name});
+                    entry.insert_or_assign("hire_cost", engine::ecs::FieldValue{hero.hire_cost});
+                    engine::ecs::FieldTable base;
+                    base.insert_or_assign("damage", engine::ecs::FieldValue{hero.base.damage});
+                    base.insert_or_assign("range", engine::ecs::FieldValue{hero.base.range});
+                    entry.insert_or_assign("base", engine::ecs::FieldValue{std::move(base)});
+                    heroes.push_back(engine::ecs::FieldValue{std::move(entry)});
+                }
+                out.table().insert_or_assign("heroes", engine::ecs::FieldValue{std::move(heroes)});
+            });
+
+    const std::filesystem::path obj_path = dir / "roster.object";
+    {
+        std::ofstream out(obj_path, std::ios::binary);
+        out << "type = \"roster\"\n"
+               "title = \"gate\"\n"
+               "\n"
+               "[bonus]\n"
+               "damage = 5.0\n"
+               "\n"
+               "[[heroes]]\n"
+               "name = \"Archer\"\n"
+               "hire_cost = 3\n"
+               "\n"
+               "[heroes.base]\n"
+               "max_hp = 10.0\n";
+    }
+
+    editor::CommandHistory history;
+    editor::EditorSelection selection;
+    editor::InspectorPanel panel{selection};
+    panel.set_assets(&db);
+    panel.set_journal(&history, [] {});
+
+    selection.select(editor::AssetSelection{
+            .key = "assets/data/roster.object",
+            .path = obj_path,
+            .directory = false,
+            .size = std::filesystem::file_size(obj_path),
+    });
+    panel.refresh();
+
+    const auto section_named = [&](std::string_view heading) -> const editor::InspectorSectionViewModel* {
+        for (const auto& section : panel.view_model()->sections.get()) {
+            if (section->heading.get() == heading) {
+                return section.get();
+            }
+        }
+        return nullptr;
+    };
+
+    const editor::InspectorSectionViewModel* roster = section_named("roster");
+    const editor::InspectorSectionViewModel* bonus = section_named("bonus");
+    const editor::InspectorSectionViewModel* hero = section_named("heroes[0]  Archer");
+    const editor::InspectorSectionViewModel* base = section_named("heroes[0].base");
+    ASSERT_NE(roster, nullptr);
+    ASSERT_NE(bonus, nullptr);
+    ASSERT_NE(hero, nullptr);
+    ASSERT_NE(base, nullptr);
+    EXPECT_EQ(field_named(*roster, "title")->value.get(), "gate");
+    EXPECT_EQ(field_named(*bonus, "damage")->value.get(), "5");
+    EXPECT_EQ(field_named(*bonus, "range")->value.get(), "8");
+    EXPECT_EQ(field_named(*hero, "hire_cost")->value.get(), "3");
+    EXPECT_EQ(field_named(*base, "max_hp")->value.get(), "10");
+
+    panel.edit_text("roster", "heroes[0].base.max_hp", -1, "12");
+    panel.edit_text("roster", "bonus.range", -1, "9");
+
+    std::string text_now;
+    {
+        std::ifstream in(obj_path, std::ios::binary);
+        text_now.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    auto parsed = engine::ecs::parse_field_table(text_now);
+    ASSERT_TRUE(parsed.has_value());
+    const engine::ecs::FieldTable* bonus_table = parsed->at("bonus").as_table();
+    ASSERT_NE(bonus_table, nullptr);
+    EXPECT_DOUBLE_EQ(*bonus_table->at("range").as_number(), 9.0);
+    const engine::ecs::FieldArray* heroes = parsed->at("heroes").as_array();
+    ASSERT_NE(heroes, nullptr);
+    ASSERT_EQ(heroes->size(), 1u);
+    const engine::ecs::FieldTable* hero_table = (*heroes)[0].as_table();
+    ASSERT_NE(hero_table, nullptr);
+    const engine::ecs::FieldTable* base_table = hero_table->at("base").as_table();
+    ASSERT_NE(base_table, nullptr);
+    EXPECT_DOUBLE_EQ(*base_table->at("max_hp").as_number(), 12.0);
+
+    EXPECT_TRUE(history.undo());
+    EXPECT_TRUE(history.undo());
+    {
+        std::ifstream in(obj_path, std::ios::binary);
+        text_now.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    parsed = engine::ecs::parse_field_table(text_now);
+    ASSERT_TRUE(parsed.has_value());
+    bonus_table = parsed->at("bonus").as_table();
+    ASSERT_NE(bonus_table, nullptr);
+    EXPECT_DOUBLE_EQ(*bonus_table->at("range").as_number(), 8.0);
+    heroes = parsed->at("heroes").as_array();
+    ASSERT_NE(heroes, nullptr);
+    hero_table = (*heroes)[0].as_table();
+    ASSERT_NE(hero_table, nullptr);
+    base_table = hero_table->at("base").as_table();
+    ASSERT_NE(base_table, nullptr);
+    EXPECT_DOUBLE_EQ(*base_table->at("max_hp").as_number(), 10.0);
+
+    std::filesystem::remove_all(dir);
+}
+
+TEST(InspectorPanel, NestedComponentTableEditsThroughTheSamePath) {
+    struct Stats {
+        float damage = 1.0f;
+    };
+    struct Bag {
+        int coins = 0;
+        Stats stats;
+    };
+
+    engine::ecs::World world;
+    engine::ecs::WorldSerializer serializer;
+    serializer.register_component<Bag>(
+            "bag",
+            [](engine::ecs::ComponentWriter& out, const Bag& bag) {
+                out.field("coins", bag.coins);
+                engine::ecs::FieldTable stats;
+                stats.insert_or_assign("damage", engine::ecs::FieldValue{static_cast<double>(bag.stats.damage)});
+                out.table().insert_or_assign("stats", engine::ecs::FieldValue{std::move(stats)});
+            },
+            [](engine::ecs::ComponentReader& in, Bag& bag) {
+                (void)in.field("coins", bag.coins);
+                const auto found = in.table().find("stats");
+                if (found == in.table().end()) {
+                    return;
+                }
+                const engine::ecs::FieldTable* table = found->second.as_table();
+                if (table == nullptr) {
+                    return;
+                }
+                engine::ecs::ComponentReader nested = in.nested(*table);
+                (void)nested.field("damage", bag.stats.damage);
+            });
+    world.ctx<engine::ecs::WorldSerializer>() = std::move(serializer);
+
+    const engine::ecs::Entity hero = world.create();
+    world.emplace<Bag>(hero, Bag{.coins = 4, .stats = Stats{.damage = 3.0f}});
+
+    editor::CommandHistory history;
+    editor::EditorSelection selection;
+    editor::InspectorPanel panel{selection};
+    panel.set_edit_world(&world);
+    panel.set_journal(&history, [] {});
+    selection.select(editor::EntitySelection{.entity = hero});
+    panel.refresh();
+
+    const editor::InspectorSectionViewModel* stats = nullptr;
+    for (const auto& section : panel.view_model()->sections.get()) {
+        if (section->heading.get() == "stats") {
+            stats = section.get();
+        }
+    }
+    ASSERT_NE(stats, nullptr);
+    ASSERT_NE(field_named(*stats, "damage"), nullptr);
+    EXPECT_EQ(field_named(*stats, "damage")->value.get(), "3");
+
+    // Through the row, the way the screen does it: the section's heading is "stats", the component is "bag".
+    field_named(*stats, "damage")->value.set(std::string("6"));
+    EXPECT_FLOAT_EQ(world.get<Bag>(hero).stats.damage, 6.0f);
+    EXPECT_TRUE(history.undo());
+    EXPECT_FLOAT_EQ(world.get<Bag>(hero).stats.damage, 3.0f);
 }

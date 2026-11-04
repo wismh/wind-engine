@@ -26,7 +26,13 @@ engine_add_game(my_game
    - `<build>/generated/<game>/catalog.toml`
 4. **Include Directories:** Adds `<build>/generated/<game>` as a `PRIVATE` include path, so you can `#include <asset_ids.h>`.
 5. **Icon Processing:** If `icon.png` exists next to the `CMakeLists.txt` that calls `engine_add_game`, runs `icon_codegen` to generate multi-resolution platform icons. The image must be square and at least 1024x1024, or the build fails.
-6. **Post-Build Asset Staging:** Runs `engine_prepare_runtime`, copying assets and cooked catalogs adjacent to the output binary.
+6. **Asset Staging (`<game>_stage`):** Runs `engine_prepare_runtime`, copying assets and cooked catalogs adjacent to the output binary. An edited asset is staged on the next build without recompiling or relinking the game.
+
+---
+
+## A Dedicated Server
+
+`engine_add_server(my_server src/server_main.cpp ...)` adds a separate program with no window and no SDL beside your game. See [Dedicated Server](../platforms/Dedicated-Server.md).
 
 ---
 

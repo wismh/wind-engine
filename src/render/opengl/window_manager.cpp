@@ -69,6 +69,21 @@ WindowManager::~WindowManager() {
     set_modal_loop_tick_callback(nullptr);
 }
 
+bool WindowManager::apply_relative_mouse(WindowId id, bool on) {
+#if defined(__ANDROID__)
+    (void)id;
+    (void)on;
+    return false;
+#else
+    WindowSystem* const target = window(id);
+    SDL_Window* const sdl_window = target != nullptr ? target->window() : nullptr;
+    if (sdl_window == nullptr) {
+        return false;
+    }
+    return SDL_SetWindowRelativeMouseMode(sdl_window, on);
+#endif
+}
+
 void WindowManager::set_modal_loop_tick_callback(std::function<void()> callback) {
     modal_loop_tick_callback_ = std::move(callback);
 #if defined(_WIN32)
@@ -164,6 +179,7 @@ void WindowManager::destroy_window(WindowId id) {
         vsync_window_.reset();
     }
     capture_.window_closed(id);
+    relative_.window_closed(id);
     if (id == kPrimaryWindow) {
         // The primary slot is permanent infrastructure (see the constructor): whether a game may
         // close its own primary window at all is a lifecycle *policy* question,

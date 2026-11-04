@@ -1,6 +1,6 @@
 #include <engine/net/steam_transport.h>
 
-#if defined(_WIN32)
+#if defined(ENGINE_WITH_GNS)
 
 #include "gns_common.h"
 
@@ -99,6 +99,10 @@ float SteamTransport::rtt_ms(PeerId peer_id) const {
     return impl_->rtt_ms(peer_id);
 }
 
+std::size_t SteamTransport::pending_send_bytes(PeerId peer_id) const {
+    return impl_->pending_send_bytes(peer_id);
+}
+
 } // namespace engine::net
 
 #else
@@ -145,6 +149,10 @@ bool SteamTransport::is_server() const {
 
 float SteamTransport::rtt_ms(PeerId /*peer_id*/) const {
     return -1.0f;
+}
+
+std::size_t SteamTransport::pending_send_bytes(PeerId /*peer_id*/) const {
+    return 0;
 }
 
 } // namespace engine::net

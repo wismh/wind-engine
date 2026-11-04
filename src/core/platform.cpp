@@ -1,5 +1,6 @@
 #include <engine/core/platform.h>
 
+#include <cstdlib>
 #include <string>
 #include <system_error>
 
@@ -386,6 +387,55 @@ std::expected<std::filesystem::path, std::error_code> user_data_directory_from_s
 
 }
 
+#if !(defined(ENGINE_WITH_WINDOW) && ENGINE_WITH_WINDOW) && !defined(__EMSCRIPTEN__) && !defined(__ANDROID__)
+namespace {
+
+// The directory SDL_GetPrefPath names, for a build without SDL (a dedicated server), so a server and a game of the
+// same names keep their data in the same place.
+std::expected<std::filesystem::path, std::error_code> user_data_directory_without_sdl(
+        std::string_view organization, std::string_view application) {
+    std::filesystem::path base;
+#if defined(_WIN32)
+    wchar_t buffer[32768];
+    const DWORD size = GetEnvironmentVariableW(L"APPDATA", buffer, 32768);
+    if (size > 0 && size < 32768) {
+        base = std::filesystem::path(std::wstring(buffer, size));
+    }
+#else
+    const auto variable = [](const char* name) -> std::string {
+        const char* const value = std::getenv(name);
+        return value != nullptr ? std::string(value) : std::string();
+    };
+#if defined(__APPLE__)
+    if (const std::string home = variable("HOME"); !home.empty()) {
+        base = std::filesystem::path(home) / "Library" / "Application Support";
+    }
+#else
+    if (const std::string data = variable("XDG_DATA_HOME"); !data.empty()) {
+        base = data;
+    } else if (const std::string home = variable("HOME"); !home.empty()) {
+        base = std::filesystem::path(home) / ".local" / "share";
+    }
+#endif
+#endif
+    if (base.empty()) {
+        return std::unexpected(std::make_error_code(std::errc::io_error));
+    }
+    const auto utf8 = [](std::string_view text) {
+        return std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(text.data()), text.size()));
+    };
+    std::filesystem::path path = base / utf8(organization) / utf8(application);
+    std::error_code ec;
+    std::filesystem::create_directories(path, ec);
+    if (ec) {
+        return std::unexpected(std::make_error_code(std::errc::io_error));
+    }
+    return path;
+}
+
+}
+#endif
+
 std::expected<std::filesystem::path, std::error_code> user_data_directory(
         std::string_view organization, std::string_view application) {
     if (const std::error_code org = segment_error(organization)) {
@@ -396,6 +446,8 @@ std::expected<std::filesystem::path, std::error_code> user_data_directory(
     }
 #if defined(ENGINE_WITH_WINDOW) && ENGINE_WITH_WINDOW
     return user_data_directory_from_sdl(organization, application);
+#elif !defined(__EMSCRIPTEN__) && !defined(__ANDROID__)
+    return user_data_directory_without_sdl(organization, application);
 #else
     return std::unexpected(std::make_error_code(std::errc::function_not_supported));
 #endif

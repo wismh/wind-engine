@@ -65,6 +65,32 @@ std::string insert_fragment_precision(std::string src) {
     return src;
 }
 
+// GLSL ES 3.00 gives sampler2DArray no default precision in either stage, so a shader that uses one does not compile
+// until it declares one. Inserted after `#version` (and after an inserted float precision).
+std::string insert_sampler2d_array_precision(std::string src) {
+    if (src.find("sampler2DArray") == std::string::npos ||
+            src.find("precision mediump sampler2DArray") != std::string::npos ||
+            src.find("precision highp sampler2DArray") != std::string::npos ||
+            src.find("precision lowp sampler2DArray") != std::string::npos) {
+        return src;
+    }
+    constexpr std::string_view kLine = "precision mediump sampler2DArray;\n";
+    const std::size_t version = src.find("#version");
+    if (version == std::string::npos) {
+        return std::string(kLine) + src;
+    }
+    std::size_t eol = src.find('\n', version);
+    if (eol == std::string::npos) {
+        return src + "\n" + std::string(kLine);
+    }
+    const std::string_view float_line = "precision mediump float;\n";
+    if (src.compare(eol + 1, float_line.size(), float_line) == 0) {
+        eol += float_line.size();
+    }
+    src.insert(eol + 1, kLine);
+    return src;
+}
+
 }
 
 std::string adapt_glsl(std::string_view src, ShaderTarget target, bool fragment) {
@@ -77,7 +103,7 @@ std::string adapt_glsl(std::string_view src, ShaderTarget target, bool fragment)
     if (fragment) {
         out = insert_fragment_precision(out);
     }
-    return out;
+    return insert_sampler2d_array_precision(std::move(out));
 }
 
 ShaderDesc adapt_shader(const ShaderDesc& src, ShaderTarget target) {

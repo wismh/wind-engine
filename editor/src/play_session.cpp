@@ -2,6 +2,7 @@
 
 #include <engine/audio/audio_system.h>
 #include <engine/core/input_system.h>
+#include <engine/core/job_system.h>
 #include <engine/core/window_control.h>
 #include <engine/core/worlds.h>
 #include <engine/ecs/world.h>
@@ -117,6 +118,9 @@ void PlaySession::stop() {
 
     module_->destroy(game_);
     game_ = nullptr;
+    // The game's calls died with it, but a job it started may still be running module code on a worker, and a
+    // leaked call may still be queued. Every async job of the process goes, and this waits for the running ones.
+    services_->jobs.cancel_all();
     services_->assets.clear_object_loaders();
     module_.reset();
 

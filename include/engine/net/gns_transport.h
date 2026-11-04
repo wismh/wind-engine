@@ -32,6 +32,7 @@ public:
     [[nodiscard]] bool is_running() const override;
     [[nodiscard]] bool is_server() const override;
     [[nodiscard]] float rtt_ms(PeerId peer_id) const override;
+    [[nodiscard]] std::size_t pending_send_bytes(PeerId peer_id) const override;
 
     struct Impl;
 

@@ -28,6 +28,8 @@ public:
     void remove_component();
 
     engine::ui::Bindable<std::string> heading;
+    // What the remove button removes (`InspectorSection::owner`).
+    std::string component;
     // The chevron's `checked`: turned down while expanded.
     engine::ui::Bindable<bool> expanded;
     engine::ui::BindableList<std::shared_ptr<InspectorLineViewModel>> lines;

@@ -36,6 +36,10 @@ struct RenderState {
     bool depth_test = false;
     bool depth_write = false;
     CullMode cull = CullMode::None;
+    // Cutout (alpha test): the builtin lit and unlit shaders discard a fragment whose albedo alpha is below it. It
+    // does not change the queue, so an opaque cutout material (leaves, fences) stays in the opaque queue. Particles
+    // ignore it.
+    std::optional<float> alpha_cutoff;
 
     constexpr bool operator==(const RenderState&) const noexcept = default;
 };

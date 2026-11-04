@@ -1,6 +1,6 @@
 # Core
 
-Host, time, input polling, logging, fatal errors, platform paths, and, when `ENGINE_WITH_WINDOW` is on, `EngineHost`, `Engine<GameT>`, the game entry macro, and the SDL runtime.
+Host, time, input polling, logging, fatal errors, platform paths, the [dedicated server](#dedicated-server), and, when `ENGINE_WITH_WINDOW` is on, `EngineHost`, `Engine<GameT>`, the game entry macro, and the SDL runtime.
 
 Frame order is [Runtime Loop](../architecture/Runtime%20Loop.md). Window behavior is [Windowing](../features/Windowing.md). Named controls are [Input Mapper](../features/Input%20Mapper.md).
 
@@ -82,9 +82,9 @@ Any failure unloads the copy and deletes its directory. `GameModuleError` is the
 | `load_catalog(dir)` | `<dir>/catalog.toml` with `dir` as its files root. A missing file (`MetaError::Io`) is success. Other errors return the `MetaError`. The game catalog and the editor's own catalog both load this way |
 | `unload_catalog(dir)` | `AssetsDb::unload_catalog(dir)`. Pass the same path `load_catalog` got |
 | `attach_game(game)` | window icon, `bind_window(kPrimaryWindow)`, `enable_ui`, `enable_audio`, publish the window size with a resize event, `ui::apply_canvas_fit` |
-| `detach_game()` | the window half of undoing `attach_game`: `ICapture::close_all`, `unbind_window(kPrimaryWindow)`, clear its command buffer, reset its UI painter and register `builtin::font_ui` again, clear its drag region and click-through, overlay mode back to `Auto`, `ApplicationState::paused` false. The editor calls it on Stop |
-| `run(hooks)` | `EngineRuntime::run` with `RunHooks` and the `HttpClient` and `ProcessLauncher` the loop polls, then `dispose`. Returns 1 before a successful `open_primary` |
-| `dispose()` | stops the job pool, disposes audio, capture (closing its sessions), haptics, HTTP, and the process launcher (ending the programs its calls still own) and shuts the runtime down. Also run by the destructor. A second call is a no-op |
+| `detach_game()` | the window half of undoing `attach_game`: `ICapture::close_all`, `unbind_window(kPrimaryWindow)`, clear its command buffer, reset its UI painter and register `builtin::font_ui` again, then `reset_game_windows` (`src/core/game_window_reset.h`: clear its drag region and click-through, overlay mode back to `Auto`, and on every open window release relative mouse mode and the game's mouse capture), `ApplicationState::paused` false. The editor calls it on Stop |
+| `run(hooks)` | `EngineRuntime::run` with `RunHooks` and the `HttpClient`, `ProcessLauncher`, and `JobSystem` the loop polls, then `dispose`. Returns 1 before a successful `open_primary` |
+| `dispose()` | stops the job pool (cancelling every async job and waiting for the running ones), disposes audio, capture (closing its sessions), haptics, HTTP, and the process launcher (ending the programs its calls still own) and shuts the runtime down. Also run by the destructor. A second call is a no-op |
 
 `set_deps` registers simulation systems on worlds that already exist and on every later `Worlds::add`. `enable_ui` and `enable_audio` add the rest. Each registration is guarded by its `ctx` flag, so a world never gets a system twice, whether it was added before or after `set_deps`.
 
@@ -92,9 +92,40 @@ Any failure unloads the copy and deletes its directory. `GameModuleError` is the
 
 ### Startup errors
 
-`EngineError` (`include/engine/core/engine_error.h`, header only, all builds) names why the engine could not start: `VideoInit`, `WindowCreate`, `AudioInit`, `HapticsInit`, `AssetsRoot`, `EngineCatalog`, `UiFont`, `GameCatalog`. `to_string(error)` is the enumerator name (logs, tests), `message(error)` the sentence for the dialog. A startup failure is returned, never reported where it happens: `EngineHost::init`, `open_primary`, and `Engine<GameT>::init` show nothing and exit nothing, and each failure after `init` disposes the host first. The entry point is the one place that tells the user. `report_startup_error(error)` (declared in `engine_host.h`) logs the name and shows `message(error)` through a fresh `SdlFatalError`, so it also works for `VideoInit`, when the host has no fatal hook yet. `ENGINE_GAME`, the bench `main`, and `EditorApp::start` call it; a failure that belongs to one entry (the editor's missing project or its own catalog) calls its `IFatalError` directly. The detail of a `MetaError` from the game catalog is not part of the error. `EngineHost` and `EngineRuntime` have a constructor taking an `IPresentation` so a test can stand in for SDL.
+`EngineError` (`include/engine/core/engine_error.h`, header only, all builds) names why the engine could not start: `VideoInit`, `WindowCreate`, `AudioInit`, `HapticsInit`, `AssetsRoot`, `EngineCatalog`, `UiFont`, `GameCatalog`, and for a [dedicated server](#dedicated-server) `ServerConfig`. `to_string(error)` is the enumerator name (logs, tests), `message(error)` the sentence for the dialog. A startup failure is returned, never reported where it happens: `EngineHost::init`, `open_primary`, and `Engine<GameT>::init` show nothing and exit nothing, and each failure after `init` disposes the host first. The entry point is the one place that tells the user. `report_startup_error(error)` (declared in `engine_host.h`) logs the name and shows `message(error)` through a fresh `SdlFatalError`, so it also works for `VideoInit`, when the host has no fatal hook yet. `ENGINE_GAME`, the bench `main`, and `EditorApp::start` call it; a failure that belongs to one entry (the editor's missing project or its own catalog) calls its `IFatalError` directly. The detail of a `MetaError` from the game catalog is not part of the error. `EngineHost` and `EngineRuntime` have a constructor taking an `IPresentation` so a test can stand in for SDL.
 
 `SplashScreen` lives on this header (enabled, `builtin::splash_wind`, fade 0.4s, hold 1.0s, fade 0.4s). `IGame` has no splash method. A game calls `ui::show_splash`. See [UI](UI.md).
+
+## Dedicated server
+
+A second run mode, selected by the target and its entry macro, never by `ENGINE_EDITOR`: `engine_add_server` ([CMake](../build/CMake.md#engine_add_server)) makes an executable whose source says `ENGINE_GAME_SERVER(game::Server)` (`include/engine/server_entry.h`, an `#error` under `ENGINE_GAME_MODULE`). It is a separate program and not a `--server` flag of the game, because a flag would link SDL and `libGL` into a binary for a host with no display. A listen server needs none of this: `install_net_server` works in a windowed game.
+
+`EngineHost` cannot be the host: its `init` needs SDL video, and `EngineServices` holds references only a window provides. `ServerHost` (`include/engine/core/server_host.h`, `src/core/server_host.cpp`) is always compiled, needs no SDL, and owns a `ServerFatalError`, `AssetsDb`, `HttpClient`, `ProcessLauncher`, `JobSystem`, `Worlds`, and a private `InputSystem` the loop needs and nothing feeds. `Server<GameT>` (`include/engine/core/server.h`) sits on it the way `Engine<GameT>` sits on `EngineHost`; `GameT` derives from `IGame` and is constructible from `const ServerServices&` (the concept `ServerGame`). `GameBase(services.worlds)` is enough.
+
+`ServerServices` (`include/engine/core/server_services.h`): `assets`, `http`, `processes`, `jobs`, `worlds`, `fatal`, `options`, `config`, and `port(fallback)`, which is `--port`, else `port` in the config file, else `fallback`. No window, graphics, input, or audio member exists, so a server that reaches for one does not compile.
+
+| Call | Does |
+| --- | --- |
+| `init()` | `log::init_stdout`, the config file, every service, the HTTP client (a failure only warns), and the engine and game catalogs with no graphic factory. Absent catalogs are fine: the engine's is read because a `.world` that names a builtin checks the id against it. An explicit `--assets` directory has to exist (`AssetsRoot`). Fails with `ServerConfig`, `AssetsRoot`, `EngineCatalog`, or `GameCatalog`, disposed |
+| `attach_game(game)` | `Worlds::set_deps` with `fatal`, `worlds`, and `jobs` only, so simulation systems register and `run_render` does not; `IGame::random_seed`. No window is bound, and `enable_ui` and `enable_audio` are never called |
+| `run(hooks)` | Installs the stop signals, runs `GameLoop`, disposes. 1 before a successful `init` |
+| `dispose()` | Stops the job pool, disposes HTTP and processes. Also run by the destructor. A second call is a no-op |
+
+The loop is the game's `GameLoop` over `ServerPresentation : IPresentation` (`src/core/server_presentation.h`), so a server has the same order as a game: flush, polls, `simulate_worlds`, `on_frame_end`, and `on_quit` before dispose. Its accessors of a window or GPU abort, because the loop reaches none of them. `poll` turns a stop signal into `ApplicationState::quit`. `draw_all` is where the tick waits ([Runtime Loop](../architecture/Runtime%20Loop.md#on-a-dedicated-server)). `sync_frame` warns about dropped ticks: an iteration where a world's `pending_steps` reached `kMaxFixedSteps` means `FixedStepClock` dropped what was left, and the log says so at most once in 10 s, with the count. The first iteration is exempt, because its time includes `on_start`. `FixedStepClock` itself is unchanged.
+
+**Command line.** `process_arguments(argc, argv)` is the line as UTF-8 (on Windows from `GetCommandLineW`, so a path outside the code page survives), and `parse_server_args` makes `ServerOptions`: `--port N` or `--port=N` (1..65535), `--config`, `--assets`, `--help` or `-h`, and everything else in order in `args` for the game, as is all after `--`. `ServerArgError` is `MissingValue` or `BadPort`. `run_server<GameT>`, the body of the macro, exits 0 after a clean stop or `--help`, 2 for a bad line (problem and usage on stderr), and 1 when `init` failed (`report_server_startup_error`, in the log).
+
+**Config.** `engine::Config` from `--config` (which has to exist) or `<executable dir>/server.toml` (which may not). Invalid TOML, or a `port` that is not a whole number in 1..65535, is `EngineError::ServerConfig`.
+
+**Log.** `log::init_stdout()`: stdout only, colour only on a terminal, flushed on every info line. No `game.log`.
+
+**Fatal.** `ServerFatalError` (`src/core/server_fatal_error.h`) logs the message, flushes, and calls `std::_Exit(1)`: `abort` raises a dialog on Windows that nobody would close, and `std::exit` would run static destructors while job workers are still in game code. `on_quit` does not run. It is how `on_start` refuses to run: `GameLoop::begin` sets `running` true after `on_start`, so `quit()` there is ignored in every host.
+
+**Stop signals** (`src/core/shutdown_signal.h`, `ShutdownSignals`, installed for the length of `run`). A handler sets one lock-free flag and `poll` reads it, so a stop takes effect after the current tick, and one arriving during a long `on_start` is seen at the first poll. POSIX: `sigaction` on SIGINT, SIGTERM, and SIGHUP (a second one, of any kind, restores its default and raises it again), and SIGPIPE ignored so a dead log reader does not end the server. Windows: `SetConsoleCtrlHandler`; for a closing console, logoff, and shutdown the handler waits up to 4.5 s for the loop to finish, because Windows ends the process when it returns. A second signal has its default effect, so a hung shutdown can be interrupted. `taskkill` without `/F` does not reach a console program with no window.
+
+The game owns its transport, as in a windowed game, so `on_quit` calls `transport.stop()`. That closes each connection before the listen socket (`CloseListenSocket` alone would drop them without telling the peer, which then waits for its timeout).
+
+**Assets.** `AssetsDb` works without a factory: CPU types load, and `IMesh`, `ITexture`, `IMaterial`, `SpriteSheet`, clips, tilemaps, and texture arrays answer `AssetError::NotReady`. `load_asset_or_validate_headless` lets a `.world` with `Renderable` or `Sprite` instantiate with nothing behind the reference, after checking the catalog entry.
 
 ## Parsing numbers
 
@@ -102,13 +133,67 @@ Any failure unloads the copy and deletes its directory. `GameModuleError` is the
 
 ## Jobs
 
-`JobSystem` (`include/engine/core/job_system.h`, `src/core/job_system.cpp`) is a fork-join pool. The owner thread calls `parallel_for(count, grain, fn)` and the call returns only after every index in `[0, count)` has been passed to `fn` once, in half-open ranges of at most `grain` (`grain` 0 is one range covering `count`). The caller runs ranges too: with more than one range it runs the first, then takes more while it waits. A `parallel_for` made from inside a running range runs on that same thread.
+`JobSystem` (`include/engine/core/job_system.h`, `src/core/job_system.cpp`) is a worker pool with two calls: fork-join `parallel_for`, and `submit` for [async jobs](#async-jobs). The owner thread calls `parallel_for(count, grain, fn)` and the call returns only after every index in `[0, count)` has been passed to `fn` once, in half-open ranges of at most `grain` (`grain` 0 is one range covering `count`). The caller runs ranges too: with more than one range it runs the first, then takes more while it waits. A `parallel_for` made from inside a running range runs on that same thread.
 
-`fn` must not throw and must not call engine APIs. It may read what the caller shares and write disjoint indices of a buffer the caller owns.
+`fn` must not throw and must not call engine APIs, except the any-thread [compression](#compression) calls. It may read what the caller shares and write disjoint indices of a buffer the caller owns.
 
-`JobSystem(0)` runs every range on the caller. The default constructor uses `hardware_concurrency - 1` workers, or none when the machine has one core. Web without pthreads always has none: the same calls run on the caller, and `std::thread` is not started. `stop` joins the workers; a later `parallel_for` runs on the caller. `EngineHost::dispose` stops the pool before it tears the other services down. `Host` owns a `JobSystem(0)` and passes it through `set_deps`, so `engine_tests` exercise the same call and stay on the caller.
+`JobSystem(0)` runs every range on the caller. The default constructor uses `hardware_concurrency - 1` workers, or none when the machine has one core. Web without pthreads always has none: the same calls run on the caller, and `std::thread` is not started. `stop` cancels every async job (below), then joins the workers; a later `parallel_for` runs on the caller and a later job in `poll`. `EngineHost::dispose` stops the pool before it tears the other services down. `Host` owns a `JobSystem(0)` and passes it through `set_deps`, so `engine_tests` exercise the same call and stay on the caller.
+
+### Async jobs
+
+`submit(fn, priority = 0)` queues a background job and returns a `JobCall<T>` (`include/engine/core/job_call.h`), where `T` is what `fn` returns. `fn` is `T()` or `T(const JobToken&)`. `T` is not `void` (a static_assert; return a `bool` or a small struct) and is move-constructible. A job that builds a chunk returns its `MeshDesc` or block array; the main thread calls `create_mesh` / `update` after `take` ([Principles](../architecture/Principles.md) #12).
+
+`JobCall` is shaped like `HttpCall` and `FileDialogCall` ([Net](Net.md#why-a-call-and-not-an-event)): move-only, owned by whoever submitted it, and destroying a pending call cancels it. `pending()` is true from submit until the result is delivered or the call is cancelled. `take()` returns the result once, then the call is empty; nullopt while pending, after cancel, and on an empty call. `JobCall::resolved(value)` builds a call that already holds a result, for fakes. There is no `ready()`; `take()` answers that.
+
+| Call | Effect |
+| --- | --- |
+| `cancel()` on a queued job | It never runs. Its function is destroyed now, on the main thread |
+| `cancel()` on a running job | Its `JobToken::cancelled()` turns true; the worker destroys the function and the result when `fn` returns. `cancel` never waits |
+| `cancel()` on a finished job not yet polled | The result is destroyed now; `poll` skips it |
+| `set_priority(p)` | Moves a queued job. Higher runs first, equal priorities in submit order. A running or finished job ignores it. A chunk loader raises the priority of the chunks nearest the player as the player moves |
+
+`poll(budget = kJobInlineBudget)` runs on the main thread once per frame: `GameLoop::tick` calls it right after `ProcessLauncher::poll` ([Runtime Loop](../architecture/Runtime%20Loop.md#one-tick)), so a result becomes visible at the start of a frame and every system of that frame sees the same state. With workers it only delivers. With none (`JobSystem(0)`, Web without pthreads, one core, after `stop`) it first runs queued jobs on the caller, highest priority first: at least one, then more until `budget` (4 ms) has passed. `poll(0us)` runs exactly one. Jobs never run inside `submit`, so cancel-before-run and priority order hold everywhere. `wait_idle()` blocks until nothing is queued or running (with no workers it runs the whole queue); results still wait for `poll`. It is for loading screens and tests.
+
+Async jobs share the workers with `parallel_for`. No extra threads: chunk work and the main thread would otherwise fight over the same cores. A worker takes a published `parallel_for` batch before a queued job, and at most `workers - 1` jobs run at once (one worker runs them all), so fork-join always has a free worker. `parallel_for` cannot deadlock behind long jobs anyway, because its caller drains its own ranges. A `parallel_for` inside a job runs on that worker. The cap is fixed.
+
+A job function must not throw: the thunk is `noexcept`, so a throw is `std::terminate`. Failures are data (`std::expected`). It must not call engine APIs, `submit` included; [`compress` and `decompress`](#compression) are the exception. It owns or shares everything it reads, because the owner of its call may be destroyed while it runs. Its result may be destroyed on a worker when the call was cancelled mid-run. A long job should take a `JobToken` and return early once `cancelled()`.
+
+`submit`, `poll`, `wait_idle`, `cancel_all`, `stop`, and every `JobCall` call run on the thread that built the system. Debug builds `assert` it; Release compiles the check out.
+
+`cancel_all()` cancels every job of the process, queued, running, and finished but not polled, destroys their functions and results, and returns only after no job is running. A running job that ignores its token is waited for, so a Stop can block for as long as such a job takes. The editor calls it on Stop ([Editor](../features/Editor.md#stop)): a job started by game code runs module code on a worker, and the module must not be unloaded under it. Because it cancels everything, an engine or editor feature that starts async jobs of its own must survive Stop cancelling them (start them again, or tag game jobs first); today nothing outside game code submits any.
+
+Implementation: `submit` is a thin template over `submit_impl` (`ENGINE_API`). The function and the result live in one heap `detail::JobBox<T, Fn>`, built by the template in the submitting module; the engine sees it as a `void*` plus `run` and `destroy` thunks. `JobState` (`src/core/job_state.h`) is created by `make_shared` inside the engine, so its last reference may go after a module is unloaded. Queue (a `std::set` ordered by priority and submit sequence), running list, and finished list are all under the pool's one mutex. They are not a `CallCompletions` (`src/core/call_completions.h`, used by `HttpCall` and `FileDialogCall`): a cancel must see in one critical section whether a job is queued, running, or finished, and `cancel_all` must reach finished jobs that `poll` has not delivered, which `CallCompletions` cannot hand back. A worker keeps the job counted as busy until a cancelled job's slot has been destroyed, so `cancel_all` cannot return while that module code runs. The header holds no mutable state ([Boundaries](../architecture/Boundaries.md)).
 
 `run_particles` is the caller. It hands `EngineSystemDeps::jobs` to `update_emitter`. Integration of the live particles forks when a pool is passed; spawn stays on the caller, and dead particles are dropped after the join. See [Render](Render.md#sprites-animation-particles-curves).
+
+## Compression
+
+`compress(input, level = CompressionLevel::Fast)` and `decompress(input, max_size)` (`include/engine/core/compression.h`, `src/core/compression.cpp`) pack a byte buffer with LZ4. Both take `std::span<const std::uint8_t>` and give `std::vector<std::uint8_t>`, the byte type of `ByteWriter` and `ByteReader`, so `compress(writer.bytes())` and `ByteReader{*unpacked}` need no cast. No LZ4 type is in the header; the codec is the PRIVATE static library `wind_lz4` ([CMake](../build/CMake.md#what-links)). The game's region saves and chunk packets use it; the net layer may later use it for large reliable messages.
+
+LZ4 rather than zstd: a chunk packet is packed every frame, and LZ4 compresses several hundred MB/s and decompresses about 4 GB/s per core, several times zstd's speed; voxel data is long runs, where LZ4's ratio is already good. It is two C files with no assembly, so it builds the same on MSVC, Emscripten, and the NDK.
+
+| `CompressionLevel` | Codec | For |
+| --- | --- | --- |
+| `Fast` | `LZ4_compress_default` | Packets, anything per frame |
+| `High` | LZ4 HC level 9 (`LZ4HC_CLEVEL_DEFAULT`) | Region saves: several times slower to pack, smaller, the same format and decode speed |
+
+Format. Every output starts with a 5-byte header (`kCompressionHeaderSize`): a format byte, 0 stored or 1 an LZ4 block, then the uncompressed size as a little-endian u32. The payload follows. Saves keep it on disk, so the format is frozen: a new codec takes a new format byte, and `decompress` keeps reading 0 and 1. `compress` stores the input as it is when LZ4 does not make it smaller, so the output is never more than the input plus 5 bytes. An empty input is the header alone (`0 0 0 0 0`), and every output of `compress` decodes. An input above `kCompressionMaxInput` (`LZ4_MAX_INPUT_SIZE`, about 1.97 GiB) is a precondition violation: `compress` throws `std::length_error`, as `std::vector::reserve` does past its limit.
+
+`decompress` checks, in this order:
+
+| Check | `CompressionError` |
+| --- | --- |
+| Fewer than 5 bytes | `Truncated` |
+| Format byte other than 0 or 1 | `UnknownFormat` |
+| Header size above `max_size` | `TooLarge`, before anything is allocated |
+| Stored: payload length differs from the header size (short or trailing bytes) | `Corrupt` |
+| LZ4: `LZ4_decompress_safe` into exactly the header size fails or writes a different count | `Corrupt` |
+
+`max_size` has no default: the caller states the largest buffer it accepts, so a hostile header cannot make it allocate more (a decompression bomb). `LZ4_decompress_safe` never reads past the input or writes past the output. There is no checksum: damage that still decodes gives different bytes, not an error. Integrity is the transport's (GameNetworkingSockets) or the save format's. `to_string(CompressionError)` gives the enumerator name.
+
+Any thread. Both functions are pure (no globals, no engine services, no logging), so a job worker may call them: the one exception to [Principles](../architecture/Principles.md) #12. A chunk job packs its blocks before it returns; a region load decompresses on a worker.
+
+A game that also links its own static lz4 gets duplicate `LZ4_*` symbols; lz4 has no prefix option. Use `engine::compress`.
 
 ## Time
 
@@ -119,6 +204,9 @@ Any failure unloads the copy and deletes its directory. `GameModuleError` is the
 | `kMaxFrameDt` | 0.25 |
 
 Each world has a `FixedStepClock` on its own `Time`. `advance` clamps wall dt, accumulates only while the process is not paused and that world's stepping flag is true, and zeros the accumulator when the step cap is hit. `delta_time` is the clamped frame dt even while paused or not stepping. `alpha` is `accumulator / kFixed`.
+
+`Time::fixed_rate` (default 1) scales the wall dt added to that world's accumulator, so the world runs more or fewer fixed steps per second; each step is still `kFixed` long (`fixed_delta_time` never changes). Only a predicting net client changes it, between 0.9 and 1.1, to keep its inputs ahead of the server, and a disconnect sets it back to 1 ([Net](Net.md#client-lead)). Game code leaves it alone.
+
 
 `ApplicationState` is one per process, on `Worlds`. It starts `running = true`, `paused = false`. `quit()` sets `running` false. `GameLoop::begin` sets `running` true again after `on_start`. `set_stepping(world, false)` skips that world's fixed steps and frame and does not accumulate. An OS pause skips Fixed on every world. A window-bound world still runs Frame while the process is paused, so its UI stays up. A windowless world runs neither while paused.
 
@@ -151,10 +239,11 @@ The Android back key is not a lifecycle event. The engine never quits on it; it 
 | Result | When |
 | --- | --- |
 | Desktop SDL pref path | `%APPDATA%`, `$XDG_DATA_HOME` or `~/.local/share`, `~/Library/Application Support` |
+| The same directory without SDL | `ENGINE_WITH_WINDOW` off on a desktop (a dedicated server): read from the same environment variables, directories created. No variable set is `errc::io_error` |
 | Web | `/storage/<org>/<app>/`. `engine_add_sdl3` forces `SDL_EMSCRIPTEN_PERSISTENT_PATH` to `/storage`. The browser may flush a write a few frames later |
 | Android | `<internal storage>/user/`. SDL's Android pref path is the storage root and ignores the two name strings. `applicationId` isolates apps |
 | `errc::invalid_argument` | empty, spaced, trailing-dot, or Windows-device path segment |
-| `errc::function_not_supported` | `ENGINE_WITH_WINDOW` is off |
+| `errc::function_not_supported` | `ENGINE_WITH_WINDOW` is off on Web or Android |
 | `errc::io_error` | SDL could not create the pref directory |
 
 Main thread only. On Android, call it after `Engine::init` (`EngineHost::init`).
@@ -169,7 +258,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 
 ## Log and fatal errors
 
-`engine::log::init()` is a null sink for tests. `init(exe_dir)` writes `<exe_dir>/game.log`. `info`, `warn`, and `error` are the public facade. spdlog stays in `src/core/log.cpp`.
+`engine::log::init()` is a null sink for tests. `init(exe_dir)` writes `<exe_dir>/game.log`. `init_stdout()` writes to stdout, for a dedicated server. `info`, `warn`, and `error` are the public facade. spdlog stays in `src/core/log.cpp`.
 
 `IFatalError` (`include/engine/resources/fatal_error.h`) is the single fatal exit. `report` is `[[noreturn]]`: no caller writes code after it, and an implementation ends the process (or, in a test, throws). Two public contracts lead to it. `try_*` (I/O, mods, parsing) returns `std::expected` and never reports. `get` (a programmer or shipping-data bug) reports. `assert` stays for engine invariants and `log::warn` for content quality.
 
@@ -177,6 +266,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 | --- | --- |
 | `SdlFatalError` (`ENGINE_WITH_WINDOW` only) | SDL message box, `ApplicationState::quit()` when attached, then `std::exit(1)` |
 | `DefaultFatalError` (`include/engine/resources/default_fatal_error.h`, `default_fatal_error()`) | writes the message to stderr, then `std::abort()`. Used where no host supplied one |
+| `ServerFatalError` (`src/core/server_fatal_error.h`) | logs the message, flushes, then `std::_Exit(1)`. A dedicated server's |
 | a test double | throws, so a test asserts on the report (`tests/fixtures/fatal_fakes.h`: `FatalReport`) |
 
 `EngineSystemDeps::fatal` left unset becomes `default_fatal_error()` when `register_*_systems` runs, so the systems always dereference it. `Worlds::set_deps` fills in the `Worlds` fatal instead. `EngineSystemDeps` null members mean "subsystem not connected" and are read once, at registration, not per frame:
@@ -199,8 +289,12 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 | `src/core/build_info.cpp` | `build_id()` returns `kBuildId` as compiled into `engine` |
 | `src/core/fixed_step.cpp` | accumulator |
 | `src/core/host.cpp` | fake-canvas host. Owns a `JobSystem` with no workers |
-| `src/core/job_system.cpp` | Fork-join pool |
-| `src/core/input_system.cpp` | bind table and event enqueue |
+| `src/core/job_system.cpp` | Worker pool: fork-join `parallel_for` and the async job queue |
+| `src/core/job_call.cpp` | `JobHandle`: the non-template part of `JobCall` (pending, take, cancel, priority) |
+| `src/core/job_state.h` | `JobState`: one submitted job, shared by its call and the pool |
+| `src/core/input_system.cpp` | bind table (action and scale per control), event enqueue, `axis()` and the frame's mouse motion, locked windows |
+| `src/core/relative_mouse.cpp` | `RelativeMouse`: relative mouse requests per window and the focus rule over them ([Windowing](../features/Windowing.md#relative-mouse)) |
+| `src/core/game_window_reset.cpp` | `reset_game_windows`: the window state `EngineHost::detach_game` puts back on Stop |
 | `src/core/log.cpp` | spdlog |
 | `src/core/platform.cpp` | paths, staging, `executable_directory`, `user_data_directory` |
 | `src/core/random.cpp` | `Random`, PCG32 |
@@ -213,6 +307,10 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 | `src/core/app_lifecycle.cpp` | pause, resume, terminate |
 | `src/core/back_key_filter.cpp` | `BackKeyFilter`: whether an `AcBack` key event reaches `InputSystem` or only dismisses text input |
 | `src/cli/cli_server.cpp` | loopback server. The translation unit is empty without `ENGINE_CLI_SERVER` |
+| `src/core/server_host.cpp` | `ServerHost`, `ServerServices::port` |
+| `src/core/server_presentation.cpp` | `ServerPresentation`: the `IPresentation` with no window; the tick wait and the dropped-tick warning |
+| `src/core/server_options.cpp` | `parse_server_args`, `process_arguments`, the usage |
+| `src/core/shutdown_signal.cpp` | `ShutdownSignals`: the stop signals of a dedicated server |
 
 ## Only with `ENGINE_WITH_WINDOW`
 
@@ -239,6 +337,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 - `include/engine/core/application_state.h`
 - `include/engine/core/app_lifecycle.h`
 - `include/engine/core/build_info.h`
+- `include/engine/core/compression.h`
 - `include/engine/core/config.h`
 - `include/engine/core/engine.h`
 - `include/engine/core/engine_error.h`
@@ -255,6 +354,10 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 - `include/engine/core/random.h`
 - `include/engine/core/run_hooks.h`
 - `include/engine/core/sdl_fatal_error.h`
+- `include/engine/core/server.h`
+- `include/engine/core/server_host.h`
+- `include/engine/core/server_options.h`
+- `include/engine/core/server_services.h`
 - `include/engine/resources/default_fatal_error.h`
 - `include/engine/core/time.h`
 - `include/engine/core/web_loop.h`
@@ -263,10 +366,11 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 - `include/engine/core/window_control.h`
 - `include/engine/core/worlds.h`
 - `include/engine/game_entry.h` (not in the umbrella; a game's `main.cpp` includes it)
+- `include/engine/server_entry.h` (not in the umbrella; a server's `main` file includes it)
 
 ## Tests
 
-`tests/cmake_sanity_test.cpp`, `tests/host_test.cpp`, `tests/time_test.cpp`, `tests/input_test.cpp`, `tests/log_test.cpp`, `tests/platform_test.cpp`, `tests/web_loop_test.cpp`, `tests/android_lifecycle_test.cpp`, `tests/android_assets_test.cpp`, `tests/window_icon_test.cpp`, `tests/window_style_test.cpp`, `tests/event_window_test.cpp`, `tests/cli_server_test.cpp`, `tests/worlds_test.cpp`, `tests/game_loop_test.cpp` (`RunHooks` order, and `RunHooks::cli` answered without a primary world, with a fake `IPresentation`), `tests/engine_error_test.cpp` (names and messages), `tests/engine_host_test.cpp` (a failing `init_video` returns `VideoInit` over a fake `IPresentation`, no fatal report; window builds only), `tests/game_entry_test.cpp` (module exports, window builds only), `tests/game_module_test.cpp` (loader against the fixture modules, editor build only; skipped elsewhere), `tests/file_dialog_test.cpp` (`FileDialogCall`), `tests/random_test.cpp` (golden sequences, ranges, streams), `tests/config_test.cpp` (round trip, defaults, malformed input, failed save).
+`tests/cmake_sanity_test.cpp`, `tests/host_test.cpp`, `tests/time_test.cpp`, `tests/input_test.cpp`, `tests/relative_mouse_test.cpp`, `tests/game_window_reset_test.cpp`, `tests/log_test.cpp`, `tests/platform_test.cpp`, `tests/web_loop_test.cpp`, `tests/android_lifecycle_test.cpp`, `tests/android_assets_test.cpp`, `tests/window_icon_test.cpp`, `tests/window_style_test.cpp`, `tests/event_window_test.cpp`, `tests/cli_server_test.cpp`, `tests/worlds_test.cpp`, `tests/game_loop_test.cpp` (`RunHooks` order, `RunHooks::cli` answered without a primary world, and `InputSystem::begin_frame` before each `poll`, with a fake `IPresentation`), `tests/engine_error_test.cpp` (names and messages), `tests/engine_host_test.cpp` (a failing `init_video` returns `VideoInit` over a fake `IPresentation`, no fatal report; window builds only), `tests/game_entry_test.cpp` (module exports, window builds only), `tests/game_module_test.cpp` (loader against the fixture modules, editor build only; skipped elsewhere), `tests/file_dialog_test.cpp` (`FileDialogCall`), `tests/random_test.cpp` (golden sequences, ranges, streams), `tests/config_test.cpp` (round trip, defaults, malformed input, failed save), `tests/compression_test.cpp` (round trips of text, empty, 4 MiB, and incompressible input at both levels, the `max_size` guard and a bomb header, truncated header and payload, trailing bytes, unknown format, a size header off by one, a match before the output start, random payloads that never exceed their header size, calls from `JobSystem` workers), `tests/server_args_test.cpp` (both forms of each flag, bad ports, missing values, UTF-8 paths, what goes to the game, `--`), `tests/server_host_test.cpp` (the real loop with no window for N ticks, no render, UI, or audio system, the same world from the same seed, sleeping to the tick rate, stopping on a signal with `on_quit`, a net server over loopback, CPU assets and a `.world` with no factory, the config file), `tests/server_process_test.cpp` (a real process, `tests/fixtures/server` built by `engine_add_server`: exit codes, a real signal, stdout, a fatal, the dropped-tick warning, and with `ENGINE_WITH_GNS` a client over a real socket that sees the world move and the close).
 
 ## See also
 

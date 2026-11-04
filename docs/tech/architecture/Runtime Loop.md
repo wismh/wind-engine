@@ -1,6 +1,6 @@
 # Runtime loop
 
-Windowed games enter through `ENGINE_GAME` (`include/engine/game_entry.h`), which runs `Engine<GameT>` (`include/engine/core/engine.h`) on an `EngineHost` (`include/engine/core/engine_host.h`). Headless tests use `Host` (`include/engine/core/host.h`), which shares `flush_worlds` and `simulate_worlds` (`src/core/frame_step.cpp`) and does not poll SDL. The process owns a `Worlds`. Each world has its own clock. The frame walks them in `add` order. Worlds do not share a command buffer, so that order does not change the picture.
+A dedicated server enters through `ENGINE_GAME_SERVER` ([below](#on-a-dedicated-server)). Windowed games enter through `ENGINE_GAME` (`include/engine/game_entry.h`), which runs `Engine<GameT>` (`include/engine/core/engine.h`) on an `EngineHost` (`include/engine/core/engine_host.h`). Headless tests use `Host` (`include/engine/core/host.h`), which shares `flush_worlds` and `simulate_worlds` (`src/core/frame_step.cpp`) and does not poll SDL. The process owns a `Worlds`. Each world has its own clock. The frame walks them in `add` order. Worlds do not share a command buffer, so that order does not change the picture.
 
 ## `Engine::init`
 
@@ -9,7 +9,7 @@ Windowed games enter through `ENGINE_GAME` (`include/engine/game_entry.h`), whic
 1. `EngineHost::init`:
    1. `runtime.init_video()`. SDL video, inside `SdlGlPresentation`.
    2. `log::init(runtime.base_path())`. File sink `<base>/game.log`.
-   3. Construct `SdlFatalError`, `InputSystem`, `AssetsDb`, `AudioSystem`, `HapticsSystem`, `HttpClient`, `ProcessLauncher`, `Worlds`, and the `EngineServices` over them (assets, input, audio, haptics, http, processes, windows, graphics, backend, canvas, commands, worlds).
+   3. Construct `SdlFatalError`, `InputSystem`, `AssetsDb`, `AudioSystem`, `HapticsSystem`, `HttpClient`, `ProcessLauncher`, `JobSystem`, `Worlds`, and the `EngineServices` over them (assets, input, audio, haptics, http, processes, jobs, windows, graphics, backend, canvas, commands, worlds).
    4. `input.set_router` to `Worlds::world_for`. Attach the fatal hook to `Worlds::application_state` and the native window.
 2. Construct `GameT` with `services()`. `GameBase` calls `Worlds::add` for its world. Systems are not registered yet: the window and catalogs do not exist.
 3. `EngineHost::open_primary(game.primary_window())`:
@@ -24,7 +24,7 @@ Windowed games enter through `ENGINE_GAME` (`include/engine/game_entry.h`), whic
 4. `EngineHost::load_catalog(assets_root())`: `assets/catalog.toml`. `MetaError::Io` (file absent) is success. Any other error disposes the host and `init` returns `GameCatalog`.
 5. `EngineHost::attach_game(game)`: if `window_icon()` is set, `get<render::TextureDesc>` and `set_window_icon`. Then `bind_window(kPrimaryWindow)`, `enable_ui`, `enable_audio`, `write_window_size` (sends a resize event), `ui::apply_canvas_fit`.
 
-`run` calls `EngineHost::run` with `RunHooks` whose `on_start` and `on_quit` call the game. `EngineHost::run` calls `runtime.run`, then `dispose`. `dispose` disposes audio, haptics, and HTTP (cancelling every pending call) and shuts the runtime down. A second `dispose` is a no-op.
+`run` calls `EngineHost::run` with `RunHooks` whose `on_start` and `on_quit` call the game. `EngineHost::run` calls `runtime.run`, then `dispose`. `dispose` stops the job pool (cancelling every async job and waiting for the running ones), disposes audio, haptics, and HTTP (cancelling every pending call) and shuts the runtime down. A second `dispose` is a no-op.
 
 ## `RunHooks`
 
@@ -56,10 +56,12 @@ Web (`Platform::Web`) then uses `emscripten_set_main_loop_arg` with `simulate_in
 ```mermaid
 flowchart TD
   A["cli::begin_frame"] --> B["flush every world"]
-  B --> C["poll: event window to its world"]
+  B --> B2["InputSystem::begin_frame: forget last frame's mouse motion"]
+  B2 --> C["poll: event window to its world"]
   C --> C2["HttpClient::poll: finished requests to their calls"]
   C2 --> C3["ProcessLauncher::poll: output lines and exits to their calls"]
-  C3 --> D["simulate_worlds"]
+  C3 --> C4["JobSystem::poll: finished jobs to their calls (no workers: run queued jobs first)"]
+  C4 --> D["simulate_worlds"]
   D --> E["sync_frame"]
   E --> E2["cli::capture_requests"]
   E2 --> F["draw_all, then wait for the next frame"]
@@ -67,18 +69,18 @@ flowchart TD
   G --> H["RunHooks::on_frame_end"]
 ```
 
-`cli::begin_frame` and `cli::drain` run every frame, with or without a world on `kPrimaryWindow`. Each request looks up the world bound to its own window at that moment (`Worlds::world_for`), so a world that Play or Stop swaps in `on_frame_end` is found the next frame. Host commands go to `RunHooks::cli`. `reentrant_tick` is the same slice without flush, without either poll, and without `on_frame_end`, so HTTP results wait for the frame after the drag. Windows calls it from inside `SDL_PollEvent` while a modal move or size loop is running. It shares the frame clock, so the frame that resumes after a drag does not replay the drag.
+`cli::begin_frame` and `cli::drain` run every frame, with or without a world on `kPrimaryWindow`. Each request looks up the world bound to its own window at that moment (`Worlds::world_for`), so a world that Play or Stop swaps in `on_frame_end` is found the next frame. Host commands go to `RunHooks::cli`. `InputSystem::begin_frame` runs right before `poll`, so `axis()` holds one frame's mouse motion ([Input Mapper](../features/Input%20Mapper.md#axes-mouse-look-and-composites)). `reentrant_tick` is the same slice without flush, without `begin_frame`, without any of the polls, and without `on_frame_end`, so HTTP and job results wait for the frame after the drag. Windows calls it from inside `SDL_PollEvent` while a modal move or size loop is running. It shares the frame clock, so the frame that resumes after a drag does not replay the drag.
 
 ### `simulate_worlds`
 
 1. `reset_pointer_frame` clears `Presentation.mouse` once. `begin_frame` on every world with UI. That fits canvases. It does not clear mouse consumption.
 
    `run_input` calls `begin_frame` again when the frame schedule runs. Each call starts with `profiler_commit_frame`. The second commit does not push a canvas slot, so a canvas slot is one whole tick: input, bindings, stylesheets, layout, motion, and paint. The shared ring alternates between the pre-schedule fit and the `run_input` fit with that tick's `commands`. See [UI Profiler](../features/UI%20Profiler.md).
-2. `advance` every world's clock with the same `real_dt`. Wall dt is clamped to `kMaxFrameDt` (0.25s). While the process is not paused and that world is stepping, the clock runs up to `kMaxFixedSteps` (8) steps of `kFixed` (1/60s) and drops leftover accumulator past the cap.
+2. `advance` every world's clock with the same `real_dt`. Wall dt is clamped to `kMaxFrameDt` (0.25s). While the process is not paused and that world is stepping, the clock adds that dt times the world's `Time::fixed_rate` (1 unless a net client is dilating its time) to the accumulator, runs up to `kMaxFixedSteps` (8) steps of `kFixed` (1/60s), and drops leftover accumulator past the cap.
 3. If audio is non-null, `audio->update` once with that clamped `real_dt`.
 4. For each world, in `add` order: `Schedule::Fixed` when it is stepping and the process is not paused. `Schedule::Frame` when it is stepping and either the process is not paused or a window is bound to it. An empty `ctx<BoundWindows>()` makes `run_render` return before any command-buffer clear. A non-empty list clears those buffers, then returns without pushing scene commands when the `Renderable`+`Transform`, `Sprite`+`Transform`, and `ParticleEmitter` views are all empty, when `ActiveCamera`'s entity is not valid, or when that entity has no `Camera` or `Transform` (fatal). The sorted list is pushed only after a live camera with both components, with `window_size_for` (`Presentation.sizes`) for that id. `run_ui_render` then writes UI.
 
-`Time` fields written by each clock: `delta_time`, `fixed_delta_time`, `alpha`, `accumulator`.
+`Time` fields written by each clock: `delta_time`, `fixed_delta_time`, `alpha`, `accumulator`. The clock reads `fixed_rate`; `run_net_client_predict` is the only writer of it.
 
 ### Schedules
 
@@ -86,8 +88,13 @@ flowchart TD
 
 | Schedule | Phases that run | Engine systems |
 | --- | --- | --- |
-| `Fixed` | `Physics`, then `Game` | `run_physics_2d` on `Physics` |
-| `Frame` | `Input`, `Game`, `Transform`, `Bind`, `Audio`, `Render`, `UiRender` | see below |
+| `Fixed` | `NetReceive`, `Physics`, `Game`, `NetSend` | `run_physics_2d` on `Physics` |
+| `Frame` | `NetReceive`, `Input`, `Game`, `Transform`, `Bind`, `Audio`, `Render`, `UiRender` | see below |
+
+The engine registers nothing on `NetReceive` or `NetSend`. `install_net_server` puts `run_net_server_receive` (poll, buffer inputs, advance the tick, step the controlled entities) on `Fixed`/`NetReceive` and `run_net_server_send` (snapshots, then queued payloads, per peer within its budget) on `Fixed`/`NetSend`; `install_net_client` puts `run_net_client_receive` and `run_net_client_interpolate` on `Frame`/`NetReceive`, `run_net_client_predict` (reconcile, advance the predicted tick, collect and step) on `Fixed`/`NetReceive`, and `run_net_client_send_input` on `Fixed`/`NetSend` ([Net](../modules/Net.md#schedule)). A world whose `Fixed` schedule does not run (paused, not stepping) neither polls its server transport nor sends snapshots, and a client world that does not step neither predicts nor sends input.
+
+A predicting client has two timelines. Its `Frame` schedule shows the other entities at `render_tick`, behind the server; its `Fixed` schedule simulates its own entities at `predicted_tick`, ahead of the server, and dilates its own fixed-step rate to stay there ([Net](../modules/Net.md#ticks-one-numbering-the-client-ahead)). The engine calls the game's prediction `step` from `NetReceive`: the one place gameplay runs in a net phase.
+
 
 Frame systems, in phase order:
 
@@ -105,13 +112,19 @@ Frame systems, in phase order:
 | `Render` | `run_render`. An empty `ctx<BoundWindows>()` returns before a command-buffer clear. A non-empty list clears those buffers, then returns without scene commands when the `Renderable`+`Transform`, `Sprite`+`Transform`, and `ParticleEmitter` views are all empty, when `ActiveCamera`'s entity is not valid, or when that entity has no `Camera` or `Transform` (fatal). The sorted draws are pushed only after a live camera with both components, each with `window_size_for` |
 | `UiRender` | `run_ui_render` (`CmdDrawUI` per canvas, per window; `inspector_retarget` first while the inspector is attached) |
 
-`Phase::Physics` is not a frame phase. `kFixedPhases` is Physics then Game. `kFramePhases` omits Physics. `Phase::Transform` is a frame phase only; the fixed schedule calls `update_world_transforms` inside `run_physics_2d`, after `RigidBody2D` integration and before the colliders are collected.
+`Phase::Physics` is not a frame phase. `kFixedPhases` is NetReceive, Physics, Game, NetSend. `kFramePhases` starts with NetReceive and omits Physics and NetSend. `Phase::Transform` is a frame phase only; the fixed schedule calls `update_world_transforms` inside `run_physics_2d`, after `RigidBody2D` integration and before the colliders are collected.
 
 After simulate, `sync_frame` applies click-through from `Worlds::presentation().mouse` (the set the hit-test filled) and syncs text-input activation. `draw_all` executes each window's command buffer and is where the tick waits: one window's swap waits for vblank, or, with no window that can, a sleep to the display's refresh rate. The loop has no other limit. See [Frame pacing](../features/Windowing.md#frame-pacing). `draw_all` also reads back the windows `cli::capture_requests` named, between drawing and swap. `cli::drain` answers queries from the painted frame, answers a `screenshot` from those pixels, and arms a `click` for the next `begin_frame` ([CLI](../features/CLI.md#screenshot)).
 
 ## `GameLoop::end`
 
 `cli::stop`, detach the presentation, then `LoopShutdown::complete`: `RunHooks::on_quit`, then the host dispose callback (`EngineHost::dispose`). On web, `run` does not return from the infinite main loop, so `end` is what still runs dispose when `running` becomes false.
+
+## On a dedicated server
+
+`ENGINE_GAME_SERVER` runs `Server<GameT>` on a `ServerHost` ([Core](../modules/Core.md#dedicated-server)). `GameLoop` is the same, over `ServerPresentation`: `poll` reads the stop signal, `sync_frame` warns about dropped ticks, and `draw_all` sleeps. Audio is null, and no window is bound.
+
+The wait is `FrameLimiter::wait_after(now, kFixed)` on an absolute schedule, so an overshoot does not lower the rate, and a loop more than a period late starts a new schedule instead of running iterations back to back. Windows sleeps on a high-resolution waitable timer, because the default system timer ticks every 15.6 ms, about a whole tick. Sleeps only overshoot, so the accumulator stays at or above zero and an iteration normally runs one fixed step; `Frame` runs once per iteration, so a shared game system behaves as it does in the game, at 60 Hz. The tick rate is `kFixed`: there is no server option for it, and `NetServerConfig::snapshot_interval` is how a server sends less. The clamps of `simulate_worlds` apply: after a stall the eighth step is the last and the rest is dropped.
 
 ## `Host::tick`
 

@@ -36,6 +36,14 @@ std::shared_ptr<ITexture> VulkanFactory::create_texture(const TextureDesc& desc)
     return texture;
 }
 
+std::shared_ptr<ITexture> VulkanFactory::create_texture_array(const TextureArrayDesc& desc) {
+    auto texture = std::make_shared<VulkanTexture>(context_, desc);
+    if (!texture->valid()) {
+        return {};
+    }
+    return texture;
+}
+
 std::shared_ptr<IDynamicTexture> VulkanFactory::create_dynamic_texture(const DynamicTextureDesc& desc) {
     auto texture = std::make_shared<VulkanTexture>(context_, desc);
     if (!texture->valid()) {

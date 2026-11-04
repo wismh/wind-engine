@@ -11,6 +11,7 @@
 #include <engine/render/graphic_factory.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
+#include <engine/render/primitives.h>
 #include <engine/render/sprite.h>
 #include <engine/resources/asset_id.h>
 #include <engine/resources/assets_db.h>
@@ -47,7 +48,16 @@ public:
     int height() const noexcept override { return h; }
 };
 
-class FakeMesh final : public engine::render::IMesh {};
+class FakeMesh final : public engine::render::IMesh {
+public:
+    FakeMesh() : engine::render::IMesh(engine::render::make_quad()) {}
+    explicit FakeMesh(const engine::render::MeshDesc& desc) : engine::render::IMesh(desc) {}
+
+protected:
+    bool replace(const engine::render::MeshDesc&) override {
+        return true;
+    }
+};
 class FakeShader final : public engine::render::IShader {};
 
 class FakeMaterial final : public engine::render::IMaterial {
@@ -60,14 +70,17 @@ public:
 
 class FakeGraphicFactory final : public engine::render::IGraphicFactory {
 public:
-    std::shared_ptr<engine::render::IMesh> create_mesh(const engine::render::MeshDesc&) override {
-        return std::make_shared<FakeMesh>();
+    std::shared_ptr<engine::render::IMesh> create_mesh(const engine::render::MeshDesc& desc) override {
+        return std::make_shared<FakeMesh>(desc);
     }
     std::shared_ptr<engine::render::IShader> create_shader(const engine::render::ShaderDesc&) override {
         return std::make_shared<FakeShader>();
     }
     std::shared_ptr<engine::render::ITexture> create_texture(const engine::render::TextureDesc& desc) override {
         return std::make_shared<FakeTexture>(desc.width, desc.height);
+    }
+    std::shared_ptr<engine::render::ITexture> create_texture_array(const engine::render::TextureArrayDesc&) override {
+        return {};
     }
     std::shared_ptr<engine::render::IDynamicTexture> create_dynamic_texture(
             const engine::render::DynamicTextureDesc&) override {

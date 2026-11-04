@@ -166,4 +166,13 @@ TEST(ByteStream, SkipAndReset) {
     EXPECT_EQ(reader.read_u32(), 111u);
 }
 
+TEST(ByteStream, AppendWritesBytesWithoutLength) {
+    ByteWriter writer;
+    writer.write_u8(1);
+    const std::vector<std::uint8_t> tail = {2, 3, 4};
+    writer.append(tail);
+    EXPECT_EQ(std::vector<std::uint8_t>(writer.bytes().begin(), writer.bytes().end()),
+            (std::vector<std::uint8_t>{1, 2, 3, 4}));
+}
+
 } // namespace engine::net

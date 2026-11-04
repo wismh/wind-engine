@@ -34,6 +34,19 @@ bool NetEntityMap::unbind(ecs::Entity entity) {
     return true;
 }
 
+std::vector<NetId> NetEntityMap::unbind_dead(const ecs::World& world) {
+    std::vector<NetId> dead;
+    for (const auto& [net_id, entity] : net_to_entity_) {
+        if (!world.valid(entity)) {
+            dead.push_back(net_id);
+        }
+    }
+    for (const NetId net_id : dead) {
+        unbind(net_id);
+    }
+    return dead;
+}
+
 std::optional<ecs::Entity> NetEntityMap::find_entity(NetId net_id) const {
     const auto it = net_to_entity_.find(net_id);
     if (it != net_to_entity_.end()) {
@@ -71,7 +84,7 @@ bool NetEntityMap::empty() const noexcept {
     return net_to_entity_.empty();
 }
 
-bool bind_net_entity(ecs::World& world, ecs::Entity entity, NetId net_id) {
+bool bind_net_entity(ecs::World& world, ecs::Entity entity, NetId net_id, PeerId owner) {
     if (!world.valid(entity) || net_id == kInvalidNetId) {
         return false;
     }
@@ -80,9 +93,9 @@ bool bind_net_entity(ecs::World& world, ecs::Entity entity, NetId net_id) {
         return false;
     }
     if (auto* existing = world.try_get<NetIdentity>(entity)) {
-        existing->id = net_id;
+        *existing = NetIdentity{.id = net_id, .owner = owner};
     } else {
-        world.emplace<NetIdentity>(entity, NetIdentity{.id = net_id});
+        world.emplace<NetIdentity>(entity, NetIdentity{.id = net_id, .owner = owner});
     }
     return true;
 }
@@ -92,42 +105,29 @@ bool unbind_net_entity(ecs::World& world, ecs::Entity entity) {
         return false;
     }
     world.remove<NetIdentity>(entity);
-    auto& map = world.ctx<NetEntityMap>();
-    return map.unbind(entity);
+    return world.ctx<NetEntityMap>().unbind(entity);
 }
 
 std::optional<ecs::Entity> find_entity(const ecs::World& world, NetId net_id) {
-    if (const auto* map = world.try_ctx<NetEntityMap>()) {
-        return map->find_entity(net_id);
+    const auto* map = world.try_ctx<NetEntityMap>();
+    if (map == nullptr) {
+        return std::nullopt;
     }
-    return std::nullopt;
+    const auto entity = map->find_entity(net_id);
+    if (!entity.has_value() || !world.valid(*entity)) {
+        return std::nullopt;
+    }
+    return entity;
 }
 
 std::optional<NetId> find_net_id(const ecs::World& world, ecs::Entity entity) {
-    if (const auto* ident = world.try_get<NetIdentity>(entity)) {
-        return ident->id;
-    }
-    if (const auto* map = world.try_ctx<NetEntityMap>()) {
-        return map->find_net_id(entity);
-    }
-    return std::nullopt;
-}
-
-bool set_parent_by_net_id(ecs::World& world, NetId child, NetId parent, ecs::KeepWorld keep_world) {
-    const auto child_entity = find_entity(world, child);
-    const auto parent_entity = find_entity(world, parent);
-    if (!child_entity || !parent_entity) {
-        return false;
-    }
-    return ecs::set_parent(world, *child_entity, *parent_entity, keep_world);
-}
-
-std::optional<NetId> get_parent_net_id(const ecs::World& world, ecs::Entity entity) {
-    const auto* parent = world.try_get<Parent>(entity);
-    if (parent == nullptr) {
+    if (!world.valid(entity)) {
         return std::nullopt;
     }
-    return find_net_id(world, parent->entity);
+    if (const auto* identity = world.try_get<NetIdentity>(entity)) {
+        return identity->id;
+    }
+    return std::nullopt;
 }
 
 } // namespace engine::net

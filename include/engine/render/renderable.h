@@ -26,6 +26,9 @@ struct Renderable {
     int layer = 0;
     int order_in_layer = 0;
     std::optional<MaterialOverride> material_override;
+    // False draws the renderable even when its mesh bounds are outside every window's frustum: for a shader that
+    // moves vertices beyond the mesh's own box (vertex displacement, a sky).
+    bool frustum_cull = true;
 
     // Sets one named vec4 shader uniform for this renderable's draws, once: it stays until set again or cleared, and
     // no other renderable that shares the material sees it. See `MaterialOverride`.

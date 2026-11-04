@@ -19,20 +19,28 @@ Within each schedule, systems execute sequentially across predefined phases (`en
 
 ### `Schedule::Fixed` Phases
 ```
-1. Phase::Physics  --> Engine: run_physics_2d (velocity integration, collision events)
-2. Phase::Game     --> Fixed gameplay logic, enemy AI, simulation steps
+1. Phase::NetReceive --> Server (after install_net_server): poll the network, advance the tick, step controlled entities
+                         Client (after install_net_client): reconcile, collect input, step predicted entities
+2. Phase::Physics    --> Engine: run_physics_2d (velocity integration, collision events)
+3. Phase::Game       --> Fixed gameplay logic, enemy AI, simulation steps
+4. Phase::NetSend    --> Server (after install_net_server): send snapshots, then queued payloads
+                         Client (after install_net_client): send inputs
 ```
 
 ### `Schedule::Frame` Phases
 ```
-1. Phase::Input    --> Engine: window and hardware input delivered to the UI
-2. Phase::Game     --> Engine: sprite animation, particles. Yours: gameplay, camera updates
-3. Phase::Transform --> Engine: world matrices of parented entities (update_world_transforms)
-4. Phase::Bind     --> Engine: UI bindings (ViewModel -> document)
-5. Phase::Audio    --> Engine: PlaySfxEvent / PlayMusicEvent
-6. Phase::Render   --> Engine: sprites and meshes into the CommandBuffer
-7. Phase::UiRender --> Engine: UI canvases into the CommandBuffer
+1. Phase::NetReceive --> Client (after install_net_client): receive snapshots, interpolate replicated entities
+2. Phase::Input      --> Engine: window and hardware input delivered to the UI
+3. Phase::Game       --> Engine: sprite animation, particles. Yours: gameplay, camera updates
+4. Phase::Transform  --> Engine: world matrices of parented entities (update_world_transforms)
+5. Phase::Bind       --> Engine: UI bindings (ViewModel -> document)
+6. Phase::Audio      --> Engine: PlaySfxEvent / PlayMusicEvent
+7. Phase::Render     --> Engine: sprites and meshes into the CommandBuffer
+8. Phase::UiRender   --> Engine: UI canvases into the CommandBuffer
 ```
+
+The net phases stay empty unless the game installs a server or a client. Do not put gameplay there. The one exception is the engine's own: with `register_prediction`, it calls your `step` for controlled entities from `Fixed`/`NetReceive`, so they move before physics and your `Game` systems ([Net](../../tech/modules/Net.md#input-and-prediction)).
+
 
 An engine system exists only when the host gave it what it needs. A headless world (tests, tools) has no audio system, so a `PlaySfxEvent` or `PlayMusicEvent` there is never read and is not an error; with no command buffer it has no render systems either. A game with a scene to draw must have a valid `ActiveCamera`, or rendering reports a fatal error.
 

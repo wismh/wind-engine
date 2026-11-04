@@ -10,7 +10,8 @@
 namespace engine::render {
 
 VulkanMesh::VulkanMesh(std::shared_ptr<VulkanContext> context, const MeshDesc& desc)
-    : context_(std::move(context)) {
+    : IMesh(desc)
+    , context_(std::move(context)) {
     if (const std::string error = mesh_desc_error(desc); !error.empty()) {
         log::error(error);
         return;
@@ -24,7 +25,46 @@ VulkanMesh::VulkanMesh(std::shared_ptr<VulkanContext> context, const MeshDesc& d
 }
 
 VulkanMesh::~VulkanMesh() {
-    destroy_gpu_buffers();
+    retire_gpu_buffers();
+}
+
+bool VulkanMesh::replace(const MeshDesc& desc) {
+    if (!valid_) {
+        return false;
+    }
+    if (!context_ || !context_->is_device_ready() || vertex_buffer_ == VK_NULL_HANDLE) {
+        // Nothing on the GPU yet: the next ensure_gpu_buffers uploads the new data.
+        vertices_ = desc.vertices;
+        indices_ = desc.indices;
+        return true;
+    }
+
+    VkBuffer vertex_buffer = VK_NULL_HANDLE;
+    VkDeviceMemory vertex_memory = VK_NULL_HANDLE;
+    if (!context_->upload_host_buffer(static_cast<VkDeviceSize>(desc.vertices.size() * sizeof(MeshVertex)),
+            desc.vertices.data(), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertex_buffer, vertex_memory)) {
+        return false;
+    }
+    VkBuffer index_buffer = VK_NULL_HANDLE;
+    VkDeviceMemory index_memory = VK_NULL_HANDLE;
+    if (!desc.indices.empty() &&
+            !context_->upload_host_buffer(static_cast<VkDeviceSize>(desc.indices.size() * sizeof(std::uint32_t)),
+                    desc.indices.data(), VK_BUFFER_USAGE_INDEX_BUFFER_BIT, index_buffer, index_memory)) {
+        // Never submitted: free it now.
+        const VulkanFunctions& fn = context_->fn();
+        fn.vkDestroyBuffer(context_->device(), vertex_buffer, nullptr);
+        fn.vkFreeMemory(context_->device(), vertex_memory, nullptr);
+        return false;
+    }
+
+    retire_gpu_buffers();
+    vertex_buffer_ = vertex_buffer;
+    vertex_memory_ = vertex_memory;
+    index_buffer_ = index_buffer;
+    index_memory_ = index_memory;
+    vertices_ = desc.vertices;
+    indices_ = desc.indices;
+    return true;
 }
 
 bool VulkanMesh::ensure_gpu_buffers() {
@@ -55,7 +95,7 @@ bool VulkanMesh::ensure_gpu_buffers() {
                 VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                 index_buffer_,
                 index_memory_)) {
-            destroy_gpu_buffers();
+            retire_gpu_buffers();
             return false;
         }
     }
@@ -77,32 +117,15 @@ void VulkanMesh::draw(VkCommandBuffer cmd) {
     }
 }
 
-void VulkanMesh::destroy_gpu_buffers() {
-    if (!context_ || !context_->is_device_ready()) {
-        vertex_buffer_ = VK_NULL_HANDLE;
-        vertex_memory_ = VK_NULL_HANDLE;
-        index_buffer_ = VK_NULL_HANDLE;
-        index_memory_ = VK_NULL_HANDLE;
-        return;
+void VulkanMesh::retire_gpu_buffers() {
+    if (context_) {
+        context_->retire_buffer(index_buffer_, index_memory_);
+        context_->retire_buffer(vertex_buffer_, vertex_memory_);
     }
-    const VulkanFunctions& fn = context_->fn();
-    const VkDevice device = context_->device();
-    if (index_buffer_ != VK_NULL_HANDLE) {
-        fn.vkDestroyBuffer(device, index_buffer_, nullptr);
-        index_buffer_ = VK_NULL_HANDLE;
-    }
-    if (index_memory_ != VK_NULL_HANDLE) {
-        fn.vkFreeMemory(device, index_memory_, nullptr);
-        index_memory_ = VK_NULL_HANDLE;
-    }
-    if (vertex_buffer_ != VK_NULL_HANDLE) {
-        fn.vkDestroyBuffer(device, vertex_buffer_, nullptr);
-        vertex_buffer_ = VK_NULL_HANDLE;
-    }
-    if (vertex_memory_ != VK_NULL_HANDLE) {
-        fn.vkFreeMemory(device, vertex_memory_, nullptr);
-        vertex_memory_ = VK_NULL_HANDLE;
-    }
+    vertex_buffer_ = VK_NULL_HANDLE;
+    vertex_memory_ = VK_NULL_HANDLE;
+    index_buffer_ = VK_NULL_HANDLE;
+    index_memory_ = VK_NULL_HANDLE;
 }
 
 } // namespace engine::render

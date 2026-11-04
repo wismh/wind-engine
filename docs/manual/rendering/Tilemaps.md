@@ -84,7 +84,7 @@ void spawn_level(engine::ecs::World& world, engine::AssetsDb& assets) {
 Wind slices each tilemap layer into **32 × 32 cell chunks** (`kTilemapChunkSize = 32`):
 - Each chunk with at least one non-empty tile is baked into a single static GPU mesh (`IMesh`).
 - Empty cells produce no vertices.
-- Chunks outside the camera's view frustum for all bound windows are automatically culled (`tilemap_chunk_visible`), avoiding unnecessary draw commands.
+- Chunks outside the camera's view frustum for all bound windows are automatically culled (`visible_tilemap_chunks` with one `engine::render::Frustum` per window, `<engine/render/frustum.h>`), and a chunk is baked only once it is first seen. Sprites and 3D meshes are culled the same way.
 - Chunks are drawn using `CmdDrawMesh` with the shared per-texture unlit material from `SpriteMaterialCache`, minimizing shader switches and state changes.
 
 ---
@@ -187,6 +187,8 @@ engine::render::clear_rule_tile(tilemap, /*layer=*/0, /*x=*/10, /*y=*/5, grass_r
 Tilemaps are fully integrated with Wind's `.world` scene serializer:
 - The `tilemap` serializer entry persists the asset GUID, `color`, `layer`, and `order_in_layer`.
 - Map cells are reloaded from the asset on scene load.
+
+Tilemaps have no built-in collision. To make a layer solid, pass a lambda over `Tilemap::tile` to the grid queries: see [Grid Collision and Block Picking](../ecs/Physics-and-Collisions.md#4-grid-collision-and-block-picking).
 
 ---
 

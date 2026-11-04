@@ -8,6 +8,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | --- | --- | --- |
 | `include/engine/engine.h` | Umbrella include | [Core](../modules/Core.md) |
 | `include/engine/game_entry.h` | `ENGINE_GAME(GameClass)`: `main` or the module exports; the module's CRT guard | [Core](../modules/Core.md) |
+| `include/engine/server_entry.h` | `ENGINE_GAME_SERVER(GameClass)`: `main` of a dedicated server | [Core](../modules/Core.md#dedicated-server) |
 | `include/engine/igame.h` | `IGame`, `GameBase`, `SplashScreen` | [Core](../modules/Core.md) |
 | `include/engine/log.h` | `log::init`, `info`, `warn`, `error` | [Core](../modules/Core.md) |
 | `include/engine/builtin_ids.h` | Frozen builtin `AssetId` values | [Resources](../modules/Resources.md) |
@@ -27,27 +28,34 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/core/engine_services.h` | References passed into the game constructor | [Core](../modules/Core.md) |
 | `include/engine/core/export.h` | `ENGINE_API` export and import macro | [CMake](../build/CMake.md) |
 | `include/engine/core/config.h` | `Config`, `ConfigError`, `user_config_path` | [Core](../modules/Core.md) |
+| `include/engine/core/compression.h` | `compress`, `decompress`, `CompressionLevel`, `CompressionError`: LZ4 with a 5-byte header and a `max_size` guard, any thread | [Core](../modules/Core.md#compression) |
 | `include/engine/core/fixed_step.h` | `FixedStepClock` | [Core](../modules/Core.md) |
 | `include/engine/core/file_dialog.h` | `FileFilter`, `FileDialogResult`, `FileDialogCall`: one owned dialog, `take`, `cancel` | [Windowing](../features/Windowing.md) |
 | `include/engine/core/game_module.h` | Game module export types and symbol names; `GameModule`, `load_game_module`, `purge_game_module_copies` | [Core](../modules/Core.md) |
 | `include/engine/core/host.h` | Headless tick host for tests | [Core](../modules/Core.md) |
 | `include/engine/core/parse_float.h` | `parse_float`, `parse_float_prefix`: locale-free number reading, `from_chars` or `strtod` | [Core](../modules/Core.md#parsing-numbers) |
-| `include/engine/core/job_system.h` | `JobSystem`: fork-join `parallel_for` | [Core](../modules/Core.md#jobs) |
-| `include/engine/core/input_system.h` | `ActionId` bindings and input events | [Input Mapper](../features/Input%20Mapper.md) |
+| `include/engine/core/job_call.h` | `JobCall<T>`, `JobHandle`, `JobToken`: one owned background job, `take`, `cancel`, `set_priority` | [Core](../modules/Core.md#async-jobs) |
+| `include/engine/core/job_system.h` | `JobSystem`: fork-join `parallel_for`, async `submit`, `poll`, `wait_idle`, `cancel_all` | [Core](../modules/Core.md#jobs) |
+| `include/engine/core/input_system.h` | `ActionId` bindings with a scale, `MouseAxis`, `axis()`, and input events | [Input Mapper](../features/Input%20Mapper.md) |
 | `include/engine/core/key_code.h` | `KeyCode` values matching SDL scancodes | [Input Mapper](../features/Input%20Mapper.md) |
 | `include/engine/core/random.h` | `Random`, PCG32 | [Core](../modules/Core.md) |
+| `include/engine/core/server.h` | `Server<GameT>`, the concept `ServerGame`, `run_server` | [Core](../modules/Core.md#dedicated-server) |
+| `include/engine/core/server_host.h` | `ServerHost`: services, catalogs, signals, and the loop of a dedicated server | [Core](../modules/Core.md#dedicated-server) |
+| `include/engine/core/server_options.h` | `ServerOptions`, `parse_server_args`, `process_arguments`, the usage | [Core](../modules/Core.md#dedicated-server) |
+| `include/engine/core/server_services.h` | `ServerServices`: what a dedicated server is constructed from | [Core](../modules/Core.md#dedicated-server) |
 | `include/engine/core/platform.h` | Platform, assets root, `executable_directory`, `user_data_directory` | [Core](../modules/Core.md) |
 | `include/engine/core/run_hooks.h` | `RunHooks`: `on_start`, `on_frame_end`, `on_quit`, `cli` | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `include/engine/core/sdl_fatal_error.h` | SDL message-box `IFatalError` | [Core](../modules/Core.md) |
 | `include/engine/core/time.h` | `Time` and the 60 Hz constants | [Core](../modules/Core.md) |
 | `include/engine/core/web_loop.h` | `MainLoopPolicy` and `LoopShutdown` | [Core](../modules/Core.md) |
-| `include/engine/core/window_control.h` | `IWindowControl` (including `open_windows`, `set_title`, `request_open_file`) and `OverlayMode` | [Windowing](../features/Windowing.md) |
+| `include/engine/core/window_control.h` | `IWindowControl` (including `open_windows`, `set_title`, `request_open_file`, `set_relative_mouse`) and `OverlayMode` | [Windowing](../features/Windowing.md) |
 | `include/engine/core/window_desc.h` | `WindowId`, `WindowDesc`, `WindowStyle` | [Windowing](../features/Windowing.md) |
 | `include/engine/core/worlds.h` | Process `Worlds`: add, destroy, bind, stepping | [Core](../modules/Core.md) |
 | `include/engine/ecs/.gitkeep` | Keeps the directory in Git | [ECS](../modules/ECS.md) |
-| `include/engine/ecs/camera.h` | `Camera` (orthographic or perspective), `Projection`, screen/world and screen/ray conversion | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/camera.h` | `Camera` (orthographic or perspective), `Projection`, screen/world and screen/ray conversion, `camera_frustum` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/entity.h` | Generational `Entity` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/events.h` | Double-buffered `Events`, reader, writer, cursor | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/grid_query.h` | `CellPredicate`, `raycast_grid` (DDA through solid cells), `sweep_aabb` (axis-separated box move), 3D and 2D | [ECS](../modules/ECS.md#grid-queries) |
 | `include/engine/ecs/hierarchy.h` | `Parent`, `Children`, `WorldTransform`, `set_parent`, `clear_parent`, `world_matrix`, `set_world_position` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/pointer_target.h` | `PointerTarget`, `PointerTargetEvent`, `pointer_target_at` | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `include/engine/ecs/physics_2d.h` | Colliders, `CollisionEvent2D`, `run_physics_2d` | [ECS](../modules/ECS.md) |
@@ -69,11 +77,40 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/net/network_transport.h` | `INetworkTransport`, `PeerId`, `DeliveryMode`, `TransportEvent` | [Net](../modules/Net.md) |
 | `include/engine/net/gns_transport.h` | `GnsTransport`: GameNetworkingSockets IP/UDP implementation | [Net](../modules/Net.md) |
 | `include/engine/net/steam_transport.h` | `SteamTransport`: SteamNetworkingSockets P2P implementation | [Net](../modules/Net.md) |
-| `include/engine/net/net_id.h` | `NetId` component, `NetIdGenerator` | [Net](../modules/Net.md) |
-| `include/engine/net/net_entity_map.h` | `NetEntityMap`, `bind_net_entity`, `set_parent_by_net_id` | [Net](../modules/Net.md) |
+| `include/engine/net/loopback_transport.h` | `LoopbackTransport`: in-process transport for tests | [Net](../modules/Net.md) |
+| `include/engine/net/loopback_bus.h` | `LoopbackBus`: the port registry loopback transports connect through | [Net](../modules/Net.md) |
+| `include/engine/net/message_dispatcher.h` | `MessageDispatcher`, `MessageId`: routing by message id | [Net](../modules/Net.md) |
+| `include/engine/net/net_messages.h` | Engine message ids, protocol version, snapshot window and MTU budget, fragment size, input caps | [Net](../modules/Net.md) |
+| `include/engine/net/net_tick.h` | `Tick`, `kNoTick` | [Net](../modules/Net.md) |
+| `include/engine/net/network_identity.h` | `NetId` alias and the `NetIdentity` component | [Net](../modules/Net.md) |
+| `include/engine/net/net_id.h` | `NetIdGenerator` | [Net](../modules/Net.md) |
+| `include/engine/net/net_entity_map.h` | `NetEntityMap`, `bind_net_entity`, `find_entity`, `find_net_id` | [Net](../modules/Net.md) |
+| `include/engine/net/replication_registry.h` | `ReplicationRegistry`, `register_replicated` | [Net](../modules/Net.md) |
+| `include/engine/net/replicated_options.h` | `ReplicatedOptions<T>`: interpolate, apply, remove hooks | [Net](../modules/Net.md) |
+| `include/engine/net/replica_writer.h` | `ReplicaWriter`: component bytes and entity references as `NetId` | [Net](../modules/Net.md) |
+| `include/engine/net/replica_reader.h` | `ReplicaReader`: component bytes and `NetId` references back to entities | [Net](../modules/Net.md) |
+| `include/engine/net/net_server.h` | `NetServer`, `install_net_server`, server systems, `replicate` | [Net](../modules/Net.md) |
+| `include/engine/net/net_server_config.h` | `NetServerConfig`: snapshot interval, budgets, interest | [Net](../modules/Net.md) |
+| `include/engine/net/net_interest.h` | `NetInterest`: spatial grid, `relevant` filter, `priority` weight | [Net](../modules/Net.md#interest) |
+| `include/engine/net/net_always_relevant.h` | `NetAlwaysRelevant`: tag for an entity every peer is told about | [Net](../modules/Net.md#interest) |
+| `include/engine/net/net_peer_stats.h` | `NetPeerStats`: relevant, deferred, snapshot and payload bytes of one peer | [Net](../modules/Net.md#budget) |
+| `include/engine/net/net_payload_id.h` | `PayloadId`, `kNoPayload` | [Net](../modules/Net.md#reliable-payloads) |
+| `include/engine/net/net_payload_options.h` | `NetPayloadOptions`: priority, compressed | [Net](../modules/Net.md#reliable-payloads) |
+| `include/engine/net/net_payload_progress.h` | `NetPayloadProgress`: sent, total, awaiting ack | [Net](../modules/Net.md#reliable-payloads) |
+| `include/engine/net/net_payload_delivered_event.h` | `NetPayloadDeliveredEvent`: a client handled a payload | [Net](../modules/Net.md#reliable-payloads) |
+| `include/engine/net/prediction_desc.h` | `PredictionDesc<Input, State>`: a game's input wire format, step, collect, capture, restore, matches, corrected | [Net](../modules/Net.md#input-and-prediction) |
+| `include/engine/net/prediction.h` | `Prediction<Input, State>` (input and state ring, reconcile and replay), `register_prediction` | [Net](../modules/Net.md#input-and-prediction) |
+| `include/engine/net/prediction_channel.h` | `PredictionChannel`: the type-erased prediction interface the server and client drive | [Net](../modules/Net.md#input-and-prediction) |
+| `include/engine/net/net_prediction.h` | `NetPrediction`: the world's prediction channel in `ctx` | [Net](../modules/Net.md#input-and-prediction) |
+| `include/engine/net/prediction_stats.h` | `PredictionStats`: matched, replays, replayed ticks, snaps | [Net](../modules/Net.md#input-and-prediction) |
+| `include/engine/net/net_input_stats.h` | `NetInputStats`: what the server did with one peer's inputs | [Net](../modules/Net.md#server-input-buffer) |
+| `include/engine/net/net_client.h` | `NetClient`, `install_net_client`, client systems | [Net](../modules/Net.md) |
+| `include/engine/net/net_client_config.h` | `NetClientConfig`: interpolation delay | [Net](../modules/Net.md) |
+| `include/engine/net/net_peer_connected_event.h` | `NetPeerConnectedEvent` | [Net](../modules/Net.md) |
+| `include/engine/net/net_peer_disconnected_event.h` | `NetPeerDisconnectedEvent` | [Net](../modules/Net.md) |
+| `include/engine/net/net_entity_spawned_event.h` | `NetEntitySpawnedEvent`: a replicated entity appeared on the client | [Net](../modules/Net.md) |
+| `include/engine/net/net_entity_despawned_event.h` | `NetEntityDespawnedEvent`: a replicated entity left the client | [Net](../modules/Net.md) |
 | `include/engine/net/byte_stream.h` | `ByteWriter` and `ByteReader` binary packet serializer | [Net](../modules/Net.md) |
-| `include/engine/net/packet_types.h` | `PacketType`, `PacketHeader`, and core replication packets | [Net](../modules/Net.md) |
-| `include/engine/net/packet_dispatcher.h` | `PacketDispatcher` and `register_replication_handlers` | [Net](../modules/Net.md) |
 | `include/engine/process/process_call.h` | `ProcessCall`: one owned child, `take_output`, `take`, `cancel` | [Process](../modules/Process.md) |
 | `include/engine/process/process_desc.h` | `ProcessDesc`, `ProcessVariable`, `ProcessExit`, `ProcessError`, `ProcessResult` | [Process](../modules/Process.md) |
 | `include/engine/process/process_launcher.h` | `IProcessLauncher` and `ProcessLauncher` | [Process](../modules/Process.md) |
@@ -83,26 +120,30 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/project/wind_project.h` | `WindProject`, `read_wind_project` | [Project](../modules/Project.md) |
 | `include/engine/loc/catalog.h` | `StringTable` parse and `Catalog` | [Localization](../modules/Localization.md) |
 | `include/engine/render/.gitkeep` | Keeps the directory in Git | [Render](../modules/Render.md) |
+| `include/engine/render/aabb.h` | `Aabb`, `transform_aabb` (box under an affine matrix) | [Render](../modules/Render.md#frustum-culling) |
 | `include/engine/render/ambient_light.h` | `AmbientLight` component | [Render](../modules/Render.md#lights) |
 | `include/engine/render/animation.h` | Sprite clip, animator, animation TOML | [Render](../modules/Render.md#tilemaps) |
 | `include/engine/render/tilemap.h` | `Tilemap` component, `.tilemap` TOML, chunk baking and culling | [Render](../modules/Render.md#tilemaps) |
 | `include/engine/render/backend.h` | `IRenderBackend::execute` | [Render](../modules/Render.md) |
 | `include/engine/render/canvas.h` | `ICanvas::draw` | [Render](../modules/Render.md) |
 | `include/engine/render/command_buffer.h` | Buffer of `Command` | [Render](../modules/Render.md) |
-| `include/engine/render/commands.h` | `CmdDrawMesh`, `CmdDrawUI`, `CmdDrawParticles`, `CmdSetView` | [Render](../modules/Render.md) |
+| `include/engine/render/commands.h` | `CmdDrawMesh`, `CmdDrawUI`, `CmdDrawParticles`, `CmdSetView` (camera, lights, fog) | [Render](../modules/Render.md) |
 | `include/engine/render/curve.h` | `Curve<T>` with `Linear`, `Smooth`, and `Step` keys | [Render](../modules/Render.md) |
 | `include/engine/render/directional_light.h` | `DirectionalLight` component | [Render](../modules/Render.md#lights) |
-| `include/engine/render/graphic_factory.h` | `MeshVertex` (position, normal, uv), indexed `MeshDesc`, shader, texture and dynamic-texture descriptions, factory | [Render](../modules/Render.md) |
-| `include/engine/render/graphics.h` | `IMesh`, `IShader`, `ITexture`, `IDynamicTexture` | [Render](../modules/Render.md) |
+| `include/engine/render/fog.h` | `Fog` component: linear distance fog on the active camera | [Render](../modules/Render.md#fog) |
+| `include/engine/render/frustum.h` | `Frustum`, `make_frustum`, `frustum_intersects`, `visible_in_any` | [Render](../modules/Render.md#frustum-culling) |
+| `include/engine/render/graphic_factory.h` | `MeshVertex` (position, normal, uv, color), indexed `MeshDesc`, `mesh_bounds`, shader, texture and dynamic-texture descriptions, factory | [Render](../modules/Render.md) |
+| `include/engine/render/graphics.h` | `IMesh` (with its local `bounds()`), `IShader`, `ITexture`, `IDynamicTexture` | [Render](../modules/Render.md) |
 | `include/engine/render/lights.h` | `collect_scene_lights`, `default_scene_lights` | [Render](../modules/Render.md#lights) |
-| `include/engine/render/material.h` | `IMaterial`, `RenderState` (blend, depth test/write, `CullMode`), `.mat` parse | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `include/engine/render/material.h` | `IMaterial`, `RenderState` (blend, depth test/write, `CullMode`, `alpha_cutoff`), `.mat` parse | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `include/engine/render/draw_sort.h` | `DrawQueue`, `DrawSortKey`, `make_draw_sort_key`, `draw_sort_less` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `include/engine/render/particles.h` | `ParticleEmitter` | [Render](../modules/Render.md) |
 | `include/engine/render/primitives.h` | `make_quad`, `make_cube`, `make_plane`, `make_uv_sphere` | [Render](../modules/Render.md#primitives) |
-| `include/engine/render/renderable.h` | `Renderable`, `RenderableItem`, `sort_renderables` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `include/engine/render/renderable.h` | `Renderable` (with `frustum_cull`), `RenderableItem`, `sort_renderables` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `include/engine/render/scene_lights.h` | `SceneLights`, `kMaxDirectionalLights`, default light constants | [Render](../modules/Render.md#lights) |
-| `include/engine/render/shader_adapt.h` | GLSL 330 to GLSL 300 ES | [Render](../modules/Render.md) |
-| `include/engine/render/sprite.h` | `Sprite` quad fields | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `include/engine/render/shader_adapt.h` | GLSL 330 to GLSL 300 ES (adds the `sampler2DArray` precision) | [Render](../modules/Render.md) |
+| `include/engine/render/texture_array.h` | `TextureArray` asset: array texture plus frame names, `layer(name)` | [Render](../modules/Render.md#texture-arrays) |
+| `include/engine/render/sprite.h` | `Sprite` quad fields, `frustum_cull` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `include/engine/resources/.gitkeep` | Keeps the directory in Git | [Resources](../modules/Resources.md) |
 | `include/engine/resources/asset_guid.h` | `write_missing_metas` | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `include/engine/resources/asset_filter.h` | `AssetFilter`, `CustomAssetFilter`, `asset_filter_for` | [Resources](../modules/Resources.md) |
@@ -113,7 +154,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/resources/default_fatal_error.h` | `DefaultFatalError`, `default_fatal_error()` | [Core](../modules/Core.md) |
 | `include/engine/resources/fatal_error.h` | `IFatalError` (`report` is `[[noreturn]]`) | [Core](../modules/Core.md) |
 | `include/engine/resources/font.h` | `Font` file bytes | [Resources](../modules/Resources.md) |
-| `include/engine/resources/meta.h` | Importers, `.meta` parse, `codegen_write` | [Resources](../modules/Resources.md) |
+| `include/engine/resources/meta.h` | Importers, `MipmapMode`, `.meta` parse, `codegen_write` | [Resources](../modules/Resources.md) |
 | `include/engine/resources/sprite_sheet.h` | Named rect to sprite UVs | [Assets](../features/Assets.md) |
 | `include/engine/resources/text_asset.h` | `TextAsset` raw text asset for data importer | [Assets](../features/Assets.md) |
 | `include/engine/ui/.gitkeep` | Keeps the directory in Git | [UI](../modules/UI.md) |
@@ -151,13 +192,14 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/core/back_key_filter.h`, `src/core/back_key_filter.cpp` | `BackKeyFilter`: Android back delivered to `InputSystem` or used to dismiss text input | [Input Mapper](../features/Input%20Mapper.md) |
 | `src/core/build_info.cpp` | `build_id()` returns the engine's `kBuildId` | [CMake](../build/CMake.md) |
 | `src/core/call_completions.h` | `CallCompletions`: async call results from any thread, handed over on the main thread | [Windowing](../features/Windowing.md) |
+| `src/core/compression.cpp` | `compress` and `decompress` over `wind_lz4`: stored fallback, header checks before allocation | [Core](../modules/Core.md#compression) |
 | `src/core/engine_host.cpp` | `EngineHost` body | [Core](../modules/Core.md) |
 | `src/core/engine_instantiate.cpp` | Explicit `Engine<WindowSmokeGame>` instantiation | [Core](../modules/Core.md) |
 | `src/core/engine_runtime.cpp` | `EngineRuntime` pimpl over the presentation | [Core](../modules/Core.md) |
 | `src/core/file_dialog_call.cpp` | `FileDialogCall` ownership and cancel | [Windowing](../features/Windowing.md) |
 | `src/core/file_dialog_state.h` | State shared by a call and the dialog callback, `FileDialogCompletions` | [Windowing](../features/Windowing.md) |
 | `src/core/config.cpp` | `Config` over tomlplusplus, atomic save | [Core](../modules/Core.md) |
-| `src/core/fixed_step.cpp` | Accumulator and step cap | [Core](../modules/Core.md) |
+| `src/core/fixed_step.cpp` | Accumulator, `fixed_rate`, and step cap | [Core](../modules/Core.md) |
 | `src/core/frame_capture.h` | `FrameCapture`: one window's pixels, read before its swap | [CLI](../features/CLI.md#screenshot) |
 | `src/core/frame_limiter.h`, `src/core/frame_limiter.cpp` | `FrameLimiter`: sleep schedule for frames no vsync swap waits on | [Windowing](../features/Windowing.md#frame-pacing) |
 | `src/core/event_window.h`, `src/core/event_window.cpp` | `event_window`: the window an SDL event goes to; a closed window's id is dropped | [Windowing](../features/Windowing.md#events-of-a-window) |
@@ -168,12 +210,21 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/core/game_loop.cpp` | `begin`, `tick`, `reentrant_tick`, `end`, `RunHooks` calls | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/core/game_loop.h` | `GameLoop` | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/core/host.cpp` | Registers systems and ticks a fake canvas. Owns a `JobSystem` with no workers | [Core](../modules/Core.md) |
-| `src/core/job_system.cpp` | Fork-join pool | [Core](../modules/Core.md#jobs) |
-| `src/core/input_system.cpp` | Bind table and event enqueue | [Input Mapper](../features/Input%20Mapper.md) |
+| `src/core/job_call.cpp` | `JobHandle`: pending, delivered slot, cancel, priority | [Core](../modules/Core.md#async-jobs) |
+| `src/core/job_state.h` | `JobState`: one submitted job, shared by its call and the pool | [Core](../modules/Core.md#async-jobs) |
+| `src/core/job_system.cpp` | Worker pool: fork-join ranges and the async job queue | [Core](../modules/Core.md#jobs) |
+| `src/core/input_system.cpp` | Bind table, event enqueue, `axis()` and the frame's mouse motion, locked windows | [Input Mapper](../features/Input%20Mapper.md) |
+| `src/core/relative_mouse.h`, `src/core/relative_mouse.cpp` | `RelativeMouse`: relative mouse requests per window and the focus rule | [Windowing](../features/Windowing.md#relative-mouse) |
+| `src/core/game_window_reset.h`, `src/core/game_window_reset.cpp` | `reset_game_windows`: window state put back when the editor stops a game | [Core](../modules/Core.md) |
 | `src/core/log.cpp` | spdlog sinks | [Core](../modules/Core.md) |
 | `src/core/random.cpp` | `Random`, PCG32 | [Core](../modules/Core.md) |
 | `src/core/platform.cpp` | Assets root, Android staging, executable directory, user-data path | [Core](../modules/Core.md) |
 | `src/core/presentation.h` | `IPresentation` seam the loop calls | [Core](../modules/Core.md) |
+| `src/core/server_fatal_error.h` | `ServerFatalError`: log, flush, `std::_Exit(1)` | [Core](../modules/Core.md#dedicated-server) |
+| `src/core/server_host.cpp` | `ServerHost` body, `ServerServices::port` | [Core](../modules/Core.md#dedicated-server) |
+| `src/core/server_options.cpp` | Command line and usage of a dedicated server | [Core](../modules/Core.md#dedicated-server) |
+| `src/core/server_presentation.h`, `src/core/server_presentation.cpp` | `IPresentation` with no window: stop signal, dropped-tick warning, tick wait | [Runtime Loop](../architecture/Runtime%20Loop.md#on-a-dedicated-server) |
+| `src/core/shutdown_signal.h`, `src/core/shutdown_signal.cpp` | `ShutdownSignals`: POSIX signals and Windows console events set one flag | [Core](../modules/Core.md#dedicated-server) |
 | `src/core/sdl_fatal_error.cpp` | Message box, quit, `std::exit(1)` | [Core](../modules/Core.md) |
 | `src/core/web_loop.cpp` | RAF vs blocking policy, ordered shutdown | [Core](../modules/Core.md) |
 | `src/core/worlds.cpp` | Add, destroy, bind, per-world clocks | [Core](../modules/Core.md) |
@@ -190,6 +241,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | --- | --- | --- |
 | `src/ecs/.gitkeep` | Keeps the directory in Git | [ECS](../modules/ECS.md) |
 | `src/ecs/camera.cpp` | View and projection matrices, perspective clip clamp, screen/world, screen/ray | [ECS](../modules/ECS.md) |
+| `src/ecs/grid_query.cpp` | Grid raycast and box sweep, one template over the dimension | [ECS](../modules/ECS.md#grid-queries) |
 | `src/ecs/hierarchy.cpp` | `set_parent`, `clear_parent`, `world_matrix`, `update_world_transforms` | [ECS](../modules/ECS.md) |
 | `src/ecs/pointer_target.cpp` | `pointer_target_at` and `run_pointer_targets` | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `src/ecs/ray.cpp` | Ray against a plane, sphere, box, triangle, quad, and segment | [ECS](../modules/ECS.md) |
@@ -215,7 +267,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/resources/codegen.cpp` | Scan tree, emit `asset_ids.h` and `catalog.toml` | [Asset Codegen](../build/Asset%20Codegen.md) |
 | `src/resources/icon_codegen.cpp` | Resize and encode ico, icns, mipmaps, favicon | [Icon Codegen](../build/Icon%20Codegen.md) |
 | `src/resources/icon_codegen.h` | Icon encode API used by the host tool | [Icon Codegen](../build/Icon%20Codegen.md) |
-| `src/resources/importers.cpp` | Mesh text (vertices, normals, `f` index rows), shader XML, PNG decode entry points | [Assets](../features/Assets.md) |
+| `src/resources/importers.cpp` | Mesh text (vertices, normals, `f` index rows), shader XML, PNG decode entry points, `texture_array_from_frames` | [Assets](../features/Assets.md) |
 | `src/resources/importers.h` | Those parsers, and `encode_png_rgba` | [Assets](../features/Assets.md) |
 | `src/resources/meta.cpp` | TOML `.meta` and cooked catalog parse | [Resources](../modules/Resources.md) |
 | `src/resources/png_decode.cpp` | PNG bytes to RGBA `TextureDesc` | [Icon Codegen](../build/Icon%20Codegen.md) |
@@ -233,14 +285,18 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/.gitkeep` | Keeps the directory in Git | [Render](../modules/Render.md) |
 | `src/render/backend/opengl/.gitkeep` | Empty placeholder. The backend lives in `src/render/opengl/` | [Render](../modules/Render.md) |
 | `src/render/animation.cpp` | Parse animation TOML into a clip | [Render](../modules/Render.md) |
-| `src/render/tilemap.cpp` | Parse `.tilemap`, bake chunk meshes, chunk culling, `Tilemap::set_tile` | [Render](../modules/Render.md#tilemaps) |
+| `src/render/tilemap.cpp` | Parse `.tilemap`, bake chunk meshes, chunk culling against `Frustum`s, `Tilemap::set_tile`, update edited chunk meshes | [Render](../modules/Render.md#tilemaps) |
 | `src/render/context_objects.cpp`, `src/render/context_objects.h` | Live GL context keys and VAO deletes deferred to their context | [Render](../modules/Render.md) |
 | `src/render/framebuffer_image.cpp`, `src/render/framebuffer_image.h` | Read-back rows to a top-first image with straight alpha | [CLI](../features/CLI.md#screenshot) |
 | `src/render/gl_error_log.cpp`, `src/render/gl_error_log.h` | GL error names; one log line per error and command | [Render](../modules/Render.md) |
 | `src/render/lights.cpp` | Collect directional and ambient lights for `CmdSetView` | [Render](../modules/Render.md#lights) |
 | `src/render/material.cpp` | Parse `.mat` TOML | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `src/render/material_instance.h` | `IMaterial` for a loaded `.mat` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `src/render/mesh.cpp` | `IMesh::update`: validate, then the backend's `replace`, then the bounds; `mesh_bounds` | [Render](../modules/Render.md#mesh-updates) |
+| `src/render/aabb.cpp` | `transform_aabb` | [Render](../modules/Render.md#frustum-culling) |
+| `src/render/frustum.cpp` | Frustum planes from a view-projection, the box test, the union over windows | [Render](../modules/Render.md#frustum-culling) |
 | `src/render/mesh_check.cpp`, `src/render/mesh_check.h` | `mesh_desc_error`: why a `MeshDesc` cannot be drawn | [Render](../modules/Render.md#meshes) |
+| `src/render/texture_check.cpp`, `src/render/texture_check.h` | `texture_array_desc_error`, `mip_level_count`, per-layer row flip, dynamic-texture rect checks and the bottom-row-first copy | [Render](../modules/Render.md#dynamic-textures) |
 | `src/render/particles.cpp` | Spawn, integrate, and collide particles | [Render](../modules/Render.md) |
 | `src/render/primitives.cpp` | Procedural quad, cube, plane, and UV sphere | [Render](../modules/Render.md#primitives) |
 | `src/render/shader_adapt.cpp` | Rewrite GLSL for ES | [Render](../modules/Render.md) |
@@ -259,11 +315,11 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/opengl/context_scope.h` | `ContextScope`: make the engine context current for a scope | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_factory.cpp` | Create GL mesh, shader, texture, dynamic texture | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_factory.h` | `OpenGLFactory` | [Render](../modules/Render.md) |
-| `src/render/opengl/opengl_mesh.cpp` | GL mesh: vertex and element buffers, per-context VAO, `glDrawElements` or `glDrawArrays` | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_mesh.cpp` | GL mesh: vertex and element buffers, in-place or grown update, per-context VAO, `glDrawElements` or `glDrawArrays` | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_mesh.h` | GL mesh type | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_shader.cpp` | GL program and named uniforms | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_shader.h` | GL shader type | [Render](../modules/Render.md) |
-| `src/render/opengl/opengl_texture.cpp` | GL texture and sampler from catalog filter and wrap; `update` of a dynamic texture | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_texture.cpp` | GL 2D texture or texture array and sampler from catalog filter, wrap, and mipmaps (`glGenerateMipmap`); full and partial `update` of a dynamic texture | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_texture.h` | GL texture type | [Render](../modules/Render.md) |
 | `src/render/opengl/sdl_gl_presentation.cpp` | SDL poll, present, and `IPresentation` | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/sdl_gl_presentation.h` | `SdlGlPresentation` | [Windowing](../features/Windowing.md) |
@@ -416,9 +472,33 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/net/gns_common.h`, `src/net/gns_common.cpp` | `GnsBaseTransport`: shared connection state, callbacks, and event queues | [Net](../modules/Net.md) |
 | `src/net/gns_transport.cpp` | `GnsTransport` IP/UDP socket setup and methods | [Net](../modules/Net.md) |
 | `src/net/steam_transport.cpp` | `SteamTransport` Steam P2P connection setup and methods | [Net](../modules/Net.md) |
-| `src/net/net_entity_map.cpp` | `NetEntityMap`, `bind_net_entity`, and hierarchy translation | [Net](../modules/Net.md) |
+| `src/net/loopback_transport.cpp` | `LoopbackTransport` connections and event queue | [Net](../modules/Net.md) |
+| `src/net/loopback_bus.cpp` | `LoopbackBus` port registry | [Net](../modules/Net.md) |
+| `src/net/message_dispatcher.cpp` | `MessageDispatcher` routing and `send` | [Net](../modules/Net.md) |
+| `src/net/net_entity_map.cpp` | `NetEntityMap`, `bind_net_entity`, lookups | [Net](../modules/Net.md) |
+| `src/net/replication_registry.cpp` | `Transform` and `Parent` registration, schema hash | [Net](../modules/Net.md) |
+| `src/net/replica_writer.cpp` | `ReplicaWriter` | [Net](../modules/Net.md) |
+| `src/net/replica_reader.cpp` | `ReplicaReader` | [Net](../modules/Net.md) |
+| `src/net/net_server.cpp` | Server tick, peers, Welcome, acks, input buffering and controlled-entity steps, capture, relevance per peer, snapshot and payload send | [Net](../modules/Net.md) |
+| `src/net/net_client.cpp` | Welcome, snapshot receive and ack, spawn / apply / despawn on the render timeline, prediction, input send, payload receive | [Net](../modules/Net.md) |
+| `src/net/net_schema.h`, `src/net/net_schema.cpp` | `welcome_schema_hash`: replicated components plus the prediction channel name | [Net](../modules/Net.md) |
+| `src/net/input_message.h`, `src/net/input_message.cpp` | `InputMessage`: the Input wire format | [Net](../modules/Net.md) |
+| `src/net/input_buffer.h`, `src/net/input_buffer.cpp` | `InputBuffer`: one controlled entity's inputs on the server, first copy wins, repeat last | [Net](../modules/Net.md#server-input-buffer) |
+| `src/net/input_lead.h`, `src/net/input_lead.cpp` | `InputLead`: the client's fixed-step rate and forward jumps from the server's input slack | [Net](../modules/Net.md#client-lead) |
+| `src/net/snapshot_peer_header.h` | `SnapshotPeerHeader`: the per-peer input tick and slack in a snapshot | [Net](../modules/Net.md) |
+| `src/net/entity_snapshot.h` | `EntitySnapshot`: one entity's encoded components | [Net](../modules/Net.md) |
+| `src/net/snapshot_state.h` | `SnapshotState`: all replicated entities at one tick | [Net](../modules/Net.md) |
+| `src/net/snapshot_codec.h` | `capture_snapshot`, `encode_snapshot`, `decode_snapshot`, `apply_snapshot` API | [Net](../modules/Net.md) |
+| `src/net/snapshot_codec.cpp` | Snapshot capture, the wire format, a delta on top of a state | [Net](../modules/Net.md) |
+| `src/net/snapshot_buffer.h` | `SnapshotBuffer` API | [Net](../modules/Net.md) |
+| `src/net/snapshot_buffer.cpp` | Client snapshot ring: states derived in tick order, window, sampling | [Net](../modules/Net.md) |
+| `src/net/peer_ghosts.h`, `src/net/peer_ghosts.cpp` | `PeerGhosts`: what one peer has, per entity; builds its snapshot within the budget | [Net](../modules/Net.md#what-a-peer-has) |
+| `src/net/relevance_grid.h`, `src/net/relevance_grid.cpp` | `RelevanceGrid`: captured entities by cell, marks around a focus | [Net](../modules/Net.md#interest) |
+| `src/net/payload_queue.h`, `src/net/payload_queue.cpp` | `PayloadQueue`: one peer's outgoing payloads, sent a fragment at a time | [Net](../modules/Net.md#reliable-payloads) |
+| `src/net/payload_assembler.h`, `src/net/payload_assembler.cpp` | `PayloadAssembler`: the client puts payloads back together, refuses malformed streams | [Net](../modules/Net.md#reliable-payloads) |
+| `src/net/snapshot_clock.h` | `SnapshotClock` API | [Net](../modules/Net.md) |
+| `src/net/snapshot_clock.cpp` | Client estimate of server time | [Net](../modules/Net.md) |
 | `src/net/byte_stream.cpp` | `ByteWriter` and `ByteReader` binary packet serialization bodies | [Net](../modules/Net.md) |
-| `src/net/packet_dispatcher.cpp` | `PacketDispatcher` routing and `register_replication_handlers` | [Net](../modules/Net.md) |
 | `src/process/line_splitter.cpp` | `LineSplitter`: output bytes to lines | [Process](../modules/Process.md) |
 | `src/process/line_splitter.h` | `LineSplitter` API | [Process](../modules/Process.md) |
 | `src/process/process_call.cpp` | `ProcessCall` ownership and cancel | [Process](../modules/Process.md) |
@@ -448,7 +528,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/android_assets_test.cpp` | Android asset staging without a device | [Runtime Assets](../build/Runtime%20Assets.md) |
 | `tests/android_lifecycle_test.cpp` | Pause, resume, back key routing | [Core](../modules/Core.md) |
 | `tests/animation_test.cpp` | Sprite clip parse and playback | [Render](../modules/Render.md) |
-| `tests/tilemap_test.cpp` | `.tilemap` parse, chunk bake and UVs, culling, dirty chunks, `AssetsDb` load | [Render](../modules/Render.md#tilemaps) |
+| `tests/texture_array_test.cpp` | Texture array desc checks, mip level count, frame import, `mipmaps` and `texture_array` `.meta`, catalog, layers by name through `AssetsDb`, array albedo in a `.mat`, codegen failures | [Assets](../features/Assets.md#texture-arrays) |
+| `tests/tilemap_test.cpp` | `.tilemap` parse, chunk bake and UVs, culling, dirty chunks updating their mesh, `AssetsDb` load | [Render](../modules/Render.md#tilemaps) |
 | `tests/assets_test.cpp` | Catalog, `get` / `try_get`, `unload_catalog`, codegen failures, stylesheet warnings in `game.log` | [Assets](../features/Assets.md) |
 | `tests/asset_ref_test.cpp` | `AssetRef<T>` typed asset handle tests | [Assets](../features/Assets.md) |
 | `tests/cli_dock_test.cpp` | CLI docking commands tests | [Docking](../features/Docking.md) |
@@ -475,6 +556,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/fixtures/cli_client.h` | Loopback client: this process's descriptor and `POST /exec` | [CLI](../features/CLI.md) |
 | `tests/fixtures/fatal_fakes.h` | `FatalReport`, `QuietFatal`, `RecordingFatal`: `IFatalError` doubles that throw | [Core](../modules/Core.md) |
 | `tests/fixtures/fake_services.h` | Headless `EngineServices` fakes for tests that create a game; the window control keeps each window's description, position, size, and title, and answers a folder dialog with a scripted path | [Core](../modules/Core.md) |
+| `tests/fixtures/server/CMakeLists.txt`, `tests/fixtures/server/fixture_server.cpp` | `wind_server_fixture`: a dedicated server made by `engine_add_server`, public headers only | [Core](../modules/Core.md#dedicated-server) |
 | `tests/fixtures/game_module/fixture_game.cpp` | Fixture game module, built three ways in the editor build | [Core](../modules/Core.md) |
 | `tests/fixtures/game_module/fixture_log.h` | `FixtureLog` the fixture game writes into | [Core](../modules/Core.md) |
 | `tests/event_window_test.cpp` | `event_window`: a live window, a closed window's id dropped, id 0 per event kind | [Windowing](../features/Windowing.md#events-of-a-window) |
@@ -483,33 +565,60 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/engine_host_test.cpp` | `EngineHost` startup errors over a fake presentation (window builds) | [Core](../modules/Core.md) |
 | `tests/game_entry_test.cpp` | `ENGINE_GAME` module exports and build id (window builds) | [Core](../modules/Core.md) |
 | `tests/game_module_test.cpp` | `load_game_module` against the fixture modules (editor build) | [Core](../modules/Core.md) |
-| `tests/game_loop_test.cpp` | `RunHooks` order, frame-end restart, and `RunHooks::cli` without a primary world, with a fake presentation | [Runtime Loop](../architecture/Runtime%20Loop.md) |
+| `tests/server_args_test.cpp` | `parse_server_args`: flags, bad ports, missing values, UTF-8, what goes to the game | [Core](../modules/Core.md#dedicated-server) |
+| `tests/server_host_test.cpp` | `ServerHost` on the real loop: no window, no render, UI, or audio system, determinism, pacing, signals, loopback net, assets with no factory, config | [Core](../modules/Core.md#dedicated-server) |
+| `tests/server_process_test.cpp` | A real server process: exit codes, a real signal, stdout, a fatal, the dropped-tick warning, a client over a real socket | [Core](../modules/Core.md#dedicated-server) |
+| `tests/game_loop_test.cpp` | `RunHooks` order, frame-end restart, `RunHooks::cli` without a primary world, and `InputSystem::begin_frame` before `poll`, with a fake presentation | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `tests/gl_error_log_test.cpp` | GL error names, one report per error and command | [Render](../modules/Render.md) |
+| `tests/grid_query_test.cpp` | Grid rays along axes and diagonals, inside, max distance, exact edges and corners; sweeps landing, resting, sliding, ceiling, steps, high speed; 2D and a tilemap lambda | [ECS](../modules/ECS.md#grid-queries) |
 | `tests/capture_test.cpp` | Format choice, uninitialized system, surface conversion | [Capture](../modules/Capture.md) |
 | `tests/haptics_test.cpp` | Clamp, no-op, and the fake counters | [Haptics](../modules/Haptics.md) |
 | `tests/curl_transfer_test.cpp` | `curl_transfer` against a fake libcurl | [Net](../modules/Net.md) |
 | `tests/http_test.cpp` | `HttpCall` ownership, completion queue, worker pool, URL and header parsing, `HttpClient` without a socket | [Net](../modules/Net.md) |
 | `tests/gns_transport_test.cpp` | `GnsTransport` server/client start, stop, UDP handshake, and data transfer | [Net](../modules/Net.md) |
 | `tests/steam_transport_test.cpp` | `SteamTransport` server/client lifecycle and GNS coexistence | [Net](../modules/Net.md) |
-| `tests/net_id_test.cpp` | `NetId`, `NetIdGenerator`, `NetEntityMap`, world context binding, and hierarchy translation | [Net](../modules/Net.md) |
 | `tests/byte_stream_test.cpp` | `ByteWriter` and `ByteReader` round-trip, bounds checking, and error latching | [Net](../modules/Net.md) |
-| `tests/packet_protocol_test.cpp` | Packet headers, replication packet round-trip, `PacketDispatcher`, and ECS replication integration | [Net](../modules/Net.md) |
+| `tests/net_id_test.cpp` | `NetIdGenerator`, `NetEntityMap`, world binding, owner, dead entries | [Net](../modules/Net.md) |
+| `tests/network_transport_test.cpp` | `LoopbackTransport` connect, data, disconnect | [Net](../modules/Net.md) |
+| `tests/message_dispatcher_test.cpp` | `MessageDispatcher` routing and send over loopback | [Net](../modules/Net.md) |
+| `tests/net_replication_test.cpp` | Ticks, Welcome, interpolation, reorder and loss, spawn and despawn, `Parent`, custom components, schema mismatch, soak | [Net](../modules/Net.md) |
+| `tests/net_prediction_test.cpp` | Inputs once and in order, no replay on match, correction, convergence under loss and jitter, repeat, late, rejection, lead, ownership, disconnect, actions | [Net](../modules/Net.md#input-and-prediction) |
+| `tests/prediction_test.cpp` | `Prediction` ring: match, replay, repeat, accept, snap, skip, server-side decoding | [Net](../modules/Net.md#input-and-prediction) |
+| `tests/input_buffer_test.cpp` | `InputBuffer` order, first copy wins, late, duplicate, repeat, lead cap | [Net](../modules/Net.md#server-input-buffer) |
+| `tests/input_lead_test.cpp` | `InputLead` bounded rate, no backward jump, forward jump, convergence | [Net](../modules/Net.md#client-lead) |
+| `tests/input_message_test.cpp` | Input wire format round trip, truncation, caps | [Net](../modules/Net.md) |
+| `tests/net_delta_test.cpp` | Rewritten until acked, acked not rewritten, recovery, lost acks, removals, a value that came back, peers independent | [Net](../modules/Net.md#what-a-peer-has) |
+| `tests/net_interest_test.cpp` | Enter and leave per peer, margin, owned, filter, always-relevant, parents, one capture, reentry | [Net](../modules/Net.md#interest) |
+| `tests/net_budget_test.cpp` | Budget held, convergence, no starvation, values never go backward, weights, predicted never deferred | [Net](../modules/Net.md#budget) |
+| `tests/net_payload_test.cpp` | Reassembly, priority, cancel, snapshots first, rate, aging, backlog, compression, disconnect, malformed streams | [Net](../modules/Net.md#reliable-payloads) |
+| `tests/peer_ghosts_test.cpp` | `PeerGhosts`: acks, removal, reentry, turns under a budget, mandatory, parents | [Net](../modules/Net.md#what-a-peer-has) |
+| `tests/relevance_grid_test.cpp` | `RelevanceGrid`: cells, distance, probing and scanning agree | [Net](../modules/Net.md#interest) |
+| `tests/payload_assembler_test.cpp` | `PayloadAssembler`: interleaving, compression, limits, every malformed case | [Net](../modules/Net.md#reliable-payloads) |
+| `tests/snapshot_codec_test.cpp` | Snapshot wire format round trips and rejection of malformed input | [Net](../modules/Net.md) |
+| `tests/snapshot_buffer_test.cpp` | `SnapshotBuffer` order, window, sampling | [Net](../modules/Net.md) |
+| `tests/snapshot_clock_test.cpp` | `SnapshotClock` start, bounded rate, snap, monotonic | [Net](../modules/Net.md) |
+| `tests/fixtures/simulated_link.h` | Test transport with virtual time, latency, jitter, loss, and hold | [Net](../modules/Net.md) |
+| `tests/fixtures/net_harness.h` | Server and client worlds over two simulated links; the client steps on its own fixed-step clock | [Net](../modules/Net.md) |
 | `tests/host_test.cpp` | `Host` tick and system registration | [Core](../modules/Core.md) |
 | `tests/parse_float_test.cpp` | Signs, exponents, rejected text, prefix length | [Core](../modules/Core.md#parsing-numbers) |
+| `tests/job_call_test.cpp` | Async jobs: delivery only on poll, inline jobs without workers, priority and `set_priority`, cancel before and during the run, drop, `parallel_for` beside held workers, many workers, `cancel_all`, `stop` | [Core](../modules/Core.md#async-jobs) |
+| `tests/compression_test.cpp` | Round trips (empty, large, incompressible, both levels), `max_size` and bomb headers, truncated, corrupt, and mismatched input, calls from workers | [Core](../modules/Core.md#compression) |
 | `tests/job_system_test.cpp` | Inline ranges, two workers, nested `parallel_for`, `stop` joins | [Core](../modules/Core.md#jobs) |
 | `tests/icon_codegen_test.cpp` | ICO, ICNS, and PNG sizes in memory | [Icon Codegen](../build/Icon%20Codegen.md) |
-| `tests/input_test.cpp` | Bind, hold, touch synthesis, `reset` | [Input Mapper](../features/Input%20Mapper.md) |
+| `tests/input_test.cpp` | Bind, hold, touch synthesis, `reset`, mouse axes, composites, locked events | [Input Mapper](../features/Input%20Mapper.md) |
 | `tests/loc_catalog_test.cpp` | TOML tables, fallback, pseudo, warn-once | [Localization](../modules/Localization.md) |
 | `tests/loc_format_test.cpp` | Placeholders and plural branches | [Localization](../modules/Localization.md) |
 | `tests/log_test.cpp` | The null sink | [Core](../modules/Core.md) |
-| `tests/material_test.cpp` | `.mat` parse (blend, depth, cull, defaults) and instance tint | [Materials and Sort](../features/Materials%20and%20Sort.md) |
-| `tests/mesh_test.cpp` | `.mesh` parse (5- and 8-column vertices, `f` rows, bad rows and indices), `mesh_desc_error` | [Assets](../features/Assets.md#mesh-files) |
+| `tests/material_test.cpp` | `.mat` parse (blend, depth, cull, `alpha_cutoff`, defaults) and instance tint | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `tests/mesh_test.cpp` | `.mesh` parse (5-, 8- and 12-column vertices, vertex color, `f` rows, bad rows and indices), `mesh_desc_error`, `IMesh::update` validation and keep-old rule, `IMesh::bounds` from create and update | [Assets](../features/Assets.md#mesh-files) |
 | `tests/mvvm_test.cpp` | View-model properties, commands, checkbox write-back | [UI](../modules/UI.md) |
-| `tests/opengl_texture_test.cpp` | CPU texture description, row flip, dynamic-texture creation contract. No GL draw | [Render](../modules/Render.md) |
+| `tests/opengl_texture_test.cpp` | CPU texture description, row flip, dynamic-texture and texture-array creation contract. No GL draw | [Render](../modules/Render.md) |
 | `tests/particle_test.cpp` | Emitter step, curves, and parallel integration matching the caller | [Render](../modules/Render.md) |
-| `tests/pointer_target_test.cpp` | `PointerTarget`: hit-test, order, windows, camera, hover, click, click-through, UI first | [UI Input](../features/UI%20Input.md#pointer-targets) |
+| `tests/pointer_target_test.cpp` | `PointerTarget`: hit-test, order, windows, camera, hover, click, click-through, UI first, locked cursor | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `tests/lights_test.cpp` | Light collection (direction from rotation and parent, cap, ambient sum, default rig) and the lights and camera in `CmdSetView` | [Render](../modules/Render.md#lights) |
-| `tests/primitives_test.cpp` | Primitive counts, unit outward normals, winding, index range; builtin quad and cube files match | [Render](../modules/Render.md#primitives) |
+| `tests/fog_test.cpp` | No fog by default, the active camera's `Fog` in every window's `CmdSetView`, none in `render_world_viewport`, `fog` serialization | [Render](../modules/Render.md#fog) |
+| `tests/frustum_test.cpp` | Frustum planes (inside, outside each plane, straddling, touching, orthographic and perspective, degenerate), `transform_aabb` | [Render](../modules/Render.md#frustum-culling) |
+| `tests/primitives_test.cpp` | Primitive counts, unit outward normals, winding, index range, white vertex color; builtin quad and cube files match | [Render](../modules/Render.md#primitives) |
 | `tests/physics_2d_test.cpp` | Overlap enter, stay, exit | [ECS](../modules/ECS.md) |
 | `tests/engine_version_test.cpp` | `EngineVersion` parse, refusals, round trip, order | [Project](../modules/Project.md#engine-version) |
 | `tests/ray_test.cpp` | Plane, sphere, AABB, triangle, quad, and segment hits | [ECS](../modules/ECS.md) |
@@ -518,13 +627,14 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/platform_test.cpp` | Assets root and `user_data_directory` names | [Core](../modules/Core.md) |
 | `tests/process_test.cpp` | Line cutting, quoting, environment, `ProcessCall` ownership, and real `cmd.exe` children on Windows (output, exit, cancel, leftovers) | [Process](../modules/Process.md) |
 | `tests/project_test.cpp` | `wind_project.toml` and `sdk.toml` reading and their errors | [Project](../modules/Project.md) |
-| `tests/render_system_test.cpp` | `run_render` sort (queues, depth order, 2D order at different z); unset camera skips, missing components fatal | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `tests/render_system_test.cpp` | `run_render` sort (queues, depth order, 2D order at different z); unset camera skips, missing components fatal; frustum culling of renderables and sprites, union over windows, `frustum_cull` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `tests/serializable_object_test.cpp` | Nested `WIND_SERIALIZABLE` world round trip and `AssetsDb` object load, mismatch, corrupt file, and `clear_object_loaders` | [Assets](../features/Assets.md) |
-| `tests/shader_adapt_test.cpp` | GLSL 300 ES rewrite | [Render](../modules/Render.md) |
+| `tests/shader_adapt_test.cpp` | GLSL 300 ES rewrite, `sampler2DArray` precision | [Render](../modules/Render.md) |
 | `tests/sort_test.cpp` | `draw_sort_less` queues and keys, `sort_renderables` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `tests/splash_test.cpp` | Splash documents and the timer | [UI](../modules/UI.md) |
 | `tests/sprite_test.cpp` | Sprite sheet UVs and `get_sprite` | [Assets](../features/Assets.md) |
-| `tests/time_test.cpp` | Clamp, pause, and the step cap | [Core](../modules/Core.md) |
+| `tests/time_test.cpp` | Clamp, pause, the step cap, and `fixed_rate` | [Core](../modules/Core.md) |
+
 | `tests/transform_test.cpp` | Quaternion `model_matrix` against the Euler result, `rotation_z` / `euler_xyz` / `angle_z` | [ECS](../modules/ECS.md) |
 | `tests/ui_bindable_visibility_test.cpp` | `Bindable::on_changed`, the `if` binding, float-bound lengths | [UI Markup](../features/UI%20Markup.md) |
 | `tests/ui_slider_test.cpp` | `Slider`: parse, value to handle rect, pointer to value with step, vertical, rows, errors, builder | [UI](../modules/UI.md#slider) |
@@ -572,10 +682,12 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/web_loop_test.cpp` | RAF policy and shutdown order | [Core](../modules/Core.md) |
 | `tests/window_icon_test.cpp` | `make_icon_surface` byte layout | [Windowing](../features/Windowing.md) |
 | `tests/mouse_capture_test.cpp` | `MouseCapture` and `global_mouse_supported` (window builds) | [Windowing](../features/Windowing.md#cursor-buttons-and-capture) |
+| `tests/relative_mouse_test.cpp` | `RelativeMouse`: requests, refusals, focus loss and gain, close | [Windowing](../features/Windowing.md#relative-mouse) |
+| `tests/game_window_reset_test.cpp` | `reset_game_windows` on the window-control double | [Windowing](../features/Windowing.md#relative-mouse) |
 | `tests/ui_window_test.cpp` | `UiWindow`: open, teardown order, move, owner close, close routing, drag exclusions, centring | [Windowing](../features/Windowing.md#uiwindow) |
 | `tests/drag_region_test.cpp` | `drag_region_contains` with exclusions (window builds) | [Windowing](../features/Windowing.md#uiwindow) |
-| `tests/window_cursor_test.cpp` | Cursor, buttons, capture on the window-control double, `cursor_client_position` | [Windowing](../features/Windowing.md#cursor-buttons-and-capture) |
-| `tests/window_style_test.cpp` | Style flags (`utility` included), overlay mode, window control without a window, `raise` of no window, a primary window with an owner refused | [Windowing](../features/Windowing.md) |
+| `tests/window_cursor_test.cpp` | Cursor, buttons, capture, relative mouse on the window-control double, `cursor_client_position` | [Windowing](../features/Windowing.md#cursor-buttons-and-capture) |
+| `tests/window_style_test.cpp` | Style flags (`utility` included), overlay mode, window control without a window (relative mouse refused), `raise` of no window, a primary window with an owner refused | [Windowing](../features/Windowing.md) |
 | `tests/world_serializer_test.cpp` | `.world` TOML parse, instantiate, save round-trip, hierarchy, assets, custom components, rollback | [ECS](../modules/ECS.md#world-serialization) |
 | `tests/worlds_test.cpp` | World isolation, window routing, per-window draw, registration order | [Core](../modules/Core.md) |
 
@@ -593,7 +705,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tools/ci/test_next_version.py` | Its unit tests | [Release](../build/Release.md#tests) |
 | `tools/ci/setup_sdk.py` | Downloads, verifies, and unpacks a released SDK for a game's CI | [Release](../build/Release.md#getting-an-sdk-in-a-games-ci) |
 | `tools/ci/test_setup_sdk.py` | Its unit tests | [Release](../build/Release.md#tests) |
-| `tools/ci/sdk_smoke.sh` | A game against an installed SDK, and the editor playing it | [CMake](../build/CMake.md#editor-sdk) |
+| `tools/ci/sdk_smoke.sh` | A game against an installed SDK, the editor playing it, an export, and a dedicated server (`--server`) | [CMake](../build/CMake.md#editor-sdk) |
 | `.github/workflows/release.yml` | Release on every push to `main`: version, SDK on three platforms, GitHub Release | [Release](../build/Release.md) |
 | `.github/workflows/sdk.yml` | The editor build, tests, install, and smoke on every platform | [CMake](../build/CMake.md#editor-sdk) |
 | `.github/actions/setup-wind/action.yml` | Composite action: `setup_sdk.py`, cache, `WIND_SDK_DIR`, `PATH` | [Release](../build/Release.md#getting-an-sdk-in-a-games-ci) |
@@ -604,9 +716,9 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | Path | What it does | Page |
 | --- | --- | --- |
 | `cmake/build_id.cmake` | Writes `<engine/build_id.h>`: the build id and the engine's CRT macros | [CMake](../build/CMake.md#build-id) |
-| `cmake/wind_game.cmake` | `engine_add_game`, `engine_configure_app`, `engine_prepare_runtime`, web and Android variants, `engine_sdk_configurations` (SDK mode and exports against the players: `DebugGame` and `Release`), `engine_debuggame_flags` | [CMake](../build/CMake.md#game-functions) |
+| `cmake/wind_game.cmake` | `engine_add_game`, `engine_add_server`, `engine_configure_app`, `engine_prepare_runtime`, web and Android variants, `engine_sdk_configurations` (SDK mode and exports against the players: `DebugGame` and `Release`), `engine_debuggame_flags` | [CMake](../build/CMake.md#game-functions) |
 | `cmake/WindConfig.cmake.in` | Template of the editor SDK's `WindConfig.cmake` (`find_package(Wind)`): imported `engine`, `glm::glm`, tools, GoogleTest; the `WIND_EXPORT` branch | [CMake](../build/CMake.md#editor-sdk) |
-| `cmake/wind_export.cmake` | Export builds: the SDK's player libraries as `engine` (Development for DebugGame, Shipping for Release), or why there are none | [CMake](../build/CMake.md#standalone-executable-wind_export) |
+| `cmake/wind_export.cmake` | Export builds: the SDK's player libraries as `engine` (Development for DebugGame, Shipping for Release), or why there are none; the Server player as `engine_server` | [CMake](../build/CMake.md#standalone-executable-wind_export) |
 | `cmake/wind_player.cmake.in` | Template of `<sdk>/player/<flavour>/cmake/wind_player.cmake`: flavour, version, platform, the SDK build id, `find_package` of what the exported targets name | [CMake](../build/CMake.md#player-libraries) |
 | `cmake/player_build.cmake` | Driver script: configure, build, and install the player flavours in trees of their own | [CMake](../build/CMake.md#player-libraries) |
 | `cmake/sdk_manifest.cmake` | Install step that writes the SDK's `sdk.toml` (full version, commit, dirty, config, build id, platform, player flavours) | [CMake](../build/CMake.md#editor-sdk) |

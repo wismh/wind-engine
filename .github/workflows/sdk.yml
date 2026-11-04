@@ -22,10 +22,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      # The Server player of the SDK links GameNetworkingSockets from source (external/README.md).
+      - name: GameNetworkingSockets source
+        run: |
+          git -c submodule.external/GameNetworkingSockets-src.update=checkout submodule update --init external/GameNetworkingSockets-src
       - name: Packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build xvfb \
+          sudo apt-get install -y --no-install-recommends ninja-build xvfb libssl-dev libprotobuf-dev protobuf-compiler \
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
             libxkbcommon-dev libwayland-dev libdecor-0-dev libdrm-dev libgbm-dev libgl1-mesa-dev libgles2-mesa-dev \
             libegl1-mesa-dev libgl1-mesa-dri libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libibus-1.0-dev
@@ -53,6 +57,10 @@ jobs:
         run: |
           test -f out/sdk/player/Shipping/lib/libengine.a
           tools/ci/sdk_smoke.sh out/sdk out/smoke-export --export
+      - name: Dedicated server from the player libraries
+        run: |
+          test -f out/sdk/player/Server/lib/libengine.a
+          tools/ci/sdk_smoke.sh out/sdk out/smoke-server --server
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -61,6 +69,36 @@ jobs:
             out/smoke*/game/build-editor/CMakeFiles/CMakeConfigureLog.yaml
             out/sdk/bin/game.log
           if-no-files-found: ignore
+
+  # The dedicated server on its own: no SDL packages at all, so a dependency on them would fail here. engine_tests
+  # includes a real server process and a client over a real socket.
+  linux-server:
+    name: Linux dedicated server (Ubuntu 24.04, GCC)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: GameNetworkingSockets source
+        run: |
+          git -c submodule.external/GameNetworkingSockets-src.update=checkout submodule update --init external/GameNetworkingSockets-src
+      - name: Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build libssl-dev libprotobuf-dev protobuf-compiler
+      - name: Configure
+        run: cmake --preset linux-server
+      - name: Build
+        run: cmake --build build-server --parallel -- -k 0
+      - name: Tests
+        run: ctest --test-dir build-server --output-on-failure --parallel 4
+      - name: The server binary stands alone
+        run: |
+          if ldd build-server/bin/wind_server_fixture | grep -E 'SDL|libGL|libprotobuf|libssl|libcrypto'; then
+            echo "the server links a library a host may not have" >&2
+            exit 1
+          fi
 
   macos:
     name: macOS (arm64, Apple Clang)

@@ -5,7 +5,9 @@
 # Release (what the editor's Play does), and checks the module record. With --e2e it also starts the editor on the
 # project with `wind-cli launch --play --wait`, which needs a display (xvfb on Linux), and stops it. With --export it
 # instead configures the project the way the editor's Export does (-DWIND_EXPORT=ON) and builds DebugGame and Release
-# executables, which has to link the SDK's player libraries and not build the engine from source/.
+# executables, which has to link the SDK's player libraries and not build the engine from source/. With --server it
+# adds a dedicated server to the project (engine_add_server), builds it beside the module, runs it, stops it with
+# SIGTERM, and requires a clean exit; on Linux the binary must not need SDL, GL, protobuf, or OpenSSL.
 set -euo pipefail
 
 sdk="$(cd "$1" && pwd)"
@@ -27,6 +29,25 @@ find . -type f \( -name '*.toml' -o -name '*.txt' -o -name '*.json' -o -name '*.
         -e "s|{{target}}|$target|g" -e "s|{{name}}|Smoke|g" -e "s|{{engine}}|$version|g" -e "s|{{sdk}}|$sdk|g"
 find . -name '*.orig' -delete
 
+# Windows will not start an executable that imports a DLL it cannot find, and a game cannot be started here to see that
+# (no display on CI). So: the DLLs an executable needs are beside it, and everything it imports is there or in the system.
+check_windows_dlls() {
+    case "$(uname -s)" in MINGW*|MSYS*) ;; *) return 0 ;; esac
+    local directory dll
+    directory="$(dirname "$1")"
+    for dll in slang.dll slang-compiler.dll GameNetworkingSockets.dll; do
+        test -f "$directory/$dll" || { echo "$dll is not beside $1" >&2; exit 1; }
+    done
+    command -v dumpbin >/dev/null || return 0
+    for dll in $(dumpbin //nologo //dependents "$1" | tr -d '\r' | sed -n 's/^ *\([^ ]*\.[dD][lL][lL]\)$/\1/p'); do
+        case "$dll" in api-ms-*|ext-ms-*) continue ;; esac
+        if [ ! -f "$directory/$dll" ] && [ ! -f "$WINDIR/System32/$dll" ]; then
+            echo "$1 imports $dll, which is neither beside it nor in the system" >&2
+            exit 1
+        fi
+    done
+}
+
 if [ "$e2e" = "--export" ]; then
     test -f "$sdk/player/Development/cmake/wind_player.cmake" || { echo "the SDK has no player libraries" >&2; exit 1; }
     build="$work/game/build-export"
@@ -43,7 +64,79 @@ if [ "$e2e" = "--export" ]; then
         test -f "$record" || { echo "no export record $record" >&2; exit 1; }
         directory="$(cat "$record")"
         ls "$directory"
+        check_windows_dlls "$directory/$target.exe"
         echo "exported $directory"
+    done
+    echo "SDK smoke test passed"
+    exit 0
+fi
+
+if [ "$e2e" = "--server" ]; then
+    test -f "$sdk/player/Server/cmake/wind_player.cmake" || { echo "the SDK has no Server player" >&2; exit 1; }
+    cat > src/server_main.cpp <<'SERVER'
+#include <engine/ecs/world.h>
+#include <engine/igame.h>
+#include <engine/log.h>
+#include <engine/net/gns_transport.h>
+#include <engine/net/net_server.h>
+#include <engine/resources/fatal_error.h>
+#include <engine/server_entry.h>
+
+#include <format>
+
+namespace game {
+
+class Server final : public engine::GameBase {
+public:
+    explicit Server(const engine::ServerServices& services)
+        : engine::GameBase(services.worlds)
+        , fatal_(&services.fatal)
+        , port_(services.port(27015)) {}
+
+    void on_start() override {
+        engine::net::install_net_server(world(), transport_);
+        if (!transport_.start_server(port_)) {
+            fatal_->report(std::format("cannot listen on port {}", port_));
+        }
+        engine::log::info(std::format("smoke server listening on {}", port_));
+    }
+
+    void on_quit() override {
+        transport_.stop();
+        engine::log::info("smoke server stopped");
+    }
+
+private:
+    engine::IFatalError* fatal_;
+    std::uint16_t port_;
+    engine::net::GnsTransport transport_;
+};
+
+}
+
+ENGINE_GAME_SERVER(game::Server)
+SERVER
+    printf '\nengine_add_server(%s_server src/server_main.cpp)\n' "$target" >> CMakeLists.txt
+    build="$work/game/build-editor"
+    cmake -S . -B "$build" -G "Ninja Multi-Config" \
+        "-DCMAKE_PREFIX_PATH=$sdk" "-DWind_DIR=$sdk/cmake" "-DCMAKE_CONFIGURATION_TYPES=DebugGame;Release"
+    for config in DebugGame Release; do
+        cmake --build "$build" --config "$config" --target "$target" "${target}_server" --parallel
+        directory="$(cat "$build/wind/${target}_server.$config.export")"
+        binary="$directory/${target}_server"
+        if command -v ldd >/dev/null && [ "$(uname -s)" = "Linux" ]; then
+            if ldd "$binary" | grep -E 'SDL|libGL|libprotobuf|libssl|libcrypto'; then
+                echo "$binary needs a library a server host may not have" >&2
+                exit 1
+            fi
+        fi
+        "$binary" --port 27115 > "$work/server-$config.log" 2>&1 &
+        pid=$!
+        sleep 2
+        kill -TERM "$pid"
+        wait "$pid"
+        cat "$work/server-$config.log"
+        grep -q "smoke server stopped" "$work/server-$config.log"
     done
     echo "SDK smoke test passed"
     exit 0

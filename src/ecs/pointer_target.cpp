@@ -16,6 +16,7 @@
 #include <cmath>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace engine {
@@ -32,6 +33,8 @@ struct PointerTargetState {
         MouseButton button = MouseButton::None;
     };
     std::unordered_map<WindowId, Press> pressed;
+    // Windows whose last mouse event was locked (relative mouse mode): nothing is hovered there.
+    std::unordered_set<WindowId> locked;
 };
 
 struct Rect2 {
@@ -200,10 +203,20 @@ void run_pointer_targets(ecs::World& world) {
         if (std::ranges::find(state.windows, event.window) == state.windows.end()) {
             state.windows.push_back(event.window);
         }
+        if (event.locked) {
+            state.locked.insert(event.window);
+        } else {
+            state.locked.erase(event.window);
+        }
+        // A locked cursor (relative mouse mode) presses and hovers nothing. Its Up still ends a press, as no click.
+        if (event.locked && event.kind != MouseEvent::Kind::Up) {
+            continue;
+        }
         if (event.kind != MouseEvent::Kind::Down && event.kind != MouseEvent::Kind::Up) {
             continue;
         }
-        const std::optional<ecs::Entity> hit = target_not_under_ui(world, event.window, event.position);
+        const std::optional<ecs::Entity> hit =
+                event.locked ? std::nullopt : target_not_under_ui(world, event.window, event.position);
         if (event.kind == MouseEvent::Kind::Down) {
             if (hit) {
                 state.pressed[event.window] = PointerTargetState::Press{*hit, event.button};
@@ -232,7 +245,9 @@ void run_pointer_targets(ecs::World& world) {
 
     for (const WindowId window : state.windows) {
         const glm::vec2 position = ui::pointer_for(world, window).position;
-        const std::optional<ecs::Entity> now = target_not_under_ui(world, window, position);
+        const std::optional<ecs::Entity> now = state.locked.contains(window)
+                ? std::nullopt
+                : target_not_under_ui(world, window, position);
         ecs::Entity previous{};
         bool had_previous = false;
         if (const auto it = state.hovered.find(window); it != state.hovered.end()) {

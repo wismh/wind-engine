@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <engine/render/graphic_factory.h>
+#include <engine/render/primitives.h>
 
 #include "render/mesh_check.h"
 #include "resources/importers.h"
@@ -22,6 +23,11 @@ engine::render::MeshDesc triangle() {
 TEST(Mesh, VertexNormalDefaultsToPlusZ) {
     const engine::render::MeshVertex vertex;
     EXPECT_EQ(vertex.normal, glm::vec3(0.0f, 0.0f, 1.0f));
+}
+
+TEST(Mesh, VertexColorDefaultsToWhite) {
+    const engine::render::MeshVertex vertex;
+    EXPECT_EQ(vertex.color, glm::vec4(1.0f));
 }
 
 TEST(Mesh, CheckAcceptsNonIndexedAndIndexed) {
@@ -83,6 +89,36 @@ TEST(Mesh, ParseMixesFiveAndEightColumns) {
     EXPECT_EQ(desc->vertices[1].normal, glm::vec3(1.0f, 0.0f, 0.0f));
 }
 
+TEST(Mesh, ParseTwelveColumnsReadsColor) {
+    const auto desc = engine::parse_mesh("# pos   normal   uv   rgba\n"
+                                         "0 0 0   0 1 0   0 0   0.25 0.5 0.75 1\n"
+                                         "1 0 0   0 1 0   1 0   1 0 0 0.5\n"
+                                         "1 0 -1  0 1 0   1 1   0 0 0 0\n");
+    ASSERT_TRUE(desc.has_value());
+    ASSERT_EQ(desc->vertices.size(), 3u);
+    EXPECT_EQ(desc->vertices[0].position, glm::vec3(0.0f));
+    EXPECT_EQ(desc->vertices[0].normal, glm::vec3(0.0f, 1.0f, 0.0f));
+    EXPECT_EQ(desc->vertices[0].uv, glm::vec2(0.0f));
+    EXPECT_EQ(desc->vertices[0].color, glm::vec4(0.25f, 0.5f, 0.75f, 1.0f));
+    EXPECT_EQ(desc->vertices[1].uv, glm::vec2(1.0f, 0.0f));
+    EXPECT_EQ(desc->vertices[1].color, glm::vec4(1.0f, 0.0f, 0.0f, 0.5f));
+    EXPECT_EQ(desc->vertices[2].position, glm::vec3(1.0f, 0.0f, -1.0f));
+    EXPECT_EQ(desc->vertices[2].color, glm::vec4(0.0f));
+}
+
+TEST(Mesh, ParseRowsWithoutColorAreWhite) {
+    const auto desc = engine::parse_mesh("0 0 0 0 0\n"
+                                         "1 0 0  1 0 0  1 0\n"
+                                         "0 1 0  0 0 1  0 1  0.5 0.5 0.5 1\n");
+    ASSERT_TRUE(desc.has_value());
+    EXPECT_EQ(desc->vertices[0].color, glm::vec4(1.0f));
+    EXPECT_EQ(desc->vertices[0].uv, glm::vec2(0.0f));
+    EXPECT_EQ(desc->vertices[1].color, glm::vec4(1.0f));
+    EXPECT_EQ(desc->vertices[1].uv, glm::vec2(1.0f, 0.0f));
+    EXPECT_EQ(desc->vertices[2].color, glm::vec4(0.5f, 0.5f, 0.5f, 1.0f));
+    EXPECT_EQ(desc->vertices[2].uv, glm::vec2(0.0f, 1.0f));
+}
+
 TEST(Mesh, ParseRejectsIndexPastVertices) {
     EXPECT_FALSE(engine::parse_mesh("0 0 0 0 0\n1 0 0 1 0\n0 1 0 0 1\nf 0 1 3\n").has_value());
 }
@@ -94,6 +130,8 @@ TEST(Mesh, ParseRejectsMalformedRows) {
     EXPECT_FALSE(with("1 2 3 4\n").has_value()); // too few columns
     EXPECT_FALSE(with("1 2 3 4 5 6\n").has_value()); // neither 5 nor 8
     EXPECT_FALSE(with("1 2 3 4 5 6 7 8 9\n").has_value());
+    EXPECT_FALSE(with("1 2 3 4 5 6 7 8 9 10 11\n").has_value()); // color needs four numbers
+    EXPECT_FALSE(with("1 2 3 4 5 6 7 8 9 10 11 12 13\n").has_value());
     EXPECT_FALSE(with("1 2 3 4 x\n").has_value()); // not a number
     EXPECT_FALSE(with("f 0 1\n").has_value()); // two corners
     EXPECT_FALSE(with("f 0 1 2 3\n").has_value()); // a quad is two rows
@@ -106,4 +144,125 @@ TEST(Mesh, ParseRejectsMalformedRows) {
 TEST(Mesh, ParseRejectsFacesWithoutVertices) {
     EXPECT_FALSE(engine::parse_mesh("# nothing\n\n").has_value());
     EXPECT_FALSE(engine::parse_mesh("f 0 0 0\n").has_value());
+}
+
+namespace {
+
+// Keeps what `replace` was given, as a backend keeps its buffers. `fail` makes the backend refuse.
+class RecordingMesh final : public engine::render::IMesh {
+public:
+    RecordingMesh() : engine::render::IMesh(engine::render::make_quad()) {}
+    explicit RecordingMesh(const engine::render::MeshDesc& desc) : engine::render::IMesh(desc) {}
+
+    engine::render::MeshDesc contents;
+    int replaces = 0;
+    bool fail = false;
+
+protected:
+    bool replace(const engine::render::MeshDesc& desc) override {
+        ++replaces;
+        if (fail) {
+            return false;
+        }
+        contents = desc;
+        return true;
+    }
+};
+
+}
+
+TEST(Mesh, UpdateRejectsInvalidDescsAndKeepsOldContents) {
+    RecordingMesh mesh;
+    mesh.contents = triangle();
+
+    EXPECT_FALSE(mesh.update(engine::render::MeshDesc{}));
+    engine::render::MeshDesc partial = triangle();
+    partial.indices = {0, 1};
+    EXPECT_FALSE(mesh.update(partial));
+    engine::render::MeshDesc past_end = triangle();
+    past_end.indices = {0, 1, 3};
+    EXPECT_FALSE(mesh.update(past_end));
+
+    EXPECT_EQ(mesh.replaces, 0);
+    EXPECT_EQ(mesh.contents.vertices.size(), 3u);
+    EXPECT_TRUE(mesh.contents.indices.empty());
+}
+
+TEST(Mesh, UpdatePassesAValidDescToTheBackend) {
+    RecordingMesh mesh;
+
+    engine::render::MeshDesc flat = triangle();
+    flat.vertices[1].position = {1.0f, 0.0f, 0.0f};
+    EXPECT_TRUE(mesh.update(flat));
+    EXPECT_EQ(mesh.replaces, 1);
+    EXPECT_EQ(mesh.contents.vertices.size(), 3u);
+    EXPECT_EQ(mesh.contents.vertices[1].position, glm::vec3(1.0f, 0.0f, 0.0f));
+    EXPECT_TRUE(mesh.contents.indices.empty());
+
+    engine::render::MeshDesc indexed;
+    indexed.vertices.resize(4);
+    indexed.indices = {0, 1, 2, 2, 3, 0};
+    EXPECT_TRUE(mesh.update(indexed));
+    EXPECT_EQ(mesh.replaces, 2);
+    EXPECT_EQ(mesh.contents.vertices.size(), 4u);
+    EXPECT_EQ(mesh.contents.indices, indexed.indices);
+}
+
+TEST(Mesh, UpdateReportsABackendFailure) {
+    RecordingMesh mesh;
+    mesh.contents = triangle();
+    mesh.fail = true;
+
+    engine::render::MeshDesc bigger;
+    bigger.vertices.resize(6);
+    EXPECT_FALSE(mesh.update(bigger));
+    EXPECT_EQ(mesh.replaces, 1);
+    EXPECT_EQ(mesh.contents.vertices.size(), 3u);
+}
+
+TEST(Mesh, BoundsComeFromTheCreateDescIncludingUnusedVertices) {
+    engine::render::MeshDesc desc = triangle();
+    engine::render::MeshVertex unused;
+    unused.position = {-4.0f, 7.0f, 2.0f};
+    desc.vertices.push_back(unused);
+    desc.indices = {0, 1, 2};
+    const RecordingMesh mesh(desc);
+    EXPECT_EQ(mesh.bounds(), engine::render::mesh_bounds(desc));
+    EXPECT_EQ(mesh.bounds().min.x, -4.0f);
+    EXPECT_EQ(mesh.bounds().max.y, 7.0f);
+    EXPECT_EQ(mesh.bounds().max.z, 2.0f);
+}
+
+TEST(Mesh, UpdateRefreshesBounds) {
+    RecordingMesh mesh;
+    engine::render::MeshDesc moved = triangle();
+    for (engine::render::MeshVertex& vertex : moved.vertices) {
+        vertex.position += glm::vec3{10.0f, 0.0f, -3.0f};
+    }
+    ASSERT_TRUE(mesh.update(moved));
+    EXPECT_EQ(mesh.bounds(), engine::render::mesh_bounds(moved));
+}
+
+TEST(Mesh, InvalidOrRefusedUpdateKeepsBounds) {
+    RecordingMesh mesh;
+    const engine::render::Aabb before = mesh.bounds();
+    engine::render::MeshDesc far_away = triangle();
+    far_away.vertices[0].position = {100.0f, 100.0f, 100.0f};
+
+    far_away.indices = {0, 1};
+    EXPECT_FALSE(mesh.update(far_away));
+    EXPECT_EQ(mesh.bounds(), before);
+
+    far_away.indices.clear();
+    mesh.fail = true;
+    EXPECT_FALSE(mesh.update(far_away));
+    EXPECT_EQ(mesh.bounds(), before);
+}
+
+TEST(Mesh, PrimitiveAndEmptyBounds) {
+    EXPECT_EQ(engine::render::mesh_bounds(engine::render::make_quad()),
+            (engine::render::Aabb{.min = {-0.5f, -0.5f, 0.0f}, .max = {0.5f, 0.5f, 0.0f}}));
+    EXPECT_EQ(engine::render::mesh_bounds(engine::render::make_cube(2.0f)),
+            (engine::render::Aabb{.min = glm::vec3{-1.0f}, .max = glm::vec3{1.0f}}));
+    EXPECT_EQ(engine::render::mesh_bounds(engine::render::MeshDesc{}), engine::render::Aabb{});
 }

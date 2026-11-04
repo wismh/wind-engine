@@ -1,6 +1,6 @@
 # Action Mapping
 
-Wind decouples physical controls (keyboard keys, mouse buttons, touch) from gameplay code through the named action system in `engine::InputSystem`. Gamepads are not wired up yet: only keys, mouse buttons, and touch reach actions.
+Wind decouples physical controls (keyboard keys, mouse buttons, mouse motion, touch) from gameplay code through the named action system in `engine::InputSystem`. Gamepads are not wired up yet: only keys, mouse buttons, mouse motion and wheel, and touch reach actions.
 
 ---
 
@@ -86,7 +86,51 @@ if (services_.input.is_held(move_right_)) {
 
 ---
 
-## 5. Android Back
+## 5. Axes: WASD and Mouse Look
+
+Every binding has a `scale` (default 1). `input.axis(action)` adds up the scales of the held controls bound to the action, clamped to -1..1, plus this frame's mouse motion times the scale of each `MouseAxis` bound to it.
+
+```cpp
+void MyGame::on_start() {
+    engine::InputSystem& input = services_.input;
+    move_x_ = input.intern("move_x");
+    move_y_ = input.intern("move_y");
+    look_x_ = input.intern("look_x");
+    look_y_ = input.intern("look_y");
+
+    // WASD: two keys with opposite signs on one action. Both held is 0.
+    input.bind(engine::KeyCode::D, move_x_, 1.0f);
+    input.bind(engine::KeyCode::A, move_x_, -1.0f);
+    input.bind(engine::KeyCode::W, move_y_, 1.0f);
+    input.bind(engine::KeyCode::S, move_y_, -1.0f);
+
+    // Mouse look: the scale is the sensitivity in radians per pixel; a negative one inverts.
+    input.bind(engine::MouseAxis::X, look_x_, 0.0025f);
+    input.bind(engine::MouseAxis::Y, look_y_, 0.0025f);
+}
+
+void MyGame::move(engine::ecs::World& world) {   // Schedule::Fixed: keys are a state, fine every step
+    glm::vec2 wish{services_.input.axis(move_x_), services_.input.axis(move_y_)};
+    if (glm::length(wish) > 1.0f) {
+        wish = glm::normalize(wish);   // diagonal no faster than straight
+    }
+    // ...
+}
+
+void MyGame::look(engine::ecs::World& world) {   // Schedule::Frame: mouse motion belongs to one frame
+    yaw_ -= services_.input.axis(look_x_);
+    pitch_ = std::clamp(pitch_ - services_.input.axis(look_y_), -1.5f, 1.5f);
+}
+```
+
+Mouse motion is summed from the start of the frame's input poll; the next frame starts again from 0. Read it on `Schedule::Frame`: a fixed step would apply the same motion once per step. `MouseAxis::Wheel` counts wheel notches the same way (weapon cycling). Motion sends no `InputEvent` and is not blocked by the UI; it comes from every window, not only the one the game draws in. To hide and lock the cursor, see [Raw Input & Mouse](Raw-Input-and-Mouse.md#5-first-person-look-relative-mouse-mode).
+
+In a multiplayer game the same actions feed the input a client sends to the server each fixed tick: `PredictionDesc::collect` reads `is_held` and `axis()` and returns the game's `Input` struct, and mouse look goes in as the absolute `yaw_` and `pitch_` above, not as this frame's motion. See [Input Mapper](../../tech/features/Input%20Mapper.md#net-input) and [Net](../../tech/modules/Net.md#input-and-prediction).
+
+
+---
+
+## 6. Android Back
 
 The engine never quits on the Back key. Bind `KeyCode::AcBack` to an action of your own and handle it ([Android](../platforms/Android.md#the-back-button)).
 

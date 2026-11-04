@@ -4,6 +4,8 @@
 #include "core/frame_step.h"
 
 #include <engine/core/application_state.h>
+#include <engine/core/input_system.h>
+#include <engine/core/job_system.h>
 #include <engine/core/platform.h>
 #include <engine/ecs/world.h>
 #include <engine/net/http_client.h>
@@ -19,7 +21,8 @@
 namespace engine {
 
 int GameLoop::run(IPresentation& presentation, RunHooks hooks, Worlds& worlds, InputSystem& input,
-        IAudioSystem* audio, HttpClient* http, ProcessLauncher* processes, std::function<void()> host_dispose) {
+        IAudioSystem* audio, HttpClient* http, ProcessLauncher* processes, JobSystem* jobs,
+        std::function<void()> host_dispose) {
     presentation_ = &presentation;
     hooks_ = std::move(hooks);
     worlds_ = &worlds;
@@ -27,6 +30,7 @@ int GameLoop::run(IPresentation& presentation, RunHooks hooks, Worlds& worlds, I
     audio_ = audio;
     http_ = http;
     processes_ = processes;
+    jobs_ = jobs;
     host_dispose_ = std::move(host_dispose);
     begin();
 
@@ -73,12 +77,16 @@ void GameLoop::tick() {
     cli::CliFrame cli_frame = this->cli_frame();
     cli::begin_frame(cli_frame);
     flush_worlds(*worlds_);
+    input_->begin_frame();
     presentation_->poll(*worlds_, *input_);
     if (http_ != nullptr) {
         http_->poll();
     }
     if (processes_ != nullptr) {
         processes_->poll();
+    }
+    if (jobs_ != nullptr) {
+        jobs_->poll();
     }
     simulate_worlds(*worlds_, audio_, real_dt);
     presentation_->sync_frame(*worlds_);
@@ -139,6 +147,7 @@ void GameLoop::end() {
     audio_ = nullptr;
     http_ = nullptr;
     processes_ = nullptr;
+    jobs_ = nullptr;
 
     const std::function<void()> on_quit = std::move(hooks_.on_quit);
     hooks_ = RunHooks{};

@@ -595,3 +595,224 @@ TEST(Input, ResetKeepsRouterAndInternsFromOneAgain) {
     EXPECT_TRUE(input.is_held(again));
     EXPECT_EQ(read_key(before).size(), 3u);
 }
+
+TEST(Input, MouseAxisAccumulatesUntilBeginFrame) {
+    engine::ecs::World world;
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
+    const engine::ActionId look_x = input.intern("look_x");
+    const engine::ActionId look_y = input.intern("look_y");
+    input.bind(engine::MouseAxis::X, look_x);
+    input.bind(engine::MouseAxis::Y, look_y);
+
+    input.handle_mouse_move(engine::kPrimaryWindow, glm::vec2{10.f, 10.f}, glm::vec2{3.f, 4.f});
+    input.handle_mouse_move(engine::kPrimaryWindow, glm::vec2{15.f, 9.f}, glm::vec2{5.f, -1.f});
+
+    EXPECT_FLOAT_EQ(input.axis(look_x), 8.f);
+    EXPECT_FLOAT_EQ(input.axis(look_y), 3.f);
+    // Reading does not consume: the value holds for the whole frame.
+    EXPECT_FLOAT_EQ(input.axis(look_x), 8.f);
+
+    input.begin_frame();
+    EXPECT_FLOAT_EQ(input.axis(look_x), 0.f);
+    EXPECT_FLOAT_EQ(input.axis(look_y), 0.f);
+}
+
+TEST(Input, MouseAxisScaleIsSensitivityAndInvert) {
+    engine::ecs::World world;
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
+    input.bind(engine::MouseAxis::X, "look_x", 0.25f);
+    input.bind(engine::MouseAxis::Y, "look_y", -0.5f);
+
+    input.handle_mouse_move(engine::kPrimaryWindow, glm::vec2{}, glm::vec2{8.f, 10.f});
+
+    EXPECT_FLOAT_EQ(input.axis(*input.find("look_x")), 2.f);
+    EXPECT_FLOAT_EQ(input.axis(*input.find("look_y")), -5.f);
+    EXPECT_FLOAT_EQ(input.bound_scale(engine::Control{engine::ControlKind::MouseMotion, 1, 0}), -0.5f);
+    EXPECT_FLOAT_EQ(input.bound_scale(engine::Control{engine::ControlKind::MouseMotion, 2, 0}), 0.f);
+}
+
+TEST(Input, MouseWheelAxis) {
+    engine::ecs::World world;
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
+    const engine::ActionId cycle = input.intern("cycle");
+    input.bind(engine::MouseAxis::Wheel, cycle);
+
+    input.handle_mouse_wheel(engine::kPrimaryWindow, glm::vec2{}, 1.f);
+    input.handle_mouse_wheel(engine::kPrimaryWindow, glm::vec2{}, -2.f);
+    input.handle_mouse_move(engine::kPrimaryWindow, glm::vec2{}, glm::vec2{50.f, 50.f});
+
+    EXPECT_FLOAT_EQ(input.axis(cycle), -1.f);
+}
+
+TEST(Input, MouseAxisSendsNoInputEventAndIsNotHeld) {
+    engine::ecs::World world;
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
+    const engine::ActionId look_x = input.intern("look_x");
+    input.bind(engine::MouseAxis::X, look_x);
+
+    input.handle_mouse_move(engine::kPrimaryWindow, glm::vec2{}, glm::vec2{4.f, 0.f});
+
+    EXPECT_TRUE(read_input(world).empty());
+    EXPECT_EQ(read_mouse(world).size(), 1u);
+    EXPECT_FALSE(input.is_held(look_x));
+}
+
+TEST(Input, MouseAxisDroppedWithoutAWorld) {
+    engine::InputSystem input;
+    input.set_router([](engine::WindowId) -> engine::ecs::World* { return nullptr; });
+    const engine::ActionId look_x = input.intern("look_x");
+    input.bind(engine::MouseAxis::X, look_x);
+
+    input.handle_mouse_move(engine::kPrimaryWindow, glm::vec2{}, glm::vec2{4.f, 0.f});
+
+    EXPECT_FLOAT_EQ(input.axis(look_x), 0.f);
+}
+
+TEST(Input, UnbindMouseAxisStopsTheAxis) {
+    engine::ecs::World world;
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
+    const engine::ActionId look_x = input.intern("look_x");
+    input.bind(engine::MouseAxis::X, look_x);
+    EXPECT_EQ(input.bound_action(engine::MouseAxis::X), look_x);
+
+    input.unbind(engine::MouseAxis::X);
+    input.handle_mouse_move(engine::kPrimaryWindow, glm::vec2{}, glm::vec2{4.f, 0.f});
+
+    EXPECT_EQ(input.bound_action(engine::MouseAxis::X), engine::ActionId::Invalid);
+    EXPECT_FLOAT_EQ(input.axis(look_x), 0.f);
+}
+
+TEST(Input, ControlsForListsMouseAxes) {
+    engine::InputSystem input;
+    const engine::ActionId look = input.intern("look");
+    input.bind(engine::MouseAxis::Y, look);
+    input.bind(engine::KeyCode::Up, look);
+
+    const std::vector<engine::Control> controls = input.controls_for(look);
+
+    ASSERT_EQ(controls.size(), 2u);
+    EXPECT_EQ(controls[0].kind, engine::ControlKind::Key);
+    EXPECT_EQ(controls[1], (engine::Control{engine::ControlKind::MouseMotion, 1, 0}));
+}
+
+TEST(Input, KeyCompositeSumsSignedScales) {
+    engine::ecs::World world;
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
+    const engine::ActionId move_x = input.intern("move_x");
+    input.bind(engine::KeyCode::D, move_x, 1.f);
+    input.bind(engine::KeyCode::A, move_x, -1.f);
+
+    EXPECT_FLOAT_EQ(input.axis(move_x), 0.f);
+    input.handle_key(engine::KeyCode::D, true);
+    EXPECT_FLOAT_EQ(input.axis(move_x), 1.f);
+    input.handle_key(engine::KeyCode::A, true);
+    EXPECT_FLOAT_EQ(input.axis(move_x), 0.f);
+    input.handle_key(engine::KeyCode::D, false);
+    EXPECT_FLOAT_EQ(input.axis(move_x), -1.f);
+    // A held key is a state, not a frame's motion.
+    input.begin_frame();
+    EXPECT_FLOAT_EQ(input.axis(move_x), -1.f);
+    input.handle_key(engine::KeyCode::A, false);
+    EXPECT_FLOAT_EQ(input.axis(move_x), 0.f);
+
+    const std::vector<engine::InputEvent> events = read_input(world);
+    ASSERT_EQ(events.size(), 4u);
+    EXPECT_EQ(events[0].kind, engine::InputEvent::Kind::Down);
+    EXPECT_FLOAT_EQ(events[0].value, 1.f);
+    EXPECT_EQ(events[1].kind, engine::InputEvent::Kind::Down);
+    EXPECT_FLOAT_EQ(events[1].value, -1.f);
+    EXPECT_EQ(events[2].kind, engine::InputEvent::Kind::Up);
+    EXPECT_FLOAT_EQ(events[2].value, 0.f);
+}
+
+TEST(Input, DigitalAxisClampedToUnit) {
+    engine::ecs::World world;
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
+    const engine::ActionId forward = input.intern("forward");
+    input.bind(engine::KeyCode::W, forward);
+    input.bind(engine::KeyCode::Up, forward);
+
+    input.handle_key(engine::KeyCode::W, true);
+    input.handle_key(engine::KeyCode::Up, true);
+
+    EXPECT_FLOAT_EQ(input.axis(forward), 1.f);
+    EXPECT_FLOAT_EQ(input.axis(engine::ActionId::Invalid), 0.f);
+}
+
+TEST(Input, DigitalAndMouseOnOneActionAdd) {
+    engine::ecs::World world;
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
+    const engine::ActionId turn = input.intern("turn");
+    input.bind(engine::KeyCode::Right, turn);
+    input.bind(engine::MouseAxis::X, turn, 0.1f);
+
+    input.handle_key(engine::KeyCode::Right, true);
+    input.handle_mouse_move(engine::kPrimaryWindow, glm::vec2{}, glm::vec2{30.f, 0.f});
+
+    EXPECT_FLOAT_EQ(input.axis(turn), 4.f);
+}
+
+TEST(Input, PrimaryTouchMoveFeedsMouseAxis) {
+    engine::ecs::World world;
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
+    const engine::ActionId look_x = input.intern("look_x");
+    input.bind(engine::MouseAxis::X, look_x);
+
+    input.handle_touch(1, true, glm::vec2{10.f, 10.f});
+    input.handle_touch_move(1, glm::vec2{16.f, 10.f}, glm::vec2{6.f, 0.f});
+    input.handle_touch(2, true, glm::vec2{50.f, 10.f});
+    input.handle_touch_move(2, glm::vec2{80.f, 10.f}, glm::vec2{30.f, 0.f});
+
+    EXPECT_FLOAT_EQ(input.axis(look_x), 6.f);
+}
+
+TEST(Input, LockedWindowStampsItsMouseEvents) {
+    engine::ecs::World world;
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
+    const engine::WindowId other{5};
+
+    input.set_mouse_locked(engine::kPrimaryWindow, true);
+    EXPECT_TRUE(input.is_mouse_locked(engine::kPrimaryWindow));
+    EXPECT_FALSE(input.is_mouse_locked(other));
+    input.handle_mouse_button(engine::kPrimaryWindow, engine::MouseButton::Left, true, glm::vec2{});
+    input.handle_mouse_move(engine::kPrimaryWindow, glm::vec2{}, glm::vec2{1.f, 0.f});
+    input.handle_mouse_wheel(engine::kPrimaryWindow, glm::vec2{}, 1.f);
+    input.handle_mouse_button(engine::kPrimaryWindow, engine::MouseButton::Left, false, glm::vec2{});
+    input.handle_mouse_move(other, glm::vec2{}, glm::vec2{1.f, 0.f});
+    input.set_mouse_locked(engine::kPrimaryWindow, false);
+    input.handle_mouse_move(engine::kPrimaryWindow, glm::vec2{}, glm::vec2{1.f, 0.f});
+
+    const std::vector<engine::MouseEvent> events = read_mouse(world);
+    ASSERT_EQ(events.size(), 6u);
+    for (std::size_t i = 0; i < 4; ++i) {
+        EXPECT_TRUE(events[i].locked) << i;
+    }
+    EXPECT_FALSE(events[4].locked);
+    EXPECT_FALSE(events[5].locked);
+}
+
+TEST(Input, ResetClearsMotionAndLocks) {
+    engine::ecs::World world;
+    engine::InputSystem input;
+    input.set_router([&world](engine::WindowId) { return &world; });
+    input.bind(engine::MouseAxis::X, "look_x");
+    input.set_mouse_locked(engine::kPrimaryWindow, true);
+    input.handle_mouse_move(engine::kPrimaryWindow, glm::vec2{}, glm::vec2{4.f, 0.f});
+
+    input.reset();
+    const engine::ActionId look_x = input.intern("look_x");
+    input.bind(engine::MouseAxis::X, look_x);
+
+    EXPECT_FLOAT_EQ(input.axis(look_x), 0.f);
+    EXPECT_FALSE(input.is_mouse_locked(engine::kPrimaryWindow));
+}

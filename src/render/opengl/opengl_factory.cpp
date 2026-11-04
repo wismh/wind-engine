@@ -22,7 +22,7 @@ void OpenGLFactory::set_context_activator(std::function<void()> make_current) {
 
 std::shared_ptr<IMesh> OpenGLFactory::create_mesh(const MeshDesc& desc) {
     const ContextScope scope(make_current_);
-    auto mesh = std::make_shared<OpenGLMesh>(desc);
+    auto mesh = std::make_shared<OpenGLMesh>(desc, make_current_);
     if (!mesh->valid()) {
         return {};
     }
@@ -46,6 +46,15 @@ std::shared_ptr<IShader> OpenGLFactory::create_shader(const ShaderDesc& desc) {
 std::shared_ptr<IDynamicTexture> OpenGLFactory::create_dynamic_texture(const DynamicTextureDesc& desc) {
     const ContextScope scope(make_current_);
     auto texture = std::make_shared<OpenGLTexture>(desc, make_current_);
+    if (!texture->valid()) {
+        return {};
+    }
+    return texture;
+}
+
+std::shared_ptr<ITexture> OpenGLFactory::create_texture_array(const TextureArrayDesc& desc) {
+    const ContextScope scope(make_current_);
+    auto texture = std::make_shared<OpenGLTexture>(desc);
     if (!texture->valid()) {
         return {};
     }

@@ -37,6 +37,25 @@ TEST(OpenGLFactory, DynamicTextureCreationRunsTheActivatorAndRejectsAnEmptySize)
     EXPECT_EQ(factory.create_dynamic_texture(engine::render::DynamicTextureDesc{.width = -1, .height = 4}), nullptr);
 }
 
+// Only invalid descs: there is no GL context here, and a rejected desc must not reach a GL call.
+TEST(OpenGLFactory, TextureArrayRejectsAnInvalidDescBeforeAnyGlCall) {
+    int activator_calls = 0;
+    engine::render::OpenGLFactory factory([&activator_calls] {
+        ++activator_calls;
+    });
+
+    EXPECT_EQ(factory.create_texture_array(engine::render::TextureArrayDesc{}), nullptr);
+    EXPECT_EQ(activator_calls, 1);
+    engine::render::TextureArrayDesc short_pixels{.width = 2, .height = 2, .layers = 2};
+    short_pixels.rgba.assign(2 * 2 * 4 * 2 - 1, 0);
+    EXPECT_EQ(factory.create_texture_array(short_pixels), nullptr);
+    engine::render::TextureArrayDesc too_many{.width = 1, .height = 1,
+            .layers = engine::render::kMaxTextureArrayLayers + 1};
+    too_many.rgba.assign(4 * static_cast<std::size_t>(too_many.layers), 0);
+    EXPECT_EQ(factory.create_texture_array(too_many), nullptr);
+    EXPECT_EQ(activator_calls, 3);
+}
+
 TEST(OpenGLTexture, FlipIntoMatchesFlipAndReusesTheBuffer) {
     const std::vector<std::uint8_t> input = {
             1, 2, 3, 4, 5, 6, 7, 8,

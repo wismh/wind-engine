@@ -16,13 +16,15 @@ namespace engine {
 class HttpClient;
 class IAudioSystem;
 class InputSystem;
+class JobSystem;
 class ProcessLauncher;
 
 // Frame clock and present order. Knows IPresentation, not SDL or OpenGL.
 class GameLoop {
 public:
     [[nodiscard]] int run(IPresentation& presentation, RunHooks hooks, Worlds& worlds, InputSystem& input,
-            IAudioSystem* audio, HttpClient* http, ProcessLauncher* processes, std::function<void()> host_dispose);
+            IAudioSystem* audio, HttpClient* http, ProcessLauncher* processes, JobSystem* jobs,
+            std::function<void()> host_dispose);
 
 private:
     void begin();
@@ -44,6 +46,7 @@ private:
     IAudioSystem* audio_ = nullptr;
     HttpClient* http_ = nullptr;
     ProcessLauncher* processes_ = nullptr;
+    JobSystem* jobs_ = nullptr;
     std::chrono::steady_clock::time_point last_{};
     std::function<void()> host_dispose_;
     LoopShutdown shutdown_;

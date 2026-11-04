@@ -1,4 +1,4 @@
-# Game functions: engine_prepare_runtime, engine_configure_app, engine_add_game, engine_add_web_game,
+# Game functions: engine_prepare_runtime, engine_configure_app, engine_add_game, engine_add_server, engine_add_web_game,
 # engine_add_android_game. Included by the engine's root CMakeLists.txt (source build) and by an installed
 # editor SDK's WindConfig.cmake (SDK mode, find_package(Wind)). docs/tech/build/CMake.md
 #
@@ -10,6 +10,8 @@
 #   ENGINE_BUILTIN_ASSETS_DIR  builtin assets copied to <output>/assets/engine/
 #   ENGINE_COOKED_CATALOG      cooked catalog.toml for those builtins
 #   ENGINE_CMAKE_DIR           the engine source tree (cmake/web/link_flags.cmake)
+#   ENGINE_GNS_RUNTIME_DLLS    on Windows, the GameNetworkingSockets DLLs copied beside a server or a game's executable
+#   ENGINE_SLANG_RUNTIME_DLLS  on Windows, the Slang DLLs copied beside a game's executable
 # The source build also defines the target `engine_builtin_catalog`, which cooks ENGINE_COOKED_CATALOG. In
 # the SDK the catalog is already cooked under bin/assets/engine/.
 
@@ -100,6 +102,10 @@ function(engine_debuggame_flags)
     endforeach()
 endfunction()
 
+# Under the old behaviour the stage command below, which names the target's directory, would depend on the target:
+# a cycle, in a game whose cmake_minimum_required is older than 3.19.
+cmake_policy(SET CMP0112 NEW)
+
 # Copy assets/engine (builtins + cooked catalog) and, when present, the consumer's assets/
 # beside a runtime target. Games normally call `engine_add_game` instead of this directly.
 # A game module built against the SDK gets only its own assets/: the editor that loads it has engine.dll and
@@ -120,13 +126,11 @@ function(engine_prepare_runtime target)
     # Editor build on Windows: the loader looks for engine.dll beside the executable. A game's
     # bin/ is not engine's output directory when Wind is a subdirectory, so copy it there.
     get_target_property(_engine_type engine TYPE)
-    if(WIN32 AND _engine_side AND _engine_type STREQUAL "SHARED_LIBRARY")
-        add_custom_command(TARGET ${target} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "$<TARGET_FILE:engine>"
-                "$<TARGET_FILE_DIR:${target}>"
-            COMMENT "Copy engine.dll beside ${target}"
-            VERBATIM)
+    get_property(_server_app TARGET ${target} PROPERTY ENGINE_SERVER_APP)
+    # A server against the SDK links the static Server player, whatever `engine` is there.
+    set(_copy_engine_dll OFF)
+    if(WIN32 AND _engine_side AND _engine_type STREQUAL "SHARED_LIBRARY" AND NOT (ENGINE_FROM_SDK AND _server_app))
+        set(_copy_engine_dll ON)
     endif()
 
     # ENGINE_RUNTIME_ASSETS_DIR puts the target's own assets and catalog in assets/<dir>/ instead of
@@ -138,39 +142,89 @@ function(engine_prepare_runtime target)
         set(_engine_app_assets_out "$<TARGET_FILE_DIR:${target}>/assets")
     endif()
 
+    if(_target_type STREQUAL "SHARED_LIBRARY" AND NOT WIN32)
+        get_target_property(_runtime_dir ${target} LIBRARY_OUTPUT_DIRECTORY)
+    else()
+        get_target_property(_runtime_dir ${target} RUNTIME_OUTPUT_DIRECTORY)
+    endif()
+    if(NOT _runtime_dir)
+        set(_runtime_dir "${CMAKE_CURRENT_BINARY_DIR}")
+    endif()
+    get_target_property(_bundle ${target} MACOSX_BUNDLE)
+    if(APPLE AND _bundle)
+        set(_runtime_dir "${_runtime_dir}/${target}.app")
+    endif()
+
+    # Staging is a target of its own, ordered before ${target}: it follows the asset files, not the link, because an
+    # edited asset leaves asset_ids.h as it was and so relinks nothing. It writes only the staged tree. The sole writer
+    # of generated/<target>/ is the custom command of <target>_assets in engine_configure_app, so nothing rewrites a
+    # header while another target compiles against it. Targets that stage the same assets to the same place (a game and
+    # its server, the editor and its tests) share the first one's stage, so that place also has one writer.
     set(_engine_game_assets "${CMAKE_CURRENT_SOURCE_DIR}/assets")
     if(EXISTS "${_engine_game_assets}")
-        set(_gen_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/${target}")
-        add_custom_command(TARGET ${target} POST_BUILD
-            COMMAND asset_codegen
-                "${_engine_game_assets}"
-                "${_gen_dir}"
-                --project "${CMAKE_CURRENT_SOURCE_DIR}"
-                --stage "${_engine_app_assets_out}"
-            COMMENT "Stage cooked game assets beside ${target}"
-            VERBATIM)
+        string(MD5 _stage_key "${_runtime_dir};${_runtime_assets_dir};${_engine_game_assets}")
+        get_property(_stage GLOBAL PROPERTY ENGINE_STAGE_${_stage_key})
+        if(NOT _stage)
+            set(_stage ${target}_stage)
+            set_property(GLOBAL PROPERTY ENGINE_STAGE_${_stage_key} ${_stage})
+            file(GLOB_RECURSE _engine_game_asset_files CONFIGURE_DEPENDS "${_engine_game_assets}/*")
+            set(_stage_stamp "${CMAKE_CURRENT_BINARY_DIR}/generated/${target}/stage.$<CONFIG>.stamp")
+            set(_stage_extra)
+            if(ANDROID AND ENGINE_ANDROID_ASSETS_OUT)
+                set(_stage_extra
+                    COMMAND ${CMAKE_COMMAND} -E copy_directory "${_engine_app_assets_out}" "${ENGINE_ANDROID_ASSETS_OUT}")
+            endif()
+            add_custom_command(
+                OUTPUT "${_stage_stamp}"
+                COMMAND asset_codegen
+                    "${_engine_game_assets}"
+                    --stage "${_engine_app_assets_out}"
+                    --project "${CMAKE_CURRENT_SOURCE_DIR}"
+                ${_stage_extra}
+                COMMAND ${CMAKE_COMMAND} -E touch "${_stage_stamp}"
+                DEPENDS asset_codegen ${_engine_game_asset_files}
+                COMMENT "Stage cooked game assets beside ${target}"
+                VERBATIM)
+            add_custom_target(${_stage} DEPENDS "${_stage_stamp}")
+        endif()
+        add_dependencies(${target} ${_stage})
     endif()
 
+    # What the engine brings is the same for every target in one output directory (bin/ holds engine_tests, wind_editor,
+    # wind_editor_tests, and the server fixture), so that directory gets one step that they all depend on. A POST_BUILD
+    # on each would write the same files in parallel and fail with "Permission denied" on Windows.
     if(_engine_side)
-        add_custom_command(TARGET ${target} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${ENGINE_BUILTIN_ASSETS_DIR}"
-                "$<TARGET_FILE_DIR:${target}>/assets/engine"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${ENGINE_COOKED_CATALOG}"
-                "$<TARGET_FILE_DIR:${target}>/assets/engine/catalog.toml"
-            COMMENT "Copy engine assets and cooked catalog beside ${target}"
-            VERBATIM)
-    endif()
-
-    get_property(_game_catalog TARGET ${target} PROPERTY ENGINE_GAME_CATALOG)
-    if(_game_catalog)
-        add_custom_command(TARGET ${target} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${_game_catalog}"
-                "${_engine_app_assets_out}/catalog.toml"
-            COMMENT "Install cooked game catalog for ${target}"
-            VERBATIM)
+        string(MD5 _runtime_key "${_runtime_dir}")
+        set(_runtime_step engine_runtime_${_runtime_key})
+        if(NOT TARGET ${_runtime_step})
+            file(GLOB_RECURSE _engine_builtin_files CONFIGURE_DEPENDS "${ENGINE_BUILTIN_ASSETS_DIR}/*")
+            set(_runtime_stamp "${CMAKE_BINARY_DIR}/generated/engine_runtime/${_runtime_key}.$<CONFIG>.stamp")
+            set(_copy_dll_command)
+            set(_copy_dll_depends)
+            if(_copy_engine_dll)
+                set(_copy_dll_command
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:engine>" "$<TARGET_FILE_DIR:${target}>")
+                set(_copy_dll_depends engine)
+            endif()
+            add_custom_command(
+                OUTPUT "${_runtime_stamp}"
+                COMMAND ${CMAKE_COMMAND} -E copy_directory
+                    "${ENGINE_BUILTIN_ASSETS_DIR}"
+                    "$<TARGET_FILE_DIR:${target}>/assets/engine"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${ENGINE_COOKED_CATALOG}"
+                    "$<TARGET_FILE_DIR:${target}>/assets/engine/catalog.toml"
+                ${_copy_dll_command}
+                COMMAND ${CMAKE_COMMAND} -E touch "${_runtime_stamp}"
+                DEPENDS "${ENGINE_COOKED_CATALOG}" ${_engine_builtin_files} ${_copy_dll_depends}
+                COMMENT "Copy engine assets and cooked catalog beside ${target}"
+                VERBATIM)
+            add_custom_target(${_runtime_step} DEPENDS "${_runtime_stamp}")
+            if(NOT ENGINE_FROM_SDK)
+                add_dependencies(${_runtime_step} engine_builtin_catalog)
+            endif()
+        endif()
+        add_dependencies(${target} ${_runtime_step})
     endif()
 
     if(ANDROID AND ENGINE_ANDROID_ASSETS_OUT)
@@ -199,10 +253,16 @@ function(engine_configure_app target)
     if((ENGINE_EDITOR OR ENGINE_FROM_SDK) AND _type STREQUAL "SHARED_LIBRARY")
         set(_module ON)
     endif()
+    # engine_add_server: a console program with no window, so no icon, linking the server's engine.
+    get_property(_server_app TARGET ${target} PROPERTY ENGINE_SERVER_APP)
     if(APPLE)
         # Package as a .app bundle so MACOSX_BUNDLE_ICON_FILE / MACOSX_PACKAGE_LOCATION below
-        # take effect; ignored by CMake on non-Apple platforms either way.
-        set_target_properties(${target} PROPERTIES MACOSX_BUNDLE ON)
+        # take effect; ignored by CMake on non-Apple platforms either way. A target that sets MACOSX_BUNDLE OFF
+        # first (the editor, a server) lands in bin/ itself, which engine_prepare_runtime has to know.
+        get_property(_bundle_chosen TARGET ${target} PROPERTY MACOSX_BUNDLE SET)
+        if(NOT _bundle_chosen)
+            set_target_properties(${target} PROPERTIES MACOSX_BUNDLE ON)
+        endif()
     endif()
     set_target_properties(${target} PROPERTIES
         CXX_STANDARD 23
@@ -237,7 +297,7 @@ function(engine_configure_app target)
         # what /PDBALTPATH:%_PDB% means. %_PDB% is an MSBuild macro, so the name comes from the generator
         # expression instead and the debugger finds the copied PDB.
         target_link_options(${target} PRIVATE "/PDBALTPATH:$<TARGET_PDB_FILE_NAME:${target}>")
-    elseif(WIN32 AND MSVC AND _type STREQUAL "EXECUTABLE")
+    elseif(WIN32 AND MSVC AND _type STREQUAL "EXECUTABLE" AND NOT _server_app)
         # Release-ish configs hide the console window (players shouldn't see a terminal); Debug
         # keeps it so spdlog output is visible live. /ENTRY:mainCRTStartup keeps the ordinary
         # int main(int, char**) entry point instead of requiring a WinMain — the CRT startup
@@ -247,7 +307,11 @@ function(engine_configure_app target)
             "$<$<NOT:$<CONFIG:Debug>>:/SUBSYSTEM:WINDOWS>"
             "$<$<NOT:$<CONFIG:Debug>>:/ENTRY:mainCRTStartup>")
     endif()
-    target_link_libraries(${target} PRIVATE engine)
+    if(_server_app)
+        target_link_libraries(${target} PRIVATE engine_server)
+    else()
+        target_link_libraries(${target} PRIVATE engine)
+    endif()
 
     set(_include "${CMAKE_CURRENT_SOURCE_DIR}/include")
     if(EXISTS "${_include}")
@@ -294,10 +358,14 @@ function(engine_configure_app target)
         add_dependencies(${target} ${target}_assets)
         set_property(TARGET ${target} PROPERTY ENGINE_GAME_CATALOG "${_gen}/catalog.toml")
         set_property(TARGET ${target} PROPERTY ENGINE_GAME_ASSETS "${_assets}")
+        if(EMSCRIPTEN)
+            # The link packs the assets (engine_target_web_preload), so an edited asset has to relink.
+            set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS ${_asset_files})
+        endif()
     endif()
 
     set(_icon "${CMAKE_CURRENT_SOURCE_DIR}/icon.png")
-    if(EXISTS "${_icon}")
+    if(EXISTS "${_icon}" AND NOT _server_app)
         if(NOT TARGET icon_codegen)
             message(FATAL_ERROR "engine_configure_app(${target}): icon.png present but icon_codegen is not a target")
         endif()
@@ -444,6 +512,85 @@ function(engine_add_game target)
         endif()
     endif()
     engine_configure_app(${target})
+    # A module runs beside the editor, which has them. An executable is on its own: Windows will not start it without
+    # the DLLs it imports, and an Export copies this directory. GameNetworkingSockets goes too: the import appears only
+    # when the game uses a transport, which CMake cannot tell here.
+    get_target_property(_game_type ${target} TYPE)
+    if(_game_type STREQUAL "EXECUTABLE")
+        engine_copy_runtime_dlls(${target} ${ENGINE_SLANG_RUNTIME_DLLS})
+        engine_copy_runtime_dlls(${target} ${ENGINE_GNS_RUNTIME_DLLS})
+    endif()
+endfunction()
+
+# Copies one set of DLLs beside `target`, and is the only thing that does. Nothing off Windows, or with no DLLs. Several
+# targets land in one directory and need the same set (the tools and tests in bin/, a game and its server), so each
+# directory and set is one step that they all depend on: a POST_BUILD on each would write the same files in parallel, which
+# fails on Windows.
+function(engine_copy_runtime_dlls target)
+    if(NOT WIN32 OR NOT ARGN)
+        return()
+    endif()
+    get_target_property(_dir ${target} RUNTIME_OUTPUT_DIRECTORY)
+    if(NOT _dir)
+        set(_dir "${CMAKE_CURRENT_BINARY_DIR}")
+    endif()
+    string(MD5 _key "${_dir};${ARGN}")
+    set(_step engine_dlls_${_key})
+    if(NOT TARGET ${_step})
+        set(_stamp "${CMAKE_BINARY_DIR}/generated/engine_runtime/dlls_${_key}.$<CONFIG>.stamp")
+        add_custom_command(
+            OUTPUT "${_stamp}"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${target}>"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${ARGN} "$<TARGET_FILE_DIR:${target}>"
+            COMMAND ${CMAKE_COMMAND} -E touch "${_stamp}"
+            DEPENDS ${ARGN}
+            COMMENT "Copy runtime DLLs beside ${target}"
+            VERBATIM)
+        add_custom_target(${_step} DEPENDS "${_stamp}")
+    endif()
+    add_dependencies(${target} ${_step})
+endfunction()
+
+# Dedicated server: always an executable, in every mode, that the game's source enters with ENGINE_GAME_SERVER
+# (<engine/server_entry.h>). No window and no SDL: a console program in every configuration. In the source build it links
+# `engine` (configure with ENGINE_WITH_WINDOW and ENGINE_WITH_AUDIO OFF for one without SDL). Against an SDK it links the
+# Server player libraries (<sdk>/player/Server), beside the module of `engine_add_game` in the same tree; an SDK without
+# them (a Debug SDK, macOS, Linux without the GameNetworkingSockets source) skips the target, so the game still configures
+# for the editor. On Windows the GameNetworkingSockets DLLs land beside it.
+function(engine_add_server target)
+    if(NOT ARGN)
+        message(FATAL_ERROR "engine_add_server(${target}): pass at least one source file")
+    endif()
+    if(NOT TARGET engine)
+        message(FATAL_ERROR "engine_add_server: find_package(Wind) first")
+    endif()
+    if(EMSCRIPTEN OR ANDROID)
+        message(FATAL_ERROR "engine_add_server(${target}): a dedicated server is a desktop program")
+    endif()
+    if(ENGINE_FROM_SDK AND NOT TARGET engine_server)
+        wind_export_server_problem("${WIND_SDK_DIR}" "${WIND_SDK_CONFIG}" _problem)
+        if(NOT _problem STREQUAL "")
+            message(STATUS "engine_add_server(${target}): skipped, ${_problem}")
+            return()
+        endif()
+        wind_export_import_server("${WIND_SDK_DIR}")
+    endif()
+
+    add_executable(${target} ${ARGN})
+    set_property(TARGET ${target} PROPERTY ENGINE_SERVER_APP ON)
+    if(ENGINE_FROM_SDK AND MSVC)
+        # The CRT of the player libraries.
+        set_target_properties(${target} PROPERTIES MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
+    endif()
+    # Where the executable of each configuration lands, the record an export has.
+    file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/wind/${target}.$<CONFIG>.export" CONTENT "$<TARGET_FILE_DIR:${target}>")
+    set_target_properties(${target} PROPERTIES MACOSX_BUNDLE OFF)
+    engine_configure_app(${target})
+    engine_copy_runtime_dlls(${target} ${ENGINE_GNS_RUNTIME_DLLS})
+    # The Server player of an SDK has no Slang. The source build's engine does when it has a window.
+    if(NOT ENGINE_FROM_SDK)
+        engine_copy_runtime_dlls(${target} ${ENGINE_SLANG_RUNTIME_DLLS})
+    endif()
 endfunction()
 
 function(engine_add_web_game target)

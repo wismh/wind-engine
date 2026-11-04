@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -263,4 +264,42 @@ TEST(PlaySession, DestructorStops) {
     EXPECT_NE(std::ranges::find(editor.log, "game.destroy"), editor.log.end());
     EXPECT_EQ(world_count(services.worlds), 1u);
     EXPECT_EQ(live.copies(), 0u);
+}
+
+TEST(PlaySession, StopWaitsForARunningGameJobBeforeTheUnload) {
+    LiveRoot live;
+    fakes::Services services{2};
+    EditorSide editor{services};
+    const auto jobs = std::make_shared<fixture::FixtureJobs>();
+    editor.world.ctx<fixture::FixtureLog>().jobs = jobs;
+    // The test and the log hold it; the job's function adds one while it exists.
+    const long held = jobs.use_count();
+    editor::PlaySession session{services.services, editor.host, live.path(), kIdle};
+    ASSERT_TRUE(session.play(kFixture).has_value());
+    // The fixture's job is now running module code on a worker, until its call is cancelled.
+    jobs->started.wait(false);
+
+    session.stop();
+
+    EXPECT_TRUE(jobs->finished.load()) << "Stop returned while the module's job was still running";
+    EXPECT_EQ(jobs.use_count(), held) << "the job's function was not destroyed before the unload";
+    EXPECT_EQ(live.copies(), 0u);
+}
+
+TEST(PlaySession, StopDropsAQueuedGameJob) {
+    LiveRoot live;
+    fakes::Services services;
+    EditorSide editor{services};
+    const auto jobs = std::make_shared<fixture::FixtureJobs>();
+    editor.world.ctx<fixture::FixtureLog>().jobs = jobs;
+    // The test and the log hold it; the job's function adds one while it exists.
+    const long held = jobs.use_count();
+    editor::PlaySession session{services.services, editor.host, live.path(), kIdle};
+    ASSERT_TRUE(session.play(kFixture).has_value());
+    ASSERT_EQ(jobs.use_count(), held + 1) << "the fixture queued its job";
+
+    session.stop();
+
+    EXPECT_FALSE(jobs->started.load()) << "no workers and no poll: the job never ran";
+    EXPECT_EQ(jobs.use_count(), held);
 }

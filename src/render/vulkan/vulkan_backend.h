@@ -87,9 +87,12 @@ private:
     [[nodiscard]] bool ensure_shared_objects();
     [[nodiscard]] bool ensure_frame_slot(std::uint32_t slot);
     [[nodiscard]] bool ensure_particle_resources();
+    // The override's or material's albedo when its kind matches the shader's sampler (`arrayed`: a texture array),
+    // otherwise a white 2D texture or a white one-layer array, so the descriptor's view type always matches.
     [[nodiscard]] VulkanTexture* resolve_albedo(
         const IMaterial& material,
-        const MaterialOverride* override_params);
+        const MaterialOverride* override_params,
+        bool arrayed);
     [[nodiscard]] VkPipeline get_or_create_pipeline(
         VulkanShader& shader,
         const RenderState& state,
@@ -115,6 +118,7 @@ private:
     std::array<FrameSlot, kMaxFrameSlots> frame_slots_{};
 
     std::shared_ptr<VulkanTexture> white_texture_;
+    std::shared_ptr<VulkanTexture> white_texture_array_;
     std::shared_ptr<VulkanShader> particle_shader_;
     VkBuffer particle_quad_buffer_ = VK_NULL_HANDLE;
     VkDeviceMemory particle_quad_memory_ = VK_NULL_HANDLE;

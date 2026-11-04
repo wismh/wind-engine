@@ -25,18 +25,20 @@ int main(int argc, char** argv) {
     }
 
     if (argc < 3) {
-        std::cerr << "usage: asset_codegen <assets_dir> <output_dir> [--engine] [--project <dir>] [--stage <dir>]\n"
+        std::cerr << "usage: asset_codegen <assets_dir> <output_dir> [--engine] [--project <dir>]\n"
+                  << "       asset_codegen <assets_dir> --stage <stage_dir> [--project <dir>]\n"
                   << "       asset_codegen --components <output_file> [<source_dir>...]\n";
         return 2;
     }
 
     const std::filesystem::path assets_dir = argv[1];
-    const std::filesystem::path output_dir = argv[2];
+    const bool stage_only = std::string_view(argv[2]) == "--stage";
+    const std::filesystem::path output_dir = stage_only ? std::filesystem::path{} : std::filesystem::path{argv[2]};
     bool engine_builtins = false;
     std::filesystem::path project_dir;
     std::filesystem::path stage_dir;
 
-    for (int i = 3; i < argc; ++i) {
+    for (int i = stage_only ? 2 : 3; i < argc; ++i) {
         const std::string_view arg = argv[i];
         if (arg == "--engine") {
             engine_builtins = true;
@@ -45,6 +47,12 @@ int main(int argc, char** argv) {
         } else if (arg == "--stage" && i + 1 < argc) {
             stage_dir = argv[++i];
         }
+    }
+
+    // One run writes either the generated directory or the staged tree: the build orders them separately.
+    if (stage_only == stage_dir.empty()) {
+        std::cerr << "asset_codegen: --stage <stage_dir> replaces <output_dir>\n";
+        return 2;
     }
 
     std::vector<std::string> roots;
@@ -70,7 +78,8 @@ int main(int argc, char** argv) {
 
     const std::span<const engine::AssetId> reserved =
             engine_builtins ? std::span<const engine::AssetId>{} : engine::builtin::reserved();
-    const auto result = engine::codegen_write(assets_dir, output_dir, reserved, roots, always_include, stage_dir);
+    const auto result = stage_only ? engine::codegen_stage(assets_dir, stage_dir, reserved, roots, always_include)
+                                   : engine::codegen_write(assets_dir, output_dir, reserved, roots, always_include);
     if (!result) {
         std::cerr << result.error().message << '\n';
         return 1;

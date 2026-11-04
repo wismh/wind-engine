@@ -223,6 +223,49 @@ TEST(Scaffold, EngineAddGameEmbedsWindowsIconResource) {
 #endif
 }
 
+TEST(Scaffold, DedicatedServerWiring) {
+#ifdef ENGINE_SOURCE_DIR
+    const std::filesystem::path root{ENGINE_SOURCE_DIR};
+    const auto slurp = [](const std::filesystem::path& path) {
+        std::ifstream in(path);
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    };
+    const std::string cmake = slurp(root / "CMakeLists.txt");
+    const std::string game = slurp(root / "cmake" / "wind_game.cmake");
+    const std::string exports = slurp(root / "cmake" / "wind_export.cmake");
+    const std::string driver = slurp(root / "cmake" / "player_build.cmake");
+    const std::string modules = slurp(root / ".gitmodules");
+
+    // A server is always an executable that links the server's engine, with a console in every configuration.
+    const std::size_t server = game.find("function(engine_add_server target)");
+    ASSERT_NE(server, std::string::npos);
+    EXPECT_NE(game.find("add_executable(${target} ${ARGN})", server), std::string::npos);
+    EXPECT_NE(game.find("target_link_libraries(${target} PRIVATE engine_server)"), std::string::npos);
+    EXPECT_NE(game.find("elseif(WIN32 AND MSVC AND _type STREQUAL \"EXECUTABLE\" AND NOT _server_app)"), std::string::npos);
+    EXPECT_NE(game.find("ENGINE_GNS_RUNTIME_DLLS", server), std::string::npos);
+
+    // The source build's engine_server is the engine; an SDK's is the Server player, in every game configuration.
+    EXPECT_NE(cmake.find("add_library(engine_server ALIAS engine)"), std::string::npos);
+    EXPECT_NE(exports.find("add_library(engine_server INTERFACE IMPORTED GLOBAL)"), std::string::npos);
+    EXPECT_NE(exports.find("WindPlayerServer::engine"), std::string::npos);
+
+    // The Server player has no SDL.
+    const std::size_t flavour = driver.find("if(_flavour STREQUAL \"Server\")");
+    ASSERT_NE(flavour, std::string::npos);
+    EXPECT_NE(driver.find("-DENGINE_WITH_WINDOW=OFF -DENGINE_WITH_AUDIO=OFF", flavour), std::string::npos);
+    EXPECT_NE(cmake.find("ENGINE_PLAYER=Server has neither"), std::string::npos);
+
+    // An exported target names an import library inside the player, not in this checkout: an SDK moves.
+    EXPECT_NE(cmake.find("$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/lib/GameNetworkingSockets.lib>"), std::string::npos);
+    EXPECT_NE(cmake.find("$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/lib/slang.lib>"), std::string::npos);
+
+    // The GameNetworkingSockets source is an opt-in: a plain recursive update must not clone its nested webrtc.
+    const std::size_t submodule = modules.find("external/GameNetworkingSockets-src");
+    ASSERT_NE(submodule, std::string::npos);
+    EXPECT_NE(modules.find("update = none", submodule), std::string::npos);
+#endif
+}
+
 TEST(Scaffold, EngineAddGameBundlesMacIcon) {
 #ifdef ENGINE_SOURCE_DIR
     const std::filesystem::path root{ENGINE_SOURCE_DIR};
@@ -562,6 +605,25 @@ TEST(Scaffold, ExportLinksThePrebuiltPlayerLibrariesWhenTheSdkHasThemAndFallsBac
     ASSERT_FALSE(player.empty());
     ASSERT_FALSE(manifest.empty());
 
+    // A game's executable imports DLLs the static engine does not carry: Windows will not start it without them, and an
+    // Export copies the directory it lands in. Both the source build and the SDK name them.
+    const std::size_t add_game = game.find("function(engine_add_game target)");
+    ASSERT_NE(add_game, std::string::npos);
+    EXPECT_NE(game.find("engine_copy_runtime_dlls(${target} ${ENGINE_SLANG_RUNTIME_DLLS})", add_game), std::string::npos);
+    EXPECT_NE(game.find("engine_copy_runtime_dlls(${target} ${ENGINE_GNS_RUNTIME_DLLS})", add_game), std::string::npos);
+    // One step per directory and set, not a POST_BUILD per target: a game and its server can share a directory, and so
+    // do the tools and tests in bin/. It is the only thing that copies them.
+    EXPECT_EQ(cmake.find("Copy Slang DLLs"), std::string::npos);
+    EXPECT_EQ(cmake.find("Copy GameNetworkingSockets DLLs"), std::string::npos);
+    EXPECT_NE(cmake.find("engine_copy_runtime_dlls(engine_tests "), std::string::npos);
+    // Targets staging the same assets to the same place share one stage.
+    EXPECT_NE(game.find("ENGINE_STAGE_${_stage_key}"), std::string::npos);
+    const std::size_t copy = game.find("function(engine_copy_runtime_dlls target)");
+    ASSERT_NE(copy, std::string::npos);
+    EXPECT_EQ(game.substr(copy, game.find("endfunction()", copy) - copy).find("POST_BUILD"), std::string::npos);
+    EXPECT_NE(cmake.find("set(ENGINE_SLANG_RUNTIME_DLLS "), std::string::npos);
+    EXPECT_NE(sdk.find("set(ENGINE_SLANG_RUNTIME_DLLS "), std::string::npos);
+
     // The engine repo builds a player (static engine of one flavour) in a tree of its own, exports it with every static
     // library it links, and installs it for the SDK in <sdk>/player/<flavour>/. Development has the profiler and the
     // CLI server in every configuration, Shipping neither; both link the release DLL CRT.
@@ -569,7 +631,8 @@ TEST(Scaffold, ExportLinksThePrebuiltPlayerLibrariesWhenTheSdkHasThemAndFallsBac
     EXPECT_NE(cmake.find("set(ENGINE_PLAYER \"\" CACHE STRING"), std::string::npos);
     EXPECT_NE(cmake.find("if(ENGINE_EDITOR OR ENGINE_PLAYER STREQUAL \"Development\")\n    set(_engine_tools_config 1)"),
             std::string::npos);
-    EXPECT_NE(cmake.find("elseif(ENGINE_PLAYER STREQUAL \"Shipping\")\n    set(_engine_tools_config 0)"), std::string::npos);
+    EXPECT_NE(cmake.find("elseif(ENGINE_PLAYER STREQUAL \"Shipping\" OR ENGINE_PLAYER STREQUAL \"Server\")\n    set(_engine_tools_config 0)"),
+            std::string::npos);
     EXPECT_NE(cmake.find("set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL)"), std::string::npos);
     EXPECT_NE(cmake.find("install(EXPORT WindPlayer NAMESPACE \"WindPlayer${ENGINE_PLAYER}::\""), std::string::npos);
     EXPECT_NE(cmake.find("cmake/wind_player.cmake.in"), std::string::npos);
@@ -579,7 +642,8 @@ TEST(Scaffold, ExportLinksThePrebuiltPlayerLibrariesWhenTheSdkHasThemAndFallsBac
     // and sdk.toml names what was installed, only adding keys.
     EXPECT_NE(cmake.find("option(ENGINE_SDK_PLAYER"), std::string::npos);
     EXPECT_NE(cmake.find("add_custom_target(wind_player"), std::string::npos);
-    EXPECT_NE(cmake.find("-DWIND_PLAYER_FLAVOURS=Development,Shipping"), std::string::npos);
+    EXPECT_NE(cmake.find("set(_engine_player_flavours \"Development,Shipping\")"), std::string::npos);
+    EXPECT_NE(cmake.find("-DWIND_PLAYER_FLAVOURS=${_engine_player_flavours}"), std::string::npos);
     EXPECT_LT(cmake.find("RESULT_VARIABLE _wind_player_result"), cmake.find("cmake/sdk_manifest.cmake"));
     EXPECT_NE(driver.find("-DENGINE_PLAYER=${_flavour}"), std::string::npos);
     EXPECT_NE(driver.find("--config Release --target engine"), std::string::npos);

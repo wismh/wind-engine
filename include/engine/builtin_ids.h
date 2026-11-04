@@ -21,12 +21,17 @@ inline constexpr AssetId tree_chevron{"a0e1b2c3d4f5678901234567890abc07"};
 inline constexpr AssetId dock_css{"a0e1b2c3d4f5678901234567890abc08"};
 // Unit cube with per-face normals (docs/tech/modules/Render.md#primitives).
 inline constexpr AssetId mesh_cube{"a0e1b2c3d4f5678901234567890abc09"};
-// Lambert shader: directional lights plus ambient from CmdSetView (docs/tech/modules/Render.md#lit-shader).
+// Lambert shader: directional lights plus ambient from CmdSetView, times vertex color, with cutout and fog
+// (docs/tech/modules/Render.md#lit-shader).
 inline constexpr AssetId shader_lit{"a0e1b2c3d4f5678901234567890abc0a"};
 // White opaque material on shader_lit: depth on, back faces culled, no texture.
 inline constexpr AssetId material_lit{"a0e1b2c3d4f5678901234567890abc0b"};
+// shader_lit sampling a texture array at MeshVertex::layer (docs/tech/modules/Render.md#texture-arrays).
+inline constexpr AssetId shader_lit_array{"a0e1b2c3d4f5678901234567890abc0c"};
+// shader_unlit sampling a texture array at MeshVertex::layer, without animated tiles.
+inline constexpr AssetId shader_unlit_array{"a0e1b2c3d4f5678901234567890abc0d"};
 
-inline constexpr std::array<AssetId, 11> ids{
+inline constexpr std::array<AssetId, 13> ids{
         shader_unlit,
         mesh_quad,
         material_unlit,
@@ -38,6 +43,8 @@ inline constexpr std::array<AssetId, 11> ids{
         mesh_cube,
         shader_lit,
         material_lit,
+        shader_lit_array,
+        shader_unlit_array,
 };
 
 [[nodiscard]] constexpr std::span<const AssetId> reserved() noexcept {

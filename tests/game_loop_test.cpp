@@ -6,6 +6,7 @@
 #include "resources/importers.h"
 
 #include <engine/core/input_system.h>
+#include <engine/core/job_system.h>
 #include <engine/core/run_hooks.h>
 #include <engine/core/worlds.h>
 #include <engine/resources/fatal_error.h>
@@ -16,6 +17,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <format>
+#include <functional>
 #include <fstream>
 #include <iterator>
 #include <optional>
@@ -77,9 +79,15 @@ public:
     bool reset_ui_cache(engine::WindowId) override {
         return true;
     }
-    void poll(engine::Worlds&, engine::InputSystem&) override {
+    void poll(engine::Worlds&, engine::InputSystem& input) override {
         log_->push_back("poll");
+        if (on_poll) {
+            on_poll(input);
+        }
     }
+
+    // Runs inside poll, where the real presentation hands SDL events to the input system.
+    std::function<void(engine::InputSystem&)> on_poll;
     void sync_frame(engine::Worlds&) override {}
     // Each window this frame captures reads back as a 3x2 image whose red channel is the window id.
     void draw_all(std::span<engine::FrameCapture> captures) override {
@@ -131,7 +139,7 @@ TEST(GameLoop, RunHooksWrapTheFramesInOrder) {
                     },
                     .on_quit = [&] { log.push_back("quit"); },
             },
-            worlds, input, nullptr, nullptr, nullptr, [&] { log.push_back("dispose"); });
+            worlds, input, nullptr, nullptr, nullptr, nullptr, [&] { log.push_back("dispose"); });
 
     EXPECT_EQ(result, 0);
     EXPECT_EQ(frames, 2);
@@ -169,7 +177,7 @@ TEST(GameLoop, FrameEndCanKeepTheLoopRunning) {
                     },
                     .on_quit = {},
             },
-            worlds, input, nullptr, nullptr, nullptr, {});
+            worlds, input, nullptr, nullptr, nullptr, nullptr, {});
 
     EXPECT_EQ(result, 0);
     EXPECT_EQ(stops, 1);
@@ -223,7 +231,7 @@ TEST(GameLoop, CliReachesTheHostWithoutAPrimaryWorld) {
                             },
                     },
             },
-            worlds, input, nullptr, nullptr, nullptr, {});
+            worlds, input, nullptr, nullptr, nullptr, nullptr, {});
     client.join();
 
     EXPECT_EQ(result, 0);
@@ -274,7 +282,7 @@ TEST(GameLoop, ScreenshotIsReadBetweenDrawingAndTheAnswer) {
                     .on_quit = {},
                     .cli = {},
             },
-            worlds, input, nullptr, nullptr, nullptr, {});
+            worlds, input, nullptr, nullptr, nullptr, nullptr, {});
     client.join();
 
     EXPECT_EQ(result, 0);
@@ -291,3 +299,69 @@ TEST(GameLoop, ScreenshotIsReadBetweenDrawingAndTheAnswer) {
 }
 
 #endif
+
+TEST(GameLoop, EachTickStartsAnInputFrameBeforePoll) {
+    fakes::QuietFatal fatal;
+    engine::Worlds worlds{fatal};
+    engine::ecs::World target;
+    engine::InputSystem input;
+    input.set_router([&target](engine::WindowId) { return &target; });
+    const engine::ActionId look_x = input.intern("look_x");
+    input.bind(engine::MouseAxis::X, look_x);
+    std::vector<std::string> log;
+    FakePresentation presentation{log};
+    std::vector<float> seen_at_poll;
+    std::vector<float> seen_after_poll;
+    presentation.on_poll = [&](engine::InputSystem& polled) {
+        seen_at_poll.push_back(polled.axis(look_x));
+        polled.handle_mouse_move(engine::kPrimaryWindow, glm::vec2{}, glm::vec2{5.f, 0.f});
+    };
+    int frames = 0;
+
+    engine::GameLoop loop;
+    loop.run(presentation,
+            engine::RunHooks{
+                    .on_frame_end = [&] {
+                        seen_after_poll.push_back(input.axis(look_x));
+                        if (++frames == 2) {
+                            worlds.application_state().quit();
+                        }
+                    },
+            },
+            worlds, input, nullptr, nullptr, nullptr, nullptr, [] {});
+
+    // The motion of one frame is visible for that frame only.
+    EXPECT_EQ(seen_at_poll, (std::vector<float>{0.f, 0.f}));
+    EXPECT_EQ(seen_after_poll, (std::vector<float>{5.f, 5.f}));
+}
+
+TEST(GameLoop, JobsArePolledAfterThePresentationInTheSameTick) {
+    fakes::QuietFatal fatal;
+    engine::Worlds worlds{fatal};
+    engine::InputSystem input;
+    std::vector<std::string> log;
+    FakePresentation presentation{log};
+    engine::JobSystem jobs(0);
+    engine::JobCall<int> call;
+    std::vector<std::optional<int>> seen;
+    // A job started while events are handled runs (no workers) and is delivered later in that same tick.
+    presentation.on_poll = [&](engine::InputSystem&) {
+        if (seen.empty()) {
+            call = jobs.submit([] { return 7; });
+        }
+    };
+
+    engine::GameLoop loop;
+    (void)loop.run(presentation,
+            engine::RunHooks{
+                    .on_frame_end = [&] {
+                        seen.push_back(call.take());
+                        if (seen.size() == 2) {
+                            worlds.application_state().quit();
+                        }
+                    },
+            },
+            worlds, input, nullptr, nullptr, nullptr, &jobs, [] {});
+
+    EXPECT_EQ(seen, (std::vector<std::optional<int>>{7, std::nullopt}));
+}

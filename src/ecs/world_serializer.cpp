@@ -9,6 +9,7 @@
 #include <engine/render/ambient_light.h>
 #include <engine/render/animation.h>
 #include <engine/render/directional_light.h>
+#include <engine/render/fog.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
 #include <engine/render/renderable.h>
@@ -168,6 +169,7 @@ void register_builtin_components(
             out.field("pixel_size", s->pixel_size);
             out.field("pixels_per_unit", s->pixels_per_unit);
             out.field("pivot", s->pivot);
+            out.field("frustum_cull", s->frustum_cull);
             return true;
         };
         sprite_entry.read = [](World& world, Entity entity, ComponentReader& in) -> bool {
@@ -223,6 +225,7 @@ void register_builtin_components(
             (void)in.field("pixel_size", s.pixel_size);
             (void)in.field("pixels_per_unit", s.pixels_per_unit);
             (void)in.field("pivot", s.pivot);
+            (void)in.field("frustum_cull", s.frustum_cull);
             if (!in.ok()) {
                 return false;
             }
@@ -339,6 +342,7 @@ void register_builtin_components(
             out.field("color", r->color);
             out.field("layer", r->layer);
             out.field("order_in_layer", r->order_in_layer);
+            out.field("frustum_cull", r->frustum_cull);
             return true;
         };
         renderable_entry.read = [](World& world, Entity entity, ComponentReader& in) -> bool {
@@ -350,6 +354,7 @@ void register_builtin_components(
             (void)in.field("color", r.color);
             (void)in.field("layer", r.layer);
             (void)in.field("order_in_layer", r.order_in_layer);
+            (void)in.field("frustum_cull", r.frustum_cull);
             if (!in.ok()) {
                 return false;
             }
@@ -480,6 +485,19 @@ void register_builtin_components(
             [](ComponentReader& in, render::AmbientLight& c) {
                 (void)in.field("color", c.color);
                 (void)in.field("intensity", c.intensity);
+            });
+
+    serializer.register_component<render::Fog>(
+            "fog",
+            [](ComponentWriter& out, const render::Fog& c) {
+                out.field("color", c.color);
+                out.field("start", c.start);
+                out.field("end", c.end);
+            },
+            [](ComponentReader& in, render::Fog& c) {
+                (void)in.field("color", c.color);
+                (void)in.field("start", c.start);
+                (void)in.field("end", c.end);
             });
 
     serializer.register_component<RigidBody2D>(

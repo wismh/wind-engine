@@ -12,14 +12,16 @@ The editor is in progress. See [Editor Plan](Editor%20Plan.md). Today `wind_edit
 - Window, GL context, input actions, mouse to UI. Multiple windows for one running game. See [Windowing](../features/Windowing.md).
 - A process holds any number of `ecs::World`. A world is one simulation: no parent and no scene graph. A window belongs to one world. That world's meshes go to each window bound to it. UI is `UiCanvas` plus a document instance plus a view-model. The document comes from XML or the C++ builder.
 - Homemade ECS. EnTT is an API reference only, not a dependency. Entities can have a `Parent` (a separate component, not a field of `Transform`); the engine derives `WorldTransform` from it. This is not a scene graph.
-- Tilemaps: a `.tilemap` asset and a `Tilemap` component draw a tile grid from one tileset in culled 32 x 32 chunks. Collision, animated tiles, Tiled import and an editor painting tool are not in scope yet.
+- Tilemaps: a `.tilemap` asset and a `Tilemap` component draw a tile grid from one tileset in culled 32 x 32 chunks. There is no built-in tile collision: the grid queries (`sweep_aabb`, `raycast_grid` in `<engine/ecs/grid_query.h>`) take any `is_solid` callable, and a game makes a layer solid with a lambda over `Tilemap::tile`. Per-tile collision data, Tiled import and an editor painting tool are not in scope yet.
 - Basic 3D: `Transform` rotation is a quaternion, and `Camera` is orthographic (the 2D default) or perspective, with screen-to-ray picking. Meshes carry normals and optional 32-bit indices, with procedural primitives (quad, cube, plane, UV sphere) and a builtin cube. Materials carry depth and cull state and sort into opaque and transparent queues. A per-window `CmdSetView` carries the camera and up to four directional lights plus ambient to a builtin Lambert lit shader and material.
 - Render abstractions and an OpenGL 3.3 backend: materials, instance tint, layer sort. The UI renderer (`src/ui/render/`, one OpenGL device) executes `CmdDrawUI`. Particles are `CmdDrawParticles`.
 - `AssetsDb` and a GUID catalog: sidecar TOML `.meta`, `asset_guid`, and `asset_codegen`.
 - Localization: `.strings` tables by `AssetId`, `{tr}` in UI, integer plural categories. The game selects the active locale and persists that choice.
 - Audio: buses, SFX pool, music A/B, looping SFX handles on SDL3_mixer.
 - Double-buffered event queues, not a callback bus.
-- A fork-join job pool (`JobSystem` on `EngineServices`). Phases stay on the main thread. Particle integration is the first caller.
+- A dedicated server: `engine_add_server` and `ENGINE_GAME_SERVER`, a program with no window and no SDL, on Windows and Linux x64. See [Core](../modules/Core.md#dedicated-server). A Linux desktop client has no network transport yet.
+- A worker pool (`JobSystem` on `EngineServices`): fork-join `parallel_for`, and async `submit` whose result reaches a `JobCall` on the main thread. Phases stay on the main thread. Particle integration is the first fork-join caller.
+- Byte compression (`compress` / `decompress`, LZ4) for saves and packets, callable from job workers.
 - `Engine::init` passes engine services to the game constructor as `EngineServices`.
 - Per-user writable directory (`user_data_directory`) for saves and settings. The game owns the file format and when to write.
 - HTTP and HTTPS requests (`IHttpClient`) on Windows, Android, and Web. The caller owns each request as an `HttpCall`.
@@ -35,14 +37,15 @@ Open engine work, not game concerns:
 - A separate cue `Sound` that references a clip GUID. Today one file is one cue.
 - CSS `@import`. WPF `IValueConverter` and `Mode=TwoWay` as a general converter. Checkbox `checked` already writes a `Bindable` back.
 - Widget-as-ECS-entity. That would replace the XML instance tree inside `UiCanvas`.
-- Input: SDL gamepad poll and bind (`ControlKind::GamepadButton` and `GamepadAxis` exist; events are not wired), WASD composites, action maps.
+- Input: SDL gamepad poll and bind (`ControlKind::GamepadButton` and `GamepadAxis` exist; events are not wired; a gamepad axis would add into `InputSystem::axis`), action maps. WASD composites are signed binding scales read through `axis()` (wind-302).
 - Adaptive Android launcher icon (two-layer source). Linux `.desktop` and icon-cache install.
 - Splash tied to real asset-load completion. Today it is a fade, hold, and fade timer.
 - Per-window `Camera`. Meshes already draw into every window bound to that world. Those windows share the world's `ActiveCamera`. Each window's projection uses `window_size_for` (`Presentation.sizes`).
 - Drag-region hole-punching so a `Button` inside a title-bar rect stays clickable.
 - Visual verification of GL-window transparency on a real display. Linux and macOS overlay styles are untested.
 - HTTP: connection reuse between requests, and a native macOS backend (`NSURLSession`) if the system libcurl proves a problem. Streaming bodies and progress are in; writing to a file stays with the game (a sink).
-- Advanced 3D: PBR materials, shadows, skinned meshes, glTF import, 3D physics, frustum culling, instancing, post-processing, and editor 3D gizmos.
+- Advanced 3D: PBR materials, shadows, skinned meshes, glTF import, 3D rigid-body physics (grid collision and grid raycasts exist: [ECS](../modules/ECS.md#grid-queries)), instancing, post-processing, and editor 3D gizmos.
+- Particle emitter culling: `CmdDrawParticles` is always pushed; an emitter's bounds would come from its instances and the particle shader's quad size.
 
 Game concerns (do not implement in this repo): persist bus volumes in a settings file; that game's AI tests.
 

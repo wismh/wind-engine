@@ -32,7 +32,8 @@ void InspectorFieldViewModel::show(
     axis_integer_ = field.axis_integer;
     const bool text_row = field.kind == InspectorFieldKind::Text || !field.editable;
     nameDisplay = std::string(shown(!text_row));
-    label = text_row ? field.text : field.key;
+    const std::string& shown_name = field.label.empty() ? field.key : field.label;
+    label = text_row ? field.text : shown_name;
     textDisplay = std::string(shown(text_row));
     if (editing_key != key_for(-1)) {
         text = field.text;

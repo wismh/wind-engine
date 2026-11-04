@@ -3,6 +3,7 @@
 // docs/tech/modules/Render.md
 
 #include <engine/ecs/entity.h>
+#include <engine/render/fog.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
 #include <engine/render/scene_lights.h>
@@ -36,13 +37,16 @@ namespace engine::render {
 
     // The camera and lights of the world draws that follow it in the buffer, until the next `CmdSetView`. `run_render`
     // pushes one per bound window, with that window's projection, before the window's world draws. A draw before any
-    // `CmdSetView` in a buffer uses identity view and projection, camera position zero, and no lights.
+    // `CmdSetView` in a buffer uses identity view and projection, camera position zero, no lights, and no fog.
     struct CmdSetView {
         glm::mat4 view{1.0f};
         glm::mat4 projection{1.0f};
         // World position of the camera (translation of its world matrix).
         glm::vec3 camera_position{0.0f};
         SceneLights lights{};
+        // Distance fog of the builtin lit and unlit shaders. Empty (the default) is no fog. `run_render` copies the
+        // active camera's `Fog` component.
+        std::optional<Fog> fog;
         // Sub-rectangle of the window in top-left window pixels. Empty (nullopt) means the full window.
         std::optional<Rect> viewport;
 

@@ -5,6 +5,7 @@
 #include <engine/ecs/entity.h>
 #include <engine/ecs/ray.h>
 #include <engine/ecs/transform.h>
+#include <engine/render/frustum.h>
 #include <engine/ui/canvas.h>
 
 #include <glm/mat4x4.hpp>
@@ -46,6 +47,10 @@ struct ActiveCamera {
 [[nodiscard]] glm::mat4 view_matrix(const glm::mat4& camera_world);
 // glm::ortho from `ortho_size` or glm::perspective from `fov_y`, both with `camera_aspect`.
 [[nodiscard]] glm::mat4 projection_matrix(const Camera& camera, const ui::WindowSize& window);
+// The world-space view volume: `render::make_frustum(projection_matrix(camera, window) * view_matrix(camera_world))`.
+// `run_render` culls with one per bound window.
+[[nodiscard]] render::Frustum camera_frustum(
+        const Camera& camera, const glm::mat4& camera_world, const ui::WindowSize& window);
 
 // `screen` is in window pixels, origin top-left, +Y down. The ray starts on the near plane and points away from the
 // camera: along the camera's forward (-Z) for an orthographic camera, through the pixel for a perspective one.

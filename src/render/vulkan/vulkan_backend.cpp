@@ -1,5 +1,6 @@
 #include "vulkan_backend.h"
 
+#include "render/vulkan_clip.h"
 #include "vulkan_mesh.h"
 
 #include "render/slang_compiler.h"
@@ -196,7 +197,8 @@ void write_view_uniforms(
     const SpirvReflection& refl,
     const CmdSetView& view) {
     write_mat4(buf, refl, "uView", view.view);
-    write_mat4(buf, refl, "uProjection", view.projection);
+    // CPU projection stays OpenGL clip. The shader's uProjection is the same matrix with z in [0, w].
+    write_mat4(buf, refl, "uProjection", vulkan_projection(view.projection));
     write_vec3(buf, refl, "uCameraPosition", view.camera_position);
     write_float(buf, refl, "uTime", view.time);
     const int count = std::clamp(
@@ -205,6 +207,11 @@ void write_view_uniforms(
     write_vec3_array(buf, refl, "uLightDirections", view.lights.directions);
     write_vec3_array(buf, refl, "uLightColors", view.lights.colors);
     write_vec3(buf, refl, "uAmbient", view.lights.ambient);
+    // Zero is off for every fog uniform, as in a zero-initialized UBO.
+    write_int(buf, refl, "uFogEnabled", view.fog.has_value() ? 1 : 0);
+    const Fog fog = view.fog.value_or(Fog{});
+    write_vec3(buf, refl, "uFogColor", fog.color);
+    write_vec2(buf, refl, "uFogRange", glm::vec2{fog.start, fog.end});
 }
 
 struct ExecuteVisitor {
@@ -350,7 +357,7 @@ void VulkanRenderBackend::execute_draw_mesh(const CmdDrawMesh& cmd) {
 
     const MaterialOverride* override_ptr =
         cmd.material_override.has_value() ? &*cmd.material_override : nullptr;
-    VulkanTexture* albedo = resolve_albedo(*cmd.material, override_ptr);
+    VulkanTexture* albedo = resolve_albedo(*cmd.material, override_ptr, shader->reflection().sampler_arrayed);
     if (albedo == nullptr || !albedo->ensure_gpu_image()) {
         return;
     }
@@ -369,6 +376,8 @@ void VulkanRenderBackend::execute_draw_mesh(const CmdDrawMesh& cmd) {
     write_vec4(ubo, refl, "uColor", cmd.material->color() * cmd.color);
     write_vec2(ubo, refl, "uUvScale", cmd.uv_scale);
     write_vec2(ubo, refl, "uUvOffset", cmd.uv_offset);
+    // No cutoff is 0: alpha is never below it, so nothing is discarded.
+    write_float(ubo, refl, "uAlphaCutoff", cmd.material->render_state().alpha_cutoff.value_or(0.0f));
 
     if (override_ptr != nullptr) {
         for (const auto& [param_name, param_val] : override_ptr->vec4_params) {
@@ -397,7 +406,8 @@ void VulkanRenderBackend::execute_draw_particles(const CmdDrawParticles& cmd) {
         return;
     }
 
-    VulkanTexture* albedo = resolve_albedo(*cmd.material, nullptr);
+    // The builtin particle shader samples a 2D texture.
+    VulkanTexture* albedo = resolve_albedo(*cmd.material, nullptr, false);
     if (albedo == nullptr || !albedo->ensure_gpu_image()) {
         return;
     }
@@ -590,17 +600,38 @@ bool VulkanRenderBackend::ensure_particle_resources() {
 
 VulkanTexture* VulkanRenderBackend::resolve_albedo(
     const IMaterial& material,
-    const MaterialOverride* override_params) {
+    const MaterialOverride* override_params,
+    bool arrayed) {
+    VulkanTexture* chosen = nullptr;
     if (override_params != nullptr && override_params->albedo != nullptr) {
         if (auto* tex = dynamic_cast<VulkanTexture*>(override_params->albedo.get());
             tex != nullptr && tex->valid()) {
-            return tex;
+            chosen = tex;
         }
     }
-    if (const auto mat_tex = material.texture(0)) {
-        if (auto* tex = dynamic_cast<VulkanTexture*>(mat_tex.get()); tex != nullptr && tex->valid()) {
-            return tex;
+    if (chosen == nullptr) {
+        if (const auto mat_tex = material.texture(0)) {
+            if (auto* tex = dynamic_cast<VulkanTexture*>(mat_tex.get()); tex != nullptr && tex->valid()) {
+                chosen = tex;
+            }
         }
+    }
+    if (chosen != nullptr && (chosen->layers() > 0) == arrayed) {
+        return chosen;
+    }
+    if (arrayed) {
+        if (!white_texture_array_) {
+            const TextureArrayDesc white_desc{
+                .width = 1,
+                .height = 1,
+                .layers = 1,
+                .rgba = {255, 255, 255, 255},
+                .filter = FilterMode::Nearest,
+                .wrap = WrapMode::Clamp,
+            };
+            white_texture_array_ = std::make_shared<VulkanTexture>(context_, white_desc);
+        }
+        return white_texture_array_.get();
     }
     if (!white_texture_) {
         TextureDesc white_desc{
@@ -684,10 +715,13 @@ VkPipeline VulkanRenderBackend::get_or_create_pipeline(
         return VK_NULL_HANDLE;
     }
 
+    // The cutoff is a uniform, not pipeline state: one pipeline serves every cutoff value.
+    RenderState pipeline_state = state;
+    pipeline_state.alpha_cutoff.reset();
     const PipelineKey key{
         .vert = shader.vertex_module(),
         .frag = shader.fragment_module(),
-        .state = state,
+        .state = pipeline_state,
         .render_pass = active_render_pass_,
         .is_particle = is_particle,
     };
@@ -719,6 +753,10 @@ VkPipeline VulkanRenderBackend::get_or_create_pipeline(
             {1, 0, VK_FORMAT_R32G32_SFLOAT, static_cast<std::uint32_t>(offsetof(MeshVertex, uv))});
         vertex_attrs.push_back(
             {2, 0, VK_FORMAT_R32G32B32_SFLOAT, static_cast<std::uint32_t>(offsetof(MeshVertex, normal))});
+        vertex_attrs.push_back(
+            {3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, static_cast<std::uint32_t>(offsetof(MeshVertex, color))});
+        vertex_attrs.push_back(
+            {4, 0, VK_FORMAT_R32_SFLOAT, static_cast<std::uint32_t>(offsetof(MeshVertex, layer))});
     } else {
         vertex_bindings.push_back({0, sizeof(QuadVertex), VK_VERTEX_INPUT_RATE_VERTEX});
         vertex_bindings.push_back({1, sizeof(ParticleInstance), VK_VERTEX_INPUT_RATE_INSTANCE});
@@ -833,6 +871,7 @@ VkPipeline VulkanRenderBackend::get_or_create_pipeline(
 
 void VulkanRenderBackend::shutdown_gpu_resources() {
     white_texture_.reset();
+    white_texture_array_.reset();
     particle_shader_.reset();
 
     if (!context_ || !context_->is_device_ready()) {

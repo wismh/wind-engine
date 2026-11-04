@@ -111,6 +111,28 @@ for (const engine::KeyEvent& k :
 
 ---
 
+## 5. First-Person Look: Relative Mouse Mode
+
+A first-person camera wants the cursor hidden and held in the window, with raw motion. Ask the window control for it, and read the motion through a `MouseAxis` binding ([Action Mapping](Action-Mapping.md#5-axes-wasd-and-mouse-look)), not from `MouseEvent::relative` in a system:
+
+```cpp
+// On a click, or on the action that starts play. The browser grants the lock only on a user gesture.
+if (!services_.windows.set_relative_mouse(engine::kPrimaryWindow, true)) {
+    // Android, or the browser with the mouse outside the canvas: show a "click to play" hint.
+}
+
+// Opening the pause menu:
+services_.windows.set_relative_mouse(engine::kPrimaryWindow, false);
+```
+
+- The request stays until you release it. Losing focus (Alt+Tab, minimizing) frees the cursor and regaining focus locks it again; `is_relative_mouse(window)` stays true meanwhile.
+- While the cursor is locked, its `MouseEvent`s carry `locked = true`, and the UI and `PointerTarget`s ignore it: no hover, no button press, no scroll, and `consumed_for(window)` stays false, so every click reaches your game. Release the mode before showing a menu the player clicks.
+- Browser: Escape drops the lock while your request stays; the next click takes it back, and that click reaches your game too.
+- Android: not supported; the call returns false.
+- In the editor, Stop releases the mode, and focusing the editor window during Play frees the cursor.
+
+---
+
 ## Next Steps
 
 - Manage secondary windows with [Multi-Window Input](Multi-Window-Input.md).

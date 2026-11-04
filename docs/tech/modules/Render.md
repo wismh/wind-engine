@@ -10,42 +10,81 @@ Draw order and `.mat` files: [Materials and Sort](../features/Materials%20and%20
 
 | Command | Who pushes it |
 | --- | --- |
-| `CmdDrawMesh` | `run_render` and `render_world_viewport` for `Renderable` and `Sprite` |
+| `CmdDrawMesh` | `run_render` and `render_world_viewport` for each `Renderable` and `Sprite` inside a window's frustum ([Frustum culling](#frustum-culling)) |
 | `CmdDrawUI` | `run_ui_render` for each `UiCanvas` |
 | `CmdDrawParticles` | `run_render` and `render_world_viewport` for a `ParticleEmitter` whose `particles` list is not empty |
 | `CmdSetView` | `run_render` (once per bound window) and `render_world_viewport` (for a sub-rectangle viewport) before world draws |
 
 There is no custom-draw callback on the variant.
 
-`CmdSetView` is the view state of the world draws that follow it: `view`, `projection`, `camera_position` (the translation of the camera's world matrix), `lights` (`SceneLights`, see [Lights](#lights)), and optional `viewport` (`std::optional<Rect>`, in top-left window coordinates) and `clear_color` (`std::optional<glm::vec4>`). It holds until the next `CmdSetView` in the same buffer. The draws carry no camera: `CmdDrawMesh` has only its `model`, and `CmdDrawParticles` has none (its instances are in world space). A draw before any `CmdSetView` in a buffer uses identity view and projection, camera position zero, no lights (`directional_count` 0, ambient black), full-window viewport, and no clear, which is a default-constructed `CmdSetView`; the OpenGL backend resets to that at the start of every `execute`. A test or tool that pushes its own `CmdDrawMesh` therefore draws in clip space unless it pushes a `CmdSetView` first.
+`CmdSetView` is the view state of the world draws that follow it: `view`, `projection`, `camera_position` (the translation of the camera's world matrix), `lights` (`SceneLights`, see [Lights](#lights)), optional `fog` (`std::optional<Fog>`, see [Fog](#fog)), and optional `viewport` (`std::optional<Rect>`, in top-left window coordinates) and `clear_color` (`std::optional<glm::vec4>`). It holds until the next `CmdSetView` in the same buffer. The draws carry no camera: `CmdDrawMesh` has only its `model`, and `CmdDrawParticles` has none (its instances are in world space). A draw before any `CmdSetView` in a buffer uses identity view and projection, camera position zero, no lights (`directional_count` 0, ambient black), no fog, full-window viewport, and no clear, which is a default-constructed `CmdSetView`; the OpenGL backend resets to that at the start of every `execute`. A test or tool that pushes its own `CmdDrawMesh` therefore draws in clip space unless it pushes a `CmdSetView` first.
 
 `CommandBuffer` stores that variant and can `push`, `clear`, and be iterated. `IRenderBackend::execute` consumes one buffer. `ICanvas::draw` is the present hook the headless `Host` calls. The windowed path calls `draw_all` on the presentation instead; `OpenGLCanvas` splits it into `render`, `read_pixels` (only for a `wind-cli screenshot`), and `present`.
 
 ## Materials and meshes
 
-`IMaterial` is shader, `texture(slot)`, color, and `render_state()`: a `RenderState` of `BlendMode` (`Opaque`, `Alpha`, `Additive`), `depth_test`, `depth_write`, and `CullMode` (`None`, `Back`, `Front`). `RenderState{}` is the 2D state (alpha, no depth, no culling). `Material` stores one albedo in slot 0. Any other slot returns null.
+`IMaterial` is shader, `texture(slot)` (slot 0 may be a 2D texture or a [texture array](#texture-arrays)), color, and `render_state()`: a `RenderState` of `BlendMode` (`Opaque`, `Alpha`, `Additive`), `depth_test`, `depth_write`, `CullMode` (`None`, `Back`, `Front`), and `alpha_cutoff` (`std::optional<float>`, see [Cutout](#cutout)). `RenderState{}` is the 2D state (alpha, no depth, no culling, no cutoff). `Material` stores one albedo in slot 0. Any other slot returns null.
 
 `MaterialOverride` replaces slot 0 and/or named `vec4` uniforms for one draw. `set_vec4` replaces the value when that name is already in `vec4_params`, and appends the name when it is not.
 
 Instance tint is `material.color * instance.color` (`multiply_instance_color`). `Renderable::color` and `Sprite::color` are that instance color. Default is white, so the material color is unchanged.
 
-`parse_material` reads a `.mat` TOML into `MaterialDesc` (`shader` and `[textures].albedo` are hex `AssetId` strings, plus color and `state`: `blend`, `depth_test`, `depth_write`, the `depth` shorthand, and `cull`; [Materials and Sort](../features/Materials%20and%20Sort.md)). Default blend in the desc is `Opaque`. The C++ `Material` constructor defaults its state to `RenderState{}`, whose blend is `Alpha`.
+`parse_material` reads a `.mat` TOML into `MaterialDesc` (`shader` and `[textures].albedo` are `asset://` URIs of an `AssetId`; the albedo may be a texture array, plus color and `state`: `blend`, `depth_test`, `depth_write`, the `depth` shorthand, and `cull`; [Materials and Sort](../features/Materials%20and%20Sort.md)). Default blend in the desc is `Opaque`. The C++ `Material` constructor defaults its state to `RenderState{}`, whose blend is `Alpha`.
 
 GPU objects are `IMesh`, `IShader`, `ITexture` created by `IGraphicFactory` from `MeshDesc`, `ShaderDesc`, and `TextureDesc`.
 
 ### Dynamic textures
 
-`IGraphicFactory::create_dynamic_texture(DynamicTextureDesc)` returns an `IDynamicTexture` (an `ITexture`) that starts transparent black. `update(rgba, width, height)` replaces every pixel with RGBA8, top row first, the layout of `TextureDesc::rgba`, and the texture behaves exactly as if it had been made from that data (v = 1 is the top row). A new size reallocates and `width()` / `height()` follow. It returns false, and changes nothing, for a size that is not positive or an `rgba` shorter than `width * height * 4`. `OpenGLTexture` implements both: `update` flips the rows into one reused staging buffer (the same flip creation does), makes the engine's context current (`ContextScope`, as the factory does for creation), and calls `glTexSubImage2D`, or `glTexImage2D` when the size changed. Textures are shared between the windows' contexts, so one update shows in every window. Main thread only. A camera frame from [Capture](Capture.md) goes in with `texture->update(frame.rgba, frame.width, frame.height)`.
+`IGraphicFactory::create_dynamic_texture(DynamicTextureDesc)` returns an `IDynamicTexture` (an `ITexture`) that starts transparent black. `update(rgba, width, height)` replaces every pixel with RGBA8, top row first, the layout of `TextureDesc::rgba`, and the texture behaves exactly as if it had been made from that data (v = 1 is the top row). A new size reallocates and `width()` / `height()` follow. It returns false, and changes nothing, for a size that is not positive or an `rgba` shorter than `width * height * 4`. `OpenGLTexture` implements both: `update` flips the rows into one reused staging buffer (the same flip creation does), makes the engine's context current (`ContextScope`, as the factory does for creation), and calls `glTexSubImage2D`, or `glTexImage2D` when the size changed. Textures are shared between the windows' contexts, so one update shows in every window. Main thread only. A camera frame from [Capture](Capture.md) goes in with `texture->update(frame.rgba, frame.width, frame.height)`. A dynamic texture has no mip levels.
+
+`update_rects(rects, rgba, row_stride)` writes rectangles and leaves every other pixel. `rgba` is the same top-row-first layout, and `row_stride` is that image's width in pixels, so the buffer may be wider than one rectangle. `TextureRect` is the top-left (`y = 0` is the top row) plus the size. An empty list changes nothing and returns true. It returns false, changes nothing, and logs the reason, when a rectangle is empty or outside the texture, `row_stride` does not cover it, or `rgba` ends before the last byte it reads (`texture_rects_error`, `src/render/texture_check.h`). A texture array or a texture with mipmaps returns false without a log: a partial write would leave the other mip levels stale. The size does not change.
+
+Both backends place a rectangle so its bottom row lands at GPU row `height - (y + height)` (`texture_rect_gpu_y`), the same row a full `update` would give that rectangle. OpenGL binds once, flips each rectangle into the reused staging buffer, and calls `glTexSubImage2D`. Vulkan keeps the CPU copy (bottom row first, the buffer a later full upload sends). When that image is already the current size and nothing is waiting for a full upload, one command buffer copies every rectangle, transitioning level 0 from `SHADER_READ_ONLY` to `TRANSFER_DST` and back — not from `UNDEFINED`, which would discard the pixels outside the rectangles. Otherwise the rectangles stay in the CPU copy and the next `ensure_gpu_image` uploads the whole image. The copy waits on `vkQueueWaitIdle`, as a full upload does. A partial update never resizes, so it does not destroy the image a frame in flight may still sample.
+
+### Mipmaps
+
+`TextureDesc::mipmaps` and `TextureArrayDesc::mipmaps` are a `MipmapMode` (`include/engine/resources/meta.h`): `None` (the default: level 0 only, exactly as before mipmaps existed), `Nearest`, or `Linear`, the filter between mip levels. `FilterMode` stays the filter inside a level: it is the magnification filter and the base of the minification filter, so `filter = Nearest` with `mipmaps = Linear` is `GL_NEAREST_MIPMAP_LINEAR` (crisp pixels, smooth level blend). The `.meta` key is `mipmaps = "none" | "nearest" | "linear"` ([Resources](Resources.md#meta)). A level count is `mip_level_count(w, h)` = floor(log2(max(w, h))) + 1 (`src/render/texture_check.h`).
+
+- OpenGL (`OpenGLTexture::apply_sampling`): the min filter is `GL_{NEAREST|LINEAR}_MIPMAP_{NEAREST|LINEAR}`, and after the upload `glGenerateMipmap` builds the chain (core in GL 3.0, GLES 3.0 and WebGL2; per layer for an array).
+- Vulkan (`VulkanTexture::upload_pixels`): the image has the full chain and `TRANSFER_SRC` usage; level 0 is copied for every layer, then each level is a `VK_FILTER_LINEAR` `vkCmdBlitImage` of the one above (`R8G8B8A8_UNORM` with optimal tiling always supports blits and linear filtering), each source level moving to `SHADER_READ_ONLY` once read. The sampler's `mipmapMode` follows the mode and `maxLod` is the last level (0 without mipmaps).
+
+A mipmapped atlas still bleeds between neighbouring tiles at small levels; a block game puts one face per layer of a texture array instead.
+
+### Texture arrays
+
+`IGraphicFactory::create_texture_array(TextureArrayDesc)` (`include/engine/render/graphic_factory.h`) makes one texture of `layers` images of `width` x `height`; `rgba` is layer 0 first, each layer top row first like `TextureDesc::rgba`, so v = 1 is a layer's top row. It returns null, logging why, for a size or layer count that is not positive, more than `kMaxTextureArrayLayers` (256, the minimum GL 3.3, GLES 3.0, and Vulkan all guarantee; no device query), or an `rgba` shorter than `width * height * 4 * layers` (`texture_array_desc_error`, `src/render/texture_check.h`, checked before any GL or Vulkan call). The result is an `ITexture` whose `layers()` is the count and whose `width()` / `height()` are one layer's; `layers()` is 0 for every 2D texture. An array is never dynamic: `update` on one returns false.
+
+The layer comes from the mesh: `MeshVertex::layer` (a `float` at `location = 4`, default 0). Not `uv`'s third component, which would change `uv` from `glm::vec2` everywhere (primitives, tilemaps, sprites, `.mesh`), and not a per-material uniform, because one voxel chunk mesh is one draw whose faces need different layers. The shader passes it as a `flat` varying (Slang `nointerpolation`) and samples `texture(uTexture, vec3(uv, layer))`; GL rounds the layer to the nearest integer and clamps it to the array. Give all three vertices of a triangle the same layer. 2D, sprite, tilemap, and particle shaders never declare location 4. `.mesh` files have no layer column, so their vertices load with layer 0.
+
+`builtin::shader_lit_array` (`builtin_assets/shaders/lit_array.shader`) and `builtin::shader_unlit_array` (`unlit_array.shader`) are `shader_lit` and `shader_unlit` with `uniform sampler2DArray uTexture` (Slang `Sampler2DArray`) sampled at the vertex layer: vertex color, cutout and fog included, the same uniforms, each declared in one stage. `shader_unlit_array` has no animated tiles (it does not read location 2). There is no builtin array material; a game writes a `.mat` whose `shader` is one of them and whose `[textures].albedo` is a `texture_array` asset ([Assets](../features/Assets.md#texture-arrays)).
+
+Binding. A material's slot 0 (or a `MaterialOverride` albedo) may hold an array. The sampler type in the shader decides what is read: a draw whose albedo is the other kind (an array under a `sampler2D` shader, a 2D texture under a `sampler2DArray` one) samples white, the same rule as a draw with no albedo.
+
+- OpenGL (`OpenGLRenderBackend::bind_albedo`): every mesh and particle draw binds both targets of unit 0, the albedo on its own target (`GL_TEXTURE_2D` or `GL_TEXTURE_2D_ARRAY`) and a white texture (`white_texture()` or a 1x1x1 `white_texture_array()`) on the other. A program only reads the target its sampler type names, so no shader introspection is needed; the cost is one extra `glBindTexture` per draw.
+- Vulkan: `SpirvReflection::sampler_arrayed` is the `Arrayed` operand of the sampler's `OpTypeImage`. `resolve_albedo(material, override, arrayed)` returns the albedo when `(layers() > 0) == arrayed`, otherwise `white_texture_` or a one-layer `white_texture_array_`, so the descriptor's view type (`VK_IMAGE_VIEW_TYPE_2D` or `2D_ARRAY`) always matches the shader. Particles always resolve a 2D albedo.
+- GLSL ES 3.00 has no default precision for `sampler2DArray`, so `adapt_glsl` inserts `precision mediump sampler2DArray;` into any stage that uses one and does not declare its precision.
 
 ## Meshes
 
-`MeshDesc` (`include/engine/render/graphic_factory.h`) is `vertices` plus `indices`. A `MeshVertex` is `position`, `normal` (default `{0, 0, 1}`), and `uv`. Empty `indices` is a non-indexed triangle list: every three vertices are one triangle. Otherwise every three `std::uint32_t` indices are one, each below `vertices.size()`. Front faces wind counter-clockwise; normals are written as given, so a lit shader expects unit length.
+`MeshDesc` (`include/engine/render/graphic_factory.h`) is `vertices` plus `indices`. A `MeshVertex` is `position`, `normal` (default `{0, 0, 1}`), `uv`, `color` (`glm::vec4`, default white), and `layer` (`float`, default 0, the [texture array](#texture-arrays) layer): 52 bytes. Empty `indices` is a non-indexed triangle list: every three vertices are one triangle. Otherwise every three `std::uint32_t` indices are one, each below `vertices.size()`. Front faces wind counter-clockwise; normals are written as given, so a lit shader expects unit length.
 
-Vertex shader inputs are fixed: position at `location = 0`, uv at `1`, normal at `2`. A shader that reads only 0 and 1 (`builtin::shader_unlit`, every 2D shader) ignores the normal, so a quad draws as it did before normals existed. The particle draw has its own vertex buffer and locations 0 to 7; it does not use `MeshVertex`.
+Vertex shader inputs are fixed: position at `location = 0`, uv at `1`, normal at `2`, color at `3`, layer at `4`. Both backends always feed all five, and a shader reads what it declares. `builtin::shader_lit` and `builtin::shader_unlit` multiply the albedo by the vertex color (baked light and ambient occlusion in a block world, or a tint). `builtin::shader_unlit` reads location 2 as `aAnim`, the animated-tile parameters the tilemap baker packs into `normal` (`aAnim.x <= 1` is a static tile, so a plain quad's +Z normal is not animated). `make_*` primitives, the tilemap baker, and `.mesh` rows without color all write white (and layer 0), so nothing drawn before vertex color existed changes. The particle draw has its own vertex buffer and locations 0 to 7; it does not use `MeshVertex`.
 
 `mesh_desc_error` (`src/render/mesh_check.h`) names why a desc cannot be drawn: no vertices, an index count that is not a multiple of 3, or an index at or past the vertex count. `OpenGLMesh` logs that error and stays invalid, so `create_mesh` returns null and an asset load is `AssetError::Corrupt`. `parse_mesh` rejects the same descs. `OpenGLMesh` keeps one vertex buffer and, when there are indices, one element buffer, uploaded with no VAO bound. Each context's VAO binds the element buffer in its setup (the element binding is VAO state), and `draw` calls `glDrawElements(GL_TRIANGLES, n, GL_UNSIGNED_INT, …)`, or `glDrawArrays` without indices. GLES 3.0 and WebGL2 accept 32-bit indices.
 
+### Mesh updates
+
+`IMesh::update(const MeshDesc&)` (`include/engine/render/graphics.h`, `src/render/mesh.cpp`) replaces every vertex and index of a live mesh, as if it had been made from that desc. It is not virtual: it checks `mesh_desc_error` first and, on an error, logs it and returns false without calling the backend, so the mesh keeps what it had. A valid desc goes to the protected `IMesh::replace`, which each backend implements; false from it also leaves the old contents. Only after `replace` returns true does `update` set the [bounds](#mesh-bounds) from the new desc, so a failed update keeps the old bounds with the old contents. There is no separate dynamic mesh type: any mesh, asset meshes included, can be updated. Main thread only. A test fake implements `replace`.
+
+`OpenGLMesh::replace` makes the engine's context current (`ContextScope`, with the activator `OpenGLFactory` passes in) and writes in place with `glBufferSubData` when the data fits the buffer's storage. When it does not, it calls `glBufferData` on the same buffer name with `GL_DYNAMIC_DRAW` and room for `max(needed, 1.5 × old)` bytes, then `glBufferSubData`. Storage never shrinks. Keeping the names keeps every context's VAO valid (VAO state refers to buffer names, not storage), so a reallocation needs no rebind. The element buffer is written with no VAO bound, like creation. A non-indexed mesh that gains indices makes its first element buffer and releases its VAOs (`ContextVao::release`), so each context builds one with the element binding on its next draw. A mesh that drops its indices keeps the element buffer and draws with `glDrawArrays`. The same code runs on desktop GL, GLES 3.0, and WebGL2.
+
+`VulkanMesh::replace` never writes buffers a frame in flight may read. Without a device, or before its first upload, it only swaps the CPU copies that `ensure_gpu_buffers` uploads later. Otherwise it uploads new host-visible vertex and index buffers (no queue wait); if either upload fails it frees them and returns false with the old buffers in place. On success it hands the old buffers to `VulkanContext::retire_buffer` and uses the new ones. The destructor retires its buffers the same way. See [Vulkan](#vulkan-engine_with_window) for the retire queue.
+
 The `.mesh` file format is in [Assets](../features/Assets.md#mesh-files).
+
+### Mesh bounds
+
+`IMesh::bounds()` is a `render::Aabb` (`include/engine/render/aabb.h`: `min`, `max`) in the mesh's local space: the box around every vertex position of the desc the mesh was made or last updated from, `mesh_bounds(desc)` (`include/engine/render/graphic_factory.h`). Vertices no index uses still count, so no index walk is needed and the box is never too small. A desc without vertices gives a zero box at the origin (`create_mesh` returns null for it anyway). The base class owns it: `IMesh` has one protected constructor, `explicit IMesh(const MeshDesc&)`, which `OpenGLMesh`, `VulkanMesh` and every test fake call, and the non-virtual `update` refreshes it, so no backend computes bounds and they cannot disagree. A test fake built by a fake factory passes the factory's desc; a standalone fake passes `make_quad()`.
 
 ### Primitives
 
@@ -58,7 +97,7 @@ The `.mesh` file format is in [Assets](../features/Assets.md#mesh-files).
 | `make_plane(size = 1, subdivisions = 1)` | Square on the XZ plane, +Y normal, `subdivisions` (at least 1) cells per side. U along +X, V along -Z |
 | `make_uv_sphere(radius = 0.5, segments = 32, rings = 16)` | `segments` (at least 3) around Y, `rings` (at least 2) pole to pole, a duplicated seam column. U wraps from +Z towards +X; V is 1 at the top. The triangle of a pole band that would touch the pole twice is left out |
 
-`tests/primitives_test.cpp` checks that `quad.mesh` and `cube.mesh` parse to exactly `make_quad()` and `make_cube()`.
+Every primitive leaves `color` white. `tests/primitives_test.cpp` checks that, and that `quad.mesh` and `cube.mesh` parse to exactly `make_quad()` and `make_cube()`.
 
 ## World draw
 
@@ -68,7 +107,7 @@ The function clears `ctx<WindowClears>()` first and clears each bound window's a
 
 When `BoundWindows` is not empty, a window with no buffer is skipped: a bound window can outlive its buffer for a frame when the OS closes it between two dock syncs (`Worlds::unbind_window` runs on the next one). If there is then no `Renderable`, `Sprite`, or `ParticleEmitter`, it returns. An invalid or default `ctx<ActiveCamera>` is fatal, and so is a live entity that lacks `Camera` or `Transform`. Neither path pushes scene commands. `run_render` is only registered when `EngineSystemDeps` has a command buffer (`commands` or `commands_for_window`); a world without one draws nothing and never checks the camera. `run_ui_render` still pushes `CmdDrawUI`. A window `run_render` already cleared is not cleared again.
 
-The draw list is sorted once. For every bound window that has a command buffer, `run_render` pushes one `CmdSetView` and then that list. Every window's view shares the camera's view matrix, camera position, and lights (collected once per frame by `collect_scene_lights`). Each window's projection is `projection_matrix` with `window_size_for(world, id)`, which reads `Presentation.sizes` for that id. A frame with nothing to draw pushes no `CmdSetView` either, so the buffer of a world with only UI is what it was before views existed.
+The draw list is collected, [culled](#frustum-culling) and sorted once. For every bound window that has a command buffer, `run_render` pushes one `CmdSetView` and then that list. Every window's view shares the camera's view matrix, camera position, and lights (collected once per frame by `collect_scene_lights`). Each window's projection is `projection_matrix` with `window_size_for(world, id)`, which reads `Presentation.sizes` for that id. A frame with nothing to draw pushes no `CmdSetView` either, so the buffer of a world with only UI is what it was before views existed.
 
 `render_world_viewport(scene, target)` (`include/engine/ecs/systems.h`, `src/ecs/systems.cpp`) renders an arbitrary `ecs::World` (`scene`) into a sub-rectangle (`WorldViewportRender::viewport`, in top-left window coordinates) of `WorldViewportRender::commands` using an explicit `Camera` and `Transform` (`camera_transform`) instead of `scene.ctx<ActiveCamera>()`. It calls `ecs::update_world_transforms(scene)`, computes view and projection matrices for `viewport.w / viewport.h`, pushes a `CmdSetView` with `viewport` and `clear_color` (even when `scene` has no drawables, so an empty world still clears its viewport rectangle), and then pushes the sorted `CmdDrawMesh` and `CmdDrawParticles` commands collected from `scene`. When `target.fatal` is null (the default for editor preview viewports), entities whose mesh or material did not load are skipped without reporting a fatal error.
 
@@ -81,6 +120,33 @@ Items sort by `draw_sort_less` (`include/engine/render/draw_sort.h`): the opaque
 Model matrix is the entity's world matrix (`ecs::world_matrix`): translate, then rotate X, Y, Z, then scale for a root, and the parent chain times that for a child (`Parent`, see [ECS](ECS.md#hierarchy)). `Phase::Transform` refreshes it before `Render`. The sprite pivot, size and flip below are applied after it. A `Local`-space `ParticleEmitter` uses the same world matrix. The view is the inverse of the active camera's world matrix.
 
 Sprite world size is `pixel_size / pixels_per_unit` (default 100), with the pivot offset, only when both `pixel_size` components and `pixels_per_unit` are greater than 0. `Sprite::pixel_size` defaults to `{0,0}`, so a sprite left there is the mesh at the `Transform` only. Flip and UV tiling/offset still apply. `get_sprite` fills `pixel_size`.
+
+## Frustum culling
+
+`run_render` and `render_world_viewport` skip a `Renderable` or `Sprite` whose mesh lies outside the view. The math is public and pure:
+
+| Function | Header | Result |
+| --- | --- | --- |
+| `transform_aabb(box, transform)` | `include/engine/render/aabb.h` | The box around `box` after an affine matrix: the center through the matrix, the half extents through its absolute 3x3. Rotation only grows it; a flip or zero scale keeps `min <= max` |
+| `make_frustum(view_projection)` | `include/engine/render/frustum.h` | `Frustum::planes`: left, right, bottom, top, near, far of the clip volume -w <= x, y, z <= w, normalized, normals inward, in the space the matrix maps from (world for `projection * view`) |
+| `frustum_intersects(frustum, box)` | same | False only when the whole box is behind one plane (its farthest corner along the normal is), beyond a relative tolerance of 1e-5. A box touching a plane is inside. Conservative near the corners of the volume |
+| `visible_in_any(frustums, box)` | same | Any of them intersects; an empty span is always true (no culling) |
+| `camera_frustum(camera, camera_world, window)` | `include/engine/ecs/camera.h` | `make_frustum(projection_matrix(camera, window) * view_matrix(camera_world))` |
+
+A plane that is not finite (a NaN or infinite matrix, an orthographic camera on a 0-wide window) becomes all zero and keeps everything, and a NaN distance compares as inside, so a degenerate view never culls. Near and far are tested too. The CPU frustum is the OpenGL clip volume, -w <= z <= w. Vulkan clips z to [0, w], so the backend left-multiplies `uProjection` by the remap `z_vk = 0.5 * z_gl + 0.5 * w` (`vulkan_projection`) before writing the uniform. xy and w are unchanged, and the CPU matrix used for culling and picking stays the OpenGL one. With the default 2D camera (near -1, far 1) an entity more than one unit in z from the camera was already outside both volumes.
+
+What is tested, in `collect_world_draws` (`src/ecs/systems.cpp`):
+
+- A `Renderable`: `transform_aabb(mesh->bounds(), world matrix)` (`ecs::world_matrix`, so a `Parent` counts).
+- A `Sprite`: the same box under the final draw model, the world matrix with the pivot offset, the `pixel_size / pixels_per_unit` scale and the flip applied, so size, pivot and flip are exact. The mesh is `Sprite::mesh` or `builtin::mesh_quad`.
+- Tilemap chunks: the chunk's cell rectangle under the map's model, before the chunk is baked ([Tilemaps](#tilemaps)).
+- Not culled: particles (their world-space instances take their size from the particle shader; an emitter is one draw), UI, and draws a tool pushes itself, such as the editor's gizmo and outline.
+
+The fatal checks come first: a `Renderable` or `Sprite` with no mesh or material is fatal whether or not it would be on screen.
+
+Windows. `run_render` builds one `camera_frustum` per bound window (`window_size_for` that id) and keeps a draw that any of them sees; the one sorted list still goes to every window. The windows of a world share its camera and view and differ only in aspect, so a per-window list would save draws only in the strip between two aspects. `render_world_viewport` culls with the frustum of its own camera and viewport size, so the editor's scene view culls against the editor camera; its `CmdSetView` and clear are pushed even when everything is culled.
+
+Opt-out. `Renderable::frustum_cull` and `Sprite::frustum_cull` (default true). False always draws the entity: for a shader that moves vertices beyond the mesh's own box (vertex displacement, a sway, a sky). Both are serialized as `frustum_cull` in `.world` (read optionally, default true). A mesh whose vertices change (a voxel chunk) needs nothing: `IMesh::update` keeps its bounds current.
 
 ## Tilemaps
 
@@ -102,7 +168,7 @@ tiles = [0, 1, 2, ...]                   # size.x * size.y, row-major, row 0 on 
 
 The entity's `Transform` places the map: cell (0, 0) is the top-left corner at the origin, x grows right, y grows up, so the map extends down from the origin. `Tilemap::layer` and `order_in_layer` sort it like a `Sprite`; map layer i draws at `order_in_layer + i`. The `tilemap` serializer entry stores the asset GUID, `color`, `layer` and `order_in_layer` (in `.world`); cells come from the asset.
 
-`run_render` and `render_world_viewport` cut each layer into 32 x 32 cell chunks. A chunk is one baked `IMesh` (a quad per non-empty cell, UVs baked) drawn as one `CmdDrawMesh` with the shared per-texture material from `SpriteMaterialCache`, so there is no new `Command`. A chunk is built when it first becomes visible, and only chunks whose box touches the clip volume of a bound window are drawn (`tilemap_chunk_visible`; the render viewport uses its own). `Tilemap::set_tile` edits the component's copy of the cells and rebuilds only the chunk that holds the cell. Edits are not saved. Tile index to UV follows `SpriteSheet::get` (image rows run down, V runs up); there is no half-texel inset, so use nearest filtering and a texture without spacing.
+`run_render` and `render_world_viewport` cut each layer into 32 x 32 cell chunks. A chunk is one baked `IMesh` (a quad per non-empty cell, UVs baked) drawn as one `CmdDrawMesh` with the shared per-texture material from `SpriteMaterialCache`, so there is no new `Command`. A chunk is built when it first becomes visible, and only chunks whose cell rectangle, under the map's model (`transform_aabb`), intersects the frustum of a bound window are drawn (`visible_tilemap_chunks` takes one world-space `Frustum` per window, see [Frustum culling](#frustum-culling); the render viewport passes its own). `Tilemap::set_tile` edits the component's copy of the cells and marks only the chunk that holds the cell dirty. The next `visible_tilemap_chunks` that returns that chunk bakes it again and calls `IMesh::update` on its mesh, so an edit reuses the chunk's mesh and GPU buffers; `create_mesh` runs only for a chunk that has no mesh yet or whose update failed. A chunk left with no tile drops its mesh. Edits are not saved. Tile index to UV follows `SpriteSheet::get` (image rows run down, V runs up); there is no half-texel inset, so use nearest filtering and a texture without spacing.
 
 Not covered yet: tile collision, flips, animated tiles, Y-sort, and an editor painting tool.
 
@@ -129,12 +195,21 @@ Unlit shaders ignore all of it, so lights never change a 2D game.
 `builtin::shader_lit` (`builtin_assets/shaders/lit.shader`, GLSL 330 core in CDATA, rewritten to 300 es by `adapt_glsl` like every shader) is Lambert diffuse plus ambient in world space:
 
 ```
-albedo = texture(uTexture, vUV) * uColor
+albedo = texture(uTexture, vUV) * uColor * vColor        // vColor: vertex color, location 3
+if (albedo.a < uAlphaCutoff) discard                      // cutout
 light  = uAmbient + sum over i < uLightCount of uLightColors[i] * max(dot(N, -uLightDirections[i]), 0)
-FragColor = vec4(albedo.rgb * light, albedo.a)
+color  = albedo.rgb * light
+if (uFogEnabled != 0) color = mix(uFogColor, color, fog factor of length(vViewPos))
+FragColor = vec4(color, albedo.a)
 ```
 
-`N` is `normalize(uNormalMatrix * aNormal)` (vertex location 2). The loop runs to the constant `kMaxDirectionalLights` (a `#define` of 4 in the shader, the same number as the C++ constant) and breaks at `uLightCount`, which GLSL ES 3.00 accepts. There is no specular term, so `uCameraPosition` is set but this shader does not read it.
+`N` is `normalize(uNormalMatrix * aNormal)` (vertex location 2). The loop runs to the constant `kMaxDirectionalLights` (a `#define` of 4 in the shader, the same number as the C++ constant) and breaks at `uLightCount`, which GLSL ES 3.00 accepts. There is no specular term, so `uCameraPosition` is set but this shader does not read it. `vViewPos` is the view-space position (`uView * uModel * position`), so the fog distance needs no uniform in the fragment stage that the vertex stage also declares.
+
+`builtin::shader_lit_array` and `builtin::shader_unlit_array` are the same two shaders sampling a texture array at `MeshVertex::layer` ([Texture arrays](#texture-arrays)).
+
+`builtin::shader_unlit` is the same without lighting: `color = texture(uTexture, vUV) * uColor * vColor`, the same cutout test and the same fog, plus the animated-tile UV offset from `aAnim` and `uTime`.
+
+GLSL ES requires a uniform declared in both stages to have the same precision; the vertex stage defaults to highp and `adapt_glsl` gives the fragment stage mediump. So each uniform of the builtin shaders is declared in one stage only (`Assets.BuiltinShadersDeclareNoUniformInBothStages`).
 
 `builtin::material_lit` (`builtin_assets/materials/lit.mat`) is that shader, white, no texture, `blend = "opaque"`, `depth = true`, `cull = "back"`, so it goes in the opaque queue.
 
@@ -149,9 +224,26 @@ Uniforms the backend sets for each mesh draw (the view and light ones also for e
 | `uLightCount` | `int` | `lights.directional_count` |
 | `uLightDirections[4]`, `uLightColors[4]` | `vec3` arrays | `lights.directions`, `lights.colors` (always all four elements) |
 | `uAmbient` | `vec3` | `lights.ambient` |
+| `uAlphaCutoff` | `float` | `material->render_state().alpha_cutoff`, 0 when unset (mesh draws only) |
+| `uFogEnabled` | `int` | 1 when `CmdSetView::fog` is set, else 0 |
+| `uFogColor`, `uFogRange` | `vec3`, `vec2` | `fog->color` and `(fog->start, fog->end)`; white and (0, 100) without fog |
 | `uColor`, `uUvScale`, `uUvOffset`, `uTexture` | | as before ([Materials and Sort](../features/Materials%20and%20Sort.md#color)) |
 
 `OpenGLShader` setters do nothing for a uniform the program does not have (location -1, which GL ignores; the new `set_mat3`, `set_vec3` and `set_vec3_array` check it explicitly), so `builtin::shader_unlit` and every 2D shader draw exactly as before.
+
+## Cutout
+
+`RenderState::alpha_cutoff` is alpha test. The backend sets `uAlphaCutoff` for every mesh draw to the cutoff, or 0 when there is none, and the builtin lit and unlit shaders discard a fragment whose albedo alpha (texture times material color times vertex color) is below it. Alpha is never below 0, so 0 is "off" and needs no flag; a zero-initialized Vulkan uniform block is off too. A `.mat` sets it with `alpha_cutoff = 0.5` ([Materials and Sort](../features/Materials%20and%20Sort.md#mat)).
+
+Cutout does not change the queue: an opaque material with depth write and a cutoff (leaves, fences, grass) stays in the opaque queue, sorts front to back, and writes depth for the fragments it keeps. The cutoff is a uniform, not a shader variant, so the `discard` is in the builtin shaders whether a cutoff is set or not. On some GPUs a shader that can discard loses early depth testing for every draw that uses it, cutout or not; that is the cost of one lit and one unlit shader. Particles ignore the cutoff.
+
+## Fog
+
+`render::Fog` (`include/engine/render/fog.h`) is linear distance fog: `color` (white), `start` (0), `end` (100). There is no exponential mode. Put it on the `ActiveCamera` entity: `run_render` copies it into every window's `CmdSetView::fog`. Without the component `fog` is empty and nothing is fogged; a `Fog` on any other entity is ignored. It is serialized as the `fog` world component (`color`, `start`, `end`).
+
+The builtin lit and unlit shaders mix the fragment's color towards `color` by `clamp((end - d) / max(end - start, 0.0001), 0, 1)`, where `d` is the fragment's distance from the camera (the length of its view-space position, so fog does not change as the camera turns). An `end` at or before `start` is a hard edge at `end`. Alpha is not fogged, and an additive material fades to the fog color, not to black.
+
+Fogged: everything drawn with `builtin::shader_lit` or `builtin::shader_unlit` (or their array variants), sprites and tilemaps included, but only under a camera that has `Fog`, so a 2D game is unchanged. Not fogged: particles (their builtin GL and Slang shaders have no fog; a custom particle shader receives the fog uniforms and may use them), UI, and `render_world_viewport`, which pushes no fog (the editor's scene viewport is unfogged). Both backends set the fog uniforms for mesh and particle draws from the current view ([Lit shader](#lit-shader)).
 
 ## Sprites, animation, particles, curves
 
@@ -214,17 +306,18 @@ These sources are not in the headless library. CMake adds them only when the win
 
 Desktop links glad and OpenGL 3.3. `ENGINE_WITH_GLES` links SDL without glad (Android also links GLESv3, EGL, `android`, and `log`).
 
-Sampler state on upload comes from the catalog filter and wrap (`opengl_texture.cpp`).
+Sampler state on upload comes from the catalog filter, wrap, and mipmaps (`opengl_texture.cpp`, [Mipmaps](#mipmaps)). A texture array is a `GL_TEXTURE_2D_ARRAY` uploaded with `glTexImage3D`, each layer flipped like a 2D texture.
 
 View state (`opengl_backend.cpp`). `OpenGLRenderBackend` keeps one `CmdSetView` and records the context's full-window `GL_VIEWPORT` (`full_viewport_[4]`) at the start of `execute`. `execute` resets `view_` to a default `CmdSetView` (identity, no lights, full viewport) before the first command, a `CmdSetView` replaces it, and each mesh and particle draw sets `uView`, `uProjection`, `uCameraPosition`, and the light uniforms from it ([Lit shader](#lit-shader)). When `CmdSetView::viewport` is set (`Rect` in top-left window coordinates), `set_view` converts it to bottom-left OpenGL coordinates (`gl_y = full_viewport_[3] - (y + h)`), sets `glViewport` and `glScissor`, and enables `GL_SCISSOR_TEST`; when `viewport` is `std::nullopt`, it restores `full_viewport_` and disables `GL_SCISSOR_TEST`. When `CmdSetView::clear_color` is set, `set_view` enables depth writes, clears `GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT` to that color (clipped to the active scissor rect when `viewport` is set), and restores `glClearColor(0, 0, 0, 1)`. At the end of `execute`, the backend restores `full_viewport_` and disables `GL_SCISSOR_TEST`.
 
-Albedo. A mesh draw binds the material's slot-0 texture on unit 0 or, when the material has none (or it is not valid), a 1x1 white RGBA texture the backend makes on first use (`white_texture`, shared by every context). So an untextured material draws as its color, under any shader. The particle draw has always done this; before wind-238 an untextured mesh sampled whatever unit 0 still held (the previous draw's texture, or nothing after the UI flush). A `MaterialOverride` albedo still replaces it for that draw.
+Albedo. A mesh draw binds the material's slot-0 texture on unit 0 or, when the material has none (or it is not valid), a 1x1 white RGBA texture the backend makes on first use (`white_texture`, shared by every context). The other target of unit 0 gets white too: `GL_TEXTURE_2D_ARRAY` for a 2D albedo, `GL_TEXTURE_2D` for an array ([Texture arrays](#texture-arrays)). So an untextured material draws as its color, under any shader. The particle draw has always done this; before wind-238 an untextured mesh sampled whatever unit 0 still held (the previous draw's texture, or nothing after the UI flush). A `MaterialOverride` albedo still replaces it for that draw.
 
 Pipeline state of world draws (`opengl_backend.cpp`). Each `CmdDrawMesh` sets all of it from `material->render_state()`, so nothing leaks from the previous draw:
 
 - Blend: `Opaque` disables `GL_BLEND`; `Alpha` is `SRC_ALPHA, ONE_MINUS_SRC_ALPHA`; `Additive` is `SRC_ALPHA, ONE`.
 - Depth: test and write both off disables `GL_DEPTH_TEST`. Otherwise `GL_DEPTH_TEST` is on with `glDepthFunc(GL_LEQUAL)` (an equal depth passes, so a second pass over the same surface draws), or `GL_ALWAYS` when only write is on (GL writes no depth while the test is disabled). `glDepthMask` follows `depth_write`.
 - Cull: `None` disables `GL_CULL_FACE`; `Back` / `Front` enable it with `glFrontFace(GL_CCW)` and that `glCullFace`.
+- Cutout: `uAlphaCutoff` ([Cutout](#cutout)).
 - `CmdDrawParticles` uses `cmd.blend` with depth test, depth write, and culling off, whatever its material says.
 
 After the last command `OpenGLRenderBackend::execute` disables `GL_DEPTH_TEST` and `GL_CULL_FACE` and sets `glDepthMask(GL_TRUE)`. The UI flush that follows sets its own state anyway (no depth, stencil, cull). The mask matters for the next frame: `glClear` honours it, so a false mask would keep last frame's depth. `OpenGLCanvas::render` also sets `glDepthMask(GL_TRUE)` right before its `glClear(COLOR | STENCIL | DEPTH)`. State is per context: each window's canvas runs both in its own context, so every window starts its frame with a cleared depth buffer. The default framebuffer has a 24-bit depth buffer (`SDL_GL_DEPTH_SIZE`, `window_system.cpp`).
@@ -247,17 +340,28 @@ GL errors are silent unless someone asks. With `ENGINE_GL_CHECKS` (Debug, RelWit
 | Shared `VkInstance`, `VkPhysicalDevice`, `VkDevice`, `VkQueue`, and command pool | `src/render/vulkan/vulkan_context.cpp` |
 | Factory (`IMesh`, SPIR-V `IShader` modules, `ITexture`, `IDynamicTexture`) | `src/render/vulkan/vulkan_factory.cpp` |
 | GPU resources (`VulkanMesh`, `VulkanShader`, `VulkanTexture`) | `vulkan_mesh.cpp`, `vulkan_shader.cpp`, `vulkan_texture.cpp` |
+| Buffers held until no frame in flight reads them (`RetireQueue`) | `src/render/vulkan/vulkan_retire_queue.h` |
 | SPIR-V reflection (`OpEntryPoint`, UBO uniform layout, sampler binding) | `src/render/vulkan/vulkan_spirv.cpp` |
 | Render backend (`IRenderBackend`, graphics pipelines, UBO/descriptor sets, `CmdSetView`, `CmdDrawMesh`, `CmdDrawParticles`) | `src/render/vulkan/vulkan_backend.cpp` |
 | UI device (`IUiDevice`) and its Slang uber-shader | `vulkan_ui_device.cpp`, `vulkan_ui_shader.h` |
 | Per-window `VkSurfaceKHR`, `VkSwapchainKHR`, depth attachment, render pass, framebuffers, sync primitives, and staging-buffer `read_pixels()` | `src/render/vulkan/vulkan_canvas.cpp` |
 | SDL presentation wiring (`make_sdl_vk_presentation`) | `src/render/vulkan/sdl_vk_presentation.cpp` |
 
-`EngineRuntime` selects `make_sdl_vk_presentation()` when built with `-DENGINE_WITH_VULKAN=ON` or when `WIND_RENDER_BACKEND=vulkan` is set in the environment (`WIND_RENDER_BACKEND=opengl` forces OpenGL).
+Retired buffers (`src/render/vulkan/vulkan_retire_queue.h`, held by `VulkanContext`). A buffer a mesh replaced or dropped may still be read by up to `kMaxFramesInFlight` submitted frames, or by the frame being recorded. `VulkanContext::retire_buffer` tags it with the serial of the next submission. Each `VulkanCanvas` records `VulkanContext::note_submitted()` for a frame slot after its `vkQueueSubmit`, and passes that serial to `note_completed` after waiting on the slot's fence, which destroys everything tagged at or below it. Every canvas submits to the one graphics queue, and a fence signalled by a submit covers all earlier submits on that queue, so one completed serial is enough even with several windows. `release_retired` destroys everything after a `vkDeviceWaitIdle` (canvas shutdown, swapchain recreation, `VulkanContext::shutdown`). `VulkanTexture` does not use it yet: a dynamic texture whose size changes destroys its image at once, which a frame in flight may still sample.
+
+Vulkan mesh pipelines declare all five `MeshVertex` attributes (color is `R32G32B32A32_SFLOAT` at location 3, layer `R32_SFLOAT` at location 4). `VulkanTexture` holds a 2D texture or an array (`arrayLayers`, a `2D_ARRAY` view) with its mip chain ([Mipmaps](#mipmaps)); the albedo it binds matches the shader's sampler ([Texture arrays](#texture-arrays)). The pipeline cache key is the shader modules, the render state with `alpha_cutoff` cleared (the cutoff is a uniform, so one pipeline serves every value), the render pass, and the particle flag. `uAlphaCutoff` and the fog uniforms go into the draw's uniform block like the others.
+
+`EngineRuntime` selects `make_sdl_vk_presentation()` when built with `-DENGINE_WITH_VULKAN=ON` or when `WIND_RENDER_BACKEND=vulkan` is set in the environment (`WIND_RENDER_BACKEND=opengl` forces OpenGL). The engine enables no implicit layer. `VK_LAYER_KHRONOS_validation` is requested only when `WIND_VK_VALIDATION=1` and that layer is installed. A loader-injected implicit layer that fails `vkCreateInstance` or `SDL_Vulkan_CreateSurface` still fails startup: `WindowSystem::create` logs `SDL_GetError` when `SDL_CreateWindow` returns null, and `VulkanCanvas::init` / `VulkanContext` log the `VkResult` name and value for each failed Vulkan call (`game.log`, then the `WindowCreate` dialog). `VK_LOADER_LAYERS_DISABLE=*` is the way to start that same process with the implicit layers out. There is no fallback to OpenGL after the Vulkan presentation is chosen: `EngineServices` already holds that factory.
+
+Scene uniforms are written column-major unless SPIR-V reflection says the member is row-major (`write_mat4` transposes only then). This Slang decorates `uModel`, `uView`, and `uProjection` `RowMajor` and emits no `OpTranspose`, even with `SessionDesc::defaultMatrixLayoutMode` set to column-major, so the transpose is the matching upload: without it a translation in the last column becomes w. A matrix wrapped in a one-member struct keeps the inner member's `RowMajor` / `ColMajor` and matrix stride. `uProjection` is `vulkan_projection` of the camera matrix, so an orthographic camera with a negative `near_clip` (clip z in [-w, w] from `glm::ortho`) lands in Vulkan's [0, w]. The viewport's negative height flips Y to match OpenGL; it does not change w. `tests/vulkan_clip_test.cpp` is the 2D ortho fixture with `ortho_size` 450, near -100, far 100, and the camera at z = 10.
 
 ## CPU sources (always)
 
 - `src/render/material.cpp` — parse `.mat`
+- `src/render/mesh.cpp` — `IMesh::update` (validation before the backend's `replace`), `mesh_bounds`, the `IMesh` bounds
+- `src/render/aabb.cpp` — `transform_aabb`
+- `src/render/frustum.cpp` — `make_frustum`, `frustum_intersects`, `visible_in_any`
+- `src/render/texture_check.cpp` — `texture_array_desc_error`, `mip_level_count`, per-layer row flip, `texture_rects_error` and the rect copy into a bottom-row-first image
 - `src/render/lights.cpp` — `collect_scene_lights`, `default_scene_lights`
 - `src/render/material_instance.h` — `IMaterial` for a cooked material
 - `src/render/tilemap.cpp`, `src/render/animation.cpp`, `src/render/particles.cpp`, `src/render/shader_adapt.cpp`, `src/render/slang_compiler.cpp`
@@ -266,9 +370,12 @@ GL errors are silent unless someone asks. With `ENGINE_GL_CHECKS` (Debug, RelWit
 
 ## Public headers
 
+- `include/engine/render/aabb.h`
 - `include/engine/render/commands.h`
 - `include/engine/render/command_buffer.h`
+- `include/engine/render/frustum.h`
 - `include/engine/render/directional_light.h`
+- `include/engine/render/fog.h`
 - `include/engine/render/ambient_light.h`
 - `include/engine/render/scene_lights.h`
 - `include/engine/render/lights.h`
@@ -285,10 +392,11 @@ GL errors are silent unless someone asks. With `ENGINE_GL_CHECKS` (Debug, RelWit
 - `include/engine/render/particles.h`
 - `include/engine/render/curve.h`
 - `include/engine/render/shader_adapt.h`
+- `include/engine/render/texture_array.h`
 
 ## Tests
 
-`tests/command_buffer_test.cpp`, `tests/lights_test.cpp` (light collection, lights and camera in `CmdSetView`), `tests/sort_test.cpp`, `tests/material_test.cpp`, `tests/render_system_test.cpp`, `tests/sprite_test.cpp`, `tests/animation_test.cpp`, `tests/tilemap_test.cpp`, `tests/particle_test.cpp`, `tests/shader_adapt_test.cpp`, `tests/opengl_texture_test.cpp` (CPU texture desc, no GL draw), `tests/ui_painter_test.cpp` (fake painter), `tests/window_icon_test.cpp`, `tests/context_objects_test.cpp` (context keys and deferred VAO deletes, no GL), `tests/gl_error_log_test.cpp`, `tests/ui_renderer_test.cpp` (UI renderer against a fake device: texture catch-up per device, draws per batch).
+`tests/command_buffer_test.cpp`, `tests/lights_test.cpp` (light collection, lights and camera in `CmdSetView`), `tests/fog_test.cpp` (no fog by default, the camera's `Fog` in every view, none in `render_world_viewport`, serialization), `tests/sort_test.cpp`, `tests/material_test.cpp`, `tests/render_system_test.cpp` (also culled renderables and sprites push no draw, pixel size and pivot, the union over windows, `frustum_cull`, particles not culled, `render_world_viewport` culling), `tests/frustum_test.cpp` (inside, outside each plane, straddling, touching, orthographic and perspective, degenerate matrices, `transform_aabb`), `tests/sprite_test.cpp`, `tests/animation_test.cpp`, `tests/tilemap_test.cpp` (chunk culling, chunk edits update the chunk's mesh), `tests/mesh_test.cpp` (`IMesh::update` validation and keep-old rule, bounds from create and update, `.mesh` vertex colors), `tests/texture_array_test.cpp` (array desc checks, mip level count, frame import, `.meta` and catalog, `AssetsDb` layers by name, array albedo in a `.mat`, codegen), `tests/vulkan_backend_test.cpp` (window builds: mesh update without a device, `RetireQueue` serials, a texture array without a device, `sampler_arrayed` reflection), `tests/particle_test.cpp`, `tests/shader_adapt_test.cpp`, `tests/opengl_texture_test.cpp` (CPU texture desc, no GL draw), `tests/ui_painter_test.cpp` (fake painter), `tests/window_icon_test.cpp`, `tests/context_objects_test.cpp` (context keys and deferred VAO deletes, no GL), `tests/gl_error_log_test.cpp`, `tests/ui_renderer_test.cpp` (UI renderer against a fake device: texture catch-up per device, draws per batch).
 
 GPU pixels stay out of `engine_tests`. See [Boundaries](../architecture/Boundaries.md).
 

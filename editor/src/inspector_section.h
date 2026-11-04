@@ -12,7 +12,10 @@ namespace editor {
 enum class InspectorFieldKind { Text, Bool, String, Number, Vec, Asset };
 
 struct InspectorField {
+    // Path written by an edit (`heroes[0].base.max_hp`). A top-level field's path is its name.
     std::string key;
+    // Leaf shown on the row (`max_hp`, `weights[5]`). Empty uses `key`.
+    std::string label;
     InspectorFieldKind kind = InspectorFieldKind::Text;
     // A read-only row, or the string / number in the text field.
     std::string text;
@@ -33,10 +36,18 @@ struct InspectorField {
 // turns it into view-models and remembers by heading which sections the user collapsed. `removable` is a
 // registered component on an entity in Edit Mode.
 struct InspectorSection {
+    // Only what the row shows. A nested table's heading is its path (`stats  Archer`), not a component.
     std::string heading;
     std::vector<std::string> lines;
     std::vector<InspectorField> fields;
     bool removable = false;
+    // What an edit of `fields` and the remove button act on: the component, for every section of its nested tables too.
+    // Empty uses `heading`.
+    std::string component;
+
+    [[nodiscard]] const std::string& owner() const {
+        return component.empty() ? heading : component;
+    }
 
     bool operator==(const InspectorSection&) const = default;
 };
