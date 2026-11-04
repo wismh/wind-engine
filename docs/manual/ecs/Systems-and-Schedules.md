@@ -19,10 +19,12 @@ Within each schedule, systems execute sequentially across predefined phases (`en
 
 ### `Schedule::Fixed` Phases
 ```
-1. Phase::NetReceive --> Server (after install_net_server): poll the network, advance the tick
+1. Phase::NetReceive --> Server (after install_net_server): poll the network, advance the tick, step controlled entities
+                         Client (after install_net_client): reconcile, collect input, step predicted entities
 2. Phase::Physics    --> Engine: run_physics_2d (velocity integration, collision events)
 3. Phase::Game       --> Fixed gameplay logic, enemy AI, simulation steps
 4. Phase::NetSend    --> Server (after install_net_server): send snapshots
+                         Client (after install_net_client): send inputs
 ```
 
 ### `Schedule::Frame` Phases
@@ -37,7 +39,8 @@ Within each schedule, systems execute sequentially across predefined phases (`en
 8. Phase::UiRender   --> Engine: UI canvases into the CommandBuffer
 ```
 
-The net phases stay empty unless the game installs a server or a client. Do not put gameplay there.
+The net phases stay empty unless the game installs a server or a client. Do not put gameplay there. The one exception is the engine's own: with `register_prediction`, it calls your `step` for controlled entities from `Fixed`/`NetReceive`, so they move before physics and your `Game` systems ([Net](../../tech/modules/Net.md#input-and-prediction)).
+
 
 An engine system exists only when the host gave it what it needs. A headless world (tests, tools) has no audio system, so a `PlaySfxEvent` or `PlayMusicEvent` there is never read and is not an error; with no command buffer it has no render systems either. A game with a scene to draw must have a valid `ActiveCamera`, or rendering reports a fatal error.
 

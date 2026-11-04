@@ -166,6 +166,9 @@ Do (generic over the game's input and state types):
 
 Done when: loopback tests with simulated latency and loss show reconciliation converging and no replay when predictions match.
 
+Done in wind-308: `register_prediction<Input, State>` with a `PredictionDesc` (wire format, `step`, `collect`, `capture`, `restore`, `matches`, `corrected`) on both sides; one tick numbering with the client ahead; the Input message (`0x0103`, last `input_redundancy` inputs); the server's per-entity `InputBuffer` (first copy wins, repeat last, lead cap, ownership check) stepping controlled entities from `NetReceive`; per-peer `input_tick` and `input_slack` in the snapshot header (protocol 2); `InputLead` dilating the client's `Time::fixed_rate` from that slack, with forward jumps only; reconciliation against the newest snapshot that replays on a mismatch; predicted entities skipped by interpolation ([Net](../modules/Net.md#input-and-prediction)).
+
+
 ### wind-309 feat: interest management and bandwidth
 
 Do:

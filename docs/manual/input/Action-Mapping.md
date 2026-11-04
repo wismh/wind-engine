@@ -125,6 +125,9 @@ void MyGame::look(engine::ecs::World& world) {   // Schedule::Frame: mouse motio
 
 Mouse motion is summed from the start of the frame's input poll; the next frame starts again from 0. Read it on `Schedule::Frame`: a fixed step would apply the same motion once per step. `MouseAxis::Wheel` counts wheel notches the same way (weapon cycling). Motion sends no `InputEvent` and is not blocked by the UI; it comes from every window, not only the one the game draws in. To hide and lock the cursor, see [Raw Input & Mouse](Raw-Input-and-Mouse.md#5-first-person-look-relative-mouse-mode).
 
+In a multiplayer game the same actions feed the input a client sends to the server each fixed tick: `PredictionDesc::collect` reads `is_held` and `axis()` and returns the game's `Input` struct, and mouse look goes in as the absolute `yaw_` and `pitch_` above, not as this frame's motion. See [Input Mapper](../../tech/features/Input%20Mapper.md#net-input) and [Net](../../tech/modules/Net.md#input-and-prediction).
+
+
 ---
 
 ## 6. Android Back
