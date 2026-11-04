@@ -29,6 +29,7 @@ See [Principles](Principles.md).
 | --- | --- |
 | `ENGINE_WITH_WINDOW` | `PUBLIC` on `engine`. Unlocks `Engine<GameT>` and the OpenGL sources. |
 | `ENGINE_WITH_AUDIO` | `PRIVATE`. Real `MIX_*`. WAV-only mixer in CMake. Same root and subdirectory split as `ENGINE_WITH_WINDOW`: OFF at the engine root, ON when Wind is `add_subdirectory`'d. |
+| `ENGINE_WITH_GNS` | `PRIVATE` on `engine` (and on `engine_tests`). GameNetworkingSockets behind `GnsTransport` and `SteamTransport`; stubs without it. ON by default on Windows, OFF elsewhere; the Linux Server player and preset `linux-server` turn it on. Replaces a `_WIN32` test in `src/net/`. |
 | `ENGINE_WITH_WEB` | `PUBLIC`. Web profile helpers. Emscripten turns the option ON by default. |
 | `ENGINE_WITH_ANDROID` | `PUBLIC`. Android profile helpers. The NDK turns the option ON by default. |
 | `ENGINE_WITH_GLES` | `PUBLIC`. ES 3.0 backend (no glad, shader adapt). Default ON when `EMSCRIPTEN` or `ANDROID`. |

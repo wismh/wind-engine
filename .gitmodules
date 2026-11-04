@@ -25,3 +25,7 @@
 [submodule "external/lz4"]
 	path = external/lz4
 	url = https://github.com/lz4/lz4.git
+[submodule "external/GameNetworkingSockets-src"]
+	path = external/GameNetworkingSockets-src
+	url = https://github.com/ValveSoftware/GameNetworkingSockets.git
+	update = none

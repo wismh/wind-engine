@@ -64,6 +64,10 @@ void init(const std::filesystem::path& exe_dir) {
     }
 }
 
+void init_stdout() {
+    current() = make_logger(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
+}
+
 void info(std::string_view message) {
     logger().info("{}", message);
 }

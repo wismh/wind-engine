@@ -61,6 +61,7 @@ Wind is a high-performance 2D-first C++23 game engine tailored for production ti
 ### 9. [Target Platforms](platforms/Desktop.md)
 * [Desktop](platforms/Desktop.md) — Exporting a Release build from the editor or in batch mode (CI), exporting by hand, and distribution on Windows, Linux, and macOS.
 * [Web (WebAssembly)](platforms/Web-Wasm.md) — Building from the SDK's engine source with Emscripten, the SDK's native codegen tools, and asset preloading.
+* [Dedicated Server](platforms/Dedicated-Server.md) — `engine_add_server` and `ENGINE_GAME_SERVER`: a program with no window, its command line, config, signals, and Linux.
 * [Android](platforms/Android.md) — Gradle packaging from the SDK's engine source, application identifiers, assets staging, and back button.
 
 ### 10. [Best Practices & Conventions](best-practices/Rules-and-Conventions.md)

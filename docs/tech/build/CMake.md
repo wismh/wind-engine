@@ -14,14 +14,15 @@ The library target is `engine`. Alias: `engine::engine`. It is static. With `ENG
 | `ENGINE_WITH_GTEST` | follows tests | follows tests | Vendors `external/googletest` without building `engine_tests`. `ENGINE_BUILD_TESTS` forces it ON |
 | `ENGINE_WITH_WINDOW` | OFF | ON | SDL3, OpenGL or GLES. `PUBLIC` define `ENGINE_WITH_WINDOW=1` |
 | `ENGINE_WITH_AUDIO` | OFF | ON | SDL3_mixer, WAV only. `PRIVATE` define |
+| `ENGINE_WITH_GNS` | ON on Windows when the prebuilt is there, else OFF | same | `PRIVATE`, also on `engine_tests`. GameNetworkingSockets behind `GnsTransport` and `SteamTransport`, stubs without it. Windows links `external/GameNetworkingSockets`; elsewhere ON builds `external/GameNetworkingSockets-src` ([What links](#what-links)) |
 | `ENGINE_WITH_WEB` | ON if `EMSCRIPTEN`, else OFF | same | `PUBLIC` |
 | `ENGINE_WITH_ANDROID` | ON if `ANDROID`, else OFF | same | `PUBLIC` |
 | `ENGINE_WITH_GLES` | ON if `EMSCRIPTEN` or `ANDROID`, else OFF | same | `PUBLIC`. No glad |
 | `ENGINE_BENCH` | OFF | configure error | `wind_ui_bench` and, with tests, `wind_ui_bench_tests` ([Bench build](#bench-build)). No install rules. Needs `ENGINE_WITH_WINDOW`, refuses `ENGINE_EDITOR`, Emscripten, and Android |
 | `ENGINE_UI_LAYOUT_CHECK` | OFF (ON in the Debug configuration) | same | Defines `ENGINE_UI_LAYOUT_CHECK` privately: every `sync_layout` is compared with a from-scratch layout ([UI](../modules/UI.md#debug-layout-check)). Never with `ENGINE_EDITOR` or a player |
 | `ENGINE_EDITOR` | OFF | configure error | Shared `engine`, the editor, the SDK install rules. Needs `ENGINE_WITH_WINDOW`. Fatal on Emscripten and Android. In a game tree it is fatal and points at `find_package(Wind)` |
-| `ENGINE_PLAYER` | empty | configure error | `Development` or `Shipping`: a build of the static engine for the editor SDK's [player libraries](#player-libraries). Engine repo root only, with `ENGINE_WITH_WINDOW` and `ENGINE_WITH_AUDIO` ON and without `ENGINE_EDITOR`, tests, bench, Emscripten, and Android. Set by `cmake/player_build.cmake`, not by hand |
-| `ENGINE_SDK_PLAYER` | ON | not defined | Only with `ENGINE_EDITOR`. A Release `cmake --install` also builds both player flavours into `<sdk>/player/` |
+| `ENGINE_PLAYER` | empty | configure error | `Development`, `Shipping`, or `Server`: a build of the static engine for the editor SDK's [player libraries](#player-libraries). Engine repo root only, with `ENGINE_WITH_WINDOW` and `ENGINE_WITH_AUDIO` ON (both OFF for `Server`) and without `ENGINE_EDITOR`, tests, bench, Emscripten, and Android. Set by `cmake/player_build.cmake`, not by hand |
+| `ENGINE_SDK_PLAYER` | ON | not defined | Only with `ENGINE_EDITOR`. A Release `cmake --install` also builds the player flavours into `<sdk>/player/` |
 
 `ENGINE_UI_PROFILER` and `ENGINE_CLI_SERVER` are not options. Without `ENGINE_EDITOR` they are generator expressions on Debug, RelWithDebInfo, and DebugGame (a game's DebugGame configuration, which only an export built from `<sdk>/source` has). With `ENGINE_EDITOR` they are on in every configuration, so the Release editor and SDK have the Profiler tab and `wind-cli`. A [player](#player-libraries) has them by flavour, Development yes and Shipping no. The CLI define is also omitted for Emscripten and Android. See [Boundaries](../architecture/Boundaries.md).
 
@@ -44,6 +45,7 @@ Cache paths:
 | `vs-window` | `build-window` | ON | ON | OFF | |
 | `vs-audio` | `build-audio` | OFF | ON | ON | |
 | `vs-editor` | `build-editor` | ON | ON | ON | `ENGINE_EDITOR=ON`. Audio is on so the editor plays game sound. `engine_tests` still opens no mixer device: the audio tests never call `AudioSystem::init` |
+| `linux-server` | `build-server` | ON | OFF | OFF | `ENGINE_WITH_GNS=ON`, Ninja, single config `Release`. A dedicated server's engine, with no SDL. Linux only, and needs the [GameNetworkingSockets source](#what-links) |
 | `vs-bench` | `build-bench` | ON | ON | OFF | `ENGINE_BENCH=ON`, static engine. Build preset `bench`: `wind_ui_bench` in RelWithDebInfo |
 | `linux-bench` | `build-bench` | ON | ON | OFF | The same on Linux: Ninja, single config `RelWithDebInfo`. Build preset `linux-bench`: `wind_ui_bench`. Linux only |
 | `web` | `build-web` | ON | ON | OFF | `ENGINE_WITH_WEB=ON`. Configure with `emcmake` |
@@ -111,7 +113,13 @@ Always, PRIVATE: spdlog, tinyxml2, tomlplusplus, `wind_lz4`. PUBLIC: glm.
 
 `wind_lz4` is LZ4 (`external/lz4`, tag `v1.10.0`, BSD-2-Clause): a static library the root `CMakeLists.txt` builds from `lib/lz4.c` and `lib/lz4hc.c` alone, not through lz4's own `build/cmake` project (its CLI, the frame format, and install rules). `LZ4_HEAPMODE=1` keeps the compression state off the stack of a job worker. Only `src/core/compression.cpp` includes `<lz4.h>`; games use `<engine/core/compression.h>` ([Core](../modules/Core.md#compression)). The target is named `wind_lz4`, not `lz4`, so it does not collide with a game tree that adds lz4's own project; the `LZ4_*` symbols still would, so a game that links engine uses `engine::compress` rather than a second lz4.
 
-Windows also links `ws2_32`, `advapi32`, and `winhttp` PUBLIC, because `cli_server.cpp` uses WinSock and ACL APIs, `src/net/winhttp_session.cpp` uses WinHTTP, and a static library does not propagate PRIVATE system libs. The shared editor build keeps the same rule. Linux and macOS link `${CMAKE_DL_LIBS}` PUBLIC (`dl` before glibc 2.34, nothing on macOS) for `dlopen` of the system libcurl in `src/net/curl_library.cpp`; no libcurl is needed to build.
+Windows also links `ws2_32`, `advapi32`, `winhttp`, and `shell32` PUBLIC, because `cli_server.cpp` uses WinSock and ACL APIs, `src/net/winhttp_session.cpp` uses WinHTTP, `src/core/server_options.cpp` uses `CommandLineToArgvW`, and a static library does not propagate PRIVATE system libs. The shared editor build keeps the same rule. Linux and macOS link `${CMAKE_DL_LIBS}` PUBLIC (`dl` before glibc 2.34, nothing on macOS) for `dlopen` of the system libcurl in `src/net/curl_library.cpp`; no libcurl is needed to build.
+
+GameNetworkingSockets (`ENGINE_WITH_GNS`). Windows links the prebuilt import library `external/GameNetworkingSockets/lib/x64/GameNetworkingSockets.lib` PUBLIC, and its DLLs land beside whatever needs them. Off Windows the root adds the submodule `external/GameNetworkingSockets-src` (`v1.6.0`, `update = none`, an opt-in: [external/README.md](../../../external/README.md)) `EXCLUDE_FROM_ALL` with the static library only, `USE_CRYPTO=OpenSSL`, and `ENABLE_ICE`, `USE_STEAMWEBRTC`, tools, tests, and examples OFF, so none of its nested submodules is needed, and links `GameNetworkingSockets_s` PRIVATE. `Protobuf_USE_STATIC_LIBS` and `OPENSSL_USE_STATIC_LIBS` are ON, so the binary needs neither on its host. Only the Linux Server player and the preset `linux-server` turn it on off Windows; a Linux desktop client stays non-networked.
+
+Slang is linked when `external/slang` exists and `ENGINE_WITH_WINDOW` or `ENGINE_BUILD_TESTS` is on, so a server does not import `slang.dll`.
+
+An import library linked PUBLIC is `$<BUILD_INTERFACE:<this tree>>` plus `$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/lib/<name>.lib>`, and a player installs a copy into its `lib/`: an exported target must not name this checkout, or an Export would not link once the SDK has moved.
 
 `ENGINE_WITH_WINDOW` adds SDL3 (static, except Android where SDL is shared) and either glad plus `OpenGL::GL` or, with GLES, SDL alone (Android also GLESv3, EGL, `android`, `log`).
 
@@ -121,7 +129,7 @@ Windows also links `ws2_32`, `advapi32`, and `winhttp` PUBLIC, because `cli_serv
 
 ## Game functions
 
-`cmake/wind_game.cmake` defines `engine_prepare_runtime`, `engine_configure_app`, `engine_add_game`, `engine_add_web_game`, and `engine_add_android_game`. The root `CMakeLists.txt` includes it in the source build. The SDK installs the same file, and `WindConfig.cmake` includes it in SDK mode.
+`cmake/wind_game.cmake` defines `engine_prepare_runtime`, `engine_configure_app`, `engine_add_game`, [`engine_add_server`](#engine_add_server), `engine_add_web_game`, and `engine_add_android_game`. The root `CMakeLists.txt` includes it in the source build. The SDK installs the same file, and `WindConfig.cmake` includes it in SDK mode.
 
 The functions run in the calling directory's scope, so what they need from the engine is in cache variables both contexts set:
 
@@ -132,6 +140,7 @@ The functions run in the calling directory's scope, so what they need from the e
 | `ENGINE_BUILTIN_ASSETS_DIR` | `builtin_assets/` | `<sdk>/bin/assets/engine` |
 | `ENGINE_COOKED_CATALOG` | `<build>/generated/engine/catalog.toml`, cooked by the target `engine_builtin_catalog` | `<sdk>/bin/assets/engine/catalog.toml`, already cooked |
 | `ENGINE_CMAKE_DIR` | engine source tree | not set (only the web link step reads it) |
+| `ENGINE_GNS_RUNTIME_DLLS` | `external/GameNetworkingSockets/bin/x64/*.dll` | those DLLs in `<sdk>/bin` (Windows only, both) |
 
 `engine`, `asset_codegen`, and `icon_codegen` are targets in both: built in the source build, imported in SDK mode.
 
@@ -165,6 +174,18 @@ Asset and icon steps: [Pipeline](Pipeline.md). Web adds `cmake/web/link_flags.cm
 
 `engine_add_web_game` and `engine_add_android_game` call `engine_add_game` and fail the configure when `EMSCRIPTEN` or `ANDROID` is not set.
 
+## `engine_add_server`
+
+`engine_add_server(target sources...)` makes a dedicated server ([Core](../modules/Core.md#dedicated-server)): an `add_executable` in every mode, with the target property `ENGINE_SERVER_APP`, which `engine_configure_app` reads. The rest of that function applies (C++23, MSVC warnings, `bin/`, `include/`, `src/`, cooked `assets/`, `component_io.h`), with these differences: a console program in every configuration (no `/SUBSYSTEM:WINDOWS`), no icon, `MACOSX_BUNDLE OFF`, and it links `engine_server` instead of `engine`. `engine_prepare_runtime` stages the game's assets and `assets/engine` beside it, and on Windows the function copies `ENGINE_GNS_RUNTIME_DLLS` there. It writes the same `<build>/wind/<target>.<config>.export` record an exported game has. Web and Android are a configure error.
+
+| Context | `engine_server` |
+| --- | --- |
+| Source build | An alias of `engine`. With `ENGINE_WITH_WINDOW` on that engine still has SDL inside; configure with `-DENGINE_WITH_WINDOW=OFF -DENGINE_WITH_AUDIO=OFF` for one without |
+| SDK mode (beside a game module), `WIND_EXPORT` | `INTERFACE IMPORTED GLOBAL` over `WindPlayerServer::engine`, imported on the first call by `wind_export_import_server` (`cmake/wind_export.cmake`, included in every mode), with the same build id check. The executable has `MSVC_RUNTIME_LIBRARY MultiThreadedDLL`, and both game configurations link the one flavour |
+| An SDK without `player/Server` (Debug SDK, macOS, Linux without the source) | A status line, and the target is skipped, so the game still configures for the editor |
+
+The fixture `wind_server_fixture` (`tests/fixtures/server/`) goes through the function in the engine's own builds, the editor build included.
+
 ## Runtime assets subdirectory
 
 `engine_prepare_runtime` copies a target's own `assets/` tree and cooked `catalog.toml` to `<output>/assets/`. The target property `ENGINE_RUNTIME_ASSETS_DIR` moves both to `<output>/assets/<dir>/`. `wind_editor` sets it to `editor`, so the editor and a game module built into the same `bin/` each keep their own `catalog.toml`. The engine's own assets stay in `assets/engine/` either way.
@@ -194,6 +215,7 @@ out/sdk/
   player/
     Development/     the static engine for an Export's DebugGame: lib/*.lib, cmake/wind_player.cmake, cmake/wind_player_targets*.cmake
     Shipping/        the same for an Export's Release
+    Server/          the same with no SDL, for engine_add_server (Windows; Linux with the GameNetworkingSockets source)
   include/
     engine/**        public headers and the generated engine/build_id.h of that configuration
     glm/**           glm headers (*.h, *.hpp, *.inl)
@@ -249,14 +271,19 @@ An Export links the game with the static engine. Compiling that engine (the engi
 | --- | --- | --- |
 | `Development` | `DebugGame` | `/O2 /MD`, debug information inside the objects (`/Z7`, no `.pdb` to carry), `ENGINE_UI_PROFILER` and `ENGINE_CLI_SERVER`: `wind-cli` works in a game exported this way |
 | `Shipping` | `Release` | `/O2 /MD`, no debug information, no profiler, no CLI server |
+| `Server` | both, for `engine_add_server` | `/O2 /MD`, no debug information, no profiler, no CLI server, no SDL, no mixer, no OpenGL, no Slang; on Linux GameNetworkingSockets from source |
 
-Neither has `ENGINE_EDITOR` or `ENGINE_SHARED`; both have `ENGINE_WITH_WINDOW=1` and the mixer (`ENGINE_WITH_AUDIO=ON`, the only variant: there is none without audio), and both link the release DLL CRT, the one of the SDK's `engine.dll` and of the game's DebugGame and Release. Only the game's own code is unoptimized in a Development build.
+None has `ENGINE_EDITOR` or `ENGINE_SHARED`. Development and Shipping have `ENGINE_WITH_WINDOW=1` and the mixer (`ENGINE_WITH_AUDIO=ON`, the only variant: there is none without audio), and every flavour links the release DLL CRT, the one of the SDK's `engine.dll` and of the game's DebugGame and Release. Only the game's own code is unoptimized in a Development build. One server flavour without symbols is enough: a server's own code has them in `DebugGame`, and a second, symbolized flavour would cost another build and far more disk.
+
+The flavour list is `_engine_player_flavours` in the root file: Development and Shipping everywhere, Server on Windows, and on Linux when `external/GameNetworkingSockets-src` is checked out (a WARNING and no Server player otherwise, so a local install without the opt-in still succeeds; the CI and release jobs check it out and check the result). macOS has none, because there a server has no transport.
 
 How they are made. `ENGINE_PLAYER` (an engine-repo root option, [Options](#options)) turns the root `CMakeLists.txt` into a build of one flavour: the CRT, `/Z7` for Development (`-g` elsewhere), the profiler and CLI definitions by flavour, and at the end of the file `install(TARGETS ... EXPORT WindPlayer)` of `engine` and every target the project builds that it reaches (found by walking the link libraries, aliases resolved: today `spdlog`, `tinyxml2`, `tomlplusplus`, `wind_lz4`, `SDL3-static`, `SDL3_mixer-static`, `glad`, SDL's header target) and `install(EXPORT WindPlayer NAMESPACE WindPlayer<Flavour>::)`. glm is not exported (`$<BUILD_INTERFACE:glm::glm>`: the consumer's is the SDK's), and include directories in a source or install tree are dropped from the exported targets, which keeps them relocatable with the SDK. `cmake/wind_player.cmake.in` is installed as `cmake/wind_player.cmake` beside them: the flavour, the engine version, the platform, the build id of the SDK that installed the player, and the `find_package` calls the exported targets need (OpenGL, Threads).
 
 `cmake/player_build.cmake` is the driver: a script that, for each flavour, runs `cmake -S <engine> -B <build-editor>/player/<flavour>` with the editor build's generator, platform, toolset, compiler, and Ninja, `CMAKE_CONFIGURATION_TYPES=Release` (or `CMAKE_BUILD_TYPE` for a single-config generator), `-DENGINE_PLAYER=<flavour>`, `ENGINE_WITH_WINDOW=ON`, `ENGINE_WITH_AUDIO=ON`, tests off, `cmake --build --config Release --target engine --parallel`, and with a prefix `cmake --install` into `<prefix>/<flavour>` after emptying it. A tree whose generator is not the editor's is deleted first. Two callers: the SDK install (`cmake --install build-editor --config Release --prefix out/sdk`, an `install(CODE)` before `sdk.toml` is written; a Debug install skips it, and a failure fails the install) and the target `wind_player` (build only, not part of ALL: `cmake --build build-editor --target wind_player`, for filling the trees before the install). The trees persist in `<build-editor>/player/`, so a second install finds them up to date.
 
 Why a script over a nested configure and not the alternatives. The editor build and a player cannot be configurations of one tree: they differ in `ENGINE_EDITOR`, in the library kind, and in definitions that are not per configuration. An `ExternalProject` or `add_subdirectory` of the same sources in the editor build would run in every `cmake --build build-editor` and make the everyday loop pay for two engines; a custom target and an install step keep that cost to the one command that makes an SDK. Exporting through `install(EXPORT)` leaves CMake to write the transitive link line (including SDL's system libraries) instead of this repo keeping a list that goes stale.
+
+The Server flavour, measured on Windows (MSVC, 12 cores) at wind-310: the player is 141 MB (`engine.lib` 138 MB of it), against Shipping's 167 MB: only SDL, the mixer, glad, and Slang's import library are gone, because the engine's own UI and render code still compiles, so that is the size of what it does not link rather than of what it uses. A small server executable is about 1.4 MB. The flavour takes about 2 minutes 15 seconds to configure, build, and install from nothing, of a whole first `cmake --install` that took about 10 minutes for all three.
 
 Measured on Windows (MSVC, 12 cores): a Development player is 303 MB (`engine.lib` alone 258 MB, because it carries the debug information), a Shipping one 94 MB, so a Release SDK grows from 330 MB to 727 MB. The first `cmake --install` builds both from nothing and takes about 13 minutes (the editor build itself is separate); a second one finds the trees up to date. In return an Export of a small game takes 15 s from nothing (configure included), 11 s for the other flavour, and 2 s again, where building the engine from `source/` took about six minutes. A `/Zi` layout with installed `.pdb` files was not chosen because the `.pdb` paths the libraries record would have to stay valid in a moved SDK; the release instead strips the Development libraries and ships the originals in the symbols package ([Release](Release.md#assets)), which brings the Development player to about 110 MB. The `Release` configuration of the editor SDK itself is unchanged.
 
@@ -286,6 +313,8 @@ The editor build, its SDK, and SDK mode work on Linux (GCC, Clang) and macOS (Ap
 - **Not done:**
 
 ### CI
+
+The job `linux-server` in `.github/workflows/sdk.yml` builds the preset `linux-server` on `ubuntu-24.04` with no SDL packages installed (a dependency on them would fail it), runs `ctest` including a real server process and a client over a real socket, and checks with `ldd` that the binary needs no SDL, GL, protobuf, or OpenSSL. The `linux` job checks out the GameNetworkingSockets source so its SDK has the Server player, and runs `tools/ci/sdk_smoke.sh --server`: a server beside the module, built in both configurations, run, stopped with SIGTERM, a clean exit required. None of this has run yet: wind-310 was written on Windows with no WSL.
 
 `.github/workflows/sdk.yml` runs on every push to `main` and `feat/**` and on pull requests: on `ubuntu-24.04` (GCC 13), `macos-15`, and `windows-2025-vs2026`, it configures the editor build, builds `Release`, runs `ctest` (Linux under `xvfb-run`), and on Linux and macOS installs the SDK the way the release does (`--component Unspecified`, then `tools/ci/split_symbols.py`) and runs `tools/ci/sdk_smoke.sh`. On Linux and macOS a third run (`--export`) configures the same project with `-DWIND_EXPORT=ON`, fails if the configure fell back to the engine source, and builds `DebugGame` and `Release` executables from the SDK's players. The script makes a project from the SDK's `templates/empty`, configures it the way `ProjectBuild` does (`Ninja Multi-Config`, `DebugGame;Release`, `-DWind_DIR=<sdk>/cmake`), builds both configurations, and checks the `.module` record. On Linux (under `xvfb-run`) and macOS a second run (`--e2e`) starts the editor with `wind-cli launch --play --wait`, reads `state`, and stops it, so the editor builds the project through the POSIX `ProcessLauncher` and plays the module it loaded with `dlopen`.
 

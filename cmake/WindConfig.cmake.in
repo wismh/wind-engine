@@ -29,8 +29,9 @@ include("${CMAKE_CURRENT_LIST_DIR}/wind_version.cmake")
 #           <sdk>/source, defines engine, engine_add_game, and the rest in this directory scope, and nothing below
 #           runs. The binary directory is `wind-engine` because <build>/wind/ holds the .module and .export records.
 set(_wind_player OFF)
+# Also for engine_add_server, in every mode.
+include("${CMAKE_CURRENT_LIST_DIR}/wind_export.cmake")
 if(WIND_EXPORT)
-    include("${CMAKE_CURRENT_LIST_DIR}/wind_export.cmake")
     wind_export_player_problem("${_wind_sdk_dir}" "$<CONFIG>" _wind_player_problem)
     if(_wind_player_problem STREQUAL "")
         set(_wind_player ON)
@@ -66,6 +67,15 @@ set(ENGINE_BUILTIN_ASSETS_DIR "${_wind_sdk_dir}/bin/assets/engine" CACHE INTERNA
     "Engine builtin assets (already cooked in the SDK)")
 set(ENGINE_COOKED_CATALOG "${_wind_sdk_dir}/bin/assets/engine/catalog.toml" CACHE INTERNAL
     "Cooked catalog.toml for engine builtins")
+if(WIN32)
+    set(_wind_sdk_gns_dlls)
+    foreach(_wind_sdk_dll IN ITEMS GameNetworkingSockets abseil_dll libcrypto-3-x64 libprotobuf libssl-3-x64)
+        if(EXISTS "${_wind_sdk_dir}/bin/${_wind_sdk_dll}.dll")
+            list(APPEND _wind_sdk_gns_dlls "${_wind_sdk_dir}/bin/${_wind_sdk_dll}.dll")
+        endif()
+    endforeach()
+    set(ENGINE_GNS_RUNTIME_DLLS "${_wind_sdk_gns_dlls}" CACHE INTERNAL "GameNetworkingSockets DLLs a server needs")
+endif()
 
 add_library(glm::glm INTERFACE IMPORTED GLOBAL)
 set_target_properties(glm::glm PROPERTIES

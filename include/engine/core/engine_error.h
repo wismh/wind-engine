@@ -6,8 +6,8 @@
 
 namespace engine {
 
-// Why the windowed engine could not start. `EngineHost::init`, `EngineHost::open_primary`, and `Engine<GameT>::init`
-// return it. None of them shows a dialog: the entry point does, once, with `message`.
+// Why the engine could not start. `EngineHost::init`, `EngineHost::open_primary`, `Engine<GameT>::init`, and
+// `ServerHost::init` return it. None of them shows a dialog: an entry point reports it, once, with `message`.
 enum class EngineError {
     VideoInit,
     WindowCreate,
@@ -17,6 +17,7 @@ enum class EngineError {
     EngineCatalog,
     UiFont,
     GameCatalog,
+    ServerConfig,
 };
 
 // The enumerator name, for logs and tests.
@@ -38,6 +39,8 @@ enum class EngineError {
             return "UiFont";
         case EngineError::GameCatalog:
             return "GameCatalog";
+        case EngineError::ServerConfig:
+            return "ServerConfig";
     }
     return "Unknown";
 }
@@ -61,6 +64,8 @@ enum class EngineError {
             return "Failed to load UI font";
         case EngineError::GameCatalog:
             return "Failed to load game catalog";
+        case EngineError::ServerConfig:
+            return "Failed to read the server config file";
     }
     return "Unknown startup error";
 }

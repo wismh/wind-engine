@@ -142,6 +142,35 @@ cmake --build build-export --config Release --target my_game
 
 The same two commands by hand give the same executable, in `build-export/bin/Release/` (`bin/` on a single-configuration generator) with `assets/` beside it. With `WIND_EXPORT` on, `WindConfig.cmake` adds `<sdk>/source` as a subdirectory (binary directory `wind-engine`) instead of importing the SDK's shared engine ([CMake](CMake.md#standalone-executable-wind_export)), so the source build rules apply: `engine` is static, `ENGINE_WITH_WINDOW` and `ENGINE_WITH_AUDIO` default ON, `ENGINE_BUILD_TESTS` defaults OFF, `ENGINE_WITH_GTEST=ON` adds GoogleTest from `<sdk>/source/external/googletest`, and `engine_add_game` makes an executable in `bin/<config>/` with `assets/engine/` beside it. To drop the mixer, configure with `-DENGINE_WITH_AUDIO=OFF` (a cache entry that exists before the engine's `option()` is kept). Release only and desktop only: the editor does not export Web or Android. Those builds still add the engine source themselves (`add_subdirectory(<sdk>/source wind)` in their own configure, with the Emscripten or NDK toolchain); the Android and Web sections below are that kind of build, and their engine paths (`cmake/android/app/`, `cmake/toolchains/`, `cmake/web/`) are under `<sdk>/source/`.
 
+## Dedicated server
+
+A second target in the same `CMakeLists.txt`, an executable in every mode:
+
+```cmake
+find_package(Wind REQUIRED)
+engine_add_game(my_game src/main.cpp src/game.cpp src/sim.cpp)
+engine_add_server(my_server src/server_main.cpp src/server.cpp src/sim.cpp)
+```
+
+```cpp
+#include <engine/server_entry.h>
+
+ENGINE_GAME_SERVER(game::Server)
+```
+
+`Server` derives from `GameBase`, is constructed from `const engine::ServerServices&`, and in `on_quit` stops its transport ([Core](../modules/Core.md#dedicated-server); the manual's [Dedicated Server](../../manual/platforms/Dedicated-Server.md) has the whole class). The server target has no window headers, so files shared with the game must not include `<engine/game_entry.h>` or `<engine/core/engine.h>`. `asset_codegen --components` scans the project's `include/` and `src/` for both targets, so a server that includes the generated `<component_io.h>` compiles every component header of the project.
+
+Against an SDK the target links `<sdk>/player/Server`, in the same `build-editor` tree as the module and in `build-export`; nothing of the engine compiles. It builds in `DebugGame` and `Release`. An SDK without that player (a Debug SDK, macOS, Linux without the GameNetworkingSockets source) skips the target with a status line, so the project still opens in the editor.
+
+```bash
+cmake --build build-editor --config Release --target my_server
+build-editor/bin/Release/my_server --port 27015
+```
+
+The directory holds `assets/` and, on Windows, the GameNetworkingSockets DLLs; copy the whole of it. On Linux the configure of the target needs `libssl-dev libprotobuf-dev protobuf-compiler`, because the exported targets name them; the host that runs it needs neither. The editor's Export does not export a server.
+
+A server-only build from the engine source, with no SDL at all: `add_subdirectory(<sdk>/source wind)` configured with `-DENGINE_WITH_WINDOW=OFF -DENGINE_WITH_AUDIO=OFF` (and `-DENGINE_WITH_GNS=ON` on Linux). `engine_add_game` fails there by design, so guard it with `if(ENGINE_WITH_WINDOW OR ENGINE_FROM_SDK)`.
+
 ## Android identity
 
 `cmake/android/app/` is the engine template (manifest, `strings.xml`, `res/`). Two games that ship it unchanged share `applicationId`, the display name, and the launcher icon. `build.gradle` reads these properties (a `-P` property or the same-named environment variable):

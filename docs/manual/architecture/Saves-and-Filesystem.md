@@ -48,7 +48,7 @@ Both `organization` and `application` strings are one path segment each and must
 - Contain none of `/ \ : * ? " < > |` or ASCII control characters.
 - Not be a Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1` to `COM9`, `LPT1` to `LPT9`), also with a suffix such as `CON.txt`.
 
-A bad name returns `std::errc::invalid_argument`. An engine built without a window returns `function_not_supported`, and a directory the system cannot create returns `io_error`.
+A bad name returns `std::errc::invalid_argument`. A dedicated server, built without SDL, gets the same directory as a game of the same names. An engine built without a window on Web or Android returns `function_not_supported`, and a directory the system cannot create returns `io_error`.
 
 ### Rule 2: Never Rename an Existing Identifier
 The strings passed to `user_data_directory` define the persistent storage location. Renaming either argument will leave previous save files orphaned in the old folder.

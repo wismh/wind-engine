@@ -30,6 +30,12 @@ engine_add_game(my_game
 
 ---
 
+## A Dedicated Server
+
+`engine_add_server(my_server src/server_main.cpp ...)` adds a separate program with no window and no SDL beside your game. See [Dedicated Server](../platforms/Dedicated-Server.md).
+
+---
+
 ## Two Builds of One Project
 
 The same `CMakeLists.txt` gives two different builds, picked by how CMake is configured:

@@ -1,4 +1,4 @@
-# Game functions: engine_prepare_runtime, engine_configure_app, engine_add_game, engine_add_web_game,
+# Game functions: engine_prepare_runtime, engine_configure_app, engine_add_game, engine_add_server, engine_add_web_game,
 # engine_add_android_game. Included by the engine's root CMakeLists.txt (source build) and by an installed
 # editor SDK's WindConfig.cmake (SDK mode, find_package(Wind)). docs/tech/build/CMake.md
 #
@@ -10,6 +10,7 @@
 #   ENGINE_BUILTIN_ASSETS_DIR  builtin assets copied to <output>/assets/engine/
 #   ENGINE_COOKED_CATALOG      cooked catalog.toml for those builtins
 #   ENGINE_CMAKE_DIR           the engine source tree (cmake/web/link_flags.cmake)
+#   ENGINE_GNS_RUNTIME_DLLS    on Windows, the GameNetworkingSockets DLLs copied beside a server
 # The source build also defines the target `engine_builtin_catalog`, which cooks ENGINE_COOKED_CATALOG. In
 # the SDK the catalog is already cooked under bin/assets/engine/.
 
@@ -120,7 +121,9 @@ function(engine_prepare_runtime target)
     # Editor build on Windows: the loader looks for engine.dll beside the executable. A game's
     # bin/ is not engine's output directory when Wind is a subdirectory, so copy it there.
     get_target_property(_engine_type engine TYPE)
-    if(WIN32 AND _engine_side AND _engine_type STREQUAL "SHARED_LIBRARY")
+    get_property(_server_app TARGET ${target} PROPERTY ENGINE_SERVER_APP)
+    # A server against the SDK links the static Server player, whatever `engine` is there.
+    if(WIN32 AND _engine_side AND _engine_type STREQUAL "SHARED_LIBRARY" AND NOT (ENGINE_FROM_SDK AND _server_app))
         add_custom_command(TARGET ${target} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "$<TARGET_FILE:engine>"
@@ -199,6 +202,8 @@ function(engine_configure_app target)
     if((ENGINE_EDITOR OR ENGINE_FROM_SDK) AND _type STREQUAL "SHARED_LIBRARY")
         set(_module ON)
     endif()
+    # engine_add_server: a console program with no window, so no icon, linking the server's engine.
+    get_property(_server_app TARGET ${target} PROPERTY ENGINE_SERVER_APP)
     if(APPLE)
         # Package as a .app bundle so MACOSX_BUNDLE_ICON_FILE / MACOSX_PACKAGE_LOCATION below
         # take effect; ignored by CMake on non-Apple platforms either way.
@@ -237,7 +242,7 @@ function(engine_configure_app target)
         # what /PDBALTPATH:%_PDB% means. %_PDB% is an MSBuild macro, so the name comes from the generator
         # expression instead and the debugger finds the copied PDB.
         target_link_options(${target} PRIVATE "/PDBALTPATH:$<TARGET_PDB_FILE_NAME:${target}>")
-    elseif(WIN32 AND MSVC AND _type STREQUAL "EXECUTABLE")
+    elseif(WIN32 AND MSVC AND _type STREQUAL "EXECUTABLE" AND NOT _server_app)
         # Release-ish configs hide the console window (players shouldn't see a terminal); Debug
         # keeps it so spdlog output is visible live. /ENTRY:mainCRTStartup keeps the ordinary
         # int main(int, char**) entry point instead of requiring a WinMain — the CRT startup
@@ -247,7 +252,11 @@ function(engine_configure_app target)
             "$<$<NOT:$<CONFIG:Debug>>:/SUBSYSTEM:WINDOWS>"
             "$<$<NOT:$<CONFIG:Debug>>:/ENTRY:mainCRTStartup>")
     endif()
-    target_link_libraries(${target} PRIVATE engine)
+    if(_server_app)
+        target_link_libraries(${target} PRIVATE engine_server)
+    else()
+        target_link_libraries(${target} PRIVATE engine)
+    endif()
 
     set(_include "${CMAKE_CURRENT_SOURCE_DIR}/include")
     if(EXISTS "${_include}")
@@ -297,7 +306,7 @@ function(engine_configure_app target)
     endif()
 
     set(_icon "${CMAKE_CURRENT_SOURCE_DIR}/icon.png")
-    if(EXISTS "${_icon}")
+    if(EXISTS "${_icon}" AND NOT _server_app)
         if(NOT TARGET icon_codegen)
             message(FATAL_ERROR "engine_configure_app(${target}): icon.png present but icon_codegen is not a target")
         endif()
@@ -444,6 +453,51 @@ function(engine_add_game target)
         endif()
     endif()
     engine_configure_app(${target})
+endfunction()
+
+# Dedicated server: always an executable, in every mode, that the game's source enters with ENGINE_GAME_SERVER
+# (<engine/server_entry.h>). No window and no SDL: a console program in every configuration. In the source build it links
+# `engine` (configure with ENGINE_WITH_WINDOW and ENGINE_WITH_AUDIO OFF for one without SDL). Against an SDK it links the
+# Server player libraries (<sdk>/player/Server), beside the module of `engine_add_game` in the same tree; an SDK without
+# them (a Debug SDK, macOS, Linux without the GameNetworkingSockets source) skips the target, so the game still configures
+# for the editor. On Windows the GameNetworkingSockets DLLs land beside it.
+function(engine_add_server target)
+    if(NOT ARGN)
+        message(FATAL_ERROR "engine_add_server(${target}): pass at least one source file")
+    endif()
+    if(NOT TARGET engine)
+        message(FATAL_ERROR "engine_add_server: find_package(Wind) first")
+    endif()
+    if(EMSCRIPTEN OR ANDROID)
+        message(FATAL_ERROR "engine_add_server(${target}): a dedicated server is a desktop program")
+    endif()
+    if(ENGINE_FROM_SDK AND NOT TARGET engine_server)
+        wind_export_server_problem("${WIND_SDK_DIR}" "${WIND_SDK_CONFIG}" _problem)
+        if(NOT _problem STREQUAL "")
+            message(STATUS "engine_add_server(${target}): skipped, ${_problem}")
+            return()
+        endif()
+        wind_export_import_server("${WIND_SDK_DIR}")
+    endif()
+
+    add_executable(${target} ${ARGN})
+    set_property(TARGET ${target} PROPERTY ENGINE_SERVER_APP ON)
+    if(ENGINE_FROM_SDK AND MSVC)
+        # The CRT of the player libraries.
+        set_target_properties(${target} PROPERTIES MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
+    endif()
+    # Where the executable of each configuration lands, the record an export has.
+    file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/wind/${target}.$<CONFIG>.export" CONTENT "$<TARGET_FILE_DIR:${target}>")
+    engine_configure_app(${target})
+    set_target_properties(${target} PROPERTIES MACOSX_BUNDLE OFF)
+    if(WIN32 AND ENGINE_GNS_RUNTIME_DLLS)
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${ENGINE_GNS_RUNTIME_DLLS}
+                "$<TARGET_FILE_DIR:${target}>"
+            COMMENT "Copy GameNetworkingSockets DLLs beside ${target}"
+            VERBATIM)
+    endif()
 endfunction()
 
 function(engine_add_web_game target)

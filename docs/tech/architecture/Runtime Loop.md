@@ -1,6 +1,6 @@
 # Runtime loop
 
-Windowed games enter through `ENGINE_GAME` (`include/engine/game_entry.h`), which runs `Engine<GameT>` (`include/engine/core/engine.h`) on an `EngineHost` (`include/engine/core/engine_host.h`). Headless tests use `Host` (`include/engine/core/host.h`), which shares `flush_worlds` and `simulate_worlds` (`src/core/frame_step.cpp`) and does not poll SDL. The process owns a `Worlds`. Each world has its own clock. The frame walks them in `add` order. Worlds do not share a command buffer, so that order does not change the picture.
+A dedicated server enters through `ENGINE_GAME_SERVER` ([below](#on-a-dedicated-server)). Windowed games enter through `ENGINE_GAME` (`include/engine/game_entry.h`), which runs `Engine<GameT>` (`include/engine/core/engine.h`) on an `EngineHost` (`include/engine/core/engine_host.h`). Headless tests use `Host` (`include/engine/core/host.h`), which shares `flush_worlds` and `simulate_worlds` (`src/core/frame_step.cpp`) and does not poll SDL. The process owns a `Worlds`. Each world has its own clock. The frame walks them in `add` order. Worlds do not share a command buffer, so that order does not change the picture.
 
 ## `Engine::init`
 
@@ -119,6 +119,12 @@ After simulate, `sync_frame` applies click-through from `Worlds::presentation().
 ## `GameLoop::end`
 
 `cli::stop`, detach the presentation, then `LoopShutdown::complete`: `RunHooks::on_quit`, then the host dispose callback (`EngineHost::dispose`). On web, `run` does not return from the infinite main loop, so `end` is what still runs dispose when `running` becomes false.
+
+## On a dedicated server
+
+`ENGINE_GAME_SERVER` runs `Server<GameT>` on a `ServerHost` ([Core](../modules/Core.md#dedicated-server)). `GameLoop` is the same, over `ServerPresentation`: `poll` reads the stop signal, `sync_frame` warns about dropped ticks, and `draw_all` sleeps. Audio is null, and no window is bound.
+
+The wait is `FrameLimiter::wait_after(now, kFixed)` on an absolute schedule, so an overshoot does not lower the rate, and a loop more than a period late starts a new schedule instead of running iterations back to back. Windows sleeps on a high-resolution waitable timer, because the default system timer ticks every 15.6 ms, about a whole tick. Sleeps only overshoot, so the accumulator stays at or above zero and an iteration normally runs one fixed step; `Frame` runs once per iteration, so a shared game system behaves as it does in the game, at 60 Hz. The tick rate is `kFixed`: there is no server option for it, and `NetServerConfig::snapshot_interval` is how a server sends less. The clamps of `simulate_worlds` apply: after a stall the eighth step is the last and the rest is dropped.
 
 ## `Host::tick`
 

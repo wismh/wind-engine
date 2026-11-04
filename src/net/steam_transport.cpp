@@ -1,6 +1,6 @@
 #include <engine/net/steam_transport.h>
 
-#if defined(_WIN32)
+#if defined(ENGINE_WITH_GNS)
 
 #include "gns_common.h"
 

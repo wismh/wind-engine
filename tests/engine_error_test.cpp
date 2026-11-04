@@ -18,6 +18,7 @@ constexpr std::array kAll{
         engine::EngineError::EngineCatalog,
         engine::EngineError::UiFont,
         engine::EngineError::GameCatalog,
+        engine::EngineError::ServerConfig,
 };
 
 }
@@ -31,6 +32,7 @@ TEST(EngineError, ToStringIsTheEnumeratorName) {
     EXPECT_EQ(engine::to_string(engine::EngineError::EngineCatalog), "EngineCatalog");
     EXPECT_EQ(engine::to_string(engine::EngineError::UiFont), "UiFont");
     EXPECT_EQ(engine::to_string(engine::EngineError::GameCatalog), "GameCatalog");
+    EXPECT_EQ(engine::to_string(engine::EngineError::ServerConfig), "ServerConfig");
 }
 
 TEST(EngineError, EveryCauseHasItsOwnNameAndMessage) {

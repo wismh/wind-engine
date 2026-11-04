@@ -19,6 +19,7 @@ The editor is in progress. See [Editor Plan](Editor%20Plan.md). Today `wind_edit
 - Localization: `.strings` tables by `AssetId`, `{tr}` in UI, integer plural categories. The game selects the active locale and persists that choice.
 - Audio: buses, SFX pool, music A/B, looping SFX handles on SDL3_mixer.
 - Double-buffered event queues, not a callback bus.
+- A dedicated server: `engine_add_server` and `ENGINE_GAME_SERVER`, a program with no window and no SDL, on Windows and Linux x64. See [Core](../modules/Core.md#dedicated-server). A Linux desktop client has no network transport yet.
 - A worker pool (`JobSystem` on `EngineServices`): fork-join `parallel_for`, and async `submit` whose result reaches a `JobCall` on the main thread. Phases stay on the main thread. Particle integration is the first fork-join caller.
 - Byte compression (`compress` / `decompress`, LZ4) for saves and packets, callable from job workers.
 - `Engine::init` passes engine services to the game constructor as `EngineServices`.

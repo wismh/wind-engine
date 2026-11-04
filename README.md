@@ -2,6 +2,8 @@
 
 A 2D-first C++ game engine for production titles, with basic 3D. CMake target / C++ namespace: `engine`. Task codes: `wind-N`. Tech vault: [docs/tech/README.md](docs/tech/README.md). Manual: [docs/manual/README.md](docs/manual/README.md). Architecture: [Principles](docs/tech/architecture/Principles.md), [Scope](docs/tech/architecture/Scope.md), [Boundaries](docs/tech/architecture/Boundaries.md).
 
+A dedicated server is its own target (`engine_add_server`, `ENGINE_GAME_SERVER`): [Core](docs/tech/modules/Core.md#dedicated-server). A Linux server needs the opt-in GameNetworkingSockets source: [external/README.md](external/README.md).
+
 ## Build (library + tests)
 
 ```bash
