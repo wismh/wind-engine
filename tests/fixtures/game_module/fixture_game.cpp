@@ -85,7 +85,6 @@ private:
         }
         job_ = jobs_->submit([jobs](const engine::JobToken& token) {
             jobs->started.store(true);
-            jobs->started.notify_all();
             while (!token.cancelled()) {
                 std::this_thread::yield();
             }

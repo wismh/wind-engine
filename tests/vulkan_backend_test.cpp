@@ -190,6 +190,9 @@ TEST(VulkanBackendTest, WrappedMatrixKeepsTheInnerRowMajorDecoration) {
 }
 
 TEST(VulkanBackendTest, SpirvReflectionTellsAnArraySamplerFromA2DOne) {
+#if !defined(ENGINE_WITH_SLANG)
+    GTEST_SKIP() << "the shaders have SPIR-V only where Slang compiled them";
+#endif
     const std::filesystem::path root{ENGINE_BUILTIN_ASSETS_DIR};
     for (const std::string_view file : {"lit_array.shader", "unlit_array.shader"}) {
         const auto desc = parse_shader(read_text_file(root / "shaders" / std::string(file)));
