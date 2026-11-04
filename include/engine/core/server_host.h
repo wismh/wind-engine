@@ -39,7 +39,7 @@ public:
 
     // Installs the signal handlers and runs the loop until `ApplicationState::running` is false, then disposes.
     // SIGINT, SIGTERM, SIGHUP, Ctrl+C, Ctrl+Break, a closing console, a logoff, or a system shutdown stop it after the
-    // tick in progress, with `RunHooks::on_quit`. A second signal has its default effect, so a hung shutdown can still
+    // tick in progress, with `RunHooks::on_quit`. A second signal, of any kind, has its default effect, so a hung shutdown can still
     // be interrupted. Returns 0, or 1 when `init` has not succeeded.
     [[nodiscard]] int run(RunHooks hooks);
     void dispose();

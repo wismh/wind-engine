@@ -119,9 +119,9 @@ The loop is the game's `GameLoop` over `ServerPresentation : IPresentation` (`sr
 
 **Log.** `log::init_stdout()`: stdout only, colour only on a terminal, flushed on every info line. No `game.log`.
 
-**Fatal.** `ServerFatalError` (`src/core/server_fatal_error.h`) logs the message, calls `quit`, and `std::exit(1)`, because `abort` raises a dialog on Windows that nobody would close. `on_quit` does not run. It is how `on_start` refuses to run: `GameLoop::begin` sets `running` true after `on_start`, so `quit()` there is ignored in every host.
+**Fatal.** `ServerFatalError` (`src/core/server_fatal_error.h`) logs the message, flushes, and calls `std::_Exit(1)`: `abort` raises a dialog on Windows that nobody would close, and `std::exit` would run static destructors while job workers are still in game code. `on_quit` does not run. It is how `on_start` refuses to run: `GameLoop::begin` sets `running` true after `on_start`, so `quit()` there is ignored in every host.
 
-**Stop signals** (`src/core/shutdown_signal.h`, `ShutdownSignals`, installed for the length of `run`). A handler sets one lock-free flag and `poll` reads it, so a stop takes effect after the current tick, and one arriving during a long `on_start` is seen at the first poll. POSIX: `sigaction` on SIGINT, SIGTERM, and SIGHUP with `SA_RESETHAND`, and SIGPIPE ignored so a dead log reader does not end the server. Windows: `SetConsoleCtrlHandler`; for a closing console, logoff, and shutdown the handler waits up to 4.5 s for the loop to finish, because Windows ends the process when it returns. A second signal has its default effect, so a hung shutdown can be interrupted. `taskkill` without `/F` does not reach a console program with no window.
+**Stop signals** (`src/core/shutdown_signal.h`, `ShutdownSignals`, installed for the length of `run`). A handler sets one lock-free flag and `poll` reads it, so a stop takes effect after the current tick, and one arriving during a long `on_start` is seen at the first poll. POSIX: `sigaction` on SIGINT, SIGTERM, and SIGHUP (a second one, of any kind, restores its default and raises it again), and SIGPIPE ignored so a dead log reader does not end the server. Windows: `SetConsoleCtrlHandler`; for a closing console, logoff, and shutdown the handler waits up to 4.5 s for the loop to finish, because Windows ends the process when it returns. A second signal has its default effect, so a hung shutdown can be interrupted. `taskkill` without `/F` does not reach a console program with no window.
 
 The game owns its transport, as in a windowed game, so `on_quit` calls `transport.stop()`. That closes each connection before the listen socket (`CloseListenSocket` alone would drop them without telling the peer, which then waits for its timeout).
 
@@ -266,7 +266,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 | --- | --- |
 | `SdlFatalError` (`ENGINE_WITH_WINDOW` only) | SDL message box, `ApplicationState::quit()` when attached, then `std::exit(1)` |
 | `DefaultFatalError` (`include/engine/resources/default_fatal_error.h`, `default_fatal_error()`) | writes the message to stderr, then `std::abort()`. Used where no host supplied one |
-| `ServerFatalError` (`src/core/server_fatal_error.h`) | logs the message, `ApplicationState::quit()`, then `std::exit(1)`. A dedicated server's |
+| `ServerFatalError` (`src/core/server_fatal_error.h`) | logs the message, flushes, then `std::_Exit(1)`. A dedicated server's |
 | a test double | throws, so a test asserts on the report (`tests/fixtures/fatal_fakes.h`: `FatalReport`) |
 
 `EngineSystemDeps::fatal` left unset becomes `default_fatal_error()` when `register_*_systems` runs, so the systems always dereference it. `Worlds::set_deps` fills in the `Worlds` fatal instead. `EngineSystemDeps` null members mean "subsystem not connected" and are read once, at registration, not per frame:

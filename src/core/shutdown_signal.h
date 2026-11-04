@@ -5,8 +5,8 @@
 namespace engine {
 
 // The process's stop signals, for as long as a dedicated server's loop runs. Handlers do one thing: set a flag the loop
-// reads every tick. A second signal has its default effect (it ends the process), so a hung shutdown can be
-// interrupted. One instance at a time; constructing one clears the flag.
+// reads every tick. A second signal, of any kind, has its default effect (it ends the process), so a hung shutdown can
+// be interrupted. One instance at a time; constructing one clears the flag.
 class ShutdownSignals {
 public:
     ShutdownSignals();
