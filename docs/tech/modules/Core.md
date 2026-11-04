@@ -174,6 +174,9 @@ A game that also links its own static lz4 gets duplicate `LZ4_*` symbols; lz4 ha
 
 Each world has a `FixedStepClock` on its own `Time`. `advance` clamps wall dt, accumulates only while the process is not paused and that world's stepping flag is true, and zeros the accumulator when the step cap is hit. `delta_time` is the clamped frame dt even while paused or not stepping. `alpha` is `accumulator / kFixed`.
 
+`Time::fixed_rate` (default 1) scales the wall dt added to that world's accumulator, so the world runs more or fewer fixed steps per second; each step is still `kFixed` long (`fixed_delta_time` never changes). Only a predicting net client changes it, between 0.9 and 1.1, to keep its inputs ahead of the server, and a disconnect sets it back to 1 ([Net](Net.md#client-lead)). Game code leaves it alone.
+
+
 `ApplicationState` is one per process, on `Worlds`. It starts `running = true`, `paused = false`. `quit()` sets `running` false. `GameLoop::begin` sets `running` true again after `on_start`. `set_stepping(world, false)` skips that world's fixed steps and frame and does not accumulate. An OS pause skips Fixed on every world. A window-bound world still runs Frame while the process is paused, so its UI stays up. A windowless world runs neither while paused.
 
 Lifecycle (`include/engine/core/app_lifecycle.h`):

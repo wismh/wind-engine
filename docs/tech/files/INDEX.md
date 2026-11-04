@@ -75,7 +75,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/net/loopback_transport.h` | `LoopbackTransport`: in-process transport for tests | [Net](../modules/Net.md) |
 | `include/engine/net/loopback_bus.h` | `LoopbackBus`: the port registry loopback transports connect through | [Net](../modules/Net.md) |
 | `include/engine/net/message_dispatcher.h` | `MessageDispatcher`, `MessageId`: routing by message id | [Net](../modules/Net.md) |
-| `include/engine/net/net_messages.h` | Engine message ids, protocol version, snapshot window and MTU budget | [Net](../modules/Net.md) |
+| `include/engine/net/net_messages.h` | Engine message ids, protocol version, snapshot window and MTU budget, input caps | [Net](../modules/Net.md) |
 | `include/engine/net/net_tick.h` | `Tick`, `kNoTick` | [Net](../modules/Net.md) |
 | `include/engine/net/network_identity.h` | `NetId` alias and the `NetIdentity` component | [Net](../modules/Net.md) |
 | `include/engine/net/net_id.h` | `NetIdGenerator` | [Net](../modules/Net.md) |
@@ -86,6 +86,12 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/net/replica_reader.h` | `ReplicaReader`: component bytes and `NetId` references back to entities | [Net](../modules/Net.md) |
 | `include/engine/net/net_server.h` | `NetServer`, `install_net_server`, server systems, `replicate` | [Net](../modules/Net.md) |
 | `include/engine/net/net_server_config.h` | `NetServerConfig`: snapshot interval | [Net](../modules/Net.md) |
+| `include/engine/net/prediction_desc.h` | `PredictionDesc<Input, State>`: a game's input wire format, step, collect, capture, restore, matches, corrected | [Net](../modules/Net.md#input-and-prediction) |
+| `include/engine/net/prediction.h` | `Prediction<Input, State>` (input and state ring, reconcile and replay), `register_prediction` | [Net](../modules/Net.md#input-and-prediction) |
+| `include/engine/net/prediction_channel.h` | `PredictionChannel`: the type-erased prediction interface the server and client drive | [Net](../modules/Net.md#input-and-prediction) |
+| `include/engine/net/net_prediction.h` | `NetPrediction`: the world's prediction channel in `ctx` | [Net](../modules/Net.md#input-and-prediction) |
+| `include/engine/net/prediction_stats.h` | `PredictionStats`: matched, replays, replayed ticks, snaps | [Net](../modules/Net.md#input-and-prediction) |
+| `include/engine/net/net_input_stats.h` | `NetInputStats`: what the server did with one peer's inputs | [Net](../modules/Net.md#server-input-buffer) |
 | `include/engine/net/net_client.h` | `NetClient`, `install_net_client`, client systems | [Net](../modules/Net.md) |
 | `include/engine/net/net_client_config.h` | `NetClientConfig`: interpolation delay | [Net](../modules/Net.md) |
 | `include/engine/net/net_peer_connected_event.h` | `NetPeerConnectedEvent` | [Net](../modules/Net.md) |
@@ -181,7 +187,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/core/file_dialog_call.cpp` | `FileDialogCall` ownership and cancel | [Windowing](../features/Windowing.md) |
 | `src/core/file_dialog_state.h` | State shared by a call and the dialog callback, `FileDialogCompletions` | [Windowing](../features/Windowing.md) |
 | `src/core/config.cpp` | `Config` over tomlplusplus, atomic save | [Core](../modules/Core.md) |
-| `src/core/fixed_step.cpp` | Accumulator and step cap | [Core](../modules/Core.md) |
+| `src/core/fixed_step.cpp` | Accumulator, `fixed_rate`, and step cap | [Core](../modules/Core.md) |
 | `src/core/frame_capture.h` | `FrameCapture`: one window's pixels, read before its swap | [CLI](../features/CLI.md#screenshot) |
 | `src/core/frame_limiter.h`, `src/core/frame_limiter.cpp` | `FrameLimiter`: sleep schedule for frames no vsync swap waits on | [Windowing](../features/Windowing.md#frame-pacing) |
 | `src/core/event_window.h`, `src/core/event_window.cpp` | `event_window`: the window an SDL event goes to; a closed window's id is dropped | [Windowing](../features/Windowing.md#events-of-a-window) |
@@ -456,8 +462,13 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/net/replication_registry.cpp` | `Transform` and `Parent` registration, schema hash | [Net](../modules/Net.md) |
 | `src/net/replica_writer.cpp` | `ReplicaWriter` | [Net](../modules/Net.md) |
 | `src/net/replica_reader.cpp` | `ReplicaReader` | [Net](../modules/Net.md) |
-| `src/net/net_server.cpp` | Server tick, peers, Welcome, acks, snapshot send | [Net](../modules/Net.md) |
-| `src/net/net_client.cpp` | Welcome, snapshot receive and ack, spawn / apply / despawn on the render timeline | [Net](../modules/Net.md) |
+| `src/net/net_server.cpp` | Server tick, peers, Welcome, acks, input buffering and controlled-entity steps, snapshot send | [Net](../modules/Net.md) |
+| `src/net/net_client.cpp` | Welcome, snapshot receive and ack, spawn / apply / despawn on the render timeline, prediction, input send | [Net](../modules/Net.md) |
+| `src/net/net_schema.h`, `src/net/net_schema.cpp` | `welcome_schema_hash`: replicated components plus the prediction channel name | [Net](../modules/Net.md) |
+| `src/net/input_message.h`, `src/net/input_message.cpp` | `InputMessage`: the Input wire format | [Net](../modules/Net.md) |
+| `src/net/input_buffer.h`, `src/net/input_buffer.cpp` | `InputBuffer`: one controlled entity's inputs on the server, first copy wins, repeat last | [Net](../modules/Net.md#server-input-buffer) |
+| `src/net/input_lead.h`, `src/net/input_lead.cpp` | `InputLead`: the client's fixed-step rate and forward jumps from the server's input slack | [Net](../modules/Net.md#client-lead) |
+| `src/net/snapshot_peer_header.h` | `SnapshotPeerHeader`: the per-peer input tick and slack in a snapshot | [Net](../modules/Net.md) |
 | `src/net/entity_snapshot.h` | `EntitySnapshot`: one entity's encoded components | [Net](../modules/Net.md) |
 | `src/net/snapshot_state.h` | `SnapshotState`: all replicated entities at one tick | [Net](../modules/Net.md) |
 | `src/net/snapshot_codec.h` | `capture_snapshot`, `encode_snapshot`, `decode_snapshot` API | [Net](../modules/Net.md) |
@@ -546,12 +557,17 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/network_transport_test.cpp` | `LoopbackTransport` connect, data, disconnect | [Net](../modules/Net.md) |
 | `tests/message_dispatcher_test.cpp` | `MessageDispatcher` routing and send over loopback | [Net](../modules/Net.md) |
 | `tests/net_replication_test.cpp` | Ticks, Welcome, interpolation, reorder and loss, spawn and despawn, `Parent`, custom components, schema mismatch, soak | [Net](../modules/Net.md) |
+| `tests/net_prediction_test.cpp` | Inputs once and in order, no replay on match, correction, convergence under loss and jitter, repeat, late, rejection, lead, ownership, disconnect, actions | [Net](../modules/Net.md#input-and-prediction) |
+| `tests/prediction_test.cpp` | `Prediction` ring: match, replay, repeat, accept, snap, skip, server-side decoding | [Net](../modules/Net.md#input-and-prediction) |
+| `tests/input_buffer_test.cpp` | `InputBuffer` order, first copy wins, late, duplicate, repeat, lead cap | [Net](../modules/Net.md#server-input-buffer) |
+| `tests/input_lead_test.cpp` | `InputLead` bounded rate, no backward jump, forward jump, convergence | [Net](../modules/Net.md#client-lead) |
+| `tests/input_message_test.cpp` | Input wire format round trip, truncation, caps | [Net](../modules/Net.md) |
 | `tests/net_delta_test.cpp` | Full until acked, delta against the acked baseline, recovery, stale ack, removals | [Net](../modules/Net.md) |
 | `tests/snapshot_codec_test.cpp` | Snapshot wire format round trips and rejection of malformed input | [Net](../modules/Net.md) |
 | `tests/snapshot_buffer_test.cpp` | `SnapshotBuffer` order, window, sampling | [Net](../modules/Net.md) |
 | `tests/snapshot_clock_test.cpp` | `SnapshotClock` start, bounded rate, snap, monotonic | [Net](../modules/Net.md) |
 | `tests/fixtures/simulated_link.h` | Test transport with virtual time, latency, jitter, loss, and hold | [Net](../modules/Net.md) |
-| `tests/fixtures/net_harness.h` | Server and client worlds over two simulated links | [Net](../modules/Net.md) |
+| `tests/fixtures/net_harness.h` | Server and client worlds over two simulated links; the client steps on its own fixed-step clock | [Net](../modules/Net.md) |
 | `tests/host_test.cpp` | `Host` tick and system registration | [Core](../modules/Core.md) |
 | `tests/parse_float_test.cpp` | Signs, exponents, rejected text, prefix length | [Core](../modules/Core.md#parsing-numbers) |
 | `tests/job_call_test.cpp` | Async jobs: delivery only on poll, inline jobs without workers, priority and `set_priority`, cancel before and during the run, drop, `parallel_for` beside held workers, many workers, `cancel_all`, `stop` | [Core](../modules/Core.md#async-jobs) |
@@ -586,7 +602,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/sort_test.cpp` | `draw_sort_less` queues and keys, `sort_renderables` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `tests/splash_test.cpp` | Splash documents and the timer | [UI](../modules/UI.md) |
 | `tests/sprite_test.cpp` | Sprite sheet UVs and `get_sprite` | [Assets](../features/Assets.md) |
-| `tests/time_test.cpp` | Clamp, pause, and the step cap | [Core](../modules/Core.md) |
+| `tests/time_test.cpp` | Clamp, pause, the step cap, and `fixed_rate` | [Core](../modules/Core.md) |
+
 | `tests/transform_test.cpp` | Quaternion `model_matrix` against the Euler result, `rotation_z` / `euler_xyz` / `angle_z` | [ECS](../modules/ECS.md) |
 | `tests/ui_bindable_visibility_test.cpp` | `Bindable::on_changed`, the `if` binding, float-bound lengths | [UI Markup](../features/UI%20Markup.md) |
 | `tests/ui_slider_test.cpp` | `Slider`: parse, value to handle rect, pointer to value with step, vertical, rows, errors, builder | [UI](../modules/UI.md#slider) |

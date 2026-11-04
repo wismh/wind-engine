@@ -108,7 +108,7 @@ No libcurl header or library is needed to build: `src/net/curl_api.h` declares t
 
 ## Realtime
 
-Realtime networking and entity replication live in `namespace engine::net`. The server is authoritative: it simulates on the fixed step and sends snapshots of replicated components; a client shows them interpolated, slightly in the past. Client input and prediction (wind-308), per-peer relevance and send budgets (wind-309), and a dedicated server run mode (wind-310) come later.
+Realtime networking and entity replication live in `namespace engine::net`. The server is authoritative: it simulates on the fixed step and sends snapshots of replicated components; a client shows them interpolated, slightly in the past. A client steers the entities it owns with inputs and predicts them ahead of the server ([Input and prediction](#input-and-prediction)). Per-peer relevance and send budgets (wind-309) and a dedicated server run mode (wind-310) come later.
 
 ### Transport
 
@@ -152,6 +152,8 @@ Every message starts with a little-endian `u16` `MessageId`. `MessageDispatcher`
 
 On the server, `replicate(world, entity, owner = kServerPeerId)` takes the next free id from the server's generator and binds it. On a client the engine creates and binds replicated entities itself; game code does not bind ids there. A client knows which entities are its own by comparing `NetIdentity::owner` with `NetClient::local_peer()`.
 
+A client owner means "this peer controls it with inputs". With a prediction channel (`register_prediction`), the server steps every entity a connected client owns with that client's inputs, and that client predicts it. There is no opt-in marker: an entity a client should not steer (its projectile, its pet) stays server-owned. Changing `NetIdentity::owner` on the server hands control over at the next snapshot.
+
 ### Replicated components
 
 `include/engine/net/replication_registry.h`, `replica_writer.h`, `replica_reader.h`, `replicated_options.h`.
@@ -178,17 +180,19 @@ engine::net::register_replicated<Health>(
 | Call | Registers |
 | --- | --- |
 | `install_net_server(world, transport, NetServerConfig{})` | `run_net_server_receive` on `Fixed`/`NetReceive`, `run_net_server_send` on `Fixed`/`NetSend` |
-| `install_net_client(world, transport, NetClientConfig{})` | `run_net_client_receive`, then `run_net_client_interpolate`, on `Frame`/`NetReceive` |
+| `install_net_client(world, transport, NetClientConfig{})` | `run_net_client_receive`, then `run_net_client_interpolate`, on `Frame`/`NetReceive`; `run_net_client_predict` on `Fixed`/`NetReceive`; `run_net_client_send_input` on `Fixed`/`NetSend` |
 
 `Phase::NetReceive` opens both schedules and `Phase::NetSend` closes `Fixed` ([ECS](ECS.md#systems-and-schedules)), so one server tick brackets the whole fixed step and a client's frame systems already see this frame's replicated state. The game owns the transport and keeps it alive while the world runs; `NetServer` and `NetClient` never touch it from their destructors. A second `install_*` call replaces the transport and config without adding systems again.
 
-`world.ctx<NetServer>()`: `tick()`, `config()`, `dispatcher()`, `peers()`, `acked_tick(peer)`. `world.ctx<NetClient>()`: `welcomed()`, `local_peer()`, `newest_tick()`, `render_tick()`, `buffered_ticks()`, `dispatcher()`.
+`world.ctx<NetServer>()`: `tick()`, `config()`, `dispatcher()`, `peers()`, `acked_tick(peer)`, `input_stats(peer)`, `input_tick(peer)`. `world.ctx<NetClient>()`: `welcomed()`, `local_peer()`, `newest_tick()`, `render_tick()`, `buffered_ticks()`, `dispatcher()`, `predicted_tick()`, `replaying()`, `is_predicted(id)`, `input_slack()`, `server_input_tick()`, `prediction_stats()`.
+
+The client's two `Fixed` systems do nothing without a prediction channel, so a client that only watches is as before: every replicated entity is interpolated.
 
 Events (each in its own header): `NetPeerConnectedEvent`, `NetPeerDisconnectedEvent` on both sides; on the client, `NetEntitySpawnedEvent{entity, net_id}` (replicated components already applied; the game adds sprite, mesh, sound) and `NetEntityDespawnedEvent{entity, net_id}` (sent as the entity is destroyed, so it is dead when read).
 
 ### Server ticks
 
-`run_net_server_receive` polls the transport: a new peer is added and sent Welcome, a lost one is dropped, an ack is recorded, other messages go to `dispatcher()`. Then it advances the tick: the first fixed step is tick 1, `kNoTick` (0) means none yet. Physics and `Game` systems simulate that tick. `run_net_server_send` unbinds destroyed entities from `NetEntityMap`; on every `snapshot_interval`-th tick (default 2: 30 snapshots a second at the 60 Hz step) it captures every entity with `NetIdentity` once and sends each peer a snapshot tagged with the tick.
+`run_net_server_receive` polls the transport: a new peer is added and sent Welcome, a lost one is dropped, an ack is recorded, inputs are buffered ([Server input buffer](#server-input-buffer)), other messages go to `dispatcher()`. Then it advances the tick: the first fixed step is tick 1, `kNoTick` (0) means none yet. With a prediction channel it steps every controlled entity with its input for that tick. Physics and `Game` systems simulate the rest of the tick. `run_net_server_send` unbinds destroyed entities from `NetEntityMap`; on every `snapshot_interval`-th tick (default 2: 30 snapshots a second at the 60 Hz step) it captures every entity with `NetIdentity` once and sends each peer a snapshot tagged with the tick.
 
 A world whose `Fixed` schedule does not run (paused, not stepping) neither polls the server transport nor sends snapshots; events wait in the transport. `Tick` is `u32`: it wraps after about 2.2 years at 60 Hz, which nothing handles.
 
@@ -218,7 +222,108 @@ Then, in this order:
 
 So spawn and despawn happen on the interpolation timeline: an entity appears when `render_tick` reaches the first snapshot that has it and disappears when it reaches the first one that does not. There are no spawn or despawn messages, so a snapshot can never arrive before its entity's spawn. Every replicated component is decoded and applied each frame; that is simple and fine at today's entity counts, and a typed cache can replace it later.
 
-When the connection ends, the client despawns every replicated entity (with events), clears its buffer and clock, and forgets Welcome.
+When the connection ends, the client despawns every replicated entity (with events), clears its buffer and clock, stops predicting (rings cleared, `predicted_tick()` back to `kNoTick`, stats zeroed, `Time::fixed_rate` back to 1), and forgets Welcome.
+
+### Input and prediction
+
+`include/engine/net/prediction_desc.h`, `prediction.h`, `prediction_channel.h`, `net_prediction.h`, `prediction_stats.h`, `net_input_stats.h`.
+
+A game describes its controlled entities once, generic over its own `Input` and `State`, and registers the same description on the server and on every client, before connecting:
+
+```cpp
+struct MoveInput { float move_x{0.0f}; bool jump{false}; float yaw{0.0f}; float pitch{0.0f}; };
+struct PlayerState { glm::vec3 position{}; glm::vec3 velocity{}; bool grounded{false}; };
+
+engine::net::register_prediction<MoveInput, PlayerState>(world, {
+        .name = "MoveInput",
+        .write_input = [](engine::net::ByteWriter& out, const MoveInput& in) { ... },
+        .read_input = [](engine::net::ByteReader& in, MoveInput& out) { ...; return in.is_ok(); },
+        .step = [](engine::ecs::World& w, engine::ecs::Entity e, const MoveInput& in) { ... one fixed tick ... },
+        .collect = [&input = services.input](engine::ecs::World& w, engine::ecs::Entity) { ... },
+        .capture = [](const engine::ecs::World& w, engine::ecs::Entity e) { ... },
+        .restore = [](engine::ecs::World& w, engine::ecs::Entity e, const PlayerState& s) { ... },
+});
+```
+
+| Hook | Side | Role |
+| --- | --- | --- |
+| `name` | both | Folded into the Welcome schema hash: a client registering a different name, or none, disconnects |
+| `write_input`, `read_input` | both | One input on the wire. `read_input` starts from `Input{}` and must use every byte |
+| `step` | both | One fixed tick of one entity with one input. The same function runs on the server, for each predicted tick, and for each replayed tick |
+| `collect` | client | This tick's input, read from `InputSystem` through `ActionId`s ([Input Mapper](../features/Input%20Mapper.md#net-input)) |
+| `capture`, `restore` | client | Read and write the entity's `State` |
+| `matches` | client | Optional. Whether a prediction is close enough to the server's state. Empty: `operator==` if `State` has one, otherwise never (every server state replays) |
+| `corrected` | client | Optional. Called after a replay with the state before and after it, for visual smoothing |
+
+One input type per world: a second `register_prediction` logs an error and is ignored (asserts in Debug). `Prediction<Input, State>` is the class behind it; `world.ctx<NetPrediction>().channel` holds it as a `PredictionChannel`, the type-erased interface `NetServer` and `NetClient` drive.
+
+Rules for the game:
+
+- **`State` is everything `step` writes, and all of it is replicated.** The client learns the server's state by applying a snapshot's replicated components to the entity and calling `capture`. A component `step` writes that is not part of `State` is left at the snapshot's older value after a match. A replicated component outside `State` (health, a name) takes the newest snapshot's value on a predicted entity.
+- **`step` is the only simulation of a controlled entity.** Anything else that changes its `State` (a server-side knockback, a teleport, `run_physics_2d`) is a misprediction the client corrects by replaying. Do not give a controlled entity a `RigidBody2D`.
+- **`step` has no side effects while `NetClient::replaying()` is true.** No events, sounds, or spawns: a replayed tick already happened once.
+- **Floats.** The server and the client must step the same way. Identical binaries on one platform reproduce exactly; across compilers or CPUs, give `matches` a tolerance, or every server state replays.
+
+The engine calls `step` from `NetReceive`, on both sides: it is the one exception to "no gameplay in the net phases". A controlled entity is therefore stepped first in its tick, before `Physics` and the game's `Game` systems, whatever order those were registered in.
+
+#### Ticks: one numbering, the client ahead
+
+Client and server count the same ticks. The client's fixed step simulates tick `predicted_tick()`, ahead of the server; its input for tick t is the input the server applies at its own tick t. So the server's "jitter delay" is how early the client sends: its inputs arrive `input_buffer_ticks` (default 2) before the server needs them and wait in the server's buffer.
+
+The client now has two timelines:
+
+| Timeline | Where | What runs on it |
+| --- | --- | --- |
+| Render, `render_tick()` | behind the server by one-way latency plus `interpolation_delay` | Interpolated entities, spawn and despawn of every entity |
+| Predicted, `predicted_tick()` | ahead of the server by one-way latency plus `input_buffer_ticks` | The entities this client owns |
+
+They are independent: `SnapshotClock` is unchanged, and the predicted tick advances once per client fixed step.
+
+#### Client lead
+
+The first snapshot after Welcome starts the predicted tick at `newest + ceil(RTT / tick) + input_buffer_ticks + 1`, with RTT from `INetworkTransport::rtt_ms` (0 on loopback). After that a closed loop corrects it. There is no Ping/Pong and no clock sync: each snapshot carries `input_slack`, how many ticks early this client's input messages arrived (the smallest `newest input tick - the tick the server runs next` over the messages since its previous snapshot). `InputLead` (`src/net/input_lead.h`) turns the shortfall `input_buffer_ticks - input_slack` into a fixed-step rate:
+
+- The shortfall is smoothed (factor 0.2, a single report clamped to ±8 ticks) and gives `Time::fixed_rate = 1 + clamp(0.05 * error, ±0.1)`: the client's world runs up to 10% more or fewer fixed steps per second ([Runtime Loop](../architecture/Runtime%20Loop.md)). A report is a round trip old, so the rate change made since the reported input was sent (a per-tick history, 256 ticks) is added to it; without that the loop swings around the target on a slow link. Between reports each fixed step subtracts what it closed.
+- Two reports in a row more than 8 ticks short (inputs arriving far too late, after the latency grew) jump the predicted tick forward by the shortfall instead. The rings are cleared and prediction restarts from the next server state. Reports from snapshots before the new predicted tick are ignored, since they predate the jump. A single late report (a burst released after a lag spike) only nudges the rate.
+- It never jumps backward: tick numbers already sent would collide with inputs the server holds. A client too far ahead slows down at -10%; the server ignores inputs more than `kMaxInputLeadTicks` (64) ahead.
+- Without a predicted entity the rate stays 1. Only the client world's net system changes `fixed_rate`, and a disconnect sets it back to 1.
+
+#### Each client fixed step
+
+`run_net_client_predict`, on `Fixed`/`NetReceive`:
+
+1. With no channel, no Welcome, or no snapshot yet, nothing. Starts the predicted tick if needed.
+2. The predicted set: live entities that the newest snapshot gives to `local_peer()`. A new one starts an empty ring; one this client no longer owns is forgotten and is interpolated again from the next frame (it drops back to the render timeline, a visible jump). An entity destroyed under the client and re-made starts a new ring.
+3. Reconciles each predicted entity with the newest snapshot (below).
+4. Advances the predicted tick to t; for each predicted entity, `collect`s the input for t, stores it, and `step`s.
+
+`run_net_client_send_input`, on `Fixed`/`NetSend`: records each predicted entity's state at the end of t (the server captures its snapshot at the same point), then sends one Input message with the last `input_redundancy` (default 8) collected inputs of each, newest first. Redundancy is fixed, not trimmed by acks: about 100 bytes a tick upstream for a 10-byte input.
+
+`run_net_client_interpolate` skips component application on predicted entities. Spawn and despawn stay on the render timeline for every entity, so the client's own entity appears when `render_tick` reaches its first snapshot: about `interpolation_delay` plus a round trip after the server created it.
+
+#### Reconciliation
+
+Each `Prediction` track is a ring of `kPredictionRingTicks` (128) slots `{tick, input, state}`. For the newest snapshot S, once per S:
+
+1. `present = capture`. Apply S's replicated components to the entity (and remove the ones it lost), then `server = capture`.
+2. S after the predicted tick (the client is behind): `server` is the present. The lead loop catches up.
+3. The ring has the state predicted for S and `matches` it: `restore(present)`. Nothing is replayed (`PredictionStats::matched`).
+4. S more than 127 ticks behind the predicted tick: the inputs are gone; `server` is the present and the ring is cleared (`snaps`).
+5. Otherwise: `restore(server)`, then for each tick S+1 to the predicted tick, `step` with its stored input and record the state (`replays`, `replayed_ticks`). A tick with no stored input repeats the last input before it, or `Input{}` before any, exactly what the server did for it; such a stand-in is never sent. `replaying()` is true meanwhile. Then `corrected(before = present, after)`.
+
+Edge cases: an old, duplicate, or out-of-order snapshot never reconciles (only a newest tick beyond the last reconciled one does); a lost snapshot waits for the next one; the first server state of a new track has no prediction and replays from it (with stand-ins), which matches what the server ran; a teleport or other large correction is just a replay, and `corrected` lets the game skip smoothing above its own threshold.
+
+Smoothing is the game's, not the engine's (it does not know where a position is in `State`). The recommended pattern: render the player through a non-replicated child entity (`ecs::set_parent`); in `corrected`, add `before - after` to the child's local offset, unless it is larger than a teleport threshold; decay the offset on `Frame`.
+
+#### Server input buffer
+
+`InputBuffer` (`src/net/input_buffer.h`), one per controlled entity of each peer:
+
+- An Input message is dropped whole (`malformed`) when it is truncated, over a cap, or `read_input` refuses one of its inputs. A section for an entity that does not exist or that this peer does not own is skipped (`rejected`, one warning per peer).
+- Each input of a section is stored unless its tick already ran (`late` if that tick repeated an input, `duplicate` if it ran with this one), is more than `kMaxInputLeadTicks` ahead (`too_far_ahead`), or is held already (`duplicate`). The first copy wins.
+- After advancing to tick S, every entity owned by a connected client is stepped once, in `NetId` order, with the input for S (`applied`), or the last one again (`repeated`), or `Input{}` before the first input arrives. An entity whose owner disconnected is not stepped; the game decides its fate on `NetPeerDisconnectedEvent`. A stream whose entity died or changed owner is dropped.
+
+So each input tick is applied at most once and in tick order, and a controlled entity is stepped exactly once per server tick. Each snapshot tells its peer `input_tick` (the newest tick that ran with its own input) and `input_slack`.
 
 ### Wire format
 
@@ -226,11 +331,12 @@ Little-endian. Every message starts with its `u16` id.
 
 | Id | Message | Direction | Delivery | Fields after the id |
 | --- | --- | --- | --- | --- |
-| `0x0100` | Welcome | server to client | `ReliableOrdered` | `u16` protocol (`kNetProtocolVersion`, 1), `u32` schema hash, `u16` tick rate (60), `u16` snapshot interval, `u64` the client's `PeerId`, `u32` server tick. 20 bytes |
+| `0x0100` | Welcome | server to client | `ReliableOrdered` | `u16` protocol (`kNetProtocolVersion`, 2), `u32` schema hash, `u16` tick rate (60), `u16` snapshot interval, `u64` the client's `PeerId`, `u32` server tick. 20 bytes |
 | `0x0101` | Snapshot | server to client | `UnreliableImmediate` | see below |
 | `0x0102` | SnapshotAck | client to server | `Unreliable` | `u32` tick. 4 bytes |
+| `0x0103` | Input | client to server | `UnreliableImmediate` | see below |
 
-A client ignores snapshots until Welcome; a protocol or schema mismatch disconnects.
+A client ignores snapshots until Welcome; a protocol or schema mismatch disconnects. The schema hash is `ReplicationRegistry::schema_hash`, then, with a prediction channel, `"input:"` and its name folded in (FNV-1a).
 
 Snapshot, after the id:
 
@@ -238,6 +344,8 @@ Snapshot, after the id:
 | --- | --- |
 | tick | `u32` |
 | baseline tick (`kNoTick`: full; otherwise older than tick) | `u32` |
+| input tick: the newest tick that ran with this peer's own input (`kNoTick`: none) | `u32` |
+| input slack: how many ticks early this peer's inputs arrived, clamped to ±127 (`kNoInputSlack`, -128: none arrived since its previous snapshot) | `i8` |
 | removed count, then each removed `NetId` | `u16` + 4 each |
 | entity record count | `u16` |
 | per record: `NetId` | `u32` |
@@ -247,13 +355,31 @@ Snapshot, after the id:
 | removed slots mask | `u32` |
 | per changed slot, ascending: byte length, bytes | `u16` + n |
 
-A `Transform` is 40 bytes and a `Parent` 4. A moving entity whose `Parent` did not change is a 51-byte record; a new entity with both is 65. The client rejects the whole snapshot on truncation, trailing bytes, a slot outside its registry, a slot both changed and removed, an unknown removed id, or a new entity without an owner.
+A `Transform` is 40 bytes and a `Parent` 4. A moving entity whose `Parent` did not change is a 51-byte record; a new entity with both is 65. The fields before the removed list are 13 bytes. The client rejects the whole snapshot on truncation, trailing bytes, a slot outside its registry, a slot both changed and removed, an unknown removed id, or a new entity without an owner.
+
+Input, after the id (`src/net/input_message.h`):
+
+| Field | Size |
+| --- | --- |
+| newest tick (not `kNoTick`) | `u32` |
+| entity count, 1..`kMaxInputEntities` (8) | `u8` |
+| per entity: `NetId` | `u32` |
+| per entity: input count n, 1..`kMaxInputsPerMessage` (32), at most `newest` | `u8` |
+| per input, newest first (input i is for tick `newest - i`): byte length (at most `kMaxInputBytes`, 256), bytes | `u16` + n |
 
 ## Not in scope yet
 
 Retries, resuming, and writing files are the game's: the engine gives it the sink, `Range`, and the error codes to do them. Connections are not reused between requests on any backend yet.
 
-Realtime: no client input or prediction (wind-308), no per-peer relevance, send budget or fragmentation (wind-309), no dedicated server run mode and no Linux GameNetworkingSockets build (wind-310). Snapshots are neither compressed nor quantized.
+Realtime: no per-peer relevance, send budget or fragmentation (wind-309), no dedicated server run mode and no Linux GameNetworkingSockets build (wind-310). Snapshots are neither compressed nor quantized.
+
+Prediction, known follow-ups:
+
+- No sub-step visual interpolation: a predicted entity moves in 60 Hz steps, like every fixed-step entity today (nothing reads `Time::alpha`).
+- No lag compensation: a replay rewinds only the predicted entity, never the others, and the server does not rewind the world to what a client saw when it shot.
+- One input type per world; owned means controlled, with no opt-in marker.
+- The client's own entity spawns on the render timeline, so it appears an interpolation delay plus a round trip after the server created it.
+- The input buffer target is fixed (`input_buffer_ticks`), not adapted to measured jitter.
 
 ## Tests
 
@@ -263,7 +389,10 @@ Realtime, all deterministic over `LoopbackTransport`: `tests/fixtures/simulated_
 
 - `tests/net_replication_test.cpp`: one tick per fixed step; Welcome, then a snapshot every interval; interpolation exactly at `render_tick` (tick - 5 at the defaults); snapshots arriving out of order land in tick order; dropped snapshots interpolate across the gap; spawn and despawn on the render timeline with their events; `Parent` resolved through `NetEntityMap` and cleared; reparent plus destroy of the old parent in one tick keeps the child entity; custom components (stepped and interpolated); schema mismatch disconnects; a lost connection despawns everything; owner and local peer; the server prunes destroyed entities; a soak with 20% loss, 50 ms latency and 30 ms jitter converges to the server state.
 - `tests/net_delta_test.cpp`: full snapshots until an ack; a delta against the acked baseline carries only the changed entity; lost deltas recover from the older baseline; an ack older than the window falls back to full; a removed component and a removed entity reach the client.
-- `tests/snapshot_codec_test.cpp`, `snapshot_buffer_test.cpp`, `snapshot_clock_test.cpp`: full and delta round trips, every truncation and trailing bytes rejected, slots beyond the registry, baseline mismatch, capture order and `Parent` as `NetId`, schema hash; buffer order, window and sampling; clock start, bounded rate, snap, monotonic under jitter.
+- `tests/net_prediction_test.cpp`, over 50 ms links: each input tick applied once and in order with the input the client collected; no replay while predictions match; a server-side move replays once and converges; 20% loss both ways with 30 ms jitter, then a clean link, converges and stops replaying; dropped Input messages repeat the last input on the server; late inputs are never applied; input for an entity the peer does not own, too far ahead, or malformed is refused; owned entities predicted, others interpolated; the lead settles at the input buffer and follows a latency increase; a latency spike jumps the tick forward, never back, and recovers; ownership change starts and stops prediction; disconnect clears it; a prediction on one side only is a schema mismatch; input collected through `InputSystem` actions.
+- `tests/prediction_test.cpp`, `input_buffer_test.cpp`, `input_lead_test.cpp`, `input_message_test.cpp`: match without stepping, replay of stored inputs, missing inputs repeat the last one and are not sent, accepted, snapped and skipped server states, the ring per entity, server-side decoding; first copy wins, late and duplicate, repeat, lead cap; bounded rate, no backward jump, jump after two far reports, convergence through the feedback delay; Input round trip, truncation, caps.
+- `tests/snapshot_codec_test.cpp`, `snapshot_buffer_test.cpp`, `snapshot_clock_test.cpp`: full and delta round trips, the per-peer header, every truncation and trailing bytes rejected, slots beyond the registry, baseline mismatch, capture order and `Parent` as `NetId`, schema hash; buffer order, window and sampling; clock start, bounded rate, snap, monotonic under jitter.
+
 - `tests/net_id_test.cpp`, `byte_stream_test.cpp`, `message_dispatcher_test.cpp`, `network_transport_test.cpp`: ids, map, owner, dead entries; byte round trips; message routing; the loopback transport. `gns_transport_test.cpp` and `steam_transport_test.cpp` open real sockets on Windows.
 
 ## See also

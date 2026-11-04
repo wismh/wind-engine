@@ -2,6 +2,7 @@
 
 // docs/tech/modules/Net.md
 
+#include "net/snapshot_peer_header.h"
 #include "net/snapshot_state.h"
 
 #include <engine/ecs/world.h>
@@ -20,11 +21,13 @@ class ReplicationRegistry;
 // Every entity with `NetIdentity`, each registered component encoded, sorted by `NetId`.
 [[nodiscard]] SnapshotState capture_snapshot(ecs::World& world, const ReplicationRegistry& registry, Tick tick);
 
-// The whole Snapshot message, starting with its `MessageId`. A null `baseline` makes a full snapshot.
-[[nodiscard]] std::vector<std::uint8_t> encode_snapshot(const SnapshotState& current, const SnapshotState* baseline);
+// The whole Snapshot message, starting with its `MessageId`. A null `baseline` makes a full snapshot. `peer` is
+// the receiving peer's input report.
+[[nodiscard]] std::vector<std::uint8_t> encode_snapshot(
+        const SnapshotState& current, const SnapshotState* baseline, const SnapshotPeerHeader& peer);
 
-// Reads the tick and baseline tick after the `MessageId`.
-[[nodiscard]] bool read_snapshot_header(ByteReader& reader, Tick& tick, Tick& baseline_tick);
+// Reads the tick, the baseline tick, and the peer's input report after the `MessageId`.
+[[nodiscard]] bool read_snapshot_header(ByteReader& reader, Tick& tick, Tick& baseline_tick, SnapshotPeerHeader& peer);
 
 // Reads the rest of a snapshot whose header said `tick` and `baseline_tick`. `baseline` must be the state at
 // `baseline_tick` (null when that is `kNoTick`). Nullopt on any malformed input: truncation, trailing bytes, a

@@ -1,11 +1,14 @@
 #pragma once
 
 // A server world and a client world joined by two SimulatedLinks. `step` is one 60 Hz frame: the server runs
-// one fixed step, both links advance 1/60 s, the client runs one frame. Spawn and despawn events of the
+// one fixed step, both links advance 1/60 s, then the client runs the fixed steps its own clock gives for 1/60 s
+// (more or fewer while prediction dilates `Time::fixed_rate`) and one frame. Spawn and despawn events of the
 // client are collected per step.
 
 #include "fixtures/simulated_link.h"
 
+#include <engine/core/application_state.h>
+#include <engine/core/fixed_step.h>
 #include <engine/core/time.h>
 #include <engine/ecs/events.h>
 #include <engine/ecs/schedule.h>
@@ -31,6 +34,8 @@ namespace engine::net::testing {
 struct WireSnapshot {
     Tick tick{kNoTick};
     Tick baseline{kNoTick};
+    Tick input_tick{kNoTick};
+    std::int8_t input_slack{kNoInputSlack};
     std::uint16_t removed{0};
     std::uint16_t entities{0};
     std::size_t size{0};
@@ -51,8 +56,11 @@ struct WireSnapshot {
     out.size = bytes.size();
     const auto tick = reader.read_u32();
     const auto baseline = reader.read_u32();
+    const auto input_tick = reader.read_u32();
+    const auto input_slack = reader.read_i8();
     const auto removed = reader.read_u16();
-    if (!tick || !baseline || !removed || !reader.skip(std::size_t{*removed} * 4u)) {
+    if (!tick || !baseline || !input_tick || !input_slack || !removed ||
+            !reader.skip(std::size_t{*removed} * 4u)) {
         return std::nullopt;
     }
     const auto entities = reader.read_u16();
@@ -61,6 +69,8 @@ struct WireSnapshot {
     }
     out.tick = *tick;
     out.baseline = *baseline;
+    out.input_tick = *input_tick;
+    out.input_slack = *input_slack;
     out.removed = *removed;
     out.entities = *entities;
     return out;
@@ -100,7 +110,10 @@ public:
             server.run(ecs::Schedule::Fixed);
             server_link.advance(1000.0 / 60.0);
             client_link.advance(1000.0 / 60.0);
-            client.ctx<Time>().delta_time = kFixed;
+            const int client_steps = client_clock_.advance(kFixed);
+            for (int s = 0; s < client_steps; ++s) {
+                client.run(ecs::Schedule::Fixed);
+            }
             client.run(ecs::Schedule::Frame);
             for (const auto& event : ecs::EventReader<NetEntitySpawnedEvent>(client, spawned_cursor_)) {
                 spawned.push_back(event);
@@ -142,6 +155,9 @@ private:
     std::uint16_t port_;
     NetServerConfig server_config_;
     NetClientConfig client_config_;
+    ApplicationState app_{};
+    FixedStepClock client_clock_{client.ctx<Time>(), app_};
+
     ecs::EventCursor<NetEntitySpawnedEvent> spawned_cursor_{};
     ecs::EventCursor<NetEntityDespawnedEvent> despawned_cursor_{};
 };

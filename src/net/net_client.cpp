@@ -1,5 +1,8 @@
 #include <engine/net/net_client.h>
 
+#include "net/input_lead.h"
+#include "net/input_message.h"
+#include "net/net_schema.h"
 #include "net/snapshot_buffer.h"
 #include "net/snapshot_clock.h"
 #include "net/snapshot_codec.h"
@@ -16,9 +19,12 @@
 #include <engine/net/net_messages.h>
 #include <engine/net/net_peer_connected_event.h>
 #include <engine/net/net_peer_disconnected_event.h>
+#include <engine/net/net_prediction.h>
 #include <engine/net/network_identity.h>
 #include <engine/net/replication_registry.h>
 
+#include <algorithm>
+#include <cmath>
 #include <map>
 #include <string>
 #include <utility>
@@ -31,6 +37,8 @@ struct NetClient::Impl {
         ecs::Entity entity{};
         // Slots applied last frame, so a slot the server dropped is removed once.
         std::uint32_t applied{0};
+        // Owned by this client in the newest snapshot, with a prediction channel: interpolation skips it.
+        bool predicted{false};
     };
 
     INetworkTransport* transport{nullptr};
@@ -45,6 +53,13 @@ struct NetClient::Impl {
     SnapshotBuffer buffer{};
     SnapshotClock clock{};
     std::map<NetId, Live> live{};
+
+    Tick predicted{kNoTick};
+    bool replaying{false};
+    InputLead lead{};
+    std::optional<int> input_slack{};
+    Tick server_input_tick{kNoTick};
+    PredictionStats stats{};
 };
 
 NetClient::NetClient()
@@ -83,6 +98,31 @@ MessageDispatcher& NetClient::dispatcher() noexcept {
     return impl_->dispatcher;
 }
 
+Tick NetClient::predicted_tick() const noexcept {
+    return impl_->predicted;
+}
+
+bool NetClient::replaying() const noexcept {
+    return impl_->replaying;
+}
+
+bool NetClient::is_predicted(NetId id) const {
+    const auto it = impl_->live.find(id);
+    return it != impl_->live.end() && it->second.predicted;
+}
+
+std::optional<int> NetClient::input_slack() const noexcept {
+    return impl_->input_slack;
+}
+
+Tick NetClient::server_input_tick() const noexcept {
+    return impl_->server_input_tick;
+}
+
+const PredictionStats& NetClient::prediction_stats() const noexcept {
+    return impl_->stats;
+}
+
 void install_net_client(ecs::World& world, INetworkTransport& transport, NetClientConfig config) {
     NetClient::Impl& client = *world.ctx<NetClient>().impl_;
     client.transport = &transport;
@@ -96,9 +136,47 @@ void install_net_client(ecs::World& world, INetworkTransport& transport, NetClie
     world.add_system(ecs::Schedule::Frame, ecs::Phase::NetReceive, [](ecs::World& w) { run_net_client_receive(w); });
     world.add_system(
             ecs::Schedule::Frame, ecs::Phase::NetReceive, [](ecs::World& w) { run_net_client_interpolate(w); });
+    world.add_system(ecs::Schedule::Fixed, ecs::Phase::NetReceive, [](ecs::World& w) { run_net_client_predict(w); });
+    world.add_system(ecs::Schedule::Fixed, ecs::Phase::NetSend, [](ecs::World& w) { run_net_client_send_input(w); });
 }
 
 namespace {
+
+PredictionChannel* prediction_channel(ecs::World& world) {
+    NetPrediction* prediction = world.try_ctx<NetPrediction>();
+    return prediction != nullptr ? prediction->channel.get() : nullptr;
+}
+
+// Stops predicting: the fixed step runs at its normal rate again.
+void stop_prediction(ecs::World& world, NetClient::Impl& client) {
+    if (PredictionChannel* channel = prediction_channel(world)) {
+        channel->clear();
+    }
+    for (auto& [id, live] : client.live) {
+        live.predicted = false;
+    }
+    client.predicted = kNoTick;
+    client.replaying = false;
+    client.lead.reset();
+    client.input_slack.reset();
+    client.server_input_tick = kNoTick;
+    client.stats = PredictionStats{};
+    world.ctx<Time>().fixed_rate = 1.0f;
+}
+
+// Puts every slot of `record` on the entity and removes the slots it lost.
+void apply_record(ecs::World& world, const ReplicationRegistry& registry, NetClient::Impl::Live& live,
+        const EntitySnapshot& record) {
+    for (std::size_t slot = 0; slot < registry.size(); ++slot) {
+        const auto& entry = registry.entry(slot);
+        if (record.has(slot)) {
+            (void)entry.apply(world, live.entity, record.component(slot));
+        } else if ((live.applied & (std::uint32_t{1} << slot)) != 0) {
+            entry.remove(world, live.entity);
+        }
+    }
+    live.applied = record.mask;
+}
 
 void despawn(ecs::World& world, NetId id, ecs::Entity entity) {
     ecs::EventWriter<NetEntityDespawnedEvent>(world).send(NetEntityDespawnedEvent{.entity = entity, .net_id = id});
@@ -109,6 +187,7 @@ void despawn(ecs::World& world, NetId id, ecs::Entity entity) {
 }
 
 void forget_server(ecs::World& world, NetClient::Impl& client) {
+    stop_prediction(world, client);
     for (const auto& [id, live] : client.live) {
         despawn(world, id, live.entity);
     }
@@ -138,9 +217,9 @@ void receive_welcome(ecs::World& world, NetClient::Impl& client, ByteReader& rea
         client.transport->disconnect(kServerPeerId);
         return;
     }
-    if (*schema != world.ctx<ReplicationRegistry>().schema_hash()) {
-        log::error("net: the server replicates a different component list (register_replicated must match on "
-                   "both sides); disconnecting");
+    if (*schema != welcome_schema_hash(world)) {
+        log::error("net: the server replicates a different component list or prediction (register_replicated "
+                   "and register_prediction must match on both sides); disconnecting");
         client.transport->disconnect(kServerPeerId);
         return;
     }
@@ -149,13 +228,36 @@ void receive_welcome(ecs::World& world, NetClient::Impl& client, ByteReader& rea
     client.tick_seconds = 1.0 / static_cast<double>(*tick_hz);
 }
 
+// The server's report on this client's inputs, from the newest snapshot. Steers the predicted tick.
+void receive_input_report(ecs::World& world, NetClient::Impl& client, Tick tick, const SnapshotPeerHeader& peer) {
+    client.server_input_tick = peer.input_tick;
+    if (peer.input_slack == kNoInputSlack) {
+        return;
+    }
+    client.input_slack = peer.input_slack;
+    PredictionChannel* channel = prediction_channel(world);
+    const bool predicting = std::any_of(
+            client.live.begin(), client.live.end(), [](const auto& entry) { return entry.second.predicted; });
+    if (channel == nullptr || client.predicted == kNoTick || !predicting) {
+        return;
+    }
+    const int jump = client.lead.observe(tick, peer.input_slack, client.config.input_buffer_ticks, client.predicted);
+    if (jump > 0) {
+        // Inputs reach the server too late to be used: jump ahead and predict again from the next server state.
+        client.predicted += static_cast<Tick>(jump);
+        channel->clear();
+        ++client.stats.snaps;
+    }
+}
+
 void receive_snapshot(ecs::World& world, NetClient::Impl& client, ByteReader& reader) {
     if (!client.welcomed) {
         return;
     }
     Tick tick = kNoTick;
     Tick baseline_tick = kNoTick;
-    if (!read_snapshot_header(reader, tick, baseline_tick)) {
+    SnapshotPeerHeader peer;
+    if (!read_snapshot_header(reader, tick, baseline_tick, peer)) {
         return;
     }
     if (client.buffer.find(tick) == nullptr) {
@@ -176,6 +278,7 @@ void receive_snapshot(ecs::World& world, NetClient::Impl& client, ByteReader& re
         if (tick > client.newest) {
             client.newest = tick;
             client.clock.observe(static_cast<double>(tick) * client.tick_seconds);
+            receive_input_report(world, client, tick, peer);
         }
     }
     ByteWriter ack;
@@ -263,9 +366,13 @@ void run_net_client_interpolate(ecs::World& world) {
         }
     }
 
-    // 2. Components, slot by slot, after every entity exists so references (Parent) resolve.
+    // 2. Components, slot by slot, after every entity exists so references (Parent) resolve. A predicted entity
+    // takes its components from reconciliation instead.
     for (const EntitySnapshot& record : from->entities) {
         NetClient::Impl::Live& live = client.live.at(record.id);
+        if (live.predicted) {
+            continue;
+        }
         const EntitySnapshot* next = to != nullptr ? to->find(record.id) : nullptr;
         for (std::size_t slot = 0; slot < registry.size(); ++slot) {
             const auto& entry = registry.entry(slot);
@@ -291,14 +398,131 @@ void run_net_client_interpolate(ecs::World& world) {
             gone.emplace_back(id, live.entity);
         }
     }
+    PredictionChannel* channel = prediction_channel(world);
     for (const auto& [id, entity] : gone) {
         client.live.erase(id);
+        if (channel != nullptr) {
+            channel->forget(id);
+        }
         despawn(world, id, entity);
     }
+
 
     for (const auto& [entity, id] : spawned) {
         ecs::EventWriter<NetEntitySpawnedEvent>(world).send(NetEntitySpawnedEvent{.entity = entity, .net_id = id});
     }
 }
 
+void run_net_client_predict(ecs::World& world) {
+    NetClient::Impl& client = *world.ctx<NetClient>().impl_;
+    PredictionChannel* channel = prediction_channel(world);
+    if (channel == nullptr || !client.welcomed || client.newest == kNoTick) {
+        return;
+    }
+    const SnapshotState* newest = client.buffer.find(client.newest);
+    if (newest == nullptr) {
+        return;
+    }
+    if (client.predicted == kNoTick) {
+        // Far enough ahead of the newest snapshot that inputs reach the server before their tick: a round trip
+        // plus the buffer. The server's slack reports correct the guess.
+        const float rtt_ms = client.transport != nullptr ? client.transport->rtt_ms(kServerPeerId) : 0.0f;
+        const double rtt_ticks = rtt_ms > 0.0f ? std::ceil(rtt_ms / 1000.0 / client.tick_seconds) : 0.0;
+        client.predicted = client.newest + static_cast<Tick>(rtt_ticks) + client.config.input_buffer_ticks + 1;
+        client.lead.reset();
+    }
+
+    // Predicted: owned by this client in the newest snapshot.
+    bool any = false;
+    for (auto& [id, live] : client.live) {
+        const EntitySnapshot* record = newest->find(id);
+        const bool own = record != nullptr && record->owner == client.local_peer && world.valid(live.entity);
+        if (own) {
+            channel->begin(id, live.entity);
+            live.predicted = true;
+            any = true;
+        } else if (live.predicted) {
+            channel->forget(id);
+            live.predicted = false;
+        }
+    }
+
+    const ReplicationRegistry& registry = world.ctx<ReplicationRegistry>();
+    for (auto& [id, live] : client.live) {
+        if (!live.predicted) {
+            continue;
+        }
+        const EntitySnapshot& record = *newest->find(id);
+        const auto outcome = channel->reconcile(
+                world, id, client.newest, client.predicted,
+                [&world, &registry, &live, &record] { apply_record(world, registry, live, record); },
+                client.replaying);
+        switch (outcome) {
+        case PredictionChannel::Outcome::Matched:
+            ++client.stats.matched;
+            break;
+        case PredictionChannel::Outcome::Replayed:
+            ++client.stats.replays;
+            client.stats.replayed_ticks += client.predicted - client.newest;
+            break;
+        case PredictionChannel::Outcome::Snapped:
+            ++client.stats.snaps;
+            break;
+        case PredictionChannel::Outcome::Skipped:
+        case PredictionChannel::Outcome::Accepted:
+            break;
+        }
+    }
+
+    ++client.predicted;
+    for (const auto& [id, live] : client.live) {
+        if (live.predicted) {
+            channel->predict(world, id, client.predicted);
+        }
+    }
+
+    if (!any) {
+        client.lead.reset();
+    }
+    world.ctx<Time>().fixed_rate = client.lead.rate();
+    client.lead.advance(client.predicted);
+}
+
+void run_net_client_send_input(ecs::World& world) {
+    NetClient::Impl& client = *world.ctx<NetClient>().impl_;
+    PredictionChannel* channel = prediction_channel(world);
+    if (channel == nullptr || client.transport == nullptr || client.predicted == kNoTick) {
+        return;
+    }
+    const std::size_t redundancy = std::clamp<std::size_t>(client.config.input_redundancy, 1, kMaxInputsPerMessage);
+    InputMessage message{.newest = client.predicted};
+    std::vector<std::vector<std::vector<std::uint8_t>>> encoded;
+    encoded.reserve(kMaxInputEntities);
+    for (const auto& [id, live] : client.live) {
+        if (!live.predicted) {
+            continue;
+        }
+        channel->record(world, id, client.predicted);
+        if (encoded.size() == kMaxInputEntities) {
+            continue;
+        }
+        auto inputs = channel->inputs(id, client.predicted, redundancy);
+        if (inputs.empty()) {
+            continue;
+        }
+        encoded.push_back(std::move(inputs));
+        InputMessage::Entity entity{.id = id};
+        for (const auto& input : encoded.back()) {
+            entity.inputs.emplace_back(input);
+        }
+        message.entities.push_back(std::move(entity));
+    }
+    if (message.entities.empty()) {
+        return;
+    }
+    const auto bytes = message.encode();
+    client.transport->send(kServerPeerId, bytes, DeliveryMode::UnreliableImmediate);
+}
+
 } // namespace engine::net
+

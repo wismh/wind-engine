@@ -95,7 +95,22 @@ Poll does not look at `Presentation.mouse`. UI has not run yet; `run_pointer_tar
 
 `run_input` later drains `MouseEvent` and `KeyEvent` into the UI. See [UI Input](UI%20Input.md).
 
+## Net input
+
+A networked game sends input, not actions: its `PredictionDesc::collect` builds the game's `Input` struct once per predicted fixed tick ([Net](../modules/Net.md#input-and-prediction)). It reads `InputSystem` through `ActionId`s, captured from `EngineServices::input`, never `KeyCode` or `MouseEvent`:
+
+```cpp
+.collect = [&input = services.input, move_x, jump, &look](engine::ecs::World&, engine::ecs::Entity) {
+    return MoveInput{.move_x = input.axis(move_x), .jump = input.is_held(jump), .yaw = look.yaw, .pitch = look.pitch};
+},
+```
+
+- Digital controls are states, so `is_held` and the digital part of `axis()` are right on `Fixed`.
+- Mouse motion is not: it belongs to one frame, and a frame runs zero, one, or several fixed steps. Sum `axis(look_x)` and `axis(look_y)` on `Schedule::Frame` into absolute angles the game keeps (`look` above), and put the angles in `Input`, not the deltas. A lost or repeated input then never loses or doubles a turn.
+- A one-shot press (`InputEvent` Down) that must not be missed between fixed steps is latched on `Frame` into a game flag that `collect` reads and clears.
+
 ## Not built
+
 
 The same `Control` / `ActionId` / `InputEvent` types are the place a gamepad poll or an action map would plug in. Neither exists: `GamepadButton` and `GamepadAxis` can be bound but nothing sends them; a gamepad axis would add `value * scale` to the clamped part of `axis()`. Composites are signed scales ([Axes](#axes-mouse-look-and-composites)), not a separate type. There is no callback when an action fires and no `.inputactions` file.
 

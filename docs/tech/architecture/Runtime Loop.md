@@ -76,11 +76,11 @@ flowchart TD
 1. `reset_pointer_frame` clears `Presentation.mouse` once. `begin_frame` on every world with UI. That fits canvases. It does not clear mouse consumption.
 
    `run_input` calls `begin_frame` again when the frame schedule runs. Each call starts with `profiler_commit_frame`. The second commit does not push a canvas slot, so a canvas slot is one whole tick: input, bindings, stylesheets, layout, motion, and paint. The shared ring alternates between the pre-schedule fit and the `run_input` fit with that tick's `commands`. See [UI Profiler](../features/UI%20Profiler.md).
-2. `advance` every world's clock with the same `real_dt`. Wall dt is clamped to `kMaxFrameDt` (0.25s). While the process is not paused and that world is stepping, the clock runs up to `kMaxFixedSteps` (8) steps of `kFixed` (1/60s) and drops leftover accumulator past the cap.
+2. `advance` every world's clock with the same `real_dt`. Wall dt is clamped to `kMaxFrameDt` (0.25s). While the process is not paused and that world is stepping, the clock adds that dt times the world's `Time::fixed_rate` (1 unless a net client is dilating its time) to the accumulator, runs up to `kMaxFixedSteps` (8) steps of `kFixed` (1/60s), and drops leftover accumulator past the cap.
 3. If audio is non-null, `audio->update` once with that clamped `real_dt`.
 4. For each world, in `add` order: `Schedule::Fixed` when it is stepping and the process is not paused. `Schedule::Frame` when it is stepping and either the process is not paused or a window is bound to it. An empty `ctx<BoundWindows>()` makes `run_render` return before any command-buffer clear. A non-empty list clears those buffers, then returns without pushing scene commands when the `Renderable`+`Transform`, `Sprite`+`Transform`, and `ParticleEmitter` views are all empty, when `ActiveCamera`'s entity is not valid, or when that entity has no `Camera` or `Transform` (fatal). The sorted list is pushed only after a live camera with both components, with `window_size_for` (`Presentation.sizes`) for that id. `run_ui_render` then writes UI.
 
-`Time` fields written by each clock: `delta_time`, `fixed_delta_time`, `alpha`, `accumulator`.
+`Time` fields written by each clock: `delta_time`, `fixed_delta_time`, `alpha`, `accumulator`. The clock reads `fixed_rate`; `run_net_client_predict` is the only writer of it.
 
 ### Schedules
 
@@ -91,7 +91,10 @@ flowchart TD
 | `Fixed` | `NetReceive`, `Physics`, `Game`, `NetSend` | `run_physics_2d` on `Physics` |
 | `Frame` | `NetReceive`, `Input`, `Game`, `Transform`, `Bind`, `Audio`, `Render`, `UiRender` | see below |
 
-The engine registers nothing on `NetReceive` or `NetSend`. `install_net_server` puts `run_net_server_receive` (poll, then advance the tick) on `Fixed`/`NetReceive` and `run_net_server_send` (snapshots) on `Fixed`/`NetSend`; `install_net_client` puts `run_net_client_receive` and `run_net_client_interpolate` on `Frame`/`NetReceive` ([Net](../modules/Net.md#schedule)). A world whose `Fixed` schedule does not run (paused, not stepping) neither polls its server transport nor sends snapshots.
+The engine registers nothing on `NetReceive` or `NetSend`. `install_net_server` puts `run_net_server_receive` (poll, buffer inputs, advance the tick, step the controlled entities) on `Fixed`/`NetReceive` and `run_net_server_send` (snapshots) on `Fixed`/`NetSend`; `install_net_client` puts `run_net_client_receive` and `run_net_client_interpolate` on `Frame`/`NetReceive`, `run_net_client_predict` (reconcile, advance the predicted tick, collect and step) on `Fixed`/`NetReceive`, and `run_net_client_send_input` on `Fixed`/`NetSend` ([Net](../modules/Net.md#schedule)). A world whose `Fixed` schedule does not run (paused, not stepping) neither polls its server transport nor sends snapshots, and a client world that does not step neither predicts nor sends input.
+
+A predicting client has two timelines. Its `Frame` schedule shows the other entities at `render_tick`, behind the server; its `Fixed` schedule simulates its own entities at `predicted_tick`, ahead of the server, and dilates its own fixed-step rate to stay there ([Net](../modules/Net.md#ticks-one-numbering-the-client-ahead)). The engine calls the game's prediction `step` from `NetReceive`: the one place gameplay runs in a net phase.
+
 
 Frame systems, in phase order:
 

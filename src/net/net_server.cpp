@@ -1,5 +1,8 @@
 #include <engine/net/net_server.h>
 
+#include "net/input_buffer.h"
+#include "net/input_message.h"
+#include "net/net_schema.h"
 #include "net/snapshot_codec.h"
 #include "net/snapshot_state.h"
 
@@ -11,15 +14,18 @@
 #include <engine/net/net_entity_map.h>
 #include <engine/net/net_id.h>
 #include <engine/net/net_messages.h>
+#include <engine/net/net_prediction.h>
 #include <engine/net/net_peer_connected_event.h>
 #include <engine/net/net_peer_disconnected_event.h>
 #include <engine/net/replication_registry.h>
 
+#include <algorithm>
 #include <cmath>
 #include <deque>
 #include <map>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace engine::net {
 
@@ -34,6 +40,15 @@ struct NetServer::Impl {
         // Snapshots sent to this peer that are still inside the window, oldest first.
         std::deque<SentSnapshot> sent{};
         bool warned_size{false};
+        // One input buffer per controlled entity of this peer.
+        std::map<NetId, InputBuffer> inputs{};
+        NetInputStats stats{};
+        // The newest tick that ran with this peer's own input.
+        Tick input_tick{kNoTick};
+        // The smallest (newest input tick of a message - the tick that runs next) over the input messages
+        // received since this peer's last snapshot: how early its inputs arrive.
+        std::optional<std::int64_t> slack{};
+        bool warned_rejected{false};
 
         [[nodiscard]] const SentSnapshot* find(Tick tick) const {
             for (const SentSnapshot& snapshot : sent) {
@@ -88,6 +103,22 @@ std::optional<Tick> NetServer::acked_tick(PeerId peer) const {
     return it->second.acked;
 }
 
+std::optional<NetInputStats> NetServer::input_stats(PeerId peer) const {
+    const auto it = impl_->peers.find(peer);
+    if (it == impl_->peers.end()) {
+        return std::nullopt;
+    }
+    return it->second.stats;
+}
+
+std::optional<Tick> NetServer::input_tick(PeerId peer) const {
+    const auto it = impl_->peers.find(peer);
+    if (it == impl_->peers.end() || it->second.input_tick == kNoTick) {
+        return std::nullopt;
+    }
+    return it->second.input_tick;
+}
+
 void install_net_server(ecs::World& world, INetworkTransport& transport, NetServerConfig config) {
     NetServer::Impl& server = *world.ctx<NetServer>().impl_;
     server.transport = &transport;
@@ -110,7 +141,7 @@ namespace {
 void send_welcome(ecs::World& world, NetServer::Impl& server, PeerId peer) {
     ByteWriter payload;
     payload.write_u16(kNetProtocolVersion);
-    payload.write_u32(world.ctx<ReplicationRegistry>().schema_hash());
+    payload.write_u32(welcome_schema_hash(world));
     payload.write_u16(static_cast<std::uint16_t>(std::lround(1.0 / static_cast<double>(kFixed))));
     payload.write_u16(server.config.snapshot_interval);
     payload.write_u64(peer);
@@ -128,6 +159,120 @@ void receive_ack(NetServer::Impl& server, PeerId peer, ByteReader& reader) {
     if (*tick > it->second.acked && it->second.find(*tick) != nullptr) {
         it->second.acked = *tick;
     }
+}
+
+PredictionChannel* prediction_channel(ecs::World& world) {
+    NetPrediction* prediction = world.try_ctx<NetPrediction>();
+    return prediction != nullptr ? prediction->channel.get() : nullptr;
+}
+
+void receive_input(ecs::World& world, NetServer::Impl& server, PeerId peer, ByteReader& reader) {
+    PredictionChannel* channel = prediction_channel(world);
+    const auto it = server.peers.find(peer);
+    if (channel == nullptr || it == server.peers.end()) {
+        return;
+    }
+    NetServer::Impl::Peer& client = it->second;
+    const auto message = InputMessage::decode(reader);
+    bool valid = message.has_value();
+    for (std::size_t e = 0; valid && e < message->entities.size(); ++e) {
+        for (const auto& input : message->entities[e].inputs) {
+            if (!channel->valid_input(input)) {
+                valid = false;
+                break;
+            }
+        }
+    }
+    if (!valid) {
+        ++client.stats.malformed;
+        return;
+    }
+    bool accepted = false;
+    for (const InputMessage::Entity& section : message->entities) {
+        const auto entity = find_entity(world, section.id);
+        const NetIdentity* identity = entity.has_value() ? world.try_get<NetIdentity>(*entity) : nullptr;
+        if (identity == nullptr || identity->owner != peer) {
+            client.stats.rejected += section.inputs.size();
+            if (!client.warned_rejected) {
+                client.warned_rejected = true;
+                log::warn("net: peer " + std::to_string(peer) + " sent input for entity " +
+                          std::to_string(section.id) + ", which it does not own; ignored");
+            }
+            continue;
+        }
+        accepted = true;
+        InputBuffer& buffer = client.inputs.try_emplace(section.id, server.tick).first->second;
+        for (std::size_t i = 0; i < section.inputs.size(); ++i) {
+            const Tick tick = message->newest - static_cast<Tick>(i);
+            switch (buffer.insert(tick, section.inputs[i], server.tick)) {
+            case InputBuffer::Insert::Stored:
+                break;
+            case InputBuffer::Insert::Duplicate:
+                ++client.stats.duplicate;
+                break;
+            case InputBuffer::Insert::Late:
+                ++client.stats.late;
+                break;
+            case InputBuffer::Insert::TooFarAhead:
+                ++client.stats.too_far_ahead;
+                break;
+            }
+        }
+    }
+    if (accepted) {
+        const std::int64_t early =
+                static_cast<std::int64_t>(message->newest) - (static_cast<std::int64_t>(server.tick) + 1);
+        client.slack = client.slack.has_value() ? std::min(*client.slack, early) : early;
+    }
+}
+
+// Steps every entity a connected client owns with that client's input for this tick, in `NetId` order.
+void step_controlled(ecs::World& world, NetServer::Impl& server) {
+    PredictionChannel* channel = prediction_channel(world);
+    if (channel == nullptr) {
+        return;
+    }
+    std::vector
+<std::pair<NetId, ecs::Entity>> controlled;
+    for (const ecs::Entity entity : world.view<NetIdentity>()) {
+        const NetIdentity& identity = world.get<NetIdentity>(entity);
+        if (identity.id != kInvalidNetId && identity.owner != kServerPeerId && server.peers.contains(identity.owner)) {
+            controlled.emplace_back(identity.id, entity);
+        }
+    }
+    std::sort(controlled.begin(), controlled.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+
+    // A stream whose entity is gone, or now owned by someone else, is dropped.
+    for (auto& [peer, client] : server.peers) {
+        std::erase_if(client.inputs, [&world, &controlled, peer](const auto& stream) {
+            const auto it = std::lower_bound(controlled.begin(), controlled.end(), stream.first,
+                    [](const auto& item, NetId id) { return item.first < id; });
+            return it == controlled.end() || it->first != stream.first ||
+                   world.get<NetIdentity>(it->second).owner != peer;
+        });
+    }
+
+    for (const auto& [id, entity] : controlled) {
+        NetServer::Impl::Peer& client = server.peers.at(world.get<NetIdentity>(entity).owner);
+        InputBuffer& buffer = client.inputs.try_emplace(id, server.tick - 1).first->second;
+        const InputBuffer::Taken taken = buffer.take(server.tick);
+        if (taken.real) {
+            ++client.stats.applied;
+            client.input_tick = server.tick;
+        } else if (taken.repeated) {
+            ++client.stats.repeated;
+        }
+        channel->step_encoded(world, entity, taken.bytes);
+    }
+}
+
+[[nodiscard]] SnapshotPeerHeader take_peer_header(NetServer::Impl::Peer& client) {
+    SnapshotPeerHeader header{.input_tick = client.input_tick};
+    if (client.slack.has_value()) {
+        header.input_slack = static_cast<std::int8_t>(std::clamp<std::int64_t>(*client.slack, -127, 127));
+    }
+    client.slack.reset();
+    return header;
 }
 
 } // namespace
@@ -157,6 +302,8 @@ void run_net_server_receive(ecs::World& world) {
             }
             if (*id == kSnapshotAckMessageId) {
                 receive_ack(server, event.peer_id, reader);
+            } else if (*id == kInputMessageId) {
+                receive_input(world, server, event.peer_id, reader);
             } else if (*id < kEngineMessageFirst || *id > kEngineMessageLast) {
                 server.dispatcher.dispatch(event.peer_id, event.payload);
             }
@@ -165,6 +312,7 @@ void run_net_server_receive(ecs::World& world) {
         }
     });
     ++server.tick;
+    step_controlled(world, server);
 }
 
 void run_net_server_send(ecs::World& world) {
@@ -184,7 +332,9 @@ void run_net_server_send(ecs::World& world) {
             return sent.tick + kSnapshotWindowTicks <= server.tick;
         });
         const NetServer::Impl::SentSnapshot* baseline = client.find(client.acked);
-        const auto bytes = encode_snapshot(*state, baseline != nullptr ? baseline->state.get() : nullptr);
+        const auto bytes = encode_snapshot(
+                *state, baseline != nullptr ? baseline->state.get() : nullptr, take_peer_header(client));
+
         if (bytes.size() > kSnapshotMtuBudget && !client.warned_size) {
             client.warned_size = true;
             log::warn("net: snapshot " + std::to_string(bytes.size()) + " bytes for peer " + std::to_string(peer) +

@@ -61,3 +61,18 @@ TEST(Time, PausedZeroStepsAccumulatorFrozen) {
     EXPECT_NE(unpaused_steps, engine::kMaxFixedSteps);
     EXPECT_FLOAT_EQ(time.accumulator, remainder);
 }
+
+TEST(Time, FixedRateScalesTheAccumulator) {
+    engine::Time time;
+    engine::ApplicationState app;
+    engine::FixedStepClock clock{time, app};
+
+    time.fixed_rate = 2.0f;
+    EXPECT_EQ(clock.advance(engine::kFixed), 2);
+    EXPECT_FLOAT_EQ(time.fixed_delta_time, engine::kFixed);
+    EXPECT_FLOAT_EQ(time.delta_time, engine::kFixed);
+
+    time.fixed_rate = 0.5f;
+    EXPECT_EQ(clock.advance(engine::kFixed), 0);
+    EXPECT_EQ(clock.advance(engine::kFixed), 1);
+}
