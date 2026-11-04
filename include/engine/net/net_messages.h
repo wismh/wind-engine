@@ -18,17 +18,28 @@ inline constexpr MessageId kWelcomeMessageId = 0x0100;     // server -> client, 
 inline constexpr MessageId kSnapshotMessageId = 0x0101;    // server -> client, UnreliableImmediate
 inline constexpr MessageId kSnapshotAckMessageId = 0x0102; // client -> server, Unreliable
 inline constexpr MessageId kInputMessageId = 0x0103;       // client -> server, UnreliableImmediate
+inline constexpr MessageId kPayloadBeginMessageId = 0x0104;    // server -> client, ReliableOrdered
+inline constexpr MessageId kPayloadFragmentMessageId = 0x0105; // server -> client, ReliableOrdered
+inline constexpr MessageId kPayloadCancelMessageId = 0x0106;   // server -> client, ReliableOrdered
+inline constexpr MessageId kPayloadAckMessageId = 0x0107;      // client -> server, ReliableOrdered
 
-// Bumped whenever the Welcome, Snapshot, or Input layout changes.
-inline constexpr std::uint16_t kNetProtocolVersion = 2;
+// Bumped whenever a layout in this list changes.
+inline constexpr std::uint16_t kNetProtocolVersion = 3;
 
-// A baseline older than this many ticks behind the newest is gone on both sides: the server sends a full
-// snapshot instead, the client drops it from its buffer.
+// The client keeps snapshots this many ticks behind its newest, and the server remembers what it wrote in them for
+// as long: an ack older than this says nothing, and whatever it carried is simply written again.
 inline constexpr Tick kSnapshotWindowTicks = 128;
 
-// A snapshot above this many bytes no longer fits one UDP packet. It is still sent (GameNetworkingSockets
-// splits it, and loses all of it when any piece is lost); the server logs one warning per peer.
+// A snapshot above this many bytes no longer fits one UDP packet, and GameNetworkingSockets loses all of it when any
+// piece is lost. It is the default of `NetServerConfig::snapshot_budget_bytes`.
 inline constexpr std::size_t kSnapshotMtuBudget = 1200;
+// What `NetServerConfig::snapshot_budget_bytes` is clamped to.
+inline constexpr std::size_t kMinSnapshotBudget = 64;
+inline constexpr std::size_t kMaxSnapshotBudget = 60000;
+
+// Data bytes in one PayloadBegin or PayloadFragment: one reliable message per packet, and the grain at which the
+// budget, a higher priority, or a cancel can step in.
+inline constexpr std::size_t kPayloadFragmentBytes = 1024;
 
 // The server ignores an input for a tick more than this many ticks after its own.
 inline constexpr Tick kMaxInputLeadTicks = 64;

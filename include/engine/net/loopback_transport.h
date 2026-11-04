@@ -31,6 +31,7 @@ public:
     [[nodiscard]] bool is_running() const override;
     [[nodiscard]] bool is_server() const override;
     [[nodiscard]] float rtt_ms(PeerId peer_id) const override;
+    [[nodiscard]] std::size_t pending_send_bytes(PeerId peer_id) const override;
 
     bool accept_loopback_client(LoopbackTransport* client, PeerId& out_client_id);
     void receive_incoming_data(PeerId sender_id, std::span<const std::uint8_t> data);

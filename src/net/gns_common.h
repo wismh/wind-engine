@@ -33,6 +33,7 @@ public:
     [[nodiscard]] bool is_running() const;
     [[nodiscard]] bool is_server() const;
     [[nodiscard]] float rtt_ms(PeerId peer_id) const;
+    [[nodiscard]] std::size_t pending_send_bytes(PeerId peer_id) const;
 
     void on_connection_status_changed(SteamNetConnectionStatusChangedCallback_t* info);
 

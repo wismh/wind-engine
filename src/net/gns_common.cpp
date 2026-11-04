@@ -443,6 +443,30 @@ float GnsBaseTransport::rtt_ms(PeerId peer_id) const {
     return -1.0f;
 }
 
+std::size_t GnsBaseTransport::pending_send_bytes(PeerId peer_id) const {
+    if (!is_running_ || sockets_ == nullptr) {
+        return 0;
+    }
+
+    HSteamNetConnection conn = k_HSteamNetConnection_Invalid;
+    if (is_server_) {
+        std::lock_guard lock(state_mutex_);
+        const auto it = peer_to_conn_.find(peer_id);
+        conn = it != peer_to_conn_.end() ? it->second : static_cast<HSteamNetConnection>(peer_id);
+    } else {
+        conn = client_conn_;
+    }
+    if (conn == k_HSteamNetConnection_Invalid) {
+        return 0;
+    }
+
+    SteamNetConnectionRealTimeStatus_t status{};
+    if (sockets_->GetConnectionRealTimeStatus(conn, &status, 0, nullptr) != k_EResultOK) {
+        return 0;
+    }
+    return static_cast<std::size_t>(status.m_cbPendingReliable) + static_cast<std::size_t>(status.m_cbPendingUnreliable);
+}
+
 } // namespace engine::net
 
 #endif

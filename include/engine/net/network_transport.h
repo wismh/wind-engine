@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <span>
@@ -58,6 +59,9 @@ public:
     [[nodiscard]] virtual bool is_running() const = 0;
     [[nodiscard]] virtual bool is_server() const = 0;
     [[nodiscard]] virtual float rtt_ms(PeerId peer_id) const = 0;
+    // Bytes handed to `send` for this peer that are not on the wire yet, reliable retransmits included. A new message
+    // waits behind them.
+    [[nodiscard]] virtual std::size_t pending_send_bytes(PeerId peer_id) const = 0;
 };
 
 } // namespace engine::net
