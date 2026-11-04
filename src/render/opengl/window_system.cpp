@@ -164,6 +164,7 @@ bool WindowSystem::create(const WindowDesc& desc, SDL_Window* owner, SDL_WindowF
     }
     window_ = SDL_CreateWindow(desc.title.c_str(), desc.size.x, desc.size.y, flags);
     if (window_ == nullptr) {
+        log::error(std::string("Window: SDL_CreateWindow failed (") + SDL_GetError() + ")");
         return false;
     }
     transparent_ = desc.style.transparent;

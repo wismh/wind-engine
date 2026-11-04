@@ -144,6 +144,35 @@ TEST(VulkanBackendTest, TextureArrayWithoutADeviceKeepsItsLayersAndRejectsABadDe
     EXPECT_EQ(std::static_pointer_cast<VulkanTexture>(factory.create_texture(plain))->mip_levels(), 3u);
 }
 
+TEST(VulkanBackendTest, WrappedMatrixKeepsTheInnerRowMajorDecoration) {
+    // A one-member wrapper struct carries the uniform name. RowMajor and the matrix stride sit on
+    // the inner matrix member, which is where Slang puts them.
+    constexpr std::uint32_t kWords[] = {
+            0x07230203u, 0x00010500u, 0u, 8u, 0u,
+            (3u << 16) | 22u, 1u, 32u,
+            (4u << 16) | 23u, 2u, 1u, 4u,
+            (4u << 16) | 24u, 3u, 2u, 4u,
+            (3u << 16) | 30u, 4u, 3u,
+            (3u << 16) | 30u, 5u, 4u,
+            (4u << 16) | 32u, 6u, 2u, 5u,
+            (4u << 16) | 59u, 6u, 7u, 2u,
+            (3u << 16) | 71u, 5u, 2u,
+            (4u << 16) | 71u, 7u, 34u, 0u,
+            (4u << 16) | 71u, 7u, 33u, 0u,
+            (5u << 16) | 72u, 4u, 0u, 35u, 0u,
+            (5u << 16) | 72u, 4u, 0u, 7u, 16u,
+            (4u << 16) | 72u, 4u, 0u, 4u,
+            (5u << 16) | 72u, 5u, 0u, 35u, 0u,
+            (6u << 16) | 6u, 5u, 0u, 0x6f725075u, 0x7463656au, 0x006e6f69u,
+    };
+    const SpirvReflection refl = reflect_spirv_program(kWords, kWords);
+    const SpirvUniformMember* proj = refl.find_uniform("uProjection");
+    ASSERT_NE(proj, nullptr);
+    EXPECT_TRUE(proj->is_row_major);
+    EXPECT_EQ(proj->matrix_stride, 16u);
+    EXPECT_EQ(proj->columns, 4u);
+}
+
 TEST(VulkanBackendTest, SpirvReflectionTellsAnArraySamplerFromA2DOne) {
     const std::filesystem::path root{ENGINE_BUILTIN_ASSETS_DIR};
     for (const std::string_view file : {"lit_array.shader", "unlit_array.shader"}) {
@@ -270,9 +299,32 @@ TEST(VulkanBackendTest, SpirvReflectionExtractsUniformsFromBuiltinSlangShaders) 
     EXPECT_TRUE(unlit_refl.has_ubo);
     EXPECT_GT(unlit_refl.ubo_size, 0u);
     EXPECT_TRUE(unlit_refl.has_sampler);
-    EXPECT_NE(unlit_refl.find_uniform("uModel"), nullptr);
-    EXPECT_NE(unlit_refl.find_uniform("uView"), nullptr);
-    EXPECT_NE(unlit_refl.find_uniform("uProjection"), nullptr);
+    const SpirvUniformMember* model = unlit_refl.find_uniform("uModel");
+    const SpirvUniformMember* view_u = unlit_refl.find_uniform("uView");
+    const SpirvUniformMember* proj = unlit_refl.find_uniform("uProjection");
+    ASSERT_NE(model, nullptr);
+    ASSERT_NE(view_u, nullptr);
+    ASSERT_NE(proj, nullptr);
+    // This Slang decorates the matrices RowMajor and does not emit OpTranspose. write_mat4
+    // transposes GLM's columns into that layout; a column-major upload would put translation in w.
+    EXPECT_TRUE(model->is_row_major);
+    EXPECT_TRUE(view_u->is_row_major);
+    EXPECT_TRUE(proj->is_row_major);
+    int transposes = 0;
+    const auto& words = unlit_desc->vertex_spirv;
+    for (std::size_t i = 5; i < words.size();) {
+        const std::uint32_t header = words[i];
+        const auto opcode = static_cast<std::uint16_t>(header & 0xFFFFu);
+        const auto count = static_cast<std::uint16_t>(header >> 16);
+        if (count == 0 || i + count > words.size()) {
+            break;
+        }
+        if (opcode == 84) {
+            ++transposes;
+        }
+        i += count;
+    }
+    EXPECT_EQ(transposes, 0);
     EXPECT_NE(unlit_refl.find_uniform("uColor"), nullptr);
     EXPECT_NE(unlit_refl.find_uniform("uUvScale"), nullptr);
     EXPECT_NE(unlit_refl.find_uniform("uUvOffset"), nullptr);
