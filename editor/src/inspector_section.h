@@ -12,7 +12,10 @@ namespace editor {
 enum class InspectorFieldKind { Text, Bool, String, Number, Vec, Asset };
 
 struct InspectorField {
+    // Path written by an edit (`heroes[0].base.max_hp`). A top-level field's path is its name.
     std::string key;
+    // Leaf shown on the row (`max_hp`, `weights[5]`). Empty uses `key`.
+    std::string label;
     InspectorFieldKind kind = InspectorFieldKind::Text;
     // A read-only row, or the string / number in the text field.
     std::string text;

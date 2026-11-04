@@ -88,45 +88,131 @@ bool numeric_array(const engine::ecs::FieldArray& array) {
     return true;
 }
 
+std::string asset_display_name(const engine::AssetsDb* assets, std::string_view text) {
+    if (text.empty() || text == "00000000000000000000000000000000") {
+        return "(None)";
+    }
+    const auto id = text.starts_with(engine::AssetId::kUriPrefix) ? engine::AssetId::parse(text)
+                                                                  : engine::AssetId::parse_hex(text);
+    if (id && assets != nullptr) {
+        if (const auto* entry = assets->catalog().find(*id)) {
+            return std::filesystem::path(entry->relative_path).filename().string();
+        }
+    }
+    return std::string(text);
+}
+
+std::string child_path(std::string_view prefix, std::string_view key) {
+    if (prefix.empty()) {
+        return std::string(key);
+    }
+    return std::format("{}.{}", prefix, key);
+}
+
+std::string section_heading(std::string path, const engine::ecs::FieldTable& table) {
+    const auto found = table.find("name");
+    if (found == table.end()) {
+        return path;
+    }
+    const std::string* name = found->second.as_string();
+    if (name == nullptr || name->empty()) {
+        return path;
+    }
+    path += "  ";
+    path += *name;
+    return path;
+}
+
+enum class ArrayLayout { Empty, ShortNumeric, ScalarElements, Tables, Opaque };
+
+ArrayLayout layout_of(const engine::ecs::FieldArray& array) {
+    if (array.empty()) {
+        return ArrayLayout::Empty;
+    }
+    if (numeric_array(array)) {
+        return ArrayLayout::ShortNumeric;
+    }
+    bool numbers = true;
+    bool strings = true;
+    bool bools = true;
+    bool tables = true;
+    for (const engine::ecs::FieldValue& item : array) {
+        if (!item.as_number()) {
+            numbers = false;
+        }
+        if (item.as_string() == nullptr) {
+            strings = false;
+        }
+        if (item.as_bool() == nullptr) {
+            bools = false;
+        }
+        if (item.as_table() == nullptr) {
+            tables = false;
+        }
+    }
+    if (tables) {
+        return ArrayLayout::Tables;
+    }
+    if (numbers || strings || bools) {
+        return ArrayLayout::ScalarElements;
+    }
+    return ArrayLayout::Opaque;
+}
+
+std::optional<engine::AssetFilter> direct_filter(
+        bool object_filters, const engine::ecs::WorldSerializer* serializer, const engine::AssetsDb* assets,
+        std::string_view scope, std::string_view key) {
+    if (object_filters) {
+        if (assets == nullptr) {
+            return std::nullopt;
+        }
+        return assets->object_field_filter(scope, key);
+    }
+    if (serializer == nullptr) {
+        return std::nullopt;
+    }
+    return serializer->field_filter(scope, key);
+}
+
 InspectorField make_field(
-        std::string key, const engine::ecs::FieldValue& value, bool editable,
+        std::string key, std::string label, const engine::ecs::FieldValue& value, bool editable,
         const engine::AssetsDb* assets, const std::optional<engine::AssetFilter>& filter) {
     InspectorField field;
     field.key = std::move(key);
+    field.label = std::move(label);
+    const std::string& leaf = field.label;
 
     if (filter.has_value()) {
-        field.kind = InspectorFieldKind::Asset;
-        field.asset_filter = filter.value_or(engine::AssetFilter{});
-        field.editable = editable;
         const std::string* s = value.as_string();
         const std::string str = s != nullptr ? *s : "";
         field.text = str;
-        if (str.empty() || str == "00000000000000000000000000000000") {
-            field.asset_name = "(None)";
-        } else {
-            auto id = str.starts_with(engine::AssetId::kUriPrefix) ? engine::AssetId::parse(str) : engine::AssetId::parse_hex(str);
-            if (id && assets != nullptr) {
-                if (const auto* entry = assets->catalog().find(*id)) {
-                    field.asset_name = std::filesystem::path(entry->relative_path).filename().string();
-                } else {
-                    field.asset_name = str;
-                }
-            } else {
-                field.asset_name = str;
-            }
+        field.asset_name = asset_display_name(assets, str);
+        if (!editable) {
+            field.kind = InspectorFieldKind::Text;
+            field.text = std::format("{} = {}", leaf, field.asset_name);
+            return field;
         }
+        field.kind = InspectorFieldKind::Asset;
+        field.asset_filter = filter.value_or(engine::AssetFilter{});
+        field.editable = true;
         return field;
     }
 
     if (const std::string* s = value.as_string(); s != nullptr) {
-        auto id = s->starts_with(engine::AssetId::kUriPrefix) ? engine::AssetId::parse(*s) : engine::AssetId::parse_hex(*s);
+        const auto id = s->starts_with(engine::AssetId::kUriPrefix) ? engine::AssetId::parse(*s)
+                                                                     : engine::AssetId::parse_hex(*s);
         if (id && assets != nullptr) {
             if (const auto* entry = assets->catalog().find(*id)) {
-                field.kind = InspectorFieldKind::Asset;
-                field.asset_filter = engine::AssetFilter{.importer = entry->importer};
-                field.editable = editable;
                 field.text = *s;
                 field.asset_name = std::filesystem::path(entry->relative_path).filename().string();
+                if (!editable) {
+                    field.kind = InspectorFieldKind::Text;
+                    field.text = std::format("{} = {}", leaf, field.asset_name);
+                    return field;
+                }
+                field.kind = InspectorFieldKind::Asset;
+                field.asset_filter = engine::AssetFilter{.importer = entry->importer};
+                field.editable = true;
                 return field;
             }
         }
@@ -162,7 +248,7 @@ InspectorField make_field(
             }
             // A quaternion stays x,y,z,w in the table. The row edits Euler degrees. A 4-wide color
             // edits rgb and leaves the alpha component in the table.
-            if (field.key == "rotation" && array->size() == 4) {
+            if (leaf == "rotation" && array->size() == 4) {
                 const auto x = (*array)[0].as_number();
                 const auto y = (*array)[1].as_number();
                 const auto z = (*array)[2].as_number();
@@ -175,7 +261,7 @@ InspectorField make_field(
                         field.axis_integer[static_cast<std::size_t>(index)] = false;
                     }
                 }
-            } else if (field.key == "color" && array->size() == 4) {
+            } else if (leaf == "color" && array->size() == 4) {
                 field.axis_count = 3;
             }
             field.editable = true;
@@ -191,10 +277,10 @@ InspectorField make_field(
     field.kind = InspectorFieldKind::Text;
     if (const engine::ecs::FieldArray* array = value.as_array();
             array != nullptr && array->size() == 4 && numeric_array(*array) &&
-            (field.key == "rotation" || field.key == "color")) {
+            (leaf == "rotation" || leaf == "color")) {
         std::string shown = "[";
         const int count = 3;
-        if (field.key == "rotation") {
+        if (leaf == "rotation") {
             const auto x = (*array)[0].as_number();
             const auto y = (*array)[1].as_number();
             const auto z = (*array)[2].as_number();
@@ -204,7 +290,7 @@ InspectorField make_field(
                 shown += std::format("{}, {}, {}", format_double(euler.x), format_double(euler.y),
                         format_double(euler.z));
                 shown += "]";
-                field.text = std::format("{} = {}", field.key, shown);
+                field.text = std::format("{} = {}", leaf, shown);
                 return field;
             }
         } else {
@@ -215,61 +301,79 @@ InspectorField make_field(
                 shown += format_field_value((*array)[static_cast<std::size_t>(index)]);
             }
             shown += "]";
-            field.text = std::format("{} = {}", field.key, shown);
+            field.text = std::format("{} = {}", leaf, shown);
             return field;
         }
     }
-    field.text = std::format("{} = {}", field.key, format_field_value(value));
+    field.text = std::format("{} = {}", leaf, format_field_value(value));
     return field;
 }
 
-InspectorSection make_component_section(
-        std::string heading, const engine::ecs::FieldTable& table, bool editable,
-        const engine::ecs::WorldSerializer* serializer, const engine::AssetsDb* assets) {
-    InspectorSection section{.heading = std::move(heading), .removable = editable};
+void append_table(
+        std::vector<InspectorSection>& sections, std::string heading, std::string path_prefix,
+        const engine::ecs::FieldTable& table, bool editable, bool removable, bool object_filters,
+        std::string_view filter_scope, const engine::ecs::WorldSerializer* serializer,
+        const engine::AssetsDb* assets) {
+    InspectorSection section{.heading = std::move(heading), .removable = removable};
     if (table.empty()) {
         section.lines.emplace_back("(no fields)");
-        return section;
+        sections.push_back(std::move(section));
+        return;
     }
-    if (!editable) {
-        section.lines.reserve(table.size());
-        for (const auto& [key, val] : table) {
-            std::optional<engine::AssetFilter> filter;
-            if (serializer != nullptr) {
-                filter = serializer->field_filter(section.heading, key);
+    for (const auto& [key, value] : table) {
+        const std::string path = child_path(path_prefix, key);
+        if (value.as_table() != nullptr) {
+            continue;
+        }
+        if (const engine::ecs::FieldArray* array = value.as_array()) {
+            const ArrayLayout layout = layout_of(*array);
+            if (layout == ArrayLayout::Empty || layout == ArrayLayout::Tables) {
+                continue;
             }
-            if (filter.has_value()) {
-                const std::string* s = val.as_string();
-                const std::string str = s != nullptr ? *s : "";
-                std::string display = "(None)";
-                if (!str.empty() && str != "00000000000000000000000000000000") {
-                    auto id = str.starts_with(engine::AssetId::kUriPrefix) ? engine::AssetId::parse(str) : engine::AssetId::parse_hex(str);
-                    if (id && assets != nullptr) {
-                        if (const auto* entry = assets->catalog().find(*id)) {
-                            display = std::filesystem::path(entry->relative_path).filename().string();
-                        } else {
-                            display = str;
-                        }
-                    } else {
-                        display = str;
-                    }
+            if (layout == ArrayLayout::ScalarElements) {
+                for (std::size_t index = 0; index < array->size(); ++index) {
+                    section.fields.push_back(make_field(
+                            std::format("{}[{}]", path, index), std::format("{}[{}]", key, index), (*array)[index],
+                            editable, assets, std::nullopt));
                 }
-                section.lines.push_back(std::format("{} = {}", key, display));
-            } else {
-                section.lines.push_back(std::format("{} = {}", key, format_field_value(val)));
+                continue;
+            }
+            if (layout == ArrayLayout::Opaque) {
+                section.fields.push_back(make_field(path, std::string(key), value, false, assets, std::nullopt));
+                continue;
             }
         }
-        return section;
+        const std::optional<engine::AssetFilter> filter = path_prefix.empty()
+                ? direct_filter(object_filters, serializer, assets, filter_scope, key)
+                : std::nullopt;
+        section.fields.push_back(make_field(path, std::string(key), value, editable, assets, filter));
     }
-    section.fields.reserve(table.size());
-    for (const auto& [key, val] : table) {
-        std::optional<engine::AssetFilter> filter;
-        if (serializer != nullptr) {
-            filter = serializer->field_filter(section.heading, key);
+    sections.push_back(std::move(section));
+
+    for (const auto& [key, value] : table) {
+        const std::string path = child_path(path_prefix, key);
+        if (const engine::ecs::FieldTable* nested = value.as_table()) {
+            append_table(sections, section_heading(path, *nested), path, *nested, editable, false, object_filters,
+                    filter_scope, serializer, assets);
+            continue;
         }
-        section.fields.push_back(make_field(key, val, true, assets, filter));
+        if (const engine::ecs::FieldArray* array = value.as_array()) {
+            const ArrayLayout layout = layout_of(*array);
+            if (layout == ArrayLayout::Empty) {
+                sections.push_back(InspectorSection{.heading = path, .lines = {"(empty)"}});
+            } else if (layout == ArrayLayout::Tables) {
+                for (std::size_t index = 0; index < array->size(); ++index) {
+                    const engine::ecs::FieldTable* element = (*array)[index].as_table();
+                    if (element == nullptr) {
+                        continue;
+                    }
+                    const std::string element_path = std::format("{}[{}]", path, index);
+                    append_table(sections, section_heading(element_path, *element), element_path, *element, editable,
+                            false, object_filters, filter_scope, serializer, assets);
+                }
+            }
+        }
     }
-    return section;
 }
 
 }
@@ -278,7 +382,16 @@ InspectorField make_inspector_field(
         std::string key, const engine::ecs::FieldValue& value, bool editable,
         const engine::AssetsDb* assets,
         const std::optional<engine::AssetFilter>& filter) {
-    return make_field(std::move(key), value, editable, assets, filter);
+    return make_field(key, std::move(key), value, editable, assets, filter);
+}
+
+void append_inspector_sections(
+        std::vector<InspectorSection>& sections, std::string heading, const engine::ecs::FieldTable& table,
+        bool editable, bool removable, const engine::AssetsDb* assets,
+        const engine::ecs::WorldSerializer* serializer, bool object_filters) {
+    const std::string scope = heading;
+    append_table(sections, std::move(heading), {}, table, editable, removable, object_filters, scope, serializer,
+            assets);
 }
 
 std::string entity_display_name(const engine::ecs::World& world, engine::ecs::Entity entity) {
@@ -349,7 +462,7 @@ std::vector<InspectorSection> inspect_entity(
         engine::ecs::FieldTable table;
         engine::ecs::ComponentWriter writer(table, entity_to_id);
         if (entry.write(world, entity, writer)) {
-            sections.push_back(make_component_section(comp_name, table, editable, &serializer, assets));
+            append_inspector_sections(sections, comp_name, table, editable, editable, assets, &serializer, false);
             written.insert(comp_name);
         }
     }
@@ -357,7 +470,8 @@ std::vector<InspectorSection> inspect_entity(
     if (const auto* unknown = world.try_get<engine::ecs::UnknownComponents>(entity)) {
         for (const auto& [comp_name, table] : unknown->components) {
             if (!written.contains(comp_name)) {
-                sections.push_back(make_component_section(comp_name + " (unregistered)", table, false, &serializer, assets));
+                append_inspector_sections(
+                        sections, comp_name + " (unregistered)", table, false, false, assets, &serializer, false);
             }
         }
     }
