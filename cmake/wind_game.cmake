@@ -101,6 +101,10 @@ function(engine_debuggame_flags)
     endforeach()
 endfunction()
 
+# Under the old behaviour the stage command below, which names the target's directory, would depend on the target:
+# a cycle, in a game whose cmake_minimum_required is older than 3.19.
+cmake_policy(SET CMP0112 NEW)
+
 # Copy assets/engine (builtins + cooked catalog) and, when present, the consumer's assets/
 # beside a runtime target. Games normally call `engine_add_game` instead of this directly.
 # A game module built against the SDK gets only its own assets/: the editor that loads it has engine.dll and
@@ -123,13 +127,9 @@ function(engine_prepare_runtime target)
     get_target_property(_engine_type engine TYPE)
     get_property(_server_app TARGET ${target} PROPERTY ENGINE_SERVER_APP)
     # A server against the SDK links the static Server player, whatever `engine` is there.
+    set(_copy_engine_dll OFF)
     if(WIN32 AND _engine_side AND _engine_type STREQUAL "SHARED_LIBRARY" AND NOT (ENGINE_FROM_SDK AND _server_app))
-        add_custom_command(TARGET ${target} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "$<TARGET_FILE:engine>"
-                "$<TARGET_FILE_DIR:${target}>"
-            COMMENT "Copy engine.dll beside ${target}"
-            VERBATIM)
+        set(_copy_engine_dll ON)
     endif()
 
     # ENGINE_RUNTIME_ASSETS_DIR puts the target's own assets and catalog in assets/<dir>/ instead of
@@ -141,39 +141,85 @@ function(engine_prepare_runtime target)
         set(_engine_app_assets_out "$<TARGET_FILE_DIR:${target}>/assets")
     endif()
 
+    # Staging is a target of its own, ordered before ${target}: it follows the asset files, not the link, because an
+    # edited asset leaves asset_ids.h as it was and so relinks nothing. It writes only the staged tree. The sole writer
+    # of generated/<target>/ is the custom command of <target>_assets in engine_configure_app, so nothing rewrites a
+    # header while another target compiles against it. ENGINE_RUNTIME_ASSETS_FROM names the target whose stage this
+    # one shares, for two targets that land in one directory, so that directory also has one writer.
+    get_property(_runtime_assets_from TARGET ${target} PROPERTY ENGINE_RUNTIME_ASSETS_FROM)
     set(_engine_game_assets "${CMAKE_CURRENT_SOURCE_DIR}/assets")
-    if(EXISTS "${_engine_game_assets}")
-        set(_gen_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/${target}")
-        add_custom_command(TARGET ${target} POST_BUILD
+    if(_runtime_assets_from)
+        add_dependencies(${target} ${_runtime_assets_from}_stage)
+    elseif(EXISTS "${_engine_game_assets}")
+        file(GLOB_RECURSE _engine_game_asset_files CONFIGURE_DEPENDS "${_engine_game_assets}/*")
+        set(_stage_stamp "${CMAKE_CURRENT_BINARY_DIR}/generated/${target}/stage.$<CONFIG>.stamp")
+        set(_stage_extra)
+        if(ANDROID AND ENGINE_ANDROID_ASSETS_OUT)
+            set(_stage_extra
+                COMMAND ${CMAKE_COMMAND} -E copy_directory "${_engine_app_assets_out}" "${ENGINE_ANDROID_ASSETS_OUT}")
+        endif()
+        add_custom_command(
+            OUTPUT "${_stage_stamp}"
             COMMAND asset_codegen
                 "${_engine_game_assets}"
-                "${_gen_dir}"
-                --project "${CMAKE_CURRENT_SOURCE_DIR}"
                 --stage "${_engine_app_assets_out}"
+                --project "${CMAKE_CURRENT_SOURCE_DIR}"
+            ${_stage_extra}
+            COMMAND ${CMAKE_COMMAND} -E touch "${_stage_stamp}"
+            DEPENDS asset_codegen ${_engine_game_asset_files}
             COMMENT "Stage cooked game assets beside ${target}"
             VERBATIM)
+        add_custom_target(${target}_stage DEPENDS "${_stage_stamp}")
+        add_dependencies(${target} ${target}_stage)
     endif()
 
+    # What the engine brings is the same for every target in one output directory (bin/ holds engine_tests, wind_editor,
+    # wind_editor_tests, and the server fixture), so that directory gets one step that they all depend on. A POST_BUILD
+    # on each would write the same files in parallel and fail with "Permission denied" on Windows.
     if(_engine_side)
-        add_custom_command(TARGET ${target} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${ENGINE_BUILTIN_ASSETS_DIR}"
-                "$<TARGET_FILE_DIR:${target}>/assets/engine"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${ENGINE_COOKED_CATALOG}"
-                "$<TARGET_FILE_DIR:${target}>/assets/engine/catalog.toml"
-            COMMENT "Copy engine assets and cooked catalog beside ${target}"
-            VERBATIM)
-    endif()
-
-    get_property(_game_catalog TARGET ${target} PROPERTY ENGINE_GAME_CATALOG)
-    if(_game_catalog)
-        add_custom_command(TARGET ${target} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${_game_catalog}"
-                "${_engine_app_assets_out}/catalog.toml"
-            COMMENT "Install cooked game catalog for ${target}"
-            VERBATIM)
+        if(_target_type STREQUAL "SHARED_LIBRARY" AND NOT WIN32)
+            get_target_property(_runtime_dir ${target} LIBRARY_OUTPUT_DIRECTORY)
+        else()
+            get_target_property(_runtime_dir ${target} RUNTIME_OUTPUT_DIRECTORY)
+        endif()
+        if(NOT _runtime_dir)
+            set(_runtime_dir "${CMAKE_CURRENT_BINARY_DIR}")
+        endif()
+        get_target_property(_bundle ${target} MACOSX_BUNDLE)
+        if(APPLE AND _bundle)
+            set(_runtime_dir "${_runtime_dir}/${target}.app")
+        endif()
+        string(MD5 _runtime_key "${_runtime_dir}")
+        set(_runtime_step engine_runtime_${_runtime_key})
+        if(NOT TARGET ${_runtime_step})
+            file(GLOB_RECURSE _engine_builtin_files CONFIGURE_DEPENDS "${ENGINE_BUILTIN_ASSETS_DIR}/*")
+            set(_runtime_stamp "${CMAKE_BINARY_DIR}/generated/engine_runtime/${_runtime_key}.$<CONFIG>.stamp")
+            set(_copy_dll_command)
+            set(_copy_dll_depends)
+            if(_copy_engine_dll)
+                set(_copy_dll_command
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:engine>" "$<TARGET_FILE_DIR:${target}>")
+                set(_copy_dll_depends engine)
+            endif()
+            add_custom_command(
+                OUTPUT "${_runtime_stamp}"
+                COMMAND ${CMAKE_COMMAND} -E copy_directory
+                    "${ENGINE_BUILTIN_ASSETS_DIR}"
+                    "$<TARGET_FILE_DIR:${target}>/assets/engine"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${ENGINE_COOKED_CATALOG}"
+                    "$<TARGET_FILE_DIR:${target}>/assets/engine/catalog.toml"
+                ${_copy_dll_command}
+                COMMAND ${CMAKE_COMMAND} -E touch "${_runtime_stamp}"
+                DEPENDS "${ENGINE_COOKED_CATALOG}" ${_engine_builtin_files} ${_copy_dll_depends}
+                COMMENT "Copy engine assets and cooked catalog beside ${target}"
+                VERBATIM)
+            add_custom_target(${_runtime_step} DEPENDS "${_runtime_stamp}")
+            if(NOT ENGINE_FROM_SDK)
+                add_dependencies(${_runtime_step} engine_builtin_catalog)
+            endif()
+        endif()
+        add_dependencies(${target} ${_runtime_step})
     endif()
 
     if(ANDROID AND ENGINE_ANDROID_ASSETS_OUT)
@@ -206,8 +252,12 @@ function(engine_configure_app target)
     get_property(_server_app TARGET ${target} PROPERTY ENGINE_SERVER_APP)
     if(APPLE)
         # Package as a .app bundle so MACOSX_BUNDLE_ICON_FILE / MACOSX_PACKAGE_LOCATION below
-        # take effect; ignored by CMake on non-Apple platforms either way.
-        set_target_properties(${target} PROPERTIES MACOSX_BUNDLE ON)
+        # take effect; ignored by CMake on non-Apple platforms either way. A target that sets MACOSX_BUNDLE OFF
+        # first (the editor, a server) lands in bin/ itself, which engine_prepare_runtime has to know.
+        get_property(_bundle_chosen TARGET ${target} PROPERTY MACOSX_BUNDLE SET)
+        if(NOT _bundle_chosen)
+            set_target_properties(${target} PROPERTIES MACOSX_BUNDLE ON)
+        endif()
     endif()
     set_target_properties(${target} PROPERTIES
         CXX_STANDARD 23
@@ -303,6 +353,10 @@ function(engine_configure_app target)
         add_dependencies(${target} ${target}_assets)
         set_property(TARGET ${target} PROPERTY ENGINE_GAME_CATALOG "${_gen}/catalog.toml")
         set_property(TARGET ${target} PROPERTY ENGINE_GAME_ASSETS "${_assets}")
+        if(EMSCRIPTEN)
+            # The link packs the assets (engine_target_web_preload), so an edited asset has to relink.
+            set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS ${_asset_files})
+        endif()
     endif()
 
     set(_icon "${CMAKE_CURRENT_SOURCE_DIR}/icon.png")
@@ -488,8 +542,8 @@ function(engine_add_server target)
     endif()
     # Where the executable of each configuration lands, the record an export has.
     file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/wind/${target}.$<CONFIG>.export" CONTENT "$<TARGET_FILE_DIR:${target}>")
-    engine_configure_app(${target})
     set_target_properties(${target} PROPERTIES MACOSX_BUNDLE OFF)
+    engine_configure_app(${target})
     if(WIN32 AND ENGINE_GNS_RUNTIME_DLLS)
         add_custom_command(TARGET ${target} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different

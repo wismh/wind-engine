@@ -9,6 +9,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -146,11 +147,10 @@ TEST(AssetCrawler, StageOnlyCopiesReachableAssetsAndNoMetas) {
     tree.write("main.txt", "hello", kRootGuid, "data");
     tree.write("unused.txt", "bye", kUnusedGuid, "data");
 
-    const std::filesystem::path out_gen = tree.path() / "gen";
     const std::filesystem::path out_stage = tree.path() / "staged";
 
     std::vector<std::string> roots{"main.txt"};
-    const auto result = engine::codegen_write(tree.path(), out_gen, {}, roots, {}, out_stage);
+    const auto result = engine::codegen_stage(tree.path(), out_stage, {}, roots, {});
     ASSERT_TRUE(result.has_value()) << (result ? "" : result.error().message);
 
     EXPECT_TRUE(std::filesystem::exists(out_stage / "catalog.toml"));
@@ -158,4 +158,35 @@ TEST(AssetCrawler, StageOnlyCopiesReachableAssetsAndNoMetas) {
     EXPECT_FALSE(std::filesystem::exists(out_stage / "main.txt.meta")); // No .meta!
     EXPECT_FALSE(std::filesystem::exists(out_stage / "unused.txt"));    // Tree shaken!
     EXPECT_FALSE(std::filesystem::exists(out_stage / "unused.txt.meta"));
+    EXPECT_FALSE(std::filesystem::exists(out_stage / "asset_ids.h")); // The generated directory has its own writer.
+}
+
+TEST(AssetCrawler, WriteLeavesUnchangedFilesAloneAndRewritesChangedOnes) {
+    TempAssetTree tree;
+    tree.write("assets/main.txt", "hello", "11111111111111111111111111111111", "data");
+
+    const std::filesystem::path assets = tree.path() / "assets";
+    const std::filesystem::path out_gen = tree.path() / "gen";
+    ASSERT_TRUE(engine::codegen_write(assets, out_gen).has_value());
+
+    // Well in the past, so a rewrite shows whatever the file system's timestamp resolution.
+    const auto old_time = std::filesystem::file_time_type::clock::now() - std::chrono::hours(24);
+    for (const char* name : {"asset_ids.h", "catalog.toml"}) {
+        std::filesystem::last_write_time(out_gen / name, old_time);
+    }
+
+    // The asset's content is not in either output, so a run after an edit has nothing to write.
+    tree.write("assets/main.txt", "changed", "11111111111111111111111111111111", "data");
+    ASSERT_TRUE(engine::codegen_write(assets, out_gen).has_value());
+    EXPECT_EQ(std::filesystem::last_write_time(out_gen / "asset_ids.h"), old_time);
+    EXPECT_EQ(std::filesystem::last_write_time(out_gen / "catalog.toml"), old_time);
+
+    tree.write("assets/added.txt", "new", "22222222222222222222222222222222", "data");
+    ASSERT_TRUE(engine::codegen_write(assets, out_gen).has_value());
+    EXPECT_GT(std::filesystem::last_write_time(out_gen / "asset_ids.h"), old_time);
+    EXPECT_GT(std::filesystem::last_write_time(out_gen / "catalog.toml"), old_time);
+
+    std::ifstream header(out_gen / "asset_ids.h", std::ios::binary);
+    const std::string text((std::istreambuf_iterator<char>(header)), std::istreambuf_iterator<char>());
+    EXPECT_NE(text.find("added"), std::string::npos);
 }

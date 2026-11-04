@@ -193,11 +193,16 @@ struct CodegenOutput {
         std::span<const AssetId> reserved = {},
         std::span<const std::string> roots = {},
         std::span<const std::string> always_include = {});
+// Writes asset_ids.h and catalog.toml into output_dir. A file whose content is unchanged keeps its timestamp.
 [[nodiscard]] std::expected<void, CodegenError> codegen_write(const std::filesystem::path& assets_root,
         const std::filesystem::path& output_dir, std::span<const AssetId> reserved = {},
         std::span<const std::string> roots = {},
-        std::span<const std::string> always_include = {},
-        const std::filesystem::path& stage_dir = {});
+        std::span<const std::string> always_include = {});
+// Writes catalog.toml into stage_dir and copies the reachable assets there. Writes nothing else.
+[[nodiscard]] std::expected<void, CodegenError> codegen_stage(const std::filesystem::path& assets_root,
+        const std::filesystem::path& stage_dir, std::span<const AssetId> reserved = {},
+        std::span<const std::string> roots = {},
+        std::span<const std::string> always_include = {});
 
 [[nodiscard]] std::string_view to_string(ImporterKind kind) noexcept;
 

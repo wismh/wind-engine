@@ -73,10 +73,10 @@ set(_wind_editor_parts
 
 add_executable(wind_editor src/main.cpp src/editor_app.cpp ${_wind_editor_parts})
 set_property(TARGET wind_editor PROPERTY ENGINE_RUNTIME_ASSETS_DIR editor)
-engine_configure_app(wind_editor)
-# Not a .app bundle on macOS (engine_configure_app makes every executable one): the SDK is bin/wind_editor with
+# Not a .app bundle on macOS (engine_configure_app makes an executable one by default): the SDK is bin/wind_editor with
 # assets/ and libengine beside it, and the launcher starts it by that path.
 set_target_properties(wind_editor PROPERTIES MACOSX_BUNDLE OFF)
+engine_configure_app(wind_editor)
 target_include_directories(wind_editor PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_compile_definitions(wind_editor PRIVATE "WIND_ENGINE_VERSION=\"${ENGINE_VERSION_FULL}\"")
 find_package(Threads REQUIRED)
@@ -88,7 +88,7 @@ endif()
 if(ENGINE_BUILD_TESTS)
     # PlaySession against headless services and the fixture game module (tests/fixtures/game_module),
     # and the panels' view-models against headless worlds. The view-models use wind_editor's generated
-    # asset_ids.h.
+    # asset_ids.h, and the tests land in wind_editor's directory, so they use its staged assets/editor/ too.
     add_executable(wind_editor_tests
         tests/asset_inspection_test.cpp
         tests/asset_watch_test.cpp
@@ -135,7 +135,7 @@ if(ENGINE_BUILD_TESTS)
     add_dependencies(wind_editor_tests wind_editor_assets)
     target_compile_definitions(wind_editor_tests PRIVATE ${ENGINE_FIXTURE_GAME_DEFINES})
     add_dependencies(wind_editor_tests wind_fixture_game_ok)
-    set_property(TARGET wind_editor_tests PROPERTY ENGINE_RUNTIME_ASSETS_DIR editor)
+    set_property(TARGET wind_editor_tests PROPERTY ENGINE_RUNTIME_ASSETS_FROM wind_editor)
     engine_prepare_runtime(wind_editor_tests)
     gtest_discover_tests(wind_editor_tests DISCOVERY_MODE PRE_TEST)
 endif()

@@ -188,7 +188,7 @@ The fixture `wind_server_fixture` (`tests/fixtures/server/`) goes through the fu
 
 ## Runtime assets subdirectory
 
-`engine_prepare_runtime` copies a target's own `assets/` tree and cooked `catalog.toml` to `<output>/assets/`. The target property `ENGINE_RUNTIME_ASSETS_DIR` moves both to `<output>/assets/<dir>/`. `wind_editor` sets it to `editor`, so the editor and a game module built into the same `bin/` each keep their own `catalog.toml`. The engine's own assets stay in `assets/engine/` either way.
+`engine_prepare_runtime` copies a target's own `assets/` tree and cooked `catalog.toml` to `<output>/assets/`. The target property `ENGINE_RUNTIME_ASSETS_DIR` moves both to `<output>/assets/<dir>/`. `wind_editor` sets it to `editor`, so the editor and a game module built into the same `bin/` each keep their own `catalog.toml`. `ENGINE_RUNTIME_ASSETS_FROM` makes a target use another target's staged assets instead of staging its own: `wind_editor_tests` lands beside `wind_editor` and names it, so `assets/editor/` has one writer. The engine's own assets stay in `assets/engine/` either way.
 
 ## Editor targets
 
