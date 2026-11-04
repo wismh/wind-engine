@@ -106,6 +106,140 @@ bool is_integer(const engine::ecs::FieldValue& value) {
     return value.as_int() != nullptr;
 }
 
+struct PathStep {
+    std::string key;
+    std::optional<std::size_t> index;
+};
+
+std::optional<std::vector<PathStep>> parse_field_path(std::string_view path) {
+    if (path.empty()) {
+        return std::nullopt;
+    }
+    std::vector<PathStep> steps;
+    std::size_t cursor = 0;
+    while (cursor < path.size()) {
+        if (path[cursor] == '.') {
+            ++cursor;
+            if (cursor >= path.size()) {
+                return std::nullopt;
+            }
+        }
+        const std::size_t begin = cursor;
+        while (cursor < path.size() && path[cursor] != '.' && path[cursor] != '[') {
+            ++cursor;
+        }
+        if (begin == cursor) {
+            return std::nullopt;
+        }
+        PathStep step;
+        step.key.assign(path.substr(begin, cursor - begin));
+        if (cursor < path.size() && path[cursor] == '[') {
+            ++cursor;
+            if (cursor >= path.size() || path[cursor] < '0' || path[cursor] > '9') {
+                return std::nullopt;
+            }
+            std::size_t index = 0;
+            while (cursor < path.size() && path[cursor] >= '0' && path[cursor] <= '9') {
+                index = index * 10 + static_cast<std::size_t>(path[cursor] - '0');
+                ++cursor;
+            }
+            if (cursor >= path.size() || path[cursor] != ']') {
+                return std::nullopt;
+            }
+            ++cursor;
+            step.index = index;
+        }
+        steps.push_back(std::move(step));
+        if (cursor < path.size() && path[cursor] != '.') {
+            return std::nullopt;
+        }
+    }
+    return steps;
+}
+
+engine::ecs::FieldValue* resolve_field(engine::ecs::FieldTable& root, const std::vector<PathStep>& steps) {
+    engine::ecs::FieldTable* table = &root;
+    engine::ecs::FieldValue* value = nullptr;
+    for (std::size_t step_index = 0; step_index < steps.size(); ++step_index) {
+        const auto found = table->find(steps[step_index].key);
+        if (found == table->end()) {
+            return nullptr;
+        }
+        value = &found->second;
+        if (steps[step_index].index.has_value()) {
+            engine::ecs::FieldArray* array = value->as_array();
+            if (array == nullptr || *steps[step_index].index >= array->size()) {
+                return nullptr;
+            }
+            value = &(*array)[*steps[step_index].index];
+        }
+        if (step_index + 1 == steps.size()) {
+            return value;
+        }
+        table = value->as_table();
+        if (table == nullptr) {
+            return nullptr;
+        }
+    }
+    return nullptr;
+}
+
+bool assign_leaf_text(engine::ecs::FieldValue& leaf, std::string_view leaf_name, bool indexed, int slot,
+        std::string_view text) {
+    if (slot < 0) {
+        if (leaf.as_string() != nullptr) {
+            leaf = engine::ecs::FieldValue{std::string(text)};
+            return true;
+        }
+        const std::optional<engine::ecs::FieldValue> parsed = parse_number(text, is_integer(leaf));
+        if (!parsed) {
+            return false;
+        }
+        leaf = *parsed;
+        return true;
+    }
+    const engine::ecs::FieldArray* array = leaf.as_array();
+    if (array == nullptr || slot >= static_cast<int>(array->size())) {
+        return false;
+    }
+    if (!indexed && leaf_name == "rotation" && array->size() == 4) {
+        if (slot > 2) {
+            return false;
+        }
+        double parts[4] = {};
+        for (int index = 0; index < 4; ++index) {
+            const std::optional<double> number = (*array)[static_cast<std::size_t>(index)].as_number();
+            if (!number) {
+                return false;
+            }
+            parts[index] = *number;
+        }
+        const std::optional<engine::ecs::FieldValue> degrees = parse_number(text, false);
+        if (!degrees || !degrees->as_number()) {
+            return false;
+        }
+        glm::vec3 euler = euler_degrees_xyz(quat_xyzw(parts[0], parts[1], parts[2], parts[3]));
+        euler[slot] = static_cast<float>(*degrees->as_number());
+        const glm::quat next = engine::euler_xyz(glm::radians(euler));
+        leaf = engine::ecs::FieldValue{engine::ecs::FieldArray{
+                engine::ecs::FieldValue{static_cast<double>(next.x)},
+                engine::ecs::FieldValue{static_cast<double>(next.y)},
+                engine::ecs::FieldValue{static_cast<double>(next.z)},
+                engine::ecs::FieldValue{static_cast<double>(next.w)},
+        }};
+        return true;
+    }
+    const bool integer = is_integer((*array)[static_cast<std::size_t>(slot)]);
+    const std::optional<engine::ecs::FieldValue> parsed = parse_number(text, integer);
+    if (!parsed) {
+        return false;
+    }
+    engine::ecs::FieldArray next = *array;
+    next[static_cast<std::size_t>(slot)] = *parsed;
+    leaf = engine::ecs::FieldValue{std::move(next)};
+    return true;
+}
+
 }
 
 bool write_component(const engine::ecs::World& world, engine::ecs::Entity entity, std::string_view name,
@@ -163,70 +297,28 @@ bool erase_component(engine::ecs::World& world, engine::ecs::Entity entity, std:
 }
 
 bool assign_text(engine::ecs::FieldTable& table, std::string_view key, int slot, std::string_view text) {
-    const auto found = table.find(key);
-    if (found == table.end()) {
+    const std::optional<std::vector<PathStep>> steps = parse_field_path(key);
+    if (!steps) {
         return false;
     }
-    if (slot < 0) {
-        if (found->second.as_string() != nullptr) {
-            found->second = engine::ecs::FieldValue{std::string(text)};
-            return true;
-        }
-        const std::optional<engine::ecs::FieldValue> parsed = parse_number(text, is_integer(found->second));
-        if (!parsed) {
-            return false;
-        }
-        found->second = *parsed;
-        return true;
-    }
-    const engine::ecs::FieldArray* array = found->second.as_array();
-    if (array == nullptr || slot >= static_cast<int>(array->size())) {
+    engine::ecs::FieldValue* leaf = resolve_field(table, *steps);
+    if (leaf == nullptr) {
         return false;
     }
-    if (key == "rotation" && array->size() == 4) {
-        if (slot > 2) {
-            return false;
-        }
-        double parts[4] = {};
-        for (int index = 0; index < 4; ++index) {
-            const std::optional<double> number = (*array)[static_cast<std::size_t>(index)].as_number();
-            if (!number) {
-                return false;
-            }
-            parts[index] = *number;
-        }
-        const std::optional<engine::ecs::FieldValue> degrees = parse_number(text, false);
-        if (!degrees || !degrees->as_number()) {
-            return false;
-        }
-        glm::vec3 euler = euler_degrees_xyz(quat_xyzw(parts[0], parts[1], parts[2], parts[3]));
-        euler[slot] = static_cast<float>(*degrees->as_number());
-        const glm::quat next = engine::euler_xyz(glm::radians(euler));
-        found->second = engine::ecs::FieldValue{engine::ecs::FieldArray{
-                engine::ecs::FieldValue{static_cast<double>(next.x)},
-                engine::ecs::FieldValue{static_cast<double>(next.y)},
-                engine::ecs::FieldValue{static_cast<double>(next.z)},
-                engine::ecs::FieldValue{static_cast<double>(next.w)},
-        }};
-        return true;
-    }
-    const bool integer = is_integer((*array)[static_cast<std::size_t>(slot)]);
-    const std::optional<engine::ecs::FieldValue> parsed = parse_number(text, integer);
-    if (!parsed) {
-        return false;
-    }
-    engine::ecs::FieldArray next = *array;
-    next[static_cast<std::size_t>(slot)] = *parsed;
-    found->second = engine::ecs::FieldValue{std::move(next)};
-    return true;
+    const PathStep& last = steps->back();
+    return assign_leaf_text(*leaf, last.key, last.index.has_value(), slot, text);
 }
 
 bool assign_bool(engine::ecs::FieldTable& table, std::string_view key, bool value) {
-    const auto found = table.find(key);
-    if (found == table.end() || found->second.as_bool() == nullptr) {
+    const std::optional<std::vector<PathStep>> steps = parse_field_path(key);
+    if (!steps) {
         return false;
     }
-    found->second = engine::ecs::FieldValue{value};
+    engine::ecs::FieldValue* leaf = resolve_field(table, *steps);
+    if (leaf == nullptr || leaf->as_bool() == nullptr) {
+        return false;
+    }
+    *leaf = engine::ecs::FieldValue{value};
     return true;
 }
 

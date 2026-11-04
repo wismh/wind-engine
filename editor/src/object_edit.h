@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <string>
+#include <string_view>
 
 namespace engine {
 class AssetsDb;
@@ -13,7 +14,11 @@ class AssetsDb;
 
 namespace editor {
 
-// Reads the object file and populates `out_type` and `out_table` (merging schema defaults when available).
+// Deep-merges C++ defaults of `type` under `fields`. Nested tables combine; a scalar or array in `fields`
+// replaces the default. `type` itself is not a field.
+void merge_object_defaults(const engine::AssetsDb* assets, std::string_view type, engine::ecs::FieldTable& fields);
+
+// Reads the object file and populates `out_type` and `out_table` (deep-merging schema defaults when available).
 [[nodiscard]] bool read_object_table(const std::filesystem::path& path, const engine::AssetsDb* assets,
         std::string& out_type, engine::ecs::FieldTable& out_table);
 

@@ -13,6 +13,17 @@
 
 namespace editor {
 
+void merge_object_defaults(const engine::AssetsDb* assets, std::string_view type, engine::ecs::FieldTable& fields) {
+    engine::ecs::FieldTable defaults;
+    if (assets != nullptr) {
+        if (auto defs = assets->default_object_fields(type)) {
+            defaults = std::move(*defs);
+        }
+    }
+    engine::ecs::merge_field_tables(defaults, fields);
+    fields = std::move(defaults);
+}
+
 bool read_object_table(const std::filesystem::path& path, const engine::AssetsDb* assets,
         std::string& out_type, engine::ecs::FieldTable& out_table) {
     std::ifstream in(path, std::ios::binary);
@@ -31,16 +42,12 @@ bool read_object_table(const std::filesystem::path& path, const engine::AssetsDb
     }
     out_type = *type_name;
     out_table.clear();
-    if (assets != nullptr) {
-        if (auto defs = assets->default_object_fields(out_type)) {
-            out_table = std::move(*defs);
-        }
-    }
     for (auto& [k, v] : *parsed) {
         if (k != "type") {
             out_table.insert_or_assign(k, std::move(v));
         }
     }
+    merge_object_defaults(assets, out_type, out_table);
     return true;
 }
 
