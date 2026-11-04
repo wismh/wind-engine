@@ -563,3 +563,34 @@ TEST(CellPredicate, WrapsCallablesWithoutCopying) {
     bool (*fn)(glm::ivec3) = &never_solid;
     EXPECT_FALSE(engine::raycast_grid(engine::Ray{{0.5f, 0.5f, 0.5f}, {1.0f, 0.0f, 0.0f}}, 10.0f, fn));
 }
+
+TEST(GridRay, PastFloatCellPrecisionIsRejectedNotAFalseHit) {
+    const auto all_but_start = [](glm::ivec3 cell) { return cell.x != 20000000; };
+    EXPECT_FALSE(engine::raycast_grid(
+            engine::Ray{{2.0e7f, 0.5f, 0.5f}, {1.0f, 0.0f, 0.0f}}, 10.0f, all_but_start));
+    EXPECT_FALSE(engine::raycast_grid(
+            engine::Ray{{16777216.0f, 0.5f, 0.5f}, {1.0f, 0.0f, 0.0f}}, 10.0f, all_but_start));
+
+    // Below it the boundary is real.
+    const auto next = [](glm::ivec3 cell) { return cell.x == 16777001; };
+    const auto hit = engine::raycast_grid(engine::Ray{{16777000.0f, 0.5f, 0.5f}, {1.0f, 0.0f, 0.0f}}, 10.0f, next);
+    ASSERT_TRUE(hit);
+    EXPECT_EQ(hit->cell.x, 16777001);
+    EXPECT_FLOAT_EQ(hit->t, 1.0f);
+}
+
+TEST(GridSweep, PastFloatCellPrecisionStaysPut) {
+    const engine::render::Aabb box{{2.0e7f, 0.0f, 0.0f}, {2.0e7f + 2.0f, 1.0f, 1.0f}};
+    const auto swept = engine::sweep_aabb(box, {5.0f, 0.0f, 0.0f}, [](glm::ivec3) { return true; });
+    EXPECT_EQ(swept.moved, glm::vec3(0.0f));
+    EXPECT_EQ(swept.hit, glm::ivec3(0));
+}
+
+TEST(GridSweep2D, ALongDiagonalDoesNotPassAPillar) {
+    // Cell (1, 1) is on the unit staircase of this move. At 100 / 64 cells a sub-step the box jumps over it.
+    const auto pillar = [](glm::ivec2 cell) { return cell == glm::ivec2(1, 1); };
+    const auto swept = engine::sweep_aabb({0.45f, 0.45f}, {0.55f, 0.55f}, {100.0f, 100.0f}, pillar);
+    EXPECT_EQ(swept.hit.x, 1);
+    EXPECT_FLOAT_EQ(swept.max.x, 1.0f);
+    EXPECT_NEAR(swept.moved.y, 100.0f, 1e-2f);
+}

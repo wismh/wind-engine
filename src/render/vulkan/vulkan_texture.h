@@ -44,6 +44,20 @@ public:
     [[nodiscard]] VkSampler sampler() const noexcept { return sampler_; }
 
 private:
+    struct GpuImage {
+        VkImage image = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        VkImageView view = VK_NULL_HANDLE;
+        VkSampler sampler = VK_NULL_HANDLE;
+        int width = 0;
+        int height = 0;
+    };
+
+    // Takes the handles out of the texture, which then has no image, and puts them back.
+    [[nodiscard]] GpuImage take_gpu_image() noexcept;
+    void put_gpu_image(const GpuImage& image) noexcept;
+    // Makes the image at the current size and uploads the pixels. On false, destroy what it left.
+    [[nodiscard]] bool create_gpu_image();
     void destroy_gpu_image();
     [[nodiscard]] bool upload_pixels();
     // Copies `rects` into the existing image. The image must already be `SHADER_READ_ONLY` at this size.

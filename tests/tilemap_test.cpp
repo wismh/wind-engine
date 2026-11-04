@@ -65,6 +65,9 @@ class CountingFactory : public engine::render::IGraphicFactory {
 public:
     std::shared_ptr<engine::render::IMesh> create_mesh(const engine::render::MeshDesc& desc) override {
         ++meshes;
+        if (fail_meshes) {
+            return nullptr;
+        }
         auto mesh = std::make_shared<FakeMesh>(desc);
         mesh->last = desc;
         return mesh;
@@ -81,6 +84,7 @@ public:
         return {};
     }
     int meshes = 0;
+    bool fail_meshes = false;
 };
 
 // A 70 x 40 cell map (3 x 2 chunks) over a 64 x 32 px tileset of 16 px tiles (4 columns, 2 rows). Every cell is empty
@@ -310,6 +314,31 @@ TEST(Tilemap, FailedChunkUpdateMakesANewMesh) {
     EXPECT_EQ(factory.meshes, 2);
     EXPECT_NE(after[0].mesh, old_mesh);
     EXPECT_EQ(static_cast<const FakeMesh&>(*after[0].mesh).last.vertices.size(), 8u);
+}
+
+TEST(Tilemap, ChunkWhoseMeshFailedIsBuiltAgainAndKeepsAnOldMesh) {
+    Tilemap map = Tilemap::from_asset(make_asset());
+    map.layers[0].tiles[0] = 1;
+
+    CountingFactory factory;
+    factory.fail_meshes = true;
+    EXPECT_TRUE(engine::render::visible_tilemap_chunks(map, factory, glm::mat4{1.0f}, {}).empty());
+    factory.fail_meshes = false;
+    const auto built = engine::render::visible_tilemap_chunks(map, factory, glm::mat4{1.0f}, {});
+    ASSERT_EQ(built.size(), 1u);
+
+    auto old_mesh = std::static_pointer_cast<FakeMesh>(built[0].mesh);
+    old_mesh->fail_updates = true;
+    factory.fail_meshes = true;
+    ASSERT_TRUE(map.set_tile(0, 1, 0, 2));
+    const auto kept = engine::render::visible_tilemap_chunks(map, factory, glm::mat4{1.0f}, {});
+    ASSERT_EQ(kept.size(), 1u);
+    EXPECT_EQ(kept[0].mesh, old_mesh);
+
+    factory.fail_meshes = false;
+    const auto rebuilt = engine::render::visible_tilemap_chunks(map, factory, glm::mat4{1.0f}, {});
+    ASSERT_EQ(rebuilt.size(), 1u);
+    EXPECT_NE(rebuilt[0].mesh, old_mesh);
 }
 
 TEST(Tilemap, AssetsDbLoadsATilemapWithItsTileset) {

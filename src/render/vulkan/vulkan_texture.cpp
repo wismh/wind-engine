@@ -122,14 +122,24 @@ VulkanTexture::~VulkanTexture() {
 }
 
 bool VulkanTexture::update(std::span<const std::uint8_t> rgba, int width, int height) {
-    if (!valid_ || layers_ > 0 || !flip_rows_into(rgba, width, height, flipped_rgba_)) {
+    std::vector<std::uint8_t> next;
+    if (!valid_ || layers_ > 0 || !flip_rows_into(rgba, width, height, next)) {
         return false;
     }
+    // False must leave everything as it was, so the old pixels and size wait until the GPU has taken the new ones.
+    const int old_width = width_;
+    const int old_height = height_;
+    const bool old_dirty = dirty_;
+    flipped_rgba_.swap(next);
     width_ = width;
     height_ = height;
     dirty_ = true;
-    if (context_ && context_->is_device_ready()) {
-        return ensure_gpu_image();
+    if (context_ && context_->is_device_ready() && !ensure_gpu_image()) {
+        flipped_rgba_.swap(next);
+        width_ = old_width;
+        height_ = old_height;
+        dirty_ = old_dirty;
+        return false;
     }
     return true;
 }
@@ -150,18 +160,20 @@ bool VulkanTexture::update_rects(
     // yet, stays in the CPU buffer and goes up with the next full upload.
     const bool can_patch = context_ && context_->is_device_ready() && image_ != VK_NULL_HANDLE &&
             gpu_width_ == width_ && gpu_height_ == height_ && !dirty_;
+    // False must leave everything as it was, so the CPU copy changes only once the GPU has taken the rectangles.
+    if (can_patch) {
+        return upload_rects(rects, rgba, row_stride) &&
+                write_texture_rects(width_, height_, rects, rgba, row_stride, flipped_rgba_);
+    }
+    std::vector<std::uint8_t> before = flipped_rgba_;
     if (!write_texture_rects(width_, height_, rects, rgba, row_stride, flipped_rgba_)) {
         return false;
     }
-    if (!can_patch) {
-        dirty_ = true;
-        if (context_ && context_->is_device_ready()) {
-            return ensure_gpu_image();
-        }
-        return true;
-    }
-    if (!upload_rects(rects, rgba, row_stride)) {
-        dirty_ = true;
+    const bool old_dirty = dirty_;
+    dirty_ = true;
+    if (context_ && context_->is_device_ready() && !ensure_gpu_image()) {
+        flipped_rgba_ = std::move(before);
+        dirty_ = old_dirty;
         return false;
     }
     return true;
@@ -252,8 +264,36 @@ bool VulkanTexture::ensure_gpu_image() {
         return upload_pixels();
     }
 
+    // The old image stays the texture until the new one holds the pixels.
+    const GpuImage old = take_gpu_image();
+    if (!create_gpu_image()) {
+        destroy_gpu_image();
+        put_gpu_image(old);
+        return false;
+    }
+    const GpuImage created = take_gpu_image();
+    put_gpu_image(old);
     destroy_gpu_image();
+    put_gpu_image(created);
+    return true;
+}
 
+VulkanTexture::GpuImage VulkanTexture::take_gpu_image() noexcept {
+    const GpuImage taken{image_, memory_, image_view_, sampler_, gpu_width_, gpu_height_};
+    put_gpu_image(GpuImage{});
+    return taken;
+}
+
+void VulkanTexture::put_gpu_image(const GpuImage& image) noexcept {
+    image_ = image.image;
+    memory_ = image.memory;
+    image_view_ = image.view;
+    sampler_ = image.sampler;
+    gpu_width_ = image.width;
+    gpu_height_ = image.height;
+}
+
+bool VulkanTexture::create_gpu_image() {
     const VulkanFunctions& fn = context_->fn();
     const VkDevice device = context_->device();
 

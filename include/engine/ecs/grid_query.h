@@ -18,7 +18,8 @@ namespace engine {
 // Grid queries work in grid space: cell (i, j, k) covers [i, i + 1) x [j, j + 1) x [k, k + 1). The cell size is 1 and
 // the origin is 0; the caller scales world coordinates into that space (a ray's `t` survives the scaling when the
 // direction is scaled too). +Y is up, so a box blocked while moving -Y is grounded. Coordinates are floats: keep them
-// within about +-8192 cells for the skin below to stay above float precision.
+// within about +-8192 cells for the skin below to stay above float precision. A coordinate or delta of 2^24 or more,
+// where a float no longer tells one cell from the next, counts as non-finite.
 
 // How far `sweep_aabb` lets a box sink into a face, or overlap a wall beside it, and still treat it as touching, in
 // grid units (1/1000 of a cell). It absorbs the rounding of a world-to-grid conversion.
@@ -105,8 +106,8 @@ struct GridSweep2D {
         glm::vec2 origin, glm::vec2 direction, float max_distance, CellPredicate<glm::ivec2> is_solid);
 
 // Moves `box` by `delta` one axis at a time, Y then X then Z, stopping each axis flush against the first solid face
-// ahead of the box. A long move is cut into `ceil(max |delta|)` sub-steps (at most 64) so a fast diagonal move cuts no
-// corner larger than a cell; an axis blocked in one sub-step stays blocked, and the other axes keep sliding. Every face
+// ahead of the box. A long move is cut into `ceil(max |delta|)` sub-steps so a fast diagonal move cuts no corner larger
+// than a cell; an axis blocked in one sub-step stays blocked, and the other axes keep sliding. Every face
 // crossed along an axis is tested, so no speed tunnels through a wall. A box resting on a floor (or sunk up to
 // `kGridSkin` into it) under a downward delta snaps to the face and reports `hit.y = -1` every call, without drift. A
 // box flush against a wall or floor slides along it. A move that ends exactly on a face counts as blocked; a zero delta

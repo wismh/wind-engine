@@ -12,13 +12,13 @@
 namespace engine {
 namespace {
 
-// Coordinates past this are rejected: `floor` to `int` must not overflow, and floats there have no fraction anyway.
-constexpr float kMaxCoordinate = 1.0e9f;
+// Coordinates from here on are rejected: a float cannot tell `cell` from `cell + 1`, so the next boundary lands on the
+// origin and a neighbour reads as hit at `t = 0`. 2^24.
+constexpr float kMaxCoordinate = 16777216.0f;
 // A direction component below this never steps on its axis.
 constexpr float kZeroComponent = 1.0e-20f;
 // Boundaries whose `t` lies within this (relative) of the nearest one are crossed together: an edge or a corner.
 constexpr float kTieTolerance = 1.0e-6f;
-constexpr int kMaxSweepSteps = 64;
 
 template <int N>
 using Vec = glm::vec<N, float>;
@@ -36,7 +36,7 @@ struct RayResult {
 template <int N>
 bool finite(const Vec<N>& v) {
     for (int a = 0; a < N; ++a) {
-        if (!std::isfinite(v[a]) || std::abs(v[a]) > kMaxCoordinate) {
+        if (!std::isfinite(v[a]) || std::abs(v[a]) >= kMaxCoordinate) {
             return false;
         }
     }
@@ -254,19 +254,26 @@ SweepState<N> sweep(Vec<N> min, Vec<N> max, const Vec<N>& delta, CellPredicate<I
     if (largest == 0.0f) {
         return state;
     }
-    const int steps = std::clamp(static_cast<int>(std::ceil(largest)), 1, kMaxSweepSteps);
+    // Finite: `finite` bounds the delta. No cap: a sub-step longer than a cell could pass a pillar on the diagonal, and
+    // the faces tested add up to the same number whatever the sub-step.
+    const int steps = std::max(static_cast<int>(std::ceil(largest)), 1);
     const Vec<N> step = delta / static_cast<float>(steps);
     const Vec<N> extent = max - min;
 
     // Y first, so the ground is found before the box slides; then X, then Z.
     constexpr std::array<int, 3> kOrder{1, 0, 2};
     for (int s = 0; s < steps; ++s) {
+        bool moved = false;
         for (int i = 0; i < N; ++i) {
             const int axis = kOrder[static_cast<std::size_t>(i)];
             if (state.hit[axis] != 0 || step[axis] == 0.0f) {
                 continue;
             }
             sweep_axis<N>(state, extent, axis, step[axis], is_solid);
+            moved = true;
+        }
+        if (!moved) {
+            break;
         }
     }
     return state;
