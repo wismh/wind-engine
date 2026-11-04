@@ -1,6 +1,6 @@
 #pragma once
 
-// docs/tech/modules/Render.md#texture-arrays
+// docs/tech/modules/Render.md
 
 #include <engine/render/graphic_factory.h>
 
@@ -23,5 +23,28 @@ namespace engine::render {
 // not positive or an `rgba` shorter than `width * height * 4 * layers`.
 [[nodiscard]] bool flip_layers_vertically_into(
         std::span<const std::uint8_t> rgba, int width, int height, int layers, std::vector<std::uint8_t>& out);
+
+// Why `rects` cannot be written into a `width` x `height` texture from `rgba` (`row_stride` pixels per row, top row
+// first). Empty when they can, including when `rects` itself is empty.
+[[nodiscard]] std::string texture_rects_error(int width, int height, std::span<const TextureRect> rects,
+        std::span<const std::uint8_t> rgba, int row_stride);
+
+// GPU row of the bottom of `rect` in a texture of `texture_height` whose row 0 is the bottom row (the upload layout
+// of a dynamic texture, so v = 1 stays the top row).
+[[nodiscard]] constexpr int texture_rect_gpu_y(int texture_height, const TextureRect& rect) noexcept {
+    return texture_height - (rect.y + rect.height);
+}
+
+// Copies `rects` from `rgba` (top row first, `row_stride` pixels per row) into `dest`, a `width` x `height` image
+// tightly packed with its bottom row first. Pixels outside the rects stay. False, with `dest` untouched, when
+// `texture_rects_error` rejects the rects or `dest` is shorter than `width * height * 4`. An empty `rects` leaves
+// `dest` untouched and returns true.
+[[nodiscard]] bool write_texture_rects(int width, int height, std::span<const TextureRect> rects,
+        std::span<const std::uint8_t> rgba, int row_stride, std::span<std::uint8_t> dest);
+
+// Packs one rect tightly, bottom row first, into `dest` (`rect.width * rect.height * 4` bytes). False, with `dest`
+// untouched, when the rect is empty or `dest` or `rgba` cannot hold it.
+[[nodiscard]] bool pack_texture_rect(const TextureRect& rect, std::span<const std::uint8_t> rgba, int row_stride,
+        std::span<std::uint8_t> dest);
 
 }

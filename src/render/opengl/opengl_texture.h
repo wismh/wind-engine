@@ -39,6 +39,9 @@ public:
     // False for a texture array, which is never dynamic.
     bool update(std::span<const std::uint8_t> rgba, int width, int height) override;
 
+    // False for a texture array or a texture with mipmaps. See `IDynamicTexture::update_rects`.
+    bool update_rects(std::span<const TextureRect> rects, std::span<const std::uint8_t> rgba, int row_stride) override;
+
     [[nodiscard]] int layers() const noexcept override {
         return layers_;
     }
@@ -68,6 +71,7 @@ private:
     int width_ = 0;
     int height_ = 0;
     int layers_ = 0;
+    MipmapMode mipmaps_ = MipmapMode::None;
     std::function<void()> make_current_;
     // Reused by every `update`.
     std::vector<std::uint8_t> staging_;

@@ -88,6 +88,22 @@ TEST(VulkanBackendTest, FactoryValidatesMeshShaderAndTextures) {
     EXPECT_EQ(dyn->height(), 3);
     EXPECT_FALSE(dyn->update(new_pixels, 0, 3));
     EXPECT_EQ(dyn->width(), 4);
+
+    EXPECT_TRUE(dyn->update_rects({}, {}, 0));
+    const TextureRect outside[] = {{.x = 0, .y = 0, .width = 5, .height = 1}};
+    EXPECT_FALSE(dyn->update_rects(outside, new_pixels, 4));
+    EXPECT_EQ(dyn->width(), 4);
+    EXPECT_EQ(dyn->height(), 3);
+    const TextureRect inside[] = {{.x = 1, .y = 2, .width = 2, .height = 1}};
+    EXPECT_TRUE(dyn->update_rects(inside, new_pixels, 4));
+    EXPECT_EQ(dyn->width(), 4);
+
+    TextureDesc mipped = valid_tex;
+    mipped.mipmaps = MipmapMode::Linear;
+    auto mip_tex = std::static_pointer_cast<IDynamicTexture>(factory.create_texture(mipped));
+    ASSERT_NE(mip_tex, nullptr);
+    const TextureRect pixel[] = {{.x = 0, .y = 0, .width = 1, .height = 1}};
+    EXPECT_FALSE(mip_tex->update_rects(pixel, mipped.rgba, 2));
 }
 
 TEST(VulkanBackendTest, MeshUpdateWithoutADeviceKeepsTheNewDataForUpload) {

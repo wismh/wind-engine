@@ -134,6 +134,113 @@ bool VulkanTexture::update(std::span<const std::uint8_t> rgba, int width, int he
     return true;
 }
 
+bool VulkanTexture::update_rects(
+        std::span<const TextureRect> rects, std::span<const std::uint8_t> rgba, int row_stride) {
+    if (!valid_ || layers_ > 0 || mipmaps_ != MipmapMode::None) {
+        return false;
+    }
+    if (rects.empty()) {
+        return true;
+    }
+    if (const std::string error = texture_rects_error(width_, height_, rects, rgba, row_stride); !error.empty()) {
+        log::error(error);
+        return false;
+    }
+    // A partial copy is safe only over an image that already holds this CPU copy. Anything pending, or no image
+    // yet, stays in the CPU buffer and goes up with the next full upload.
+    const bool can_patch = context_ && context_->is_device_ready() && image_ != VK_NULL_HANDLE &&
+            gpu_width_ == width_ && gpu_height_ == height_ && !dirty_;
+    if (!write_texture_rects(width_, height_, rects, rgba, row_stride, flipped_rgba_)) {
+        return false;
+    }
+    if (!can_patch) {
+        dirty_ = true;
+        if (context_ && context_->is_device_ready()) {
+            return ensure_gpu_image();
+        }
+        return true;
+    }
+    if (!upload_rects(rects, rgba, row_stride)) {
+        dirty_ = true;
+        return false;
+    }
+    return true;
+}
+
+bool VulkanTexture::upload_rects(
+        std::span<const TextureRect> rects, std::span<const std::uint8_t> rgba, int row_stride) {
+    if (image_ == VK_NULL_HANDLE || rects.empty()) {
+        return false;
+    }
+    std::size_t bytes = 0;
+    for (const TextureRect& rect : rects) {
+        bytes += static_cast<std::size_t>(rect.width) * static_cast<std::size_t>(rect.height) * 4u;
+    }
+    std::vector<std::uint8_t> staging(bytes);
+    std::vector<VkBufferImageCopy> regions;
+    regions.reserve(rects.size());
+    std::size_t offset = 0;
+    for (const TextureRect& rect : rects) {
+        const std::size_t rect_bytes =
+                static_cast<std::size_t>(rect.width) * static_cast<std::size_t>(rect.height) * 4u;
+        if (!pack_texture_rect(rect, rgba, row_stride, std::span<std::uint8_t>(staging.data() + offset, rect_bytes))) {
+            return false;
+        }
+        VkBufferImageCopy region{};
+        region.bufferOffset = static_cast<VkDeviceSize>(offset);
+        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.imageOffset = {rect.x, texture_rect_gpu_y(height_, rect), 0};
+        region.imageExtent = {static_cast<std::uint32_t>(rect.width), static_cast<std::uint32_t>(rect.height), 1u};
+        regions.push_back(region);
+        offset += rect_bytes;
+    }
+
+    const VulkanFunctions& fn = context_->fn();
+    const VkDevice device = context_->device();
+    VkBuffer staging_buf = VK_NULL_HANDLE;
+    VkDeviceMemory staging_mem = VK_NULL_HANDLE;
+    if (!context_->upload_host_buffer(static_cast<VkDeviceSize>(staging.size()), staging.data(),
+                VK_BUFFER_USAGE_TRANSFER_SRC_BIT, staging_buf, staging_mem)) {
+        return false;
+    }
+    VkCommandBuffer cmd = context_->begin_single_time_commands();
+    if (cmd == VK_NULL_HANDLE) {
+        fn.vkDestroyBuffer(device, staging_buf, nullptr);
+        fn.vkFreeMemory(device, staging_mem, nullptr);
+        return false;
+    }
+
+    // The rest of the image must survive, so this is not the UNDEFINED transition a full upload uses.
+    VkImageMemoryBarrier to_dst{};
+    to_dst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    to_dst.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    to_dst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    to_dst.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    to_dst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    to_dst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    to_dst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    to_dst.image = image_;
+    to_dst.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    fn.vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr,
+            0, nullptr, 1, &to_dst);
+
+    fn.vkCmdCopyBufferToImage(cmd, staging_buf, image_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            static_cast<std::uint32_t>(regions.size()), regions.data());
+
+    VkImageMemoryBarrier to_read = to_dst;
+    to_read.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    to_read.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    to_read.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    to_read.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    fn.vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
+            0, nullptr, 1, &to_read);
+
+    context_->end_single_time_commands(cmd);
+    fn.vkDestroyBuffer(device, staging_buf, nullptr);
+    fn.vkFreeMemory(device, staging_mem, nullptr);
+    return true;
+}
+
 bool VulkanTexture::ensure_gpu_image() {
     if (!valid_ || !context_ || !context_->is_device_ready()) {
         return false;
