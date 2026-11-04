@@ -5,6 +5,7 @@
 #include <engine/ecs/entity.h>
 #include <engine/ecs/world.h>
 #include <engine/net/message_dispatcher.h>
+#include <engine/net/net_input_stats.h>
 #include <engine/net/net_server_config.h>
 #include <engine/net/net_tick.h>
 #include <engine/net/network_identity.h>
@@ -35,6 +36,10 @@ public:
     [[nodiscard]] std::vector<PeerId> peers() const;
     // The newest snapshot `peer` acknowledged, nullopt for none or an unknown peer.
     [[nodiscard]] std::optional<Tick> acked_tick(PeerId peer) const;
+    // What happened to `peer`'s inputs; nullopt for an unknown peer.
+    [[nodiscard]] std::optional<NetInputStats> input_stats(PeerId peer) const;
+    // The newest tick at which `peer`'s own input (not a repeat) was applied; nullopt for none or an unknown peer.
+    [[nodiscard]] std::optional<Tick> input_tick(PeerId peer) const;
 
     struct Impl;
 
@@ -52,15 +57,17 @@ private:
 // A second call only replaces the transport and config.
 void install_net_server(ecs::World& world, INetworkTransport& transport, NetServerConfig config = {});
 
-// Polls the transport: peers join (and get Welcome) or leave, acks are recorded, other messages go to
-// `dispatcher()`. Then advances the tick.
+// Polls the transport: peers join (and get Welcome) or leave, acks are recorded, inputs are buffered, other
+// messages go to `dispatcher()`. Then advances the tick and, with a prediction channel (`register_prediction`),
+// steps every entity a connected client owns with that client's input for the tick (or its last one again).
 void run_net_server_receive(ecs::World& world);
 
 // Unbinds destroyed entities from `NetEntityMap`. On every `snapshot_interval`-th tick, captures the
 // replicated state and sends each peer a delta against its acked baseline, or a full snapshot without one.
 void run_net_server_send(ecs::World& world);
 
-// Gives `entity` a fresh `NetId` from the server and binds it, so the next snapshot carries it.
+// Gives `entity` a fresh `NetId` from the server and binds it, so the next snapshot carries it. A client `owner`
+// controls the entity: its inputs drive it here, and with a prediction channel that client predicts it.
 NetId replicate(ecs::World& world, ecs::Entity entity, PeerId owner = kServerPeerId);
 
 } // namespace engine::net

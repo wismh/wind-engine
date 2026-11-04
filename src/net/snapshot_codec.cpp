@@ -48,11 +48,14 @@ SnapshotState capture_snapshot(ecs::World& world, const ReplicationRegistry& reg
     return state;
 }
 
-std::vector<std::uint8_t> encode_snapshot(const SnapshotState& current, const SnapshotState* baseline) {
+std::vector<std::uint8_t> encode_snapshot(
+        const SnapshotState& current, const SnapshotState* baseline, const SnapshotPeerHeader& peer) {
     ByteWriter out;
     out.write_u16(kSnapshotMessageId);
     out.write_u32(current.tick);
     out.write_u32(baseline != nullptr ? baseline->tick : kNoTick);
+    out.write_u32(peer.input_tick);
+    out.write_i8(peer.input_slack);
 
     std::vector<NetId> removed;
     if (baseline != nullptr) {
@@ -118,14 +121,18 @@ std::vector<std::uint8_t> encode_snapshot(const SnapshotState& current, const Sn
     return out.buffer();
 }
 
-bool read_snapshot_header(ByteReader& reader, Tick& tick, Tick& baseline_tick) {
+bool read_snapshot_header(ByteReader& reader, Tick& tick, Tick& baseline_tick, SnapshotPeerHeader& peer) {
     const auto t = reader.read_u32();
     const auto b = reader.read_u32();
-    if (!t.has_value() || !b.has_value() || *t == kNoTick || (*b != kNoTick && *b >= *t)) {
+    const auto input_tick = reader.read_u32();
+    const auto input_slack = reader.read_i8();
+    if (!t.has_value() || !b.has_value() || !input_tick.has_value() || !input_slack.has_value() || *t == kNoTick ||
+            (*b != kNoTick && *b >= *t)) {
         return false;
     }
     tick = *t;
     baseline_tick = *b;
+    peer = SnapshotPeerHeader{.input_tick = *input_tick, .input_slack = *input_slack};
     return true;
 }
 
