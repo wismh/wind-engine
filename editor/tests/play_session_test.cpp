@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -276,8 +277,12 @@ TEST(PlaySession, StopWaitsForARunningGameJobBeforeTheUnload) {
     const long held = jobs.use_count();
     editor::PlaySession session{services.services, editor.host, live.path(), kIdle};
     ASSERT_TRUE(session.play(kFixture).has_value());
-    // The fixture's job is now running module code on a worker, until its call is cancelled.
-    jobs->started.wait(false);
+    // The fixture's job is now running module code on a worker, until its call is cancelled. Polled, not
+    // `atomic::wait`: libstdc++'s wait queue is an inline static, one per shared library, so the module's notify would
+    // not reach a wait here.
+    while (!jobs->started.load()) {
+        std::this_thread::yield();
+    }
 
     session.stop();
 

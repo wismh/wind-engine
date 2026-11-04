@@ -2,7 +2,7 @@
 
 #include <engine/net/steam_transport.h>
 
-#if defined(_WIN32)
+#if defined(ENGINE_WITH_GNS)
 
 #include <engine/net/gns_transport.h>
 
@@ -55,7 +55,7 @@ TEST(SteamTransport, CoexistenceWithGnsTransport) {
 
 namespace engine::net {
 
-TEST(SteamTransport, UnsupportedOnNonWindows) {
+TEST(SteamTransport, UnsupportedWithoutGameNetworkingSockets) {
     SteamTransport server;
     EXPECT_FALSE(server.start_server(0));
     EXPECT_FALSE(server.connect("127.0.0.1", 0));
