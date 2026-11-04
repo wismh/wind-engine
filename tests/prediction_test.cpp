@@ -223,5 +223,15 @@ TEST_F(PredictionTest, ServerSideDecodesExactlyOneInput) {
     EXPECT_EQ(probe().steps, 2);
 }
 
+TEST_F(PredictionTest, DroppedStatesReplayTheRealInputsAndRepeatTheLast) {
+    predict(1, 5);
+    channel->drop_states();
+
+    EXPECT_EQ(reconcile(3, 8, 100.0f), PredictionChannel::Outcome::Replayed);
+    // Ticks 4 and 5 run what was collected for them; 6, 7, and 8 repeat 5, as the server does.
+    EXPECT_EQ(x(), 124.0f);
+    EXPECT_EQ(channel->inputs(kId, 5, 3).size(), 3u);
+}
+
 } // namespace
 } // namespace engine::net

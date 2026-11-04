@@ -260,5 +260,35 @@ TEST(SnapshotCodec, SchemaHashFollowsRegistration) {
     EXPECT_NE(a.ctx<ReplicationRegistry>().schema_hash(), b.ctx<ReplicationRegistry>().schema_hash());
 }
 
+TEST(SnapshotCodec, CaptureKeepsTheLastValueOfAComponentTooLargeToSend) {
+    struct Big {
+        std::vector<std::uint8_t> bytes;
+    };
+    ecs::World world;
+    register_replicated<Big>(
+            world, "Big", [](ReplicaWriter& out, const Big& big) { out.bytes().append(big.bytes); },
+            [](ReplicaReader&, Big&) { return true; });
+    const ReplicationRegistry& registry = world.ctx<ReplicationRegistry>();
+    // After the slots every registry starts with.
+    const std::size_t slot = registry.size() - 1;
+    const ecs::Entity entity = world.create();
+    world.emplace<NetIdentity>(entity, NetIdentity{.id = 5});
+
+    // Never fit: nothing to keep, so the slot is not there.
+    world.emplace<Big>(entity, Big{.bytes = std::vector<std::uint8_t>(kMaxSnapshotBlobBytes + 1, 1)});
+    EXPECT_EQ(capture_snapshot(world, registry, 1).find(5)->mask, 0u);
+
+    world.get<Big>(entity).bytes.assign(kMaxSnapshotBlobBytes, 2);
+    const SnapshotState fits = capture_snapshot(world, registry, 2);
+    ASSERT_TRUE(fits.find(5)->has(slot));
+    EXPECT_EQ(fits.find(5)->component(slot).size(), kMaxSnapshotBlobBytes);
+
+    world.get<Big>(entity).bytes.assign(70000, 3);
+    const SnapshotState kept = capture_snapshot(world, registry, 3, &fits);
+    ASSERT_TRUE(kept.find(5)->has(slot));
+    EXPECT_EQ(kept.find(5)->component(slot).size(), kMaxSnapshotBlobBytes);
+    EXPECT_EQ(kept.find(5)->component(slot).front(), 2u);
+}
+
 } // namespace
 } // namespace engine::net

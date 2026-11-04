@@ -170,12 +170,12 @@ Ray (Amanatides-Woo DDA):
 - A boundary is half-open in the direction of travel: a ray that starts on a face and points away does not touch the cell behind it.
 - A ray that starts inside a solid cell reports `t = 0`, a zero normal and the origin, even with a zero direction or `max_distance = 0`.
 - A ray exactly through an edge or a corner (boundary `t` equal within 1e-6, relative) is blocked by any solid cell that touches it there. The side cells are tested x, y, z, then xy, xz, yz, then the diagonal cell; the normal is the first stepped axis of that cell. A line of sight cannot slip through the seam between two diagonal blocks.
-- nullopt: a miss within `max_distance`, a zero direction outside a solid cell, `max_distance < 0`, or a non-finite input (or a coordinate beyond 1e9).
+- nullopt: a miss within `max_distance`, a zero direction outside a solid cell, `max_distance < 0`, or a non-finite input (or a coordinate of 2^24 or more, where a float no longer tells one cell from the next).
 
 Sweep:
 
 - Axis-separated: Y, then X, then Z (2D: Y, X). Each axis stops flush against the first solid face ahead of the box. Every face crossed along the axis is tested, so no speed tunnels through a wall.
-- A move is cut into `ceil(max |delta|)` sub-steps, at most 64, so a fast diagonal move cuts no corner larger than a cell (past 64 cells a sub-step is longer than a cell; it still does not tunnel). An axis blocked in one sub-step stays blocked; the others keep sliding.
+- A move is cut into `ceil(max |delta|)` sub-steps, so a fast diagonal move cuts no corner larger than a cell. A box or delta of 2^24 or more returns the box unmoved. An axis blocked in one sub-step stays blocked; the others keep sliding.
 - `kGridSkin` (1e-3 grid units): the cells across the motion come from the box shrunk by the skin, so a box resting on a floor or flush against a wall slides along it and does not catch on cell seams. A box sunk up to the skin into a face it moves toward snaps back onto it. A box resting on a floor under a downward delta snaps to exactly the same face every call: grounded, no drift, no jitter.
 - A move that ends exactly on a face counts as blocked. A zero delta on an axis reports no hit there.
 - Cells the box already overlaps deeper than the skin are ignored: a box inside a solid is never stuck, and is not pushed out.

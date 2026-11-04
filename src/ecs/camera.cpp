@@ -27,7 +27,8 @@ glm::vec3 window_point(glm::vec2 screen, const ui::WindowSize& window, float dep
 }
 
 float camera_aspect(const Camera& camera, const ui::WindowSize& window) {
-    if (camera.auto_aspect && window.height != 0) {
+    // An empty window has no shape to take: width 0 would make the projection infinite.
+    if (camera.auto_aspect && window.width > 0 && window.height > 0) {
         return static_cast<float>(window.width) / static_cast<float>(window.height);
     }
     return camera.aspect;

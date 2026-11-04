@@ -142,54 +142,58 @@ function(engine_prepare_runtime target)
         set(_engine_app_assets_out "$<TARGET_FILE_DIR:${target}>/assets")
     endif()
 
+    if(_target_type STREQUAL "SHARED_LIBRARY" AND NOT WIN32)
+        get_target_property(_runtime_dir ${target} LIBRARY_OUTPUT_DIRECTORY)
+    else()
+        get_target_property(_runtime_dir ${target} RUNTIME_OUTPUT_DIRECTORY)
+    endif()
+    if(NOT _runtime_dir)
+        set(_runtime_dir "${CMAKE_CURRENT_BINARY_DIR}")
+    endif()
+    get_target_property(_bundle ${target} MACOSX_BUNDLE)
+    if(APPLE AND _bundle)
+        set(_runtime_dir "${_runtime_dir}/${target}.app")
+    endif()
+
     # Staging is a target of its own, ordered before ${target}: it follows the asset files, not the link, because an
     # edited asset leaves asset_ids.h as it was and so relinks nothing. It writes only the staged tree. The sole writer
     # of generated/<target>/ is the custom command of <target>_assets in engine_configure_app, so nothing rewrites a
-    # header while another target compiles against it. ENGINE_RUNTIME_ASSETS_FROM names the target whose stage this
-    # one shares, for two targets that land in one directory, so that directory also has one writer.
-    get_property(_runtime_assets_from TARGET ${target} PROPERTY ENGINE_RUNTIME_ASSETS_FROM)
+    # header while another target compiles against it. Targets that stage the same assets to the same place (a game and
+    # its server, the editor and its tests) share the first one's stage, so that place also has one writer.
     set(_engine_game_assets "${CMAKE_CURRENT_SOURCE_DIR}/assets")
-    if(_runtime_assets_from)
-        add_dependencies(${target} ${_runtime_assets_from}_stage)
-    elseif(EXISTS "${_engine_game_assets}")
-        file(GLOB_RECURSE _engine_game_asset_files CONFIGURE_DEPENDS "${_engine_game_assets}/*")
-        set(_stage_stamp "${CMAKE_CURRENT_BINARY_DIR}/generated/${target}/stage.$<CONFIG>.stamp")
-        set(_stage_extra)
-        if(ANDROID AND ENGINE_ANDROID_ASSETS_OUT)
-            set(_stage_extra
-                COMMAND ${CMAKE_COMMAND} -E copy_directory "${_engine_app_assets_out}" "${ENGINE_ANDROID_ASSETS_OUT}")
+    if(EXISTS "${_engine_game_assets}")
+        string(MD5 _stage_key "${_runtime_dir};${_runtime_assets_dir};${_engine_game_assets}")
+        get_property(_stage GLOBAL PROPERTY ENGINE_STAGE_${_stage_key})
+        if(NOT _stage)
+            set(_stage ${target}_stage)
+            set_property(GLOBAL PROPERTY ENGINE_STAGE_${_stage_key} ${_stage})
+            file(GLOB_RECURSE _engine_game_asset_files CONFIGURE_DEPENDS "${_engine_game_assets}/*")
+            set(_stage_stamp "${CMAKE_CURRENT_BINARY_DIR}/generated/${target}/stage.$<CONFIG>.stamp")
+            set(_stage_extra)
+            if(ANDROID AND ENGINE_ANDROID_ASSETS_OUT)
+                set(_stage_extra
+                    COMMAND ${CMAKE_COMMAND} -E copy_directory "${_engine_app_assets_out}" "${ENGINE_ANDROID_ASSETS_OUT}")
+            endif()
+            add_custom_command(
+                OUTPUT "${_stage_stamp}"
+                COMMAND asset_codegen
+                    "${_engine_game_assets}"
+                    --stage "${_engine_app_assets_out}"
+                    --project "${CMAKE_CURRENT_SOURCE_DIR}"
+                ${_stage_extra}
+                COMMAND ${CMAKE_COMMAND} -E touch "${_stage_stamp}"
+                DEPENDS asset_codegen ${_engine_game_asset_files}
+                COMMENT "Stage cooked game assets beside ${target}"
+                VERBATIM)
+            add_custom_target(${_stage} DEPENDS "${_stage_stamp}")
         endif()
-        add_custom_command(
-            OUTPUT "${_stage_stamp}"
-            COMMAND asset_codegen
-                "${_engine_game_assets}"
-                --stage "${_engine_app_assets_out}"
-                --project "${CMAKE_CURRENT_SOURCE_DIR}"
-            ${_stage_extra}
-            COMMAND ${CMAKE_COMMAND} -E touch "${_stage_stamp}"
-            DEPENDS asset_codegen ${_engine_game_asset_files}
-            COMMENT "Stage cooked game assets beside ${target}"
-            VERBATIM)
-        add_custom_target(${target}_stage DEPENDS "${_stage_stamp}")
-        add_dependencies(${target} ${target}_stage)
+        add_dependencies(${target} ${_stage})
     endif()
 
     # What the engine brings is the same for every target in one output directory (bin/ holds engine_tests, wind_editor,
     # wind_editor_tests, and the server fixture), so that directory gets one step that they all depend on. A POST_BUILD
     # on each would write the same files in parallel and fail with "Permission denied" on Windows.
     if(_engine_side)
-        if(_target_type STREQUAL "SHARED_LIBRARY" AND NOT WIN32)
-            get_target_property(_runtime_dir ${target} LIBRARY_OUTPUT_DIRECTORY)
-        else()
-            get_target_property(_runtime_dir ${target} RUNTIME_OUTPUT_DIRECTORY)
-        endif()
-        if(NOT _runtime_dir)
-            set(_runtime_dir "${CMAKE_CURRENT_BINARY_DIR}")
-        endif()
-        get_target_property(_bundle ${target} MACOSX_BUNDLE)
-        if(APPLE AND _bundle)
-            set(_runtime_dir "${_runtime_dir}/${target}.app")
-        endif()
         string(MD5 _runtime_key "${_runtime_dir}")
         set(_runtime_step engine_runtime_${_runtime_key})
         if(NOT TARGET ${_runtime_step})
@@ -518,10 +522,10 @@ function(engine_add_game target)
     endif()
 endfunction()
 
-# Copies one set of DLLs beside an executable of `target`. Nothing off Windows, or with no DLLs. A game and its server can
-# land in one directory and need the same set, so each directory and set is one step that they all depend on: a POST_BUILD
-# on each would write the same files in parallel, which fails on Windows. In the source build it also waits for the targets
-# that copy these DLLs into bin/ themselves.
+# Copies one set of DLLs beside `target`, and is the only thing that does. Nothing off Windows, or with no DLLs. Several
+# targets land in one directory and need the same set (the tools and tests in bin/, a game and its server), so each
+# directory and set is one step that they all depend on: a POST_BUILD on each would write the same files in parallel, which
+# fails on Windows.
 function(engine_copy_runtime_dlls target)
     if(NOT WIN32 OR NOT ARGN)
         return()
@@ -543,12 +547,6 @@ function(engine_copy_runtime_dlls target)
             COMMENT "Copy runtime DLLs beside ${target}"
             VERBATIM)
         add_custom_target(${_step} DEPENDS "${_stamp}")
-        if(NOT ENGINE_FROM_SDK)
-            add_dependencies(${_step} engine)
-            if(NOT CMAKE_CROSSCOMPILING)
-                add_dependencies(${_step} asset_codegen)
-            endif()
-        endif()
     endif()
     add_dependencies(${target} ${_step})
 endfunction()

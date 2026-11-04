@@ -44,8 +44,13 @@ constexpr int kStopSignals[] = {SIGINT, SIGTERM, SIGHUP};
 struct sigaction s_previous[3];
 struct sigaction s_previous_pipe;
 
-void signal_handler(int) {
-    s_requested.store(true);
+void signal_handler(int signal_number) {
+    if (s_requested.exchange(true)) {
+        // The second stop signal, of any kind: its default effect, which ends the process. Both calls are
+        // async-signal-safe, and the raised signal is delivered when this handler returns.
+        std::signal(signal_number, SIG_DFL);
+        std::raise(signal_number);
+    }
 }
 
 #endif
@@ -64,8 +69,6 @@ ShutdownSignals::ShutdownSignals() {
     struct sigaction action {};
     action.sa_handler = signal_handler;
     sigemptyset(&action.sa_mask);
-    // The handler goes back to the default when it runs, so the second signal ends the process.
-    action.sa_flags = SA_RESETHAND;
     for (int i = 0; i < 3; ++i) {
         sigaction(kStopSignals[i], &action, &s_previous[i]);
     }

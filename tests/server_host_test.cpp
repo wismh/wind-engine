@@ -22,7 +22,9 @@
 #include <engine/resources/meta.h>
 
 #include <chrono>
+#include <csignal>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -187,6 +189,19 @@ TEST_F(ServerHostTest, SleepsToTheTickRate) {
     // About one loop iteration per tick, not a spin. Late wake-ups only lower it.
     EXPECT_LE(frames, kTicks + 3);
 }
+
+#if !defined(_WIN32)
+TEST(ShutdownSignals, ASecondSignalOfAnotherKindEndsTheProcess) {
+    EXPECT_EXIT(
+            {
+                const ShutdownSignals signals;
+                std::raise(SIGINT);
+                std::raise(SIGTERM);
+                std::_Exit(0);
+            },
+            ::testing::KilledBySignal(SIGTERM), "");
+}
+#endif
 
 TEST_F(ServerHostTest, StopsOnASignalWithOnQuit) {
     for (int run = 0; run < 2; ++run) {

@@ -611,7 +611,13 @@ TEST(Scaffold, ExportLinksThePrebuiltPlayerLibrariesWhenTheSdkHasThemAndFallsBac
     ASSERT_NE(add_game, std::string::npos);
     EXPECT_NE(game.find("engine_copy_runtime_dlls(${target} ${ENGINE_SLANG_RUNTIME_DLLS})", add_game), std::string::npos);
     EXPECT_NE(game.find("engine_copy_runtime_dlls(${target} ${ENGINE_GNS_RUNTIME_DLLS})", add_game), std::string::npos);
-    // One step per directory and set, not a POST_BUILD per target: a game and its server can share a directory.
+    // One step per directory and set, not a POST_BUILD per target: a game and its server can share a directory, and so
+    // do the tools and tests in bin/. It is the only thing that copies them.
+    EXPECT_EQ(cmake.find("Copy Slang DLLs"), std::string::npos);
+    EXPECT_EQ(cmake.find("Copy GameNetworkingSockets DLLs"), std::string::npos);
+    EXPECT_NE(cmake.find("engine_copy_runtime_dlls(engine_tests "), std::string::npos);
+    // Targets staging the same assets to the same place share one stage.
+    EXPECT_NE(game.find("ENGINE_STAGE_${_stage_key}"), std::string::npos);
     const std::size_t copy = game.find("function(engine_copy_runtime_dlls target)");
     ASSERT_NE(copy, std::string::npos);
     EXPECT_EQ(game.substr(copy, game.find("endfunction()", copy) - copy).find("POST_BUILD"), std::string::npos);

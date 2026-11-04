@@ -314,7 +314,8 @@ void append_table(
         const engine::ecs::FieldTable& table, bool editable, bool removable, bool object_filters,
         std::string_view filter_scope, const engine::ecs::WorldSerializer* serializer,
         const engine::AssetsDb* assets) {
-    InspectorSection section{.heading = std::move(heading), .removable = removable};
+    InspectorSection section{
+            .heading = std::move(heading), .removable = removable, .component = std::string(filter_scope)};
     if (table.empty()) {
         section.lines.emplace_back("(no fields)");
         sections.push_back(std::move(section));
@@ -360,7 +361,8 @@ void append_table(
         if (const engine::ecs::FieldArray* array = value.as_array()) {
             const ArrayLayout layout = layout_of(*array);
             if (layout == ArrayLayout::Empty) {
-                sections.push_back(InspectorSection{.heading = path, .lines = {"(empty)"}});
+                sections.push_back(
+                        InspectorSection{.heading = path, .lines = {"(empty)"}, .component = std::string(filter_scope)});
             } else if (layout == ArrayLayout::Tables) {
                 for (std::size_t index = 0; index < array->size(); ++index) {
                     const engine::ecs::FieldTable* element = (*array)[index].as_table();

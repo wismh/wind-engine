@@ -633,7 +633,11 @@ namespace engine {
             std::vector<render::Frustum> frustums;
             frustums.reserve(windows.size());
             for (const WindowId id: windows) {
-                frustums.push_back(camera_frustum(*camera, camera_world, ui::window_size_for(world, id)));
+                // A minimized or empty window sees nothing, so it keeps nothing visible for the others.
+                const ui::WindowSize size = ui::window_size_for(world, id);
+                if (size.width > 0 && size.height > 0) {
+                    frustums.push_back(camera_frustum(*camera, camera_world, size));
+                }
             }
             const std::vector<DrawItem> items = collect_world_draws(world, view, deps.assets, deps.fatal, frustums);
             const render::SceneLights lights = render::collect_scene_lights(world);

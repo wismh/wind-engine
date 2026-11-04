@@ -36,10 +36,18 @@ struct InspectorField {
 // turns it into view-models and remembers by heading which sections the user collapsed. `removable` is a
 // registered component on an entity in Edit Mode.
 struct InspectorSection {
+    // Only what the row shows. A nested table's heading is its path (`stats  Archer`), not a component.
     std::string heading;
     std::vector<std::string> lines;
     std::vector<InspectorField> fields;
     bool removable = false;
+    // What an edit of `fields` and the remove button act on: the component, for every section of its nested tables too.
+    // Empty uses `heading`.
+    std::string component;
+
+    [[nodiscard]] const std::string& owner() const {
+        return component.empty() ? heading : component;
+    }
 
     bool operator==(const InspectorSection&) const = default;
 };

@@ -109,7 +109,7 @@ Done when: frustum math is tested (inside, outside, straddling, ortho and perspe
 
 ### wind-304 feat: grid queries
 
-Status: done. `<engine/ecs/grid_query.h>`, pure math in namespace `engine`: `raycast_grid` (Amanatides-Woo; half-open boundaries in the direction of travel; start inside reports `t = 0` and a zero normal; an exact edge or corner is blocked by any touching solid cell) and `sweep_aabb` (Y, X, Z per sub-step, at most 64 sub-steps of up to one cell, `kGridSkin` = 1e-3 so a resting box stays grounded without drift), each with a 2D overload over `glm::ivec2`. `is_solid` is a `CellPredicate`, a non-owning callable reference valid only for the call. Unit cells in grid space, no cell-size parameter. No `Tilemap` helper: a layer is a lambda over `Tilemap::tile` (row `-y - 1`). See [ECS](../modules/ECS.md#grid-queries).
+Status: done. `<engine/ecs/grid_query.h>`, pure math in namespace `engine`: `raycast_grid` (Amanatides-Woo; half-open boundaries in the direction of travel; start inside reports `t = 0` and a zero normal; an exact edge or corner is blocked by any touching solid cell) and `sweep_aabb` (Y, X, Z per sub-step of up to one cell, `kGridSkin` = 1e-3 so a resting box stays grounded without drift), each with a 2D overload over `glm::ivec2`. `is_solid` is a `CellPredicate`, a non-owning callable reference valid only for the call. Unit cells in grid space, no cell-size parameter. No `Tilemap` helper: a layer is a lambda over `Tilemap::tile` (row `-y - 1`). See [ECS](../modules/ECS.md#grid-queries).
 
 Problem: block worlds, and 2D tile games, need collision against a solid-cell grid and a ray through cells. This is generic; a rigid-body 3D physics engine is not needed for it.
 

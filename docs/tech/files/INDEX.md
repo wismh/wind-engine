@@ -220,7 +220,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/core/random.cpp` | `Random`, PCG32 | [Core](../modules/Core.md) |
 | `src/core/platform.cpp` | Assets root, Android staging, executable directory, user-data path | [Core](../modules/Core.md) |
 | `src/core/presentation.h` | `IPresentation` seam the loop calls | [Core](../modules/Core.md) |
-| `src/core/server_fatal_error.h` | `ServerFatalError`: log, quit, `std::exit(1)` | [Core](../modules/Core.md#dedicated-server) |
+| `src/core/server_fatal_error.h` | `ServerFatalError`: log, flush, `std::_Exit(1)` | [Core](../modules/Core.md#dedicated-server) |
 | `src/core/server_host.cpp` | `ServerHost` body, `ServerServices::port` | [Core](../modules/Core.md#dedicated-server) |
 | `src/core/server_options.cpp` | Command line and usage of a dedicated server | [Core](../modules/Core.md#dedicated-server) |
 | `src/core/server_presentation.h`, `src/core/server_presentation.cpp` | `IPresentation` with no window: stop signal, dropped-tick warning, tick wait | [Runtime Loop](../architecture/Runtime%20Loop.md#on-a-dedicated-server) |

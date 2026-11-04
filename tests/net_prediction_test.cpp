@@ -598,5 +598,27 @@ TEST(NetPrediction, CollectsInputThroughActions) {
     expect_converged(net, id);
 }
 
+TEST(NetPrediction, ClientBehindTheServerPredictsAfterTheSnapshot) {
+    NetHarness net(9316);
+    setup(net, [](Tick) { return 1; });
+    (void)connect_owned(net, 120);
+
+    // The client stalls while the server runs on.
+    for (int frame = 0; frame < 120; ++frame) {
+        net.server.flush_events();
+        net.server.ctx<Time>().fixed_delta_time = kFixed;
+        net.server.run(ecs::Schedule::Fixed);
+        net.server_link.advance(1000.0 / 60.0);
+        net.client_link.advance(1000.0 / 60.0);
+    }
+    // A frame receives the snapshots; the next fixed step predicts.
+    net.client.flush_events();
+    net.client.run(ecs::Schedule::Frame);
+    net.client.run(ecs::Schedule::Fixed);
+
+    // Past the newest snapshot, which is at most one snapshot interval behind the server: no tick is stepped twice.
+    EXPECT_GE(net.client.ctx<NetClient>().predicted_tick(), net.tick() - 2);
+}
+
 } // namespace
 } // namespace engine::net

@@ -71,6 +71,15 @@ public:
         tracks_.clear();
     }
 
+    void drop_states() override {
+        for (auto& [id, track] : tracks_) {
+            track.reconciled = kNoTick;
+            for (Slot& slot : track.ring) {
+                slot.state.reset();
+            }
+        }
+    }
+
     void predict(ecs::World& world, NetId id, Tick tick) override {
         Track* track = find(id);
         if (track == nullptr) {

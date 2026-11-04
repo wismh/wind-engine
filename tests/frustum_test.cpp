@@ -131,10 +131,10 @@ TEST(Frustum, DegenerateMatrixNeverCulls) {
     const Aabb far_away = box_at({1000.0f, 0.0f, 0.0f}, glm::vec3{0.5f});
     EXPECT_TRUE(frustum_intersects(make_frustum(glm::mat4{nan}), far_away));
     EXPECT_TRUE(frustum_intersects(make_frustum(glm::mat4{inf}), far_away));
-    // A window of width 0 under an orthographic camera divides by zero.
+    // A window of width 0 takes the camera's own aspect instead of dividing by zero, so it still culls.
     const Frustum zero_width =
             engine::camera_frustum(engine::Camera{}, glm::mat4{1.0f}, engine::ui::WindowSize{0, 600});
-    EXPECT_TRUE(frustum_intersects(zero_width, far_away));
+    EXPECT_FALSE(frustum_intersects(zero_width, far_away));
 }
 
 TEST(Frustum, VisibleInAnyIsTheUnionAndAnEmptySpanCullsNothing) {

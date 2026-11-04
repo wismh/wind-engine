@@ -1,11 +1,14 @@
 #include "net/snapshot_codec.h"
 
+#include <engine/log.h>
 #include <engine/net/net_messages.h>
 #include <engine/net/network_identity.h>
 #include <engine/net/replication_registry.h>
 
 #include <algorithm>
 #include <bit>
+#include <cassert>
+#include <format>
 #include <memory>
 
 namespace engine::net {
@@ -16,8 +19,21 @@ constexpr std::uint8_t kFlagOwner = 1u << 0;
 constexpr std::uint8_t kFlagRemoved = 1u << 1;
 constexpr std::size_t kSlots = ReplicationRegistry::kMaxReplicated;
 
+// The slots already logged as too large: capture runs every tick.
+std::uint32_t s_oversized_slots = 0;
+
 [[nodiscard]] const EntitySnapshot* find_in(const SnapshotState* state, NetId id) noexcept {
     return state != nullptr ? state->find(id) : nullptr;
+}
+
+void log_oversized(const ReplicationRegistry& registry, std::size_t slot, std::size_t size) {
+    const std::uint32_t bit = std::uint32_t{1} << slot;
+    if ((s_oversized_slots & bit) != 0) {
+        return;
+    }
+    s_oversized_slots |= bit;
+    log::error(std::format("net: replicated component {} is {} bytes; a snapshot holds at most {}, so it is not sent",
+            registry.entry(slot).name, size, kMaxSnapshotBlobBytes));
 }
 
 } // namespace
@@ -34,15 +50,26 @@ SnapshotState capture_snapshot(
         EntitySnapshot record;
         record.id = identity.id;
         record.owner = identity.owner;
+        const EntitySnapshot* old = find_in(previous, identity.id);
         EntitySnapshot::Blobs blobs;
         for (std::size_t slot = 0; slot < registry.size(); ++slot) {
             ByteWriter bytes;
-            if (registry.entry(slot).write(world, entity, bytes)) {
-                record.mask |= std::uint32_t{1} << slot;
+            if (!registry.entry(slot).write(world, entity, bytes)) {
+                continue;
+            }
+            const std::uint32_t bit = std::uint32_t{1} << slot;
+            if (bytes.buffer().size() <= kMaxSnapshotBlobBytes) {
+                record.mask |= bit;
                 blobs.emplace_back(bytes.buffer());
+                continue;
+            }
+            log_oversized(registry, slot, bytes.buffer().size());
+            if (old != nullptr && old->has(slot)) {
+                const auto kept = old->component(slot);
+                record.mask |= bit;
+                blobs.emplace_back(kept.begin(), kept.end());
             }
         }
-        const EntitySnapshot* old = find_in(previous, identity.id);
         if (old != nullptr && old->mask == record.mask && old->components != nullptr && *old->components == blobs) {
             record.components = old->components;
         } else {
@@ -76,6 +103,7 @@ std::vector<std::uint8_t> encode_snapshot(Tick tick, const SnapshotPeerHeader& p
     for (const SnapshotWrite& write : writes) {
         size += snapshot_write_size(write);
     }
+    assert(removed.size() <= kMaxSnapshotEntries && writes.size() <= kMaxSnapshotEntries);
     ByteWriter out(size);
     out.write_u16(kSnapshotMessageId);
     out.write_u32(tick);
@@ -105,6 +133,7 @@ std::vector<std::uint8_t> encode_snapshot(Tick tick, const SnapshotPeerHeader& p
         }
         for (std::uint32_t bits = write.changed; bits != 0; bits &= bits - 1u) {
             const auto blob = write.entity->component(static_cast<std::size_t>(std::countr_zero(bits)));
+            assert(blob.size() <= kMaxSnapshotBlobBytes);
             out.write_u16(static_cast<std::uint16_t>(blob.size()));
             out.append(blob);
         }

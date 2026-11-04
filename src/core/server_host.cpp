@@ -126,7 +126,6 @@ std::expected<void, EngineError> ServerHost::init() {
     impl_->processes = std::make_unique<ProcessLauncher>();
     impl_->jobs = std::make_unique<JobSystem>();
     impl_->worlds = std::make_unique<Worlds>(impl_->fatal);
-    impl_->fatal.attach(impl_->worlds->application_state());
     impl_->services.emplace(ServerServices{
             .assets = *impl_->assets,
             .http = *impl_->http,

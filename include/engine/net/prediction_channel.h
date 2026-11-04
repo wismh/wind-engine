@@ -49,6 +49,9 @@ public:
     virtual void begin(NetId id, ecs::Entity entity) = 0;
     virtual void forget(NetId id) = 0;
     virtual void clear() = 0;
+    // Client: the predicted tick jumped. Forgets every predicted state and what was reconciled but keeps the inputs, so
+    // the next server state replays up to the new tick with the real inputs, repeating the last one as the server does.
+    virtual void drop_states() = 0;
     // Client: collects the input for `tick`, stores it, and steps.
     virtual void predict(ecs::World& world, NetId id, Tick tick) = 0;
     // Client: stores the state at the end of `tick`.

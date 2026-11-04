@@ -13,7 +13,7 @@ InspectorSectionViewModel::InspectorSectionViewModel(InspectorPanel& panel) : pa
 }
 
 void InspectorSectionViewModel::remove_component() {
-    panel_->remove_component(heading.get());
+    panel_->remove_component(component);
 }
 
 void InspectorSectionViewModel::toggle_section() {

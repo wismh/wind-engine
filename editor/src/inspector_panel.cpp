@@ -295,6 +295,7 @@ void InspectorPanel::show_sections(std::vector<InspectorSection> content) {
         const bool expanded = !collapsed_.contains(section.heading);
         InspectorSectionViewModel& view = *sections_[i];
         view.heading = section.heading;
+        view.component = section.owner();
         view.expanded = expanded;
         view.removeDisplay = std::string(section.removable ? "flex" : "none");
         std::vector<std::shared_ptr<InspectorLineViewModel>>& lines = lines_[i];
@@ -312,7 +313,7 @@ void InspectorPanel::show_sections(std::vector<InspectorSection> content) {
             if (!fields[j]) {
                 fields[j] = std::make_shared<InspectorFieldViewModel>(*this);
             }
-            fields[j]->show(section.heading, section.fields[j], editing_key_);
+            fields[j]->show(section.owner(), section.fields[j], editing_key_);
         }
         view.fields.set(fields);
     }

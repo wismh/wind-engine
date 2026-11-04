@@ -250,9 +250,10 @@ void receive_input_report(ecs::World& world, NetClient::Impl& client, Tick tick,
     }
     const int jump = client.lead.observe(tick, peer.input_slack, client.config.input_buffer_ticks, client.predicted);
     if (jump > 0) {
-        // Inputs reach the server too late to be used: jump ahead and predict again from the next server state.
+        // Inputs reach the server too late to be used: jump ahead and predict again from the next server state. The
+        // inputs stay: the server ran them, and repeats the last one over the ticks jumped.
         client.predicted += static_cast<Tick>(jump);
-        channel->clear();
+        channel->drop_states();
         ++client.stats.snaps;
     }
 }
@@ -495,6 +496,9 @@ void run_net_client_predict(ecs::World& world) {
         }
     }
 
+    // A server state ahead of the prediction was taken as the present, so the next tick to predict is the one after it:
+    // the ticks up to it have already run on the server.
+    client.predicted = std::max(client.predicted, client.newest);
     ++client.predicted;
     for (const auto& [id, live] : client.live) {
         if (live.predicted) {

@@ -369,6 +369,7 @@ if(WIN32)
     # WinHTTP. A static library does not propagate PRIVATE link libs, so games that link engine need them PUBLIC.
     # src/core/server_options.cpp: CommandLineToArgvW.
     target_link_libraries(engine PUBLIC ws2_32 advapi32 winhttp shell32)
+    unset(ENGINE_GNS_RUNTIME_DLLS CACHE)
     if(ENGINE_WITH_GNS)
         # The player libraries install their own copy of an import library: an exported target that named this tree
         # would not link once the SDK has moved.
@@ -382,13 +383,7 @@ if(WIN32)
         endif()
         if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/bin/x64")
             file(GLOB _gns_dlls "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/bin/x64/*.dll")
-            add_custom_command(TARGET engine POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    ${_gns_dlls}
-                    "$<TARGET_FILE_DIR:engine>"
-                COMMENT "Copy GameNetworkingSockets DLLs beside engine"
-                VERBATIM)
-            # What engine_add_game and engine_add_server copy beside an executable.
+            # What engine_copy_runtime_dlls copies beside a program.
             set(ENGINE_GNS_RUNTIME_DLLS "${_gns_dlls}" CACHE INTERNAL "GameNetworkingSockets DLLs a server or a game's executable needs")
         endif()
     endif()
@@ -407,13 +402,7 @@ if(WIN32)
         endif()
         if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/bin/x64")
             file(GLOB _slang_dlls "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/bin/x64/*.dll")
-            add_custom_command(TARGET engine POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    ${_slang_dlls}
-                    "$<TARGET_FILE_DIR:engine>"
-                COMMENT "Copy Slang DLLs beside engine"
-                VERBATIM)
-            # What engine_add_game copies beside a game's executable.
+            # What engine_copy_runtime_dlls copies beside a program.
             set(ENGINE_SLANG_RUNTIME_DLLS "${_slang_dlls}" CACHE INTERNAL "Slang DLLs an executable with the engine needs")
         endif()
     endif()
@@ -465,25 +454,6 @@ else()
     add_executable(asset_guid "${CMAKE_CURRENT_SOURCE_DIR}/tools/asset_guid/main.cpp")
     target_link_libraries(asset_guid PRIVATE engine)
 
-    if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/bin/x64")
-        file(GLOB _gns_dlls "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/bin/x64/*.dll")
-        add_custom_command(TARGET asset_codegen POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${_gns_dlls}
-                "$<TARGET_FILE_DIR:asset_codegen>"
-            COMMENT "Copy GameNetworkingSockets DLLs beside asset_codegen"
-            VERBATIM)
-    endif()
-    if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/bin/x64")
-        file(GLOB _slang_dlls "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/bin/x64/*.dll")
-        add_custom_command(TARGET asset_codegen POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${_slang_dlls}
-                "$<TARGET_FILE_DIR:asset_codegen>"
-            COMMENT "Copy Slang DLLs beside asset_codegen"
-            VERBATIM)
-    endif()
-
     # Host client. Does not link engine: it speaks HTTP to a running game or editor, and `launch` starts the
     # wind_editor beside it (the SDK installs both into bin/).
     add_executable(wind-cli "${CMAKE_CURRENT_SOURCE_DIR}/tools/wind_cli/main.cpp")
@@ -531,6 +501,23 @@ add_custom_target(engine_builtin_catalog DEPENDS "${ENGINE_COOKED_CATALOG}")
 # engine_prepare_runtime, engine_configure_app, engine_add_game and the web / Android variants. The
 # installed SDK carries the same file (install rules below).
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/wind_game.cmake")
+
+# The programs here import these DLLs and land in one directory, so they all use the one step of engine_copy_runtime_dlls.
+# A shared engine lands there too, and whatever links it runs only after the step. A static engine needs nothing beside it.
+set(_engine_dll_users asset_codegen asset_guid icon_codegen)
+get_target_property(_engine_kind engine TYPE)
+if(_engine_kind STREQUAL "SHARED_LIBRARY")
+    list(APPEND _engine_dll_users engine)
+endif()
+foreach(_user IN LISTS _engine_dll_users)
+    if(TARGET ${_user})
+        get_target_property(_user_imported ${_user} IMPORTED)
+        if(NOT _user_imported)
+            engine_copy_runtime_dlls(${_user} ${ENGINE_SLANG_RUNTIME_DLLS})
+            engine_copy_runtime_dlls(${_user} ${ENGINE_GNS_RUNTIME_DLLS})
+        endif()
+    endif()
+endforeach()
 
 function(engine_add_sdl3)
     # user_data_directory on web is SDL_GetPrefPath under this mount. SDL links idbfs.js and
@@ -701,24 +688,8 @@ if(ENGINE_BUILD_TESTS)
         add_dependencies(engine_tests wind_server_fixture)
         target_compile_definitions(engine_tests PRIVATE "WIND_SERVER_FIXTURE=\"$<TARGET_FILE:wind_server_fixture>\"")
     endif()
-    if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/bin/x64")
-        file(GLOB _gns_dlls "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/bin/x64/*.dll")
-        add_custom_command(TARGET engine_tests POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${_gns_dlls}
-                "$<TARGET_FILE_DIR:engine_tests>"
-            COMMENT "Copy GameNetworkingSockets DLLs beside engine_tests"
-            VERBATIM)
-    endif()
-    if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/bin/x64")
-        file(GLOB _slang_dlls "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/bin/x64/*.dll")
-        add_custom_command(TARGET engine_tests POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${_slang_dlls}
-                "$<TARGET_FILE_DIR:engine_tests>"
-            COMMENT "Copy Slang DLLs beside engine_tests"
-            VERBATIM)
-    endif()
+    engine_copy_runtime_dlls(engine_tests ${ENGINE_SLANG_RUNTIME_DLLS})
+    engine_copy_runtime_dlls(engine_tests ${ENGINE_GNS_RUNTIME_DLLS})
     if(ENGINE_EDITOR)
         # Game modules for tests/game_module_test.cpp and editor/tests/play_session_test.cpp, built from
         # tests/fixtures/game_module/ like a game module: as is, with another build id, and without

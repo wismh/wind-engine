@@ -32,6 +32,8 @@ TEST(Camera, OrthoBounds) {
 
     EXPECT_NEAR(engine::camera_aspect(camera, window), aspect, kEpsilon);
     EXPECT_NEAR(aspect, 800.f / 600.f, kEpsilon);
+    EXPECT_EQ(engine::camera_aspect(camera, engine::ui::WindowSize{0, 600}), camera.aspect);
+    EXPECT_EQ(engine::camera_aspect(camera, engine::ui::WindowSize{800, 0}), camera.aspect);
 
     const glm::mat4 proj = engine::projection_matrix(camera, window);
     EXPECT_NEAR(proj[0][0], 1.f / half_width, kEpsilon);

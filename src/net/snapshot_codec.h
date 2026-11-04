@@ -21,9 +21,13 @@ class ReplicationRegistry;
 
 // Bytes of a Snapshot message with no removed id and no record: id, tick, input report, and the two counts.
 inline constexpr std::size_t kSnapshotHeaderBytes = 15;
+// What the wire's 16-bit fields can say: the bytes of one component, and the removed ids or records in one message.
+inline constexpr std::size_t kMaxSnapshotBlobBytes = 65535;
+inline constexpr std::size_t kMaxSnapshotEntries = 65535;
 
 // Every entity with `NetIdentity`, each registered component encoded, sorted by `NetId`. An entity whose bytes equal
 // its bytes in `previous` shares `previous`'s blobs, so comparing it to anything sent earlier is one pointer compare.
+// A component over `kMaxSnapshotBlobBytes` cannot be sent: it logs an error once and peers keep the last value that fit.
 [[nodiscard]] SnapshotState capture_snapshot(
         ecs::World& world, const ReplicationRegistry& registry, Tick tick, const SnapshotState* previous = nullptr);
 
