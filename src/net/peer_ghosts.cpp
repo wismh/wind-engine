@@ -219,16 +219,17 @@ PeerGhosts::Built PeerGhosts::build(Tick tick, const SnapshotPeerHeader& header,
             next_order = 1;
         }
 
-        // Removals, least recently listed first. They leave room for records while any wait.
+        // Removals, least recently listed first. They leave room for records while any wait, and one goes even when
+        // forced records took everything, or a large mandatory entity would keep the peer's dead entities alive forever.
         std::sort(leaving.begin(), leaving.end(), [this](std::size_t a, std::size_t b) {
             return ghosts_[a].last_listed != ghosts_[b].last_listed ? ghosts_[a].last_listed < ghosts_[b].last_listed
                                                                     : ghosts_[a].id < ghosts_[b].id;
         });
         const bool records_wait = next_order < order.size();
         const std::size_t removal_bytes = records_wait ? remaining / 4u : remaining;
-        const std::size_t removal_count = std::min(leaving.size(), removal_bytes / 4u);
+        const std::size_t removal_count = std::min(leaving.size(), std::max<std::size_t>(removal_bytes / 4u, 1u));
         listed.assign(leaving.begin(), leaving.begin() + static_cast<std::ptrdiff_t>(removal_count));
-        remaining -= removal_count * 4u;
+        remaining = saturating_sub(remaining, removal_count * 4u);
 
         for (; next_order < order.size(); ++next_order) {
             Candidate& candidate = candidates[order[next_order]];
@@ -242,7 +243,9 @@ PeerGhosts::Built PeerGhosts::build(Tick tick, const SnapshotPeerHeader& header,
     std::vector<SnapshotWrite> writes;
     Built built;
     built.relevant = relevant.size();
-    for (const Candidate& candidate : candidates) {
+    for (Candidate& candidate : candidates) {
+        // Past what one message can count, the rest waits for the next one.
+        candidate.selected = candidate.selected && writes.size() < kMaxSnapshotEntries;
         if (candidate.selected) {
             writes.push_back(candidate.write);
             sent.written.push_back(candidate.write.entity->id);
@@ -250,6 +253,7 @@ PeerGhosts::Built PeerGhosts::build(Tick tick, const SnapshotPeerHeader& header,
             ++built.deferred;
         }
     }
+    listed.resize(std::min(listed.size(), kMaxSnapshotEntries));
     sent.removed.reserve(listed.size());
     for (const std::size_t index : listed) {
         ghosts_[index].last_listed = tick;

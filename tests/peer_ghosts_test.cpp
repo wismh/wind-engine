@@ -246,5 +246,22 @@ TEST(PeerGhosts, RemovalsDoNotCrowdOutRecordsAndAllGetListed) {
     }
 }
 
+TEST(PeerGhosts, ARemovalGoesEvenWhenAMandatoryRecordTookTheWholeBudget) {
+    Capture both;
+    both.add(1, {1});
+    both.add(2, {2});
+    PeerGhosts ghosts;
+    (void)send(ghosts, 2, both.relevant());
+    ghosts.acknowledge(2);
+
+    Capture only;
+    only.add(2, std::vector<std::uint8_t>(5000, 3));
+    auto relevant = only.relevant();
+    relevant[0].mandatory = true;
+    const auto wire = send(ghosts, 4, relevant, 1200);
+    EXPECT_EQ(wire.ids, (std::vector<NetId>{2}));
+    EXPECT_EQ(wire.removed_ids, (std::vector<NetId>{1}));
+}
+
 } // namespace
 } // namespace engine::net
