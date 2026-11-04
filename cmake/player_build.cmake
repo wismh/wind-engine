@@ -7,7 +7,7 @@
 #   WIND_PLAYER_SOURCE_DIR       the engine checkout
 #   WIND_PLAYER_BINARY_DIR       parent of the build trees (<build>/player)
 #   WIND_PLAYER_PREFIX           where the flavours are installed (<sdk>/player); empty: build only
-#   WIND_PLAYER_FLAVOURS         comma-separated: Development,Shipping
+#   WIND_PLAYER_FLAVOURS         comma-separated: Development,Shipping,Server
 #   WIND_PLAYER_VERSION_PATCH    the editor build's ENGINE_VERSION_PATCH (empty for a local build), so the players have
 #                                the version of the SDK
 #   WIND_PLAYER_SDK_BUILD_ID_HEADER  the SDK's generated <engine/build_id.h>; its kBuildId is stamped into each player
@@ -78,12 +78,22 @@ foreach(_flavour IN LISTS WIND_PLAYER_FLAVOURS)
             file(REMOVE_RECURSE "${_tree}")
         endif()
     endif()
+    # Development and Shipping are what a game links; Server is what a dedicated server links, with no SDL at all and,
+    # off Windows, GameNetworkingSockets built from source.
+    if(_flavour STREQUAL "Server")
+        set(_flavour_options -DENGINE_WITH_WINDOW=OFF -DENGINE_WITH_AUDIO=OFF)
+        if(NOT CMAKE_HOST_WIN32)
+            list(APPEND _flavour_options -DENGINE_WITH_GNS=ON)
+        endif()
+    else()
+        set(_flavour_options -DENGINE_WITH_WINDOW=ON -DENGINE_WITH_AUDIO=ON)
+    endif()
     _wind_player_run("configure ${_flavour}"
         "${CMAKE_COMMAND}" -S "${WIND_PLAYER_SOURCE_DIR}" -B "${_tree}" ${_configure}
         -DENGINE_PLAYER=${_flavour}
         "-DENGINE_VERSION_PATCH=${WIND_PLAYER_VERSION_PATCH}"
         -DENGINE_BUILD_TESTS=OFF -DENGINE_WITH_GTEST=OFF
-        -DENGINE_WITH_WINDOW=ON -DENGINE_WITH_AUDIO=ON
+        ${_flavour_options}
         -DWIND_PLAYER_SDK_BUILD_ID=${_sdk_build_id})
     _wind_player_run("build ${_flavour}"
         "${CMAKE_COMMAND}" --build "${_tree}" --config Release --target engine --parallel)

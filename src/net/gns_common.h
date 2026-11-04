@@ -1,6 +1,6 @@
 #pragma once
 
-#if defined(_WIN32)
+#if defined(ENGINE_WITH_GNS)
 
 #include <engine/net/network_transport.h>
 

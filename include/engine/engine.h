@@ -15,6 +15,7 @@
 #include <engine/core/input_system.h>
 #include <engine/core/platform.h>
 #include <engine/core/random.h>
+#include <engine/core/server.h>
 #include <engine/core/time.h>
 #include <engine/core/web_loop.h>
 #include <engine/ecs/camera.h>

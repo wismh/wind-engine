@@ -47,7 +47,7 @@ endif()
 # which runs before this file). A Debug SDK has none: an Export against it builds the engine from source/ (the source package of a release).
 set(_players)
 if(NOT WIND_SDK_CONFIG STREQUAL "Debug")
-    foreach(_flavour IN ITEMS Development Shipping)
+    foreach(_flavour IN ITEMS Development Shipping Server)
         if(EXISTS "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/player/${_flavour}/cmake/wind_player.cmake")
             list(APPEND _players "\"${_flavour}\"")
         endif()

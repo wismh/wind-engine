@@ -178,17 +178,24 @@ endif()
 #   Shipping     optimized, without symbols, profiler, or CLI server (the game's Release configuration)
 # Both link the release DLL CRT, have the window and the mixer, and are not the editor build. docs/tech/build/CMake.md
 set(ENGINE_PLAYER "" CACHE STRING "Player build of the static engine for the editor SDK: Development, Shipping, or empty")
-set_property(CACHE ENGINE_PLAYER PROPERTY STRINGS "" Development Shipping)
+set_property(CACHE ENGINE_PLAYER PROPERTY STRINGS "" Development Shipping Server)
 if(ENGINE_PLAYER)
-    if(NOT ENGINE_PLAYER STREQUAL "Development" AND NOT ENGINE_PLAYER STREQUAL "Shipping")
-        message(FATAL_ERROR "ENGINE_PLAYER is \"${ENGINE_PLAYER}\"; it is Development or Shipping.")
+    if(NOT ENGINE_PLAYER MATCHES "^(Development|Shipping|Server)$")
+        message(FATAL_ERROR "ENGINE_PLAYER is \"${ENGINE_PLAYER}\"; it is Development, Shipping, or Server.")
     endif()
-    if(NOT _engine_is_root OR ENGINE_EDITOR OR EMSCRIPTEN OR ANDROID OR NOT ENGINE_WITH_WINDOW OR NOT ENGINE_WITH_AUDIO
-            OR ENGINE_BUILD_TESTS OR ENGINE_BENCH)
+    # The Server flavour is what a dedicated server links (engine_add_server): optimized, no symbols, and no SDL at all,
+    # so it runs on a host with no display.
+    if(ENGINE_PLAYER STREQUAL "Server")
+        if(ENGINE_WITH_WINDOW OR ENGINE_WITH_AUDIO)
+            message(FATAL_ERROR "ENGINE_PLAYER=Server has neither ENGINE_WITH_WINDOW nor ENGINE_WITH_AUDIO.")
+        endif()
+    elseif(NOT ENGINE_WITH_WINDOW OR NOT ENGINE_WITH_AUDIO)
+        message(FATAL_ERROR "ENGINE_PLAYER=${ENGINE_PLAYER} needs ENGINE_WITH_WINDOW=ON and ENGINE_WITH_AUDIO=ON.")
+    endif()
+    if(NOT _engine_is_root OR ENGINE_EDITOR OR EMSCRIPTEN OR ANDROID OR ENGINE_BUILD_TESTS OR ENGINE_BENCH)
         message(FATAL_ERROR
-            "ENGINE_PLAYER builds the desktop player libraries of the editor SDK: engine repo root, ENGINE_WITH_WINDOW=ON, "
-            "ENGINE_WITH_AUDIO=ON, and no ENGINE_EDITOR, tests, bench, Emscripten, or Android. "
-            "cmake/player_build.cmake configures it; see docs/tech/build/CMake.md")
+            "ENGINE_PLAYER builds the desktop player libraries of the editor SDK: engine repo root, and no ENGINE_EDITOR, "
+            "tests, bench, Emscripten, or Android. cmake/player_build.cmake configures it; see docs/tech/build/CMake.md")
     endif()
     # The game executable links the release DLL CRT, like the SDK's engine.dll and game modules.
     set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
@@ -199,6 +206,16 @@ if(ENGINE_PLAYER)
         add_compile_options("$<IF:$<BOOL:${MSVC}>,/Z7,-g>")
     endif()
 endif()
+# GameNetworkingSockets, what GnsTransport and SteamTransport run on; without it every call of theirs fails. Windows links
+# the prebuilt in external/GameNetworkingSockets. Linux builds it from the submodule external/GameNetworkingSockets-src
+# (update = none, an opt-in: external/README.md) with the system's OpenSSL and protobuf, and only a dedicated server does
+# so for now: the Server player and the preset linux-server turn this on. Not on macOS, Web, or Android.
+if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/lib/x64/GameNetworkingSockets.lib")
+    set(_engine_gns_default ON)
+else()
+    set(_engine_gns_default OFF)
+endif()
+option(ENGINE_WITH_GNS "GameNetworkingSockets transports (GnsTransport, SteamTransport)" ${_engine_gns_default})
 set(ENGINE_WEB_SHELL "" CACHE FILEPATH "Optional HTML shell for Emscripten (defaults to cmake/web/shell.html)")
 set(ENGINE_HOST_ASSET_CODEGEN "" CACHE FILEPATH "Native asset_codegen when cross-compiling (Emscripten or Android)")
 set(ENGINE_HOST_ICON_CODEGEN "" CACHE FILEPATH "Native icon_codegen when cross-compiling (Emscripten or Android)")
@@ -252,6 +269,8 @@ list(FILTER ENGINE_SOURCES EXCLUDE REGEX "game_module\\.cpp$")
 
 add_library(engine ${_engine_library_kind} ${ENGINE_SOURCES})
 add_library(engine::engine ALIAS engine)
+# What engine_add_server links. The same engine in a source build; the Server player libraries in SDK mode.
+add_library(engine_server ALIAS engine)
 
 if(ENGINE_EDITOR)
     # WINDOWS_EXPORT_ALL_SYMBOLS exports functions, not data. Mutable state reachable from a public
@@ -303,7 +322,7 @@ add_dependencies(engine engine_build_id)
 # yes, Shipping no. The CLI server is a separate switch, desktop only.
 if(ENGINE_EDITOR OR ENGINE_PLAYER STREQUAL "Development")
     set(_engine_tools_config 1)
-elseif(ENGINE_PLAYER STREQUAL "Shipping")
+elseif(ENGINE_PLAYER STREQUAL "Shipping" OR ENGINE_PLAYER STREQUAL "Server")
     set(_engine_tools_config 0)
 else()
     set(_engine_tools_config "$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>,$<CONFIG:DebugGame>>")
@@ -348,10 +367,19 @@ target_link_libraries(engine
 if(WIN32)
     # cli_server.cpp (ENGINE_CLI_SERVER) calls WinSock and the ACL APIs; src/net/winhttp_session.cpp calls
     # WinHTTP. A static library does not propagate PRIVATE link libs, so games that link engine need them PUBLIC.
-    target_link_libraries(engine PUBLIC ws2_32 advapi32 winhttp)
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets")
+    # src/core/server_options.cpp: CommandLineToArgvW.
+    target_link_libraries(engine PUBLIC ws2_32 advapi32 winhttp shell32)
+    if(ENGINE_WITH_GNS)
+        # The player libraries install their own copy of an import library: an exported target that named this tree
+        # would not link once the SDK has moved.
         target_include_directories(engine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/include")
-        target_link_libraries(engine PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/lib/x64/GameNetworkingSockets.lib")
+        set(_gns_import_library "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/lib/x64/GameNetworkingSockets.lib")
+        target_link_libraries(engine PUBLIC
+            "$<BUILD_INTERFACE:${_gns_import_library}>"
+            "$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/lib/GameNetworkingSockets.lib>")
+        if(ENGINE_PLAYER)
+            install(FILES "${_gns_import_library}" DESTINATION lib)
+        endif()
         if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/bin/x64")
             file(GLOB _gns_dlls "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/bin/x64/*.dll")
             add_custom_command(TARGET engine POST_BUILD
@@ -360,12 +388,22 @@ if(WIN32)
                     "$<TARGET_FILE_DIR:engine>"
                 COMMENT "Copy GameNetworkingSockets DLLs beside engine"
                 VERBATIM)
+            # What engine_add_server copies beside a server.
+            set(ENGINE_GNS_RUNTIME_DLLS "${_gns_dlls}" CACHE INTERNAL "GameNetworkingSockets DLLs a server needs")
         endif()
     endif()
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/slang")
+    # A shader compiler has no use without a window, and a server must not need slang.dll to start. The tests of a
+    # windowless build still cover the importer.
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/slang" AND (ENGINE_WITH_WINDOW OR ENGINE_BUILD_TESTS))
         target_compile_definitions(engine PUBLIC ENGINE_WITH_SLANG=1)
         target_include_directories(engine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/include")
-        target_link_libraries(engine PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/lib/x64/slang.lib")
+        set(_slang_import_library "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/lib/x64/slang.lib")
+        target_link_libraries(engine PUBLIC
+            "$<BUILD_INTERFACE:${_slang_import_library}>"
+            "$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/lib/slang.lib>")
+        if(ENGINE_PLAYER)
+            install(FILES "${_slang_import_library}" DESTINATION lib)
+        endif()
         if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/bin/x64")
             file(GLOB _slang_dlls "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/bin/x64/*.dll")
             add_custom_command(TARGET engine POST_BUILD
@@ -380,6 +418,31 @@ elseif(UNIX AND NOT ANDROID AND NOT EMSCRIPTEN)
     # src/net/curl_library.cpp opens the system libcurl with dlopen (no libcurl header or library is needed to
     # build). glibc before 2.34 keeps dlopen in libdl; CMAKE_DL_LIBS is empty on macOS.
     target_link_libraries(engine PUBLIC ${CMAKE_DL_LIBS})
+endif()
+
+if(ENGINE_WITH_GNS)
+    target_compile_definitions(engine PRIVATE ENGINE_WITH_GNS=1)
+    if(NOT WIN32)
+        # The static library from source, without the parts that need its nested submodules (webrtc, abseil, vjson).
+        # protobuf and OpenSSL link statically, so the server needs neither on the host it runs on.
+        if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets-src/CMakeLists.txt")
+            message(FATAL_ERROR
+                "ENGINE_WITH_GNS needs external/GameNetworkingSockets-src, a submodule that is not checked out by default:\n"
+                "  git -c submodule.external/GameNetworkingSockets-src.update=checkout submodule update --init "
+                "external/GameNetworkingSockets-src\n"
+                "and, on Ubuntu or Debian: sudo apt install libssl-dev libprotobuf-dev protobuf-compiler\n"
+                "See external/README.md")
+        endif()
+        foreach(_gns_off IN ITEMS BUILD_SHARED_LIB BUILD_EXAMPLES BUILD_TESTS BUILD_TOOLS LTO ENABLE_ICE USE_STEAMWEBRTC)
+            set(${_gns_off} OFF CACHE BOOL "" FORCE)
+        endforeach()
+        set(BUILD_STATIC_LIB ON CACHE BOOL "" FORCE)
+        set(USE_CRYPTO "OpenSSL" CACHE STRING "" FORCE)
+        set(Protobuf_USE_STATIC_LIBS ON CACHE BOOL "Link protobuf into the server")
+        set(OPENSSL_USE_STATIC_LIBS ON CACHE BOOL "Link OpenSSL into the server")
+        add_subdirectory(external/GameNetworkingSockets-src EXCLUDE_FROM_ALL)
+        target_link_libraries(engine PRIVATE GameNetworkingSockets_s)
+    endif()
 endif()
 
 if(CMAKE_CROSSCOMPILING)
@@ -626,6 +689,15 @@ if(ENGINE_BUILD_TESTS)
         "ENGINE_BUILTIN_ASSETS_DIR=\"${_engine_builtin_assets}\""
         "ENGINE_SOURCE_DIR=\"${_engine_source_dir}\"")
     engine_prepare_runtime(engine_tests)
+    if(ENGINE_WITH_GNS)
+        target_compile_definitions(engine_tests PRIVATE ENGINE_WITH_GNS=1)
+    endif()
+    if(NOT EMSCRIPTEN AND NOT ANDROID)
+        # A real server process for tests/server_process_test.cpp, made by engine_add_server.
+        add_subdirectory(tests/fixtures/server)
+        add_dependencies(engine_tests wind_server_fixture)
+        target_compile_definitions(engine_tests PRIVATE "WIND_SERVER_FIXTURE=\"$<TARGET_FILE:wind_server_fixture>\"")
+    endif()
     if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/bin/x64")
         file(GLOB _gns_dlls "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets/bin/x64/*.dll")
         add_custom_command(TARGET engine_tests POST_BUILD
@@ -758,6 +830,12 @@ if(ENGINE_PLAYER)
     install(TARGETS ${_engine_player_targets} EXPORT WindPlayer ARCHIVE DESTINATION lib)
     install(EXPORT WindPlayer NAMESPACE "WindPlayer${ENGINE_PLAYER}::" FILE wind_player_targets.cmake DESTINATION cmake)
     string(TOLOWER "${CMAKE_SYSTEM_NAME}" WIND_PLAYER_PLATFORM)
+    set(WIND_PLAYER_NEEDS_OPENGL ${ENGINE_WITH_WINDOW})
+    if(ENGINE_WITH_GNS AND NOT WIN32)
+        set(WIND_PLAYER_NEEDS_GNS_DEPENDENCIES ON)
+    else()
+        set(WIND_PLAYER_NEEDS_GNS_DEPENDENCIES OFF)
+    endif()
     configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/wind_player.cmake.in"
         "${CMAKE_CURRENT_BINARY_DIR}/generated/wind_player.cmake" @ONLY)
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/generated/wind_player.cmake" DESTINATION cmake)
@@ -829,6 +907,9 @@ if(ENGINE_EDITOR)
     install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/external/" DESTINATION source/external COMPONENT source
         PATTERN ".git" EXCLUDE
         PATTERN ".github" EXCLUDE
+        # GameNetworkingSockets from source needs none of its nested submodules (a release's source package is made on
+        # Linux, where they are not checked out, but a local checkout may have them).
+        REGEX "/GameNetworkingSockets-src/src/external/(webrtc|abseil|vjson)$" EXCLUDE
         # lz4 builds from lib/ alone; its CLI (GPLv2), tests, and examples stay out.
         REGEX "/lz4/(programs|tests|examples|contrib|ossfuzz)$" EXCLUDE)
     unset(CMAKE_INSTALL_MESSAGE)
@@ -871,12 +952,26 @@ version = \"${ENGINE_VERSION_FULL}\"
     # compiles the game and links. They come from build trees of their own (ENGINE_PLAYER, cmake/player_build.cmake),
     # configured, built, and installed by `cmake --install` of a Release SDK; the target wind_player builds them
     # without installing. Windows, Linux, and macOS. A Debug SDK has none: it is for the engine's own debugging.
-    option(ENGINE_SDK_PLAYER "Build the player libraries (Development, Shipping) into a Release editor SDK" ON)
+    option(ENGINE_SDK_PLAYER "Build the player libraries (Development, Shipping, Server) into a Release editor SDK" ON)
     if(ENGINE_SDK_PLAYER)
+        # The Server flavour exists where a server has a transport: Windows, and Linux when the GameNetworkingSockets
+        # source is checked out. An install without it still succeeds, and engine_add_server skips its target.
+        set(_engine_player_flavours "Development,Shipping")
+        if(WIN32)
+            string(APPEND _engine_player_flavours ",Server")
+        elseif(UNIX AND NOT APPLE)
+            if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/GameNetworkingSockets-src/CMakeLists.txt")
+                string(APPEND _engine_player_flavours ",Server")
+            else()
+                message(WARNING
+                    "This SDK will have no Server player: external/GameNetworkingSockets-src is not checked out "
+                    "(external/README.md). engine_add_server skips its target against it.")
+            endif()
+        endif()
         set(_engine_player_defines
             "-DWIND_PLAYER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
             "-DWIND_PLAYER_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/player"
-            "-DWIND_PLAYER_FLAVOURS=Development,Shipping"
+            "-DWIND_PLAYER_FLAVOURS=${_engine_player_flavours}"
             "-DWIND_PLAYER_VERSION_PATCH=${ENGINE_VERSION_PATCH}"
             "-DWIND_PLAYER_SDK_BUILD_ID_HEADER=${_engine_build_id_dir}/engine/build_id.h"
             "-DWIND_PLAYER_GENERATOR=${CMAKE_GENERATOR}"
@@ -890,7 +985,7 @@ version = \"${ENGINE_VERSION_FULL}\"
             "-DWIND_PLAYER_OSX_SYSROOT=${CMAKE_OSX_SYSROOT}")
         add_custom_target(wind_player
             COMMAND ${CMAKE_COMMAND} ${_engine_player_defines} -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/player_build.cmake"
-            COMMENT "Wind player libraries (Development, Shipping)"
+            COMMENT "Wind player libraries (${_engine_player_flavours})"
             USES_TERMINAL VERBATIM)
         set(_engine_player_code)
         foreach(_define IN LISTS _engine_player_defines)
