@@ -54,6 +54,10 @@ public:
     void on_start() override {
         calls.push_back("start");
         world().add_system(ecs::Schedule::Fixed, ecs::Phase::Game, [this](ecs::World& w) {
+            // quit is read after the iteration, and on a loaded machine one iteration may hold several steps.
+            if (limit > 0 && ticks >= limit) {
+                return;
+            }
             ++ticks;
             if (on_tick) {
                 on_tick(w);
@@ -193,7 +197,8 @@ TEST_F(ServerHostTest, StopsOnASignalWithOnQuit) {
         };
         EXPECT_EQ(server.run(), 0);
         EXPECT_GE(server.game->ticks, 3);
-        EXPECT_LE(server.game->ticks, 6);
+        // The rest of the iteration that raised it, and the one whose poll sees it.
+        EXPECT_LE(server.game->ticks, 3 + 2 * kMaxFixedSteps);
         EXPECT_EQ(server.game->calls, (std::vector<std::string>{"start", "quit"}));
     }
 }
