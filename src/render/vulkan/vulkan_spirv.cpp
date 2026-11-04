@@ -82,6 +82,9 @@ struct MemberDeco {
     std::uint32_t offset = 0;
     std::uint32_t matrix_stride = 0;
     bool is_row_major = false;
+    // Set when the member itself carries RowMajor or ColMajor. A wrapper struct's outer member
+    // often has neither; the matrix member inside does.
+    bool has_matrix_layout = false;
     bool has_offset = false;
 };
 
@@ -141,15 +144,15 @@ void collect_struct_uniforms(
 
     for (std::uint32_t m_idx = 0; m_idx < member_types.size(); ++m_idx) {
         const auto d_it = decos.find(m_idx);
-        const std::uint32_t rel_offset = (d_it != decos.end()) ? d_it->second.offset : 0u;
+        MemberDeco effective = (d_it != decos.end()) ? d_it->second : MemberDeco{};
+        const std::uint32_t rel_offset = effective.offset;
         std::uint32_t abs_offset = base_offset + rel_offset;
         std::uint32_t m_type_id = member_types[m_idx];
 
         if (const auto mt_it = types.find(m_type_id);
             mt_it != types.end() && mt_it->second.kind == TypeRecord::Kind::Struct) {
             bool unwrapped = false;
-            if (mt_it->second.member_types.size() == 1 && d_it != decos.end() &&
-                !d_it->second.name.empty()) {
+            if (mt_it->second.member_types.size() == 1 && !effective.name.empty()) {
                 const std::uint32_t inner_type_id = mt_it->second.member_types[0];
                 const auto inner_it = types.find(inner_type_id);
                 if (inner_it != types.end() && inner_it->second.kind != TypeRecord::Kind::Struct) {
@@ -158,6 +161,13 @@ void collect_struct_uniforms(
                         if (const auto m0_it = inner_decos_it->second.find(0);
                             m0_it != inner_decos_it->second.end()) {
                             abs_offset += m0_it->second.offset;
+                            if (m0_it->second.matrix_stride != 0) {
+                                effective.matrix_stride = m0_it->second.matrix_stride;
+                            }
+                            if (m0_it->second.has_matrix_layout) {
+                                effective.is_row_major = m0_it->second.is_row_major;
+                                effective.has_matrix_layout = true;
+                            }
                         }
                     }
                     m_type_id = inner_type_id;
@@ -170,18 +180,17 @@ void collect_struct_uniforms(
             }
         }
 
-        if (d_it == decos.end() || d_it->second.name.empty()) {
+        if (effective.name.empty()) {
             continue;
         }
-        const MemberDeco& d = d_it->second;
-        const std::uint32_t m_size = compute_type_size(m_type_id, types, d.matrix_stride);
+        const std::uint32_t m_size = compute_type_size(m_type_id, types, effective.matrix_stride);
 
         SpirvUniformMember info{};
-        info.name = d.name;
+        info.name = effective.name;
         info.offset = abs_offset;
         info.size = m_size;
-        info.matrix_stride = d.matrix_stride;
-        info.is_row_major = d.is_row_major;
+        info.matrix_stride = effective.matrix_stride;
+        info.is_row_major = effective.is_row_major;
 
         if (const auto mt_it = types.find(m_type_id); mt_it != types.end()) {
             if (mt_it->second.kind == TypeRecord::Kind::Matrix) {
@@ -254,8 +263,10 @@ void reflect_stage(std::span<const std::uint32_t> spirv, SpirvReflection& out) {
                     m.matrix_stride = inst[4];
                 } else if (deco == kDecorationRowMajor) {
                     m.is_row_major = true;
+                    m.has_matrix_layout = true;
                 } else if (deco == kDecorationColMajor) {
                     m.is_row_major = false;
+                    m.has_matrix_layout = true;
                 }
             }
             break;

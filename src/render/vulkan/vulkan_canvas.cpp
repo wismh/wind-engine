@@ -7,8 +7,10 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
+#include <format>
 #include <limits>
 #include <span>
+#include <string>
 
 namespace engine::render {
 
@@ -55,6 +57,14 @@ VkCompositeAlphaFlagBitsKHR choose_composite_alpha(VkCompositeAlphaFlagsKHR supp
     return VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
 }
 
+void log_vk_failure(const char* call, VkResult result) {
+    log::error(std::format(
+            "Vulkan: {} failed ({}, {})",
+            call,
+            vk_result_name(result),
+            static_cast<int>(result)));
+}
+
 } // namespace
 
 VulkanCanvas::VulkanCanvas(WindowSystem& window, CommandBuffer& commands, VulkanRenderBackend& backend)
@@ -73,6 +83,7 @@ SDL_WindowFlags VulkanCanvas::prepare_window(const WindowDesc&) {
 bool VulkanCanvas::init(bool with_ui_painter) {
     shutdown();
     if (window_ == nullptr || window_->window() == nullptr || backend_ == nullptr) {
+        log::error("Vulkan: canvas init has no window");
         return false;
     }
 
@@ -82,6 +93,7 @@ bool VulkanCanvas::init(bool with_ui_painter) {
     }
     if (!SDL_Vulkan_CreateSurface(window_->window(), ctx.instance(), nullptr, &surface_) ||
         surface_ == VK_NULL_HANDLE) {
+        log::error(std::string("Vulkan: SDL_Vulkan_CreateSurface failed (") + SDL_GetError() + ")");
         surface_ = VK_NULL_HANDLE;
         return false;
     }
@@ -90,10 +102,12 @@ bool VulkanCanvas::init(bool with_ui_painter) {
         return false;
     }
     if (!create_sync_and_commands()) {
+        log::error("Vulkan: frame sync objects were not created");
         shutdown();
         return false;
     }
     if (!recreate_swapchain()) {
+        log::error("Vulkan: the swapchain was not created");
         shutdown();
         return false;
     }
@@ -461,7 +475,9 @@ bool VulkanCanvas::create_sync_and_commands() {
     pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     pool_info.queueFamilyIndex = ctx.graphics_family();
-    if (fn.vkCreateCommandPool(device, &pool_info, nullptr, &command_pool_) != VK_SUCCESS) {
+    const VkResult pool_created = fn.vkCreateCommandPool(device, &pool_info, nullptr, &command_pool_);
+    if (pool_created != VK_SUCCESS) {
+        log_vk_failure("vkCreateCommandPool", pool_created);
         return false;
     }
 
@@ -470,7 +486,10 @@ bool VulkanCanvas::create_sync_and_commands() {
     alloc_info.commandPool = command_pool_;
     alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     alloc_info.commandBufferCount = kMaxFramesInFlight;
-    if (fn.vkAllocateCommandBuffers(device, &alloc_info, command_buffers_.data()) != VK_SUCCESS) {
+    const VkResult buffers_allocated =
+            fn.vkAllocateCommandBuffers(device, &alloc_info, command_buffers_.data());
+    if (buffers_allocated != VK_SUCCESS) {
+        log_vk_failure("vkAllocateCommandBuffers", buffers_allocated);
         return false;
     }
 
@@ -481,9 +500,21 @@ bool VulkanCanvas::create_sync_and_commands() {
     fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
     for (std::uint32_t i = 0; i < kMaxFramesInFlight; ++i) {
-        if (fn.vkCreateSemaphore(device, &sem_info, nullptr, &image_available_semaphores_[i]) != VK_SUCCESS ||
-            fn.vkCreateSemaphore(device, &sem_info, nullptr, &render_finished_semaphores_[i]) != VK_SUCCESS ||
-            fn.vkCreateFence(device, &fence_info, nullptr, &in_flight_fences_[i]) != VK_SUCCESS) {
+        const VkResult image_sem =
+                fn.vkCreateSemaphore(device, &sem_info, nullptr, &image_available_semaphores_[i]);
+        const VkResult render_sem =
+                fn.vkCreateSemaphore(device, &sem_info, nullptr, &render_finished_semaphores_[i]);
+        const VkResult fence = fn.vkCreateFence(device, &fence_info, nullptr, &in_flight_fences_[i]);
+        if (image_sem != VK_SUCCESS) {
+            log_vk_failure("vkCreateSemaphore", image_sem);
+        }
+        if (render_sem != VK_SUCCESS) {
+            log_vk_failure("vkCreateSemaphore", render_sem);
+        }
+        if (fence != VK_SUCCESS) {
+            log_vk_failure("vkCreateFence", fence);
+        }
+        if (image_sem != VK_SUCCESS || render_sem != VK_SUCCESS || fence != VK_SUCCESS) {
             return false;
         }
     }
@@ -533,7 +564,10 @@ bool VulkanCanvas::recreate_swapchain() {
     }
 
     VkSurfaceCapabilitiesKHR caps{};
-    if (fn.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(ctx.physical_device(), surface_, &caps) != VK_SUCCESS) {
+    const VkResult caps_result =
+            fn.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(ctx.physical_device(), surface_, &caps);
+    if (caps_result != VK_SUCCESS) {
+        log_vk_failure("vkGetPhysicalDeviceSurfaceCapabilitiesKHR", caps_result);
         return false;
     }
     if (caps.maxImageExtent.width == 0 || caps.maxImageExtent.height == 0) {
@@ -543,6 +577,7 @@ bool VulkanCanvas::recreate_swapchain() {
     std::uint32_t fmt_count = 0;
     fn.vkGetPhysicalDeviceSurfaceFormatsKHR(ctx.physical_device(), surface_, &fmt_count, nullptr);
     if (fmt_count == 0) {
+        log::error("Vulkan: the surface has no formats");
         return false;
     }
     std::vector<VkSurfaceFormatKHR> formats(fmt_count);
@@ -592,7 +627,9 @@ bool VulkanCanvas::recreate_swapchain() {
     sc_info.presentMode = present_mode;
     sc_info.clipped = VK_TRUE;
 
-    if (fn.vkCreateSwapchainKHR(device, &sc_info, nullptr, &swapchain_) != VK_SUCCESS) {
+    const VkResult swapchain_created = fn.vkCreateSwapchainKHR(device, &sc_info, nullptr, &swapchain_);
+    if (swapchain_created != VK_SUCCESS) {
+        log_vk_failure("vkCreateSwapchainKHR", swapchain_created);
         swapchain_ = VK_NULL_HANDLE;
         return false;
     }
@@ -614,7 +651,9 @@ bool VulkanCanvas::recreate_swapchain() {
         view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
         view_info.format = swapchain_format_;
         view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        if (fn.vkCreateImageView(device, &view_info, nullptr, &swapchain_views_[i]) != VK_SUCCESS) {
+        const VkResult view_created = fn.vkCreateImageView(device, &view_info, nullptr, &swapchain_views_[i]);
+        if (view_created != VK_SUCCESS) {
+            log_vk_failure("vkCreateImageView", view_created);
             destroy_swapchain();
             return false;
         }
@@ -683,7 +722,9 @@ bool VulkanCanvas::create_depth_resources(VkExtent2D extent) {
     img_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     img_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    if (fn.vkCreateImage(device, &img_info, nullptr, &depth_image_) != VK_SUCCESS) {
+    const VkResult image_created = fn.vkCreateImage(device, &img_info, nullptr, &depth_image_);
+    if (image_created != VK_SUCCESS) {
+        log_vk_failure("vkCreateImage", image_created);
         return false;
     }
 
@@ -691,6 +732,7 @@ bool VulkanCanvas::create_depth_resources(VkExtent2D extent) {
     fn.vkGetImageMemoryRequirements(device, depth_image_, &mem_reqs);
     const auto mem_type = ctx.find_memory_type(mem_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     if (!mem_type.has_value()) {
+        log::error("Vulkan: no memory type for the depth image");
         return false;
     }
 
@@ -698,7 +740,9 @@ bool VulkanCanvas::create_depth_resources(VkExtent2D extent) {
     alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     alloc_info.allocationSize = mem_reqs.size;
     alloc_info.memoryTypeIndex = *mem_type;
-    if (fn.vkAllocateMemory(device, &alloc_info, nullptr, &depth_memory_) != VK_SUCCESS) {
+    const VkResult depth_memory = fn.vkAllocateMemory(device, &alloc_info, nullptr, &depth_memory_);
+    if (depth_memory != VK_SUCCESS) {
+        log_vk_failure("vkAllocateMemory", depth_memory);
         return false;
     }
     fn.vkBindImageMemory(device, depth_image_, depth_memory_, 0);
@@ -709,7 +753,11 @@ bool VulkanCanvas::create_depth_resources(VkExtent2D extent) {
     view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
     view_info.format = depth_format_;
     view_info.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-    return fn.vkCreateImageView(device, &view_info, nullptr, &depth_view_) == VK_SUCCESS;
+    const VkResult depth_view = fn.vkCreateImageView(device, &view_info, nullptr, &depth_view_);
+    if (depth_view != VK_SUCCESS) {
+        log_vk_failure("vkCreateImageView", depth_view);
+    }
+    return depth_view == VK_SUCCESS;
 }
 
 void VulkanCanvas::destroy_depth_resources() {
@@ -784,7 +832,11 @@ bool VulkanCanvas::create_render_pass() {
     rp_info.dependencyCount = 1;
     rp_info.pDependencies = &dep;
 
-    return fn.vkCreateRenderPass(device, &rp_info, nullptr, &render_pass_) == VK_SUCCESS;
+    const VkResult pass_created = fn.vkCreateRenderPass(device, &rp_info, nullptr, &render_pass_);
+    if (pass_created != VK_SUCCESS) {
+        log_vk_failure("vkCreateRenderPass", pass_created);
+    }
+    return pass_created == VK_SUCCESS;
 }
 
 bool VulkanCanvas::create_framebuffers() {
@@ -802,7 +854,9 @@ bool VulkanCanvas::create_framebuffers() {
         fb_info.width = swapchain_extent_.width;
         fb_info.height = swapchain_extent_.height;
         fb_info.layers = 1;
-        if (fn.vkCreateFramebuffer(device, &fb_info, nullptr, &framebuffers_[i]) != VK_SUCCESS) {
+        const VkResult fb_created = fn.vkCreateFramebuffer(device, &fb_info, nullptr, &framebuffers_[i]);
+        if (fb_created != VK_SUCCESS) {
+            log_vk_failure("vkCreateFramebuffer", fb_created);
             return false;
         }
     }

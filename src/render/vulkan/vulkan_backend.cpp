@@ -1,5 +1,6 @@
 #include "vulkan_backend.h"
 
+#include "render/vulkan_clip.h"
 #include "vulkan_mesh.h"
 
 #include "render/slang_compiler.h"
@@ -196,7 +197,8 @@ void write_view_uniforms(
     const SpirvReflection& refl,
     const CmdSetView& view) {
     write_mat4(buf, refl, "uView", view.view);
-    write_mat4(buf, refl, "uProjection", view.projection);
+    // CPU projection stays OpenGL clip. The shader's uProjection is the same matrix with z in [0, w].
+    write_mat4(buf, refl, "uProjection", vulkan_projection(view.projection));
     write_vec3(buf, refl, "uCameraPosition", view.camera_position);
     write_float(buf, refl, "uTime", view.time);
     const int count = std::clamp(

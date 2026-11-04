@@ -123,4 +123,7 @@ struct VulkanFunctions {
     [[nodiscard]] bool load_device(VkDevice device);
 };
 
+// Name of a VkResult for logs. Unknown codes are "VK_RESULT"; the caller also prints the integer.
+[[nodiscard]] const char* vk_result_name(VkResult result);
+
 } // namespace engine::render
