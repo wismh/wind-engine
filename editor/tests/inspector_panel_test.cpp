@@ -1175,7 +1175,8 @@ TEST(InspectorPanel, NestedComponentTableEditsThroughTheSamePath) {
     ASSERT_NE(field_named(*stats, "damage"), nullptr);
     EXPECT_EQ(field_named(*stats, "damage")->value.get(), "3");
 
-    panel.edit_text("bag", "stats.damage", -1, "6");
+    // Through the row, the way the screen does it: the section's heading is "stats", the component is "bag".
+    field_named(*stats, "damage")->value.set(std::string("6"));
     EXPECT_FLOAT_EQ(world.get<Bag>(hero).stats.damage, 6.0f);
     EXPECT_TRUE(history.undo());
     EXPECT_FLOAT_EQ(world.get<Bag>(hero).stats.damage, 3.0f);
