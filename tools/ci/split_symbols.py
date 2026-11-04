@@ -83,6 +83,10 @@ def split_static_libraries(os_name, sdk, symbols, strip_command):
     extension = STATIC_LIBRARY[os_name]
     for library in sorted((sdk / "player").glob("*/lib/*" + extension)):
         original_size = library.stat().st_size
+        # Cannot save enough. An import library (slang.lib, GameNetworkingSockets.lib) is one of these, and llvm-strip
+        # refuses its format.
+        if original_size < MIN_SAVING:
+            continue
         with tempfile.TemporaryDirectory(prefix=".wind-strip-") as scratch:
             stripped = Path(scratch) / library.name
             shutil.copyfile(str(library), str(stripped))
