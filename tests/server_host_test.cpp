@@ -255,7 +255,9 @@ constexpr const char* kMeshGuid = "0123456789abcdef0123456789abcd02";
 class TempAssets {
 public:
     TempAssets()
-        : path(std::filesystem::temp_directory_path() / "wind_server_host_test_assets") {
+        // Per test: ctest runs them in parallel processes.
+        : path(std::filesystem::temp_directory_path() /
+                  (std::string("wind_server_host_test_") + ::testing::UnitTest::GetInstance()->current_test_info()->name())) {
         std::filesystem::remove_all(path);
         std::filesystem::create_directories(path);
     }
