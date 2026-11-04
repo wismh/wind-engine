@@ -74,7 +74,11 @@ if(WIN32)
             list(APPEND _wind_sdk_gns_dlls "${_wind_sdk_dir}/bin/${_wind_sdk_dll}.dll")
         endif()
     endforeach()
-    set(ENGINE_GNS_RUNTIME_DLLS "${_wind_sdk_gns_dlls}" CACHE INTERNAL "GameNetworkingSockets DLLs a server needs")
+    set(ENGINE_GNS_RUNTIME_DLLS "${_wind_sdk_gns_dlls}" CACHE INTERNAL
+        "GameNetworkingSockets DLLs a server or a game's executable needs")
+    file(GLOB _wind_sdk_slang_dlls "${_wind_sdk_dir}/bin/slang*.dll")
+    set(ENGINE_SLANG_RUNTIME_DLLS "${_wind_sdk_slang_dlls}" CACHE INTERNAL
+        "Slang DLLs an executable with the engine needs")
 endif()
 
 add_library(glm::glm INTERFACE IMPORTED GLOBAL)
