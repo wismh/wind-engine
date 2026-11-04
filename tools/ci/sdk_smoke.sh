@@ -29,6 +29,25 @@ find . -type f \( -name '*.toml' -o -name '*.txt' -o -name '*.json' -o -name '*.
         -e "s|{{target}}|$target|g" -e "s|{{name}}|Smoke|g" -e "s|{{engine}}|$version|g" -e "s|{{sdk}}|$sdk|g"
 find . -name '*.orig' -delete
 
+# Windows will not start an executable that imports a DLL it cannot find, and a game cannot be started here to see that
+# (no display on CI). So: the DLLs an executable needs are beside it, and everything it imports is there or in the system.
+check_windows_dlls() {
+    case "$(uname -s)" in MINGW*|MSYS*) ;; *) return 0 ;; esac
+    local directory dll
+    directory="$(dirname "$1")"
+    for dll in slang.dll slang-compiler.dll GameNetworkingSockets.dll; do
+        test -f "$directory/$dll" || { echo "$dll is not beside $1" >&2; exit 1; }
+    done
+    command -v dumpbin >/dev/null || return 0
+    for dll in $(dumpbin //nologo //dependents "$1" | tr -d '\r' | sed -n 's/^ *\([^ ]*\.[dD][lL][lL]\)$/\1/p'); do
+        case "$dll" in api-ms-*|ext-ms-*) continue ;; esac
+        if [ ! -f "$directory/$dll" ] && [ ! -f "$WINDIR/System32/$dll" ]; then
+            echo "$1 imports $dll, which is neither beside it nor in the system" >&2
+            exit 1
+        fi
+    done
+}
+
 if [ "$e2e" = "--export" ]; then
     test -f "$sdk/player/Development/cmake/wind_player.cmake" || { echo "the SDK has no player libraries" >&2; exit 1; }
     build="$work/game/build-export"
@@ -45,6 +64,7 @@ if [ "$e2e" = "--export" ]; then
         test -f "$record" || { echo "no export record $record" >&2; exit 1; }
         directory="$(cat "$record")"
         ls "$directory"
+        check_windows_dlls "$directory/$target.exe"
         echo "exported $directory"
     done
     echo "SDK smoke test passed"

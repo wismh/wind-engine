@@ -605,6 +605,16 @@ TEST(Scaffold, ExportLinksThePrebuiltPlayerLibrariesWhenTheSdkHasThemAndFallsBac
     ASSERT_FALSE(player.empty());
     ASSERT_FALSE(manifest.empty());
 
+    // A game's executable imports DLLs the static engine does not carry: Windows will not start it without them, and an
+    // Export copies the directory it lands in. Both the source build and the SDK name them.
+    const std::size_t add_game = game.find("function(engine_add_game target)");
+    ASSERT_NE(add_game, std::string::npos);
+    EXPECT_NE(game.find("engine_copy_runtime_dlls(${target} ${ENGINE_SLANG_RUNTIME_DLLS} ${ENGINE_GNS_RUNTIME_DLLS})",
+                      add_game),
+            std::string::npos);
+    EXPECT_NE(cmake.find("set(ENGINE_SLANG_RUNTIME_DLLS "), std::string::npos);
+    EXPECT_NE(sdk.find("set(ENGINE_SLANG_RUNTIME_DLLS "), std::string::npos);
+
     // The engine repo builds a player (static engine of one flavour) in a tree of its own, exports it with every static
     // library it links, and installs it for the SDK in <sdk>/player/<flavour>/. Development has the profiler and the
     // CLI server in every configuration, Shipping neither; both link the release DLL CRT.

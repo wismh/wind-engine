@@ -388,12 +388,13 @@ if(WIN32)
                     "$<TARGET_FILE_DIR:engine>"
                 COMMENT "Copy GameNetworkingSockets DLLs beside engine"
                 VERBATIM)
-            # What engine_add_server copies beside a server.
-            set(ENGINE_GNS_RUNTIME_DLLS "${_gns_dlls}" CACHE INTERNAL "GameNetworkingSockets DLLs a server needs")
+            # What engine_add_game and engine_add_server copy beside an executable.
+            set(ENGINE_GNS_RUNTIME_DLLS "${_gns_dlls}" CACHE INTERNAL "GameNetworkingSockets DLLs a server or a game's executable needs")
         endif()
     endif()
     # A shader compiler has no use without a window, and a server must not need slang.dll to start. The tests of a
     # windowless build still cover the importer.
+    unset(ENGINE_SLANG_RUNTIME_DLLS CACHE)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/slang" AND (ENGINE_WITH_WINDOW OR ENGINE_BUILD_TESTS))
         target_compile_definitions(engine PUBLIC ENGINE_WITH_SLANG=1)
         target_include_directories(engine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/include")
@@ -412,6 +413,8 @@ if(WIN32)
                     "$<TARGET_FILE_DIR:engine>"
                 COMMENT "Copy Slang DLLs beside engine"
                 VERBATIM)
+            # What engine_add_game copies beside a game's executable.
+            set(ENGINE_SLANG_RUNTIME_DLLS "${_slang_dlls}" CACHE INTERNAL "Slang DLLs an executable with the engine needs")
         endif()
     endif()
 elseif(UNIX AND NOT ANDROID AND NOT EMSCRIPTEN)

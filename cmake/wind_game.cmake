@@ -10,7 +10,8 @@
 #   ENGINE_BUILTIN_ASSETS_DIR  builtin assets copied to <output>/assets/engine/
 #   ENGINE_COOKED_CATALOG      cooked catalog.toml for those builtins
 #   ENGINE_CMAKE_DIR           the engine source tree (cmake/web/link_flags.cmake)
-#   ENGINE_GNS_RUNTIME_DLLS    on Windows, the GameNetworkingSockets DLLs copied beside a server
+#   ENGINE_GNS_RUNTIME_DLLS    on Windows, the GameNetworkingSockets DLLs copied beside a server or a game's executable
+#   ENGINE_SLANG_RUNTIME_DLLS  on Windows, the Slang DLLs copied beside a game's executable
 # The source build also defines the target `engine_builtin_catalog`, which cooks ENGINE_COOKED_CATALOG. In
 # the SDK the catalog is already cooked under bin/assets/engine/.
 
@@ -453,6 +454,25 @@ function(engine_add_game target)
         endif()
     endif()
     engine_configure_app(${target})
+    # A module runs beside the editor, which has them. An executable is on its own: Windows will not start it without
+    # the DLLs it imports, and an Export copies this directory. GameNetworkingSockets goes too: the import appears only
+    # when the game uses a transport, which CMake cannot tell here.
+    get_target_property(_game_type ${target} TYPE)
+    if(_game_type STREQUAL "EXECUTABLE")
+        engine_copy_runtime_dlls(${target} ${ENGINE_SLANG_RUNTIME_DLLS} ${ENGINE_GNS_RUNTIME_DLLS})
+    endif()
+endfunction()
+
+# Copies DLLs beside an executable of `target`. Nothing off Windows, or with no DLLs.
+function(engine_copy_runtime_dlls target)
+    if(WIN32 AND ARGN)
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${ARGN}
+                "$<TARGET_FILE_DIR:${target}>"
+            COMMENT "Copy runtime DLLs beside ${target}"
+            VERBATIM)
+    endif()
 endfunction()
 
 # Dedicated server: always an executable, in every mode, that the game's source enters with ENGINE_GAME_SERVER
@@ -490,13 +510,10 @@ function(engine_add_server target)
     file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/wind/${target}.$<CONFIG>.export" CONTENT "$<TARGET_FILE_DIR:${target}>")
     engine_configure_app(${target})
     set_target_properties(${target} PROPERTIES MACOSX_BUNDLE OFF)
-    if(WIN32 AND ENGINE_GNS_RUNTIME_DLLS)
-        add_custom_command(TARGET ${target} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${ENGINE_GNS_RUNTIME_DLLS}
-                "$<TARGET_FILE_DIR:${target}>"
-            COMMENT "Copy GameNetworkingSockets DLLs beside ${target}"
-            VERBATIM)
+    engine_copy_runtime_dlls(${target} ${ENGINE_GNS_RUNTIME_DLLS})
+    # The Server player of an SDK has no Slang. The source build's engine does when it has a window.
+    if(NOT ENGINE_FROM_SDK)
+        engine_copy_runtime_dlls(${target} ${ENGINE_SLANG_RUNTIME_DLLS})
     endif()
 endfunction()
 
