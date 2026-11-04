@@ -24,6 +24,8 @@ Configure vendors glm, tomlplusplus, tinyxml2, and spdlog. Window and audio subm
 
 Both are custom commands with `DEPENDS` on the tool and a `GLOB_RECURSE` of the asset tree (`CONFIGURE_DEPENDS`, so a new file retriggers configure). A missing `.meta`, a bad GUID, a GUID collision, a bad `.strings` table, or a `{tr}` key missing from the source table fails the build. The tool never writes `.meta`.
 
+`<game>_assets` is the only writer of `generated/<game>/`, and whatever includes `asset_ids.h` depends on it, so the header is complete before anything compiles against it. It is rewritten only when its content changes.
+
 `asset_guid` is a separate executable. Nothing in the default build runs it.
 
 If the game has `icon.png` at the directory that called `engine_add_game`, `icon_codegen` writes `generated/<game>/icons/`. See [Icon Codegen](Icon%20Codegen.md).
@@ -38,17 +40,18 @@ If the game has `icon.png` at the directory that called `engine_add_game`, `icon
 
 ## 4. Copy assets
 
-`engine_prepare_runtime` is a POST_BUILD on the game and on `engine_tests`:
+`<game>_stage` (`engine_prepare_runtime`) runs before the game compiles and depends on the asset files, not on the link, so an edited asset is staged even though `asset_ids.h` stays as it was and nothing relinks. It runs `asset_codegen --stage`, which writes only the staged tree: `<exe>/assets/catalog.toml` and the reachable assets. On Android, if `ENGINE_ANDROID_ASSETS_OUT` is set, it copies that tree there for Gradle. A target with `ENGINE_RUNTIME_ASSETS_FROM` (`wind_editor_tests`, which lands beside `wind_editor`) depends on the named target's stage instead of having its own.
 
-1. If the caller has an `assets/` directory, copy it beside the binary.
-2. Copy `builtin_assets/` to `<exe>/assets/engine/`.
-3. Copy the cooked engine `catalog.toml` over that tree's catalog.
-4. If the target has `ENGINE_GAME_CATALOG`, copy it to `<exe>/assets/catalog.toml`.
-5. On Android, if `ENGINE_ANDROID_ASSETS_OUT` is set, copy that `assets/` tree there for Gradle.
+`engine_runtime_<hash>` (also `engine_prepare_runtime`) is one target per output directory, and every target landing there depends on it, because `bin/` holds several (`engine_tests`, `wind_editor`, `wind_editor_tests`, the server fixture) that need the same files. A step per target would write them in parallel:
 
-In the editor build on Windows it first copies `engine.dll` beside the target. A game module built against the editor SDK ([SDK mode](CMake.md#sdk-mode)) gets only steps 1 and 4: the editor that loads it brings `engine.dll` and `assets/engine/`. In SDK mode `asset_codegen` and `icon_codegen` are the SDK's executables and the engine catalog is already cooked.
+1. Copy `builtin_assets/` to `<exe>/assets/engine/`.
+2. Copy the cooked engine `catalog.toml` over that tree's catalog.
 
-Web does not rely on that copy for the page load. `engine_target_web_preload` adds `--preload-file` mappings onto `/assets` and `/assets/engine`, including the cooked catalogs. See [Runtime Assets](Runtime%20Assets.md).
+On Android, if `ENGINE_ANDROID_ASSETS_OUT` is set, a POST_BUILD copies the whole `assets/` tree there for Gradle.
+
+In the editor build on Windows that step also copies `engine.dll` beside the targets. A game module built against the editor SDK ([SDK mode](CMake.md#sdk-mode)) gets only the stage: the editor that loads it brings `engine.dll` and `assets/engine/`. In SDK mode `asset_codegen` and `icon_codegen` are the SDK's executables and the engine catalog is already cooked.
+
+Web does not rely on that copy for the page load. `engine_target_web_preload` adds `--preload-file` mappings onto `/assets` and `/assets/engine`, including the cooked catalogs, and the asset files are `LINK_DEPENDS` of the game, so an edited asset relinks it. See [Runtime Assets](Runtime%20Assets.md).
 
 ## 5. Run
 

@@ -26,7 +26,7 @@ assets/
     textures/splash.png
 ```
 
-The `engine/` directory is a copy of `builtin_assets/` with the cooked `catalog.toml` copied over it. The game catalog is the cooked file, copied only when the target has `ENGINE_GAME_CATALOG`. A game with no `assets/` directory skips game codegen. Only the engine tree is staged.
+The `engine/` directory is a copy of `builtin_assets/` with the cooked `catalog.toml` copied over it. The game catalog and the reachable game assets come from the target `<game>_stage` (`asset_codegen --stage`). A game with no `assets/` directory skips game codegen. Only the engine tree is staged.
 
 `init` loads:
 

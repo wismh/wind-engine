@@ -5,7 +5,9 @@ Two host programs. Both link `engine` and call code that also ships in the libra
 ## `asset_codegen`
 
 ```
-asset_codegen [<assets_dir> <output_dir> [--engine]] [--components <output_file> [<source_dir>...]]
+asset_codegen <assets_dir> <output_dir> [--engine] [--project <dir>]
+asset_codegen <assets_dir> --stage <stage_dir> [--project <dir>]
+asset_codegen --components <output_file> [<source_dir>...]
 ```
 
 Usage errors exit 2. A cook error prints the message and exits 1.
@@ -19,6 +21,10 @@ Asset mode writes only:
 
 - `<output_dir>/asset_ids.h`
 - `<output_dir>/catalog.toml`
+
+A file whose content is unchanged is not written, so it keeps its timestamp and nothing that compiles against it rebuilds. Ninja's `restat` then treats the outputs as up to date.
+
+`--stage` writes only `<stage_dir>/catalog.toml` and copies the reachable assets to `<stage_dir>`, for the runtime tree beside a binary. It takes no `<output_dir>`: one run writes the generated directory or the staged tree, never both.
 
 `--components` scans C++ headers under the given directories for `struct WIND_COMPONENT` and `struct WIND_SERIALIZABLE` definitions and writes `<output_file>` (`component_io.h`).
 

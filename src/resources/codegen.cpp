@@ -20,6 +20,7 @@
 #include <span>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <unordered_map>
 #include <unordered_set>
@@ -224,6 +225,23 @@ void emit_binder(std::ostringstream& os, const std::string& name, const ui::Bind
         emit_binder(os, nested_binder_name(items_path), nested, indent + 4);
     }
     os << pad << "};\n";
+}
+
+// A file that already holds `content` keeps its timestamp, so what compiles against it stays up to date.
+std::expected<void, CodegenError> write_if_changed(const std::filesystem::path& path, std::string_view content) {
+    if (std::ifstream existing{path, std::ios::binary}) {
+        const std::string current((std::istreambuf_iterator<char>(existing)), std::istreambuf_iterator<char>());
+        if (current == content) {
+            return {};
+        }
+    }
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    out << content;
+    out.close();
+    if (!out) {
+        return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to write " + path.generic_string()});
+    }
+    return {};
 }
 
 std::expected<void, CodegenError> emit_ids_header(const std::vector<EmittedId>& ids, std::string& out) {
@@ -521,8 +539,7 @@ std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::p
 std::expected<void, CodegenError> codegen_write(const std::filesystem::path& assets_root,
         const std::filesystem::path& output_dir, std::span<const AssetId> reserved,
         std::span<const std::string> roots,
-        std::span<const std::string> always_include,
-        const std::filesystem::path& stage_dir) {
+        std::span<const std::string> always_include) {
     auto scanned = codegen_scan(assets_root, reserved, roots, always_include);
     if (!scanned) {
         return std::unexpected(std::move(scanned.error()));
@@ -534,43 +551,39 @@ std::expected<void, CodegenError> codegen_write(const std::filesystem::path& ass
         return std::unexpected(CodegenError{CodegenErrorKind::Io, create_ec.message()});
     }
 
-    const std::filesystem::path ids_path = output_dir / "asset_ids.h";
-    std::ofstream ids_out(ids_path, std::ios::trunc);
-    if (!ids_out) {
-        return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to write " + ids_path.generic_string()});
+    if (auto written = write_if_changed(output_dir / "asset_ids.h", scanned->asset_ids_header); !written) {
+        return written;
     }
-    ids_out << scanned->asset_ids_header;
+    return write_if_changed(output_dir / "catalog.toml", scanned->catalog.serialize());
+}
 
-    const std::filesystem::path catalog_path = output_dir / "catalog.toml";
-    std::ofstream catalog_out(catalog_path, std::ios::trunc);
-    if (!catalog_out) {
-        return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to write " + catalog_path.generic_string()});
+std::expected<void, CodegenError> codegen_stage(const std::filesystem::path& assets_root,
+        const std::filesystem::path& stage_dir, std::span<const AssetId> reserved,
+        std::span<const std::string> roots,
+        std::span<const std::string> always_include) {
+    auto scanned = codegen_scan(assets_root, reserved, roots, always_include);
+    if (!scanned) {
+        return std::unexpected(std::move(scanned.error()));
     }
-    const std::string catalog_serialized = scanned->catalog.serialize();
-    catalog_out << catalog_serialized;
 
-    if (!stage_dir.empty()) {
-        std::filesystem::create_directories(stage_dir, create_ec);
+    std::error_code create_ec;
+    std::filesystem::create_directories(stage_dir, create_ec);
+    if (create_ec) {
+        return std::unexpected(CodegenError{CodegenErrorKind::Io, create_ec.message()});
+    }
+    if (auto written = write_if_changed(stage_dir / "catalog.toml", scanned->catalog.serialize()); !written) {
+        return written;
+    }
+
+    for (const auto& entry : scanned->catalog.entries()) {
+        const auto src_path = assets_root / entry.relative_path;
+        const auto dst_path = stage_dir / entry.relative_path;
+        std::filesystem::create_directories(dst_path.parent_path(), create_ec);
+        std::filesystem::copy_file(src_path, dst_path,
+                std::filesystem::copy_options::overwrite_existing, create_ec);
         if (create_ec) {
-            return std::unexpected(CodegenError{CodegenErrorKind::Io, create_ec.message()});
-        }
-        const std::filesystem::path staged_catalog = stage_dir / "catalog.toml";
-        std::ofstream stage_cat_out(staged_catalog, std::ios::trunc);
-        if (!stage_cat_out) {
-            return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to write " + staged_catalog.generic_string()});
-        }
-        stage_cat_out << catalog_serialized;
-
-        for (const auto& entry : scanned->catalog.entries()) {
-            const auto src_path = assets_root / entry.relative_path;
-            const auto dst_path = stage_dir / entry.relative_path;
-            std::filesystem::create_directories(dst_path.parent_path(), create_ec);
-            std::filesystem::copy_file(src_path, dst_path,
-                    std::filesystem::copy_options::overwrite_existing, create_ec);
-            if (create_ec) {
-                return std::unexpected(CodegenError{CodegenErrorKind::Io,
-                        "failed to stage asset " + entry.relative_path + ": " + create_ec.message()});
-            }
+            return std::unexpected(CodegenError{CodegenErrorKind::Io,
+                    "failed to stage asset " + entry.relative_path + ": " + create_ec.message()});
         }
     }
     return {};
