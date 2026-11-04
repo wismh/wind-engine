@@ -5,7 +5,7 @@
 // while prediction dilates `Time::fixed_rate`) and one frame. Spawn and despawn events of each client are collected
 // per step. `client` is the first client; `add_client` adds more.
 
-#include "fixtures/simulated_link.h"
+#include "simulated_link.h"
 
 #include <engine/core/application_state.h>
 #include <engine/core/fixed_step.h>

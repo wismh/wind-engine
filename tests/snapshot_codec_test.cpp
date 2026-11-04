@@ -190,7 +190,7 @@ TEST(SnapshotCodec, PeerHeaderRoundTrip) {
 
     // The header is cut anywhere inside the peer fields.
     for (std::size_t size = 2 + 4; size < 2 + 9; ++size) {
-        ByteReader cut(std::span(bytes).first(size));
+        ByteReader cut(std::span<const std::uint8_t>(bytes).first(size));
         (void)cut.read_u16();
         EXPECT_FALSE(read_snapshot_header(cut, tick, peer)) << size;
     }
