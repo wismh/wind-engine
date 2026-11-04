@@ -76,7 +76,7 @@ To refuse to start, call `services.fatal.report(...)`: it logs the message and e
 | --- | --- |
 | `--port <1..65535>` | The port. `services.port(fallback)` answers this, else `port` in the config file, else `fallback` |
 | `--config <file>` | A TOML config file, read through `services.config`. Without it, `server.toml` beside the executable when there is one. A missing `--config` file or invalid TOML stops the start |
-| `--assets <dir>` | The cooked assets. Default: `assets` beside the executable |
+| `--assets <dir>` | The cooked assets. Default: `assets` beside the executable. A missing `--assets` directory stops the start |
 | `--help` | The list above |
 
 Anything else lands in `services.options.args` for your game, in order, as does everything after `--`.

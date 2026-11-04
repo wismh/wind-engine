@@ -106,7 +106,7 @@ A second run mode, selected by the target and its entry macro, never by `ENGINE_
 
 | Call | Does |
 | --- | --- |
-| `init()` | `log::init_stdout`, the config file, every service, the HTTP client (a failure only warns), and the engine and game catalogs with no graphic factory. Absent catalogs are fine: the engine's is read because a `.world` that names a builtin checks the id against it. Fails with `ServerConfig`, `AssetsRoot`, `EngineCatalog`, or `GameCatalog`, disposed |
+| `init()` | `log::init_stdout`, the config file, every service, the HTTP client (a failure only warns), and the engine and game catalogs with no graphic factory. Absent catalogs are fine: the engine's is read because a `.world` that names a builtin checks the id against it. An explicit `--assets` directory has to exist (`AssetsRoot`). Fails with `ServerConfig`, `AssetsRoot`, `EngineCatalog`, or `GameCatalog`, disposed |
 | `attach_game(game)` | `Worlds::set_deps` with `fatal`, `worlds`, and `jobs` only, so simulation systems register and `run_render` does not; `IGame::random_seed`. No window is bound, and `enable_ui` and `enable_audio` are never called |
 | `run(hooks)` | Installs the stop signals, runs `GameLoop`, disposes. 1 before a successful `init` |
 | `dispose()` | Stops the job pool, disposes HTTP and processes. Also run by the destructor. A second call is a no-op |

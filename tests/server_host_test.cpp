@@ -90,8 +90,9 @@ public:
 
 [[nodiscard]] ServerOptions empty_assets_options() {
     ServerOptions options;
-    // Nothing is there: both catalogs are absent, which is fine.
+    // An empty directory: both catalogs are absent, which is fine.
     options.assets = std::filesystem::temp_directory_path() / "wind_server_host_test_no_assets";
+    std::filesystem::create_directories(options.assets);
     return options;
 }
 
@@ -320,6 +321,16 @@ TEST_F(ServerHostTest, ACorruptGameCatalogFailsTheStart) {
     const auto started = host.init();
     ASSERT_FALSE(started.has_value());
     EXPECT_EQ(started.error(), EngineError::GameCatalog);
+}
+
+TEST_F(ServerHostTest, AMissingExplicitAssetsDirectoryFailsTheStart) {
+    ServerOptions options;
+    options.assets = std::filesystem::temp_directory_path() / "wind_server_host_test_assets_not_created";
+    ServerHost host{std::move(options)};
+    const auto started = host.init();
+    ASSERT_FALSE(started.has_value());
+    EXPECT_EQ(started.error(), EngineError::AssetsRoot);
+    EXPECT_EQ(host.run({}), 1);
 }
 
 TEST_F(ServerHostTest, ConfigFile) {

@@ -108,6 +108,12 @@ std::expected<void, EngineError> ServerHost::init() {
     }
     impl_->config = *std::move(config);
 
+    // A mistyped --assets would otherwise start a server with nothing to load and fail only mid-game.
+    std::error_code assets_error;
+    if (!impl_->options.assets.empty() && !std::filesystem::is_directory(impl_->options.assets, assets_error)) {
+        log::error(std::format("No assets directory at {}", display_path(impl_->options.assets)));
+        return std::unexpected(EngineError::AssetsRoot);
+    }
     impl_->assets_root = !impl_->options.assets.empty() ? impl_->options.assets
                                                         : default_assets_root(impl_->presentation.base_path());
     if (impl_->assets_root.empty()) {

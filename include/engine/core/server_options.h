@@ -19,7 +19,7 @@ struct ServerOptions {
     std::optional<std::uint16_t> port;
     // --config. Empty: `<executable dir>/server.toml` when there is one. An explicit file has to exist.
     std::filesystem::path config;
-    // --assets. Empty: `<executable dir>/assets`.
+    // --assets. Empty: `<executable dir>/assets`. An explicit directory has to exist.
     std::filesystem::path assets;
     // --help: print the usage and exit 0, without starting anything.
     bool help = false;
