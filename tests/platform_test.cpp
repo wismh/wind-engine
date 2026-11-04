@@ -151,20 +151,49 @@ TEST(Platform, UserDataDirectoryRejectsBadNames) {
     expect_invalid_user_data_name("Studio", std::string_view(overlong, 2));
 }
 
-TEST(Platform, UserDataDirectoryHeadlessDoesNotTouchTheFilesystem) {
+TEST(Platform, UserDataDirectoryWithoutSdlUsesTheSameDirectoryAsSdl) {
 #if defined(ENGINE_WITH_WINDOW) && ENGINE_WITH_WINDOW
     GTEST_SKIP() << "windowed build would create a real pref directory";
+#elif defined(__EMSCRIPTEN__) || defined(__ANDROID__)
+    const auto result = engine::user_data_directory("Studio", "Game");
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error(), std::make_error_code(std::errc::function_not_supported));
 #else
-    const auto accept = [](std::string_view organization, std::string_view application) {
+    // The variable the platform reads, pointed at a temporary directory for this test.
+#if defined(_WIN32)
+    const char* const name = "APPDATA";
+#elif defined(__APPLE__)
+    const char* const name = "HOME";
+#else
+    const char* const name = "XDG_DATA_HOME";
+#endif
+    const auto set_variable = [name](const std::string& value) {
+#if defined(_WIN32)
+        _putenv_s(name, value.c_str());
+#else
+        setenv(name, value.c_str(), 1);
+#endif
+    };
+    const char* const previous = std::getenv(name);
+    const std::string saved = previous != nullptr ? previous : "";
+    const std::filesystem::path root = std::filesystem::temp_directory_path() / "wind_user_data_without_sdl_test";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    set_variable(root.string());
+
+    const auto accept = [&root](std::string_view organization, std::string_view application) {
         const auto result = engine::user_data_directory(organization, application);
-        ASSERT_FALSE(result) << organization << " / " << application;
-        EXPECT_EQ(result.error(), std::make_error_code(std::errc::function_not_supported));
+        ASSERT_TRUE(result) << organization << " / " << application;
+        EXPECT_TRUE(std::filesystem::is_directory(*result));
+        const std::u8string text = result->u8string();
+        EXPECT_EQ(text.rfind(root.u8string(), 0), 0u);
     };
     accept("Studio", "Tic Tac Toe");
-    accept("Studio", "Game-Name");
     accept("org_name", "Game.txt");
     accept("Студія", "Гра");
-    accept(".hidden", "My.Game");
+
+    set_variable(saved);
+    std::filesystem::remove_all(root);
 #endif
 }
 

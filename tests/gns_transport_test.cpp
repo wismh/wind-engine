@@ -2,7 +2,7 @@
 
 #include <engine/net/gns_transport.h>
 
-#if defined(_WIN32)
+#if defined(ENGINE_WITH_GNS)
 
 #include <engine/core/fixed_step.h>
 #include <engine/core/time.h>
@@ -172,7 +172,7 @@ TEST(GnsTransport, PayloadAboveTheMessageLimitArrivesWhole) {
 
 namespace engine::net {
 
-TEST(GnsTransport, UnsupportedOnNonWindows) {
+TEST(GnsTransport, UnsupportedWithoutGns) {
     GnsTransport server;
     EXPECT_FALSE(server.start_server(27015));
     EXPECT_FALSE(server.connect("127.0.0.1", 27015));
