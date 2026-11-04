@@ -23,7 +23,7 @@ Within each schedule, systems execute sequentially across predefined phases (`en
                          Client (after install_net_client): reconcile, collect input, step predicted entities
 2. Phase::Physics    --> Engine: run_physics_2d (velocity integration, collision events)
 3. Phase::Game       --> Fixed gameplay logic, enemy AI, simulation steps
-4. Phase::NetSend    --> Server (after install_net_server): send snapshots
+4. Phase::NetSend    --> Server (after install_net_server): send snapshots, then queued payloads
                          Client (after install_net_client): send inputs
 ```
 
