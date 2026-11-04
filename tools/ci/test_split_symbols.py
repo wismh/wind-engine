@@ -80,6 +80,15 @@ class Split(unittest.TestCase):
             moved = quiet(split_symbols.split, "windows", sdk, Path(directory) / "symbols", strip_command())
             self.assertEqual([path.as_posix() for path in moved], ["bin/engine.pdb"])
 
+    def test_a_library_too_small_to_save_enough_is_never_stripped(self):
+        with tempfile.TemporaryDirectory() as directory:
+            sdk = make_sdk(directory)
+            split_symbols.MIN_SAVING = 1 << 30
+            # The way llvm-strip answers an import library: a stripped one would fail the whole split.
+            refuses = [sys.executable, "-c", "import sys; sys.exit(1)"]
+            moved = quiet(split_symbols.split, "windows", sdk, Path(directory) / "symbols", refuses)
+            self.assertEqual([path.as_posix() for path in moved], ["bin/engine.pdb"])
+
     def test_the_manifest_names_the_sdk(self):
         with tempfile.TemporaryDirectory() as directory:
             sdk = make_sdk(directory)
