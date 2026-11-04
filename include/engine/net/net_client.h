@@ -72,8 +72,9 @@ private:
 // A second call only replaces the transport and config.
 void install_net_client(ecs::World& world, INetworkTransport& transport, NetClientConfig config = {});
 
-// Polls the transport: Welcome, snapshots (decoded into the buffer and acknowledged), and other messages to
-// `dispatcher()`. A lost connection despawns every replicated entity.
+// Polls the transport: Welcome, snapshots (decoded into the buffer and acknowledged), payload fragments (a whole
+// payload goes to `dispatcher()` and is acknowledged), and other messages to `dispatcher()`. A lost connection
+// despawns every replicated entity and drops unfinished payloads. A malformed payload stream disconnects.
 void run_net_client_receive(ecs::World& world);
 
 // Advances the clock by `Time::delta_time` and puts the world at `render_tick`: spawns the entities of the

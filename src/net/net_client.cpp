@@ -3,6 +3,7 @@
 #include "net/input_lead.h"
 #include "net/input_message.h"
 #include "net/net_schema.h"
+#include "net/payload_assembler.h"
 #include "net/snapshot_buffer.h"
 #include "net/snapshot_clock.h"
 #include "net/snapshot_codec.h"
@@ -53,6 +54,9 @@ struct NetClient::Impl {
     SnapshotBuffer buffer{};
     SnapshotClock clock{};
     std::map<NetId, Live> live{};
+    PayloadAssembler payloads{};
+    // A malformed payload stream ended this connection; what is still in the same poll is ignored.
+    bool payloads_refused{false};
 
     Tick predicted{kNoTick};
     bool replaying{false};
@@ -127,6 +131,7 @@ void install_net_client(ecs::World& world, INetworkTransport& transport, NetClie
     NetClient::Impl& client = *world.ctx<NetClient>().impl_;
     client.transport = &transport;
     client.config = config;
+    client.payloads.set_limit(config.max_payload_bytes);
     (void)world.ctx<ReplicationRegistry>();
     (void)world.ctx<NetEntityMap>();
     if (client.systems_installed) {
@@ -194,6 +199,8 @@ void forget_server(ecs::World& world, NetClient::Impl& client) {
     client.live.clear();
     client.buffer.clear();
     client.clock.reset();
+    client.payloads.clear();
+    client.payloads_refused = false;
     client.welcomed = false;
     client.local_peer = kInvalidPeerId;
     client.newest = kNoTick;
@@ -255,24 +262,13 @@ void receive_snapshot(ecs::World& world, NetClient::Impl& client, ByteReader& re
         return;
     }
     Tick tick = kNoTick;
-    Tick baseline_tick = kNoTick;
     SnapshotPeerHeader peer;
-    if (!read_snapshot_header(reader, tick, baseline_tick, peer)) {
+    if (!read_snapshot_header(reader, tick, peer)) {
         return;
     }
     if (client.buffer.find(tick) == nullptr) {
-        const SnapshotState* baseline = nullptr;
-        if (baseline_tick != kNoTick) {
-            baseline = client.buffer.find(baseline_tick);
-            if (baseline == nullptr) {
-                return;
-            }
-        }
-        auto state = decode_snapshot(reader, tick, baseline_tick, baseline, world.ctx<ReplicationRegistry>().size());
-        if (!state.has_value()) {
-            return;
-        }
-        if (!client.buffer.insert(std::make_shared<const SnapshotState>(std::move(*state)))) {
+        auto delta = decode_snapshot(reader, tick, world.ctx<ReplicationRegistry>().size());
+        if (!delta.has_value() || !client.buffer.insert(std::move(*delta))) {
             return;
         }
         if (tick > client.newest) {
@@ -285,6 +281,28 @@ void receive_snapshot(ecs::World& world, NetClient::Impl& client, ByteReader& re
     ack.write_u32(tick);
     MessageDispatcher::send(
             *client.transport, kServerPeerId, kSnapshotAckMessageId, ack.bytes(), DeliveryMode::Unreliable);
+}
+
+void receive_payload_message(NetClient::Impl& client, MessageId id, ByteReader& reader) {
+    if (!client.welcomed || client.payloads_refused) {
+        return;
+    }
+    PayloadAssembler::Result result = id == kPayloadBeginMessageId      ? client.payloads.begin(reader)
+                                      : id == kPayloadFragmentMessageId ? client.payloads.fragment(reader)
+                                                                        : client.payloads.cancel(reader);
+    if (result.error.has_value()) {
+        log::error("net: malformed payload from the server: " + *result.error + "; disconnecting");
+        client.payloads_refused = true;
+        client.transport->disconnect(kServerPeerId);
+        return;
+    }
+    if (result.done.has_value()) {
+        (void)client.dispatcher.dispatch(kServerPeerId, result.done->message);
+        ByteWriter ack;
+        ack.write_u32(result.done->id);
+        MessageDispatcher::send(
+                *client.transport, kServerPeerId, kPayloadAckMessageId, ack.bytes(), DeliveryMode::ReliableOrdered);
+    }
 }
 
 } // namespace
@@ -314,6 +332,9 @@ void run_net_client_receive(ecs::World& world) {
                 receive_welcome(world, client, reader);
             } else if (*id == kSnapshotMessageId) {
                 receive_snapshot(world, client, reader);
+            } else if (*id == kPayloadBeginMessageId || *id == kPayloadFragmentMessageId ||
+                       *id == kPayloadCancelMessageId) {
+                receive_payload_message(client, *id, reader);
             } else if (*id < kEngineMessageFirst || *id > kEngineMessageLast) {
                 client.dispatcher.dispatch(event.peer_id, event.payload);
             }

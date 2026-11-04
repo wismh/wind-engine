@@ -44,6 +44,14 @@ public:
     void set_drop(DropFn drop) {
         drop_ = std::move(drop);
     }
+    // What `pending_send_bytes` reports for every peer.
+    void set_pending_send_bytes(std::size_t bytes) {
+        pending_send_bytes_ = bytes;
+    }
+    // While true, a reliable send fails as a full send buffer does, and nothing is recorded.
+    void set_refuse_reliable(bool refuse) {
+        refuse_reliable_ = refuse;
+    }
     // While held, unreliable messages wait; `release` delivers them now, newest first when `reversed`.
     void hold() {
         holding_ = true;
@@ -89,6 +97,9 @@ public:
         (void)channel;
         const std::size_t index = sent_.size();
         const bool reliable = mode == DeliveryMode::ReliableOrdered;
+        if (reliable && refuse_reliable_) {
+            return false;
+        }
         const bool dropped = !reliable && drop_ && drop_(index, data);
         sent_.push_back(Sent{.target = target, .bytes = {data.begin(), data.end()}, .mode = mode, .dropped = dropped});
         if (dropped) {
@@ -127,6 +138,9 @@ public:
     [[nodiscard]] float rtt_ms(PeerId peer_id) const override {
         return inner_.rtt_ms(peer_id) < 0.0f ? -1.0f : static_cast<float>(2.0 * latency_ms_);
     }
+    [[nodiscard]] std::size_t pending_send_bytes(PeerId /*peer_id*/) const override {
+        return pending_send_bytes_;
+    }
 
 private:
     struct Pending {
@@ -159,6 +173,8 @@ private:
     std::uint32_t jitter_ms_{0};
     std::minstd_rand random_{1};
     DropFn drop_{};
+    std::size_t pending_send_bytes_{0};
+    bool refuse_reliable_{false};
     bool holding_{false};
     std::uint64_t next_order_{0};
     std::vector<Pending> queue_{};

@@ -108,7 +108,7 @@ No libcurl header or library is needed to build: `src/net/curl_api.h` declares t
 
 ## Realtime
 
-Realtime networking and entity replication live in `namespace engine::net`. The server is authoritative: it simulates on the fixed step and sends snapshots of replicated components; a client shows them interpolated, slightly in the past. A client steers the entities it owns with inputs and predicts them ahead of the server ([Input and prediction](#input-and-prediction)). Per-peer relevance and send budgets (wind-309) and a dedicated server run mode (wind-310) come later.
+Realtime networking and entity replication live in `namespace engine::net`. The server is authoritative: it simulates on the fixed step and sends snapshots of replicated components; a client shows them interpolated, slightly in the past. A client steers the entities it owns with inputs and predicts them ahead of the server ([Input and prediction](#input-and-prediction)). Each peer is told only what is relevant to it ([Interest](#interest)), within a send budget ([Budget](#budget)), and large reliable messages go through a paced queue ([Reliable payloads](#reliable-payloads)). A dedicated server run mode (wind-310) comes later.
 
 ### Transport
 
@@ -116,7 +116,7 @@ Realtime networking and entity replication live in `namespace engine::net`. The 
 
 | Type | Role |
 | --- | --- |
-| `INetworkTransport` | `start_server`, `connect`, `disconnect`, `stop`, `send`, `poll_events`, `rtt_ms`. Main thread only |
+| `INetworkTransport` | `start_server`, `connect`, `disconnect`, `stop`, `send`, `poll_events`, `rtt_ms`, `pending_send_bytes`. Main thread only |
 | `GnsTransport` | IP/UDP through Valve's GameNetworkingSockets (prebuilt Windows `.lib`; elsewhere every call fails) |
 | `SteamTransport` | Steam P2P through SteamNetworkingSockets, SteamID64 addresses |
 | `LoopbackTransport`, `LoopbackBus` | In-process transport for tests: `send` queues the bytes on the other end at once, ignores `DeliveryMode`, and `rtt_ms` is 0 |
@@ -126,7 +126,7 @@ Realtime networking and entity replication live in `namespace engine::net`. The 
 
 No delivery mode orders unreliable messages. `UnreliableImmediate` is `k_nSteamNetworkingSend_UnreliableNoNagle` on GNS: unreliable, sent without the Nagle delay. A receiver of unreliable data orders it itself; snapshots carry their tick. The `channel` argument is ignored by every transport.
 
-A GNS unreliable message may be larger than one UDP packet (up to 512 KiB): GNS splits it, and when any piece is lost the whole message is lost. Nothing in the engine fragments messages yet (wind-309).
+A GNS message of any mode may be up to 512 KiB (`k_cbMaxSteamNetworkingSocketsMessageSizeSend`), and `send` fails once 512 KiB wait unsent (`k_ESteamNetworkingConfig_SendBufferSize`). An unreliable message larger than one UDP packet is split, and when any piece is lost the whole message is lost, so snapshots stay within one packet ([Budget](#budget)). Unsent bytes go out in the order they were queued at GNS's send rate (256 KiB/s by default): whatever waits there delays the next snapshot. `pending_send_bytes` reports them (`m_cbPendingReliable + m_cbPendingUnreliable`; 0 on loopback), and the payload queue stays behind that ([Reliable payloads](#reliable-payloads)).
 
 ### Messages
 
@@ -184,29 +184,118 @@ engine::net::register_replicated<Health>(
 
 `Phase::NetReceive` opens both schedules and `Phase::NetSend` closes `Fixed` ([ECS](ECS.md#systems-and-schedules)), so one server tick brackets the whole fixed step and a client's frame systems already see this frame's replicated state. The game owns the transport and keeps it alive while the world runs; `NetServer` and `NetClient` never touch it from their destructors. A second `install_*` call replaces the transport and config without adding systems again.
 
-`world.ctx<NetServer>()`: `tick()`, `config()`, `dispatcher()`, `peers()`, `acked_tick(peer)`, `input_stats(peer)`, `input_tick(peer)`. `world.ctx<NetClient>()`: `welcomed()`, `local_peer()`, `newest_tick()`, `render_tick()`, `buffered_ticks()`, `dispatcher()`, `predicted_tick()`, `replaying()`, `is_predicted(id)`, `input_slack()`, `server_input_tick()`, `prediction_stats()`.
+`world.ctx<NetServer>()`: `tick()`, `config()`, `dispatcher()`, `peers()`, `acked_tick(peer)`, `input_stats(peer)`, `input_tick(peer)`, `set_peer_focus(peer, focuses)`, `peer_stats(peer)`, `send_payload`, `cancel_payload`, `set_payload_priority`, `payload_progress`, `queued_payload_bytes(peer)`. `world.ctx<NetClient>()`: `welcomed()`, `local_peer()`, `newest_tick()`, `render_tick()`, `buffered_ticks()`, `dispatcher()`, `predicted_tick()`, `replaying()`, `is_predicted(id)`, `input_slack()`, `server_input_tick()`, `prediction_stats()`.
 
 The client's two `Fixed` systems do nothing without a prediction channel, so a client that only watches is as before: every replicated entity is interpolated.
 
-Events (each in its own header): `NetPeerConnectedEvent`, `NetPeerDisconnectedEvent` on both sides; on the client, `NetEntitySpawnedEvent{entity, net_id}` (replicated components already applied; the game adds sprite, mesh, sound) and `NetEntityDespawnedEvent{entity, net_id}` (sent as the entity is destroyed, so it is dead when read).
+Events (each in its own header): `NetPeerConnectedEvent`, `NetPeerDisconnectedEvent` on both sides; on the client, `NetEntitySpawnedEvent{entity, net_id}` (replicated components already applied; the game adds sprite, mesh, sound) and `NetEntityDespawnedEvent{entity, net_id}` (sent as the entity is destroyed, so it is dead when read); on the server, `NetPayloadDeliveredEvent{peer, id}`.
 
 ### Server ticks
 
-`run_net_server_receive` polls the transport: a new peer is added and sent Welcome, a lost one is dropped, an ack is recorded, inputs are buffered ([Server input buffer](#server-input-buffer)), other messages go to `dispatcher()`. Then it advances the tick: the first fixed step is tick 1, `kNoTick` (0) means none yet. With a prediction channel it steps every controlled entity with its input for that tick. Physics and `Game` systems simulate the rest of the tick. `run_net_server_send` unbinds destroyed entities from `NetEntityMap`; on every `snapshot_interval`-th tick (default 2: 30 snapshots a second at the 60 Hz step) it captures every entity with `NetIdentity` once and sends each peer a snapshot tagged with the tick.
+`run_net_server_receive` polls the transport: a new peer is added and sent Welcome, a lost one is dropped, an ack is recorded, inputs are buffered ([Server input buffer](#server-input-buffer)), a payload ack becomes an event, other messages go to `dispatcher()`. Then it advances the tick: the first fixed step is tick 1, `kNoTick` (0) means none yet. With a prediction channel it steps every controlled entity with its input for that tick. Physics and `Game` systems simulate the rest of the tick. `run_net_server_send` unbinds destroyed entities from `NetEntityMap`; on every `snapshot_interval`-th tick (default 2: 30 snapshots a second at the 60 Hz step) it captures every entity with `NetIdentity` once and sends each peer a snapshot tagged with the tick. Then, on every tick, it sends each peer's queued payloads from what is left of its budget.
 
 A world whose `Fixed` schedule does not run (paused, not stepping) neither polls the server transport nor sends snapshots; events wait in the transport. `Tick` is `u32`: it wraps after about 2.2 years at 60 Hz, which nothing handles.
 
-### Snapshots, delta and ack
+### Snapshots and acks
 
-A snapshot is the full replicated state at a tick: every entity, its owner, and each registered component as encoded bytes. On the wire it is a delta against a baseline:
+A snapshot tells a peer what changed. `capture_snapshot` encodes every entity once per send tick (an entity whose bytes did not change shares the previous capture's blobs, so comparing it is one pointer compare), and each peer's message is built from that one capture: blobs are never serialized per peer. A message is at most `snapshot_budget_bytes`.
 
-- Each peer has `acked`, the newest snapshot it acknowledged, and the snapshots it was sent within the last `kSnapshotWindowTicks` (128) ticks. The capture is shared by all peers (wind-309 makes it per peer).
-- The baseline is the acked snapshot while it is inside that window; otherwise (no ack yet, or too old) the server sends a full snapshot (baseline `kNoTick`).
-- The delta lists entities in the baseline and gone now, and for each entity that changed: new (with owner), owner changed, the slots whose bytes differ or are new, and the slots it lost. An unchanged entity is not written.
-- The client decodes against the baseline in its buffer, stores the full state, and acks the tick (`SnapshotAck`, unreliable). It drops a snapshot whose baseline it does not hold, or that is malformed, without an ack; the server then keeps the older baseline, and falls back to a full snapshot once that leaves the window. The client keeps snapshots within the same 128 ticks of its newest, so a baseline the server may use is always still held.
-- An ack counts only for a snapshot that peer was sent and the server still holds, and only when newer than the current one.
+#### What a peer has
 
-Snapshots are not compressed: delta encoding is the saving, and LZ4 on 50-1200 bytes of floats gains little for its cost per peer per tick. Values are not quantized. A snapshot above `kSnapshotMtuBudget` (1200 bytes, about 23 moving `Transform`s) is still sent; the server logs one warning per peer. GNS splits it and loses all of it when any piece is lost; a big full snapshot (a join) keeps being resent until one is acked. Budgets and fragmentation are wind-309.
+`PeerGhosts` (`src/net/peer_ghosts.h`), one per peer, tracks each relevant entity on its own. There is no whole-state baseline. wind-307 had one, and it cannot survive snapshots that leave entities out: with T0 and T1 both decoded against the acked B and T1 omitting what T0 wrote, the client's state at T1 takes those entities back to B, and an entity new in T0 despawns. With three snapshots in flight at 100 ms that happens constantly. Repeating in-flight writes until acked does not fix it either: a moving entity is always in flight, so it would never release its budget.
+
+A slot's bytes are a whole value, so nothing needs a base to decode:
+
+- The client derives `state(T)` = the state before T with T's records on top, in tick order. A record writes the slots it names and removes the slots it lost; everything else carries forward. So slots and existence are last-write-wins by tick, and an omitted entity simply keeps its value.
+- A snapshot arriving late is put in its place and the states after it are derived again (`SnapshotBuffer`), so arrival order does not matter. A state leaving the 128-tick window (`kSnapshotWindowTicks`) lives on in the states after it; one older than that is dropped unacknowledged.
+- A ghost holds `latest` (the entity as last written), `since[slot]` and `owner_since` (the tick each current value was first written) and `confirmed` (the newest acked snapshot that wrote this entity). **A slot is clean when `current == latest[slot]` and `confirmed >= since[slot]`.** Otherwise it is dirty, and a record writes all of the entity's dirty slots together.
+- Every ack counts, whatever order it arrives in, if that peer was sent the snapshot and it is inside the window. A lost ack only costs rewrites until a later one lands.
+- `since` is what makes a value that comes back safe. The server goes A, C, A; C reached the client but its ack was lost; comparing with the last acknowledged A would call the slot clean and leave the client on C. Here A's `since` is newer than `confirmed`, so A keeps being written until a snapshot with it is acked.
+- A new ghost has `confirmed = 0`, so the whole entity with its owner is written until acked. Once `confirmed` covers the create, a record can leave the owner out, and the client must then hold the entity: an update without an owner for an unknown entity is refused on first insert (no ack). During a re-derive that record is skipped.
+- A ghost that leaves relevance (or whose entity is destroyed) is listed in `removed` until a snapshot listing it is acked, then erased. One the peer never heard of is erased silently. A removed id the client does not hold is normal: its create may have been lost. Coming back before the ack starts over: all `since` move to now, so an ack from before says nothing.
+
+The client acks every snapshot it holds (`SnapshotAck`, unreliable). `acked_tick(peer)` is the newest acknowledged.
+
+Snapshots are not compressed: writing only what is dirty is the saving, and LZ4 on 50-1200 bytes of floats gains little for its cost per peer per tick. Values are not quantized.
+
+### Interest
+
+`include/engine/net/net_interest.h`, `net_always_relevant.h`; `src/net/relevance_grid.h`.
+
+`NetServerConfig::interest` says which entities each peer is told about. The default tells everyone everything.
+
+```cpp
+engine::net::NetServerConfig config;
+config.interest.cell_size = 16.0f;      // a chunk
+config.interest.radius_cells = 6;
+config.interest.leave_margin_cells = 1;
+config.interest.relevant = [](const engine::ecs::World& w, engine::ecs::Entity e, engine::net::PeerId peer) { ... };
+engine::net::install_net_server(world, transport, std::move(config));
+```
+
+An entity is relevant to a peer, at each send, when any of these holds:
+
+1. **The peer owns it.** Prediction depends on it; nothing can turn this off.
+2. It has `NetAlwaysRelevant`.
+3. It passes the grid and `relevant`: with no grid (`cell_size <= 0`) only `relevant`, with neither everything. An entity whose root has no `Transform` has no place in the grid and passes it.
+4. A relevant entity hangs from it (see below).
+
+The grid is rebuilt once per send tick, from each entity's **root** `Transform.position` (a child's own `Transform` is local), so a tree moves as one. A peer looks from its focuses: the root position of everything it owns, plus `set_peer_focus(peer, points)` for a spectator camera or the like. An entity enters within `radius_cells` of a focus on every axis (Chebyshev), and once relevant stays `leave_margin_cells` further, so one on the edge does not flap. A peer with no focus sees only rules 1, 2, 4 and what has no place in the grid.
+
+Entering and leaving fit the snapshot model unchanged: the entity appears in or disappears from that peer's states, so `NetEntitySpawnedEvent` and `NetEntityDespawnedEvent` happen on the render timeline as for any other. A reentering entity is written whole, with its current values.
+
+**Parents.** A relevant child pulls in its replicated ancestors, whatever the filter says: without them the client would place the child in the wrong space. It does not go the other way, so `relevant` can keep a parent's attachments from a peer. A new child goes out in the same snapshot as any ancestor that was never written. A custom component's `write_entity` reference to an entity that is not relevant arrives unresolved, and resolves by itself when it becomes relevant, since components are applied every frame.
+
+**Cost, per send tick.** Capture and grid rebuild once: O(E) serialization, O(E log E) sorting. Per peer: cell marking at the cheaper of `(2r+1)^3` probes or a scan of the occupied cells, per focus; an O(E) sweep of byte marks; `relevant` at most once per candidate; an O(ghosts) walk with a pointer compare for what did not change. A sort only when the snapshot does not fit.
+
+### Budget
+
+`NetServerConfig`: `snapshot_budget_bytes` (1200, `kSnapshotMtuBudget`: one UDP packet, about 23 moving `Transform`s), `peer_bytes_per_second` (192 KiB, under GNS's 256 KiB), `payload_min_share` (0.1), `payload_aging_per_second` (1), `transport_backlog_bytes` (8 KiB). `NetServer::peer_stats(peer)` gives `relevant`, `deferred`, `last_snapshot_bytes`, `payload_bytes_sent`.
+
+Each fixed tick, per peer: `credit` earns `peer_bytes_per_second / 60` (capped at two snapshot intervals' worth, at least two fragments). On a snapshot tick the snapshot goes first and unconditionally. Then payload fragments go while `credit` covers them.
+
+A snapshot may take `min(snapshot_budget_bytes, (1 - payload_min_share) * rate per tick * snapshot_interval)`. When everything dirty fits, all of it goes, as without a budget. Otherwise each dirty entity's accumulator grows by its weight (`NetInterest::priority`, or `1 / (1 + cells to the nearest focus)`, clamped to 0.01..1), and the snapshot is filled in this order:
+
+1. Owned entities when a prediction channel exists. They are never deferred, because reconciliation reads their state at the newest tick. Without a channel an owned entity ranks at the top weight and can wait.
+2. The entity with the largest accumulator (ties to the lowest id), whatever its size, so a large record cannot wait forever.
+3. Removals, least recently listed first, up to a quarter of what is left while records wait.
+4. The rest by accumulator, first-fit.
+
+A written entity's accumulator goes back to 0. A snapshot goes over its budget only for 1 and 2; the server logs one warning per peer, and GNS splits it.
+
+Guarantees:
+
+- **Entities.** A dirty entity's accumulator grows at least 0.01 a send while anything written resets, and the top always goes, so it is written within O(N * 100) sends at worst, and in about N / (records per snapshot) sends with even weights. Under pressure, a write that may have been lost competes as any other; nothing is pinned until acked.
+- **Snapshots** are never held back by payloads: first each tick, unconditional, and the transport's queue ahead of them is kept short ([Reliable payloads](#reliable-payloads)).
+- **Payloads** always get `payload_min_share` of the rate: a snapshot is debited at most its allowance, even when mandatory records take it over, so in that one case the rate is exceeded. And a low priority ages past any stream of higher ones.
+
+A deferred entity holds its last value and moves over one snapshot interval when written. It does not go back and does not flap.
+
+### Reliable payloads
+
+`NetServer::send_payload`, `<engine/net/net_payload_options.h>`, `net_payload_id.h`, `net_payload_progress.h`, `net_payload_delivered_event.h`; `src/net/payload_queue.h`, `payload_assembler.h`.
+
+For large reliable data: chunks, a map. A payload is a game message of any size, under a game `MessageId`, and the client gets it through the same `dispatcher()` handler as any other message:
+
+```cpp
+// Server. Compress on a job, once for all peers.
+auto chunk = std::make_shared<const std::vector<std::uint8_t>>(engine::compress(raw));
+const engine::net::PayloadId id = net.send_payload(peer, kChunkMessage, chunk, {.priority = -distance, .compressed = true});
+net.set_payload_priority(id, -new_distance);
+net.cancel_payload(id);
+
+// Client. The handler sees the raw bytes.
+client.dispatcher().register_handler(kChunkMessage, [](engine::net::PeerId, engine::net::ByteReader& in) { ... });
+```
+
+- **Order.** Highest `priority + age * payload_aging_per_second` next, ties to the older. Re-evaluated per fragment, so a new or re-prioritized payload preempts at a fragment boundary. Payloads may finish in any order, relative to each other and to messages sent straight through the transport (which bypass the budget, so keep those small).
+- **Fragments.** At most `kPayloadFragmentBytes` (1024) of data per reliable message. GNS's 512 KiB limit is not what forces this at chunk size: one large message would sit in the transport's queue and delay the snapshots behind it, could not be cancelled or preempted, and could not be paced. It also lifts the limit: up to 4 GiB, whatever the client's `max_payload_bytes` allows.
+- **Backpressure.** No fragment goes while the transport holds `transport_backlog_bytes` unsent for that peer, so a slow or lossy link slows the terrain and not the movement. A `send` that fails (GNS's send buffer) is tried again later, with the same fragment.
+- **Arrival.** The client acks after its handler ran; the server sends `NetPayloadDeliveredEvent{peer, id}`. `payload_progress(id)` is `{sent_bytes, total_bytes, awaiting_ack}`, nullopt afterwards. `queued_payload_bytes(peer)` lets a game pace what it queues.
+- **Cancel.** A payload not started sends nothing; one partly sent sends PayloadCancel so the client frees the part. If the last byte has already gone, the client's handler may still run; no event follows.
+- **Disconnect** drops everything on both sides, with no event: `NetPeerDisconnectedEvent` is the signal, and a new connection is a new peer.
+- **Compression is the game's.** The engine never compresses: LZ4 on the main thread per peer is wasteful, and only the game knows its data. `compress` is callable from a job ([Core](Core.md#compression)). With `.compressed = true` the flag travels on the wire and the client decompresses, under `max_payload_bytes`, before the handler.
+- **Malformed.** The stream is reliable and ordered, so a bad message means the two sides disagree: the client logs an error and disconnects. That covers truncation, a fragment of nothing or at the wrong offset, bytes beyond the declared size, a duplicate begin, an engine message id, unknown flags, a size over `NetClientConfig::max_payload_bytes` (default 64 MiB), unfinished bytes over it, more than `PayloadAssembler::kMaxOpen` unfinished, and bytes that do not decompress. Memory grows as bytes arrive, never from a claimed size. On the server, an ack from another peer or for an unknown id is ignored.
 
 ### Client clock and interpolation
 
@@ -331,10 +420,14 @@ Little-endian. Every message starts with its `u16` id.
 
 | Id | Message | Direction | Delivery | Fields after the id |
 | --- | --- | --- | --- | --- |
-| `0x0100` | Welcome | server to client | `ReliableOrdered` | `u16` protocol (`kNetProtocolVersion`, 2), `u32` schema hash, `u16` tick rate (60), `u16` snapshot interval, `u64` the client's `PeerId`, `u32` server tick. 20 bytes |
+| `0x0100` | Welcome | server to client | `ReliableOrdered` | `u16` protocol (`kNetProtocolVersion`, 3), `u32` schema hash, `u16` tick rate (60), `u16` snapshot interval, `u64` the client's `PeerId`, `u32` server tick. 20 bytes |
 | `0x0101` | Snapshot | server to client | `UnreliableImmediate` | see below |
 | `0x0102` | SnapshotAck | client to server | `Unreliable` | `u32` tick. 4 bytes |
 | `0x0103` | Input | client to server | `UnreliableImmediate` | see below |
+| `0x0104` | PayloadBegin | server to client | `ReliableOrdered` | `u32` id, `u16` game message id, `u8` flags (bit 0 compressed), `u32` total bytes, then up to 1024 data bytes |
+| `0x0105` | PayloadFragment | server to client | `ReliableOrdered` | `u32` id, `u32` offset (exactly the bytes received so far), then up to 1024 data bytes |
+| `0x0106` | PayloadCancel | server to client | `ReliableOrdered` | `u32` id. 4 bytes |
+| `0x0107` | PayloadAck | client to server | `ReliableOrdered` | `u32` id. 4 bytes |
 
 A client ignores snapshots until Welcome; a protocol or schema mismatch disconnects. The schema hash is `ReplicationRegistry::schema_hash`, then, with a prediction channel, `"input:"` and its name folded in (FNV-1a).
 
@@ -343,19 +436,18 @@ Snapshot, after the id:
 | Field | Size |
 | --- | --- |
 | tick | `u32` |
-| baseline tick (`kNoTick`: full; otherwise older than tick) | `u32` |
 | input tick: the newest tick that ran with this peer's own input (`kNoTick`: none) | `u32` |
 | input slack: how many ticks early this peer's inputs arrived, clamped to ±127 (`kNoInputSlack`, -128: none arrived since its previous snapshot) | `i8` |
 | removed count, then each removed `NetId` | `u16` + 4 each |
 | entity record count | `u16` |
 | per record: `NetId` | `u32` |
 | flags: bit 0 owner follows, bit 1 removed mask follows | `u8` |
-| owner (a new entity always has it) | `u64` |
+| owner (always, until the server knows the client holds the entity) | `u64` |
 | changed slots mask | `u32` |
 | removed slots mask | `u32` |
 | per changed slot, ascending: byte length, bytes | `u16` + n |
 
-A `Transform` is 40 bytes and a `Parent` 4. A moving entity whose `Parent` did not change is a 51-byte record; a new entity with both is 65. The fields before the removed list are 13 bytes. The client rejects the whole snapshot on truncation, trailing bytes, a slot outside its registry, a slot both changed and removed, an unknown removed id, or a new entity without an owner.
+A `Transform` is 40 bytes and a `Parent` 4. A moving entity whose `Parent` did not change is a 51-byte record; a new entity with both is 65. The fields before the removed list are 9 bytes, so an empty message is 15 with its id and two counts. The client rejects the whole snapshot, without an ack, on truncation, trailing bytes, a slot outside its registry, a slot both changed and removed, an id both removed and written, or a record without an owner for an entity it does not hold.
 
 Input, after the id (`src/net/input_message.h`):
 
@@ -371,7 +463,14 @@ Input, after the id (`src/net/input_message.h`):
 
 Retries, resuming, and writing files are the game's: the engine gives it the sink, `Range`, and the error codes to do them. Connections are not reused between requests on any backend yet.
 
-Realtime: no per-peer relevance, send budget or fragmentation (wind-309), no dedicated server run mode and no Linux GameNetworkingSockets build (wind-310). Snapshots are neither compressed nor quantized.
+Realtime: no dedicated server run mode and no Linux GameNetworkingSockets build (wind-310). Snapshots are neither compressed nor quantized.
+
+Interest and budget, known follow-ups:
+
+- **A deferred entity hops.** Under budget pressure it holds, then moves over one snapshot interval (33 ms), because interpolation runs between adjacent snapshots. It never goes back, but far entities visibly stutter. Gliding over the interpolation delay needs a per-entity value tick and a forward scan of the buffer.
+- **Despawn has no reason.** `NetEntityDespawnedEvent` does not say whether the entity left relevance or was destroyed, so do not hang a death effect on it. A game signals death through its own replicated component (a `Dead` flag, seen before the despawn) or its own message.
+- **Payloads go server to client only.** A client sends large data by splitting it into its own messages.
+- GNS lanes are not used: pacing and the backlog limit keep snapshots ahead of payloads instead. `snapshot_interval` is the same for every peer, and the rate is configured rather than measured.
 
 Prediction, known follow-ups:
 
@@ -385,15 +484,19 @@ Prediction, known follow-ups:
 
 `tests/http_test.cpp`: call ownership and cancel, delivery only on `deliver`, results from another thread, abort once, the worker pool (off the main thread, cancelled while queued, cancelled while running), the body path (sink only for 2xx, abort, progress, queue order and backpressure, cancel waking a paused transfer, cancel waiting for a running sink, a `Main` sink seeing the body before the result), `StallWatch`, Content-Length parsing, `curl_transfer` against a fake libcurl (headers and redirect blocks, sink and 404, option mapping, redirect policy, cancel, idle timeout, error codes), URL and header parsing, `InvalidUrl` and `Unsupported` through `HttpClient`, and `init` per platform. No test opens a socket. The Windows backend was also run by hand against a local server (a 20 MiB download on both sink threads, redirect on and off, 404, stall, DNS and TLS errors), and `curl_transfer` was run the same way through Git for Windows' real libcurl 8.18 (the option numbers and callbacks are the same on every platform). The `dlopen` loader and the Linux and macOS client branch were only syntax-checked, with clang, not run.
 
-Realtime, all deterministic over `LoopbackTransport`: `tests/fixtures/simulated_link.h` wraps it with virtual time, latency, seeded jitter (which reorders), scripted or seeded loss of unreliable messages, and holding messages back to release them in reverse; `tests/fixtures/net_harness.h` runs a server world and a client world over two such links, one 60 Hz frame per `step`.
+Realtime, all deterministic over `LoopbackTransport`: `tests/fixtures/simulated_link.h` wraps it with virtual time, latency, seeded jitter (which reorders), scripted or seeded loss of unreliable messages, and holding messages back to release them in reverse; `tests/fixtures/net_harness.h` runs a server world and a client world over two such links, one 60 Hz frame per `step`; `add_client` adds more clients.
 
 - `tests/net_replication_test.cpp`: one tick per fixed step; Welcome, then a snapshot every interval; interpolation exactly at `render_tick` (tick - 5 at the defaults); snapshots arriving out of order land in tick order; dropped snapshots interpolate across the gap; spawn and despawn on the render timeline with their events; `Parent` resolved through `NetEntityMap` and cleared; reparent plus destroy of the old parent in one tick keeps the child entity; custom components (stepped and interpolated); schema mismatch disconnects; a lost connection despawns everything; owner and local peer; the server prunes destroyed entities; a soak with 20% loss, 50 ms latency and 30 ms jitter converges to the server state.
-- `tests/net_delta_test.cpp`: full snapshots until an ack; a delta against the acked baseline carries only the changed entity; lost deltas recover from the older baseline; an ack older than the window falls back to full; a removed component and a removed entity reach the client.
+- `tests/net_delta_test.cpp`: every entity rewritten whole until acked; acked entities not rewritten; lost snapshots recover; lost acks only cost rewrites; a removed component and a removed entity reach the client; a removal is listed until acked; a value that came back while another was in flight reaches the client; peers ack independently.
+- `tests/net_interest_test.cpp`: no interest replicates everything; grid enter and leave spawn and despawn on that peer only, on the render timeline; the leave margin stops flapping and does not let an entity in; owned entities are always relevant and are focuses; the filter hides from one peer and runs only on candidates; filter without a grid; always-relevant and non-spatial; a child uses its root's cell and brings its ancestors; an owned child pulls in far ancestors; a filtered child stays out; capture serializes once per tick with three peers; reentry carries fresh state; leaving and reentering with snapshots in flight ends consistent; destroyed out of view lists nothing; snapshots keep coming with nothing relevant.
+- `tests/net_budget_test.cpp`: 200 moving entities never exceed the budget, configured budget and low rate apply; an oversized set converges exactly and arrives from a join; no entity starves at 100:1 weights; **values never go backward and nothing flaps** with snapshots in flight (the regression test of per-entity acks), also under loss and reorder; closer entities update more often; a record over the budget still goes; a predicted entity is in every snapshot among 200 others, with no snaps; an owned one without prediction ranks first; a child's create never precedes its parent's.
+- `tests/net_payload_test.cpp`: small, empty, and 1 MiB payloads reassembled through the dispatcher and acknowledged; priority order; re-prioritizing preempts at a fragment boundary; cancel before, during, and after the last byte; a snapshot first on every due tick, with movement undisturbed; the rate holds over a window; a payload is not starved by an oversized set; a low priority ages past a stream of high ones; backlog pauses payloads and not snapshots; a refused send retries with nothing lost; compressed bytes decompressed before the handler, a decompression bomb disconnects; peer disconnect mid-payload clears both sides; refused ids and peers; shared bytes to several peers; a forged ack is ignored; 14 malformed streams each disconnect without running the handler.
+- `tests/peer_ghosts_test.cpp`, `relevance_grid_test.cpp`, `payload_assembler_test.cpp`: writes until acked, unknown and out-of-window acks, ack order, removal listing, never-written ghosts, reentry, turns under a budget, weights, mandatory and oversized records, parents, removals not crowding out records; cell floor, Chebyshev, probing and scanning agree; interleaving, compression, limits, every malformed case.
 - `tests/net_prediction_test.cpp`, over 50 ms links: each input tick applied once and in order with the input the client collected; no replay while predictions match; a server-side move replays once and converges; 20% loss both ways with 30 ms jitter, then a clean link, converges and stops replaying; dropped Input messages repeat the last input on the server; late inputs are never applied; input for an entity the peer does not own, too far ahead, or malformed is refused; owned entities predicted, others interpolated; the lead settles at the input buffer and follows a latency increase; a latency spike jumps the tick forward, never back, and recovers; ownership change starts and stops prediction; disconnect clears it; a prediction on one side only is a schema mismatch; input collected through `InputSystem` actions.
 - `tests/prediction_test.cpp`, `input_buffer_test.cpp`, `input_lead_test.cpp`, `input_message_test.cpp`: match without stepping, replay of stored inputs, missing inputs repeat the last one and are not sent, accepted, snapped and skipped server states, the ring per entity, server-side decoding; first copy wins, late and duplicate, repeat, lead cap; bounded rate, no backward jump, jump after two far reports, convergence through the feedback delay; Input round trip, truncation, caps.
-- `tests/snapshot_codec_test.cpp`, `snapshot_buffer_test.cpp`, `snapshot_clock_test.cpp`: full and delta round trips, the per-peer header, every truncation and trailing bytes rejected, slots beyond the registry, baseline mismatch, capture order and `Parent` as `NetId`, schema hash; buffer order, window and sampling; clock start, bounded rate, snap, monotonic under jitter.
+- `tests/snapshot_codec_test.cpp`, `snapshot_buffer_test.cpp`, `snapshot_clock_test.cpp`: round trips, records layered on the previous state, the per-peer header, every truncation and trailing bytes rejected, slots beyond the registry, unknown entities, capture order and `Parent` as `NetId`, capture sharing unchanged blobs, schema hash; buffer order, window and sampling, carrying forward, late snapshots derived back in, what left the window; clock start, bounded rate, snap, monotonic under jitter.
 
-- `tests/net_id_test.cpp`, `byte_stream_test.cpp`, `message_dispatcher_test.cpp`, `network_transport_test.cpp`: ids, map, owner, dead entries; byte round trips; message routing; the loopback transport. `gns_transport_test.cpp` and `steam_transport_test.cpp` open real sockets on Windows.
+- `tests/net_id_test.cpp`, `byte_stream_test.cpp`, `message_dispatcher_test.cpp`, `network_transport_test.cpp`: ids, map, owner, dead entries; byte round trips; message routing; the loopback transport. `gns_transport_test.cpp` and `steam_transport_test.cpp` open real sockets on Windows; the former also sends a 600 KiB payload through `NetServer` over real GNS, with `pending_send_bytes` from the real queue.
 
 ## See also
 

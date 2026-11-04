@@ -75,7 +75,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/net/loopback_transport.h` | `LoopbackTransport`: in-process transport for tests | [Net](../modules/Net.md) |
 | `include/engine/net/loopback_bus.h` | `LoopbackBus`: the port registry loopback transports connect through | [Net](../modules/Net.md) |
 | `include/engine/net/message_dispatcher.h` | `MessageDispatcher`, `MessageId`: routing by message id | [Net](../modules/Net.md) |
-| `include/engine/net/net_messages.h` | Engine message ids, protocol version, snapshot window and MTU budget, input caps | [Net](../modules/Net.md) |
+| `include/engine/net/net_messages.h` | Engine message ids, protocol version, snapshot window and MTU budget, fragment size, input caps | [Net](../modules/Net.md) |
 | `include/engine/net/net_tick.h` | `Tick`, `kNoTick` | [Net](../modules/Net.md) |
 | `include/engine/net/network_identity.h` | `NetId` alias and the `NetIdentity` component | [Net](../modules/Net.md) |
 | `include/engine/net/net_id.h` | `NetIdGenerator` | [Net](../modules/Net.md) |
@@ -85,7 +85,14 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/net/replica_writer.h` | `ReplicaWriter`: component bytes and entity references as `NetId` | [Net](../modules/Net.md) |
 | `include/engine/net/replica_reader.h` | `ReplicaReader`: component bytes and `NetId` references back to entities | [Net](../modules/Net.md) |
 | `include/engine/net/net_server.h` | `NetServer`, `install_net_server`, server systems, `replicate` | [Net](../modules/Net.md) |
-| `include/engine/net/net_server_config.h` | `NetServerConfig`: snapshot interval | [Net](../modules/Net.md) |
+| `include/engine/net/net_server_config.h` | `NetServerConfig`: snapshot interval, budgets, interest | [Net](../modules/Net.md) |
+| `include/engine/net/net_interest.h` | `NetInterest`: spatial grid, `relevant` filter, `priority` weight | [Net](../modules/Net.md#interest) |
+| `include/engine/net/net_always_relevant.h` | `NetAlwaysRelevant`: tag for an entity every peer is told about | [Net](../modules/Net.md#interest) |
+| `include/engine/net/net_peer_stats.h` | `NetPeerStats`: relevant, deferred, snapshot and payload bytes of one peer | [Net](../modules/Net.md#budget) |
+| `include/engine/net/net_payload_id.h` | `PayloadId`, `kNoPayload` | [Net](../modules/Net.md#reliable-payloads) |
+| `include/engine/net/net_payload_options.h` | `NetPayloadOptions`: priority, compressed | [Net](../modules/Net.md#reliable-payloads) |
+| `include/engine/net/net_payload_progress.h` | `NetPayloadProgress`: sent, total, awaiting ack | [Net](../modules/Net.md#reliable-payloads) |
+| `include/engine/net/net_payload_delivered_event.h` | `NetPayloadDeliveredEvent`: a client handled a payload | [Net](../modules/Net.md#reliable-payloads) |
 | `include/engine/net/prediction_desc.h` | `PredictionDesc<Input, State>`: a game's input wire format, step, collect, capture, restore, matches, corrected | [Net](../modules/Net.md#input-and-prediction) |
 | `include/engine/net/prediction.h` | `Prediction<Input, State>` (input and state ring, reconcile and replay), `register_prediction` | [Net](../modules/Net.md#input-and-prediction) |
 | `include/engine/net/prediction_channel.h` | `PredictionChannel`: the type-erased prediction interface the server and client drive | [Net](../modules/Net.md#input-and-prediction) |
@@ -462,8 +469,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/net/replication_registry.cpp` | `Transform` and `Parent` registration, schema hash | [Net](../modules/Net.md) |
 | `src/net/replica_writer.cpp` | `ReplicaWriter` | [Net](../modules/Net.md) |
 | `src/net/replica_reader.cpp` | `ReplicaReader` | [Net](../modules/Net.md) |
-| `src/net/net_server.cpp` | Server tick, peers, Welcome, acks, input buffering and controlled-entity steps, snapshot send | [Net](../modules/Net.md) |
-| `src/net/net_client.cpp` | Welcome, snapshot receive and ack, spawn / apply / despawn on the render timeline, prediction, input send | [Net](../modules/Net.md) |
+| `src/net/net_server.cpp` | Server tick, peers, Welcome, acks, input buffering and controlled-entity steps, capture, relevance per peer, snapshot and payload send | [Net](../modules/Net.md) |
+| `src/net/net_client.cpp` | Welcome, snapshot receive and ack, spawn / apply / despawn on the render timeline, prediction, input send, payload receive | [Net](../modules/Net.md) |
 | `src/net/net_schema.h`, `src/net/net_schema.cpp` | `welcome_schema_hash`: replicated components plus the prediction channel name | [Net](../modules/Net.md) |
 | `src/net/input_message.h`, `src/net/input_message.cpp` | `InputMessage`: the Input wire format | [Net](../modules/Net.md) |
 | `src/net/input_buffer.h`, `src/net/input_buffer.cpp` | `InputBuffer`: one controlled entity's inputs on the server, first copy wins, repeat last | [Net](../modules/Net.md#server-input-buffer) |
@@ -471,10 +478,14 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/net/snapshot_peer_header.h` | `SnapshotPeerHeader`: the per-peer input tick and slack in a snapshot | [Net](../modules/Net.md) |
 | `src/net/entity_snapshot.h` | `EntitySnapshot`: one entity's encoded components | [Net](../modules/Net.md) |
 | `src/net/snapshot_state.h` | `SnapshotState`: all replicated entities at one tick | [Net](../modules/Net.md) |
-| `src/net/snapshot_codec.h` | `capture_snapshot`, `encode_snapshot`, `decode_snapshot` API | [Net](../modules/Net.md) |
-| `src/net/snapshot_codec.cpp` | Snapshot capture and the full / delta wire format | [Net](../modules/Net.md) |
+| `src/net/snapshot_codec.h` | `capture_snapshot`, `encode_snapshot`, `decode_snapshot`, `apply_snapshot` API | [Net](../modules/Net.md) |
+| `src/net/snapshot_codec.cpp` | Snapshot capture, the wire format, a delta on top of a state | [Net](../modules/Net.md) |
 | `src/net/snapshot_buffer.h` | `SnapshotBuffer` API | [Net](../modules/Net.md) |
-| `src/net/snapshot_buffer.cpp` | Client snapshot ring: tick order, window, sampling | [Net](../modules/Net.md) |
+| `src/net/snapshot_buffer.cpp` | Client snapshot ring: states derived in tick order, window, sampling | [Net](../modules/Net.md) |
+| `src/net/peer_ghosts.h`, `src/net/peer_ghosts.cpp` | `PeerGhosts`: what one peer has, per entity; builds its snapshot within the budget | [Net](../modules/Net.md#what-a-peer-has) |
+| `src/net/relevance_grid.h`, `src/net/relevance_grid.cpp` | `RelevanceGrid`: captured entities by cell, marks around a focus | [Net](../modules/Net.md#interest) |
+| `src/net/payload_queue.h`, `src/net/payload_queue.cpp` | `PayloadQueue`: one peer's outgoing payloads, sent a fragment at a time | [Net](../modules/Net.md#reliable-payloads) |
+| `src/net/payload_assembler.h`, `src/net/payload_assembler.cpp` | `PayloadAssembler`: the client puts payloads back together, refuses malformed streams | [Net](../modules/Net.md#reliable-payloads) |
 | `src/net/snapshot_clock.h` | `SnapshotClock` API | [Net](../modules/Net.md) |
 | `src/net/snapshot_clock.cpp` | Client estimate of server time | [Net](../modules/Net.md) |
 | `src/net/byte_stream.cpp` | `ByteWriter` and `ByteReader` binary packet serialization bodies | [Net](../modules/Net.md) |
@@ -562,7 +573,13 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/input_buffer_test.cpp` | `InputBuffer` order, first copy wins, late, duplicate, repeat, lead cap | [Net](../modules/Net.md#server-input-buffer) |
 | `tests/input_lead_test.cpp` | `InputLead` bounded rate, no backward jump, forward jump, convergence | [Net](../modules/Net.md#client-lead) |
 | `tests/input_message_test.cpp` | Input wire format round trip, truncation, caps | [Net](../modules/Net.md) |
-| `tests/net_delta_test.cpp` | Full until acked, delta against the acked baseline, recovery, stale ack, removals | [Net](../modules/Net.md) |
+| `tests/net_delta_test.cpp` | Rewritten until acked, acked not rewritten, recovery, lost acks, removals, a value that came back, peers independent | [Net](../modules/Net.md#what-a-peer-has) |
+| `tests/net_interest_test.cpp` | Enter and leave per peer, margin, owned, filter, always-relevant, parents, one capture, reentry | [Net](../modules/Net.md#interest) |
+| `tests/net_budget_test.cpp` | Budget held, convergence, no starvation, values never go backward, weights, predicted never deferred | [Net](../modules/Net.md#budget) |
+| `tests/net_payload_test.cpp` | Reassembly, priority, cancel, snapshots first, rate, aging, backlog, compression, disconnect, malformed streams | [Net](../modules/Net.md#reliable-payloads) |
+| `tests/peer_ghosts_test.cpp` | `PeerGhosts`: acks, removal, reentry, turns under a budget, mandatory, parents | [Net](../modules/Net.md#what-a-peer-has) |
+| `tests/relevance_grid_test.cpp` | `RelevanceGrid`: cells, distance, probing and scanning agree | [Net](../modules/Net.md#interest) |
+| `tests/payload_assembler_test.cpp` | `PayloadAssembler`: interleaving, compression, limits, every malformed case | [Net](../modules/Net.md#reliable-payloads) |
 | `tests/snapshot_codec_test.cpp` | Snapshot wire format round trips and rejection of malformed input | [Net](../modules/Net.md) |
 | `tests/snapshot_buffer_test.cpp` | `SnapshotBuffer` order, window, sampling | [Net](../modules/Net.md) |
 | `tests/snapshot_clock_test.cpp` | `SnapshotClock` start, bounded rate, snap, monotonic | [Net](../modules/Net.md) |

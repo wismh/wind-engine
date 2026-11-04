@@ -178,6 +178,8 @@ Do:
 
 Done when: tests cover enter/leave relevance spawn/despawn, budget ordering, and reassembly of a fragmented message over the loopback transport.
 
+Done in wind-309: `NetInterest` (spatial grid over root positions with a leave margin, a `relevant` filter, a `priority` weight) and `NetAlwaysRelevant`, with owned entities always relevant and a relevant child pulling in its ancestors; per-peer, per-entity acks (`PeerGhosts`) replacing the whole-state baseline, because a snapshot that leaves entities out would take them back to the baseline with others in flight; a client state per tick derived from the one before it, last-write-wins in tick order; `snapshot_budget_bytes` and a priority accumulator so a large relevant set fits one packet, with predicted entities never deferred; `peer_bytes_per_second` with snapshots first; `NetServer::send_payload` with priority plus age, cancel, progress, `NetPayloadDeliveredEvent`, 1024-byte fragments, the transport backlog limit (`pending_send_bytes`), and a `compressed` flag the client decompresses under `max_payload_bytes`. Protocol 3 ([Interest](../modules/Net.md#interest), [Budget](../modules/Net.md#budget), [Reliable payloads](../modules/Net.md#reliable-payloads)).
+
 ### wind-310 feat: dedicated server
 
 Do:

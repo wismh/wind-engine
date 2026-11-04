@@ -12,6 +12,7 @@
 #include <engine/net/replication_registry.h>
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
 #include <vector>
@@ -21,30 +22,30 @@ namespace {
 
 constexpr std::size_t kSlots = 2;
 
-EntitySnapshot entity(NetId id, PeerId owner, std::vector<std::vector<std::uint8_t>> slots) {
+EntitySnapshot entity(NetId id, PeerId owner, const std::vector<std::vector<std::uint8_t>>& slots) {
     EntitySnapshot out{.id = id, .owner = owner};
+    EntitySnapshot::Blobs blobs;
     for (std::size_t slot = 0; slot < slots.size(); ++slot) {
         if (!slots[slot].empty()) {
             out.mask |= std::uint32_t{1} << slot;
-            out.components.push_back(slots[slot]);
+            blobs.push_back(slots[slot]);
         }
     }
+    out.components = std::make_shared<const EntitySnapshot::Blobs>(std::move(blobs));
     return out;
 }
 
-std::optional<SnapshotState> decode(std::span<const std::uint8_t> bytes, const SnapshotState* baseline,
-        std::size_t slot_count = kSlots) {
+std::optional<SnapshotDelta> decode(std::span<const std::uint8_t> bytes, std::size_t slot_count = kSlots) {
     ByteReader reader(bytes);
     if (reader.read_u16() != kSnapshotMessageId) {
         return std::nullopt;
     }
     Tick tick = kNoTick;
-    Tick baseline_tick = kNoTick;
     SnapshotPeerHeader peer;
-    if (!read_snapshot_header(reader, tick, baseline_tick, peer)) {
+    if (!read_snapshot_header(reader, tick, peer)) {
         return std::nullopt;
     }
-    return decode_snapshot(reader, tick, baseline_tick, baseline, slot_count);
+    return decode_snapshot(reader, tick, slot_count);
 }
 
 SnapshotState base_state() {
@@ -55,112 +56,145 @@ SnapshotState base_state() {
     };
 }
 
-TEST(SnapshotCodec, FullRoundTrip) {
-    const SnapshotState state = base_state();
-    const auto bytes = encode_snapshot(state, nullptr, SnapshotPeerHeader{});
-    const auto decoded = decode(bytes, nullptr);
-    ASSERT_TRUE(decoded.has_value());
-    EXPECT_EQ(*decoded, state);
+// Every entity whole, owner included.
+std::vector<std::uint8_t> encode_whole(const SnapshotState& state, const SnapshotPeerHeader& peer = {}) {
+    std::vector<SnapshotWrite> writes;
+    for (const EntitySnapshot& record : state.entities) {
+        writes.push_back(SnapshotWrite{.entity = &record, .write_owner = true, .changed = record.mask});
+    }
+    return encode_snapshot(state.tick, peer, {}, writes);
 }
 
-TEST(SnapshotCodec, DeltaRoundTripCarriesOnlyChanges) {
-    const SnapshotState baseline = base_state();
-    SnapshotState current{
-            .tick = 14,
-            .entities =
-                    {
-                            entity(1, kServerPeerId, {{1, 2, 4}, {7}}), // slot 0 changed
-                            entity(2, 6, {{4, 5}, {}}),                 // owner changed
-                            entity(3, kServerPeerId, {{9}, {}}),        // slot 1 removed
-                            // 4 removed
-                            entity(5, kServerPeerId, {{1}, {2}}), // new
-                    },
+TEST(SnapshotCodec, WholeRoundTrip) {
+    const SnapshotState state = base_state();
+    const auto delta = decode(encode_whole(state));
+    ASSERT_TRUE(delta.has_value());
+    const auto applied = apply_snapshot(nullptr, *delta, /*strict=*/true);
+    ASSERT_TRUE(applied.has_value());
+    EXPECT_EQ(*applied, state);
+}
+
+TEST(SnapshotCodec, RecordsLayerOntoThePreviousState) {
+    const SnapshotState previous = base_state();
+    const EntitySnapshot changed_slot = entity(1, kServerPeerId, {{1, 2, 4}, {7}});
+    const EntitySnapshot changed_owner = entity(2, 6, {{4, 5}, {}});
+    const EntitySnapshot lost_slot = entity(3, kServerPeerId, {{9}, {}});
+    const EntitySnapshot fresh = entity(5, kServerPeerId, {{1}, {2}});
+    const std::vector<SnapshotWrite> writes{
+            {.entity = &changed_slot, .changed = 0b01u},
+            {.entity = &changed_owner, .write_owner = true},
+            {.entity = &lost_slot, .lost = 0b10u},
+            {.entity = &fresh, .write_owner = true, .changed = 0b11u},
     };
-    const auto bytes = encode_snapshot(current, &baseline, SnapshotPeerHeader{});
-    const auto full = encode_snapshot(current, nullptr, SnapshotPeerHeader{});
-    EXPECT_LT(bytes.size(), full.size() + 4u);
+    const std::vector<NetId> removed{4};
+    const auto bytes = encode_snapshot(14, SnapshotPeerHeader{}, removed, writes);
 
-    const auto decoded = decode(bytes, &baseline);
-    ASSERT_TRUE(decoded.has_value());
-    EXPECT_EQ(*decoded, current);
+    std::size_t expected = kSnapshotHeaderBytes + removed.size() * 4u;
+    for (const SnapshotWrite& write : writes) {
+        expected += snapshot_write_size(write);
+    }
+    EXPECT_EQ(bytes.size(), expected);
 
-    // An unchanged entity is not written at all.
-    SnapshotState same = baseline;
-    same.tick = 12;
-    const auto empty_delta = encode_snapshot(same, &baseline, SnapshotPeerHeader{});
-    EXPECT_EQ(empty_delta.size(), 2u + 4u + 4u + 4u + 1u + 2u + 2u);
-    const auto decoded_same = decode(empty_delta, &baseline);
-    ASSERT_TRUE(decoded_same.has_value());
-    EXPECT_EQ(*decoded_same, same);
+    const auto delta = decode(bytes);
+    ASSERT_TRUE(delta.has_value());
+    const auto applied = apply_snapshot(&previous, *delta, /*strict=*/true);
+    ASSERT_TRUE(applied.has_value());
+    const SnapshotState wanted{
+            .tick = 14,
+            .entities = {changed_slot, changed_owner, lost_slot, fresh},
+    };
+    EXPECT_EQ(*applied, wanted);
+
+    // A snapshot that writes nothing leaves every entity as it was.
+    const auto nothing = decode(encode_snapshot(16, SnapshotPeerHeader{}, {}, {}));
+    ASSERT_TRUE(nothing.has_value());
+    const auto same = apply_snapshot(&*applied, *nothing, /*strict=*/true);
+    ASSERT_TRUE(same.has_value());
+    EXPECT_EQ(same->entities, applied->entities);
+    EXPECT_EQ(encode_snapshot(16, SnapshotPeerHeader{}, {}, {}).size(), kSnapshotHeaderBytes);
 }
 
 TEST(SnapshotCodec, TruncatedAndTrailingBytesRejected) {
-    const SnapshotState baseline = base_state();
-    SnapshotState current = baseline;
-    current.tick = 12;
-    current.entities[0].components[0] = {0, 0, 0};
-    const auto bytes = encode_snapshot(current, &baseline, SnapshotPeerHeader{});
+    const auto bytes = encode_whole(base_state());
     for (std::size_t size = 0; size < bytes.size(); ++size) {
-        EXPECT_FALSE(decode(std::span(bytes).first(size), &baseline).has_value()) << size;
+        EXPECT_FALSE(decode(std::span(bytes).first(size)).has_value()) << size;
     }
     auto longer = bytes;
     longer.push_back(0);
-    EXPECT_FALSE(decode(longer, &baseline).has_value());
+    EXPECT_FALSE(decode(longer).has_value());
 }
 
 TEST(SnapshotCodec, SlotBeyondRegistryRejected) {
-    const auto bytes = encode_snapshot(base_state(), nullptr, SnapshotPeerHeader{});
-    EXPECT_FALSE(decode(bytes, nullptr, 1).has_value());
+    EXPECT_FALSE(decode(encode_whole(base_state()), 1).has_value());
 }
 
-TEST(SnapshotCodec, BaselineMustMatch) {
-    const SnapshotState baseline = base_state();
-    SnapshotState current = baseline;
-    current.tick = 12;
-    const auto delta = encode_snapshot(current, &baseline, SnapshotPeerHeader{});
-    EXPECT_FALSE(decode(delta, nullptr).has_value());
-    SnapshotState other = baseline;
-    other.tick = 8;
-    EXPECT_FALSE(decode(delta, &other).has_value());
-    const auto full = encode_snapshot(current, nullptr, SnapshotPeerHeader{});
-    EXPECT_FALSE(decode(full, &baseline).has_value());
+TEST(SnapshotCodec, SlotBothChangedAndLostRejected) {
+    const EntitySnapshot record = entity(1, kServerPeerId, {{1}, {}});
+    const std::vector<SnapshotWrite> writes{{.entity = &record, .write_owner = true, .changed = 0b01u, .lost = 0b01u}};
+    EXPECT_FALSE(decode(encode_snapshot(4, SnapshotPeerHeader{}, {}, writes)).has_value());
 }
 
-TEST(SnapshotCodec, HeaderRejectsBaselineNotOlderThanTick) {
+TEST(SnapshotCodec, IdBothRemovedAndWrittenRejected) {
+    const EntitySnapshot record = entity(1, kServerPeerId, {{1}, {}});
+    const std::vector<SnapshotWrite> writes{{.entity = &record, .write_owner = true, .changed = 0b01u}};
+    const std::vector<NetId> removed{1};
+    EXPECT_FALSE(decode(encode_snapshot(4, SnapshotPeerHeader{}, removed, writes)).has_value());
+}
+
+TEST(SnapshotCodec, UnknownEntityWithoutOwnerDependsOnStrict) {
+    const EntitySnapshot record = entity(9, kServerPeerId, {{1}, {}});
+    const std::vector<SnapshotWrite> writes{{.entity = &record, .changed = 0b01u}};
+    const auto delta = decode(encode_snapshot(4, SnapshotPeerHeader{}, {}, writes));
+    ASSERT_TRUE(delta.has_value());
+    EXPECT_FALSE(apply_snapshot(nullptr, *delta, /*strict=*/true).has_value());
+    const auto lenient = apply_snapshot(nullptr, *delta, /*strict=*/false);
+    ASSERT_TRUE(lenient.has_value());
+    EXPECT_TRUE(lenient->entities.empty());
+}
+
+TEST(SnapshotCodec, RemovedIdNotHeldIsIgnored) {
+    const SnapshotState previous = base_state();
+    const std::vector<NetId> removed{77};
+    const auto delta = decode(encode_snapshot(12, SnapshotPeerHeader{}, removed, {}));
+    ASSERT_TRUE(delta.has_value());
+    const auto applied = apply_snapshot(&previous, *delta, /*strict=*/true);
+    ASSERT_TRUE(applied.has_value());
+    EXPECT_EQ(applied->entities, previous.entities);
+}
+
+TEST(SnapshotCodec, HeaderRejectsNoTick) {
     ByteWriter writer;
-    writer.write_u32(10);
-    writer.write_u32(10);
+    writer.write_u32(kNoTick);
     writer.write_u32(kNoTick);
     writer.write_i8(kNoInputSlack);
     ByteReader reader(writer.bytes());
     Tick tick = kNoTick;
-    Tick baseline = kNoTick;
     SnapshotPeerHeader peer;
-    EXPECT_FALSE(read_snapshot_header(reader, tick, baseline, peer));
+    EXPECT_FALSE(read_snapshot_header(reader, tick, peer));
 }
 
 TEST(SnapshotCodec, PeerHeaderRoundTrip) {
     const SnapshotPeerHeader sent{.input_tick = 77, .input_slack = -3};
-    const auto bytes = encode_snapshot(base_state(), nullptr, sent);
+    const SnapshotState state = base_state();
+    const auto bytes = encode_whole(state, sent);
     ByteReader reader(bytes);
     ASSERT_EQ(reader.read_u16(), kSnapshotMessageId);
     Tick tick = kNoTick;
-    Tick baseline = kNoTick;
     SnapshotPeerHeader peer;
-    ASSERT_TRUE(read_snapshot_header(reader, tick, baseline, peer));
+    ASSERT_TRUE(read_snapshot_header(reader, tick, peer));
     EXPECT_EQ(tick, 10u);
-    EXPECT_EQ(baseline, kNoTick);
     EXPECT_EQ(peer, sent);
-    EXPECT_EQ(decode_snapshot(reader, tick, baseline, nullptr, kSlots), base_state());
+    const auto delta = decode_snapshot(reader, tick, kSlots);
+    ASSERT_TRUE(delta.has_value());
+    EXPECT_EQ(apply_snapshot(nullptr, *delta, /*strict=*/true), state);
 
     // The header is cut anywhere inside the peer fields.
-    for (std::size_t size = 2 + 8; size < 2 + 13; ++size) {
+    for (std::size_t size = 2 + 4; size < 2 + 9; ++size) {
         ByteReader cut(std::span(bytes).first(size));
         (void)cut.read_u16();
-        EXPECT_FALSE(read_snapshot_header(cut, tick, baseline, peer)) << size;
+        EXPECT_FALSE(read_snapshot_header(cut, tick, peer)) << size;
     }
 }
-
 
 TEST(SnapshotCodec, CaptureUsesRegistrySlotsAndNetIds) {
     ecs::World world;
@@ -193,6 +227,23 @@ TEST(SnapshotCodec, CaptureUsesRegistrySlotsAndNetIds) {
     // Parent is written as the parent's NetId.
     ByteReader parent_bytes(state.entities[2].component(1));
     EXPECT_EQ(parent_bytes.read_u32(), 4u);
+}
+
+TEST(SnapshotCodec, CaptureSharesBlobsOfUnchangedEntities) {
+    ecs::World world;
+    const auto& registry = world.ctx<ReplicationRegistry>();
+    const ecs::Entity still = world.create();
+    const ecs::Entity moving = world.create();
+    world.emplace<Transform>(still, Transform{});
+    world.emplace<Transform>(moving, Transform{});
+    ASSERT_TRUE(bind_net_entity(world, still, 1));
+    ASSERT_TRUE(bind_net_entity(world, moving, 2));
+
+    const SnapshotState first = capture_snapshot(world, registry, 2);
+    world.get<Transform>(moving).position.x = 1.0f;
+    const SnapshotState second = capture_snapshot(world, registry, 4, &first);
+    EXPECT_EQ(second.entities[0].components, first.entities[0].components);
+    EXPECT_NE(second.entities[1].components, first.entities[1].components);
 }
 
 TEST(SnapshotCodec, SchemaHashFollowsRegistration) {

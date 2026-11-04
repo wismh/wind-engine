@@ -2,6 +2,7 @@
 
 // docs/tech/modules/Net.md
 
+#include <cstddef>
 #include <cstdint>
 
 namespace engine::net {
@@ -16,6 +17,9 @@ struct NetClientConfig {
     // Ticks a predicting client's inputs should arrive before the server runs them: the server's input jitter
     // buffer. More absorbs more jitter and puts the client's prediction that many ticks further ahead.
     std::uint8_t input_buffer_ticks{2};
+    // The largest payload this client takes, after decompression, and the most it holds of unfinished ones. A server
+    // that goes over is disconnected.
+    std::size_t max_payload_bytes{64 * 1024 * 1024};
 };
 
 } // namespace engine::net

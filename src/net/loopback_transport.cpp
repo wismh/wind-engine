@@ -221,6 +221,10 @@ float LoopbackTransport::rtt_ms(PeerId peer_id) const {
     return -1.0f;
 }
 
+std::size_t LoopbackTransport::pending_send_bytes(PeerId /*peer_id*/) const {
+    return 0;
+}
+
 void LoopbackTransport::receive_incoming_data(PeerId sender_id, std::span<const std::uint8_t> data) {
     std::vector<std::uint8_t> buffer(data.begin(), data.end());
     enqueue_event(InternalEvent{
