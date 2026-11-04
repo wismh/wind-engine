@@ -62,11 +62,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      # The Server player of the SDK links GameNetworkingSockets from source, and the source package carries it
+      # (external/README.md).
+      - name: GameNetworkingSockets source
+        if: matrix.os == 'linux'
+        run: |
+          git -c submodule.external/GameNetworkingSockets-src.update=checkout submodule update --init external/GameNetworkingSockets-src
       - name: Packages
         if: matrix.os == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build xvfb \
+          sudo apt-get install -y --no-install-recommends ninja-build xvfb libssl-dev libprotobuf-dev protobuf-compiler \
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
             libxkbcommon-dev libwayland-dev libdecor-0-dev libdrm-dev libgbm-dev libgl1-mesa-dev libgles2-mesa-dev \
             libegl1-mesa-dev libgl1-mesa-dri libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libibus-1.0-dev

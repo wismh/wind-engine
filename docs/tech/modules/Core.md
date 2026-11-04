@@ -1,6 +1,6 @@
 # Core
 
-Host, time, input polling, logging, fatal errors, platform paths, and, when `ENGINE_WITH_WINDOW` is on, `EngineHost`, `Engine<GameT>`, the game entry macro, and the SDL runtime.
+Host, time, input polling, logging, fatal errors, platform paths, the [dedicated server](#dedicated-server), and, when `ENGINE_WITH_WINDOW` is on, `EngineHost`, `Engine<GameT>`, the game entry macro, and the SDL runtime.
 
 Frame order is [Runtime Loop](../architecture/Runtime%20Loop.md). Window behavior is [Windowing](../features/Windowing.md). Named controls are [Input Mapper](../features/Input%20Mapper.md).
 
@@ -92,9 +92,40 @@ Any failure unloads the copy and deletes its directory. `GameModuleError` is the
 
 ### Startup errors
 
-`EngineError` (`include/engine/core/engine_error.h`, header only, all builds) names why the engine could not start: `VideoInit`, `WindowCreate`, `AudioInit`, `HapticsInit`, `AssetsRoot`, `EngineCatalog`, `UiFont`, `GameCatalog`. `to_string(error)` is the enumerator name (logs, tests), `message(error)` the sentence for the dialog. A startup failure is returned, never reported where it happens: `EngineHost::init`, `open_primary`, and `Engine<GameT>::init` show nothing and exit nothing, and each failure after `init` disposes the host first. The entry point is the one place that tells the user. `report_startup_error(error)` (declared in `engine_host.h`) logs the name and shows `message(error)` through a fresh `SdlFatalError`, so it also works for `VideoInit`, when the host has no fatal hook yet. `ENGINE_GAME`, the bench `main`, and `EditorApp::start` call it; a failure that belongs to one entry (the editor's missing project or its own catalog) calls its `IFatalError` directly. The detail of a `MetaError` from the game catalog is not part of the error. `EngineHost` and `EngineRuntime` have a constructor taking an `IPresentation` so a test can stand in for SDL.
+`EngineError` (`include/engine/core/engine_error.h`, header only, all builds) names why the engine could not start: `VideoInit`, `WindowCreate`, `AudioInit`, `HapticsInit`, `AssetsRoot`, `EngineCatalog`, `UiFont`, `GameCatalog`, and for a [dedicated server](#dedicated-server) `ServerConfig`. `to_string(error)` is the enumerator name (logs, tests), `message(error)` the sentence for the dialog. A startup failure is returned, never reported where it happens: `EngineHost::init`, `open_primary`, and `Engine<GameT>::init` show nothing and exit nothing, and each failure after `init` disposes the host first. The entry point is the one place that tells the user. `report_startup_error(error)` (declared in `engine_host.h`) logs the name and shows `message(error)` through a fresh `SdlFatalError`, so it also works for `VideoInit`, when the host has no fatal hook yet. `ENGINE_GAME`, the bench `main`, and `EditorApp::start` call it; a failure that belongs to one entry (the editor's missing project or its own catalog) calls its `IFatalError` directly. The detail of a `MetaError` from the game catalog is not part of the error. `EngineHost` and `EngineRuntime` have a constructor taking an `IPresentation` so a test can stand in for SDL.
 
 `SplashScreen` lives on this header (enabled, `builtin::splash_wind`, fade 0.4s, hold 1.0s, fade 0.4s). `IGame` has no splash method. A game calls `ui::show_splash`. See [UI](UI.md).
+
+## Dedicated server
+
+A second run mode, selected by the target and its entry macro, never by `ENGINE_EDITOR`: `engine_add_server` ([CMake](../build/CMake.md#engine_add_server)) makes an executable whose source says `ENGINE_GAME_SERVER(game::Server)` (`include/engine/server_entry.h`, an `#error` under `ENGINE_GAME_MODULE`). It is a separate program and not a `--server` flag of the game, because a flag would link SDL and `libGL` into a binary for a host with no display. A listen server needs none of this: `install_net_server` works in a windowed game.
+
+`EngineHost` cannot be the host: its `init` needs SDL video, and `EngineServices` holds references only a window provides. `ServerHost` (`include/engine/core/server_host.h`, `src/core/server_host.cpp`) is always compiled, needs no SDL, and owns a `ServerFatalError`, `AssetsDb`, `HttpClient`, `ProcessLauncher`, `JobSystem`, `Worlds`, and a private `InputSystem` the loop needs and nothing feeds. `Server<GameT>` (`include/engine/core/server.h`) sits on it the way `Engine<GameT>` sits on `EngineHost`; `GameT` derives from `IGame` and is constructible from `const ServerServices&` (the concept `ServerGame`). `GameBase(services.worlds)` is enough.
+
+`ServerServices` (`include/engine/core/server_services.h`): `assets`, `http`, `processes`, `jobs`, `worlds`, `fatal`, `options`, `config`, and `port(fallback)`, which is `--port`, else `port` in the config file, else `fallback`. No window, graphics, input, or audio member exists, so a server that reaches for one does not compile.
+
+| Call | Does |
+| --- | --- |
+| `init()` | `log::init_stdout`, the config file, every service, the HTTP client (a failure only warns), and the engine and game catalogs with no graphic factory. Absent catalogs are fine: the engine's is read because a `.world` that names a builtin checks the id against it. Fails with `ServerConfig`, `AssetsRoot`, `EngineCatalog`, or `GameCatalog`, disposed |
+| `attach_game(game)` | `Worlds::set_deps` with `fatal`, `worlds`, and `jobs` only, so simulation systems register and `run_render` does not; `IGame::random_seed`. No window is bound, and `enable_ui` and `enable_audio` are never called |
+| `run(hooks)` | Installs the stop signals, runs `GameLoop`, disposes. 1 before a successful `init` |
+| `dispose()` | Stops the job pool, disposes HTTP and processes. Also run by the destructor. A second call is a no-op |
+
+The loop is the game's `GameLoop` over `ServerPresentation : IPresentation` (`src/core/server_presentation.h`), so a server has the same order as a game: flush, polls, `simulate_worlds`, `on_frame_end`, and `on_quit` before dispose. Its accessors of a window or GPU abort, because the loop reaches none of them. `poll` turns a stop signal into `ApplicationState::quit`. `draw_all` is where the tick waits ([Runtime Loop](../architecture/Runtime%20Loop.md#on-a-dedicated-server)). `sync_frame` warns about dropped ticks: an iteration where a world's `pending_steps` reached `kMaxFixedSteps` means `FixedStepClock` dropped what was left, and the log says so at most once in 10 s, with the count. The first iteration is exempt, because its time includes `on_start`. `FixedStepClock` itself is unchanged.
+
+**Command line.** `process_arguments(argc, argv)` is the line as UTF-8 (on Windows from `GetCommandLineW`, so a path outside the code page survives), and `parse_server_args` makes `ServerOptions`: `--port N` or `--port=N` (1..65535), `--config`, `--assets`, `--help` or `-h`, and everything else in order in `args` for the game, as is all after `--`. `ServerArgError` is `MissingValue` or `BadPort`. `run_server<GameT>`, the body of the macro, exits 0 after a clean stop or `--help`, 2 for a bad line (problem and usage on stderr), and 1 when `init` failed (`report_server_startup_error`, in the log).
+
+**Config.** `engine::Config` from `--config` (which has to exist) or `<executable dir>/server.toml` (which may not). Invalid TOML, or a `port` that is not a whole number in 1..65535, is `EngineError::ServerConfig`.
+
+**Log.** `log::init_stdout()`: stdout only, colour only on a terminal, flushed on every info line. No `game.log`.
+
+**Fatal.** `ServerFatalError` (`src/core/server_fatal_error.h`) logs the message, calls `quit`, and `std::exit(1)`, because `abort` raises a dialog on Windows that nobody would close. `on_quit` does not run. It is how `on_start` refuses to run: `GameLoop::begin` sets `running` true after `on_start`, so `quit()` there is ignored in every host.
+
+**Stop signals** (`src/core/shutdown_signal.h`, `ShutdownSignals`, installed for the length of `run`). A handler sets one lock-free flag and `poll` reads it, so a stop takes effect after the current tick, and one arriving during a long `on_start` is seen at the first poll. POSIX: `sigaction` on SIGINT, SIGTERM, and SIGHUP with `SA_RESETHAND`, and SIGPIPE ignored so a dead log reader does not end the server. Windows: `SetConsoleCtrlHandler`; for a closing console, logoff, and shutdown the handler waits up to 4.5 s for the loop to finish, because Windows ends the process when it returns. A second signal has its default effect, so a hung shutdown can be interrupted. `taskkill` without `/F` does not reach a console program with no window.
+
+The game owns its transport, as in a windowed game, so `on_quit` calls `transport.stop()`. That closes each connection before the listen socket (`CloseListenSocket` alone would drop them without telling the peer, which then waits for its timeout).
+
+**Assets.** `AssetsDb` works without a factory: CPU types load, and `IMesh`, `ITexture`, `IMaterial`, `SpriteSheet`, clips, tilemaps, and texture arrays answer `AssetError::NotReady`. `load_asset_or_validate_headless` lets a `.world` with `Renderable` or `Sprite` instantiate with nothing behind the reference, after checking the catalog entry.
 
 ## Parsing numbers
 
@@ -208,10 +239,11 @@ The Android back key is not a lifecycle event. The engine never quits on it; it 
 | Result | When |
 | --- | --- |
 | Desktop SDL pref path | `%APPDATA%`, `$XDG_DATA_HOME` or `~/.local/share`, `~/Library/Application Support` |
+| The same directory without SDL | `ENGINE_WITH_WINDOW` off on a desktop (a dedicated server): read from the same environment variables, directories created. No variable set is `errc::io_error` |
 | Web | `/storage/<org>/<app>/`. `engine_add_sdl3` forces `SDL_EMSCRIPTEN_PERSISTENT_PATH` to `/storage`. The browser may flush a write a few frames later |
 | Android | `<internal storage>/user/`. SDL's Android pref path is the storage root and ignores the two name strings. `applicationId` isolates apps |
 | `errc::invalid_argument` | empty, spaced, trailing-dot, or Windows-device path segment |
-| `errc::function_not_supported` | `ENGINE_WITH_WINDOW` is off |
+| `errc::function_not_supported` | `ENGINE_WITH_WINDOW` is off on Web or Android |
 | `errc::io_error` | SDL could not create the pref directory |
 
 Main thread only. On Android, call it after `Engine::init` (`EngineHost::init`).
@@ -226,7 +258,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 
 ## Log and fatal errors
 
-`engine::log::init()` is a null sink for tests. `init(exe_dir)` writes `<exe_dir>/game.log`. `info`, `warn`, and `error` are the public facade. spdlog stays in `src/core/log.cpp`.
+`engine::log::init()` is a null sink for tests. `init(exe_dir)` writes `<exe_dir>/game.log`. `init_stdout()` writes to stdout, for a dedicated server. `info`, `warn`, and `error` are the public facade. spdlog stays in `src/core/log.cpp`.
 
 `IFatalError` (`include/engine/resources/fatal_error.h`) is the single fatal exit. `report` is `[[noreturn]]`: no caller writes code after it, and an implementation ends the process (or, in a test, throws). Two public contracts lead to it. `try_*` (I/O, mods, parsing) returns `std::expected` and never reports. `get` (a programmer or shipping-data bug) reports. `assert` stays for engine invariants and `log::warn` for content quality.
 
@@ -234,6 +266,7 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 | --- | --- |
 | `SdlFatalError` (`ENGINE_WITH_WINDOW` only) | SDL message box, `ApplicationState::quit()` when attached, then `std::exit(1)` |
 | `DefaultFatalError` (`include/engine/resources/default_fatal_error.h`, `default_fatal_error()`) | writes the message to stderr, then `std::abort()`. Used where no host supplied one |
+| `ServerFatalError` (`src/core/server_fatal_error.h`) | logs the message, `ApplicationState::quit()`, then `std::exit(1)`. A dedicated server's |
 | a test double | throws, so a test asserts on the report (`tests/fixtures/fatal_fakes.h`: `FatalReport`) |
 
 `EngineSystemDeps::fatal` left unset becomes `default_fatal_error()` when `register_*_systems` runs, so the systems always dereference it. `Worlds::set_deps` fills in the `Worlds` fatal instead. `EngineSystemDeps` null members mean "subsystem not connected" and are read once, at registration, not per frame:
@@ -274,6 +307,10 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 | `src/core/app_lifecycle.cpp` | pause, resume, terminate |
 | `src/core/back_key_filter.cpp` | `BackKeyFilter`: whether an `AcBack` key event reaches `InputSystem` or only dismisses text input |
 | `src/cli/cli_server.cpp` | loopback server. The translation unit is empty without `ENGINE_CLI_SERVER` |
+| `src/core/server_host.cpp` | `ServerHost`, `ServerServices::port` |
+| `src/core/server_presentation.cpp` | `ServerPresentation`: the `IPresentation` with no window; the tick wait and the dropped-tick warning |
+| `src/core/server_options.cpp` | `parse_server_args`, `process_arguments`, the usage |
+| `src/core/shutdown_signal.cpp` | `ShutdownSignals`: the stop signals of a dedicated server |
 
 ## Only with `ENGINE_WITH_WINDOW`
 
@@ -317,6 +354,10 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 - `include/engine/core/random.h`
 - `include/engine/core/run_hooks.h`
 - `include/engine/core/sdl_fatal_error.h`
+- `include/engine/core/server.h`
+- `include/engine/core/server_host.h`
+- `include/engine/core/server_options.h`
+- `include/engine/core/server_services.h`
 - `include/engine/resources/default_fatal_error.h`
 - `include/engine/core/time.h`
 - `include/engine/core/web_loop.h`
@@ -325,10 +366,11 @@ Assets roots: [Runtime Assets](../build/Runtime%20Assets.md).
 - `include/engine/core/window_control.h`
 - `include/engine/core/worlds.h`
 - `include/engine/game_entry.h` (not in the umbrella; a game's `main.cpp` includes it)
+- `include/engine/server_entry.h` (not in the umbrella; a server's `main` file includes it)
 
 ## Tests
 
-`tests/cmake_sanity_test.cpp`, `tests/host_test.cpp`, `tests/time_test.cpp`, `tests/input_test.cpp`, `tests/relative_mouse_test.cpp`, `tests/game_window_reset_test.cpp`, `tests/log_test.cpp`, `tests/platform_test.cpp`, `tests/web_loop_test.cpp`, `tests/android_lifecycle_test.cpp`, `tests/android_assets_test.cpp`, `tests/window_icon_test.cpp`, `tests/window_style_test.cpp`, `tests/event_window_test.cpp`, `tests/cli_server_test.cpp`, `tests/worlds_test.cpp`, `tests/game_loop_test.cpp` (`RunHooks` order, `RunHooks::cli` answered without a primary world, and `InputSystem::begin_frame` before each `poll`, with a fake `IPresentation`), `tests/engine_error_test.cpp` (names and messages), `tests/engine_host_test.cpp` (a failing `init_video` returns `VideoInit` over a fake `IPresentation`, no fatal report; window builds only), `tests/game_entry_test.cpp` (module exports, window builds only), `tests/game_module_test.cpp` (loader against the fixture modules, editor build only; skipped elsewhere), `tests/file_dialog_test.cpp` (`FileDialogCall`), `tests/random_test.cpp` (golden sequences, ranges, streams), `tests/config_test.cpp` (round trip, defaults, malformed input, failed save), `tests/compression_test.cpp` (round trips of text, empty, 4 MiB, and incompressible input at both levels, the `max_size` guard and a bomb header, truncated header and payload, trailing bytes, unknown format, a size header off by one, a match before the output start, random payloads that never exceed their header size, calls from `JobSystem` workers).
+`tests/cmake_sanity_test.cpp`, `tests/host_test.cpp`, `tests/time_test.cpp`, `tests/input_test.cpp`, `tests/relative_mouse_test.cpp`, `tests/game_window_reset_test.cpp`, `tests/log_test.cpp`, `tests/platform_test.cpp`, `tests/web_loop_test.cpp`, `tests/android_lifecycle_test.cpp`, `tests/android_assets_test.cpp`, `tests/window_icon_test.cpp`, `tests/window_style_test.cpp`, `tests/event_window_test.cpp`, `tests/cli_server_test.cpp`, `tests/worlds_test.cpp`, `tests/game_loop_test.cpp` (`RunHooks` order, `RunHooks::cli` answered without a primary world, and `InputSystem::begin_frame` before each `poll`, with a fake `IPresentation`), `tests/engine_error_test.cpp` (names and messages), `tests/engine_host_test.cpp` (a failing `init_video` returns `VideoInit` over a fake `IPresentation`, no fatal report; window builds only), `tests/game_entry_test.cpp` (module exports, window builds only), `tests/game_module_test.cpp` (loader against the fixture modules, editor build only; skipped elsewhere), `tests/file_dialog_test.cpp` (`FileDialogCall`), `tests/random_test.cpp` (golden sequences, ranges, streams), `tests/config_test.cpp` (round trip, defaults, malformed input, failed save), `tests/compression_test.cpp` (round trips of text, empty, 4 MiB, and incompressible input at both levels, the `max_size` guard and a bomb header, truncated header and payload, trailing bytes, unknown format, a size header off by one, a match before the output start, random payloads that never exceed their header size, calls from `JobSystem` workers), `tests/server_args_test.cpp` (both forms of each flag, bad ports, missing values, UTF-8 paths, what goes to the game, `--`), `tests/server_host_test.cpp` (the real loop with no window for N ticks, no render, UI, or audio system, the same world from the same seed, sleeping to the tick rate, stopping on a signal with `on_quit`, a net server over loopback, CPU assets and a `.world` with no factory, the config file), `tests/server_process_test.cpp` (a real process, `tests/fixtures/server` built by `engine_add_server`: exit codes, a real signal, stdout, a fatal, the dropped-tick warning, and with `ENGINE_WITH_GNS` a client over a real socket that sees the world move and the close).
 
 ## See also
 

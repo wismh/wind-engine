@@ -117,7 +117,7 @@ Realtime networking and entity replication live in `namespace engine::net`. The 
 | Type | Role |
 | --- | --- |
 | `INetworkTransport` | `start_server`, `connect`, `disconnect`, `stop`, `send`, `poll_events`, `rtt_ms`, `pending_send_bytes`. Main thread only |
-| `GnsTransport` | IP/UDP through Valve's GameNetworkingSockets (prebuilt Windows `.lib`; elsewhere every call fails) |
+| `GnsTransport` | IP/UDP through Valve's GameNetworkingSockets. Needs `ENGINE_WITH_GNS` ([below](#gamenetworkingsockets-builds)); without it every call fails |
 | `SteamTransport` | Steam P2P through SteamNetworkingSockets, SteamID64 addresses |
 | `LoopbackTransport`, `LoopbackBus` | In-process transport for tests: `send` queues the bytes on the other end at once, ignores `DeliveryMode`, and `rtt_ms` is 0 |
 | `PeerId` | The transport's id of a connection. A client sees the server as `kServerPeerId` (1) |
@@ -127,6 +127,18 @@ Realtime networking and entity replication live in `namespace engine::net`. The 
 No delivery mode orders unreliable messages. `UnreliableImmediate` is `k_nSteamNetworkingSend_UnreliableNoNagle` on GNS: unreliable, sent without the Nagle delay. A receiver of unreliable data orders it itself; snapshots carry their tick. The `channel` argument is ignored by every transport.
 
 A GNS message of any mode may be up to 512 KiB (`k_cbMaxSteamNetworkingSocketsMessageSizeSend`), and `send` fails once 512 KiB wait unsent (`k_ESteamNetworkingConfig_SendBufferSize`). An unreliable message larger than one UDP packet is split, and when any piece is lost the whole message is lost, so snapshots stay within one packet ([Budget](#budget)). Unsent bytes go out in the order they were queued at GNS's send rate (256 KiB/s by default): whatever waits there delays the next snapshot. `pending_send_bytes` reports them (`m_cbPendingReliable + m_cbPendingUnreliable`; 0 on loopback), and the payload queue stays behind that ([Reliable payloads](#reliable-payloads)).
+
+#### GameNetworkingSockets builds
+
+| Build | GameNetworkingSockets |
+| --- | --- |
+| Windows, every build | The prebuilt in `external/GameNetworkingSockets`, with its DLLs. Its headers are byte-identical to upstream `v1.6.0` |
+| Linux, the Server player and the preset `linux-server` | Built from the submodule `external/GameNetworkingSockets-src` at `v1.6.0`, with OpenSSL, static protobuf and OpenSSL, no P2P ([external/README.md](../../../external/README.md)) |
+| Linux editor, Development, Shipping; macOS, Web, Android | None: every call of `GnsTransport` and `SteamTransport` fails |
+
+Limits. A Linux desktop client has no network transport; server-only is deliberate for now, because linking protobuf and OpenSSL into `libengine.so` would reach every SDK user. A Windows client (prebuilt) against a Linux server (`v1.6.0`) has **not been verified**: the headers match, the wire compatibility of the two builds has not been run. The Linux build itself has only the CI job `linux-server` to run it. `ENABLE_ICE` is off there, so `SteamTransport`'s P2P fails at run time on Linux. On Windows a second server on a port in use starts anyway, with no error from `start_server` (seen with two processes, both bound, on the prebuilt), so a server cannot detect that.
+
+`stop()` closes each connection before the listen socket, so a peer hears the close at once instead of waiting for its timeout.
 
 ### Messages
 
@@ -463,7 +475,7 @@ Input, after the id (`src/net/input_message.h`):
 
 Retries, resuming, and writing files are the game's: the engine gives it the sink, `Range`, and the error codes to do them. Connections are not reused between requests on any backend yet.
 
-Realtime: no dedicated server run mode and no Linux GameNetworkingSockets build (wind-310). Snapshots are neither compressed nor quantized.
+Realtime: snapshots are neither compressed nor quantized. A dedicated server is [Core](Core.md#dedicated-server); the realtime layer does not know it runs in one.
 
 Interest and budget, known follow-ups:
 

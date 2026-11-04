@@ -22,7 +22,7 @@ Checked against `include/engine/` at `53bf8c5`:
 - ~~`JobSystem` is fork-join `parallel_for` only. A chunk mesh built over several frames has no home.~~ Done in wind-305: `JobSystem::submit` and `JobCall` ([Async jobs](../modules/Core.md#async-jobs)).
 - ~~No compression library.~~ Done in wind-306: LZ4 behind `<engine/core/compression.h>` ([Compression](../modules/Core.md#compression)).
 - Net: `run_network_server_replication` sends every `NetIdentity` + `Transform` to every client each call, unreliable, with no tick number, no baseline, no relevance. `setup_client_snapshot_receiver` finds each entity by a linear `view<NetIdentity>()` scan per id instead of `NetEntityMap`. Interpolation is a `lerp_speed` chase, not a time-buffered snapshot. There is no client input channel and no prediction. [Net](../modules/Net.md) still calls `NetId` a component; in code it is `using NetId = std::uint32_t` and the component is `NetIdentity`.
-- `Engine<GameT>::init` always opens a window. There is no dedicated server run mode. `GameNetworkingSockets` is linked from a prebuilt Windows x64 `.lib` only.
+- ~~`Engine<GameT>::init` always opens a window. There is no dedicated server run mode. `GameNetworkingSockets` is linked from a prebuilt Windows x64 `.lib` only.~~ Done in wind-310: `ServerHost` and `ENGINE_GAME_SERVER` ([Core](../modules/Core.md#dedicated-server)), GameNetworkingSockets from source for a Linux server.
 - `IAudioSystem` has no position: `play_sfx(sound, volume)` only.
 
 ## Order
@@ -189,6 +189,8 @@ Do:
 - `engine_add_game` (or a sibling `engine_add_server`) in `cmake/wind_game.cmake` for both the source build and the SDK.
 
 Done when: a `Host`-based test runs a server world for N ticks with no window; a Linux CI configure builds the server target; Game Consumer.md documents it.
+
+Done in wind-310: `ENGINE_GAME_SERVER` and `engine_add_server`, a separate executable with no SDL. Not `EngineHost` without `open_primary` as written above, because `EngineHost` needs SDL video and `EngineServices` holds window references: `ServerHost` (always compiled) with `ServerServices`, over the same `GameLoop` through `ServerPresentation`, which sleeps to `kFixed` (a high-resolution timer on Windows) and warns about dropped ticks. `--port`, `--config`, `--assets`, the rest to the game; a TOML config; log on stdout; exit codes 0, 1, 2. SIGINT, SIGTERM, SIGHUP, and the Windows console events stop it with `on_quit`. The test is not `Host`-based, because `Host` enables UI and audio: real-loop `ServerHost` tests, and a real process with a client over a real socket. `<sdk>/player/Server` is a third player flavour without SDL, for Windows and Linux; `engine_add_server` works beside a game module in one tree. GameNetworkingSockets on Linux is the `update = none` submodule `external/GameNetworkingSockets-src` at `v1.6.0` with the system's static protobuf and OpenSSL, for the server only; Windows keeps the prebuilt. `GnsBaseTransport::stop` now closes connections before the listen socket, so a peer hears the close. The Linux path has the CI job `linux-server` and has not run yet. See [Core](../modules/Core.md#dedicated-server), [CMake](../build/CMake.md#engine_add_server), [Net](../modules/Net.md#gamenetworkingsockets-builds).
 
 ## Phase 4: polish
 

@@ -8,6 +8,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | --- | --- | --- |
 | `include/engine/engine.h` | Umbrella include | [Core](../modules/Core.md) |
 | `include/engine/game_entry.h` | `ENGINE_GAME(GameClass)`: `main` or the module exports; the module's CRT guard | [Core](../modules/Core.md) |
+| `include/engine/server_entry.h` | `ENGINE_GAME_SERVER(GameClass)`: `main` of a dedicated server | [Core](../modules/Core.md#dedicated-server) |
 | `include/engine/igame.h` | `IGame`, `GameBase`, `SplashScreen` | [Core](../modules/Core.md) |
 | `include/engine/log.h` | `log::init`, `info`, `warn`, `error` | [Core](../modules/Core.md) |
 | `include/engine/builtin_ids.h` | Frozen builtin `AssetId` values | [Resources](../modules/Resources.md) |
@@ -38,6 +39,10 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/core/input_system.h` | `ActionId` bindings with a scale, `MouseAxis`, `axis()`, and input events | [Input Mapper](../features/Input%20Mapper.md) |
 | `include/engine/core/key_code.h` | `KeyCode` values matching SDL scancodes | [Input Mapper](../features/Input%20Mapper.md) |
 | `include/engine/core/random.h` | `Random`, PCG32 | [Core](../modules/Core.md) |
+| `include/engine/core/server.h` | `Server<GameT>`, the concept `ServerGame`, `run_server` | [Core](../modules/Core.md#dedicated-server) |
+| `include/engine/core/server_host.h` | `ServerHost`: services, catalogs, signals, and the loop of a dedicated server | [Core](../modules/Core.md#dedicated-server) |
+| `include/engine/core/server_options.h` | `ServerOptions`, `parse_server_args`, `process_arguments`, the usage | [Core](../modules/Core.md#dedicated-server) |
+| `include/engine/core/server_services.h` | `ServerServices`: what a dedicated server is constructed from | [Core](../modules/Core.md#dedicated-server) |
 | `include/engine/core/platform.h` | Platform, assets root, `executable_directory`, `user_data_directory` | [Core](../modules/Core.md) |
 | `include/engine/core/run_hooks.h` | `RunHooks`: `on_start`, `on_frame_end`, `on_quit`, `cli` | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `include/engine/core/sdl_fatal_error.h` | SDL message-box `IFatalError` | [Core](../modules/Core.md) |
@@ -215,6 +220,11 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/core/random.cpp` | `Random`, PCG32 | [Core](../modules/Core.md) |
 | `src/core/platform.cpp` | Assets root, Android staging, executable directory, user-data path | [Core](../modules/Core.md) |
 | `src/core/presentation.h` | `IPresentation` seam the loop calls | [Core](../modules/Core.md) |
+| `src/core/server_fatal_error.h` | `ServerFatalError`: log, quit, `std::exit(1)` | [Core](../modules/Core.md#dedicated-server) |
+| `src/core/server_host.cpp` | `ServerHost` body, `ServerServices::port` | [Core](../modules/Core.md#dedicated-server) |
+| `src/core/server_options.cpp` | Command line and usage of a dedicated server | [Core](../modules/Core.md#dedicated-server) |
+| `src/core/server_presentation.h`, `src/core/server_presentation.cpp` | `IPresentation` with no window: stop signal, dropped-tick warning, tick wait | [Runtime Loop](../architecture/Runtime%20Loop.md#on-a-dedicated-server) |
+| `src/core/shutdown_signal.h`, `src/core/shutdown_signal.cpp` | `ShutdownSignals`: POSIX signals and Windows console events set one flag | [Core](../modules/Core.md#dedicated-server) |
 | `src/core/sdl_fatal_error.cpp` | Message box, quit, `std::exit(1)` | [Core](../modules/Core.md) |
 | `src/core/web_loop.cpp` | RAF vs blocking policy, ordered shutdown | [Core](../modules/Core.md) |
 | `src/core/worlds.cpp` | Add, destroy, bind, per-world clocks | [Core](../modules/Core.md) |
@@ -546,6 +556,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/fixtures/cli_client.h` | Loopback client: this process's descriptor and `POST /exec` | [CLI](../features/CLI.md) |
 | `tests/fixtures/fatal_fakes.h` | `FatalReport`, `QuietFatal`, `RecordingFatal`: `IFatalError` doubles that throw | [Core](../modules/Core.md) |
 | `tests/fixtures/fake_services.h` | Headless `EngineServices` fakes for tests that create a game; the window control keeps each window's description, position, size, and title, and answers a folder dialog with a scripted path | [Core](../modules/Core.md) |
+| `tests/fixtures/server/CMakeLists.txt`, `tests/fixtures/server/fixture_server.cpp` | `wind_server_fixture`: a dedicated server made by `engine_add_server`, public headers only | [Core](../modules/Core.md#dedicated-server) |
 | `tests/fixtures/game_module/fixture_game.cpp` | Fixture game module, built three ways in the editor build | [Core](../modules/Core.md) |
 | `tests/fixtures/game_module/fixture_log.h` | `FixtureLog` the fixture game writes into | [Core](../modules/Core.md) |
 | `tests/event_window_test.cpp` | `event_window`: a live window, a closed window's id dropped, id 0 per event kind | [Windowing](../features/Windowing.md#events-of-a-window) |
@@ -554,6 +565,9 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/engine_host_test.cpp` | `EngineHost` startup errors over a fake presentation (window builds) | [Core](../modules/Core.md) |
 | `tests/game_entry_test.cpp` | `ENGINE_GAME` module exports and build id (window builds) | [Core](../modules/Core.md) |
 | `tests/game_module_test.cpp` | `load_game_module` against the fixture modules (editor build) | [Core](../modules/Core.md) |
+| `tests/server_args_test.cpp` | `parse_server_args`: flags, bad ports, missing values, UTF-8, what goes to the game | [Core](../modules/Core.md#dedicated-server) |
+| `tests/server_host_test.cpp` | `ServerHost` on the real loop: no window, no render, UI, or audio system, determinism, pacing, signals, loopback net, assets with no factory, config | [Core](../modules/Core.md#dedicated-server) |
+| `tests/server_process_test.cpp` | A real server process: exit codes, a real signal, stdout, a fatal, the dropped-tick warning, a client over a real socket | [Core](../modules/Core.md#dedicated-server) |
 | `tests/game_loop_test.cpp` | `RunHooks` order, frame-end restart, `RunHooks::cli` without a primary world, and `InputSystem::begin_frame` before `poll`, with a fake presentation | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `tests/gl_error_log_test.cpp` | GL error names, one report per error and command | [Render](../modules/Render.md) |
 | `tests/grid_query_test.cpp` | Grid rays along axes and diagonals, inside, max distance, exact edges and corners; sweeps landing, resting, sliding, ceiling, steps, high speed; 2D and a tilemap lambda | [ECS](../modules/ECS.md#grid-queries) |
@@ -691,7 +705,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tools/ci/test_next_version.py` | Its unit tests | [Release](../build/Release.md#tests) |
 | `tools/ci/setup_sdk.py` | Downloads, verifies, and unpacks a released SDK for a game's CI | [Release](../build/Release.md#getting-an-sdk-in-a-games-ci) |
 | `tools/ci/test_setup_sdk.py` | Its unit tests | [Release](../build/Release.md#tests) |
-| `tools/ci/sdk_smoke.sh` | A game against an installed SDK, and the editor playing it | [CMake](../build/CMake.md#editor-sdk) |
+| `tools/ci/sdk_smoke.sh` | A game against an installed SDK, the editor playing it, an export, and a dedicated server (`--server`) | [CMake](../build/CMake.md#editor-sdk) |
 | `.github/workflows/release.yml` | Release on every push to `main`: version, SDK on three platforms, GitHub Release | [Release](../build/Release.md) |
 | `.github/workflows/sdk.yml` | The editor build, tests, install, and smoke on every platform | [CMake](../build/CMake.md#editor-sdk) |
 | `.github/actions/setup-wind/action.yml` | Composite action: `setup_sdk.py`, cache, `WIND_SDK_DIR`, `PATH` | [Release](../build/Release.md#getting-an-sdk-in-a-games-ci) |
@@ -702,9 +716,9 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | Path | What it does | Page |
 | --- | --- | --- |
 | `cmake/build_id.cmake` | Writes `<engine/build_id.h>`: the build id and the engine's CRT macros | [CMake](../build/CMake.md#build-id) |
-| `cmake/wind_game.cmake` | `engine_add_game`, `engine_configure_app`, `engine_prepare_runtime`, web and Android variants, `engine_sdk_configurations` (SDK mode and exports against the players: `DebugGame` and `Release`), `engine_debuggame_flags` | [CMake](../build/CMake.md#game-functions) |
+| `cmake/wind_game.cmake` | `engine_add_game`, `engine_add_server`, `engine_configure_app`, `engine_prepare_runtime`, web and Android variants, `engine_sdk_configurations` (SDK mode and exports against the players: `DebugGame` and `Release`), `engine_debuggame_flags` | [CMake](../build/CMake.md#game-functions) |
 | `cmake/WindConfig.cmake.in` | Template of the editor SDK's `WindConfig.cmake` (`find_package(Wind)`): imported `engine`, `glm::glm`, tools, GoogleTest; the `WIND_EXPORT` branch | [CMake](../build/CMake.md#editor-sdk) |
-| `cmake/wind_export.cmake` | Export builds: the SDK's player libraries as `engine` (Development for DebugGame, Shipping for Release), or why there are none | [CMake](../build/CMake.md#standalone-executable-wind_export) |
+| `cmake/wind_export.cmake` | Export builds: the SDK's player libraries as `engine` (Development for DebugGame, Shipping for Release), or why there are none; the Server player as `engine_server` | [CMake](../build/CMake.md#standalone-executable-wind_export) |
 | `cmake/wind_player.cmake.in` | Template of `<sdk>/player/<flavour>/cmake/wind_player.cmake`: flavour, version, platform, the SDK build id, `find_package` of what the exported targets name | [CMake](../build/CMake.md#player-libraries) |
 | `cmake/player_build.cmake` | Driver script: configure, build, and install the player flavours in trees of their own | [CMake](../build/CMake.md#player-libraries) |
 | `cmake/sdk_manifest.cmake` | Install step that writes the SDK's `sdk.toml` (full version, commit, dirty, config, build id, platform, player flavours) | [CMake](../build/CMake.md#editor-sdk) |
