@@ -6,6 +6,7 @@
 
 #include <engine/log.h>
 
+#include <algorithm>
 #include <cstring>
 #include <string>
 #include <utility>
@@ -101,6 +102,7 @@ OpenGLTexture::OpenGLTexture(const TextureArrayDesc& desc) : width_(desc.width),
         return;
     }
     layers_ = desc.layers;
+    mipmaps_ = desc.mipmaps;
     glGenTextures(1, &id_);
     glBindTexture(GL_TEXTURE_2D_ARRAY, id_);
     glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, kInternalFormat, desc.width, desc.height, desc.layers, 0, GL_RGBA,
@@ -141,6 +143,7 @@ void OpenGLTexture::allocate(int width, int height, const std::uint8_t* pixels, 
     glGenTextures(1, &id_);
     glBindTexture(GL_TEXTURE_2D, id_);
     glTexImage2D(GL_TEXTURE_2D, 0, kInternalFormat, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    mipmaps_ = mipmaps;
     apply_sampling(filter_mode, wrap_mode, mipmaps);
     glBindTexture(GL_TEXTURE_2D, 0);
 }
@@ -157,6 +160,39 @@ bool OpenGLTexture::update(std::span<const std::uint8_t> rgba, int width, int he
         glTexImage2D(GL_TEXTURE_2D, 0, kInternalFormat, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, staging_.data());
         width_ = width;
         height_ = height;
+    }
+    glBindTexture(GL_TEXTURE_2D, 0);
+    return true;
+}
+
+bool OpenGLTexture::update_rects(
+        std::span<const TextureRect> rects, std::span<const std::uint8_t> rgba, int row_stride) {
+    if (id_ == 0 || layers_ > 0 || mipmaps_ != MipmapMode::None) {
+        return false;
+    }
+    if (rects.empty()) {
+        return true;
+    }
+    if (const std::string error = texture_rects_error(width_, height_, rects, rgba, row_stride); !error.empty()) {
+        log::error(error);
+        return false;
+    }
+    std::size_t max_bytes = 0;
+    for (const TextureRect& rect : rects) {
+        max_bytes = std::max(
+                max_bytes, static_cast<std::size_t>(rect.width) * static_cast<std::size_t>(rect.height) * 4u);
+    }
+    staging_.resize(max_bytes);
+    const ContextScope scope(make_current_);
+    glBindTexture(GL_TEXTURE_2D, id_);
+    for (const TextureRect& rect : rects) {
+        const std::size_t bytes = static_cast<std::size_t>(rect.width) * static_cast<std::size_t>(rect.height) * 4u;
+        if (!pack_texture_rect(rect, rgba, row_stride, std::span<std::uint8_t>(staging_.data(), bytes))) {
+            glBindTexture(GL_TEXTURE_2D, 0);
+            return false;
+        }
+        glTexSubImage2D(GL_TEXTURE_2D, 0, rect.x, texture_rect_gpu_y(height_, rect), rect.width, rect.height, GL_RGBA,
+                GL_UNSIGNED_BYTE, staging_.data());
     }
     glBindTexture(GL_TEXTURE_2D, 0);
     return true;

@@ -36,6 +36,9 @@ public:
     // False for a texture array, which is never dynamic.
     bool update(std::span<const std::uint8_t> rgba, int width, int height) override;
 
+    // False for a texture array or a texture with mipmaps. See `IDynamicTexture::update_rects`.
+    bool update_rects(std::span<const TextureRect> rects, std::span<const std::uint8_t> rgba, int row_stride) override;
+
     [[nodiscard]] bool ensure_gpu_image();
     [[nodiscard]] VkImageView image_view() const noexcept { return image_view_; }
     [[nodiscard]] VkSampler sampler() const noexcept { return sampler_; }
@@ -43,6 +46,9 @@ public:
 private:
     void destroy_gpu_image();
     [[nodiscard]] bool upload_pixels();
+    // Copies `rects` into the existing image. The image must already be `SHADER_READ_ONLY` at this size.
+    [[nodiscard]] bool upload_rects(std::span<const TextureRect> rects, std::span<const std::uint8_t> rgba,
+            int row_stride);
     [[nodiscard]] std::uint32_t image_layers() const noexcept;
 
     std::shared_ptr<VulkanContext> context_;

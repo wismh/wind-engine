@@ -55,6 +55,15 @@ public:
     [[nodiscard]] virtual int layers() const noexcept { return 0; }
 };
 
+// A rectangle of pixels in a texture. `x` and `y` are the top-left in the same space as `TextureDesc::rgba`:
+// y = 0 is the top row.
+struct TextureRect {
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+};
+
 // A texture whose pixels the game replaces while it runs: a camera frame, a software-rendered image. Created by
 // `IGraphicFactory::create_dynamic_texture`. Main thread only.
 class IDynamicTexture : public ITexture {
@@ -64,6 +73,15 @@ public:
     // reallocates the texture, and `width()` / `height()` follow. False, and nothing changes, when `width` or
     // `height` is not positive, `rgba` is shorter than `width * height * 4`, or the texture is invalid.
     virtual bool update(std::span<const std::uint8_t> rgba, int width, int height) = 0;
+
+    // Replaces each rectangle with the pixels at that place in `rgba`. `rgba` is top row first and `row_stride` is
+    // its width in pixels, which may be wider than the texture. The texture's size does not change, and pixels
+    // outside the rectangles stay. An empty `rects` changes nothing and returns true. False, and nothing changes,
+    // when the texture is invalid, it is a texture array or has mipmaps, a rectangle is empty or outside the texture,
+    // `row_stride` does not cover a rectangle, or `rgba` ends before the last byte a rectangle reads. A rejected
+    // rectangle is logged.
+    virtual bool update_rects(std::span<const TextureRect> rects, std::span<const std::uint8_t> rgba,
+            int row_stride) = 0;
 };
 
 }

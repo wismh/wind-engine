@@ -286,7 +286,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/aabb.cpp` | `transform_aabb` | [Render](../modules/Render.md#frustum-culling) |
 | `src/render/frustum.cpp` | Frustum planes from a view-projection, the box test, the union over windows | [Render](../modules/Render.md#frustum-culling) |
 | `src/render/mesh_check.cpp`, `src/render/mesh_check.h` | `mesh_desc_error`: why a `MeshDesc` cannot be drawn | [Render](../modules/Render.md#meshes) |
-| `src/render/texture_check.cpp`, `src/render/texture_check.h` | `texture_array_desc_error`, `mip_level_count`, per-layer row flip | [Render](../modules/Render.md#texture-arrays) |
+| `src/render/texture_check.cpp`, `src/render/texture_check.h` | `texture_array_desc_error`, `mip_level_count`, per-layer row flip, dynamic-texture rect checks and the bottom-row-first copy | [Render](../modules/Render.md#dynamic-textures) |
 | `src/render/particles.cpp` | Spawn, integrate, and collide particles | [Render](../modules/Render.md) |
 | `src/render/primitives.cpp` | Procedural quad, cube, plane, and UV sphere | [Render](../modules/Render.md#primitives) |
 | `src/render/shader_adapt.cpp` | Rewrite GLSL for ES | [Render](../modules/Render.md) |
@@ -309,7 +309,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/opengl/opengl_mesh.h` | GL mesh type | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_shader.cpp` | GL program and named uniforms | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_shader.h` | GL shader type | [Render](../modules/Render.md) |
-| `src/render/opengl/opengl_texture.cpp` | GL 2D texture or texture array and sampler from catalog filter, wrap, and mipmaps (`glGenerateMipmap`); `update` of a dynamic texture | [Render](../modules/Render.md) |
+| `src/render/opengl/opengl_texture.cpp` | GL 2D texture or texture array and sampler from catalog filter, wrap, and mipmaps (`glGenerateMipmap`); full and partial `update` of a dynamic texture | [Render](../modules/Render.md) |
 | `src/render/opengl/opengl_texture.h` | GL texture type | [Render](../modules/Render.md) |
 | `src/render/opengl/sdl_gl_presentation.cpp` | SDL poll, present, and `IPresentation` | [Windowing](../features/Windowing.md) |
 | `src/render/opengl/sdl_gl_presentation.h` | `SdlGlPresentation` | [Windowing](../features/Windowing.md) |
