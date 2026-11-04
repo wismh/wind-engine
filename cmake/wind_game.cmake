@@ -513,20 +513,44 @@ function(engine_add_game target)
     # when the game uses a transport, which CMake cannot tell here.
     get_target_property(_game_type ${target} TYPE)
     if(_game_type STREQUAL "EXECUTABLE")
-        engine_copy_runtime_dlls(${target} ${ENGINE_SLANG_RUNTIME_DLLS} ${ENGINE_GNS_RUNTIME_DLLS})
+        engine_copy_runtime_dlls(${target} ${ENGINE_SLANG_RUNTIME_DLLS})
+        engine_copy_runtime_dlls(${target} ${ENGINE_GNS_RUNTIME_DLLS})
     endif()
 endfunction()
 
-# Copies DLLs beside an executable of `target`. Nothing off Windows, or with no DLLs.
+# Copies one set of DLLs beside an executable of `target`. Nothing off Windows, or with no DLLs. A game and its server can
+# land in one directory and need the same set, so each directory and set is one step that they all depend on: a POST_BUILD
+# on each would write the same files in parallel, which fails on Windows. In the source build it also waits for the targets
+# that copy these DLLs into bin/ themselves.
 function(engine_copy_runtime_dlls target)
-    if(WIN32 AND ARGN)
-        add_custom_command(TARGET ${target} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${ARGN}
-                "$<TARGET_FILE_DIR:${target}>"
+    if(NOT WIN32 OR NOT ARGN)
+        return()
+    endif()
+    get_target_property(_dir ${target} RUNTIME_OUTPUT_DIRECTORY)
+    if(NOT _dir)
+        set(_dir "${CMAKE_CURRENT_BINARY_DIR}")
+    endif()
+    string(MD5 _key "${_dir};${ARGN}")
+    set(_step engine_dlls_${_key})
+    if(NOT TARGET ${_step})
+        set(_stamp "${CMAKE_BINARY_DIR}/generated/engine_runtime/dlls_${_key}.$<CONFIG>.stamp")
+        add_custom_command(
+            OUTPUT "${_stamp}"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${target}>"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${ARGN} "$<TARGET_FILE_DIR:${target}>"
+            COMMAND ${CMAKE_COMMAND} -E touch "${_stamp}"
+            DEPENDS ${ARGN}
             COMMENT "Copy runtime DLLs beside ${target}"
             VERBATIM)
+        add_custom_target(${_step} DEPENDS "${_stamp}")
+        if(NOT ENGINE_FROM_SDK)
+            add_dependencies(${_step} engine)
+            if(NOT CMAKE_CROSSCOMPILING)
+                add_dependencies(${_step} asset_codegen)
+            endif()
+        endif()
     endif()
+    add_dependencies(${target} ${_step})
 endfunction()
 
 # Dedicated server: always an executable, in every mode, that the game's source enters with ENGINE_GAME_SERVER
