@@ -14,7 +14,7 @@ int FixedStepClock::advance(float real_dt) {
 
     int steps = 0;
     if (!app_state_->paused && *stepping_) {
-        time_->accumulator += frame_dt;
+        time_->accumulator += frame_dt * time_->fixed_rate;
         while (time_->accumulator >= kFixed && steps < kMaxFixedSteps) {
             time_->fixed_delta_time = kFixed;
             time_->accumulator -= kFixed;

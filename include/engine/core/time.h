@@ -18,6 +18,9 @@ struct Time {
     float total_time = 0.0f;
     float alpha = 0.0f;
     float accumulator = 0.0f;
+    // Scales the wall time fed to the fixed-step accumulator; `fixed_delta_time` stays `kFixed`. Per world, 1 by
+    // default. Only a net client's prediction changes it (Net.md, client lead), and a disconnect resets it to 1.
+    float fixed_rate = 1.0f;
 };
 
 }
