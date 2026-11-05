@@ -52,4 +52,12 @@ struct SpawnModelParams {
 // Writes each driving part's local Transform from the animator's glTF globals. Called after `tick_model_animator`.
 void apply_model_poses(World& world, const render::ModelAnimator& animator);
 
+// Sent by `run_model_animations` when the active clip's clock crosses a marker. The game reads it on the same frame
+// and latches whatever the simulation should notice; a fixed step does not read this queue.
+struct ModelAnimEvent {
+    Entity entity{};
+    std::string clip;
+    std::string name;
+};
+
 }

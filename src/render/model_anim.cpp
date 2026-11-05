@@ -61,6 +61,72 @@ ModelNodePose sample_key(const ModelClip& clip, int node, float time, bool loop,
     return pose;
 }
 
+void emit_cue(std::vector<ModelAnimCue>& cues, std::string_view clip, std::string_view name) {
+    cues.push_back(ModelAnimCue{std::string(clip), std::string(name)});
+}
+
+void emit_window(std::vector<ModelAnimCue>& cues, const ModelClip& clip, float begin, float end, bool include_zero) {
+    for (const ModelMarker& marker : clip.markers) {
+        const bool at_zero = include_zero && marker.time == 0.0f && begin == 0.0f;
+        if (at_zero || (marker.time > begin && marker.time <= end)) {
+            emit_cue(cues, clip.name, marker.name);
+        }
+    }
+}
+
+void emit_all(std::vector<ModelAnimCue>& cues, const ModelClip& clip) {
+    for (const ModelMarker& marker : clip.markers) {
+        emit_cue(cues, clip.name, marker.name);
+    }
+}
+
+// Markers in (previous, next] on the active clip. `from_start` also fires a marker at time 0.
+// A loop treats `duration` as the next 0, so a marker at `duration` is not representable.
+void collect_cues(std::vector<ModelAnimCue>& cues, const ModelClip& clip, float previous, float next, bool loop,
+        bool from_start) {
+    if (!(next >= previous) || clip.markers.empty()) {
+        return;
+    }
+    if (clip.duration <= 0.0f) {
+        if (from_start) {
+            emit_window(cues, clip, 0.0f, 0.0f, true);
+        }
+        return;
+    }
+    if (!loop) {
+        const float end = std::min(next, clip.duration);
+        const float begin = std::min(previous, clip.duration);
+        emit_window(cues, clip, begin, end, from_start && begin == 0.0f);
+        return;
+    }
+
+    const float duration = clip.duration;
+    const float start_mod = wrapped_time(clip, previous, true);
+    const int start_loop = static_cast<int>(std::floor(static_cast<double>(previous) / static_cast<double>(duration)));
+    const int end_loop = static_cast<int>(std::floor(static_cast<double>(next) / static_cast<double>(duration)));
+    if (end_loop == start_loop) {
+        emit_window(cues, clip, start_mod, wrapped_time(clip, next, true), from_start && start_mod == 0.0f);
+        return;
+    }
+
+    for (const ModelMarker& marker : clip.markers) {
+        const bool at_zero = from_start && marker.time == 0.0f && start_mod == 0.0f;
+        if (at_zero || (marker.time > start_mod && marker.time < duration)) {
+            emit_cue(cues, clip.name, marker.name);
+        }
+    }
+    const int full_loops = end_loop - start_loop - 1;
+    for (int loop_index = 0; loop_index < full_loops; ++loop_index) {
+        emit_all(cues, clip);
+    }
+    const float end_mod = wrapped_time(clip, next, true);
+    for (const ModelMarker& marker : clip.markers) {
+        if (marker.time == 0.0f || (marker.time > 0.0f && marker.time <= end_mod)) {
+            emit_cue(cues, clip.name, marker.name);
+        }
+    }
+}
+
 void fill_palettes(const ModelAsset& model, const std::vector<glm::mat4>& global, std::vector<std::vector<glm::mat4>>& palettes) {
     palettes.assign(model.primitives.size(), {});
     for (std::size_t i = 0; i < model.primitives.size(); ++i) {
@@ -192,13 +258,18 @@ void ModelAnimator::play(std::string_view clip_name, float fade_seconds) {
     clip = next;
     time = 0.0f;
     playing = true;
+    cues.clear();
+    cue_from_start = true;
 }
 
 void tick_model_animator(ModelAnimator& animator, float dt) {
+    animator.cues.clear();
     if (!animator.model) {
         return;
     }
     const ModelAsset& model = *animator.model;
+    const float previous = animator.time;
+    const bool from_start = animator.cue_from_start;
     if (animator.playing && animator.speed > 0.0f && !animator.clip.empty()) {
         animator.time += dt * animator.speed;
         if (const ModelClip* clip = find_clip(model, animator.clip); clip != nullptr && !animator.loop &&
@@ -209,6 +280,10 @@ void tick_model_animator(ModelAnimator& animator, float dt) {
         if (!animator.from_clip.empty()) {
             animator.from_time += dt * animator.speed;
         }
+        if (const ModelClip* clip = find_clip(model, animator.clip); clip != nullptr) {
+            collect_cues(animator.cues, *clip, previous, animator.time, animator.loop, from_start);
+        }
+        animator.cue_from_start = false;
     }
     if (animator.fade_left > 0.0f) {
         animator.fade_left = std::max(0.0f, animator.fade_left - dt);

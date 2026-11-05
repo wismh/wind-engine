@@ -889,10 +889,14 @@ namespace engine {
 
     void run_model_animations(ecs::World &world) {
         const float dt = world.ctx<Time>().delta_time;
+        ecs::EventWriter<ecs::ModelAnimEvent> events{world};
         auto view = world.view<render::ModelAnimator>();
         for (ecs::Entity entity: view) {
             auto &animator = view.get<render::ModelAnimator>(entity);
             render::tick_model_animator(animator, dt);
+            for (const render::ModelAnimCue &cue: animator.cues) {
+                events.send(ecs::ModelAnimEvent{entity, cue.clip, cue.name});
+            }
             apply_model_poses(world, animator);
         }
     }

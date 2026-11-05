@@ -3,6 +3,7 @@
 #include <toml++/toml.hpp>
 
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <sstream>
@@ -290,6 +291,39 @@ std::expected<void, MetaError> apply_optional_texture(const toml::table& table, 
     return {};
 }
 
+std::expected<void, MetaError> apply_optional_model(
+        const toml::table& table, ImporterKind importer, ModelImportSettings& model) {
+    const toml::node* markers_node = table.get("markers");
+    if (markers_node == nullptr) {
+        return {};
+    }
+    if (importer != ImporterKind::Model) {
+        return std::unexpected(MetaError::InvalidField);
+    }
+    const toml::array* const arr = markers_node->as_array();
+    if (arr == nullptr) {
+        return std::unexpected(MetaError::InvalidField);
+    }
+    for (const toml::node& marker_elem : *arr) {
+        const toml::table* const marker_tab = marker_elem.as_table();
+        if (marker_tab == nullptr) {
+            return std::unexpected(MetaError::InvalidField);
+        }
+        const auto clip = (*marker_tab)["clip"].value<std::string>();
+        const auto name = (*marker_tab)["name"].value<std::string>();
+        const toml::node* time_node = marker_tab->get("time");
+        if (!clip || clip->empty() || !name || name->empty() || time_node == nullptr) {
+            return std::unexpected(MetaError::InvalidField);
+        }
+        const auto time = node_as_float(*time_node);
+        if (!time || !std::isfinite(*time) || *time < 0.0f) {
+            return std::unexpected(MetaError::InvalidField);
+        }
+        model.markers.push_back(ModelMarkerMeta{*clip, *time, *name});
+    }
+    return {};
+}
+
 std::expected<void, MetaError> apply_optional_audio(const toml::table& table, AudioImportSettings& audio) {
     if (const auto bank = table["bank"].value<std::string>()) {
         const auto parsed = parse_bank(*bank);
@@ -450,6 +484,9 @@ std::expected<AssetMeta, MetaError> parse_meta_table(const toml::table& table) {
     if (auto audio = apply_optional_audio(table, meta.audio); !audio) {
         return std::unexpected(audio.error());
     }
+    if (auto model = apply_optional_model(table, meta.importer, meta.model); !model) {
+        return std::unexpected(model.error());
+    }
     if (meta.importer == ImporterKind::TextureArray && !texture_array_frames_valid(meta.texture)) {
         return std::unexpected(MetaError::InvalidField);
     }
@@ -600,6 +637,14 @@ std::string CookedCatalog::serialize() const {
             os << "pitch_range = [" << entry.audio.pitch_min << ", " << entry.audio.pitch_max << "]\n";
             os << "loop = " << (entry.audio.loop ? "true" : "false") << "\n";
         }
+        if (entry.importer == ImporterKind::Model) {
+            for (const ModelMarkerMeta& marker : entry.model.markers) {
+                os << "\n[[assets.markers]]\n";
+                os << "clip = \"" << marker.clip << "\"\n";
+                os << "time = " << marker.time << "\n";
+                os << "name = \"" << marker.name << "\"\n";
+            }
+        }
         os << '\n';
     }
     return os.str();
@@ -643,6 +688,9 @@ std::expected<CookedCatalog, MetaError> parse_cooked_catalog(std::string_view to
             }
             if (auto audio = apply_optional_audio(*entry_table, cooked.audio); !audio) {
                 return std::unexpected(audio.error());
+            }
+            if (auto model = apply_optional_model(*entry_table, cooked.importer, cooked.model); !model) {
+                return std::unexpected(model.error());
             }
             catalog.add(std::move(cooked));
         }

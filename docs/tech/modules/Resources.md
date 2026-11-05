@@ -67,6 +67,8 @@ Texture defaults: sRGB, linear filter, clamp wrap, `mipmaps = "none"`, `layout =
 
 `strings_source` is the `.meta` flag `source = true`. If the tree contains any `.strings` file, codegen requires exactly one such table. A `{tr}` key must exist in that table.
 
+A model sidecar takes optional `[[markers]]` rows (`clip`, `time`, `name`), the same kind of import setting as a texture's `filter`. No rows means no markers. A row on another importer, an empty `clip` or `name`, or a `time` that is not a number at least 0 is `MetaError::InvalidField`. The cooked catalog keeps the rows. The clip name and the range `[0, duration)` are checked when the glTF is cooked ([Assets](../features/Assets.md#models)).
+
 `asset_guid` writes a missing sidecar and never overwrites one. `.object` gets `importer = "object"`. `.tilemap` gets `importer = "tilemap"`. `.gltf` and `.glb` get `importer = "model"`. A file whose extension is not one of the known ones gets `importer = "data"`. `asset_codegen` fails the build when a sidecar is missing. It never writes `.meta`. Neither tool treats `readme.md`, `license*`, dotfiles, or `catalog.toml` as assets. The editor writes missing sidecars the same way for the open project's `assets/`, and it also deletes an orphan `.meta`.
 
 ## `AssetsDb`
