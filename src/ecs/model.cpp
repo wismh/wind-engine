@@ -9,6 +9,7 @@
 #include <engine/resources/assets_db.h>
 
 #include <format>
+#include <limits>
 #include <unordered_map>
 
 namespace engine::ecs {
@@ -115,9 +116,10 @@ std::expected<void, WorldLoadError> build_model(
 
     render::ModelAnimator animator;
     animator.model = std::move(model);
-    animator.clip = std::move(clip);
-    if (animator.clip.empty() && !animator.model->clips.empty()) {
-        animator.clip = animator.model->clips.front().name;
+    render::ModelLayer& base = animator.layers.emplace_back();
+    base.clip = std::move(clip);
+    if (base.clip.empty() && !animator.model->clips.empty()) {
+        base.clip = animator.model->clips.front().name;
     }
 
     std::unordered_map<int, Entity> driver_for_node;
@@ -289,6 +291,27 @@ std::optional<glm::mat4> joint_world(const World& world, Entity root, std::strin
         }
     }
     return std::nullopt;
+}
+
+std::optional<std::string> nearest_joint(const World& world, Entity root, const glm::vec3& world_point) {
+    const render::ModelAnimator* animator = world.try_get<render::ModelAnimator>(root);
+    if (animator == nullptr || !animator->model || animator->node_global.size() != animator->model->nodes.size() ||
+        animator->model->nodes.empty()) {
+        return std::nullopt;
+    }
+    const glm::mat4 root_world = compute_world_matrix(world, root);
+    float best = std::numeric_limits<float>::infinity();
+    std::size_t chosen = 0;
+    for (std::size_t i = 0; i < animator->model->nodes.size(); ++i) {
+        const glm::vec3 position = glm::vec3((root_world * animator->node_global[i])[3]);
+        const glm::vec3 delta = position - world_point;
+        const float distance = glm::dot(delta, delta);
+        if (distance < best) {
+            best = distance;
+            chosen = i;
+        }
+    }
+    return animator->model->nodes[chosen].name;
 }
 
 }

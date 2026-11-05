@@ -49,6 +49,10 @@ struct SpawnModelParams {
 // node of that name. The pose is whatever `tick_model_animator` last wrote.
 [[nodiscard]] std::optional<glm::mat4> joint_world(const World& world, Entity root, std::string_view name);
 
+// Name of the node whose posed world position is closest to `world_point`. Empty when `root` has no posed animator.
+// Equal distances keep the earlier node.
+[[nodiscard]] std::optional<std::string> nearest_joint(const World& world, Entity root, const glm::vec3& world_point);
+
 // Writes each driving part's local Transform from the animator's glTF globals. Called after `tick_model_animator`.
 void apply_model_poses(World& world, const render::ModelAnimator& animator);
 
