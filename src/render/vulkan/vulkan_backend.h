@@ -3,12 +3,16 @@
 // docs/tech/modules/Render.md
 
 #include "vulkan_context.h"
+#include "vulkan_post.h"
 #include "vulkan_shader.h"
 #include "vulkan_texture.h"
 
 #include <engine/render/backend.h>
 #include <engine/render/commands.h>
 #include <engine/render/material.h>
+
+#include <glm/vec2.hpp>
+#include <glm/vec4.hpp>
 
 #include <array>
 #include <cstdint>
@@ -46,7 +50,10 @@ public:
         std::uint32_t frame_slot);
     void end_scene_pass() noexcept;
 
+    void set_post_frame(VkCommandBuffer cmd, VkFramebuffer window_fb, VkExtent2D extent, VkFormat window_color,
+            VkFormat window_depth, float clear_alpha);
     void set_view(const CmdSetView& view);
+    void finish_post();
     void execute_draw_mesh(const CmdDrawMesh& cmd);
     void execute_draw_particles(const CmdDrawParticles& cmd);
     void execute(const CommandBuffer& commands) override;
@@ -75,6 +82,7 @@ private:
         RenderState state{};
         VkRenderPass render_pass = VK_NULL_HANDLE;
         bool is_particle = false;
+        bool fullscreen = false;
 
         [[nodiscard]] bool operator==(const PipelineKey&) const noexcept = default;
     };
@@ -96,16 +104,22 @@ private:
     [[nodiscard]] VkPipeline get_or_create_pipeline(
         VulkanShader& shader,
         const RenderState& state,
-        bool is_particle);
+        bool is_particle,
+        bool fullscreen = false);
     [[nodiscard]] VkDescriptorSet allocate_and_write_descriptor(
         const std::vector<std::uint8_t>& ubo_bytes,
         VulkanTexture& texture);
     void apply_viewport_and_scissor(bool clear_if_requested);
+    void adopt_pass(VkRenderPass pass, VkExtent2D extent);
+    void draw_post_shader(const std::shared_ptr<IShader>& shader, const glm::vec4& params, const glm::vec2& resolution,
+            float time, VkImageView source, VkImageView depth, VkFramebuffer framebuffer, VkRenderPass pass,
+            VkExtent2D extent, bool additive);
 
     std::shared_ptr<VulkanContext> context_;
     std::unique_ptr<ui::PaintResources> ui_resources_;
     ui::IUiPainter* ui_painter_ = nullptr;
     CmdSetView view_{};
+    VulkanPost post_;
 
     VkCommandBuffer active_cmd_ = VK_NULL_HANDLE;
     VkRenderPass active_render_pass_ = VK_NULL_HANDLE;

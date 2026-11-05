@@ -204,7 +204,7 @@ Do: a sky draw before opaque world draws (gradient or cubemap material), its col
 
 ### Later
 
-Not needed for a first playable build, already in the Scope backlog: shadows (one directional cascade), instancing (dropped items, particles of blocks), post-processing. glTF import and skinned meshes are in [Assets](../features/Assets.md#models).
+Not needed for a first playable build, already in the Scope backlog: shadows (one directional cascade), instancing (dropped items, particles of blocks), post-processing ([Post Process Plan](Post%20Process%20Plan.md)). glTF import and skinned meshes are in [Assets](../features/Assets.md#models).
 
 ## See also
 

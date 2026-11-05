@@ -34,8 +34,16 @@ inline constexpr AssetId shader_unlit_array{"a0e1b2c3d4f5678901234567890abc0d"};
 inline constexpr AssetId shader_skin_lit{"a0e1b2c3d4f5678901234567890abc0e"};
 // 3D unlit with the same bone palette. Not the tile unlit shader.
 inline constexpr AssetId shader_skin_unlit{"a0e1b2c3d4f5678901234567890abc0f"};
+// Fullscreen grade: rgb *= uParams.rgb, alpha copied (docs/tech/modules/Render.md).
+inline constexpr AssetId shader_post_grade{"a0e1b2c3d4f5678901234567890abc10"};
+// Reinhard tonemap. The engine appends it when PostStack::hdr is set; a game does not list it.
+inline constexpr AssetId shader_post_tonemap{"a0e1b2c3d4f5678901234567890abc11"};
+// HDR bloom chain. Fatal on a stack with hdr == false. uParams.x is the threshold, uParams.y the intensity.
+inline constexpr AssetId shader_post_bloom{"a0e1b2c3d4f5678901234567890abc12"};
+// Tints the scene by the depth texture. Resolving it sets PostEffect::sample_depth.
+inline constexpr AssetId shader_post_depth{"a0e1b2c3d4f5678901234567890abc13"};
 
-inline constexpr std::array<AssetId, 15> ids{
+inline constexpr std::array<AssetId, 19> ids{
         shader_unlit,
         mesh_quad,
         material_unlit,
@@ -51,6 +59,10 @@ inline constexpr std::array<AssetId, 15> ids{
         shader_unlit_array,
         shader_skin_lit,
         shader_skin_unlit,
+        shader_post_grade,
+        shader_post_tonemap,
+        shader_post_bloom,
+        shader_post_depth,
 };
 
 [[nodiscard]] constexpr std::span<const AssetId> reserved() noexcept {

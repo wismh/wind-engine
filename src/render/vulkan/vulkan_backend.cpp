@@ -269,6 +269,8 @@ struct ExecuteVisitor {
     void operator()(const CmdDrawParticles& cmd) const { backend->execute_draw_particles(cmd); }
 
     void operator()(const CmdSetView& cmd) const { backend->set_view(cmd); }
+
+    void operator()(const CmdPostProcess&) const { backend->finish_post(); }
 };
 
 } // namespace
@@ -304,8 +306,45 @@ void VulkanRenderBackend::end_scene_pass() noexcept {
     active_render_pass_ = VK_NULL_HANDLE;
 }
 
+void VulkanRenderBackend::set_post_frame(VkCommandBuffer cmd, VkFramebuffer window_fb, VkExtent2D extent,
+        VkFormat window_color, VkFormat window_depth, float clear_alpha) {
+    post_.set_frame(context_.get(), cmd, window_fb, extent, window_color, window_depth, clear_alpha);
+}
+
+void VulkanRenderBackend::adopt_pass(VkRenderPass pass, VkExtent2D extent) {
+    active_render_pass_ = pass;
+    pass_extent_ = extent;
+    if (active_cmd_ == VK_NULL_HANDLE || extent.width == 0 || extent.height == 0 || context_ == nullptr) {
+        return;
+    }
+    VkViewport viewport{};
+    viewport.width = static_cast<float>(extent.width);
+    viewport.height = static_cast<float>(extent.height);
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    VkRect2D scissor{};
+    scissor.extent = extent;
+    const VulkanFunctions& fn = context_->fn();
+    fn.vkCmdSetViewport(active_cmd_, 0, 1, &viewport);
+    fn.vkCmdSetScissor(active_cmd_, 0, 1, &scissor);
+}
+
 void VulkanRenderBackend::set_view(const CmdSetView& view) {
     view_ = view;
+    if (view.post.active() && !view.viewport.has_value()) {
+        if (post_.begin_scene(view.post)) {
+            adopt_pass(post_.scene_pass(), post_.extent());
+            return;
+        }
+        if (post_.pass_open()) {
+            adopt_pass(post_.window_load_pass(), post_.extent());
+            return;
+        }
+    }
+    if (post_.scene_bound()) {
+        post_.begin_window_load();
+        adopt_pass(post_.window_load_pass(), post_.extent());
+    }
     if (active_cmd_ != VK_NULL_HANDLE) {
         apply_viewport_and_scissor(true);
     }
@@ -360,6 +399,161 @@ void VulkanRenderBackend::apply_viewport_and_scissor(bool clear_if_requested) {
         fn.vkCmdClearAttachments(
             active_cmd_, static_cast<std::uint32_t>(atts.size()), atts.data(), 1, &clear_rect);
     }
+}
+
+void VulkanRenderBackend::draw_post_shader(const std::shared_ptr<IShader>& shader, const glm::vec4& params,
+        const glm::vec2& resolution, float time, VkImageView source, VkImageView depth, VkFramebuffer framebuffer,
+        VkRenderPass pass, VkExtent2D extent, bool additive) {
+    (void)framebuffer;
+    auto* vk_shader = dynamic_cast<VulkanShader*>(shader.get());
+    if (vk_shader == nullptr || !vk_shader->valid() || source == VK_NULL_HANDLE || active_cmd_ == VK_NULL_HANDLE ||
+            context_ == nullptr) {
+        return;
+    }
+    adopt_pass(pass, extent);
+    if (!vk_shader->ensure_modules()) {
+        return;
+    }
+    const RenderState state{
+            .blend = additive ? BlendMode::Additive : BlendMode::Opaque,
+            .depth_test = false,
+            .depth_write = false,
+            .cull = CullMode::None,
+    };
+    const VkPipeline pipeline = get_or_create_pipeline(*vk_shader, state, false, true);
+    if (pipeline == VK_NULL_HANDLE || !ensure_frame_slot(active_slot_)) {
+        return;
+    }
+    const SpirvReflection& refl = vk_shader->reflection();
+    std::vector<std::uint8_t> ubo(std::max<std::uint32_t>(refl.ubo_size, 64u), 0);
+    write_vec4(ubo, refl, "uParams", params);
+    write_vec2(ubo, refl, "uResolution", resolution);
+    write_float(ubo, refl, "uTime", time);
+
+    FrameSlot& slot = frame_slots_[active_slot_];
+    const VkDeviceSize align = std::max<VkDeviceSize>(
+            context_->device_properties().limits.minUniformBufferOffsetAlignment, 16u);
+    const VkDeviceSize aligned = (slot.ubo_offset + align - 1u) & ~(align - 1u);
+    if (aligned + ubo.size() > slot.ubo_capacity || slot.ubo_mapped == nullptr) {
+        return;
+    }
+    std::memcpy(slot.ubo_mapped + aligned, ubo.data(), ubo.size());
+    slot.ubo_offset = aligned + ubo.size();
+
+    const VulkanFunctions& fn = context_->fn();
+    VkDescriptorSetAllocateInfo alloc{};
+    alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    alloc.descriptorPool = slot.descriptor_pool;
+    alloc.descriptorSetCount = 1;
+    alloc.pSetLayouts = &descriptor_set_layout_;
+    VkDescriptorSet ds = VK_NULL_HANDLE;
+    if (fn.vkAllocateDescriptorSets(context_->device(), &alloc, &ds) != VK_SUCCESS) {
+        return;
+    }
+    VkDescriptorBufferInfo buf{};
+    buf.buffer = slot.ubo_buffer;
+    buf.offset = aligned;
+    buf.range = ubo.size();
+    VkDescriptorImageInfo scene{};
+    scene.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    scene.imageView = source;
+    scene.sampler = post_.sampler();
+    VkDescriptorImageInfo depth_info{};
+    depth_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    depth_info.imageView = depth;
+    depth_info.sampler = post_.depth_sampler();
+    std::array<VkWriteDescriptorSet, 3> writes{};
+    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[0].dstSet = ds;
+    writes[0].dstBinding = 0;
+    writes[0].descriptorCount = 1;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[0].pBufferInfo = &buf;
+    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[1].dstSet = ds;
+    writes[1].dstBinding = 1;
+    writes[1].descriptorCount = 1;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[1].pImageInfo = &scene;
+    std::uint32_t write_count = 2;
+    if (depth != VK_NULL_HANDLE) {
+        writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[2].dstSet = ds;
+        writes[2].dstBinding = 2;
+        writes[2].descriptorCount = 1;
+        writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[2].pImageInfo = &depth_info;
+        write_count = 3;
+    }
+    fn.vkUpdateDescriptorSets(context_->device(), write_count, writes.data(), 0, nullptr);
+    fn.vkCmdBindPipeline(active_cmd_, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    fn.vkCmdBindDescriptorSets(active_cmd_, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout_, 0, 1, &ds, 0, nullptr);
+    fn.vkCmdDraw(active_cmd_, 3, 1, 0, 0);
+}
+
+void VulkanRenderBackend::finish_post() {
+    if (!post_.scene_bound()) {
+        return;
+    }
+    const PostChain& chain = view_.post;
+    const bool hdr = post_.hdr_effective();
+    const VkExtent2D full = post_.extent();
+    const std::vector<PostStep> steps = post_steps(hdr, static_cast<int>(chain.effects.size()));
+    auto open = [&](VkFramebuffer fb, VkRenderPass pass, VkExtent2D extent) {
+        post_.begin(pass, fb, extent, false, false);
+        adopt_pass(pass, extent);
+    };
+    for (const PostStep& step : steps) {
+        const VkImageView source = post_.scene_view(step.source);
+        const bool to_window = step.dest == PostImage::Window;
+        const VkFramebuffer fb = to_window ? post_.window_fb() : post_.scene_fb(step.dest);
+        const VkRenderPass pass = to_window ? post_.window_load_pass() : post_.color_pass();
+        if (step.tonemap) {
+            open(fb, pass, full);
+            draw_post_shader(chain.tonemap, glm::vec4{1.0f}, glm::vec2{full.width, full.height}, view_.time, source,
+                    VK_NULL_HANDLE, fb, pass, full, false);
+            continue;
+        }
+        if (step.effect < 0 || static_cast<std::size_t>(step.effect) >= chain.effects.size()) {
+            continue;
+        }
+        const PostPass& effect = chain.effects[static_cast<std::size_t>(step.effect)];
+        if (effect.bloom) {
+            glm::vec4 params = effect.params;
+            VkImageView level_source = source;
+            glm::vec2 level_size{full.width, full.height};
+            for (int level = 0; level < 3; ++level) {
+                const VkExtent2D level_extent{static_cast<std::uint32_t>(post_.bloom_width(level)),
+                        static_cast<std::uint32_t>(post_.bloom_height(level))};
+                params.z = level == 0 ? 0.0f : 1.0f;
+                open(post_.bloom_fb(level), post_.color_pass(), level_extent);
+                draw_post_shader(effect.shader, params, level_size, view_.time, level_source, VK_NULL_HANDLE,
+                        post_.bloom_fb(level), post_.color_pass(), level_extent, false);
+                level_source = post_.bloom_view(level);
+                level_size = glm::vec2{level_extent.width, level_extent.height};
+            }
+            open(fb, pass, full);
+            params.z = 3.0f;
+            draw_post_shader(effect.shader, params, glm::vec2{full.width, full.height}, view_.time, source,
+                    VK_NULL_HANDLE, fb, pass, full, false);
+            params.z = 2.0f;
+            for (int level = 0; level < 3; ++level) {
+                draw_post_shader(effect.shader, params,
+                        glm::vec2{post_.bloom_width(level), post_.bloom_height(level)}, view_.time, post_.bloom_view(level),
+                        VK_NULL_HANDLE, fb, pass, full, true);
+            }
+            continue;
+        }
+        open(fb, pass, full);
+        const VkImageView depth = effect.sample_depth ? post_.depth_view() : VK_NULL_HANDLE;
+        draw_post_shader(effect.shader, effect.params, glm::vec2{full.width, full.height}, view_.time, source, depth, fb,
+                pass, full, false);
+    }
+    if (steps.empty() || steps.back().dest != PostImage::Window) {
+        post_.begin_window_load();
+        adopt_pass(post_.window_load_pass(), full);
+    }
+    post_.release_scene();
 }
 
 void VulkanRenderBackend::execute_draw_mesh(const CmdDrawMesh& cmd) {
@@ -482,6 +676,9 @@ void VulkanRenderBackend::execute(const CommandBuffer& commands) {
         apply_viewport_and_scissor(false);
     }
     commands.execute(ExecuteVisitor{.painter = ui_painter_, .backend = this});
+    if (post_.scene_bound()) {
+        finish_post();
+    }
     if (active_cmd_ != VK_NULL_HANDLE) {
         view_.viewport = std::nullopt;
         apply_viewport_and_scissor(false);
@@ -498,7 +695,7 @@ bool VulkanRenderBackend::ensure_shared_objects() {
     const VulkanFunctions& fn = context_->fn();
     const VkDevice device = context_->device();
 
-    std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
+    std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     bindings[0].descriptorCount = 1;
@@ -508,6 +705,11 @@ bool VulkanRenderBackend::ensure_shared_objects() {
     bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     bindings[1].descriptorCount = 1;
     bindings[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    bindings[2].binding = 2;
+    bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[2].descriptorCount = 1;
+    bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutCreateInfo dsl_info{};
     dsl_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -545,7 +747,7 @@ bool VulkanRenderBackend::ensure_frame_slot(std::uint32_t slot_idx) {
 
     std::array<VkDescriptorPoolSize, 2> pool_sizes{};
     pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kMaxDescriptorsPerFrame};
-    pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kMaxDescriptorsPerFrame};
+    pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kMaxDescriptorsPerFrame * 2u};
 
     VkDescriptorPoolCreateInfo pool_info{};
     pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -732,7 +934,8 @@ VkDescriptorSet VulkanRenderBackend::allocate_and_write_descriptor(
 VkPipeline VulkanRenderBackend::get_or_create_pipeline(
     VulkanShader& shader,
     const RenderState& state,
-    bool is_particle) {
+    bool is_particle,
+    bool fullscreen) {
     if (!ensure_shared_objects() || active_render_pass_ == VK_NULL_HANDLE || !shader.ensure_modules()) {
         return VK_NULL_HANDLE;
     }
@@ -746,6 +949,7 @@ VkPipeline VulkanRenderBackend::get_or_create_pipeline(
         .state = pipeline_state,
         .render_pass = active_render_pass_,
         .is_particle = is_particle,
+        .fullscreen = fullscreen,
     };
     for (const CachedPipeline& entry : pipelines_) {
         if (entry.key == key) {
@@ -767,7 +971,9 @@ VkPipeline VulkanRenderBackend::get_or_create_pipeline(
 
     std::vector<VkVertexInputBindingDescription> vertex_bindings;
     std::vector<VkVertexInputAttributeDescription> vertex_attrs;
-    if (!is_particle) {
+    if (fullscreen) {
+        // gl_VertexID / SV_VertexID. No vertex buffer.
+    } else if (!is_particle) {
         vertex_bindings.push_back({0, sizeof(MeshVertex), VK_VERTEX_INPUT_RATE_VERTEX});
         vertex_attrs.push_back(
             {0, 0, VK_FORMAT_R32G32B32_SFLOAT, static_cast<std::uint32_t>(offsetof(MeshVertex, position))});
@@ -899,6 +1105,7 @@ VkPipeline VulkanRenderBackend::get_or_create_pipeline(
 }
 
 void VulkanRenderBackend::shutdown_gpu_resources() {
+    post_.shutdown();
     white_texture_.reset();
     white_texture_array_.reset();
     particle_shader_.reset();

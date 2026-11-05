@@ -8,7 +8,7 @@ The runtime walkthrough is [Assets](../features/Assets.md). The cook tools are [
 
 `AssetId` is exactly 32 lowercase hex characters (`include/engine/resources/asset_id.h`). The constructor throws `std::invalid_argument` when the string is not valid. `parse` returns `nullopt` instead.
 
-Builtin ids in `include/engine/builtin_ids.h` are frozen. `builtin::reserved()` is the fifteen ids `asset_codegen` rejects in a game tree. Do not regenerate them. See `builtin_assets/README.md`.
+Builtin ids in `include/engine/builtin_ids.h` are frozen. `builtin::reserved()` is the nineteen ids `asset_codegen` rejects in a game tree. Do not regenerate them. See `builtin_assets/README.md`.
 
 | Constant | GUID suffix | File |
 | --- | --- | --- |
@@ -27,6 +27,10 @@ Builtin ids in `include/engine/builtin_ids.h` are frozen. `builtin::reserved()` 
 | `shader_unlit_array` | `…abc0d` | `shaders/unlit_array.shader` |
 | `shader_skin_lit` | `…abc0e` | `shaders/skin_lit.shader` |
 | `shader_skin_unlit` | `…abc0f` | `shaders/skin_unlit.shader` |
+| `shader_post_grade` | `…abc10` | `shaders/post_grade.shader` |
+| `shader_post_tonemap` | `…abc11` | `shaders/post_tonemap.shader` |
+| `shader_post_bloom` | `…abc12` | `shaders/post_bloom.shader` |
+| `shader_post_depth` | `…abc13` | `shaders/post_depth.shader` |
 
 The full literals are in `builtin_ids.h`. The table's suffix is the last five characters.
 

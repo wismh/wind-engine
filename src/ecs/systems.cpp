@@ -24,6 +24,7 @@
 #include <engine/render/frustum.h>
 #include <engine/render/lights.h>
 #include <engine/render/particles.h>
+#include <engine/render/post_process.h>
 #include <engine/render/model.h>
 #include <engine/render/renderable.h>
 #include <engine/render/sprite.h>
@@ -632,8 +633,19 @@ namespace engine {
             auto sprites = world.view<render::Sprite, Transform>();
             auto emitters = world.view<render::ParticleEmitter>();
             auto tilemaps = world.view<render::Tilemap, Transform>();
-            if (renderables.begin() == renderables.end() && sprites.begin() == sprites.end() &&
-                emitters.begin() == emitters.end() && tilemaps.begin() == tilemaps.end()) {
+            const bool any_drawable = renderables.begin() != renderables.end() || sprites.begin() != sprites.end() ||
+                                      emitters.begin() != emitters.end() || tilemaps.begin() != tilemaps.end();
+            const render::PostStack* post_stack = nullptr;
+            if (const ActiveCamera* active_camera = world.try_ctx<ActiveCamera>();
+                active_camera != nullptr && world.valid(active_camera->entity)) {
+                post_stack = world.try_get<render::PostStack>(active_camera->entity);
+            }
+            auto prepared_post = render::prepare_post_stack(post_stack);
+            if (!prepared_post) {
+                deps.fatal->report(prepared_post.error());
+            }
+            const bool post_active = prepared_post->hdr || !prepared_post->effects.empty();
+            if (!any_drawable && !post_active) {
                 return;
             }
 
@@ -666,6 +678,8 @@ namespace engine {
             if (const render::Fog *camera_fog = world.try_get<render::Fog>(active.entity)) {
                 fog = *camera_fog;
             }
+            const render::PostChain post = render::resolve_post_chain(*prepared_post, deps.assets, deps.fatal);
+            const float time = world.try_ctx<Time>() != nullptr ? world.try_ctx<Time>()->total_time : 0.0f;
 
             for (const WindowId id: windows) {
                 render::CommandBuffer *buffer = command_buffer_for(deps, id);
@@ -680,10 +694,14 @@ namespace engine {
                         .camera_position = glm::vec3(camera_world[3]),
                         .lights = lights,
                         .fog = fog,
-                        .time = world.try_ctx<Time>() != nullptr ? world.try_ctx<Time>()->total_time : 0.0f,
+                        .time = time,
+                        .post = post,
                 });
                 for (const DrawItem &item: items) {
                     buffer->push(item.command);
+                }
+                if (post.active()) {
+                    buffer->push(render::CmdPostProcess{});
                 }
             }
         }

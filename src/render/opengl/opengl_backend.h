@@ -1,6 +1,7 @@
 #pragma once
 
 #include "context_vao.h"
+#include "opengl_post.h"
 
 #include "render/gl_error_log.h"
 
@@ -28,6 +29,8 @@ public:
     OpenGLRenderBackend& operator=(const OpenGLRenderBackend&) = delete;
 
     void set_ui_painter(ui::IUiPainter* painter);
+    // Drawable size and the window clear alpha (0 when the window is transparent). Post targets are sized from it.
+    void set_frame_surface(int width, int height, float clear_alpha) noexcept;
     // The fonts, glyph atlas, path masks, gradient ramps, and images every window's UiRenderer draws from: one set
     // for the backend every window shares (docs/tech/architecture/UI Performance Plan.md, step 5). CPU only; each
     // window's device keeps its own textures of it.
@@ -36,6 +39,7 @@ public:
 
     // The view state the following draws use (CmdSetView). `execute` resets it to a default CmdSetView first.
     void set_view(const CmdSetView& view);
+    void finish_post();
     void execute_draw_mesh(const CmdDrawMesh& cmd);
     void execute_draw_particles(const CmdDrawParticles& cmd);
     // ENGINE_GL_CHECKS: logs the GL errors raised since the last check, once per error and `where`. Otherwise nothing.
@@ -65,6 +69,7 @@ private:
     GlErrorLog gl_errors_;
     CmdSetView view_;
     int full_viewport_[4]{0, 0, 0, 0};
+    OpenGLPost post_;
 };
 
 }
