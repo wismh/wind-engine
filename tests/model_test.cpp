@@ -4,6 +4,7 @@
 #include <engine/core/time.h>
 #include <engine/ecs/model.h>
 #include <engine/ecs/systems.h>
+#include <engine/ecs/transform.h>
 #include <engine/ecs/world.h>
 #include <engine/ecs/world_serializer.h>
 #include <engine/render/graphic_factory.h>
@@ -614,36 +615,36 @@ TEST(Model, MarkersCrossTheActiveClipOnly) {
     engine::render::tick_model_animator(animator, 0.0f);
     EXPECT_TRUE(animator.cues.empty());
 
-    animator.playing = false;
+    animator.layers[0].playing = false;
     engine::render::tick_model_animator(animator, 1.0f);
     EXPECT_TRUE(animator.cues.empty());
-    EXPECT_TRUE(animator.cue_from_start == false);
+    EXPECT_TRUE(animator.layers[0].cue_from_start == false);
 
     animator = attack_animator();
     animator.play("attack");
-    animator.playing = false;
+    animator.layers[0].playing = false;
     engine::render::tick_model_animator(animator, 0.5f);
     EXPECT_TRUE(animator.cues.empty());
-    EXPECT_TRUE(animator.cue_from_start);
-    animator.playing = true;
+    EXPECT_TRUE(animator.layers[0].cue_from_start);
+    animator.layers[0].playing = true;
     engine::render::tick_model_animator(animator, 0.2f);
     EXPECT_EQ(cue_count(animator, "start"), 1);
     EXPECT_EQ(cue_count(animator, "hit"), 0);
 
     animator = attack_animator();
-    animator.loop = false;
     animator.play("attack");
+    animator.layers[0].loop = false;
     engine::render::tick_model_animator(animator, 3.0f);
     EXPECT_EQ(cue_count(animator, "start"), 1);
     EXPECT_EQ(cue_count(animator, "hit"), 1);
-    EXPECT_FALSE(animator.playing);
+    EXPECT_FALSE(animator.layers[0].playing);
     engine::render::tick_model_animator(animator, 1.0f);
     EXPECT_TRUE(animator.cues.empty());
 
     animator = attack_animator();
     animator.play("attack");
     engine::render::tick_model_animator(animator, 0.0f);
-    animator.time = 0.2f;
+    animator.layers[0].time = 0.2f;
     engine::render::tick_model_animator(animator, 2.0f);
     EXPECT_EQ(cue_count(animator, "hit"), 2);
     EXPECT_EQ(cue_count(animator, "start"), 2);
@@ -741,4 +742,154 @@ TEST(Model, CodegenCooksMarkersFromTheSidecar) {
     std::error_code ec;
     std::filesystem::remove_all(dir, ec);
     std::filesystem::remove_all(stage, ec);
+}
+
+engine::render::ModelAsset masked_body() {
+    engine::render::ModelAsset model;
+    model.nodes.push_back(engine::render::ModelNode{.name = "hips"});
+    model.nodes.push_back(engine::render::ModelNode{.name = "spine", .parent = 0});
+    model.nodes.push_back(engine::render::ModelNode{.name = "head", .parent = 1});
+    model.nodes.push_back(engine::render::ModelNode{.name = "leg", .parent = 0});
+    const auto samples = [](glm::vec3 hips, glm::vec3 spine, glm::vec3 head, glm::vec3 leg) {
+        std::vector<engine::render::ModelNodePose> poses(4);
+        poses[0].translation = hips;
+        poses[1].translation = spine;
+        poses[2].translation = head;
+        poses[3].translation = leg;
+        return poses;
+    };
+    engine::render::ModelClip walk;
+    walk.name = "walk";
+    walk.duration = 1.0f;
+    walk.key_count = 1;
+    walk.samples = samples({0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, -1.0f, 0.0f});
+    engine::render::ModelClip hit;
+    hit.name = "hit";
+    hit.duration = 1.0f;
+    hit.key_count = 1;
+    hit.samples = samples({9.0f, 0.0f, 0.0f}, {0.0f, 2.0f, 0.0f}, {0.0f, 0.0f, 4.0f}, {5.0f, 5.0f, 5.0f});
+    model.clips.push_back(std::move(walk));
+    model.clips.push_back(std::move(hit));
+    return model;
+}
+
+TEST(Model, OverrideMaskKeepsTheUnmaskedBones) {
+    engine::render::ModelAnimator animator;
+    animator.model = std::make_shared<engine::render::ModelAsset>(masked_body());
+    animator.play("walk");
+    animator.play_layer(1, "hit");
+    animator.layers[1].mask = "spine";
+    engine::render::tick_model_animator(animator, 0.0f);
+
+    EXPECT_NEAR(animator.locals[0].translation.x, 0.0f, 1e-4f);
+    EXPECT_NEAR(animator.locals[3].translation.y, -1.0f, 1e-4f);
+    EXPECT_NEAR(animator.locals[1].translation.x, 0.0f, 1e-4f);
+    EXPECT_NEAR(animator.locals[1].translation.y, 2.0f, 1e-4f);
+    EXPECT_NEAR(animator.locals[2].translation.z, 4.0f, 1e-4f);
+
+    animator.layers[1].weight = 0.5f;
+    engine::render::tick_model_animator(animator, 0.0f);
+    EXPECT_NEAR(animator.locals[1].translation.x, 0.5f, 1e-4f);
+    EXPECT_NEAR(animator.locals[1].translation.y, 1.0f, 1e-4f);
+    EXPECT_NEAR(animator.locals[3].translation.y, -1.0f, 1e-4f);
+}
+
+TEST(Model, AdditiveLayerAddsTheRestDelta) {
+    engine::render::ModelAnimator animator;
+    animator.model = std::make_shared<engine::render::ModelAsset>(masked_body());
+    animator.play("walk");
+    animator.play_layer(1, "hit");
+    animator.layers[1].mask = "spine";
+    animator.layers[1].blend = engine::render::ModelBlend::Additive;
+    engine::render::tick_model_animator(animator, 0.0f);
+
+    EXPECT_NEAR(animator.locals[1].translation.x, 1.0f, 1e-4f);
+    EXPECT_NEAR(animator.locals[1].translation.y, 2.0f, 1e-4f);
+    EXPECT_NEAR(animator.locals[2].translation.z, 5.0f, 1e-4f);
+    EXPECT_NEAR(animator.locals[0].translation.x, 0.0f, 1e-4f);
+    EXPECT_NEAR(animator.locals[3].translation.y, -1.0f, 1e-4f);
+}
+
+TEST(Model, SilentLayerSendsNoMarkers) {
+    engine::render::ModelAnimator animator = attack_animator();
+    animator.play("idle");
+    animator.play_layer(1, "attack");
+    animator.layers[1].weight = 0.0f;
+    engine::render::tick_model_animator(animator, 0.5f);
+    EXPECT_EQ(cue_count(animator, "hit"), 0);
+    EXPECT_EQ(cue_count(animator, "start"), 0);
+    EXPECT_EQ(cue_count(animator, "step"), 1);
+    EXPECT_NEAR(animator.layers[1].time, 0.5f, 1e-4f);
+
+    animator.layers[1].weight = 1.0f;
+    animator.play_layer(1, "attack");
+    engine::render::tick_model_animator(animator, 0.0f);
+    EXPECT_EQ(cue_count(animator, "start"), 1);
+    animator.play_layer(1, "idle", 1.0f);
+    engine::render::tick_model_animator(animator, 0.4f);
+    EXPECT_EQ(cue_count(animator, "hit"), 0);
+    EXPECT_EQ(cue_count(animator, "step"), 1);
+    EXPECT_EQ(animator.cues[0].clip, "idle");
+}
+
+TEST(Model, ImpulseMovesOnlyTheHitBoneThenSettles) {
+    engine::render::ModelAsset model;
+    engine::render::ModelNode arm;
+    arm.name = "arm";
+    arm.parent = 0;
+    arm.translation = glm::vec3{0.0f, 1.0f, 0.0f};
+    engine::render::ModelNode leg;
+    leg.name = "leg";
+    leg.parent = 0;
+    leg.translation = glm::vec3{0.0f, -1.0f, 0.0f};
+    model.nodes.push_back(engine::render::ModelNode{.name = "body"});
+    model.nodes.push_back(arm);
+    model.nodes.push_back(leg);
+
+    engine::render::ModelAnimator animator;
+    animator.model = std::make_shared<engine::render::ModelAsset>(std::move(model));
+    engine::render::tick_model_animator(animator, 0.0f);
+    engine::render::impulse_joint(animator, "missing", glm::vec3{1.0f, 0.0f, 0.0f}, 5.0f);
+    EXPECT_TRUE(animator.springs.empty());
+
+    engine::render::impulse_joint(animator, "arm", glm::vec3{1.0f, 0.0f, 0.0f}, 5.0f);
+    engine::render::impulse_joint(animator, "arm", glm::vec3{1.0f, 0.0f, 0.0f}, 5.0f);
+    ASSERT_EQ(animator.springs.size(), 1u);
+    EXPECT_NEAR(animator.springs[0].linear_velocity.x, 10.0f, 1e-3f);
+
+    engine::render::tick_model_animator(animator, 1.0f / 60.0f);
+    EXPECT_GT(animator.locals[1].translation.x, 0.01f);
+    EXPECT_NEAR(animator.locals[0].translation.x, 0.0f, 1e-4f);
+    EXPECT_NEAR(animator.locals[2].translation.x, 0.0f, 1e-4f);
+    EXPECT_NEAR(animator.locals[2].translation.y, -1.0f, 1e-4f);
+
+    for (int i = 0; i < 180; ++i) {
+        engine::render::tick_model_animator(animator, 1.0f / 60.0f);
+    }
+    EXPECT_NEAR(animator.locals[1].translation.x, 0.0f, 1e-2f);
+    EXPECT_NEAR(animator.locals[1].translation.y, 1.0f, 1e-2f);
+    EXPECT_TRUE(animator.springs.empty());
+}
+
+TEST(Model, NearestJointUsesThePosedWorldPosition) {
+    engine::render::ModelAsset model;
+    engine::render::ModelNode far;
+    far.name = "far";
+    far.translation = glm::vec3{10.0f, 0.0f, 0.0f};
+    model.nodes.push_back(engine::render::ModelNode{.name = "near"});
+    model.nodes.push_back(far);
+
+    engine::ecs::World world;
+    const engine::ecs::Entity root = world.create();
+    engine::Transform placed;
+    placed.position = glm::vec3{100.0f, 0.0f, 0.0f};
+    world.emplace<engine::Transform>(root, placed);
+    engine::render::ModelAnimator animator;
+    animator.model = std::make_shared<engine::render::ModelAsset>(std::move(model));
+    engine::render::tick_model_animator(animator, 0.0f);
+    world.emplace<engine::render::ModelAnimator>(root, std::move(animator));
+
+    EXPECT_EQ(engine::ecs::nearest_joint(world, root, glm::vec3{100.0f, 0.0f, 0.0f}), "near");
+    EXPECT_EQ(engine::ecs::nearest_joint(world, root, glm::vec3{109.0f, 1.0f, 0.0f}), "far");
+    EXPECT_FALSE(engine::ecs::nearest_joint(world, world.create(), glm::vec3{0.0f}).has_value());
 }
