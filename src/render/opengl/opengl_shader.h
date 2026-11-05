@@ -36,6 +36,8 @@ public:
     void set_vec2(std::string_view name, const glm::vec2& value) const;
     void set_float(std::string_view name, float value) const;
     void set_int(std::string_view name, int value) const;
+    // Binds the `Bones` uniform block when the program has one. A shader without that block ignores `bones`.
+    void set_bone_palette(std::span<const glm::mat4> bones) const;
     // The vec4 uniform's current value in the program, or zero when the shader has no such uniform.
     [[nodiscard]] glm::vec4 vec4_value(std::string_view name) const;
 
@@ -47,6 +49,7 @@ public:
 
 private:
     unsigned int program_ = 0;
+    mutable unsigned int bone_buffer_ = 0;
 };
 
 }

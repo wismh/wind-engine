@@ -22,8 +22,8 @@ public:
     // reason is logged) or the backend could not take it.
     bool update(const MeshDesc& desc);
 
-    // The local box around every vertex of the desc the mesh was made or last updated from. Frustum culling tests it
-    // under the draw's model matrix.
+    // The local box frustum culling tests under the draw's model matrix. The vertex positions, unless the desc set
+    // `bounds_override` (a skinned mesh's posed extent, which is larger than the bind pose).
     [[nodiscard]] const Aabb& bounds() const noexcept {
         return bounds_;
     }

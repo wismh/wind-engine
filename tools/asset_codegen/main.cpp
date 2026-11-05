@@ -1,3 +1,5 @@
+#include "gltf/cook.h"
+
 #include <engine/builtin_ids.h>
 #include <engine/project/wind_project.h>
 #include <engine/resources/component_codegen.h>
@@ -10,6 +12,7 @@
 #include <vector>
 
 int main(int argc, char** argv) {
+    engine::gltf::register_gltf_cooker();
     if (argc >= 3 && std::string_view(argv[1]) == "--components") {
         const std::filesystem::path output_file = argv[2];
         std::vector<std::filesystem::path> dirs;
