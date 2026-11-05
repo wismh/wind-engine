@@ -195,13 +195,44 @@ void GnsBaseTransport::on_connection_status_changed(SteamNetConnectionStatusChan
     }
 }
 
+bool GnsBaseTransport::close_local_client() {
+    if (client_conn_ == k_HSteamNetConnection_Invalid || sockets_ == nullptr) {
+        return false;
+    }
+    const HSteamNetConnection conn = client_conn_;
+    client_conn_ = k_HSteamNetConnection_Invalid;
+    {
+        std::lock_guard lock(s_registry_mutex);
+        s_connections.erase(conn);
+    }
+    sockets_->CloseConnection(conn, 0, nullptr, false);
+    is_running_ = false;
+    return true;
+}
+
+void GnsBaseTransport::enqueue_client_left() {
+    enqueue(QueuedEvent{
+            .type = TransportEventType::Disconnected,
+            .peer_id = kServerPeerId,
+            .payload = {},
+            .reason = DisconnectReason::ClosedByPeer,
+    });
+}
+
 void GnsBaseTransport::disconnect(PeerId peer_id) {
     if (!is_running_ || sockets_ == nullptr) {
         return;
     }
 
+    if (!is_server_) {
+        if (close_local_client()) {
+            enqueue_client_left();
+        }
+        return;
+    }
+
     HSteamNetConnection conn = k_HSteamNetConnection_Invalid;
-    if (is_server_) {
+    {
         std::lock_guard lock(state_mutex_);
         auto it = peer_to_conn_.find(peer_id);
         if (it != peer_to_conn_.end()) {
@@ -211,8 +242,6 @@ void GnsBaseTransport::disconnect(PeerId peer_id) {
         } else {
             conn = static_cast<HSteamNetConnection>(peer_id);
         }
-    } else {
-        conn = client_conn_;
     }
 
     if (conn != k_HSteamNetConnection_Invalid) {
@@ -221,10 +250,6 @@ void GnsBaseTransport::disconnect(PeerId peer_id) {
             s_connections.erase(conn);
         }
         sockets_->CloseConnection(conn, 0, nullptr, false);
-        if (!is_server_) {
-            client_conn_ = k_HSteamNetConnection_Invalid;
-            is_running_ = false;
-        }
     }
 }
 
@@ -271,17 +296,15 @@ void GnsBaseTransport::stop() {
             poll_group_ = k_HSteamNetPollGroup_Invalid;
         }
     } else {
-        if (client_conn_ != k_HSteamNetConnection_Invalid) {
-            {
-                std::lock_guard lock(s_registry_mutex);
-                s_connections.erase(client_conn_);
-            }
-            sockets_->CloseConnection(client_conn_, 0, nullptr, false);
-            client_conn_ = k_HSteamNetConnection_Invalid;
-        }
+        // Drop whatever was still queued, then report the close. Clear first: CloseConnection can
+        // run callbacks, and a leftover Connected or DataReceived is from a connection that is gone.
+        const bool left = close_local_client();
         {
             std::lock_guard lock(state_mutex_);
             event_queue_.clear();
+        }
+        if (left) {
+            enqueue_client_left();
         }
     }
 

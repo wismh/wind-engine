@@ -89,9 +89,12 @@ TEST(GnsTransport, ClientServerRealUdpExchange) {
 
     EXPECT_EQ(server_received, client_payload);
 
-    // Disconnect client
+    // Disconnect client. The local close is queued immediately; the server hears it over UDP.
     client.disconnect(kServerPeerId);
     bool server_saw_disconnect = false;
+    int client_disconnects = 0;
+    PeerId client_peer = kInvalidPeerId;
+    DisconnectReason client_reason = DisconnectReason::None;
     const auto dc_time = std::chrono::steady_clock::now();
     while (std::chrono::steady_clock::now() - dc_time < std::chrono::seconds(1)) {
         server.poll_events([&](const TransportEvent& ev) {
@@ -99,13 +102,79 @@ TEST(GnsTransport, ClientServerRealUdpExchange) {
                 server_saw_disconnect = true;
             }
         });
-        client.poll_events([](const TransportEvent&) {});
-        if (server_saw_disconnect) {
+        client.poll_events([&](const TransportEvent& ev) {
+            if (ev.type == TransportEventType::Disconnected) {
+                ++client_disconnects;
+                client_peer = ev.peer_id;
+                client_reason = ev.reason;
+            }
+        });
+        if (server_saw_disconnect && client_disconnects > 0) {
             break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
     EXPECT_TRUE(server_saw_disconnect);
+    EXPECT_EQ(client_disconnects, 1);
+    EXPECT_EQ(client_peer, kServerPeerId);
+    EXPECT_EQ(client_reason, DisconnectReason::ClosedByPeer);
+
+    int again = 0;
+    client.poll_events([&](const TransportEvent&) { ++again; });
+    EXPECT_EQ(again, 0);
+}
+
+TEST(GnsTransport, ClientStopReportsDisconnectOnce) {
+    GnsTransport server;
+    GnsTransport client;
+    constexpr std::uint16_t kPort = 27018;
+    ASSERT_TRUE(server.start_server(kPort));
+    ASSERT_TRUE(client.connect("127.0.0.1", kPort));
+
+    bool client_connected = false;
+    const auto start_time = std::chrono::steady_clock::now();
+    while (!client_connected && std::chrono::steady_clock::now() - start_time < std::chrono::seconds(2)) {
+        server.poll_events([](const TransportEvent&) {});
+        client.poll_events([&](const TransportEvent& ev) {
+            if (ev.type == TransportEventType::Connected) {
+                client_connected = true;
+            }
+        });
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(client_connected);
+
+    client.stop();
+    int client_disconnects = 0;
+    PeerId client_peer = kInvalidPeerId;
+    DisconnectReason client_reason = DisconnectReason::None;
+    client.poll_events([&](const TransportEvent& ev) {
+        if (ev.type == TransportEventType::Disconnected) {
+            ++client_disconnects;
+            client_peer = ev.peer_id;
+            client_reason = ev.reason;
+        }
+    });
+    EXPECT_EQ(client_disconnects, 1);
+    EXPECT_EQ(client_peer, kServerPeerId);
+    EXPECT_EQ(client_reason, DisconnectReason::ClosedByPeer);
+    EXPECT_FALSE(client.is_running());
+
+    int again = 0;
+    client.poll_events([&](const TransportEvent&) { ++again; });
+    EXPECT_EQ(again, 0);
+
+    client.stop();
+    client.poll_events([&](const TransportEvent&) { ++again; });
+    EXPECT_EQ(again, 0);
+}
+
+TEST(GnsTransport, StopBeforeConnectReportsNothing) {
+    GnsTransport client;
+    client.stop();
+    int events = 0;
+    client.poll_events([&](const TransportEvent&) { ++events; });
+    EXPECT_EQ(events, 0);
 }
 
 // A payload larger than one GameNetworkingSockets message (512 KiB), paced by the real send queue.

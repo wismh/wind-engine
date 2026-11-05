@@ -59,6 +59,11 @@ private:
     };
 
     void enqueue(QueuedEvent ev);
+    // Closes this client's connection and drops it from the callback registry. The poller hears
+    // nothing until `enqueue_client_left`: a local close is FinWait inside GameNetworkingSockets,
+    // which never becomes a status callback.
+    bool close_local_client();
+    void enqueue_client_left();
 
     mutable std::mutex state_mutex_{};
     std::unordered_map<PeerId, HSteamNetConnection> peer_to_conn_{};
