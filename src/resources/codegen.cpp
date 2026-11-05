@@ -3,6 +3,7 @@
 #include <engine/loc/catalog.h>
 #include <engine/render/tilemap.h>
 #include <engine/resources/meta.h>
+#include <engine/resources/model_cook.h>
 #include <engine/ui/binding_id.h>
 #include <engine/ui/document.h>
 
@@ -467,6 +468,18 @@ std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::p
             }
         }
 
+        if (parsed->importer == ImporterKind::Model) {
+            std::ifstream model_in(file, std::ios::binary);
+            if (!model_in) {
+                return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to read " + file.generic_string()});
+            }
+            const std::string body((std::istreambuf_iterator<char>(model_in)), std::istreambuf_iterator<char>());
+            auto cooked = cook_model_asset(body, file.parent_path());
+            if (!cooked) {
+                return std::unexpected(CodegenError{CodegenErrorKind::Model, relative + ": " + cooked.error()});
+            }
+        }
+
         if (parsed->importer == ImporterKind::Shader) {
             std::ifstream shader_in(file);
             if (!shader_in) {
@@ -579,6 +592,26 @@ std::expected<void, CodegenError> codegen_stage(const std::filesystem::path& ass
         const auto src_path = assets_root / entry.relative_path;
         const auto dst_path = stage_dir / entry.relative_path;
         std::filesystem::create_directories(dst_path.parent_path(), create_ec);
+        if (entry.importer == ImporterKind::Model) {
+            std::ifstream model_in(src_path, std::ios::binary);
+            if (!model_in) {
+                return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to read " + src_path.generic_string()});
+            }
+            const std::string body((std::istreambuf_iterator<char>(model_in)), std::istreambuf_iterator<char>());
+            auto cooked = cook_model_asset(body, src_path.parent_path());
+            if (!cooked) {
+                return std::unexpected(CodegenError{CodegenErrorKind::Model, entry.relative_path + ": " + cooked.error()});
+            }
+            std::ofstream out(dst_path, std::ios::binary | std::ios::trunc);
+            if (!out) {
+                return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to stage asset " + entry.relative_path});
+            }
+            out.write(reinterpret_cast<const char*>(cooked->data()), static_cast<std::streamsize>(cooked->size()));
+            if (!out) {
+                return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to stage asset " + entry.relative_path});
+            }
+            continue;
+        }
         std::filesystem::copy_file(src_path, dst_path,
                 std::filesystem::copy_options::overwrite_existing, create_ec);
         if (create_ec) {

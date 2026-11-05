@@ -44,7 +44,7 @@ Open engine work, not game concerns:
 - Drag-region hole-punching so a `Button` inside a title-bar rect stays clickable.
 - Visual verification of GL-window transparency on a real display. Linux and macOS overlay styles are untested.
 - HTTP: connection reuse between requests, and a native macOS backend (`NSURLSession`) if the system libcurl proves a problem. Streaming bodies and progress are in; writing to a file stays with the game (a sink).
-- Advanced 3D: PBR materials, shadows, skinned meshes, glTF import, 3D rigid-body physics (grid collision and grid raycasts exist: [ECS](../modules/ECS.md#grid-queries)), instancing, post-processing, and editor 3D gizmos.
+- Advanced 3D: PBR materials, shadows, 3D rigid-body physics (grid collision and grid raycasts exist: [ECS](../modules/ECS.md#grid-queries)), instancing, post-processing, and editor 3D gizmos. glTF import and skinned meshes are in [Assets](../features/Assets.md#models) and [Render](../modules/Render.md#skinning).
 - Particle emitter culling: `CmdDrawParticles` is always pushed; an emitter's bounds would come from its instances and the particle shader's quad size.
 
 Game concerns (do not implement in this repo): persist bus volumes in a settings file; that game's AI tests.

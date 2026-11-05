@@ -140,6 +140,8 @@ Limits. A Linux desktop client has no network transport; server-only is delibera
 
 `stop()` closes each connection before the listen socket, so a peer hears the close at once instead of waiting for its timeout.
 
+A client that closes itself must hear that too. `NetClient` despawns replicated entities only from `Disconnected`, and a local `CloseConnection` does not come back as a status callback: GameNetworkingSockets moves it to the internal `FinWait` state, and the transport drops the connection from the callback registry before closing it. So a client's `disconnect` and `stop` enqueue `Disconnected` for `kServerPeerId` with `ClosedByPeer` themselves, and the next `poll_events` delivers it once. `stop` clears anything already queued, then enqueues that one event. A later `disconnect` or `stop`, or one before a connection exists, enqueues nothing. Loopback does the same on `disconnect` and `stop`.
+
 ### Messages
 
 `include/engine/net/message_dispatcher.h`, `net_messages.h`.
@@ -508,7 +510,7 @@ Realtime, all deterministic over `LoopbackTransport`: `tests/fixtures/simulated_
 - `tests/prediction_test.cpp`, `input_buffer_test.cpp`, `input_lead_test.cpp`, `input_message_test.cpp`: match without stepping, replay of stored inputs, missing inputs repeat the last one and are not sent, accepted, snapped and skipped server states, the ring per entity, server-side decoding; first copy wins, late and duplicate, repeat, lead cap; bounded rate, no backward jump, jump after two far reports, convergence through the feedback delay; Input round trip, truncation, caps.
 - `tests/snapshot_codec_test.cpp`, `snapshot_buffer_test.cpp`, `snapshot_clock_test.cpp`: round trips, records layered on the previous state, the per-peer header, every truncation and trailing bytes rejected, slots beyond the registry, unknown entities, capture order and `Parent` as `NetId`, capture sharing unchanged blobs, schema hash; buffer order, window and sampling, carrying forward, late snapshots derived back in, what left the window; clock start, bounded rate, snap, monotonic under jitter.
 
-- `tests/net_id_test.cpp`, `byte_stream_test.cpp`, `message_dispatcher_test.cpp`, `network_transport_test.cpp`: ids, map, owner, dead entries; byte round trips; message routing; the loopback transport. `gns_transport_test.cpp` and `steam_transport_test.cpp` open real sockets on Windows; the former also sends a 600 KiB payload through `NetServer` over real GNS, with `pending_send_bytes` from the real queue.
+- `tests/net_id_test.cpp`, `byte_stream_test.cpp`, `message_dispatcher_test.cpp`, `network_transport_test.cpp`: ids, map, owner, dead entries; byte round trips; message routing; the loopback transport, including a local `disconnect` and `stop` reporting `Disconnected` to the client that closed. `gns_transport_test.cpp` and `steam_transport_test.cpp` open real sockets on Windows; the former also sends a 600 KiB payload through `NetServer` over real GNS, with `pending_send_bytes` from the real queue, and checks that a client's own `disconnect` and `stop` each report `Disconnected` once.
 
 ## See also
 

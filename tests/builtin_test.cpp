@@ -34,6 +34,8 @@ constexpr std::string_view kShaderLit = "a0e1b2c3d4f5678901234567890abc0a";
 constexpr std::string_view kMaterialLit = "a0e1b2c3d4f5678901234567890abc0b";
 constexpr std::string_view kShaderLitArray = "a0e1b2c3d4f5678901234567890abc0c";
 constexpr std::string_view kShaderUnlitArray = "a0e1b2c3d4f5678901234567890abc0d";
+constexpr std::string_view kShaderSkinLit = "a0e1b2c3d4f5678901234567890abc0e";
+constexpr std::string_view kShaderSkinUnlit = "a0e1b2c3d4f5678901234567890abc0f";
 
 std::filesystem::path builtin_assets_dir() {
     return std::filesystem::path{ENGINE_BUILTIN_ASSETS_DIR};
@@ -83,6 +85,8 @@ TEST(Builtin, BuiltinIdsAreFrozen) {
     EXPECT_EQ(engine::builtin::material_lit.hex(), kMaterialLit);
     EXPECT_EQ(engine::builtin::shader_lit_array.hex(), kShaderLitArray);
     EXPECT_EQ(engine::builtin::shader_unlit_array.hex(), kShaderUnlitArray);
+    EXPECT_EQ(engine::builtin::shader_skin_lit.hex(), kShaderSkinLit);
+    EXPECT_EQ(engine::builtin::shader_skin_unlit.hex(), kShaderSkinUnlit);
 
     EXPECT_TRUE(engine::AssetId::is_valid(engine::builtin::shader_unlit.hex()));
     EXPECT_TRUE(engine::AssetId::is_valid(engine::builtin::mesh_quad.hex()));
@@ -138,8 +142,10 @@ TEST(Builtin, BuiltinIdsAreUnique) {
     EXPECT_EQ(reserved[10], engine::builtin::material_lit);
     EXPECT_EQ(reserved[11], engine::builtin::shader_lit_array);
     EXPECT_EQ(reserved[12], engine::builtin::shader_unlit_array);
-    EXPECT_EQ(engine::builtin::count(), 13u);
-    EXPECT_EQ(reserved.size(), 13u);
+    EXPECT_EQ(reserved[13], engine::builtin::shader_skin_lit);
+    EXPECT_EQ(reserved[14], engine::builtin::shader_skin_unlit);
+    EXPECT_EQ(engine::builtin::count(), 15u);
+    EXPECT_EQ(reserved.size(), 15u);
 }
 
 TEST(Builtin, BuiltinMetasMatchIds) {
@@ -180,6 +186,8 @@ TEST(Builtin, BuiltinMetasMatchIds) {
     require_importer(kMaterialLit, engine::ImporterKind::Material);
     require_importer(kShaderLitArray, engine::ImporterKind::Shader);
     require_importer(kShaderUnlitArray, engine::ImporterKind::Shader);
+    require_importer(kShaderSkinLit, engine::ImporterKind::Shader);
+    require_importer(kShaderSkinUnlit, engine::ImporterKind::Shader);
 }
 
 TEST(Builtin, BuiltinMaterialReferencesShader) {
@@ -216,6 +224,6 @@ TEST(Builtin, CodegenRejectsBuiltinGuidReuse) {
 TEST(Builtin, CodegenScanBuiltinAssets) {
     const auto result = engine::codegen_scan(builtin_assets_dir());
     ASSERT_TRUE(result.has_value()) << (result ? "" : result.error().message);
-    EXPECT_GE(result->catalog.entries().size(), 13u);
+    EXPECT_GE(result->catalog.entries().size(), 15u);
     EXPECT_EQ(result->asset_ids_header.find("binding_id.h"), std::string::npos);
 }

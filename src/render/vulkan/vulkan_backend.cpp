@@ -174,6 +174,25 @@ void write_int(
     }
 }
 
+void write_mat4_array(
+    std::vector<std::uint8_t>& buf,
+    const SpirvReflection& refl,
+    std::string_view name,
+    std::span<const glm::mat4> values) {
+    const SpirvUniformMember* mem = refl.find_uniform(name);
+    if (!mem || values.empty()) {
+        return;
+    }
+    const std::uint32_t stride = mem->array_stride > 0 ? mem->array_stride : static_cast<std::uint32_t>(sizeof(glm::mat4));
+    const std::uint32_t count = std::min(
+        static_cast<std::uint32_t>(values.size()),
+        mem->array_elements > 0 ? mem->array_elements : static_cast<std::uint32_t>(values.size()));
+    for (std::uint32_t i = 0; i < count; ++i) {
+        const glm::mat4 out = mem->is_row_major ? glm::transpose(values[i]) : values[i];
+        write_bytes(buf, mem->offset + i * stride, &out[0][0], sizeof(glm::mat4));
+    }
+}
+
 void write_vec3_array(
     std::vector<std::uint8_t>& buf,
     const SpirvReflection& refl,
@@ -378,6 +397,9 @@ void VulkanRenderBackend::execute_draw_mesh(const CmdDrawMesh& cmd) {
     write_vec2(ubo, refl, "uUvOffset", cmd.uv_offset);
     // No cutoff is 0: alpha is never below it, so nothing is discarded.
     write_float(ubo, refl, "uAlphaCutoff", cmd.material->render_state().alpha_cutoff.value_or(0.0f));
+    if (cmd.bone_count > 0 && cmd.bones != nullptr) {
+        write_mat4_array(ubo, refl, "uBones", std::span<const glm::mat4>(cmd.bones, static_cast<std::size_t>(cmd.bone_count)));
+    }
 
     if (override_ptr != nullptr) {
         for (const auto& [param_name, param_val] : override_ptr->vec4_params) {
@@ -757,6 +779,13 @@ VkPipeline VulkanRenderBackend::get_or_create_pipeline(
             {3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, static_cast<std::uint32_t>(offsetof(MeshVertex, color))});
         vertex_attrs.push_back(
             {4, 0, VK_FORMAT_R32_SFLOAT, static_cast<std::uint32_t>(offsetof(MeshVertex, layer))});
+        if (refl.find_uniform("uBones") != nullptr) {
+            vertex_bindings.push_back({1, sizeof(SkinInfluence), VK_VERTEX_INPUT_RATE_VERTEX});
+            vertex_attrs.push_back(
+                    {5, 1, VK_FORMAT_R8G8B8A8_UINT, static_cast<std::uint32_t>(offsetof(SkinInfluence, joints))});
+            vertex_attrs.push_back(
+                {6, 1, VK_FORMAT_R32G32B32A32_SFLOAT, static_cast<std::uint32_t>(offsetof(SkinInfluence, weights))});
+        }
     } else {
         vertex_bindings.push_back({0, sizeof(QuadVertex), VK_VERTEX_INPUT_RATE_VERTEX});
         vertex_bindings.push_back({1, sizeof(ParticleInstance), VK_VERTEX_INPUT_RATE_INSTANCE});

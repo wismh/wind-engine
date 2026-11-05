@@ -139,6 +139,51 @@ TEST(NetworkTransport, ClientDisconnects) {
         }
     });
     EXPECT_TRUE(server_saw_disconnect);
+
+    bool client_saw_disconnect = false;
+    client.poll_events([&](const TransportEvent& event) {
+        if (event.type == TransportEventType::Disconnected && event.peer_id == kServerPeerId) {
+            client_saw_disconnect = true;
+            EXPECT_EQ(event.reason, DisconnectReason::ClosedByPeer);
+        }
+    });
+    EXPECT_TRUE(client_saw_disconnect);
+}
+
+TEST(NetworkTransport, ClientStopReportsDisconnectOnce) {
+    LoopbackBus bus;
+    LoopbackTransport server(bus);
+    LoopbackTransport client(bus);
+
+    ASSERT_TRUE(server.start_server(7777));
+    ASSERT_TRUE(client.connect("127.0.0.1", 7777));
+    server.poll_events([](const TransportEvent&) {});
+    client.poll_events([](const TransportEvent&) {});
+
+    client.stop();
+
+    int client_disconnects = 0;
+    client.poll_events([&](const TransportEvent& event) {
+        if (event.type == TransportEventType::Disconnected && event.peer_id == kServerPeerId) {
+            ++client_disconnects;
+            EXPECT_EQ(event.reason, DisconnectReason::ClosedByPeer);
+        }
+    });
+    EXPECT_EQ(client_disconnects, 1);
+
+    int again = 0;
+    client.poll_events([&](const TransportEvent&) { ++again; });
+    EXPECT_EQ(again, 0);
+    EXPECT_FALSE(client.is_running());
+}
+
+TEST(NetworkTransport, StopBeforeConnectReportsNothing) {
+    LoopbackBus bus;
+    LoopbackTransport client(bus);
+    client.stop();
+    int events = 0;
+    client.poll_events([&](const TransportEvent&) { ++events; });
+    EXPECT_EQ(events, 0);
 }
 
 TEST(NetworkTransport, ServerDisconnectsClient) {

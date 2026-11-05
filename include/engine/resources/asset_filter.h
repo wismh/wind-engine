@@ -24,6 +24,7 @@ class IMaterial;
 class IShader;
 struct SpriteAnimationClip;
 struct TilemapAsset;
+struct ModelAsset;
 } // namespace render
 
 struct Font;
@@ -65,6 +66,8 @@ template<typename T>
         return AssetFilter{.importer = ImporterKind::Animation};
     } else if constexpr (std::is_same_v<T, render::TilemapAsset>) {
         return AssetFilter{.importer = ImporterKind::Tilemap};
+    } else if constexpr (std::is_same_v<T, render::ModelAsset>) {
+        return AssetFilter{.importer = ImporterKind::Model};
     } else if constexpr (std::is_same_v<T, ecs::PrototypeAsset>) {
         return AssetFilter{.importer = ImporterKind::Prototype};
     } else if constexpr (std::is_same_v<T, ui::UiDocument>) {

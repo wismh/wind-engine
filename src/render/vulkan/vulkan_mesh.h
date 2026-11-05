@@ -40,10 +40,13 @@ private:
     std::shared_ptr<VulkanContext> context_;
     std::vector<MeshVertex> vertices_;
     std::vector<std::uint32_t> indices_;
+    std::vector<SkinInfluence> influences_;
     VkBuffer vertex_buffer_ = VK_NULL_HANDLE;
     VkDeviceMemory vertex_memory_ = VK_NULL_HANDLE;
     VkBuffer index_buffer_ = VK_NULL_HANDLE;
     VkDeviceMemory index_memory_ = VK_NULL_HANDLE;
+    VkBuffer skin_buffer_ = VK_NULL_HANDLE;
+    VkDeviceMemory skin_memory_ = VK_NULL_HANDLE;
     bool valid_ = false;
 };
 

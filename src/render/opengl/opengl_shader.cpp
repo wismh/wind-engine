@@ -1,12 +1,15 @@
 #include "opengl_shader.h"
 
 #include <engine/log.h>
+#include <engine/render/model.h>
 
 #include <glm/gtc/type_ptr.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <format>
 #include <string>
+#include <vector>
 
 namespace engine::render {
 namespace {
@@ -88,6 +91,9 @@ OpenGLShader::OpenGLShader(std::string_view vertex_src, std::string_view fragmen
 }
 
 OpenGLShader::~OpenGLShader() {
+    if (bone_buffer_ != 0) {
+        glDeleteBuffers(1, &bone_buffer_);
+    }
     if (program_ != 0) {
         glDeleteProgram(program_);
     }
@@ -100,6 +106,30 @@ void OpenGLShader::use() const {
 int OpenGLShader::uniform_location(std::string_view name) const {
     const std::string name_z(name);
     return glGetUniformLocation(program_, name_z.c_str());
+}
+
+void OpenGLShader::set_bone_palette(std::span<const glm::mat4> bones) const {
+    if (program_ == 0) {
+        return;
+    }
+    const unsigned int block = glGetUniformBlockIndex(program_, "Bones");
+    if (block == GL_INVALID_INDEX) {
+        return;
+    }
+    std::vector<glm::mat4> palette(static_cast<std::size_t>(kMaxSkinJoints), glm::mat4{1.0f});
+    const std::size_t count = std::min(bones.size(), palette.size());
+    for (std::size_t i = 0; i < count; ++i) {
+        palette[i] = bones[i];
+    }
+    if (bone_buffer_ == 0) {
+        glGenBuffers(1, &bone_buffer_);
+    }
+    glBindBuffer(GL_UNIFORM_BUFFER, bone_buffer_);
+    glBufferData(GL_UNIFORM_BUFFER, static_cast<GLsizeiptr>(palette.size() * sizeof(glm::mat4)), palette.data(),
+            GL_DYNAMIC_DRAW);
+    glUniformBlockBinding(program_, block, 0);
+    glBindBufferBase(GL_UNIFORM_BUFFER, 0, bone_buffer_);
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
 }
 
 void OpenGLShader::set_mat4(std::string_view name, const glm::mat4& value) const {

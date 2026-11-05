@@ -207,6 +207,16 @@ The engine has no tile collision flag; a tile layer is a lambda. Tilemap rows ru
 - In `.world` files, entities reference prototypes via `prototype = "<AssetId>"`. During `instantiate_world`, prototype hierarchies are automatically expanded, world-level entity overrides (including child entity overrides via `id = "<entity_id>/<child_id>"`) are deep-merged, and `PrototypeInstance{ prototype, entity_sub_id }` is attached to every spawned entity.
 - Programmatic spawning in C++: `spawn_prototype(world, prototype_id, assets, params)` spawns a prototype into an active world with optional position, rotation, scale, and parent entity.
 
+## Models
+
+`include/engine/ecs/model.h`, `src/ecs/model.cpp`. The cooked asset is [Assets](../features/Assets.md#models); the draw is [Render](../modules/Render.md#skinning).
+
+A `.world` entity with a `model` component (`ModelPlacement`: asset id and clip name) is expanded by `instantiate_world` after its other components are read, the same way a prototype is. `spawn_model(world, id, assets, params)` does the same for a new root: position, rotation, scale, and parent, matching `spawn_prototype`.
+
+The root gets `Transform` and `ModelAnimator`. Each primitive is a child (`Parent`) tagged `ModelPartTag`. The first primitive of a node drives that node's transform; further primitives of the node parent to it. `capture_world_asset` skips `ModelPartTag`, so saving the world does not write the generated hierarchy back. Model meshes are not catalog entries.
+
+`run_model_animations` is `Schedule::Frame`, `Phase::Game`, and advances by `Time::delta_time` (presentation, like sprite frames). It writes each driving part's local `Transform` from the glTF global of its node, decomposed to TRS, before `update_world_transforms`. `play(clip, fade_seconds)` switches immediately when the fade is 0 and otherwise crossfades with a linear blend and a slerp of rotation. `joint_world(world, root, name)` is that node's global matrix times the root's world matrix, without the inverse bind, for attaching something to a bone. There is no entity per bone.
+
 ## Public headers
 
 - `include/engine/ecs/world.h`
@@ -215,6 +225,7 @@ The engine has no tile collision flag; a tile layer is a lambda. Tilemap rows ru
 - `include/engine/ecs/world_asset.h`
 - `include/engine/ecs/world_serializer.h`
 - `include/engine/ecs/prototype_asset.h`
+- `include/engine/ecs/model.h`
 - `include/engine/ecs/entity.h`
 - `include/engine/ecs/schedule.h`
 - `include/engine/ecs/events.h`

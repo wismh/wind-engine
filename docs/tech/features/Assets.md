@@ -112,9 +112,17 @@ Checks. Parsing the `.meta` fails (`MetaError::InvalidField`, so the cook fails 
 
 `importer = "shader"` (`.shader`, assigned by `asset_guid`) is an XML file containing Slang shader source (`<shader lang="slang"><![CDATA[...]]></shader>` or `<slang>`), an optional `<glsl><vertex>...</vertex><fragment>...</fragment></glsl>` backend override, or legacy `<xml><vertex>...</vertex><fragment>...</fragment></xml>` raw GLSL (`parse_shader` / `parse_shader_xml`, `src/resources/importers.cpp`). `asset_codegen` compiles and validates every `.shader` file and fails the build with `CodegenErrorKind::Shader` on syntax, type, or XML errors. See [Render](../modules/Render.md#shaders).
 
+## Models
+
+`importer = "model"` (`.gltf` and `.glb`, assigned by `asset_guid`) is a glTF 2 document. The runtime never parses glTF. `asset_codegen` cooks it, on the host, into one little-endian blob (magic `WMOD`, version 1) and stage writes that blob in place of the source. External buffers and images are embedded, so the game receives one file. The source in `assets/` stays glTF. One file is one GUID; the cooker writes no `.meta` and no extra meshes.
+
+The cooker is `engine_gltf_cook` (`tools/gltf/`, cgltf in `external/cgltf`). It is linked into `asset_codegen` and `engine_tests`, not into `engine`, because `src/**/*.cpp` is the runtime on every target including Web and the dedicated server. `set_model_cooker` (`include/engine/resources/model_cook.h`) is the hook `codegen_scan` and `codegen_stage` call. A model that cannot be cooked fails the build with `CodegenErrorKind::Model`.
+
+`get<render::ModelAsset>` needs no GPU. `spawn_model` uploads meshes and textures once a graphic factory exists. Channels (step, linear, cubicspline) are baked to keys at 30 Hz; the runtime only lerps adjacent keys. A missing channel holds the node's rest pose. A skin may have at most 128 joints (`kMaxSkinJoints`). More than four weights on a vertex are cut to the four largest and renormalized. Morphs, sparse accessors, Draco, texture transforms, and any `extensionsRequired` other than `KHR_materials_unlit` are errors. Materials are Lambert or unlit from `baseColorFactor`, `baseColorTexture`, `alphaMode`, and `doubleSided`. Metallic and roughness are ignored. The posed extent of every clip is stored as `MeshDesc::bounds_override` so frustum culling does not use the bind pose. Axes match the camera (Y up, looking down −Z); there is no axis conversion.
+
 ## Builtin set
 
-Thirteen frozen GUIDs. The splash image and the tree chevron are `importer = "ui_image"`. The list is [Resources](../modules/Resources.md) and `builtin_assets/README.md`.
+Fifteen frozen GUIDs. The splash image and the tree chevron are `importer = "ui_image"`. The list is [Resources](../modules/Resources.md) and `builtin_assets/README.md`.
 
 ## Runtime textures
 

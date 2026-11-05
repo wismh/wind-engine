@@ -437,6 +437,16 @@ if(ENGINE_WITH_GNS)
     endif()
 endif()
 
+# Host glTF cooker. Not part of the engine library: src/ is linked into the runtime, including Web and the server.
+add_library(engine_gltf_cook STATIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/gltf/cook.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/gltf/register_cooker.cpp")
+target_link_libraries(engine_gltf_cook PUBLIC engine)
+target_include_directories(engine_gltf_cook
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/tools"
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/external/cgltf" "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_definitions(engine_gltf_cook PRIVATE _CRT_SECURE_NO_WARNINGS)
+
 if(CMAKE_CROSSCOMPILING)
     if(NOT ENGINE_HOST_ASSET_CODEGEN)
         message(FATAL_ERROR
@@ -449,7 +459,7 @@ if(CMAKE_CROSSCOMPILING)
         IMPORTED_LOCATION "${ENGINE_HOST_ASSET_CODEGEN}")
 else()
     add_executable(asset_codegen "${CMAKE_CURRENT_SOURCE_DIR}/tools/asset_codegen/main.cpp")
-    target_link_libraries(asset_codegen PRIVATE engine)
+    target_link_libraries(asset_codegen PRIVATE engine engine_gltf_cook)
 
     add_executable(asset_guid "${CMAKE_CURRENT_SOURCE_DIR}/tools/asset_guid/main.cpp")
     target_link_libraries(asset_guid PRIVATE engine)
@@ -659,7 +669,7 @@ if(ENGINE_BUILD_TESTS)
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/*_test.cpp")
 
     add_executable(engine_tests ${ENGINE_TEST_SOURCES})
-    target_link_libraries(engine_tests PRIVATE engine GTest::gtest_main)
+    target_link_libraries(engine_tests PRIVATE engine engine_gltf_cook GTest::gtest_main)
     target_include_directories(engine_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     if(ENGINE_WITH_WINDOW)
         # WindowSystem is private to engine (linked PRIVATE, so its glad/SDL3 include

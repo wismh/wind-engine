@@ -93,6 +93,9 @@ ImporterKind importer_from_extension(const std::filesystem::path& path) {
     if (ext == ".prototype") {
         return ImporterKind::Prototype;
     }
+    if (ext == ".gltf" || ext == ".glb") {
+        return ImporterKind::Model;
+    }
     return ImporterKind::Data;
 }
 

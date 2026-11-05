@@ -3,6 +3,7 @@
 #include <engine/ecs/camera.h>
 #include <engine/ecs/prototype_asset.h>
 #include <engine/ecs/hierarchy.h>
+#include <engine/ecs/model.h>
 #include <engine/ecs/physics_2d.h>
 #include <engine/ecs/pointer_target.h>
 #include <engine/ecs/transform.h>
@@ -562,6 +563,17 @@ void register_builtin_components(
                 (void)in.field("prototype", c.prototype);
                 (void)in.field("entity_sub_id", c.entity_sub_id);
             });
+
+    serializer.register_component<ModelPlacement>(
+            "model",
+            [](ComponentWriter& out, const ModelPlacement& placement) {
+                out.field("model", placement.model);
+                out.field("clip", placement.clip);
+            },
+            [](ComponentReader& in, ModelPlacement& placement) {
+                (void)in.field("model", placement.model);
+                (void)in.field("clip", placement.clip);
+            });
 }
 
 } // namespace
@@ -574,6 +586,7 @@ WorldSerializer::WorldSerializer() {
     set_field_filter("renderable", "material", AssetFilter{.importer = ImporterKind::Material});
     set_field_filter("renderable", "mesh", AssetFilter{.importer = ImporterKind::Mesh});
     set_field_filter("tilemap", "texture", AssetFilter{.importer = ImporterKind::Texture});
+    set_field_filter("model", "model", AssetFilter{.importer = ImporterKind::Model});
 }
 
 void WorldSerializer::set_field_filter(std::string_view component, std::string_view field, AssetFilter filter) {
@@ -789,6 +802,19 @@ std::expected<InstantiatedWorld, WorldLoadError> instantiate_world(
         world.ctx<ActiveCamera>().entity = cam_it->second;
     }
 
+    if (assets != nullptr) {
+        for (const Entity entity : result.entities) {
+            if (world.try_get<ModelPlacement>(entity) == nullptr) {
+                continue;
+            }
+            auto expanded = expand_model(world, entity, *assets);
+            if (!expanded) {
+                rollback();
+                return std::unexpected(std::move(expanded.error()));
+            }
+        }
+    }
+
     update_world_transforms(world);
     return result;
 }
@@ -816,6 +842,9 @@ WorldAsset capture_world_asset(const World& world, const WorldSerializer* serial
     id_by_index.reserve(entities.size());
 
     for (const Entity entity : entities) {
+        if (world.try_get<ModelPartTag>(entity) != nullptr) {
+            continue;
+        }
         std::string chosen;
         if (const EntityName* name = world.try_get<EntityName>(entity); name != nullptr && !name->id.empty()) {
             chosen = name->id;
@@ -846,6 +875,9 @@ WorldAsset capture_world_asset(const World& world, const WorldSerializer* serial
 
     asset.entities.reserve(entities.size());
     for (const Entity entity : entities) {
+        if (world.try_get<ModelPartTag>(entity) != nullptr) {
+            continue;
+        }
         EntityRecord record;
         record.id = entity_to_id(entity);
         if (const Parent* parent = world.try_get<Parent>(entity);

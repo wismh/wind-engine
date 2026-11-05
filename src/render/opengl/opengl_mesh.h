@@ -38,10 +38,14 @@ private:
     unsigned int vbo_ = 0;
     // 0 until the mesh has had indices. Kept when an update drops them; `indexed_` says whether draw uses it.
     unsigned int ebo_ = 0;
+    // Skin influences (locations 5 and 6). 0 when the mesh has never had any.
+    unsigned int skin_vbo_ = 0;
     // Bytes of storage behind vbo_ and ebo_. They grow on update and never shrink.
     std::size_t vbo_capacity_ = 0;
     std::size_t ebo_capacity_ = 0;
+    std::size_t skin_capacity_ = 0;
     bool indexed_ = false;
+    bool has_skin_ = false;
     ContextVao vao_;
     // Vertices drawn by glDrawArrays, or indices by glDrawElements when indexed_.
     int draw_count_ = 0;

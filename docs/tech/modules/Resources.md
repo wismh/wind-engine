@@ -8,7 +8,7 @@ The runtime walkthrough is [Assets](../features/Assets.md). The cook tools are [
 
 `AssetId` is exactly 32 lowercase hex characters (`include/engine/resources/asset_id.h`). The constructor throws `std::invalid_argument` when the string is not valid. `parse` returns `nullopt` instead.
 
-Builtin ids in `include/engine/builtin_ids.h` are frozen. `builtin::reserved()` is the thirteen ids `asset_codegen` rejects in a game tree. Do not regenerate them. See `builtin_assets/README.md`.
+Builtin ids in `include/engine/builtin_ids.h` are frozen. `builtin::reserved()` is the fifteen ids `asset_codegen` rejects in a game tree. Do not regenerate them. See `builtin_assets/README.md`.
 
 | Constant | GUID suffix | File |
 | --- | --- | --- |
@@ -25,6 +25,8 @@ Builtin ids in `include/engine/builtin_ids.h` are frozen. `builtin::reserved()` 
 | `material_lit` | `…abc0b` | `materials/lit.mat` |
 | `shader_lit_array` | `…abc0c` | `shaders/lit_array.shader` |
 | `shader_unlit_array` | `…abc0d` | `shaders/unlit_array.shader` |
+| `shader_skin_lit` | `…abc0e` | `shaders/skin_lit.shader` |
+| `shader_skin_unlit` | `…abc0f` | `shaders/skin_unlit.shader` |
 
 The full literals are in `builtin_ids.h`. The table's suffix is the last five characters.
 
@@ -51,6 +53,7 @@ The full literals are in `builtin_ids.h`. The table's suffix is the last five ch
 | `Tilemap` | `tilemap` | `render::TilemapAsset` (`.tilemap` TOML plus its tileset texture) |
 | `Data` | `data` | `TextAsset` (file bytes as text, never parsed by the engine) |
 | `TextureArray` | `texture_array` | `render::TextureArray` (one GPU array layer per `[[sprites]]` frame of a PNG; also `ITexture`) |
+| `Model` | `model` | `render::ModelAsset` (cooked glTF; `.gltf` / `.glb`) |
 
 Texture defaults: sRGB, linear filter, clamp wrap, `mipmaps = "none"`, `layout = single`, `pixels_per_unit = 100`.
 
@@ -60,7 +63,7 @@ Texture defaults: sRGB, linear filter, clamp wrap, `mipmaps = "none"`, `layout =
 
 `strings_source` is the `.meta` flag `source = true`. If the tree contains any `.strings` file, codegen requires exactly one such table. A `{tr}` key must exist in that table.
 
-`asset_guid` writes a missing sidecar and never overwrites one. `.object` gets `importer = "object"`. `.tilemap` gets `importer = "tilemap"`. A file whose extension is not one of the known ones gets `importer = "data"`. `asset_codegen` fails the build when a sidecar is missing. It never writes `.meta`. Neither tool treats `readme.md`, `license*`, dotfiles, or `catalog.toml` as assets. The editor writes missing sidecars the same way for the open project's `assets/`, and it also deletes an orphan `.meta`.
+`asset_guid` writes a missing sidecar and never overwrites one. `.object` gets `importer = "object"`. `.tilemap` gets `importer = "tilemap"`. `.gltf` and `.glb` get `importer = "model"`. A file whose extension is not one of the known ones gets `importer = "data"`. `asset_codegen` fails the build when a sidecar is missing. It never writes `.meta`. Neither tool treats `readme.md`, `license*`, dotfiles, or `catalog.toml` as assets. The editor writes missing sidecars the same way for the open project's `assets/`, and it also deletes an orphan `.meta`.
 
 ## `AssetsDb`
 

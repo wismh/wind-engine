@@ -79,6 +79,9 @@ std::optional<ImporterKind> parse_importer(std::string_view value) {
     if (value == "texture_array") {
         return ImporterKind::TextureArray;
     }
+    if (value == "model") {
+        return ImporterKind::Model;
+    }
     return std::nullopt;
 }
 
@@ -521,6 +524,8 @@ std::string_view to_string(ImporterKind kind) noexcept {
             return "prototype";
         case ImporterKind::TextureArray:
             return "texture_array";
+        case ImporterKind::Model:
+            return "model";
     }
     return "texture";
 }
