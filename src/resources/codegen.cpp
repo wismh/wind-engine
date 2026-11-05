@@ -474,7 +474,7 @@ std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::p
                 return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to read " + file.generic_string()});
             }
             const std::string body((std::istreambuf_iterator<char>(model_in)), std::istreambuf_iterator<char>());
-            auto cooked = cook_model_asset(body, file.parent_path());
+            auto cooked = cook_model_asset(body, file.parent_path(), parsed->model.markers);
             if (!cooked) {
                 return std::unexpected(CodegenError{CodegenErrorKind::Model, relative + ": " + cooked.error()});
             }
@@ -517,6 +517,7 @@ std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::p
         catalog_entry.importer = parsed->importer;
         catalog_entry.audio = parsed->audio;
         catalog_entry.texture = parsed->texture;
+        catalog_entry.model = parsed->model;
         scanned_items.push_back(ScannedItem{std::move(catalog_entry), std::move(ui_binder)});
     }
 
@@ -598,7 +599,7 @@ std::expected<void, CodegenError> codegen_stage(const std::filesystem::path& ass
                 return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to read " + src_path.generic_string()});
             }
             const std::string body((std::istreambuf_iterator<char>(model_in)), std::istreambuf_iterator<char>());
-            auto cooked = cook_model_asset(body, src_path.parent_path());
+            auto cooked = cook_model_asset(body, src_path.parent_path(), entry.model.markers);
             if (!cooked) {
                 return std::unexpected(CodegenError{CodegenErrorKind::Model, entry.relative_path + ": " + cooked.error()});
             }

@@ -119,11 +119,25 @@ struct AudioImportSettings {
     bool loop = false;
 };
 
+// One `[[markers]]` row on a model sidecar. `time` is seconds on `clip`. The cook checks the clip and the range.
+struct ModelMarkerMeta {
+    std::string clip;
+    float time = 0.0f;
+    std::string name;
+
+    bool operator==(const ModelMarkerMeta&) const noexcept = default;
+};
+
+struct ModelImportSettings {
+    std::vector<ModelMarkerMeta> markers{};
+};
+
 struct AssetMeta {
     AssetId guid;
     ImporterKind importer = ImporterKind::Texture;
     TextureImportSettings texture;
     AudioImportSettings audio;
+    ModelImportSettings model;
     // importer = "strings" only. Exactly one strings asset in a tree is the key authority
     // (`source = true`); codegen fails the build when that is not true and UI uses `{tr}`.
     bool strings_source = false;
@@ -136,6 +150,7 @@ struct CatalogEntry {
     AudioImportSettings audio{};
     TextureImportSettings texture{};
     std::filesystem::path files_root{};
+    ModelImportSettings model{};
 };
 
 class CookedCatalog {

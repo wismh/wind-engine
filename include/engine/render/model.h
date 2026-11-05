@@ -76,11 +76,24 @@ struct ModelNodePose {
     glm::vec3 scale{1.0f};
 };
 
+// A named instant on a clip, in seconds, in `[0, duration)`. Authored as `[[markers]]` on the model's `.meta`.
+struct ModelMarker {
+    float time = 0.0f;
+    std::string name;
+};
+
 struct ModelClip {
     std::string name;
     float duration = 0.0f;
     int key_count = 0;
     std::vector<ModelNodePose> samples;
+    std::vector<ModelMarker> markers;
+};
+
+// One marker the last tick crossed on the active clip.
+struct ModelAnimCue {
+    std::string clip;
+    std::string name;
 };
 
 // CPU model cooked from glTF. Meshes and textures become GPU objects in `spawn_model`, not here.
@@ -139,8 +152,13 @@ struct ModelAnimator {
     std::vector<ModelNodePose> locals;
     std::vector<glm::mat4> node_global;
     std::vector<std::vector<glm::mat4>> palettes;
+    // Markers the last `tick_model_animator` crossed on the active clip. Empty when the tick did not advance.
+    std::vector<ModelAnimCue> cues;
+    // `play` sets this. The next tick that advances the clip also fires markers at time 0.
+    bool cue_from_start = false;
 
     // `fade_seconds` 0 switches immediately. Otherwise the previous pose blends out over that many seconds.
+    // Markers follow the new clip's clock, including one at time 0. The clip being faded out stays silent.
     ENGINE_API void play(std::string_view clip_name, float fade_seconds = 0.0f);
 };
 

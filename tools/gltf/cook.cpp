@@ -11,6 +11,7 @@
 #include "gltf/cook.h"
 
 #include <engine/render/model.h>
+#include <engine/resources/meta.h>
 
 #include <glm/gtc/quaternion.hpp>
 
@@ -643,8 +644,28 @@ std::expected<ModelAsset, CookError> build(const cgltf_data* data, const std::fi
 
 }
 
+std::expected<void, CookError> apply_markers(ModelAsset& asset, std::span<const ModelMarkerMeta> markers) {
+    for (const ModelMarkerMeta& marker : markers) {
+        ModelClip* clip = nullptr;
+        for (ModelClip& candidate : asset.clips) {
+            if (candidate.name == marker.clip) {
+                clip = &candidate;
+                break;
+            }
+        }
+        if (clip == nullptr) {
+            return std::unexpected(CookError{"a marker names an unknown clip"});
+        }
+        if (!(marker.time >= 0.0f) || marker.time >= clip->duration) {
+            return std::unexpected(CookError{"a marker time is outside the clip"});
+        }
+        clip->markers.push_back(render::ModelMarker{marker.time, marker.name});
+    }
+    return {};
+}
+
 std::expected<std::vector<std::uint8_t>, CookError> cook_gltf(
-        std::string_view bytes, const std::filesystem::path& base_dir) {
+        std::string_view bytes, const std::filesystem::path& base_dir, std::span<const ModelMarkerMeta> markers) {
     cgltf_options options{};
     cgltf_data* data = nullptr;
     const cgltf_result parsed = cgltf_parse(&options, bytes.data(), bytes.size(), &data);
@@ -661,6 +682,9 @@ std::expected<std::vector<std::uint8_t>, CookError> cook_gltf(
     cgltf_free(data);
     if (!asset) {
         return std::unexpected(asset.error());
+    }
+    if (auto marked = apply_markers(*asset, markers); !marked) {
+        return std::unexpected(marked.error());
     }
     return render::serialize_model_blob(*asset);
 }
