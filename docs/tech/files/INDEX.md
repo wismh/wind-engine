@@ -127,10 +127,11 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/render/backend.h` | `IRenderBackend::execute` | [Render](../modules/Render.md) |
 | `include/engine/render/canvas.h` | `ICanvas::draw` | [Render](../modules/Render.md) |
 | `include/engine/render/command_buffer.h` | Buffer of `Command` | [Render](../modules/Render.md) |
-| `include/engine/render/commands.h` | `CmdDrawMesh`, `CmdDrawUI`, `CmdDrawParticles`, `CmdSetView` (camera, lights, fog) | [Render](../modules/Render.md) |
+| `include/engine/render/commands.h` | `CmdDrawMesh`, `CmdDrawUI`, `CmdDrawParticles`, `CmdSetView` (camera, lights, fog, post), `CmdPostProcess` | [Render](../modules/Render.md) |
 | `include/engine/render/curve.h` | `Curve<T>` with `Linear`, `Smooth`, and `Step` keys | [Render](../modules/Render.md) |
 | `include/engine/render/directional_light.h` | `DirectionalLight` component | [Render](../modules/Render.md#lights) |
 | `include/engine/render/fog.h` | `Fog` component: linear distance fog on the active camera | [Render](../modules/Render.md#fog) |
+| `include/engine/render/post_process.h` | `PostStack`, `PostChain`, ping-pong steps, scene-color format | [Render](../modules/Render.md#post-process) |
 | `include/engine/render/frustum.h` | `Frustum`, `make_frustum`, `frustum_intersects`, `visible_in_any` | [Render](../modules/Render.md#frustum-culling) |
 | `include/engine/render/graphic_factory.h` | `MeshVertex` (position, normal, uv, color), indexed `MeshDesc`, `mesh_bounds`, shader, texture and dynamic-texture descriptions, factory | [Render](../modules/Render.md) |
 | `include/engine/render/graphics.h` | `IMesh` (with its local `bounds()`), `IShader`, `ITexture`, `IDynamicTexture` | [Render](../modules/Render.md) |
@@ -290,6 +291,9 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/render/framebuffer_image.cpp`, `src/render/framebuffer_image.h` | Read-back rows to a top-first image with straight alpha | [CLI](../features/CLI.md#screenshot) |
 | `src/render/gl_error_log.cpp`, `src/render/gl_error_log.h` | GL error names; one log line per error and command | [Render](../modules/Render.md) |
 | `src/render/lights.cpp` | Collect directional and ambient lights for `CmdSetView` | [Render](../modules/Render.md#lights) |
+| `src/render/post_process.cpp` | Prepare and resolve a post stack, ping-pong steps, frame targets | [Render](../modules/Render.md#post-process) |
+| `src/render/opengl/opengl_post.cpp`, `src/render/opengl/opengl_post.h` | Per-context scene targets, bloom chain, fullscreen triangle | [Render](../modules/Render.md#post-process) |
+| `src/render/vulkan/vulkan_post.cpp`, `src/render/vulkan/vulkan_post.h` | Scene images, color and window-load passes, bloom targets | [Render](../modules/Render.md#post-process) |
 | `src/render/material.cpp` | Parse `.mat` TOML | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `src/render/material_instance.h` | `IMaterial` for a loaded `.mat` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `src/render/mesh.cpp` | `IMesh::update`: validate, then the backend's `replace`, then the bounds; `mesh_bounds` | [Render](../modules/Render.md#mesh-updates) |
@@ -617,6 +621,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/pointer_target_test.cpp` | `PointerTarget`: hit-test, order, windows, camera, hover, click, click-through, UI first, locked cursor | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `tests/lights_test.cpp` | Light collection (direction from rotation and parent, cap, ambient sum, default rig) and the lights and camera in `CmdSetView` | [Render](../modules/Render.md#lights) |
 | `tests/fog_test.cpp` | No fog by default, the active camera's `Fog` in every window's `CmdSetView`, none in `render_world_viewport`, `fog` serialization | [Render](../modules/Render.md#fog) |
+| `tests/post_process_test.cpp` | Prepare, ping-pong, frame targets, absent stack, viewport, bloom without HDR, missing shader, `post_stack` serialization | [Render](../modules/Render.md#post-process) |
 | `tests/frustum_test.cpp` | Frustum planes (inside, outside each plane, straddling, touching, orthographic and perspective, degenerate), `transform_aabb` | [Render](../modules/Render.md#frustum-culling) |
 | `tests/primitives_test.cpp` | Primitive counts, unit outward normals, winding, index range, white vertex color; builtin quad and cube files match | [Render](../modules/Render.md#primitives) |
 | `tests/physics_2d_test.cpp` | Overlap enter, stay, exit | [ECS](../modules/ECS.md) |

@@ -11,6 +11,7 @@
 #include <engine/render/animation.h>
 #include <engine/render/directional_light.h>
 #include <engine/render/fog.h>
+#include <engine/render/post_process.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
 #include <engine/render/renderable.h>
@@ -486,6 +487,53 @@ void register_builtin_components(
             [](ComponentReader& in, render::AmbientLight& c) {
                 (void)in.field("color", c.color);
                 (void)in.field("intensity", c.intensity);
+            });
+
+    serializer.register_component<render::PostStack>(
+            "post_stack",
+            [](ComponentWriter& out, const render::PostStack& component) {
+                out.field("hdr", component.hdr);
+                FieldArray effects;
+                effects.reserve(component.effects.size());
+                for (const render::PostEffect& effect : component.effects) {
+                    FieldTable table;
+                    ComponentWriter nested = out.nested(table);
+                    nested.field("shader", effect.shader);
+                    nested.field("params", effect.params);
+                    nested.field("sample_depth", effect.sample_depth);
+                    effects.push_back(FieldValue{std::move(table)});
+                }
+                out.table().insert_or_assign("effects", FieldValue{std::move(effects)});
+            },
+            [](ComponentReader& in, render::PostStack& component) {
+                (void)in.field("hdr", component.hdr);
+                component.effects.clear();
+                const auto found = in.table().find("effects");
+                if (found == in.table().end()) {
+                    return;
+                }
+                const FieldArray* effects = found->second.as_array();
+                if (effects == nullptr) {
+                    in.fail("post_stack effects is not an array");
+                    return;
+                }
+                for (const FieldValue& element : *effects) {
+                    const FieldTable* table = element.as_table();
+                    if (table == nullptr) {
+                        in.fail("post_stack effect is not a table");
+                        return;
+                    }
+                    ComponentReader nested = in.nested(*table);
+                    render::PostEffect effect;
+                    (void)nested.field("shader", effect.shader);
+                    (void)nested.field("params", effect.params);
+                    (void)nested.field("sample_depth", effect.sample_depth);
+                    if (!nested.ok()) {
+                        in.fail(std::string(nested.error()));
+                        return;
+                    }
+                    component.effects.push_back(effect);
+                }
             });
 
     serializer.register_component<render::Fog>(

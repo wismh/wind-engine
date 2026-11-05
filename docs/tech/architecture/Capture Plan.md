@@ -84,9 +84,9 @@ Today `ITexture` has `width()`/`height()` and `create_texture(TextureDesc)` uplo
 - Orientation: SDL gives the sensor-oriented image. Rotation by display and sensor orientation is the game's concern in phase 1; revisit once a real device shows the cost.
 - Done when: a sample draws the live feed on a physical phone, front and back.
 
-### 4. Post-processing and saving a photo (separate plan)
+### 4. Saving a photo
 
-Needs what the engine lacks today: render to a texture, readback of pixels, and a JPEG/PNG encoder (`stb_image` only reads). One-pass shader filters on the live feed need only phase 2. Write this plan after phase 3.
+One-pass filters on the live feed are a material on a sprite that samples the dynamic texture from phase 2. A fullscreen stack over the 3D scene is [Post Process Plan](Post%20Process%20Plan.md), not this phase. What capture still lacks is readback of a frame into a file and a JPEG/PNG encoder (`stb_image` only reads).
 
 ## Later
 

@@ -196,12 +196,15 @@ void main() {
             void operator()(const CmdDrawParticles &cmd) const { backend->execute_draw_particles(cmd); }
 
             void operator()(const CmdSetView &cmd) const { backend->set_view(cmd); }
+
+            void operator()(const CmdPostProcess &) const { backend->finish_post(); }
         };
 
         constexpr std::string_view command_name(const CmdDrawMesh &) { return "CmdDrawMesh"; }
         constexpr std::string_view command_name(const CmdDrawUI &) { return "CmdDrawUI"; }
         constexpr std::string_view command_name(const CmdDrawParticles &) { return "CmdDrawParticles"; }
         constexpr std::string_view command_name(const CmdSetView &) { return "CmdSetView"; }
+        constexpr std::string_view command_name(const CmdPostProcess &) { return "CmdPostProcess"; }
 
         // ExecuteVisitor, then the GL errors that command raised.
         struct CheckedExecuteVisitor {
@@ -287,8 +290,23 @@ void main() {
         }
     }
 
+    void OpenGLRenderBackend::set_frame_surface(int width, int height, float clear_alpha) noexcept {
+        post_.set_surface(width, height, clear_alpha);
+    }
+
+    void OpenGLRenderBackend::finish_post() {
+        post_.finish(view_.post, view_.time);
+    }
+
     void OpenGLRenderBackend::set_view(const CmdSetView &view) {
         view_ = view;
+        if (view.post.active() && !view.viewport.has_value()) {
+            post_.begin_scene(view.post);
+            return;
+        }
+        if (post_.scene_bound()) {
+            post_.bind_window();
+        }
         if (view.viewport.has_value()) {
             const Rect vp = *view.viewport;
             const GLint x = static_cast<GLint>(std::lround(vp.x));

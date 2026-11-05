@@ -6,6 +6,7 @@
 #include <engine/render/fog.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
+#include <engine/render/post_process.h>
 #include <engine/render/scene_lights.h>
 
 #include <glm/mat4x4.hpp>
@@ -54,7 +55,14 @@ namespace engine::render {
         // before drawing the commands that follow.
         std::optional<glm::vec4> clear_color;
         float time = 0.0f;
+        // Fullscreen passes for this view. Empty (the default) draws to the window. A view with `viewport` set
+        // ignores it. `run_render` fills it from the active camera's `PostStack`.
+        PostChain post{};
     };
+
+    // Marks the end of the world draws for the current view. The backend runs `CmdSetView::post` here, then the
+    // commands that follow (UI) draw to the window.
+    struct CmdPostProcess {};
 
     struct CmdDrawMesh {
         std::shared_ptr<IMesh> mesh;
@@ -115,6 +123,6 @@ namespace engine::render {
         BlendMode blend = BlendMode::Alpha;
     };
 
-    using Command = std::variant<CmdDrawMesh, CmdDrawUI, CmdDrawParticles, CmdSetView>;
+    using Command = std::variant<CmdDrawMesh, CmdDrawUI, CmdDrawParticles, CmdSetView, CmdPostProcess>;
 
 } // namespace engine::render
