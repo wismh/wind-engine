@@ -534,6 +534,47 @@ TEST(Model, SpawnWritesPartsTheWorldSaveSkips) {
     std::filesystem::remove_all(dir);
 }
 
+TEST(Model, SpawnedClipFiresTheMarkerAtZero) {
+    const engine::ModelMarkerMeta start{"attack", 0.0f, "start"};
+    const auto cooked = engine::gltf::cook_gltf(bytes_of(attack_clip_glb()), {}, std::span{&start, 1});
+    ASSERT_TRUE(cooked.has_value()) << cooked.error().message;
+
+    const auto dir = std::filesystem::temp_directory_path() / "wind_model_spawn_cue";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    {
+        std::ofstream out(dir / "hero.glb", std::ios::binary);
+        out.write(reinterpret_cast<const char*>(cooked->data()), static_cast<std::streamsize>(cooked->size()));
+    }
+    constexpr std::string_view kModel = "ccccccccccccccccccccccccccccccc2";
+    engine::CookedCatalog catalog;
+    const auto builtin = std::filesystem::path{ENGINE_BUILTIN_ASSETS_DIR};
+    catalog.add({engine::builtin::shader_lit, "shaders/lit.shader", engine::ImporterKind::Shader, {}, {}, builtin});
+    catalog.add({engine::builtin::shader_unlit, "shaders/unlit.shader", engine::ImporterKind::Shader, {}, {}, builtin});
+    catalog.add(
+            {engine::builtin::shader_skin_lit, "shaders/skin_lit.shader", engine::ImporterKind::Shader, {}, {}, builtin});
+    catalog.add(
+            {engine::builtin::shader_skin_unlit, "shaders/skin_unlit.shader", engine::ImporterKind::Shader, {}, {}, builtin});
+    catalog.add({engine::AssetId{kModel}, "hero.glb", engine::ImporterKind::Model, {}, {}, dir});
+
+    fakes::QuietFatal fatal;
+    engine::AssetsDb db(fatal);
+    db.add_catalog(std::move(catalog));
+    TestFactory factory;
+    db.set_graphic_factory(&factory);
+
+    engine::ecs::World world;
+    const auto root = engine::ecs::spawn_model(world, engine::AssetId{kModel}, db);
+    ASSERT_TRUE(root.has_value()) << root.error().message;
+    engine::render::ModelAnimator* animator = world.try_get<engine::render::ModelAnimator>(*root);
+    ASSERT_NE(animator, nullptr);
+    ASSERT_FALSE(animator->layers.empty());
+    EXPECT_TRUE(animator->layers[0].cue_from_start);
+    engine::render::tick_model_animator(*animator, 0.05f);
+    EXPECT_EQ(cue_count(*animator, "start"), 1);
+    std::filesystem::remove_all(dir);
+}
+
 TEST(Model, MarkerMetaMatchesTextureSettings) {
     constexpr std::string_view kHead =
             "guid = \"0123456789abcdef0123456789abcdef\"\nimporter = \"model\"\n";
@@ -830,6 +871,13 @@ TEST(Model, SilentLayerSendsNoMarkers) {
     EXPECT_EQ(cue_count(animator, "hit"), 0);
     EXPECT_EQ(cue_count(animator, "step"), 1);
     EXPECT_EQ(animator.cues[0].clip, "idle");
+
+    animator = attack_animator();
+    animator.play("attack");
+    animator.layers[0].mask = "no-such-bone";
+    engine::render::tick_model_animator(animator, 0.5f);
+    EXPECT_TRUE(animator.cues.empty());
+    EXPECT_NEAR(animator.layers[0].time, 0.5f, 1e-4f);
 }
 
 TEST(Model, ImpulseMovesOnlyTheHitBoneThenSettles) {

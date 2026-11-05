@@ -56,6 +56,7 @@ PostChain resolve_post_chain(const PreparedPost& prepared, AssetsDb* assets, IFa
     chain.hdr = prepared.hdr;
     if (prepared.hdr) {
         chain.tonemap = load_shader(assets, fatal, builtin::shader_post_tonemap, "HDR post");
+        chain.ldr_copy = load_shader(assets, fatal, builtin::shader_post_grade, "HDR post");
     }
     chain.effects.reserve(prepared.effects.size());
     for (const PostEffect& effect : prepared.effects) {
@@ -69,10 +70,18 @@ PostChain resolve_post_chain(const PreparedPost& prepared, AssetsDb* assets, IFa
     return chain;
 }
 
-std::vector<PostStep> post_steps(bool hdr, int effect_count) {
+std::vector<PostStep> post_steps(bool hdr, int effect_count, bool copy_scene) {
     std::vector<PostStep> steps;
     if (effect_count < 0) {
         effect_count = 0;
+    }
+    if (!hdr && effect_count == 0 && copy_scene) {
+        PostStep step;
+        step.copy = true;
+        step.source = PostImage::SceneA;
+        step.dest = PostImage::Window;
+        steps.push_back(step);
+        return steps;
     }
     PostImage source = PostImage::SceneA;
     const auto other = [](PostImage image) {

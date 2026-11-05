@@ -103,7 +103,7 @@ HDR is a flag on the camera (`PostStack::hdr`), not a consequence of adding bloo
 
 When the flag is on, every world fragment is stored in a float target, so a light above 1 survives until a builtin tonemap writes the window. The tonemap is the last pass of an HDR view; the game does not insert it. Desktop opaque windows use `R11F_G11F_B10F` (4 bytes per pixel, the same size as RGBA8, no alpha). A transparent window keeps alpha, so it uses `RGBA16F` (8 bytes). Bloom is one effect that requires the flag: threshold and intensity from `uParams`, a fixed downsample chain (half, quarter, eighth), an additive composite into the float target, then the tonemap. Bloom with `hdr` off is fatal.
 
-GLES 3.0 and WebGL2 need a float color attachment (`EXT_color_buffer_float` / `EXT_color_buffer_half_float`). Where it is missing, the flag is ignored, one warning is logged, and the stack runs in LDR.
+GLES 3.0 and WebGL2 need a float color attachment (`EXT_color_buffer_float` / `EXT_color_buffer_half_float`). Where it is missing, the flag is ignored, one warning is logged, and the stack runs in LDR. An empty effect list still copies the scene color to the window; the tonemap does not run on that RGBA8 image.
 
 Done when: a lit scene with `hdr` keeps a highlight above 1 until the tonemap; bloom on that scene blooms it; a grade-only stack allocates no float target; bloom with `hdr` off is fatal; the missing-extension path logs and still presents.
 

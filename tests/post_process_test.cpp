@@ -158,6 +158,24 @@ TEST(PostProcess, StepsPingPongAndTonemapLandsOnTheWindow) {
     EXPECT_EQ(hdr_only[0].source, PostImage::SceneA);
     EXPECT_EQ(hdr_only[0].dest, PostImage::Window);
 
+    const auto fallback = engine::render::post_steps(false, 0, true);
+    ASSERT_EQ(fallback.size(), 1u);
+    EXPECT_TRUE(fallback[0].copy);
+    EXPECT_FALSE(fallback[0].tonemap);
+    EXPECT_EQ(fallback[0].effect, -1);
+    EXPECT_EQ(fallback[0].source, PostImage::SceneA);
+    EXPECT_EQ(fallback[0].dest, PostImage::Window);
+
+    const auto fallback_with_grade = engine::render::post_steps(false, 1, true);
+    ASSERT_EQ(fallback_with_grade.size(), 1u);
+    EXPECT_FALSE(fallback_with_grade[0].copy);
+    EXPECT_EQ(fallback_with_grade[0].dest, PostImage::Window);
+
+    const auto hdr_fallback_ignored = engine::render::post_steps(true, 0, true);
+    ASSERT_EQ(hdr_fallback_ignored.size(), 1u);
+    EXPECT_TRUE(hdr_fallback_ignored[0].tonemap);
+    EXPECT_FALSE(hdr_fallback_ignored[0].copy);
+
     const auto hdr_two = engine::render::post_steps(true, 2);
     ASSERT_EQ(hdr_two.size(), 3u);
     EXPECT_EQ(hdr_two[0].dest, PostImage::SceneB);
