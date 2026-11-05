@@ -11,6 +11,7 @@
 #include <engine/ecs/camera.h>
 #include <engine/ecs/events.h>
 #include <engine/ecs/hierarchy.h>
+#include <engine/ecs/model.h>
 #include <engine/ecs/physics_2d.h>
 #include <engine/ecs/schedule.h>
 #include <engine/ecs/transform.h>
@@ -23,6 +24,7 @@
 #include <engine/render/frustum.h>
 #include <engine/render/lights.h>
 #include <engine/render/particles.h>
+#include <engine/render/model.h>
 #include <engine/render/renderable.h>
 #include <engine/render/sprite.h>
 #include <engine/render/tilemap.h>
@@ -60,6 +62,9 @@
 #include <vector>
 
 namespace engine {
+
+    void run_model_animations(ecs::World &world);
+
     namespace {
 
         void run_input(ecs::World &world) {
@@ -410,6 +415,22 @@ namespace engine {
                 cmd.uv_scale = {1.0f, 1.0f};
                 cmd.uv_offset = {0.0f, 0.0f};
                 cmd.material_override = r.material_override;
+                const render::SkinDraw *skin = world.try_get<render::SkinDraw>(entity);
+                if (skin != nullptr && skin->skin >= 0) {
+                    const render::ModelAnimator *animator = world.try_get<render::ModelAnimator>(skin->animator);
+                    const bool palette = animator != nullptr && skin->primitive >= 0 &&
+                                         static_cast<std::size_t>(skin->primitive) < animator->palettes.size() &&
+                                         !animator->palettes[static_cast<std::size_t>(skin->primitive)].empty();
+                    if (!palette) {
+                        if (fatal != nullptr) {
+                            fatal->report("Skinned mesh is missing a bone palette");
+                        }
+                        continue;
+                    }
+                    const std::vector<glm::mat4> &bones = animator->palettes[static_cast<std::size_t>(skin->primitive)];
+                    cmd.bones = bones.data();
+                    cmd.bone_count = static_cast<int>(bones.size());
+                }
 
                 const render::DrawSortKey key = render::make_draw_sort_key(
                         r.material.get(), r.layer, r.order_in_layer, glm::vec3(cmd.model[3]), view, entity);
@@ -822,6 +843,7 @@ namespace engine {
         if (target.commands == nullptr || target.viewport.w <= 0.0f || target.viewport.h <= 0.0f) {
             return;
         }
+        run_model_animations(scene);
         ecs::update_world_transforms(scene);
         run_sprite_animations(scene);
 
@@ -844,6 +866,16 @@ namespace engine {
         });
         for (DrawItem &item: items) {
             target.commands->push(std::move(item.command));
+        }
+    }
+
+    void run_model_animations(ecs::World &world) {
+        const float dt = world.ctx<Time>().delta_time;
+        auto view = world.view<render::ModelAnimator>();
+        for (ecs::Entity entity: view) {
+            auto &animator = view.get<render::ModelAnimator>(entity);
+            render::tick_model_animator(animator, dt);
+            apply_model_poses(world, animator);
         }
     }
 
@@ -948,6 +980,7 @@ namespace engine {
         }
         world.ctx<SimulationSystemsRegistered>().value = true;
         world.add_system(ecs::Schedule::Fixed, ecs::Phase::Physics, [](ecs::World &w) { run_physics_2d(w); });
+        world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_model_animations(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game, [](ecs::World &w) { run_sprite_animations(w); });
         world.add_system(ecs::Schedule::Frame, ecs::Phase::Game,
                          [jobs = deps.jobs](ecs::World &w) { run_particles(w, jobs); });

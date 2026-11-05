@@ -18,6 +18,9 @@ std::string mesh_desc_error(const MeshDesc& desc) {
             return std::format("index {} of the mesh is {}, past its {} vertices", i, desc.indices[i], vertex_count);
         }
     }
+    if (!desc.influences.empty() && desc.influences.size() != vertex_count) {
+        return std::format("the mesh has {} skin influences for {} vertices", desc.influences.size(), vertex_count);
+    }
     return {};
 }
 

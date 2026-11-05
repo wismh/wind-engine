@@ -7,6 +7,7 @@
 #include <engine/render/graphic_factory.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
+#include <engine/render/model.h>
 #include <engine/render/texture_array.h>
 #include <engine/render/tilemap.h>
 #include <engine/resources/assets_db.h>
@@ -90,6 +91,9 @@ std::optional<ImporterKind> importer_for_type(const std::type_info& type) {
     }
     if (type == typeid(ecs::PrototypeAsset)) {
         return ImporterKind::Prototype;
+    }
+    if (type == typeid(render::ModelAsset)) {
+        return ImporterKind::Model;
     }
     if (type == typeid(ui::SvgPicture)) {
         return ImporterKind::Svg;
@@ -314,6 +318,19 @@ std::expected<std::shared_ptr<void>, AssetError> load_cpu(
             return std::unexpected(AssetError::Corrupt);
         }
         return std::static_pointer_cast<void>(std::make_shared<ecs::PrototypeAsset>(std::move(*parsed)));
+    }
+
+    if (type == typeid(render::ModelAsset)) {
+        const auto bytes = read_all(path);
+        if (!bytes) {
+            return std::unexpected(AssetError::Corrupt);
+        }
+        const auto* data = reinterpret_cast<const std::uint8_t*>(bytes->data());
+        auto model = render::parse_model_blob(std::span<const std::uint8_t>(data, bytes->size()));
+        if (!model) {
+            return std::unexpected(AssetError::Corrupt);
+        }
+        return std::static_pointer_cast<void>(std::make_shared<render::ModelAsset>(std::move(*model)));
     }
 
     if (type == typeid(ui::SvgPicture)) {

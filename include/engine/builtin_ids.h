@@ -30,8 +30,12 @@ inline constexpr AssetId material_lit{"a0e1b2c3d4f5678901234567890abc0b"};
 inline constexpr AssetId shader_lit_array{"a0e1b2c3d4f5678901234567890abc0c"};
 // shader_unlit sampling a texture array at MeshVertex::layer, without animated tiles.
 inline constexpr AssetId shader_unlit_array{"a0e1b2c3d4f5678901234567890abc0d"};
+// shader_lit with a bone palette (docs/tech/modules/Render.md).
+inline constexpr AssetId shader_skin_lit{"a0e1b2c3d4f5678901234567890abc0e"};
+// 3D unlit with the same bone palette. Not the tile unlit shader.
+inline constexpr AssetId shader_skin_unlit{"a0e1b2c3d4f5678901234567890abc0f"};
 
-inline constexpr std::array<AssetId, 13> ids{
+inline constexpr std::array<AssetId, 15> ids{
         shader_unlit,
         mesh_quad,
         material_unlit,
@@ -45,6 +49,8 @@ inline constexpr std::array<AssetId, 13> ids{
         material_lit,
         shader_lit_array,
         shader_unlit_array,
+        shader_skin_lit,
+        shader_skin_unlit,
 };
 
 [[nodiscard]] constexpr std::span<const AssetId> reserved() noexcept {

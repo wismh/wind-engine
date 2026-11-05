@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -29,11 +30,21 @@ struct MeshVertex {
     float layer = 0.0f;
 };
 
+// Four bone influences for one vertex. `joints` indexes the skin's joint list (not the node list). Unused slots are
+// joint 0 with weight 0. A mesh with no skin leaves `MeshDesc::influences` empty.
+struct SkinInfluence {
+    std::uint8_t joints[4]{};
+    float weights[4]{0.0f, 0.0f, 0.0f, 0.0f};
+};
+
 // A triangle list. Empty `indices`: every three vertices are one triangle. Otherwise every three indices are one, each
-// below `vertices.size()`. Front faces wind counter-clockwise.
+// below `vertices.size()`. Front faces wind counter-clockwise. `influences` is empty, or one entry per vertex.
+// `bounds_override` replaces the box around the vertex positions (a skinned mesh's posed extent).
 struct MeshDesc {
     std::vector<MeshVertex> vertices;
     std::vector<std::uint32_t> indices;
+    std::vector<SkinInfluence> influences;
+    std::optional<Aabb> bounds_override;
 };
 
 // The box around every vertex position of `desc`, indexed or not (a vertex no index uses still counts). A zero box at

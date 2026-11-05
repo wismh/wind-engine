@@ -64,6 +64,10 @@ namespace engine::render {
         glm::vec2 uv_scale{1.0f, 1.0f};
         glm::vec2 uv_offset{0.0f, 0.0f};
         std::optional<MaterialOverride> material_override;
+        // Skinning palette for this draw. Empty (bone_count 0) is a rigid mesh. The memory is the animator's, and it
+        // stays alive through `execute` of this frame.
+        const glm::mat4 *bones = nullptr;
+        int bone_count = 0;
     };
 
     struct CmdDrawUI {

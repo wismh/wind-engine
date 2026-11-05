@@ -44,6 +44,8 @@ enum class ImporterKind {
     Prototype,
     // A PNG whose `[[sprites]]` frames become the layers of one GPU texture array (`render::TextureArray`).
     TextureArray,
+    // A cooked glTF model (`render::ModelAsset`). The file in `assets/` is `.gltf` or `.glb`; stage replaces it.
+    Model,
 };
 
 enum class ColorSpace {
@@ -172,6 +174,7 @@ enum class CodegenErrorKind {
     Prototype,
     Shader,
     TextureArray,
+    Model,
 };
 
 struct CodegenError {

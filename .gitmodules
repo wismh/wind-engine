@@ -29,3 +29,6 @@
 	path = external/GameNetworkingSockets-src
 	url = https://github.com/ValveSoftware/GameNetworkingSockets.git
 	update = none
+[submodule "external/cgltf"]
+	path = external/cgltf
+	url = https://github.com/jkuhlmann/cgltf.git

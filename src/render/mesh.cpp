@@ -22,8 +22,20 @@ Aabb mesh_bounds(const MeshDesc& desc) {
     return box;
 }
 
+namespace {
+
+// `bounds_override` is the posed box of a skinned mesh. The vertex positions are the bind pose, which is smaller.
+Aabb draw_bounds(const MeshDesc& desc) {
+    if (desc.bounds_override) {
+        return *desc.bounds_override;
+    }
+    return mesh_bounds(desc);
+}
+
+}
+
 IMesh::IMesh(const MeshDesc& desc)
-    : bounds_(mesh_bounds(desc)) {}
+    : bounds_(draw_bounds(desc)) {}
 
 bool IMesh::update(const MeshDesc& desc) {
     if (const std::string error = mesh_desc_error(desc); !error.empty()) {
@@ -33,7 +45,7 @@ bool IMesh::update(const MeshDesc& desc) {
     if (!replace(desc)) {
         return false;
     }
-    bounds_ = mesh_bounds(desc);
+    bounds_ = draw_bounds(desc);
     return true;
 }
 

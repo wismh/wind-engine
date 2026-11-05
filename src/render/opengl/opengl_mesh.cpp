@@ -50,26 +50,7 @@ OpenGLMesh::OpenGLMesh(const MeshDesc& desc, std::function<void()> make_current)
     glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(vertex_bytes), desc.vertices.data(), GL_STATIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     vbo_capacity_ = vertex_bytes;
-
-    if (desc.indices.empty()) {
-        draw_count_ = static_cast<int>(desc.vertices.size());
-        return;
-    }
-
-    // The element binding is VAO state: upload with no VAO bound so another object's VAO does not pick it up. Each
-    // context's VAO binds the buffer in draw.
-    const std::size_t index_bytes = desc.indices.size() * sizeof(std::uint32_t);
-    GLint bound_vao = 0;
-    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &bound_vao);
-    glBindVertexArray(0);
-    glGenBuffers(1, &ebo_);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(index_bytes), desc.indices.data(), GL_STATIC_DRAW);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-    glBindVertexArray(static_cast<GLuint>(bound_vao));
-    ebo_capacity_ = index_bytes;
-    indexed_ = true;
-    draw_count_ = static_cast<int>(desc.indices.size());
+    upload(desc);
 }
 
 OpenGLMesh::~OpenGLMesh() {
@@ -78,6 +59,9 @@ OpenGLMesh::~OpenGLMesh() {
     }
     if (ebo_ != 0) {
         glDeleteBuffers(1, &ebo_);
+    }
+    if (skin_vbo_ != 0) {
+        glDeleteBuffers(1, &skin_vbo_);
     }
 }
 
@@ -98,23 +82,40 @@ void OpenGLMesh::upload(const MeshDesc& desc) {
     indexed_ = !desc.indices.empty();
     if (!indexed_) {
         draw_count_ = static_cast<int>(desc.vertices.size());
-        return;
+    } else {
+        GLint bound_vao = 0;
+        glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &bound_vao);
+        glBindVertexArray(0);
+        if (ebo_ == 0) {
+            glGenBuffers(1, &ebo_);
+            // The VAOs made so far bind no element buffer: let each context make a new one on its next draw.
+            vao_.release();
+        }
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_);
+        write_buffer(GL_ELEMENT_ARRAY_BUFFER, desc.indices.data(), desc.indices.size() * sizeof(std::uint32_t),
+                ebo_capacity_);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+        glBindVertexArray(static_cast<GLuint>(bound_vao));
+        draw_count_ = static_cast<int>(desc.indices.size());
     }
 
-    GLint bound_vao = 0;
-    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &bound_vao);
-    glBindVertexArray(0);
-    if (ebo_ == 0) {
-        glGenBuffers(1, &ebo_);
-        // The VAOs made so far bind no element buffer: let each context make a new one on its next draw.
+    const bool skin = !desc.influences.empty();
+    if (skin != has_skin_) {
+        // The VAO's attribute enables were recorded without this buffer, or with it.
         vao_.release();
     }
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_);
-    write_buffer(GL_ELEMENT_ARRAY_BUFFER, desc.indices.data(), desc.indices.size() * sizeof(std::uint32_t),
-            ebo_capacity_);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-    glBindVertexArray(static_cast<GLuint>(bound_vao));
-    draw_count_ = static_cast<int>(desc.indices.size());
+    has_skin_ = skin;
+    if (!skin) {
+        return;
+    }
+    if (skin_vbo_ == 0) {
+        glGenBuffers(1, &skin_vbo_);
+        vao_.release();
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, skin_vbo_);
+    write_buffer(GL_ARRAY_BUFFER, desc.influences.data(), desc.influences.size() * sizeof(SkinInfluence),
+            skin_capacity_);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
 void OpenGLMesh::draw() {
@@ -141,6 +142,15 @@ void OpenGLMesh::draw() {
         glEnableVertexAttribArray(4);
         glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
                 reinterpret_cast<const void*>(offsetof(MeshVertex, layer)));
+
+        if (has_skin_ && skin_vbo_ != 0) {
+            glBindBuffer(GL_ARRAY_BUFFER, skin_vbo_);
+            glEnableVertexAttribArray(5);
+            glVertexAttribIPointer(5, 4, GL_UNSIGNED_BYTE, sizeof(SkinInfluence), nullptr);
+            glEnableVertexAttribArray(6);
+            glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, sizeof(SkinInfluence),
+                    reinterpret_cast<const void*>(offsetof(SkinInfluence, weights)));
+        }
 
         if (ebo_ != 0) {
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_);

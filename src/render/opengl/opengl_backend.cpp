@@ -341,6 +341,9 @@ void main() {
         shader->set_int("uTexture", 0);
         // No cutoff is 0: alpha is never below it, so nothing is discarded.
         shader->set_float("uAlphaCutoff", state.alpha_cutoff.value_or(0.0f));
+        if (cmd.bone_count > 0 && cmd.bones != nullptr) {
+            shader->set_bone_palette(std::span<const glm::mat4>(cmd.bones, static_cast<std::size_t>(cmd.bone_count)));
+        }
 
         bool override_bound = false;
         if (cmd.material_override) {

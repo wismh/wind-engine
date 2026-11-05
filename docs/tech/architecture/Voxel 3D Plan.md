@@ -34,7 +34,7 @@ Phase 1 unblocks a single-player prototype. Phase 2 makes it playable at scale. 
 | 1. Prototype | wind-299 mutable meshes, wind-300 vertex color + cutout + fog, wind-301 mipmaps + texture arrays, wind-302 relative mouse |
 | 2. Scale | wind-303 frustum culling, wind-304 grid queries, wind-305 async jobs, wind-306 compression |
 | 3. Multiplayer | wind-307 net cleanup + ticks, wind-308 input and prediction, wind-309 interest + bandwidth, wind-310 dedicated server |
-| 4. Polish | wind-311 positional audio, wind-312 sky, later: shadows, glTF + skinning, instancing |
+| 4. Polish | wind-311 positional audio, wind-312 sky, later: shadows, instancing |
 
 ---
 
@@ -204,7 +204,7 @@ Do: a sky draw before opaque world draws (gradient or cubemap material), its col
 
 ### Later
 
-Not needed for a first playable build, already in the Scope backlog: shadows (one directional cascade), glTF import and skinned meshes (mobs, player model), instancing (dropped items, particles of blocks), post-processing.
+Not needed for a first playable build, already in the Scope backlog: shadows (one directional cascade), instancing (dropped items, particles of blocks), post-processing. glTF import and skinned meshes are in [Assets](../features/Assets.md#models).
 
 ## See also
 
