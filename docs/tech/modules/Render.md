@@ -6,7 +6,7 @@ Draw order and `.mat` files: [Materials and Sort](../features/Materials%20and%20
 
 ## Commands
 
-`Command` is a `std::variant` of four types (`include/engine/render/commands.h`):
+`Command` is a `std::variant` of five types (`include/engine/render/commands.h`):
 
 | Command | Who pushes it |
 | --- | --- |
@@ -14,10 +14,11 @@ Draw order and `.mat` files: [Materials and Sort](../features/Materials%20and%20
 | `CmdDrawUI` | `run_ui_render` for each `UiCanvas` |
 | `CmdDrawParticles` | `run_render` and `render_world_viewport` for a `ParticleEmitter` whose `particles` list is not empty |
 | `CmdSetView` | `run_render` (once per bound window) and `render_world_viewport` (for a sub-rectangle viewport) before world draws |
+| `CmdPostProcess` | `run_render`, after that window's world draws, when the view's post chain is active |
 
 There is no custom-draw callback on the variant.
 
-`CmdSetView` is the view state of the world draws that follow it: `view`, `projection`, `camera_position` (the translation of the camera's world matrix), `lights` (`SceneLights`, see [Lights](#lights)), optional `fog` (`std::optional<Fog>`, see [Fog](#fog)), and optional `viewport` (`std::optional<Rect>`, in top-left window coordinates) and `clear_color` (`std::optional<glm::vec4>`). It holds until the next `CmdSetView` in the same buffer. The draws carry no camera: `CmdDrawMesh` has only its `model`, and `CmdDrawParticles` has none (its instances are in world space). A draw before any `CmdSetView` in a buffer uses identity view and projection, camera position zero, no lights (`directional_count` 0, ambient black), no fog, full-window viewport, and no clear, which is a default-constructed `CmdSetView`; the OpenGL backend resets to that at the start of every `execute`. A test or tool that pushes its own `CmdDrawMesh` therefore draws in clip space unless it pushes a `CmdSetView` first.
+`CmdSetView` is the view state of the world draws that follow it: `view`, `projection`, `camera_position` (the translation of the camera's world matrix), `lights` (`SceneLights`, see [Lights](#lights)), optional `fog` (`std::optional<Fog>`, see [Fog](#fog)), `post` (`PostChain`, see [Post process](#post-process)), and optional `viewport` (`std::optional<Rect>`, in top-left window coordinates) and `clear_color` (`std::optional<glm::vec4>`). It holds until the next `CmdSetView` in the same buffer. The draws carry no camera: `CmdDrawMesh` has only its `model`, and `CmdDrawParticles` has none (its instances are in world space). A draw before any `CmdSetView` in a buffer uses identity view and projection, camera position zero, no lights (`directional_count` 0, ambient black), no fog, full-window viewport, and no clear, which is a default-constructed `CmdSetView`; the OpenGL backend resets to that at the start of every `execute`. A test or tool that pushes its own `CmdDrawMesh` therefore draws in clip space unless it pushes a `CmdSetView` first.
 
 `CommandBuffer` stores that variant and can `push`, `clear`, and be iterated. `IRenderBackend::execute` consumes one buffer. `ICanvas::draw` is the present hook the headless `Host` calls. The windowed path calls `draw_all` on the presentation instead; `OpenGLCanvas` splits it into `render`, `read_pixels` (only for a `wind-cli screenshot`), and `present`.
 
@@ -253,6 +254,39 @@ The builtin lit and unlit shaders mix the fragment's color towards `color` by `c
 
 Fogged: everything drawn with `builtin::shader_lit` or `builtin::shader_unlit` (or their array variants), sprites and tilemaps included, but only under a camera that has `Fog`, so a 2D game is unchanged. Not fogged: particles (their builtin GL and Slang shaders have no fog; a custom particle shader receives the fog uniforms and may use them), UI, and `render_world_viewport`, which pushes no fog (the editor's scene viewport is unfogged). Both backends set the fog uniforms for mesh and particle draws from the current view ([Lit shader](#lit-shader)).
 
+## Post process
+
+`render::PostStack` (`include/engine/render/post_process.h`) sits on the `ActiveCamera` entity, the same place as `Fog`. `hdr` asks for a float scene target and a builtin tonemap after the list. `effects` is an ordered list of `PostEffect`: a shader `AssetId`, `params` (`vec4`, default white), and `sample_depth`. No component, or `hdr == false` with an empty list, draws the world into the window and allocates nothing. `hdr == true` with an empty list still renders to the float target and tonemaps. The tonemap is not an entry the game adds.
+
+`run_render` calls `prepare_post_stack` before it loads shaders. Bloom (`builtin::shader_post_bloom`) with `hdr == false` is fatal (`"Bloom post effect requires PostStack::hdr"`). The depth builtin (`builtin::shader_post_depth`) forces `sample_depth`. A prepared stack is then `resolve_post_chain`, which loads each shader and, when `hdr` is set, `builtin::shader_post_tonemap`. A missing shader is fatal. The chain is copied onto every bound window's `CmdSetView::post`. After that window's world draws, `run_render` pushes one `CmdPostProcess`. An active stack still pushes the view and the marker when the culled list is empty, so the stack runs on the clear color. A stack on any other entity is ignored. `render_world_viewport` leaves `post` empty, the same way it leaves fog empty.
+
+The world component is `post_stack`: `hdr`, and `effects` as tables of `shader`, `params`, and `sample_depth`.
+
+```toml
+post_stack = { hdr = true, effects = [
+    { shader = "a0e1b2c3d4f5678901234567890abc10", params = [0.8, 1.1, 0.9, 1.0] }
+] }
+```
+
+```cpp
+world.emplace<engine::render::PostStack>(camera, engine::render::PostStack{
+    .hdr = true,
+    .effects = {engine::render::PostEffect{.shader = engine::builtin::shader_post_grade, .params = {0.8f, 1.1f, 0.9f, 1.0f}}},
+});
+```
+
+The game does not pick the float format. `scene_color_format` is `R11G11B10` for an opaque HDR window and `Rgba16F` for a transparent one (the window clear alpha is 0). Where the backend cannot render to that format it logs once and runs the stack in `Rgba8` (`hdr` stays set on the component; the backend's effective flag is off, so the last user pass writes the window and the tonemap is skipped). An empty effect list still copies SceneA to the window. OpenGL blits that color buffer. Vulkan draws `shader_post_grade` at white (`PostChain::ldr_copy`), because the swapchain image is not a transfer destination. The tonemap is not that copy: Reinhard would darken an image already in 0..1.
+
+`post_steps` is the ping-pong both backends follow. The world writes `SceneA`. Each effect reads the previous image and writes the other scene image. With `hdr` off, the last effect writes the window. With `hdr` on, user passes stay on the scene images and the tonemap writes the window. Bloom is not one sample of `uScene`: the backend copies the source, builds half / quarter / eighth (`uParams.z` modes 0, 1, then 2), and adds those levels. `uParams.x` is the threshold and `uParams.y` the intensity.
+
+A post shader's vertex stage is the backend's fullscreen triangle. The fragment stage reads `uScene` (binding 1), `uParams`, `uResolution`, and `uTime` (`CmdSetView::time`). `(0, 0)` is the top-left of the window on both backends. GLSL samples `vec2(vUV.x, 1.0 - vUV.y)` because a GL texture is bottom-up; Slang samples `vUV` directly. `uDepth` (binding 2) is bound only when the pass has `sample_depth`. Depth is a texture only then; otherwise the scene depth is a renderbuffer (OpenGL) or an unsampled depth image (Vulkan). A later pass that writes SceneA uses a framebuffer with that color and no depth attachment, so sampling `uDepth` is not a read of the framebuffer it is drawing to. The world pass still draws into the framebuffer that owns the depth.
+
+UI stays after `CmdPostProcess`, on the window. Particles are world draws, so they are inputs to the stack. A `CmdSetView` with `viewport` set ignores `post` and draws into the window. `frame_targets` records that schedule for tests: world draws after a full-window active view are `Scene` until the marker, then `Window`.
+
+`read_pixels` still reads the window after `render`, so a screenshot stores the tonemapped image with UI on top.
+
+Builtin shaders: `shader_post_grade` (`…abc10`) multiplies rgb by `uParams.rgb` and copies alpha; `shader_post_tonemap` (`…abc11`) is Reinhard `c / (c + 1)`; `shader_post_bloom` (`…abc12`); `shader_post_depth` (`…abc13`) tints by the depth sample.
+
 ## Sprites, animation, particles, curves
 
 `Sprite` (`include/engine/render/sprite.h`) is a textured quad: color, layer, order, flip, tiling, offset, pixel size, pixels per unit, pivot, optional mesh, material, and override.
@@ -305,6 +339,7 @@ These sources are not in the headless library. CMake adds them only when the win
 | Factory | `src/render/opengl/opengl_factory.cpp` |
 | Mesh, shader, texture | `opengl_mesh.cpp`, `opengl_shader.cpp`, `opengl_texture.cpp` |
 | Execute mesh and particle draws | `opengl_backend.cpp` |
+| Scene targets and the post stack | `opengl_post.cpp` |
 | One VAO per GL context | `context_vao.cpp`, bookkeeping in `src/render/context_objects.cpp` |
 | Canvas, font and image upload | `opengl_canvas.cpp` |
 | UI device (`IUiDevice`) and its shader | `opengl_ui_device.cpp`, `opengl_ui_shader.h` |
@@ -350,7 +385,8 @@ GL errors are silent unless someone asks. With `ENGINE_GL_CHECKS` (Debug, RelWit
 | GPU resources (`VulkanMesh`, `VulkanShader`, `VulkanTexture`) | `vulkan_mesh.cpp`, `vulkan_shader.cpp`, `vulkan_texture.cpp` |
 | Buffers held until no frame in flight reads them (`RetireQueue`) | `src/render/vulkan/vulkan_retire_queue.h` |
 | SPIR-V reflection (`OpEntryPoint`, UBO uniform layout, sampler binding) | `src/render/vulkan/vulkan_spirv.cpp` |
-| Render backend (`IRenderBackend`, graphics pipelines, UBO/descriptor sets, `CmdSetView`, `CmdDrawMesh`, `CmdDrawParticles`) | `src/render/vulkan/vulkan_backend.cpp` |
+| Render backend (`IRenderBackend`, graphics pipelines, UBO/descriptor sets, `CmdSetView`, `CmdDrawMesh`, `CmdDrawParticles`, `CmdPostProcess`) | `src/render/vulkan/vulkan_backend.cpp` |
+| Scene images, the pass split, and bloom targets | `src/render/vulkan/vulkan_post.cpp` |
 | UI device (`IUiDevice`) and its Slang uber-shader | `vulkan_ui_device.cpp`, `vulkan_ui_shader.h` |
 | Per-window `VkSurfaceKHR`, `VkSwapchainKHR`, depth attachment, render pass, framebuffers, sync primitives, and staging-buffer `read_pixels()` | `src/render/vulkan/vulkan_canvas.cpp` |
 | SDL presentation wiring (`make_sdl_vk_presentation`) | `src/render/vulkan/sdl_vk_presentation.cpp` |
@@ -371,6 +407,7 @@ Scene uniforms are written column-major unless SPIR-V reflection says the member
 - `src/render/frustum.cpp` — `make_frustum`, `frustum_intersects`, `visible_in_any`
 - `src/render/texture_check.cpp` — `texture_array_desc_error`, `mip_level_count`, per-layer row flip, `texture_rects_error` and the rect copy into a bottom-row-first image
 - `src/render/lights.cpp` — `collect_scene_lights`, `default_scene_lights`
+- `src/render/post_process.cpp` — `prepare_post_stack`, `resolve_post_chain`, `post_steps`, `frame_targets`
 - `src/render/material_instance.h` — `IMaterial` for a cooked material
 - `src/render/tilemap.cpp`, `src/render/animation.cpp`, `src/render/particles.cpp`, `src/render/shader_adapt.cpp`, `src/render/slang_compiler.cpp`
 - `src/render/context_objects.cpp` — GL context keys and deferred VAO deletes, without GL calls
@@ -384,6 +421,7 @@ Scene uniforms are written column-major unless SPIR-V reflection says the member
 - `include/engine/render/frustum.h`
 - `include/engine/render/directional_light.h`
 - `include/engine/render/fog.h`
+- `include/engine/render/post_process.h`
 - `include/engine/render/ambient_light.h`
 - `include/engine/render/scene_lights.h`
 - `include/engine/render/lights.h`
@@ -404,7 +442,7 @@ Scene uniforms are written column-major unless SPIR-V reflection says the member
 
 ## Tests
 
-`tests/command_buffer_test.cpp`, `tests/lights_test.cpp` (light collection, lights and camera in `CmdSetView`), `tests/fog_test.cpp` (no fog by default, the camera's `Fog` in every view, none in `render_world_viewport`, serialization), `tests/sort_test.cpp`, `tests/material_test.cpp`, `tests/render_system_test.cpp` (also culled renderables and sprites push no draw, pixel size and pivot, the union over windows, `frustum_cull`, particles not culled, `render_world_viewport` culling), `tests/frustum_test.cpp` (inside, outside each plane, straddling, touching, orthographic and perspective, degenerate matrices, `transform_aabb`), `tests/sprite_test.cpp`, `tests/animation_test.cpp`, `tests/tilemap_test.cpp` (chunk culling, chunk edits update the chunk's mesh), `tests/mesh_test.cpp` (`IMesh::update` validation and keep-old rule, bounds from create and update, `.mesh` vertex colors), `tests/texture_array_test.cpp` (array desc checks, mip level count, frame import, `.meta` and catalog, `AssetsDb` layers by name, array albedo in a `.mat`, codegen), `tests/vulkan_backend_test.cpp` (window builds: mesh update without a device, `RetireQueue` serials, a texture array without a device, `sampler_arrayed` reflection), `tests/particle_test.cpp`, `tests/shader_adapt_test.cpp`, `tests/opengl_texture_test.cpp` (CPU texture desc, no GL draw), `tests/ui_painter_test.cpp` (fake painter), `tests/window_icon_test.cpp`, `tests/context_objects_test.cpp` (context keys and deferred VAO deletes, no GL), `tests/gl_error_log_test.cpp`, `tests/ui_renderer_test.cpp` (UI renderer against a fake device: texture catch-up per device, draws per batch).
+`tests/command_buffer_test.cpp`, `tests/lights_test.cpp` (light collection, lights and camera in `CmdSetView`), `tests/fog_test.cpp` (no fog by default, the camera's `Fog` in every view, none in `render_world_viewport`, serialization), `tests/post_process_test.cpp` (prepare, ping-pong, `frame_targets`, absent stack, viewport, bloom without HDR, missing shader, `post_stack` serialization), `tests/sort_test.cpp`, `tests/material_test.cpp`, `tests/render_system_test.cpp` (also culled renderables and sprites push no draw, pixel size and pivot, the union over windows, `frustum_cull`, particles not culled, `render_world_viewport` culling), `tests/frustum_test.cpp` (inside, outside each plane, straddling, touching, orthographic and perspective, degenerate matrices, `transform_aabb`), `tests/sprite_test.cpp`, `tests/animation_test.cpp`, `tests/tilemap_test.cpp` (chunk culling, chunk edits update the chunk's mesh), `tests/mesh_test.cpp` (`IMesh::update` validation and keep-old rule, bounds from create and update, `.mesh` vertex colors), `tests/texture_array_test.cpp` (array desc checks, mip level count, frame import, `.meta` and catalog, `AssetsDb` layers by name, array albedo in a `.mat`, codegen), `tests/vulkan_backend_test.cpp` (window builds: mesh update without a device, `RetireQueue` serials, a texture array without a device, `sampler_arrayed` reflection), `tests/particle_test.cpp`, `tests/shader_adapt_test.cpp`, `tests/opengl_texture_test.cpp` (CPU texture desc, no GL draw), `tests/ui_painter_test.cpp` (fake painter), `tests/window_icon_test.cpp`, `tests/context_objects_test.cpp` (context keys and deferred VAO deletes, no GL), `tests/gl_error_log_test.cpp`, `tests/ui_renderer_test.cpp` (UI renderer against a fake device: texture catch-up per device, draws per batch).
 
 GPU pixels stay out of `engine_tests`. See [Boundaries](../architecture/Boundaries.md).
 

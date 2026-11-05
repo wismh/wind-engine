@@ -208,6 +208,8 @@ void OpenGLCanvas::render() {
     auto* const gl_backend = dynamic_cast<OpenGLRenderBackend*>(backend_);
     if (gl_backend != nullptr) {
         gl_backend->set_ui_painter(ui_painter());
+        const glm::ivec2 surface = window_ != nullptr ? window_->drawable_size() : glm::ivec2{0};
+        gl_backend->set_frame_surface(surface.x, surface.y, clear_alpha);
     }
     if (backend_ != nullptr && commands_ != nullptr) {
         backend_->execute(*commands_);

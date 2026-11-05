@@ -1,7 +1,10 @@
 #include <gtest/gtest.h>
 
 #include <engine/builtin_ids.h>
+#include <engine/core/time.h>
 #include <engine/ecs/model.h>
+#include <engine/ecs/systems.h>
+#include <engine/ecs/transform.h>
 #include <engine/ecs/world.h>
 #include <engine/ecs/world_serializer.h>
 #include <engine/render/graphic_factory.h>
@@ -21,6 +24,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -107,6 +111,57 @@ public:
         return true;
     }
 };
+
+int cue_count(const engine::render::ModelAnimator& animator, std::string_view name) {
+    int count = 0;
+    for (const engine::render::ModelAnimCue& cue : animator.cues) {
+        if (cue.name == name) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+std::vector<std::uint8_t> attack_clip_glb() {
+    std::vector<std::uint8_t> bin;
+    append_f32(bin, 0.0f);
+    append_f32(bin, 1.0f);
+    for (float value : {0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f}) {
+        append_f32(bin, value);
+    }
+    const char* json =
+            R"({"asset":{"version":"2.0"},"nodes":[{}],)"
+            R"("animations":[{"name":"attack","channels":[{"sampler":0,"target":{"node":0,"path":"translation"}}],)"
+            R"("samplers":[{"input":0,"output":1,"interpolation":"LINEAR"}]}],)"
+            R"("accessors":[{"bufferView":0,"componentType":5126,"count":2,"type":"SCALAR"},)"
+            R"({"bufferView":1,"componentType":5126,"count":2,"type":"VEC3"}],)"
+            R"("bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":8},{"buffer":0,"byteOffset":8,"byteLength":24}],)"
+            R"("buffers":[{"byteLength":32}]})";
+    return glb(json, std::move(bin));
+}
+
+engine::render::ModelAnimator attack_animator() {
+    engine::render::ModelAsset model;
+    model.nodes.push_back({});
+    engine::render::ModelClip attack;
+    attack.name = "attack";
+    attack.duration = 1.0f;
+    attack.key_count = 1;
+    attack.samples.push_back({});
+    attack.markers.push_back({0.0f, "start"});
+    attack.markers.push_back({0.35f, "hit"});
+    model.clips.push_back(std::move(attack));
+    engine::render::ModelClip idle;
+    idle.name = "idle";
+    idle.duration = 1.0f;
+    idle.key_count = 1;
+    idle.samples.push_back({});
+    idle.markers.push_back({0.2f, "step"});
+    model.clips.push_back(std::move(idle));
+    engine::render::ModelAnimator animator;
+    animator.model = std::make_shared<engine::render::ModelAsset>(std::move(model));
+    return animator;
+}
 
 class TestFactory : public engine::render::IGraphicFactory {
 public:
@@ -477,4 +532,412 @@ TEST(Model, SpawnWritesPartsTheWorldSaveSkips) {
     ASSERT_EQ(saved.entities.size(), 1u);
     EXPECT_TRUE(saved.entities[0].components.contains("model"));
     std::filesystem::remove_all(dir);
+}
+
+TEST(Model, SpawnedClipFiresTheMarkerAtZero) {
+    const engine::ModelMarkerMeta start{"attack", 0.0f, "start"};
+    const auto cooked = engine::gltf::cook_gltf(bytes_of(attack_clip_glb()), {}, std::span{&start, 1});
+    ASSERT_TRUE(cooked.has_value()) << cooked.error().message;
+
+    const auto dir = std::filesystem::temp_directory_path() / "wind_model_spawn_cue";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    {
+        std::ofstream out(dir / "hero.glb", std::ios::binary);
+        out.write(reinterpret_cast<const char*>(cooked->data()), static_cast<std::streamsize>(cooked->size()));
+    }
+    constexpr std::string_view kModel = "ccccccccccccccccccccccccccccccc2";
+    engine::CookedCatalog catalog;
+    const auto builtin = std::filesystem::path{ENGINE_BUILTIN_ASSETS_DIR};
+    catalog.add({engine::builtin::shader_lit, "shaders/lit.shader", engine::ImporterKind::Shader, {}, {}, builtin});
+    catalog.add({engine::builtin::shader_unlit, "shaders/unlit.shader", engine::ImporterKind::Shader, {}, {}, builtin});
+    catalog.add(
+            {engine::builtin::shader_skin_lit, "shaders/skin_lit.shader", engine::ImporterKind::Shader, {}, {}, builtin});
+    catalog.add(
+            {engine::builtin::shader_skin_unlit, "shaders/skin_unlit.shader", engine::ImporterKind::Shader, {}, {}, builtin});
+    catalog.add({engine::AssetId{kModel}, "hero.glb", engine::ImporterKind::Model, {}, {}, dir});
+
+    fakes::QuietFatal fatal;
+    engine::AssetsDb db(fatal);
+    db.add_catalog(std::move(catalog));
+    TestFactory factory;
+    db.set_graphic_factory(&factory);
+
+    engine::ecs::World world;
+    const auto root = engine::ecs::spawn_model(world, engine::AssetId{kModel}, db);
+    ASSERT_TRUE(root.has_value()) << root.error().message;
+    engine::render::ModelAnimator* animator = world.try_get<engine::render::ModelAnimator>(*root);
+    ASSERT_NE(animator, nullptr);
+    ASSERT_FALSE(animator->layers.empty());
+    EXPECT_TRUE(animator->layers[0].cue_from_start);
+    engine::render::tick_model_animator(*animator, 0.05f);
+    EXPECT_EQ(cue_count(*animator, "start"), 1);
+    std::filesystem::remove_all(dir);
+}
+
+TEST(Model, MarkerMetaMatchesTextureSettings) {
+    constexpr std::string_view kHead =
+            "guid = \"0123456789abcdef0123456789abcdef\"\nimporter = \"model\"\n";
+    const auto bare = engine::parse_asset_meta(kHead);
+    ASSERT_TRUE(bare.has_value());
+    EXPECT_TRUE(bare->model.markers.empty());
+
+    const auto parsed = engine::parse_asset_meta(std::string(kHead) +
+            "[[markers]]\nclip = \"attack\"\ntime = 0.35\nname = \"hit\"\n"
+            "[[markers]]\nclip = \"walk\"\ntime = 0\nname = \"step\"\n"
+            "[[markers]]\nclip = \"walk\"\ntime = 0.5\nname = \"step\"\n");
+    ASSERT_TRUE(parsed.has_value());
+    ASSERT_EQ(parsed->model.markers.size(), 3u);
+    EXPECT_EQ(parsed->model.markers[0], (engine::ModelMarkerMeta{"attack", 0.35f, "hit"}));
+    EXPECT_EQ(parsed->model.markers[2].name, "step");
+
+    EXPECT_EQ(engine::parse_asset_meta(std::string(kHead) + "[[markers]]\nclip = \"\"\ntime = 0\nname = \"hit\"\n").error(),
+            engine::MetaError::InvalidField);
+    EXPECT_EQ(engine::parse_asset_meta(std::string(kHead) + "[[markers]]\nclip = \"attack\"\ntime = -0.1\nname = \"hit\"\n")
+                      .error(),
+            engine::MetaError::InvalidField);
+    EXPECT_EQ(engine::parse_asset_meta("guid = \"0123456789abcdef0123456789abcdef\"\nimporter = \"texture\"\n"
+                                       "[[markers]]\nclip = \"attack\"\ntime = 0\nname = \"hit\"\n")
+                      .error(),
+            engine::MetaError::InvalidField);
+
+    engine::CookedCatalog catalog;
+    engine::CatalogEntry entry;
+    entry.guid = engine::AssetId{"0123456789abcdef0123456789abcdef"};
+    entry.relative_path = "hero.glb";
+    entry.importer = engine::ImporterKind::Model;
+    entry.model = parsed->model;
+    catalog.add(entry);
+    const auto loaded = engine::parse_cooked_catalog(catalog.serialize());
+    ASSERT_TRUE(loaded.has_value());
+    ASSERT_EQ(loaded->entries().size(), 1u);
+    EXPECT_EQ(loaded->entries()[0].model.markers, parsed->model.markers);
+}
+
+TEST(Model, CookRejectsAMarkerTheClipDoesNotHave) {
+    const auto file = attack_clip_glb();
+    const engine::ModelMarkerMeta unknown{"missing", 0.1f, "hit"};
+    const auto missing = engine::gltf::cook_gltf(bytes_of(file), {}, std::span{&unknown, 1});
+    ASSERT_FALSE(missing.has_value());
+    EXPECT_NE(missing.error().message.find("unknown"), std::string::npos);
+
+    const engine::ModelMarkerMeta late{"attack", 1.0f, "hit"};
+    const auto outside = engine::gltf::cook_gltf(bytes_of(file), {}, std::span{&late, 1});
+    ASSERT_FALSE(outside.has_value());
+    EXPECT_NE(outside.error().message.find("outside"), std::string::npos);
+
+    const engine::ModelMarkerMeta hit{"attack", 0.35f, "hit"};
+    const auto cooked = engine::gltf::cook_gltf(bytes_of(file), {}, std::span{&hit, 1});
+    ASSERT_TRUE(cooked.has_value()) << cooked.error().message;
+    auto model = engine::render::parse_model_blob(*cooked);
+    ASSERT_TRUE(model.has_value());
+    ASSERT_EQ(model->clips.size(), 1u);
+    ASSERT_EQ(model->clips[0].markers.size(), 1u);
+    EXPECT_EQ(model->clips[0].markers[0].name, "hit");
+    EXPECT_FLOAT_EQ(model->clips[0].markers[0].time, 0.35f);
+
+    auto version_one = *cooked;
+    version_one[4] = 1;
+    EXPECT_FALSE(engine::render::parse_model_blob(version_one).has_value());
+}
+
+TEST(Model, MarkersCrossTheActiveClipOnly) {
+    engine::render::ModelAnimator animator = attack_animator();
+    animator.play("attack");
+    engine::render::tick_model_animator(animator, 0.2f);
+    EXPECT_EQ(cue_count(animator, "start"), 1);
+    EXPECT_EQ(cue_count(animator, "hit"), 0);
+
+    engine::render::tick_model_animator(animator, 0.2f);
+    EXPECT_EQ(cue_count(animator, "start"), 0);
+    EXPECT_EQ(cue_count(animator, "hit"), 1);
+    EXPECT_EQ(animator.cues[0].clip, "attack");
+
+    engine::render::tick_model_animator(animator, 0.0f);
+    EXPECT_TRUE(animator.cues.empty());
+
+    animator.layers[0].playing = false;
+    engine::render::tick_model_animator(animator, 1.0f);
+    EXPECT_TRUE(animator.cues.empty());
+    EXPECT_TRUE(animator.layers[0].cue_from_start == false);
+
+    animator = attack_animator();
+    animator.play("attack");
+    animator.layers[0].playing = false;
+    engine::render::tick_model_animator(animator, 0.5f);
+    EXPECT_TRUE(animator.cues.empty());
+    EXPECT_TRUE(animator.layers[0].cue_from_start);
+    animator.layers[0].playing = true;
+    engine::render::tick_model_animator(animator, 0.2f);
+    EXPECT_EQ(cue_count(animator, "start"), 1);
+    EXPECT_EQ(cue_count(animator, "hit"), 0);
+
+    animator = attack_animator();
+    animator.play("attack");
+    animator.layers[0].loop = false;
+    engine::render::tick_model_animator(animator, 3.0f);
+    EXPECT_EQ(cue_count(animator, "start"), 1);
+    EXPECT_EQ(cue_count(animator, "hit"), 1);
+    EXPECT_FALSE(animator.layers[0].playing);
+    engine::render::tick_model_animator(animator, 1.0f);
+    EXPECT_TRUE(animator.cues.empty());
+
+    animator = attack_animator();
+    animator.play("attack");
+    engine::render::tick_model_animator(animator, 0.0f);
+    animator.layers[0].time = 0.2f;
+    engine::render::tick_model_animator(animator, 2.0f);
+    EXPECT_EQ(cue_count(animator, "hit"), 2);
+    EXPECT_EQ(cue_count(animator, "start"), 2);
+
+    animator = attack_animator();
+    animator.play("attack");
+    engine::render::tick_model_animator(animator, 0.0f);
+    animator.play("idle", 1.0f);
+    engine::render::tick_model_animator(animator, 0.6f);
+    EXPECT_EQ(cue_count(animator, "hit"), 0);
+    EXPECT_EQ(cue_count(animator, "step"), 1);
+    EXPECT_EQ(animator.cues[0].clip, "idle");
+}
+
+TEST(Model, AnimationEventIsReadOnceOnTheFrame) {
+    engine::render::ModelAsset model;
+    model.nodes.push_back({});
+    engine::render::ModelClip attack;
+    attack.name = "attack";
+    attack.duration = 1.0f;
+    attack.key_count = 1;
+    attack.samples.push_back({});
+    attack.markers.push_back({0.35f, "hit"});
+    model.clips.push_back(std::move(attack));
+
+    engine::ecs::World world;
+    engine::register_simulation_systems(world);
+    world.ctx<engine::Time>().delta_time = 0.4f;
+    const engine::ecs::Entity root = world.create();
+    engine::render::ModelAnimator animator;
+    animator.model = std::make_shared<engine::render::ModelAsset>(std::move(model));
+    animator.play("attack");
+    world.emplace<engine::render::ModelAnimator>(root, std::move(animator));
+
+    auto& cursor = world.ctx<engine::ecs::EventCursor<engine::ecs::ModelAnimEvent>>();
+    world.run(engine::ecs::Schedule::Frame);
+    int hits = 0;
+    for (const engine::ecs::ModelAnimEvent& event :
+            engine::ecs::EventReader<engine::ecs::ModelAnimEvent>(world, cursor)) {
+        EXPECT_EQ(event.entity, root);
+        EXPECT_EQ(event.clip, "attack");
+        EXPECT_EQ(event.name, "hit");
+        ++hits;
+    }
+    EXPECT_EQ(hits, 1);
+
+    world.ctx<engine::Time>().delta_time = 0.1f;
+    world.run(engine::ecs::Schedule::Frame);
+    int again = 0;
+    for (const engine::ecs::ModelAnimEvent& event :
+            engine::ecs::EventReader<engine::ecs::ModelAnimEvent>(world, cursor)) {
+        (void)event;
+        ++again;
+    }
+    EXPECT_EQ(again, 0);
+}
+
+TEST(Model, CodegenCooksMarkersFromTheSidecar) {
+    const auto dir = std::filesystem::temp_directory_path() / "wind_model_markers";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    const auto file = attack_clip_glb();
+    {
+        std::ofstream out(dir / "hero.glb", std::ios::binary);
+        out.write(reinterpret_cast<const char*>(file.data()), static_cast<std::streamsize>(file.size()));
+    }
+    {
+        std::ofstream meta(dir / "hero.glb.meta");
+        meta << "guid = \"ddddddddddddddddddddddddddddddd1\"\nimporter = \"model\"\n\n"
+                "[[markers]]\nclip = \"missing\"\ntime = 0.1\nname = \"hit\"\n";
+    }
+    engine::gltf::register_gltf_cooker();
+    const auto scanned = engine::codegen_scan(dir);
+    ASSERT_FALSE(scanned.has_value());
+    EXPECT_EQ(scanned.error().kind, engine::CodegenErrorKind::Model);
+    EXPECT_NE(scanned.error().message.find("unknown"), std::string::npos);
+
+    {
+        std::ofstream meta(dir / "hero.glb.meta");
+        meta << "guid = \"ddddddddddddddddddddddddddddddd1\"\nimporter = \"model\"\n\n"
+                "[[markers]]\nclip = \"attack\"\ntime = 0.35\nname = \"hit\"\n";
+    }
+    const auto stage = std::filesystem::temp_directory_path() / "wind_model_markers_stage";
+    std::filesystem::remove_all(stage);
+    const auto staged = engine::codegen_stage(dir, stage);
+    ASSERT_TRUE(staged.has_value()) << staged.error().message;
+    std::ifstream in(stage / "hero.glb", std::ios::binary);
+    const std::vector<std::uint8_t> blob((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    auto model = engine::render::parse_model_blob(blob);
+    ASSERT_TRUE(model.has_value());
+    ASSERT_EQ(model->clips.size(), 1u);
+    ASSERT_EQ(model->clips[0].markers.size(), 1u);
+    EXPECT_EQ(model->clips[0].markers[0].name, "hit");
+    EXPECT_FLOAT_EQ(model->clips[0].markers[0].time, 0.35f);
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    std::filesystem::remove_all(stage, ec);
+}
+
+engine::render::ModelAsset masked_body() {
+    engine::render::ModelAsset model;
+    model.nodes.push_back(engine::render::ModelNode{.name = "hips"});
+    model.nodes.push_back(engine::render::ModelNode{.name = "spine", .parent = 0});
+    model.nodes.push_back(engine::render::ModelNode{.name = "head", .parent = 1});
+    model.nodes.push_back(engine::render::ModelNode{.name = "leg", .parent = 0});
+    const auto samples = [](glm::vec3 hips, glm::vec3 spine, glm::vec3 head, glm::vec3 leg) {
+        std::vector<engine::render::ModelNodePose> poses(4);
+        poses[0].translation = hips;
+        poses[1].translation = spine;
+        poses[2].translation = head;
+        poses[3].translation = leg;
+        return poses;
+    };
+    engine::render::ModelClip walk;
+    walk.name = "walk";
+    walk.duration = 1.0f;
+    walk.key_count = 1;
+    walk.samples = samples({0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, -1.0f, 0.0f});
+    engine::render::ModelClip hit;
+    hit.name = "hit";
+    hit.duration = 1.0f;
+    hit.key_count = 1;
+    hit.samples = samples({9.0f, 0.0f, 0.0f}, {0.0f, 2.0f, 0.0f}, {0.0f, 0.0f, 4.0f}, {5.0f, 5.0f, 5.0f});
+    model.clips.push_back(std::move(walk));
+    model.clips.push_back(std::move(hit));
+    return model;
+}
+
+TEST(Model, OverrideMaskKeepsTheUnmaskedBones) {
+    engine::render::ModelAnimator animator;
+    animator.model = std::make_shared<engine::render::ModelAsset>(masked_body());
+    animator.play("walk");
+    animator.play_layer(1, "hit");
+    animator.layers[1].mask = "spine";
+    engine::render::tick_model_animator(animator, 0.0f);
+
+    EXPECT_NEAR(animator.locals[0].translation.x, 0.0f, 1e-4f);
+    EXPECT_NEAR(animator.locals[3].translation.y, -1.0f, 1e-4f);
+    EXPECT_NEAR(animator.locals[1].translation.x, 0.0f, 1e-4f);
+    EXPECT_NEAR(animator.locals[1].translation.y, 2.0f, 1e-4f);
+    EXPECT_NEAR(animator.locals[2].translation.z, 4.0f, 1e-4f);
+
+    animator.layers[1].weight = 0.5f;
+    engine::render::tick_model_animator(animator, 0.0f);
+    EXPECT_NEAR(animator.locals[1].translation.x, 0.5f, 1e-4f);
+    EXPECT_NEAR(animator.locals[1].translation.y, 1.0f, 1e-4f);
+    EXPECT_NEAR(animator.locals[3].translation.y, -1.0f, 1e-4f);
+}
+
+TEST(Model, AdditiveLayerAddsTheRestDelta) {
+    engine::render::ModelAnimator animator;
+    animator.model = std::make_shared<engine::render::ModelAsset>(masked_body());
+    animator.play("walk");
+    animator.play_layer(1, "hit");
+    animator.layers[1].mask = "spine";
+    animator.layers[1].blend = engine::render::ModelBlend::Additive;
+    engine::render::tick_model_animator(animator, 0.0f);
+
+    EXPECT_NEAR(animator.locals[1].translation.x, 1.0f, 1e-4f);
+    EXPECT_NEAR(animator.locals[1].translation.y, 2.0f, 1e-4f);
+    EXPECT_NEAR(animator.locals[2].translation.z, 5.0f, 1e-4f);
+    EXPECT_NEAR(animator.locals[0].translation.x, 0.0f, 1e-4f);
+    EXPECT_NEAR(animator.locals[3].translation.y, -1.0f, 1e-4f);
+}
+
+TEST(Model, SilentLayerSendsNoMarkers) {
+    engine::render::ModelAnimator animator = attack_animator();
+    animator.play("idle");
+    animator.play_layer(1, "attack");
+    animator.layers[1].weight = 0.0f;
+    engine::render::tick_model_animator(animator, 0.5f);
+    EXPECT_EQ(cue_count(animator, "hit"), 0);
+    EXPECT_EQ(cue_count(animator, "start"), 0);
+    EXPECT_EQ(cue_count(animator, "step"), 1);
+    EXPECT_NEAR(animator.layers[1].time, 0.5f, 1e-4f);
+
+    animator.layers[1].weight = 1.0f;
+    animator.play_layer(1, "attack");
+    engine::render::tick_model_animator(animator, 0.0f);
+    EXPECT_EQ(cue_count(animator, "start"), 1);
+    animator.play_layer(1, "idle", 1.0f);
+    engine::render::tick_model_animator(animator, 0.4f);
+    EXPECT_EQ(cue_count(animator, "hit"), 0);
+    EXPECT_EQ(cue_count(animator, "step"), 1);
+    EXPECT_EQ(animator.cues[0].clip, "idle");
+
+    animator = attack_animator();
+    animator.play("attack");
+    animator.layers[0].mask = "no-such-bone";
+    engine::render::tick_model_animator(animator, 0.5f);
+    EXPECT_TRUE(animator.cues.empty());
+    EXPECT_NEAR(animator.layers[0].time, 0.5f, 1e-4f);
+}
+
+TEST(Model, ImpulseMovesOnlyTheHitBoneThenSettles) {
+    engine::render::ModelAsset model;
+    engine::render::ModelNode arm;
+    arm.name = "arm";
+    arm.parent = 0;
+    arm.translation = glm::vec3{0.0f, 1.0f, 0.0f};
+    engine::render::ModelNode leg;
+    leg.name = "leg";
+    leg.parent = 0;
+    leg.translation = glm::vec3{0.0f, -1.0f, 0.0f};
+    model.nodes.push_back(engine::render::ModelNode{.name = "body"});
+    model.nodes.push_back(arm);
+    model.nodes.push_back(leg);
+
+    engine::render::ModelAnimator animator;
+    animator.model = std::make_shared<engine::render::ModelAsset>(std::move(model));
+    engine::render::tick_model_animator(animator, 0.0f);
+    engine::render::impulse_joint(animator, "missing", glm::vec3{1.0f, 0.0f, 0.0f}, 5.0f);
+    EXPECT_TRUE(animator.springs.empty());
+
+    engine::render::impulse_joint(animator, "arm", glm::vec3{1.0f, 0.0f, 0.0f}, 5.0f);
+    engine::render::impulse_joint(animator, "arm", glm::vec3{1.0f, 0.0f, 0.0f}, 5.0f);
+    ASSERT_EQ(animator.springs.size(), 1u);
+    EXPECT_NEAR(animator.springs[0].linear_velocity.x, 10.0f, 1e-3f);
+
+    engine::render::tick_model_animator(animator, 1.0f / 60.0f);
+    EXPECT_GT(animator.locals[1].translation.x, 0.01f);
+    EXPECT_NEAR(animator.locals[0].translation.x, 0.0f, 1e-4f);
+    EXPECT_NEAR(animator.locals[2].translation.x, 0.0f, 1e-4f);
+    EXPECT_NEAR(animator.locals[2].translation.y, -1.0f, 1e-4f);
+
+    for (int i = 0; i < 180; ++i) {
+        engine::render::tick_model_animator(animator, 1.0f / 60.0f);
+    }
+    EXPECT_NEAR(animator.locals[1].translation.x, 0.0f, 1e-2f);
+    EXPECT_NEAR(animator.locals[1].translation.y, 1.0f, 1e-2f);
+    EXPECT_TRUE(animator.springs.empty());
+}
+
+TEST(Model, NearestJointUsesThePosedWorldPosition) {
+    engine::render::ModelAsset model;
+    engine::render::ModelNode far;
+    far.name = "far";
+    far.translation = glm::vec3{10.0f, 0.0f, 0.0f};
+    model.nodes.push_back(engine::render::ModelNode{.name = "near"});
+    model.nodes.push_back(far);
+
+    engine::ecs::World world;
+    const engine::ecs::Entity root = world.create();
+    engine::Transform placed;
+    placed.position = glm::vec3{100.0f, 0.0f, 0.0f};
+    world.emplace<engine::Transform>(root, placed);
+    engine::render::ModelAnimator animator;
+    animator.model = std::make_shared<engine::render::ModelAsset>(std::move(model));
+    engine::render::tick_model_animator(animator, 0.0f);
+    world.emplace<engine::render::ModelAnimator>(root, std::move(animator));
+
+    EXPECT_EQ(engine::ecs::nearest_joint(world, root, glm::vec3{100.0f, 0.0f, 0.0f}), "near");
+    EXPECT_EQ(engine::ecs::nearest_joint(world, root, glm::vec3{109.0f, 1.0f, 0.0f}), "far");
+    EXPECT_FALSE(engine::ecs::nearest_joint(world, world.create(), glm::vec3{0.0f}).has_value());
 }

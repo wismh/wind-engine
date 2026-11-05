@@ -76,11 +76,24 @@ struct ModelNodePose {
     glm::vec3 scale{1.0f};
 };
 
+// A named instant on a clip, in seconds, in `[0, duration)`. Authored as `[[markers]]` on the model's `.meta`.
+struct ModelMarker {
+    float time = 0.0f;
+    std::string name;
+};
+
 struct ModelClip {
     std::string name;
     float duration = 0.0f;
     int key_count = 0;
     std::vector<ModelNodePose> samples;
+    std::vector<ModelMarker> markers;
+};
+
+// One marker the last tick crossed on the active clip.
+struct ModelAnimCue {
+    std::string clip;
+    std::string name;
 };
 
 // CPU model cooked from glTF. Meshes and textures become GPU objects in `spawn_model`, not here.
@@ -101,8 +114,13 @@ struct ModelAsset {
 [[nodiscard]] ENGINE_API std::vector<ModelNodePose> sample_model_locals(
         const ModelAsset& model, std::string_view clip, float time, bool loop);
 
-// `alpha` 0 keeps `pose`, 1 replaces it with `from` blended toward `pose`: `pose = mix(from, pose, alpha)`.
-ENGINE_API void blend_model_locals(std::vector<ModelNodePose>& pose, const std::vector<ModelNodePose>& from, float alpha);
+// `alpha` 0 keeps `from`, 1 keeps `pose`: `pose = mix(from, pose, alpha)`.
+ENGINE_API void blend_model_locals(
+        std::vector<ModelNodePose>& pose, const std::vector<ModelNodePose>& from, float alpha);
+
+// Per node, `weight` 0 keeps `pose` and 1 takes `over`. A short `weight` leaves the remaining nodes alone.
+ENGINE_API void blend_model_locals(
+        std::vector<ModelNodePose>& pose, const std::vector<ModelNodePose>& over, std::span<const float> weight);
 
 // Parent-first global matrices in glTF space (the model's root, not the entity that places it in the world).
 [[nodiscard]] ENGINE_API std::vector<glm::mat4> model_globals(
@@ -122,27 +140,72 @@ struct ModelPart {
     bool drives_transform = false;
 };
 
-// Plays one clip, optionally crossfading out of the previous one. The palette is the skinning matrices for the pose
-// just ticked; draw reads it until the next tick.
-struct ModelAnimator {
-    std::shared_ptr<const ModelAsset> model;
+// How a layer combines with the pose under it. `Override` replaces masked bones. `Additive` adds the clip's delta from
+// the rest pose on those bones.
+enum class ModelBlend : std::uint8_t {
+    Override,
+    Additive,
+};
+
+// One clip on top of the pose. `layers[0]` is the base `play` writes. An empty `mask` is the whole body; otherwise the
+// named node and its descendants. A name that matches no node leaves the pose unchanged and sends no markers. `weight`
+// is clamped to 0..1. Weight 0 advances the clock and sends no markers.
+struct ModelLayer {
     std::string clip;
     float time = 0.0f;
     float speed = 1.0f;
     bool playing = true;
     bool loop = true;
+    float weight = 1.0f;
+    ModelBlend blend = ModelBlend::Override;
+    std::string mask;
     std::string from_clip;
     float from_time = 0.0f;
     float fade_left = 0.0f;
     float fade_duration = 0.0f;
+    // `play_layer` sets this. The next tick that advances the clip also fires markers at time 0.
+    bool cue_from_start = false;
+};
+
+// Offset of one node from the clip pose, in that node's parent space. `tick_model_animator` springs it back to zero.
+struct ModelJointSpring {
+    int node = -1;
+    glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
+    glm::vec3 translation{0.0f};
+    glm::vec3 angular_velocity{0.0f};
+    glm::vec3 linear_velocity{0.0f};
+    float stiffness = 80.0f;
+    float damping = 18.0f;
+};
+
+// Plays layered clips, then joint springs. The palette is the skinning matrices for the pose just ticked; draw reads
+// it until the next tick. Layer 0 is the base clip.
+struct ModelAnimator {
+    std::shared_ptr<const ModelAsset> model;
+    std::vector<ModelLayer> layers;
     std::vector<ModelPart> parts;
     std::vector<ModelNodePose> locals;
     std::vector<glm::mat4> node_global;
     std::vector<std::vector<glm::mat4>> palettes;
+    // Markers the last `tick_model_animator` crossed on every layer whose weight is above 0.
+    std::vector<ModelAnimCue> cues;
+    std::vector<ModelJointSpring> springs;
 
-    // `fade_seconds` 0 switches immediately. Otherwise the previous pose blends out over that many seconds.
+    // Layer 0. `fade_seconds` 0 switches immediately. Otherwise the previous pose blends out over that many seconds.
+    // Markers follow the new clip's clock, including one at time 0. The clip being faded out stays silent.
     ENGINE_API void play(std::string_view clip_name, float fade_seconds = 0.0f);
+
+    // Ensures `layers` reaches `index`, then starts that layer the way `play` starts layer 0. A negative index does
+    // nothing. Weight, mask, blend, speed, and loop stay as they are; a new slot starts at weight 1, full body.
+    ENGINE_API void play_layer(int index, std::string_view clip_name, float fade_seconds = 0.0f);
 };
+
+// Adds a hit on `node_name`. Linear velocity is `strength` meters/second along `world_direction` in the node's parent
+// space, plus an angular velocity that swings the bone off that direction. `root_world` maps the direction out of
+// world space; identity is correct when the model root is unrotated or the direction is already in model space.
+// An unknown name, a zero direction, or a zero strength does nothing. A second call in the same tick adds velocity.
+ENGINE_API void impulse_joint(ModelAnimator& animator, std::string_view node_name, const glm::vec3& world_direction,
+        float strength, const glm::mat4& root_world = glm::mat4{1.0f});
 
 // Samples `animator` forward by `dt` seconds and fills `locals`, `node_global`, and `palettes`.
 ENGINE_API void tick_model_animator(ModelAnimator& animator, float dt);

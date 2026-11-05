@@ -69,6 +69,10 @@ struct RecordingBackend {
     void operator()(const engine::render::CmdSetView&) {
         kinds.emplace_back("view");
     }
+
+    void operator()(const engine::render::CmdPostProcess&) {
+        kinds.emplace_back("post");
+    }
 };
 
 template<typename T, typename = void>
@@ -112,11 +116,12 @@ TEST(CommandBuffer, VariantHasExpectedCommands) {
     using engine::render::CmdSetView;
     using engine::render::Command;
 
-    static_assert(std::variant_size_v<Command> == 4);
+    static_assert(std::variant_size_v<Command> == 5);
     static_assert(std::is_same_v<std::variant_alternative_t<0, Command>, CmdDrawMesh>);
     static_assert(std::is_same_v<std::variant_alternative_t<1, Command>, CmdDrawUI>);
     static_assert(std::is_same_v<std::variant_alternative_t<2, Command>, CmdDrawParticles>);
     static_assert(std::is_same_v<std::variant_alternative_t<3, Command>, CmdSetView>);
+    static_assert(std::is_same_v<std::variant_alternative_t<4, Command>, engine::render::CmdPostProcess>);
     static_assert(!has_shader_field<CmdDrawMesh>::value);
     static_assert(!has_texture_field<CmdDrawMesh>::value);
     // The camera reaches draws only through CmdSetView.

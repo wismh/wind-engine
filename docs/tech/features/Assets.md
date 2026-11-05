@@ -114,7 +114,19 @@ Checks. Parsing the `.meta` fails (`MetaError::InvalidField`, so the cook fails 
 
 ## Models
 
-`importer = "model"` (`.gltf` and `.glb`, assigned by `asset_guid`) is a glTF 2 document. The runtime never parses glTF. `asset_codegen` cooks it, on the host, into one little-endian blob (magic `WMOD`, version 1) and stage writes that blob in place of the source. External buffers and images are embedded, so the game receives one file. The source in `assets/` stays glTF. One file is one GUID; the cooker writes no `.meta` and no extra meshes.
+`importer = "model"` (`.gltf` and `.glb`, assigned by `asset_guid`) is a glTF 2 document. The runtime never parses glTF. `asset_codegen` cooks it, on the host, into one little-endian blob (magic `WMOD`, version 2) and stage writes that blob in place of the source. External buffers and images are embedded, so the game receives one file. The source in `assets/` stays glTF. One file is one GUID; the cooker writes no extra meshes. The sidecar is the same `.meta` every asset has (`guid`, `importer`). Marker rows are optional, the way `filter` is optional on a texture: omitted means no markers.
+
+```toml
+guid = "..."
+importer = "model"
+
+[[markers]]
+clip = "attack"
+time = 0.35
+name = "hit"
+```
+
+`clip` and `name` are non-empty strings. `time` is seconds, a number `>= 0`. Anything else, or `[[markers]]` on a sidecar that is not `importer = "model"`, is `MetaError::InvalidField`. The cooked catalog keeps the rows for model entries. At cook, an unknown `clip` or a `time` outside `[0, duration)` fails the build with `CodegenErrorKind::Model`. Several rows may share a name. A row at `duration` is outside the range: that instant is the next loop's `0`.
 
 The cooker is `engine_gltf_cook` (`tools/gltf/`, cgltf in `external/cgltf`). It is linked into `asset_codegen` and `engine_tests`, not into `engine`, because `src/**/*.cpp` is the runtime on every target including Web and the dedicated server. `set_model_cooker` (`include/engine/resources/model_cook.h`) is the hook `codegen_scan` and `codegen_stage` call. A model that cannot be cooked fails the build with `CodegenErrorKind::Model`.
 

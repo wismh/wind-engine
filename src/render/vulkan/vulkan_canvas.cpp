@@ -274,6 +274,8 @@ void VulkanCanvas::render() {
             static_cast<float>(swapchain_extent_.width), static_cast<float>(swapchain_extent_.height));
     }
     backend_->set_ui_painter(ui_painter());
+    backend_->set_post_frame(cmd, framebuffers_[acquired_image_index_], swapchain_extent_, swapchain_format_,
+            depth_format_, clear_alpha);
     backend_->begin_scene_pass(cmd, render_pass_, swapchain_extent_, current_frame_);
     if (commands_ != nullptr) {
         backend_->execute(*commands_);

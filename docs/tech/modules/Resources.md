@@ -8,7 +8,7 @@ The runtime walkthrough is [Assets](../features/Assets.md). The cook tools are [
 
 `AssetId` is exactly 32 lowercase hex characters (`include/engine/resources/asset_id.h`). The constructor throws `std::invalid_argument` when the string is not valid. `parse` returns `nullopt` instead.
 
-Builtin ids in `include/engine/builtin_ids.h` are frozen. `builtin::reserved()` is the fifteen ids `asset_codegen` rejects in a game tree. Do not regenerate them. See `builtin_assets/README.md`.
+Builtin ids in `include/engine/builtin_ids.h` are frozen. `builtin::reserved()` is the nineteen ids `asset_codegen` rejects in a game tree. Do not regenerate them. See `builtin_assets/README.md`.
 
 | Constant | GUID suffix | File |
 | --- | --- | --- |
@@ -27,6 +27,10 @@ Builtin ids in `include/engine/builtin_ids.h` are frozen. `builtin::reserved()` 
 | `shader_unlit_array` | `…abc0d` | `shaders/unlit_array.shader` |
 | `shader_skin_lit` | `…abc0e` | `shaders/skin_lit.shader` |
 | `shader_skin_unlit` | `…abc0f` | `shaders/skin_unlit.shader` |
+| `shader_post_grade` | `…abc10` | `shaders/post_grade.shader` |
+| `shader_post_tonemap` | `…abc11` | `shaders/post_tonemap.shader` |
+| `shader_post_bloom` | `…abc12` | `shaders/post_bloom.shader` |
+| `shader_post_depth` | `…abc13` | `shaders/post_depth.shader` |
 
 The full literals are in `builtin_ids.h`. The table's suffix is the last five characters.
 
@@ -62,6 +66,8 @@ Texture defaults: sRGB, linear filter, clamp wrap, `mipmaps = "none"`, `layout =
 `layout = "multiple"` stores `[[sprites]]` rects. `SpriteSheet::get(name)` turns a rect into UV `tiling` and `offset` (Y flipped against the texture height). `AssetsDb::get_sprite(id, name)` uses that. An empty name on a single-layout texture is the whole image.
 
 `strings_source` is the `.meta` flag `source = true`. If the tree contains any `.strings` file, codegen requires exactly one such table. A `{tr}` key must exist in that table.
+
+A model sidecar takes optional `[[markers]]` rows (`clip`, `time`, `name`), the same kind of import setting as a texture's `filter`. No rows means no markers. A row on another importer, an empty `clip` or `name`, or a `time` that is not a number at least 0 is `MetaError::InvalidField`. The cooked catalog keeps the rows. The clip name and the range `[0, duration)` are checked when the glTF is cooked ([Assets](../features/Assets.md#models)).
 
 `asset_guid` writes a missing sidecar and never overwrites one. `.object` gets `importer = "object"`. `.tilemap` gets `importer = "tilemap"`. `.gltf` and `.glb` get `importer = "model"`. A file whose extension is not one of the known ones gets `importer = "data"`. `asset_codegen` fails the build when a sidecar is missing. It never writes `.meta`. Neither tool treats `readme.md`, `license*`, dotfiles, or `catalog.toml` as assets. The editor writes missing sidecars the same way for the open project's `assets/`, and it also deletes an orphan `.meta`.
 

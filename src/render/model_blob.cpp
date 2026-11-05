@@ -7,7 +7,7 @@ namespace engine::render {
 namespace {
 
 constexpr std::uint8_t kMagic[4] = {'W', 'M', 'O', 'D'};
-constexpr std::uint32_t kVersion = 1;
+constexpr std::uint32_t kVersion = 2;
 
 class Writer {
 public:
@@ -256,6 +256,11 @@ std::vector<std::uint8_t> serialize_model_blob(const ModelAsset& model) {
             writer.quat(sample.rotation);
             writer.vec3(sample.scale);
         }
+        writer.u32(static_cast<std::uint32_t>(clip.markers.size()));
+        for (const ModelMarker& marker : clip.markers) {
+            writer.f32(marker.time);
+            writer.str(marker.name);
+        }
     }
     return std::move(writer.bytes());
 }
@@ -421,6 +426,16 @@ std::optional<ModelAsset> parse_model_blob(std::span<const std::uint8_t> bytes) 
         clip.samples.resize(sample_count);
         for (ModelNodePose& sample : clip.samples) {
             if (!reader.vec3(sample.translation) || !reader.quat(sample.rotation) || !reader.vec3(sample.scale)) {
+                return std::nullopt;
+            }
+        }
+        std::uint32_t marker_count = 0;
+        if (!reader.u32(marker_count)) {
+            return std::nullopt;
+        }
+        clip.markers.resize(marker_count);
+        for (ModelMarker& marker : clip.markers) {
+            if (!reader.f32(marker.time) || !reader.str(marker.name)) {
                 return std::nullopt;
             }
         }
