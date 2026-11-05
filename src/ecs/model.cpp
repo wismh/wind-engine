@@ -208,6 +208,12 @@ std::expected<void, WorldLoadError> build_model(
     }
 
     render::tick_model_animator(animator, 0.0f);
+    // The seed tick poses the bind frame. It is not the clip starting, so the first real tick still fires a marker
+    // at time 0, the same way `play` does.
+    animator.cues.clear();
+    if (!animator.layers.empty() && !animator.layers[0].clip.empty()) {
+        animator.layers[0].cue_from_start = true;
+    }
     apply_model_poses(world, animator);
     world.emplace<render::ModelAnimator>(root, std::move(animator));
     return {};

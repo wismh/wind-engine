@@ -39,6 +39,9 @@ private:
         bool depth_texture = false;
         GLuint color[2]{};
         GLuint fbo[2]{};
+        // Same color as `fbo[0]`, with no depth attachment. Post writes SceneA here so a pass can sample the depth
+        // texture while `fbo[0]` still owns it.
+        GLuint scene_a_color = 0;
         GLuint depth = 0;
         GLuint bloom_color[3]{};
         GLuint bloom_fbo[3]{};

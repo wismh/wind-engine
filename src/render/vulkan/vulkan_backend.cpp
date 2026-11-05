@@ -498,7 +498,8 @@ void VulkanRenderBackend::finish_post() {
     const PostChain& chain = view_.post;
     const bool hdr = post_.hdr_effective();
     const VkExtent2D full = post_.extent();
-    const std::vector<PostStep> steps = post_steps(hdr, static_cast<int>(chain.effects.size()));
+    const std::vector<PostStep> steps =
+            post_steps(hdr, static_cast<int>(chain.effects.size()), chain.hdr && !hdr);
     auto open = [&](VkFramebuffer fb, VkRenderPass pass, VkExtent2D extent) {
         post_.begin(pass, fb, extent, false, false);
         adopt_pass(pass, extent);
@@ -508,10 +509,10 @@ void VulkanRenderBackend::finish_post() {
         const bool to_window = step.dest == PostImage::Window;
         const VkFramebuffer fb = to_window ? post_.window_fb() : post_.scene_fb(step.dest);
         const VkRenderPass pass = to_window ? post_.window_load_pass() : post_.color_pass();
-        if (step.tonemap) {
+        if (step.tonemap || step.copy) {
             open(fb, pass, full);
-            draw_post_shader(chain.tonemap, glm::vec4{1.0f}, glm::vec2{full.width, full.height}, view_.time, source,
-                    VK_NULL_HANDLE, fb, pass, full, false);
+            draw_post_shader(step.copy ? chain.ldr_copy : chain.tonemap, glm::vec4{1.0f},
+                    glm::vec2{full.width, full.height}, view_.time, source, VK_NULL_HANDLE, fb, pass, full, false);
             continue;
         }
         if (step.effect < 0 || static_cast<std::size_t>(step.effect) >= chain.effects.size()) {

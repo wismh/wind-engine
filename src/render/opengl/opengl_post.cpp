@@ -136,6 +136,9 @@ void OpenGLPost::destroy_targets(Targets& targets, bool delete_fbos) {
     }
     if (delete_fbos) {
         glDeleteFramebuffers(2, targets.fbo);
+        if (targets.scene_a_color != 0) {
+            glDeleteFramebuffers(1, &targets.scene_a_color);
+        }
         glDeleteFramebuffers(3, targets.bloom_fbo);
     }
     targets = Targets{};
@@ -176,6 +179,7 @@ OpenGLPost::Targets& OpenGLPost::ensure(const PostChain& chain, bool hdr) {
     found->depth = make_depth(width_, height_, want_depth);
     found->fbo[0] = make_fbo(found->color[0], found->depth, want_depth);
     found->fbo[1] = make_fbo(found->color[1], 0, false);
+    found->scene_a_color = make_fbo(found->color[0], 0, false);
     int level_width = std::max(1, width_ / 2);
     int level_height = std::max(1, height_ / 2);
     for (int level = 0; level < 3; ++level) {
@@ -301,13 +305,24 @@ void OpenGLPost::finish(const PostChain& chain, float time) {
         bind_window();
         return;
     }
-    const std::vector<PostStep> steps = post_steps(hdr_effective_, static_cast<int>(chain.effects.size()));
+    const std::vector<PostStep> steps =
+            post_steps(hdr_effective_, static_cast<int>(chain.effects.size()), chain.hdr && !hdr_effective_);
     for (const PostStep& step : steps) {
         const GLuint source = step.source == PostImage::SceneA ? targets->color[0] : targets->color[1];
         const bool to_window = step.dest == PostImage::Window;
-        const GLuint dest_fbo = to_window ? 0u : targets->fbo[step.dest == PostImage::SceneA ? 0 : 1];
+        const GLuint dest_fbo = to_window ? 0u
+                                          : (step.dest == PostImage::SceneA ? targets->scene_a_color : targets->fbo[1]);
         const int dest_width = to_window ? width_ : targets->width;
         const int dest_height = to_window ? height_ : targets->height;
+        if (step.copy) {
+            const GLuint read_fbo = step.source == PostImage::SceneB ? targets->fbo[1] : targets->fbo[0];
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, read_fbo);
+            glReadBuffer(GL_COLOR_ATTACHMENT0);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dest_fbo);
+            glBlitFramebuffer(0, 0, targets->width, targets->height, 0, 0, dest_width, dest_height,
+                    GL_COLOR_BUFFER_BIT, GL_NEAREST);
+            continue;
+        }
         if (step.tonemap) {
             draw(chain.tonemap, glm::vec4{1.0f}, glm::vec2{width_, height_}, time, source, dest_fbo, dest_width,
                     dest_height, 0, false);

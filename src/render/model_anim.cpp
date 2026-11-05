@@ -300,7 +300,8 @@ void advance_layer(ModelLayer& layer, const ModelAsset& model, float dt, std::ve
         if (!layer.from_clip.empty()) {
             layer.from_time += dt * layer.speed;
         }
-        if (std::clamp(layer.weight, 0.0f, 1.0f) > 0.0f) {
+        const bool mask_miss = !layer.mask.empty() && find_node(model, layer.mask) < 0;
+        if (!mask_miss && std::clamp(layer.weight, 0.0f, 1.0f) > 0.0f) {
             if (const ModelClip* clip = find_clip(model, layer.clip); clip != nullptr) {
                 collect_cues(cues, *clip, previous, layer.time, layer.loop, from_start);
             }

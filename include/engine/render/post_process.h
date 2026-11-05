@@ -52,11 +52,14 @@ struct PostPass {
     bool bloom = false;
 };
 
-// What `run_render` copies onto `CmdSetView`. `tonemap` is set only when `hdr` is true.
+// What `run_render` copies onto `CmdSetView`. `tonemap` and `ldr_copy` are set only when `hdr` is true.
+// `ldr_copy` is the grade shader. The RGBA8 fallback draws it at white when the effect list is empty, so the scene
+// still reaches the window. Tonemap is not that copy: Reinhard would darken an image already in 0..1.
 struct PostChain {
     bool hdr = false;
     std::vector<PostPass> effects;
     std::shared_ptr<IShader> tonemap;
+    std::shared_ptr<IShader> ldr_copy;
 
     [[nodiscard]] bool active() const noexcept { return hdr || !effects.empty(); }
 
@@ -104,14 +107,18 @@ enum class PostImage : std::uint8_t {
 
 struct PostStep {
     bool tonemap = false;
+    // Scene color copied as stored. Set for an HDR stack whose float target was unavailable and whose effect list is
+    // empty, so the window still shows the scene.
+    bool copy = false;
     int effect = -1;
     PostImage source = PostImage::SceneA;
     PostImage dest = PostImage::Window;
 };
 
 // `hdr` is the effective flag (false when the float format was unavailable). The last user pass writes the window
-// when `hdr` is false; otherwise it stays on a scene image and the tonemap writes the window.
-[[nodiscard]] std::vector<PostStep> post_steps(bool hdr, int effect_count);
+// when `hdr` is false; otherwise it stays on a scene image and the tonemap writes the window. `copy_scene` adds one
+// SceneA-to-window copy when `hdr` is false and `effect_count` is 0.
+[[nodiscard]] std::vector<PostStep> post_steps(bool hdr, int effect_count, bool copy_scene = false);
 
 enum class FrameTarget : std::uint8_t {
     Window,

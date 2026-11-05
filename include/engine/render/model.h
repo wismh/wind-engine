@@ -148,7 +148,8 @@ enum class ModelBlend : std::uint8_t {
 };
 
 // One clip on top of the pose. `layers[0]` is the base `play` writes. An empty `mask` is the whole body; otherwise the
-// named node and its descendants. `weight` is clamped to 0..1. Weight 0 advances the clock and sends no markers.
+// named node and its descendants. A name that matches no node leaves the pose unchanged and sends no markers. `weight`
+// is clamped to 0..1. Weight 0 advances the clock and sends no markers.
 struct ModelLayer {
     std::string clip;
     float time = 0.0f;
