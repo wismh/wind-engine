@@ -144,10 +144,11 @@ The physics is 2D: `include/engine/ecs/physics_2d.h`. Its components, event and 
 
 1. Integrate `Transform.position += RigidBody2D.velocity * fixed_delta_time`.
 2. Call `update_world_transforms`, then collect `BoxCollider2D` and `CircleCollider2D` at their **world position** (`world_position`; XY overlap, centered on it). A collider on a child follows its parent. Colliders ignore scale and rotation, as before: `size` and `radius` are world units.
-3. A pair overlaps when each layer bit hits the other's mask.
-4. Send `CollisionEvent2D` with `Enter`, `Stay`, or `Exit`. `is_trigger` is true if either collider is a trigger.
+3. A pair is tested when each layer bit hits the other's mask.
+4. `make_contact_2d` (`src/ecs/contact_2d.cpp`) builds one XY manifold and does not see `World`. Two boxes use the thinner overlap axis (X wins a tie; a zero center-delta on the chosen axis is the positive direction, so coincident centers are +X). Two circles use the center delta, or +X when the centers coincide. A box and a circle use the closest point on the box when the circle center is outside, and the nearest face when it is inside. A penetration of 0 is a touch and still a hit. A non-finite component, a negative box size, or a negative radius produces no event.
+5. Enter and Stay send `CollisionEvent2D` with that normal (from entity `a` toward `b`), the penetration, and one world-space point. `is_trigger` is true if either collider is a trigger, and a trigger still carries the contact. Exit sends the stored trigger flag and a zero normal, penetration, and point, without querying shapes.
 
-`RigidBody2D.velocity` moves the local `Transform.position`, so the velocity of a child is in its parent's space. There is no contact solver, no response impulse, and no Z test. Overlap state is `ctx<PhysicsOverlapState>` in `src/ecs/physics_2d.cpp`.
+`RigidBody2D.velocity` moves the local `Transform.position`, so the velocity of a child is in its parent's space. There is no contact solver, no response impulse, and no Z test. The engine does not move or stop a body because of a contact. Overlap state is `ctx<PhysicsOverlapState>` in `src/ecs/physics_2d.cpp` (the ordered pair and whether it was a trigger). Enter and Stay recompute the manifold every step.
 
 ### Grid queries
 

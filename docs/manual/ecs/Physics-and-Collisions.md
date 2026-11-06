@@ -1,6 +1,6 @@
 # Physics & Collisions
 
-Wind provides an integrated collision probe for boxes and circles: velocity integration, overlap and trigger testing, and `CollisionEvent2D`s. It is a *probe*, not a physics solver. There is no contact resolution, no collision response, and no Z test: overlaps are tested on the XY plane only, and reacting to a hit is up to your systems.
+Wind provides an integrated collision probe for boxes and circles: velocity integration, overlap and trigger testing, and `CollisionEvent2D`s that carry a contact normal, a penetration, and one world-space point. It is a *probe*, not a physics solver. The engine does not move or stop a body because of a contact. There is no collision response and no Z test: overlaps are tested on the XY plane only, and reacting to a hit is up to your systems.
 
 The physics is 2D, and its names say so: `RigidBody2D`, `BoxCollider2D`, `CircleCollider2D`, `CollisionEvent2D`, and `run_physics_2d`, all in `<engine/ecs/physics_2d.h>`. `CollisionPhase` has no suffix because it does not depend on the dimension.
 
@@ -38,7 +38,7 @@ world.emplace<engine::CircleCollider2D>(coin, engine::CircleCollider2D{
 Two colliders are tested against each other only when each one's `layer` hits the other's `mask`: `(a.layer & b.mask) != 0 && (b.layer & a.mask) != 0`. Give the player `layer = 1u << 1` and a `mask` that includes the wall and coin layers.
 
 An entity with `engine::RigidBody2D` (a `velocity`) and a `Transform` is moved by `position += velocity * fixed_delta_time` in the same pass.
-Colliders are tested at the entity's **world position**. A collider on a child entity (see [Hierarchy](Hierarchy.md)) follows its parent; its `size` and `radius` are world units and are not scaled or rotated by the parent. A `RigidBody2D` moves the local `Transform.position`, so the velocity of a child is in its parent's space.
+Colliders are tested at the entity's **world position**. A collider on a child entity (see [Hierarchy](Hierarchy.md)) follows its parent; its `size` and `radius` are world units and are not scaled or rotated by the parent. The contact uses that same axis-aligned XY shape. A `RigidBody2D` moves the local `Transform.position`, so the velocity of a child is in its parent's space.
 
 ---
 
@@ -66,27 +66,47 @@ void MyGame::on_start() {
 
 For every overlapping pair each fixed step, `run_physics_2d` sends an `engine::CollisionEvent2D`. A pair that starts overlapping reports `Enter`, keeps reporting `Stay` while it overlaps, and reports `Exit` once when it stops:
 
+`a` and `b` are ordered so `a < b`. `normal` is a unit XY vector from `a` toward `b`. It is the thinner overlap axis for two boxes (X wins a tie; a zero center-delta on the chosen axis points along the positive axis, so coincident centers use +X), the direction from center to center for two circles, and the closest-point direction for a box and a circle (the nearest face when the circle center is inside the box). `penetration` is the overlap along that normal and is `>= 0`. A penetration of 0 is a touch and still an event. `point` is one world-space point between the shapes, the deepest sample. `Exit` sets `normal`, `penetration`, and `point` to zero and keeps the `is_trigger` value from the last overlapping step. A trigger still reports Enter, Stay, and Exit, still sets `is_trigger`, and still carries a normal, a penetration, and a point. It does not block anything. The engine does not move or stop a body because of a contact.
+
 ```cpp
 #include <engine/ecs/events.h>
 #include <engine/ecs/physics_2d.h>
 
-void collision_system(engine::ecs::World& world) {
+// `player` is your root character. The engine will not apply this response.
+void collision_system(engine::ecs::World& world, engine::ecs::Entity player) {
     using engine::ecs::EventCursor;
     using engine::ecs::EventReader;
 
     for (const engine::CollisionEvent2D& col : EventReader<engine::CollisionEvent2D>{
                  world, world.ctx<EventCursor<engine::CollisionEvent2D>>()}) {
-        // col.a, col.b      the two entities (ordered, a < b)
-        // col.phase         CollisionPhase::Enter, Stay or Exit
-        // col.is_trigger    true if either collider is a trigger
-        if (col.phase == engine::CollisionPhase::Enter) {
-            handle_hit(world, col.a, col.b);
+        // col.a, col.b         the two entities (a < b)
+        // col.phase            Enter, Stay, or Exit
+        // col.is_trigger       true if either collider is a trigger
+        // col.normal           unit XY from a toward b; (0, 0) on Exit
+        // col.penetration      overlap along normal, >= 0; 0 on Exit
+        // col.point            one world-space point; (0, 0) on Exit
+        if (col.phase == engine::CollisionPhase::Exit || col.is_trigger) {
+            continue;  // a trigger still has a contact; skip it when you want a wall
+        }
+        if (col.a != player && col.b != player) {
+            continue;
+        }
+        engine::RigidBody2D* body = world.try_get<engine::RigidBody2D>(player);
+        if (body == nullptr) {
+            continue;
+        }
+        // The next fixed step integrates whatever velocity you leave. This sample only cancels
+        // approach. normal is world XY, and a root's local axes match the world. A child's
+        // RigidBody2D.velocity is in its parent's space: rotate the normal into that space first.
+        const glm::vec2 n = col.b == player ? col.normal : -col.normal;
+        const float into = body->velocity.x * n.x + body->velocity.y * n.y;
+        if (into < 0.f) {
+            body->velocity.x -= into * n.x;
+            body->velocity.y -= into * n.y;
         }
     }
 }
 ```
-
-There is no contact normal or penetration depth. If you need a response (stopping a player at a wall), compute it from the two `Transform`s and colliders in your own system.
 
 ---
 

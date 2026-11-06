@@ -5,6 +5,7 @@
 #include <engine/ecs/entity.h>
 #include <engine/ecs/world.h>
 
+#include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 
 #include <cstdint>
@@ -40,6 +41,9 @@ struct CollisionEvent2D {
     ecs::Entity b{};
     CollisionPhase phase{CollisionPhase::Enter};
     bool is_trigger{false};  // true if either collider in the pair is a trigger
+    glm::vec2 normal{0.f};   // unit XY from a toward b; zero on Exit
+    float penetration{0.f};  // overlap along normal, >= 0; zero on Exit
+    glm::vec2 point{0.f};    // one world-space XY contact point; zero on Exit
 
     constexpr bool operator==(const CollisionEvent2D&) const noexcept = default;
 };

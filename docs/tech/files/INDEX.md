@@ -246,7 +246,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ecs/hierarchy.cpp` | `set_parent`, `clear_parent`, `world_matrix`, `update_world_transforms` | [ECS](../modules/ECS.md) |
 | `src/ecs/pointer_target.cpp` | `pointer_target_at` and `run_pointer_targets` | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `src/ecs/ray.cpp` | Ray against a plane, sphere, box, triangle, quad, and segment | [ECS](../modules/ECS.md) |
-| `src/ecs/physics_2d.cpp` | Velocity integration and overlap events | [ECS](../modules/ECS.md) |
+| `src/ecs/contact_2d.h`, `src/ecs/contact_2d.cpp` | XY contact for an AABB pair, a circle pair, and a mixed pair | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_2d.cpp` | Velocity integration and contact events | [ECS](../modules/ECS.md) |
 | `src/ecs/systems.cpp` | Engine systems: input, dock input, splash, animation, particles, dock layout, bind, audio, render, UI render | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/ecs/transform.cpp` | Transform model matrix calculations and Euler conversions | [ECS](../modules/ECS.md) |
 | `src/ecs/world.cpp` | Create, destroy, flush, `run` | [ECS](../modules/ECS.md) |
