@@ -363,7 +363,7 @@ One input type per world: a second `register_prediction` logs an error and is ig
 Rules for the game:
 
 - **`State` is everything `step` writes, and all of it is replicated.** The client learns the server's state by applying a snapshot's replicated components to the entity and calling `capture`. A component `step` writes that is not part of `State` is left at the snapshot's older value after a match. A replicated component outside `State` (health, a name) takes the newest snapshot's value on a predicted entity.
-- **`step` is the only simulation of a controlled entity.** Anything else that changes its `State` (a server-side knockback, a teleport, `run_physics_2d`) is a misprediction the client corrects by replaying. Do not give a controlled entity a `RigidBody2D`.
+- **`step` is the only simulation of a controlled entity.** Anything else that changes its `State` (a server-side knockback, a teleport, `run_physics_2d`, `run_physics_3d`) is a misprediction the client corrects by replaying. Do not give a controlled entity a `RigidBody2D` or a `RigidBody3D`. Both systems run outside `step`. A kinematic body still integrates there, and a dynamic body is solved there.
 - **`step` has no side effects while `NetClient::replaying()` is true.** No events, sounds, or spawns: a replayed tick already happened once.
 - **Floats.** The server and the client must step the same way. Identical binaries on one platform reproduce exactly; across compilers or CPUs, give `matches` a tolerance, or every server state replays.
 
