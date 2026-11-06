@@ -207,7 +207,7 @@ Unlit shaders do not declare the list, so a sprite on `material_unlit` is unchan
 
 ## Lit shader
 
-`builtin::shader_lit` (`builtin_assets/shaders/lit.shader`, GLSL 330 core in CDATA, rewritten to 300 es by `adapt_glsl` like every shader) shades with `forward_shade` from `builtin_assets/shaders/.forward_light.glsl` (and the slang twin). `parse_shader` pastes that file when the stage says `#include ".forward_light.glsl"`, from the shader's own directory. The leading dot keeps the snippet out of the asset scan. `lit_array` and `skin_lit` include it too. `sprite_lit` includes it and passes Lambert off unless `uHasNormalMap` is set.
+`builtin::shader_lit` (`builtin_assets/shaders/lit.shader`, GLSL 330 core in CDATA, rewritten to 300 es by `adapt_glsl` like every shader) shades with `forward_shade` from `builtin_assets/shaders/.forward_light.glsl` (and the slang twin). The shader cooker pastes that file when the stage says `#include ".forward_light.glsl"`, from the shader's own directory, before it writes the blob. The leading dot keeps the snippet out of the asset scan. `lit_array` and `skin_lit` include it too. `sprite_lit` includes it and passes Lambert off unless `uHasNormalMap` is set.
 
 ```
 albedo = texture(uTexture, vUV) * uColor * vColor
@@ -343,7 +343,7 @@ When `collision_enabled` is set, `run_particles` copies non-trigger colliders in
 
 ## Shaders
 
-Shading language is **Slang** (`external/slang`, `src/render/slang_compiler.cpp`). `.shader` files (`parse_shader` / `parse_shader_xml` in `src/resources/importers.h`) are XML with Slang source (`<shader lang="slang"><![CDATA[...]]></shader>` or `<slang>`), compiled into both SPIR-V bytecode (`ShaderDesc::vertex_spirv`, `ShaderDesc::fragment_spirv`) for Vulkan and GLSL 330 core (`ShaderDesc::vertex_src`, `ShaderDesc::fragment_src`) for OpenGL 3.3 Core. Optional `<glsl><vertex>...</vertex><fragment>...</fragment></glsl>` overrides the GLSL source while keeping Slang's SPIR-V; legacy `<xml><vertex>...</vertex><fragment>...</fragment></xml>` raw GLSL shaders remain supported. `asset_codegen` validates every `.shader` asset at build time (`CodegenErrorKind::Shader`). Desktop OpenGL target is `ShaderTarget::Glsl330Core`; GLES (web and Android) uses `Glsl300Es` (`adapt_glsl` / `adapt_shader` in `include/engine/render/shader_adapt.h`).
+Shading language is **Slang** (`external/slang`, `tools/shader_cook/slang_compiler.cpp`). The compiler is not in the engine library. `.shader` files in the source tree are XML with Slang source (`<shader lang="slang"><![CDATA[...]]></shader>` or `<slang>`). `asset_codegen` cooks each one into a `WSHD` blob (`encode_shader_blob`): SPIR-V for Vulkan and GLSL 330 core for OpenGL. Optional `<glsl><vertex>...</vertex><fragment>...</fragment></glsl>` overrides the GLSL source while keeping Slang's SPIR-V; legacy `<xml><vertex>...</vertex><fragment>...</fragment></xml>` raw GLSL shaders remain supported. The staged file keeps the `.shader` name. `load_gpu` decodes the blob and does not parse XML. A host cook without Slang keeps the `<glsl>` text and writes empty SPIR-V. `asset_codegen` fails the build with `CodegenErrorKind::Shader` when the source does not cook. Desktop OpenGL target is `ShaderTarget::Glsl330Core`; GLES (web and Android) uses `Glsl300Es` (`adapt_glsl` / `adapt_shader` in `include/engine/render/shader_adapt.h`). The Vulkan particle program and the Vulkan UI program are baked SPIR-V (`particle_spirv.inc`, `ui_spirv.inc`) generated from `tools/shader_cook/shaders/`.
 
 ## OpenGL (`ENGINE_WITH_WINDOW`)
 
@@ -402,7 +402,7 @@ GL errors are silent unless someone asks. With `ENGINE_GL_CHECKS` (Debug, RelWit
 | SPIR-V reflection (`OpEntryPoint`, UBO uniform layout, sampler binding) | `src/render/vulkan/vulkan_spirv.cpp` |
 | Render backend (`IRenderBackend`, graphics pipelines, UBO/descriptor sets, `CmdSetView`, `CmdDrawMesh`, `CmdDrawParticles`, `CmdPostProcess`) | `src/render/vulkan/vulkan_backend.cpp` |
 | Scene images, the pass split, and bloom targets | `src/render/vulkan/vulkan_post.cpp` |
-| UI device (`IUiDevice`) and its Slang uber-shader | `vulkan_ui_device.cpp`, `vulkan_ui_shader.h` |
+| UI device (`IUiDevice`) and its baked SPIR-V | `vulkan_ui_device.cpp`, `ui_spirv.inc` |
 | Per-window `VkSurfaceKHR`, `VkSwapchainKHR`, depth attachment, render pass, framebuffers, sync primitives, and staging-buffer `read_pixels()` | `src/render/vulkan/vulkan_canvas.cpp` |
 | SDL presentation wiring (`make_sdl_vk_presentation`) | `src/render/vulkan/sdl_vk_presentation.cpp` |
 
@@ -424,7 +424,7 @@ Scene uniforms are written column-major unless SPIR-V reflection says the member
 - `src/render/lights.cpp` — `collect_scene_lights`, `default_scene_lights`
 - `src/render/post_process.cpp` — `prepare_post_stack`, `resolve_post_chain`, `post_steps`, `frame_targets`
 - `src/render/material_instance.h` — `IMaterial` for a cooked material
-- `src/render/tilemap.cpp`, `src/render/animation.cpp`, `src/render/particles.cpp`, `src/render/shader_adapt.cpp`, `src/render/slang_compiler.cpp`
+- `src/render/tilemap.cpp`, `src/render/animation.cpp`, `src/render/particles.cpp`, `src/render/shader_adapt.cpp`, `tools/shader_cook/slang_compiler.cpp`
 - `src/render/context_objects.cpp` — GL context keys and deferred VAO deletes, without GL calls
 - `src/render/gl_error_log.cpp` — GL error names and the once-per-place error log lines
 

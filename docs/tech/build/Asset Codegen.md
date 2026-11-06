@@ -24,7 +24,7 @@ Asset mode writes only:
 
 A file whose content is unchanged is not written, so it keeps its timestamp and nothing that compiles against it rebuilds. Ninja's `restat` then treats the outputs as up to date.
 
-`--stage` writes only `<stage_dir>/catalog.toml` and copies the reachable assets to `<stage_dir>`, for the runtime tree beside a binary. It takes no `<output_dir>`: one run writes the generated directory or the staged tree, never both.
+`--stage` writes only `<stage_dir>/catalog.toml` and copies the reachable assets to `<stage_dir>`, for the runtime tree beside a binary. A model is written as its `WMOD` blob and a shader as its `WSHD` blob; other files are copied. It takes no `<output_dir>`: one run writes the generated directory or the staged tree, never both. The shader cooker is `engine_shader_cook` (`tools/shader_cook/`), linked into `asset_codegen` and `engine_tests`, not into `engine`. Slang DLLs sit beside `asset_codegen`, not beside a game.
 
 `--components` scans C++ headers under the given directories for `struct WIND_COMPONENT` and `struct WIND_SERIALIZABLE` definitions and writes `<output_file>` (`component_io.h`).
 

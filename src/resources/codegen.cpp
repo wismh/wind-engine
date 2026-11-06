@@ -4,6 +4,7 @@
 #include <engine/render/tilemap.h>
 #include <engine/resources/meta.h>
 #include <engine/resources/model_cook.h>
+#include <engine/resources/shader_cook.h>
 #include <engine/ui/binding_id.h>
 #include <engine/ui/document.h>
 
@@ -486,10 +487,9 @@ std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::p
                 return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to read " + file.generic_string()});
             }
             const std::string body((std::istreambuf_iterator<char>(shader_in)), std::istreambuf_iterator<char>());
-            auto shader_desc = parse_shader(body, file.parent_path());
-            if (!shader_desc) {
-                return std::unexpected(
-                        CodegenError{CodegenErrorKind::Shader, relative + ": " + shader_desc.error()});
+            auto cooked = cook_shader_asset(body, file.parent_path());
+            if (!cooked) {
+                return std::unexpected(CodegenError{CodegenErrorKind::Shader, relative + ": " + cooked.error()});
             }
         }
 
@@ -602,6 +602,26 @@ std::expected<void, CodegenError> codegen_stage(const std::filesystem::path& ass
             auto cooked = cook_model_asset(body, src_path.parent_path(), entry.model.markers);
             if (!cooked) {
                 return std::unexpected(CodegenError{CodegenErrorKind::Model, entry.relative_path + ": " + cooked.error()});
+            }
+            std::ofstream out(dst_path, std::ios::binary | std::ios::trunc);
+            if (!out) {
+                return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to stage asset " + entry.relative_path});
+            }
+            out.write(reinterpret_cast<const char*>(cooked->data()), static_cast<std::streamsize>(cooked->size()));
+            if (!out) {
+                return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to stage asset " + entry.relative_path});
+            }
+            continue;
+        }
+        if (entry.importer == ImporterKind::Shader) {
+            std::ifstream shader_in(src_path);
+            if (!shader_in) {
+                return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to read " + src_path.generic_string()});
+            }
+            const std::string body((std::istreambuf_iterator<char>(shader_in)), std::istreambuf_iterator<char>());
+            auto cooked = cook_shader_asset(body, src_path.parent_path());
+            if (!cooked) {
+                return std::unexpected(CodegenError{CodegenErrorKind::Shader, entry.relative_path + ": " + cooked.error()});
             }
             std::ofstream out(dst_path, std::ios::binary | std::ios::trunc);
             if (!out) {

@@ -1,13 +1,12 @@
 #include "vulkan_ui_device.h"
 
-#include "vulkan_ui_shader.h"
-
-#include "render/slang_compiler.h"
+#include "ui_spirv.inc"
 #include "ui/render/ui_pipeline.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <iterator>
 #include <utility>
 
 namespace engine::render {
@@ -128,13 +127,9 @@ VulkanUiDevice::~VulkanUiDevice() {
 
 bool VulkanUiDevice::create() {
     shutdown();
-    const auto compiled = compile_slang_shader(kVulkanUiSlangShader);
-    if (!compiled.has_value()) {
-        return false;
-    }
     ShaderDesc desc{};
-    desc.vertex_spirv = compiled->vertex_spirv;
-    desc.fragment_spirv = compiled->fragment_spirv;
+    desc.vertex_spirv.assign(std::begin(kUiVertexSpirv), std::end(kUiVertexSpirv));
+    desc.fragment_spirv.assign(std::begin(kUiFragmentSpirv), std::end(kUiFragmentSpirv));
     shader_ = std::make_unique<VulkanShader>(context_, desc);
     if (!shader_->valid()) {
         shader_.reset();

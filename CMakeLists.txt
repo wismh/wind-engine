@@ -387,25 +387,7 @@ if(WIN32)
             set(ENGINE_GNS_RUNTIME_DLLS "${_gns_dlls}" CACHE INTERNAL "GameNetworkingSockets DLLs a server or a game's executable needs")
         endif()
     endif()
-    # A shader compiler has no use without a window, and a server must not need slang.dll to start. The tests of a
-    # windowless build still cover the importer.
-    unset(ENGINE_SLANG_RUNTIME_DLLS CACHE)
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/slang" AND (ENGINE_WITH_WINDOW OR ENGINE_BUILD_TESTS))
-        target_compile_definitions(engine PUBLIC ENGINE_WITH_SLANG=1)
-        target_include_directories(engine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/include")
-        set(_slang_import_library "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/lib/x64/slang.lib")
-        target_link_libraries(engine PUBLIC
-            "$<BUILD_INTERFACE:${_slang_import_library}>"
-            "$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/lib/slang.lib>")
-        if(ENGINE_PLAYER)
-            install(FILES "${_slang_import_library}" DESTINATION lib)
-        endif()
-        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/bin/x64")
-            file(GLOB _slang_dlls "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/bin/x64/*.dll")
-            # What engine_copy_runtime_dlls copies beside a program.
-            set(ENGINE_SLANG_RUNTIME_DLLS "${_slang_dlls}" CACHE INTERNAL "Slang DLLs an executable with the engine needs")
-        endif()
-    endif()
+    # Slang is a host cook tool (engine_shader_cook), not a dependency of the engine library.
 elseif(UNIX AND NOT ANDROID AND NOT EMSCRIPTEN)
     # src/net/curl_library.cpp opens the system libcurl with dlopen (no libcurl header or library is needed to
     # build). glibc before 2.34 keeps dlopen in libdl; CMAKE_DL_LIBS is empty on macOS.
@@ -447,6 +429,32 @@ target_include_directories(engine_gltf_cook
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/external/cgltf" "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_compile_definitions(engine_gltf_cook PRIVATE _CRT_SECURE_NO_WARNINGS)
 
+# Host shader cooker. Slang stays here: the runtime loads a cooked blob and never compiles a shader.
+add_library(engine_shader_cook STATIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/shader_cook/parse_shader.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/shader_cook/register_cooker.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/shader_cook/slang_compiler.cpp")
+target_link_libraries(engine_shader_cook PUBLIC engine)
+target_link_libraries(engine_shader_cook PRIVATE tinyxml2::tinyxml2)
+target_include_directories(engine_shader_cook
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/tools"
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_definitions(engine_shader_cook PRIVATE _CRT_SECURE_NO_WARNINGS)
+unset(ENGINE_SLANG_RUNTIME_DLLS CACHE)
+if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/slang")
+    target_compile_definitions(engine_shader_cook PUBLIC ENGINE_WITH_SLANG=1)
+    target_include_directories(engine_shader_cook PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/include")
+    target_link_libraries(engine_shader_cook PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/lib/x64/slang.lib")
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/bin/x64")
+        file(GLOB _slang_dlls "${CMAKE_CURRENT_SOURCE_DIR}/external/slang/bin/x64/*.dll")
+        set(ENGINE_SLANG_RUNTIME_DLLS "${_slang_dlls}" CACHE INTERNAL "Slang DLLs asset_codegen and engine_tests need")
+    endif()
+    add_executable(shader_builtin_spirv "${CMAKE_CURRENT_SOURCE_DIR}/tools/shader_cook/emit_builtin.cpp")
+    target_link_libraries(shader_builtin_spirv PRIVATE engine_shader_cook)
+    target_include_directories(shader_builtin_spirv PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tools")
+endif()
+
 if(CMAKE_CROSSCOMPILING)
     if(NOT ENGINE_HOST_ASSET_CODEGEN)
         message(FATAL_ERROR
@@ -459,7 +467,7 @@ if(CMAKE_CROSSCOMPILING)
         IMPORTED_LOCATION "${ENGINE_HOST_ASSET_CODEGEN}")
 else()
     add_executable(asset_codegen "${CMAKE_CURRENT_SOURCE_DIR}/tools/asset_codegen/main.cpp")
-    target_link_libraries(asset_codegen PRIVATE engine engine_gltf_cook)
+    target_link_libraries(asset_codegen PRIVATE engine engine_gltf_cook engine_shader_cook)
 
     add_executable(asset_guid "${CMAKE_CURRENT_SOURCE_DIR}/tools/asset_guid/main.cpp")
     target_link_libraries(asset_guid PRIVATE engine)
@@ -508,13 +516,24 @@ add_custom_command(
     VERBATIM)
 add_custom_target(engine_builtin_catalog DEPENDS "${ENGINE_COOKED_CATALOG}")
 
+set(ENGINE_STAGED_BUILTIN_ASSETS "${CMAKE_CURRENT_BINARY_DIR}/generated/engine/staged" CACHE INTERNAL
+    "Cooked builtin asset tree; .shader files are WSHD blobs")
+add_custom_command(
+    OUTPUT "${ENGINE_STAGED_BUILTIN_ASSETS}/catalog.toml"
+    COMMAND ${CMAKE_COMMAND} -E rm -rf "${ENGINE_STAGED_BUILTIN_ASSETS}"
+    COMMAND asset_codegen "${ENGINE_BUILTIN_ASSETS_DIR}" --stage "${ENGINE_STAGED_BUILTIN_ASSETS}" --engine
+    DEPENDS asset_codegen ${_ENGINE_BUILTIN_ASSET_FILES}
+    COMMENT "Cook engine builtin assets"
+    VERBATIM)
+add_custom_target(engine_builtin_stage ALL DEPENDS "${ENGINE_STAGED_BUILTIN_ASSETS}/catalog.toml")
+
 # engine_prepare_runtime, engine_configure_app, engine_add_game and the web / Android variants. The
 # installed SDK carries the same file (install rules below).
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/wind_game.cmake")
 
 # The programs here import these DLLs and land in one directory, so they all use the one step of engine_copy_runtime_dlls.
 # A shared engine lands there too, and whatever links it runs only after the step. A static engine needs nothing beside it.
-set(_engine_dll_users asset_codegen asset_guid icon_codegen)
+set(_engine_dll_users asset_codegen asset_guid icon_codegen shader_builtin_spirv)
 get_target_property(_engine_kind engine TYPE)
 if(_engine_kind STREQUAL "SHARED_LIBRARY")
     list(APPEND _engine_dll_users engine)
@@ -669,7 +688,7 @@ if(ENGINE_BUILD_TESTS)
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/*_test.cpp")
 
     add_executable(engine_tests ${ENGINE_TEST_SOURCES})
-    target_link_libraries(engine_tests PRIVATE engine engine_gltf_cook GTest::gtest_main)
+    target_link_libraries(engine_tests PRIVATE engine engine_gltf_cook engine_shader_cook GTest::gtest_main)
     target_include_directories(engine_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     if(ENGINE_WITH_WINDOW)
         # WindowSystem is private to engine (linked PRIVATE, so its glad/SDL3 include
@@ -853,7 +872,7 @@ if(ENGINE_EDITOR)
             install(FILES "$<TARGET_PDB_FILE:${_tool}>" DESTINATION bin COMPONENT symbols OPTIONAL)
         endforeach()
     endif()
-    install(DIRECTORY "${ENGINE_BUILTIN_ASSETS_DIR}/" DESTINATION bin/assets/engine)
+    install(DIRECTORY "${ENGINE_STAGED_BUILTIN_ASSETS}/" DESTINATION bin/assets/engine)
     install(FILES "${ENGINE_COOKED_CATALOG}" DESTINATION bin/assets/engine)
     get_property(_wind_editor_catalog TARGET wind_editor PROPERTY ENGINE_GAME_CATALOG)
     get_property(_wind_editor_assets TARGET wind_editor PROPERTY ENGINE_GAME_ASSETS)

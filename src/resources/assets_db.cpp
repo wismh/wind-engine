@@ -11,6 +11,7 @@
 #include <engine/render/texture_array.h>
 #include <engine/render/tilemap.h>
 #include <engine/resources/assets_db.h>
+#include <engine/resources/shader_blob.h>
 #include <engine/resources/font.h>
 #include <engine/resources/sprite_sheet.h>
 #include <engine/resources/text_asset.h>
@@ -155,7 +156,8 @@ std::expected<std::shared_ptr<void>, AssetError> load_gpu(const CatalogEntry& en
     }
 
     if (type == typeid(render::IShader)) {
-        const auto desc = parse_shader_xml(*bytes, path.parent_path());
+        const auto desc = decode_shader_blob(std::span<const std::uint8_t>(
+                reinterpret_cast<const std::uint8_t*>(bytes->data()), bytes->size()));
         if (!desc) {
             return std::unexpected(AssetError::Corrupt);
         }

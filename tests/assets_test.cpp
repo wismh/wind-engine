@@ -34,6 +34,7 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#include "fixtures/cooked_shaders.h"
 #include "fixtures/fatal_fakes.h"
 
 #ifndef ENGINE_BUILTIN_ASSETS_DIR
@@ -141,7 +142,11 @@ bool load_builtin_catalog(engine::AssetsDb& db) {
         return false;
     }
     db.set_catalog(scanned->catalog);
-    db.set_root(std::filesystem::path{ENGINE_BUILTIN_ASSETS_DIR});
+    const std::filesystem::path cooked = cooked_builtin_assets();
+    if (cooked.empty()) {
+        return false;
+    }
+    db.set_root(cooked);
     return true;
 }
 
