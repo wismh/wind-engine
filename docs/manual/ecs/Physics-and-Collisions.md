@@ -1,6 +1,6 @@
 # Physics & Collisions
 
-Wind provides an integrated collision probe for boxes and circles: velocity integration, overlap and trigger testing, and `CollisionEvent2D`s that carry a contact normal, a penetration, and one world-space point. It is a *probe*, not a physics solver. The engine does not move or stop a body because of a contact. There is no collision response and no Z test: overlaps are tested on the XY plane only, and reacting to a hit is up to your systems.
+Wind provides 2D box and circle collisions: velocity integration, overlap and trigger events, and a positional solver for dynamic bodies. `CollisionEvent2D` carries a contact normal, a penetration, and one world-space point from the pose *before* the solver runs. A kinematic body (the default) still integrates and tunnels through overlaps. A dynamic body can land on a static collider, slide along a wall, and be pushed by a moving kinematic platform. There is no Z test, no friction, and no bounce. Overlaps are tested on the XY plane only.
 
 The physics is 2D, and its names say so: `RigidBody2D`, `BoxCollider2D`, `CircleCollider2D`, `CollisionEvent2D`, and `run_physics_2d`, all in `<engine/ecs/physics_2d.h>`. `CollisionPhase` has no suffix because it does not depend on the dimension.
 
@@ -37,8 +37,37 @@ world.emplace<engine::CircleCollider2D>(coin, engine::CircleCollider2D{
 
 Two colliders are tested against each other only when each one's `layer` hits the other's `mask`: `(a.layer & b.mask) != 0 && (b.layer & a.mask) != 0`. Give the player `layer = 1u << 1` and a `mask` that includes the wall and coin layers.
 
-An entity with `engine::RigidBody2D` (a `velocity`) and a `Transform` is moved by `position += velocity * fixed_delta_time` in the same pass.
-Colliders are tested at the entity's **world position**. A collider on a child entity (see [Hierarchy](Hierarchy.md)) follows its parent; its `size` and `radius` are world units and are not scaled or rotated by the parent. The contact uses that same axis-aligned XY shape. A `RigidBody2D` moves the local `Transform.position`, so the velocity of a child is in its parent's space.
+`engine::BodyType2D` on `engine::RigidBody2D` chooses how a body moves. The default is `Kinematic`.
+
+- `Static` does not integrate and is not moved by contacts. A collider with no `RigidBody2D` is static too.
+- `Kinematic` does `local position += velocity * fixed_delta_time` and is not moved by contacts. Two kinematics still tunnel. The solver does not change a kinematic velocity.
+- `Dynamic` adds gravity, then moves in world space. `velocity.xy` is world XY and `velocity.z` is world z. Inverse mass is `1 / max(mass, kMinDynamicMass)` (a non-positive or non-finite mass uses the minimum). The positional solver separates it from non-trigger colliders.
+
+Gravity lives on `world.ctx<engine::Physics2DConfig>()`. That resource is created on first use with gravity zero, so an old scene does not fall until you set it. It is not a serialized component. Only dynamic bodies use it, scaled by `gravity_scale` (default 1).
+
+```cpp
+world.ctx<engine::Physics2DConfig>().gravity = {0.f, -30.f, 0.f};
+
+auto floor = world.create();
+world.emplace<engine::Transform>(floor, engine::Transform{.position = {0.f, -1.f, 0.f}});
+world.emplace<engine::BoxCollider2D>(floor, engine::BoxCollider2D{.size = {8.f, 2.f, 1.f}});
+
+auto crate = world.create();
+world.emplace<engine::Transform>(crate, engine::Transform{.position = {0.f, 2.f, 0.f}});
+world.emplace<engine::RigidBody2D>(crate, engine::RigidBody2D{
+    .type = engine::BodyType2D::Dynamic,
+    .mass = 1.f,
+});
+world.emplace<engine::BoxCollider2D>(crate, engine::BoxCollider2D{.size = {2.f, 2.f, 1.f}});
+```
+
+The crate falls, then rests with its bottom within `kContactSlop2D` (`1e-3`) of the floor. The solver runs 8 iterations (`kPositionIterations2D`) and does not bounce. A trigger still reports Enter, Stay, and Exit and never pushes. A layer mismatch is not solved. Resting overlap stays inside the slop and keeps reporting Stay. Once the shapes no longer overlap, the next step reports Exit. The event's penetration is the overlap before that correction, so a resting contact publishes the sunk pose from integration, not the separated pose.
+
+A kinematic platform pushes a dynamic body along the contact normal and is not slowed. Its world velocity is the parent's world linear map (rotation and scale) times its local velocity. A root's `velocity.xy` is already world XY; the body's own rotation is not applied. There is no friction, so a floor that slides sideways under a crate does not drag it.
+
+Do not put `BodyType2D::Dynamic` on a predicted or controlled entity. Prediction replays `step`, and `run_physics_2d` is a second simulation of that entity.
+
+Colliders are tested at the entity's **world position**. A collider on a child entity (see [Hierarchy](Hierarchy.md)) follows its parent; its `size` and `radius` are world units and are not scaled or rotated by the parent. The contact uses that same axis-aligned XY shape. A kinematic child's velocity is in its parent's space. A dynamic child is allowed: the solver writes the corrected world position through `set_world_position`, so a translated or rotated parent keeps the contact in world space. The dynamic velocity itself stays world XY and does not include the parent's carry.
 
 ---
 
@@ -66,13 +95,13 @@ void MyGame::on_start() {
 
 For every overlapping pair each fixed step, `run_physics_2d` sends an `engine::CollisionEvent2D`. A pair that starts overlapping reports `Enter`, keeps reporting `Stay` while it overlaps, and reports `Exit` once when it stops:
 
-`a` and `b` are ordered so `a < b`. `normal` is a unit XY vector from `a` toward `b`. It is the thinner overlap axis for two boxes (X wins a tie; a zero center-delta on the chosen axis points along the positive axis, so coincident centers use +X), the direction from center to center for two circles, and the closest-point direction for a box and a circle (the nearest face when the circle center is inside the box). `penetration` is the overlap along that normal and is `>= 0`. A penetration of 0 is a touch and still an event. `point` is one world-space point between the shapes, the deepest sample. `Exit` sets `normal`, `penetration`, and `point` to zero and keeps the `is_trigger` value from the last overlapping step. A trigger still reports Enter, Stay, and Exit, still sets `is_trigger`, and still carries a normal, a penetration, and a point. It does not block anything. The engine does not move or stop a body because of a contact.
+`a` and `b` are ordered so `a < b`. `normal` is a unit XY vector from `a` toward `b`. It is the thinner overlap axis for two boxes (X wins a tie; a zero center-delta on the chosen axis points along the positive axis, so coincident centers use +X), the direction from center to center for two circles, and the closest-point direction for a box and a circle (the nearest face when the circle center is inside the box). `penetration` is the overlap along that normal and is `>= 0`. A penetration of 0 is a touch and still an event. `point` is one world-space point between the shapes, the deepest sample. `Exit` sets `normal`, `penetration`, and `point` to zero and keeps the `is_trigger` value from the last overlapping step. A trigger still reports Enter, Stay, and Exit, still sets `is_trigger`, and still carries a normal, a penetration, and a point. Events are published before the solver, in the same gather order as before. The solver does not change a kinematic velocity, so a kinematic character still cancels its own approach here.
 
 ```cpp
 #include <engine/ecs/events.h>
 #include <engine/ecs/physics_2d.h>
 
-// `player` is your root character. The engine will not apply this response.
+// `player` is a root kinematic character. The solver does not change this velocity.
 void collision_system(engine::ecs::World& world, engine::ecs::Entity player) {
     using engine::ecs::EventCursor;
     using engine::ecs::EventReader;

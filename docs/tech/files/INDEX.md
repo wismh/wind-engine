@@ -58,7 +58,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/ecs/grid_query.h` | `CellPredicate`, `raycast_grid` (DDA through solid cells), `sweep_aabb` (axis-separated box move), 3D and 2D | [ECS](../modules/ECS.md#grid-queries) |
 | `include/engine/ecs/hierarchy.h` | `Parent`, `Children`, `WorldTransform`, `set_parent`, `clear_parent`, `world_matrix`, `set_world_position` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/pointer_target.h` | `PointerTarget`, `PointerTargetEvent`, `pointer_target_at` | [UI Input](../features/UI%20Input.md#pointer-targets) |
-| `include/engine/ecs/physics_2d.h` | Colliders, `CollisionEvent2D`, `run_physics_2d` | [ECS](../modules/ECS.md) |
+| `include/engine/ecs/physics_2d.h` | `BodyType2D`, `RigidBody2D`, `Physics2DConfig`, colliders, `CollisionEvent2D`, `run_physics_2d` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/ray.h` | `Ray`, `RayHit`, plane, sphere, AABB, triangle, quad, and segment queries | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/schedule.h` | `Schedule` and `Phase` | [ECS](../modules/ECS.md) |
 | `include/engine/ecs/systems.h` | `register_engine_systems` and its dependencies | [ECS](../modules/ECS.md) |
@@ -247,7 +247,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ecs/pointer_target.cpp` | `pointer_target_at` and `run_pointer_targets` | [UI Input](../features/UI%20Input.md#pointer-targets) |
 | `src/ecs/ray.cpp` | Ray against a plane, sphere, box, triangle, quad, and segment | [ECS](../modules/ECS.md) |
 | `src/ecs/contact_2d.h`, `src/ecs/contact_2d.cpp` | XY contact for an AABB pair, a circle pair, and a mixed pair | [ECS](../modules/ECS.md) |
-| `src/ecs/physics_2d.cpp` | Velocity integration and contact events | [ECS](../modules/ECS.md) |
+| `src/ecs/solver_2d.h`, `src/ecs/solver_2d.cpp` | One positional iteration for dynamic bodies; no `World` | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_2d.cpp` | Kinematic and dynamic integration, contact events, and the 2D solver | [ECS](../modules/ECS.md) |
 | `src/ecs/systems.cpp` | Engine systems: input, dock input, splash, animation, particles, dock layout, bind, audio, render, UI render | [Runtime Loop](../architecture/Runtime%20Loop.md) |
 | `src/ecs/transform.cpp` | Transform model matrix calculations and Euler conversions | [ECS](../modules/ECS.md) |
 | `src/ecs/world.cpp` | Create, destroy, flush, `run` | [ECS](../modules/ECS.md) |

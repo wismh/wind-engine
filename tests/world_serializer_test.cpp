@@ -142,6 +142,9 @@ circle_collider_2d = { radius = 0.75, layer = 4, mask = 1, is_trigger = false }
     ASSERT_NE(rb, nullptr);
     EXPECT_FLOAT_EQ(rb->velocity.x, 1.5f);
     EXPECT_FLOAT_EQ(rb->velocity.y, -0.5f);
+    EXPECT_EQ(rb->type, engine::BodyType2D::Kinematic);
+    EXPECT_FLOAT_EQ(rb->mass, 1.f);
+    EXPECT_FLOAT_EQ(rb->gravity_scale, 1.f);
 
     const auto* box = world.try_get<engine::BoxCollider2D>(player_entity);
     ASSERT_NE(box, nullptr);
@@ -468,4 +471,54 @@ sprite = { layer = 1 }
     EXPECT_FALSE(again.get<engine::render::Sprite>(reloaded->by_id.at("grass")).frustum_cull);
     EXPECT_TRUE(again.get<engine::render::Renderable>(reloaded->by_id.at("rock")).frustum_cull);
     EXPECT_TRUE(again.get<engine::render::Sprite>(reloaded->by_id.at("rock")).frustum_cull);
+}
+
+TEST(WorldSerializer, RigidBody2DDynamicFieldsRoundTrip) {
+    constexpr std::string_view kToml = R"(
+version = 1
+
+[[entities]]
+id = "crate"
+transform = { position = [0.0, 1.0, 0.0] }
+rigid_body_2d = { velocity = [1.0, 2.0, 3.0], type = "dynamic", mass = 3.5, gravity_scale = 0.5 }
+)";
+
+    engine::ecs::World world;
+    auto loaded = engine::ecs::load_world_from_toml(world, kToml);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
+    const auto* body = world.try_get<engine::RigidBody2D>(loaded->by_id.at("crate"));
+    ASSERT_NE(body, nullptr);
+    EXPECT_EQ(body->type, engine::BodyType2D::Dynamic);
+    EXPECT_FLOAT_EQ(body->mass, 3.5f);
+    EXPECT_FLOAT_EQ(body->gravity_scale, 0.5f);
+    EXPECT_FLOAT_EQ(body->velocity.x, 1.0f);
+    EXPECT_FLOAT_EQ(body->velocity.y, 2.0f);
+    EXPECT_FLOAT_EQ(body->velocity.z, 3.0f);
+
+    const std::string saved = engine::ecs::save_world_to_toml(world);
+    engine::ecs::World again;
+    auto reloaded = engine::ecs::load_world_from_toml(again, saved);
+    ASSERT_TRUE(reloaded.has_value()) << reloaded.error().message;
+    const auto* round = again.try_get<engine::RigidBody2D>(reloaded->by_id.at("crate"));
+    ASSERT_NE(round, nullptr);
+    EXPECT_EQ(round->type, engine::BodyType2D::Dynamic);
+    EXPECT_FLOAT_EQ(round->mass, 3.5f);
+    EXPECT_FLOAT_EQ(round->gravity_scale, 0.5f);
+    EXPECT_FLOAT_EQ(round->velocity.x, 1.0f);
+    EXPECT_FLOAT_EQ(round->velocity.y, 2.0f);
+    EXPECT_FLOAT_EQ(round->velocity.z, 3.0f);
+}
+
+TEST(WorldSerializer, RigidBody2DRejectsUnknownTypeString) {
+    engine::ecs::World world;
+    const auto res = engine::ecs::load_world_from_toml(world, R"(
+version = 1
+
+[[entities]]
+id = "crate"
+rigid_body_2d = { type = "dynamicc" }
+)");
+    ASSERT_FALSE(res.has_value());
+    EXPECT_EQ(res.error().kind, engine::ecs::WorldErrorKind::InvalidField);
+    EXPECT_NE(res.error().message.find("dynamicc"), std::string::npos);
 }

@@ -48,6 +48,18 @@ struct SerializedAssetRefs {
     return id != AssetId{};
 }
 
+[[nodiscard]] std::string_view rigid_body_type_name(BodyType2D type) {
+    switch (type) {
+    case BodyType2D::Static:
+        return "static";
+    case BodyType2D::Kinematic:
+        return "kinematic";
+    case BodyType2D::Dynamic:
+        return "dynamic";
+    }
+    return "kinematic";
+}
+
 template<typename T>
 bool load_asset_or_validate_headless(
         AssetsDb& db, AssetId id, ImporterKind expected_kind, std::shared_ptr<T>& out, ComponentReader& reader,
@@ -551,8 +563,44 @@ void register_builtin_components(
 
     serializer.register_component<RigidBody2D>(
             "rigid_body_2d",
-            [](ComponentWriter& out, const RigidBody2D& c) { out.field("velocity", c.velocity); },
-            [](ComponentReader& in, RigidBody2D& c) { (void)in.field("velocity", c.velocity); });
+            [](ComponentWriter& out, const RigidBody2D& c) {
+                out.field("velocity", c.velocity);
+                out.field("type", rigid_body_type_name(c.type));
+                out.field("mass", c.mass);
+                out.field("gravity_scale", c.gravity_scale);
+            },
+            [](ComponentReader& in, RigidBody2D& c) {
+                (void)in.field("velocity", c.velocity);
+                // Same shape as Camera.projection: a known string, a known index, or a fail. A missing key keeps
+                // the defaults (kinematic, mass 1, gravity_scale 1).
+                if (const auto it = in.table().find("type"); it != in.table().end()) {
+                    if (const std::string* s = it->second.as_string()) {
+                        if (*s == "static") {
+                            c.type = BodyType2D::Static;
+                        } else if (*s == "kinematic") {
+                            c.type = BodyType2D::Kinematic;
+                        } else if (*s == "dynamic") {
+                            c.type = BodyType2D::Dynamic;
+                        } else {
+                            in.fail("invalid rigid_body_2d type \"" + *s + "\"");
+                        }
+                    } else if (const std::int64_t* i = it->second.as_int()) {
+                        if (*i == 0) {
+                            c.type = BodyType2D::Static;
+                        } else if (*i == 1) {
+                            c.type = BodyType2D::Kinematic;
+                        } else if (*i == 2) {
+                            c.type = BodyType2D::Dynamic;
+                        } else {
+                            in.fail("invalid rigid_body_2d type index");
+                        }
+                    } else {
+                        in.fail("invalid field \"type\"");
+                    }
+                }
+                (void)in.field("mass", c.mass);
+                (void)in.field("gravity_scale", c.gravity_scale);
+            });
 
     serializer.register_component<BoxCollider2D>(
             "box_collider_2d",
