@@ -259,7 +259,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `src/ecs/physics_2d_integrate.cpp` | Kinematic translation and dynamic gravity, world move, and yaw. Sleeping dynamics are skipped | [ECS](../modules/ECS.md) |
 | `src/ecs/physics_2d_shape.cpp` | 2D layer test, contact shape, and closed AABB. Z is `[-1, 1]` | [ECS](../modules/ECS.md) |
 | `src/ecs/physics_2d_events.cpp` | Collision events from broadphase candidates sorted back to gather order | [ECS](../modules/ECS.md) |
-| `src/ecs/physics_2d_sleep.cpp` | Wake on velocity or a real overlap, and the quiet-step counter | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_2d_sleep.cpp` | Wake on velocity or a real overlap. The quiet-step counter is `advance_sleep` | [ECS](../modules/ECS.md) |
+| `src/ecs/physics_sleep.h`, `src/ecs/physics_sleep.cpp` | Shared quiet-step counter. Angular speed arrives as a scalar | [ECS](../modules/ECS.md) |
 | `src/ecs/physics_2d_solve.cpp` | Collider gather and the warm-started island solve | [ECS](../modules/ECS.md) |
 | `src/ecs/physics_2d_internal.h` | Shared gather types, the contact-impulse cache, and the sleep counter | [ECS](../modules/ECS.md) |
 | `src/ecs/contact_3d.h`, `src/ecs/contact_3d.cpp` | Sphere, capsule, and sphere-box contact. No `World` | [ECS](../modules/ECS.md) |

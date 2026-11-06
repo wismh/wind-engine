@@ -144,7 +144,7 @@ Physics is two solvers. The 2D one is `include/engine/ecs/physics_2d.h`. Its com
 
 `run_physics_2d` is the Fixed / Physics system. `dt` is `Time::fixed_delta_time`.
 
-Before integration, a sleeping dynamic wakes when its linear speed is at least `kSleepLinear` (`0.05`) or `|angular_velocity|` is at least `kSleepAngular` (`0.05`). After the kinematic integrate and `update_world_transforms`, it also wakes when a real overlap (narrowphase, a touch included) exists with an awake dynamic or a kinematic whose linear or angular velocity is not exactly 0. Waking clears `sleeping` and the counter in `ctx<PhysicsSleepState2D>` (`physics_2d_internal.h`). That counter is not a component and is not serialized.
+Before integration, a sleeping dynamic wakes when its linear speed is at least `kSleepLinear` (`0.05`) or `|angular_velocity|` is at least `kSleepAngular` (`0.05`). After the kinematic integrate and `update_world_transforms`, it also wakes when a real overlap (narrowphase, a touch included) exists with an awake dynamic or a kinematic whose linear or angular velocity is not exactly 0. Waking clears `sleeping` and the counter in `ctx<PhysicsSleepState2D>` (`physics_2d_internal.h`). That counter is not a component and is not serialized. `advance_sleep` (`src/ecs/physics_sleep.cpp`) steps it, and steps `ctx<PhysicsSleepState3D>` the same way. 2D passes `|angular_velocity|`; 3D passes `length(angular_velocity)`.
 
 1. Kinematic bodies only: `local.position += velocity * dt`. `angular_velocity` is not integrated. Static bodies and dynamic bodies are skipped. The default type is kinematic, so an old body still tunnels.
 2. `update_world_transforms`.

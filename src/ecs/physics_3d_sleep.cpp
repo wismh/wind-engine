@@ -1,8 +1,8 @@
 #include "physics_3d_internal.h"
+#include "physics_sleep.h"
 
 #include <glm/geometric.hpp>
 
-#include <algorithm>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -52,7 +52,7 @@ void wake_sleepers_by_velocity_3d(ecs::World& world) {
         }
         const float linear = glm::length(body.velocity);
         const float angular = glm::length(body.angular_velocity);
-        if (linear >= kSleepLinear || angular >= kSleepAngular) {
+        if (sleep_speed_wakes(linear, angular)) {
             body.sleeping = false;
             world.ctx<PhysicsSleepState3D>().quiet.erase(entity);
         }
@@ -101,24 +101,14 @@ void update_sleep_3d(ecs::World& world, std::span<const ecs::Entity> contacting)
         }
         const float linear = glm::length(body.velocity);
         const float angular = glm::length(body.angular_velocity);
-        const bool slow = linear < kSleepLinear && angular < kSleepAngular;
         int count = 0;
         if (const auto found = state.quiet.find(entity); found != state.quiet.end()) {
             count = found->second;
         }
-        if (slow && hits.contains(entity)) {
-            count = std::min(count + 1, kSleepSteps);
-            if (count >= kSleepSteps) {
-                body.sleeping = true;
-            }
-        } else {
-            count = 0;
-            if (linear >= kSleepLinear || angular >= kSleepAngular) {
-                body.sleeping = false;
-            }
-        }
-        if (count > 0) {
-            next.emplace(entity, count);
+        const SleepAdvance step = advance_sleep(body.sleeping, count, linear, angular, hits.contains(entity));
+        body.sleeping = step.sleeping;
+        if (step.quiet > 0) {
+            next.emplace(entity, step.quiet);
         }
     });
     state.quiet = std::move(next);
