@@ -345,4 +345,14 @@ void OpenGLPost::finish(const PostChain& chain, float time) {
     glDepthMask(GL_TRUE);
 }
 
+GLuint OpenGLPost::current_depth_texture() const {
+    const ContextObjects::Key key = current_gl_context();
+    for (const Targets& entry : targets_) {
+        if (entry.key == key) {
+            return entry.depth_texture ? entry.depth : 0u;
+        }
+    }
+    return 0u;
+}
+
 } // namespace engine::render

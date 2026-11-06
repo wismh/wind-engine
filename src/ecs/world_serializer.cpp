@@ -17,6 +17,7 @@
 #include <engine/render/post_process.h>
 #include <engine/render/graphics.h>
 #include <engine/render/material.h>
+#include <engine/render/decal.h>
 #include <engine/render/renderable.h>
 #include <engine/render/sprite.h>
 #include <engine/render/tilemap.h>
@@ -46,6 +47,9 @@ struct SerializedAssetRefs {
     AssetId renderable_material;
     AssetId animator_clip;
     AssetId tilemap;
+    AssetId decal_mesh;
+    AssetId decal_material;
+    AssetId decal_texture;
 };
 
 [[nodiscard]] bool has_asset(const AssetId& id) noexcept {
@@ -445,6 +449,103 @@ void register_builtin_components(
             return true;
         };
         entries.emplace("renderable", std::move(renderable_entry));
+    }
+
+    {
+        WorldSerializer::Entry decal_entry;
+        decal_entry.name = "decal";
+        decal_entry.write = [](const World& world, Entity entity, ComponentWriter& out) -> bool {
+            const auto* d = world.try_get<render::Decal>(entity);
+            if (d == nullptr) {
+                return false;
+            }
+            if (const SerializedAssetRefs* refs = world.try_get<SerializedAssetRefs>(entity)) {
+                if (has_asset(refs->decal_mesh)) {
+                    out.field("mesh", refs->decal_mesh);
+                }
+                if (has_asset(refs->decal_material)) {
+                    out.field("material", refs->decal_material);
+                }
+                if (has_asset(refs->decal_texture)) {
+                    out.field("texture", refs->decal_texture);
+                }
+            }
+            out.field("color", d->color);
+            out.field("uv_scale", d->uv_scale);
+            out.field("uv_offset", d->uv_offset);
+            out.field("layer", d->layer);
+            out.field("order_in_layer", d->order_in_layer);
+            out.field("angle_cutoff", d->angle_cutoff);
+            out.field("normal_fade", d->normal_fade);
+            out.field("frustum_cull", d->frustum_cull);
+            return true;
+        };
+        decal_entry.read = [](World& world, Entity entity, ComponentReader& in) -> bool {
+            render::Decal d{};
+            AssetId mesh_id;
+            AssetId material_id;
+            AssetId texture_id;
+            (void)in.field("mesh", mesh_id);
+            (void)in.field("material", material_id);
+            (void)in.field("texture", texture_id);
+            (void)in.field("color", d.color);
+            (void)in.field("uv_scale", d.uv_scale);
+            (void)in.field("uv_offset", d.uv_offset);
+            (void)in.field("layer", d.layer);
+            (void)in.field("order_in_layer", d.order_in_layer);
+            (void)in.field("angle_cutoff", d.angle_cutoff);
+            (void)in.field("normal_fade", d.normal_fade);
+            (void)in.field("frustum_cull", d.frustum_cull);
+            if (!in.ok()) {
+                return false;
+            }
+            if (has_asset(mesh_id) && in.assets() != nullptr) {
+                if (!load_asset_or_validate_headless(
+                            *in.assets(), mesh_id, ImporterKind::Mesh, d.mesh, in, "mesh")) {
+                    return false;
+                }
+            }
+            if (has_asset(material_id) && in.assets() != nullptr) {
+                if (!load_asset_or_validate_headless(
+                            *in.assets(), material_id, ImporterKind::Material, d.material, in, "material")) {
+                    return false;
+                }
+            }
+            if (has_asset(texture_id) && in.assets() != nullptr) {
+                if (!load_asset_or_validate_headless(
+                            *in.assets(), texture_id, ImporterKind::Texture, d.texture, in, "texture")) {
+                    return false;
+                }
+            }
+            if (has_asset(mesh_id) || has_asset(material_id) || has_asset(texture_id)) {
+                SerializedAssetRefs* refs = world.try_get<SerializedAssetRefs>(entity);
+                if (refs == nullptr) {
+                    refs = &world.emplace<SerializedAssetRefs>(entity);
+                }
+                refs->decal_mesh = mesh_id;
+                refs->decal_material = material_id;
+                refs->decal_texture = texture_id;
+            }
+            if (render::Decal* existing = world.try_get<render::Decal>(entity)) {
+                *existing = std::move(d);
+            } else {
+                world.emplace<render::Decal>(entity, std::move(d));
+            }
+            return true;
+        };
+        decal_entry.remove = [](World& world, Entity entity) -> bool {
+            if (world.try_get<render::Decal>(entity) == nullptr) {
+                return false;
+            }
+            world.remove<render::Decal>(entity);
+            if (SerializedAssetRefs* refs = world.try_get<SerializedAssetRefs>(entity)) {
+                refs->decal_mesh = {};
+                refs->decal_material = {};
+                refs->decal_texture = {};
+            }
+            return true;
+        };
+        entries.emplace("decal", std::move(decal_entry));
     }
 
     {

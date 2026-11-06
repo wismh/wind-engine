@@ -57,13 +57,17 @@ struct PostPass {
 // still reaches the window. Tonemap is not that copy: Reinhard would darken an image already in 0..1.
 struct PostChain {
     bool hdr = false;
+    bool sample_depth = false;
     std::vector<PostPass> effects;
     std::shared_ptr<IShader> tonemap;
     std::shared_ptr<IShader> ldr_copy;
 
-    [[nodiscard]] bool active() const noexcept { return hdr || !effects.empty(); }
+    [[nodiscard]] bool active() const noexcept { return hdr || !effects.empty() || sample_depth; }
 
     [[nodiscard]] bool samples_depth() const noexcept {
+        if (sample_depth) {
+            return true;
+        }
         for (const PostPass& pass : effects) {
             if (pass.sample_depth) {
                 return true;

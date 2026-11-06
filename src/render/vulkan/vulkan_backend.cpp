@@ -320,6 +320,8 @@ struct ExecuteVisitor {
 
     void operator()(const CmdDrawParticles& cmd) const { backend->execute_draw_particles(cmd); }
 
+    void operator()(const CmdDrawDecal& cmd) const { backend->execute_draw_decal(cmd); }
+
     void operator()(const CmdSetView& cmd) const { backend->set_view(cmd); }
 
     void operator()(const CmdPostProcess&) const { backend->finish_post(); }
@@ -697,6 +699,12 @@ void VulkanRenderBackend::execute_draw_mesh(const CmdDrawMesh& cmd) {
         mesh->draw_instanced(active_cmd_, mesh_instance_dummy_, 0, 1);
     } else {
         mesh->draw(active_cmd_);
+    }
+}
+
+void VulkanRenderBackend::execute_draw_decal(const CmdDrawDecal& cmd) {
+    if (active_cmd_ == VK_NULL_HANDLE || !cmd.mesh || !cmd.material || !context_ || !context_->is_device_ready()) {
+        return;
     }
 }
 

@@ -14,9 +14,10 @@
 
 namespace engine::render {
 
-// Opaque draws all go before transparent ones, whatever their layer.
+// Opaque draws all go before decals and transparent ones, whatever their layer.
 enum class DrawQueue {
     Opaque,
+    Decal,
     Transparent,
 };
 
@@ -58,7 +59,21 @@ struct DrawSortKey {
     };
 }
 
+[[nodiscard]] inline DrawSortKey make_decal_draw_sort_key(const IMaterial* material, int layer, int order_in_layer,
+        const glm::vec3& world_position, const glm::mat4& view, ecs::Entity entity) {
+    return DrawSortKey{
+            .queue = DrawQueue::Decal,
+            .layer = layer,
+            .order_in_layer = order_in_layer,
+            .depth_sorted = true,
+            .view_depth = -(view * glm::vec4(world_position, 1.0f)).z,
+            .material = material,
+            .entity_index = entity.index,
+    };
+}
+
 // Opaque queue: material (state batching), front to back, entity index.
+// Decal queue: layer, order_in_layer, material, front to back, entity index.
 // Transparent queue: layer, order_in_layer, depth-sorted draws before the rest, back to front among depth-sorted
 // draws, material, entity index.
 [[nodiscard]] inline bool draw_sort_less(const DrawSortKey& a, const DrawSortKey& b) {
@@ -66,6 +81,21 @@ struct DrawSortKey {
         return a.queue < b.queue;
     }
     if (a.queue == DrawQueue::Opaque) {
+        if (a.material != b.material) {
+            return std::less<>{}(a.material, b.material);
+        }
+        if (a.view_depth != b.view_depth) {
+            return a.view_depth < b.view_depth;
+        }
+        return a.entity_index < b.entity_index;
+    }
+    if (a.queue == DrawQueue::Decal) {
+        if (a.layer != b.layer) {
+            return a.layer < b.layer;
+        }
+        if (a.order_in_layer != b.order_in_layer) {
+            return a.order_in_layer < b.order_in_layer;
+        }
         if (a.material != b.material) {
             return std::less<>{}(a.material, b.material);
         }
@@ -92,4 +122,4 @@ struct DrawSortKey {
     return a.entity_index < b.entity_index;
 }
 
-}
+} // namespace engine::render

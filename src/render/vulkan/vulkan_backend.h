@@ -55,6 +55,7 @@ public:
     void set_view(const CmdSetView& view);
     void finish_post();
     void execute_draw_mesh(const CmdDrawMesh& cmd);
+    void execute_draw_decal(const CmdDrawDecal& cmd);
     void execute_draw_particles(const CmdDrawParticles& cmd);
     void execute_draw_mesh_particles(const CmdDrawParticles& cmd);
     void execute(const CommandBuffer& commands) override;
