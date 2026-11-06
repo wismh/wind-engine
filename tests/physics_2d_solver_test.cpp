@@ -111,6 +111,7 @@ TEST(Physics2D, DynamicBoxRestsOnStaticFloor) {
     EXPECT_NEAR(crate_pos.y, rest_y, 1e-3f);
     EXPECT_GT(crate_pos.y - 1.f, -engine::kContactSlop2D - 1e-3f);
     EXPECT_NEAR(world.get<engine::RigidBody2D>(crate).velocity.y, 0.f, 1e-3f);
+    EXPECT_NEAR(world.get<engine::RigidBody2D>(crate).angular_velocity, 0.f, 1e-5f);
     EXPECT_EQ(world.get<engine::Transform>(floor).position, (glm::vec3{0.f, -1.f, 0.f}));
 }
 
@@ -350,12 +351,8 @@ TEST(Physics2D, FrictionRemovesOneUnitPerRestingStep) {
     const engine::RigidBody2D& rigid = world.get<engine::RigidBody2D>(crate);
     EXPECT_NEAR(rigid.velocity.x, 9.f, 1e-4f);
     EXPECT_NEAR(rigid.velocity.y, 0.f, 1e-4f);
-
-    step_physics(world);
-
-    EXPECT_NEAR(engine::ecs::world_position(world, crate).y, rest_y, 1e-4f);
-    EXPECT_NEAR(rigid.velocity.x, 8.f, 1e-4f);
-    EXPECT_NEAR(rigid.velocity.y, 0.f, 1e-4f);
+    EXPECT_NEAR(rigid.angular_velocity, -1.4867501f, 1e-4f);
+    EXPECT_NEAR(engine::angle_z(world.get<engine::Transform>(crate).rotation), 0.f, 1e-6f);
 }
 
 TEST(Physics2D, FrictionZeroKeepsHorizontalSpeed) {
@@ -372,4 +369,5 @@ TEST(Physics2D, FrictionZeroKeepsHorizontalSpeed) {
     const engine::RigidBody2D& rigid = world.get<engine::RigidBody2D>(crate);
     EXPECT_NEAR(rigid.velocity.x, 10.f, 1e-4f);
     EXPECT_NEAR(rigid.velocity.y, 0.f, 1e-4f);
+    EXPECT_NEAR(rigid.angular_velocity, 0.f, 1e-5f);
 }

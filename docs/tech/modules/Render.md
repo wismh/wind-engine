@@ -307,8 +307,9 @@ Mesh and material, in `run_render`:
 
 When `collision_enabled` is set, `run_particles` copies non-trigger colliders into `ParticleCollider2D`s:
 
-- `BoxCollider2D` becomes `Shape::Box`, with `box.size`.
+- `BoxCollider2D` becomes `Shape::Box`, with `box.size`, axis-aligned. Box yaw is not copied.
 - `CircleCollider2D` becomes `Shape::Circle`, with `circle.radius`.
+- `PolygonCollider2D` is not copied.
 
 `update_emitter` (`src/render/particles.cpp`) then tests the swept segment. These fields are on `ParticleEmitter`:
 

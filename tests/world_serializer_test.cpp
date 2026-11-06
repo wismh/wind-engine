@@ -545,6 +545,44 @@ rigid_body_2d = { velocity = [1.0, 2.0, 3.0], type = "dynamic", mass = 3.5, grav
     EXPECT_FLOAT_EQ(round->velocity.x, 1.0f);
     EXPECT_FLOAT_EQ(round->velocity.y, 2.0f);
     EXPECT_FLOAT_EQ(round->velocity.z, 3.0f);
+    EXPECT_FLOAT_EQ(round->angular_velocity, 0.f);
+}
+
+TEST(WorldSerializer, RigidBodyAngularVelocityAndPolygonRoundTrip) {
+    constexpr std::string_view kToml = R"(
+version = 1
+
+[[entities]]
+id = "crate"
+transform = { position = [0.0, 1.0, 0.0] }
+rigid_body_2d = { velocity = [1.0, 2.0, 3.0], type = "dynamic", mass = 3.5, gravity_scale = 0.5, angular_velocity = 1.25 }
+polygon_collider_2d = { vertices = [[0.0, 0.0], [4.0, 0.0], [4.0, 2.0]], friction = 0.25, restitution = 0.5 }
+)";
+
+    engine::ecs::World world;
+    auto loaded = engine::ecs::load_world_from_toml(world, kToml);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
+    const auto& body = world.get<engine::RigidBody2D>(loaded->by_id.at("crate"));
+    EXPECT_FLOAT_EQ(body.angular_velocity, 1.25f);
+    const auto& polygon = world.get<engine::PolygonCollider2D>(loaded->by_id.at("crate"));
+    EXPECT_EQ(polygon.count, 3);
+    EXPECT_FLOAT_EQ(polygon.vertices[0].x, 0.f);
+    EXPECT_FLOAT_EQ(polygon.vertices[1].x, 4.f);
+    EXPECT_FLOAT_EQ(polygon.vertices[2].y, 2.f);
+    EXPECT_FLOAT_EQ(polygon.friction, 0.25f);
+    EXPECT_FLOAT_EQ(polygon.restitution, 0.5f);
+
+    const std::string saved = engine::ecs::save_world_to_toml(world);
+    engine::ecs::World again;
+    auto reloaded = engine::ecs::load_world_from_toml(again, saved);
+    ASSERT_TRUE(reloaded.has_value()) << reloaded.error().message;
+    const auto& round_body = again.get<engine::RigidBody2D>(reloaded->by_id.at("crate"));
+    const auto& round_polygon = again.get<engine::PolygonCollider2D>(reloaded->by_id.at("crate"));
+    EXPECT_FLOAT_EQ(round_body.angular_velocity, 1.25f);
+    EXPECT_EQ(round_polygon.count, 3);
+    EXPECT_FLOAT_EQ(round_polygon.vertices[2].x, 4.f);
+    EXPECT_FLOAT_EQ(round_polygon.vertices[2].y, 2.f);
+    EXPECT_FLOAT_EQ(round_polygon.friction, 0.25f);
 }
 
 TEST(WorldSerializer, RigidBody2DRejectsUnknownTypeString) {

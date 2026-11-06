@@ -292,7 +292,29 @@ TEST(Physics2D, ChildColliderContactUsesWorldPosition) {
     expect_contact(events[0], glm::vec2{1.f, 0.f}, 2.f, glm::vec2{10.5f, 0.f});
 }
 
-TEST(Physics2D, ContactIgnoresRotationScaleAndZ) {
+TEST(Physics2D, IdentityRotationBoxMatchesLegacyAabb) {
+    engine::ecs::World thin = physics_world();
+    const engine::ecs::Entity a = add_box(thin, glm::vec3{0.f}, glm::vec3{4.f, 2.f, 1.f});
+    const engine::ecs::Entity b = add_box(thin, glm::vec3{3.f, 0.5f, 0.f}, glm::vec3{4.f, 2.f, 1.f});
+    thin.get<engine::Transform>(a).rotation = engine::rotation_z(0.f);
+    thin.get<engine::Transform>(b).rotation = engine::rotation_z(0.f);
+    step_physics(thin);
+    const std::vector<engine::CollisionEvent2D> thin_events = read_collisions(thin);
+    ASSERT_EQ(thin_events.size(), 1u);
+    expect_contact(thin_events[0], glm::vec2{1.f, 0.f}, 1.f, glm::vec2{1.5f, 0.25f});
+
+    engine::ecs::World coincident = physics_world();
+    const engine::ecs::Entity left = add_box(coincident, glm::vec3{0.f}, glm::vec3{2.f, 2.f, 1.f});
+    const engine::ecs::Entity right = add_box(coincident, glm::vec3{0.f}, glm::vec3{2.f, 2.f, 1.f});
+    coincident.get<engine::Transform>(left).rotation = engine::rotation_z(0.f);
+    coincident.get<engine::Transform>(right).rotation = engine::rotation_z(0.f);
+    step_physics(coincident);
+    const std::vector<engine::CollisionEvent2D> coincident_events = read_collisions(coincident);
+    ASSERT_EQ(coincident_events.size(), 1u);
+    expect_contact(coincident_events[0], glm::vec2{1.f, 0.f}, 2.f, glm::vec2{0.f, 0.f});
+}
+
+TEST(Physics2D, ContactUsesWorldYawAndIgnoresScaleAndZ) {
     engine::ecs::World rotated = physics_world();
     const engine::ecs::Entity parent = rotated.create();
     rotated.emplace<engine::Transform>(parent, engine::Transform{
@@ -307,7 +329,7 @@ TEST(Physics2D, ContactIgnoresRotationScaleAndZ) {
     step_physics(rotated);
     const std::vector<engine::CollisionEvent2D> rotated_events = read_collisions(rotated);
     ASSERT_EQ(rotated_events.size(), 1u);
-    expect_contact(rotated_events[0], glm::vec2{0.f, 1.f}, 0.75f, glm::vec2{0.f, 2.625f});
+    expect_contact(rotated_events[0], glm::vec2{0.f, 1.f}, 1.75f, glm::vec2{0.f, 2.25f});
 
     engine::ecs::World scaled = physics_world();
     const engine::ecs::Entity scale_parent = scaled.create();

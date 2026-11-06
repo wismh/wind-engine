@@ -1,14 +1,14 @@
 # Physics & Collisions
 
-Wind provides 2D box and circle collisions: velocity integration, overlap and trigger events, and a positional solver for dynamic bodies. `CollisionEvent2D` carries a contact normal, a penetration, and one world-space point from the pose *before* the solver runs. A kinematic body (the default) still integrates and tunnels through overlaps. A dynamic body can land on a static collider, slide along a wall, and be pushed by a moving kinematic platform. There is no Z test. Rotation is ignored, so nothing spins. Friction and restitution default to 0. Overlaps are tested on the XY plane only.
+Wind provides 2D box, circle, and convex polygon collisions: velocity integration, yaw about world Z, overlap and trigger events, and a positional solver for dynamic bodies. `CollisionEvent2D` carries a contact normal, a penetration, and one world-space point from the pose *before* the solver runs. A kinematic body (the default) still integrates and tunnels through overlaps. A dynamic body can land on a static collider, slide along a wall, tumble when friction has a lever arm, and be pushed by a moving kinematic platform. There is no Z test. Friction and restitution default to 0. Overlaps are tested on the XY plane only.
 
-The physics is 2D, and its names say so: `RigidBody2D`, `BoxCollider2D`, `CircleCollider2D`, `CollisionEvent2D`, and `run_physics_2d`, all in `<engine/ecs/physics_2d.h>`. `CollisionPhase` has no suffix because it does not depend on the dimension.
+The physics is 2D, and its names say so: `RigidBody2D`, `BoxCollider2D`, `CircleCollider2D`, `PolygonCollider2D`, `CollisionEvent2D`, and `run_physics_2d`, all in `<engine/ecs/physics_2d.h>`. `CollisionPhase` has no suffix because it does not depend on the dimension.
 
 ---
 
 ## 1. Colliders
 
-Attach `engine::BoxCollider2D` (or `engine::CircleCollider2D`) and `engine::Transform` to entities. Colliders are centered on `Transform::position`. These types live in `engine`, not `engine::ecs`:
+Attach `engine::BoxCollider2D`, `engine::CircleCollider2D`, or `engine::PolygonCollider2D` and `engine::Transform` to entities. Colliders are centered on the entity's world position. These types live in `engine`, not `engine::ecs`:
 
 ```cpp
 #include <engine/ecs/physics_2d.h>
@@ -39,9 +39,9 @@ Two colliders are tested against each other only when each one's `layer` hits th
 
 `engine::BodyType2D` on `engine::RigidBody2D` chooses how a body moves. The default is `Kinematic`.
 
-- `Static` does not integrate and is not moved by contacts. A collider with no `RigidBody2D` is static too.
-- `Kinematic` does `local position += velocity * fixed_delta_time` and is not moved by contacts. Two kinematics still tunnel. The solver does not change a kinematic velocity.
-- `Dynamic` adds gravity, then moves in world space. `velocity.xy` is world XY and `velocity.z` is world z. Inverse mass is `1 / max(mass, kMinDynamicMass)` (a non-positive or non-finite mass uses the minimum). The positional solver separates it from non-trigger colliders.
+- `Static` does not integrate and is not moved by contacts. A collider with no `RigidBody2D` is static too. `angular_velocity` is stored and is not integrated, and the solver does not write it.
+- `Kinematic` does `local position += velocity * fixed_delta_time` and is not moved by contacts. Two kinematics still tunnel. The solver does not change a kinematic velocity or `angular_velocity`. A kinematic's stored spin still contributes to the point velocity the solver reads, with inverse inertia 0, so it does not take torque.
+- `Dynamic` adds gravity, then moves in world space. `velocity.xy` is world XY and `velocity.z` is world z. Inverse mass is `1 / max(mass, kMinDynamicMass)` (a non-positive or non-finite mass uses the minimum). After that linear write, a non-zero `angular_velocity * dt` yaws the body about world +Z. A zero turn is skipped, so an identity quaternion stays identity. A root does `rotation = rotation_z(angular_velocity * dt) * rotation`. A child writes that same world-Z turn back into its local rotation. The positional solver separates a dynamic body from non-trigger colliders and can change `angular_velocity`.
 
 Gravity lives on `world.ctx<engine::Physics2DConfig>()`. That resource is created on first use with gravity zero, so an old scene does not fall until you set it. It is not a serialized component. Only dynamic bodies use it, scaled by `gravity_scale` (default 1).
 
@@ -65,7 +65,7 @@ The crate falls, then rests with its bottom within `kContactSlop2D` (`1e-3`) of 
 
 A kinematic platform pushes a dynamic body along the contact normal and is not slowed. Its world velocity is the parent's world linear map (rotation and scale) times its local velocity. A root's `velocity.xy` is already world XY; the body's own rotation is not applied. Friction defaults to 0, so a floor that slides sideways under a crate does not drag it. Set friction on both colliders and that floor's tangential velocity pulls the crate.
 
-Friction and restitution live on the collider, and the solver reads them without writing a clamped value back. A negative or non-finite friction is 0 for that step. Restitution is clamped to `[0, 1]` for that step. A pair uses `sqrt(fa * fb)` and `max(ra, rb)`. Set friction on **both** colliders: a zero on either side is a frictionless pair. `kBounceThreshold2D` is 1. An approach at that speed or slower (`v_rel_n >= -1`) is solved with restitution 0. Gravity `(0, -60)` adds exactly -1 to `velocity.y` each fixed step, so a body sitting on a floor does not bounce. A faster impact does. Rotation is still ignored. Particle `bounce` and `friction` are emitter fields. They do not read these collider fields.
+Friction and restitution live on the collider, and the solver reads them without writing a clamped value back. A negative or non-finite friction is 0 for that step. Restitution is clamped to `[0, 1]` for that step. A pair uses `sqrt(fa * fb)` and `max(ra, rb)`. Set friction on **both** colliders: a zero on either side is a frictionless pair. `kBounceThreshold2D` is 1. An approach at that speed or slower (`v_rel_n >= -1`) is solved with restitution 0. Gravity `(0, -60)` adds exactly -1 to `velocity.y` each fixed step, so a body sitting on a floor does not bounce. A faster impact does. Particle `bounce` and `friction` are emitter fields. They do not read these collider fields. Particles still copy boxes and circles as axis-aligned shapes and do not see polygons or box yaw.
 
 ```cpp
 world.ctx<engine::Physics2DConfig>().gravity = {0.f, -60.f, 0.f};
@@ -106,9 +106,64 @@ world.emplace<engine::BoxCollider2D>(sled, engine::BoxCollider2D{
 });
 ```
 
+A crate with friction 1 resting on a floor with friction 1, size `(2, 2)`, mass 1, `velocity.x = 10`, and its center at `y = 0.999` loses one unit of horizontal speed in one fixed step and starts to tumble. After that step `y` is still `0.999`, `velocity` is `(9, 0)`, `angular_velocity` is about `-1.48675`, and the angle is still 0 because the turn is applied on the next integrate. Friction 0 leaves `angular_velocity` at 0 and `velocity.x` at 10. The spin is about the contact, which sits below the center, so the sign is clockwise for a crate moving to the right.
+
+```cpp
+world.ctx<engine::Physics2DConfig>().gravity = {0.f, -60.f, 0.f};
+
+auto ice = world.create();
+world.emplace<engine::Transform>(ice, engine::Transform{.position = {0.f, -1.f, 0.f}});
+world.emplace<engine::BoxCollider2D>(ice, engine::BoxCollider2D{
+    .size = {8.f, 2.f, 1.f},
+    .friction = 1.f,
+});
+
+auto tumbling = world.create();
+world.emplace<engine::Transform>(tumbling, engine::Transform{.position = {0.f, 0.999f, 0.f}});
+world.emplace<engine::RigidBody2D>(tumbling, engine::RigidBody2D{
+    .velocity = {10.f, 0.f, 0.f},
+    .type = engine::BodyType2D::Dynamic,
+    .mass = 1.f,
+});
+world.emplace<engine::BoxCollider2D>(tumbling, engine::BoxCollider2D{
+    .size = {2.f, 2.f, 1.f},
+    .friction = 1.f,
+});
+```
+
+A static polygon is a slope. Vertices are local, CCW, at most 8, and are not recentered: inertia and the shape are about the vertex-list origin, which is the body origin. Fewer than 3 vertices, a non-finite component, a zero-length edge, or a clockwise turn produces no contact. A collinear turn is allowed. This right triangle's outward hypotenuse is `(-1/sqrt(5), 2/sqrt(5))`. A dynamic box of size `(1, 1)` and mass 1 that starts at `(2.2, 1.85)` under gravity `(0, -60)` with friction 0 moves downhill.
+
+```cpp
+auto slope = world.create();
+world.emplace<engine::Transform>(slope, engine::Transform{});
+engine::PolygonCollider2D hill{};
+hill.count = 3;
+hill.vertices[0] = {0.f, 0.f};
+hill.vertices[1] = {4.f, 0.f};
+hill.vertices[2] = {4.f, 2.f};
+world.emplace<engine::PolygonCollider2D>(slope, hill);
+
+auto slider = world.create();
+world.emplace<engine::Transform>(slider, engine::Transform{.position = {2.2f, 1.85f, 0.f}});
+world.emplace<engine::RigidBody2D>(slider, engine::RigidBody2D{
+    .type = engine::BodyType2D::Dynamic,
+    .mass = 1.f,
+});
+world.emplace<engine::BoxCollider2D>(slider, engine::BoxCollider2D{.size = {1.f, 1.f, 1.f}});
+```
+
+Rotation contract:
+
+- Scale is not applied to `size`, `radius`, or polygon vertices.
+- A circle ignores spin. Its contact is the same as an unrotated circle.
+- `BoxCollider2D` uses the world Z angle of the world matrix (the XY heading of its X axis). An angle of exactly `0` stays on the old axis-aligned manifold. Any other angle, and every `PolygonCollider2D`, uses the convex clipper. Polygon vertices are stored local and rotated once by that yaw.
+- Kinematic and static bodies do not take torque. Only a dynamic body integrates `angular_velocity` and receives it back from the solver.
+- Inertia is one number per dynamic body, from the first non-trigger collider in gather order: boxes, then circles, then polygons. Later solid colliders still generate contacts. They do not add another full mass into `I`. A box is `mass * (width^2 + height^2) / 12` using the full size. A circle is `0.5 * mass * radius^2`. A polygon uses the standard convex sum about the vertex-list origin. `I <= 0` leaves inverse inertia at 0.
+- The event still publishes one point, `points[0]`: the deeper clip point, or the midpoint when the two depths are equal. The solver may use both points. Positional correction still uses only `points[0]` and the mass sum, not inertia.
+
 Do not put `BodyType2D::Dynamic` on a predicted or controlled entity. Prediction replays `step`, and `run_physics_2d` is a second simulation of that entity.
 
-Colliders are tested at the entity's **world position**. A collider on a child entity (see [Hierarchy](Hierarchy.md)) follows its parent; its `size` and `radius` are world units and are not scaled or rotated by the parent. The contact uses that same axis-aligned XY shape. A kinematic child's velocity is in its parent's space. A dynamic child is allowed: the solver writes the corrected world position through `set_world_position`, so a translated or rotated parent keeps the contact in world space. The dynamic velocity itself stays world XY and does not include the parent's carry.
+Colliders are tested at the entity's **world position**. A collider on a child entity (see [Hierarchy](Hierarchy.md)) follows its parent. `size`, `radius`, and polygon vertices are not scaled. A box or polygon turns with the parent's world Z angle; a circle does not. A kinematic child's velocity is in its parent's space. A dynamic child is allowed: the solver writes the corrected world position through `set_world_position`, and its own yaw is written back into local `rotation`, so a translated or rotated parent keeps the contact in world space. The dynamic linear velocity itself stays world XY and does not include the parent's carry.
 
 ---
 
@@ -136,7 +191,7 @@ void MyGame::on_start() {
 
 For every overlapping pair each fixed step, `run_physics_2d` sends an `engine::CollisionEvent2D`. A pair that starts overlapping reports `Enter`, keeps reporting `Stay` while it overlaps, and reports `Exit` once when it stops:
 
-`a` and `b` are ordered so `a < b`. `normal` is a unit XY vector from `a` toward `b`. It is the thinner overlap axis for two boxes (X wins a tie; a zero center-delta on the chosen axis points along the positive axis, so coincident centers use +X), the direction from center to center for two circles, and the closest-point direction for a box and a circle (the nearest face when the circle center is inside the box). `penetration` is the overlap along that normal and is `>= 0`. A penetration of 0 is a touch and still an event. `point` is one world-space point between the shapes, the deepest sample. `Exit` sets `normal`, `penetration`, and `point` to zero and keeps the `is_trigger` value from the last overlapping step. A trigger still reports Enter, Stay, and Exit, still sets `is_trigger`, and still carries a normal, a penetration, and a point. Events are published before the solver, in the same gather order as before. The solver does not change a kinematic velocity, so a kinematic character still cancels its own approach here.
+`a` and `b` are ordered so `a < b`. `normal` is a unit XY vector from `a` toward `b`. Two boxes whose world angles are exactly 0 use the thinner overlap axis (X wins a tie; a zero center-delta on the chosen axis points along the positive axis, so coincident centers use +X). Two circles use the direction from center to center. A box at angle 0 and a circle use the closest-point direction (the nearest face when the circle center is inside the box). A rotated box or a polygon uses the convex clip: the least-penetrating face, with the normal pointing from `a` toward `b`. `penetration` is the overlap along that normal and is `>= 0`. A penetration of 0 is a touch and still an event. `point` is one world-space point, `points[0]` of the manifold: the deeper sample, or the midpoint when the two clip depths are equal. `Exit` sets `normal`, `penetration`, and `point` to zero and keeps the `is_trigger` value from the last overlapping step. A trigger still reports Enter, Stay, and Exit, still sets `is_trigger`, and still carries a normal, a penetration, and a point. Events are published before the solver, in gather order (boxes, then circles, then polygons). The solver does not change a kinematic velocity, so a kinematic character still cancels its own approach here.
 
 ```cpp
 #include <engine/ecs/events.h>

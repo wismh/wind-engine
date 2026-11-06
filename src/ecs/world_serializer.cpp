@@ -19,6 +19,7 @@
 #include <engine/render/tilemap.h>
 #include <engine/resources/assets_db.h>
 
+#include <algorithm>
 #include <format>
 #include <optional>
 #include <string>
@@ -568,6 +569,7 @@ void register_builtin_components(
                 out.field("type", rigid_body_type_name(c.type));
                 out.field("mass", c.mass);
                 out.field("gravity_scale", c.gravity_scale);
+                out.field("angular_velocity", c.angular_velocity);
             },
             [](ComponentReader& in, RigidBody2D& c) {
                 (void)in.field("velocity", c.velocity);
@@ -600,6 +602,7 @@ void register_builtin_components(
                 }
                 (void)in.field("mass", c.mass);
                 (void)in.field("gravity_scale", c.gravity_scale);
+                (void)in.field("angular_velocity", c.angular_velocity);
             });
 
     serializer.register_component<BoxCollider2D>(
@@ -614,6 +617,42 @@ void register_builtin_components(
             },
             [](ComponentReader& in, BoxCollider2D& c) {
                 (void)in.field("size", c.size);
+                (void)in.field("layer", c.layer);
+                (void)in.field("mask", c.mask);
+                (void)in.field("is_trigger", c.is_trigger);
+                (void)in.field("friction", c.friction);
+                (void)in.field("restitution", c.restitution);
+            });
+
+    serializer.register_component<PolygonCollider2D>(
+            "polygon_collider_2d",
+            [](ComponentWriter& out, const PolygonCollider2D& c) {
+                std::vector<glm::vec2> vertices;
+                const int count = std::min(static_cast<int>(c.count), kPolygonCollider2DCapacity);
+                vertices.reserve(static_cast<std::size_t>(count));
+                for (int i = 0; i < count; ++i) {
+                    vertices.push_back(c.vertices[i]);
+                }
+                out.field("vertices", vertices);
+                out.field("layer", c.layer);
+                out.field("mask", c.mask);
+                out.field("is_trigger", c.is_trigger);
+                out.field("friction", c.friction);
+                out.field("restitution", c.restitution);
+            },
+            [](ComponentReader& in, PolygonCollider2D& c) {
+                std::vector<glm::vec2> vertices;
+                if (!in.field("vertices", vertices)) {
+                    return;
+                }
+                if (vertices.size() > static_cast<std::size_t>(kPolygonCollider2DCapacity)) {
+                    in.fail("polygon_collider_2d has more than 8 vertices");
+                    return;
+                }
+                c.count = static_cast<std::uint8_t>(vertices.size());
+                for (std::size_t i = 0; i < vertices.size(); ++i) {
+                    c.vertices[i] = vertices[i];
+                }
                 (void)in.field("layer", c.layer);
                 (void)in.field("mask", c.mask);
                 (void)in.field("is_trigger", c.is_trigger);

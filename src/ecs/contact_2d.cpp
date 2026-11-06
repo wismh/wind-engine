@@ -11,14 +11,25 @@ namespace {
 }
 
 [[nodiscard]] bool supported(const ContactShape2D& shape) {
-    if (!finite_vec(shape.center)) {
+    if (!finite_vec(shape.center) || !std::isfinite(shape.angle)) {
         return false;
     }
     if (shape.kind == ContactShapeKind::Aabb) {
         return std::isfinite(shape.half_extents.x) && std::isfinite(shape.half_extents.y) &&
                shape.half_extents.x >= 0.f && shape.half_extents.y >= 0.f;
     }
-    return std::isfinite(shape.radius) && shape.radius >= 0.f;
+    if (shape.kind == ContactShapeKind::Circle) {
+        return std::isfinite(shape.radius) && shape.radius >= 0.f;
+    }
+    if (shape.vertex_count < 3 || shape.vertex_count > kContactPolygonCapacity) {
+        return false;
+    }
+    for (int i = 0; i < shape.vertex_count; ++i) {
+        if (!finite_vec(shape.vertices[i])) {
+            return false;
+        }
+    }
+    return true;
 }
 
 // Zero delta takes the positive axis, so coincident centers resolve to +X when X wins the tie.
@@ -35,8 +46,11 @@ namespace {
     if (manifold.count == 0) {
         return manifold;
     }
-    const ContactPoint2D& sample = manifold.points[0];
-    const bool ok = finite_vec(manifold.normal) && std::isfinite(sample.penetration) && finite_vec(sample.point);
+    bool ok = finite_vec(manifold.normal);
+    for (int i = 0; i < manifold.count; ++i) {
+        const ContactPoint2D& sample = manifold.points[i];
+        ok = ok && std::isfinite(sample.penetration) && finite_vec(sample.point);
+    }
     if (ok) {
         return manifold;
     }
@@ -175,15 +189,22 @@ ContactManifold2D make_contact_2d(const ContactShape2D& a, const ContactShape2D&
         return empty_manifold();
     }
 
+    const bool a_aabb = a.kind == ContactShapeKind::Aabb && a.angle == 0.f;
+    const bool b_aabb = b.kind == ContactShapeKind::Aabb && b.angle == 0.f;
+    const bool a_circle = a.kind == ContactShapeKind::Circle;
+    const bool b_circle = b.kind == ContactShapeKind::Circle;
+
     ContactManifold2D manifold;
-    if (a.kind == ContactShapeKind::Aabb && b.kind == ContactShapeKind::Aabb) {
+    if (a_aabb && b_aabb) {
         manifold = contact_aabb_aabb(a, b);
-    } else if (a.kind == ContactShapeKind::Circle && b.kind == ContactShapeKind::Circle) {
+    } else if (a_circle && b_circle) {
         manifold = contact_circle_circle(a, b);
-    } else if (a.kind == ContactShapeKind::Aabb) {
+    } else if (a_aabb && b_circle) {
         manifold = from_box_circle(contact_box_circle(a, b), true);
-    } else {
+    } else if (a_circle && b_aabb) {
         manifold = from_box_circle(contact_box_circle(b, a), false);
+    } else {
+        manifold = contact_convex_2d(a, b);
     }
     return finite_or_fallback(manifold, a);
 }
