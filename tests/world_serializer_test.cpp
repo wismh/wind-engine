@@ -9,6 +9,8 @@
 #include <engine/render/ambient_light.h>
 #include <engine/render/animation.h>
 #include <engine/render/directional_light.h>
+#include <engine/render/point_light.h>
+#include <engine/render/spot_light.h>
 #include <engine/render/renderable.h>
 #include <engine/render/sprite.h>
 #include <engine/resources/assets_db.h>
@@ -98,6 +100,8 @@ id = "sun"
 transform = { euler_xyz = [0.1, 0.2, 0.3] }
 directional_light = { color = [1.0, 0.9, 0.8], intensity = 1.5 }
 ambient_light = { color = [0.2, 0.3, 0.4], intensity = 0.25 }
+point_light = { color = [0.4, 0.5, 0.6], intensity = 3.0, range = 8.0 }
+spot_light = { intensity = 2.0, range = 12.0, inner_angle = 0.4, outer_angle = 0.8 }
 
 [[entities]]
 id = "player"
@@ -137,6 +141,14 @@ circle_collider_2d = { radius = 0.75, layer = 4, mask = 1, is_trigger = false }
     const auto* amb_light = world.try_get<engine::render::AmbientLight>(sun_entity);
     ASSERT_NE(amb_light, nullptr);
     EXPECT_FLOAT_EQ(amb_light->intensity, 0.25f);
+    const auto* point = world.try_get<engine::render::PointLight>(sun_entity);
+    ASSERT_NE(point, nullptr);
+    EXPECT_FLOAT_EQ(point->range, 8.0f);
+    EXPECT_FLOAT_EQ(point->intensity, 3.0f);
+    const auto* spot = world.try_get<engine::render::SpotLight>(sun_entity);
+    ASSERT_NE(spot, nullptr);
+    EXPECT_FLOAT_EQ(spot->range, 12.0f);
+    EXPECT_FLOAT_EQ(spot->outer_angle, 0.8f);
 
     const auto* rb = world.try_get<engine::RigidBody2D>(player_entity);
     ASSERT_NE(rb, nullptr);

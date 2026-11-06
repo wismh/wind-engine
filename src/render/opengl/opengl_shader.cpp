@@ -1,5 +1,7 @@
 #include "opengl_shader.h"
 
+#include "render/shader_instance_inputs.h"
+
 #include <engine/log.h>
 #include <engine/render/model.h>
 
@@ -58,7 +60,8 @@ unsigned int compile_shader(unsigned int type, std::string_view src) {
 
 }
 
-OpenGLShader::OpenGLShader(std::string_view vertex_src, std::string_view fragment_src) {
+OpenGLShader::OpenGLShader(std::string_view vertex_src, std::string_view fragment_src)
+    : instance_inputs_(shader_declares_particle_instance_inputs(vertex_src)) {
     if (vertex_src.empty() || fragment_src.empty()) {
         return;
     }
@@ -158,6 +161,13 @@ void OpenGLShader::set_vec3_array(std::string_view name, std::span<const glm::ve
     const int location = uniform_location(name);
     if (location >= 0 && !values.empty()) {
         glUniform3fv(location, static_cast<int>(values.size()), glm::value_ptr(values.front()));
+    }
+}
+
+void OpenGLShader::set_vec4_array(std::string_view name, std::span<const glm::vec4> values) const {
+    const int location = uniform_location(name);
+    if (location >= 0 && !values.empty()) {
+        glUniform4fv(location, static_cast<int>(values.size()), glm::value_ptr(values.front()));
     }
 }
 

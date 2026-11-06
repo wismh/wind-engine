@@ -37,8 +37,8 @@ struct RenderState {
     bool depth_write = false;
     CullMode cull = CullMode::None;
     // Cutout (alpha test): the builtin lit and unlit shaders discard a fragment whose albedo alpha is below it. It
-    // does not change the queue, so an opaque cutout material (leaves, fences) stays in the opaque queue. Particles
-    // ignore it.
+    // does not change the queue, so an opaque cutout material (leaves, fences) stays in the opaque queue. Card
+    // particles ignore it. Mesh particles use the material shader, which honors it.
     std::optional<float> alpha_cutoff;
 
     constexpr bool operator==(const RenderState&) const noexcept = default;
@@ -51,27 +51,37 @@ public:
     virtual std::shared_ptr<ITexture> texture(int slot) const = 0;
     virtual glm::vec4 color() const = 0;
     virtual RenderState render_state() const = 0;
+    // Blinn-Phong exponent. 0 (the default) adds no specular. A material that does not override this stays diffuse.
+    virtual float gloss() const { return 0.0f; }
 };
 
 class Material final : public IMaterial {
 public:
     Material(std::shared_ptr<IShader> shader, std::shared_ptr<ITexture> albedo = nullptr,
-            glm::vec4 color = {1.0f, 1.0f, 1.0f, 1.0f}, RenderState state = {})
+            glm::vec4 color = {1.0f, 1.0f, 1.0f, 1.0f}, RenderState state = {}, float gloss = 0.0f,
+            std::shared_ptr<ITexture> normal = nullptr)
         : shader_(std::move(shader))
         , albedo_(std::move(albedo))
         , color_(color)
-        , state_(state) {}
+        , state_(state)
+        , gloss_(gloss)
+        , normal_(std::move(normal)) {}
 
     std::shared_ptr<IShader> shader() const override {
         return shader_;
     }
 
     std::shared_ptr<ITexture> texture(int slot) const override {
-        if (slot != 0) {
-            return {};
+        if (slot == 0) {
+            return albedo_;
         }
-        return albedo_;
+        if (slot == 1) {
+            return normal_;
+        }
+        return {};
     }
+
+    float gloss() const override { return gloss_; }
 
     glm::vec4 color() const override {
         return color_;
@@ -86,6 +96,8 @@ private:
     std::shared_ptr<ITexture> albedo_;
     glm::vec4 color_{1.0f, 1.0f, 1.0f, 1.0f};
     RenderState state_;
+    float gloss_ = 0.0f;
+    std::shared_ptr<ITexture> normal_;
 };
 
 // Per-instance override of a material's texture(0) and/or named shader vec4 uniforms,
@@ -106,6 +118,10 @@ struct MaterialDesc {
     RenderState state{.blend = BlendMode::Opaque};
     glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
     std::string albedo;
+    // Optional tangent-space normal map. Empty when the material has none. Slot 1.
+    std::string normal;
+    // Blinn-Phong exponent. 0 adds no specular.
+    float gloss = 0.0f;
 };
 
 [[nodiscard]] std::optional<MaterialDesc> parse_material(std::string_view toml_text);

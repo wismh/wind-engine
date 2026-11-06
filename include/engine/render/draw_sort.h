@@ -41,7 +41,8 @@ struct DrawSortKey {
 };
 
 // `world_position` is the draw's origin in world space (the translation of its model matrix). `depth_tested` is
-// false for a draw the backend runs without depth test whatever the material says (particles).
+// false when the backend ignores the material's depth test (a Plane particle batch). Billboard and Stretched pass
+// true, so they depth-sort only when that material's depth test is on.
 [[nodiscard]] inline DrawSortKey make_draw_sort_key(const IMaterial* material, int layer, int order_in_layer,
         const glm::vec3& world_position, const glm::mat4& view, ecs::Entity entity, bool depth_tested = true) {
     const RenderState state = material != nullptr ? material->render_state() : RenderState{};

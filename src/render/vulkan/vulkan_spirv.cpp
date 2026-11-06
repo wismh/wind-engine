@@ -28,9 +28,11 @@ constexpr std::uint16_t kOpDecorate = 71;
 constexpr std::uint16_t kOpMemberDecorate = 72;
 
 constexpr std::uint32_t kStorageClassUniformConstant = 0;
+constexpr std::uint32_t kStorageClassInput = 1;
 constexpr std::uint32_t kStorageClassUniform = 2;
 
 constexpr std::uint32_t kDecorationBlock = 2;
+constexpr std::uint32_t kDecorationLocation = 30;
 constexpr std::uint32_t kDecorationRowMajor = 4;
 constexpr std::uint32_t kDecorationColMajor = 5;
 constexpr std::uint32_t kDecorationArrayStride = 6;
@@ -94,6 +96,8 @@ struct VarRecord {
     std::uint32_t set = 0;
     std::uint32_t binding = 0;
     bool has_binding = false;
+    bool has_location = false;
+    std::uint32_t location = 0;
 };
 
 std::uint32_t compute_type_size(
@@ -209,7 +213,7 @@ void collect_struct_uniforms(
     }
 }
 
-void reflect_stage(std::span<const std::uint32_t> spirv, SpirvReflection& out) {
+void reflect_stage(std::span<const std::uint32_t> spirv, SpirvReflection& out, bool collect_inputs) {
     if (spirv.size() < 5 || spirv[0] != kSpirvMagic) {
         return;
     }
@@ -249,6 +253,9 @@ void reflect_stage(std::span<const std::uint32_t> spirv, SpirvReflection& out) {
                     variables[target].has_binding = true;
                 } else if (deco == kDecorationDescriptorSet && word_count >= 4) {
                     variables[target].set = inst[3];
+                } else if (deco == kDecorationLocation && word_count >= 4) {
+                    variables[target].location = inst[3];
+                    variables[target].has_location = true;
                 }
             }
             break;
@@ -375,16 +382,31 @@ void reflect_stage(std::span<const std::uint32_t> spirv, SpirvReflection& out) {
         } else if (
             var.storage_class == kStorageClassUniformConstant &&
             pointee_it->second.kind == TypeRecord::Kind::SamplerOrImage) {
-            out.has_sampler = true;
             bool arrayed = pointee_it->second.arrayed;
             if (const auto image_it = types.find(pointee_it->second.elem_type); image_it != types.end()) {
                 arrayed = arrayed || image_it->second.arrayed;
             }
-            out.sampler_arrayed = out.sampler_arrayed || arrayed;
-            if (var.has_binding) {
-                out.sampler_set = var.set;
-                out.sampler_binding = var.binding;
+            const std::uint32_t binding = var.has_binding ? var.binding : 1u;
+            // The lowest binding is the albedo. The next one is the normal map. `sampler_arrayed` follows the albedo
+            // only, so a 2D normal map beside a texture array does not flip the albedo view.
+            if (!out.has_sampler || binding < out.sampler_binding) {
+                if (out.has_sampler) {
+                    out.has_normal_sampler = true;
+                    out.normal_binding = out.sampler_binding;
+                }
+                out.has_sampler = true;
+                out.sampler_binding = binding;
+                out.sampler_arrayed = arrayed;
+                if (var.has_binding) {
+                    out.sampler_set = var.set;
+                }
+            } else {
+                out.has_normal_sampler = true;
+                out.normal_binding = binding;
             }
+        }
+        if (collect_inputs && var.storage_class == kStorageClassInput && var.has_location) {
+            out.input_locations.push_back(var.location);
         }
     }
 
@@ -398,6 +420,15 @@ void reflect_stage(std::span<const std::uint32_t> spirv, SpirvReflection& out) {
 const SpirvUniformMember* SpirvReflection::find_uniform(std::string_view name) const noexcept {
     const auto it = uniforms.find(std::string(name));
     return it != uniforms.end() ? &it->second : nullptr;
+}
+
+bool SpirvReflection::has_input_location(std::uint32_t location) const noexcept {
+    return std::find(input_locations.begin(), input_locations.end(), location) != input_locations.end();
+}
+
+bool SpirvReflection::declares_particle_instance_inputs() const noexcept {
+    return find_uniform("uInstanced") != nullptr && has_input_location(7) && has_input_location(8)
+            && has_input_location(9);
 }
 
 std::string parse_spirv_entry_point(std::span<const std::uint32_t> spirv) {
@@ -429,8 +460,8 @@ SpirvReflection reflect_spirv_program(
     SpirvReflection out;
     out.vertex_entry = parse_spirv_entry_point(vertex_spirv);
     out.fragment_entry = parse_spirv_entry_point(fragment_spirv);
-    reflect_stage(vertex_spirv, out);
-    reflect_stage(fragment_spirv, out);
+    reflect_stage(vertex_spirv, out, true);
+    reflect_stage(fragment_spirv, out, false);
     return out;
 }
 

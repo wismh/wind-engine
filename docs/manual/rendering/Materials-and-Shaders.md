@@ -29,9 +29,14 @@ For a mesh draw, the engine sets these uniforms on your shader and feeds this ve
 | `uUvScale`, `uUvOffset` | `vec2` | `Sprite::tiling` / `offset` (`1,1` / `0,0` for a `Renderable`) |
 | `uTexture` | `sampler2D` | the material's albedo (texture unit 0); a 1x1 white texture when the material has none. Declare it `sampler2DArray` and sample `texture(uTexture, vec3(uv, layer))` when the albedo is a texture array; a mismatched kind samples white |
 | `uCameraPosition` | `vec3` | camera position in world space |
-| `uLightCount` | `int` | number of directional lights used (0 to 4) |
-| `uLightDirections[4]`, `uLightColors[4]` | `vec3[4]` | world direction each light travels along (unit length), and its color times intensity |
+| `uLightCount` | `int` | lights in the view list (0 to 16) |
+| `uLightColorKind[16]` | `vec4[16]` | rgb is color times intensity, w is the kind (0 directional, 1 point, 2 spot) |
+| `uLightDirRange[16]` | `vec4[16]` | xyz is the unit direction the light travels along, w is range |
+| `uLightPosSpot[16]` | `vec4[16]` | xyz is the world position, w is the spot cone scale |
+| `uLightSpotBias[16]` | `vec4[16]` | x is the spot cone bias |
 | `uAmbient` | `vec3` | ambient light (sum of every `AmbientLight`) |
+| `uGloss` | `float` | Blinn-Phong exponent, 0 for none |
+| `uHasNormalMap`, `uNormal` | `int`, `sampler2D` | 1 and texture unit 1 when the material has a normal map |
 | `uAlphaCutoff` | `float` | the material's `alpha_cutoff`, 0 when it has none: discard a fragment whose alpha is below it |
 | `uFogEnabled`, `uFogColor`, `uFogRange` | `int`, `vec3`, `vec2` | 1 when the camera has `Fog`, its color, and `(start, end)` ([Basic 3D](Basic-3D.md#4-cutout-and-fog)) |
 
@@ -100,7 +105,7 @@ cull = "none"                                    # "none" (default), "back" or "
 albedo = "0123456789abcdef0123456789abcdef"      # guid of a texture; omit for none
 ```
 
-The defaults are the 2D state: no depth test, no depth write, no culling, so sprites draw in layer order. For a solid 3D mesh write `blend = "opaque"`, `depth = true` (sets `depth_test` and `depth_write` together; an explicit `depth_test` or `depth_write` wins over it) and `cull = "back"`; counter-clockwise triangles are front faces. Glass or another see-through 3D surface is `blend = "alpha"` with `depth_test = true` and `depth_write = false`. Particles ignore depth, culling, and `alpha_cutoff`. For cutout (leaves, fences) add `alpha_cutoff = 0.5` to an opaque depth-tested material: the builtin lit and unlit shaders discard fragments whose alpha is below it, and the material still draws in the opaque pass. `alpha_cutoff` must be a number from 0 to 1. In C++ the same settings are `engine::render::RenderState`, the fourth argument of `engine::render::Material`. An unknown `blend` or `cull` value, or a `depth*` key that is not `true` or `false`, makes the material fail to load.
+The defaults are the 2D state: no depth test, no depth write, no culling, so sprites draw in layer order. For a solid 3D mesh write `blend = "opaque"`, `depth = true` (sets `depth_test` and `depth_write` together; an explicit `depth_test` or `depth_write` wins over it) and `cull = "back"`; counter-clockwise triangles are front faces. Glass or another see-through 3D surface is `blend = "alpha"` with `depth_test = true` and `depth_write = false`. `Plane` particles ignore depth and culling. `Billboard` and `Stretched` use the material's depth test, depth write, and cull. Every particle draw ignores `alpha_cutoff`. For cutout (leaves, fences) add `alpha_cutoff = 0.5` to an opaque depth-tested material: the builtin lit and unlit shaders discard fragments whose alpha is below it, and the material still draws in the opaque pass. `alpha_cutoff` must be a number from 0 to 1. In C++ the same settings are `engine::render::RenderState`, the fourth argument of `engine::render::Material`. An unknown `blend` or `cull` value, or a `depth*` key that is not `true` or `false`, makes the material fail to load.
 
 A `shader` or `albedo` that is not 32 lowercase hex characters makes the material fail to load (`AssetError::Corrupt`). Codegen does not rewrite these strings, so copy the GUIDs from the `.meta` files. There is no `[uniforms]` table: custom shader parameters are set per draw (next section). The `.mat` needs its own `.meta` with `importer = "material"`.
 

@@ -150,12 +150,29 @@ std::optional<MaterialDesc> parse_material_table(const toml::table& table) {
         }
     }
 
+    if (const toml::node* gloss_node = table.get("gloss")) {
+        if (!gloss_node->is_floating_point() && !gloss_node->is_integer()) {
+            return std::nullopt;
+        }
+        const auto gloss = node_as_float(*gloss_node);
+        if (!gloss || !(*gloss >= 0.0f)) {
+            return std::nullopt;
+        }
+        desc.gloss = *gloss;
+    }
+
     if (const toml::table* textures = table["textures"].as_table()) {
         if (const auto albedo = (*textures)["albedo"].value<std::string>()) {
             if (!is_asset_uri(*albedo)) {
                 return std::nullopt;
             }
             desc.albedo = *albedo;
+        }
+        if (const auto normal = (*textures)["normal"].value<std::string>()) {
+            if (!is_asset_uri(*normal)) {
+                return std::nullopt;
+            }
+            desc.normal = *normal;
         }
     }
 

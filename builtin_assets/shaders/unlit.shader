@@ -5,6 +5,9 @@ struct VertexInput {
     [[vk::location(1)]] float2 aUV : TEXCOORD0;
     [[vk::location(2)]] float3 aAnim : NORMAL;
     [[vk::location(3)]] float4 aColor : COLOR0;
+    [[vk::location(7)]] float3 aInstancePos : TEXCOORD3;
+    [[vk::location(8)]] float3 aInstanceScale : TEXCOORD4;
+    [[vk::location(9)]] float4 aInstanceColor : COLOR1;
 };
 
 struct VertexOutput {
@@ -20,6 +23,7 @@ uniform float4x4 uProjection;
 uniform float2 uUvScale;
 uniform float2 uUvOffset;
 uniform float uTime;
+uniform int uInstanced;
 uniform Sampler2D uTexture;
 uniform float4 uColor;
 // RenderState::alpha_cutoff, 0 when unset (alpha is never below 0).
@@ -39,8 +43,15 @@ VertexOutput vertexMain(VertexInput input) {
         uv.x += frame * input.aAnim.z;
     }
     out.vUV = uv * uUvScale + uUvOffset;
-    out.vColor = input.aColor;
-    float4 viewPos = mul(uView, mul(uModel, float4(input.aPosition, 1.0)));
+    float4 viewPos;
+    if (uInstanced != 0) {
+        float3 worldPos = input.aInstancePos + input.aPosition * input.aInstanceScale;
+        viewPos = mul(uView, float4(worldPos, 1.0));
+        out.vColor = input.aColor * input.aInstanceColor;
+    } else {
+        viewPos = mul(uView, mul(uModel, float4(input.aPosition, 1.0)));
+        out.vColor = input.aColor;
+    }
     out.vViewPos = viewPos.xyz;
     out.position = mul(uProjection, viewPos);
     return out;
@@ -67,6 +78,9 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         layout(location = 1) in vec2 aUV;
         layout(location = 2) in vec3 aAnim;
         layout(location = 3) in vec4 aColor;
+        layout(location = 7) in vec3 aInstancePos;
+        layout(location = 8) in vec3 aInstanceScale;
+        layout(location = 9) in vec4 aInstanceColor;
 
         out vec2 vUV;
         out vec4 vColor;
@@ -78,6 +92,7 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         uniform vec2 uUvScale;
         uniform vec2 uUvOffset;
         uniform float uTime;
+        uniform int uInstanced;
 
         void main() {
             vec2 uv = aUV;
@@ -86,8 +101,15 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
                 uv.x += frame * aAnim.z;
             }
             vUV = uv * uUvScale + uUvOffset;
-            vColor = aColor;
-            vec4 viewPos = uView * uModel * vec4(aPosition, 1.0);
+            vec4 viewPos;
+            if (uInstanced != 0) {
+                vec3 worldPos = aInstancePos + aPosition * aInstanceScale;
+                viewPos = uView * vec4(worldPos, 1.0);
+                vColor = aColor * aInstanceColor;
+            } else {
+                viewPos = uView * uModel * vec4(aPosition, 1.0);
+                vColor = aColor;
+            }
             vViewPos = viewPos.xyz;
             gl_Position = uProjection * viewPos;
         }

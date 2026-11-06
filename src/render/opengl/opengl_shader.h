@@ -33,6 +33,7 @@ public:
     void set_vec3(std::string_view name, const glm::vec3& value) const;
     // A `vec3 name[N]` array from element 0; at most N values reach the program.
     void set_vec3_array(std::string_view name, std::span<const glm::vec3> values) const;
+    void set_vec4_array(std::string_view name, std::span<const glm::vec4> values) const;
     void set_vec2(std::string_view name, const glm::vec2& value) const;
     void set_float(std::string_view name, float value) const;
     void set_int(std::string_view name, int value) const;
@@ -45,11 +46,17 @@ public:
         return program_ != 0;
     }
 
+    [[nodiscard]] bool declares_particle_instance_inputs() const override {
+        return instance_inputs_;
+    }
+
     [[nodiscard]] int uniform_location(std::string_view name) const;
 
 private:
     unsigned int program_ = 0;
     mutable unsigned int bone_buffer_ = 0;
+    // From the vertex source, before the driver can strip an unused input.
+    bool instance_inputs_ = false;
 };
 
 }

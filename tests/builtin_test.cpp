@@ -40,6 +40,8 @@ constexpr std::string_view kShaderPostGrade = "a0e1b2c3d4f5678901234567890abc10"
 constexpr std::string_view kShaderPostTonemap = "a0e1b2c3d4f5678901234567890abc11";
 constexpr std::string_view kShaderPostBloom = "a0e1b2c3d4f5678901234567890abc12";
 constexpr std::string_view kShaderPostDepth = "a0e1b2c3d4f5678901234567890abc13";
+constexpr std::string_view kShaderSpriteLit = "a0e1b2c3d4f5678901234567890abc14";
+constexpr std::string_view kMaterialSpriteLit = "a0e1b2c3d4f5678901234567890abc15";
 
 std::filesystem::path builtin_assets_dir() {
     return std::filesystem::path{ENGINE_BUILTIN_ASSETS_DIR};
@@ -95,6 +97,8 @@ TEST(Builtin, BuiltinIdsAreFrozen) {
     EXPECT_EQ(engine::builtin::shader_post_tonemap.hex(), kShaderPostTonemap);
     EXPECT_EQ(engine::builtin::shader_post_bloom.hex(), kShaderPostBloom);
     EXPECT_EQ(engine::builtin::shader_post_depth.hex(), kShaderPostDepth);
+    EXPECT_EQ(engine::builtin::shader_sprite_lit.hex(), kShaderSpriteLit);
+    EXPECT_EQ(engine::builtin::material_sprite_lit.hex(), kMaterialSpriteLit);
 
     EXPECT_TRUE(engine::AssetId::is_valid(engine::builtin::shader_unlit.hex()));
     EXPECT_TRUE(engine::AssetId::is_valid(engine::builtin::mesh_quad.hex()));
@@ -156,8 +160,10 @@ TEST(Builtin, BuiltinIdsAreUnique) {
     EXPECT_EQ(reserved[16], engine::builtin::shader_post_tonemap);
     EXPECT_EQ(reserved[17], engine::builtin::shader_post_bloom);
     EXPECT_EQ(reserved[18], engine::builtin::shader_post_depth);
-    EXPECT_EQ(engine::builtin::count(), 19u);
-    EXPECT_EQ(reserved.size(), 19u);
+    EXPECT_EQ(reserved[19], engine::builtin::shader_sprite_lit);
+    EXPECT_EQ(reserved[20], engine::builtin::material_sprite_lit);
+    EXPECT_EQ(engine::builtin::count(), 21u);
+    EXPECT_EQ(reserved.size(), 21u);
 }
 
 TEST(Builtin, BuiltinMetasMatchIds) {

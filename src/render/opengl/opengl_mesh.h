@@ -22,6 +22,9 @@ public:
     OpenGLMesh& operator=(const OpenGLMesh&) = delete;
 
     void draw();
+    // Enables locations 7-10 on this mesh's VAO, draws `instance_count` instances from `instance_buffer`, then
+    // disables those locations and sets their divisor back to 0 before the VAO is unbound.
+    void draw_instanced(unsigned int instance_buffer, int instance_count);
 
     [[nodiscard]] bool valid() const noexcept {
         return vbo_ != 0;
@@ -33,6 +36,7 @@ protected:
 private:
     // Puts `desc` into the buffers: in place when it fits, otherwise into larger storage of the same buffer names.
     void upload(const MeshDesc& desc);
+    void configure_vertex_array() const;
 
     std::function<void()> make_current_;
     unsigned int vbo_ = 0;

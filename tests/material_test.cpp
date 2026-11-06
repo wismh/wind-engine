@@ -205,3 +205,25 @@ TEST(Material, InvalidAlphaCutoffFails) {
     EXPECT_FALSE(parse_with("alpha_cutoff = 1.5\n").has_value());
     EXPECT_FALSE(parse_with("alpha_cutoff = nan\n").has_value());
 }
+
+TEST(Material, GlossAndNormalDefaultOff) {
+    const auto desc = parse_with("");
+    ASSERT_TRUE(desc.has_value());
+    EXPECT_EQ(desc->gloss, 0.0f);
+    EXPECT_TRUE(desc->normal.empty());
+}
+
+TEST(Material, ParsesGlossAndNormalMap) {
+    const auto desc = parse_with(
+            "gloss = 32\n[textures]\nnormal = \"asset://cccccccccccccccccccccccccccccccc\"\n");
+    ASSERT_TRUE(desc.has_value());
+    EXPECT_EQ(desc->gloss, 32.0f);
+    EXPECT_EQ(desc->normal, "asset://cccccccccccccccccccccccccccccccc");
+}
+
+TEST(Material, InvalidGlossOrNormalFails) {
+    EXPECT_FALSE(parse_with("gloss = -1\n").has_value());
+    EXPECT_FALSE(parse_with("gloss = \"shiny\"\n").has_value());
+    EXPECT_FALSE(parse_with("gloss = nan\n").has_value());
+    EXPECT_FALSE(parse_with("[textures]\nnormal = \"file.png\"\n").has_value());
+}

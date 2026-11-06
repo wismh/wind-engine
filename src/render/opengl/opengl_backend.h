@@ -42,6 +42,7 @@ public:
     void finish_post();
     void execute_draw_mesh(const CmdDrawMesh& cmd);
     void execute_draw_particles(const CmdDrawParticles& cmd);
+    void execute_draw_mesh_particles(const CmdDrawParticles& cmd);
     // ENGINE_GL_CHECKS: logs the GL errors raised since the last check, once per error and `where`. Otherwise nothing.
     void check_gl_errors(std::string_view where);
 

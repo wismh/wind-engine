@@ -189,27 +189,68 @@ TEST(VulkanBackendTest, WrappedMatrixKeepsTheInnerRowMajorDecoration) {
     EXPECT_EQ(proj->columns, 4u);
 }
 
+TEST(VulkanBackendTest, SpirvReflectionReadsMeshParticleInputLocations) {
+    constexpr std::uint32_t kWith[] = {
+            0x07230203u, 0x00010000u, 0u, 20u, 0u,
+            (3u << 16) | 22u, 1u, 32u,
+            (4u << 16) | 23u, 2u, 1u, 3u,
+            (4u << 16) | 23u, 3u, 1u, 4u,
+            (4u << 16) | 32u, 4u, 1u, 2u,
+            (4u << 16) | 32u, 5u, 1u, 3u,
+            (4u << 16) | 59u, 4u, 6u, 1u,
+            (4u << 16) | 59u, 4u, 7u, 1u,
+            (4u << 16) | 59u, 5u, 8u, 1u,
+            (4u << 16) | 71u, 6u, 30u, 7u,
+            (4u << 16) | 71u, 7u, 30u, 8u,
+            (4u << 16) | 71u, 8u, 30u, 9u,
+    };
+    const SpirvReflection with_locations = reflect_spirv_program(kWith, kWith);
+    EXPECT_TRUE(with_locations.has_input_location(7));
+    EXPECT_TRUE(with_locations.has_input_location(8));
+    EXPECT_TRUE(with_locations.has_input_location(9));
+    EXPECT_FALSE(with_locations.declares_particle_instance_inputs());
+
+    constexpr std::uint32_t kWithout[] = {
+            0x07230203u, 0x00010000u, 0u, 8u, 0u, (3u << 16) | 22u, 1u, 32u,
+    };
+    const SpirvReflection without = reflect_spirv_program(kWithout, kWithout);
+    EXPECT_FALSE(without.has_input_location(7));
+    EXPECT_FALSE(without.declares_particle_instance_inputs());
+}
+
 TEST(VulkanBackendTest, SpirvReflectionTellsAnArraySamplerFromA2DOne) {
 #if !defined(ENGINE_WITH_SLANG)
     GTEST_SKIP() << "the shaders have SPIR-V only where Slang compiled them";
 #endif
     const std::filesystem::path root{ENGINE_BUILTIN_ASSETS_DIR};
     for (const std::string_view file : {"lit_array.shader", "unlit_array.shader"}) {
-        const auto desc = parse_shader(read_text_file(root / "shaders" / std::string(file)));
+        const auto desc = parse_shader(read_text_file(root / "shaders" / std::string(file)), root / "shaders");
         ASSERT_TRUE(desc.has_value()) << file << ": " << desc.error();
         const SpirvReflection refl = reflect_spirv_program(desc->vertex_spirv, desc->fragment_spirv);
         EXPECT_TRUE(refl.has_sampler) << file;
         EXPECT_TRUE(refl.sampler_arrayed) << file;
+        EXPECT_NE(refl.find_uniform("uInstanced"), nullptr) << file;
+        EXPECT_TRUE(refl.has_input_location(7)) << file;
+        EXPECT_TRUE(refl.has_input_location(8)) << file;
+        EXPECT_TRUE(refl.has_input_location(9)) << file;
+        EXPECT_TRUE(refl.has_input_location(10)) << file;
+        EXPECT_TRUE(refl.declares_particle_instance_inputs()) << file;
         for (const std::string_view name : {"uAlphaCutoff", "uFogEnabled", "uColor", "uModel"}) {
             EXPECT_NE(refl.find_uniform(name), nullptr) << file << " " << name;
         }
     }
     for (const std::string_view file : {"lit.shader", "unlit.shader"}) {
-        const auto desc = parse_shader(read_text_file(root / "shaders" / std::string(file)));
+        const auto desc = parse_shader(read_text_file(root / "shaders" / std::string(file)), root / "shaders");
         ASSERT_TRUE(desc.has_value()) << file;
         const SpirvReflection refl = reflect_spirv_program(desc->vertex_spirv, desc->fragment_spirv);
         EXPECT_TRUE(refl.has_sampler) << file;
         EXPECT_FALSE(refl.sampler_arrayed) << file;
+        EXPECT_NE(refl.find_uniform("uInstanced"), nullptr) << file;
+        EXPECT_TRUE(refl.has_input_location(7)) << file;
+        EXPECT_TRUE(refl.has_input_location(8)) << file;
+        EXPECT_TRUE(refl.has_input_location(9)) << file;
+        EXPECT_FALSE(refl.has_input_location(10)) << file;
+        EXPECT_TRUE(refl.declares_particle_instance_inputs()) << file;
     }
 }
 
@@ -308,7 +349,7 @@ TEST(VulkanBackendTest, MakeSdlVkPresentationCreatesValidPresentation) {
 #if defined(ENGINE_BUILTIN_ASSETS_DIR) && defined(ENGINE_WITH_SLANG)
 TEST(VulkanBackendTest, SpirvReflectionExtractsUniformsFromBuiltinSlangShaders) {
     const std::filesystem::path root{ENGINE_BUILTIN_ASSETS_DIR};
-    const auto unlit_desc = parse_shader(read_text_file(root / "shaders" / "unlit.shader"));
+    const auto unlit_desc = parse_shader(read_text_file(root / "shaders" / "unlit.shader"), root / "shaders");
     ASSERT_TRUE(unlit_desc.has_value());
 
     const SpirvReflection unlit_refl =
@@ -348,7 +389,7 @@ TEST(VulkanBackendTest, SpirvReflectionExtractsUniformsFromBuiltinSlangShaders) 
     EXPECT_NE(unlit_refl.find_uniform("uUvScale"), nullptr);
     EXPECT_NE(unlit_refl.find_uniform("uUvOffset"), nullptr);
 
-    const auto lit_desc = parse_shader(read_text_file(root / "shaders" / "lit.shader"));
+    const auto lit_desc = parse_shader(read_text_file(root / "shaders" / "lit.shader"), root / "shaders");
     ASSERT_TRUE(lit_desc.has_value());
     const SpirvReflection lit_refl =
         reflect_spirv_program(lit_desc->vertex_spirv, lit_desc->fragment_spirv);
@@ -357,11 +398,11 @@ TEST(VulkanBackendTest, SpirvReflectionExtractsUniformsFromBuiltinSlangShaders) 
     ASSERT_NE(lit_refl.find_uniform("uNormalMatrix"), nullptr);
     EXPECT_EQ(lit_refl.find_uniform("uNormalMatrix")->columns, 3u);
     EXPECT_NE(lit_refl.find_uniform("uLightCount"), nullptr);
-    ASSERT_NE(lit_refl.find_uniform("uLightDirections"), nullptr);
-    EXPECT_EQ(lit_refl.find_uniform("uLightDirections")->array_elements, 4u);
-    EXPECT_GE(lit_refl.find_uniform("uLightDirections")->array_stride, 16u);
-    ASSERT_NE(lit_refl.find_uniform("uLightColors"), nullptr);
-    EXPECT_EQ(lit_refl.find_uniform("uLightColors")->array_elements, 4u);
+    ASSERT_NE(lit_refl.find_uniform("uLightColorKind"), nullptr);
+    EXPECT_EQ(lit_refl.find_uniform("uLightColorKind")->array_elements, 16u);
+    EXPECT_GE(lit_refl.find_uniform("uLightColorKind")->array_stride, 16u);
+    ASSERT_NE(lit_refl.find_uniform("uLightDirRange"), nullptr);
+    EXPECT_EQ(lit_refl.find_uniform("uLightDirRange")->array_elements, 16u);
     EXPECT_NE(lit_refl.find_uniform("uAmbient"), nullptr);
 
     // Cutout and fog uniforms, which the backend writes for every mesh draw.

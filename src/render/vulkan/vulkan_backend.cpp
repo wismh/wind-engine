@@ -8,6 +8,7 @@
 #include "ui/render/paint_resources.h"
 
 #include <engine/render/command_buffer.h>
+#include <engine/render/particles.h>
 #include <engine/ui/document.h>
 #include <engine/ui/stylesheet.h>
 
@@ -40,6 +41,7 @@ struct VertexInput {
     [[vk::location(5)]] float4 aInstanceColor : COLOR0;
     [[vk::location(6)]] float2 aInstanceUvScale : TEXCOORD4;
     [[vk::location(7)]] float2 aInstanceUvOffset : TEXCOORD5;
+    [[vk::location(8)]] float3 aInstanceVelocity : TEXCOORD6;
 };
 struct VertexOutput {
     float4 position : SV_Position;
@@ -49,6 +51,7 @@ struct VertexOutput {
 uniform float4x4 uView;
 uniform float4x4 uProjection;
 uniform float4 uColor;
+uniform int uParticleMode;
 uniform Sampler2D uTexture;
 [shader("vertex")]
 VertexOutput vertexMain(VertexInput input) {
@@ -61,7 +64,36 @@ VertexOutput vertexMain(VertexInput input) {
     float2 rotated = float2(
         scaled.x * cos_r - scaled.y * sin_r,
         scaled.x * sin_r + scaled.y * cos_r);
-    float3 world_pos = input.aInstancePos + float3(rotated, input.aPosition.z);
+    // Offset matches particle_card_offset. write_mat4 transposes row-major uView, so row 0 is camera right.
+    float3 offset;
+    if (uParticleMode == 0) {
+        offset = float3(rotated, 0.0);
+    } else {
+        float3 camera_right = uView[0].xyz;
+        float3 camera_up = uView[1].xyz;
+        float right_len = length(camera_right);
+        float up_len = length(camera_up);
+        camera_right = right_len > 1e-8 ? camera_right / right_len : float3(1.0, 0.0, 0.0);
+        camera_up = up_len > 1e-8 ? camera_up / up_len : float3(0.0, 1.0, 0.0);
+        float3 axis_x = camera_right;
+        float3 axis_y = camera_up;
+        if (uParticleMode == 2) {
+            float3 normal = cross(camera_right, camera_up);
+            float nlen = length(normal);
+            if (nlen > 1e-8) {
+                normal /= nlen;
+                float3 planar = camera_right * dot(input.aInstanceVelocity, camera_right)
+                        + camera_up * dot(input.aInstanceVelocity, camera_up);
+                float plen = length(planar);
+                if (plen > 1e-4) {
+                    axis_y = planar / plen;
+                    axis_x = cross(axis_y, normal);
+                }
+            }
+        }
+        offset = axis_x * rotated.x + axis_y * rotated.y;
+    }
+    float3 world_pos = input.aInstancePos + offset;
     out.position = mul(uProjection, mul(uView, float4(world_pos, 1.0)));
     return out;
 }
@@ -193,6 +225,24 @@ void write_mat4_array(
     }
 }
 
+void write_vec4_array(
+    std::vector<std::uint8_t>& buf,
+    const SpirvReflection& refl,
+    std::string_view name,
+    std::span<const glm::vec4> values) {
+    const SpirvUniformMember* mem = refl.find_uniform(name);
+    if (!mem || values.empty()) {
+        return;
+    }
+    const std::uint32_t stride = mem->array_stride > 0 ? mem->array_stride : 16u;
+    const std::uint32_t count = std::min(
+        static_cast<std::uint32_t>(values.size()),
+        mem->array_elements > 0 ? mem->array_elements : static_cast<std::uint32_t>(values.size()));
+    for (std::uint32_t i = 0; i < count; ++i) {
+        write_bytes(buf, mem->offset + i * stride, &values[i][0], sizeof(glm::vec4));
+    }
+}
+
 void write_vec3_array(
     std::vector<std::uint8_t>& buf,
     const SpirvReflection& refl,
@@ -220,12 +270,14 @@ void write_view_uniforms(
     write_mat4(buf, refl, "uProjection", vulkan_projection(view.projection));
     write_vec3(buf, refl, "uCameraPosition", view.camera_position);
     write_float(buf, refl, "uTime", view.time);
-    const int count = std::clamp(
-        view.lights.directional_count, 0, static_cast<int>(kMaxDirectionalLights));
+    const PackedForwardLights packed = pack_forward_lights(view.lights);
+    const int count = std::clamp(packed.count, 0, static_cast<int>(kMaxForwardLights));
     write_int(buf, refl, "uLightCount", count);
-    write_vec3_array(buf, refl, "uLightDirections", view.lights.directions);
-    write_vec3_array(buf, refl, "uLightColors", view.lights.colors);
-    write_vec3(buf, refl, "uAmbient", view.lights.ambient);
+    write_vec4_array(buf, refl, "uLightColorKind", packed.color_kind);
+    write_vec4_array(buf, refl, "uLightDirRange", packed.direction_range);
+    write_vec4_array(buf, refl, "uLightPosSpot", packed.position_spot);
+    write_vec4_array(buf, refl, "uLightSpotBias", packed.spot_bias);
+    write_vec3(buf, refl, "uAmbient", packed.ambient);
     // Zero is off for every fog uniform, as in a zero-initialized UBO.
     write_int(buf, refl, "uFogEnabled", view.fog.has_value() ? 1 : 0);
     const Fog fog = view.fog.value_or(Fog{});
@@ -585,6 +637,7 @@ void VulkanRenderBackend::execute_draw_mesh(const CmdDrawMesh& cmd) {
     const SpirvReflection& refl = shader->reflection();
     std::vector<std::uint8_t> ubo(std::max<std::uint32_t>(refl.ubo_size, 64u), 0);
     write_mat4(ubo, refl, "uModel", cmd.model);
+    write_int(ubo, refl, "uInstanced", 0);
     write_mat3(ubo, refl, "uNormalMatrix", normal_matrix(cmd.model));
     write_view_uniforms(ubo, refl, view_);
     write_vec4(ubo, refl, "uColor", cmd.material->color() * cmd.color);
@@ -592,6 +645,8 @@ void VulkanRenderBackend::execute_draw_mesh(const CmdDrawMesh& cmd) {
     write_vec2(ubo, refl, "uUvOffset", cmd.uv_offset);
     // No cutoff is 0: alpha is never below it, so nothing is discarded.
     write_float(ubo, refl, "uAlphaCutoff", cmd.material->render_state().alpha_cutoff.value_or(0.0f));
+    write_float(ubo, refl, "uGloss", cmd.material->gloss());
+    write_int(ubo, refl, "uHasNormalMap", cmd.material->texture(1) ? 1 : 0);
     if (cmd.bone_count > 0 && cmd.bones != nullptr) {
         write_mat4_array(ubo, refl, "uBones", std::span<const glm::mat4>(cmd.bones, static_cast<std::size_t>(cmd.bone_count)));
     }
@@ -602,7 +657,121 @@ void VulkanRenderBackend::execute_draw_mesh(const CmdDrawMesh& cmd) {
         }
     }
 
-    const VkDescriptorSet ds = allocate_and_write_descriptor(ubo, *albedo);
+    VulkanTexture* normal_tex = nullptr;
+    if (refl.has_normal_sampler) {
+        if (const auto bound = std::dynamic_pointer_cast<VulkanTexture>(cmd.material->texture(1));
+            bound && bound->valid() && bound->layers() == 0 && bound->ensure_gpu_image()) {
+            normal_tex = bound.get();
+        } else {
+            if (!white_texture_) {
+                const TextureDesc white_desc{
+                        .width = 1,
+                        .height = 1,
+                        .rgba = {255, 255, 255, 255},
+                        .filter = FilterMode::Nearest,
+                        .wrap = WrapMode::Clamp,
+                };
+                white_texture_ = std::make_shared<VulkanTexture>(context_, white_desc);
+            }
+            normal_tex = white_texture_.get();
+        }
+        if (normal_tex == nullptr || !normal_tex->ensure_gpu_image()) {
+            return;
+        }
+    }
+    const VkDescriptorSet ds = allocate_and_write_descriptor(ubo, *albedo, normal_tex);
+    if (ds == VK_NULL_HANDLE) {
+        return;
+    }
+
+    const VulkanFunctions& fn = context_->fn();
+    fn.vkCmdBindPipeline(active_cmd_, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    const bool instanced_inputs = shader->declares_particle_instance_inputs();
+    if (instanced_inputs && !ensure_mesh_instance_dummy()) {
+        return;
+    }
+
+    fn.vkCmdBindDescriptorSets(
+        active_cmd_, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout_, 0, 1, &ds, 0, nullptr);
+    if (instanced_inputs) {
+        mesh->draw_instanced(active_cmd_, mesh_instance_dummy_, 0, 1);
+    } else {
+        mesh->draw(active_cmd_);
+    }
+}
+
+void VulkanRenderBackend::execute_draw_mesh_particles(const CmdDrawParticles& cmd) {
+    if (active_cmd_ == VK_NULL_HANDLE || cmd.mesh_instances.empty() || !cmd.mesh || !cmd.material || !context_ ||
+        !context_->is_device_ready()) {
+        return;
+    }
+    if (!ensure_frame_slot(active_slot_)) {
+        return;
+    }
+    const auto shader = std::dynamic_pointer_cast<VulkanShader>(cmd.material->shader());
+    const auto mesh = std::dynamic_pointer_cast<VulkanMesh>(cmd.mesh);
+    if (!shader || !mesh || !shader->valid() || !mesh->valid() || !shader->ensure_modules() ||
+        !shader->declares_particle_instance_inputs()) {
+        return;
+    }
+
+    const RenderState state = cmd.material->render_state();
+    VulkanTexture* albedo = resolve_albedo(*cmd.material, nullptr, shader->reflection().sampler_arrayed);
+    if (albedo == nullptr || !albedo->ensure_gpu_image()) {
+        return;
+    }
+    const VkPipeline pipeline = get_or_create_pipeline(*shader, state, false);
+    if (pipeline == VK_NULL_HANDLE) {
+        return;
+    }
+
+    FrameSlot& slot = frame_slots_[active_slot_];
+    const VkDeviceSize bytes =
+        static_cast<VkDeviceSize>(cmd.mesh_instances.size() * sizeof(MeshParticleInstance));
+    const VkDeviceSize instance_offset = (slot.instance_offset + 15u) & ~VkDeviceSize{15u};
+    if (instance_offset + bytes > slot.instance_capacity || slot.instance_mapped == nullptr) {
+        return;
+    }
+    std::memcpy(slot.instance_mapped + instance_offset, cmd.mesh_instances.data(), static_cast<std::size_t>(bytes));
+    slot.instance_offset = instance_offset + bytes;
+
+    const SpirvReflection& refl = shader->reflection();
+    std::vector<std::uint8_t> ubo(std::max<std::uint32_t>(refl.ubo_size, 64u), 0);
+    const glm::mat4 identity{1.0f};
+    write_mat4(ubo, refl, "uModel", identity);
+    write_int(ubo, refl, "uInstanced", 1);
+    write_mat3(ubo, refl, "uNormalMatrix", normal_matrix(identity));
+    write_view_uniforms(ubo, refl, view_);
+    write_vec4(ubo, refl, "uColor", cmd.material->color());
+    write_vec2(ubo, refl, "uUvScale", glm::vec2{1.0f, 1.0f});
+    write_vec2(ubo, refl, "uUvOffset", glm::vec2{0.0f, 0.0f});
+    write_float(ubo, refl, "uAlphaCutoff", state.alpha_cutoff.value_or(0.0f));
+    write_float(ubo, refl, "uGloss", cmd.material->gloss());
+    write_int(ubo, refl, "uHasNormalMap", cmd.material->texture(1) ? 1 : 0);
+
+    VulkanTexture* normal_tex = nullptr;
+    if (refl.has_normal_sampler) {
+        if (const auto bound = std::dynamic_pointer_cast<VulkanTexture>(cmd.material->texture(1));
+            bound && bound->valid() && bound->layers() == 0 && bound->ensure_gpu_image()) {
+            normal_tex = bound.get();
+        } else {
+            if (!white_texture_) {
+                const TextureDesc white_desc{
+                        .width = 1,
+                        .height = 1,
+                        .rgba = {255, 255, 255, 255},
+                        .filter = FilterMode::Nearest,
+                        .wrap = WrapMode::Clamp,
+                };
+                white_texture_ = std::make_shared<VulkanTexture>(context_, white_desc);
+            }
+            normal_tex = white_texture_.get();
+        }
+        if (normal_tex == nullptr || !normal_tex->ensure_gpu_image()) {
+            return;
+        }
+    }
+    const VkDescriptorSet ds = allocate_and_write_descriptor(ubo, *albedo, normal_tex);
     if (ds == VK_NULL_HANDLE) {
         return;
     }
@@ -611,10 +780,16 @@ void VulkanRenderBackend::execute_draw_mesh(const CmdDrawMesh& cmd) {
     fn.vkCmdBindPipeline(active_cmd_, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
     fn.vkCmdBindDescriptorSets(
         active_cmd_, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout_, 0, 1, &ds, 0, nullptr);
-    mesh->draw(active_cmd_);
+    mesh->draw_instanced(active_cmd_, slot.instance_buffer, instance_offset,
+            static_cast<std::uint32_t>(cmd.mesh_instances.size()));
 }
 
 void VulkanRenderBackend::execute_draw_particles(const CmdDrawParticles& cmd) {
+    // Mesh never reaches the card shader. uParticleMode is set only on the path below.
+    if (cmd.draw == ParticleDraw::Mesh) {
+        execute_draw_mesh_particles(cmd);
+        return;
+    }
     if (active_cmd_ == VK_NULL_HANDLE || cmd.instances.empty() || !cmd.material || !context_ ||
         !context_->is_device_ready()) {
         return;
@@ -629,12 +804,14 @@ void VulkanRenderBackend::execute_draw_particles(const CmdDrawParticles& cmd) {
         return;
     }
 
-    const RenderState state{
-        .blend = cmd.blend,
-        .depth_test = false,
-        .depth_write = false,
-        .cull = CullMode::None,
-    };
+    // Plane keeps the 2D depth state. Billboard and Stretched take depth and cull from the material.
+    RenderState state{.blend = cmd.blend};
+    if (cmd.draw != ParticleDraw::Plane && cmd.material != nullptr) {
+        const RenderState material_state = cmd.material->render_state();
+        state.depth_test = material_state.depth_test;
+        state.depth_write = material_state.depth_write;
+        state.cull = material_state.cull;
+    }
     const VkPipeline pipeline = get_or_create_pipeline(*particle_shader_, state, true);
     if (pipeline == VK_NULL_HANDLE) {
         return;
@@ -654,6 +831,7 @@ void VulkanRenderBackend::execute_draw_particles(const CmdDrawParticles& cmd) {
     std::vector<std::uint8_t> ubo(std::max<std::uint32_t>(refl.ubo_size, 64u), 0);
     write_view_uniforms(ubo, refl, view_);
     write_vec4(ubo, refl, "uColor", cmd.material->color());
+    write_int(ubo, refl, "uParticleMode", static_cast<int>(cmd.draw));
 
     const VkDescriptorSet ds = allocate_and_write_descriptor(ubo, *albedo);
     if (ds == VK_NULL_HANDLE) {
@@ -793,6 +971,23 @@ bool VulkanRenderBackend::ensure_frame_slot(std::uint32_t slot_idx) {
     return true;
 }
 
+bool VulkanRenderBackend::ensure_mesh_instance_dummy() {
+    if (mesh_instance_dummy_ != VK_NULL_HANDLE) {
+        return true;
+    }
+    if (!context_ || !context_->is_device_ready()) {
+        return false;
+    }
+    const MeshParticleInstance dummy{
+            .position = {0.0f, 0.0f, 0.0f},
+            .scale = {1.0f, 1.0f, 1.0f},
+            .color = {1.0f, 1.0f, 1.0f, 1.0f},
+            .layer = 0.0f,
+    };
+    return context_->upload_host_buffer(sizeof(dummy), &dummy, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+            mesh_instance_dummy_, mesh_instance_dummy_memory_);
+}
+
 bool VulkanRenderBackend::ensure_particle_resources() {
     if (particle_shader_ && particle_quad_buffer_ != VK_NULL_HANDLE) {
         return particle_shader_->ensure_modules();
@@ -873,7 +1068,8 @@ VulkanTexture* VulkanRenderBackend::resolve_albedo(
 
 VkDescriptorSet VulkanRenderBackend::allocate_and_write_descriptor(
     const std::vector<std::uint8_t>& ubo_bytes,
-    VulkanTexture& texture) {
+    VulkanTexture& texture,
+    VulkanTexture* normal) {
     if (!ensure_shared_objects() || !ensure_frame_slot(active_slot_)) {
         return VK_NULL_HANDLE;
     }
@@ -913,7 +1109,14 @@ VkDescriptorSet VulkanRenderBackend::allocate_and_write_descriptor(
     img_info.imageView = texture.image_view();
     img_info.sampler = texture.sampler();
 
-    std::array<VkWriteDescriptorSet, 2> writes{};
+    VkDescriptorImageInfo normal_info{};
+    if (normal != nullptr) {
+        normal_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        normal_info.imageView = normal->image_view();
+        normal_info.sampler = normal->sampler();
+    }
+
+    std::array<VkWriteDescriptorSet, 3> writes{};
     writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[0].dstSet = ds;
     writes[0].dstBinding = 0;
@@ -928,7 +1131,18 @@ VkDescriptorSet VulkanRenderBackend::allocate_and_write_descriptor(
     writes[1].descriptorCount = 1;
     writes[1].pImageInfo = &img_info;
 
-    fn.vkUpdateDescriptorSets(device, static_cast<std::uint32_t>(writes.size()), writes.data(), 0, nullptr);
+    std::uint32_t write_count = 2;
+    if (normal != nullptr) {
+        writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[2].dstSet = ds;
+        writes[2].dstBinding = 2;
+        writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[2].descriptorCount = 1;
+        writes[2].pImageInfo = &normal_info;
+        write_count = 3;
+    }
+
+    fn.vkUpdateDescriptorSets(device, write_count, writes.data(), 0, nullptr);
     return ds;
 }
 
@@ -993,6 +1207,20 @@ VkPipeline VulkanRenderBackend::get_or_create_pipeline(
             vertex_attrs.push_back(
                 {6, 1, VK_FORMAT_R32G32B32A32_SFLOAT, static_cast<std::uint32_t>(offsetof(SkinInfluence, weights))});
         }
+        if (refl.has_input_location(7) && refl.has_input_location(8) && refl.has_input_location(9)) {
+            vertex_bindings.push_back(
+                    {2, static_cast<std::uint32_t>(sizeof(MeshParticleInstance)), VK_VERTEX_INPUT_RATE_INSTANCE});
+            vertex_attrs.push_back({7, 2, VK_FORMAT_R32G32B32_SFLOAT,
+                    static_cast<std::uint32_t>(offsetof(MeshParticleInstance, position))});
+            vertex_attrs.push_back({8, 2, VK_FORMAT_R32G32B32_SFLOAT,
+                    static_cast<std::uint32_t>(offsetof(MeshParticleInstance, scale))});
+            vertex_attrs.push_back({9, 2, VK_FORMAT_R32G32B32A32_SFLOAT,
+                    static_cast<std::uint32_t>(offsetof(MeshParticleInstance, color))});
+            if (refl.has_input_location(10)) {
+                vertex_attrs.push_back({10, 2, VK_FORMAT_R32_SFLOAT,
+                        static_cast<std::uint32_t>(offsetof(MeshParticleInstance, layer))});
+            }
+        }
     } else {
         vertex_bindings.push_back({0, sizeof(QuadVertex), VK_VERTEX_INPUT_RATE_VERTEX});
         vertex_bindings.push_back({1, sizeof(ParticleInstance), VK_VERTEX_INPUT_RATE_INSTANCE});
@@ -1010,6 +1238,8 @@ VkPipeline VulkanRenderBackend::get_or_create_pipeline(
             static_cast<std::uint32_t>(offsetof(ParticleInstance, uv_scale))});
         vertex_attrs.push_back({7, 1, VK_FORMAT_R32G32_SFLOAT,
             static_cast<std::uint32_t>(offsetof(ParticleInstance, uv_offset))});
+        vertex_attrs.push_back({8, 1, VK_FORMAT_R32G32B32_SFLOAT,
+            static_cast<std::uint32_t>(offsetof(ParticleInstance, velocity))});
     }
 
     VkPipelineVertexInputStateCreateInfo vi_info{};
@@ -1135,6 +1365,14 @@ void VulkanRenderBackend::shutdown_gpu_resources() {
     if (particle_quad_memory_ != VK_NULL_HANDLE) {
         fn.vkFreeMemory(device, particle_quad_memory_, nullptr);
         particle_quad_memory_ = VK_NULL_HANDLE;
+    }
+    if (mesh_instance_dummy_ != VK_NULL_HANDLE) {
+        fn.vkDestroyBuffer(device, mesh_instance_dummy_, nullptr);
+        mesh_instance_dummy_ = VK_NULL_HANDLE;
+    }
+    if (mesh_instance_dummy_memory_ != VK_NULL_HANDLE) {
+        fn.vkFreeMemory(device, mesh_instance_dummy_memory_, nullptr);
+        mesh_instance_dummy_memory_ = VK_NULL_HANDLE;
     }
 
     for (FrameSlot& slot : frame_slots_) {

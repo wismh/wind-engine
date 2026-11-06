@@ -9,7 +9,10 @@
 #include <cstdint>
 #include <cstring>
 #include <expected>
+#include <filesystem>
 #include <format>
+#include <fstream>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <sstream>
@@ -119,7 +122,44 @@ std::optional<render::MeshDesc> parse_mesh(std::string_view text) {
     return desc;
 }
 
-std::expected<render::ShaderDesc, std::string> parse_shader(std::string_view xml) {
+// One level. The included file is source text, not XML, so it may contain `<`.
+std::expected<std::string, std::string> expand_shader_includes(
+        std::string source, const std::filesystem::path& dir) {
+    constexpr std::string_view token = "#include \"";
+    std::string out;
+    out.reserve(source.size());
+    std::size_t cursor = 0;
+    while (cursor < source.size()) {
+        const std::size_t pos = source.find(token, cursor);
+        if (pos == std::string::npos) {
+            out.append(source, cursor, std::string::npos);
+            break;
+        }
+        out.append(source, cursor, pos - cursor);
+        const std::size_t end = source.find('"', pos + token.size());
+        if (end == std::string::npos) {
+            return std::unexpected("shader include is missing a closing quote");
+        }
+        const std::string name = source.substr(pos + token.size(), end - (pos + token.size()));
+        if (name.empty() || name.find('/') != std::string::npos || name.find('\\') != std::string::npos ||
+                name.find("..") != std::string::npos) {
+            return std::unexpected("shader include must be a file name in the shader directory");
+        }
+        if (dir.empty()) {
+            return std::unexpected("shader include \"" + name + "\" needs the shader's directory");
+        }
+        std::ifstream in(dir / name);
+        if (!in) {
+            return std::unexpected("shader include not found: " + name);
+        }
+        out.append(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        cursor = end + 1;
+    }
+    return out;
+}
+
+std::expected<render::ShaderDesc, std::string> parse_shader(
+        std::string_view xml, const std::filesystem::path& include_dir) {
     tinyxml2::XMLDocument doc;
     if (doc.Parse(xml.data(), xml.size()) != tinyxml2::XML_SUCCESS) {
         return std::unexpected("invalid shader XML");
@@ -153,7 +193,15 @@ std::expected<render::ShaderDesc, std::string> parse_shader(std::string_view xml
         std::string stage_vs;
         std::string stage_fs;
         if (extract_vertex_fragment(slang_child, stage_vs, stage_fs)) {
-            auto compiled = render::compile_slang_shader_stages(stage_vs, stage_fs, vs_entry, fs_entry);
+            auto vs = expand_shader_includes(std::move(stage_vs), include_dir);
+            auto fs = expand_shader_includes(std::move(stage_fs), include_dir);
+            if (!vs) {
+                return std::unexpected(vs.error());
+            }
+            if (!fs) {
+                return std::unexpected(fs.error());
+            }
+            auto compiled = render::compile_slang_shader_stages(*vs, *fs, vs_entry, fs_entry);
             if (!compiled) {
                 return std::unexpected(std::move(compiled.error()));
             }
@@ -163,7 +211,11 @@ std::expected<render::ShaderDesc, std::string> parse_shader(std::string_view xml
             if (slang_text == nullptr || trim(slang_text).empty()) {
                 return std::unexpected("empty <slang> element in shader");
             }
-            auto compiled = render::compile_slang_shader(trim(slang_text), vs_entry, fs_entry);
+            auto slang_src = expand_shader_includes(std::string(trim(slang_text)), include_dir);
+            if (!slang_src) {
+                return std::unexpected(slang_src.error());
+            }
+            auto compiled = render::compile_slang_shader(*slang_src, vs_entry, fs_entry);
             if (!compiled) {
                 return std::unexpected(std::move(compiled.error()));
             }
@@ -174,7 +226,15 @@ std::expected<render::ShaderDesc, std::string> parse_shader(std::string_view xml
         std::string stage_vs;
         std::string stage_fs;
         if (extract_vertex_fragment(root, stage_vs, stage_fs)) {
-            auto compiled = render::compile_slang_shader_stages(stage_vs, stage_fs, vs_entry, fs_entry);
+            auto vs = expand_shader_includes(std::move(stage_vs), include_dir);
+            auto fs = expand_shader_includes(std::move(stage_fs), include_dir);
+            if (!vs) {
+                return std::unexpected(vs.error());
+            }
+            if (!fs) {
+                return std::unexpected(fs.error());
+            }
+            auto compiled = render::compile_slang_shader_stages(*vs, *fs, vs_entry, fs_entry);
             if (!compiled) {
                 return std::unexpected(std::move(compiled.error()));
             }
@@ -184,7 +244,11 @@ std::expected<render::ShaderDesc, std::string> parse_shader(std::string_view xml
             if (slang_text == nullptr || trim(slang_text).empty()) {
                 return std::unexpected("empty Slang shader source");
             }
-            auto compiled = render::compile_slang_shader(trim(slang_text), vs_entry, fs_entry);
+            auto slang_src = expand_shader_includes(std::string(trim(slang_text)), include_dir);
+            if (!slang_src) {
+                return std::unexpected(slang_src.error());
+            }
+            auto compiled = render::compile_slang_shader(*slang_src, vs_entry, fs_entry);
             if (!compiled) {
                 return std::unexpected(std::move(compiled.error()));
             }
@@ -207,8 +271,16 @@ std::expected<render::ShaderDesc, std::string> parse_shader(std::string_view xml
         if (!extract_vertex_fragment(glsl_child, glsl_vs, glsl_fs)) {
             return std::unexpected("<glsl> override requires non-empty <vertex> and <fragment>");
         }
-        desc.vertex_src = std::move(glsl_vs);
-        desc.fragment_src = std::move(glsl_fs);
+        auto vs = expand_shader_includes(std::move(glsl_vs), include_dir);
+        auto fs = expand_shader_includes(std::move(glsl_fs), include_dir);
+        if (!vs) {
+            return std::unexpected(vs.error());
+        }
+        if (!fs) {
+            return std::unexpected(fs.error());
+        }
+        desc.vertex_src = std::move(*vs);
+        desc.fragment_src = std::move(*fs);
         return desc;
     }
 
@@ -217,14 +289,26 @@ std::expected<render::ShaderDesc, std::string> parse_shader(std::string_view xml
     }
 
     // Legacy `<xml><vertex>...</vertex><fragment>...</fragment></xml>` raw GLSL format.
-    if (!extract_vertex_fragment(root, desc.vertex_src, desc.fragment_src)) {
+    std::string legacy_vs;
+    std::string legacy_fs;
+    if (!extract_vertex_fragment(root, legacy_vs, legacy_fs)) {
         return std::unexpected("shader requires <slang>, lang=\"slang\", or <vertex> and <fragment>");
     }
+    auto vs = expand_shader_includes(std::move(legacy_vs), include_dir);
+    auto fs = expand_shader_includes(std::move(legacy_fs), include_dir);
+    if (!vs) {
+        return std::unexpected(vs.error());
+    }
+    if (!fs) {
+        return std::unexpected(fs.error());
+    }
+    desc.vertex_src = std::move(*vs);
+    desc.fragment_src = std::move(*fs);
     return desc;
 }
 
-std::optional<render::ShaderDesc> parse_shader_xml(std::string_view xml) {
-    auto parsed = parse_shader(xml);
+std::optional<render::ShaderDesc> parse_shader_xml(std::string_view xml, const std::filesystem::path& include_dir) {
+    auto parsed = parse_shader(xml, include_dir);
     if (!parsed) {
         return std::nullopt;
     }

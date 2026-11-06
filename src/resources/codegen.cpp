@@ -486,7 +486,7 @@ std::expected<CodegenOutput, CodegenError> codegen_scan(const std::filesystem::p
                 return std::unexpected(CodegenError{CodegenErrorKind::Io, "failed to read " + file.generic_string()});
             }
             const std::string body((std::istreambuf_iterator<char>(shader_in)), std::istreambuf_iterator<char>());
-            auto shader_desc = parse_shader(body);
+            auto shader_desc = parse_shader(body, file.parent_path());
             if (!shader_desc) {
                 return std::unexpected(
                         CodegenError{CodegenErrorKind::Shader, relative + ": " + shader_desc.error()});

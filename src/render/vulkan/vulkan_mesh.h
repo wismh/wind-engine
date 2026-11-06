@@ -24,6 +24,10 @@ public:
     [[nodiscard]] bool valid() const noexcept { return valid_; }
     [[nodiscard]] bool ensure_gpu_buffers();
     void draw(VkCommandBuffer cmd);
+    // Binds `instances` at binding 2 when it is set, and draws `instance_count` copies. `draw` is count 1 and no
+    // instance buffer.
+    void draw_instanced(VkCommandBuffer cmd, VkBuffer instances, VkDeviceSize instance_offset,
+            std::uint32_t instance_count);
 
     [[nodiscard]] std::size_t vertex_count() const noexcept { return vertices_.size(); }
     [[nodiscard]] std::size_t index_count() const noexcept { return indices_.size(); }

@@ -12,13 +12,13 @@ Draw order and `.mat` files: [Materials and Sort](../features/Materials%20and%20
 | --- | --- |
 | `CmdDrawMesh` | `run_render` and `render_world_viewport` for each `Renderable` and `Sprite` inside a window's frustum ([Frustum culling](#frustum-culling)) |
 | `CmdDrawUI` | `run_ui_render` for each `UiCanvas` |
-| `CmdDrawParticles` | `run_render` and `render_world_viewport` for a `ParticleEmitter` whose `particles` list is not empty |
+| `CmdDrawParticles` | `run_render` and `render_world_viewport` for a `ParticleEmitter` whose `particles` list is not empty and whose bounds meet a bound window's frustum, unless `frustum_cull` is false |
 | `CmdSetView` | `run_render` (once per bound window) and `render_world_viewport` (for a sub-rectangle viewport) before world draws |
 | `CmdPostProcess` | `run_render`, after that window's world draws, when the view's post chain is active |
 
 There is no custom-draw callback on the variant.
 
-`CmdSetView` is the view state of the world draws that follow it: `view`, `projection`, `camera_position` (the translation of the camera's world matrix), `lights` (`SceneLights`, see [Lights](#lights)), optional `fog` (`std::optional<Fog>`, see [Fog](#fog)), `post` (`PostChain`, see [Post process](#post-process)), and optional `viewport` (`std::optional<Rect>`, in top-left window coordinates) and `clear_color` (`std::optional<glm::vec4>`). It holds until the next `CmdSetView` in the same buffer. The draws carry no camera: `CmdDrawMesh` has only its `model`, and `CmdDrawParticles` has none (its instances are in world space). A draw before any `CmdSetView` in a buffer uses identity view and projection, camera position zero, no lights (`directional_count` 0, ambient black), no fog, full-window viewport, and no clear, which is a default-constructed `CmdSetView`; the OpenGL backend resets to that at the start of every `execute`. A test or tool that pushes its own `CmdDrawMesh` therefore draws in clip space unless it pushes a `CmdSetView` first.
+`CmdSetView` is the view state of the world draws that follow it: `view`, `projection`, `camera_position` (the translation of the camera's world matrix), `lights` (`SceneLights`, see [Lights](#lights)), optional `fog` (`std::optional<Fog>`, see [Fog](#fog)), `post` (`PostChain`, see [Post process](#post-process)), and optional `viewport` (`std::optional<Rect>`, in top-left window coordinates) and `clear_color` (`std::optional<glm::vec4>`). It holds until the next `CmdSetView` in the same buffer. The draws carry no camera: `CmdDrawMesh` has only its `model`, and `CmdDrawParticles` has none (its instances are in world space). A draw before any `CmdSetView` in a buffer uses identity view and projection, camera position zero, no lights (`count` 0, ambient black), no fog, full-window viewport, and no clear, which is a default-constructed `CmdSetView`; the OpenGL backend resets to that at the start of every `execute`. A test or tool that pushes its own `CmdDrawMesh` therefore draws in clip space unless it pushes a `CmdSetView` first.
 
 `CommandBuffer` stores that variant and can `push`, `clear`, and be iterated. `IRenderBackend::execute` consumes one buffer. `ICanvas::draw` is the present hook the headless `Host` calls. The windowed path calls `draw_all` on the presentation instead; `OpenGLCanvas` splits it into `render`, `read_pixels` (only for a `wind-cli screenshot`), and `present`.
 
@@ -149,13 +149,14 @@ What is tested, in `collect_world_draws` (`src/ecs/systems.cpp`):
 - A `Renderable`: `transform_aabb(mesh->bounds(), world matrix)` (`ecs::world_matrix`, so a `Parent` counts).
 - A `Sprite`: the same box under the final draw model, the world matrix with the pivot offset, the `pixel_size / pixels_per_unit` scale and the flip applied, so size, pivot and flip are exact. The mesh is `Sprite::mesh` or `builtin::mesh_quad`.
 - Tilemap chunks: the chunk's cell rectangle under the map's model, before the chunk is baked ([Tilemaps](#tilemaps)).
-- Not culled: particles (their world-space instances take their size from the particle shader; an emitter is one draw), UI, and draws a tool pushes itself, such as the editor's gizmo and outline.
+- A `ParticleEmitter`: the union of its live particles, at the world position the command already writes. `Plane` is half `|size|` on XY and 0 on Z (a rotated quad can stick out). `Billboard` and `Stretched` are a radius of half the longer side on every axis; that sphere does not cover the quad corner. `Mesh` is `transform_aabb(mesh->bounds(), translate(position) * scale(mesh_scale * size factor))`, so an off-center local box and a negative scale are included. `frustum_cull` defaults to true and is not a `.world` key.
+- Not culled: UI, and draws a tool pushes itself, such as the editor's gizmo and outline.
 
-The fatal checks come first: a `Renderable` or `Sprite` with no mesh or material is fatal whether or not it would be on screen.
+The fatal checks come first: a `Renderable`, `Sprite`, or `ParticleEmitter` with no mesh or material is fatal whether or not it would be on screen. An emitter with an empty particle list is not fatal and pushes nothing.
 
 Windows. `run_render` builds one `camera_frustum` per bound window (`window_size_for` that id) and keeps a draw that any of them sees; the one sorted list still goes to every window. The windows of a world share its camera and view and differ only in aspect, so a per-window list would save draws only in the strip between two aspects. `render_world_viewport` culls with the frustum of its own camera and viewport size, so the editor's scene view culls against the editor camera; its `CmdSetView` and clear are pushed even when everything is culled.
 
-Opt-out. `Renderable::frustum_cull` and `Sprite::frustum_cull` (default true). False always draws the entity: for a shader that moves vertices beyond the mesh's own box (vertex displacement, a sway, a sky). Both are serialized as `frustum_cull` in `.world` (read optionally, default true). A mesh whose vertices change (a voxel chunk) needs nothing: `IMesh::update` keeps its bounds current.
+Opt-out. `Renderable::frustum_cull`, `Sprite::frustum_cull`, and `ParticleEmitter::frustum_cull` (default true). False always draws the entity: for a shader that moves vertices beyond the tested box (vertex displacement, a sway, a sky, a card shader that leaves the CPU particle box). `Renderable` and `Sprite` are serialized as `frustum_cull` in `.world` (read optionally, default true). `ParticleEmitter` is not a serialized component, so its flag is not a `.world` key. A mesh whose vertices change (a voxel chunk) needs nothing: `IMesh::update` keeps its bounds current.
 
 ## Tilemaps
 
@@ -183,36 +184,41 @@ Not covered yet: tile collision, flips, animated tiles, Y-sort, and an editor pa
 
 ## Lights
 
+Decision record: [Lighting Plan](../architecture/Lighting%20Plan.md). One forward list for meshes and for sprites that opt in.
+
 ECS data, public, one type per header:
 
 | Component | Header | Fields |
 | --- | --- | --- |
 | `DirectionalLight` | `include/engine/render/directional_light.h` | `color` (white), `intensity` (1) |
 | `AmbientLight` | `include/engine/render/ambient_light.h` | `color` (white), `intensity` (0.2) |
+| `PointLight` | `include/engine/render/point_light.h` | `color` (white), `intensity` (1), `range` (10) |
+| `SpotLight` | `include/engine/render/spot_light.h` | those, plus `inner_angle` (25°), `outer_angle` (35°), radians from the axis |
 
-`collect_scene_lights(world)` (`include/engine/render/lights.h`, `src/render/lights.cpp`) turns them into the `SceneLights` (`include/engine/render/scene_lights.h`) that `run_render` puts into every `CmdSetView` of the frame. All in world space:
+`collect_scene_lights` (`include/engine/render/lights.h`, `src/render/lights.cpp`) turns them into the `SceneLights` (`include/engine/render/scene_lights.h`) that `run_render` puts into every `CmdSetView` of the frame. The three-argument overload takes the frame's frustums and the camera position; `run_render` and `render_world_viewport` use it. The one-argument overload culls nothing and measures distance from the origin. All in world space:
 
-- A directional light shines along the entity's world forward: the normalized -Z column of `ecs::world_matrix`. So `Transform::rotation` aims it, a `Parent` carries it (after `Phase::Transform`), and position and scale do not matter. An entity without `Transform` shines along -Z, and so does a matrix whose -Z column is zero. `SceneLights::colors[i]` is `color * intensity`.
-- At most `kMaxDirectionalLights` (4) directional lights: the lowest entity indices (`Entity::operator<`), so the cut is the same every frame whatever the pool order. More than that logs one warning per process and the rest are ignored. The flag lives in `src/render/lights.cpp`, not in a header.
-- Ambient is the sum of `color * intensity` over every `AmbientLight`, so two ambient lights add up and their order does not matter.
-- A world with no `DirectionalLight` and no `AmbientLight` at all gets `default_scene_lights()`: one white light along `normalize(kDefaultLightDirection)` = `normalize(0.3, -1, -0.5)` (from above, in front, and to the left, so the visible faces of a cube seen from +Z all differ) and ambient `kDefaultAmbient` = 0.2. Without it a lit object in a scene that declares no lights would be black; with it a first 3D scene (camera, cube, `material_lit`) reads as a solid shape. The default is all or nothing: a world with any light entity gets exactly its lights, so a scene with only an `AmbientLight` has no directional light, and one with only directional lights has no ambient.
+- A directional light shines along the entity's world forward: the normalized -Z column of `ecs::world_matrix`. So `Transform::rotation` aims it, a `Parent` carries it (after `Phase::Transform`), and position and scale do not matter. An entity without `Transform` shines along -Z, and so does a matrix whose -Z column is zero. `SceneLight::color` is `color * intensity`. A spot aims the same way and also has a world position. A point uses only the position.
+- The view holds one array, `kMaxForwardLights` (16). Directional lights come first, at most `kMaxDirectionalLights` (4), lowest entity index. Point and spot fill the rest: the range sphere must meet a passed frustum (an empty span keeps them), nearest to the camera, entity index breaks a tie. Past either cap logs one warning per process. The flags live in `src/render/lights.cpp`.
+- Ambient is the sum of `color * intensity` over every `AmbientLight`. It is not an entry in the array.
+- A world with no light component at all gets `default_scene_lights()`: one white directional along `normalize(kDefaultLightDirection)` = `normalize(0.3, -1, -0.5)` and ambient `kDefaultAmbient` = 0.2. Any light component turns that rig off, including a point that the frustum then drops, so a scene with only an `AmbientLight` has no directional light.
+- `pack_forward_lights` is the GPU layout: `uLightColorKind` (rgb color, w kind), `uLightDirRange` (xyz travel direction, w range), `uLightPosSpot` (xyz position, w spot scale), `uLightSpotBias` (x is the cone bias). Kind is 0 directional, 1 point, 2 spot. The cone is `saturate(dot(-L, direction) * scale + bias)`, 1 at the inner angle and 0 at the outer. An inner angle that is not smaller than the outer angle is a hard edge at the outer angle. Point and spot attenuation is `saturate(1 - (d/range)^2)^2 / (d^2 + 1)`.
 
-Unlit shaders ignore all of it, so lights never change a 2D game.
+Unlit shaders do not declare the list, so a sprite on `material_unlit` is unchanged. `material_sprite_lit` (`shader_sprite_lit`) reads the same list with Lambert off, so a light in the sprite's plane still shades it. A normal map on slot 1 turns Lambert on for that sprite. Tilemaps, card particles, and UI are not lit. Mesh particles use the material shader, so `shader_lit` lights them.
 
 ## Lit shader
 
-`builtin::shader_lit` (`builtin_assets/shaders/lit.shader`, GLSL 330 core in CDATA, rewritten to 300 es by `adapt_glsl` like every shader) is Lambert diffuse plus ambient in world space:
+`builtin::shader_lit` (`builtin_assets/shaders/lit.shader`, GLSL 330 core in CDATA, rewritten to 300 es by `adapt_glsl` like every shader) shades with `forward_shade` from `builtin_assets/shaders/.forward_light.glsl` (and the slang twin). `parse_shader` pastes that file when the stage says `#include ".forward_light.glsl"`, from the shader's own directory. The leading dot keeps the snippet out of the asset scan. `lit_array` and `skin_lit` include it too. `sprite_lit` includes it and passes Lambert off unless `uHasNormalMap` is set.
 
 ```
-albedo = texture(uTexture, vUV) * uColor * vColor        // vColor: vertex color, location 3
-if (albedo.a < uAlphaCutoff) discard                      // cutout
-light  = uAmbient + sum over i < uLightCount of uLightColors[i] * max(dot(N, -uLightDirections[i]), 0)
-color  = albedo.rgb * light
+albedo = texture(uTexture, vUV) * uColor * vColor
+if (albedo.a < uAlphaCutoff) discard
+N      = normalize(vNormal), perturbed by uNormal when uHasNormalMap != 0
+color  = forward_shade(albedo.rgb, N, vWorldPos, lambert)
 if (uFogEnabled != 0) color = mix(uFogColor, color, fog factor of length(vViewPos))
 FragColor = vec4(color, albedo.a)
 ```
 
-`N` is `normalize(uNormalMatrix * aNormal)` (vertex location 2). The loop runs to the constant `kMaxDirectionalLights` (a `#define` of 4 in the shader, the same number as the C++ constant) and breaks at `uLightCount`, which GLSL ES 3.00 accepts. There is no specular term, so `uCameraPosition` is set but this shader does not read it. `vViewPos` is the view-space position (`uView * uModel * position`), so the fog distance needs no uniform in the fragment stage that the vertex stage also declares.
+`forward_shade` adds ambient, then each light. A directional has no falloff. A point and a spot use the windowed falloff above. A spot also multiplies by its cone. Lambert is `max(dot(N, L), 0)` when the caller asks for it, and 1 when it does not. `uGloss` above 0 adds a Blinn-Phong term on the Lambert path; 0 adds none. `vWorldPos` is `uModel * position` (skinned first when the shader skins). `vViewPos` stays the view-space position, so fog needs no uniform in both stages.
 
 `builtin::shader_lit_array` and `builtin::shader_unlit_array` are the same two shaders sampling a texture array at `MeshVertex::layer` ([Texture arrays](#texture-arrays)).
 
@@ -230,9 +236,11 @@ Uniforms the backend sets for each mesh draw (the view and light ones also for e
 | `uNormalMatrix` | `mat3` | `transpose(inverse(mat3(model)))`, computed on the CPU only when the program has the uniform; identity when the 3x3 is singular (a zero scale) |
 | `uView`, `uProjection` | `mat4` | current `CmdSetView` |
 | `uCameraPosition` | `vec3` | current `CmdSetView::camera_position` |
-| `uLightCount` | `int` | `lights.directional_count` |
-| `uLightDirections[4]`, `uLightColors[4]` | `vec3` arrays | `lights.directions`, `lights.colors` (always all four elements) |
+| `uLightCount` | `int` | `lights.count` |
+| `uLightColorKind[16]`, `uLightDirRange[16]`, `uLightPosSpot[16]`, `uLightSpotBias[16]` | `vec4` arrays | `pack_forward_lights` (always all 16 elements) |
 | `uAmbient` | `vec3` | `lights.ambient` |
+| `uGloss` | `float` | `IMaterial::gloss()`, 0 when the material does not override it |
+| `uHasNormalMap`, `uNormal` | `int`, `sampler2D` | 1 and slot 1 when the material has a normal map, else 0 and a white texture |
 | `uAlphaCutoff` | `float` | `material->render_state().alpha_cutoff`, 0 when unset (mesh draws only) |
 | `uFogEnabled` | `int` | 1 when `CmdSetView::fog` is set, else 0 |
 | `uFogColor`, `uFogRange` | `vec3`, `vec2` | `fog->color` and `(fog->start, fog->end)`; white and (0, 100) without fog |
@@ -293,23 +301,29 @@ Builtin shaders: `shader_post_grade` (`…abc10`) multiplies rgb by `uParams.rgb
 
 `SpriteAnimator` plays a `SpriteAnimationClip` and writes the current frame onto a sibling `Sprite` (`run_sprite_animations`, frame `delta_time`) through `Sprite::apply_frame`; `Sprite::from_frame` builds a sprite from a frame, and `set_param` / `clear_overrides` on `Sprite` and `Renderable` manage the per-instance `MaterialOverride` (see [Materials and Sort](../features/Materials%20and%20Sort.md)). Clips load from `importer = "animation"` TOML (`fps`, `loop`, frame list).
 
-`ParticleEmitter` simulates in `run_particles` with frame `delta_time`. `run_render` pushes one `CmdDrawParticles` when `particles` is not empty. An empty list pushes nothing and does not report. When the list is not empty, a mesh or material that is still null is fatal and that entity is skipped.
+`ParticleDraw` on `ParticleEmitter` is `Plane` (default), `Billboard`, `Stretched`, or `Mesh`. `Plane` expands the quad in world XY. `Billboard` faces the camera. `Stretched` faces the camera and points local +Y along the in-plane part of velocity, using `Billboard` when that part is near zero (`particle_card_offset`). `Mesh` instances `emitter.mesh` in one draw (`uModel` identity, `uInstanced` 1) through the material shader. `mesh_scale` (`vec3`, default 1) is multiplied by `size_curve` when that curve has keys, and left unchanged when it does not. `size` and `size_curve_xy` do not scale a mesh. `texture_layer` (default 0) is copied onto the particle at spawn; array shaders sample it and a `sampler2D` ignores it. Orientation is identity. Depth test, depth write, and cull stay off for `Plane`. `Billboard` and `Stretched` use the material's depth test, depth write, and cull, and depth-sort when that material depth-tests: a transparent batch sorts its instances back to front and keys from its farthest particle. An opaque depth-writing card joins the opaque queue and keeps spawn order. `Mesh` is depth-tested the same way (`depth_tested` true): a transparent depth-tested batch sorts `mesh_instances`, and an opaque depth-writing batch keeps spawn order. The mesh path applies the material `RenderState` in full, including `alpha_cutoff`. A shader that does not declare `uInstanced` and instance locations 7, 8, and 9 skips that emitter and is logged once per process. A null shader still collects. The texture material `run_render` builds stays depth-off. 3D collision is in. Emitter culling is in (wind-332). `collect_world_draws` skips an emitter no bound window's frustum hits, after the empty-list, missing-mesh, and missing-instance-input skips, so `run_render` and `render_world_viewport` share one site. The box is the union of the live particles at the world position the command writes. `Plane` grows by half `|size|` on XY and 0 on Z (a rotated quad can stick out). `Billboard` and `Stretched` use a radius of half the longer side on every axis, which does not cover the corner. `Mesh` is `transform_aabb` of `IMesh::bounds()` under `translate(position) * scale(mesh_scale * size factor)`, so an off-center box and a negative scale are included. `frustum_cull` defaults to true and is not serialized. False always draws. An empty frustum span does not cull. Today `ParticleEmitter` simulates in `run_particles` with frame `delta_time`. `run_render` pushes one `CmdDrawParticles` when `particles` is not empty and the box is in view. An empty list pushes nothing and does not report. When the list is not empty, a mesh or material that is still null is fatal whether or not the emitter is on screen, and that entity is skipped.
 
-Shapes are point, box, circle, and cone. Space is world or local. Playback is `play`, `pause`, `stop`, and `burst` (`include/engine/render/particles.h`).
+Shapes are point, box, circle, cone, sphere, and disc. Sphere is uniform in the ellipsoid of `shape_scale` (semi-axes, the volume, not the surface). Disc is circle's ellipse (`shape_scale.x` and `shape_scale.y`) in the plane of `direction`, and `(0, 1, 0)` when that vector is near zero; `shape_scale.z` is unused. Circle still writes `z = 0`. Space is world or local. Playback is `play`, `pause`, `stop`, and `burst` (`include/engine/render/particles.h`).
 
 Mesh and material, in `run_render`:
 
-- `mesh`, or `builtin::mesh_quad` when `mesh` is null and that asset loads.
+- `mesh`, or `builtin::mesh_quad` when a card's `mesh` is null and that asset loads. `Mesh` does not use that fallback: a null `emitter.mesh` is the missing-mesh fatal, and the backend draws nothing.
 - An explicit `material` is used as-is. `CmdDrawParticles.blend` becomes that material's blend.
 - A null `material` with a texture reuses the `ctx<SpriteMaterialCache>` entry for that texture pointer (the same cache sprites use), or, when `builtin::shader_unlit` loaded, builds `Material(builtin::shader_unlit, texture, white, {.blend = emitter.blend})` and stores it.
 - A null `material` and a null texture use `builtin::material_unlit` when it loads.
 - In both null-material cases `CmdDrawParticles.blend` stays `emitter.blend` (default `Alpha`). The OpenGL backend applies `cmd.blend` for particles (`src/render/opengl/opengl_backend.cpp`).
 
-When `collision_enabled` is set, `run_particles` copies non-trigger colliders into `ParticleCollider2D`s:
+When `collision_enabled` is set, `run_particles` copies non-trigger colliders into `ParticleCollider2D`s and `ParticleCollider3D`s:
 
-- `BoxCollider2D` becomes `Shape::Box`, with `box.size`, axis-aligned. Box yaw is not copied.
+- `BoxCollider2D` becomes `Shape::Box`, with `box.size`, axis-aligned. Box yaw is not copied. The test uses X and Y only, so the wall is infinite in Z.
 - `CircleCollider2D` becomes `Shape::Circle`, with `circle.radius`.
 - `PolygonCollider2D` is not copied.
+- `BoxCollider3D` becomes `ParticleCollider3D::Shape::Box`, with `box.size` and the world quaternion from `Transform::rotation` (the parent chain, scale left out). The segment is tested in the box's local space.
+- `SphereCollider3D` becomes `Shape::Sphere`, with `sphere.radius`. Rotation is ignored.
+- `CapsuleCollider3D` becomes `Shape::Capsule`, with `radius` and `height` (the distance between the sphere centers, along local Y). The same world quaternion orients it.
+- Triggers are not copied. `Transform.scale` is not applied.
+
+`update_emitter` takes the 3D span beside the 2D span. Bounce, friction, `lifetime_loss`, and `kill_on_collision` are shared. The 2D box test is not extended to Z. Shape tests run inside the integrate job. `collision_grid` with a `ParticleGrid` context (`try_ctx`, a function pointer and a `const void*` the game owns) runs `sweep_aabb` on the caller after that job joins. The swept box is `collision_radius` around the particle (`Aabb` min/max). Radius 0 on `Mesh` uses half a cell, so the full extent is one cell. No context, or a null `is_solid`, does nothing. The predicate is built for the sweep and is not stored across frames. A job does not call it.
 
 `update_emitter` (`src/render/particles.cpp`) then tests the swept segment. These fields are on `ParticleEmitter`:
 
@@ -362,7 +376,7 @@ Pipeline state of world draws (`opengl_backend.cpp`). Each `CmdDrawMesh` sets al
 - Depth: test and write both off disables `GL_DEPTH_TEST`. Otherwise `GL_DEPTH_TEST` is on with `glDepthFunc(GL_LEQUAL)` (an equal depth passes, so a second pass over the same surface draws), or `GL_ALWAYS` when only write is on (GL writes no depth while the test is disabled). `glDepthMask` follows `depth_write`.
 - Cull: `None` disables `GL_CULL_FACE`; `Back` / `Front` enable it with `glFrontFace(GL_CCW)` and that `glCullFace`.
 - Cutout: `uAlphaCutoff` ([Cutout](#cutout)).
-- `CmdDrawParticles` uses `cmd.blend` with depth test, depth write, and culling off, whatever its material says.
+- `CmdDrawParticles` for a card uses `cmd.blend`. `Plane` forces depth test off, depth write off, and no cull. `Billboard` and `Stretched` copy `depth_test`, `depth_write`, and `cull` from the material. Card particles ignore `alpha_cutoff`. `Mesh` applies the material `RenderState` in full, including blend, depth, cull, and `alpha_cutoff`, on the mesh pipeline.
 
 After the last command `OpenGLRenderBackend::execute` disables `GL_DEPTH_TEST` and `GL_CULL_FACE` and sets `glDepthMask(GL_TRUE)`. The UI flush that follows sets its own state anyway (no depth, stencil, cull). The mask matters for the next frame: `glClear` honours it, so a false mask would keep last frame's depth. `OpenGLCanvas::render` also sets `glDepthMask(GL_TRUE)` right before its `glClear(COLOR | STENCIL | DEPTH)`. State is per context: each window's canvas runs both in its own context, so every window starts its frame with a cleared depth buffer. The default framebuffer has a 24-bit depth buffer (`SDL_GL_DEPTH_SIZE`, `window_system.cpp`).
 
@@ -443,7 +457,7 @@ Scene uniforms are written column-major unless SPIR-V reflection says the member
 
 ## Tests
 
-`tests/command_buffer_test.cpp`, `tests/lights_test.cpp` (light collection, lights and camera in `CmdSetView`), `tests/fog_test.cpp` (no fog by default, the camera's `Fog` in every view, none in `render_world_viewport`, serialization), `tests/post_process_test.cpp` (prepare, ping-pong, `frame_targets`, absent stack, viewport, bloom without HDR, missing shader, `post_stack` serialization), `tests/sort_test.cpp`, `tests/material_test.cpp`, `tests/render_system_test.cpp` (also culled renderables and sprites push no draw, pixel size and pivot, the union over windows, `frustum_cull`, particles not culled, `render_world_viewport` culling), `tests/frustum_test.cpp` (inside, outside each plane, straddling, touching, orthographic and perspective, degenerate matrices, `transform_aabb`), `tests/sprite_test.cpp`, `tests/animation_test.cpp`, `tests/tilemap_test.cpp` (chunk culling, chunk edits update the chunk's mesh), `tests/mesh_test.cpp` (`IMesh::update` validation and keep-old rule, bounds from create and update, `.mesh` vertex colors), `tests/texture_array_test.cpp` (array desc checks, mip level count, frame import, `.meta` and catalog, `AssetsDb` layers by name, array albedo in a `.mat`, codegen), `tests/vulkan_backend_test.cpp` (window builds: mesh update without a device, `RetireQueue` serials, a texture array without a device, `sampler_arrayed` reflection), `tests/particle_test.cpp`, `tests/shader_adapt_test.cpp`, `tests/opengl_texture_test.cpp` (CPU texture desc, no GL draw), `tests/ui_painter_test.cpp` (fake painter), `tests/window_icon_test.cpp`, `tests/context_objects_test.cpp` (context keys and deferred VAO deletes, no GL), `tests/gl_error_log_test.cpp`, `tests/ui_renderer_test.cpp` (UI renderer against a fake device: texture catch-up per device, draws per batch).
+`tests/command_buffer_test.cpp`, `tests/lights_test.cpp` (light collection, lights and camera in `CmdSetView`), `tests/fog_test.cpp` (no fog by default, the camera's `Fog` in every view, none in `render_world_viewport`, serialization), `tests/post_process_test.cpp` (prepare, ping-pong, `frame_targets`, absent stack, viewport, bloom without HDR, missing shader, `post_stack` serialization), `tests/sort_test.cpp`, `tests/material_test.cpp`, `tests/render_system_test.cpp` (also culled renderables and sprites push no draw, pixel size and pivot, the union over windows, `frustum_cull`, particle emitters culled including a straddle, `frustum_cull = false`, and a scaled off-center mesh, `render_world_viewport` culling), `tests/frustum_test.cpp` (inside, outside each plane, straddling, touching, orthographic and perspective, degenerate matrices, `transform_aabb`), `tests/sprite_test.cpp`, `tests/animation_test.cpp`, `tests/tilemap_test.cpp` (chunk culling, chunk edits update the chunk's mesh), `tests/mesh_test.cpp` (`IMesh::update` validation and keep-old rule, bounds from create and update, `.mesh` vertex colors), `tests/texture_array_test.cpp` (array desc checks, mip level count, frame import, `.meta` and catalog, `AssetsDb` layers by name, array albedo in a `.mat`, codegen), `tests/vulkan_backend_test.cpp` (window builds: mesh update without a device, `RetireQueue` serials, a texture array without a device, `sampler_arrayed` reflection), `tests/particle_test.cpp`, `tests/shader_adapt_test.cpp`, `tests/opengl_texture_test.cpp` (CPU texture desc, no GL draw), `tests/ui_painter_test.cpp` (fake painter), `tests/window_icon_test.cpp`, `tests/context_objects_test.cpp` (context keys and deferred VAO deletes, no GL), `tests/gl_error_log_test.cpp`, `tests/ui_renderer_test.cpp` (UI renderer against a fake device: texture catch-up per device, draws per batch).
 
 GPU pixels stay out of `engine_tests`. See [Boundaries](../architecture/Boundaries.md).
 

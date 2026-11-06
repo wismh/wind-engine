@@ -1006,7 +1006,11 @@ TEST(Assets, GetBuiltinArrayShaders) {
                      "length(vViewPos)"}) {
             EXPECT_NE(desc.fragment_src.find(name), std::string::npos) << id.hex() << " " << name;
         }
-        EXPECT_EQ(desc.fragment_src.find("sampler2D "), std::string::npos) << id.hex();
+        if (id == engine::builtin::shader_lit_array) {
+            EXPECT_NE(desc.fragment_src.find("uniform sampler2D uNormal"), std::string::npos) << id.hex();
+        } else {
+            EXPECT_EQ(desc.fragment_src.find("sampler2D "), std::string::npos) << id.hex();
+        }
 
         const auto uniform_names = [](std::string_view src) {
             std::vector<std::string> names;
@@ -1105,21 +1109,22 @@ TEST(Assets, GetBuiltinLitShader) {
     EXPECT_EQ(desc.vertex_src.rfind("#version 330 core", 0), 0u);
     EXPECT_EQ(desc.fragment_src.rfind("#version 330 core", 0), 0u);
     for (const std::string_view name : {"aNormal", "uModel", "uView", "uProjection", "uNormalMatrix",
-                 "layout(location = 3) in vec4 aColor", "vColor", "vViewPos"}) {
+                 "layout(location = 3) in vec4 aColor", "vColor", "vViewPos", "vWorldPos"}) {
         EXPECT_NE(desc.vertex_src.find(name), std::string::npos) << name;
     }
     for (const std::string_view name :
-            {"uTexture", "uColor", "uLightCount", "uLightDirections", "uLightColors", "uAmbient", "< 4", "* vColor",
-                    "uAlphaCutoff", "discard", "uFogEnabled", "uFogColor", "uFogRange", "length(vViewPos)"}) {
+            {"uTexture", "uColor", "uLightCount", "uLightColorKind[16]", "uAmbient", "forward_shade", "* vColor",
+                    "uAlphaCutoff", "discard", "uFogEnabled", "uFogColor", "uFogRange", "length(vViewPos)", "uGloss",
+                    "uHasNormalMap"}) {
         EXPECT_NE(desc.fragment_src.find(name), std::string::npos) << name;
     }
-    EXPECT_NE(desc.fragment_src.find("uLightDirections[4]"), std::string::npos)
-            << "the shader's array size must match engine::render::kMaxDirectionalLights";
+    EXPECT_NE(desc.fragment_src.find("uLightColorKind[16]"), std::string::npos)
+            << "the shader's array size must match engine::render::kMaxForwardLights";
 
     const engine::render::ShaderDesc es = engine::render::adapt_shader(desc, engine::render::ShaderTarget::Glsl300Es);
     EXPECT_EQ(es.vertex_src.rfind("#version 300 es\n", 0), 0u);
     EXPECT_EQ(es.fragment_src.rfind("#version 300 es\nprecision mediump float;\n", 0), 0u);
-    EXPECT_NE(es.fragment_src.find("uLightDirections[4]"), std::string::npos);
+    EXPECT_NE(es.fragment_src.find("uLightColorKind[16]"), std::string::npos);
 #ifdef ENGINE_WITH_SLANG
     EXPECT_FALSE(desc.vertex_spirv.empty());
     EXPECT_FALSE(desc.fragment_spirv.empty());

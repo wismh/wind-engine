@@ -132,6 +132,8 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/render/commands.h` | `CmdDrawMesh`, `CmdDrawUI`, `CmdDrawParticles`, `CmdSetView` (camera, lights, fog, post), `CmdPostProcess` | [Render](../modules/Render.md) |
 | `include/engine/render/curve.h` | `Curve<T>` with `Linear`, `Smooth`, and `Step` keys | [Render](../modules/Render.md) |
 | `include/engine/render/directional_light.h` | `DirectionalLight` component | [Render](../modules/Render.md#lights) |
+| `include/engine/render/point_light.h` | `PointLight` component | [Render](../modules/Render.md#lights) |
+| `include/engine/render/spot_light.h` | `SpotLight` component | [Render](../modules/Render.md#lights) |
 | `include/engine/render/fog.h` | `Fog` component: linear distance fog on the active camera | [Render](../modules/Render.md#fog) |
 | `include/engine/render/post_process.h` | `PostStack`, `PostChain`, ping-pong steps, scene-color format | [Render](../modules/Render.md#post-process) |
 | `include/engine/render/frustum.h` | `Frustum`, `make_frustum`, `frustum_intersects`, `visible_in_any` | [Render](../modules/Render.md#frustum-culling) |
@@ -143,7 +145,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `include/engine/render/particles.h` | `ParticleEmitter` | [Render](../modules/Render.md) |
 | `include/engine/render/primitives.h` | `make_quad`, `make_cube`, `make_plane`, `make_uv_sphere` | [Render](../modules/Render.md#primitives) |
 | `include/engine/render/renderable.h` | `Renderable` (with `frustum_cull`), `RenderableItem`, `sort_renderables` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
-| `include/engine/render/scene_lights.h` | `SceneLights`, `kMaxDirectionalLights`, default light constants | [Render](../modules/Render.md#lights) |
+| `include/engine/render/scene_lights.h` | `SceneLights`, `kMaxForwardLights`, `pack_forward_lights` | [Render](../modules/Render.md#lights) |
 | `include/engine/render/shader_adapt.h` | GLSL 330 to GLSL 300 ES (adds the `sampler2DArray` precision) | [Render](../modules/Render.md) |
 | `include/engine/render/texture_array.h` | `TextureArray` asset: array texture plus frame names, `layer(name)` | [Render](../modules/Render.md#texture-arrays) |
 | `include/engine/render/sprite.h` | `Sprite` quad fields, `frustum_cull` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
@@ -664,7 +666,7 @@ Every first-party file under `include/engine/`, `src/`, `tests/`, `tools/`, and 
 | `tests/platform_test.cpp` | Assets root and `user_data_directory` names | [Core](../modules/Core.md) |
 | `tests/process_test.cpp` | Line cutting, quoting, environment, `ProcessCall` ownership, and real `cmd.exe` children on Windows (output, exit, cancel, leftovers) | [Process](../modules/Process.md) |
 | `tests/project_test.cpp` | `wind_project.toml` and `sdk.toml` reading and their errors | [Project](../modules/Project.md) |
-| `tests/render_system_test.cpp` | `run_render` sort (queues, depth order, 2D order at different z); unset camera skips, missing components fatal; frustum culling of renderables and sprites, union over windows, `frustum_cull` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
+| `tests/render_system_test.cpp` | `run_render` sort (queues, depth order, 2D order at different z); unset camera skips, missing components fatal; frustum culling of renderables, sprites, and particle emitters, union over windows, `frustum_cull` | [Materials and Sort](../features/Materials%20and%20Sort.md) |
 | `tests/serializable_object_test.cpp` | Nested `WIND_SERIALIZABLE` world round trip and `AssetsDb` object load, mismatch, corrupt file, and `clear_object_loaders` | [Assets](../features/Assets.md) |
 | `tests/shader_adapt_test.cpp` | GLSL 300 ES rewrite, `sampler2DArray` precision | [Render](../modules/Render.md) |
 | `tests/sort_test.cpp` | `draw_sort_less` queues and keys, `sort_renderables` | [Materials and Sort](../features/Materials%20and%20Sort.md) |

@@ -42,6 +42,10 @@ private:
 class IShader {
 public:
     virtual ~IShader() = default;
+
+    // Mesh particles draw only when the vertex stage declares `uInstanced` and instance locations 7, 8, and 9.
+    // The default is false. A null shader is not asked: headless materials still collect.
+    [[nodiscard]] virtual bool declares_particle_instance_inputs() const { return false; }
 };
 
 class ITexture {

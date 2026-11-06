@@ -55,7 +55,7 @@ Done when: `engine_tests` cover validation and the keep-old-on-failure rule thro
 
 ### wind-300 feat: vertex color, cutout and fog in the lit path
 
-Status: done. `MeshVertex::color` at location 3 (`.mesh` 12-column rows), read by both builtin lit and unlit shaders; `RenderState::alpha_cutoff` (`.mat` `alpha_cutoff`) as a uniform with an always-present `discard`, opaque queue kept; linear `Fog` component on the active camera into `CmdSetView::fog`. Particles, UI, and `render_world_viewport` are not fogged. See [Render](../modules/Render.md#cutout).
+Status: done. `MeshVertex::color` at location 3 (`.mesh` 12-column rows), read by both builtin lit and unlit shaders; `RenderState::alpha_cutoff` (`.mat` `alpha_cutoff`) as a uniform with an always-present `discard`, opaque queue kept; linear `Fog` component on the active camera into `CmdSetView::fog`. Card particles, UI, and `render_world_viewport` are not fogged. Mesh particles use the mesh shader, so a game view with `Fog` fogs them. See [Render](../modules/Render.md#cutout).
 
 Problem: baked light and AO need a per-vertex color; leaves and glass need alpha-test; distance needs fog to hide the load edge.
 
@@ -98,7 +98,7 @@ Done when: input tests cover the delta axis and focus-loss release with a fake w
 
 ### wind-303 feat: frustum culling for meshes
 
-Status: done. `IMesh::bounds()` is computed in the base (`explicit IMesh(const MeshDesc&)`, refreshed by a successful `update`; `mesh_bounds`); `Aabb`, `transform_aabb` (conservative OBB to AABB) and `Frustum` (`make_frustum`, `frustum_intersects`, `visible_in_any`) are public in `<engine/render/aabb.h>` and `<engine/render/frustum.h>`, plus `camera_frustum` in `<engine/ecs/camera.h>`. `run_render` keeps a `Renderable` or `Sprite` (under its final sprite model) that any bound window's frustum sees, one shared list; `render_world_viewport` culls with its own camera; tilemap chunks use the same test and `tilemap_chunk_visible` is gone. Particles are not culled. Opt-out: `frustum_cull = false` on `Renderable` and `Sprite`, serialized. See [Render](../modules/Render.md#frustum-culling).
+Status: done. `IMesh::bounds()` is computed in the base (`explicit IMesh(const MeshDesc&)`, refreshed by a successful `update`; `mesh_bounds`); `Aabb`, `transform_aabb` (conservative OBB to AABB) and `Frustum` (`make_frustum`, `frustum_intersects`, `visible_in_any`) are public in `<engine/render/aabb.h>` and `<engine/render/frustum.h>`, plus `camera_frustum` in `<engine/ecs/camera.h>`. `run_render` keeps a `Renderable` or `Sprite` (under its final sprite model) that any bound window's frustum sees, one shared list; `render_world_viewport` culls with its own camera; tilemap chunks use the same test and `tilemap_chunk_visible` is gone. Particle emitters are culled (wind-332). Opt-out: `frustum_cull = false` on `Renderable` and `Sprite` (serialized) and on `ParticleEmitter` (not serialized). See [Render](../modules/Render.md#frustum-culling).
 
 Do:
 - `IMesh::bounds()` (local AABB, computed from the desc on create and update).
@@ -204,7 +204,7 @@ Do: a sky draw before opaque world draws (gradient or cubemap material), its col
 
 ### Later
 
-Not needed for a first playable build, already in the Scope backlog: shadows (one directional cascade), instancing (dropped items, particles of blocks), post-processing ([Post Process Plan](Post%20Process%20Plan.md)). glTF import and skinned meshes are in [Assets](../features/Assets.md#models).
+Not needed for a first playable build, already in the Scope backlog: shadows (one directional cascade), instancing of dropped items and other repeated meshes, post-processing ([Post Process Plan](Post%20Process%20Plan.md)). Particles of blocks are [Particle Plan](Particle%20Plan.md), not that instancing backlog. glTF import and skinned meshes are in [Assets](../features/Assets.md#models).
 
 ## See also
 

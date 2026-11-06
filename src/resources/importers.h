@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <expected>
+#include <filesystem>
 #include <optional>
 #include <span>
 #include <string>
@@ -15,8 +16,12 @@
 namespace engine {
 
 [[nodiscard]] std::optional<render::MeshDesc> parse_mesh(std::string_view text);
-[[nodiscard]] std::expected<render::ShaderDesc, std::string> parse_shader(std::string_view xml);
-[[nodiscard]] std::optional<render::ShaderDesc> parse_shader_xml(std::string_view xml);
+// `include_dir` is the shader file's directory. `#include "name"` inside a stage is replaced with that file.
+// The name is a single path component. A shader with no include may pass an empty directory.
+[[nodiscard]] std::expected<render::ShaderDesc, std::string> parse_shader(
+        std::string_view xml, const std::filesystem::path& include_dir = {});
+[[nodiscard]] std::optional<render::ShaderDesc> parse_shader_xml(
+        std::string_view xml, const std::filesystem::path& include_dir = {});
 
 // One layer per frame of `image` (RGBA8, top row first), in `frames` order, each frame's rows top first. Filter, wrap,
 // and mipmaps are left at their defaults for the caller. An error names why not: no frames, more than

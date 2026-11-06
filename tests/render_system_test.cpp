@@ -1277,6 +1277,80 @@ std::vector<std::shared_ptr<engine::render::IMesh>> drawn_meshes(const engine::r
     return meshes;
 }
 
+struct SceneDraw {
+    std::shared_ptr<engine::render::IMesh> mesh;
+    const engine::render::CmdDrawParticles* particles = nullptr;
+};
+
+std::vector<SceneDraw> scene_draws(const engine::render::CommandBuffer& commands) {
+    std::vector<SceneDraw> draws;
+    for (std::size_t i = 0; i < commands.size(); ++i) {
+        if (const auto* mesh = std::get_if<engine::render::CmdDrawMesh>(&commands[i])) {
+            draws.push_back(SceneDraw{.mesh = mesh->mesh});
+        } else if (const auto* particles = std::get_if<engine::render::CmdDrawParticles>(&commands[i])) {
+            draws.push_back(SceneDraw{.particles = particles});
+        }
+    }
+    return draws;
+}
+
+engine::ecs::Entity spawn_emitter(engine::ecs::World& world, std::shared_ptr<engine::render::IMaterial> material,
+        engine::render::ParticleDraw draw) {
+    const engine::ecs::Entity entity = world.create();
+    engine::render::ParticleEmitter& emitter = world.emplace<engine::render::ParticleEmitter>(entity);
+    emitter.mesh = std::make_shared<FakeMesh>();
+    emitter.material = std::move(material);
+    emitter.draw = draw;
+    emitter.emission_rate = 0.0f;
+    return entity;
+}
+
+void push_particle(engine::render::ParticleEmitter& emitter, glm::vec3 position) {
+    engine::render::Particle particle;
+    particle.position = position;
+    emitter.particles.push_back(particle);
+}
+
+class DeclaresShader final : public engine::render::IShader {
+public:
+    explicit DeclaresShader(bool declares)
+        : declares_(declares) {}
+
+    bool declares_particle_instance_inputs() const override {
+        return declares_;
+    }
+
+private:
+    bool declares_;
+};
+
+class ShaderStateMaterial final : public engine::render::IMaterial {
+public:
+    ShaderStateMaterial(std::shared_ptr<engine::render::IShader> shader, engine::render::RenderState state)
+        : shader_(std::move(shader))
+        , state_(state) {}
+
+    std::shared_ptr<engine::render::IShader> shader() const override {
+        return shader_;
+    }
+
+    std::shared_ptr<engine::render::ITexture> texture(int) const override {
+        return {};
+    }
+
+    glm::vec4 color() const override {
+        return {1.0f, 1.0f, 1.0f, 1.0f};
+    }
+
+    engine::render::RenderState render_state() const override {
+        return state_;
+    }
+
+private:
+    std::shared_ptr<engine::render::IShader> shader_;
+    engine::render::RenderState state_;
+};
+
 }
 
 // 2D regression: sprites with the same layer and order but different z keep material, then entity order, under an
@@ -1351,6 +1425,394 @@ TEST(RenderSystem, OpaqueQueueFrontToBackBeforeTransparentBackToFront) {
     EXPECT_EQ(meshes[1], cube_far);
     EXPECT_EQ(meshes[2], glass_far);
     EXPECT_EQ(meshes[3], glass_near);
+}
+
+// Camera at z = 10, identity rotation: view depth is 10 - z. Larger is farther, and back to front draws that first.
+TEST(RenderSystem, PlaneEmitterStaysUnorderedDespiteDepthMaterial) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_perspective_camera(world);
+    world.ctx<engine::Time>().delta_time = 0.0f;
+
+    const auto card = std::make_shared<StateMaterial>(engine::render::RenderState{
+            .blend = engine::render::BlendMode::Alpha,
+            .depth_test = true,
+            .depth_write = true,
+            .cull = engine::render::CullMode::Back,
+    });
+    const auto glass = std::make_shared<StateMaterial>(engine::render::RenderState{
+            .blend = engine::render::BlendMode::Alpha,
+            .depth_test = true,
+    });
+    const auto glass_far = std::make_shared<FakeMesh>();
+    const auto glass_near = std::make_shared<FakeMesh>();
+    spawn_mesh_at(world, glass_far, glass, -1.0f);
+    spawn_mesh_at(world, glass_near, glass, 6.0f);
+    engine::render::ParticleEmitter& emitter =
+            world.get<engine::render::ParticleEmitter>(spawn_emitter(world, card, engine::render::ParticleDraw::Plane));
+    push_particle(emitter, {0.0f, 0.0f, 4.0f});
+    push_particle(emitter, {0.0f, 0.0f, -4.0f});
+    push_particle(emitter, {0.0f, 0.0f, 0.0f});
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    const auto draws = scene_draws(commands);
+    ASSERT_EQ(draws.size(), 3u);
+    EXPECT_EQ(draws[0].mesh, glass_far);
+    EXPECT_EQ(draws[1].mesh, glass_near);
+    ASSERT_NE(draws[2].particles, nullptr);
+    EXPECT_EQ(draws[2].particles->draw, engine::render::ParticleDraw::Plane);
+    EXPECT_TRUE(draws[2].particles->mesh_instances.empty());
+    ASSERT_EQ(draws[2].particles->instances.size(), 3u);
+    EXPECT_EQ(draws[2].particles->instances[0].position, (glm::vec3{0.0f, 0.0f, 4.0f}));
+    EXPECT_EQ(draws[2].particles->instances[1].position, (glm::vec3{0.0f, 0.0f, -4.0f}));
+    EXPECT_EQ(draws[2].particles->instances[2].position, (glm::vec3{0.0f, 0.0f, 0.0f}));
+}
+
+TEST(RenderSystem, BillboardAndStretchedDepthTestSortsInstancesAndKey) {
+    const engine::render::RenderState state{
+            .blend = engine::render::BlendMode::Alpha,
+            .depth_test = true,
+            .cull = engine::render::CullMode::Back,
+    };
+    for (const engine::render::ParticleDraw draw :
+            {engine::render::ParticleDraw::Billboard, engine::render::ParticleDraw::Stretched}) {
+        engine::render::CommandBuffer commands;
+        engine::ecs::World world;
+        engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+        spawn_perspective_camera(world);
+        world.ctx<engine::Time>().delta_time = 0.0f;
+
+        const auto card = std::make_shared<StateMaterial>(state);
+        const auto glass = std::make_shared<StateMaterial>(engine::render::RenderState{
+                .blend = engine::render::BlendMode::Alpha,
+                .depth_test = true,
+        });
+        const auto glass_far = std::make_shared<FakeMesh>();
+        const auto glass_near = std::make_shared<FakeMesh>();
+        spawn_mesh_at(world, glass_far, glass, -1.0f);
+        spawn_mesh_at(world, glass_near, glass, 6.0f);
+        engine::render::ParticleEmitter& emitter =
+                world.get<engine::render::ParticleEmitter>(spawn_emitter(world, card, draw));
+        push_particle(emitter, {1.0f, 0.0f, -4.0f});
+        push_particle(emitter, {0.0f, 0.0f, 4.0f});
+        push_particle(emitter, {2.0f, 0.0f, -4.0f});
+
+        world.run(engine::ecs::Schedule::Frame);
+
+        const auto draws = scene_draws(commands);
+        ASSERT_EQ(draws.size(), 3u) << static_cast<int>(draw);
+        ASSERT_NE(draws[0].particles, nullptr) << static_cast<int>(draw);
+        EXPECT_EQ(draws[1].mesh, glass_far) << static_cast<int>(draw);
+        EXPECT_EQ(draws[2].mesh, glass_near) << static_cast<int>(draw);
+        const engine::render::CmdDrawParticles& cmd = *draws[0].particles;
+        EXPECT_EQ(cmd.draw, draw);
+        EXPECT_EQ(cmd.blend, engine::render::BlendMode::Alpha);
+        EXPECT_EQ(cmd.material->render_state(), state);
+        ASSERT_EQ(cmd.instances.size(), 3u);
+        EXPECT_EQ(cmd.instances[0].position, (glm::vec3{1.0f, 0.0f, -4.0f}));
+        EXPECT_EQ(cmd.instances[1].position, (glm::vec3{2.0f, 0.0f, -4.0f}));
+        EXPECT_EQ(cmd.instances[2].position, (glm::vec3{0.0f, 0.0f, 4.0f}));
+    }
+}
+
+// RenderState{} is the depth-off state run_render stores for a texture (blend only, depth and cull left off).
+TEST(RenderSystem, BillboardWithDepthOffMaterialStaysUnordered) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_perspective_camera(world);
+    world.ctx<engine::Time>().delta_time = 0.0f;
+
+    const auto card = std::make_shared<StateMaterial>(engine::render::RenderState{});
+    const auto glass = std::make_shared<StateMaterial>(engine::render::RenderState{
+            .blend = engine::render::BlendMode::Alpha,
+            .depth_test = true,
+    });
+    const auto glass_far = std::make_shared<FakeMesh>();
+    const auto glass_near = std::make_shared<FakeMesh>();
+    spawn_mesh_at(world, glass_far, glass, -1.0f);
+    spawn_mesh_at(world, glass_near, glass, 6.0f);
+    engine::render::ParticleEmitter& emitter = world.get<engine::render::ParticleEmitter>(
+            spawn_emitter(world, card, engine::render::ParticleDraw::Billboard));
+    push_particle(emitter, {0.0f, 0.0f, 4.0f});
+    push_particle(emitter, {0.0f, 0.0f, -4.0f});
+    push_particle(emitter, {0.0f, 0.0f, 0.0f});
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    const auto draws = scene_draws(commands);
+    ASSERT_EQ(draws.size(), 3u);
+    EXPECT_EQ(draws[0].mesh, glass_far);
+    EXPECT_EQ(draws[1].mesh, glass_near);
+    ASSERT_NE(draws[2].particles, nullptr);
+    ASSERT_EQ(draws[2].particles->instances.size(), 3u);
+    EXPECT_EQ(draws[2].particles->instances[0].position, (glm::vec3{0.0f, 0.0f, 4.0f}));
+    EXPECT_EQ(draws[2].particles->instances[1].position, (glm::vec3{0.0f, 0.0f, -4.0f}));
+    EXPECT_EQ(draws[2].particles->instances[2].position, (glm::vec3{0.0f, 0.0f, 0.0f}));
+}
+
+TEST(RenderSystem, OpaqueBillboardKeepsSpawnOrderAndKeysFromFarthest) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_perspective_camera(world);
+    world.ctx<engine::Time>().delta_time = 0.0f;
+
+    const auto opaque = std::make_shared<StateMaterial>(engine::render::RenderState{
+            .blend = engine::render::BlendMode::Opaque,
+            .depth_test = true,
+            .depth_write = true,
+            .cull = engine::render::CullMode::Back,
+    });
+    const auto glass = std::make_shared<StateMaterial>(engine::render::RenderState{
+            .blend = engine::render::BlendMode::Alpha,
+            .depth_test = true,
+    });
+    const auto between = std::make_shared<FakeMesh>();
+    const auto glass_mesh = std::make_shared<FakeMesh>();
+    engine::render::ParticleEmitter& far_cloud = world.get<engine::render::ParticleEmitter>(
+            spawn_emitter(world, opaque, engine::render::ParticleDraw::Billboard));
+    push_particle(far_cloud, {0.0f, 0.0f, 2.0f});
+    push_particle(far_cloud, {0.0f, 0.0f, -6.0f});
+    spawn_mesh_at(world, between, opaque, -2.0f);
+    engine::render::ParticleEmitter& near_cloud = world.get<engine::render::ParticleEmitter>(
+            spawn_emitter(world, opaque, engine::render::ParticleDraw::Billboard));
+    push_particle(near_cloud, {0.0f, 0.0f, 8.0f});
+    spawn_mesh_at(world, glass_mesh, glass, 0.0f);
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    const auto draws = scene_draws(commands);
+    ASSERT_EQ(draws.size(), 4u);
+    ASSERT_NE(draws[0].particles, nullptr);
+    EXPECT_EQ(draws[0].particles->instances[0].position, (glm::vec3{0.0f, 0.0f, 8.0f}));
+    EXPECT_EQ(draws[1].mesh, between);
+    ASSERT_NE(draws[2].particles, nullptr);
+    ASSERT_EQ(draws[2].particles->instances.size(), 2u);
+    EXPECT_EQ(draws[2].particles->instances[0].position, (glm::vec3{0.0f, 0.0f, 2.0f}));
+    EXPECT_EQ(draws[2].particles->instances[1].position, (glm::vec3{0.0f, 0.0f, -6.0f}));
+    EXPECT_EQ(draws[3].mesh, glass_mesh);
+}
+
+TEST(RenderSystem, PlaneWithOpaqueMaterialStaysTransparentAndUnordered) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_perspective_camera(world);
+    world.ctx<engine::Time>().delta_time = 0.0f;
+
+    const auto opaque = std::make_shared<StateMaterial>(engine::render::RenderState{
+            .blend = engine::render::BlendMode::Opaque,
+            .depth_test = true,
+            .depth_write = true,
+            .cull = engine::render::CullMode::Back,
+    });
+    const auto cube = std::make_shared<FakeMesh>();
+    spawn_mesh_at(world, cube, opaque, 0.0f);
+    engine::render::ParticleEmitter& emitter = world.get<engine::render::ParticleEmitter>(
+            spawn_emitter(world, opaque, engine::render::ParticleDraw::Plane));
+    push_particle(emitter, {0.0f, 0.0f, 8.0f});
+    push_particle(emitter, {0.0f, 0.0f, 6.0f});
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    const auto draws = scene_draws(commands);
+    ASSERT_EQ(draws.size(), 2u);
+    EXPECT_EQ(draws[0].mesh, cube);
+    ASSERT_NE(draws[1].particles, nullptr);
+    ASSERT_EQ(draws[1].particles->instances.size(), 2u);
+    EXPECT_EQ(draws[1].particles->instances[0].position, (glm::vec3{0.0f, 0.0f, 8.0f}));
+    EXPECT_EQ(draws[1].particles->instances[1].position, (glm::vec3{0.0f, 0.0f, 6.0f}));
+}
+
+TEST(RenderSystem, TransparentMeshSortsInstancesAndScalesFromMeshScale) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_perspective_camera(world);
+    world.ctx<engine::Time>().delta_time = 0.0f;
+
+    const auto cube = std::make_shared<StateMaterial>(engine::render::RenderState{
+            .blend = engine::render::BlendMode::Alpha,
+            .depth_test = true,
+            .cull = engine::render::CullMode::Back,
+    });
+    const auto glass = std::make_shared<StateMaterial>(engine::render::RenderState{
+            .blend = engine::render::BlendMode::Alpha,
+            .depth_test = true,
+    });
+    const auto glass_far = std::make_shared<FakeMesh>();
+    const auto glass_near = std::make_shared<FakeMesh>();
+    spawn_mesh_at(world, glass_far, glass, -1.0f);
+    spawn_mesh_at(world, glass_near, glass, 6.0f);
+    const engine::ecs::Entity entity = spawn_emitter(world, cube, engine::render::ParticleDraw::Mesh);
+    engine::render::ParticleEmitter& emitter = world.get<engine::render::ParticleEmitter>(entity);
+    const std::shared_ptr<engine::render::IMesh> mesh = emitter.mesh;
+    emitter.mesh_scale = {2.0f, 3.0f, 4.0f};
+    push_particle(emitter, {1.0f, 0.0f, -4.0f});
+    push_particle(emitter, {0.0f, 0.0f, 4.0f});
+    push_particle(emitter, {2.0f, 0.0f, -4.0f});
+    for (engine::render::Particle& particle : emitter.particles) {
+        particle.size = {0.0f, 0.0f};
+        particle.texture_layer = 2.0f;
+        particle.color = {1.0f, 0.0f, 0.0f, 0.5f};
+    }
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    const auto draws = scene_draws(commands);
+    ASSERT_EQ(draws.size(), 3u);
+    ASSERT_NE(draws[0].particles, nullptr);
+    EXPECT_EQ(draws[1].mesh, glass_far);
+    EXPECT_EQ(draws[2].mesh, glass_near);
+    const engine::render::CmdDrawParticles& cmd = *draws[0].particles;
+    EXPECT_EQ(cmd.draw, engine::render::ParticleDraw::Mesh);
+    EXPECT_TRUE(cmd.instances.empty());
+    EXPECT_EQ(cmd.mesh, mesh);
+    ASSERT_EQ(cmd.mesh_instances.size(), 3u);
+    EXPECT_EQ(cmd.mesh_instances[0].position, (glm::vec3{1.0f, 0.0f, -4.0f}));
+    EXPECT_EQ(cmd.mesh_instances[1].position, (glm::vec3{2.0f, 0.0f, -4.0f}));
+    EXPECT_EQ(cmd.mesh_instances[2].position, (glm::vec3{0.0f, 0.0f, 4.0f}));
+    for (const engine::render::MeshParticleInstance& instance : cmd.mesh_instances) {
+        EXPECT_EQ(instance.scale, (glm::vec3{2.0f, 3.0f, 4.0f}));
+        EXPECT_FLOAT_EQ(instance.layer, 2.0f);
+        EXPECT_EQ(instance.color, (glm::vec4{1.0f, 0.0f, 0.0f, 0.5f}));
+    }
+}
+
+TEST(RenderSystem, MeshSizeCurveScalesTheInstanceAndIgnoresCardSize) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_perspective_camera(world);
+    world.ctx<engine::Time>().delta_time = 0.0f;
+
+    const auto cube = std::make_shared<StateMaterial>(engine::render::RenderState{
+            .blend = engine::render::BlendMode::Opaque,
+            .depth_test = true,
+            .depth_write = true,
+    });
+    engine::render::ParticleEmitter& emitter = world.get<engine::render::ParticleEmitter>(
+            spawn_emitter(world, cube, engine::render::ParticleDraw::Mesh));
+    emitter.mesh_scale = {1.0f, 1.0f, 1.0f};
+    emitter.size_curve = engine::render::Curve<float>::linear(4.0f, 0.0f);
+    emitter.size_curve_xy = engine::render::Curve<glm::vec2>::linear({10.0f, 10.0f}, {10.0f, 10.0f});
+    push_particle(emitter, {0.0f, 0.0f, 0.0f});
+    emitter.particles[0].age = 0.5f;
+    emitter.particles[0].lifetime = 1.0f;
+    emitter.particles[0].size = {9.0f, 9.0f};
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    const auto draws = scene_draws(commands);
+    ASSERT_EQ(draws.size(), 1u);
+    ASSERT_NE(draws[0].particles, nullptr);
+    ASSERT_EQ(draws[0].particles->mesh_instances.size(), 1u);
+    EXPECT_EQ(draws[0].particles->mesh_instances[0].scale, (glm::vec3{2.0f, 2.0f, 2.0f}));
+}
+
+TEST(RenderSystem, OpaqueMeshKeepsSpawnOrderInTheOpaqueQueue) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_perspective_camera(world);
+    world.ctx<engine::Time>().delta_time = 0.0f;
+
+    const auto opaque = std::make_shared<StateMaterial>(engine::render::RenderState{
+            .blend = engine::render::BlendMode::Opaque,
+            .depth_test = true,
+            .depth_write = true,
+            .cull = engine::render::CullMode::Back,
+    });
+    const auto glass = std::make_shared<StateMaterial>(engine::render::RenderState{
+            .blend = engine::render::BlendMode::Alpha,
+            .depth_test = true,
+    });
+    const auto between = std::make_shared<FakeMesh>();
+    const auto glass_mesh = std::make_shared<FakeMesh>();
+    engine::render::ParticleEmitter& far_cloud = world.get<engine::render::ParticleEmitter>(
+            spawn_emitter(world, opaque, engine::render::ParticleDraw::Mesh));
+    push_particle(far_cloud, {0.0f, 0.0f, 2.0f});
+    push_particle(far_cloud, {0.0f, 0.0f, -6.0f});
+    spawn_mesh_at(world, between, opaque, -2.0f);
+    engine::render::ParticleEmitter& near_cloud = world.get<engine::render::ParticleEmitter>(
+            spawn_emitter(world, opaque, engine::render::ParticleDraw::Mesh));
+    push_particle(near_cloud, {0.0f, 0.0f, 8.0f});
+    spawn_mesh_at(world, glass_mesh, glass, 0.0f);
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    const auto draws = scene_draws(commands);
+    ASSERT_EQ(draws.size(), 4u);
+    ASSERT_NE(draws[0].particles, nullptr);
+    EXPECT_EQ(draws[0].particles->mesh_instances[0].position, (glm::vec3{0.0f, 0.0f, 8.0f}));
+    EXPECT_EQ(draws[1].mesh, between);
+    ASSERT_NE(draws[2].particles, nullptr);
+    ASSERT_EQ(draws[2].particles->mesh_instances.size(), 2u);
+    EXPECT_EQ(draws[2].particles->mesh_instances[0].position, (glm::vec3{0.0f, 0.0f, 2.0f}));
+    EXPECT_EQ(draws[2].particles->mesh_instances[1].position, (glm::vec3{0.0f, 0.0f, -6.0f}));
+    EXPECT_EQ(draws[3].mesh, glass_mesh);
+}
+
+TEST(RenderSystem, MeshShaderWithoutInstanceInputsIsSkipped) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_perspective_camera(world);
+    world.ctx<engine::Time>().delta_time = 0.0f;
+
+    const auto material = std::make_shared<ShaderStateMaterial>(std::make_shared<DeclaresShader>(false),
+            engine::render::RenderState{.blend = engine::render::BlendMode::Alpha, .depth_test = true});
+    engine::render::ParticleEmitter& emitter = world.get<engine::render::ParticleEmitter>(
+            spawn_emitter(world, material, engine::render::ParticleDraw::Mesh));
+    push_particle(emitter, {0.0f, 0.0f, 0.0f});
+
+    world.run(engine::ecs::Schedule::Frame);
+    world.run(engine::ecs::Schedule::Frame);
+
+    for (const SceneDraw& draw : scene_draws(commands)) {
+        EXPECT_EQ(draw.particles, nullptr);
+    }
+}
+
+TEST(RenderSystem, LocalBillboardDepthSortUsesWorldPosition) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_perspective_camera(world);
+    world.ctx<engine::Time>().delta_time = 0.0f;
+
+    const auto glass = std::make_shared<StateMaterial>(engine::render::RenderState{
+            .blend = engine::render::BlendMode::Alpha,
+            .depth_test = true,
+    });
+    const auto glass_mesh = std::make_shared<FakeMesh>();
+    spawn_mesh_at(world, glass_mesh, glass, 1.0f);
+
+    const engine::ecs::Entity entity = spawn_emitter(world, std::make_shared<StateMaterial>(engine::render::RenderState{
+            .blend = engine::render::BlendMode::Alpha,
+            .depth_test = true,
+            .cull = engine::render::CullMode::Back,
+    }), engine::render::ParticleDraw::Billboard);
+    engine::Transform transform{};
+    transform.position = {0.0f, 0.0f, 3.0f};
+    world.emplace<engine::Transform>(entity, transform);
+    engine::render::ParticleEmitter& emitter = world.get<engine::render::ParticleEmitter>(entity);
+    emitter.simulation_space = engine::render::SimulationSpace::Local;
+    push_particle(emitter, {0.0f, 0.0f, -1.0f});
+    push_particle(emitter, {0.0f, 0.0f, 2.0f});
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    const auto draws = scene_draws(commands);
+    ASSERT_EQ(draws.size(), 2u);
+    EXPECT_EQ(draws[0].mesh, glass_mesh);
+    ASSERT_NE(draws[1].particles, nullptr);
+    ASSERT_EQ(draws[1].particles->instances.size(), 2u);
+    EXPECT_EQ(draws[1].particles->instances[0].position, (glm::vec3{0.0f, 0.0f, 2.0f}));
+    EXPECT_EQ(draws[1].particles->instances[1].position, (glm::vec3{0.0f, 0.0f, 5.0f}));
 }
 
 // The backend reads depth, cull and blend from the command's material.
@@ -1662,31 +2124,122 @@ TEST(RenderSystem, OffscreenRenderableWithoutMaterialIsStillFatal) {
     EXPECT_EQ(fatal.call_count, 1);
 }
 
-TEST(RenderSystem, OffscreenParticlesAreNotCulled) {
+namespace {
+
+const engine::render::CmdDrawParticles* particle_command_at(const engine::render::CommandBuffer& commands,
+        glm::vec3 position) {
+    for (std::size_t i = 0; i < commands.size(); ++i) {
+        const auto* cmd = std::get_if<engine::render::CmdDrawParticles>(&commands[i]);
+        if (cmd == nullptr) {
+            continue;
+        }
+        for (const engine::render::ParticleInstance& instance : cmd->instances) {
+            if (instance.position == position) {
+                return cmd;
+            }
+        }
+        for (const engine::render::MeshParticleInstance& instance : cmd->mesh_instances) {
+            if (instance.position == position) {
+                return cmd;
+            }
+        }
+    }
+    return nullptr;
+}
+
+int particle_command_count(const engine::render::CommandBuffer& commands) {
+    int count = 0;
+    for (std::size_t i = 0; i < commands.size(); ++i) {
+        if (std::holds_alternative<engine::render::CmdDrawParticles>(commands[i])) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+// make_cube(1) is [-0.5, 0.5]. Shifted by -1.5 on X the local box is X [-2, -1], not centered on the origin.
+std::shared_ptr<FakeMesh> off_center_cube() {
+    engine::render::MeshDesc cube = engine::render::make_cube(1.0f);
+    for (engine::render::MeshVertex& vertex : cube.vertices) {
+        vertex.position.x -= 1.5f;
+    }
+    return std::make_shared<FakeMesh>(std::move(cube));
+}
+
+}
+
+// spawn_perspective_camera at z = 10, 60° vertical fov, 800 x 600: at z = 0, x is about ±7.698.
+TEST(RenderSystem, ParticleEmitterOutsideEveryFrustumIsDroppedAndAStraddleIsKept) {
     engine::render::CommandBuffer commands;
     engine::ecs::World world;
     engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
-    spawn_camera(world);
-    engine::render::ParticleEmitter& emitter = world.emplace<engine::render::ParticleEmitter>(world.create());
-    emitter.mesh = std::make_shared<FakeMesh>();
-    emitter.material = std::make_shared<FakeMaterial>();
-    emitter.emission_rate = 0.0f;
-    emitter.burst(2);
-    engine::render::update_emitter(emitter, 0.016f);
-    ASSERT_FALSE(emitter.particles.empty());
-    for (auto& particle : emitter.particles) {
-        particle.position = {100.0f, 0.0f, 0.0f};
-    }
-
-    // Draw without running the particle simulation, which could move or age them.
+    spawn_perspective_camera(world);
     world.ctx<engine::Time>().delta_time = 0.0f;
+    const auto material = std::make_shared<FakeMaterial>();
+
+    engine::render::ParticleEmitter& outside = world.get<engine::render::ParticleEmitter>(
+            spawn_emitter(world, material, engine::render::ParticleDraw::Plane));
+    push_particle(outside, {14.0f, 0.0f, 0.0f});
+    outside.particles.back().size = {4.0f, 1.0f};
+
+    const engine::ecs::Entity straddle_entity =
+            spawn_emitter(world, material, engine::render::ParticleDraw::Plane);
+    world.emplace<engine::Transform>(straddle_entity, engine::Transform{.position = {20.0f, 0.0f, 0.0f}});
+    engine::render::ParticleEmitter& straddle = world.get<engine::render::ParticleEmitter>(straddle_entity);
+    straddle.simulation_space = engine::render::SimulationSpace::Local;
+    push_particle(straddle, {-11.0f, 0.0f, 0.0f});
+    straddle.particles.back().size = {4.0f, 1.0f};
+
+    engine::render::ParticleEmitter& always = world.get<engine::render::ParticleEmitter>(
+            spawn_emitter(world, material, engine::render::ParticleDraw::Plane));
+    always.frustum_cull = false;
+    push_particle(always, {18.0f, 0.0f, 0.0f});
+    always.particles.back().size = {4.0f, 1.0f};
+
+    spawn_emitter(world, material, engine::render::ParticleDraw::Plane);
+
     world.run(engine::ecs::Schedule::Frame);
 
-    bool particles_drawn = false;
-    for (std::size_t i = 0; i < commands.size(); ++i) {
-        particles_drawn = particles_drawn || std::holds_alternative<engine::render::CmdDrawParticles>(commands[i]);
-    }
-    EXPECT_TRUE(particles_drawn);
+    EXPECT_EQ(particle_command_count(commands), 2);
+    EXPECT_EQ(particle_command_at(commands, {14.0f, 0.0f, 0.0f}), nullptr);
+    const engine::render::CmdDrawParticles* kept = particle_command_at(commands, {9.0f, 0.0f, 0.0f});
+    ASSERT_NE(kept, nullptr);
+    ASSERT_EQ(kept->instances.size(), 1u);
+    EXPECT_EQ(kept->instances[0].position, (glm::vec3{9.0f, 0.0f, 0.0f}));
+    EXPECT_NE(particle_command_at(commands, {18.0f, 0.0f, 0.0f}), nullptr);
+}
+
+// Camera moved to x = 20. At z = 0 the view is about x in [12.30, 27.70], so the origin is outside.
+// Local X [-2, -1] times instance scale -10 (mesh_scale.x -5 times size factor 2) is world X [10, 20].
+TEST(RenderSystem, MeshParticleScaleKeepsAnOffCenterCornerInsideTheFrustum) {
+    engine::render::CommandBuffer commands;
+    engine::ecs::World world;
+    engine::register_engine_systems(world, engine::EngineSystemDeps{.commands = &commands});
+    spawn_perspective_camera(world);
+    world.get<engine::Transform>(world.ctx<engine::ActiveCamera>().entity).position = {20.0f, 0.0f, 10.0f};
+    world.ctx<engine::Time>().delta_time = 0.0f;
+    const auto material = std::make_shared<FakeMaterial>();
+
+    const engine::ecs::Entity kept_entity = spawn_emitter(world, material, engine::render::ParticleDraw::Mesh);
+    engine::render::ParticleEmitter& kept = world.get<engine::render::ParticleEmitter>(kept_entity);
+    kept.mesh = off_center_cube();
+    kept.mesh_scale = {-5.0f, 1.0f, 1.0f};
+    kept.size_curve = engine::render::Curve<float>::constant(2.0f);
+    push_particle(kept, {0.0f, 0.0f, 0.0f});
+
+    const engine::ecs::Entity dropped_entity = spawn_emitter(world, material, engine::render::ParticleDraw::Mesh);
+    engine::render::ParticleEmitter& dropped = world.get<engine::render::ParticleEmitter>(dropped_entity);
+    dropped.mesh = off_center_cube();
+    push_particle(dropped, {0.0f, 0.0f, 0.0f});
+
+    world.run(engine::ecs::Schedule::Frame);
+
+    EXPECT_EQ(particle_command_count(commands), 1);
+    const engine::render::CmdDrawParticles* cmd = particle_command_at(commands, {0.0f, 0.0f, 0.0f});
+    ASSERT_NE(cmd, nullptr);
+    ASSERT_EQ(cmd->mesh_instances.size(), 1u);
+    EXPECT_EQ(cmd->mesh_instances[0].position, (glm::vec3{0.0f, 0.0f, 0.0f}));
+    EXPECT_EQ(cmd->mesh_instances[0].scale, (glm::vec3{-10.0f, 2.0f, 2.0f}));
 }
 
 TEST(RenderSystem, RenderWorldViewportCullsWithItsCamera) {

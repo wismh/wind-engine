@@ -57,7 +57,7 @@ A sprite's z does not change that order, and there is no Y-sort. For a top-down 
 3D materials change it ([Materials & Shaders](Materials-and-Shaders.md#2-authoring-materials-mat)):
 
 - A material with `blend = "opaque"` and depth write on is *opaque*. All opaque draws go first, whatever their layer, grouped by material and then nearest first. The depth buffer hides what is behind.
-- Everything else is *transparent* and keeps the order above, except that inside one layer and order, draws whose material has depth test on go first, farthest first, and the rest (sprites, particles) after them, on top.
+- Everything else is *transparent* and keeps the order above, except that inside one layer and order, draws whose material has depth test on go first, farthest first. That includes a `Billboard` or `Stretched` particle batch whose material depth-tests; its key is its farthest particle. `Plane` particles, and cards on a depth-off material, draw with the rest (sprites and other depth-off draws) after them, on top. An opaque depth-writing `Billboard` or `Stretched` batch joins the opaque queue and keeps spawn order.
 
 ---
 

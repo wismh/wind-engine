@@ -9,6 +9,8 @@
 #include <engine/ecs/pointer_target.h>
 #include <engine/ecs/transform.h>
 #include <engine/render/ambient_light.h>
+#include <engine/render/point_light.h>
+#include <engine/render/spot_light.h>
 #include <engine/render/animation.h>
 #include <engine/render/directional_light.h>
 #include <engine/render/fog.h>
@@ -531,6 +533,36 @@ void register_builtin_components(
             [](ComponentReader& in, render::AmbientLight& c) {
                 (void)in.field("color", c.color);
                 (void)in.field("intensity", c.intensity);
+            });
+
+    serializer.register_component<render::PointLight>(
+            "point_light",
+            [](ComponentWriter& out, const render::PointLight& c) {
+                out.field("color", c.color);
+                out.field("intensity", c.intensity);
+                out.field("range", c.range);
+            },
+            [](ComponentReader& in, render::PointLight& c) {
+                (void)in.field("color", c.color);
+                (void)in.field("intensity", c.intensity);
+                (void)in.field("range", c.range);
+            });
+
+    serializer.register_component<render::SpotLight>(
+            "spot_light",
+            [](ComponentWriter& out, const render::SpotLight& c) {
+                out.field("color", c.color);
+                out.field("intensity", c.intensity);
+                out.field("range", c.range);
+                out.field("inner_angle", c.inner_angle);
+                out.field("outer_angle", c.outer_angle);
+            },
+            [](ComponentReader& in, render::SpotLight& c) {
+                (void)in.field("color", c.color);
+                (void)in.field("intensity", c.intensity);
+                (void)in.field("range", c.range);
+                (void)in.field("inner_angle", c.inner_angle);
+                (void)in.field("outer_angle", c.outer_angle);
             });
 
     serializer.register_component<render::PostStack>(
