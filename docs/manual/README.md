@@ -2,7 +2,7 @@
 
 Welcome to the **Wind** Game Developer Manual. This documentation is written for game developers building 2D games with the Wind game engine.
 
-Wind is a high-performance 2D-first C++23 game engine tailored for production titles, with basic 3D (quaternion transforms, a perspective camera). It features a generational ECS, a declarative XML/CSS UI system with MVVM bindings, an asset cooking pipeline with compile-time identifiers, multi-window presentation, 2D physics probes, and cross-platform support across Desktop, Web (WASM/WebGL2), and Android.
+Wind is a high-performance 2D-first C++23 game engine tailored for production titles, with basic 3D (quaternion transforms, a perspective camera). It features a generational ECS, a declarative XML/CSS UI system with MVVM bindings, an asset cooking pipeline with compile-time identifiers, multi-window presentation, 2D and 3D rigid-body physics, and cross-platform support across Desktop, Web (WASM/WebGL2), and Android.
 
 ---
 
@@ -25,7 +25,7 @@ Wind is a high-performance 2D-first C++23 game engine tailored for production ti
 * [Entities & Components](ecs/Entities-and-Components.md) — Generational IDs, pools, `World`, and `View<Ts...>`.
 * [Systems & Schedules](ecs/Systems-and-Schedules.md) — `Schedule::Frame`, `Schedule::Fixed`, and execution phases.
 * [Events](ecs/Events.md) — Double-buffered event queues (`Events<T>`, `EventReader`, `EventWriter`).
-* [Physics & Collisions](ecs/Physics-and-Collisions.md) — Box and circle colliders, triggers, velocity integration, and `CollisionEvent2D` (the engine runs `run_physics_2d` itself); grid collision and block picking (`sweep_aabb`, `raycast_grid`).
+* [Physics & Collisions](ecs/Physics-and-Collisions.md) — 2D box, circle, and polygon colliders, and a separate 3D sphere, box, and capsule solver (`run_physics_2d` then `run_physics_3d`; the engine registers both); grid collision and block picking (`sweep_aabb`, `raycast_grid`).
 * [Hierarchy](ecs/Hierarchy.md) — `Parent`, `set_parent`, world matrices and positions, cascade destroy.
 
 ### 4. [Rendering & 2D Graphics](rendering/Sprites-and-Animation.md)

@@ -120,7 +120,7 @@ emitter.kill_on_collision = false; // Set true to destroy immediately on hit
 emitter.collision_radius = 0.05f;  // Particle thickness (0.0f treats as point)
 ```
 
-During simulation, the engine collects `BoxCollider2D` and `CircleCollider2D` components matching `collision_mask` and reflects particle velocities off surfaces with restitution and friction.
+During simulation, the engine copies non-trigger `BoxCollider2D` and `CircleCollider2D` components and reflects particle velocities with the emitter's `bounce` and `friction`. Those fields are not the collider's `restitution` and `friction`. Polygons are not copied, and a box is copied axis-aligned, so box yaw is ignored. A collider is skipped when `(layer & collision_mask) == 0`.
 
 ---
 

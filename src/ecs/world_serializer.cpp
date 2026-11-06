@@ -5,6 +5,7 @@
 #include <engine/ecs/hierarchy.h>
 #include <engine/ecs/model.h>
 #include <engine/ecs/physics_2d.h>
+#include <engine/ecs/physics_3d.h>
 #include <engine/ecs/pointer_target.h>
 #include <engine/ecs/transform.h>
 #include <engine/render/ambient_light.h>
@@ -19,6 +20,7 @@
 #include <engine/render/tilemap.h>
 #include <engine/resources/assets_db.h>
 
+#include <algorithm>
 #include <format>
 #include <optional>
 #include <string>
@@ -46,6 +48,48 @@ struct SerializedAssetRefs {
 
 [[nodiscard]] bool has_asset(const AssetId& id) noexcept {
     return id != AssetId{};
+}
+
+[[nodiscard]] std::string_view body_type_name(BodyType type) {
+    switch (type) {
+    case BodyType::Static:
+        return "static";
+    case BodyType::Kinematic:
+        return "kinematic";
+    case BodyType::Dynamic:
+        return "dynamic";
+    }
+    return "kinematic";
+}
+
+void read_body_type(ComponentReader& in, BodyType& type, std::string_view component) {
+    const auto it = in.table().find("type");
+    if (it == in.table().end()) {
+        return;
+    }
+    if (const std::string* s = it->second.as_string()) {
+        if (*s == "static") {
+            type = BodyType::Static;
+        } else if (*s == "kinematic") {
+            type = BodyType::Kinematic;
+        } else if (*s == "dynamic") {
+            type = BodyType::Dynamic;
+        } else {
+            in.fail(std::format("invalid {} type \"{}\"", component, *s));
+        }
+    } else if (const std::int64_t* i = it->second.as_int()) {
+        if (*i == 0) {
+            type = BodyType::Static;
+        } else if (*i == 1) {
+            type = BodyType::Kinematic;
+        } else if (*i == 2) {
+            type = BodyType::Dynamic;
+        } else {
+            in.fail(std::format("invalid {} type index", component));
+        }
+    } else {
+        in.fail("invalid field \"type\"");
+    }
 }
 
 template<typename T>
@@ -551,8 +595,24 @@ void register_builtin_components(
 
     serializer.register_component<RigidBody2D>(
             "rigid_body_2d",
-            [](ComponentWriter& out, const RigidBody2D& c) { out.field("velocity", c.velocity); },
-            [](ComponentReader& in, RigidBody2D& c) { (void)in.field("velocity", c.velocity); });
+            [](ComponentWriter& out, const RigidBody2D& c) {
+                out.field("velocity", c.velocity);
+                out.field("type", body_type_name(c.type));
+                out.field("mass", c.mass);
+                out.field("gravity_scale", c.gravity_scale);
+                out.field("angular_velocity", c.angular_velocity);
+                out.field("sleeping", c.sleeping);
+            },
+            [](ComponentReader& in, RigidBody2D& c) {
+                (void)in.field("velocity", c.velocity);
+                // Same shape as Camera.projection: a known string, a known index, or a fail. A missing key keeps
+                // the defaults (kinematic, mass 1, gravity_scale 1).
+                read_body_type(in, c.type, "rigid_body_2d");
+                (void)in.field("mass", c.mass);
+                (void)in.field("gravity_scale", c.gravity_scale);
+                (void)in.field("angular_velocity", c.angular_velocity);
+                (void)in.field("sleeping", c.sleeping);
+            });
 
     serializer.register_component<BoxCollider2D>(
             "box_collider_2d",
@@ -561,12 +621,52 @@ void register_builtin_components(
                 out.field("layer", c.layer);
                 out.field("mask", c.mask);
                 out.field("is_trigger", c.is_trigger);
+                out.field("friction", c.friction);
+                out.field("restitution", c.restitution);
             },
             [](ComponentReader& in, BoxCollider2D& c) {
                 (void)in.field("size", c.size);
                 (void)in.field("layer", c.layer);
                 (void)in.field("mask", c.mask);
                 (void)in.field("is_trigger", c.is_trigger);
+                (void)in.field("friction", c.friction);
+                (void)in.field("restitution", c.restitution);
+            });
+
+    serializer.register_component<PolygonCollider2D>(
+            "polygon_collider_2d",
+            [](ComponentWriter& out, const PolygonCollider2D& c) {
+                std::vector<glm::vec2> vertices;
+                const int count = std::min(static_cast<int>(c.count), kPolygonCollider2DCapacity);
+                vertices.reserve(static_cast<std::size_t>(count));
+                for (int i = 0; i < count; ++i) {
+                    vertices.push_back(c.vertices[i]);
+                }
+                out.field("vertices", vertices);
+                out.field("layer", c.layer);
+                out.field("mask", c.mask);
+                out.field("is_trigger", c.is_trigger);
+                out.field("friction", c.friction);
+                out.field("restitution", c.restitution);
+            },
+            [](ComponentReader& in, PolygonCollider2D& c) {
+                std::vector<glm::vec2> vertices;
+                if (!in.field("vertices", vertices)) {
+                    return;
+                }
+                if (vertices.size() > static_cast<std::size_t>(kPolygonCollider2DCapacity)) {
+                    in.fail("polygon_collider_2d has more than 8 vertices");
+                    return;
+                }
+                c.count = static_cast<std::uint8_t>(vertices.size());
+                for (std::size_t i = 0; i < vertices.size(); ++i) {
+                    c.vertices[i] = vertices[i];
+                }
+                (void)in.field("layer", c.layer);
+                (void)in.field("mask", c.mask);
+                (void)in.field("is_trigger", c.is_trigger);
+                (void)in.field("friction", c.friction);
+                (void)in.field("restitution", c.restitution);
             });
 
     serializer.register_component<CircleCollider2D>(
@@ -576,12 +676,94 @@ void register_builtin_components(
                 out.field("layer", c.layer);
                 out.field("mask", c.mask);
                 out.field("is_trigger", c.is_trigger);
+                out.field("friction", c.friction);
+                out.field("restitution", c.restitution);
             },
             [](ComponentReader& in, CircleCollider2D& c) {
                 (void)in.field("radius", c.radius);
                 (void)in.field("layer", c.layer);
                 (void)in.field("mask", c.mask);
                 (void)in.field("is_trigger", c.is_trigger);
+                (void)in.field("friction", c.friction);
+                (void)in.field("restitution", c.restitution);
+            });
+
+    serializer.register_component<RigidBody3D>(
+            "rigid_body_3d",
+            [](ComponentWriter& out, const RigidBody3D& c) {
+                out.field("velocity", c.velocity);
+                out.field("angular_velocity", c.angular_velocity);
+                out.field("type", body_type_name(c.type));
+                out.field("mass", c.mass);
+                out.field("gravity_scale", c.gravity_scale);
+                out.field("sleeping", c.sleeping);
+            },
+            [](ComponentReader& in, RigidBody3D& c) {
+                (void)in.field("velocity", c.velocity);
+                (void)in.field("angular_velocity", c.angular_velocity);
+                read_body_type(in, c.type, "rigid_body_3d");
+                (void)in.field("mass", c.mass);
+                (void)in.field("gravity_scale", c.gravity_scale);
+                (void)in.field("sleeping", c.sleeping);
+            });
+
+    serializer.register_component<BoxCollider3D>(
+            "box_collider_3d",
+            [](ComponentWriter& out, const BoxCollider3D& c) {
+                out.field("size", c.size);
+                out.field("layer", c.layer);
+                out.field("mask", c.mask);
+                out.field("is_trigger", c.is_trigger);
+                out.field("friction", c.friction);
+                out.field("restitution", c.restitution);
+            },
+            [](ComponentReader& in, BoxCollider3D& c) {
+                (void)in.field("size", c.size);
+                (void)in.field("layer", c.layer);
+                (void)in.field("mask", c.mask);
+                (void)in.field("is_trigger", c.is_trigger);
+                (void)in.field("friction", c.friction);
+                (void)in.field("restitution", c.restitution);
+            });
+
+    serializer.register_component<SphereCollider3D>(
+            "sphere_collider_3d",
+            [](ComponentWriter& out, const SphereCollider3D& c) {
+                out.field("radius", c.radius);
+                out.field("layer", c.layer);
+                out.field("mask", c.mask);
+                out.field("is_trigger", c.is_trigger);
+                out.field("friction", c.friction);
+                out.field("restitution", c.restitution);
+            },
+            [](ComponentReader& in, SphereCollider3D& c) {
+                (void)in.field("radius", c.radius);
+                (void)in.field("layer", c.layer);
+                (void)in.field("mask", c.mask);
+                (void)in.field("is_trigger", c.is_trigger);
+                (void)in.field("friction", c.friction);
+                (void)in.field("restitution", c.restitution);
+            });
+
+    serializer.register_component<CapsuleCollider3D>(
+            "capsule_collider_3d",
+            [](ComponentWriter& out, const CapsuleCollider3D& c) {
+                out.field("radius", c.radius);
+                out.field("height", c.height);
+                out.field("layer", c.layer);
+                out.field("mask", c.mask);
+                out.field("is_trigger", c.is_trigger);
+                out.field("friction", c.friction);
+                out.field("restitution", c.restitution);
+            },
+            [](ComponentReader& in, CapsuleCollider3D& c) {
+                (void)in.field("radius", c.radius);
+                (void)in.field("height", c.height);
+                (void)in.field("layer", c.layer);
+                (void)in.field("mask", c.mask);
+                (void)in.field("is_trigger", c.is_trigger);
+                (void)in.field("friction", c.friction);
+                (void)in.field("restitution", c.restitution);
             });
 
     serializer.register_component<PointerTarget>(

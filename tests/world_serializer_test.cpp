@@ -142,6 +142,9 @@ circle_collider_2d = { radius = 0.75, layer = 4, mask = 1, is_trigger = false }
     ASSERT_NE(rb, nullptr);
     EXPECT_FLOAT_EQ(rb->velocity.x, 1.5f);
     EXPECT_FLOAT_EQ(rb->velocity.y, -0.5f);
+    EXPECT_EQ(rb->type, engine::BodyType::Kinematic);
+    EXPECT_FLOAT_EQ(rb->mass, 1.f);
+    EXPECT_FLOAT_EQ(rb->gravity_scale, 1.f);
 
     const auto* box = world.try_get<engine::BoxCollider2D>(player_entity);
     ASSERT_NE(box, nullptr);
@@ -150,6 +153,8 @@ circle_collider_2d = { radius = 0.75, layer = 4, mask = 1, is_trigger = false }
     EXPECT_EQ(box->layer, 2u);
     EXPECT_EQ(box->mask, 6u);
     EXPECT_TRUE(box->is_trigger);
+    EXPECT_FLOAT_EQ(box->friction, 0.f);
+    EXPECT_FLOAT_EQ(box->restitution, 0.f);
 
     const auto* pt = world.try_get<engine::PointerTarget>(player_entity);
     ASSERT_NE(pt, nullptr);
@@ -167,6 +172,42 @@ circle_collider_2d = { radius = 0.75, layer = 4, mask = 1, is_trigger = false }
     const auto* circle = world.try_get<engine::CircleCollider2D>(shield_entity);
     ASSERT_NE(circle, nullptr);
     EXPECT_FLOAT_EQ(circle->radius, 0.75f);
+    EXPECT_FLOAT_EQ(circle->friction, 0.f);
+    EXPECT_FLOAT_EQ(circle->restitution, 0.f);
+}
+
+TEST(WorldSerializer, ColliderFrictionAndRestitutionRoundTrip) {
+    constexpr std::string_view kToml = R"(
+version = 1
+
+[[entities]]
+id = "floor"
+box_collider_2d = { size = [8.0, 2.0, 1.0], friction = 0.25, restitution = 0.5 }
+
+[[entities]]
+id = "ball"
+circle_collider_2d = { radius = 0.5, friction = 1.5, restitution = 1.0 }
+)";
+
+    engine::ecs::World world;
+    auto loaded = engine::ecs::load_world_from_toml(world, kToml);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
+
+    const engine::ecs::Entity floor = loaded->by_id.at("floor");
+    const engine::ecs::Entity ball = loaded->by_id.at("ball");
+    EXPECT_FLOAT_EQ(world.get<engine::BoxCollider2D>(floor).friction, 0.25f);
+    EXPECT_FLOAT_EQ(world.get<engine::BoxCollider2D>(floor).restitution, 0.5f);
+    EXPECT_FLOAT_EQ(world.get<engine::CircleCollider2D>(ball).friction, 1.5f);
+    EXPECT_FLOAT_EQ(world.get<engine::CircleCollider2D>(ball).restitution, 1.f);
+
+    const std::string saved = engine::ecs::save_world_to_toml(world);
+    engine::ecs::World reloaded_world;
+    auto reloaded = engine::ecs::load_world_from_toml(reloaded_world, saved);
+    ASSERT_TRUE(reloaded.has_value()) << reloaded.error().message;
+    EXPECT_FLOAT_EQ(reloaded_world.get<engine::BoxCollider2D>(reloaded->by_id.at("floor")).friction, 0.25f);
+    EXPECT_FLOAT_EQ(reloaded_world.get<engine::BoxCollider2D>(reloaded->by_id.at("floor")).restitution, 0.5f);
+    EXPECT_FLOAT_EQ(reloaded_world.get<engine::CircleCollider2D>(reloaded->by_id.at("ball")).friction, 1.5f);
+    EXPECT_FLOAT_EQ(reloaded_world.get<engine::CircleCollider2D>(reloaded->by_id.at("ball")).restitution, 1.f);
 }
 
 TEST(WorldSerializer, GameSpecificComponentRoundTripsAndPreservesCppDefaults) {
@@ -468,4 +509,92 @@ sprite = { layer = 1 }
     EXPECT_FALSE(again.get<engine::render::Sprite>(reloaded->by_id.at("grass")).frustum_cull);
     EXPECT_TRUE(again.get<engine::render::Renderable>(reloaded->by_id.at("rock")).frustum_cull);
     EXPECT_TRUE(again.get<engine::render::Sprite>(reloaded->by_id.at("rock")).frustum_cull);
+}
+
+TEST(WorldSerializer, RigidBody2DDynamicFieldsRoundTrip) {
+    constexpr std::string_view kToml = R"(
+version = 1
+
+[[entities]]
+id = "crate"
+transform = { position = [0.0, 1.0, 0.0] }
+rigid_body_2d = { velocity = [1.0, 2.0, 3.0], type = "dynamic", mass = 3.5, gravity_scale = 0.5 }
+)";
+
+    engine::ecs::World world;
+    auto loaded = engine::ecs::load_world_from_toml(world, kToml);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
+    const auto* body = world.try_get<engine::RigidBody2D>(loaded->by_id.at("crate"));
+    ASSERT_NE(body, nullptr);
+    EXPECT_EQ(body->type, engine::BodyType::Dynamic);
+    EXPECT_FLOAT_EQ(body->mass, 3.5f);
+    EXPECT_FLOAT_EQ(body->gravity_scale, 0.5f);
+    EXPECT_FLOAT_EQ(body->velocity.x, 1.0f);
+    EXPECT_FLOAT_EQ(body->velocity.y, 2.0f);
+    EXPECT_FLOAT_EQ(body->velocity.z, 3.0f);
+
+    const std::string saved = engine::ecs::save_world_to_toml(world);
+    engine::ecs::World again;
+    auto reloaded = engine::ecs::load_world_from_toml(again, saved);
+    ASSERT_TRUE(reloaded.has_value()) << reloaded.error().message;
+    const auto* round = again.try_get<engine::RigidBody2D>(reloaded->by_id.at("crate"));
+    ASSERT_NE(round, nullptr);
+    EXPECT_EQ(round->type, engine::BodyType::Dynamic);
+    EXPECT_FLOAT_EQ(round->mass, 3.5f);
+    EXPECT_FLOAT_EQ(round->gravity_scale, 0.5f);
+    EXPECT_FLOAT_EQ(round->velocity.x, 1.0f);
+    EXPECT_FLOAT_EQ(round->velocity.y, 2.0f);
+    EXPECT_FLOAT_EQ(round->velocity.z, 3.0f);
+    EXPECT_FLOAT_EQ(round->angular_velocity, 0.f);
+}
+
+TEST(WorldSerializer, RigidBodyAngularVelocityAndPolygonRoundTrip) {
+    constexpr std::string_view kToml = R"(
+version = 1
+
+[[entities]]
+id = "crate"
+transform = { position = [0.0, 1.0, 0.0] }
+rigid_body_2d = { velocity = [1.0, 2.0, 3.0], type = "dynamic", mass = 3.5, gravity_scale = 0.5, angular_velocity = 1.25 }
+polygon_collider_2d = { vertices = [[0.0, 0.0], [4.0, 0.0], [4.0, 2.0]], friction = 0.25, restitution = 0.5 }
+)";
+
+    engine::ecs::World world;
+    auto loaded = engine::ecs::load_world_from_toml(world, kToml);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
+    const auto& body = world.get<engine::RigidBody2D>(loaded->by_id.at("crate"));
+    EXPECT_FLOAT_EQ(body.angular_velocity, 1.25f);
+    const auto& polygon = world.get<engine::PolygonCollider2D>(loaded->by_id.at("crate"));
+    EXPECT_EQ(polygon.count, 3);
+    EXPECT_FLOAT_EQ(polygon.vertices[0].x, 0.f);
+    EXPECT_FLOAT_EQ(polygon.vertices[1].x, 4.f);
+    EXPECT_FLOAT_EQ(polygon.vertices[2].y, 2.f);
+    EXPECT_FLOAT_EQ(polygon.friction, 0.25f);
+    EXPECT_FLOAT_EQ(polygon.restitution, 0.5f);
+
+    const std::string saved = engine::ecs::save_world_to_toml(world);
+    engine::ecs::World again;
+    auto reloaded = engine::ecs::load_world_from_toml(again, saved);
+    ASSERT_TRUE(reloaded.has_value()) << reloaded.error().message;
+    const auto& round_body = again.get<engine::RigidBody2D>(reloaded->by_id.at("crate"));
+    const auto& round_polygon = again.get<engine::PolygonCollider2D>(reloaded->by_id.at("crate"));
+    EXPECT_FLOAT_EQ(round_body.angular_velocity, 1.25f);
+    EXPECT_EQ(round_polygon.count, 3);
+    EXPECT_FLOAT_EQ(round_polygon.vertices[2].x, 4.f);
+    EXPECT_FLOAT_EQ(round_polygon.vertices[2].y, 2.f);
+    EXPECT_FLOAT_EQ(round_polygon.friction, 0.25f);
+}
+
+TEST(WorldSerializer, RigidBody2DRejectsUnknownTypeString) {
+    engine::ecs::World world;
+    const auto res = engine::ecs::load_world_from_toml(world, R"(
+version = 1
+
+[[entities]]
+id = "crate"
+rigid_body_2d = { type = "dynamicc" }
+)");
+    ASSERT_FALSE(res.has_value());
+    EXPECT_EQ(res.error().kind, engine::ecs::WorldErrorKind::InvalidField);
+    EXPECT_NE(res.error().message.find("dynamicc"), std::string::npos);
 }
